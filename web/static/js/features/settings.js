@@ -848,11 +848,9 @@ function updateFeatureToggles() {
     updateWeeklyDigestVisibility(flags);
 }
 
-// In cloud mode the weekly-digest toggle drives a gamification-summary push, so
-// it's only meaningful when gamification is on (both-on gate, matching the bot).
-// Bot/server mode leaves the row always visible as before.
+// The weekly-digest toggle drives a gamification-summary push, so it's only
+// meaningful when gamification is on (both-on gate).
 function updateWeeklyDigestVisibility(flags) {
-    if (!window.__MEDTRACKER_CLOUD__) return;
     const row = document.querySelector('mt-setting-toggle[input-id="weekly-digest-feature-toggle"]');
     row?.classList.toggle('wg-settings-hidden', !flags.gamification);
 }

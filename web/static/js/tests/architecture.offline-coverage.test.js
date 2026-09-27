@@ -147,7 +147,15 @@ const ALLOWLIST = [
     // ---- Food split sub-files (orchestrator + mutation-only / non-API helpers) ----
     {
         file: 'food/index.js',
-        reason: 'orchestrator: day-nav + macros-toggle binding only. The section-landing reads live in log.js / products.js, which both use cachedFetch',
+        reason: 'orchestrator: day-nav + macros-toggle binding only. The section-landing reads live in log.js / products.js, which both read vault-served data through apiCall (see their entries)',
+    },
+    {
+        file: 'food/log.js',
+        reason: 'daily-log reads go through apiCall, served from the local vault by the cloud shim (web/cloud/js/apishim.js) — inherently local-first with no network read; the cachedFetch primitive only wraps raw-network fetches that 404 in cloud mode',
+    },
+    {
+        file: 'food/products.js',
+        reason: 'product search + catalogue reads go through apiCall (catalogue) and window.CloudFoodSearch (search), both served from the local vault / browser-direct AI — inherently local-first with no raw-network read; the cachedFetch primitive only wraps raw-network fetches that 404 in cloud mode',
     },
     {
         file: 'food/db.js',

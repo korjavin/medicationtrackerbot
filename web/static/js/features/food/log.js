@@ -3,7 +3,7 @@
 // ====================================
 //
 // Owns the daily food log + the macros card + the food-targets state:
-//   - GET /api/food/log (via cachedFetch) + /api/food/stats
+//   - GET /api/food/log + /api/food/stats (via apiCall, vault-served)
 //   - the .wg-food-meal-group / .wg-food-item-row renderers
 //   - the food-modal lifecycle (open / edit / save / delete)
 //   - the per-100g recompute + computeFoodTotals helper
@@ -79,9 +79,8 @@
     });
 })();
 
-// Threshold past which the food daily-log cache is considered stale. Shared
-// by the cachedFetch call (so the helper's isStale flag aligns) and the badge
-// renderer (so the warning tone fires at the same age).
+// Threshold past which the food daily-log cache is considered stale. Read
+// by the badge renderer so the warning tone fires at this age.
 const FOOD_LOGS_STALE_AFTER_MS = 24 * 60 * 60 * 1000;
 
 const FOOD_MACROS_RANGES = ['day', 'week'];
@@ -559,10 +558,10 @@ function recomputeFoodGroupTotals(group) {
 // food modal swaps the body into "describe your meal" mode: macros / weight /
 // barcode / per-100g / calories fields are CSS-hidden via the
 // `wg-food-modal--ai-mode` class on the modal root, the food-name label
-// reads "Describe your meal", and Save POSTs to /api/food/log/from-description
-// instead of /api/food/log. The shared autocomplete handler short-circuits
-// when the modal is in AI mode so a long meal description doesn't hit
-// /api/food/products/search.
+// reads "Describe your meal", and Save parses via the browser-direct AI
+// path (window.CloudFoodAI) instead of /api/food/log. The shared
+// autocomplete handler short-circuits when the modal is in AI mode so a
+// long meal description doesn't hit the product search.
 function setFoodParseAIMode(on) {
     const modal = document.getElementById('food-modal');
     const checkbox = document.getElementById('food-parse-ai');
@@ -642,10 +641,6 @@ async function saveFoodLogFromDescription() {
     }
 
     const eatenAt = new Date(dateStr);
-    const payload = {
-        description,
-        eaten_at: eatenAt.toISOString(),
-    };
 
     const btn = document.getElementById('food-modal-save-btn');
     await withSubmit(btn, async () => {
@@ -663,62 +658,26 @@ async function saveFoodLogFromDescription() {
         }
 
         let items, failed;
-        if (window.__MEDTRACKER_CLOUD__) {
-            // Cloud mode: the description never leaves the device via /api —
-            // it goes straight from the browser to the user's own AI provider
-            // (web/domain/foodai.js + web/cloud/js/aiclient.js).
-            // Trial path may refuse with trial_consent_required; the
-            // TrialConsent seam shows the disclosure dialog and reruns the
-            // parse once on Allow (bd med-yor.2 Task 4).
-            const parseDescription = () => window.CloudFoodAI.parseMealFromDescription(description, { eatenAt });
-            let result;
-            try {
-                result = (window.TrialConsent && typeof window.TrialConsent.retryAfterConsent === 'function')
-                    ? await window.TrialConsent.retryAfterConsent(parseDescription)
-                    : await parseDescription();
-            } catch (e) {
-                if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
-                console.error('Food AI parse failed:', e);
-                safeToast('Failed to parse meal: ' + (e && e.message ? e.message : e), 'error');
-                return;
-            }
-            items = Array.isArray(result.items) ? result.items : [];
-            failed = Math.max(0, Math.trunc(Number(result.failed) || 0));
-        } else {
-            let res;
-            try {
-                res = await fetch('/api/food/log/from-description', {
-                    method: 'POST',
-                    headers: window.makeWriteHeaders({ 'Content-Type': 'application/json' }),
-                    body: JSON.stringify(payload),
-                });
-            } catch (e) {
-                if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
-                console.error('Food AI parse network error:', e);
-                safeToast('Failed to parse meal: ' + (e && e.message ? e.message : e), 'error');
-                return;
-            }
-
-            if (!res.ok) {
-                if (res.status === 429 && window.DemoBanner && typeof window.DemoBanner.tryHandleResponse === 'function') {
-                    const demoParsed = await window.DemoBanner.tryHandleResponse(res);
-                    if (demoParsed) {
-                        if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
-                        return;
-                    }
-                }
-                let msg = `HTTP ${res.status}`;
-                try { msg = (await res.text()) || msg; } catch (_) { /* keep status fallback */ }
-                if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
-                safeToast('Failed to parse meal: ' + msg, 'error');
-                return;
-            }
-
-            let data = null;
-            try { data = await res.json(); } catch (_) { data = null; }
-            items = (data && Array.isArray(data.items)) ? data.items : [];
-            failed = Math.max(0, Math.trunc(Number(data && data.failed) || 0));
+        // The description never leaves the device via /api — it goes
+        // straight from the browser to the user's own AI provider
+        // (web/domain/foodai.js + web/cloud/js/aiclient.js).
+        // Trial path may refuse with trial_consent_required; the
+        // TrialConsent seam shows the disclosure dialog and reruns the
+        // parse once on Allow (bd med-yor.2 Task 4).
+        const parseDescription = () => window.CloudFoodAI.parseMealFromDescription(description, { eatenAt });
+        let result;
+        try {
+            result = (window.TrialConsent && typeof window.TrialConsent.retryAfterConsent === 'function')
+                ? await window.TrialConsent.retryAfterConsent(parseDescription)
+                : await parseDescription();
+        } catch (e) {
+            if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
+            console.error('Food AI parse failed:', e);
+            safeToast('Failed to parse meal: ' + (e && e.message ? e.message : e), 'error');
+            return;
         }
+        items = Array.isArray(result.items) ? result.items : [];
+        failed = Math.max(0, Math.trunc(Number(result.failed) || 0));
 
         // Refresh the timing-window stamp now that the response has landed —
         // the pre-fetch stamp may have aged past SELF_ECHO_WINDOW_MS during a
@@ -791,11 +750,8 @@ async function loadFoodLogs() {
 
     // Show cached data immediately (stale-while-revalidate). Cache key
     // mirrors the always-fetch-both shape; the macros toggle reads from
-    // the same cache without invalidating it. The newer cachedFetch path
-    // populates `food_<date>_day` (matching the bootstrap apply path) so
-    // offline reloads survive even when this v2 cache is empty.
+    // the same cache without invalidating it.
     const cacheKey = `food_${dateStr}_v2`;
-    const dayFoodCacheKey = window.CacheKeys.dayFoodKey(dateStr);
     const cached = await window.DataStore.getCached(cacheKey);
     if (cached) {
         _renderFoodData(cached.groups, cached.weekStats, window.FoodLog.macrosRange, dateStr);
@@ -815,33 +771,12 @@ async function loadFoodLogs() {
     try {
         let groups = [];
         let groupsMeta = null;
-        // cachedFetch routes through apiCallDirect (raw network), bypassing the
-        // cloud shim installed on offlineAwareApiCall — in cloud mode that hits
-        // a nonexistent /api/food/log on the account subdomain (404). Fall
-        // through to apiCall, which the shim serves from the local vault.
-        if (typeof window.cachedFetch === 'function' && !window.__MEDTRACKER_CLOUD__) {
-            const groupsResult = await window.cachedFetch(
-                dayFoodCacheKey,
-                `/api/food/log?date=${dateStr}${tzParams}`,
-                {
-                    freshAfterMs: 60_000,
-                    staleAfterMs: FOOD_LOGS_STALE_AFTER_MS,
-                    transform: (raw) => ({ groups: Array.isArray(raw) ? raw : [] })
-                }
-            );
-            groups = (groupsResult?.data && Array.isArray(groupsResult.data.groups))
-                ? groupsResult.data.groups
-                : [];
-            groupsMeta = groupsResult ? {
-                fetchedAt: groupsResult.fetchedAt,
-                isStale: !!groupsResult.isStale,
-                isFromCache: !!groupsResult.isFromCache
-            } : null;
-        } else {
-            const raw = await apiCall(`/api/food/log?date=${dateStr}${tzParams}`, 'GET');
-            groups = Array.isArray(raw) ? raw : [];
-            groupsMeta = { fetchedAt: Date.now(), isStale: false, isFromCache: false };
-        }
+        // apiCall serves /api/food/log from the local vault via the cloud
+        // shim (cachedFetch's raw-network path 404s on the account
+        // subdomain, so the bot-mode branch was removed).
+        const raw = await apiCall(`/api/food/log?date=${dateStr}${tzParams}`, 'GET');
+        groups = Array.isArray(raw) ? raw : [];
+        groupsMeta = { fetchedAt: Date.now(), isStale: false, isFromCache: false };
 
         const weekStats = await apiCall(`/api/food/stats?date=${dateStr}&days=7${tzParams}`, 'GET');
 
@@ -856,28 +791,6 @@ async function loadFoodLogs() {
         window.FoodLog.meta = groupsMeta;
         _renderFoodData(groups || [], persistedWeekStats, window.FoodLog.macrosRange, dateStr);
     } catch (e) {
-        if (window.OfflineNoCacheError && e instanceof window.OfflineNoCacheError) {
-            if (!cached) {
-                const errP = document.createElement('p');
-                errP.className = 'error';
-                errP.textContent = 'No cached food data — connect to load.';
-                list.replaceChildren(errP);
-                window.FoodLog.meta = null;
-            } else {
-                let v2Ts = null;
-                try {
-                    if (window.MedTrackerDB?.ApiCache?.getWithMeta) {
-                        const v2Entry = await window.MedTrackerDB.ApiCache.getWithMeta(`food_${dateStr}_v2`);
-                        if (v2Entry && Number.isFinite(v2Entry.timestamp)) v2Ts = v2Entry.timestamp;
-                    }
-                } catch (_) { /* best-effort cache read */ }
-                window.FoodLog.meta = v2Ts !== null
-                    ? { fetchedAt: v2Ts, isStale: true, isFromCache: true }
-                    : null;
-            }
-            renderFoodStaleBadge();
-            return;
-        }
         console.error(e);
         if (!cached) {
             const errP = document.createElement('p');
@@ -1083,8 +996,8 @@ function _renderFoodData(groups, weekStats, range, dateStr) {
 }
 
 // Task 5 of local-first read resilience — paints the wg-stale-badge chip into
-// the #food-stale-badge slot using the freshness metadata captured by the
-// most recent cachedFetch call (window.FoodLog.meta). The slot is hidden when
+// the #food-stale-badge slot using the freshness metadata captured on the
+// most recent load (window.FoodLog.meta). The slot is hidden when
 // no metadata exists yet OR when the data was just fetched online (avoids
 // flashing a "Updated just now" chip on every keystroke-driven re-render).
 function renderFoodStaleBadge() {

@@ -17,13 +17,6 @@
 (function () {
     'use strict';
 
-    // Cloud-only. Bot mode reaches MCP through a separately deployed server
-    // (docs/archive/mcp-deployment.md), not the in-app Connectors page, and never
-    // injects the trial meta tags — so neither blurb has a destination there.
-    function _cloud() {
-        return !!window.__MEDTRACKER_CLOUD__;
-    }
-
     // Same tag Settings → Integrations (applyTrialHints) and the wizard's
     // integrations screen read, so no two surfaces can disagree about whether
     // a capability exists on this deployment. Availability is advertised as a
@@ -51,7 +44,7 @@
                 + 'it has to be open and unlocked; nothing runs on the server.',
             linkText: 'Set it up in Connectors',
             href: '/connectors',
-            available: _cloud,
+            available: function () { return true; },
         },
         {
             id: 'voice',
@@ -61,7 +54,7 @@
                 + 'operator’s account. Add your own key in Settings to keep it off theirs.',
             linkText: null,
             href: null,
-            available: function () { return _cloud() && _trial('medtracker-trial-voice'); },
+            available: function () { return _trial('medtracker-trial-voice'); },
         },
     ];
 

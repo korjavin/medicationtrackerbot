@@ -84,41 +84,18 @@ describe('Settings → Integrations section', () => {
         expect(saveBtn).not.toBeNull();
     });
 
-    it('server mode shows the "restart" note and restart wording in the save toast (med-eas.6)', async () => {
+    it('save toast confirms without restart wording (changes apply live)', async () => {
         const { window, document } = env;
-        // Default harness env is server mode (no __MEDTRACKER_CLOUD__).
-        const note = document.getElementById('integrations-restart-note');
-        expect(note).not.toBeNull();
-        expect(note.hidden).toBe(false);
-
-        const alerts = [];
-        window.safeAlert = (msg) => alerts.push(msg);
-        window.apiCall = vi.fn(async (url, method) => {
-            if (method === 'PATCH') return { ok: true };
-            if (method === 'GET') return { openai: {}, food: {}, elevenlabs: {} };
-            return null;
-        });
-        await window.SettingsIntegrations.save();
-        expect(alerts[0]).toContain('Restart the server');
-    });
-
-    it('cloud mode hides the "restart" note and drops the restart wording from the save toast (med-eas.6)', async () => {
-        const { window, document } = env;
-        window.__MEDTRACKER_CLOUD__ = true;
 
         window.apiCall = vi.fn(async (url, method) => {
             if (method === 'PATCH') return { ok: true };
             if (method === 'GET') return { openai: {}, food: {}, elevenlabs: {} };
             return null;
         });
-        // load() re-applies note visibility for the (now cloud) mode.
         await window.SettingsIntegrations.load();
 
         // Wait for dynamic imports to resolve
         await new Promise(r => setTimeout(r, 0));
-
-        const note = document.getElementById('integrations-restart-note');
-        expect(note.hidden).toBe(true);
 
         const alerts = [];
         window.safeAlert = (msg) => alerts.push(msg);
@@ -294,26 +271,6 @@ describe('Settings → Integrations section', () => {
 
         expect(loadTelegramModule).toHaveBeenCalledTimes(1);
         expect(mountTelegram).toHaveBeenCalledTimes(1);
-    });
-
-    it('non-cloud mode does not call the Telegram loader and does not mount it', async () => {
-        const { window } = env;
-        // explicitly set non-cloud mode
-        window.__MEDTRACKER_CLOUD__ = false;
-
-        const mountTelegram = vi.fn();
-        const loadTelegramModule = vi.fn(() => Promise.resolve({ mountTelegram }));
-        window.SettingsIntegrations._setTelegramLoader(loadTelegramModule);
-
-        window.apiCall = vi.fn(async () => ({}));
-
-        window.SettingsIntegrations._resetTelegramMounted();
-
-        await window.SettingsIntegrations.load();
-        await new Promise(r => setTimeout(r, 0));
-
-        expect(loadTelegramModule).not.toHaveBeenCalled();
-        expect(mountTelegram).not.toHaveBeenCalled();
     });
 
     it('hides the trial hints when no trial meta flags are injected (server mode / no trial envs)', async () => {

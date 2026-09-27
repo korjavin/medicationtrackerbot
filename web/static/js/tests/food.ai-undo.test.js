@@ -56,12 +56,9 @@ describe('undoFoodAIItems (shared food-AI undo helper)', () => {
     it('success path: deletes every item, invalidates caches, calls summary.showRemoved', async () => {
         const { window } = env;
 
-        window.fetch = vi.fn().mockResolvedValue({
-            ok: true,
-            status: 200,
-            async json() { return {}; },
-            async text() { return ''; },
-        });
+        // apiCall routes DELETE /api/food/log/:id through the shim; a truthy
+        // resolution counts as deleted.
+        window.apiCall = vi.fn().mockResolvedValue({ status: 'deleted' });
 
         const summary = {
             showRemoved: vi.fn(),
@@ -72,8 +69,8 @@ describe('undoFoodAIItems (shared food-AI undo helper)', () => {
         await flushPromises();
 
         // One DELETE per item, with the correct URLs.
-        const deleteCalls = window.fetch.mock.calls.filter(
-            ([, opts]) => opts && opts.method === 'DELETE',
+        const deleteCalls = window.apiCall.mock.calls.filter(
+            ([, method]) => method === 'DELETE',
         );
         expect(deleteCalls.length).toBe(SAMPLE_ITEMS.length);
         const urls = deleteCalls.map(([url]) => url).sort();
@@ -94,14 +91,14 @@ describe('undoFoodAIItems (shared food-AI undo helper)', () => {
         const { window } = env;
 
         let firstRound = true;
-        window.fetch = vi.fn().mockImplementation((url) => {
+        window.apiCall = vi.fn().mockImplementation((url) => {
             // First round: id 12 fails, id 11 succeeds.
             // Retry round: id 12 should now succeed; id 11 must NOT be re-issued
             // (already deleted server-side; re-deleting would 500).
             if (firstRound && url === '/api/food/log/12') {
-                return Promise.resolve({ ok: false, status: 500, async text() { return ''; }, async json() { return {}; } });
+                return Promise.resolve(null);
             }
-            return Promise.resolve({ ok: true, status: 200, async text() { return ''; }, async json() { return {}; } });
+            return Promise.resolve({ status: 'deleted' });
         });
 
         const summary = {
@@ -114,7 +111,7 @@ describe('undoFoodAIItems (shared food-AI undo helper)', () => {
 
         // Two DELETEs in the first round; partial failure surfaces showError
         // with a retry handler.
-        let deleteCalls = window.fetch.mock.calls.filter(([, opts]) => opts && opts.method === 'DELETE');
+        let deleteCalls = window.apiCall.mock.calls.filter(([, method]) => method === 'DELETE');
         expect(deleteCalls.length).toBe(2);
         expect(summary.showError).toHaveBeenCalledTimes(1);
         expect(summary.showError.mock.calls[0][0]).toMatch(/could not undo/i);
@@ -132,7 +129,7 @@ describe('undoFoodAIItems (shared food-AI undo helper)', () => {
         await retry();
         await flushPromises();
 
-        deleteCalls = window.fetch.mock.calls.filter(([, opts]) => opts && opts.method === 'DELETE');
+        deleteCalls = window.apiCall.mock.calls.filter(([, method]) => method === 'DELETE');
         expect(deleteCalls.length).toBe(3); // 2 from initial + 1 retry
         expect(deleteCalls[2][0]).toBe('/api/food/log/12');
 
@@ -145,12 +142,8 @@ describe('undoFoodAIItems (shared food-AI undo helper)', () => {
     it('all-failure: showError fires with retry callback; cache not invalidated', async () => {
         const { window } = env;
 
-        window.fetch = vi.fn().mockResolvedValue({
-            ok: false,
-            status: 500,
-            async json() { return {}; },
-            async text() { return ''; },
-        });
+        // apiCall answers failures as null (not a throw) on this route.
+        window.apiCall = vi.fn().mockResolvedValue(null);
 
         const summary = {
             showRemoved: vi.fn(),
@@ -160,7 +153,7 @@ describe('undoFoodAIItems (shared food-AI undo helper)', () => {
         await window.undoFoodAIItems(SAMPLE_ITEMS, summary);
         await flushPromises();
 
-        const deleteCalls = window.fetch.mock.calls.filter(([, opts]) => opts && opts.method === 'DELETE');
+        const deleteCalls = window.apiCall.mock.calls.filter(([, method]) => method === 'DELETE');
         expect(deleteCalls.length).toBe(SAMPLE_ITEMS.length);
 
         // Nothing was actually deleted server-side, so no cache work and no
@@ -174,16 +167,16 @@ describe('undoFoodAIItems (shared food-AI undo helper)', () => {
         expect(typeof summary.showError.mock.calls[0][1]).toBe('function');
     });
 
-    it('empty input is a no-op (no fetch, no summary callbacks)', async () => {
+    it('empty input is a no-op (no apiCall, no summary callbacks)', async () => {
         const { window } = env;
-        window.fetch = vi.fn();
+        window.apiCall = vi.fn();
 
         const summary = { showRemoved: vi.fn(), showError: vi.fn() };
 
         await window.undoFoodAIItems([], summary);
         await window.undoFoodAIItems(null, summary);
 
-        expect(window.fetch).not.toHaveBeenCalled();
+        expect(window.apiCall).not.toHaveBeenCalled();
         expect(summary.showRemoved).not.toHaveBeenCalled();
         expect(summary.showError).not.toHaveBeenCalled();
     });

@@ -18,16 +18,62 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const CORE_API_JS = path.join(REPO_ROOT, 'web/static/js/core/api.js');
-const DEMO_BANNER_JS = path.join(REPO_ROOT, 'web/static/js/core/demo-banner.js');
+
+// TEMPORARY (med-a9n5.7): core/demo-banner.js was deleted with bot-mode demo
+// support, but the api.js 429 plumbing this suite pins belongs to med-a9n5.6
+// (F3), which deletes this file. Until F3 lands, stub the two DemoBanner
+// seams apiCallDirect touches — mount() caching demo.limits and
+// showDemoLimitAlert() formatting through window.safeAlert — with the exact
+// copy the deleted module produced so every assertion below still pins the
+// api.js side of the contract.
+function installDemoBannerStub(window) {
+    let cachedLimits = null;
+    function limitCount(label) {
+        if (!cachedLimits || typeof cachedLimits !== 'object') return null;
+        switch (label) {
+            case 'agent_calls': return Number(cachedLimits.agent_calls_per_day) || null;
+            case 'food_log': return Number(cachedLimits.food_logs_per_hour) || null;
+            default: return null;
+        }
+    }
+    function limitUnitPhrase(label, count) {
+        const plural = count !== 1;
+        switch (label) {
+            case 'agent_calls': return plural ? 'voice agent calls' : 'voice agent call';
+            case 'food_log': return plural ? 'manual food logs' : 'manual food log';
+            default: return plural ? 'requests' : 'request';
+        }
+    }
+    function windowPhrase(retryAfterSeconds) {
+        const n = Number(retryAfterSeconds);
+        if (!Number.isFinite(n) || n <= 0) return 'while';
+        if (n >= 24 * 3600) return 'day';
+        if (n >= 3600) return 'hour';
+        if (n >= 60) return 'minute';
+        return 'second';
+    }
+    window.DemoBanner = {
+        mount(demo) {
+            cachedLimits = (demo && demo.limits && typeof demo.limits === 'object') ? demo.limits : null;
+            return !!(demo && demo.enabled);
+        },
+        showDemoLimitAlert(parsed) {
+            const p = parsed || {};
+            const count = limitCount(p.limit) || 1;
+            const message = `Demo restriction: only ${count} ${limitUnitPhrase(p.limit, count)} per ${windowPhrase(p.retry_after_seconds)}. Try again later.`;
+            if (typeof window.safeAlert === 'function') window.safeAlert(message);
+            else if (typeof window.alert === 'function') window.alert(message);
+            return message;
+        },
+    };
+}
 
 function loadEnv() {
     const dom = new JSDOM(
-        '<!doctype html><html><body>'
-        + '<div id="demo-banner" class="wg-demo-banner hidden" hidden></div>'
-        + '</body></html>',
+        '<!doctype html><html><body></body></html>',
         { url: 'https://example.test/', runScripts: 'outside-only', pretendToBeVisual: true }
     );
-    dom.window.eval(fs.readFileSync(DEMO_BANNER_JS, 'utf8'));
+    installDemoBannerStub(dom.window);
     dom.window.eval(fs.readFileSync(CORE_API_JS, 'utf8'));
     return { window: dom.window, cleanup: () => dom.window.close() };
 }

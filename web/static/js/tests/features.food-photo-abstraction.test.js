@@ -1,9 +1,8 @@
 // Integration tests for the Phase 2b Task 7 abstraction seam in
 // features/food/photo.js. Pins the contract that triggerFoodPhotoPicker
 // routes through window.MediaCapture.pickPhoto, and that the picked file
-// goes into the existing uploadFoodPhotoFile() pipeline (EXIF + POST
-// /api/food/log/from-photo + cache invalidation — all unchanged by the
-// refactor).
+// goes into the existing uploadFoodPhotoFile() pipeline (EXIF + CloudFoodAI
+// parse + cache invalidation — all unchanged by the refactor).
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
@@ -51,32 +50,22 @@ describe('features/food/photo.js — Phase 2b abstraction seam (Task 7)', () => 
         expect(pickPhotoSpy).toHaveBeenCalledWith({ capture: false });
     });
 
-    it('a picked file goes through the existing POST /api/food/log/from-photo pipeline', async () => {
+    it('a picked file goes through the existing CloudFoodAI parse pipeline', async () => {
         const { window } = env;
         const file = makeImageFile(env);
         window.MediaCapture = { pickPhoto: vi.fn().mockResolvedValue(file) };
 
-        const fetchSpy = vi.fn().mockResolvedValue({
-            ok: true,
-            status: 200,
-            async json() { return { items: [{ id: 99, name: 'Salad', calories: 100, carbs: 5, protein: 4, fat: 2 }] }; },
-            async text() { return ''; },
-        });
-        window.fetch = fetchSpy;
+        const parse = vi.fn(async () => ({ items: [{ id: 99, name: 'Salad', calories: 100, carbs: 5, protein: 4, fat: 2 }], failed: 0 }));
+        window.CloudFoodAI = { parseMealFromPhoto: parse };
 
         await window.triggerFoodPhotoPicker();
         await flushPromises();
 
-        // The POST hit /api/food/log/from-photo.
-        const postCalls = fetchSpy.mock.calls.filter(([url, opts]) =>
-            url === '/api/food/log/from-photo' && opts && opts.method === 'POST'
-        );
-        expect(postCalls.length).toBe(1);
-
-        const formBody = postCalls[0][1].body;
-        // FormData is opaque in jsdom; check it has the image field via .get().
-        expect(formBody.get('image')).toBeTruthy();
-        expect(formBody.get('eaten_at')).toBeTruthy();
+        // The picked file reached the AI parse with a resolved eaten_at.
+        expect(parse).toHaveBeenCalledTimes(1);
+        const [sentFile, opts] = parse.mock.calls[0];
+        expect(sentFile).toBe(file);
+        expect(opts.eatenAt).toBeInstanceOf(Date);
     });
 
     it('cancelling the picker (pickPhoto resolves null) is a no-op — no POST fires', async () => {

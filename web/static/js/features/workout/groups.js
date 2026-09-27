@@ -210,10 +210,9 @@ function _buildWorkoutGroupRow(doc, group) {
         // Via the namespace so the print-doc handoff stays stubbable in tests.
         window.WorkoutGroups.print(group);
     }));
-    // Scan-back (bd med-qj4.9) is cloud-only: it needs the browser-direct
-    // vision path (window.CloudWorkoutSheetAI) that legacy bot mode has no
-    // server endpoint for, by design. Hidden elsewhere; the row is unchanged.
-    if (window.__MEDTRACKER_CLOUD__ && window.WorkoutScan && typeof window.WorkoutScan.scan === 'function') {
+    // Scan-back (bd med-qj4.9) needs the browser-direct vision path
+    // (window.CloudWorkoutSheetAI); hidden when that seam is absent.
+    if (window.WorkoutScan && typeof window.WorkoutScan.scan === 'function') {
         actions.appendChild(_buildGroupsIconBtn(doc, 'scan', 'Scan filled sheet', 'camera', () => {
             window.WorkoutScan.scan(group);
         }));
