@@ -230,25 +230,40 @@ func (r *Repo) PutSnapshot(ctx context.Context, accountID string, snapshotSeq in
 //
 // Because an empty queue now qualifies, the predicate has to exclude accounts
 // that are not waiting on a horizon at all — otherwise every account ever
-// created is nagged, forever. Two guards, and the second is a WINDOW, not an
-// ever-happened test:
+// created is nagged, forever. The first guard is a live (non-disabled) push
+// subscription to warn THROUGH; with none there is no delivery channel anyway.
 //
-//   - a live (non-disabled) push subscription to warn THROUGH; with none there
-//     is no delivery channel anyway;
-//   - the account's most recent scheduled push, sent or not, fires no longer
-//     than dryQueueWithin BEHIND now. Reminders were live within the last
-//     window, so an exhausted horizon is news. Symmetric with the forward test,
-//     off the same knob (CLOUD_DRY_QUEUE_WARN_HOURS), and NULL — never
+// The second guard is where med-ei2 splits the predicate in two. The med-2lx
+// backward window — the account's most recent scheduled push, sent or not,
+// fires no longer than dryQueueWithin BEHIND now — was a PROXY for 'the
+// client was recently here', and it fails both ways: it nags for a few days
+// after a user switches reminders off on purpose (ReplaceSchedule deletes
+// the unsent rows but leaves the sent history, which looks exactly like a
+// horizon that rotted), and it stays silent on a real dry queue whose last
+// trace is older than the window. The exact signal is the last schedule PUT
+// itself — when it happened AND whether it was empty:
+//
+//   - last_schedule_unix IS NULL (no schedule PUT observed since the columns
+//     landed): the med-2lx window, byte-for-byte. Reminders were live within
+//     the last window, so an exhausted horizon is news; NULL — never
 //     scheduled anything — fails it.
+//   - last_schedule_unix IS NOT NULL: the PUT decides directly. A last PUT
+//     that was EMPTY is 'reminders deliberately off' — never warned,
+//     however stale the stamp (switching reminders off and then abandoning
+//     the app must not nag). A last PUT that carried entries with a stamp
+//     older than dryQueueWithin and a dry queue is 'browser stopped
+//     re-uploading', a rotted horizon — warned even outside the old window,
+//     as long as the account ever scheduled anything (one that never did is
+//     not waiting on a horizon at all). A fresh stamp is an active client
+//     that extends its horizon on the next unlock — silent either way.
 //
-// The window is what keeps this honest for a user who turned reminders off on
-// purpose: ReplaceSchedule deletes the unsent rows but leaves the sent history,
-// which looks exactly like a horizon that rotted. Nobody can tell those apart
-// from outside the vault, so the warning is bounded instead: a few daily nags
-// after the last reminder, then silence. An account that has been quiet for
-// longer than a full window is not waiting for this push.
+// For a legacy NULL account the window is what keeps this honest for a user
+// who turned reminders off on purpose: nobody can tell that apart from a
+// rotted horizon from outside the vault, so the warning is bounded instead —
+// a few daily nags after the last reminder, then silence. An account that
+// has been quiet for longer than a full window is not waiting for this push.
 //
-// ponytail: two correlated MAX() subqueries per sync_state row, and
+// ponytail: up to three correlated MAX() subqueries per sync_state row, and
 // scheduled_pushes is indexed on (sent_at_unix, fire_at_unix), not account_id —
 // so this re-scans that table per account. Fine at self-hosted scale on an
 // HOURLY sweep (accounts × a few days of queue); if the sweep ever shows up in
@@ -260,12 +275,18 @@ func (r *Repo) AccountsNeedingStaleSyncWarning(ctx context.Context, now time.Tim
 		 FROM sync_state ss
 		 WHERE COALESCE((SELECT MAX(fire_at_unix) FROM scheduled_pushes
 		                 WHERE account_id = ss.account_id AND sent_at_unix IS NULL), 0) <= ?
-		   AND (SELECT MAX(fire_at_unix) FROM scheduled_pushes WHERE account_id = ss.account_id) >= ?
 		   AND EXISTS (SELECT 1 FROM push_subscriptions WHERE account_id = ss.account_id AND disabled = 0)
-		   AND (ss.last_warned_unix IS NULL OR ss.last_warned_unix <= ?)`,
+		   AND (ss.last_warned_unix IS NULL OR ss.last_warned_unix <= ?)
+		   AND ((ss.last_schedule_unix IS NULL
+		         AND (SELECT MAX(fire_at_unix) FROM scheduled_pushes WHERE account_id = ss.account_id) >= ?)
+		        OR (ss.last_schedule_unix IS NOT NULL
+		            AND ss.last_schedule_unix <= ?
+		            AND ss.last_schedule_empty = 0
+		            AND (SELECT MAX(fire_at_unix) FROM scheduled_pushes WHERE account_id = ss.account_id) IS NOT NULL))`,
 		storedb.TimeToUnix(now.Add(dryQueueWithin)),
+		storedb.TimeToUnix(now.Add(-warnCooldown)),
 		storedb.TimeToUnix(now.Add(-dryQueueWithin)),
-		storedb.TimeToUnix(now.Add(-warnCooldown)))
+		storedb.TimeToUnix(now.Add(-dryQueueWithin)))
 	if err != nil {
 		return nil, err
 	}
