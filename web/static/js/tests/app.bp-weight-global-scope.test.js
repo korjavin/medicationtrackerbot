@@ -1,8 +1,8 @@
 /**
  * Regression test for ReferenceError: loadBPReadings / loadWeightLogs is not defined
  *
- * Root cause: features/bp.js and features/weight.js each had
- *   `const tg = window.Telegram.WebApp;`
+ * Root cause: features/bp.js and features/weight.js each captured the host
+ * SDK's app object in a top-level `const tg`.
  * In the browser, all plain <script> tags share the same global lexical environment.
  * Every `const` declaration at top-level goes into that shared environment.
  * So if app.js (or bp.js loaded first) declares `const tg`, any later script
@@ -12,7 +12,7 @@
  * are never defined and tab clicks throw ReferenceError.
  *
  * Fix:
- *  - app.js no longer declares any top-level `tg` binding; every Telegram
+ *  - app.js no longer declares any top-level `tg` binding; every host-SDK
  *    reach now goes through window.MessengerAdapter (core/messenger-adapter.js).
  *  - feature files have no top-level const tg at all.
  */

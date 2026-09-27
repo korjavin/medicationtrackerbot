@@ -3,7 +3,7 @@
 // After the two-round app.js split (2026-05-13 utilities/state machines,
 // 2026-06-10 view orchestrators), this file holds ONLY the top-level glue
 // that has no natural feature home:
-//   • Messenger bootstrap — host ready/expand.
+//   • Messenger bootstrap — adapter init.
 //   • checkAuth() / loadInitData() — the cloud auth-orchestration entry point.
 //   • switchTab() / switchHealthTab() / switchMedTab() — section lifecycle.
 //   • The deferred-refresh banner cluster (requestTabRefresh / reloadCurrentTab
@@ -28,11 +28,9 @@
 // moving them into any one feature module would make them private and break
 // the others. They are owned here until a dedicated shared-state pass.
 //
-// Bootstrap the messenger host (Telegram WebApp ready/expand, or no-op in a
-// plain browser). MessengerAdapter is set synchronously at the top of
-// core/messenger-adapter.js so this never null-checks. init() resolves once
-// the host is ready; its side-effects (ready/expand for Telegram) run
-// synchronously inside the executor so subsequent reads see the live state.
+// Bootstrap the messenger host. window.MessengerAdapter (the BrowserAdapter)
+// is set synchronously at the top of core/messenger-adapter.js so this never
+// null-checks; init() resolves immediately.
 window.MessengerAdapter.init();
 
 var initialAuthLoad = false;

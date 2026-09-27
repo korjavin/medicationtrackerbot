@@ -34,18 +34,17 @@
  * RULES:
  *   - No hardcoded hex colors outside :root — use tokens
  *   - No inline style assignments in JS — use CSS classes
- *   - Telegram theme vars (--tg-theme-*) are mirrored in :root with fallbacks
  */
 
 :root {
-    /* Telegram theme mirrors */
-    --bg-color: var(--tg-theme-bg-color, #fff);
-    --text-color: var(--tg-theme-text-color, #000);
-    --hint-color: var(--tg-theme-hint-color, #888);
-    --link-color: var(--tg-theme-link-color, #2481cc);
-    --button-color: var(--tg-theme-button-color, #2481cc);
-    --button-text-color: var(--tg-theme-button-text-color, #fff);
-    --secondary-bg-color: var(--tg-theme-secondary-bg-color, #f0f0f0);
+    /* Base surface/text palette */
+    --bg-color: #fff;
+    --text-color: #000;
+    --hint-color: #888;
+    --link-color: #2481cc;
+    --button-color: #2481cc;
+    --button-text-color: #fff;
+    --secondary-bg-color: #f0f0f0;
 
     /* Semantic colors */
     --color-success: #22c55e;

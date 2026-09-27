@@ -23,7 +23,6 @@ describe('features/food/photo.js — Phase 2b abstraction seam (Task 7)', () => 
     beforeEach(() => {
         consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         env = loadFrontendEnv();
-        env.window.userInitData = '';
         env.window.loadFoodLogs = vi.fn();
         env.window.loadToday = vi.fn();
         env.window.DataStore = env.window.DataStore || {};

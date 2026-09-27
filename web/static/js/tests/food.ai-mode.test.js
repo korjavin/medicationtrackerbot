@@ -35,7 +35,6 @@ describe('Food modal — "Parse with AI" mode (Plan 2026-05-17, Task 5)', () => 
     beforeEach(() => {
         env = loadFrontendEnv();
 
-        env.window.userInitData = '';
         env.window.safeAlert = vi.fn();
         env.window.loadFoodLogs = vi.fn();
         env.window.loadToday = vi.fn();

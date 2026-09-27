@@ -6,9 +6,8 @@
  * attribute (`onclick="…"`, `onchange='…'`, etc.) inside a string or
  * template literal.
  *
- * Why: the deployed CSP in `internal/server/server.go` ships
- * `script-src 'self' https://telegram.org blob: data:`
- * with no `'unsafe-inline'`. Under that policy, browsers parse but
+ * Why: the deployed CSP ships `script-src` with no `'unsafe-inline'`.
+ * Under that policy, browsers parse but
  * silently DROP inline event handlers — so any template that builds
  * `<button onclick="…">…</button>` is dead UI.
  *

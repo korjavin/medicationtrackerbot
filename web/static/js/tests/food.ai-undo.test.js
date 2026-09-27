@@ -32,7 +32,6 @@ describe('undoFoodAIItems (shared food-AI undo helper)', () => {
     beforeEach(() => {
         env = loadFrontendEnv();
 
-        env.window.userInitData = '';
         env.window.loadFoodLogs = vi.fn();
         env.window.loadToday = vi.fn();
         env.window.DataStore = env.window.DataStore || {};

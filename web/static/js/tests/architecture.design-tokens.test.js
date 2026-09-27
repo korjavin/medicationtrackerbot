@@ -1529,31 +1529,6 @@ describe('Architecture – design tokens', () => {
         }
     });
 
-    it('Telegram theme mirrors are preserved in :root', () => {
-        const css = fs.readFileSync(CSS_PATH, 'utf8');
-        const rootBlock = extractRootBlock(css);
-
-        const telegramTokens = [
-            '--bg-color',
-            '--text-color',
-            '--hint-color',
-            '--link-color',
-            '--button-color',
-            '--button-text-color',
-            '--secondary-bg-color',
-        ];
-
-        const defined = extractCustomProperties(rootBlock);
-        const missing = telegramTokens.filter(t => !defined.has(t));
-
-        if (missing.length > 0) {
-            throw new Error(
-                `Missing Telegram theme tokens in :root:\n\n` +
-                missing.map(t => `  • ${t}`).join('\n')
-            );
-        }
-    });
-
     it('.sync-toast layers above modal dialogs via the --z-toast token', () => {
         // med-omvw review: error toasts raised while a modal stays open must
         // stay visible — the toast sits above --z-modal, by token (rule 3).

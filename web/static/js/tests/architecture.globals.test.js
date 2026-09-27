@@ -36,7 +36,6 @@ const ALLOWED_GLOBALS = new Set([
 
 
     // App core (app.js)
-    'window.userInitData',              // core/messenger-adapter.js — refreshed on the BrowserAdapter → TelegramAdapter upgrade so makeAuthHeaders() sees the Telegram initData (null in BrowserAdapter)
     'window.onDataStoreUnauthorized',   // data-store.js — guarded re-auth callback tests provide; the app.js definition is gone with the bot login flow
     'window.requestTabRefresh',         // app.js — called by data-store.js on change event
     'window.reloadCurrentTab',          // app.js — called by data-store.js + sync.js
@@ -44,8 +43,7 @@ const ALLOWED_GLOBALS = new Set([
 
     // Core modules
     'window.apiCallDirect',             // core/api.js — low-level fetch used by data-store.js
-    'window.makeAuthHeaders',           // core/api.js — auth header construction shared by direct-fetch callers (streaming food product search, multipart food-photo upload, ElevenLabs URL fetch, BP/weight CSV exports) that cannot route through apiCallDirect
-    'window.makeWriteHeaders',          // core/api.js — makeAuthHeaders + X-Client-ID for direct-fetch *write* sites (food photo POST, food description POST, food log DELETE) so the backend's notifyOnWriteMiddleware can echo the originating clientId back via source_client_id on the SSE payload — preventing self-origin banner regressions on long-running AI flows that exceed the 5s timing-window fallback
+    'window.makeWriteHeaders',          // core/api.js — plain headers + X-Client-ID for direct-fetch *write* sites (food photo POST, food description POST, food log DELETE) so the backend's notifyOnWriteMiddleware can echo the originating clientId back via source_client_id on the SSE payload — preventing self-origin banner regressions on long-running AI flows that exceed the 5s timing-window fallback
     'window.AppKernel',                 // core/app-kernel.js — module registry
     'window.ChartUtils',               // core/chart-utils.js — shared SVG chart utilities
     'window.escapeHtml',               // core/utils.js — canonical HTML entity escaper; consumed by sync.js debug panel + app.js medication schedule renderer
@@ -53,8 +51,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.AppStore',                  // core/store.js — ephemeral UI state
     'window.CacheKeys',                 // core/cache-keys.js — centralized registry of api_cache keys, tags, and freshness windows; registerAll() is invoked at boot so tag-based invalidation works regardless of which feature loader has executed
     'window.BackupCrypto',              // core/backup-crypto.js — thin wrapper over vendored typage (age-encryption): isAgeFile/encryptBackup/decryptBackup for passphrase (scrypt) encryption of the Settings → Import/Export vault file, browser-side in both bot and cloud modes; lazily dynamic-imports /static/vendor/age.min.js on first use (C2e Task 4)
-    'window.MessengerAdapter',          // core/messenger-adapter.js — the only file allowed to reach into window.Telegram.WebApp; exposes a thin interface (init, identityToken, authHeaderName, alert, confirm, showPopup, startParam, onBack/showBack/hideBack, isPresent) selected to TelegramAdapter or BrowserAdapter at boot so the same client code can serve a Telegram Mini App or a non-Telegram browser PWA
-    'window.MessengerAdapterReady',     // core/messenger-adapter.js — Promise that resolves once loadTelegramSdk() finishes and the adapter has been (re-)picked; consumers that need the upgraded TelegramAdapter (rather than the sync BrowserAdapter default) can await this on the web build
+    'window.MessengerAdapter',          // core/messenger-adapter.js — browser-only host adapter (in-app chevron + popstate back, native dialogs, URL start param); exposes init/identityToken/authHeaderName/alert/confirm/showPopup/startParam/onBack/showBack/hideBack/isPresent/isBackButtonSupported
 
     // Features
     'window.handleDeepLinks',           // features/deeplink-router.js — called by bootstrap.js
@@ -81,7 +78,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.WGStaleBadge',              // components/wg-stale-badge.js — Wandergeek freshness badge mounted in section headers; renders "Updated Nm ago" / "Offline · Nh old" with neutral|warning tone classes for cachedFetch-driven local-first reads (Task 4 of the local-first read-resilience plan)
     'window.WGToggle',                  // components/wg-toggle.js — Wandergeek toggle primitive for the Settings screen (Phase 9); renders a pill + knob driven by a hidden <input type="checkbox"> so the existing id-based change-event wiring in app.js keeps binding unchanged
     'window.WGSettings',                // components/wg-settings.js — Wandergeek Settings-screen render helpers (Phase 9, Task 2): section() + row() + infoRow() DOM factories consumed by the Settings reskin to build sectioned cards, canonical left-title/right-control rows, and read-only timezone info rows
-    'window.AppBackButton',             // features/back-button.js — wires Telegram WebApp BackButton to section → Today navigation
+    'window.AppBackButton',             // features/back-button.js — wires the in-app back chevron to section → Today navigation
     'window.TZPlanBanner',              // features/tz-plan-banner.js — fetches GET /api/tz-plan/current and renders an actionable banner only when an active timezone-transition plan exists; bootstrap.js calls .refresh() once after auth
     'window.WGForecastCard',            // features/forecast-card.js — Gamification Phase 3 Tomorrow Forecast card on Today: fetches GET /api/gamification/forecast (cloud-only; recomputed client-side from vault bp+sleep), renders the evening in-range chance / morning resolution + the "how well do we know you" calibration meter; bootstrap.js calls .refresh() after auth, today.js .mountCard() into the rings tile per render; absent in bot mode (route 404s) and empty with the gamification feature off (shim returns {enabled:false})
     'window.Gamification',              // features/journey.js — gamification Journey screen: load() reads GET /api/gamification/journey via cachedFetch + mounts the freshness chip; render(journey) paints level/HP/streak, the rings, and the narrative layer (chapters/atlas/experiments/traits/keystones — the insight-ladder card was retired in the redesign). Gated on features.gamification (nav slot filtered before mount in bootstrap.js)

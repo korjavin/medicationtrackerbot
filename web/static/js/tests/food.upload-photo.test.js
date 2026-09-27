@@ -48,7 +48,6 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
 
         // food.js refers to these directly; stub them so the upload path
         // doesn't blow up on cache invalidation / list refresh during tests.
-        env.window.userInitData = '';
         env.window.loadFoodLogs = vi.fn();
         env.window.loadToday = vi.fn();
         env.window.DataStore = env.window.DataStore || {};
@@ -72,9 +71,6 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
         const alertSpy = vi.fn();
         window.alert = alertSpy;
         window.safeAlert = alertSpy;
-        if (window.Telegram && window.Telegram.WebApp) {
-            window.alert = alertSpy;
-        }
 
         const parse = vi.fn(async () => ({ items: SAMPLE_ITEMS, failed: 0 }));
         window.CloudFoodAI = { parseMealFromPhoto: parse };

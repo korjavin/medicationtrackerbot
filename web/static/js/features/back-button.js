@@ -7,9 +7,8 @@
 // modal-history.js drives show() when a modal opens; after a modal closes it calls
 // AppBackButton.refresh() so the button re-appears on non-Today sections.
 //
-// All BackButton interactions go through window.MessengerAdapter so the same
-// code path serves the Telegram Mini App (forwards to the Telegram SDK
-// BackButton) and the browser PWA (in-app chevron + popstate).
+// All back-button interactions go through window.MessengerAdapter
+// (in-app chevron + popstate in the browser PWA).
 //
 // Loaded after app.js and modal-history.js.  bootstrap.js calls
 // AppBackButton.setup() once, after the initial tab is activated.

@@ -112,12 +112,11 @@ describe('app.js modal history and back behavior', () => {
     }
   });
 
-  // Regression for Task 3 of the messenger-adapter plan: modal-history.js used
-  // to read window.Telegram.WebApp.BackButton directly to show/hide on overlay
-  // transitions. After migration, all back-button toggling goes through
-  // window.MessengerAdapter. Spy on the adapter to lock in that the
-  // overlay-driven show/hide chain delegates through the adapter, not the
-  // raw Telegram SDK.
+  // Regression for the messenger-adapter plan: modal-history.js used to read
+  // the host SDK's BackButton directly to show/hide on overlay transitions.
+  // All back-button toggling now goes through window.MessengerAdapter. Spy
+  // on the adapter to lock in that the overlay-driven show/hide chain
+  // delegates through the adapter.
   it('drives BackButton via window.MessengerAdapter when the overlay toggles', async () => {
     const { window, cleanup } = loadFrontendEnv();
     try {

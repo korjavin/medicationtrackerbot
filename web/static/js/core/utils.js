@@ -32,25 +32,8 @@ function safeToast(msg, type) {
 }
 
 // opts (optional): { title, confirmLabel, cancelLabel } — custom wording for
-// the in-page modal. Passing it forces the in-page path, because the
-// messenger-native popup only renders generic Cancel/Confirm buttons.
+// the in-page modal.
 function safeConfirm(msg, callback, opts) {
-    const adapter = window.MessengerAdapter;
-    // Use the messenger-native popup only when an adapter that represents a
-    // real messenger host is present AND we have an identity token — only
-    // then are messenger-side popups guaranteed to render. Otherwise the
-    // in-page modal is the better UX (browser, jsdom, mini-app pre-auth).
-    const hasMessengerPopup = !!(
-        !opts
-        && adapter
-        && typeof adapter.isPresent === 'function'
-        && adapter.isPresent()
-        && (
-            window.userInitData
-            || (typeof adapter.identityToken === 'function' && adapter.identityToken())
-        )
-    );
-
     const invokeCallback = (ok) => {
         if (typeof callback !== 'function') return ok;
         return callback(ok);
@@ -61,27 +44,13 @@ function safeConfirm(msg, callback, opts) {
             Promise.resolve(invokeCallback(ok)).then(resolve).catch(reject);
         };
 
-        if (hasMessengerPopup) {
-            try {
-                Promise.resolve(adapter.confirm(msg)).then(handleResult, () => {
-                    _mountConfirmModal(msg, handleResult, opts);
-                });
-                return;
-            } catch (e) {
-                // synchronous throw from adapter.confirm — fall through to
-                // in-page modal so the user still has a path to resolve.
-            }
-        }
-
         _mountConfirmModal(msg, handleResult, opts);
     });
 }
 
-// In-page replacement for the synchronous native confirm() dialog. The
-// messenger-native path (adapter.confirm) is preferred when available
-// because it renders non-blockingly over the host WebView; this is the
-// fallback for regular browsers and for any messenger environment where
-// the host SDK's confirm rejects.
+// In-page confirm dialog used by safeConfirm. It renders non-blockingly
+// (unlike the synchronous native confirm()) and resolves via the
+// Confirm/Cancel buttons, the backdrop click, or the Escape key.
 function _mountConfirmModal(msg, onResult, opts = {}) {
     const doc = document;
     const backdrop = doc.createElement('div');
