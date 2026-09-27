@@ -19,6 +19,8 @@ import {
 import { establishLdkCache } from './unlock.js';
 import { isIOS, isMobile, isStandalone, iosInstallStepsHtml } from './push.js';
 import { downloadDoc, printDoc } from './print-doc.js';
+import { isLocalOnlyPocEnabled } from './credential-mode.js';
+import { probePrfResult, clientPrfHint, buildDiagnosticReport, downloadDiagnosticReport } from './prf-diagnostic.js';
 
 const EXPIRED_LINK_MESSAGE = 'Could not start passkey registration — the invite link may be expired.';
 
@@ -162,7 +164,17 @@ async function startRegistration(app, claimToken) {
   });
   const prfOutput = prfAssertion.getClientExtensionResults().prf?.results?.first;
   if (!prfOutput) {
-    renderUnsupportedAuthenticator(app);
+    // The PRF default path is unchanged: an unsupported authenticator aborts
+    // before finish, exactly as before. The failed credential (never
+    // registered server-side) is passed along so the POC's diagnostic
+    // harness can re-probe it without creating a second credential.
+    let createPrfEnabled = null;
+    try {
+      createPrfEnabled = credential.getClientExtensionResults().prf?.enabled === true;
+    } catch {
+      createPrfEnabled = null;
+    }
+    renderUnsupportedAuthenticator(app, { credentialId: credential.rawId, createPrfEnabled });
     return;
   }
 
@@ -207,7 +219,13 @@ async function startRegistration(app, claimToken) {
 
 // Exported so claim.js (device-transfer enrollment) shows the identical
 // unsupported-authenticator state rather than a second copy of this copy.
-export function renderUnsupportedAuthenticator(app) {
+//
+// opts.credentialId + opts.createPrfEnabled (the failed, never-registered
+// credential) let the POC's diagnostic harness re-probe it. The default
+// rendering is byte-identical to before: the diagnostic section appears only
+// behind the explicit local-only POC opt-in, and "try another authenticator"
+// stays the first, primary guidance either way.
+export function renderUnsupportedAuthenticator(app, opts = {}) {
   app.innerHTML = `
     <section class="wizard-step">
       <h1>This device can't be used yet</h1>
@@ -215,6 +233,54 @@ export function renderUnsupportedAuthenticator(app) {
          needs to protect your data. Try a hardware security key (e.g. a
          YubiKey) or a different device or browser.</p>
     </section>`;
+  if (isLocalOnlyPocEnabled() && opts.credentialId) {
+    appendDiagnosticSection(app, opts);
+  }
+}
+
+// POC-only (med-eas.2.1): re-probes the failed credential and downloads a
+// sanitized capability report — outcomes and error classes only, never PRF
+// bytes or credential material (see prf-diagnostic.js). Feeds the lab matrix
+// the research doc asks for without enrolling anything.
+function appendDiagnosticSection(app, { credentialId, createPrfEnabled }) {
+  const section = app.querySelector('section');
+  const box = document.createElement('div');
+  box.innerHTML = `
+    <p>Experimental: run a compatibility check on this passkey and download
+       the report. The report records only capability outcomes — no key
+       material.</p>
+    <button id="prf-diagnostic-button" class="secondary">Run compatibility check</button>
+    <p class="kit-hint" id="prf-diagnostic-status"></p>`;
+  section.appendChild(box);
+  const button = box.querySelector('#prf-diagnostic-button');
+  const status = box.querySelector('#prf-diagnostic-status');
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    status.textContent = 'Probing this passkey…';
+    try {
+      const [probe, hint] = await Promise.all([
+        probePrfResult(credentialId),
+        clientPrfHint(),
+      ]);
+      const report = buildDiagnosticReport({
+        createOk: true,
+        createPrfEnabled,
+        assertOk: probe.assertOk,
+        prfPresent: probe.prfPresent,
+        prfLen: probe.prfLen,
+        errorStage: probe.errorClass ? 'assert' : null,
+        errorClass: probe.errorClass,
+        clientPrfHint: hint,
+      });
+      downloadDiagnosticReport(report);
+      status.textContent = probe.prfPresent
+        ? 'This passkey returned a PRF result on retry — reload and try enrolling again. Report downloaded.'
+        : 'No PRF result — this passkey cannot enroll. Report downloaded.';
+    } catch (err) {
+      status.textContent = err.message || String(err);
+      button.disabled = false;
+    }
+  });
 }
 
 function renderLossProtection(app, ctx) {

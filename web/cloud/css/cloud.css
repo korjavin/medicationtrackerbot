@@ -224,6 +224,11 @@ body {
   font-weight: bold;
 }
 
+.device-local-only {
+  color: var(--wg-fg-3);
+  font-weight: bold;
+}
+
 .sync-status {
   color: var(--wg-fg-3);
   font-size: 0.9rem;
