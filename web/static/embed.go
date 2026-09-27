@@ -5,5 +5,5 @@ package webstatic
 
 import "embed"
 
-//go:embed index.html manifest.json css icons js vendor sw.js fonts data
+//go:embed index.html manifest.json css icons js vendor fonts data
 var FS embed.FS

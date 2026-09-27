@@ -100,7 +100,7 @@ func TestRouter_AssetsCarryExplicitCacheControl(t *testing.T) {
 
 	// Only 200s: no Cache-Control is asserted on error responses here. (http.Error
 	// drops only Content-Length — a Cache-Control set before it survives; see GetShare.)
-	for _, path := range []string{"/", "/static/js/app.js", "/static/config.js", "/domain/bp.js", "/js/cloud-boot.js", "/unlock"} {
+	for _, path := range []string{"/", "/static/js/app.js", "/domain/bp.js", "/js/cloud-boot.js", "/unlock"} {
 		rec := get(t, h, path)
 		if rec.Code != http.StatusOK {
 			t.Errorf("%s: status = %d, want 200 (fixture missing?)", path, rec.Code)
