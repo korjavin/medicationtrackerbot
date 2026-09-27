@@ -2,11 +2,10 @@
 
 ## Product Strategy
 
-Cloud mode (`cmd/cloud`) is the default production path. New product work should
-target the zero-knowledge browser PWA and cloud server unless the owner
-explicitly reactivates another mode. The Telegram bot/server mode (`cmd/bot`) is
-legacy: not built, shipped or deployed, but its source must keep compiling and
-passing `go test ./...`. The removed
+Cloud mode (`cmd/cloud`) is the product: the zero-knowledge browser PWA plus
+the cloud server. The Telegram bot/server mode was removed in 2026-09
+(epic med-a9n5) — `cmd/cloud` is the only runtime, and no doc may present
+a bot mode as a deployment target. The removed
 Capacitor/mobile shell is frozen on the `mobile` branch and should be treated
 as historical.
 

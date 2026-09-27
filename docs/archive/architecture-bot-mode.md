@@ -1,20 +1,8 @@
 # ARCHIVED — Telegram bot / server internals
 
-> **Not part of the current architecture.** This file holds the Go
-> server-and-Telegram-bot internals that used to live in `docs/architecture.md`:
-> the `internal/store` layer, the goose migration conventions, the Go
-> domain-service pattern, the minute-tick scheduler, the SSE change broadcast,
-> and the Telegram callback routing.
->
-> That subject is **not deployed and not operated** — the stack runs `./cloud`.
-> The source stays in the tree and still compiles under `go build ./...` so it
-> cannot silently rot, but nothing here describes the product.
+> **ARCHIVED — history only.** The code this documents was removed 2026-09 (epic med-a9n5).
 >
 > **The current architecture is [docs/architecture.md](../architecture.md).**
->
-> Moved verbatim, not rewritten. Some sections describe conventions that Go
-> code in the tree still follows; treat them as a reference for that code, not
-> as product direction.
 
 ---
 

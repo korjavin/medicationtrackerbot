@@ -1,12 +1,6 @@
 # MCP Coverage Policy
 
-> **ARCHIVED — but the guard it documents is still live.**
-> `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt` still runs against
-> `internal/server`, which still compiles, so a new `apiMux.HandleFunc` there
-> will still fail CI and **this file is the explanation**. It is archived
-> because `internal/server` is not built or deployed, not because the policy
-> stopped being enforced. `CLAUDE.md` → *Adding a new HTTP route* points here
-> for exactly that reason.
+> **ARCHIVED — history only.** The code this documents was removed 2026-09 (epic med-a9n5).
 > The cloud-side sibling — regenerate-or-exempt for the MCP catalog — is
 > [docs/architecture.md §7](../architecture.md#7-mcp).
 
