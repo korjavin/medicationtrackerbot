@@ -67,7 +67,7 @@ func TestRouter_BuildIDIsReadableBothWays(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	var got map[string]string
+	var got map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal %q: %v", rec.Body.String(), err)
 	}
@@ -76,6 +76,33 @@ func TestRouter_BuildIDIsReadableBothWays(t *testing.T) {
 	}
 	if cc := rec.Header().Get("Cache-Control"); !strings.Contains(cc, "no-store") {
 		t.Fatalf("/api/version Cache-Control = %q, want no-store (a cached staleness check is useless)", cc)
+	}
+}
+
+// The med-eas.2.1 POC kill-switch rides /api/version (no new endpoint): off
+// by default, true once the operator enables it. Flagged browsers offer the
+// fallback only when this advertises true.
+func TestRouter_VersionAdvertisesLocalOnlyPOC(t *testing.T) {
+	h := newTestHandler(t, stampedAppFS("20260710-1432"))
+	if rec := get(t, h, "/api/version"); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	} else {
+		var got map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("unmarshal %q: %v", rec.Body.String(), err)
+		}
+		if got["local_only_poc"] != false {
+			t.Fatalf("local_only_poc = %v by default, want false", got["local_only_poc"])
+		}
+	}
+	h.SetLocalOnlyPOC(true)
+	rec := get(t, h, "/api/version")
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal %q: %v", rec.Body.String(), err)
+	}
+	if got["local_only_poc"] != true {
+		t.Fatalf("local_only_poc = %v after SetLocalOnlyPOC(true), want true", got["local_only_poc"])
 	}
 }
 

@@ -79,6 +79,14 @@ var ErrLastCredential = errors.New("cloudstore: cannot remove the account's last
 // minting a fresh credential + session.
 var ErrSourceCredentialRevoked = errors.New("cloudstore: source credential revoked")
 
+// ErrLocalOnlyRecoveryRequired is returned by the local-only enrollment paths
+// when the account has no usable recovery material (the recovery envelope AND
+// its recovery_auth verifier row). A local-only credential cannot cold-recover
+// on its own, so the server refuses to commit one onto an account whose only
+// fallback would be nothing — enforced in the same transaction as the insert,
+// not as a client-side pre-check the browser could skip or crash past.
+var ErrLocalOnlyRecoveryRequired = errors.New("cloudstore: local-only enrollment requires usable recovery material")
+
 // Account is one row in the accounts table. ClaimTokenHash/ClaimExpiresAt are
 // nil once the account has been claimed (first credential registered).
 type Account struct {
@@ -91,6 +99,31 @@ type Account struct {
 	VAPIDPublicKey  *string
 	VAPIDPrivateKey *string
 	TGSkippedAt     *time.Time
+}
+
+// Credential modes (migration 025, med-eas.2.1 POC). The mode is an explicit
+// type label, never inferred from envelope presence: CredentialModePRF
+// credentials wrap the DEK in a PRF-derived envelope, while
+// CredentialModeLocalOnly credentials authenticate API access only and hold
+// no envelope — the device-local LDK wraps the DEK instead. The label carries
+// no key share or decrypting material.
+const (
+	CredentialModePRF       = "prf"
+	CredentialModeLocalOnly = "local_only"
+)
+
+// ValidCredentialMode reports whether mode is a known credential mode.
+func ValidCredentialMode(mode string) bool {
+	return mode == CredentialModePRF || mode == CredentialModeLocalOnly
+}
+
+// normalizeCredentialMode maps the zero value to the production default so
+// pre-mode call sites (and tests) keep meaning "prf" without spelling it out.
+func normalizeCredentialMode(mode string) string {
+	if mode == "" {
+		return CredentialModePRF
+	}
+	return mode
 }
 
 // Credential is one row in the credentials table — a WebAuthn public key
@@ -106,6 +139,8 @@ type Credential struct {
 	// (BE=1) fail unlock unless these round-trip through the store.
 	BackupEligible bool
 	BackupState    bool
+	// Mode is CredentialModePRF or CredentialModeLocalOnly (see above).
+	Mode           string
 	CreatedAt      time.Time
 	LastAssertedAt *time.Time
 }
@@ -479,8 +514,8 @@ func (r *Repo) ClaimAndAddCredential(ctx context.Context, subdomain string, toke
 			return err
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO credentials (id, account_id, public_key, transports, sign_count, backup_eligible, backup_state, created_at_unix) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			cred.ID, cred.AccountID, cred.PublicKey, cred.Transports, cred.SignCount, cred.BackupEligible, cred.BackupState, storedb.TimeToUnix(cred.CreatedAt)); err != nil {
+			`INSERT INTO credentials (id, account_id, public_key, transports, sign_count, backup_eligible, backup_state, mode, created_at_unix) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			cred.ID, cred.AccountID, cred.PublicKey, cred.Transports, cred.SignCount, cred.BackupEligible, cred.BackupState, normalizeCredentialMode(cred.Mode), storedb.TimeToUnix(cred.CreatedAt)); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx,
@@ -631,15 +666,15 @@ func (r *Repo) SetLossAck(ctx context.Context, accountID string, ackAt time.Time
 // AddCredential inserts a new WebAuthn credential for an account.
 func (r *Repo) AddCredential(ctx context.Context, cred Credential) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO credentials (id, account_id, public_key, transports, sign_count, backup_eligible, backup_state, created_at_unix) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		cred.ID, cred.AccountID, cred.PublicKey, cred.Transports, cred.SignCount, cred.BackupEligible, cred.BackupState, storedb.TimeToUnix(cred.CreatedAt))
+		`INSERT INTO credentials (id, account_id, public_key, transports, sign_count, backup_eligible, backup_state, mode, created_at_unix) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		cred.ID, cred.AccountID, cred.PublicKey, cred.Transports, cred.SignCount, cred.BackupEligible, cred.BackupState, normalizeCredentialMode(cred.Mode), storedb.TimeToUnix(cred.CreatedAt))
 	return err
 }
 
 // CredentialsByAccount returns every credential registered for an account.
 func (r *Repo) CredentialsByAccount(ctx context.Context, accountID string) ([]Credential, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, account_id, public_key, transports, sign_count, backup_eligible, backup_state, created_at_unix, last_asserted_at_unix FROM credentials WHERE account_id = ?`,
+		`SELECT id, account_id, public_key, transports, sign_count, backup_eligible, backup_state, mode, created_at_unix, last_asserted_at_unix FROM credentials WHERE account_id = ?`,
 		accountID)
 	if err != nil {
 		return nil, err
@@ -654,7 +689,7 @@ func (r *Repo) CredentialsByAccount(ctx context.Context, accountID string) ([]Cr
 			createdUnix    int64
 			lastAssertedAt sql.NullInt64
 		)
-		if err := rows.Scan(&c.ID, &c.AccountID, &c.PublicKey, &c.Transports, &signCount, &c.BackupEligible, &c.BackupState, &createdUnix, &lastAssertedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.AccountID, &c.PublicKey, &c.Transports, &signCount, &c.BackupEligible, &c.BackupState, &c.Mode, &createdUnix, &lastAssertedAt); err != nil {
 			return nil, err
 		}
 		c.SignCount = uint32(signCount)
@@ -689,13 +724,16 @@ func (r *Repo) CredentialExists(ctx context.Context, accountID string, credentia
 // accountID in one transaction (routine device removal — docs/cloud-crypto.md
 // "Removing a device / revocation"). It enforces the "never strand an account"
 // invariant inside the same transaction: if the delete would leave the account
-// with zero credentials and no usable recovery material (the recovery envelope
-// AND its recovery_auth verifier row — see below), it rolls back and returns
-// ErrLastCredential. Doing the count-and-check in the tx (rather than a
-// caller-side pre-read) closes the TOCTOU where two concurrent revocations of
-// different credentials both observe a stale count and drop the account to
-// zero unwrap paths. Returns sql.ErrNoRows if credentialID does not belong to
-// accountID.
+// with no remaining unwrap path — zero PRF credentials and no usable recovery
+// material (the recovery envelope AND its recovery_auth verifier row — see
+// below) — it rolls back and returns ErrLastCredential. Local-only credentials
+// deliberately do NOT count as unwrap paths: they authenticate API access but
+// hold no envelope, so an account left with only local-only credentials and no
+// recovery material could sign in yet never unwrap its DEK on a fresh profile.
+// Doing the count-and-check in the tx (rather than a caller-side pre-read)
+// closes the TOCTOU where two concurrent revocations of different credentials
+// both observe a stale count and drop the account to zero unwrap paths.
+// Returns sql.ErrNoRows if credentialID does not belong to accountID.
 func (r *Repo) DeleteCredentialWithEnvelope(ctx context.Context, accountID string, credentialID []byte) error {
 	credRef := base64.RawURLEncoding.EncodeToString(credentialID)
 	return r.db.WithTx(ctx, func(tx storedb.TX) error {
@@ -710,18 +748,18 @@ func (r *Repo) DeleteCredentialWithEnvelope(ctx context.Context, accountID strin
 		if n == 0 {
 			return sql.ErrNoRows
 		}
-		var remaining int
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM credentials WHERE account_id = ?`, accountID).Scan(&remaining); err != nil {
+		var remainingPRF int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM credentials WHERE account_id = ? AND mode = ?`, accountID, CredentialModePRF).Scan(&remainingPRF); err != nil {
 			return err
 		}
-		if remaining == 0 {
+		if remainingPRF == 0 {
 			// Recovery needs BOTH the 'recovery' envelope (holds the DEK ct) and
 			// the recovery_auth verifier row (authenticates the redemption). They
 			// SetRecoveryMaterial writes them atomically, but an envelope left by
 			// an older half-written signup (or a bare envelope PUT) could pair a
 			// recovery envelope with no verifier — and VerifyRecoveryAttempt then
 			// returns ErrRecoveryInvalid forever. Require both, else deleting the
-			// last credential strands the account permanently.
+			// last unwrap path strands the account permanently.
 			var hasRecovery int
 			err := tx.QueryRowContext(ctx, `SELECT 1 FROM envelopes e
 				WHERE e.account_id = ? AND e.credential_ref = 'recovery'
@@ -901,6 +939,25 @@ func (r *Repo) ValidEnrollmentToken(ctx context.Context, accountID string, token
 	return count > 0, nil
 }
 
+// usableRecoveryLocked reports whether accountID holds usable recovery
+// material inside tx: BOTH the 'recovery' envelope and the recovery_auth
+// verifier row (see DeleteCredentialWithEnvelope for why one half alone does
+// not count). Callers hold the surrounding write transaction so the answer
+// cannot go stale between check and commit.
+func usableRecoveryLocked(ctx context.Context, tx storedb.TX, accountID string) (bool, error) {
+	var hasRecovery int
+	err := tx.QueryRowContext(ctx, `SELECT 1 FROM envelopes e
+		WHERE e.account_id = ? AND e.credential_ref = 'recovery'
+		  AND EXISTS (SELECT 1 FROM recovery_auth ra WHERE ra.account_id = e.account_id)`, accountID).Scan(&hasRecovery)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // RedeemTransferToken atomically consumes a claimed transfer slot's
 // enrollment token and persists the new device's credential + DEK envelope in
 // one transaction — mirroring ClaimAndAddCredential's rationale: a
@@ -924,13 +981,55 @@ func (r *Repo) RedeemTransferToken(ctx context.Context, accountID string, tokenH
 			return ErrTransferSlotInvalid
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO credentials (id, account_id, public_key, transports, sign_count, backup_eligible, backup_state, created_at_unix) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			cred.ID, cred.AccountID, cred.PublicKey, cred.Transports, cred.SignCount, cred.BackupEligible, cred.BackupState, storedb.TimeToUnix(cred.CreatedAt)); err != nil {
+			`INSERT INTO credentials (id, account_id, public_key, transports, sign_count, backup_eligible, backup_state, mode, created_at_unix) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			cred.ID, cred.AccountID, cred.PublicKey, cred.Transports, cred.SignCount, cred.BackupEligible, cred.BackupState, normalizeCredentialMode(cred.Mode), storedb.TimeToUnix(cred.CreatedAt)); err != nil {
 			return err
 		}
 		_, err = tx.ExecContext(ctx,
 			`INSERT INTO envelopes (account_id, credential_ref, v, nonce, ct, mac) VALUES (?, ?, ?, ?, ?, ?)`,
 			env.AccountID, env.CredentialRef, env.V, env.Nonce, env.CT, env.MAC)
+		return err
+	})
+}
+
+// RedeemTransferTokenLocalOnly is the local-only twin of RedeemTransferToken
+// (med-eas.2.1 POC): it atomically consumes a claimed transfer slot's
+// enrollment token and persists the new device's local-only credential — with
+// NO envelope row. A local-only credential authenticates API access but never
+// unwraps the DEK server-side; the device-local LDK wraps the DEK instead, so
+// storing an envelope (or any other decrypting share) here would both be
+// useless and widen the server's cryptographic holdings. Callers must set
+// cred.Mode to CredentialModeLocalOnly; anything else is rejected. Returns
+// ErrTransferSlotInvalid if the token doesn't match a claimed, unexpired slot
+// for accountID.
+func (r *Repo) RedeemTransferTokenLocalOnly(ctx context.Context, accountID string, tokenHash []byte, cred Credential, now time.Time) error {
+	if cred.Mode != CredentialModeLocalOnly {
+		return errors.New("cloudstore: local-only redeem requires a local_only credential")
+	}
+	return r.db.WithTx(ctx, func(tx storedb.TX) error {
+		ok, err := usableRecoveryLocked(ctx, tx, accountID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return ErrLocalOnlyRecoveryRequired
+		}
+		result, err := tx.ExecContext(ctx,
+			`DELETE FROM transfer_slots WHERE account_id = ? AND enrollment_token_hash = ? AND fetched = 1 AND expires_at_unix > ?`,
+			accountID, tokenHash, storedb.TimeToUnix(now))
+		if err != nil {
+			return err
+		}
+		n, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n != 1 {
+			return ErrTransferSlotInvalid
+		}
+		_, err = tx.ExecContext(ctx,
+			`INSERT INTO credentials (id, account_id, public_key, transports, sign_count, backup_eligible, backup_state, mode, created_at_unix) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			cred.ID, cred.AccountID, cred.PublicKey, cred.Transports, cred.SignCount, cred.BackupEligible, cred.BackupState, CredentialModeLocalOnly, storedb.TimeToUnix(cred.CreatedAt))
 		return err
 	})
 }
@@ -954,13 +1053,47 @@ func (r *Repo) AddCredentialWithEnvelope(ctx context.Context, sourceCredentialID
 			return err
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO credentials (id, account_id, public_key, transports, sign_count, backup_eligible, backup_state, created_at_unix) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-			cred.ID, cred.AccountID, cred.PublicKey, cred.Transports, cred.SignCount, cred.BackupEligible, cred.BackupState, storedb.TimeToUnix(cred.CreatedAt)); err != nil {
+			`INSERT INTO credentials (id, account_id, public_key, transports, sign_count, backup_eligible, backup_state, mode, created_at_unix) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			cred.ID, cred.AccountID, cred.PublicKey, cred.Transports, cred.SignCount, cred.BackupEligible, cred.BackupState, normalizeCredentialMode(cred.Mode), storedb.TimeToUnix(cred.CreatedAt)); err != nil {
 			return err
 		}
 		_, err = tx.ExecContext(ctx,
 			`INSERT INTO envelopes (account_id, credential_ref, v, nonce, ct, mac) VALUES (?, ?, ?, ?, ?, ?)`,
 			env.AccountID, env.CredentialRef, env.V, env.Nonce, env.CT, env.MAC)
+		return err
+	})
+}
+
+// AddCredentialLocalOnly is the local-only twin of AddCredentialWithEnvelope
+// (med-eas.2.1 POC): it inserts an additional local-only credential for an
+// already-claimed account — with NO envelope row (see
+// RedeemTransferTokenLocalOnly for why no envelope is stored). The same
+// in-tx source-credential existence check applies: a revocation committing
+// mid-ceremony rolls the insert back with ErrSourceCredentialRevoked.
+// Callers must set cred.Mode to CredentialModeLocalOnly.
+func (r *Repo) AddCredentialLocalOnly(ctx context.Context, sourceCredentialID []byte, cred Credential) error {
+	if cred.Mode != CredentialModeLocalOnly {
+		return errors.New("cloudstore: local-only add requires a local_only credential")
+	}
+	return r.db.WithTx(ctx, func(tx storedb.TX) error {
+		var exists int
+		err := tx.QueryRowContext(ctx, `SELECT 1 FROM credentials WHERE id = ?`, sourceCredentialID).Scan(&exists)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrSourceCredentialRevoked
+		}
+		if err != nil {
+			return err
+		}
+		ok, err := usableRecoveryLocked(ctx, tx, cred.AccountID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return ErrLocalOnlyRecoveryRequired
+		}
+		_, err = tx.ExecContext(ctx,
+			`INSERT INTO credentials (id, account_id, public_key, transports, sign_count, backup_eligible, backup_state, mode, created_at_unix) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			cred.ID, cred.AccountID, cred.PublicKey, cred.Transports, cred.SignCount, cred.BackupEligible, cred.BackupState, CredentialModeLocalOnly, storedb.TimeToUnix(cred.CreatedAt))
 		return err
 	})
 }

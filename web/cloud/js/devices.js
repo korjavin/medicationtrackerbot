@@ -10,6 +10,7 @@
 // read it, and answering both on one screen made the second look like a
 // property of the first.
 import { auditEnvelope, fromBase64, fromBase64Url } from './crypto.js';
+import { CREDENTIAL_MODE_LOCAL_ONLY, normalizeCredentialMode } from './credential-mode.js';
 
 export function renderDeviceList(app, ctx, onExit) {
   app.innerHTML = `
@@ -29,6 +30,14 @@ async function loadDevices(app, ctx, onExit) {
 
   const audited = await Promise.all(
     (devices || []).map(async (d) => {
+      const mode = normalizeCredentialMode(d.mode);
+      // Local-only credentials carry no envelope by design — that absence is
+      // expected, not an audit failure, so they skip the MAC audit entirely
+      // and render their own badge. The mode is explicit, never inferred
+      // from the missing envelope.
+      if (mode === CREDENTIAL_MODE_LOCAL_ONLY) {
+        return { ...d, mode, verified: false, localOnly: true };
+      }
       const credentialId = fromBase64Url(d.credential_id);
       let verified = false;
       if (d.envelope) {
@@ -42,7 +51,7 @@ async function loadDevices(app, ctx, onExit) {
           credentialId,
         });
       }
-      return { ...d, verified };
+      return { ...d, mode, verified };
     })
   );
 
@@ -154,8 +163,13 @@ function renderDeviceRow(app, ctx, onExit, d) {
   li.appendChild(label);
 
   const badge = document.createElement('span');
-  badge.className = d.verified ? 'device-verified' : 'device-unverified';
-  badge.textContent = d.verified ? 'verified' : 'unverified — remove?';
+  if (d.localOnly) {
+    badge.className = 'device-local-only';
+    badge.textContent = 'local-only — this browser only';
+  } else {
+    badge.className = d.verified ? 'device-verified' : 'device-unverified';
+    badge.textContent = d.verified ? 'verified' : 'unverified — remove?';
+  }
   li.appendChild(badge);
 
   const revokeButton = document.createElement('button');
@@ -167,9 +181,13 @@ function renderDeviceRow(app, ctx, onExit, d) {
     // needs key rotation — out of scope here (docs/cloud-crypto.md "Removing
     // a device / revocation" status note) — hence the copy pointing there.
     const confirmed = confirm(
-      'Revoke this device?\n\nUse this to retire a device you still control. If it was lost or ' +
-        'stolen, revoking here does not protect your data on its own — see the recovery guide ' +
-        'about rotating your keys.'
+      d.localOnly
+        ? 'Remove this local-only sign-in?\n\nUse this to sign out a browser you still control — it holds ' +
+            'no vault key of its own. If the device was lost or stolen, removing here does not protect the ' +
+            'copy it may have seen while unlocked — see the recovery guide about rotating your keys.'
+        : 'Revoke this device?\n\nUse this to retire a device you still control. If it was lost or ' +
+            'stolen, revoking here does not protect your data on its own — see the recovery guide ' +
+            'about rotating your keys.'
     );
     if (!confirmed) return;
     revokeDevice(app, ctx, onExit, d.credential_id);

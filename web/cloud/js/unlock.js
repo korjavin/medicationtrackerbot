@@ -11,6 +11,7 @@ import {
   toBase64Url,
 } from './crypto.js';
 import { openDb } from './localdb.js';
+import { CREDENTIAL_MODE_LOCAL_ONLY, isLocalOnlyPocAvailable } from './credential-mode.js';
 
 const STORE_NAME = 'device';
 const LDK_RECORD_KEY = 'ldk';
@@ -92,6 +93,13 @@ function renderLocked(app, errorText) {
 // rotating the recovery code, so an unlocked tab left open on a shared laptop
 // cannot invalidate someone's Emergency Kit (med-d5t.12). Its success proves
 // the user is physically present, and hands back the DEK the rotation re-wraps.
+//
+// POC (med-eas.2.1): behind the explicit local-only opt-in the server's
+// stored mode routes the credential after the assertion verifies —
+// local_only always takes the LDK (even if the authenticator starts
+// returning PRF output after an update; there is no envelope to unwrap for
+// it), while PRF credentials keep the envelope path and still throw without
+// PRF output, so the fallback can never silently downgrade them.
 export async function assertPasskey() {
   const beginRes = await fetch('/api/webauthn/login/begin', { method: 'POST' });
   if (!beginRes.ok) throw new Error('Could not start unlock — no passkey is registered yet.');
@@ -106,8 +114,18 @@ export async function assertPasskey() {
   });
 
   const prfOutput = assertion.getClientExtensionResults().prf?.results?.first;
-  if (!prfOutput) throw new Error("This passkey doesn't support the security feature this app needs.");
+  if (!(await isLocalOnlyPocAvailable())) {
+    // Production path, unchanged: PRF output is mandatory, and it is
+    // checked before any session is minted.
+    if (!prfOutput) throw new Error("This passkey doesn't support the security feature this app needs.");
+    return finishPrfUnlock(assertion, prfOutput);
+  }
+  return finishPocUnlock(assertion, prfOutput);
+}
 
+// finishLogin completes the server half of an assertion: the signature is
+// verified and a session minted. Shared by the PRF and POC finish paths.
+async function finishLogin(assertion) {
   const finishBody = assertion.toJSON();
   // Never transmit the PRF output — it lives client-side only.
   if (finishBody.clientExtensionResults) delete finishBody.clientExtensionResults.prf;
@@ -119,16 +137,82 @@ export async function assertPasskey() {
   });
   if (!finishRes.ok) throw new Error('Unlock failed. Please try again.');
   const { account_id: accountId } = await finishRes.json();
+  return { accountId, credentialId: new Uint8Array(assertion.rawId) };
+}
 
-  const credentialId = new Uint8Array(assertion.rawId);
+async function finishPrfUnlock(assertion, prfOutput) {
+  const { accountId, credentialId } = await finishLogin(assertion);
+  const dek = await unwrapCredentialEnvelope(accountId, credentialId, prfOutput);
+  return { accountId, dek, credentialId };
+}
+
+async function finishPocUnlock(assertion, prfOutput) {
+  const { accountId, credentialId } = await finishLogin(assertion);
+  if ((await credentialModeFor(credentialId)) === CREDENTIAL_MODE_LOCAL_ONLY) {
+    return finishLocalOnlyUnlock(accountId, credentialId);
+  }
+  // Either a PRF credential whose authenticator dropped PRF, or an unknown
+  // credential: both keep the production error. No silent downgrade.
+  if (!prfOutput) throw new Error("This passkey doesn't support the security feature this app needs.");
+  const dek = await unwrapCredentialEnvelope(accountId, credentialId, prfOutput);
+  return { accountId, dek, credentialId };
+}
+
+async function unwrapCredentialEnvelope(accountId, credentialId, prfOutput) {
   const kek = await deriveKEK(new Uint8Array(prfOutput), accountId, credentialId);
-
   const envRes = await fetch(`/api/envelopes/${toBase64Url(credentialId)}`);
   if (!envRes.ok) throw new Error('Could not download the encrypted envelope.');
   const envJson = await envRes.json();
   const envelope = { nonce: fromBase64(envJson.nonce), ct: fromBase64(envJson.ct) };
-  const dek = await unwrapEnvelope({ kek, envelope, accountId, credentialId });
-  return { accountId, dek, credentialId };
+  return unwrapEnvelope({ kek, envelope, accountId, credentialId });
+}
+
+// finishLocalOnlyUnlock opens the warm LDK cache for a credential the server
+// explicitly labels local_only. A cleared cache (deleted site data) or a
+// fresh profile (synced passkey, new browser) throws
+// local-only-recovery-required instead of pretending the passkey can
+// recover — the Emergency Kit or a trusted-device transfer is mandatory.
+async function finishLocalOnlyUnlock(accountId, credentialId) {
+  let cached = null;
+  try {
+    cached = await readLdkRecord();
+  } catch {
+    cached = null;
+  }
+  if (!cached || cached.accountId !== accountId) throw localOnlyRecoveryRequired();
+  let dek = null;
+  try {
+    dek = await unwrapWithLdk(cached);
+  } catch {
+    dek = null;
+  }
+  if (!dek) throw localOnlyRecoveryRequired();
+  return { accountId, dek, credentialId, mode: CREDENTIAL_MODE_LOCAL_ONLY };
+}
+
+// credentialModeFor resolves the server's explicit mode label for one
+// credential id. Unknown ids (and fetch failures) resolve to null — never to
+// a default that would admit the local-only path.
+async function credentialModeFor(credentialId) {
+  const res = await fetch('/api/devices');
+  if (!res.ok) return null;
+  const devices = await res.json();
+  const ref = toBase64Url(credentialId);
+  const found = (devices || []).find((d) => d && d.credential_id === ref);
+  return found ? found.mode || null : null;
+}
+
+// localOnlyRecoveryRequired is the cold local-only dead-end: the passkey
+// authenticated, but this browser holds no local key. The code lets callers
+// and tests distinguish it from a generic unlock failure; coldUnlock renders
+// the message alongside the existing Emergency Kit link.
+export function localOnlyRecoveryRequired() {
+  const err = new Error(
+    'This passkey can sign you in, but this browser has no local key saved — ' +
+      'open your Emergency Kit or add this device from one that is unlocked.'
+  );
+  err.code = 'local-only-recovery-required';
+  return err;
 }
 
 async function coldUnlock(app) {
@@ -319,6 +403,22 @@ async function writeLdkRecord(record) {
   } finally {
     db.close();
   }
+}
+
+// Exported so claim.js can undo a staged LDK when a local-only finish fails:
+// the cache is written BEFORE finish (a storage-blocked browser must fail
+// while its token is still unspent), so a failed finish must not leave the
+// staged record behind to imply an enrollment that never happened.
+export async function clearLdkCache() {
+  await clearLdkRecord();
+}
+
+// Exported so claim.js can put back the cache a failed local-only
+// enrollment overwrote: establishLdkCache replaces the singleton record, so
+// a browser that already held a warm cache (e.g. re-running recovery) keeps
+// it when the enrollment fails instead of losing warm unlock.
+export async function restoreLdkCache(record) {
+  await writeLdkRecord(record);
 }
 
 async function clearLdkRecord() {

@@ -35,8 +35,14 @@ func buildIDFrom(idx []byte) string {
 // <meta name="medtracker-build-id"> it parsed at boot (injectCloudBoot).
 // no-store so an intermediary can never answer it from a cache — the whole
 // point of the endpoint is that it is fresher than the cached page asking it.
+//
+// local_only_poc is the operator kill-switch for the med-eas.2.1 POC: the
+// client's opt-in flag alone does nothing unless the server advertises true
+// here (and register/finish enforces the same switch), so a crafted
+// ?local-only-poc=1 link can never push a user into the fallback on an
+// operator that never enabled it.
 func (h *Handler) serveVersion(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	json.NewEncoder(w).Encode(map[string]string{"build_id": h.buildID})
+	json.NewEncoder(w).Encode(map[string]any{"build_id": h.buildID, "local_only_poc": h.localOnlyPOC})
 }
