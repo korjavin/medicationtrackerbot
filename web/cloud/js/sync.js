@@ -231,11 +231,16 @@ export async function replaceAllRecords(records) {
   // (or a compaction re-bootstrap from pullTail) clears the whole store, but
   // pending writes are unsynced local truth the snapshot doesn't contain yet —
   // wiping them loses the user's note and orphans its 'pending' row forever.
-  // Re-overlay them after the clear, LWW-compared per recordId (med-z2dq): a
-  // snapshot row with a HIGHER clientTs wins and the stale pending op is
-  // dropped, so a re-bootstrap can't resurrect e.g. a clientTs-0 derived row
-  // over an imported tombstone. Ties keep the pending row, matching
-  // applyIncoming's strict-`>` rule (local wins ties).
+  // Re-overlay them after the clear, except floored derived rows (med-z2dq):
+  // a pending row stamped clientTs 0 (CLAUDE.md rule 12) that meets a snapshot
+  // row with a HIGHER clientTs is stale by design — it loses every LWW merge —
+  // so the snapshot row stands and the pending op is dropped instead of
+  // resurrecting over e.g. an imported tombstone. ONLY the floor is
+  // discardable: a real pending edit (clientTs > 0) keeps today's behaviour
+  // exactly (overlay wins locally, stays queued) whatever the snapshot
+  // timestamp says, because clock skew / blind concurrent writes leave real
+  // timestamps unordered and a comparison alone can't prove an unsent user
+  // edit stale.
   await withRecordsLock(async () => {
     const pending = await readPending();
     const snapshotById = new Map(records.map((r) => [r.recordId, r]));
@@ -245,7 +250,7 @@ export async function replaceAllRecords(records) {
       const r = await getRecord(recordId);
       if (!r) continue;
       const snap = snapshotById.get(recordId);
-      if (snap && snap.clientTs > r.clientTs) {
+      if (snap && r.clientTs === 0 && snap.clientTs > 0) {
         losingPending.push(recordId);
         continue;
       }

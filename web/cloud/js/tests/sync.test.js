@@ -2386,4 +2386,22 @@ describe('pending overlay on a re-bootstrapped snapshot applies LWW (med-z2dq)',
     expect((await getRaw(SLOT)).status).toBe('completed');
     expect(await readPendingIds()).toEqual([SLOT]);
   });
+
+  it('a real pending edit with a LOWER clientTs than the snapshot row is kept and stays queued', async () => {
+    // Clock skew / blind concurrent writes leave real timestamps unordered, so
+    // a comparison alone can't prove an unsent user edit stale — only the
+    // clientTs-0 floor is discardable.
+    await seedPending([
+      { recordId: SLOT, recordType: 'workoutsession', clientTs: 1000, deleted: false, status: 'completed' },
+    ]);
+
+    await replaceAllRecords([
+      { recordId: SLOT, recordType: 'workoutsession', clientTs: 7000, deleted: true },
+    ]);
+
+    const raw = await getRaw(SLOT);
+    expect(raw.deleted).toBe(false);
+    expect(raw.clientTs).toBe(1000);
+    expect(await readPendingIds()).toEqual([SLOT]);
+  });
 });
