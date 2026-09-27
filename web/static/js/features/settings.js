@@ -3,14 +3,14 @@
 //
 // This file owns the Settings tab's view orchestration: the SWR settings-bundle
 // load (loadSettings), the feature-toggle write path (toggleFeatureSetting), the
-// feature-toggle / food-targets / nav-visibility DOM sync helpers, the Settings
-// stale badge mount, and the OIDC setup banner renderer. These functions remain
+// feature-toggle / food-targets / nav-visibility DOM sync helpers and the Settings
+// stale badge mount. These functions remain
 // global (script-tag loading) and rely on app.js + sibling globals at call time:
 // apiCall, safeAlert, readPersistedTabOrder, switchTab, window.featureSettings,
 // window.AuthBootstrap, window.SettingsState, window.WeightUnitState,
 // window.FoodLog, window.TimeFormat, window.DataStore, window.WGStaleBadge,
 // window.SettingsIntegrations, window.AppStore, window.rebuildCanonicalBottomNav,
-// window.OIDC_CONFIG, applyWebpushStatus, hideWebpushStatus (both from app.js).
+// applyWebpushStatus, hideWebpushStatus (both from app.js).
 //
 // The timezone info renderer (window.renderSettingsTimeInfo) lives in
 // core/time-format.js and the Integrations card lives in
@@ -28,71 +28,10 @@
 // → toggleFeatureSetting; loadInitData / auth-bootstrap.js →
 // updateFeatureTabVisibility) and by tests.
 
-function initOIDCSetupBanner() {
-    const container = document.getElementById('oidc-setup-container');
-    if (!container) return;
-
-    const oidcConfig = window.OIDC_CONFIG || { enabled: false };
-    if (!oidcConfig.enabled) {
-        container.replaceChildren();
-        return;
-    }
-
-    const title = document.createElement('h3');
-    title.className = 'wg-settings-section__title';
-    title.textContent = 'OIDC Setup';
-
-    const desc = document.createElement('p');
-    desc.className = 'wg-settings-section__desc';
-    desc.textContent = 'Copy redirect URIs for Pocket-ID / OIDC clients.';
-
-    const rowList = document.createElement('div');
-    rowList.className = 'wg-settings-row-list';
-
-    const row = document.createElement('div');
-    row.className = 'wg-settings-row';
-
-    const rowContent = document.createElement('div');
-    rowContent.className = 'wg-settings-row__content';
-    const rowTitle = document.createElement('div');
-    rowTitle.className = 'wg-settings-row__title wg-mono-display';
-    rowTitle.textContent = 'Redirect URIs';
-    const rowDesc = document.createElement('div');
-    rowDesc.className = 'wg-settings-row__desc';
-    rowDesc.textContent = 'Opens the setup page (new tab) to copy redirect URIs and client credentials into your Pocket-ID / OIDC clients.';
-    rowContent.appendChild(rowTitle);
-    rowContent.appendChild(rowDesc);
-
-    const rowControl = document.createElement('div');
-    rowControl.className = 'wg-settings-row__control';
-    // Opens in a new tab so the mini-app URL isn't clobbered — returning via
-    // browser-back otherwise re-runs handleDeepLinks() with no matching path
-    // and switchTab('today') fires as a fallback.
-    const actionLink = document.createElement('a');
-    actionLink.className = 'wg-gloss wg-settings-action-btn';
-    actionLink.textContent = 'Open';
-    actionLink.href = '/oidc-setup';
-    actionLink.target = '_blank';
-    actionLink.rel = 'noopener noreferrer';
-    actionLink.setAttribute('aria-label', 'Open OIDC setup page in a new tab');
-    rowControl.appendChild(actionLink);
-
-    row.appendChild(rowContent);
-    row.appendChild(rowControl);
-    rowList.appendChild(row);
-
-    container.replaceChildren();
-    container.appendChild(title);
-    container.appendChild(desc);
-    container.appendChild(rowList);
-}
-
-// Cloud-mode Notifications wiring. The server block's Web Push toggle +
-// Test buttons POST to bot-mode /api/webpush/* + /api/bp/reminder/test
-// routes cmd/cloud never registers, so cloud mode swaps in the
-// .wg-settings-notifications-cloud block instead, driven by the DOM-free
-// web/cloud/js/push.js + reminders.js primitives (dynamic-imported so
-// server/mobile builds never pull in cloud-only modules).
+// Cloud-mode Notifications wiring for the .wg-settings-notifications-cloud
+// block, driven by the DOM-free web/cloud/js/push.js + reminders.js
+// primitives (dynamic-imported so non-cloud builds never pull in
+// cloud-only modules).
 // ponytail: no memoization — import() already caches by specifier. These
 // functions exist only as the test seam (Vitest overrides the window globals).
 let _cloudNotificationsBound = false; // module-state: one-time guard so the cloud toggle/test click listeners bind once across repeated loadSettings() calls
@@ -810,14 +749,12 @@ function hideEmptySettingsGroups() {
 }
 
 // A section counts as hidden when any of its gating mechanisms has hidden it:
-// the wg-settings-hidden / hidden class toggles, an inline style.display='none'
-// (food-target-settings), or the CSS `.wg-settings-oidc:empty` rule (the OIDC
-// container once its setup banner has left it empty). Missing any of these
-// leaves an all-hidden group rendering as an empty fold.
+// the wg-settings-hidden / hidden class toggles or an inline
+// style.display='none' (food-target-settings). Missing any of these leaves an
+// all-hidden group rendering as an empty fold.
 function isSettingsSectionHidden(s) {
     return s.matches('.wg-settings-hidden, .hidden, [hidden]')
-        || s.style.display === 'none'
-        || (s.matches('.wg-settings-oidc') && s.childElementCount === 0);
+        || s.style.display === 'none';
 }
 
 // Mounts the wg-stale-badge into the Settings section header from the
@@ -1057,12 +994,9 @@ function updateFeatureTabVisibility() {
     hideEmptySettingsGroups();
 }
 
-window.initOIDCSetupBanner = initOIDCSetupBanner;
-
 // Public surface mirror — bare names above are the live call path; this object
 // documents the module's API and satisfies the globals allowlist.
 window.SettingsView = {
-    initOIDCSetupBanner,
     loadSettings,
     mintInvite,
     renderSettingsStaleBadge,

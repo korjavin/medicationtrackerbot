@@ -3,9 +3,6 @@
 // Public surface (also re-exposed as the original window.X names for
 // backwards compatibility with existing tests and feature modules):
 //   - AuthBootstrap.applyBootstrapPayload(res)
-//   - AuthBootstrap.verifyAuthInBackground()
-//   - AuthBootstrap.clearSwBootstrapCache()
-//   - AuthBootstrap.bootstrapURL()
 //   - AuthBootstrap.hydrateFeatureSettingsFromBundle(bundle)
 //   - AuthBootstrap.hydrateMedicationsFromDexie()
 //   - AuthBootstrap.hydrateSectionsFromDexie()
@@ -330,62 +327,6 @@ window.AuthBootstrap = (function () {
         return true;
     }
 
-    // Background auth verification for non-blocking cached-auth path.
-    // Fires /auth/status without blocking the UI. If the session has expired,
-    // clears auth state and reloads so the user sees the login screen.
-    function verifyAuthInBackground() {
-        fetch('/auth/status', { method: 'GET', credentials: 'same-origin' })
-            .then((res) => {
-                if (res.status === 200) {
-                    return res.json().then((data) => {
-                        if (!data.authenticated) {
-                            console.log('[Auth] Background check: session expired');
-                            if (typeof window.clearAuthState === 'function') {
-                                window.clearAuthState();
-                            }
-                            clearSwBootstrapCache().then(() => location.reload());
-                        }
-                    });
-                } else if (res.status < 500) {
-                    // 4xx (not server error) means auth is invalid
-                    console.log('[Auth] Background check: auth invalid', res.status);
-                    if (typeof window.clearAuthState === 'function') {
-                        window.clearAuthState();
-                    }
-                    clearSwBootstrapCache().then(() => location.reload());
-                }
-                // 5xx — server is down, keep using cached auth silently
-            })
-            .catch(() => {
-                // Network error — server unreachable, keep using cached auth
-            });
-    }
-
-    // Clear the SW dynamic cache bootstrap entry so stale user data
-    // is not served after logout or session expiry.
-    function clearSwBootstrapCache() {
-        return caches.keys().then((names) => {
-            const dynamicName = names.find((n) => n.startsWith('medtracker-dynamic-'));
-            if (!dynamicName) return;
-            // ignoreSearch covers the tz query param now appended to /api/bootstrap.
-            return caches.open(dynamicName).then((cache) =>
-                cache.delete(new Request('/api/bootstrap'), { ignoreSearch: true })
-            );
-        }).catch(() => { /* best-effort */ });
-    }
-
-    // Build the /api/bootstrap URL with the client's timezone hint. The handler
-    // uses this to scope today's food log groups it bundles into the response —
-    // keeping the cache key the server writes (`food_<date>_day`) aligned with
-    // the one loadToday() reads via todayFoodKey(new Date()).
-    function bootstrapURL() {
-        const tzName = (typeof Intl !== 'undefined' && Intl.DateTimeFormat
-            && Intl.DateTimeFormat().resolvedOptions().timeZone) || '';
-        if (tzName) return `/api/bootstrap?tz=${encodeURIComponent(tzName)}`;
-        const tzOffset = new Date().getTimezoneOffset();
-        return `/api/bootstrap?tz_offset=${tzOffset}`;
-    }
-
     // Hydrate in-memory feature settings from a cached settings_bundle so deep-link
     // and start_param guards (isDeepLinkFeatureEnabled) see the user's real flags
     // on cache-only boot paths, not the default-on fallback. Also restores the
@@ -548,9 +489,6 @@ window.AuthBootstrap = (function () {
         cacheApiSnapshot,
         normalizeSettingsBundle,
         applyBootstrapPayload,
-        verifyAuthInBackground,
-        clearSwBootstrapCache,
-        bootstrapURL,
         hydrateFeatureSettingsFromBundle,
         hydrateMedicationsFromDexie,
         hydrateSectionsFromDexie,
@@ -565,9 +503,6 @@ window.AuthBootstrap = (function () {
 window.cacheApiSnapshot = window.AuthBootstrap.cacheApiSnapshot;
 window.normalizeSettingsBundle = window.AuthBootstrap.normalizeSettingsBundle;
 window.applyBootstrapPayload = window.AuthBootstrap.applyBootstrapPayload;
-window.verifyAuthInBackground = window.AuthBootstrap.verifyAuthInBackground;
-window.clearSwBootstrapCache = window.AuthBootstrap.clearSwBootstrapCache;
-window.bootstrapURL = window.AuthBootstrap.bootstrapURL;
 window.hydrateFeatureSettingsFromBundle = window.AuthBootstrap.hydrateFeatureSettingsFromBundle;
 window.hydrateMedicationsFromDexie = window.AuthBootstrap.hydrateMedicationsFromDexie;
 window.hydrateSectionsFromDexie = window.AuthBootstrap.hydrateSectionsFromDexie;
