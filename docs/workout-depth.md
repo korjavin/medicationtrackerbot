@@ -394,6 +394,16 @@ computed `loads_kg`, `min_step_kg`, `max_kg`. Served at
 `web/cloud/js/apishim.js`, and carried in the vault under
 `workouts.equipment` (`web/domain/vault.js`; the golden fixture carries one plated and one fixed record, and bot mode strips the cloud-only key on import like `med_reminder_pref`).
 
+The active session reuses the same math on every exercise card (med-v75c.2):
+the card resolves its plan row → library → equipment record once per
+session open and renders a plate-loading chip — the `loadingFor` glyph plus
+text for the working weight (`log.weight_kg`), re-solved on every set-weight
+edit. When the exact kg is unreachable the chip falls back to the nearest
+achievable rung (`nearestLoads(loads, kg)` → `{ below, above }`, tie →
+below) and shows its loading with a delta line (`72 kg (-1 kg)`); fixed gear
+gets a text-only `nearest: N kg` one-liner off-rung, and unbound gear leaves
+the card unchanged.
+
 **MCP** (med-niix.4, cloud-only via the `mcp-catalog.cloud-extra.js` seam —
 no Go store, so `mcp-catalog.generated.js` is untouched):
 `workouts.equipment.list` (read; records carry computed `loads_kg`,
