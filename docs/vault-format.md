@@ -393,8 +393,10 @@ stays missing after the replace-only import), so only `intake` and
   `sessionRecordId`, the same shape the reminder horizon probes). Manually-keyed
   rows (`intake-manual-…`, `session-adhoc-…`) and suffixed import ids
   (`intake-<m>-<s>-tz_step`, which nothing looks up) delete-by-absence: their
-  tombstones are dropped on export, and any tombstone entry that is not an exact
-  slot shape fails the import with `Corrupt backup` before the wipe.
+  tombstones are dropped on export. On import, entries for UNKNOWN record types are
+  skipped (forward-compat: an older app importing a newer backup must not choke
+  on slot types it doesn't know yet), while a KNOWN slot type with a non-matching
+  id shape fails the import with `Corrupt backup` before the wipe.
 - Each entry is identity-only (`recordType`, `recordId`); import re-stamps them as
   bodyless `deleted` rows, exactly what `records.del` writes. No `clientTs` is
   carried — the import clock stamps them.

@@ -382,14 +382,20 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     expect(recordsToVault(legacyRecords, { now: NOW }).data.tombstones).toBeUndefined();
   });
 
-  it('rejects non-slot tombstones and cross-type collisions; live row wins same-type (med-jtaj)', () => {
+  it('skips unknown tombstone types; rejects bad slot shapes and cross-type collisions (med-jtaj)', () => {
     const bad = (tombstones) => ({ format: 'medtracker-vault', version: 1, data: { tombstones } });
-    // Not a derived-slot type, or not a derived-slot id: Corrupt backup before
+    // Unknown record types are SKIPPED (forward-compat: an older app importing
+    // a newer backup must not choke on slot types it doesn't know yet).
+    const future = vaultToRecords(bad([
+      { recordType: 'note', recordId: '999' },
+      { recordType: 'bogus', recordId: 'x' },
+    ]), { now: NOW });
+    expect(future.some((r) => r.deleted)).toBe(false);
+
+    // A KNOWN slot type with a non-matching id shape: Corrupt backup before
     // the destructive replace — a hand-edited file must not tombstone arbitrary
     // records (e.g. {intake, 'settings'} over the settings singleton).
     for (const t of [
-      { recordType: 'note', recordId: '999' },
-      { recordType: 'bogus', recordId: 'x' },
       { recordType: 'intake' },
       { recordType: 'intake', recordId: '' },
       { recordType: 'intake', recordId: 'intake-manual-123-456' },

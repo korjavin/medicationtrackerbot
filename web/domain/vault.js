@@ -608,10 +608,12 @@ export function vaultToRecords(vault, { now } = {}) {
 
   // --- tombstones (derived-slot suppression signals, bd med-jtaj) ---
   // Old files predate the key and import exactly as before (no tombstones).
-  // Anything else must be an exact derived-slot shape — a hand-edited or
-  // future file we must not silently honor before a wipe fails the import.
+  // Unknown types are skipped for forward-compat — an older app importing a
+  // newer backup must not choke on slot types it doesn't know yet. A KNOWN
+  // slot type with a non-matching id shape fails the import before the wipe.
   for (const t of data.tombstones || []) {
-    if (!t || !isSlotTombstone(t.recordType, t.recordId)) {
+    if (!t || !SLOT_ID_SHAPE[t.recordType]) continue;
+    if (!isSlotTombstone(t.recordType, t.recordId)) {
       throw new Error(`Corrupt backup: tombstone is not a derived-slot id ${JSON.stringify(t)}`);
     }
     // The record store is keyed by recordId alone: a tombstone sharing its id
