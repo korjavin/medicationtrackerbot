@@ -351,13 +351,19 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     expect(back.data.tombstones).toEqual(fixture.data.tombstones);
   });
 
-  it('exports tombstones only for derived-slot types; old files without the key import as today', () => {
+  it('exports only derived-slot-shaped tombstones; old files without the key import as today', () => {
     // A deleted note is delete-by-absence: absence already means deleted after
-    // a replace-only import, so its tombstone is correctly dropped on export.
+    // a replace-only import, so its tombstone is correctly dropped on export —
+    // as are manually-keyed (`intake-manual-…`, `session-adhoc-…`) and suffixed
+    // (`intake-<m>-<s>-tz_step`, which nothing looks up) tombstones: only exact
+    // derived-slot shapes suppress re-materialization.
     const records = vaultToRecords(fixture, { now: NOW });
     const withExtra = [
       ...records,
       { recordType: 'note', recordId: '999', clientTs: NOW, deleted: true },
+      { recordType: 'intake', recordId: 'intake-manual-123-456', clientTs: NOW, deleted: true },
+      { recordType: 'intake', recordId: 'intake-1-1783580400-tz_step', clientTs: NOW, deleted: true },
+      { recordType: 'workoutsession', recordId: 'session-adhoc-5', clientTs: NOW, deleted: true },
       { recordType: 'workoutsession', recordId: 'session-10-2026-07-11', clientTs: NOW, deleted: true },
     ];
     const out = recordsToVault(withExtra, { now: NOW });
@@ -376,31 +382,42 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     expect(recordsToVault(legacyRecords, { now: NOW }).data.tombstones).toBeUndefined();
   });
 
-  it('ignores non-slot tombstone types, lets a live row win a collision, and rejects malformed ids', () => {
-    const v = {
+  it('rejects non-slot tombstones and cross-type collisions; live row wins same-type (med-jtaj)', () => {
+    const bad = (tombstones) => ({ format: 'medtracker-vault', version: 1, data: { tombstones } });
+    // Not a derived-slot type, or not a derived-slot id: Corrupt backup before
+    // the destructive replace — a hand-edited file must not tombstone arbitrary
+    // records (e.g. {intake, 'settings'} over the settings singleton).
+    for (const t of [
+      { recordType: 'note', recordId: '999' },
+      { recordType: 'bogus', recordId: 'x' },
+      { recordType: 'intake' },
+      { recordType: 'intake', recordId: '' },
+      { recordType: 'intake', recordId: 'intake-manual-123-456' },
+      { recordType: 'intake', recordId: 'intake-1-1783580400-tz_step' },
+      { recordType: 'intake', recordId: 'settings' },
+      { recordType: 'workoutsession', recordId: 'session-adhoc-5' },
+    ]) {
+      expect(() => vaultToRecords(bad([t]), { now: NOW })).toThrow(/Corrupt backup/);
+    }
+
+    // Cross-type recordId collision: the store is keyed by recordId alone, so a
+    // tombstone sharing its id with another type's live row would overwrite it.
+    const clashType = {
       format: 'medtracker-vault',
       version: 1,
       data: {
-        diary: { notes: [{ content: 'hi', created_at: '2026-07-08T10:00:00Z' }] },
-        tombstones: [
-          { recordType: 'note', recordId: '999' }, // not a derived-slot type: ignored
-          { recordType: 'bogus', recordId: 'x' }, // forward-compat: ignored
-        ],
+        medications: { items: [{ id: 'session-10-2026-07-09', name: 'x' }] },
+        tombstones: [{ recordType: 'workoutsession', recordId: 'session-10-2026-07-09' }],
       },
     };
-    expect(vaultToRecords(v, { now: NOW }).some((r) => r.deleted)).toBe(false);
+    expect(() => vaultToRecords(clashType, { now: NOW })).toThrow(/Corrupt backup/);
 
-    // A tombstone colliding with a live row in the same file loses.
+    // Same-type collision: the live row wins, a single live record out.
     const clash = JSON.parse(JSON.stringify(fixture));
     clash.data.tombstones.push({ recordType: 'workoutsession', recordId: 'session-10-2026-07-07' });
     const slot = vaultToRecords(clash, { now: NOW })
       .filter((r) => r.recordType === 'workoutsession' && r.recordId === 'session-10-2026-07-07');
     expect(slot).toHaveLength(1);
     expect(slot[0].deleted).toBe(false);
-
-    // A malformed tombstone id fails the import before the destructive replace.
-    const bad = (tombstones) => ({ format: 'medtracker-vault', version: 1, data: { tombstones } });
-    expect(() => vaultToRecords(bad([{ recordType: 'intake' }]), { now: NOW })).toThrow(/Corrupt backup/);
-    expect(() => vaultToRecords(bad([{ recordType: 'intake', recordId: '' }]), { now: NOW })).toThrow(/Corrupt backup/);
   });
 });

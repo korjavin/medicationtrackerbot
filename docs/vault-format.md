@@ -386,15 +386,23 @@ tombstone included — as occupying the slot. A tombstone there means "deliberat
 deleted, do not re-materialize"; dropping it on export resurrects the day and its
 reminder on the next import. Every other type is delete-by-absence (a missing row
 stays missing after the replace-only import), so only `intake` and
-`workoutsession` tombstones are carried — all other tombstones are dropped on
-export and ignored on import.
+`workoutsession` tombstones are carried.
 
+- Only exact derived-slot ids are carried: `intake-<medId>-<unixSec>` (mirroring
+  medintake.js `slotId`) and `session-<groupId>-<YYYY-MM-DD>` (mirroring workout.js
+  `sessionRecordId`, the same shape the reminder horizon probes). Manually-keyed
+  rows (`intake-manual-…`, `session-adhoc-…`) and suffixed import ids
+  (`intake-<m>-<s>-tz_step`, which nothing looks up) delete-by-absence: their
+  tombstones are dropped on export, and any tombstone entry that is not an exact
+  slot shape fails the import with `Corrupt backup` before the wipe.
 - Each entry is identity-only (`recordType`, `recordId`); import re-stamps them as
   bodyless `deleted` rows, exactly what `records.del` writes. No `clientTs` is
   carried — the import clock stamps them.
 - The key is optional and omitted when empty: old files predate it and import
   exactly as before (no tombstones). Absent and `[]` compare equal.
-- A tombstone colliding with a live row in the same file loses — the live row wins.
+- A tombstone colliding with a live row of the SAME type loses — the live row wins.
+  A tombstone sharing its recordId with a live row of ANOTHER type fails the import:
+  the record store is keyed by recordId alone, so it would overwrite that row.
 
 ## The secrets toggle
 

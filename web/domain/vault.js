@@ -84,6 +84,23 @@ export const VAULT_MANAGED_TYPES = new Set([
 // replace-only import, and its tombstones are correctly dropped on export.
 export const TOMBSTONED_SLOT_TYPES = new Set(['intake', 'workoutsession']);
 
+// Derived-slot id shapes, mirroring the canonical builders — medintake.js
+// slotId(medId, scheduledAtMs) and workout.js sessionRecordId(groupId, date);
+// the session shape is identical to the tombstone probe in reminders.js.
+// Only tombstones at these ids suppress re-materialization. Manually-keyed
+// rows (`intake-manual-…`, `session-adhoc-…`) and suffixed import ids
+// (`intake-<m>-<s>-tz_step`, which nothing looks up) delete-by-absence, so
+// their tombstones are never carried.
+const SLOT_ID_SHAPE = {
+  intake: /^intake-\d+-\d+$/,
+  workoutsession: /^session-\d+-\d{4}-\d{2}-\d{2}$/,
+};
+
+function isSlotTombstone(recordType, recordId) {
+  const shape = SLOT_ID_SHAPE[recordType];
+  return !!shape && typeof recordId === 'string' && shape.test(recordId);
+}
+
 // The tz-plan statuses bot mode treats as the single live plan
 // (tz.GetLatestActiveOrPendingTransitionPlan). NOTIFIED is a real persistent
 // state the scheduler writes and can sit in for up to 48h before auto-approve,
@@ -153,9 +170,10 @@ export function recordsToVault(records, { now, includeSecrets = true } = {}) {
   const tombstones = [];
   for (const rec of records) {
     if (rec.deleted) {
-      // Derived-slot suppression signals survive the round-trip (bd med-jtaj);
-      // every other tombstone is delete-by-absence and stays dropped.
-      if (TOMBSTONED_SLOT_TYPES.has(rec.recordType)) {
+      // Only exact derived-slot shapes survive the round-trip (bd med-jtaj):
+      // manual/ad-hoc rows are randomly keyed and delete-by-absence, so their
+      // tombstones stay dropped with every other non-slot type.
+      if (isSlotTombstone(rec.recordType, rec.recordId)) {
         tombstones.push({ recordType: rec.recordType, recordId: rec.recordId });
       }
       continue;
@@ -590,14 +608,20 @@ export function vaultToRecords(vault, { now } = {}) {
 
   // --- tombstones (derived-slot suppression signals, bd med-jtaj) ---
   // Old files predate the key and import exactly as before (no tombstones).
-  // Unknown types are ignored for forward-compat; a tombstone colliding with
-  // a live row in the same file loses (the live row is the truth).
+  // Anything else must be an exact derived-slot shape — a hand-edited or
+  // future file we must not silently honor before a wipe fails the import.
   for (const t of data.tombstones || []) {
-    if (!t || !TOMBSTONED_SLOT_TYPES.has(t.recordType)) continue;
-    if (typeof t.recordId !== 'string' || t.recordId === '') {
-      throw new Error(`Corrupt backup: tombstone has no usable id ${JSON.stringify(t && t.recordId)}`);
+    if (!t || !isSlotTombstone(t.recordType, t.recordId)) {
+      throw new Error(`Corrupt backup: tombstone is not a derived-slot id ${JSON.stringify(t)}`);
     }
-    if (usedIds.has(`${t.recordType}:${t.recordId}`)) continue;
+    // The record store is keyed by recordId alone: a tombstone sharing its id
+    // with a live row of ANOTHER type would overwrite that row. A same-type
+    // share is the live row winning (skip); a cross-type share is corrupt.
+    const sameId = out.filter((r) => r.recordId === t.recordId);
+    if (sameId.some((r) => r.recordType !== t.recordType)) {
+      throw new Error(`Corrupt backup: tombstone ${t.recordType}:${t.recordId} collides with a live ${sameId[0].recordType} record`);
+    }
+    if (sameId.length > 0) continue;
     usedIds.add(`${t.recordType}:${t.recordId}`);
     // Bodyless, like records.del writes: no reader may need a body off these
     // (the reminder horizon reads the day off the slot id).
