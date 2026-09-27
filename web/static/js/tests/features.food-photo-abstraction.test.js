@@ -28,7 +28,6 @@ describe('features/food/photo.js — Phase 2b abstraction seam (Task 7)', () => 
         env.window.DataStore = env.window.DataStore || {};
         env.window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
         env.window.DataStore.clearCached = vi.fn().mockResolvedValue(undefined);
-        env.window.DataStore.advanceCursorSilently = vi.fn();
     });
 
     afterEach(() => {

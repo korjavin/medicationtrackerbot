@@ -98,7 +98,7 @@ window.healthOverviewCacheKey = healthOverviewCacheKey;
 
 // Fetchers for every key Today reads from IndexedDB. Calling fetchFresh with
 // these tags both populates the cache and registers the key→tag mapping, so
-// future applyChangesPayload invalidations can evict the entry.
+// future tag invalidations can evict the entry.
 function todayFetchSpecs(foodKey) {
     return {
         settings_bundle: {

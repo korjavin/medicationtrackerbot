@@ -47,7 +47,6 @@ describe('Food modal — "Parse with AI" mode (Plan 2026-05-17, Task 5)', () => 
         env.window.DataStore = env.window.DataStore || {};
         env.window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
         env.window.DataStore.clearCached = vi.fn().mockResolvedValue(undefined);
-        env.window.DataStore.advanceCursorSilently = vi.fn();
 
         const video = env.document.getElementById('food-scanner-video');
         if (video) {

@@ -341,9 +341,8 @@ async function clearPending(recordIds) {
 // In cloud mode most writers are NOT the UI: the ElevenLabs voice agent's client
 // tools, the Claude connector over the MCP relay, the sealed Telegram inbox
 // drain, and incoming sync pulls all land records without any screen knowing.
-// Bot mode's /api/changes + SSE repaint loop is a deliberate no-op here
-// (data-store.js startChangePolling), so before this emit those writes were
-// durable but invisible until a reload.
+// No change-feed repaint loop runs here, so before this emit those writes
+// were durable but invisible until a reload.
 //
 // Every one of them funnels through writeRecord (via recordsPort) or
 // applyIncoming, so one notification at each covers today's writers and whatever

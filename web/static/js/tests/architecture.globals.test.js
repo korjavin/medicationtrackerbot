@@ -36,14 +36,12 @@ const ALLOWED_GLOBALS = new Set([
 
 
     // App core (app.js)
-    'window.onDataStoreUnauthorized',   // data-store.js — guarded re-auth callback tests provide; the app.js definition is gone with the bot login flow
     'window.requestTabRefresh',         // app.js — called by data-store.js on change event
     'window.reloadCurrentTab',          // app.js — called by data-store.js + sync.js
     'window.healthOverviewCacheKey',    // features/today-loader.js — timezone-qualified IndexedDB key for health overview; shared with health.js to avoid formula divergence (Plan 2026-06-10 finish-app-js-split, Task 3)
 
     // Core modules
-    'window.apiCallDirect',             // core/api.js — low-level fetch used by data-store.js
-    'window.makeWriteHeaders',          // core/api.js — plain headers + X-Client-ID for direct-fetch *write* sites (food photo POST, food description POST, food log DELETE) so the backend's notifyOnWriteMiddleware can echo the originating clientId back via source_client_id on the SSE payload — preventing self-origin banner regressions on long-running AI flows that exceed the 5s timing-window fallback
+    'window.apiCallDirect',             // core/api.js — low-level fetch used by feature modules that bypass offlineAwareApiCall (cached-fetch.js, meds, workout groups/stats, today-loader, journey)
     'window.AppKernel',                 // core/app-kernel.js — module registry
     'window.ChartUtils',               // core/chart-utils.js — shared SVG chart utilities
     'window.escapeHtml',               // core/utils.js — canonical HTML entity escaper; consumed by sync.js debug panel + app.js medication schedule renderer

@@ -260,7 +260,6 @@ describe('uploadFoodPhoto sends the resolved eaten_at to the AI parse', () => {
         if (env.window.DataStore) {
             env.window.DataStore.invalidateTags = async () => {};
             env.window.DataStore.clearCached = async () => {};
-            env.window.DataStore.advanceCursorSilently = () => {};
         }
 
         let captured = null;

@@ -14,20 +14,6 @@ async function undoFoodAIItems(items, summary, originalCount) {
     if (!Array.isArray(items) || items.length === 0) return;
     const total = (typeof originalCount === 'number') ? originalCount : items.length;
 
-    // Stamp the timing-window fallback once for the whole undo batch — these
-    // DELETEs all originate from the user's current tab, and the SSE echoes
-    // they trigger must not surface as a foreign banner if the broker's
-    // source attribution doesn't reach the subscriber for any reason. The
-    // rollback restores the prior stamp when the entire batch failed (no
-    // server-side write happened) so a 5s false-suppress window doesn't
-    // hide unrelated cross-source banners.
-    let rollbackOwnWriteStamp = null;
-    if (window.DataStore && typeof window.DataStore.recordOwnWriteWithRollback === 'function') {
-        rollbackOwnWriteStamp = window.DataStore.recordOwnWriteWithRollback();
-    } else if (window.DataStore && typeof window.DataStore.recordOwnWrite === 'function') {
-        window.DataStore.recordOwnWrite();
-    }
-
     const results = await Promise.all(items.map(async (it) => {
         if (!it || !it.id) return { item: it, ok: false };
         // There is no /api/food/log/:id on the wire — apiCall routes
@@ -42,16 +28,11 @@ async function undoFoodAIItems(items, summary, originalCount) {
 
     const allOk = results.every(r => r.ok);
     const anyOk = results.some(r => r.ok);
-    if (!anyOk && rollbackOwnWriteStamp) rollbackOwnWriteStamp();
-
     if (anyOk) {
         try {
             await window.DataStore.invalidateTags(['food', 'gamification']);
             if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
                 await window.DataStore.clearCached(todayFoodKey(new Date()));
-            }
-            if (window.DataStore?.advanceCursorSilently) {
-                window.DataStore.advanceCursorSilently();
             }
         } catch (e) {
             console.error('Food AI undo cache invalidation failed:', e);

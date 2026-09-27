@@ -1,10 +1,11 @@
 // bd med-9b8.1 — the cloud shim's fallback branch (web/cloud/js/apishim.js).
 // Unmapped writes used to resolve null, so every unshimmed write silently
-// looked like it succeeded. They now throw like unmapped reads. Also covers
-// the cloud-mode /api/changes suppression in data-store.js, which was the
-// source of the console warn spam. (POST /api/firstrun/complete used to be a
-// hardcoded ack here; med-4pz.5 made it a real vault write, covered by
-// cloud.shim-contract.settings.test.js.)
+// looked like it succeeded. They now throw like unmapped reads. (POST
+// /api/firstrun/complete used to be a hardcoded ack here; med-4pz.5 made it
+// a real vault write, covered by cloud.shim-contract.settings.test.js.)
+// Also pins the med-a9n5.6 deletion: DataStore exposes no change-feed
+// surface and core/api.js carries no per-client write header — cloud
+// refresh flows through sync.js invalidateTags + requestTabRefresh instead.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 
@@ -42,7 +43,7 @@ describe('cloud shim contract — unmapped-route fallback', () => {
     });
 });
 
-describe('cloud shim contract — DataStore never polls /api/changes in cloud mode', () => {
+describe('cloud shim contract — DataStore exposes no change-feed surface', () => {
     let env;
 
     beforeEach(() => {
@@ -55,23 +56,39 @@ describe('cloud shim contract — DataStore never polls /api/changes in cloud mo
         env = null;
     });
 
-    it('advanceCursorSilently and verifyAuthSession are no-ops', async () => {
-        const direct = vi.fn();
-        env.window.apiCallDirect = direct;
-
-        await env.window.DataStore.advanceCursorSilently();
-        await env.window.DataStore.verifyAuthSession();
-
-        expect(direct).not.toHaveBeenCalled();
+    it('the change feed is gone: no polling, cursor, client-id or auth-probe methods', () => {
+        // med-a9n5.6 deleted the bot-mode changes cursor + SSE feed, the
+        // client-id echo suppression and the cursor helpers. Pin the
+        // deletion so the feed cannot be reintroduced without updating this
+        // contract.
+        const gone = [
+            'startChangePolling',
+            'stopChangePolling',
+            'startChangeStream',
+            'startChangePollInterval',
+            'stopChangePollInterval',
+            'buildChangesStreamURL',
+            'pollChangesOnce',
+            'advanceCursorSilently',
+            'applyChangesPayload',
+            'getChangeCursor',
+            'setChangeCursor',
+            'getClientId',
+            'recordOwnWrite',
+            'recordOwnWriteWithRollback',
+            'verifyAuthSession',
+            'handleUnauthorized',
+            'pruneStaleClientCache',
+            'getCacheMaxAgeMsByKey',
+        ];
+        for (const method of gone) {
+            expect(env.window.DataStore[method]).toBeUndefined();
+        }
+        // The cloud refresh path stays: sync.js calls requestTabRefresh.
+        expect(typeof env.window.DataStore.requestTabRefresh).toBe('function');
     });
 
-    it('advanceCursorSilently still hits /api/changes in bot mode', async () => {
-        delete env.window.__MEDTRACKER_CLOUD__;
-        const direct = vi.fn().mockResolvedValue({ cursor: 7 });
-        env.window.apiCallDirect = direct;
-
-        await env.window.DataStore.advanceCursorSilently();
-
-        expect(direct).toHaveBeenCalledWith(expect.stringContaining('/api/changes?since='), 'GET');
+    it('core/api.js exposes no makeWriteHeaders helper', () => {
+        expect(env.window.makeWriteHeaders).toBeUndefined();
     });
 });

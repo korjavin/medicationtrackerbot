@@ -73,8 +73,8 @@ db.version(5).stores({
 // Version 6: Add failed-action queue for Service Worker notification handlers.
 // When a SW handler's POST fails (offline, 5xx, network blip) it writes the
 // {endpoint, method, body} envelope here and the main thread drains the
-// queue on the next online sync. See sw-api-helper.js enqueueFailedAction
-// and sync.js drainSwActionQueue.
+// queue on the next online sync. See SyncManager.drainSwActionQueue in
+// sync.js.
 db.version(6).stores({
     bp_readings: '++localId, serverId, measured_at, syncStatus',
     weight_logs: '++localId, serverId, measured_at, syncStatus',

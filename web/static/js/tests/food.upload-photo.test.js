@@ -53,7 +53,6 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
         env.window.DataStore = env.window.DataStore || {};
         env.window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
         env.window.DataStore.clearCached = vi.fn().mockResolvedValue(undefined);
-        env.window.DataStore.advanceCursorSilently = vi.fn();
     });
 
     afterEach(() => {

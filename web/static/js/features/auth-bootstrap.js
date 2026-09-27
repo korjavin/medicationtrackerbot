@@ -163,10 +163,6 @@ window.AuthBootstrap = (function () {
     async function applyBootstrapPayload(res) {
         if (!res) return false;
 
-        if (typeof res.cursor === 'number') {
-            window.DataStore.setChangeCursor(res.cursor);
-        }
-
         if (res.features) {
             window.SettingsState.applyBootstrapFeatures(res.features);
             if (typeof window.updateFeatureTabVisibility === 'function') {
