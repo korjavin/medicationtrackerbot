@@ -231,20 +231,37 @@ export async function replaceAllRecords(records) {
   // (or a compaction re-bootstrap from pullTail) clears the whole store, but
   // pending writes are unsynced local truth the snapshot doesn't contain yet —
   // wiping them loses the user's note and orphans its 'pending' row forever.
-  // Re-overlay them after the clear; the oplog tail LWW-corrects them once the
-  // server assigns their real seq.
+  // Re-overlay them after the clear, except floored derived rows (med-z2dq):
+  // a pending row stamped clientTs 0 (CLAUDE.md rule 12) that meets a snapshot
+  // row with a HIGHER clientTs is stale by design — it loses every LWW merge —
+  // so the snapshot row stands and the pending op is dropped instead of
+  // resurrecting over e.g. an imported tombstone. ONLY the floor is
+  // discardable: a real pending edit (clientTs > 0) keeps today's behaviour
+  // exactly (overlay wins locally, stays queued) whatever the snapshot
+  // timestamp says, because clock skew / blind concurrent writes leave real
+  // timestamps unordered and a comparison alone can't prove an unsent user
+  // edit stale.
   await withRecordsLock(async () => {
     const pending = await readPending();
+    const snapshotById = new Map(records.map((r) => [r.recordId, r]));
     const overlay = [];
+    const losingPending = [];
     for (const { recordId } of pending) {
       const r = await getRecord(recordId);
-      if (r) overlay.push(r);
+      if (!r) continue;
+      const snap = snapshotById.get(recordId);
+      if (snap && r.clientTs === 0 && snap.clientTs > 0) {
+        losingPending.push(recordId);
+        continue;
+      }
+      overlay.push(r);
     }
     await withStore('records', 'readwrite', (store) => {
       store.clear();
       for (const record of records) store.put(record);
       for (const record of overlay) store.put(record);
     });
+    if (losingPending.length > 0) await clearPending(losingPending);
   });
   invalidateRecords();
 }
