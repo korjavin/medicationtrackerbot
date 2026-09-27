@@ -666,12 +666,10 @@ right trade: silently accepting an epoch-less op would violate I4 and corrupt th
 account for everyone else.
 
 **Route registration.** `POST /api/rotate` and `POST /api/rotate/reauth` live in
-`internal/cloudserver` and are not MCP-catalogued operations, so neither the bot-mode
-route-coverage guard (`internal/server/mcp_coverage_exempt.go`, which scans
-`internal/server` only) nor the cloud responder coverage sweep
-(`web/cloud/js/tests/mcp-responder.test.js`, driven by the catalog) requires an
-entry. Rotation must never be MCP-reachable — an agent must not be able to rotate a
-user's keys.
+`internal/cloudserver` and are not MCP-catalogued operations, so the responder
+coverage sweep (`web/cloud/js/tests/mcp-responder.test.js`, driven by the catalog)
+requires no entry for them. Rotation must never be MCP-reachable — an agent must
+not be able to rotate a user's keys.
 
 **v2 — rotation without re-enrolling every device (deferred, not part of this
 design).** The cost §2 identifies is that `KEK_j` is unreachable to the rotating

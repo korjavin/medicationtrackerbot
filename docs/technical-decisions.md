@@ -6,8 +6,8 @@ behaves today.
 The two decisions that used to lead this file — *Why SSE is primary* and
 *Source attribution via `X-Client-ID`* — moved to
 [archive/sse-change-stream.md](archive/sse-change-stream.md). That mechanism
-(`/api/changes/stream`, the `ChangeBroker` fan-out) exists only in the Go-server
-code; **cloud mode has no change stream at all.**
+(`/api/changes/stream`, the `ChangeBroker` fan-out) died with the Go-server
+code that implemented it; **there is no change stream at all.**
 
 ## Why only three endpoints support offline writes
 
@@ -27,6 +27,6 @@ After successful sync, records are deleted from IndexedDB rather than kept as "s
 
 The app is a privacy-first PWA with a large amount of client-side domain logic
 and encrypted local state. A framework would add bundle size and build
-complexity for little benefit. The cloud vault/oplog path and the legacy
+complexity for little benefit. The cloud vault/oplog path and the
 four-layer local-first architecture (SW → IndexedDB → SyncManager → SWR
 DataStore) are straightforward to implement with vanilla JS and Dexie.js.

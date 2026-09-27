@@ -1,9 +1,10 @@
 # Vault format v1 — full-user export/import (C2e)
 
 The canonical, no-lock-in backup format. One file holds **one user, all domains**,
-exportable and importable in **both** runtimes (bot mode + cloud mode). A
+exportable and importable by the cloud client. A
 gzipped JSON file on disk (optionally `.age`-encrypted, see
-[cloud-mode.md](cloud-mode.md)) is always the exit door.
+[cloud-mode.md](cloud-mode.md)) is always the exit door. Legacy bot-mode
+exports remain importable (see the frozen fixture below).
 
 ## On-disk shapes
 
@@ -18,34 +19,27 @@ age -d medtracker-vault-2026-07-08.json.gz.age | gunzip | jq .
 ```
 
 Compression is not cosmetic: a two-year vault is 21 MB of pretty-printed JSON
-and **0.7 MB gzipped** (30x; the per-sample vitals streams and mi-band GPS
-tracks dominate the volume and compress extremely well). `POST /api/import` caps
-the body at 64 MB, so a large backup is only restorable *because* it's
-compressed — the browser gzips the upload too (`Content-Encoding: gzip`), and
-the server inflates it under a separate 1 GB ceiling so a small body can't be a
-decompression bomb.
+and **0.7 MB gzipped** (30x — the per-sample vitals streams dominate the volume
+and compress extremely well). Import caps the picked file at 64 MB client-side
+(`MAX_BACKUP_BYTES`), so a large backup is only restorable *because* it's
+compressed.
 
 Import sniffs magic bytes rather than the filename, so all four shapes work and
 pre-compression backups keep importing: `.json`, `.json.gz`, `.json.age`,
 `.json.gz.age`.
 
-`GET /api/export` also serves the response `Content-Encoding: gzip` to any
-client that accepts it. That is transport only — `fetch` transparently
-decompresses it, and the browser compresses again for the file.
-
-This document is the cross-runtime contract. The Go exporter (`GET /api/export`),
-the Go importer (`POST /api/import`), and the cloud client (`window.CloudVault`)
-all target the shapes below, and both test suites pin the same golden fixture
+This document is the vault contract. The cloud client (`window.CloudVault`)
+targets the shapes below, and the Vitest suite pins the golden fixture
 `tests/fixtures/vault-v1.json` against it.
 
 ## Design rule: the format is the API wire shape
 
 Field names and value formats match what each domain's `/api/*` contract already
 emits — which is also, verbatim, what the cloud record bodies store (C1/C2
-convention). There is no third dialect: the Go exporter is a repo-walk + the same
-JSON marshaling the handlers already do; the cloud exporter is a records-walk +
-regroup. The only real conversions are at the Go storage boundary (see
-[Time formats](#time-formats)).
+convention). There is no third dialect: the cloud exporter is a records-walk +
+regroup. The deleted Go exporter was a repo-walk + the same JSON marshaling its
+handlers did; its storage-boundary conversions are documented under
+[Time formats](#time-formats) so legacy files stay readable.
 
 ## Envelope
 
@@ -71,8 +65,8 @@ have to survive a round-trip — the importer is free to re-mint them.
 
 - **FK-parent records carry a numeric `id`** and are referenced by numeric id:
   `medication`, `food product`, workout `group`/`variant`/`exercise`/`library`,
-  workout `session`. On bot this is the DB primary key; on cloud it is preserved as a
-  body field alongside the string recordId. References
+  workout `session`. It is preserved as a body field alongside the string
+  recordId. References
   (`intake.medication_id`, `foodlog.product_id`, `exercise.variant_id`,
   `exercise_log.session_id`/`exercise_id`, `rotation.group_id`, …) use these numbers.
 - **Leaf records omit `id`** — bp readings, weight logs, food logs, diary notes,
@@ -147,8 +141,7 @@ is called out as unix-seconds or milliseconds, it is an **RFC3339 string**.
   (rolling average) — omitted.
 - **goals** (leaf, no `id`) — the full append-only goal history, **oldest first**.
   Each: `target_weight` (num), `target_date` (`YYYY-MM-DD`), `set_at` (RFC3339),
-  `start_weight` (num|null). The newest row is the current goal; bot-mode import
-  rebuilds the legacy singleton `settings.weight_goal{,_date}` columns from it.
+  `start_weight` (num|null). The newest row is the current goal.
 
 ### `food`
 
@@ -205,8 +198,7 @@ Workout entities carry a numeric body `id` (FK glue; `-1` is the ad-hoc sentinel
 - **equipment** — `id`, `user_id`, `name`, `kind` (`fixed`|`plated`); fixed
   carries `loads_kg` (num array), plated carries `bar_kg` (num), `sides` (1|2),
   `pair` (bool), `plates` (`[{kg, count}]`); `created_at`, `updated_at`.
-  Cloud-only inventory (med-niix.1): the bot runtime has no equipment table, so
-  bot exports omit the key and bot import ignores it; cloud round-trips it.
+  Cloud inventory (med-niix.1): legacy bot files predate it and simply omit the key.
 - **rotation** — `group_id`, `current_variant_id`, `last_session_date` (RFC3339|null),
   `updated_at`. No stored `id`; re-mints deterministically as `rotation-<groupId>`
   (one row per group) on cloud import.
@@ -225,7 +217,7 @@ Workout entities carry a numeric body `id` (FK glue; `-1` is the ad-hoc sentinel
 - **miband_workout** (leaf, no `id`) — `activity_type` (num), `activity_name`, `source_start_ms`
   (**milliseconds** epoch), `source_end_ms` (**milliseconds** epoch), `tz_offset`
   (seconds), `duration_sec`, `distance_m`, `steps`, `calories`, `heart_rate_avg`,
-  `spo2_avg` (num), `pause_ms` (ms), `source` (str). The bot exporter also emits `gps`
+  `spo2_avg` (num), `pause_ms` (ms), `source` (str). Legacy bot exports also emit `gps`
   (array | null) — each point `point_index` (int), `ts_ms` (**milliseconds**), `latitude`,
   `longitude`, `altitude` (num), `is_pause` (bool) — but **cloud import drops it** (see the
   skip list), so a cloud re-export omits it. The wire `start_time`/`end_time` RFC3339
@@ -324,9 +316,8 @@ Flat per-sample arrays — the format hides the cloud day-batching (see
 - **features** — object map of feature-flag booleans (`food`, `bp`, `weight`,
   `medication`, `workout`, `health`, `gamification`, `weekly_digest`, …). Mirrors the
   `features` singleton `flags`.
-- **med_reminder_pref** — cloud-only singleton (`{enabled}`). The bot runtime has no
-  medication-reminder preference row, so bot exports omit it and bot import ignores it;
-  cloud round-trips it.
+- **med_reminder_pref** — cloud singleton (`{enabled}`). Legacy bot files predate it
+  and omit it.
 - **bp_reminder** / **weight_reminder** — the user-set half of the
   `bp_reminder_state` / `weight_reminder_state` rows: `enabled` (bool),
   `preferred_reminder_hour` (int 0–23), `snoozed_until` (RFC3339|null),
@@ -384,14 +375,12 @@ API tokens and carries the array as a passthrough record.
 
 ## The secrets toggle
 
-`GET /api/export?include_secrets=0` (bot) / `exportAll(records, {includeSecrets: false})`
-(cloud) omits the two secret-bearing blocks — `settings.integrations` and top-level
-`api_tokens` — so the file can be shared or stored casually. Absent (or `1`/`true`) means
-include; the export UI's checkbox is **checked by default**. Any other value of the query
-param (`no`, `off`, `False`, …) fails closed and omits the blocks — a typo must never leak
-provider keys.
+`exportAll(records, {includeSecrets: false})` omits the two secret-bearing blocks —
+`settings.integrations` and top-level `api_tokens` — so the file can be shared or stored
+casually. The export UI's checkbox is **checked by default** (include); unchecked omits
+the blocks.
 
-With secrets included, both runtimes emit the blocks **even when the account has none**
+With secrets included, the export emits the blocks **even when the account has none**
 (`"integrations": {}`, `"api_tokens": []`). Only an *absent* block means "leave the
 destination alone", so a restore over an old install can clear stale keys and tokens.
 
@@ -409,10 +398,11 @@ revoke its API tokens. Note that absent and "present but blank" are therefore di
 
 ## Time formats
 
-The format is uniform RFC3339 / `YYYY-MM-DD` on the wire. The **only** storage-boundary
-conversions the Go side performs:
+The format is uniform RFC3339 / `YYYY-MM-DD` on the wire. The table below records
+the storage-boundary conversions the deleted Go side performed — kept so legacy
+files stay readable:
 
-| Domain field | Server storage | Vault wire form |
+| Domain field | Legacy server storage | Vault wire form |
 |---|---|---|
 | `intake.scheduled_at` / `taken_at` / `snoozed_until` | unix-**seconds** INTEGER | RFC3339 |
 | `vitals` sample `date_time` (heart/spo2/stress) | unix-**millis** INTEGER (`time.UnixMilli`) | RFC3339 |
@@ -422,10 +412,11 @@ conversions the Go side performs:
 
 ## Skip list — intentionally never exported
 
-Every table `seeddemo.WipeUserTx` deletes must be either exported (above) or listed
-here with a reason. `TestVaultWipeAndExportAgree` pins both directions — a new
-user-scoped table that lands in the wipe set and in neither list fails CI, because
-"wiped but not exported" is silent data loss on a replace-import.
+The tables below are intentionally never exported. A deleted Go test
+(`TestVaultWipeAndExportAgree`) once pinned this list against the user-wipe
+manifest in both directions, because "wiped but not exported" is silent data
+loss on a replace-import; the golden fixture + Vitest round-trip is now the
+only guard.
 
 | Skipped | Reason |
 |---|---|
@@ -433,8 +424,8 @@ user-scoped table that lands in the wipe set and in neither list fails CI, becau
 | `login_nonces` | short-lived auth material |
 | `change_events`, per-domain download cursors | SSE/poll sync bookkeeping, rebuilt on demand |
 | `intake_reminders` | Telegram message ids, meaningless on another server |
-| `miband_gps_tracks` | **bot export carries it** nested under `workouts.miband[].gps`; **cloud import drops it** (`vaultToRecords`). It was 44% of a real vault (~77 MiB / 168 tracks) and no code in either mode renders a route, yet it rode in every cloud snapshot and was structured-cloned on every `records.list()`. Accepted loss: a cloud → bot export no longer carries routes; the bot-mode DB stays the source of truth. |
-| `workout_schedule_snapshots` | **write-only table.** `CreateGroupSnapshot` is called from `workout_handlers.go`; `ListGroupSnapshots` (`internal/store/workout/repo.go`) has **zero callers** — no handler, no MCP op, no bot command, no frontend. Nothing can read the data, so carrying it would preserve nothing. |
+| `miband_gps_tracks` | **Legacy bot exports carry it** nested under `workouts.miband[].gps`; **cloud import drops it** (`vaultToRecords`). It was 44% of a real vault (~77 MiB / 168 tracks) and no code renders a route, yet it rode in every cloud snapshot and was structured-cloned on every `records.list()`. Accepted loss: GPS tracks do not survive a cloud round-trip. |
+| `workout_schedule_snapshots` | **write-only table.** In the deleted Go store no reader ever consumed it — no handler, no MCP op, no frontend. Nothing can read the data, so carrying it would preserve nothing. |
 | cloud-only `voiceprovisioning` | plumbing with no `/api` route |
 
 Also never exported: **derived fields** recomputed on read — bp `category`, weight
@@ -446,7 +437,7 @@ destroys, and the token hashes are what keep a minted token working after a serv
 
 ## Round-trip contract & tolerated normalizations
 
-`bot export → cloud import → cloud export → bot import` (and each single hop) must be
+Export → import → export (and each single hop) must be
 **identity on `data`**, modulo:
 
 - **`exported_at`** — regenerated per export, excluded from equality.
@@ -457,31 +448,34 @@ destroys, and the token hashes are what keep a minted token working after a serv
 - **Derived fields** — anything in the skip list's "derived" bullet is recomputed, not
   compared. A reader that re-adds `category`/`weight_trend` does not break equality.
 - **Deterministic re-minting** — cloud import re-mints scheduled-intake, scheduled-session,
-  and rotation recordIds by rule, so a bot-origin file (no recordIds) and its cloud
+  and rotation recordIds by rule, so a legacy file (no recordIds) and its cloud
   round-trip converge to the same ids rather than duplicating. Sleep and miband rows also
   re-mint on their natural keys (`sleep-<start_time_ms>`, `miband-<source_start_ms>`) — the
   same keys the `.nxk` migration path mints — so a full-vault import followed by a Mi Band
   `.nxk` migration of the same night/session converges to one record instead of double-
-  counting (the client mirror of bot mode's `UNIQUE(user_id,start_time)` / `UNIQUE(source_start_ms)`).
+  counting.
 - **Cloud-only equipment** — `workouts.equipment` and the per-row
-  `library.equipment_id` are cloud inventory (med-niix.1/med-niix.5). The bot
-  runtime has neither the table nor the column, so bot exports omit them and
-  bot import drops them; equality holds after stripping, the way
+  `library.equipment_id` are cloud inventory (med-niix.1/med-niix.5). Legacy bot
+  files omit them; equality holds after stripping, the way
   `med_reminder_pref` is stripped.
-- **Timestamp offsets** — timestamps compare as **instants**, not as text. Bot import
-  normalizes every timestamp to UTC before storing it (`2026-07-07T12:00:00+02:00` →
-  `2026-07-07T10:00:00Z`), because `modernc.org/sqlite` writes a non-UTC `time.Time`
-  in a text form its own reader cannot parse — leaving the row unreadable. The two
-  DATE columns (`scheduled_date`, `last_session_date`) carry a *calendar date*, not an
-  instant, and are stored as midnight-UTC of the date the file recorded.
+- **Timestamp offsets** — timestamps compare as **instants**, not as text. (Legacy
+  bot import normalized every timestamp to UTC before storing it
+  (`2026-07-07T12:00:00+02:00` → `2026-07-07T10:00:00Z`), because
+  `modernc.org/sqlite` wrote a non-UTC `time.Time` in a text form its own reader
+  could not parse — leaving the row unreadable. The two DATE columns
+  (`scheduled_date`, `last_session_date`) carry a *calendar date*, not an
+  instant, and are stored as midnight-UTC of the date the file recorded.)
 
 ## The golden fixture
 
 `tests/fixtures/vault-v1.json` is a small hand-curated vault exercising every domain,
 every deterministic-id case (scheduled + manual intake, tz transition plan, workout
 scheduled session + rotation), a vitals day-batch boundary (samples spanning two calendar
-days), and an integrations key. Both the Go export test and the Vitest cloud round-trip
-test pin this one file — any field-name drift on either side fails that side's pin.
+days), and an integrations key. The Vitest cloud round-trip test pins this one file —
+any field-name drift fails the pin. A second fixture,
+`tests/fixtures/vault-v1-botexport.json`, is FROZEN (its generator was deleted with
+the bot runtime): real legacy export output, kept to prove old exports remain
+importable.
 
 Every list-shaped block carries **≥2 rows** on purpose (two gamification targets, two
 ledger rows, two api tokens, two tz plans — one `COMPLETED` + one `PENDING_APPROVAL`) so

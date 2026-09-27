@@ -196,7 +196,7 @@ One runtime-agnostic module mirroring the `bp.js`/`weight.js` pattern: injected 
 ```js
 export function createGamificationDomain({ records, now, timeZone, aiClient = null }) {
   return {
-    // -- substrate parity (mirrors internal/domain/gamification, med-eyb) --
+    // -- substrate parity (mirrors the deleted internal/domain/gamification, med-eyb) --
     getSummary(), getJourney(), getRings(), getGauges(), getWeeklyReview(),
     getTargets(), putTargets(body),
     // -- discovery engine --
@@ -217,8 +217,8 @@ export function createGamificationDomain({ records, now, timeZone, aiClient = nu
 ```
 
 - `records` — the existing vault records port from `web/cloud/js/sync.js` (`recordsPort`); the module **reads the same record types the other domain modules own** (bp, weight, food logs, workout sessions/logs, sleep/vitals, medication intakes, diary) and never duplicates their write paths.
-- `aiClient` — the same shape `createFoodAIDomain` consumes, provided by `web/cloud/js/aiclient.js`; `null` in bot mode or when no key is configured.
-- Scoring parity: `ScoreDay`, range-membership trapezoid, level curve, habit-strength EMA, gauge trends, and both shipped insights are **ported from the Go engine as the single reference** (per med-eyb: no divergent reimplementation — port `internal/domain/gamification/scoring` semantics function-for-function, with the Go tests' fixtures reused as JS test vectors).
+- `aiClient` — the same shape `createFoodAIDomain` consumes, provided by `web/cloud/js/aiclient.js`; `null` when no key is configured.
+- Scoring parity: `ScoreDay`, range-membership trapezoid, level curve, habit-strength EMA, gauge trends, and both shipped insights are **ported from the deleted Go engine as the single reference** (per med-eyb: no divergent reimplementation — port `internal/domain/gamification/scoring` semantics function-for-function, with the archived Go tests' fixtures reused as JS test vectors).
 - Performance: full-window recompute on read (365d × ScoreDay + probe evaluation) is fine for one user's data in-browser; memoized per session keyed on the records store's change counter. No persisted ledger.
   (ponytail: recompute-on-read, session memo only — add an IndexedDB score cache only if a real device measurably stutters.)
 
@@ -230,7 +230,7 @@ The probe catalog lives inside the module (a `PROBES` table). If it outgrows the
 
 | Route | Method | Module call |
 |---|---|---|
-| `/api/gamification/summary` · `/journey` · `/rings` · `/gauges` · `/weekly-review` · `/insights` | GET | parity calls (frozen shapes from `docs/api.md#gamification` — the shared `web/static` screens keep working unmodified) |
+| `/api/gamification/summary` · `/journey` · `/rings` · `/gauges` · `/weekly-review` · `/insights` | GET | parity calls (frozen shapes from `docs/archive/api.md#gamification` — the shared `web/static` screens keep working unmodified) |
 | `/api/gamification/targets` | GET/PUT | `getTargets` / `putTargets` |
 | `/api/gamification/atlas` | GET | `getAtlas` |
 | `/api/gamification/atlas/seen` | POST | `markDiscoverySeen` |
@@ -241,7 +241,7 @@ The probe catalog lives inside the module (a `PROBES` table). If it outgrows the
 | `/api/gamification/traits` | GET | `getTraits` |
 | `/api/gamification/narrate/weekly` | POST | `narrateWeekly` (returns cached narration when fresh) |
 
-New routes are cloud-first; a later Go backport for bot mode registers the same paths (+ MCP registry ops per the coverage guard) but is explicitly out of this design's scope.
+New routes are cloud routes; there is no Go backport (bot mode was removed 2026-09, epic med-a9n5).
 
 ### 6.3 New vault record types
 
@@ -254,7 +254,7 @@ All encrypted client-side like every other record; synced through the existing o
 | `gamification.journal` | current chapter {theme, startedAt}, closed-chapter summaries, trait acknowledgments, seen-discovery ids, keystone entries | singleton |
 | `gamification.narration` | cached LLM outputs {kind, weekIndex/chapterId, text, generatedAt} | small ring buffer |
 
-### 6.4 UI surfaces (shared `web/static` frontend, both modes)
+### 6.4 UI surfaces (shared `web/static` frontend)
 
 - **Today:** existing rings tile (unchanged) + the **Forecast card** (evening question / morning resolution) + the in-flight experiment tracker line.
 - **Journey screen → becomes "Atlas"** (same `#journey-view` id and deeplink for stability, label change only, per the nav-id precedent): order — chapter header, Health Score card, Discovery feed (developing/revealed/steady cards), experiment slot, gauges panel, traits row, rings card, keystone timeline. The insight-ladder card is retired; its two shipped insights re-render as ordinary Atlas cards (`revealed` from day one for users who had them).
@@ -268,14 +268,14 @@ Phases are cumulative; each ships user-visible value and keeps `pnpm test` + pur
 ### Phase 1 — The Atlas POC *(the smallest captivating slice)*
 
 **Delivers:** `web/domain/gamification.js` with the probe evaluator + a 6-probe catalog (the two shipped Go insights as ports — sleep→BP, good-day → plus workout→BP, adherence→BP-share, weekday-BP, protein-weeks×weight-trend), evidence-gated Discovery feed with progress-to-reveal meters and reveal-once state, rendered on the Journey/Atlas screen in cloud mode. `PORTED_SET` gains `gamification` (feature renders; substrate routes may still return `{enabled:false}` stubs). No HP/levels/rings yet — insight leads.
-**Seams:** `web/domain/gamification.js` (new), `web/cloud/js/apishim.js` (`/atlas`, `/atlas/seen`, stub parity routes, PORTED_SET), `web/static/js/features/journey.js` (Atlas feed card; flag-gated), `gamification.journal` record type, tests: `tests/architecture.domain-purity.test.js` coverage + a `gamification.atlas` feature suite with fixture vaults (correlated / sparse / null-effect datasets asserting `revealed` / `developing` / `no_effect`).
+**Seams:** `web/domain/gamification.js` (new), `web/cloud/js/apishim.js` (`/atlas`, `/atlas/seen`, stub parity routes, PORTED_SET), `web/static/js/features/journey.js` (Atlas feed card; flag-gated), `gamification.journal` record type, tests: `web/static/js/tests/architecture.domain-purity.test.js` coverage + a `gamification.atlas` feature suite with fixture vaults (correlated / sparse / null-effect datasets asserting `revealed` / `developing` / `no_effect`).
 **Acceptance:** a cloud user with ≥60 days of vault BP+sleep+workout data opens Atlas and sees ≥1 revealed discovery with true numbers, ≥1 developing card whose meter names the exact next log action, and a no-effect card rendered as a finding — all computed client-side; server logs show zero plaintext; purity guard green.
 
 ### Phase 2 — Substrate parity *(med-eyb proper)*
 
-**Delivers:** port of the Go scoring engine (ScoreDay, trapezoid, rings, Health Score, habit strength, gauges, weekly review, targets CRUD, level curve for continuity) into the same module; all parity routes live; Today rings tile + Journey substrate cards work in cloud identically to bot mode. Go test fixtures reused as JS vectors to prevent divergence.
+**Delivers:** port of the Go scoring engine (ScoreDay, trapezoid, rings, Health Score, habit strength, gauges, weekly review, targets CRUD, level curve for continuity) into the same module; all parity routes live; Today rings tile + Journey substrate cards work in cloud. The archived Go test fixtures are reused as JS vectors to prevent divergence.
 **Seams:** `web/domain/gamification.js`, `web/cloud/js/apishim.js` (parity routes), `gamification.targets` record, existing `journey.js`/`today.js` (no changes needed — frozen API shapes), parity test suite.
-**Acceptance:** same seeded dataset produces equal HP/level/ring/Health-Score numbers in bot mode (Go) and cloud mode (JS) within documented rounding; med-eyb closable.
+**Acceptance:** same seeded dataset produces equal HP/level/ring/Health-Score numbers between the archived Go fixtures and cloud (JS) within documented rounding; med-eyb closable.
 
 ### Phase 3 — Tomorrow Forecast + calibration
 
@@ -306,6 +306,6 @@ Phases are cumulative; each ships user-visible value and keeps `pnpm test` + pur
 ## 8. Open questions for the owner
 
 1. **Levels retcon:** keep lifetime HP/levels visible as a legacy counter, or hide levels entirely once the Atlas ships? (This design demotes but keeps them.)
-2. **Bot-mode backport:** should Phases 3–5 mechanics eventually land in Go for bot mode, or is cloud the only forward target? (Affects whether probe specs should live in a shareable JSON form.)
+2. **Bot-mode backport:** resolved — bot mode was removed 2026-09 (epic med-a9n5); cloud is the only forward target, so probe specs stay in module form.
 3. **Probe catalog review:** the launch catalog (§4.1) wants a sanity pass against the owner's own data reality (e.g., is last-meal-time reliably logged enough for the sleep×food probe?).
 4. **Chapter themes:** curated-only at launch, or user-authored themes from day one?

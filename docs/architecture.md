@@ -90,12 +90,12 @@ build-and-release question, not an architectural one — see
   `vitals_import_api.go`).
 - `cloudstore/` — `cloud.db` repository: accounts, credentials, envelopes,
   recovery verifiers, oplog + snapshots, push queues, inbox events, invites,
-  feedback. **Own migrations.** It imports `internal/store/db` and *never*
-  `internal/store` — the two register goose migrations into the same global
-  registry, so importing both would try to run one schema against the other's
-  database.
-- `webpush/`, `tzlookup/`, `mcp/registry` (the operation catalog that the
-  browser MCP responder is generated from), `nxk` (Mi Band backup parser).
+  feedback. **Own migrations** in `internal/cloudstore/migrations/`, over the
+  shared `internal/store/db` helpers.
+- `mcp/registry` (the operation catalog that the browser MCP responder is
+  generated from), `domain/nxk` (Mi Band backup parser), `tgclient` (Telegram
+  Bot API client), `mcpshim` (MCP relay framing), `exercisecatalog` (static
+  exercise catalog generator input).
 
 **Browser** (`web/`)
 

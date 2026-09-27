@@ -1,10 +1,13 @@
 # Gamification: HealthPoints & the Journey
 
-> **Status: MVP shipped (backend + HTTP/MCP + frontend); deeper vision still
-> design-only.** The core loop is built across three plans — see §14.1 (backend),
-> §14.2 (HTTP API + MCP), and §14.3 (frontend surfaces). The Phase-2 material below
+> **Status: MVP shipped; deeper vision still design-only. The live implementation
+> is `web/domain/gamification.js`** (cloud vault records + `/api/gamification/*`
+> routes through the shim). §14.1–§14.12 below are the **historical Go
+> implementation record** (removed 2026-09, epic med-a9n5) — kept for rationale,
+> not current behavior. Gamification is deliberately **not** exposed in the cloud
+> MCP catalog (experimental; `catalogjs.Excluded`). The Phase-2 material below
 > (challenges/quests UI, L5+ insight visualizations, recovery/ED-safe modes,
-> per-Ring toggles, bot nudges) remains a design proposal specifying *what* we want
+> per-Ring toggles, chat nudges) remains a design proposal specifying *what* we want
 > and *why* (the science and the ethics), not yet built. Treat every number below as
 > a tunable default, not a fixed constant.
 
@@ -277,7 +280,7 @@ of the daily ring set entirely: no ring, no "your move," no daily nag.
   surfaces exactly one gentle line on Today ("2 missed evening doses this week
   — worth a look"), linking to Meds. Above threshold, nothing renders — a
   solved habit is invisible. (`adherence_alert` on `GET
-  /api/gamification/summary` / `/rings`, `docs/api.md#gamification`.)
+  /api/gamification/summary` / `/rings`, `docs/archive/api.md#gamification`.)
 - **Guardrails:** never reward double-dosing; respect intentional med changes; a
   long deliberate taper is not "non-adherence."
 
@@ -574,22 +577,30 @@ Kept deliberately light; the implementation plan is a separate future doc.
   Backfill applies the same integrity-floor + range rules and is deterministic from
   the data (re-runnable, no double-counting). Combined with default-ON, the *first
   time the user opens the Journey screen it is already rewarding* — no empty state.
-- **Where it would live**, following the project's domain-service pattern (not built
-  yet): a future `internal/domain/gamification` service computes HP/levels/streaks
-  by *reading the existing per-domain repos* (medication, bp, weight, workout,
-  vitals, food, diary) — no business logic in handlers or the bot. A store table
-  would hold the HP ledger, level, streak, freezes, and per-user target bands. Bot
-  and HTTP both call the same service (Critical Rule #1).
+- **Where it would live** (superseded sketch — the Go service below was built, then
+  removed 2026-09; the live code is `web/domain/gamification.js`): the sketch put a
+  `internal/domain/gamification` service behind the domain-service pattern, computing
+  HP/levels/streaks by *reading the existing per-domain repos* (medication, bp, weight,
+  workout, vitals, food, diary) — no business logic in handlers or the chat surface.
+  A store table would hold the HP ledger, level, streak, freezes, and per-user target
+  bands, with chat and HTTP calling the same service (Critical Rule #1).
 - **Surfaces:** a rings widget on the **Today** dashboard; a dedicated **Journey**
   screen for levels / insight ladder / challenges; gentle, opt-in **bot** nudges.
   All visuals via `--wg-*` design tokens (Critical Rule #3).
 - **Targets editor** extends the existing Settings/targets surface, with the medical
   disclaimer.
 
+> **Historical record — §14.1–§14.12.** Everything from here to §15 describes the
+> deleted Go implementation (`internal/domain/gamification`,
+> `internal/store/gamification`, the bot commands, and the scheduler jobs —
+> removed 2026-09, epic med-a9n5). The live implementation is
+> `web/domain/gamification.js`; gamification stays out of the cloud MCP catalog
+> (experimental; `catalogjs.Excluded`).
+
 ### 14.1 Backend implemented — Plan 1 (status)
 
 The backend core from this design now exists (plan
-[docs/plans/2026-06-25-gamification-1-backend-core.md](plans/2026-06-25-gamification-1-backend-core.md)).
+[docs/plans/completed/2026-06-25-gamification-1-backend-core.md](plans/completed/2026-06-25-gamification-1-backend-core.md)).
 Plan 2 (HTTP/MCP, §14.2) is built; Plan 3 (frontend, §14.3) is built — the
 **Surfaces** and **Targets editor** bullets above are now implemented.
 
@@ -663,7 +674,7 @@ concurrent scores can't desync `gamification_state` from the ledger.
 ### 14.2 HTTP API + MCP coverage — Plan 2 (status)
 
 The Plan 1 service is now exposed over HTTP (plan
-[docs/plans/2026-06-25-gamification-2-http-api.md](plans/2026-06-25-gamification-2-http-api.md)).
+[docs/plans/completed/2026-06-25-gamification-2-http-api.md](plans/completed/2026-06-25-gamification-2-http-api.md)).
 Handlers (`internal/server/gamification_handlers.go`) call **only** the
 `GamificationService` (Critical Rule #1) and pass its snake_case JSON through
 verbatim. The full route table + frozen JSON shapes live in
@@ -692,7 +703,7 @@ verification was build + lint + the existing coverage guard + the no-regression 
 
 The three surfaces from the **Surfaces** / **Targets editor** bullets above are now
 built in the vanilla-JS frontend (plan
-[docs/plans/2026-06-25-gamification-3-frontend.md](plans/2026-06-25-gamification-3-frontend.md)),
+[docs/plans/completed/2026-06-25-gamification-3-frontend.md](plans/completed/2026-06-25-gamification-3-frontend.md)),
 all gated on the `gamification` feature flag and rendered with `--wg-*` tokens only:
 
 - **Journey screen** — `web/static/js/features/journey.js` (`window.Gamification`),
@@ -731,7 +742,7 @@ Plan 3 shipped the rings as relative-fill horizontal bars (`hp ÷
 highest-scoring-ring-today`), independent of the `closed` flag — a ring could be
 `closed: true` and still render a short bar, and the nourishment ring gave no
 hint whether to eat more or less. Plan 5
-([docs/plans/2026-06-30-gamification-5-clarity.md](plans/2026-06-30-gamification-5-clarity.md))
+([docs/plans/completed/2026-06-30-gamification-5-clarity.md](plans/completed/2026-06-30-gamification-5-clarity.md))
 made the daily loop honest with two additive `RingScore` fields and a real arc
 gauge:
 
@@ -779,7 +790,7 @@ smoke of the four originally-reported confusions.
 
 Scores now update as data arrives instead of being frozen after the initial 365-day
 backfill. Implemented in
-[docs/plans/2026-06-29-gamification-dynamic-rescore.md](plans/2026-06-29-gamification-dynamic-rescore.md).
+[docs/plans/completed/2026-06-29-gamification-dynamic-rescore.md](plans/completed/2026-06-29-gamification-dynamic-rescore.md).
 Three mechanisms together cover every write path:
 
 **Recent-window re-score on gamification reads.** Every gamification read
@@ -830,7 +841,7 @@ and a server read-rescore for the same user race and stale-overwrite each other.
 The system used to be unable to tell "the user didn't do it" from "the data hasn't
 synced yet," and the streak was transactional state a late import couldn't repair.
 Implemented in
-[docs/plans/2026-07-02-gamification-6-sync-honesty.md](plans/2026-07-02-gamification-6-sync-honesty.md).
+[docs/plans/completed/2026-07-02-gamification-6-sync-honesty.md](plans/completed/2026-07-02-gamification-6-sync-honesty.md).
 
 **`sync_pending` ring state.** Rings whose outcome depends on a device-synced sample
 (`movement` ← steps, `mind` ← sleep) carry `SyncPending: true` when *today's* ring
@@ -872,7 +883,7 @@ the honest "Unlocks at Lvl N · soon" until plans 8/9 ship their destinations.
 Plans 3/5/6 rendered the five rings as a stacked *list* of separate `wg-ring` arcs —
 readable but not the sub-second, gestalt-closure glance Apple's Activity Rings
 popularized. Implemented in
-[docs/plans/2026-07-02-gamification-7-concentric-rings.md](plans/2026-07-02-gamification-7-concentric-rings.md)
+[docs/plans/completed/2026-07-02-gamification-7-concentric-rings.md](plans/completed/2026-07-02-gamification-7-concentric-rings.md)
 as a pure presentation change — no scoring, API, or `RingScore` field changes.
 
 **`wg-ring-stack`** (`web/static/js/components/wg-ring-stack.js`, `window.WGRingStack`)
@@ -914,7 +925,7 @@ Today/Journey feature suites), and manual phone-width smoke.
 
 "34 HP today" is illegible on its own — it doesn't say whether that's good or what
 to do next. Implemented in
-[docs/plans/2026-07-02-gamification-8-health-score-strength.md](plans/2026-07-02-gamification-8-health-score-strength.md)
+[docs/plans/completed/2026-07-02-gamification-8-health-score-strength.md](plans/completed/2026-07-02-gamification-8-health-score-strength.md)
 as two new score layers, both **pure functions of the event log** (a backfill
 import just makes them more accurate on the next read — there is no transactional
 state to reset). HP, levels, and the ledger are untouched; this is the presentation
@@ -960,7 +971,7 @@ frequency 1). This replaces the weekly streak as the Journey continuity
 mechanic (§9 note); the derived streak (§14.5) survives as a footnote inside the
 new Strengths card, not a separate headline metric.
 
-**API/MCP surface** (additive, no new routes — see `docs/api.md#gamification`).
+**API/MCP surface** (additive, no new routes — see `docs/archive/api.md#gamification`).
 `GetSummary`/`GetJourney` carry `health_score {value, contributors[{key, label,
 score, weight, missing}], missing[]}` and `strengths [{key, label, value,
 frequency}]`; `/api/gamification/rings` also carries `health_score` (verbatim from
@@ -992,7 +1003,7 @@ gets slow.)
 The insight ladder's L5–6 promise ("cross-domain correlations — e.g. nights under
 6h precede next-day systolic +N mmHg for *you*", §8) said "soon" for every earlier
 plan. Implemented in
-[docs/plans/2026-07-02-gamification-9-first-insight.md](plans/2026-07-02-gamification-9-first-insight.md)
+[docs/plans/completed/2026-07-02-gamification-9-first-insight.md](plans/completed/2026-07-02-gamification-9-first-insight.md)
 as the tier-3 unlock, and deliberately the *only* insight this plan ships — the
 honesty-gate pattern below is the template future insights (tier 4+) reuse, not a
 general correlation framework.
@@ -1014,7 +1025,7 @@ on `gamification_enabled` AND `InsightTier ≥ 3`: below tier 3 the response is
 tiers gate depth, never raw data).
 
 **API/MCP surface** — `GET /api/gamification/insights`, registry op
-`gamification.insights` (see `docs/api.md#gamification`).
+`gamification.insights` (see `docs/archive/api.md#gamification`).
 
 **Frontend** (`journey.js`) — tier 3 becomes the ladder's first `hasDestination`
 row ("Unlocked → view"), scrolling to a new insight card that renders all three
@@ -1079,13 +1090,13 @@ no re-backfill (§2.5, §5).
 ### 14.10 Gauge trends — Plan 11 (status)
 
 Implemented in
-[docs/plans/2026-07-03-gamification-11-gauge-trends.md](plans/2026-07-03-gamification-11-gauge-trends.md).
+[docs/plans/completed/2026-07-03-gamification-11-gauge-trends.md](plans/completed/2026-07-03-gamification-11-gauge-trends.md).
 The gauge half of the levers/gauges model (§14.9 did levers): BP, weight, and
 resting HR move from daily grading to weekly, view-layer + HP-economy change,
 no ledger migration, no re-backfill (§2.5, §5).
 
 - **Read model** (`internal/domain/gamification/gauges.go`, new): `GetGauges` →
-  `GET /api/gamification/gauges` (`docs/api.md#gamification`). Weight — EMA
+  `GET /api/gamification/gauges` (`docs/archive/api.md#gamification`). Weight — EMA
   trend (α=0.10/day) with velocity (%bodyweight/week) and acceleration vs the
   same window one cycle back; pace status vs the user's goal direction+rate, or
   trend-only when no goal is set. BP — 14d/30d in-range share vs a 60d
@@ -1138,7 +1149,7 @@ no ledger migration, no re-backfill (§2.5, §5).
 ### 14.11 Weekly review — Plan 12 (status)
 
 Implemented in
-[docs/plans/2026-07-03-gamification-12-weekly-review.md](plans/2026-07-03-gamification-12-weekly-review.md).
+[docs/plans/completed/2026-07-03-gamification-12-weekly-review.md](plans/completed/2026-07-03-gamification-12-weekly-review.md).
 Under the levers/gauges model (§14.9, §14.10), the weekly review is the
 cadence at which gauges are meant to be read: one read model, two
 presentations, both pure presentation over already-computed data — no new
@@ -1146,7 +1157,7 @@ mechanics, no new tables.
 
 - **Read model** (`internal/domain/gamification/weekly.go`, new):
   `GetWeeklyReview` → `GET /api/gamification/weekly-review`
-  (`docs/api.md#gamification`). Resolves the current ISO week (Mon–Sun, UTC
+  (`docs/archive/api.md#gamification`). Resolves the current ISO week (Mon–Sun, UTC
   day-keyed) via the same `weekIndex`/`weekBounds` bucketing `streak.go` and the
   weekly gauge awards use, and folds it against the prior week: per-lever
   closed-day counts (levers), the best day (most rings closed, omitted if
@@ -1216,7 +1227,7 @@ than a new correlation framework.
   `good_day` can read locked while `sleep_bp` is already unlocked.
 - **API/MCP surface** — additive `good_day` key on the existing
   `GET /api/gamification/insights`, registry op `gamification.insights` (see
-  `docs/api.md#gamification`). No new route.
+  `docs/archive/api.md#gamification`). No new route.
 - **Frontend** (`journey.js`) — tier 4 becomes the ladder's second
   `hasDestination` row, same inline-expand pattern as tier 3: one line per
   finding ("On days after a workout, BP in range 78% vs 55% ·
