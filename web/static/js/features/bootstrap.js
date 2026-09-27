@@ -183,9 +183,6 @@ window.rebuildCanonicalBottomNav = rebuildCanonicalBottomNav;
 
 checkAuth().then(async authorized => {
     if (authorized) {
-        window.DataStore.startChangePolling();
-        window.addEventListener('beforeunload', () => window.DataStore.stopChangePolling(), { once: true });
-
         // Initialize SyncManager for offline support
         if (window.SyncManager) {
             window.SyncManager.init();

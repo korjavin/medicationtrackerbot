@@ -235,21 +235,6 @@ async function uploadFoodPhotoFile(file) {
         if (originalLabel) originalLabel.textContent = 'Analyzing…';
 
         try {
-            // Stamp the timing-window fallback before the fetch fires so an
-            // SSE event delivered while the request is still in flight (long
-            // AI analysis can run multiple seconds; the change_events row is
-            // inserted at the very end of the handler) is still recognised
-            // as a self-echo even if the broker source-attribution path
-            // raced with the tailer's empty-source Notify. The rollback
-            // restores the prior stamp on failure so a 5s false-suppress
-            // window doesn't hide unrelated cross-source banners.
-            let rollbackOwnWriteStamp = null;
-            if (window.DataStore && typeof window.DataStore.recordOwnWriteWithRollback === 'function') {
-                rollbackOwnWriteStamp = window.DataStore.recordOwnWriteWithRollback();
-            } else if (window.DataStore && typeof window.DataStore.recordOwnWrite === 'function') {
-                window.DataStore.recordOwnWrite();
-            }
-
             let items, failed;
             // The photo never leaves the device via /api — it goes straight
             // from the browser to the user's own AI provider
@@ -264,22 +249,10 @@ async function uploadFoodPhotoFile(file) {
                     ? await window.TrialConsent.retryAfterConsent(parsePhoto)
                     : await parsePhoto();
             } catch (aiErr) {
-                if (rollbackOwnWriteStamp) rollbackOwnWriteStamp();
                 throw aiErr;
             }
             items = Array.isArray(result.items) ? result.items : [];
             failed = Math.max(0, Math.trunc(Number(result.failed) || 0));
-
-            // Refresh the timing-window stamp now that the response has
-            // landed. The pre-fetch stamp may have aged past SELF_ECHO_WINDOW_MS
-            // during a long AI analysis (up to 60s), so without this refresh
-            // the SSE echo of this very write — arriving milliseconds after
-            // res.json() resolves — would fall outside the 5s window and surface
-            // a foreign-banner whenever the broker's source-attribution path
-            // raced with the tailer's empty-source Notify.
-            if (window.DataStore && typeof window.DataStore.recordOwnWrite === 'function') {
-                window.DataStore.recordOwnWrite();
-            }
 
             // Optimistic projection: append the server-returned items into the
             // day's cached payload before triggering the re-renders. This keeps
@@ -304,10 +277,6 @@ async function uploadFoodPhotoFile(file) {
             if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
                 await window.DataStore.clearCached(todayFoodKey(new Date()));
             }
-            if (window.DataStore?.advanceCursorSilently) {
-                window.DataStore.advanceCursorSilently();
-            }
-
             loadFoodLogs();
             if (typeof loadToday === 'function') loadToday();
 

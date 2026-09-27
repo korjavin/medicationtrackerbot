@@ -635,9 +635,9 @@ function requestTabRefresh(meta = {}) {
         reloadCurrentTab();
         return;
     }
-    // `self-echo` is the SSE/poll echo of one of the user's own recent
-    // writes (see DataStore.applyChangesPayload). The optimistic-commit
-    // path has already painted authoritative state; an echo must never
+    // `self-echo` is the echo of one of the user's own recent writes.
+    // The optimistic-commit path has already painted authoritative state;
+    // an echo must never
     // surface a "New data is available" banner because the user is the
     // source. If the page is safe to refresh, reconcile now; otherwise
     // silently drop the reload — the next loadX() will fetch fresh.

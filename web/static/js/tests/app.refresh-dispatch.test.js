@@ -76,10 +76,10 @@ describe('app.js refresh dispatch behavior', () => {
   });
 
   it('requestTabRefresh source=self-echo never surfaces the banner, even with a modal open', () => {
-    // Regression: when the SSE/poll handler tags a change-stream payload as
-    // an echo of one of our own recent writes (DataStore.applyChangesPayload
-    // with recordOwnWrite in flight), the banner must NOT appear — the user
-    // already saw their action take effect via the optimistic commit. A
+    // Regression: when a change payload is tagged as an echo of one of our
+    // own recent writes (source 'self-echo'), the banner must NOT appear —
+    // the user already saw their action take effect via the optimistic
+    // commit. A
     // modal-open or focused-input state should silently skip the reload,
     // not surface a "New data is available" prompt.
     const { window, document, cleanup } = loadFrontendEnv();

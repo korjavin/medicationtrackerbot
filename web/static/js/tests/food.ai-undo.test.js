@@ -37,7 +37,6 @@ describe('undoFoodAIItems (shared food-AI undo helper)', () => {
         env.window.DataStore = env.window.DataStore || {};
         env.window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
         env.window.DataStore.clearCached = vi.fn().mockResolvedValue(undefined);
-        env.window.DataStore.advanceCursorSilently = vi.fn();
     });
 
     afterEach(() => {
@@ -77,7 +76,6 @@ describe('undoFoodAIItems (shared food-AI undo helper)', () => {
 
         // Cache invalidation + list refresh fired on the success path.
         expect(window.DataStore.invalidateTags).toHaveBeenCalledWith(['food', 'gamification']);
-        expect(window.DataStore.advanceCursorSilently).toHaveBeenCalled();
         expect(window.loadFoodLogs).toHaveBeenCalled();
         expect(window.loadToday).toHaveBeenCalled();
 

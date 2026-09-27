@@ -125,9 +125,8 @@ export function loadCloudShimFrontendEnv(opts = {}) {
         // Workout's groups.js/next-card.js/stats.js call window.apiCallDirect
         // directly, bypassing offlineAwareApiCall (Decision 3, C2d plan) —
         // mirror cloud-boot.js's wrapper here so those bypasses are shim-served
-        // too. Opt-in only: other suites' background pollers (e.g. the
-        // change-poll loop hitting /api/changes) also call apiCallDirect and
-        // aren't expecting the shim's unmapped-route warn.
+        // too. Opt-in only: other suites' background pollers also call
+        // apiCallDirect and aren't expecting the shim's unmapped-route warn.
         const realApiCallDirect = env.window.apiCallDirect;
         env.window.apiCallDirect = (endpoint, method, body, callOpts) => (
             endpoint.startsWith('/api/')

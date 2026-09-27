@@ -2,12 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadDbEnv } from './helpers/db-harness.js';
 import { allowConsoleNoise } from './helpers/setup.js';
 
-// Guards the sw.js:193 ConstraintError root-cause fix (Wandergeek round-2 defect #17).
-// Saved note / BP / weight / food writes triggered a `changes?since` replay that
-// fanned out IndexedDB writes; a single duplicate-key insert was aborting the
-// whole batch and suppressing the downstream "list re-render" signal, surfacing
-// as stale BP lists, zeroed Today macro bars, and a notes list stuck on
-// "Loading notes…". The fix makes the writes idempotent / error-isolated.
+// Guards the ConstraintError root-cause fix (Wandergeek round-2 defect #17).
+// Saved note / BP / weight / food writes fanned out IndexedDB writes; a single
+// duplicate-key insert was aborting the whole batch and suppressing the
+// downstream "list re-render" signal, surfacing as stale BP lists, zeroed
+// Today macro bars, and a notes list stuck on "Loading notes…". The fix
+// makes the writes idempotent / error-isolated.
 
 function installConstraintErrorOnceFor(table) {
   const originalAdd = table.add.bind(table);

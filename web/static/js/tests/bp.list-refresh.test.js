@@ -8,8 +8,8 @@
 //
 // Task 1's SW fix (idempotent put() + per-item ConstraintError swallow)
 // cleared the way for this chain to complete — before Task 1, an uncaught
-// ConstraintError on a duplicate `changes?since` replay aborted the
-// post-mutation refresh and the list stayed stale. If a later change re-
+// ConstraintError on a duplicate-key insert aborted the post-mutation
+// refresh and the list stayed stale. If a later change re-
 // breaks the chain (e.g. swaps `put()` back to `add()` or drops the
 // per-item try/catch), this test regresses because the refresh handler
 // rejects before reaching _renderBPData.
