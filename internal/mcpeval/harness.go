@@ -50,6 +50,9 @@ type Config struct {
 	Days       int
 	MaxRounds  int
 	MaxTokens  int
+	// Temperature is nil unless MCPEVAL_TEMPERATURE is set; nil omits the
+	// field so reasoning-family models (which 400 on any temperature) work.
+	Temperature *float64
 }
 
 // ConfigFromEnv reads MCPEVAL_* env vars. ok is false when MCPEVAL_API_KEY is
@@ -60,14 +63,15 @@ func ConfigFromEnv() (cfg Config, ok bool) {
 		return Config{}, false
 	}
 	cfg = Config{
-		APIKey:     key,
-		BaseURL:    os.Getenv("MCPEVAL_BASE_URL"),
-		Model:      getenvDefault("MCPEVAL_MODEL", "gpt-4o-mini"),
-		JudgeModel: os.Getenv("MCPEVAL_JUDGE_MODEL"),
-		Seed:       getenvInt64("MCPEVAL_SEED", 42),
-		Days:       getenvInt("MCPEVAL_DAYS", 90),
-		MaxRounds:  getenvInt("MCPEVAL_MAX_ROUNDS", 8),
-		MaxTokens:  getenvInt("MCPEVAL_MAX_TOKENS", defaultMaxTokens),
+		APIKey:      key,
+		BaseURL:     os.Getenv("MCPEVAL_BASE_URL"),
+		Model:       getenvDefault("MCPEVAL_MODEL", "gpt-4o-mini"),
+		JudgeModel:  os.Getenv("MCPEVAL_JUDGE_MODEL"),
+		Seed:        getenvInt64("MCPEVAL_SEED", 42),
+		Days:        getenvInt("MCPEVAL_DAYS", 90),
+		MaxRounds:   getenvInt("MCPEVAL_MAX_ROUNDS", 8),
+		MaxTokens:   getenvInt("MCPEVAL_MAX_TOKENS", defaultMaxTokens),
+		Temperature: getenvFloatPtr("MCPEVAL_TEMPERATURE"),
 	}
 	if cfg.JudgeModel == "" {
 		cfg.JudgeModel = cfg.Model
@@ -215,9 +219,11 @@ func New(ctx context.Context, cfg Config) (*Harness, error) {
 
 	// 6. Agent + judge clients.
 	client := NewClient(cfg.APIKey, cfg.BaseURL, cfg.Model, cfg.MaxTokens)
+	client.temperature = cfg.Temperature
 	h.judge = client
 	if cfg.JudgeModel != "" && cfg.JudgeModel != cfg.Model {
 		h.judge = NewClient(cfg.APIKey, cfg.BaseURL, cfg.JudgeModel, cfg.MaxTokens)
+		h.judge.temperature = cfg.Temperature
 	}
 	h.agent = NewAgent(client, cfg.MaxRounds)
 
@@ -432,4 +438,16 @@ func getenvInt64(key string, def int64) int64 {
 		}
 	}
 	return def
+}
+
+// getenvFloatPtr returns nil unless the var is set to a parseable float, so
+// an explicit MCPEVAL_TEMPERATURE=0 still reaches the wire while an unset
+// (or garbage) var omits the field entirely.
+func getenvFloatPtr(key string) *float64 {
+	if v := os.Getenv(key); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return &f
+		}
+	}
+	return nil
 }

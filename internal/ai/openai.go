@@ -61,7 +61,10 @@ type chatCompletionRequest struct {
 	Model          string                  `json:"model"`
 	Messages       []chatCompletionMessage `json:"messages"`
 	ResponseFormat *responseFormat         `json:"response_format,omitempty"`
-	Temperature    float32                 `json:"temperature"`
+	// Temperature stays unset (omitempty): reasoning-family models return
+	// 400 on any non-default value, and under strict json_schema the pinned
+	// value was not measurable anyway (bd med-gdb4).
+	Temperature float32 `json:"temperature,omitempty"`
 }
 
 type chatCompletionMessage struct {
@@ -178,7 +181,6 @@ func (c *Client) ParseMealFromDescription(ctx context.Context, description strin
 			{Role: "system", Content: MealSystemPrompt},
 			{Role: "user", Content: description},
 		},
-		Temperature: 0.1,
 		ResponseFormat: &responseFormat{
 			Type: "json_schema",
 			JSONSchema: &jsonSchemaWrap{
@@ -329,7 +331,6 @@ For strength: use sets/reps and optionally weight_kg, leave duration_minutes as 
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: description},
 		},
-		Temperature: 0.1,
 		ResponseFormat: &responseFormat{
 			Type: "json_schema",
 			JSONSchema: &jsonSchemaWrap{
@@ -460,7 +461,6 @@ func (c *Client) ParseMealFromImage(ctx context.Context, imageBytes []byte, mime
 				},
 			},
 		},
-		"temperature": 0.1,
 		"response_format": map[string]any{
 			"type": "json_schema",
 			"json_schema": map[string]any{
@@ -497,7 +497,6 @@ Do not wrap the JSON in markdown fences or add explanations.`,
 					},
 				},
 			},
-			"temperature": 0.1,
 		}
 		return c.parseMealVisionRequest(ctx, fallback)
 	}

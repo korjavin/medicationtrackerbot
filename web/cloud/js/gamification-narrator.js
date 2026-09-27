@@ -149,7 +149,6 @@ export function createGamificationNarrator({ aiClient } = {}) {
     }
     try {
       const msg = await aiClient.chat({
-        temperature: 0.6,
         messages: [
           { role: 'system', content: NARRATOR_SYSTEM },
           { role: 'user', content: PROMPTS[kind](payload) },

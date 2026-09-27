@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -16,6 +17,10 @@ import (
 const (
 	maxTrialBodyBytes   = 12 << 20 // 12 MiB
 	trialUpstreamTimout = 90 * time.Second
+	// maxTrialErrorSniffBytes bounds the upstream error-body prefix the
+	// response_format classifier reads. Error bodies are small; anything
+	// past this is not a provider complaint we can name.
+	maxTrialErrorSniffBytes = 64 << 10 // 64 KiB
 )
 
 // TrialProxyAPI serves the operator-trial proxy routes (docs/cloud-mode.md →
@@ -167,6 +172,22 @@ func (a *TrialProxyAPI) ElevenLabsSignedURL(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, map[string]string{"signed_url": payload.SignedURL})
 }
 
+// upstreamRejectsSchema reports whether the upstream error body complains
+// about the schema request (case-insensitive substring). Matches either
+// "response_format" (the BYO fallbacks' term) or "json_schema" (what some
+// providers name instead) — the proxy always sends json_schema specifically,
+// so either term means the fenced-prompt retry applies. Reads a bounded
+// prefix; an unreadable or empty body is not a schema rejection. The body
+// is classified, never kept.
+func upstreamRejectsSchema(r io.Reader) bool {
+	raw, err := io.ReadAll(io.LimitReader(r, maxTrialErrorSniffBytes))
+	if err != nil || len(raw) == 0 {
+		return false
+	}
+	body := strings.ToLower(string(raw))
+	return strings.Contains(body, "response_format") || strings.Contains(body, "json_schema")
+}
+
 // ChatCompletions proxies an OpenAI-compatible chat request to the trial
 // provider, forcing the operator's model so clients can't pick one.
 func (a *TrialProxyAPI) ChatCompletions(w http.ResponseWriter, r *http.Request) {
@@ -269,14 +290,18 @@ func (a *TrialProxyAPI) ChatCompletions(w http.ResponseWriter, r *http.Request) 
 		// body is safe — and it is the only thing that tells a 401 (bad
 		// operator key) from a 429 (operator quota) from a 5xx (outage).
 		//
-		// A 400 answering a request that carried response_format means the
-		// operator's model has no json_schema support (deepseek-chat, most
-		// local models). Name that case so the client can retry with the
-		// fenced prompt, exactly as the BYO path already does. Keyed off the
-		// status plus what we sent — never the body text, which every
-		// provider words differently and which we must not read back anyway.
+		// A 400 answering a request that carried response_format USUALLY means
+		// the operator's model has no json_schema support (deepseek-chat,
+		// most local models) — but not always: a temperature 400 on a
+		// reasoning-family model carries response_format too, and naming it
+		// response_format_unsupported would trigger a pointless fenced retry
+		// (bd med-gdb4). So classify by the provider's own error text: the
+		// "response_format"/"json_schema" sniff in upstreamRejectsSchema —
+		// keyed off the status, what we sent, AND what the provider
+		// complained about. The body is sniffed, never relayed or logged,
+		// so the sanitize invariant above still holds.
 		errCode := "upstream_error"
-		if resp.StatusCode == http.StatusBadRequest && sentResponseFormat {
+		if resp.StatusCode == http.StatusBadRequest && sentResponseFormat && upstreamRejectsSchema(resp.Body) {
 			errCode = "response_format_unsupported"
 		}
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": errCode, "upstream_status": resp.StatusCode})

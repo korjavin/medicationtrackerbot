@@ -610,3 +610,62 @@ type brokenBudgetStore struct{}
 func (brokenBudgetStore) ConsumeTrialRequest(context.Context, string, time.Time, int, int) (bool, string, error) {
 	return false, "", errors.New("database is on fire")
 }
+
+// TestTrialProxy_JsonSchemaOnly400Retries (med-gdb4): a provider that names
+// json_schema without the literal "response_format" still gets the named,
+// retryable error — the fenced-prompt fallback must not depend on one exact
+// term.
+func TestTrialProxy_JsonSchemaOnly400Retries(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":{"message":"unsupported json_schema","type":"invalid_request_error"}}`))
+	}))
+	defer upstream.Close()
+
+	cfg := TrialConfig{OpenAIAPIKey: "sk-trial", OpenAIURL: upstream.URL, OpenAIModel: "local-model", VisionAPIKey: "sk-trial", VisionURL: upstream.URL, VisionModel: "m", RatePerMinute: 100}
+	h, _, host, claimToken := newTrialTestHandlerAPI(t, cfg)
+	session := registerAndGetSession(t, h, host, claimToken)
+
+	rec := postTrialChat(h, host, "/api/trial/openai/chat/completions", `{"messages":[],"response_format":{"type":"json_schema"}}`, session)
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode body %q: %v", rec.Body.String(), err)
+	}
+	if got["error"] != "response_format_unsupported" {
+		t.Errorf("error = %v, want response_format_unsupported (json_schema complaint is a schema rejection)", got["error"])
+	}
+}
+
+// TestTrialProxy_NonResponseFormat400IsUpstreamError (med-gdb4): a 400 whose
+// provider body complains about something else (here: temperature on a
+// reasoning-family model) must stay a plain upstream_error even when the
+// request carried response_format — naming it response_format_unsupported
+// would trigger a pointless fenced retry and hide the real failure.
+func TestTrialProxy_NonResponseFormat400IsUpstreamError(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":{"message":"Unsupported parameter: 'temperature' is not supported with this model.","type":"invalid_request_error"}}`))
+	}))
+	defer upstream.Close()
+
+	cfg := TrialConfig{OpenAIAPIKey: "sk-trial", OpenAIURL: upstream.URL, OpenAIModel: "gpt-5-mini", VisionAPIKey: "sk-trial", VisionURL: upstream.URL, VisionModel: "m", RatePerMinute: 100}
+	h, _, host, claimToken := newTrialTestHandlerAPI(t, cfg)
+	session := registerAndGetSession(t, h, host, claimToken)
+
+	rec := postTrialChat(h, host, "/api/trial/openai/chat/completions", `{"messages":[],"response_format":{"type":"json_schema"}}`, session)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502", rec.Code)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode body %q: %v", rec.Body.String(), err)
+	}
+	if got["error"] != "upstream_error" {
+		t.Errorf("error = %v, want upstream_error (a temperature 400 is not a response_format rejection)", got["error"])
+	}
+	// SECURITY INVARIANT: classification sniffs the upstream text but must
+	// never relay it.
+	if strings.Contains(rec.Body.String(), "temperature") {
+		t.Errorf("upstream error text leaked into response: %q", rec.Body.String())
+	}
+}

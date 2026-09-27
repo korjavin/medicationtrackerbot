@@ -441,7 +441,6 @@ export function createAIClient({ settingsDomain }) {
 
     const body = {
       model: text.model,
-      temperature: 0.1,
       messages: [
         { role: 'system', content: MealSystemPrompt },
         { role: 'user', content: description },
@@ -454,7 +453,6 @@ export function createAIClient({ settingsDomain }) {
       if (!isResponseFormatRejection(err)) throw err;
       return post({
         model: text.model,
-        temperature: 0.1,
         messages: [
           { role: 'system', content: fenceInstruction(MealSystemPrompt) },
           { role: 'user', content: description },
@@ -474,7 +472,6 @@ export function createAIClient({ settingsDomain }) {
 
     const body = {
       model: text.model,
-      temperature: 0.1,
       messages: [
         { role: 'system', content: ActivitySystemPrompt },
         { role: 'user', content: description },
@@ -487,7 +484,6 @@ export function createAIClient({ settingsDomain }) {
       if (!isResponseFormatRejection(err)) throw err;
       return post({
         model: text.model,
-        temperature: 0.1,
         messages: [
           { role: 'system', content: activityFenceInstruction(ActivitySystemPrompt) },
           { role: 'user', content: description },
@@ -520,7 +516,6 @@ export function createAIClient({ settingsDomain }) {
 
     const body = {
       model: vision.model,
-      temperature: 0.1,
       messages: [
         { role: 'system', content: MealPhotoSystemPrompt },
         { role: 'user', content: userContent('Identify the foods in this photo and return the JSON described above.') },
@@ -533,7 +528,6 @@ export function createAIClient({ settingsDomain }) {
       if (!isResponseFormatRejection(err)) throw err;
       return post({
         model: vision.model,
-        temperature: 0.1,
         messages: [
           { role: 'system', content: fenceInstruction(MealPhotoSystemPrompt) },
           { role: 'user', content: userContent('Identify the foods in this photo and return JSON.') },
@@ -567,7 +561,6 @@ export function createAIClient({ settingsDomain }) {
     const user = JSON.stringify({ names });
     const body = {
       model: text.model,
-      temperature: 0,
       messages: [
         { role: 'system', content: ExerciseTagSystemPrompt },
         { role: 'user', content: user },
@@ -590,7 +583,6 @@ export function createAIClient({ settingsDomain }) {
       try {
         parsed = await post({
           model: text.model,
-          temperature: 0,
           messages: [
             { role: 'system', content: exerciseTagFenceInstruction(ExerciseTagSystemPrompt) },
             { role: 'user', content: user },
@@ -631,7 +623,6 @@ export function createAIClient({ settingsDomain }) {
 
     const body = {
       model: vision.model,
-      temperature: 0.1,
       messages: [
         { role: 'system', content: WorkoutSheetPhotoSystemPrompt },
         { role: 'user', content: userContent('Read the handwritten sets on this workout sheet and return the JSON described above.') },
@@ -644,7 +635,6 @@ export function createAIClient({ settingsDomain }) {
       if (!isResponseFormatRejection(err)) throw err;
       return post({
         model: vision.model,
-        temperature: 0.1,
         messages: [
           { role: 'system', content: workoutSheetFenceInstruction(WorkoutSheetPhotoSystemPrompt) },
           { role: 'user', content: userContent('Read the handwritten sets on this workout sheet and return JSON.') },
@@ -653,12 +643,12 @@ export function createAIClient({ settingsDomain }) {
     }
   }
 
-  async function chat({ messages, tools, temperature = 0.2 }) {
+  async function chat({ messages, tools }) {
     const { text } = await credentials();
     const useTrial = !text.apiKey;
     if (useTrial && !trialAIAvailable()) throw noKeyError();
     if (useTrial) await ensureTrialConsent('tg');
-    const body = { model: text.model, temperature, messages };
+    const body = { model: text.model, messages };
     if (tools && tools.length) {
       body.tools = tools;
       body.tool_choice = 'auto';
