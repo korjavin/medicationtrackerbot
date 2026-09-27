@@ -1647,12 +1647,12 @@ svg.chart-svg {
    the Today "Next up" card + Meds History next-intake pane — elevated
    teal on the stage, hairline border, --wg-radius-card. The kicker label
    uses the muted-uppercase small caption; the title is display typeface;
-   the subtitle is secondary UI text. Primary action (Start Scheduled /
+   the subtitle is secondary UI text. Primary action (Start /
    View / Cancel Skip) is .wg-toolbar-btn.wg-toolbar-btn--primary —
    yellow filled, matching every other primary CTA across the app.
-   Secondary actions (Start AdHoc / Skip / Finish / Next Day) use the
+   Secondary actions (Ad hoc / Skip / Finish / Next Day) use the
    shared outline variant .wg-toolbar-btn--secondary added in the same
-   task; med-2fc added the leftmost Start AdHoc, which is the screen's
+   task; med-2fc added the leftmost Ad hoc, which is the screen's
    only ad-hoc entry point and the sole content of the card when nothing
    is scheduled. No gradients, no accent stripe, no emoji. */
 
@@ -1712,14 +1712,20 @@ svg.chart-svg {
     color: var(--wg-fg-2);
 }
 
+/* med-x5t5: the actions row must stay on ONE row at 360px (worst case 4
+   buttons). nowrap + min-width: 0 keep the row from wrapping or pushing
+   the page sideways; the tighter token horizontal padding (with the
+   shortened 'Ad hoc' / 'Start' labels) lets all four fit unclipped. */
 .wg-workouts-next-card__actions {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: var(--space-sm);
 }
 
 .wg-workouts-next-card__actions > .wg-toolbar-btn {
     flex: 1 1 auto;
+    min-width: 0;
+    padding: var(--space-xs) var(--space-sm);
 }
 
 /* ==================== Sync Status Styles ==================== */

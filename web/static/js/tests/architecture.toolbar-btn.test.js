@@ -53,9 +53,9 @@ const CSS = fs.readFileSync(CSS_PATH, 'utf8');
 // REVERTED by med-3dk into a sun-gloss `.wg-workouts-history-header__add`
 // pill, then RETIRED entirely by med-2fc: the floating strip was a second
 // "start" affordance stacked above the pane that already had one. The
-// ad-hoc CTA is now the leftmost `Start AdHoc` action inside the
+// ad-hoc CTA is now the leftmost `Ad hoc` action inside the
 // next-workout card's action row, so it rejoins the toolbar-btn family as
-// a `--secondary` sibling of `Start Scheduled`. Guard below is source-level
+// a `--secondary` sibling of `Start`. Guard below is source-level
 // on next-card.js (+ absence of the old markup in index.html); DOM-level
 // placement is pinned in `workout.design-parity.test.js`.
 // Round-2 Task 12 (defect #15): `#add-weight-btn` — ADOPTED; the button
@@ -213,20 +213,20 @@ describe('Round-2 Task 2 — shared .wg-toolbar-btn class', () => {
     });
 
     // med-2fc: the Workouts ad-hoc Start CTA rejoins the toolbar-btn family —
-    // it is now rendered by `_renderNextWorkout` as the leftmost `Start AdHoc`
-    // action, `--secondary` so the renamed `Start Scheduled` stays primary.
+    // it is now rendered by `_renderNextWorkout` as the leftmost `Ad hoc`
+    // action, `--secondary` so the renamed `Start` stays primary.
     // Source-level guard on next-card.js; DOM-level placement test lives in
     // workout.design-parity.
-    it('Workouts Start AdHoc is a .wg-toolbar-btn--secondary action of the next-workout card', () => {
+    it('Workouts Ad hoc is a .wg-toolbar-btn--secondary action of the next-workout card', () => {
         const NEXT_CARD_PATH = path.join(REPO_ROOT, 'web/static/js/features/workout/next-card.js');
         const src = fs.readFileSync(NEXT_CARD_PATH, 'utf8');
         // Built through the shared createButton helper (which emits
         // `wg-toolbar-btn wg-toolbar-btn--<variant> workout-action-btn`) with
         // the secondary variant, and it starts an ad-hoc session.
         expect(src).toMatch(
-            /createButton\(\s*'Start AdHoc',\s*'secondary',\s*\(\)\s*=>\s*window\.startAdHocWorkout\(\)\s*\)/
+            /createButton\(\s*'Ad hoc',\s*'secondary',\s*\(\)\s*=>\s*window\.startAdHocWorkout\(\)\s*\)/
         );
-        expect(src).toMatch(/createButton\(\s*'Start Scheduled',\s*'primary'/);
+        expect(src).toMatch(/createButton\(\s*'Start',\s*'primary'/);
         // The old floating-CTA label is gone from the card.
         expect(src).not.toMatch(/'Start Workout'/);
     });
