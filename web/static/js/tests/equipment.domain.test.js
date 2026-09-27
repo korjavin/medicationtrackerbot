@@ -248,6 +248,8 @@ describe('equipment CRUD', () => {
       { kind: 'plated', name: 'x', bar_kg: 20, sides: 3 }, // bad sides
       { kind: 'plated', name: 'x', bar_kg: 20, sides: 2, plates: [{ kg: 5, count: 0 }] }, // bad count
       { kind: 'plated', name: 'x', bar_kg: 20, sides: 2, plates: [{ kg: 5, count: 1.5 }] }, // non-integer count
+      { kind: 'fixed', name: 'x', loads_kg: [10], implement: 'rack' }, // bad implement
+      { kind: 'plated', name: 'x', bar_kg: 20, sides: 2, implement: 'rack' }, // bad implement
     ];
     for (const input of bad) {
       await expect(eq.createEquipment(input)).rejects.toMatchObject({ code: 'invalid_request' });
@@ -262,17 +264,97 @@ describe('equipment CRUD', () => {
   });
 });
 
+describe('equipment implement label (med-v75c.1)', () => {
+  it('a fixed write with implement round-trips through list/get', async () => {
+    const eq = domain();
+    const created = await eq.createEquipment({
+      kind: 'fixed', name: 'KB', loads_kg: [8], implement: 'kettlebell',
+    });
+    expect(created.implement).toBe('kettlebell');
+    expect((await eq.listEquipment())[0].implement).toBe('kettlebell');
+    expect((await eq.getEquipment(created.id)).implement).toBe('kettlebell');
+  });
+
+  it('a fixed write without implement stores no label and reads back without it', async () => {
+    let t = 1_000_000;
+    const records = memPort();
+    const eq = createEquipmentDomain({ records, now: () => (t += 1000) });
+    const created = await eq.createEquipment({ kind: 'fixed', name: 'DBs', loads_kg: [10] });
+    expect('implement' in created).toBe(false);
+    const [stored] = await records.list('equipment');
+    expect('implement' in stored).toBe(false);
+  });
+
+  it('a plated write without implement defaults from sides/pair and stores it', async () => {
+    let t = 1_000_000;
+    const records = memPort();
+    const eq = createEquipmentDomain({ records, now: () => (t += 1000) });
+    const bell = await eq.createEquipment({
+      kind: 'plated', name: 'Bell', bar_kg: 8, sides: 1, plates: [],
+    });
+    expect(bell.implement).toBe('kettlebell');
+    const dbs = await eq.createEquipment({
+      kind: 'plated', name: 'DBs', bar_kg: 2, sides: 2, pair: true, plates: [],
+    });
+    expect(dbs.implement).toBe('dumbbell');
+    const bar = await eq.createEquipment({
+      kind: 'plated', name: 'Bar', bar_kg: 20, sides: 2, plates: [],
+    });
+    expect(bar.implement).toBe('barbell');
+    // Assert on the stored bodies: the responses would show the same values
+    // via derive-on-read, so only the bodies prove the write persisted them.
+    const stored = await records.list('equipment');
+    expect(stored.map((r) => r.implement).sort()).toEqual(['barbell', 'dumbbell', 'kettlebell']);
+  });
+
+  it('a legacy plated record without implement derives it on read without writing', async () => {
+    let t = 1_000_000;
+    const inner = memPort();
+    let puts = 0;
+    const records = {
+      ...inner,
+      put: async (...args) => { puts += 1; return inner.put(...args); },
+    };
+    const eq = createEquipmentDomain({ records, now: () => (t += 1000) });
+    // Seeded straight into the port: a pre-implement stored body.
+    await records.put('equipment', {
+      recordId: 'equipment-9', id: 9, user_id: 1, name: 'Legacy bar',
+      kind: 'plated', bar_kg: 20, sides: 2, pair: true, plates: [],
+      created_at: '2026-07-01T08:00:00Z', updated_at: '2026-07-01T08:00:00Z',
+    });
+    puts = 0;
+    expect((await eq.listEquipment())[0].implement).toBe('dumbbell');
+    expect((await eq.getEquipment(9)).implement).toBe('dumbbell');
+    expect(puts).toBe(0);
+    const [stored] = await records.list('equipment');
+    expect('implement' in stored).toBe(false);
+  });
+
+  it('an update omitting implement drops the stored label (full replacement)', async () => {
+    let t = 1_000_000;
+    const records = memPort();
+    const eq = createEquipmentDomain({ records, now: () => (t += 1000) });
+    const created = await eq.createEquipment({
+      kind: 'fixed', name: 'KB', loads_kg: [8], implement: 'kettlebell',
+    });
+    await eq.updateEquipment(created.id, { kind: 'fixed', name: 'KB', loads_kg: [8] });
+    expect('implement' in (await eq.getEquipment(created.id))).toBe(false);
+    const [stored] = await records.list('equipment');
+    expect('implement' in stored).toBe(false);
+  });
+});
+
 describe('equipment vault round-trip', () => {
   const NOW = Date.parse('2026-07-08T12:00:00Z');
   const GEAR = [
     {
-      id: 7, user_id: 1, name: 'Ohio bar', kind: 'plated',
+      id: 7, user_id: 1, name: 'Ohio bar', kind: 'plated', implement: 'barbell',
       bar_kg: 20, sides: 2, pair: false,
       plates: [{ kg: 5, count: 2 }],
       created_at: '2026-07-01T08:00:00Z', updated_at: '2026-07-01T08:00:00Z',
     },
     {
-      id: 8, user_id: 1, name: 'Hex DBs', kind: 'fixed', loads_kg: [10, 12],
+      id: 8, user_id: 1, name: 'Hex DBs', kind: 'fixed', implement: 'dumbbell', loads_kg: [10, 12],
       created_at: '2026-07-01T08:00:00Z', updated_at: '2026-07-01T08:00:00Z',
     },
   ];

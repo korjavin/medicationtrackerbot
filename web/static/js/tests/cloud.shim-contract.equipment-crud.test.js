@@ -57,13 +57,28 @@ describe('cloud shim contract — workout equipment CRUD', () => {
         expect(created.min_step_kg).toBe(2.5);
     });
 
+    it('implement round-trips on fixed writes and defaults on plated writes', async () => {
+        const { window } = env;
+        const fixed = await window.apiCall('/api/workout/equipment', 'POST', {
+            kind: 'fixed', name: 'KB', loads_kg: [8], implement: 'kettlebell',
+        });
+        expect(fixed.implement).toBe('kettlebell');
+        const list = await window.apiCallDirect('/api/workout/equipment');
+        expect(list[0].implement).toBe('kettlebell');
+
+        const plated = await window.apiCall('/api/workout/equipment', 'POST', {
+            kind: 'plated', name: 'Bell', bar_kg: 8, sides: 1, plates: [],
+        });
+        expect(plated.implement).toBe('kettlebell');
+    });
+
     it('unknown numeric ids read as 404', async () => {
         const { window } = env;
         await expect(window.offlineAwareApiCall('/api/workout/equipment/999999'))
             .rejects.toThrow();
     });
 
-    it('validation failures reject: missing name, bad kind', async () => {
+    it('validation failures reject: missing name, bad kind, bad implement', async () => {
         const { window } = env;
         await expect(window.offlineAwareApiCall('/api/workout/equipment', 'POST', {
             kind: 'fixed', loads_kg: [10],
@@ -71,5 +86,8 @@ describe('cloud shim contract — workout equipment CRUD', () => {
         await expect(window.offlineAwareApiCall('/api/workout/equipment', 'POST', {
             kind: 'bands', name: 'x',
         })).rejects.toThrow(/kind must be/);
+        await expect(window.offlineAwareApiCall('/api/workout/equipment', 'POST', {
+            kind: 'fixed', name: 'x', loads_kg: [10], implement: 'rack',
+        })).rejects.toThrow(/implement must be/);
     });
 });

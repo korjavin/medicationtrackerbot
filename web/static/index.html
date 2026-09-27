@@ -1572,10 +1572,10 @@
     </mt-modal>
 
     <!-- Modal for Workout Equipment (med-niix.3). Fixed / plated editor:
-         name + kind segmented control; fixed gets a comma-separated loads
-         field with a min/max/step generator; plated gets a Type select
-         (barbell / plate-loaded kettlebell / pair of plate-loaded
-         dumbbells), bar kg, and kg x count plate rows. No link to
+         name + kind segmented control + one shared Type select (med-v75c.1:
+         barbell / dumbbell / kettlebell / other, stored as implement on both
+         kinds); fixed gets a comma-separated loads field with a min/max/step
+         generator; plated gets bar kg and kg x count plate rows. No link to
          exercises (binding is med-niix.5). -->
     <mt-modal id="workout-equipment-modal" class="hidden wg-modal wg-equipment-modal">
         <div class="wg-equipment-modal__header">
@@ -1607,6 +1607,18 @@
                         data-kind="fixed" aria-pressed="true">Fixed</button>
                     <button type="button" class="wg-gloss wg-settings-segmented__btn"
                         data-kind="plated" aria-pressed="false">Plated</button>
+                </div>
+            </div>
+
+            <div class="wg-equipment-modal__field">
+                <label for="workout-equipment-type" class="wg-equipment-modal__label">Type</label>
+                <div class="wg-gloss--inset wg-equipment-modal__input-wrap">
+                    <select id="workout-equipment-type" class="wg-equipment-modal__input">
+                        <option value="barbell">Barbell</option>
+                        <option value="dumbbell">Dumbbell</option>
+                        <option value="kettlebell">Kettlebell</option>
+                        <option value="other">Other</option>
+                    </select>
                 </div>
             </div>
 
@@ -1645,17 +1657,6 @@
             </div>
 
             <div id="workout-equipment-plated-section" hidden>
-                <div class="wg-equipment-modal__field">
-                    <label for="workout-equipment-type" class="wg-equipment-modal__label">Type</label>
-                    <div class="wg-gloss--inset wg-equipment-modal__input-wrap">
-                        <select id="workout-equipment-type" class="wg-equipment-modal__input">
-                            <option value="barbell">Barbell</option>
-                            <option value="kettlebell">Plate-loaded kettlebell</option>
-                            <option value="dumbbells">Pair of plate-loaded dumbbells</option>
-                        </select>
-                    </div>
-                </div>
-
                 <div class="wg-equipment-modal__field">
                     <label for="workout-equipment-bar" class="wg-equipment-modal__label">Bar (kg)</label>
                     <div class="wg-gloss--inset wg-equipment-modal__input-wrap">

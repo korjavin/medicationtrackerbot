@@ -485,6 +485,8 @@ describe('mcp_help wire contract (generated catalog)', () => {
     expect(byID.get('workouts.equipment.list').params_schema).toBeDefined();
     expect(byID.get('workouts.equipment.list').response_example[0].min_step_kg).toBe(2);
     expect(byID.get('workouts.equipment.create').body_schema.properties).toHaveProperty('loads_kg');
+    expect(byID.get('workouts.equipment.create').body_schema.properties).toHaveProperty('implement');
+    expect(byID.get('workouts.equipment.update').body_schema.properties).toHaveProperty('implement');
     expect(byID.get('workouts.equipment.create').required).toEqual(
       expect.arrayContaining(['name', 'kind']),
     );
@@ -1578,11 +1580,14 @@ describe('cloud MCP workouts.equipment round trip', () => {
 
     const created = await call(dispatcher, 1, 'workouts.equipment.create', {
       ...write,
-      params: { kind: 'fixed', name: 'Hex DBs', loads_kg: [10, 12, 14, 16] },
+      params: {
+        kind: 'fixed', name: 'Hex DBs', loads_kg: [10, 12, 14, 16], implement: 'dumbbell',
+      },
     });
     expect(created.error).toBeUndefined();
     expect(created.result.result).toMatchObject({
       name: 'Hex DBs', loads_kg: [10, 12, 14, 16], min_step_kg: 2, max_kg: 16,
+      implement: 'dumbbell',
     });
     const itemID = created.result.result.id;
 
@@ -1602,6 +1607,8 @@ describe('cloud MCP workouts.equipment round trip', () => {
     const relisted = await call(dispatcher, 4, 'workouts.equipment.list', { params: {} });
     expect(relisted.error).toBeUndefined();
     expect(relisted.result.result[0]).toMatchObject({ name: 'Hex DBs v2', max_kg: 12 });
+    // The update above omitted implement: full replacement drops the label.
+    expect('implement' in relisted.result.result[0]).toBe(false);
 
     const deleted = await call(dispatcher, 5, 'workouts.equipment.delete', {
       ...write,
@@ -1753,7 +1760,7 @@ describe('cloud MCP response_example conformance', () => {
     });
 
     const equipment = await w('workouts.equipment.create', {
-      kind: 'fixed', name: 'Hex DBs', loads_kg: [10, 12, 14, 16],
+      kind: 'fixed', name: 'Hex DBs', loads_kg: [10, 12, 14, 16], implement: 'dumbbell',
     });
 
     return {

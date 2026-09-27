@@ -58,6 +58,11 @@ const EQUIPMENT_WRITE_BODY = {
       enum: ['fixed', 'plated'],
       description: 'fixed takes loads_kg (dumbbells, kettlebells, machine stacks); plated takes bar_kg + sides + plates (barbells, plate-loaded implements). Decides which other fields are required.',
     },
+    implement: {
+      type: 'string',
+      enum: ['barbell', 'dumbbell', 'kettlebell', 'other'],
+      description: 'Optional label for both kinds: what the implement is (a fixed 8 kg kettlebell, a machine stack via other). Plated writes default it from sides/pair when omitted (kettlebell for sides:1, dumbbell for a pair, else barbell); fixed writes leave it absent. Display-only — loading math reads sides/pair. Update is a full replacement: omitting implement on a fixed record drops the stored label.',
+    },
     loads_kg: {
       type: 'array',
       items: { type: 'number' },
@@ -438,7 +443,7 @@ export const CLOUD_EXTRA = [
     path: '/api/workout/equipment',
     risk: 'read',
     description: 'List the equipment inventory: every fixed/plated implement with its achievable loads. Each record carries the computed loads_kg plus min_step_kg (the smallest gap between any two consecutive achievable loads — a global minimum, not necessarily the step available at the user\'s current load, so always pick the next value from loads_kg; null when the implement has fewer than two achievable loads) and max_kg, so progression can snap to achievable loads without recomputing.',
-    response_summary: 'Array of equipment records {id, user_id, name, kind, created_at, updated_at, loads_kg, min_step_kg, max_kg} (min_step_kg null when the implement has fewer than two achievable loads), plus bar_kg/sides/pair/plates on plated records.',
+    response_summary: 'Array of equipment records {id, user_id, name, kind, created_at, updated_at, loads_kg, min_step_kg, max_kg} (min_step_kg null when the implement has fewer than two achievable loads), plus bar_kg/sides/pair/plates on plated records, plus implement (barbell/dumbbell/kettlebell/other) when the record carries the label — plated reads always do (legacy rows derive it from sides/pair).',
     params_schema: { type: 'object', properties: {} },
     // Captured from the real router (createApiRouter → /api/workout/equipment)
     // for a fixed dumbbell set; the numeric id below is illustrative (ids are
@@ -453,6 +458,7 @@ export const CLOUD_EXTRA = [
       loads_kg: [10, 12, 14, 16],
       min_step_kg: 2,
       max_kg: 16,
+      implement: 'dumbbell',
     }],
   },
   {
@@ -461,8 +467,8 @@ export const CLOUD_EXTRA = [
     method: 'POST',
     path: '/api/workout/equipment',
     risk: 'write',
-    description: 'Add an implement to the equipment inventory: fixed (loads_kg list — dumbbells, kettlebells, machine stacks, dial-adjustable dumbbells) or plated (bar_kg + sides + plates — barbells, plate-loaded kettlebells/dumbbells; each barbell owns its plate list). Returns the record with computed loads_kg, min_step_kg, max_kg.',
-    response_summary: 'The created equipment record {id, user_id, name, kind, created_at, updated_at, loads_kg, min_step_kg, max_kg} (min_step_kg null when the implement has fewer than two achievable loads), plus bar_kg/sides/pair/plates when kind is plated.',
+    description: 'Add an implement to the equipment inventory: fixed (loads_kg list — dumbbells, kettlebells, machine stacks, dial-adjustable dumbbells) or plated (bar_kg + sides + plates — barbells, plate-loaded kettlebells/dumbbells; each barbell owns its plate list). Both kinds accept an optional implement label (barbell/dumbbell/kettlebell/other). Returns the record with computed loads_kg, min_step_kg, max_kg.',
+    response_summary: 'The created equipment record {id, user_id, name, kind, created_at, updated_at, loads_kg, min_step_kg, max_kg} (min_step_kg null when the implement has fewer than two achievable loads), plus bar_kg/sides/pair/plates when kind is plated, plus implement when the write carried the label (plated writes always do — defaulted from sides/pair).',
     required: ['name', 'kind'],
     body_schema: EQUIPMENT_WRITE_BODY,
     // Captured from the real router (createApiRouter → POST
