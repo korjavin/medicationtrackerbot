@@ -84,18 +84,13 @@ Kept for rationale and provenance. **Never cite as current behavior.**
   [sse-traefik.md](archive/sse-traefik.md),
   [sse-change-stream.md](archive/sse-change-stream.md),
   [demo-mode.md](archive/demo-mode.md), [installer.md](archive/installer.md).
-  **That subject is not built, not shipped, not deployed and not operated** —
-  the image builds and runs only `./cloud` (`Dockerfile:21,33,47`). Its source
-  stays in the tree and still compiles under `go build ./...` so it cannot
-  silently rot; that is the whole of its remaining status.
+  **That subject was removed from the tree in 2026-09 (epic med-a9n5)** — the
+  code is gone; these files are history only. The image builds and runs only
+  `./cloud` (`Dockerfile`).
 
-  Two of those still matter to a working developer, so they are called out
-  rather than buried: **[archive/mcp-coverage.md](archive/mcp-coverage.md)**
-  documents `TestMCPCoverage_AllRoutesEitherRegisteredOrExempt`, which **still
-  runs** against `internal/server` and will still fail CI — `CLAUDE.md` →
-  *Adding a new HTTP route* points at it for that reason. And
+  One of those still deserves a callout rather than burial:
   **[archive/installer.md](archive/installer.md)** documents `install.sh`, a
-  script that has been **deleted from the repository**; it cannot be followed.
+  script that was **deleted from the repository**; it cannot be followed.
 - **[2026-07-12-gpt-5.6-sol-cloud-privacy-audit.md](2026-07-12-gpt-5.6-sol-cloud-privacy-audit.md)**
   — the external privacy audit that drove most of the normative set above. A
   point-in-time review: several of its findings are now closed. Read it for the
