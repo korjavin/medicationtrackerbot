@@ -190,9 +190,15 @@ func upstreamRejectsSchema(r io.Reader) bool {
 
 // isLunaModel reports whether model is gpt-6-luna or a dated variant — the
 // family the med-ibvc live check verified needs reasoning_effort "none" for
-// function tools on chat/completions. Mirrors aiclient.js's isLunaModel.
+// function tools on chat/completions. An optional `provider/` prefix (e.g.
+// `openai/gpt-6-luna` on OpenRouter) is stripped before matching. Mirrors
+// aiclient.js's isLunaModel.
 func isLunaModel(model string) bool {
-	return model == "gpt-6-luna" || strings.HasPrefix(model, "gpt-6-luna-")
+	id := model
+	if i := strings.LastIndex(model, "/"); i >= 0 {
+		id = model[i+1:]
+	}
+	return id == "gpt-6-luna" || strings.HasPrefix(id, "gpt-6-luna-")
 }
 
 // ChatCompletions proxies an OpenAI-compatible chat request to the trial

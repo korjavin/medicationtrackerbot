@@ -97,8 +97,12 @@ function isResponseFormatRejection(err) {
 // its default reasoning effort (live-API verified, med-ibvc): tool calls
 // must carry reasoning_effort 'none'. Scoped to this id on purpose — other
 // providers 400 unknown parameters, so only luna-named models get the knob.
+// An optional `provider/` prefix (e.g. `openai/gpt-6-luna` on OpenRouter)
+// is stripped before matching.
 function isLunaModel(model) {
-  return typeof model === 'string' && (model === 'gpt-6-luna' || model.startsWith('gpt-6-luna-'));
+  if (typeof model !== 'string') return false;
+  const id = model.includes('/') ? model.slice(model.lastIndexOf('/') + 1) : model;
+  return id === 'gpt-6-luna' || id.startsWith('gpt-6-luna-');
 }
 
 // ---------------------------------------------------------------------------

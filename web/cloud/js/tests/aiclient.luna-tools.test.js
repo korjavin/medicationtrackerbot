@@ -67,6 +67,14 @@ describe('aiClient.chat luna tool-calling (bd med-ibvc)', () => {
     expect(body.reasoning_effort).toBe('none');
   });
 
+  it('covers provider-prefixed luna ids', async () => {
+    const body = await chatBody(
+      { api_key: 'k', url: 'https://p.example.com/v1', model: 'openai/gpt-6-luna' },
+      { tools: TOOLS },
+    );
+    expect(body.reasoning_effort).toBe('none');
+  });
+
   it('uses the new default model when none is saved', async () => {
     const body = await chatBody(
       { api_key: 'k', url: 'https://p.example.com/v1' },

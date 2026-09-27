@@ -376,6 +376,9 @@ func TestTrialProxy_LunaToolsEffort(t *testing.T) {
 	if forwarded := post(t, "gpt-6-luna-2026-01-01", toolsBody); forwarded["reasoning_effort"] != "none" {
 		t.Errorf("dated luna+tools reasoning_effort = %v, want none", forwarded["reasoning_effort"])
 	}
+	if forwarded := post(t, "openai/gpt-6-luna", toolsBody); forwarded["reasoning_effort"] != "none" {
+		t.Errorf("prefixed luna+tools reasoning_effort = %v, want none", forwarded["reasoning_effort"])
+	}
 	if forwarded := post(t, "gpt-4o-mini", toolsBody); forwarded["reasoning_effort"] != nil {
 		t.Errorf("non-luna+tools reasoning_effort = %v, want key absent", forwarded["reasoning_effort"])
 	}
