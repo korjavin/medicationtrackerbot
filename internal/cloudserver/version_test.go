@@ -98,8 +98,8 @@ func TestRouter_VersionDoesNotDependOnAPIHandler(t *testing.T) {
 func TestRouter_AssetsCarryExplicitCacheControl(t *testing.T) {
 	h := newTestHandler(t, stampedAppFS("20260710-1432"))
 
-	// Only 200s: Go's http.Error strips Cache-Control off error responses, so a
-	// 404 legitimately carries none.
+	// Only 200s: no Cache-Control is asserted on error responses here. (http.Error
+	// drops only Content-Length — a Cache-Control set before it survives; see GetShare.)
 	for _, path := range []string{"/", "/static/js/app.js", "/static/config.js", "/domain/bp.js", "/js/cloud-boot.js", "/unlock"} {
 		rec := get(t, h, path)
 		if rec.Code != http.StatusOK {
