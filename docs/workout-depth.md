@@ -422,7 +422,8 @@ picked gear's step/max from the API verbatim, and saving writes the library
 row (no write on no change), so the gear applies to the exercise in every plan.
 
 **Snap** (med-niix.2). Progression always runs as before; binding only adds a
-constraint on the proposed load. The library row's `equipment_id` resolves to
+constraint on the proposed load. The exercise's `equipment_id` (row override,
+else the library row's binding) resolves to
 the inventory record once per propagate/preview/suggest pass (never per set),
 and the two load-bump sites (`weightBase + rule.increment_kg`, linear and the
 double rep-reset) snap through `snapLoad(loads, weightBase, increment)`:

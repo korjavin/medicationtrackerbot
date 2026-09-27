@@ -1349,10 +1349,11 @@
                 <div id="workout-exercise-suggest" class="wg-exercise-suggest" hidden></div>
             </div>
 
-            <!-- med-niix.8: editable library-level equipment binding. The
-                 select mirrors the library row's equipment_id (None =
-                 unbound); saving writes the row, so the gear applies to this
-                 exercise in every plan that uses it. -->
+            <!-- med-3gln: per-plan-row equipment override. The select binds
+                 the row's own equipment_id; blank means "no override" and
+                 falls back to the library row's binding (shown as
+                 "from library: <name>"). Saving writes the exercise row only,
+                 never the library. -->
             <div class="wg-workouts-exercise-modal__field">
                 <label for="workout-exercise-equipment" class="wg-workouts-exercise-modal__label">Equipment</label>
                 <div class="wg-gloss--inset wg-workouts-exercise-modal__input-wrap">
@@ -1362,7 +1363,7 @@
                     </select>
                 </div>
                 <p id="workout-exercise-equipment-hint" class="wg-workouts-exercise-modal__hint" hidden></p>
-                <p id="workout-exercise-equipment-scope" class="wg-workouts-exercise-modal__hint">Applies to this exercise in every plan.</p>
+                <p id="workout-exercise-equipment-scope" class="wg-workouts-exercise-modal__hint">Applies to this plan row only.</p>
             </div>
 
             <div class="wg-workouts-exercise-modal__row">

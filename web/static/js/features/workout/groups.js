@@ -661,6 +661,10 @@ function _workoutPlanR1(v) {
     return Math.round(Number(v) * 10) / 10;
 }
 
+function _workoutPlanR2(v) {
+    return Math.round(Number(v) * 100) / 100;
+}
+
 // _workoutPlateLayout computes the plate-glyph geometry shared by the print
 // sheet (med-niix.6, serialized with literal attributes below) and the
 // active-session chip (med-v75c.2, built as classed DOM via
@@ -782,7 +786,9 @@ function _workoutPlanLoadingHtml(ld, unit) {
     // Escaping the joined line equals escaping the parts: the joiners and
     // suffixes (+, ·, /, parens, spaces) contain no escapable characters.
     const txt = _workoutPlanEsc(_workoutPlateText(ld.bar_kg, ld.per_side, ld.sides, unit));
-    return `<span class="plates">${_workoutPlanLoadingSvg(ld.per_side, ld.sides)}<span class="platestxt">${txt}</span></span>`;
+    const note = (ld && typeof ld.note === 'string' && ld.note)
+        ? `<span class="platestxt">${_workoutPlanEsc(ld.note)}</span>` : '';
+    return `<span class="plates">${_workoutPlanLoadingSvg(ld.per_side, ld.sides)}<span class="platestxt">${txt}</span>${note}</span>`;
 }
 
 function _workoutPlanExerciseItem(ex, unit, loadCtx) {
@@ -807,7 +813,13 @@ function _workoutPlanExerciseItem(ex, unit, loadCtx) {
         if (ld && Number.isFinite(Number(ld.bar_kg)) && Array.isArray(ld.per_side) && ld.per_side.length > 0) {
             loadCtx.hadLoading = true;
             loading = _workoutPlanLoadingHtml(
-                { bar_kg: Number(ld.bar_kg), per_side: ld.per_side, sides: ld.sides === 1 ? 1 : 2 }, unit);
+                { bar_kg: Number(ld.bar_kg), per_side: ld.per_side, sides: ld.sides === 1 ? 1 : 2, note: ld.note }, unit);
+        } else if (ld && typeof ld.note === 'string' && ld.note) {
+            // Text-only note (med-3gln): below-bar, bare nearest, or fixed
+            // "nearest: N kg" — no glyph, but the sheet still needs the plate
+            // stylesheet for the .platestxt line.
+            loadCtx.hadLoading = true;
+            loading = `<span class="plates"><span class="platestxt">${_workoutPlanEsc(ld.note)}</span></span>`;
         }
     }
     return `<li><span class="ex">${_workoutPlanEsc(ex.exercise_name)}</span> `
@@ -838,9 +850,11 @@ function _workoutPlanDayBlock(day, unit, showHeading, loadCtx) {
 // `days` is [{ variant, exercises }], one entry per variant. Plate-loading
 // diagrams (med-niix.6) are DRAWN here but never COMPUTED here: the caller
 // precomputes `loadingByExerciseId` ({ [exerciseId]: { bar_kg, per_side,
-// sides } }) with the domain `loadingFor` and hands it in — an absent map,
-// a missing/null entry, or an empty per_side draws nothing, exactly as
-// before.
+// sides, note? } }) with the domain `loadingFor` (+ `nearestLoads` fallback,
+// med-3gln) and hands it in — an absent map, a missing/null entry, or an
+// empty per_side draws nothing, exactly as before. The optional `note` is an
+// extra text line under the glyph (nearest-achievable delta); a note-only
+// entry draws text with no glyph (below-bar, bare nearest, fixed gear).
 function buildWorkoutPlanDocument(group, days, opts) {
     const o = opts || {};
     const g = group || {};
@@ -966,11 +980,14 @@ async function printWorkoutPlan(group) {
         days.push({ variant, exercises });
     }
 
-    // Plate-loading diagrams (med-niix.6): resolve each row's
-    // exercise_library_id → library item → equipment, then decompose the
-    // target with the domain loadingFor — the single source of the plate
-    // math. Best-effort: a failed read or import prints the sheet exactly
-    // as before, without glyphs.
+    // Plate-loading diagrams (med-niix.6, med-3gln): resolve each row's
+    // equipment — the row's own override, else the library binding
+    // (equipmentIdForExercise, the shared rule) — then decompose the target
+    // with the domain loadingFor. An unreachable target falls back to the
+    // nearest achievable loading exactly like the session chip (nearestLoads,
+    // tie → below via pickNearestLoad) with its delta printed; below-bar and
+    // non-stocked fixed loads print a text-only note. Best-effort: a failed
+    // read or import prints the sheet exactly as before, without glyphs.
     let loadingByExerciseId = null;
     try {
         const lib = await apiCall('/api/workout/exercise-library');
@@ -983,8 +1000,11 @@ async function printWorkoutPlan(group) {
             inv = null;
         }
         if (!Array.isArray(inv)) inv = await apiCall('/api/workout/equipment', 'GET');
-        const { loadingFor } = await window.WorkoutGroups.loadEquipmentDomain();
-        if (Array.isArray(lib) && Array.isArray(inv) && typeof loadingFor === 'function') {
+        const { loadingFor, nearestLoads, equipmentIdForExercise, pickNearestLoad } =
+            await window.WorkoutGroups.loadEquipmentDomain();
+        if (Array.isArray(lib) && Array.isArray(inv) && typeof loadingFor === 'function'
+            && typeof nearestLoads === 'function' && typeof equipmentIdForExercise === 'function'
+            && typeof pickNearestLoad === 'function') {
             const libById = {};
             for (const r of lib) {
                 if (r && r.id !== null && r.id !== undefined) libById[r.id] = r;
@@ -999,14 +1019,48 @@ async function printWorkoutPlan(group) {
                     if (!ex || ex.id === null || ex.id === undefined) continue;
                     const w = Number(ex.target_weight_kg);
                     if (!Number.isFinite(w) || w <= 0) continue;
-                    const row = libById[ex.exercise_library_id];
-                    const eq = row ? eqById[row.equipment_id] : null;
-                    if (!eq || eq.kind !== 'plated') continue;
-                    const ld = loadingFor(eq, w);
-                    if (ld && Array.isArray(ld.per_side) && ld.per_side.length > 0) {
-                        loadingByExerciseId[ex.id] = {
-                            bar_kg: ld.bar_kg, per_side: ld.per_side, sides: eq.sides === 1 ? 1 : 2,
-                        };
+                    const row = libById[ex.exercise_library_id] || null;
+                    const eq = eqById[equipmentIdForExercise(ex, row)] || null;
+                    if (!eq) continue;
+                    if (eq.kind === 'plated') {
+                        const sides = eq.sides === 1 ? 1 : 2;
+                        const ld = loadingFor(eq, w);
+                        if (ld && Array.isArray(ld.per_side) && ld.per_side.length > 0) {
+                            loadingByExerciseId[ex.id] = {
+                                bar_kg: ld.bar_kg, per_side: ld.per_side, sides,
+                            };
+                        } else if (ld) {
+                            // Exact bare-bar target: nothing to load, as before.
+                        } else {
+                            // Below the bar nothing is achievable: say so instead
+                            // of suggesting the bare bar as a "nearest" rung.
+                            const bar = Number(eq.bar_kg);
+                            if (Number.isFinite(bar) && w < bar) {
+                                loadingByExerciseId[ex.id] = { note: `below bar (${_workoutPlanR2(bar)} kg)` };
+                            } else {
+                                const near = nearestLoads(eq.loads_kg, w);
+                                const chosen = pickNearestLoad(near.below, near.above, w);
+                                if (chosen === null || chosen === undefined) continue;
+                                const best = loadingFor(eq, chosen);
+                                if (!best) continue;
+                                const delta = _workoutPlanR2(chosen - w);
+                                const sign = delta > 0 ? '+' : '';
+                                const note = `${_workoutPlanR2(chosen)} kg (${sign}${delta} kg)`;
+                                loadingByExerciseId[ex.id] = (best.per_side && best.per_side.length > 0)
+                                    ? {
+                                        bar_kg: best.bar_kg, per_side: best.per_side, sides, note,
+                                    }
+                                    : { note };
+                            }
+                        }
+                    } else if (eq.kind === 'fixed') {
+                        const loads = (Array.isArray(eq.loads_kg) ? eq.loads_kg : [])
+                            .map(Number).filter((n) => Number.isFinite(n) && n > 0);
+                        if (loads.indexOf(w) !== -1) continue;
+                        const near = nearestLoads(loads, w);
+                        const chosen = pickNearestLoad(near.below, near.above, w);
+                        if (chosen === null || chosen === undefined) continue;
+                        loadingByExerciseId[ex.id] = { note: `nearest: ${_workoutPlanR2(chosen)} kg` };
                     }
                 }
             }
