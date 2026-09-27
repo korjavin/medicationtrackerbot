@@ -1606,9 +1606,8 @@ describe('cloud MCP workouts.equipment round trip', () => {
 
     const relisted = await call(dispatcher, 4, 'workouts.equipment.list', { params: {} });
     expect(relisted.error).toBeUndefined();
-    expect(relisted.result.result[0]).toMatchObject({ name: 'Hex DBs v2', max_kg: 12 });
-    // The update above omitted implement: full replacement drops the label.
-    expect('implement' in relisted.result.result[0]).toBe(false);
+    // The update above omitted implement: the stored label survives (preserve on omit).
+    expect(relisted.result.result[0]).toMatchObject({ name: 'Hex DBs v2', max_kg: 12, implement: 'dumbbell' });
 
     const deleted = await call(dispatcher, 5, 'workouts.equipment.delete', {
       ...write,

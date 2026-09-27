@@ -267,7 +267,7 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
         expect(document.getElementById('workout-equipment-bar').value).toBe('20');
     });
 
-    it('editing a record outside the three combinations opens the nearest Type', async () => {
+    it('editing a record outside the three combinations opens kettlebell (sides:1 wins)', async () => {
         const { window, document } = env;
         const oddRecord = { ...PLATED_BAR, id: 8, name: 'Odd bell', sides: 1, pair: true };
         seedOnlineList(window, [oddRecord]);
@@ -275,7 +275,7 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
 
         await window.WorkoutEquipment.openEdit(oddRecord.id);
 
-        expect(document.getElementById('workout-equipment-type').value).toBe('dumbbell');
+        expect(document.getElementById('workout-equipment-type').value).toBe('kettlebell');
     });
 
     it('with kind=fixed the shared Type select stays visible and saves onto the payload', async () => {
@@ -315,6 +315,31 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
         expect(document.getElementById('workout-equipment-type').value).toBe('kettlebell');
     });
 
+    it('editing a legacy fixed item opens blank and a rename sends no implement', async () => {
+        const { window, document } = env;
+        seedOnlineList(window, [FIXED_DB]);
+        await window.WorkoutEquipment.load();
+
+        const calls = [];
+        window.apiCall = vi.fn(async (url, method, body) => {
+            calls.push([url, method, body]);
+            if (method === 'PUT') return true;
+            if (url === '/api/workout/equipment' && method === 'GET') return [structuredClone(FIXED_DB)];
+            return null;
+        });
+        window.apiCallDirect = vi.fn(async () => [structuredClone(FIXED_DB)]);
+
+        await window.WorkoutEquipment.openEdit(FIXED_DB.id);
+        expect(document.getElementById('workout-equipment-type').value).toBe('');
+
+        document.getElementById('workout-equipment-name').value = 'Hex DBs v2';
+        await window.WorkoutEquipment.save();
+
+        expect(calls[0][1]).toBe('PUT');
+        expect(calls[0][2]).toEqual({ kind: 'fixed', name: 'Hex DBs v2', loads_kg: [10, 12, 14, 16] });
+        expect('implement' in calls[0][2]).toBe(false);
+    });
+
     it('editing a record with a stored implement preselects it over sides/pair', async () => {
         const { window, document } = env;
         const odd = { ...PLATED_BAR, id: 12, name: 'Odd bar', sides: 2, pair: false, implement: 'other' };
@@ -352,7 +377,8 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
         expect(type).not.toBeNull();
         expect(type.tagName.toLowerCase()).toBe('select');
         expect(Array.from(type.querySelectorAll('option')).map((o) => o.value))
-            .toEqual(['barbell', 'dumbbell', 'kettlebell', 'other']);
+            .toEqual(['', 'barbell', 'dumbbell', 'kettlebell', 'other']);
+        expect(type.querySelector('option[value=""]').textContent).toBe('—');
         // Shared by both kinds: it lives outside the plated section.
         expect(type.closest('#workout-equipment-plated-section')).toBeNull();
         expect(type.closest('#workout-equipment-fixed-section')).toBeNull();
@@ -581,7 +607,8 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
         });
         expect(calls[0][0]).toBe('/api/workout/equipment/1');
         expect(calls[0][1]).toBe('PUT');
-        expect(calls[0][2]).toEqual({ kind: 'fixed', name: 'Hex DBs v2', loads_kg: [10, 12], implement: 'barbell' });
+        expect(calls[0][2]).toEqual({ kind: 'fixed', name: 'Hex DBs v2', loads_kg: [10, 12] });
+        expect('implement' in calls[0][2]).toBe(false);
 
         await vi.waitFor(() => {
             expect(rowsOf(document).map((r) => r.querySelector('.wg-equipment-row__name').textContent))

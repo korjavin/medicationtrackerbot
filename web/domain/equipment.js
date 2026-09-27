@@ -392,9 +392,9 @@ export function createEquipmentDomain({ records, now }) {
       ? ['bar_kg', 'sides', 'pair', 'plates']
       : ['loads_kg'];
     for (const k of disowned) delete updated[k];
-    // Update is a full replacement: omitting implement drops the stored label
-    // (plated payloads always carry it — defaulted — so this only bites fixed).
-    if (!('implement' in clean)) delete updated.implement;
+    // implement is deliberately NOT stripped: omitting it preserves the stored
+    // label (a stale second device or an older MCP caller must not wipe a
+    // user-set type), and it survives kind changes — it lives on both kinds.
     await records.put(EQUIPMENT_RECORD_TYPE, updated);
   }
 

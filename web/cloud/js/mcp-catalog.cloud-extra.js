@@ -61,7 +61,7 @@ const EQUIPMENT_WRITE_BODY = {
     implement: {
       type: 'string',
       enum: ['barbell', 'dumbbell', 'kettlebell', 'other'],
-      description: 'Optional label for both kinds: what the implement is (a fixed 8 kg kettlebell, a machine stack via other). Plated writes default it from sides/pair when omitted (kettlebell for sides:1, dumbbell for a pair, else barbell); fixed writes leave it absent. Display-only — loading math reads sides/pair. Update is a full replacement: omitting implement on a fixed record drops the stored label.',
+      description: 'Optional label for both kinds: what the implement is (a fixed 8 kg kettlebell, a machine stack via other). Plated writes default it from sides/pair when omitted (kettlebell for sides:1, dumbbell for a pair, else barbell); fixed writes leave it absent. Display-only — loading math reads sides/pair. Unlike the kind-specific fields, implement is preserved on update when omitted: a sparse update never wipes a stored label.',
     },
     loads_kg: {
       type: 'array',

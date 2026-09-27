@@ -330,17 +330,17 @@ describe('equipment implement label (med-v75c.1)', () => {
     expect('implement' in stored).toBe(false);
   });
 
-  it('an update omitting implement drops the stored label (full replacement)', async () => {
-    let t = 1_000_000;
-    const records = memPort();
-    const eq = createEquipmentDomain({ records, now: () => (t += 1000) });
+  it('an update omitting implement keeps the stored label; an explicit one overwrites', async () => {
+    const eq = domain();
     const created = await eq.createEquipment({
       kind: 'fixed', name: 'KB', loads_kg: [8], implement: 'kettlebell',
     });
     await eq.updateEquipment(created.id, { kind: 'fixed', name: 'KB', loads_kg: [8] });
-    expect('implement' in (await eq.getEquipment(created.id))).toBe(false);
-    const [stored] = await records.list('equipment');
-    expect('implement' in stored).toBe(false);
+    expect((await eq.getEquipment(created.id)).implement).toBe('kettlebell');
+    await eq.updateEquipment(created.id, {
+      kind: 'fixed', name: 'KB', loads_kg: [8], implement: 'dumbbell',
+    });
+    expect((await eq.getEquipment(created.id)).implement).toBe('dumbbell');
   });
 });
 

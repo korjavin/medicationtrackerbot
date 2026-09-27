@@ -284,22 +284,26 @@ function _implementLabel(implement) {
 
 function _getEquipmentType() {
     const el = document.getElementById('workout-equipment-type');
-    const value = el ? el.value : 'barbell';
-    return WORKOUT_EQUIPMENT_IMPLEMENTS.indexOf(value) === -1 ? 'barbell' : value;
+    const value = el ? el.value : '';
+    // Blank ("—") or anything unrecognized reads as unset; the payload omits
+    // implement and plated geometry falls back to barbell.
+    return WORKOUT_EQUIPMENT_IMPLEMENTS.indexOf(value) === -1 ? '' : value;
 }
 
 function _setEquipmentType(type) {
     const el = document.getElementById('workout-equipment-type');
     if (!el) return;
-    el.value = WORKOUT_EQUIPMENT_IMPLEMENTS.indexOf(type) === -1 ? 'barbell' : type;
+    el.value = WORKOUT_EQUIPMENT_IMPLEMENTS.indexOf(type) === -1 ? '' : type;
 }
 
 // ponytail: only three (sides, pair) combinations exist in practice, so a
 // record outside them (e.g. sides:1 pair:true) opens on the nearest option —
-// pair wins the tie, keeping a deliberate pair:true record on dumbbell.
+// sides:1 wins the tie, matching the read path's derive order
+// (defaultPlatedImplement in web/domain/equipment.js).
 function _sidesPairToEquipmentType(sides, pair) {
+    if (sides === 1) return 'kettlebell';
     if (pair) return 'dumbbell';
-    return sides === 1 ? 'kettlebell' : 'barbell';
+    return 'barbell';
 }
 
 function _equipmentTypeToSidesPair(type) {
@@ -471,12 +475,15 @@ async function showEditWorkoutEquipmentModal(id) {
     if (platesEl) platesEl.replaceChildren();
     const kind = item.kind === 'plated' ? 'plated' : 'fixed';
     _setEquipmentKind(kind);
-    // The shared Type select preselects the stored implement; a legacy
-    // record without one falls back to sides/pair (which reads as barbell
-    // for fixed gear, whose sides/pair are unset).
-    _setEquipmentType(WORKOUT_EQUIPMENT_IMPLEMENTS.indexOf(item.implement) === -1
-        ? _sidesPairToEquipmentType(item.sides, item.pair)
-        : item.implement);
+    // The shared Type select preselects the stored implement; a legacy plated
+    // record without one falls back to sides/pair, while a legacy fixed
+    // record opens on the blank "—" option so saving it never stamps a
+    // label the user never chose.
+    let type = item.implement;
+    if (WORKOUT_EQUIPMENT_IMPLEMENTS.indexOf(type) === -1) {
+        type = kind === 'plated' ? _sidesPairToEquipmentType(item.sides, item.pair) : '';
+    }
+    _setEquipmentType(type);
     if (kind === 'fixed') {
         const loads = Array.isArray(item.loads_kg) ? item.loads_kg : [];
         document.getElementById('workout-equipment-loads').value = loads.join(', ');
@@ -505,7 +512,10 @@ function _buildEquipmentPayload() {
             safeAlert('Fixed loads must be positive numbers, comma-separated (or use the generator).');
             return null;
         }
-        return { kind: 'fixed', name, loads_kg: loads, implement: _getEquipmentType() };
+        const fixedPayload = { kind: 'fixed', name, loads_kg: loads };
+        const fixedImplement = _getEquipmentType();
+        if (fixedImplement) fixedPayload.implement = fixedImplement;
+        return fixedPayload;
     }
     const barKg = Number(document.getElementById('workout-equipment-bar').value);
     if (!Number.isFinite(barKg) || barKg <= 0) {
@@ -516,15 +526,16 @@ function _buildEquipmentPayload() {
     if (plates === null) return null;
     const implement = _getEquipmentType();
     const { sides, pair } = _equipmentTypeToSidesPair(implement);
-    return {
+    const platedPayload = {
         kind: 'plated',
         name,
         bar_kg: barKg,
         sides,
         pair,
-        plates,
-        implement
+        plates
     };
+    if (implement) platedPayload.implement = implement;
+    return platedPayload;
 }
 
 // Writes honour rule 9: the projected row lands in the `workout_equipment`
