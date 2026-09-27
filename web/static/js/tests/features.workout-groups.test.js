@@ -54,7 +54,7 @@ describe('features/workout/groups.js — split-file integration', () => {
     const { window, document } = env;
     const apiCallSpy = vi.fn();
     window.apiCall = apiCallSpy;
-    window.Telegram.WebApp.showAlert = vi.fn();
+    window.alert = vi.fn();
 
     window.showAddWorkoutGroupModal();
     document.getElementById('workout-group-name').value = '';
@@ -62,7 +62,7 @@ describe('features/workout/groups.js — split-file integration', () => {
     await window.saveWorkoutGroup();
 
     expect(apiCallSpy).not.toHaveBeenCalled();
-    expect(window.Telegram.WebApp.showAlert).toHaveBeenCalledTimes(1);
+    expect(window.alert).toHaveBeenCalledTimes(1);
   });
 
   it('closeWorkoutGroupModal resets the cross-file editing state on WorkoutEdit', () => {
@@ -177,7 +177,7 @@ describe('features/workout/groups.js — split-file integration', () => {
       if (url.startsWith('/api/workout/exercises?variant_id=')) return [];
       return null;
     });
-    window.Telegram.WebApp.showAlert = vi.fn();
+    window.alert = vi.fn();
     window.WorkoutEdit.editingGroupId = 5;
 
     // Two Days: unchecking rotation must be reverted with an alert.
@@ -186,16 +186,16 @@ describe('features/workout/groups.js — split-file integration', () => {
     await window.toggleRotatingFields();
     expect(document.getElementById('workout-group-rotating').checked).toBe(true);
     expect(document.getElementById('workout-variants-section').style.display).toBe('block');
-    expect(window.Telegram.WebApp.showAlert).toHaveBeenCalledTimes(1);
+    expect(window.alert).toHaveBeenCalledTimes(1);
 
     // One Day: collapse is allowed — no alert, flat section shown.
-    window.Telegram.WebApp.showAlert.mockClear();
+    window.alert.mockClear();
     variantList = [{ id: 1, group_id: 5, name: 'Main' }];
     document.getElementById('workout-group-rotating').checked = false;
     await window.toggleRotatingFields();
     expect(document.getElementById('workout-group-rotating').checked).toBe(false);
     expect(document.getElementById('workout-group-flat-exercises-section').style.display).toBe('block');
-    expect(window.Telegram.WebApp.showAlert).not.toHaveBeenCalled();
+    expect(window.alert).not.toHaveBeenCalled();
   });
 
   // A failed Day read (offline/5xx → apiCall null) must not fall open and
@@ -203,7 +203,7 @@ describe('features/workout/groups.js — split-file integration', () => {
   it('rotation off-guard: failed Day read keeps rotation on and bails', async () => {
     const { window, document } = env;
     window.apiCall = vi.fn(async () => null); // simulate offline/5xx everywhere
-    window.Telegram.WebApp.showAlert = vi.fn();
+    window.alert = vi.fn();
     window.WorkoutEdit.editingGroupId = 7;
 
     document.getElementById('workout-group-rotating').checked = false;
@@ -211,7 +211,7 @@ describe('features/workout/groups.js — split-file integration', () => {
 
     expect(document.getElementById('workout-group-rotating').checked).toBe(true);
     expect(document.getElementById('workout-variants-section').style.display).toBe('block');
-    expect(window.Telegram.WebApp.showAlert).toHaveBeenCalledTimes(1);
+    expect(window.alert).toHaveBeenCalledTimes(1);
     // Must not have attempted to create a "Main" variant.
     expect(window.apiCall.mock.calls.some((c) => c[0] === '/api/workout/variants/create')).toBe(false);
   });
@@ -227,7 +227,7 @@ describe('features/workout/groups.js — split-file integration', () => {
       if (url.startsWith('/api/workout/variants?group_id=')) return variantsGate;
       return null;
     });
-    window.Telegram.WebApp.showAlert = vi.fn();
+    window.alert = vi.fn();
     window.WorkoutEdit.editingGroupId = 9;
     document.getElementById('workout-group-name').value = 'Legs';
     document.getElementById('workout-group-time').value = '08:00';
@@ -239,7 +239,7 @@ describe('features/workout/groups.js — split-file integration', () => {
     // A Save click during that window must bail without an update POST.
     await window.saveWorkoutGroup();
     expect(window.apiCall.mock.calls.some((c) => c[0].startsWith('/api/workout/groups/update'))).toBe(false);
-    expect(window.Telegram.WebApp.showAlert).toHaveBeenCalledTimes(1);
+    expect(window.alert).toHaveBeenCalledTimes(1);
 
     // Guard resolves to a multi-Day plan → checkbox re-checked, no longer pending.
     releaseVariants([{ id: 1 }, { id: 2 }]);
@@ -260,7 +260,7 @@ describe('features/workout/groups.js — split-file integration', () => {
       }
       return null;
     });
-    window.Telegram.WebApp.showAlert = vi.fn();
+    window.alert = vi.fn();
     window.WorkoutEdit.editingGroupId = 9;
     document.getElementById('workout-group-name').value = 'Legs';
     document.getElementById('workout-group-time').value = '08:00';
@@ -344,7 +344,7 @@ describe('features/workout/groups.js — printable plan sheet (med-ac5h)', () =>
   beforeEach(() => {
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     env = loadFrontendEnv({ withWorkout: true });
-    env.window.Telegram.WebApp.showAlert = vi.fn();
+    env.window.alert = vi.fn();
   });
 
   afterEach(() => {
@@ -453,7 +453,7 @@ describe('features/workout/groups.js — printable plan sheet (med-ac5h)', () =>
     await window.WorkoutGroups.print(GROUP);
 
     expect(printed.length).toBe(0);
-    expect(window.Telegram.WebApp.showAlert).toHaveBeenCalledTimes(1);
+    expect(window.alert).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -466,7 +466,7 @@ describe('features/workout/groups.js — scan-back anchors (med-qj4.9)', () => {
   beforeEach(() => {
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     env = loadFrontendEnv({ withWorkout: true });
-    env.window.Telegram.WebApp.showAlert = vi.fn();
+    env.window.alert = vi.fn();
   });
 
   afterEach(() => {
@@ -605,7 +605,7 @@ describe('features/workout/groups.js — plate loading diagrams (med-niix.6)', (
   beforeEach(() => {
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     env = loadFrontendEnv({ withWorkout: true });
-    env.window.Telegram.WebApp.showAlert = vi.fn();
+    env.window.alert = vi.fn();
   });
 
   afterEach(() => {

@@ -1,9 +1,9 @@
 // Integration tests for features/auth-bootstrap.js (Plan 2026-05-13-split-app-js.md, Task 3).
 //
 // The module extracts the previously-scattered bootstrap/hydration helpers
-// from app.js (applyBootstrapPayload, verifyAuthInBackground,
-// clearSwBootstrapCache, hydrateMedicationsFromDexie, hydrateSectionsFromDexie,
-// cacheApiSnapshot, normalizeSettingsBundle, hydrateFeatureSettingsFromBundle)
+// from app.js (applyBootstrapPayload, hydrateMedicationsFromDexie,
+// hydrateSectionsFromDexie, cacheApiSnapshot, normalizeSettingsBundle,
+// hydrateFeatureSettingsFromBundle)
 // plus a new closure-private SettingsState reducer that owns featureSettings +
 // featureSettingsLoaded and collapses the three-writer race documented in the
 // plan.
@@ -16,45 +16,12 @@
 //      bootstrap-confirmed values.
 //   2. Dexie hydration before bootstrap warms the in-memory state; a later
 //      applyBootstrapFeatures replaces those values without merge surprises.
-//   3. verifyAuthInBackground reloads on 4xx (auth invalid) and swallows on
-//      5xx (server down). Network errors are also swallowed.
-//   4. The legacy window.X shims (applyBootstrapPayload, cacheApiSnapshot,
+//   3. The legacy window.X shims (applyBootstrapPayload, cacheApiSnapshot,
 //      normalizeSettingsBundle, etc.) are still callable by name so tests
 //      and consumers that pre-date the extraction keep working.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createMockResponse, loadFrontendEnv } from './helpers/frontend-harness.js';
-import { allowConsoleNoise } from './helpers/setup.js';
-import { idle, signal } from './helpers/settle.js';
-
-const AUTH_CACHE_KEY = 'medtracker_auth_state';
-
-// med-tc1.10 — verifyAuthInBackground is fire-and-forget (returns nothing), so
-// "it did NOT clear the auth state" has no completion promise to await. Two
-// progress-bounded barriers replace the old `setTimeout(r, 30)`:
-//   1. `probed` fires from inside the fetch mock — /auth/status was issued.
-//   2. `idle()` then runs the response handler to exhaustion. Everything after
-//      the fetch is pure promise work (res.json / clearAuthState /
-//      clearSwBootstrapCache), and one idle round drains the entire microtask
-//      queue including chained continuations — so a mutant that clears on this
-//      branch has provably done so before the assertion.
-function stubAuthStatusFetch(window, respond) {
-    const probed = signal();
-    window.fetch = vi.fn((url) => {
-        probed.fire();
-        return respond(url);
-    });
-    return probed;
-}
-
-function setAuthCache(window) {
-    window.localStorage.setItem(AUTH_CACHE_KEY, JSON.stringify({
-        authenticated: true,
-        authMethod: 'cookie',
-        timestamp: Date.now(),
-        ttl: 30 * 24 * 60 * 60 * 1000,
-    }));
-}
+import { loadFrontendEnv } from './helpers/frontend-harness.js';
 
 describe('features/auth-bootstrap.js — SettingsState reducer', () => {
     let env;
@@ -179,75 +146,6 @@ describe('features/auth-bootstrap.js — bootstrap-then-Dexie idempotency', () =
     });
 });
 
-describe('features/auth-bootstrap.js — verifyAuthInBackground', () => {
-    let env;
-
-    beforeEach(() => {
-        env = loadFrontendEnv();
-        allowConsoleNoise();
-    });
-
-    afterEach(() => {
-        env.cleanup();
-    });
-
-    it('reloads on 4xx (auth invalid) — clears the cached auth state before reload', async () => {
-        const { window } = env;
-        setAuthCache(window);
-
-        // Stub caches API so clearSwBootstrapCache resolves without throwing.
-        window.caches = {
-            keys: () => Promise.resolve([]),
-            open: () => Promise.resolve({ delete: () => Promise.resolve() }),
-        };
-
-        window.fetch = vi.fn().mockResolvedValue(createMockResponse({
-            status: 401,
-        }));
-
-        window.verifyAuthInBackground();
-
-        // The 4xx branch synchronously calls clearAuthState() before kicking
-        // off clearSwBootstrapCache().then(reload). Watching the auth cache
-        // clear is the deterministic signal that the 4xx path fired.
-        await vi.waitFor(() => {
-            expect(window.localStorage.getItem(AUTH_CACHE_KEY)).toBeNull();
-        });
-    });
-
-    it('swallows on 5xx (server down) — auth state preserved', async () => {
-        const { window } = env;
-        setAuthCache(window);
-
-        const probed = stubAuthStatusFetch(window, () => Promise.resolve(createMockResponse({
-            status: 503,
-        })));
-
-        window.verifyAuthInBackground();
-
-        // The 5xx branch must short-circuit before touching clearAuthState; the
-        // cached auth state therefore must survive the handler running out.
-        await probed.wait;
-        await idle();
-
-        expect(window.localStorage.getItem(AUTH_CACHE_KEY)).not.toBeNull();
-    });
-
-    it('swallows on network error — auth state preserved', async () => {
-        const { window } = env;
-        setAuthCache(window);
-
-        const probed = stubAuthStatusFetch(window, () => Promise.reject(new Error('network down')));
-
-        window.verifyAuthInBackground();
-
-        await probed.wait;
-        await idle();
-
-        expect(window.localStorage.getItem(AUTH_CACHE_KEY)).not.toBeNull();
-    });
-});
-
 describe('features/auth-bootstrap.js — first-run overlay wiring', () => {
     let env;
 
@@ -345,9 +243,6 @@ describe('features/auth-bootstrap.js — namespace + backwards-compat shims', ()
         const { window } = env;
         expect(typeof window.AuthBootstrap).toBe('object');
         expect(typeof window.AuthBootstrap.applyBootstrapPayload).toBe('function');
-        expect(typeof window.AuthBootstrap.verifyAuthInBackground).toBe('function');
-        expect(typeof window.AuthBootstrap.clearSwBootstrapCache).toBe('function');
-        expect(typeof window.AuthBootstrap.bootstrapURL).toBe('function');
         expect(typeof window.AuthBootstrap.hydrateFeatureSettingsFromBundle).toBe('function');
         expect(typeof window.AuthBootstrap.hydrateMedicationsFromDexie).toBe('function');
         expect(typeof window.AuthBootstrap.hydrateSectionsFromDexie).toBe('function');
@@ -360,19 +255,9 @@ describe('features/auth-bootstrap.js — namespace + backwards-compat shims', ()
         expect(window.applyBootstrapPayload).toBe(window.AuthBootstrap.applyBootstrapPayload);
         expect(window.normalizeSettingsBundle).toBe(window.AuthBootstrap.normalizeSettingsBundle);
         expect(window.cacheApiSnapshot).toBe(window.AuthBootstrap.cacheApiSnapshot);
-        expect(window.verifyAuthInBackground).toBe(window.AuthBootstrap.verifyAuthInBackground);
-        expect(window.clearSwBootstrapCache).toBe(window.AuthBootstrap.clearSwBootstrapCache);
-        expect(window.bootstrapURL).toBe(window.AuthBootstrap.bootstrapURL);
         expect(window.hydrateFeatureSettingsFromBundle).toBe(window.AuthBootstrap.hydrateFeatureSettingsFromBundle);
         expect(window.hydrateMedicationsFromDexie).toBe(window.AuthBootstrap.hydrateMedicationsFromDexie);
         expect(window.hydrateSectionsFromDexie).toBe(window.AuthBootstrap.hydrateSectionsFromDexie);
-    });
-
-    it('bootstrapURL returns a /api/bootstrap URL with a tz query param', () => {
-        const { window } = env;
-        const url = window.bootstrapURL();
-        expect(url.startsWith('/api/bootstrap?')).toBe(true);
-        expect(/tz=|tz_offset=/.test(url)).toBe(true);
     });
 
     it('normalizeSettingsBundle coerces weight-unit and food-target numbers (canonical pass-through)', () => {

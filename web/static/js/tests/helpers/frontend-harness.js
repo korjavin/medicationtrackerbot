@@ -146,20 +146,7 @@ export function createMockResponse({ status = 200, json, text } = {}) {
   };
 }
 
-function isVersionAtLeast(currentVersion, targetVersion) {
-  const currentParts = String(currentVersion).split('.').map((v) => parseInt(v, 10) || 0);
-  const targetParts = String(targetVersion).split('.').map((v) => parseInt(v, 10) || 0);
-  const maxLength = Math.max(currentParts.length, targetParts.length);
-  for (let i = 0; i < maxLength; i += 1) {
-    const current = currentParts[i] || 0;
-    const target = targetParts[i] || 0;
-    if (current > target) return true;
-    if (current < target) return false;
-  }
-  return true;
-}
-
-export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', telegramVersion = '6.9', url = 'https://example.test/' } = {}) {
+export function loadFrontendEnv({ withWorkout = false, url = 'https://example.test/' } = {}) {
   const html = readCached(INDEX_HTML);
   const dom = new JSDOM(html, {
     url,
@@ -177,43 +164,11 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
     if (!window[g] && globalThis[g]) window[g] = globalThis[g];
   }
 
-  const backButtonState = {
-    showCalls: 0,
-    hideCalls: 0,
-    clickHandler: null
-  };
-
-  const backButton = {
-    show() {
-      backButtonState.showCalls += 1;
-    },
-    hide() {
-      backButtonState.hideCalls += 1;
-    },
-    onClick(cb) {
-      backButtonState.clickHandler = cb;
-    }
-  };
-
-  window.Telegram = {
-    WebApp: {
-      initData: telegramInitData,
-      initDataUnsafe: {},
-      ready() {},
-      expand() {},
-      isVersionAtLeast(version) {
-        return isVersionAtLeast(telegramVersion, version);
-      },
-      showAlert() {},
-      showConfirm(_msg, cb) {
-        cb(true);
-      },
-      BackButton: backButton
-    }
-  };
-
-  window.OIDC_CONFIG = { enabled: false };
-  window.BOT_USERNAME = 'test_bot';
+  // Cloud default: the app under test boots as the cloud origin does —
+  // window.__MEDTRACKER_CLOUD__ set before any script evals, no Telegram
+  // WebApp mock (messenger-adapter.js picks BrowserAdapter), and no
+  // BOT_USERNAME/OIDC_CONFIG globals (the bot config script is gone).
+  window.__MEDTRACKER_CLOUD__ = true;
   window.alert = () => {};
   window.confirm = () => true;
   window.fetch = async () => createMockResponse({ status: 200, json: {} });
@@ -221,9 +176,9 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
 
   // Core infrastructure files (loaded before data-store.js and app.js)
   evalFileCached(window, UTILS_JS);
-  // messenger-adapter.js selects TelegramAdapter (since this harness always
-  // primes window.Telegram.WebApp above) and exposes window.MessengerAdapter.
-  // Must load before app.js (which reads identityToken()) and any feature
+  // messenger-adapter.js selects BrowserAdapter (no window.Telegram.WebApp
+  // in this harness) and exposes window.MessengerAdapter.
+  // Must load before app.js and any feature
   // module that calls into the adapter (back-button, modal-history,
   // deeplink-router, utils' safeAlert/safeConfirm).
   evalFileCached(window, MESSENGER_ADAPTER_JS);
@@ -356,7 +311,7 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
 
   // settings.js — the Settings tab view (loadSettings / toggleFeatureSetting /
   // updateFeatureToggles / updateFoodTargetsVisibility / updateFeatureTabVisibility
-  // / renderSettingsStaleBadge / initOIDCSetupBanner) extracted from app.js
+  // / renderSettingsStaleBadge) extracted from app.js
   // (Plan 2026-06-10 finish-app-js-split, Task 2). Loaded after app.js because
   // it cross-references app.js globals (readPersistedTabOrder, switchTab) at call
   // time and app.js's feature-toggle handlers reach toggleFeatureSetting here.
@@ -418,7 +373,7 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   }
 
   // deeplink-router.js: provides handleDeepLinks() on window.
-  // The Telegram start_param auto-run is harmless (initDataUnsafe={} in tests).
+  // The start_param auto-run is harmless (no ?start= in the test URL).
   evalFileCached(window, DEEPLINK_ROUTER_JS);
 
   if (withWorkout) {
@@ -446,7 +401,6 @@ export function loadFrontendEnv({ withWorkout = false, telegramInitData = '', te
   return {
     window,
     document: window.document,
-    backButtonState,
     cleanup: () => dom.window.close()
   };
 }

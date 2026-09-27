@@ -8,9 +8,6 @@ on:
       - '**/*_test.go'
       - '**/testdata/**'
       - 'web/static/js/tests/**'
-      - 'python/tests/**'
-      - 'python/**/test_*.py'
-      - 'python/**/*_test.py'
       - 'docs/**'
       - '**/*.md'
   pull_request:
@@ -23,7 +20,6 @@ on:
       - 'Dockerfile'
       - 'entrypoint.sh'
       - 'web/**'
-      - 'python/**'
       - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
@@ -41,7 +37,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: server
+          - name: cloud
             tags: ''
     name: test (${{ matrix.name }})
     steps:
@@ -129,7 +125,7 @@ jobs:
           BUILD_TS="$(date +%Y%m%d-%H%M)"
           sed -i "s|VERSION_PLACEHOLDER|$(git rev-parse --short HEAD)|g" web/static/index.html web/static/wg-primitives.html
           sed -i "s|TIMESTAMP_PLACEHOLDER|${BUILD_TS}|g" web/static/index.html web/static/wg-primitives.html
-          sed -i "s|CACHE_VERSION_PLACEHOLDER|v${BUILD_TS}|g" web/static/sw.js web/cloud/sw.js
+          sed -i "s|CACHE_VERSION_PLACEHOLDER|v${BUILD_TS}|g" web/cloud/sw.js
           # This timestamp — not the commit SHA — is what the running server
           # reports at GET /api/version (internal/cloudserver/version.go lifts it
           # back out of the first `?v=` on a served asset URL). The verification

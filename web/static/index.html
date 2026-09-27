@@ -15,12 +15,8 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16x16.png">
     <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
-    <!-- The Telegram WebApp SDK is injected at runtime by
-         core/messenger-adapter.js, only in bot mode. Keeping the CDN out of
-         this document is enforced by architecture.no-telegram-in-html.test.js. -->
     <script src="/static/vendor/dexie.min.js"></script>
     <script src="/static/vendor/zxing.min.js"></script>
-    <script src="/static/config.js"></script>
     <!-- Space Grotesk + JetBrains Mono are self-hosted from the same origin
          (web/static/fonts, @font-face in fonts.css) so they load under the
          cloud origin's strict `style-src 'self'` CSP without phoning a font CDN
@@ -451,26 +447,6 @@
 
             <details open class="wg-settings-group">
                 <summary class="wg-settings-group__summary">Preferences</summary>
-
-            <section class="wg-card wg-settings-section wg-settings-notifications">
-                <h3 class="wg-settings-section__title">Notifications</h3>
-                <p class="wg-settings-section__desc">Push alerts and test notifications</p>
-                <div class="wg-settings-row-list">
-                    <mt-setting-toggle title="Web Push Notifications"
-                        description="Browser notifications for medications" input-id="webpush-toggle"></mt-setting-toggle>
-                    <div id="webpush-status" class="wg-settings-webpush-status wg-settings-hidden"></div>
-                    <div class="wg-settings-row">
-                        <div class="wg-settings-row__content">
-                            <div class="wg-settings-row__title wg-mono-display">Test Notifications</div>
-                            <div class="wg-settings-row__desc">Simulate upcoming notifications</div>
-                        </div>
-                        <div class="wg-settings-row__control wg-settings-action-row">
-                            <button id="test-med-notification-btn" class="wg-gloss wg-settings-action-btn">Test Meds</button>
-                            <button id="test-bp-notification-btn" class="wg-gloss wg-settings-action-btn">Test BP</button>
-                        </div>
-                    </div>
-                </div>
-            </section>
 
             <section class="wg-card wg-settings-section wg-settings-notifications-cloud wg-settings-hidden">
                 <h3 class="wg-settings-section__title">Notifications</h3>
@@ -953,8 +929,6 @@
                     </div>
                 </div>
             </section>
-
-            <section id="oidc-setup-container" class="wg-card wg-settings-section wg-settings-oidc"></section>
 
             </details>
 
@@ -1572,10 +1546,10 @@
     </mt-modal>
 
     <!-- Modal for Workout Equipment (med-niix.3). Fixed / plated editor:
-         name + kind segmented control; fixed gets a comma-separated loads
-         field with a min/max/step generator; plated gets a Type select
-         (barbell / plate-loaded kettlebell / pair of plate-loaded
-         dumbbells), bar kg, and kg x count plate rows. No link to
+         name + kind segmented control + one shared Type select (med-v75c.1:
+         barbell / dumbbell / kettlebell / other, stored as implement on both
+         kinds); fixed gets a comma-separated loads field with a min/max/step
+         generator; plated gets bar kg and kg x count plate rows. No link to
          exercises (binding is med-niix.5). -->
     <mt-modal id="workout-equipment-modal" class="hidden wg-modal wg-equipment-modal">
         <div class="wg-equipment-modal__header">
@@ -1607,6 +1581,19 @@
                         data-kind="fixed" aria-pressed="true">Fixed</button>
                     <button type="button" class="wg-gloss wg-settings-segmented__btn"
                         data-kind="plated" aria-pressed="false">Plated</button>
+                </div>
+            </div>
+
+            <div class="wg-equipment-modal__field">
+                <label for="workout-equipment-type" class="wg-equipment-modal__label">Type</label>
+                <div class="wg-gloss--inset wg-equipment-modal__input-wrap">
+                    <select id="workout-equipment-type" class="wg-equipment-modal__input">
+                        <option value="">—</option>
+                        <option value="barbell">Barbell</option>
+                        <option value="dumbbell">Dumbbell</option>
+                        <option value="kettlebell">Kettlebell</option>
+                        <option value="other">Other</option>
+                    </select>
                 </div>
             </div>
 
@@ -1645,17 +1632,6 @@
             </div>
 
             <div id="workout-equipment-plated-section" hidden>
-                <div class="wg-equipment-modal__field">
-                    <label for="workout-equipment-type" class="wg-equipment-modal__label">Type</label>
-                    <div class="wg-gloss--inset wg-equipment-modal__input-wrap">
-                        <select id="workout-equipment-type" class="wg-equipment-modal__input">
-                            <option value="barbell">Barbell</option>
-                            <option value="kettlebell">Plate-loaded kettlebell</option>
-                            <option value="dumbbells">Pair of plate-loaded dumbbells</option>
-                        </select>
-                    </div>
-                </div>
-
                 <div class="wg-equipment-modal__field">
                     <label for="workout-equipment-bar" class="wg-equipment-modal__label">Bar (kg)</label>
                     <div class="wg-gloss--inset wg-equipment-modal__input-wrap">
@@ -2569,8 +2545,6 @@
     <script src="/static/js/features/workout/exercise-detail.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/workout/stats.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/workout/index.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="/static/js/push.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="/static/js/app-shell.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/bootstrap.js?v=TIMESTAMP_PLACEHOLDER"></script>
 </body>
 

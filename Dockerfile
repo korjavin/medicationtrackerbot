@@ -11,9 +11,9 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-# Only ./cloud is shipped. cmd/bot, cmd/mcptool and cmd/seeddemo still exist in
-# the tree and still compile under `go build ./...` in CI — they are simply not
-# deployed anywhere any more, so they are not in the image.
+# Only ./cloud is shipped. The other cmd/ entries are dev/operator tooling
+# (feedbackpull, genmcpcatalog, genexercisecatalog, genvapid, mcpshim,
+# openfoodfacts) — built and tested by CI, never in the image.
 # CGO_ENABLED=0 for static binary, works with Checkpoint/ModernC SQLite.
 # Only mount the go-build cache here; mounting /go/pkg/mod would shadow the
 # modules baked into the previous layer.
@@ -28,8 +28,7 @@ RUN apk upgrade --no-cache && \
 
 # cmd/cloud serves the frontend from go:embed (web/static/embed.go,
 # web/cloud/embed.go), so there is no web tree to copy — the bytes are already
-# in the binary. Python is gone with the MCP executor, which only ever ran in
-# the bot / mcptool binaries.
+# in the binary. The image is just the cloud binary plus the entrypoint.
 COPY --from=builder /app/cloud .
 COPY entrypoint.sh /entrypoint.sh
 

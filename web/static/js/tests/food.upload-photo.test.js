@@ -73,7 +73,7 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
         window.alert = alertSpy;
         window.safeAlert = alertSpy;
         if (window.Telegram && window.Telegram.WebApp) {
-            window.Telegram.WebApp.showAlert = alertSpy;
+            window.alert = alertSpy;
         }
 
         const parse = vi.fn(async () => ({ items: SAMPLE_ITEMS, failed: 0 }));

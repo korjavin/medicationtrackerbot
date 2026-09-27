@@ -372,9 +372,15 @@ covered below (med-niix.4).
   plates:[{kg, count}] }` — a barbell (sides:2), a plate-loaded kettlebell
   (sides:1), plate-loaded dumbbells (sides:2, pair:true, each plate type usable
   `floor(count/(sides*2))` times per implement). Each barbell owns its plate
-  list; three bars with different diameters are three records. The editor
-  exposes the three implement types in one Type select and maps them onto
-  sides/pair.
+  list; three bars with different diameters are three records.
+
+Both kinds carry an optional `implement` label (`barbell | dumbbell |
+kettlebell | other`, med-v75c.1) — display-only; geometry stays in sides/pair,
+plated writes default it when absent, and legacy plated rows derive that same
+default on read. Plates belong to the implement: each record owns its plate
+list, there is no shared pool. The editor exposes one shared Type select
+(barbell/dumbbell/kettlebell/other) for both kinds; for plated it maps onto
+sides/pair (other loads like a barbell).
 
 **Domain** (`web/domain/equipment.js`, pure, injected ports only):
 `createEquipmentDomain({ records, now })` with list/get/create/update/delete,

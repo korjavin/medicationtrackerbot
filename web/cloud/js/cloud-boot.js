@@ -1,14 +1,13 @@
 // Cloud-mode boot shim, served by cmd/cloud ahead of every web/static script
 // (internal/cloudserver/router.go injects the <script> tag right after
 // <head>). Mirrors core/native-bootstrap.js: a classic, non-module script so
-// it executes synchronously before messenger-adapter.js / app-shell.js /
-// data-store.js ever read window.__MEDTRACKER_CLOUD__.
+// it executes synchronously before messenger-adapter.js / data-store.js
+// ever read window.__MEDTRACKER_CLOUD__.
 //
 // The warm-unlock + shim install below is unavoidably async (IndexedDB +
 // WebCrypto), so it cannot finish before parsing reaches later scripts.
 // app.js's checkAuth() awaits window.MedTrackerCloudReady before touching the
-// network — the same shape as it already awaits window.MessengerAdapterReady
-// for the Telegram SDK upgrade.
+// network.
 window.__MEDTRACKER_CLOUD__ = true;
 
 // Register the service worker on FIRST PAINT (med-gvk.1), before the
@@ -60,7 +59,6 @@ if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('controllerchange', () => {
         if (!hadController || reloading) return;
         reloading = true;
-        window.sendSwAuthToken?.();
         location.reload();
     });
 }

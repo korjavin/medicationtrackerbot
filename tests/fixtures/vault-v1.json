@@ -294,6 +294,7 @@
           "user_id": 1,
           "name": "Ohio bar",
           "kind": "plated",
+          "implement": "barbell",
           "bar_kg": 20,
           "sides": 2,
           "pair": false,
@@ -327,6 +328,7 @@
           "user_id": 1,
           "name": "Hex DBs",
           "kind": "fixed",
+          "implement": "dumbbell",
           "loads_kg": [
             10,
             12,

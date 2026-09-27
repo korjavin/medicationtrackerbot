@@ -98,7 +98,7 @@ describe('features/workout/share.js — Share icon + modal (med-uo64.2)', () => 
   beforeEach(() => {
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     env = loadFrontendEnv({ withWorkout: true });
-    env.window.Telegram.WebApp.showAlert = vi.fn();
+    env.window.alert = vi.fn();
   });
 
   afterEach(() => {
@@ -288,7 +288,7 @@ describe('features/workout/share.js — import receive path (med-uo64.3)', () =>
   beforeEach(() => {
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     env = loadFrontendEnv({ withWorkout: true });
-    env.window.Telegram.WebApp.showAlert = vi.fn();
+    env.window.alert = vi.fn();
   });
 
   afterEach(() => {
@@ -488,7 +488,7 @@ describe('features/workout/share.js — review regressions (med-uo64.3 round 01)
   beforeEach(() => {
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     env = loadFrontendEnv({ withWorkout: true });
-    env.window.Telegram.WebApp.showAlert = vi.fn();
+    env.window.alert = vi.fn();
   });
 
   afterEach(() => {
@@ -745,7 +745,7 @@ describe('features/workout/share.js — blind short link (med-1yi5.3)', () => {
   beforeEach(() => {
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     env = loadFrontendEnv({ withWorkout: true });
-    env.window.Telegram.WebApp.showAlert = vi.fn();
+    env.window.alert = vi.fn();
   });
 
   afterEach(() => {
