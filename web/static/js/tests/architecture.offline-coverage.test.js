@@ -103,6 +103,10 @@ const ALLOWLIST = [
         file: 'tab-controller.js',
         reason: 'pure DOM helpers (bindTabGroup / activateTabGroup / bindOnce) that wire delegated click handlers and toggle .active classes — no API reads',
     },
+    {
+        file: 'live-hr.js',
+        reason: 'experimental live-HR card (med-byks.1 POC): reads heart-rate notifications over local Web Bluetooth via window.Bluetooth and renders in-memory state only — no API reads, no persistence',
+    },
     // ---- Workout split sub-files (orchestrator + mutation-only / nested-form readers) ----
     {
         file: 'workout/index.js',
