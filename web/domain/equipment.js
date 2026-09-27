@@ -411,3 +411,22 @@ export function createEquipmentDomain({ records, now }) {
     deleteEquipment,
   };
 }
+
+// nearestLoads brackets a target kg within an ascending achievable-loads list
+// (med-v75c.2): { below, above }, each a rung or null past the ends. An exact
+// hit returns the rung twice. Pure lookup - the 0.25-kg grid snapping already
+// happened when the loads were computed, so off-grid targets just bracket.
+export function nearestLoads(loads, kg) {
+  const target = Number(kg);
+  const rungs = uniqueSorted(
+    (loads || []).map(Number).filter((n) => Number.isFinite(n) && n > 0),
+  );
+  if (!Number.isFinite(target) || rungs.length === 0) return { below: null, above: null };
+  let below = null;
+  let above = null;
+  for (const rung of rungs) {
+    if (rung <= target) below = rung;
+    if (rung >= target && above === null) above = rung;
+  }
+  return { below, above };
+}

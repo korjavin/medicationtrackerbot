@@ -318,6 +318,11 @@ function _buildSessionExerciseCard(log, index) {
     monoRow.textContent = _formatLogMono(log);
     entry.appendChild(monoRow);
 
+    // Plate-loading chip (med-v75c.2): which plates to load for the working
+    // weight. Fire-and-forget, same async-attach flow as the body-part chip;
+    // silent no-op when the exercise has no bound/resolvable equipment.
+    _maybeAttachPlateChip(entry, log);
+
     if (isUnsaved && !log._dirty) {
         const hint = document.createElement('div');
         hint.className = 'wg-workouts-session-exercise__hint exercise-log-unsaved-hint';
@@ -506,6 +511,248 @@ async function _maybeAttachBodyPartChip(headerRow, log) {
     headerRow.insertBefore(chip, headerRow.querySelector('.exercise-log-delete-btn') || null);
 }
 
+// -- Plate-loading chip (med-v75c.2) --
+//
+// Each exercise card shows which plates to load for its working weight
+// (log.weight_kg, the max set weight kept in sync by
+// _syncLogScalarsFromSets): a glyph plus a text line solved by the domain
+// loadingFor over the exercise's bound equipment, with a nearest-achievable
+// fallback (nearestLoads, tie → below) and its delta when the exact kg is
+// unreachable. Fixed gear gets a text-only "nearest: N kg" one-liner when
+// the target isn't a stocked load; unbound or unresolvable gear leaves the
+// card unchanged. The loading is derived and re-solved on read — never
+// written anywhere.
+//
+// Gear resolves once per session open and is cached on
+// window.WorkoutSessionsState.plateGear ({ sessionId, rowsById, libById,
+// eqById, loadingFor, nearestLoads } or { sessionId, failed: true }); any
+// fetch/import failure resolves to failed so cards render exactly as today.
+
+// _sessionPlateGearSync returns the cached gear map for the open session, or
+// null when nothing usable is cached (cold, failed, or a stale session).
+function _sessionPlateGearSync() {
+    const st = window.WorkoutSessionsState;
+    const g = st && st.plateGear;
+    if (!g || !st.data) return null;
+    return g.sessionId === st.data.id ? g : null;
+}
+
+// _sessionPlateGear resolves the exercise → equipment map once per session
+// open (in-flight builds are shared across cards via plateGearPromise).
+async function _sessionPlateGear() {
+    const st = window.WorkoutSessionsState;
+    const cached = _sessionPlateGearSync();
+    if (cached) return cached;
+    if (st.plateGearPromise) return st.plateGearPromise;
+    const built = _buildSessionPlateGear(st.data);
+    st.plateGearPromise = built;
+    const gear = await built;
+    if (st.plateGearPromise === built) st.plateGearPromise = null;
+    // Only the session that triggered the build may consume it from cache.
+    if (gear && st.data && gear.sessionId === st.data.id) st.plateGear = gear;
+    return gear;
+}
+
+// _buildSessionPlateGear fetches the plan rows (for the variant behind this
+// session), the exercise library, and the equipment inventory, plus the
+// domain plate math. Never throws: any failure resolves to
+// { sessionId, failed: true } (no chips). A completion snapshot freezes the
+// plan as performed: the live variant is never consulted for completed
+// sessions (the med-qj4.2.1 no-fetch contract covers this read too), so
+// their plan-row logs stay chipless — the snapshot carries no library id
+// to resolve them by. An in-progress session may still carry a snapshot
+// (mid-workout plan edits materialize one) without being frozen, so those
+// keep consulting the live variant for the library link.
+async function _buildSessionPlateGear(sessionData) {
+    const sessionId = sessionData ? sessionData.id : null;
+    const fail = () => ({ sessionId: sessionId, failed: true });
+    try {
+        const variantId = sessionData ? Number(sessionData.variant_id) : 0;
+        const rowsById = {};
+        const hasSnapshot = !!(sessionData && Array.isArray(sessionData.exercise_snapshot));
+        const frozen = hasSnapshot && sessionData.status === 'completed';
+        if (variantId > 0 && !frozen) {
+            const rows = await apiCall(`/api/workout/exercises?variant_id=${variantId}`);
+            if (!Array.isArray(rows)) return fail();
+            for (const r of rows) {
+                if (r && r.id !== null && r.id !== undefined) rowsById[r.id] = r;
+            }
+        }
+        const lib = await apiCall('/api/workout/exercise-library');
+        if (!Array.isArray(lib)) return fail();
+        const libById = {};
+        for (const r of lib) {
+            if (r && r.id !== null && r.id !== undefined) libById[r.id] = r;
+        }
+        // Same inventory source order as the print path: the equipment tab's
+        // cached list first, the API fallback second.
+        let inv = null;
+        try {
+            if (window.WorkoutEquipment && typeof window.WorkoutEquipment.list === 'function') {
+                inv = await window.WorkoutEquipment.list();
+            }
+        } catch (_) {
+            inv = null;
+        }
+        if (!Array.isArray(inv)) inv = await apiCall('/api/workout/equipment', 'GET');
+        if (!Array.isArray(inv)) return fail();
+        const eqById = {};
+        for (const e of inv) {
+            if (e && e.id !== null && e.id !== undefined) eqById[e.id] = e;
+        }
+        const domain = await window.WorkoutGroups.loadEquipmentDomain();
+        const loadingFor = domain && domain.loadingFor;
+        const nearestLoads = domain && domain.nearestLoads;
+        if (typeof loadingFor !== 'function' || typeof nearestLoads !== 'function') return fail();
+        return {
+            sessionId: sessionId, rowsById: rowsById, libById: libById,
+            eqById: eqById, loadingFor: loadingFor, nearestLoads: nearestLoads
+        };
+    } catch (_) {
+        return fail();
+    }
+}
+
+// _sessionEquipmentForLog maps a session log to its bound equipment record.
+// Ad-hoc / library-sourced logs carry the library id directly as exercise_id
+// (toLogResponse source === 'library'); plan-backed logs carry the plan row
+// id and resolve through the row's library link. Unbound → null.
+function _sessionEquipmentForLog(log, gear) {
+    if (!log || !gear || gear.failed) return null;
+    const libId = log.source === 'library'
+        ? log.exercise_id
+        : (gear.rowsById[log.exercise_id] || {}).exercise_library_id;
+    if (libId === null || libId === undefined) return null;
+    const row = gear.libById[libId];
+    if (!row || row.equipment_id === null || row.equipment_id === undefined) return null;
+    return gear.eqById[row.equipment_id] || null;
+}
+
+// _sessionPickNearest chooses the rung to show from a nearestLoads bracket:
+// the closer rung, ties going to below (owner decision).
+function _sessionPickNearest(below, above, w) {
+    if (below === null || below === undefined) {
+        return (above === null || above === undefined) ? null : above;
+    }
+    if (above === null || above === undefined) return below;
+    return (w - below) <= (above - w) ? below : above;
+}
+
+// Plate/bar kg print at most 2dp (the domain grid); String() keeps integers
+// bare (72, not 72.00) and decimals short (1.25, never float dust).
+function _sessionPlateR2(v) {
+    return Math.round(Number(v) * 100) / 100;
+}
+
+// _renderSessionPlateChip builds the chip for one card synchronously from
+// resolved gear. Returns true when a chip was mounted, false when the card
+// stays unchanged (no weight, unbound gear, exact fixed load, bare bar,
+// empty inventory). Every lookup is guarded and the domain solvers are
+// total, so a malformed response degrades to no chip, never a throw.
+function _renderSessionPlateChip(entry, log, gear) {
+    if (!entry || !log || !gear || gear.failed) return false;
+    if (entry.querySelector('.wg-workouts-session-exercise__plates')) return false;
+    const groups = window.WorkoutGroups;
+    if (!groups || typeof groups.plateSvg !== 'function' || typeof groups.plateText !== 'function') return false;
+    const w = Number(log.weight_kg);
+    if (!Number.isFinite(w) || w <= 0) return false;
+    const eq = _sessionEquipmentForLog(log, gear);
+    if (!eq) return false;
+    const unit = (typeof readWeightUnitPreference === 'function') ? readWeightUnitPreference() : 'kg';
+
+    const wrap = document.createElement('div');
+    wrap.className = 'wg-workouts-session-exercise__plates';
+    const addText = (text, cls) => {
+        const s = document.createElement('span');
+        s.className = cls;
+        s.textContent = text;
+        wrap.appendChild(s);
+    };
+    const addGlyph = (perSide, sides, text) => {
+        const svg = groups.plateSvg(perSide, sides);
+        svg.setAttribute('aria-label', `Plate loading: ${text}`);
+        wrap.appendChild(svg);
+        addText(text, 'wg-plates__text');
+    };
+
+    if (eq.kind === 'plated') {
+        const sides = eq.sides === 1 ? 1 : 2;
+        const ld = gear.loadingFor(eq, w);
+        if (ld && ld.per_side.length > 0) {
+            addGlyph(ld.per_side, sides, groups.plateText(ld.bar_kg, ld.per_side, sides, unit));
+        } else if (ld) {
+            // Exact bare-bar working weight: nothing to load, like the print
+            // sheet (which draws no glyph for an empty per_side).
+            return false;
+        } else {
+            // Below the bar nothing is achievable: say so instead of
+            // suggesting the bare bar as a "nearest" rung above the target.
+            const bar = Number(eq.bar_kg);
+            if (Number.isFinite(bar) && w < bar) {
+                addText(`below bar (${_sessionPlateR2(bar)} kg)`, 'wg-plates__text');
+            } else {
+                const near = gear.nearestLoads(eq.loads_kg, w);
+                const chosen = _sessionPickNearest(near.below, near.above, w);
+                if (chosen === null) return false;
+                const best = gear.loadingFor(eq, chosen);
+                if (!best) return false;
+                if (best.per_side.length > 0) {
+                    addGlyph(best.per_side, sides, groups.plateText(best.bar_kg, best.per_side, sides, unit));
+                }
+                const delta = _sessionPlateR2(chosen - w);
+                const sign = delta > 0 ? '+' : '';
+                addText(`${_sessionPlateR2(chosen)} kg (${sign}${delta} kg)`, 'wg-plates__delta');
+            }
+        }
+    } else if (eq.kind === 'fixed') {
+        const loads = (Array.isArray(eq.loads_kg) ? eq.loads_kg : [])
+            .map(Number).filter((n) => Number.isFinite(n) && n > 0);
+        if (loads.indexOf(w) !== -1) return false;
+        const near = gear.nearestLoads(loads, w);
+        const chosen = _sessionPickNearest(near.below, near.above, w);
+        if (chosen === null) return false;
+        addText(`nearest: ${_sessionPlateR2(chosen)} kg`, 'wg-plates__text');
+    } else {
+        return false;
+    }
+
+    const mono = entry.querySelector('.wg-workouts-session-exercise__mono');
+    if (mono) entry.insertBefore(wrap, mono.nextSibling);
+    else entry.appendChild(wrap);
+    return true;
+}
+
+// _maybeAttachPlateChip decorates a card with its plate-loading chip.
+// Fire-and-forget, same async-attach flow as the body-part chip: guards mount
+// + double-append, silent no-op when gear is unresolvable.
+async function _maybeAttachPlateChip(entry, log) {
+    if (!entry || !log) return;
+    if (entry.querySelector('.wg-workouts-session-exercise__plates')) return;
+    const gear = await _sessionPlateGear();
+    // The card may have been re-rendered (add/remove set) while we awaited —
+    // only decorate the still-mounted entry, and don't double-chip.
+    if (!entry.isConnected) return;
+    if (entry.querySelector('.wg-workouts-session-exercise__plates')) return;
+    const st = window.WorkoutSessionsState;
+    if (!gear || gear.failed || !st.data || gear.sessionId !== st.data.id) return;
+    _renderSessionPlateChip(entry, log, gear);
+}
+
+// _refreshSessionPlateChip re-solves a mounted card's chip after a weight
+// edit. The gear resolved once at session open, so the common path renders
+// synchronously and the chip tracks the mono line; before the first resolve
+// lands it falls back to the async attach (whose guards make the overlap
+// with the card-build attach harmless).
+function _refreshSessionPlateChip(entry, log) {
+    if (!entry || !log) return;
+    const old = entry.querySelector('.wg-workouts-session-exercise__plates');
+    if (old) old.remove();
+    const gear = _sessionPlateGearSync();
+    if (gear && !gear.failed) _renderSessionPlateChip(entry, log, gear);
+    else _maybeAttachPlateChip(entry, log);
+}
+
+
 // -- Per-set editing (Phase 1, epic med-qj4) --
 
 const SESSION_VALID_SET_TYPES = new Set(['normal', 'warmup', 'drop', 'failure']);
@@ -559,6 +806,8 @@ function _markLogDirty(logIndex, log) {
         if (hint) hint.remove();
         const mono = el.querySelector('.wg-workouts-session-exercise__mono');
         if (mono) mono.textContent = _formatLogMono(log);
+        // The working weight changed with the edit — re-solve the plate chip.
+        _refreshSessionPlateChip(el, log);
     }
 }
 
@@ -628,6 +877,10 @@ async function showWorkoutSessionModal(sessionId) {
     // Fresh state is about to load — drop any autosave timer armed against the
     // session being replaced so it can't fire against the new one.
     cancelAutosave();
+    // The plate-chip gear map belongs to one session open — drop it (and
+    // any in-flight build) so the new session resolves its own variant.
+    window.WorkoutSessionsState.plateGear = null;
+    window.WorkoutSessionsState.plateGearPromise = null;
     const logsContainer = document.getElementById('workout-session-logs');
     const infoContainer = document.getElementById('workout-session-info');
     const overlay = document.getElementById('modal-overlay');
@@ -760,6 +1013,8 @@ function updateLocalLog(index, field, value) {
         el.classList.remove('unsaved');
         const hint = el.querySelector('.exercise-log-unsaved-hint');
         if (hint) hint.remove();
+        // A flat weight edit moves the working weight — re-solve the plate chip.
+        if (field === 'weight_kg') _refreshSessionPlateChip(el, logs[index]);
     }
     scheduleAutosave();
 }
@@ -921,6 +1176,8 @@ async function closeWorkoutSessionModal() {
     window.ModalManager.workoutSession.close();
     window.WorkoutSessionsState.data = null;
     window.WorkoutSessionsState.originalStatus = null;
+    window.WorkoutSessionsState.plateGear = null;
+    window.WorkoutSessionsState.plateGearPromise = null;
 }
 
 async function saveWorkoutSessionDetails(opts) {

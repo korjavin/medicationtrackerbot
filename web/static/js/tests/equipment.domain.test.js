@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   createEquipmentDomain, achievableLoads, loadingFor, minStep, snapLoad,
+  nearestLoads,
 } from '../../../../web/domain/equipment.js';
 import {
   recordsToVault, vaultToRecords, VAULT_MANAGED_TYPES,
@@ -376,5 +377,68 @@ describe('equipment vault round-trip', () => {
 
   it('equipment is a vault-managed record type', () => {
     expect(VAULT_MANAGED_TYPES.has('equipment')).toBe(true);
+  });
+});
+
+// med-v75c.2 - nearestLoads brackets a working weight within an equipment
+// item's achievable loads so the session card can fall back to the nearest
+// buildable rung (tie -> below at the call site) with its delta.
+describe('nearestLoads (med-v75c.2)', () => {
+  it('returns the rung twice on an exact hit', () => {
+    expect(nearestLoads([20, 22.5, 25], 22.5)).toEqual({ below: 22.5, above: 22.5 });
+    expect(nearestLoads([8, 16, 24], 8)).toEqual({ below: 8, above: 8 });
+  });
+
+  it('brackets a between-rungs target', () => {
+    expect(nearestLoads([20, 25], 22)).toEqual({ below: 20, above: 25 });
+  });
+
+  it('returns null past the ends', () => {
+    expect(nearestLoads([20, 25], 10)).toEqual({ below: null, above: 20 });
+    expect(nearestLoads([20, 25], 30)).toEqual({ below: 25, above: null });
+  });
+
+  it('returns nulls for an empty list', () => {
+    expect(nearestLoads([], 20)).toEqual({ below: null, above: null });
+    expect(nearestLoads(null, 20)).toEqual({ below: null, above: null });
+  });
+
+  it('brackets an off-grid input without snapping it', () => {
+    // 20kg bar + one 20 and one 1.25 per side: rungs 20, 22.5, 60, 62.5.
+    const loads = achievableLoads({
+      kind: 'plated', name: 'Ohio bar', bar_kg: 20, sides: 2, pair: false,
+      plates: [{ kg: 20, count: 2 }, { kg: 1.25, count: 2 }],
+    });
+    expect(loads).toEqual([20, 22.5, 60, 62.5]);
+    expect(nearestLoads(loads, 61.3)).toEqual({ below: 60, above: 62.5 });
+  });
+
+  it('brackets within a plate-loaded kettlebell (sides:1) inventory', () => {
+    const kb = {
+      kind: 'plated', name: 'Loadable KB', bar_kg: 4, sides: 1,
+      plates: [{ kg: 2, count: 3 }, { kg: 1, count: 2 }],
+    };
+    const loads = achievableLoads(kb);
+    expect(loads).toEqual([4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    expect(nearestLoads(loads, 9)).toEqual({ below: 9, above: 9 });
+    expect(nearestLoads(loads, 9.5)).toEqual({ below: 9, above: 10 });
+    expect(loadingFor(kb, 9)).toEqual({ bar_kg: 4, per_side: [2, 2, 1] });
+  });
+
+  it('an lb-ish plate set still builds its snapped rungs', () => {
+    // Plates bought as 45/25/10 lb, stored as kg like every record (there is
+    // no unit field): the 0.25-kg grid snaps them, and the snapped rungs
+    // must still decompose.
+    const eq = {
+      kind: 'plated', name: 'LB plates', bar_kg: 8, sides: 2, pair: false,
+      plates: [{ kg: 20.4, count: 2 }, { kg: 11.3, count: 2 }, { kg: 4.5, count: 2 }],
+    };
+    const loads = achievableLoads(eq);
+    expect(loads).toContain(49); // 8 + 2 x 20.5 (snapped 20.4)
+    expect(loadingFor(eq, 49)).toEqual({ bar_kg: 8, per_side: [20.4] });
+    expect(nearestLoads(loads, 49)).toEqual({ below: 49, above: 49 });
+    for (const rung of loads) {
+      expect(loadingFor(eq, rung)).not.toBeNull();
+    }
   });
 });

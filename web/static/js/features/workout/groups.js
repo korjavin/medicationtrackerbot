@@ -677,25 +677,28 @@ function _workoutPlanR1(v) {
     return Math.round(Number(v) * 10) / 10;
 }
 
-// Sleeve line plus one rect per plate per side (mirrored), rect height ∝ kg,
-// kg label under each rect. Monochrome presentation attributes only — no
-// CSS, no tokens: the svg must survive the print iframe as-is. The sleeve is
-// a <line> so every <rect> in the glyph is a plate.
-function _workoutPlanLoadingSvg(perSide, sides) {
-    const n = perSide.length;
+// _workoutPlateLayout computes the plate-glyph geometry shared by the print
+// sheet (med-niix.6, serialized with literal attributes below) and the
+// active-session chip (med-v75c.2, built as classed DOM via
+// _workoutPlateSvgElement): a sleeve line plus one rect per plate per side
+// (mirrored), rect height ∝ kg, kg label under each rect. Coordinates are
+// rounded exactly as the print path always rounded them, so
+// _workoutPlanLoadingSvg's output is byte-identical to before.
+function _workoutPlateLayout(perSide, sides) {
+    const list = Array.isArray(perSide) ? perSide : [];
+    const n = list.length;
     const pw = 7;
     const gap = 3;
     const inner = 5;
     const margin = 2;
-    const heights = perSide.map((kg) => Math.min(56, 10 + 2 * Number(kg)));
+    const heights = list.map((kg) => Math.min(56, 10 + 2 * Number(kg)));
     const maxH = Math.max.apply(null, heights.concat([0]));
     const midY = margin + maxH / 2;
     const half = n * pw + Math.max(0, n - 1) * gap;
     const cx = margin + inner + half;
     const W = _workoutPlanR1(cx + half + inner + margin);
     const H = _workoutPlanR1(margin * 2 + maxH + 12);
-    let s = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" role="img">`;
-    s += `<line x1="${margin}" y1="${_workoutPlanR1(midY)}" x2="${_workoutPlanR1(W - margin)}" y2="${_workoutPlanR1(midY)}" stroke="#111" stroke-width="1.5"/>`;
+    const plates = [];
     for (let side = 0; side < 2; side += 1) {
         // A sides:1 implement (plate-loaded kettlebell) loads one sleeve:
         // drawing both would picture double the printed load.
@@ -705,20 +708,96 @@ function _workoutPlanLoadingSvg(perSide, sides) {
             const x = side === 0
                 ? cx - inner - ((i + 1) * pw) - (i * gap)
                 : cx + inner + (i * (pw + gap));
-            s += `<rect x="${_workoutPlanR1(x)}" y="${_workoutPlanR1(midY - h / 2)}" width="${pw}" height="${_workoutPlanR1(h)}" fill="#fff" stroke="#111" stroke-width="1.5"/>`;
-            s += `<text x="${_workoutPlanR1(x + pw / 2)}" y="${_workoutPlanR1(midY + maxH / 2 + 9)}" font-size="7" text-anchor="middle" fill="#111">${_workoutPlanEsc(perSide[i])}</text>`;
+            plates.push({
+                x: _workoutPlanR1(x),
+                y: _workoutPlanR1(midY - h / 2),
+                w: pw,
+                h: _workoutPlanR1(h),
+                labelX: _workoutPlanR1(x + pw / 2),
+                labelY: _workoutPlanR1(midY + maxH / 2 + 9),
+                kg: list[i]
+            });
         }
+    }
+    return {
+        W: W,
+        H: H,
+        sleeve: {
+            x1: margin,
+            y1: _workoutPlanR1(midY),
+            x2: _workoutPlanR1(W - margin),
+            y2: _workoutPlanR1(midY)
+        },
+        plates: plates
+    };
+}
+
+// Monochrome presentation attributes only — no CSS, no tokens: the svg must
+// survive the print iframe as-is. The sleeve is a <line> so every <rect> in
+// the glyph is a plate.
+function _workoutPlanLoadingSvg(perSide, sides) {
+    const L = _workoutPlateLayout(perSide, sides);
+    let s = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${L.W} ${L.H}" role="img">`;
+    s += `<line x1="${L.sleeve.x1}" y1="${L.sleeve.y1}" x2="${L.sleeve.x2}" y2="${L.sleeve.y2}" stroke="#111" stroke-width="1.5"/>`;
+    for (const p of L.plates) {
+        s += `<rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" fill="#fff" stroke="#111" stroke-width="1.5"/>`;
+        s += `<text x="${p.labelX}" y="${p.labelY}" font-size="7" text-anchor="middle" fill="#111">${_workoutPlanEsc(p.kg)}</text>`;
     }
     return `${s}</svg>`;
 }
 
+// _workoutPlateSvgElement builds the same glyph as classed DOM for the app
+// (med-v75c.2): geometry stays as x/y/width/height attributes (layout, not
+// color) while all paint resolves via .wg-plates* CSS classes — no
+// fill/stroke attributes, so the app-DOM token rule stays green.
+function _workoutPlateSvgElement(perSide, sides) {
+    const NS = 'http://www.w3.org/2000/svg';
+    const L = _workoutPlateLayout(perSide, sides);
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('class', 'wg-plates');
+    svg.setAttribute('viewBox', `0 0 ${L.W} ${L.H}`);
+    svg.setAttribute('role', 'img');
+    const sleeve = document.createElementNS(NS, 'line');
+    sleeve.setAttribute('class', 'wg-plates__sleeve');
+    sleeve.setAttribute('x1', String(L.sleeve.x1));
+    sleeve.setAttribute('y1', String(L.sleeve.y1));
+    sleeve.setAttribute('x2', String(L.sleeve.x2));
+    sleeve.setAttribute('y2', String(L.sleeve.y2));
+    svg.appendChild(sleeve);
+    for (const p of L.plates) {
+        const rect = document.createElementNS(NS, 'rect');
+        rect.setAttribute('class', 'wg-plates__plate');
+        rect.setAttribute('x', String(p.x));
+        rect.setAttribute('y', String(p.y));
+        rect.setAttribute('width', String(p.w));
+        rect.setAttribute('height', String(p.h));
+        svg.appendChild(rect);
+        const label = document.createElementNS(NS, 'text');
+        label.setAttribute('class', 'wg-plates__label');
+        label.setAttribute('x', String(p.labelX));
+        label.setAttribute('y', String(p.labelY));
+        label.textContent = String(p.kg);
+        svg.appendChild(label);
+    }
+    return svg;
+}
+
+// _workoutPlateText formats the loading line shared by the print sheet and
+// the session chip: bar + per-side plates, "/ side" for two-sleeve gear, and
+// "(kg)" when rendering for an lb preference (plates are kg while the target
+// weight shows in lb).
+function _workoutPlateText(barKg, perSide, sides, unit) {
+    const plates = (Array.isArray(perSide) ? perSide : []).join(' \u00b7 ');
+    const base = sides === 1
+        ? `${barKg} + ${plates}`
+        : `${barKg} + ${plates} / side`;
+    return unit === 'lb' ? `${base} (kg)` : base;
+}
+
 function _workoutPlanLoadingHtml(ld, unit) {
-    const plates = ld.per_side.map((k) => _workoutPlanEsc(k)).join(' \u00b7 ');
-    const base = ld.sides === 1
-        ? `${_workoutPlanEsc(ld.bar_kg)} + ${plates}`
-        : `${_workoutPlanEsc(ld.bar_kg)} + ${plates} / side`;
-    // Inventory plates are kg while the target above may print in lb — say so.
-    const txt = unit === 'lb' ? `${base} (kg)` : base;
+    // Escaping the joined line equals escaping the parts: the joiners and
+    // suffixes (+, ·, /, parens, spaces) contain no escapable characters.
+    const txt = _workoutPlanEsc(_workoutPlateText(ld.bar_kg, ld.per_side, ld.sides, unit));
     return `<span class="plates">${_workoutPlanLoadingSvg(ld.per_side, ld.sides)}<span class="platestxt">${txt}</span></span>`;
 }
 
@@ -984,5 +1063,7 @@ window.WorkoutGroups = {
     buildDocument: buildWorkoutPlanDocument,
     loadPrintDoc: loadWorkoutPrintDoc,
     loadEquipmentDomain: loadWorkoutEquipmentDomain,
+    plateSvg: _workoutPlateSvgElement,
+    plateText: _workoutPlateText,
     makePlanQr: makePlanQrSvg
 };

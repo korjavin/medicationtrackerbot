@@ -640,6 +640,7 @@
     --wg-workouts-session-set-row-min-h: 28px;
     --wg-workouts-session-set-row-gap: 8px;
     --wg-workouts-session-set-row-size: 13px;
+    --wg-plates-label-size: 7px;
     --wg-workouts-session-action-gap: 8px;
     --wg-workouts-groups-row-cols: 1fr auto;
     --wg-workouts-groups-row-gap: 10px;
@@ -7415,6 +7416,53 @@ textarea.wg-input {
     align-items: center;
     gap: var(--wg-workouts-session-set-row-gap);
     letter-spacing: 0.04em;
+}
+
+/* Plate-loading chip (med-v75c.2): which plates to load for the card's
+   working weight. The svg geometry (x/y/width/height) arrives as attributes;
+   all paint resolves here via tokens — never fill/stroke attributes. */
+.wg-workouts-session-exercise__plates {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-top: var(--space-xs);
+    flex-wrap: wrap;
+}
+
+.wg-plates {
+    display: block;
+    height: 36px;
+    width: auto;
+}
+
+.wg-plates__sleeve {
+    stroke: var(--wg-fg-3);
+    stroke-width: 1.5;
+}
+
+.wg-plates__plate {
+    fill: var(--wg-bg-card-inset);
+    stroke: var(--wg-fg-3);
+    stroke-width: 1.5;
+}
+
+.wg-plates__label {
+    fill: var(--wg-fg-2);
+    font-size: var(--wg-plates-label-size);
+    text-anchor: middle;
+    font-family: var(--wg-font-mono);
+}
+
+.wg-plates__text {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-2);
+}
+
+.wg-plates__delta {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-4);
 }
 
 .wg-workouts-session-exercise__hint {
