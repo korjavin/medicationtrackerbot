@@ -222,7 +222,11 @@
     }
 
     function handleReading(reading) {
-        if (!state.connected) return;
+        // No connected-gate here on purpose: the impl attaches this listener
+        // only for the lifetime of a subscription (removed synchronously on
+        // every teardown path), so a delivered reading is definitionally live.
+        // Gating on the startNotifications() resolution would drop a first
+        // notification that wins the race and skew the TTFR measurement.
         state.readings += 1;
         state.bpm = reading.bpm;
         if (state.ttfrMs === null && state.connectT0) {
@@ -264,13 +268,13 @@
             .then(function () {
                 setStatus('Connecting…');
                 state.connectT0 = Date.now();
-                return cap.subscribeHeartRate({ onReading: handleReading, onDisconnect: handleDisconnect });
-            })
-            .then(function () {
-                state.sessionStart = Date.now();
+                state.sessionStart = state.connectT0;
                 state.readings = 0;
                 state.ttfrMs = null;
                 state.bpm = null;
+                return cap.subscribeHeartRate({ onReading: handleReading, onDisconnect: handleDisconnect });
+            })
+            .then(function () {
                 state.connected = true;
                 addLog('subscribed: 0x2A37 notifications flowing');
                 setStatus('Connected — listening…');

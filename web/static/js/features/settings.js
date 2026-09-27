@@ -941,6 +941,14 @@ function updateFeatureTabVisibility() {
     if (currentFeature && !window.featureSettings[currentFeature]) {
         switchTab('today');
     }
+    // Live-HR POC (med-byks.1): live_hr gates a Vitals card, not a tab, so the
+    // tab-visibility sync never touches it — refresh it explicitly so flipping
+    // the flag off tears down a live subscription immediately. Both flag-change
+    // paths funnel through here (the local toggle and an authoritative bundle
+    // carrying another device's toggle).
+    if (window.LiveHR && typeof window.LiveHR.refresh === 'function') {
+        try { window.LiveHR.refresh(); } catch (_) { /* card is best-effort */ }
+    }
     updateFoodTargetsVisibility();
     updateGamificationTargetsVisibility();
     // Gamification toggling here also gates the weekly-digest row (both-on), so
