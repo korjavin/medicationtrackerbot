@@ -31,7 +31,7 @@ func HealthOperations() []*Operation {
 			ParamsSchema: json.RawMessage(`{
   "type": "object",
   "properties": {
-    "days":  {"type": "integer", "minimum": 1, "description": "Look back this many days (default 30; capped by MCP_MAX_QUERY_DAYS)"},
+    "days":  {"type": "integer", "minimum": 1, "description": "Look back this many days (default 30)"},
     "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "Max rows to return (default 100, max 1000). Absent or <= 0 means the default, never 'all rows'; larger values are clamped to the max. A full page means there may be more — narrow days to see the rest."}
   }
 }`),
@@ -192,7 +192,7 @@ output(result)`,
 			ParamsSchema: json.RawMessage(`{
   "type": "object",
   "properties": {
-    "days":  {"type": "integer", "minimum": 1, "description": "Look back this many days (default 30; capped by MCP_MAX_QUERY_DAYS)"},
+    "days":  {"type": "integer", "minimum": 1, "description": "Look back this many days (default 30)"},
     "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "Max rows to return (default 100, max 1000). Absent or <= 0 means the default, never 'all rows'; larger values are clamped to the max. A full page means there may be more — narrow days to see the rest."}
   }
 }`),
@@ -364,7 +364,7 @@ output(result["sleep_stats_30d"])`,
 			ParamsSchema: json.RawMessage(`{
   "type": "object",
   "properties": {
-    "days":  {"type": "integer", "minimum": 1, "description": "Look back this many days from now (default 90; ignored when 'from' is set; may be capped by MCP_MAX_QUERY_DAYS)"},
+    "days":  {"type": "integer", "minimum": 1, "description": "Look back this many days from now (default 90; ignored when 'from' is set)"},
     "from":  {"type": "string", "description": "Lower bound on session start. RFC3339 timestamp or bare YYYY-MM-DD (UTC). Overrides 'days'."},
     "to":    {"type": "string", "description": "Upper bound on session start. RFC3339 timestamp or bare YYYY-MM-DD (UTC)."},
     "limit": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "Max sessions to return, newest first (default 100, max 1000). Absent or <= 0 means the default, never 'all sessions'; larger values are clamped to the max. A full page means there may be more — narrow the from/to range to see the rest."}
@@ -390,7 +390,7 @@ output(result)`,
 			ParamsSchema: json.RawMessage(`{
   "type": "object",
   "properties": {
-    "days":      {"type": "integer", "minimum": 1, "description": "Look back this many days (default 30; capped by MCP_MAX_QUERY_DAYS)"},
+    "days":      {"type": "integer", "minimum": 1, "description": "Look back this many days (default 30)"},
     "limit":     {"type": "integer", "minimum": 1, "maximum": 200, "description": "Max notes to return (default 50, max 200). Absent or <= 0 means the default, never 'all notes'; larger values are clamped to the max. A full page means there may be more."},
     "before_id": {"type": "integer", "description": "Pagination cursor — this is how you page: pass the id of the last note on the previous page to get the next one. A full page means there may be more."}
   }

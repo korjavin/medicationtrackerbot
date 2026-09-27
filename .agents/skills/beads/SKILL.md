@@ -41,6 +41,9 @@ bd list --status=in_progress
 bd show <id>
 ```
 
+bd is multi-user here: bracket every state change (claim, create, close) with
+`bd dolt pull` before and `bd dolt pull && bd dolt push` after.
+
 3. Claim work atomically:
 
 ```bash
