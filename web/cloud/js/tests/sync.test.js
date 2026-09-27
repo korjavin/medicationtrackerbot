@@ -2181,7 +2181,19 @@ describe('derived writes are put-if-absent, not floor-then-hope (med-qhpu)', () 
     }));
   });
 
-  afterEach(() => { vi.unstubAllGlobals(); });
+  afterEach(async () => {
+    // med-51ow: writeRecord's oplog push is fire-and-forget (med-eas.77), and
+    // this describe's stub assigns non-contiguous seqs, so each background
+    // flush burns 5 mispredict POST attempts. Without a barrier those POSTs
+    // can land after the next test's beforeEach reassigns `posted` — the
+    // `expect(posted).toEqual([])` flake. flushConfirmed serializes behind
+    // every prior flush in flushChain, so awaiting it settles each test's
+    // pushes into its own `posted` while its own fetch stub is still live.
+    // Barrier only (cf. the reconnect describe's reauthenticate barrier):
+    // assertions live in the tests, so a flush failure must not fail them.
+    await flushConfirmed(ctx).catch(() => {});
+    vi.unstubAllGlobals();
+  });
 
   it('writes an empty slot verbatim — the floor survives, un-skewed', async () => {
     // A learned clock skew must NOT shift a derived stamp: two devices deriving
