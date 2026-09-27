@@ -658,6 +658,7 @@ describe('startInboxEventStream', () => {
 
         const stop = startInboxEventStream(ctx, {
             apply: () => {}, drain, EventSourceImpl: FakeEventSource, baseDelayMs: 1000, maxDelayMs: 4000,
+            random: () => 0.5, // centers the ±50% jitter exactly on the backoff step
         });
         expect(instances).toHaveLength(1);
 
@@ -689,6 +690,31 @@ describe('startInboxEventStream', () => {
         expect(instances).toHaveLength(5);
 
         stop();
+        vi.useRealTimers();
+    });
+
+    it('jitters the reconnect delay ±50% so tabs do not reconnect in lockstep', async () => {
+        vi.useFakeTimers();
+        const { instances, FakeEventSource } = makeEventSourceHarness();
+        const drain = vi.fn(async () => ({ applied: 0, failed: 0 }));
+        const opts = (random) => ({
+            apply: () => {}, drain, EventSourceImpl: FakeEventSource, baseDelayMs: 1000, random,
+        });
+
+        const stopEarly = startInboxEventStream(ctx, opts(() => 0)); // 0.5x the step
+        const stopLate = startInboxEventStream(ctx, opts(() => 0.9999)); // ~1.5x the step
+        instances[0].emit('error');
+        instances[1].emit('error');
+
+        await vi.advanceTimersByTimeAsync(500);
+        expect(instances).toHaveLength(3); // the 0.5x tab reconnected...
+        await vi.advanceTimersByTimeAsync(999);
+        expect(instances).toHaveLength(3); // ...while the ~1.5x tab still waits
+        await vi.advanceTimersByTimeAsync(1);
+        expect(instances).toHaveLength(4);
+
+        stopEarly();
+        stopLate();
         vi.useRealTimers();
     });
 

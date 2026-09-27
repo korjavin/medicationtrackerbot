@@ -1,6 +1,7 @@
 package cloudserver
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -376,5 +377,128 @@ func TestRelay_TrailingWake_RearmsAfterFiring(t *testing.T) {
 	}
 	if len(sender.sent) != 2 {
 		t.Fatalf("sends = %d, want 2 (second burst still coalesced)", len(sender.sent))
+	}
+}
+
+// TestInboxEvents_SurvivesServerWriteTimeout is the regression test for the
+// send-back MAJOR: cmd/cloud's http.Server sets WriteTimeout 45s, which kills
+// a long-lived stream on its first write past the deadline. ServeInboxEvents
+// clears the write deadline for this route; here a real httptest server with a
+// 200ms WriteTimeout proves a wake written after the timeout still arrives.
+// (The heartbeat exercises the same write path on a 25s cadence — too slow to
+// wait out here — so the test wakes instead.)
+func TestInboxEvents_SurvivesServerWriteTimeout(t *testing.T) {
+	h, host, accountID, session, broker := inboxEventsTestServer(t)
+	srv := httptest.NewUnstartedServer(h)
+	srv.Config.WriteTimeout = 200 * time.Millisecond
+	srv.Start()
+	defer srv.Close()
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/api/inbox/events", nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Host = host // account subdomain; the URL host stays the test server
+	req.AddCookie(session)
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		t.Fatalf("GET /api/inbox/events: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/inbox/events = %d, want 200", resp.StatusCode)
+	}
+
+	lines := make(chan string, 64)
+	readErr := make(chan error, 1)
+	go func() {
+		reader := bufio.NewReader(resp.Body)
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				readErr <- err
+				return
+			}
+			lines <- line
+		}
+	}()
+	nextLine := func(want string) string {
+		t.Helper()
+		select {
+		case line := <-lines:
+			return line
+		case err := <-readErr:
+			t.Fatalf("stream ended waiting for %q: %v", want, err)
+		case <-time.After(5 * time.Second):
+			t.Fatalf("timed out waiting for %q", want)
+		}
+		return ""
+	}
+
+	if line := nextLine("retry"); !strings.HasPrefix(line, "retry:") {
+		t.Fatalf("first stream line = %q, want the retry hint", line)
+	}
+	if line := nextLine("blank"); line != "\n" {
+		t.Fatalf("second stream line = %q, want a blank line", line)
+	}
+
+	// Sit idle past the server's write timeout, then wake: without the
+	// deadline clear this write fails, net/http cancels the request, and the
+	// client sees EOF instead of the event below.
+	time.Sleep(400 * time.Millisecond)
+	if n := broker.Notify(accountID); n != 1 {
+		t.Fatalf("Notify = %d, want 1 (stream gone before the wake)", n)
+	}
+	if line := nextLine("event"); line != "event: inbox-ready\n" {
+		t.Fatalf("wake line = %q, want the inbox-ready event", line)
+	}
+	if line := nextLine("data"); line != "data:\n" {
+		t.Fatalf("data line = %q, want an empty data line", line)
+	}
+	if line := nextLine("terminator"); line != "\n" {
+		t.Fatalf("terminator line = %q, want a blank line", line)
+	}
+}
+
+// TestInboxBroker_CloseEndsStreams pins the shutdown path: Close returns every
+// open handler (so http.Server.Shutdown never waits out its grace on a held
+// stream), and afterwards Subscribe is rejected and Notify is a silent no-op.
+func TestInboxBroker_CloseEndsStreams(t *testing.T) {
+	h, host, accountID, session, broker := inboxEventsTestServer(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r := httptest.NewRequest(http.MethodGet, "/api/inbox/events", nil)
+	r.Host = host
+	r.AddCookie(session)
+	r = r.WithContext(ctx)
+	rec := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		h.ServeHTTP(rec, r)
+		close(done)
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for broker.SubscriberCount(accountID) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("stream never subscribed")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	broker.Close()
+	broker.Close() // idempotent
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stream handler did not return after broker Close")
+	}
+
+	if _, _, ok := broker.Subscribe(accountID); ok {
+		t.Error("Subscribe accepted after Close")
+	}
+	if n := broker.Notify(accountID); n != 0 {
+		t.Errorf("Notify after Close = %d, want 0", n)
 	}
 }

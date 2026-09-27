@@ -375,6 +375,11 @@ func main() {
 		}
 	case <-ctx.Done():
 		slog.Info("Shutdown signal received, draining connections")
+		// End SSE inbox streams FIRST: their handlers return only when the
+		// client disconnects (Shutdown never cancels in-flight request
+		// contexts), so without this every deploy with a tab open waits out
+		// the full grace below. Tabs reconnect and drain on open.
+		inboxBroker.Close()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {

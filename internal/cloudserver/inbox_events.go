@@ -41,6 +41,9 @@ const (
 type InboxBroker struct {
 	mu   sync.Mutex
 	subs map[string]map[*inboxSubscription]struct{}
+	// closed is set by Close (server shutdown): Subscribe is then rejected
+	// and Notify is a no-op, so no send can ever race a channel close.
+	closed bool
 }
 
 // inboxSubscription is one open stream. ch is buffered size 1 and Notify never
@@ -63,6 +66,10 @@ func NewInboxBroker() *InboxBroker {
 func (b *InboxBroker) Subscribe(accountID string) (ch <-chan struct{}, unsubscribe func(), ok bool) {
 	sub := &inboxSubscription{ch: make(chan struct{}, 1)}
 	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return nil, nil, false
+	}
 	set := b.subs[accountID]
 	if len(set) >= maxInboxEventSubscribersPerAccount {
 		b.mu.Unlock()
@@ -97,6 +104,9 @@ func (b *InboxBroker) Subscribe(accountID string) (ch <-chan struct{}, unsubscri
 func (b *InboxBroker) Notify(accountID string) int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.closed {
+		return 0
+	}
 	n := 0
 	for sub := range b.subs[accountID] {
 		select {
@@ -106,6 +116,26 @@ func (b *InboxBroker) Notify(accountID string) int {
 		n++
 	}
 	return n
+}
+
+// Close ends every open stream: subscriber channels are closed, which makes
+// each ServeInboxEvents return. cmd/cloud calls this when shutdown starts so
+// http.Server.Shutdown doesn't wait out its grace on held streams (the request
+// contexts of in-flight handlers are NOT cancelled by Shutdown). Idempotent;
+// after Close, Subscribe is rejected and Notify reports 0.
+func (b *InboxBroker) Close() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed {
+		return
+	}
+	b.closed = true
+	for _, set := range b.subs {
+		for sub := range set {
+			close(sub.ch)
+		}
+	}
+	b.subs = make(map[string]map[*inboxSubscription]struct{})
 }
 
 // SubscriberCount reports how many streams accountID holds. Tests (and only
@@ -124,8 +154,16 @@ func (b *InboxBroker) SubscriberCount(accountID string) int {
 // the stream inherits the origin's connect-src 'self' — no CSP change.
 //
 // On disconnect (tab closed, navigated away, logged out) the request context
-// ends and the subscription is dropped.
+// ends and the subscription is dropped. Auth is checked at connect time only:
+// a revoked credential keeps its stream (and its content-free wakes) until the
+// stream drops. That leaks nothing — wakes carry no content or ids — and the
+// drain that follows a wake re-authenticates over GET /api/inbox.
 func (a *InboxAPI) ServeInboxEvents(w http.ResponseWriter, r *http.Request) {
+	// cmd/cloud's http.Server WriteTimeout (45s) would kill this long-lived
+	// stream on its first write past the deadline — clear it for this route
+	// (same pattern as trial_proxy.go). Best effort: unsupported writers
+	// (tests) just keep the defaults.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 	session, ok := SessionFromContext(r.Context())
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -163,7 +201,10 @@ func (a *InboxAPI) ServeInboxEvents(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
-		case <-ch:
+		case _, ok := <-ch:
+			if !ok {
+				return // broker closed (server shutdown)
+			}
 			fmt.Fprint(w, "event: inbox-ready\ndata:\n\n")
 			flusher.Flush()
 		case <-heartbeat.C:

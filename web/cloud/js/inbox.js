@@ -382,7 +382,8 @@ export function startInboxPolling(ctx, {
 // The stream carries no content and no event ids (zero-knowledge unchanged);
 // every wake drains through the same per-account lock as the poller, so an
 // overlapping poll tick is a no-op. The 5s poll stays as the fallback: when the
-// stream errors it reconnects with exponential backoff (1s doubling to 30s),
+// stream errors it reconnects with exponential backoff (1s doubling to 30s,
+// ±50% jitter so tabs never reconnect in lockstep after a restart),
 // and a tab that cannot stream at all still polls. Returns a stop() for tests
 // and teardown; navigating away (including to /unlock on logout) ends the
 // stream server-side via the dropped request.
@@ -394,6 +395,9 @@ export function startInboxEventStream(ctx, {
   EventSourceImpl = typeof EventSource === 'undefined' ? null : EventSource,
   baseDelayMs = 1000,
   maxDelayMs = 30000,
+  // `random` defaults to Math.random; tests inject a fixed value so the
+  // jittered delays below are deterministic.
+  random = Math.random,
   onApplied = () => {},
   ...drainOpts
 } = {}) {
@@ -440,11 +444,13 @@ export function startInboxEventStream(ctx, {
     });
     es.addEventListener('error', () => {
       // Manual reconnect with backoff: close first so the native
-      // auto-reconnect doesn't stack a second stream under ours.
+      // auto-reconnect doesn't stack a second stream under ours. The delay is
+      // jittered ±50% around the backoff step — without it every tab errors at
+      // the same instant on a restart and reconnects (and drains) in lockstep.
       if (source === es) source = null;
       es.close();
       if (stopped) return;
-      const wait = delayMs;
+      const wait = Math.round(delayMs * (0.5 + random()));
       delayMs = Math.min(delayMs * 2, maxDelayMs);
       retryTimer = setTimeout(connect, wait);
     });
