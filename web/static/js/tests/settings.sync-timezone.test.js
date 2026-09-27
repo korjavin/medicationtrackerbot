@@ -46,19 +46,6 @@ describe('Settings sync + timezone cards (Phase 9, Task 3)', () => {
         }
     });
 
-    it('wraps #oidc-setup-container in a wg-card shell with :empty hiding rule', () => {
-        const { dom, cleanup } = loadIndex();
-        try {
-            const oidc = dom.window.document.getElementById('oidc-setup-container');
-            expect(oidc).not.toBeNull();
-            expect(oidc.classList.contains('wg-card')).toBe(true);
-            expect(oidc.classList.contains('wg-settings-section')).toBe(true);
-            expect(oidc.classList.contains('wg-settings-oidc')).toBe(true);
-        } finally {
-            cleanup();
-        }
-    });
-
     it('renders the Time & Timezone card with a mono title + muted description', () => {
         const { dom, cleanup } = loadIndex();
         try {
@@ -128,7 +115,7 @@ describe('Settings sync + timezone cards (Phase 9, Task 3)', () => {
         }
     });
 
-    it('has no paper-era `setting-item` / `settings-info-*` classes remaining in the sync/oidc/timezone blocks', () => {
+    it('has no paper-era `setting-item` / `settings-info-*` classes remaining in the sync/timezone blocks', () => {
         const { dom, cleanup } = loadIndex();
         try {
             const doc = dom.window.document;
@@ -136,9 +123,6 @@ describe('Settings sync + timezone cards (Phase 9, Task 3)', () => {
             const syncCard = syncBar.closest('.wg-settings-section');
             expect(syncCard.querySelector('.setting-item')).toBeNull();
             expect(syncCard.querySelector('.sync-status-item')).toBeNull();
-
-            const oidc = doc.getElementById('oidc-setup-container');
-            expect(oidc.classList.contains('setting-item')).toBe(false);
 
             const tzValue = doc.getElementById('settings-timezone-value');
             const tzCard = tzValue.closest('.wg-settings-section');
@@ -179,64 +163,6 @@ describe('Settings sync + timezone cards (Phase 9, Task 3)', () => {
                 expect(el.classList.contains('wg-settings-info-row__value')).toBe(true);
                 expect(el.classList.contains('wg-mono-display')).toBe(true);
             }
-        } finally {
-            cleanup();
-        }
-    });
-
-    it('initOIDCSetupBanner with OIDC enabled renders wg-settings markup (no paper-era .setting-item / .btn)', () => {
-        const { window, document, cleanup } = loadFrontendEnv();
-        try {
-            window.OIDC_CONFIG = { enabled: true };
-            window.initOIDCSetupBanner();
-
-            const container = document.getElementById('oidc-setup-container');
-            expect(container).not.toBeNull();
-
-            expect(container.querySelector('.setting-item')).toBeNull();
-            expect(container.querySelector('.setting-desc')).toBeNull();
-            expect(container.querySelector('.btn')).toBeNull();
-            expect(container.querySelector('.btn-secondary')).toBeNull();
-
-            const title = container.querySelector('.wg-settings-section__title');
-            expect(title).not.toBeNull();
-            expect(title.textContent.trim()).toBe('OIDC Setup');
-
-            const desc = container.querySelector('.wg-settings-section__desc');
-            expect(desc).not.toBeNull();
-
-            const row = container.querySelector('.wg-settings-row-list .wg-settings-row');
-            expect(row).not.toBeNull();
-            const rowTitle = row.querySelector('.wg-settings-row__title');
-            expect(rowTitle).not.toBeNull();
-            expect(rowTitle.classList.contains('wg-mono-display')).toBe(true);
-
-            // Round-2 Task 7: the "Open" control is now an <a target="_blank">
-            // anchor so `/oidc-setup` opens in a new tab instead of clobbering
-            // the mini-app URL (which previously caused a Today fallback on back).
-            const actionLink = row.querySelector('.wg-settings-row__control a');
-            expect(actionLink).not.toBeNull();
-            expect(actionLink.classList.contains('wg-settings-action-btn')).toBe(true);
-            expect(actionLink.classList.contains('btn')).toBe(false);
-            expect(actionLink.classList.contains('btn-secondary')).toBe(false);
-            expect(actionLink.textContent.trim()).toBe('Open');
-            expect(actionLink.getAttribute('href')).toBe('/oidc-setup');
-            expect(actionLink.getAttribute('target')).toBe('_blank');
-            expect(actionLink.getAttribute('rel')).toBe('noopener noreferrer');
-            expect(row.querySelector('.wg-settings-row__control button')).toBeNull();
-        } finally {
-            cleanup();
-        }
-    });
-
-    it('initOIDCSetupBanner with OIDC disabled leaves the container empty', () => {
-        const { window, document, cleanup } = loadFrontendEnv();
-        try {
-            window.OIDC_CONFIG = { enabled: false };
-            window.initOIDCSetupBanner();
-
-            const container = document.getElementById('oidc-setup-container');
-            expect(container.children.length).toBe(0);
         } finally {
             cleanup();
         }

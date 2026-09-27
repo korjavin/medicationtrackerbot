@@ -37,7 +37,7 @@ describe('features/workout/scan.js (med-qj4.9)', () => {
 
   beforeEach(() => {
     env = loadFrontendEnv({ withWorkout: true });
-    env.window.Telegram.WebApp.showAlert = vi.fn();
+    env.window.alert = vi.fn();
     env.window.WorkoutScan._pending = null;
   });
 
@@ -70,7 +70,7 @@ describe('features/workout/scan.js (med-qj4.9)', () => {
 
     await window.WorkoutScan.scan(GROUP);
 
-    expect(window.Telegram.WebApp.showAlert).toHaveBeenCalledTimes(1);
+    expect(window.alert).toHaveBeenCalledTimes(1);
     expect(window.MediaCapture.pickPhoto).not.toHaveBeenCalled();
     expect(window.WorkoutScan._pending).toBeNull();
   });
@@ -152,8 +152,8 @@ describe('features/workout/scan.js (med-qj4.9)', () => {
     expect(arg.sets).toHaveLength(3);
     expect(window.WorkoutScan._pending).toBeNull();
     expect(document.getElementById('workout-scan-modal').classList.contains('hidden')).toBe(true);
-    expect(window.Telegram.WebApp.showAlert).toHaveBeenCalledTimes(1);
-    expect(window.Telegram.WebApp.showAlert.mock.calls[0][0]).toContain('Logged 2 exercises');
+    expect(window.alert).toHaveBeenCalledTimes(1);
+    expect(window.alert.mock.calls[0][0]).toContain('Logged 2 exercises');
     delete window.__MEDTRACKER_CLOUD__;
     delete window.CloudWorkoutSheetAI;
   });
@@ -193,7 +193,7 @@ describe('features/workout/scan.js (med-qj4.9)', () => {
     await window.WorkoutScan.confirm();
 
     expect(log).not.toHaveBeenCalled();
-    expect(window.Telegram.WebApp.showAlert).toHaveBeenCalledTimes(1);
+    expect(window.alert).toHaveBeenCalledTimes(1);
     expect(window.WorkoutScan._pending).not.toBeNull();
     delete window.CloudWorkoutSheetAI;
   });

@@ -58,14 +58,14 @@ describe('features/workout/library.js — split-file integration', () => {
     const { window, document } = env;
     const apiCallSpy = vi.fn();
     window.apiCall = apiCallSpy;
-    window.Telegram.WebApp.showAlert = vi.fn();
+    window.alert = vi.fn();
 
     document.getElementById('exercise-library-name').value = '';
 
     await window.saveExerciseLibraryItem();
 
     expect(apiCallSpy).not.toHaveBeenCalled();
-    expect(window.Telegram.WebApp.showAlert).toHaveBeenCalledTimes(1);
+    expect(window.alert).toHaveBeenCalledTimes(1);
   });
 
   // A new row saved with the "Auto" muscle group that the static catalog

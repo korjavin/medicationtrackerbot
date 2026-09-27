@@ -14,14 +14,12 @@ const BOOTSTRAP_JS = path.join(REPO_ROOT, 'web/static/js/features/bootstrap.js')
 function stubFetch(window, payload) {
     vi.spyOn(window, 'fetch').mockImplementation(async (url) => {
         if (url === '/api/bootstrap') return createMockResponse({ json: payload });
-        if (url === '/auth/status') return createMockResponse({ json: { authenticated: true } });
         return createMockResponse({ json: {} });
     });
 }
 
 function stubBootstrapGlobals(window, switchTabSpy) {
     window.switchTab = switchTabSpy;
-    window.initOIDCSetupBanner = vi.fn();
     window.handleDeepLinks = vi.fn();
 }
 

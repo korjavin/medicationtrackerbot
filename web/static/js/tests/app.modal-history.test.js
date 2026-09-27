@@ -6,8 +6,8 @@ function flushMutations() {
 }
 
 describe('app.js modal history and back behavior', () => {
-  it('pushes history and shows Telegram BackButton when overlay becomes visible', async () => {
-    const { window, document, backButtonState, cleanup } = loadFrontendEnv();
+  it('pushes history when overlay becomes visible and goes back on close', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
 
     try {
       const pushStateSpy = vi.spyOn(window.history, 'pushState');
@@ -18,14 +18,12 @@ describe('app.js modal history and back behavior', () => {
 
       expect(document.getElementById('modal-overlay').classList.contains('hidden')).toBe(false);
       expect(pushStateSpy).toHaveBeenCalled();
-      expect(backButtonState.showCalls).toBeGreaterThan(0);
 
       window.closeBPRecordModal();
       await flushMutations();
 
       expect(document.getElementById('modal-overlay').classList.contains('hidden')).toBe(true);
       expect(backSpy).toHaveBeenCalled();
-      expect(backButtonState.hideCalls).toBeGreaterThan(0);
     } finally {
       cleanup();
     }
@@ -51,7 +49,7 @@ describe('app.js modal history and back behavior', () => {
   });
 
   it('popstate closes topmost modal when modal history is active', async () => {
-    const { window, document, backButtonState, cleanup } = loadFrontendEnv();
+    const { window, document, cleanup } = loadFrontendEnv();
 
     try {
       window.ModalManager.weight.open();
@@ -64,7 +62,6 @@ describe('app.js modal history and back behavior', () => {
 
       expect(document.getElementById('weight-modal').classList.contains('hidden')).toBe(true);
       expect(document.getElementById('modal-overlay').classList.contains('hidden')).toBe(true);
-      expect(backButtonState.hideCalls).toBeGreaterThan(0);
     } finally {
       cleanup();
     }
@@ -115,26 +112,6 @@ describe('app.js modal history and back behavior', () => {
     }
   });
 
-  it('Telegram BackButton callback closes open modal', async () => {
-    const { window, document, backButtonState, cleanup } = loadFrontendEnv();
-
-    try {
-      expect(typeof backButtonState.clickHandler).toBe('function');
-
-      window.showAddModal();
-      await flushMutations();
-      expect(document.getElementById('med-modal').classList.contains('hidden')).toBe(false);
-
-      backButtonState.clickHandler();
-      await flushMutations();
-
-      expect(document.getElementById('med-modal').classList.contains('hidden')).toBe(true);
-      expect(document.getElementById('modal-overlay').classList.contains('hidden')).toBe(true);
-    } finally {
-      cleanup();
-    }
-  });
-
   // Regression for Task 3 of the messenger-adapter plan: modal-history.js used
   // to read window.Telegram.WebApp.BackButton directly to show/hide on overlay
   // transitions. After migration, all back-button toggling goes through
@@ -159,22 +136,4 @@ describe('app.js modal history and back behavior', () => {
     }
   });
 
-  it('skips Telegram BackButton show/hide wiring on unsupported WebApp versions', async () => {
-    const { window, document, backButtonState, cleanup } = loadFrontendEnv({ telegramVersion: '6.0' });
-
-    try {
-      window.showBPRecordModal();
-      await flushMutations();
-      expect(document.getElementById('bp-modal').classList.contains('hidden')).toBe(false);
-      expect(backButtonState.showCalls).toBe(0);
-      expect(backButtonState.clickHandler).toBeNull();
-
-      window.closeBPRecordModal();
-      await flushMutations();
-      expect(document.getElementById('bp-modal').classList.contains('hidden')).toBe(true);
-      expect(backButtonState.hideCalls).toBe(0);
-    } finally {
-      cleanup();
-    }
-  });
 });

@@ -61,7 +61,7 @@ describe('app.js cold-start Dexie hydration', () => {
         getCache: vi.fn().mockResolvedValue(meds)
       };
 
-      // Simulate offline: bootstrap fetch rejects, /auth/status rejects.
+      // Simulate offline: every fetch rejects.
       window.fetch = vi.fn().mockRejectedValue(new Error('offline'));
 
       await window.checkAuth();
@@ -96,28 +96,6 @@ describe('app.js cold-start Dexie hydration', () => {
       expect(loadCacheSpy).not.toHaveBeenCalled();
       const seeded = await window.DataStore.getCached('medications');
       expect(seeded).toBeNull();
-    } finally {
-      cleanup();
-    }
-  });
-
-  it('runs hydration when Telegram initData is present even without a cached auth state', async () => {
-    const { window, cleanup } = loadFrontendEnv({ telegramInitData: 'tg_init_data_xyz' });
-    try {
-      window.localStorage.removeItem(AUTH_CACHE_KEY);
-      installFakeApiCache(window);
-
-      const meds = [{ id: 7, name: 'B12' }];
-      const loadCacheSpy = vi.fn().mockResolvedValue({
-        data: meds,
-        timestamp: Date.now() - 30_000
-      });
-      window.MedTrackerDB.MedicationStore = { loadCache: loadCacheSpy };
-
-      await window.hydrateMedicationsFromDexie();
-
-      expect(loadCacheSpy).toHaveBeenCalledTimes(1);
-      expect(await window.DataStore.getCached('medications')).toEqual(meds);
     } finally {
       cleanup();
     }

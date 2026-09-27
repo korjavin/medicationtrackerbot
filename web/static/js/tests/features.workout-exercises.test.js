@@ -43,7 +43,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
     const { window, document } = env;
     const apiCallSpy = vi.fn();
     window.apiCall = apiCallSpy;
-    window.Telegram.WebApp.showAlert = vi.fn();
+    window.alert = vi.fn();
 
     // Set variant context but leave name/sets/reps empty
     window.WorkoutEdit.variantForExercise = 1;
@@ -54,7 +54,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
     await window.saveExercise();
 
     expect(apiCallSpy).not.toHaveBeenCalled();
-    expect(window.Telegram.WebApp.showAlert).toHaveBeenCalledTimes(1);
+    expect(window.alert).toHaveBeenCalledTimes(1);
   });
 
   it('closeExerciseModal clears the closure-private editingExerciseId', () => {
@@ -952,7 +952,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
       const { window, document } = env;
       const seed = [libraryRow()];
       const cache = installApiCache(window, { exercise_library: seed.map((r) => ({ ...r })) });
-      window.Telegram.WebApp.showAlert = vi.fn();
+      window.alert = vi.fn();
       const calls = stubPlan(window, {
         exercises: boundExercise(40), library: [libraryRow()], updateResult: null,
       });
@@ -966,7 +966,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
       expect(libraryPuts(calls)).toHaveLength(1);
       expect(await cache.get('exercise_library')).toEqual(seed);
       expect(window.loadExerciseLibrary).not.toHaveBeenCalled();
-      expect(window.Telegram.WebApp.showAlert).toHaveBeenCalled();
+      expect(window.alert).toHaveBeenCalled();
     });
 
     it('adding a new exercise with gear picked binds its promoted library row', async () => {

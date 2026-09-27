@@ -37,14 +37,14 @@ describe('features/workout/variants.js — split-file integration', () => {
 
   it('showAddVariantModal short-circuits when no group is set', () => {
     const { window } = env;
-    window.Telegram.WebApp.showAlert = vi.fn();
+    window.alert = vi.fn();
     window.WorkoutEdit.groupForVariant = null;
     window.WorkoutEdit.editingGroupId = null;
 
     window.showAddVariantModal();
 
-    expect(window.Telegram.WebApp.showAlert).toHaveBeenCalledTimes(1);
-    expect(window.Telegram.WebApp.showAlert.mock.calls[0][0])
+    expect(window.alert).toHaveBeenCalledTimes(1);
+    expect(window.alert.mock.calls[0][0])
       .toContain('Save this plan first');
   });
 

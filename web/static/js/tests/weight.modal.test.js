@@ -250,7 +250,7 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
             const { window, document } = env;
             const apiCallSpy = vi.fn();
             window.apiCall = apiCallSpy;
-            window.Telegram.WebApp.showAlert = vi.fn();
+            window.alert = vi.fn();
             window.alert = vi.fn();
 
             window.showWeightModal();

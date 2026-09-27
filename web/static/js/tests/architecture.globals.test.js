@@ -33,20 +33,14 @@ const ALLOWED_GLOBALS = new Set([
     'window.DataStore',                 // data-store.js — SWR cache layer
     'window.cachedFetch',               // cached-fetch.js — local-first read-through helper used by feature modules to render stale cache offline + power the freshness badge
     'window.OfflineNoCacheError',       // cached-fetch.js — typed error thrown when no cache exists and the network is unavailable; sections catch it to render an explicit empty state
-    'window.MedTrackerPush',            // push.js — web push manager
 
-    // App shell
-    'window.initServiceWorker',         // app-shell.js — SW registration
-    'window.showUpdateToast',           // app-shell.js — SW update banner
-    'window.sendSwAuthToken',           // app-shell.js — posts the Telegram init-data blob to the active SW controller so its notification-action handlers can attach X-Telegram-Init-Data; called after SW registration, on controllerchange, and (inline) from app.js for the hot-cache reload case
 
     // App core (app.js)
-    'window.userInitData',              // app.js — messenger identity token mirrored for feature files; sourced via window.MessengerAdapter.identityToken() (null in BrowserAdapter)
-    'window.onDataStoreUnauthorized',   // app.js — callback consumed by data-store.js
+    'window.userInitData',              // core/messenger-adapter.js — refreshed on the BrowserAdapter → TelegramAdapter upgrade so makeAuthHeaders() sees the Telegram initData (null in BrowserAdapter)
+    'window.onDataStoreUnauthorized',   // data-store.js — guarded re-auth callback tests provide; the app.js definition is gone with the bot login flow
     'window.requestTabRefresh',         // app.js — called by data-store.js on change event
     'window.reloadCurrentTab',          // app.js — called by data-store.js + sync.js
     'window.renderSettingsTimeInfo',    // app.js — renders read-only timezone/server clock info in settings
-    'window.initOIDCSetupBanner',       // features/settings.js — renders the OIDC setup banner inside the Settings card; exposed for test coverage of the enabled path (Plan 2026-06-10 finish-app-js-split, Task 2)
     'window.healthOverviewCacheKey',    // features/today-loader.js — timezone-qualified IndexedDB key for health overview; shared with health.js to avoid formula divergence (Plan 2026-06-10 finish-app-js-split, Task 3)
 
     // Core modules
@@ -117,14 +111,11 @@ const ALLOWED_GLOBALS = new Set([
     'window.setWeightUnitPreference',   // features/weight-unit-state.js — backwards-compat shim around WeightUnitState.setPreference; features/weight.js modal-submit routes through it (with reload:false) so a concurrent Settings click and modal inference cannot land at the server in arrival order opposite to the user's click order
 
     // Auth + bootstrap hydration — extracted from app.js (Plan 2026-05-13, Task 3).
-    'window.AuthBootstrap',                 // features/auth-bootstrap.js — namespace exposing applyBootstrapPayload, verifyAuthInBackground, clearSwBootstrapCache, bootstrapURL, hydrateFeatureSettingsFromBundle, hydrateMedicationsFromDexie, hydrateSectionsFromDexie, cacheApiSnapshot, normalizeSettingsBundle. checkAuth() in app.js orchestrates these.
+    'window.AuthBootstrap',                 // features/auth-bootstrap.js — namespace exposing applyBootstrapPayload, hydrateFeatureSettingsFromBundle, hydrateMedicationsFromDexie, hydrateSectionsFromDexie, cacheApiSnapshot, normalizeSettingsBundle. checkAuth() in app.js orchestrates these.
     'window.medications',                   // features/auth-bootstrap.js — explicit mirror of the `var medications = []` global declared by app.js (line 612). applyBootstrapPayload and hydrateMedicationsFromDexie write here so features/meds.js (and any feature that reads the bare `medications` identifier) sees the new list before the cross-script var binding is observed.
     'window.initialAuthLoad',               // features/auth-bootstrap.js — explicit mirror of the `var initialAuthLoad = false` global declared by app.js (line 14). applyBootstrapPayload + hydrateMedicationsFromDexie flip this to `true` so features/meds.js's "first-paint after auth" guard fires once and only once.
     'window.SettingsState',                 // features/auth-bootstrap.js — closure-private reducer that owns featureSettings + featureSettingsLoaded; collapses the three-writer race (bootstrap, /api/init, Dexie hydration) behind applyBootstrapFeatures (fresh-data wins, marks loaded=true), applyDexieFeatures (skipped once loaded=true so stale-cache cannot stomp), setFeature (per-toggle update), getFeatureSettings, isLoaded.
     'window.applyBootstrapPayload',         // features/auth-bootstrap.js — backwards-compat shim for tests + features/bootstrap.js that call it by name.
-    'window.verifyAuthInBackground',        // features/auth-bootstrap.js — backwards-compat shim for tests that call it by name.
-    'window.clearSwBootstrapCache',         // features/auth-bootstrap.js — backwards-compat shim; app.js's checkAuth orchestrator calls it during hard auth rejection.
-    'window.bootstrapURL',                  // features/auth-bootstrap.js — backwards-compat shim; checkAuth uses it via bare lookup.
     'window.hydrateFeatureSettingsFromBundle', // features/auth-bootstrap.js — backwards-compat shim; checkAuth's no-bootstrap fallback path uses it.
     'window.hydrateMedicationsFromDexie',   // features/auth-bootstrap.js — backwards-compat shim for tests that call it by name + checkAuth preflight.
     'window.hydrateSectionsFromDexie',      // features/auth-bootstrap.js — backwards-compat shim for tests that call it by name + checkAuth preflight.
@@ -181,7 +172,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.FoodDB',                    // features/food/db.js — Food DB browse + paginate public API
 
     // Settings view — extracted from app.js (Plan 2026-06-10 finish-app-js-split, Task 2).
-    'window.SettingsView',              // features/settings.js — namespace mirroring the Settings tab view (loadSettings, renderSettingsStaleBadge, updateFeatureToggles, updateFoodTargetsVisibility, toggleFeatureSetting, updateFeatureTabVisibility, initOIDCSetupBanner). The bare function names remain the live call path (app.js switchTab/reloadCurrentTab → loadSettings; feature-toggle change handlers → toggleFeatureSetting; loadInitData/auth-bootstrap.js → updateFeatureTabVisibility); this object documents the public surface.
+    'window.SettingsView',              // features/settings.js — namespace mirroring the Settings tab view (loadSettings, renderSettingsStaleBadge, updateFeatureToggles, updateFoodTargetsVisibility, toggleFeatureSetting, updateFeatureTabVisibility). The bare function names remain the live call path (app.js switchTab/reloadCurrentTab → loadSettings; feature-toggle change handlers → toggleFeatureSetting; loadInitData/auth-bootstrap.js → updateFeatureTabVisibility); this object documents the public surface.
 
     // Settings → Integrations section (local-only mode foundation, Task 3).
     'window.SettingsIntegrations',      // features/settings/integrations.js — load + save handlers for the Integrations card (OpenAI / Food / ElevenLabs credentials); routes the save through DataStore.applyOptimistic so the masked GET view repaints immediately on commit and rolls back on failure.
@@ -194,8 +185,8 @@ const ALLOWED_GLOBALS = new Set([
     // subdomains. Both assignments live outside web/static/js (JS_ROOT below
     // does not scan web/cloud/) so the regex guard never sees them; the
     // entries exist for documentation, mirroring __MEDTRACKER_BOOTSTRAP__.
-    'window.__MEDTRACKER_CLOUD__',      // cloud-boot.js — set synchronously before any other script; checkAuth() (app.js), loadTelegramSdk() (messenger-adapter.js), initServiceWorker() (app-shell.js), and startChangePolling() (data-store.js) all branch on it to skip Telegram/bot-mode-only behavior on the E2EE cloud origin
-    'window.MedTrackerCloudReady',      // cloud-boot.js — Promise that resolves once the async warm-unlock + installApiShim(ctx) + pullOnOpen(ctx) sequence finishes (or rejects/redirects to /unlock on failure); checkAuth() awaits this before calling apiCall(bootstrapURL()), the same shape as window.MessengerAdapterReady gating the Telegram SDK upgrade
+    'window.__MEDTRACKER_CLOUD__',      // cloud-boot.js — set synchronously before any other script; feature modules branch on it to take the cloud path on the E2EE cloud origin
+    'window.MedTrackerCloudReady',      // cloud-boot.js — Promise that resolves once the async warm-unlock + installApiShim(ctx) + pullOnOpen(ctx) sequence finishes (or rejects/redirects to /unlock on failure); checkAuth() awaits this before calling apiCall('/api/bootstrap')
     'window.CloudFoodAI',               // apishim.js (installApiShim) — createFoodAIDomain instance wired to the browser aiclient.js; photo.js/log.js call parseMealFromPhoto/parseMealFromDescription directly in cloud mode instead of POSTing /api/food/log/from-{photo,description} (C2c Task 4)
     'window.CloudWorkoutSheetAI',       // apishim.js (installApiShim) — createWorkoutSheetAIDomain instance wired to the browser aiclient.js; workout/scan.js calls parseSheetFromPhoto/logSheetAsSession directly in cloud mode (med-qj4.9)
     'window.CloudFoodSearch',           // apishim.js (installApiShim) — { search(q, opts) } over the same food domain instance the shim uses; products.js's cloud branch replaces the NDJSON stream with two local/remote calls into this (C2c Task 4)

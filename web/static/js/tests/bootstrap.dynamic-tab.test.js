@@ -48,15 +48,11 @@ describe('bootstrap.js dynamic tab selection', () => {
                 if (url === '/api/bootstrap') {
                     return createMockResponse({ json: bootstrapPayload });
                 }
-                if (url === '/auth/status') {
-                    return createMockResponse({ json: { authenticated: true } });
-                }
                 return createMockResponse({ json: {} });
             });
 
             const { spy: switchTabSpy, called } = spySwitchTab();
             window.switchTab = switchTabSpy;
-            window.initOIDCSetupBanner = vi.fn();
             window.handleDeepLinks = vi.fn();
 
             const bootstrapSource = fs.readFileSync(BOOTSTRAP_JS, 'utf8');
@@ -78,7 +74,6 @@ describe('bootstrap.js dynamic tab selection', () => {
             const { spy: switchTabSpy, called } = spySwitchTab();
             window.switchTab = switchTabSpy;
             window.checkAuth = vi.fn().mockResolvedValue(true);
-            window.initOIDCSetupBanner = vi.fn();
             window.handleDeepLinks = vi.fn();
 
             const bootstrapSource = fs.readFileSync(BOOTSTRAP_JS, 'utf8');

@@ -47,7 +47,7 @@ describe('app.js form submissions and push modal behavior', () => {
       window.apiCall = apiCallSpy;
       window.loadMeds = loadMedsSpy;
       window.loadHistory = loadHistorySpy;
-      window.Telegram.WebApp.showAlert = alertSpy;
+      window.alert = alertSpy;
 
       window.showMedicationConfirmModal(['10', '20'], ['A', 'B'], '2026-02-27T10:00:00Z');
 
@@ -84,7 +84,7 @@ describe('app.js form submissions and push modal behavior', () => {
       window.apiCall = apiCallSpy;
       window.loadMeds = loadMedsSpy;
       window.loadHistory = loadHistorySpy;
-      window.Telegram.WebApp.showAlert = alertSpy;
+      window.alert = alertSpy;
 
       window.showMedicationConfirmModal([10, 20], ['A', 'B'], '2026-02-27T10:00:00Z', 'confirm', [100, 200]);
 
@@ -121,7 +121,7 @@ describe('app.js form submissions and push modal behavior', () => {
       window.apiCall = apiCallSpy;
       window.loadMeds = loadMedsSpy;
       window.loadHistory = loadHistorySpy;
-      window.Telegram.WebApp.showAlert = alertSpy;
+      window.alert = alertSpy;
 
       window.showMedicationConfirmModal([10, 20], ['A', 'B'], '2026-02-27T10:00:00Z', 'confirm', [100, 200]);
 
