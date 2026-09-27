@@ -55,11 +55,8 @@ func limitByIP(limiter *rateLimiter, h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// rateLimiter is a small sliding-window per-key rate limiter. Mirrors
-// internal/mcp/rate_limit.go (itself mirroring internal/server/server.go);
-// duplicated here rather than shared because cloudserver must not import
-// bot-mode packages (see router.go's package doc + cloudstore/arch_test.go).
-// Keep the implementations in sync if any of the three grows new behavior.
+// rateLimiter is a small sliding-window per-key rate limiter, shared by the
+// HTTP middleware below and the MCP relay (see mcp_relay.go).
 type rateLimiter struct {
 	mu     sync.Mutex
 	window time.Duration

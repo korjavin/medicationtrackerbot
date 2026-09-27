@@ -555,9 +555,9 @@ describe('mcp_help wire contract (generated catalog)', () => {
     expect(result.note).not.toContain('Omitted');
   });
 
-  // internal/mcp/help.go:76 stamps current_time on every mcp_help response: a
-  // tool-only agent has no other clock, and health.bp.create requires an
-  // explicit measured_at, so an unstamped response invites a guessed year.
+  // Every mcp_help response stamps current_time (see buildHelp): a tool-only
+  // agent has no other clock, and health.bp.create requires an explicit
+  // measured_at, so an unstamped response invites a guessed year.
   it.each([
     ['no args', {}],
     ['topic', { topic: 'health' }],

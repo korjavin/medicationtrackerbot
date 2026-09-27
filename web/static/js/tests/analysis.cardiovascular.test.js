@@ -3,7 +3,8 @@
 // Task 2 of the cloud composite-analysis plan (docs/plans/20260717-cloud-analysis-pathb.md):
 // web/domain/analysis.js reproduces bot mode's analyze_cardiovascular composite
 // tool client-side over vault data. Expectations are hand-ported from the Go
-// oracle internal/mcp/cardiovascular_test.go (Path B runs no Go in tests).
+// oracle internal/mcp/cardiovascular_test.go (removed with bot mode;
+// Path B runs no Go in tests).
 
 import { describe, it, expect } from 'vitest';
 import { createInMemoryRecordsPort } from './helpers/cloud-shim-harness.js';

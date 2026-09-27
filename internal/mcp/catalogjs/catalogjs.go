@@ -28,7 +28,7 @@ type Exclusion struct {
 	Reason string `json:"reason"`
 }
 
-const gamificationReason = "gamification is deferred project-wide; clamped out of apishim.js PORTED_SET"
+const gamificationReason = "gamification is experimental, deliberately not exposed to MCP agents"
 
 // Excluded lists ops per-id (not per-topic) so renaming an op breaks
 // TestCloudCatalog_ExclusionsAreRealOps instead of silently excluding nothing.

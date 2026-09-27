@@ -2,8 +2,8 @@
 //
 // Task 3 of the cloud composite-analysis plan (docs/plans/20260717-cloud-analysis-pathb.md):
 // web/domain/analysis.js reproduces bot mode's analyze_fitness composite tool
-// client-side over vault data. Expectations are hand-ported from the Go oracle
-// internal/mcp/fitness_test.go (Path B runs no Go in tests).
+// client-side over vault data. Expectations were hand-ported from the Go oracle
+// internal/mcp/fitness_test.go (removed with bot mode; Path B runs no Go in tests).
 
 import { describe, it, expect } from 'vitest';
 import { createInMemoryRecordsPort } from './helpers/cloud-shim-harness.js';
