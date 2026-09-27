@@ -76,7 +76,6 @@
                 <!-- Stale-data chip (Task 6 of local-first read resilience).
                      Mounted by loadMeds() from the api_cache 'medications'
                      timestamp; hidden until the chip has data to display. -->
-                <div id="meds-schedule-stale-badge" class="wg-section-stale-badge-row hidden"></div>
                 <!-- Round-2 Task 4: the Schedule-tab "next-intake" card was
                      removed (duplicated the Today next-action + History
                      next-intake trigger). The schedule list now sits
@@ -90,7 +89,6 @@
                 <!-- Stale-data chip (Task 6 of local-first read resilience).
                      Mounted by loadHistory() from the active history cache key
                      (history_<days>_<medId>); hidden until populated. -->
-                <div id="meds-history-stale-badge" class="wg-section-stale-badge-row hidden"></div>
                 <!-- Round-2 Task 8 (#11a): "Next scheduled intake" pane is the
                      first block on History — the most actionable info. Filters
                      and the list follow below. `renderNextIntakeTrigger` owns
@@ -148,7 +146,6 @@
             <!-- Stale-data chip (Task 6 of local-first read resilience).
                  Mounted by loadBPReadings() from the api_cache 'bp' timestamp.
                  Hidden until the chip has data to display. -->
-            <div id="bp-stale-badge" class="wg-section-stale-badge-row hidden"></div>
             <!-- Range selector row (Phase 5, Task 5). Renders the 14/30/60d
                  pills and an inline `#add-bp-btn` (sun gloss) trailing pill in
                  a single flex row — `renderRangeSelector()` owns the layout so
@@ -171,7 +168,6 @@
             <!-- Stale-data chip (Task 6 of local-first read resilience).
                  Mounted by loadWeightLogs() from the api_cache 'weight'
                  timestamp; hidden until the chip has data to display. -->
-            <div id="weight-stale-badge" class="wg-section-stale-badge-row hidden"></div>
             <div id="weight-goal-card"></div>
             <div id="weight-range-selector"></div>
             <div id="weightChart" class="wg-weight-chart-panel"></div>
@@ -204,7 +200,6 @@
                 <!-- Stale-data chip (Task 6 of local-first read resilience).
                      Mounted by loadNextWorkout() from the api_cache
                      'workout_next' timestamp; hidden until populated. -->
-                <div id="workout-history-stale-badge" class="wg-section-stale-badge-row hidden"></div>
                 <!-- Next Workout Card -->
                 <div id="next-workout-card"></div>
 
@@ -218,7 +213,6 @@
                 <!-- Stale-data chip (Task 6 of local-first read resilience).
                      Mounted by loadWorkoutGroups() from the api_cache
                      'workout_groups' timestamp; hidden until populated. -->
-                <div id="workout-groups-stale-badge" class="wg-section-stale-badge-row hidden"></div>
                 <div id="workout-groups-list" class="wg-workouts-groups">
                     Loading plans...
                 </div>
@@ -279,7 +273,6 @@
                         <span class="wg-equipment-header__add-label">+ Add</span>
                     </button>
                 </div>
-                <div id="workout-equipment-stale-badge" class="wg-section-stale-badge-row hidden"></div>
                 <div id="workout-equipment-list" class="wg-equipment">
                     Loading equipment...
                 </div>
@@ -327,7 +320,6 @@
                      Populated by _renderFoodData() from the lastFoodLogsMeta
                      captured on every cachedFetch read; hidden by default so
                      it does not flash before the first daily-log read. -->
-                <div id="food-stale-badge" class="wg-food-stale-badge-row hidden"></div>
 
                 <!-- Daily macros card (Phase 4, Task 4). Populated by
                      renderFoodMacrosCard() with kcal total, % of target, and
@@ -394,7 +386,6 @@
                 <!-- Stale-data chip (Task 6 of local-first read resilience).
                      Mounted by loadHealthOverview() from the active overview
                      api_cache key; hidden until populated. -->
-                <div id="health-overview-stale-badge" class="wg-section-stale-badge-row hidden"></div>
                 <div id="health-overview-loading">Loading metrics...</div>
                 <div id="health-overview-content" class="hidden">
                     <!-- Injected dynamically via app.js -->
@@ -426,7 +417,6 @@
                     <!-- Stale-data chip (Task 6 of local-first read resilience).
                          Mounted by loadNotes() from the api_cache 'diary_notes'
                          timestamp; hidden until populated. -->
-                    <div id="health-notes-stale-badge" class="wg-section-stale-badge-row hidden"></div>
                     <div id="notes-loading" class="wg-health-notes__loading">Loading notes...</div>
                     <ul id="notes-list" class="wg-health-notes__list list-reset"></ul>
                 </div>
@@ -438,12 +428,10 @@
                  are mounted by features/journey.js (window.Gamification);
                  gated on features.gamification (nav slot filtered before mount
                  in bootstrap.js). -->
-            <div id="journey-stale-badge" class="wg-section-stale-badge-row hidden"></div>
             <div id="journey-content"></div>
         </div>
 
         <div id="settings-view" class="view wg-screen-stage">
-            <div id="settings-stale-badge" class="wg-section-stale-badge-row hidden"></div>
 
             <details open class="wg-settings-group">
                 <summary class="wg-settings-group__summary">Preferences</summary>
@@ -2457,7 +2445,6 @@
     <script src="/static/js/components/wg-steps-chart.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-vitals-chart.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-macro-bar.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="/static/js/components/wg-stale-badge.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-settings.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/core/modal-manager.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/core/api.js?v=TIMESTAMP_PLACEHOLDER"></script>

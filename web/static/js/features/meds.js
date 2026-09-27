@@ -1089,10 +1089,9 @@ async function loadMeds() {
         // or the cached-auth path; the corresponding cache write already ran with the
         // authoritative timestamp (Date.now() for bootstrap, preserved Dexie age for
         // hydration). Skip a redundant setCached/saveCache here — restamping would
-        // overwrite the hydration-preserved timestamp the stale badge reads.
+        // overwrite the hydration-preserved timestamp.
         renderMeds();
         populateMedFilter();
-        await renderMedsScheduleStaleBadge();
         // Refresh in background to ensure up-to-date data. fetchFresh writes to
         // api_cache (with Date.now()) internally; we only need to mirror the
         // result into MedicationStore so subsequent cold-start hydration sees it.
@@ -1108,7 +1107,6 @@ async function loadMeds() {
             }
             renderMeds();
             populateMedFilter();
-            await renderMedsScheduleStaleBadge();
         }
         return;
     }
@@ -1132,7 +1130,6 @@ async function loadMeds() {
             medications = Array.isArray(cached) ? cached : [];
             renderMeds();
             populateMedFilter();
-            await renderMedsScheduleStaleBadge();
         },
         onFresh: async (fresh) => {
             renderedSomething = true;
@@ -1142,16 +1139,13 @@ async function loadMeds() {
             }
             renderMeds();
             populateMedFilter();
-            await renderMedsScheduleStaleBadge();
         },
         onError: async (_err, cached) => {
             if (cached) {
                 renderedSomething = true;
-                await renderMedsScheduleStaleBadge();
                 return;
             }
             // API failed and no ApiCache hit; fall back to offline cache
-            let fallbackFetchedAt = null;
             let fallbackHadData = false;
             if (window.MedTrackerDB?.MedicationStore) {
                 const offlineCached = await window.MedTrackerDB.MedicationStore.getCache();
@@ -1162,50 +1156,17 @@ async function loadMeds() {
                     medications = offlineCached;
                     renderMeds();
                     populateMedFilter();
-                    // Surface the MedicationStore's saved-at timestamp so the
-                    // badge shows "Offline · Xh old" instead of falsely
-                    // claiming "no cache" while real meds are on screen.
-                    try {
-                        const rec = await window.MedTrackerDB.db?.medication_cache?.get('medications_list');
-                        if (rec && Number.isFinite(rec.timestamp)) {
-                            fallbackFetchedAt = rec.timestamp;
-                        }
-                    } catch (_) { /* best-effort cache read */ }
                 }
             }
             if (!fallbackHadData) {
                 renderMedsEmptyState();
             }
-            await renderMedsScheduleStaleBadge({ fallbackFetchedAt });
         }
     });
 
     if (!renderedSomething) {
         renderMedsEmptyState();
-        await renderMedsScheduleStaleBadge();
     }
-}
-
-// Mounts the wg-stale-badge into the Meds Schedule subtab from the api_cache
-// 'medications' timestamp (warmed by /api/bootstrap and refreshed by
-// loadMeds). Mirrors the BP/Weight Task 6 pattern. When the api_cache
-// entry is missing but a separate offline-only cache (MedicationStore)
-// has data, the caller can pass `fallbackFetchedAt` so the chip still
-// reflects the real freshness instead of "Offline · no cache".
-async function renderMedsScheduleStaleBadge(opts = {}) {
-    const slot = document.getElementById('meds-schedule-stale-badge');
-    if (!slot) return;
-    const api = (typeof window !== 'undefined') ? window.WGStaleBadge : null;
-    if (!api || typeof api.mountFromKey !== 'function') {
-        slot.replaceChildren();
-        slot.classList.add('hidden');
-        return;
-    }
-    await api.mountFromKey({
-        slot,
-        key: 'medications',
-        fallbackFetchedAt: opts.fallbackFetchedAt
-    });
 }
 
 function populateMedFilter() {

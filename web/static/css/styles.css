@@ -3161,15 +3161,6 @@ input:checked+.toggle-slider:before {
     color: var(--text-color);
 }
 
-.today-offline-banner {
-    padding: var(--space-sm) var(--space-md);
-    background: var(--secondary-bg-color);
-    color: var(--hint-color);
-    border-radius: var(--radius-md);
-    font-size: var(--font-size-sm);
-    text-align: center;
-}
-
 .today-card-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -6647,75 +6638,6 @@ textarea.wg-input {
     .wg-macro-bar__fill {
         transition: none;
     }
-}
-
-/* Stale-data badge (local-first read-resilience plan, Task 4). Compact pill
-   rendered by components/wg-stale-badge.js — communicates whether section
-   data is fresh, just stale, or actively offline. The neutral variant uses
-   the same muted-ink tokens as section labels; the warning variant reuses
-   the existing tag-alert triplet so no new colours enter the palette. */
-.wg-stale-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-xs);
-    font-family: var(--wg-font-ui);
-    font-size: var(--wg-font-size-tag);
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    padding: 2px var(--space-sm);
-    border-radius: var(--radius-pill);
-    border: 1px solid transparent;
-    line-height: 1.2;
-}
-
-.wg-stale-badge--neutral {
-    background: transparent;
-    color: var(--wg-fg-3);
-    border-color: var(--wg-border-hairline);
-}
-
-.wg-stale-badge--warning {
-    background: var(--wg-tag-alert-bg);
-    color: var(--wg-tag-alert-fg);
-    border-color: var(--wg-tag-alert-border);
-}
-
-/* Wrapper rows that mount the stale chip. Originally placed inline above
-   each section's content, the chip is now pinned to the viewport's
-   bottom-right (under the bottom nav, on top of its safe-area padding) so
-   it sits in the same spot on every screen and never shifts cards around.
-   `pointer-events: none` keeps it from blocking taps on nav buttons; the
-   capped `max-width` plus `overflow: hidden` prevents wrap-induced scroll.
-   Only the active view's slot is in the layout (other views are
-   `display: none`), so multiple slots cannot overlap at runtime. */
-.today-stale-badge-row,
-.wg-food-stale-badge-row,
-.wg-section-stale-badge-row {
-    position: fixed;
-    right: var(--space-xs);
-    bottom: var(--space-xxs, 2px);
-    z-index: calc(var(--wg-bottom-nav-z) + 1);
-    pointer-events: none;
-    max-width: calc(100vw - var(--space-sm));
-    margin: 0;
-    display: flex;
-    justify-content: flex-end;
-}
-
-/* Compact variant for the pinned position — the corner chip is glanceable,
-   not interactive, so it shrinks well below the inline header sizing. */
-.today-stale-badge-row .wg-stale-badge,
-.wg-food-stale-badge-row .wg-stale-badge,
-.wg-section-stale-badge-row .wg-stale-badge {
-    font-size: var(--wg-nav-item-font-size);
-    letter-spacing: 0.02em;
-    padding: 1px var(--space-xs);
-    line-height: 1.15;
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    opacity: 0.75;
 }
 
 /* Daily macros card (Phase 4, Task 4). `.wg-card` shell with a mono kcal

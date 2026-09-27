@@ -248,29 +248,13 @@ async function _todayReadCaches(foodKey) {
     const bootstrap = { features: window.featureSettings || {} };
     const swrCaches = {};
     let cardOrder = null;
-    // Tracks the *most recent* write among all caches we read. The offline-stale
-    // banner ("cached data is >1h old") should fire only when nothing we have
-    // is fresh. Using the oldest timestamp would let a single rarely-updated
-    // cache (e.g. health_overview) pin the window even after bootstrap just
-    // refreshed.
+    // Tracks the *most recent* write among all caches we read. Null means no
+    // cache entry of any kind exists yet (firstRun gate in _todayRender).
     let latestCacheTimestamp = null;
-    // Worst-case freshness for the section-header badge (Task 5): the oldest
-    // timestamp across the caches feeding Today. The user reads it as
-    // "everything you see is at least this old", which lines up with how the
-    // chip is positioned at the top of the screen.
-    let oldestCacheTimestamp = null;
-    // latest tracks every cache we read (used for firstRun + offline-stale gates).
-    // oldest skips disabled-feature caches so the badge reflects only data the
-    // user can actually see; otherwise a stale cache for a disabled feature
-    // (e.g. health_overview the user turned off weeks ago) would pin the chip
-    // to "Updated 7d ago" even when everything visible is fresh.
-    const trackTs = (ts, { includeInOldest } = { includeInOldest: true }) => {
+    const trackTs = (ts) => {
         if (!Number.isFinite(ts)) return;
         if (latestCacheTimestamp === null || ts > latestCacheTimestamp) {
             latestCacheTimestamp = ts;
-        }
-        if (includeInOldest && (oldestCacheTimestamp === null || ts < oldestCacheTimestamp)) {
-            oldestCacheTimestamp = ts;
         }
     };
     try {
@@ -340,29 +324,10 @@ async function _todayReadCaches(foodKey) {
                 swrCaches.food_today = { groups };
             }
             if (gamM?.data) swrCaches.gamification_rings = gamM.data;
-            const featuresMap = bootstrap.features || {};
-            const isFeatureOn = (feature) => {
-                if (!feature) return true;
-                if (Object.prototype.hasOwnProperty.call(featuresMap, feature)) {
-                    return !!featuresMap[feature];
-                }
-                return true;
-            };
-            const keyFeatures = {
-                settings_bundle: null,
-                next_intake: 'medication',
-                medications: 'medication',
-                bp: 'bp',
-                weight: 'weight',
-                workout_next: 'workout',
-                [hoKey]: 'health',
-                [foodKey]: 'food',
-                gamification_rings: 'gamification'
-            };
             for (let i = 0; i < keys.length; i++) {
                 const m = metas[i];
                 if (!m) continue;
-                trackTs(m.timestamp, { includeInOldest: isFeatureOn(keyFeatures[keys[i]]) });
+                trackTs(m.timestamp);
             }
         } else if (window.DataStore && typeof window.DataStore.getCached === 'function') {
             const keys = ['settings_bundle', 'next_intake', 'medications', 'bp', 'weight', 'workout_next', hoKey, foodKey, 'gamification_rings'];
@@ -425,13 +390,13 @@ async function _todayReadCaches(foodKey) {
         const persisted = readPersistedTabOrder();
         if (persisted) cardOrder = persisted;
     }
-    return { bootstrap, swrCaches, latestCacheTimestamp, oldestCacheTimestamp, cardOrder };
+    return { bootstrap, swrCaches, latestCacheTimestamp, cardOrder };
 }
 
 async function _todayRender(foodKey) {
     const root = document.getElementById('today-content');
     if (!root || !window.TodayDashboard) return { rendered: false };
-    const { bootstrap, swrCaches, latestCacheTimestamp, oldestCacheTimestamp, cardOrder } = await _todayReadCaches(foodKey);
+    const { bootstrap, swrCaches, latestCacheTimestamp, cardOrder } = await _todayReadCaches(foodKey);
     const online = typeof navigator !== 'undefined' ? navigator.onLine !== false : true;
     const nowMs = Date.now();
     // Hand the schedule helpers to the aggregator so the meds tile can compute
@@ -449,33 +414,6 @@ async function _todayRender(foodKey) {
         // than a grid of empty cards. Empty but cached bootstrap (new account
         // with no data yet) still renders the grid.
         state.__firstRun = true;
-    }
-    // `__offline` drives the three offline-framed strings in today.js (the meds
-    // kicker "Next dose data unavailable offline", the "Offline — showing cached
-    // data" banner, and the firstRun "Offline — reconnect to load your day").
-    // All three are BOT-MODE concepts: data fetched from a server can genuinely
-    // go stale behind a dead network. In CLOUD mode reads are served from the
-    // local E2EE vault via web/cloud/js/apishim.js — authoritative and always
-    // current regardless of connectivity — so a flaky-wifi navigator.onLine=false
-    // must not make Today claim the user's own data is stale. Gate centrally
-    // here (the impure loader shell) rather than at each call site, mirroring
-    // how wg-stale-badge.js suppresses the freshness chip in cloud mode; that
-    // keeps today.js a pure, env-free render contract.
-    if (!window.__MEDTRACKER_CLOUD__
-        && window.TodayDashboard.isOfflineStale({ online, cacheTimestamp: latestCacheTimestamp, now: nowMs })) {
-        state.__offline = true;
-    }
-    // The badge tone needs the raw "navigator is offline" signal so an
-    // offline session with a recent cache still renders "Offline · 5m old"
-    // (warning tone) instead of a neutral "Updated 5m ago" — state.__offline
-    // is gated on offline+stale and is the wrong signal for that.
-    if (!online) {
-        state.__navigatorOffline = true;
-    }
-    if (oldestCacheTimestamp !== null) {
-        // Worst-case freshness — read by renderToday to mount the wg-stale-badge
-        // chip so the user can see how old the displayed data really is.
-        state.__fetchedAt = oldestCacheTimestamp;
     }
     window.TodayDashboard.renderToday(state, root, { now: nowMs, cardOrder });
     return { rendered: true, bootstrap, swrCaches, online };

@@ -8,7 +8,7 @@
 // global (script-tag loading) and rely on app.js + sibling globals at call time:
 // apiCall, safeAlert, readPersistedTabOrder, switchTab, window.featureSettings,
 // window.AuthBootstrap, window.SettingsState, window.WeightUnitState,
-// window.FoodLog, window.DataStore, window.WGStaleBadge,
+// window.FoodLog, window.DataStore,
 // window.SettingsIntegrations, window.AppStore, window.rebuildCanonicalBottomNav,
 // applyWebpushStatus, hideWebpushStatus (both from app.js).
 //
@@ -672,14 +672,6 @@ async function loadSettings() {
         };
     };
 
-    // Mount the stale badge from the bootstrap-warmed settings_bundle row so
-    // the user can see "Offline · 2h old" when Settings is opened on a cold
-    // start without network — and "Updated just now" after the SWR fetch
-    // lands a fresh bundle. Best-effort: never blocks Settings render.
-    const mountStaleBadge = async () => {
-        try { await renderSettingsStaleBadge(); } catch (_) { /* no-op */ }
-    };
-
     try {
         await window.DataStore.loadSWR({
             key: 'settings_bundle',
@@ -687,25 +679,18 @@ async function loadSettings() {
             fetcher: fetchBundle,
             onCached: async (cached) => {
                 await applyBundle(cached);
-                await mountStaleBadge();
             },
             onFresh: async (fresh) => {
                 await applyBundle(fresh);
-                await mountStaleBadge();
             },
             onError: async (error, cached) => {
                 console.error('Failed to load settings:', error);
                 if (cached) applyBundle(cached);
-                await mountStaleBadge();
             }
         });
     } catch (error) {
         console.error('Failed to load settings:', error);
     }
-    // Safety-net mount for the case where no callback fires (e.g., no cached
-    // row AND fetcher returns null) — mountFromKey gracefully no-ops if
-    // there's nothing to surface.
-    await mountStaleBadge();
     // The Integrations section is loaded lazily from its own endpoint so
     // the settings_bundle SWR fetch stays focused on the feature-flags +
     // food-targets + reminders + weight-unit slice that bootstrap also
@@ -744,21 +729,6 @@ function hideEmptySettingsGroups() {
 function isSettingsSectionHidden(s) {
     return s.matches('.wg-settings-hidden, .hidden, [hidden]')
         || s.style.display === 'none';
-}
-
-// Mounts the wg-stale-badge into the Settings section header from the
-// `settings_bundle` api_cache row (warmed by /api/bootstrap and refreshed by
-// loadSettings()'s SWR fetcher). Mirrors the BP/Weight/Workout/Health pattern.
-async function renderSettingsStaleBadge() {
-    const slot = document.getElementById('settings-stale-badge');
-    if (!slot) return;
-    const api = (typeof window !== 'undefined') ? window.WGStaleBadge : null;
-    if (!api || typeof api.mountFromKey !== 'function') {
-        slot.replaceChildren();
-        slot.classList.add('hidden');
-        return;
-    }
-    await api.mountFromKey({ slot, key: 'settings_bundle' });
 }
 
 function updateFeatureToggles() {
@@ -986,7 +956,6 @@ function updateFeatureTabVisibility() {
 window.SettingsView = {
     loadSettings,
     mintInvite,
-    renderSettingsStaleBadge,
     updateFeatureToggles,
     updateFoodTargetsVisibility,
     toggleFeatureSetting,

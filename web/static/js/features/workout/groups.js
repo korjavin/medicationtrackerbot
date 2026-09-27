@@ -57,7 +57,6 @@ async function loadWorkoutGroups() {
         },
         onCached: async (cached) => {
             _renderWorkoutGroups(container, cached);
-            await renderWorkoutGroupsStaleBadge();
         },
         onFresh: async (groups) => {
             window.WorkoutEdit.cachedGroups = groups || [];
@@ -65,7 +64,6 @@ async function loadWorkoutGroups() {
                 await window.MedTrackerDB.WorkoutStore.saveCache('groups', groups);
             }
             _renderWorkoutGroups(container, groups);
-            await renderWorkoutGroupsStaleBadge();
         },
         onError: async (error, cached) => {
             console.error('Error loading workout groups:', error);
@@ -75,24 +73,10 @@ async function loadWorkoutGroups() {
                 message.textContent = 'No cached data — will load when online';
                 container.replaceChildren(message);
             }
-            await renderWorkoutGroupsStaleBadge();
         }
     });
 }
 
-// Mounts the wg-stale-badge into the Workouts Groups subtab from the
-// 'workout_groups' api_cache timestamp.
-async function renderWorkoutGroupsStaleBadge() {
-    const slot = (typeof document !== 'undefined') ? document.getElementById('workout-groups-stale-badge') : null;
-    if (!slot) return;
-    const api = (typeof window !== 'undefined') ? window.WGStaleBadge : null;
-    if (!api || typeof api.mountFromKey !== 'function') {
-        slot.replaceChildren();
-        slot.classList.add('hidden');
-        return;
-    }
-    await api.mountFromKey({ slot, key: 'workout_groups' });
-}
 
 function _renderWorkoutGroups(container, groups) {
     if (!container) return;

@@ -15,7 +15,6 @@
 // argument to keep tests deterministic.
 
 (function () {
-    const FRESHNESS_MS = 60 * 60 * 1000; // 1h — base freshness window (SWR offline banner)
     const BP_STALE_MS = 24 * 60 * 60 * 1000; // a BP reading older than a day is stale
     const WEIGHT_STALE_MS = 7 * 24 * 60 * 60 * 1000; // weight is stale after a week
     const SLEEP_RECENT_MS = 2 * 24 * 60 * 60 * 1000; // sleep entry older than ~2d is stale
@@ -627,7 +626,7 @@
     // class so existing deep-link handlers keep working; the surrounding
     // `.wg-today-meds` modifier swaps out the sun-yellow banner background
     // for the plain card surface mandated by the mockup.
-    function renderTodayMedsCard(cell, onDeeplink, nowMs, isOffline) {
+    function renderTodayMedsCard(cell, onDeeplink, nowMs) {
         if (!cell || cell.status === 'disabled') return null;
         const d = doc();
         const card = d.createElement('div');
@@ -654,10 +653,7 @@
         const names = (cell.value && Array.isArray(cell.value.names)) ? cell.value.names : [];
 
         if (cell.status === 'missing' || !cell.value) {
-            // When offline, the empty next_intake cache may simply mean the
-            // bootstrap fetch never landed — be explicit so the user does not
-            // assume the schedule is empty.
-            kicker.textContent = isOffline ? 'Next dose data unavailable offline' : 'No scheduled doses';
+            kicker.textContent = 'No scheduled doses';
             value.textContent = `${names.length} medication${names.length === 1 ? '' : 's'}`;
         } else {
             const v = cell.value;
@@ -1342,46 +1338,10 @@
         root.classList.add('wg-today');
         root.classList.add('today-root');
 
-        // Stale-data chip (Task 5 of local-first read resilience). Rendered at
-        // the top of Today using the OLDEST fetchedAt across the caches that
-        // feed the screen, so the user reads it as a worst-case freshness
-        // floor. Suppressed during the firstRun empty-state — the placeholder
-        // already explains what's going on.
-        if (!state.__firstRun
-            && typeof window !== 'undefined'
-            && window.WGStaleBadge
-            && typeof window.WGStaleBadge.render === 'function') {
-            const fetchedAt = (state && Number.isFinite(state.__fetchedAt)) ? state.__fetchedAt : null;
-            // Badge tone uses the raw navigator-offline signal (state.__navigatorOffline)
-            // so offline + fresh cache renders "Offline · 5m old" rather than the neutral
-            // "Updated 5m ago". state.__offline only flips when offline+stale.
-            const isOffline = !!(state.__navigatorOffline || state.__offline);
-            if (fetchedAt !== null || isOffline) {
-                const headerRow = d.createElement('div');
-                headerRow.className = 'today-stale-badge-row';
-                const badge = window.WGStaleBadge.render({
-                    fetchedAt,
-                    isOffline,
-                    now: nowMs
-                });
-                headerRow.appendChild(badge);
-                root.appendChild(headerRow);
-            }
-        }
-
-        if (state && state.__offline && !state.__firstRun) {
-            const banner = d.createElement('div');
-            banner.className = 'today-offline-banner';
-            banner.textContent = 'Offline — showing cached data';
-            root.appendChild(banner);
-        }
-
         if (state && state.__firstRun) {
             const empty = d.createElement('div');
             empty.className = 'today-empty today-empty-firstrun';
-            empty.textContent = state.__offline
-                ? 'Offline — reconnect to load your day'
-                : 'Connect to load your day';
+            empty.textContent = 'Connect to load your day';
             root.appendChild(empty);
             return root;
         }
@@ -1390,8 +1350,7 @@
 
         // Call agent + Shortcuts are pinned to the very top of Today (us0.4) so
         // they're the first thing visible in every state (features on/off,
-        // cached/offline). Nothing renders above them except the freshness
-        // badge + offline banner.
+        // cached/offline).
         let callCard = null;
         if (typeof window !== 'undefined' && window.WGCallAgent && typeof window.WGCallAgent.mountCard === 'function') {
             callCard = window.WGCallAgent.mountCard(root);
@@ -1483,7 +1442,7 @@
             if (tzCard) { rendered += 1; }
         }
 
-        const medsCard = renderTodayMedsCard(state && state.nextMed, onDeeplink, nowMs, !!(state && state.__offline));
+        const medsCard = renderTodayMedsCard(state && state.nextMed, onDeeplink, nowMs);
         if (medsCard) { root.appendChild(medsCard); rendered += 1; }
 
         if (rendered === 0) {
@@ -1505,31 +1464,17 @@
     //   - The DataStore change stream reports invalidated tags relevant to
     //     Today (bp, weight, medications, food, workouts, health) via a
     //     'datastore:changed' CustomEvent on window.
-    //   - The window fires 'online' or 'offline' — so the dashboard can toggle
-    //     its offline banner and retry fresh data.
+    //   - The window fires 'online' or 'offline' — so the dashboard can
+    //     re-render and retry fresh data.
     //
     // onRefresh receives { source, tags?, data? } describing the trigger.
     // Returns an unsubscribe function that removes every registered listener.
-    //
-    // isOfflineStale({ online, cacheTimestamp, now, thresholdMs }) returns
-    // true when the app is offline AND the cached data is older than the
-    // freshness threshold (default 1h) — used to decide whether to show the
-    // offline banner inside the dashboard.
     // ------------------------------------------------------------------------
 
     // Must match the tag vocabulary emitted by internal/store/migrations/027_add_change_events.sql.
     // Notable: workout uses singular 'workout' (not 'workouts'), intake_log emits 'history',
     // and reminder/settings tables emit 'settings'.
     const RELEVANT_TAGS = ['bp', 'weight', 'medications', 'history', 'food', 'workout', 'health', 'settings', 'gamification'];
-
-    function isOfflineStale(opts) {
-        const o = opts || {};
-        if (o.online) return false;
-        const threshold = Number.isFinite(o.thresholdMs) ? o.thresholdMs : FRESHNESS_MS;
-        if (!Number.isFinite(o.cacheTimestamp) || o.cacheTimestamp <= 0) return true;
-        const nowMs = Number.isFinite(o.now) ? o.now : Date.now();
-        return (nowMs - o.cacheTimestamp) > threshold;
-    }
 
     function subscribe(opts) {
         const options = opts || {};
@@ -1585,8 +1530,6 @@
     window.TodayDashboard = {
         aggregateToday,
         renderToday,
-        subscribe,
-        isOfflineStale,
-        FRESHNESS_MS
+        subscribe
     };
 })();

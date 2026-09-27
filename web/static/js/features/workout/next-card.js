@@ -36,11 +36,9 @@ async function loadNextWorkout() {
         },
         onCached: async (cached) => {
             _renderNextWorkout(container, cached);
-            await renderWorkoutHistoryStaleBadge();
         },
         onFresh: async (fresh) => {
             _renderNextWorkout(container, fresh);
-            await renderWorkoutHistoryStaleBadge();
         },
         onError: async (error, cached) => {
             console.error('Error loading next workout:', error);
@@ -49,48 +47,8 @@ async function loadNextWorkout() {
             // rather than emptying the container — otherwise a transient
             // fetch error leaves the screen with no way to start a workout.
             if (!cached) _renderNextWorkout(container, null);
-            await renderWorkoutHistoryStaleBadge();
         }
     });
-}
-
-// Mounts the wg-stale-badge into the Workouts History subtab. The subtab
-// surfaces two data sources (the next-workout card driven by 'workout_next'
-// and the history list driven by 'workout_history'); the chip reads the
-// OLDER of the two timestamps so the user sees a worst-case freshness floor
-// rather than a freshness chip that disagrees with the list below it.
-async function renderWorkoutHistoryStaleBadge() {
-    const slot = (typeof document !== 'undefined') ? document.getElementById('workout-history-stale-badge') : null;
-    if (!slot) return;
-    const api = (typeof window !== 'undefined') ? window.WGStaleBadge : null;
-    if (!api || typeof api.render !== 'function') {
-        slot.replaceChildren();
-        slot.classList.add('hidden');
-        return;
-    }
-    const cache = (typeof window !== 'undefined') && window.MedTrackerDB
-        ? window.MedTrackerDB.ApiCache
-        : null;
-    const offline = (typeof navigator !== 'undefined') ? navigator.onLine === false : false;
-    let oldestTs = null;
-    if (cache && typeof cache.getWithMeta === 'function') {
-        for (const key of ['workout_next', 'workout_history']) {
-            try {
-                const entry = await cache.getWithMeta(key);
-                if (entry && Number.isFinite(entry.timestamp)) {
-                    if (oldestTs === null || entry.timestamp < oldestTs) oldestTs = entry.timestamp;
-                }
-            } catch (_) { /* best-effort cache read */ }
-        }
-    }
-    if (oldestTs === null && !offline) {
-        slot.replaceChildren();
-        slot.classList.add('hidden');
-        return;
-    }
-    const badge = api.render({ fetchedAt: oldestTs, isOffline: offline });
-    slot.replaceChildren(badge);
-    slot.classList.remove('hidden');
 }
 
 function _renderNextWorkout(container, data) {

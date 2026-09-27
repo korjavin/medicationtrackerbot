@@ -79,10 +79,6 @@
     });
 })();
 
-// Threshold past which the food daily-log cache is considered stale. Read
-// by the badge renderer so the warning tone fires at this age.
-const FOOD_LOGS_STALE_AFTER_MS = 24 * 60 * 60 * 1000;
-
 const FOOD_MACROS_RANGES = ['day', 'week'];
 
 function setFoodMacrosRange(range) {
@@ -742,13 +738,11 @@ async function loadFoodLogs() {
 
     try {
         let groups = [];
-        let groupsMeta = null;
         // apiCall serves /api/food/log from the local vault via the cloud
         // shim (cachedFetch's raw-network path 404s on the account
         // subdomain, so the bot-mode branch was removed).
         const raw = await apiCall(`/api/food/log?date=${dateStr}${tzParams}`, 'GET');
         groups = Array.isArray(raw) ? raw : [];
-        groupsMeta = { fetchedAt: Date.now(), isStale: false, isFromCache: false };
 
         const weekStats = await apiCall(`/api/food/stats?date=${dateStr}&days=7${tzParams}`, 'GET');
 
@@ -760,7 +754,6 @@ async function loadFoodLogs() {
         // The key already matches the `food_` family prefix registered at boot.
         await window.DataStore.setCachedWithTags(cacheKey, { groups: groups || [], weekStats: persistedWeekStats }, ['food']);
 
-        window.FoodLog.meta = groupsMeta;
         _renderFoodData(groups || [], persistedWeekStats, window.FoodLog.macrosRange, dateStr);
     } catch (e) {
         console.error(e);
@@ -964,43 +957,6 @@ function _renderFoodData(groups, weekStats, range, dateStr) {
 
     syncFoodMacrosToggleActiveClass();
 
-    renderFoodStaleBadge();
-}
-
-// Task 5 of local-first read resilience — paints the wg-stale-badge chip into
-// the #food-stale-badge slot using the freshness metadata captured on the
-// most recent load (window.FoodLog.meta). The slot is hidden when
-// no metadata exists yet OR when the data was just fetched online (avoids
-// flashing a "Updated just now" chip on every keystroke-driven re-render).
-function renderFoodStaleBadge() {
-    const slot = document.getElementById('food-stale-badge');
-    if (!slot) return;
-    const api = (typeof window !== 'undefined') ? window.WGStaleBadge : null;
-    if (!api || typeof api.render !== 'function') {
-        slot.replaceChildren();
-        slot.classList.add('hidden');
-        return;
-    }
-    const meta = window.FoodLog.meta;
-    const isOnline = typeof navigator !== 'undefined' ? navigator.onLine !== false : true;
-    if (!meta || !Number.isFinite(meta.fetchedAt)) {
-        if (!isOnline) {
-            const badge = api.render({ fetchedAt: null, isOffline: true });
-            slot.replaceChildren(badge);
-            slot.classList.remove('hidden');
-            return;
-        }
-        slot.replaceChildren();
-        slot.classList.add('hidden');
-        return;
-    }
-    const badge = api.render({
-        fetchedAt: meta.fetchedAt,
-        isOffline: !isOnline,
-        staleAfterMs: FOOD_LOGS_STALE_AFTER_MS,
-    });
-    slot.replaceChildren(badge);
-    slot.classList.remove('hidden');
 }
 
 // Phase 4, Task 4 — populate the Wandergeek daily macros card. Renders the

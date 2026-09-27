@@ -160,11 +160,7 @@ function showWeightModal() {
     focusWeightModalInput();
 }
 
-// Reads the latest logged weight (kg) from the combined DataStore bootstrap
-// cache (server logs) + IndexedDB WeightStore (pending/rejected local writes).
-// The two sources can diverge — e.g. an offline log added via the Today
-// shortcut lives only in IndexedDB until sync — so we merge them and pick the
-// newest by measured_at rather than trusting whichever is populated first.
+// Reads the latest logged weight (kg) from the DataStore bootstrap cache.
 // Returns NaN when nothing is available. Errors are swallowed — the caller
 // only uses the result when it's a finite number.
 async function readCachedLatestWeightKg() {
@@ -186,14 +182,6 @@ async function readCachedLatestWeightKg() {
         if (window.DataStore && typeof window.DataStore.getCached === 'function') {
             const cached = await window.DataStore.getCached('weight');
             if (cached && Array.isArray(cached.logsRes)) combined.push(...cached.logsRes);
-        }
-    } catch (_) { /* best-effort */ }
-
-    try {
-        if (window.MedTrackerDB && window.MedTrackerDB.WeightStore
-            && typeof window.MedTrackerDB.WeightStore.getAll === 'function') {
-            const all = await window.MedTrackerDB.WeightStore.getAll();
-            if (Array.isArray(all)) combined.push(...all);
         }
     } catch (_) { /* best-effort */ }
 
@@ -376,17 +364,9 @@ async function handleWeightSubmit(event) {
     if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
 
     if (editing && editing.id != null) {
-        if (typeof editing.id === 'string' && editing.id.startsWith('local_')) {
-            const localId = parseInt(editing.id.replace('local_', ''), 10);
-            if (window.MedTrackerDB && Number.isFinite(localId)) {
-                try {
-                    await window.MedTrackerDB.WeightStore.confirmDelete(localId);
-                    if (window.SyncManager) window.SyncManager.updateStatus();
-                } catch (e) {
-                    console.error('Failed to purge local edit:', e);
-                }
-            }
-        } else {
+        // Local-only ids (DataStore optimistic rows) were already stripped
+        // from the cache by the mutator above — no server row to delete.
+        if (!(typeof editing.id === 'string' && editing.id.startsWith('local_'))) {
             await apiCall(`/api/weight/${editing.id}`, 'DELETE');
         }
         editingWeightLog = null;
@@ -862,12 +842,10 @@ async function loadWeightLogs() {
         onCached: async (cached) => {
             renderedSomething = true;
             await _renderWeightData(cached.logsRes, cached.goalRes);
-            await renderWeightStaleBadge();
         },
         onFresh: async (fresh) => {
             renderedSomething = true;
             await _renderWeightData(fresh.logsRes, fresh.goalRes);
-            await renderWeightStaleBadge();
         },
         onError: async (e, cached) => {
             console.error('Failed to load weight data:', e);
@@ -877,62 +855,17 @@ async function loadWeightLogs() {
                 renderedSomething = true;
                 list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
             }
-            await renderWeightStaleBadge();
         }
     });
     if (!renderedSomething && list) {
         list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
-        await renderWeightStaleBadge();
     }
-}
-
-// Mounts the wg-stale-badge into the Weight section header from the
-// api_cache 'weight' timestamp (warmed by /api/bootstrap and refreshed by
-// loadWeightLogs). Tone flips to offline whenever navigator.onLine is false.
-async function renderWeightStaleBadge() {
-    const slot = document.getElementById('weight-stale-badge');
-    if (!slot) return;
-    const api = (typeof window !== 'undefined') ? window.WGStaleBadge : null;
-    if (!api || typeof api.mountFromKey !== 'function') {
-        slot.replaceChildren();
-        slot.classList.add('hidden');
-        return;
-    }
-    await api.mountFromKey({ slot, key: 'weight' });
 }
 
 async function _renderWeightData(logsRes, goalRes) {
     const list = document.getElementById('weight-list');
 
-    // Merge server data with pending local writes
-    let allLogs = logsRes || [];
-    if (window.MedTrackerDB) {
-        try {
-            const pendingLogs = await window.MedTrackerDB.WeightStore.getPending();
-            const pendingFormatted = pendingLogs.map(l => ({
-                id: `local_${l.localId}`,
-                localId: l.localId,
-                measured_at: l.measured_at,
-                weight: l.weight,
-                notes: l.notes,
-                isLocal: true
-            }));
-            const rejectedLogs = await window.MedTrackerDB.WeightStore.getRejected();
-            const rejectedFormatted = rejectedLogs.map(l => ({
-                id: `local_${l.localId}`,
-                localId: l.localId,
-                measured_at: l.measured_at,
-                weight: l.weight,
-                notes: l.notes,
-                isLocal: true,
-                isRejected: true,
-                errorMessage: l.errorMessage
-            }));
-            allLogs = [...pendingFormatted, ...rejectedFormatted, ...allLogs];
-        } catch (e) {
-            console.error('Failed to get pending weight logs:', e);
-        }
-    }
+    const allLogs = logsRes || [];
 
     // Sort by measured_at DESC so downstream renderers (current card, seed
     // for new-entry modal) see a true newest-first order even when the user
@@ -1085,8 +1018,6 @@ function buildWeightHistoryGroup(label, logs) {
 function buildWeightHistoryRow(log) {
     const item = document.createElement('li');
     item.className = 'wg-card wg-weight-history-row';
-    if (log.isLocal) item.classList.add('wg-weight-history-row--pending');
-    if (log.isRejected) item.classList.add('wg-weight-history-row--rejected');
     item.setAttribute('data-weight-id', String(log.id));
 
     const body = document.createElement('div');
@@ -1117,12 +1048,6 @@ function buildWeightHistoryRow(log) {
         meta.appendChild(time);
     }
 
-    if (log.isRejected) {
-        meta.appendChild(buildWeightSyncTag('rejected', 'Failed', log.errorMessage));
-    } else if (log.isLocal) {
-        meta.appendChild(buildWeightSyncTag('pending', 'Pending'));
-    }
-
     body.appendChild(meta);
     item.appendChild(body);
 
@@ -1133,14 +1058,6 @@ function buildWeightHistoryRow(log) {
     item.appendChild(actions);
 
     return item;
-}
-
-function buildWeightSyncTag(kind, label, tooltip) {
-    const tag = document.createElement('span');
-    tag.className = `wg-tag wg-tag--mono wg-tag--${kind} wg-weight-history-row__sync`;
-    tag.textContent = label;
-    if (tooltip) tag.title = tooltip;
-    return tag;
 }
 
 function buildWeightRowEditButton(log) {
@@ -1225,13 +1142,9 @@ async function deleteWeightLog(id) {
 }
 
 async function _deleteWeightApi(id) {
-    // Check if this is a local-only log
+    // Local-only ids (DataStore optimistic rows) never reach the server —
+    // just re-render from the cache.
     if (typeof id === 'string' && id.startsWith('local_')) {
-        const localId = parseInt(id.replace('local_', ''), 10);
-        if (window.MedTrackerDB) {
-            await window.MedTrackerDB.WeightStore.confirmDelete(localId);
-            if (window.SyncManager) window.SyncManager.updateStatus();
-        }
         loadWeightLogs();
         return;
     }
@@ -1271,20 +1184,6 @@ async function _deleteWeightApi(id) {
     await window.DataStore.invalidateTags(['weight', 'gamification']);
     if (window.DataStore.clearCached) {
         await window.DataStore.clearCached('weight');
-    }
-    // Also remove from local IndexedDB if it exists there
-    if (window.MedTrackerDB) {
-        try {
-            // Find and delete the local record with this serverId
-            const allLogs = await window.MedTrackerDB.WeightStore.getAll();
-            const localRecord = allLogs.find(l => l.serverId === parseInt(id, 10));
-            if (localRecord && localRecord.localId) {
-                await window.MedTrackerDB.WeightStore.confirmDelete(localRecord.localId);
-                if (window.SyncManager) window.SyncManager.updateStatus();
-            }
-        } catch (e) {
-            console.error('Failed to delete from local DB:', e);
-        }
     }
     loadWeightLogs();
 }
