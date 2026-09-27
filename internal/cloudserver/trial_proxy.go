@@ -188,6 +188,13 @@ func upstreamRejectsSchema(r io.Reader) bool {
 	return strings.Contains(body, "response_format") || strings.Contains(body, "json_schema")
 }
 
+// isLunaModel reports whether model is gpt-6-luna or a dated variant — the
+// family the med-ibvc live check verified needs reasoning_effort "none" for
+// function tools on chat/completions. Mirrors aiclient.js's isLunaModel.
+func isLunaModel(model string) bool {
+	return model == "gpt-6-luna" || strings.HasPrefix(model, "gpt-6-luna-")
+}
+
 // ChatCompletions proxies an OpenAI-compatible chat request to the trial
 // provider, forcing the operator's model so clients can't pick one.
 func (a *TrialProxyAPI) ChatCompletions(w http.ResponseWriter, r *http.Request) {
@@ -251,6 +258,16 @@ func (a *TrialProxyAPI) ChatCompletions(w http.ResponseWriter, r *http.Request) 
 	_, sentResponseFormat := payload["response_format"]
 	modelJSON, _ := json.Marshal(model)
 	payload["model"] = modelJSON
+	// gpt-6-luna refuses function tools at its default reasoning effort
+	// (live-API verified, med-ibvc) — the client cannot know the forced
+	// model, so the proxy injects the non-reasoning mode here. Scoped to
+	// luna ids on purpose (other providers 400 unknown parameters), and
+	// an explicit client value always wins.
+	if _, hasTools := payload["tools"]; hasTools {
+		if _, hasEffort := payload["reasoning_effort"]; !hasEffort && isLunaModel(model) {
+			payload["reasoning_effort"] = json.RawMessage(`"none"`)
+		}
+	}
 	upstreamBody, err := json.Marshal(payload)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})

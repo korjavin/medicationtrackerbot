@@ -37,7 +37,7 @@
 
     const PATCH_URL = '/api/settings/integrations';
     const DEFAULT_OPENAI_URL = 'https://api.openai.com/v1';
-    const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini';
+    const DEFAULT_OPENAI_MODEL = 'gpt-6-luna';
 
     function _makeField(id, labelText, value, opts) {
         opts = opts || {};

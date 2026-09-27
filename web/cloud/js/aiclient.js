@@ -17,7 +17,7 @@ import { ExerciseTagSystemPrompt, exerciseTagSchema } from '../../domain/exercis
 import { WorkoutSheetPhotoSystemPrompt, workoutSheetSchema } from '../../domain/workoutsheet.js';
 
 const DEFAULT_URL = 'https://api.openai.com/v1';
-const DEFAULT_MODEL = 'gpt-4o-mini';
+const DEFAULT_MODEL = 'gpt-6-luna';
 // 90s matches internal/ai/openai.go's http.Client{Timeout: 90s} (covers slow
 // base64 photo uploads plus vision-model latency).
 const FETCH_TIMEOUT_MS = 90000;
@@ -91,6 +91,14 @@ function extractErrorMessage(text) {
 
 function isResponseFormatRejection(err) {
   return !!(err && err.apiError && /response_format/i.test(err.message));
+}
+
+// isLunaModel — gpt-6-luna (or a dated variant) refuses function tools at
+// its default reasoning effort (live-API verified, med-ibvc): tool calls
+// must carry reasoning_effort 'none'. Scoped to this id on purpose — other
+// providers 400 unknown parameters, so only luna-named models get the knob.
+function isLunaModel(model) {
+  return typeof model === 'string' && (model === 'gpt-6-luna' || model.startsWith('gpt-6-luna-'));
 }
 
 // ---------------------------------------------------------------------------
@@ -652,6 +660,11 @@ export function createAIClient({ settingsDomain }) {
     if (tools && tools.length) {
       body.tools = tools;
       body.tool_choice = 'auto';
+      // Trial mode is excluded on purpose: the client cannot know the
+      // operator's forced model, so the trial proxy injects this itself
+      // (trial_proxy.go) — sending it blindly would 400 operators on
+      // models that reject unknown parameters.
+      if (!useTrial && isLunaModel(text.model)) body.reasoning_effort = 'none';
     }
     return useTrial
       ? postTrialChatRaw(body)
