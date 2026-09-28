@@ -4,6 +4,7 @@
 // behave as the orchestrator expects.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import * as equipmentDomain from '../../../../web/domain/equipment.js';
 
 describe('features/workout/exercises.js — split-file integration', () => {
   let env;
@@ -644,6 +645,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
       window.loadExerciseLibrary = vi.fn(async () => {});
       window.invalidateWorkoutCache = vi.fn(async () => {});
       window.loadExercisesForVariant = vi.fn();
+      window.WorkoutGroups.loadEquipmentDomain = async () => equipmentDomain;
       const calls = [];
       window.apiCall = vi.fn(async (url, method, body) => {
         calls.push([url, method, body]);
@@ -1135,7 +1137,93 @@ describe('features/workout/exercises.js — split-file integration', () => {
       expect(writes[0][2]).toMatchObject({ equipment_id: 50 });
       expect(libraryPuts(calls)).toHaveLength(0);
     });
+    describe('auto-match label for an unbound row (med-ni2j)', () => {
+      const OLY_BAR = { id: 60, name: 'Olympic bar', kind: 'plated', implement: 'barbell',
+        loads_kg: [20, 40, 60, 80], min_step_kg: 20, max_kg: 80 };
+      const EZ_BAR = { id: 61, name: 'EZ bar', kind: 'plated', implement: 'barbell',
+        loads_kg: [10, 15, 25, 35], min_step_kg: 5, max_kg: 35 };
+      const unboundLib = () => { const r = libraryRow({ name: 'Barbell Bench Press' }); delete r.equipment_id; return r; };
+      const unboundRow = (overrides = {}) => boundExercise(40, { exercise_name: 'Barbell Bench Press', ...overrides });
+      const writesOf = (calls) => calls.filter(([, method]) => method && method !== 'GET');
+
+      it('labels blank auto: <item> with its step/max, follows the target weight, and never writes', async () => {
+        const { window, document } = env;
+        const calls = stubPlan(window, {
+          exercises: unboundRow(), library: [unboundLib()], equipment: [OLY_BAR, EZ_BAR],
+        });
+
+        await window.showEditExerciseModal(7);
+
+        expect(planSelectOf(document).value).toBe('');
+        expect(blankLabelOf(document)).toBe('auto: Olympic bar');
+        expect(planHintOf(document).hidden).toBe(false);
+        expect(planHintOf(document).textContent).toBe('step 20 kg · max 80 kg');
+
+        const weightEl = document.getElementById('workout-exercise-weight');
+        weightEl.value = '25';
+        await weightEl.onchange();
+
+        expect(blankLabelOf(document)).toBe('auto: EZ bar');
+        expect(planHintOf(document).textContent).toBe('step 5 kg · max 35 kg');
+        expect(writesOf(calls)).toHaveLength(0);
+
+        // Blank still saves the row unbound: auto is never persisted.
+        await window.saveExercise();
+        const writes = exerciseWrites(calls);
+        expect(writes).toHaveLength(1);
+        expect(writes[0][2]).not.toHaveProperty('equipment_id');
+        expect(libraryPuts(calls)).toHaveLength(0);
+      });
+
+      it('picking a real item saves the row override as before', async () => {
+        const { window, document } = env;
+        const calls = stubPlan(window, {
+          exercises: unboundRow(), library: [unboundLib()], equipment: [OLY_BAR, EZ_BAR],
+        });
+
+        await window.showEditExerciseModal(7);
+        planSelectOf(document).value = '61';
+        await window.saveExercise();
+
+        const writes = exerciseWrites(calls);
+        expect(writes).toHaveLength(1);
+        expect(writes[0][2]).toMatchObject({ equipment_id: 61 });
+        expect(libraryPuts(calls)).toHaveLength(0);
+      });
+
+      it('explicit row or library binding keeps the labels with no auto text', async () => {
+        const { window, document } = env;
+        stubPlan(window, {
+          exercises: unboundRow({ equipment_id: 61 }), library: [unboundLib()], equipment: [OLY_BAR, EZ_BAR],
+        });
+        await window.showEditExerciseModal(7);
+        expect(planSelectOf(document).value).toBe('61');
+        expect(blankLabelOf(document)).toBe('None');
+
+        stubPlan(window, {
+          exercises: unboundRow(), library: [libraryRow({ name: 'Barbell Bench Press', equipment_id: 61 })],
+          equipment: [OLY_BAR, EZ_BAR],
+        });
+        await window.showEditExerciseModal(7);
+        expect(blankLabelOf(document)).toBe('from library: EZ bar');
+      });
+
+      it('empty inventory or a name with no implement word labels blank None', async () => {
+        const { window, document } = env;
+        stubPlan(window, { exercises: unboundRow(), library: [unboundLib()], equipment: [] });
+        await window.showEditExerciseModal(7);
+        expect(blankLabelOf(document)).toBe('None');
+
+        const plain = unboundLib();
+        plain.name = 'Bench Press';
+        stubPlan(window, {
+          exercises: boundExercise(40), library: [plain], equipment: [OLY_BAR, EZ_BAR],
+        });
+        await window.showEditExerciseModal(7);
+        expect(blankLabelOf(document)).toBe('None');
+        expect(planHintOf(document).hidden).toBe(true);
+      });
+    });
   });
 
 });
-
