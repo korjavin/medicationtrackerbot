@@ -123,7 +123,12 @@ async function applyWeightSuggestion(goal) {
     if (!suggestion || suggestion.target_weight_kg == null) return;
     // Re-check emptiness: the read is async and the user may have typed a
     // weight (or switched to Edit) while it was in flight.
-    if (!weightEl.value) weightEl.value = suggestion.target_weight_kg;
+    if (!weightEl.value) {
+        weightEl.value = suggestion.target_weight_kg;
+        // A programmatic write fires no change event: re-resolve the
+        // weight-dependent equipment auto label (med-ni2j) explicitly.
+        if (typeof weightEl.onchange === 'function') weightEl.onchange();
+    }
 
     const last = suggestion.last;
     if (!hintEl || !last || last.weight_kg == null) return;
@@ -299,6 +304,12 @@ let _equipmentHintSeq = 0; // module-state: ticket for the in-flight plan-equipm
 // a stale inventory can never clear it blind.
 let _planRowEquipmentId = ''; // module-state: the plan modal's stored row-equipment override from open, for refills + the save's blind-clear guard
 let _planInheritedEquipment = null; // module-state: the plan modal's inherited library binding ({ id, name }) from the last fill, for the blank label + helper
+// med-ni2j: with no library binding (not even a dangling one), blank means
+// "auto-match from the inventory" (domain autoEquipmentForExercise on the
+// modal's live name + target weight). Label + helper only: auto is computed
+// on every fill/weight change and never written — blank still saves unbound.
+let _planAutoEligible = false; // module-state: the last fill found no library binding, so a blank pick auto-matches
+let _planAutoEquipment = null; // module-state: the auto-matched inventory item for the blank label + helper
 // The selection a name-driven refill (picker pick, rename) must keep showing:
 // the live pick when the select holds a real inventory read, else the stored
 // override from modal open. Without this a refill would restore the open-time
@@ -322,6 +333,8 @@ function _resetPlanEquipmentSelect() {
     // modal (later takes its own ticket for the reads that follow).
     ++_equipmentHintSeq;
     _planInheritedEquipment = null;
+    _planAutoEligible = false;
+    _planAutoEquipment = null;
     const select = document.getElementById('workout-exercise-equipment');
     if (select) {
         const doc = select.ownerDocument;
@@ -336,6 +349,16 @@ function _resetPlanEquipmentSelect() {
         select.dataset.loaded = 'false';
         select.disabled = false;
         select.onchange = () => { _renderPlanEquipmentHelper(select.value).catch(() => {}); };
+    }
+    // The target weight changes the auto pick: re-resolve the blank label +
+    // helper once the select holds a real inventory read with blank picked.
+    const weightEl = document.getElementById('workout-exercise-weight');
+    if (weightEl) {
+        weightEl.onchange = () => {
+            const s = document.getElementById('workout-exercise-equipment');
+            if (!s || s.dataset.loaded !== 'true' || s.value !== '') return Promise.resolve();
+            return _renderPlanEquipmentHelper('').catch(() => {});
+        };
     }
     const hintEl = document.getElementById('workout-exercise-equipment-hint');
     if (hintEl) {
@@ -354,6 +377,31 @@ function _planEquipmentHelperText(eq) {
     return parts.join(' · ');
 }
 
+// Re-resolve the auto-matched item for the modal's live name + target weight
+// and label the blank option 'auto: <name>' (else 'None'). Only when the last
+// fill found no library binding; a missing/failed domain import reads as None.
+// Ticket-guarded, never throws, never writes.
+async function _relabelPlanAutoEquipment(list, ticket) {
+    let item = null;
+    if (_planAutoEligible && Array.isArray(list) && list.length > 0) {
+        const nameEl = document.getElementById('workout-exercise-name');
+        const weightEl = document.getElementById('workout-exercise-weight');
+        try {
+            const domain = await window.WorkoutGroups.loadEquipmentDomain();
+            if (domain && typeof domain.autoEquipmentForExercise === 'function') {
+                item = domain.autoEquipmentForExercise(
+                    nameEl ? nameEl.value : '', list, weightEl ? parseFloat(weightEl.value) : NaN) || null;
+            }
+        } catch (_) { item = null; }
+    }
+    if (ticket !== _equipmentHintSeq) return; // superseded
+    _planAutoEquipment = item;
+    const select = document.getElementById('workout-exercise-equipment');
+    if (select && select.options.length > 0 && select.options[0].value === '' && !_planInheritedEquipment) {
+        select.options[0].textContent = item ? `auto: ${item.name || `Equipment ${item.id}`}` : 'None';
+    }
+}
+
 // Step/max helper text for one equipment id, resolved through the equipment
 // module's shared cached list. A failed read hides the helper. Never throws.
 async function _renderPlanEquipmentHelper(equipmentId) {
@@ -364,12 +412,14 @@ async function _renderPlanEquipmentHelper(equipmentId) {
     hintEl.textContent = '';
     hintEl.hidden = true;
     // Blank means "inherit": the helper shows the inherited gear's step/max
-    // (what the row actually resolves to) rather than hiding.
+    // (what the row actually resolves to) rather than hiding — or, with no
+    // library binding, the auto-matched gear's (med-ni2j).
     const fromSelect = !(equipmentId == null || equipmentId === '');
     const effectiveId = fromSelect
         ? equipmentId
         : (_planInheritedEquipment ? _planInheritedEquipment.id : '');
-    if (effectiveId == null || effectiveId === '') return;
+    const wantAuto = !fromSelect && effectiveId === '' && _planAutoEligible;
+    if ((effectiveId == null || effectiveId === '') && !wantAuto) return;
     let inv = [];
     try {
         if (window.WorkoutEquipment && typeof window.WorkoutEquipment.list === 'function') {
@@ -381,8 +431,12 @@ async function _renderPlanEquipmentHelper(equipmentId) {
     } catch (_) { return; } // failed read leaves the helper hidden
     if (ticket !== _equipmentHintSeq) return; // superseded
     if (fromSelect && select && select.value !== String(effectiveId)) return; // a fill reset the select meanwhile
-    const text = _planEquipmentHelperText(
-        inv.find((e) => e && String(e.id) === String(effectiveId)) || null);
+    if (wantAuto) {
+        await _relabelPlanAutoEquipment(inv, ticket);
+        if (ticket !== _equipmentHintSeq) return; // superseded
+    }
+    const text = _planEquipmentHelperText(wantAuto ? _planAutoEquipment
+        : (inv.find((e) => e && String(e.id) === String(effectiveId)) || null));
     if (!text) return; // dangling id reads as unbound
     hintEl.textContent = text;
     hintEl.hidden = false;
@@ -400,6 +454,7 @@ async function _fillPlanExerciseEquipment(rowEquipmentId, libraryId, ticket = nu
     if (ticket === null) ticket = ++_equipmentHintSeq;
     const rowId = (rowEquipmentId == null || rowEquipmentId === '') ? '' : String(rowEquipmentId);
     let inheritedId = '';
+    let libraryKnown = true; // a failed library read must not guess "unbound" into an auto label
     if (libraryId != null && libraryId !== '') {
         let items = null;
         try {
@@ -413,6 +468,8 @@ async function _fillPlanExerciseEquipment(rowEquipmentId, libraryId, ticket = nu
             const row = items.find((i) => i && i.id === libraryId) || null;
             const eq = row && row.equipment_id;
             inheritedId = (eq == null || eq === '') ? '' : String(eq);
+        } else {
+            libraryKnown = false;
         }
     }
     const inventory = await _syncEquipmentSelect(rowId, 'workout-exercise-equipment', () => ticket === _equipmentHintSeq);
@@ -429,10 +486,21 @@ async function _fillPlanExerciseEquipment(rowEquipmentId, libraryId, ticket = nu
         select.options[0].textContent = _planInheritedEquipment
             ? `from library: ${_planInheritedEquipment.name}` : 'None';
     }
-    // Helper for the effective gear (override, else inherited).
+    // No library binding at all (a dangling one stays unbound, like the
+    // domain rule): a blank pick auto-matches — label it (med-ni2j).
+    // A dangling stored row override is explicit too: the save preserves it
+    // and the domain resolves it to no gear, so it never auto-matches.
+    const storedRow = _planRowEquipmentId || '';
+    const rowDangling = storedRow !== '' && !list.some((e) => e && String(e.id) === storedRow);
+    _planAutoEligible = libraryKnown && inheritedId === '' && !rowDangling;
+    if (_planAutoEligible && select && select.dataset.loaded === 'true' && select.value === '') {
+        await _relabelPlanAutoEquipment(list, ticket);
+        if (ticket !== _equipmentHintSeq) return; // superseded
+    }
+    // Helper for the effective gear (override, else inherited, else auto).
     const effective = (select && select.value !== '') ? select.value : inheritedId;
-    const text = _planEquipmentHelperText(
-        list.find((e) => e && effective !== '' && String(e.id) === String(effective)) || null);
+    const text = _planEquipmentHelperText(effective === '' ? _planAutoEquipment
+        : (list.find((e) => e && String(e.id) === String(effective)) || null));
     if (!text) return;
     const hintEl = document.getElementById('workout-exercise-equipment-hint');
     if (hintEl) {
