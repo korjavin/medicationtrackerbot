@@ -37,7 +37,9 @@
 // is an ESM cycle — safe because both modules export hoisted function
 // declarations and only touch the imports inside function bodies, never at
 // module top-level.
-import { snapLoad, minStep, EQUIPMENT_RECORD_TYPE, equipmentForExercise, toEquipmentResponse } from './equipment.js';
+import {
+  snapLoad, minStep, EQUIPMENT_RECORD_TYPE, equipmentIdForExercise, equipmentForExercise, toEquipmentResponse,
+} from './equipment.js';
 import { localDateParts, localWallToUtcMs } from './medschedule.js';
 import { formatHHMM } from './reminders.js';
 import {
@@ -1004,8 +1006,11 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const lib = hasValue(libraryId)
       ? await findByNumericId(records, WORKOUT_RECORD_TYPES.LIBRARY, libraryId)
       : null;
+    // An explicit binding reads only its own record (exactly the pre-auto
+    // path), so an unrelated malformed vault record can never break it.
+    const explicitId = equipmentIdForExercise(exercise, lib);
     const inventory = (await records.list(EQUIPMENT_RECORD_TYPE))
-      .filter((r) => !r.deleted)
+      .filter((r) => !r.deleted && (explicitId === null || r.id === explicitId))
       .map(toEquipmentResponse);
     const hit = equipmentForExercise(exercise, lib, inventory, kg);
     if (!hit) return { equipment: null, loads: null };
