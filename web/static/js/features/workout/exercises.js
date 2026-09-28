@@ -123,7 +123,12 @@ async function applyWeightSuggestion(goal) {
     if (!suggestion || suggestion.target_weight_kg == null) return;
     // Re-check emptiness: the read is async and the user may have typed a
     // weight (or switched to Edit) while it was in flight.
-    if (!weightEl.value) weightEl.value = suggestion.target_weight_kg;
+    if (!weightEl.value) {
+        weightEl.value = suggestion.target_weight_kg;
+        // A programmatic write fires no change event: re-resolve the
+        // weight-dependent equipment auto label (med-ni2j) explicitly.
+        if (typeof weightEl.onchange === 'function') weightEl.onchange();
+    }
 
     const last = suggestion.last;
     if (!hintEl || !last || last.weight_kg == null) return;
