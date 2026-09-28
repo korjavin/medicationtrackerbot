@@ -5,7 +5,7 @@
 // window.WorkoutEdit getter/setter façade.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  achievableLoads, loadingFor, nearestLoads, equipmentIdForExercise, pickNearestLoad,
+  achievableLoads, loadingFor, nearestLoads, equipmentForExercise, pickNearestLoad,
 } from '../../../../web/domain/equipment.js';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 
@@ -693,7 +693,7 @@ describe('features/workout/groups.js — plate loading diagrams (med-niix.6)', (
     // The domain module itself, injected through the namespace seam exactly
     // as production does — the harness never resolves the URL.
     window.WorkoutGroups.loadEquipmentDomain = async () => ({
-      loadingFor, nearestLoads, equipmentIdForExercise, pickNearestLoad,
+      loadingFor, nearestLoads, equipmentForExercise, pickNearestLoad,
     });
 
     stubPlan();
@@ -704,6 +704,8 @@ describe('features/workout/groups.js — plate loading diagrams (med-niix.6)', (
     expect(printed).toHaveLength(1);
     expect(printed[0].html).toContain('20 + 20 \u00b7 1.25 / side');
     expect(printed[0].html).toContain('<svg');
+    // Explicit (library) binding: no auto-match label (med-x295).
+    expect(printed[0].html).not.toContain('auto:');
     // The adopted print-frame stylesheet (the only CSS that lands under CSP)
     // carries the glyph rules exactly when a glyph rendered.
     expect(printed[0].css).toContain('.plates');
@@ -782,7 +784,7 @@ describe('features/workout/groups.js — plate loading diagrams (med-niix.6)', (
     });
     window.WorkoutGroups.makePlanQr = async () => { throw new Error('no qr in test'); };
     window.WorkoutGroups.loadEquipmentDomain = async () => ({
-      loadingFor, nearestLoads, equipmentIdForExercise, pickNearestLoad,
+      loadingFor, nearestLoads, equipmentForExercise, pickNearestLoad,
     });
     window.WorkoutEquipment.list = async () => [BAR, SHORT];
 
@@ -818,7 +820,7 @@ describe('features/workout/groups.js — plate loading diagrams (med-niix.6)', (
     });
     window.WorkoutGroups.makePlanQr = async () => { throw new Error('no qr in test'); };
     window.WorkoutGroups.loadEquipmentDomain = async () => ({
-      loadingFor, nearestLoads, equipmentIdForExercise, pickNearestLoad,
+      loadingFor, nearestLoads, equipmentForExercise, pickNearestLoad,
     });
     window.WorkoutEquipment.list = async () => [BAR, FIXED];
 
@@ -830,5 +832,35 @@ describe('features/workout/groups.js — plate loading diagrams (med-niix.6)', (
     expect(printed[0].html).toContain('below bar (20 kg)');
     expect(printed[0].html).not.toContain('<svg');
     expect(printed[0].css).toContain('.plates');
+  });
+
+  it('print() auto-matches an unbound barbell-named row to the inventory barbell and labels it (med-x295)', async () => {
+    const { window } = env;
+    const OHIO = { ...BAR, loads_kg: achievableLoads(BAR) };
+    const DBS = { id: 5, kind: 'fixed', name: 'Hex DBs', implement: 'dumbbell', loads_kg: [10, 12, 14, 16] };
+    window.apiCall = vi.fn(async (url) => {
+      if (url.startsWith('/api/workout/variants?group_id=')) return [{ id: 30, name: 'Main' }];
+      if (url.includes('/api/workout/exercises?variant_id=')) {
+        return [ex({ id: 7, exercise_name: 'Barbell squat', exercise_library_id: 12, target_weight_kg: 62.5 })];
+      }
+      if (url === '/api/workout/exercise-library') return [...LIB, { id: 12, name: 'Barbell squat' }];
+      return null;
+    });
+    const printed = [];
+    window.WorkoutGroups.loadPrintDoc = async () => ({
+      printDoc: (d, html, cls, css) => printed.push({ html, css }),
+    });
+    window.WorkoutGroups.makePlanQr = async () => { throw new Error('no qr in test'); };
+    window.WorkoutGroups.loadEquipmentDomain = async () => ({
+      loadingFor, nearestLoads, equipmentForExercise, pickNearestLoad,
+    });
+    window.WorkoutEquipment.list = async () => [DBS, OHIO];
+
+    await window.WorkoutGroups.print(GROUP);
+
+    expect(printed).toHaveLength(1);
+    expect(printed[0].html).toContain('auto: Ohio bar \u2014 20 + 20 \u00b7 1.25 / side');
+    expect(printed[0].html).toContain('<svg');
+    expect((printed[0].html.match(/<rect/g) || []).length).toBe(4);
   });
 });

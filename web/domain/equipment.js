@@ -314,7 +314,18 @@ function validateEquipmentInput(input) {
   return out;
 }
 
-function toEquipmentResponse(record) {
+// implementOf is the read-side implement of an equipment record: a genuine
+// enum value when set (a vault body bypasses validation on import, so
+// anything else does not count), else the plated default, else null (a
+// fixed item the user never labelled — unknown).
+export function implementOf(record) {
+  if (!record) return null;
+  if (IMPLEMENT_VALUES.includes(record.implement)) return record.implement;
+  if (record.kind === 'plated') return defaultPlatedImplement(record.sides, record.pair);
+  return null;
+}
+
+export function toEquipmentResponse(record) {
   const loads = achievableLoads(record);
   const resp = {
     id: record.id,
@@ -327,13 +338,8 @@ function toEquipmentResponse(record) {
     min_step_kg: minStep(loads),
     max_kg: loads.length > 0 ? loads[loads.length - 1] : null,
   };
-  // A vault body bypasses validation on import, so only a genuine enum
-  // value counts as set; anything else derives (plated) or omits (fixed).
-  if (IMPLEMENT_VALUES.includes(record.implement)) {
-    resp.implement = record.implement;
-  } else if (record.kind === 'plated') {
-    resp.implement = defaultPlatedImplement(record.sides, record.pair);
-  }
+  const implement = implementOf(record);
+  if (implement) resp.implement = implement;
   if (record.kind === 'plated') {
     resp.bar_kg = record.bar_kg;
     resp.sides = record.sides;
@@ -416,9 +422,8 @@ export function createEquipmentDomain({ records, now }) {
 // plan row's own equipment_id overrides the library row's binding, and an
 // unset row falls back to the library. Either side may be null (a row without
 // a library link, a library-sourced log with no plan row); null means
-// unbound. The single shared helper — resolveEquipmentLoads (progression),
-// the print sheet, and the session chip all call this instead of duplicating
-// the precedence.
+// unbound. Consumers go through equipmentForExercise (below), which adds the
+// inventory lookup and the auto-match fallback on top of this precedence.
 export function equipmentIdForExercise(exercise, library) {
   if (exercise && exercise.equipment_id !== null && exercise.equipment_id !== undefined) {
     return exercise.equipment_id;
@@ -457,4 +462,77 @@ export function nearestLoads(loads, kg) {
     if (rung >= target && above === null) above = rung;
   }
   return { below, above };
+}
+
+// Name-keyword → implement rules (med-x295), checked in this order so a name
+// mentioning two implements resolves to the first. EN stems plus the RU ones
+// the owner names exercises with; a stem must start a word, the RU kettlebell
+// endings are enumerated so "гир…" does not catch unrelated words.
+// ponytail: name keyword rule instead of a catalog port — 487/515 catalog
+// implement rows already carry the word; add a catalog-backed port only if a
+// real miss shows up.
+const IMPLEMENT_NAME_RULES = [
+  ['barbell', /(?<!\p{L})(?:barbell|ez[\s-]?bar(?!\p{L})|trap[\s-]?bar(?!\p{L})|landmine|штанг)/iu],
+  ['dumbbell', /(?<!\p{L})(?:dumbbell|гантел)/iu],
+  ['kettlebell', /(?<!\p{L})(?:kettlebell|гир(?:я|и|е|ю|ей|ями|ях|ям)(?!\p{L}))/iu],
+];
+
+// implementForExerciseName derives 'barbell' | 'dumbbell' | 'kettlebell' |
+// null from an exercise name — exercises carry no implement field.
+export function implementForExerciseName(name) {
+  const text = typeof name === 'string' ? name : '';
+  for (const [implement, re] of IMPLEMENT_NAME_RULES) {
+    if (re.test(text)) return implement;
+  }
+  return null;
+}
+
+// autoEquipmentForExercise (med-x295) picks the inventory item (response
+// shape: implement, loads_kg, min_step_kg) matching the implement derived from
+// the exercise name. Only items whose implementOf equals it, with a non-empty
+// loads_kg, are candidates. Deterministic order: with kg > 0 the smaller
+// distance from kg to the item's nearest rung (pickNearestLoad, tie → below —
+// an exact rung is distance 0, so it beats every miss); then the smaller
+// min_step_kg (finer rungs; a single-rung item counts as coarsest); then the
+// lower id. No implement from the name, or no candidate → null.
+export function autoEquipmentForExercise(name, inventory, kg) {
+  const want = implementForExerciseName(name);
+  if (!want) return null;
+  const target = Number(kg);
+  const hasKg = Number.isFinite(target) && target > 0;
+  const scored = (Array.isArray(inventory) ? inventory : [])
+    .filter((item) => item && implementOf(item) === want
+      && Array.isArray(item.loads_kg) && item.loads_kg.length > 0)
+    .map((item) => {
+      let dist = 0;
+      if (hasKg) {
+        const { below, above } = nearestLoads(item.loads_kg, target);
+        const rung = pickNearestLoad(below, above, target);
+        dist = rung === null ? Infinity : Math.abs(rung - target);
+      }
+      const step = Number(item.min_step_kg);
+      return { item, dist, step: Number.isFinite(step) && step > 0 ? step : Infinity };
+    });
+  scored.sort((a, b) => (a.dist - b.dist) || (a.step - b.step) || (Number(a.item.id) - Number(b.item.id)));
+  return scored.length > 0 ? scored[0].item : null;
+}
+
+// equipmentForExercise is THE equipment rule every consumer calls (med-x295):
+// an explicit binding (equipmentIdForExercise: row override, else library)
+// resolves against the inventory — a dangling explicit id stays unbound and
+// never falls through to auto (a deleted binding must not silently switch
+// gear); with no explicit id, the inventory is auto-matched by implement +
+// weight. Returns { item, auto } or null. Computed on every read, never stored.
+export function equipmentForExercise(exercise, library, inventory, kg) {
+  const id = equipmentIdForExercise(exercise, library);
+  const inv = Array.isArray(inventory) ? inventory : [];
+  if (id !== null) {
+    const item = inv.find((e) => e && e.id !== null && e.id !== undefined && String(e.id) === String(id));
+    return item ? { item, auto: false } : null;
+  }
+  // The library name is canonical (plan reads resolve exercise_name from it,
+  // the row's own copy is a cache), so every consumer matches the same name.
+  const name = (library && library.name) || (exercise && exercise.exercise_name) || '';
+  const item = autoEquipmentForExercise(name, inv, kg);
+  return item ? { item, auto: true } : null;
 }

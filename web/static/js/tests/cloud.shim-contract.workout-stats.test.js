@@ -1088,6 +1088,67 @@ describe('cloud shim contract — workout stats + mi-band', () => {
             expect(row.equipment).toBeNull();
             expect(row.snap).toEqual({ raw_kg: 62.5, snapped_kg: 62.5, reason: null });
         });
+
+        // med-x295 — no explicit binding: the inventory is auto-matched by the
+        // implement word in the name + weight; an explicit binding keeps its
+        // exact entry shape (no auto key) and a name without an implement
+        // word stays unbound.
+        it('an unbound barbell-named exercise auto-matches the plated barbell; bound and implement-less entries are unchanged', async () => {
+            env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+            const { window } = env;
+            const group = await window.apiCall('/api/workout/groups/create', 'POST', {
+                name: 'Legs', training_goal: 'strength',
+            });
+            const variant = await window.apiCall('/api/workout/variants/create', 'POST', {
+                group_id: group.id, name: 'A',
+            });
+            const mk = (exercise_name) => window.apiCall('/api/workout/exercises/create', 'POST', {
+                variant_id: variant.id, exercise_name, target_sets: 3,
+                target_reps_min: 5, target_reps_max: 6,
+                progression_rule: { type: 'linear', increment_kg: 2.5 },
+            });
+            const autoEx = await mk('Barbell squat');
+            const boundEx = await mk('Barbell row');
+            const plainEx = await mk('Squat');
+            const bar = await window.apiCall('/api/workout/equipment', 'POST', {
+                kind: 'plated', name: 'Ohio bar', bar_kg: 20, sides: 2,
+                plates: [{ kg: 20, count: 2 }, { kg: 10, count: 2 }],
+            });
+            const dbs = await window.apiCall('/api/workout/equipment', 'POST', {
+                kind: 'fixed', name: 'Hex DBs', implement: 'dumbbell', loads_kg: [10, 12, 14, 16],
+            });
+            // Explicit binding to non-matching gear still wins over auto.
+            await window.apiCall(`/api/workout/exercises/update?id=${boundEx.id}`, 'PUT', { ...boundEx, equipment_id: dbs.id });
+
+            const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+            for (const ex of [autoEx, plainEx]) {
+                await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                    session_id: session.id, exercise_id: ex.id, exercise_name: ex.exercise_name,
+                    source: 'schedule', status: 'completed',
+                    sets: [0, 1, 2].map((set_index) => ({ set_index, weight_kg: 60, reps: 6, set_type: 'normal' })),
+                });
+            }
+            await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                session_id: session.id, exercise_id: boundEx.id, exercise_name: 'Barbell row',
+                source: 'schedule', status: 'completed',
+                sets: [0, 1, 2].map((set_index) => ({ set_index, weight_kg: 12, reps: 6, set_type: 'normal' })),
+            });
+            await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+
+            const preview = await window.apiCallDirect('/api/workout/progression-preview');
+            const auto = preview.exercises.find((e) => e.exercise_name === 'Barbell squat');
+            expect(auto.equipment).toEqual({ id: bar.id, name: 'Ohio bar', min_step_kg: 20, auto: true });
+            expect(auto.snap).toEqual({ raw_kg: 62.5, snapped_kg: 80, reason: null });
+            expect(auto.proposed.target_weight_kg).toBe(80);
+
+            const bound = preview.exercises.find((e) => e.exercise_name === 'Barbell row');
+            expect(bound.equipment).toEqual({ id: dbs.id, name: 'Hex DBs', min_step_kg: 2 });
+            expect(bound.snap).toEqual({ raw_kg: 14.5, snapped_kg: 14, reason: null });
+
+            const plain = preview.exercises.find((e) => e.exercise_name === 'Squat');
+            expect(plain.equipment).toBeNull();
+            expect(plain.snap).toEqual({ raw_kg: 62.5, snapped_kg: 62.5, reason: null });
+        });
     });
 
     it('mi-band list respects limit, patch applies diff-semantics over six fields, delete tombstones', async () => {
