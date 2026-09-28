@@ -48,6 +48,8 @@ const WORKOUT_EQUIPMENT_MAX_GENERATED_LOADS = 200;
 // med-v75c.1: the shared Type select values, stored as `implement` on both
 // kinds (mirrors the domain's IMPLEMENT_VALUES in web/domain/equipment.js).
 const WORKOUT_EQUIPMENT_IMPLEMENTS = ['barbell', 'dumbbell', 'kettlebell', 'other'];
+// Implements with a row icon (a WGIcons name each); 'other' gets none.
+const WORKOUT_EQUIPMENT_ICON_IMPLEMENTS = ['barbell', 'dumbbell', 'kettlebell'];
 
 async function loadWorkoutEquipment() {
     const container = document.getElementById('workout-equipment-list');
@@ -174,6 +176,16 @@ function _buildWorkoutEquipmentRow(doc, item) {
     const implementLabel = _implementLabel(item.implement);
     kindTag.textContent = implementLabel ? `${implementLabel} · ${kindLabel}` : kindLabel;
     title.appendChild(kindTag);
+
+    // Decorative implement icon (iconSvg sets aria-hidden). The response's
+    // implement is already resolved (implementOf: a plated item without a
+    // stored implement reads as barbell); other/absent renders none.
+    if (WORKOUT_EQUIPMENT_ICON_IMPLEMENTS.indexOf(item.implement) !== -1
+        && typeof window !== 'undefined' && window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+        const icon = window.WGIcons.iconSvg(item.implement, { size: 16 });
+        icon.classList.add('wg-equipment-row__icon');
+        title.appendChild(icon);
+    }
 
     const name = doc.createElement('span');
     name.className = 'wg-equipment-row__name';
