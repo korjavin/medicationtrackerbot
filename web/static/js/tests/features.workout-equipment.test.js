@@ -368,6 +368,30 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
         expect(tags).toEqual(['Kettlebell · Fixed', 'Barbell · Plated']);
     });
 
+    it('list rows show a decorative icon per implement before the name; other/absent show none', async () => {
+        const { window, document } = env;
+        seedOnlineList(window, [
+            { ...PLATED_BAR, id: 30, implement: 'barbell' },
+            { ...FIXED_DB, id: 31, implement: 'dumbbell' },
+            { ...FIXED_DB, id: 32, implement: 'kettlebell' },
+            { ...FIXED_DB, id: 33, implement: 'other' },
+            { ...FIXED_DB, id: 34 } // legacy: no implement key
+        ]);
+
+        await window.WorkoutEquipment.load();
+
+        const rows = rowsOf(document);
+        const icons = rows.map((r) => {
+            const icon = r.querySelector('.wg-equipment-row__icon');
+            return icon ? icon.getAttribute('data-wg-icon') : null;
+        });
+        expect(icons).toEqual(['barbell', 'dumbbell', 'kettlebell', null, null]);
+        const icon = rows[0].querySelector('.wg-equipment-row__icon');
+        expect(icon.getAttribute('aria-hidden')).toBe('true');
+        expect(icon.nextElementSibling.classList.contains('wg-equipment-row__name')).toBe(true);
+        expect(window.WGIcons.paths.barbell).not.toBe(window.WGIcons.paths.kettlebell);
+    });
+
     it('editor shows one shared Type select and nothing wider than the modal at phone width', () => {
         const { document } = env;
         // The Sides segment + Pair checkbox are gone; one Type select remains.

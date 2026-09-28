@@ -35,6 +35,10 @@
         bolt: '<path d="M13 2 3 14h9l-1 8 10-12h-9z"/>',
         bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
         dumbbell: '<path d="M6 4v16M18 4v16M2 8v8M22 8v8M6 12h12"/>',
+        // Equipment-row implement icons (med-jx0i): a long bar with two plates
+        // a side, and a bell body under a handle.
+        barbell: '<path d="M1 12h22M5 7v10M8 5v14M16 5v14M19 7v10"/>',
+        kettlebell: '<path d="M8.5 10.1V7a3.5 3.5 0 0 1 7 0v3.1"/><circle cx="12" cy="15" r="6"/>',
         check: '<path d="M20 6 9 17l-5-5"/>',
         close: '<path d="M18 6 6 18M6 6l12 12"/>',
         barcode: '<path d="M3 5v14M7 5v14M11 5v14M15 5v14M19 5v14"/>',

@@ -650,6 +650,7 @@
     --wg-workouts-exercises-row-gap: 10px;
     --wg-workouts-exercises-row-pad: 12px;
     --wg-workouts-exercises-name-size: 15px;
+    --wg-equipment-row-icon-size: 16px;
     --wg-workouts-stats-tile-pad: 14px;
     --wg-workouts-stats-tile-gap: 10px;
     --wg-workouts-stats-tile-value-size: 22px;
@@ -8320,6 +8321,14 @@ textarea.wg-input {
     flex-wrap: wrap;
     gap: var(--space-xs);
     min-width: 0;
+}
+
+.wg-equipment-row__icon {
+    width: var(--wg-equipment-row-icon-size);
+    height: var(--wg-equipment-row-icon-size);
+    flex-shrink: 0;
+    align-self: center;
+    color: var(--wg-fg-2);
 }
 
 .wg-equipment-row__name {
