@@ -488,7 +488,11 @@ async function _fillPlanExerciseEquipment(rowEquipmentId, libraryId, ticket = nu
     }
     // No library binding at all (a dangling one stays unbound, like the
     // domain rule): a blank pick auto-matches — label it (med-ni2j).
-    _planAutoEligible = libraryKnown && inheritedId === '';
+    // A dangling stored row override is explicit too: the save preserves it
+    // and the domain resolves it to no gear, so it never auto-matches.
+    const storedRow = _planRowEquipmentId || '';
+    const rowDangling = storedRow !== '' && !list.some((e) => e && String(e.id) === storedRow);
+    _planAutoEligible = libraryKnown && inheritedId === '' && !rowDangling;
     if (_planAutoEligible && select && select.dataset.loaded === 'true' && select.value === '') {
         await _relabelPlanAutoEquipment(list, ticket);
         if (ticket !== _equipmentHintSeq) return; // superseded

@@ -1208,6 +1208,17 @@ describe('features/workout/exercises.js — split-file integration', () => {
         expect(blankLabelOf(document)).toBe('from library: EZ bar');
       });
 
+      it('a dangling stored row override never auto-matches', async () => {
+        const { window, document } = env;
+        stubPlan(window, {
+          exercises: unboundRow({ equipment_id: 999 }), library: [unboundLib()], equipment: [OLY_BAR, EZ_BAR],
+        });
+        await window.showEditExerciseModal(7);
+        expect(planSelectOf(document).value).toBe('');
+        expect(blankLabelOf(document)).toBe('None');
+        expect(planHintOf(document).hidden).toBe(true);
+      });
+
       it('empty inventory or a name with no implement word labels blank None', async () => {
         const { window, document } = env;
         stubPlan(window, { exercises: unboundRow(), library: [unboundLib()], equipment: [] });
