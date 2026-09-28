@@ -561,8 +561,12 @@ describe('equipment auto-match (med-x295)', () => {
     const lib = { name: 'barbell squat', equipment_id: 6 };
     expect(equipmentForExercise(row, lib, inv, 60)).toEqual({ item: inv[1], auto: false });
     expect(equipmentForExercise({ exercise_name: 'barbell squat' }, lib, inv, 60)).toEqual({ item: inv[2], auto: false });
-    expect(equipmentForExercise({ exercise_name: 'barbell squat' }, { name: 'x' }, inv, 60))
+    expect(equipmentForExercise({ exercise_name: 'barbell squat' }, null, inv, 60))
       .toEqual({ item: inv[0], auto: true });
+    // The library name is canonical over the row's cached copy.
+    expect(equipmentForExercise({ exercise_name: 'push up' }, { name: 'barbell squat' }, inv, 60))
+      .toEqual({ item: inv[0], auto: true });
+    expect(equipmentForExercise({ exercise_name: 'barbell squat' }, { name: 'push up' }, inv, 60)).toBeNull();
     // No row: the library name drives the auto-match.
     expect(equipmentForExercise(null, { name: 'barbell squat' }, inv, 60)).toEqual({ item: inv[0], auto: true });
     // A deleted binding must not silently switch gear.

@@ -991,13 +991,14 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // else the library row's binding, else an inventory item auto-matched by
   // implement (from the name) + target_weight_kg. `exercise` is the plan row,
   // or { exercise_library_id } for a log with no plan row (its name comes from
-  // the library row), or null. Resolved ONCE per propagate/preview/suggest
+  // the library row), or null. `kg` (the auto-match weight) defaults to the
+  // row's target_weight_kg. Resolved ONCE per propagate/preview/suggest
   // pass, never per set. Unbound (nothing bound or matched, a dangling
   // explicit id, or gear with no computable loads) reads as
   // { equipment: null, loads: null }, and progression behaves exactly as
   // without equipment. An auto pick carries auto: true; explicit bindings keep
   // the { id, name, min_step_kg } shape.
-  async function resolveEquipmentLoads(exercise) {
+  async function resolveEquipmentLoads(exercise, kg = exercise ? exercise.target_weight_kg : null) {
     if (!exercise) return { equipment: null, loads: null };
     const libraryId = exercise.exercise_library_id;
     const lib = hasValue(libraryId)
@@ -1006,7 +1007,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const inventory = (await records.list(EQUIPMENT_RECORD_TYPE))
       .filter((r) => !r.deleted)
       .map(toEquipmentResponse);
-    const hit = equipmentForExercise(exercise, lib, inventory, exercise.target_weight_kg);
+    const hit = equipmentForExercise(exercise, lib, inventory, kg);
     if (!hit) return { equipment: null, loads: null };
     const loads = hit.item.loads_kg;
     if (!Array.isArray(loads) || loads.length === 0) return { equipment: null, loads: null };
@@ -3110,7 +3111,9 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     else if (latest.exercise_id > 0) {
       exercise = await findByNumericId(records, WORKOUT_RECORD_TYPES.EXERCISE, latest.exercise_id);
     }
-    const bound = await resolveEquipmentLoads(exercise);
+    // A library log carries no plan target: auto-match on the logged weight.
+    const bound = await resolveEquipmentLoads(exercise,
+      exercise && hasValue(exercise.target_weight_kg) ? exercise.target_weight_kg : latest.weight_kg);
     const { patch, snap } = progressionPatch(plan, sets, reps, latest.weight_kg, latest.sets, goal, bound.loads);
     const lastWeight = hasValue(latest.weight_kg) && latest.weight_kg > 0 ? latest.weight_kg : null;
     // {} means the rule held the plan with no anchor to hold it at; fall back to

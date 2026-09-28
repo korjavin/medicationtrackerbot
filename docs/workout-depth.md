@@ -425,12 +425,14 @@ library binding), the gear is picked from the inventory on every read —
 never stored, so it follows inventory and target changes.
 `equipmentForExercise(exercise, library, inventory, kg)` in
 `web/domain/equipment.js` is the one rule progression
-(`resolveEquipmentLoads`, kg = `target_weight_kg`), the print sheet
+(`resolveEquipmentLoads`, kg = `target_weight_kg`, the logged weight for a
+library-log suggestion), the print sheet
 (kg = the row target) and the session chip (kg = the logged weight) call;
 it returns `{ item, auto }`. Explicit bindings always win, and a dangling
 explicit id stays unbound — it never falls through to auto, so a deleted
 binding cannot silently switch gear. Auto derives the implement from the
-exercise name (`implementForExerciseName`: `barbell`, `ez bar`/`ez-bar`,
+exercise name — the library row's name when linked, else the row's own
+(`implementForExerciseName`: `barbell`, `ez bar`/`ez-bar`,
 `trap bar`, `landmine`, RU `штанг` → barbell; `dumbbell`, `гантел` →
 dumbbell; `kettlebell`, `гир(я|и|е|ю|ей|ями|ях|ям)` → kettlebell; first
 match in that order; no word → no auto) and considers only inventory items

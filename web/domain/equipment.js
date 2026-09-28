@@ -530,7 +530,9 @@ export function equipmentForExercise(exercise, library, inventory, kg) {
     const item = inv.find((e) => e && e.id !== null && e.id !== undefined && String(e.id) === String(id));
     return item ? { item, auto: false } : null;
   }
-  const name = (exercise && exercise.exercise_name) || (library && library.name) || '';
+  // The library name is canonical (plan reads resolve exercise_name from it,
+  // the row's own copy is a cache), so every consumer matches the same name.
+  const name = (library && library.name) || (exercise && exercise.exercise_name) || '';
   const item = autoEquipmentForExercise(name, inv, kg);
   return item ? { item, auto: true } : null;
 }
