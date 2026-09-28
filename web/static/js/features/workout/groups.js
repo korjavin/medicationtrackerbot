@@ -782,10 +782,16 @@ function _workoutPlateText(barKg, perSide, sides, unit) {
     return unit === 'lb' ? `${base} (kg)` : base;
 }
 
+// med-x295: an auto-matched item (no explicit binding) names itself ahead of
+// the plate text — text only, the glyph stays byte-identical.
+function _workoutPlanAutoPrefix(ld) {
+    return (ld && typeof ld.auto === 'string' && ld.auto) ? `auto: ${ld.auto} \u2014 ` : '';
+}
+
 function _workoutPlanLoadingHtml(ld, unit) {
     // Escaping the joined line equals escaping the parts: the joiners and
     // suffixes (+, ·, /, parens, spaces) contain no escapable characters.
-    const txt = _workoutPlanEsc(_workoutPlateText(ld.bar_kg, ld.per_side, ld.sides, unit));
+    const txt = _workoutPlanEsc(_workoutPlanAutoPrefix(ld) + _workoutPlateText(ld.bar_kg, ld.per_side, ld.sides, unit));
     const note = (ld && typeof ld.note === 'string' && ld.note)
         ? `<span class="platestxt">${_workoutPlanEsc(ld.note)}</span>` : '';
     return `<span class="plates">${_workoutPlanLoadingSvg(ld.per_side, ld.sides)}<span class="platestxt">${txt}</span>${note}</span>`;
@@ -813,13 +819,15 @@ function _workoutPlanExerciseItem(ex, unit, loadCtx) {
         if (ld && Number.isFinite(Number(ld.bar_kg)) && Array.isArray(ld.per_side) && ld.per_side.length > 0) {
             loadCtx.hadLoading = true;
             loading = _workoutPlanLoadingHtml(
-                { bar_kg: Number(ld.bar_kg), per_side: ld.per_side, sides: ld.sides === 1 ? 1 : 2, note: ld.note }, unit);
+                {
+                    bar_kg: Number(ld.bar_kg), per_side: ld.per_side, sides: ld.sides === 1 ? 1 : 2, note: ld.note, auto: ld.auto,
+                }, unit);
         } else if (ld && typeof ld.note === 'string' && ld.note) {
             // Text-only note (med-3gln): below-bar, bare nearest, or fixed
             // "nearest: N kg" — no glyph, but the sheet still needs the plate
             // stylesheet for the .platestxt line.
             loadCtx.hadLoading = true;
-            loading = `<span class="plates"><span class="platestxt">${_workoutPlanEsc(ld.note)}</span></span>`;
+            loading = `<span class="plates"><span class="platestxt">${_workoutPlanEsc(_workoutPlanAutoPrefix(ld) + ld.note)}</span></span>`;
         }
     }
     return `<li><span class="ex">${_workoutPlanEsc(ex.exercise_name)}</span> `
@@ -1000,18 +1008,14 @@ async function printWorkoutPlan(group) {
             inv = null;
         }
         if (!Array.isArray(inv)) inv = await apiCall('/api/workout/equipment', 'GET');
-        const { loadingFor, nearestLoads, equipmentIdForExercise, pickNearestLoad } =
+        const { loadingFor, nearestLoads, equipmentForExercise, pickNearestLoad } =
             await window.WorkoutGroups.loadEquipmentDomain();
         if (Array.isArray(lib) && Array.isArray(inv) && typeof loadingFor === 'function'
-            && typeof nearestLoads === 'function' && typeof equipmentIdForExercise === 'function'
+            && typeof nearestLoads === 'function' && typeof equipmentForExercise === 'function'
             && typeof pickNearestLoad === 'function') {
             const libById = {};
             for (const r of lib) {
                 if (r && r.id !== null && r.id !== undefined) libById[r.id] = r;
-            }
-            const eqById = {};
-            for (const e of inv) {
-                if (e && e.id !== null && e.id !== undefined) eqById[e.id] = e;
             }
             loadingByExerciseId = {};
             for (const d of days) {
@@ -1020,8 +1024,11 @@ async function printWorkoutPlan(group) {
                     const w = Number(ex.target_weight_kg);
                     if (!Number.isFinite(w) || w <= 0) continue;
                     const row = libById[ex.exercise_library_id] || null;
-                    const eq = eqById[equipmentIdForExercise(ex, row)] || null;
-                    if (!eq) continue;
+                    // Explicit binding (row, else library) wins; unbound rows
+                    // auto-match the inventory by implement + weight (med-x295).
+                    const hit = equipmentForExercise(ex, row, inv, w);
+                    if (!hit) continue;
+                    const eq = hit.item;
                     if (eq.kind === 'plated') {
                         const sides = eq.sides === 1 ? 1 : 2;
                         const ld = loadingFor(eq, w);
@@ -1062,6 +1069,7 @@ async function printWorkoutPlan(group) {
                         if (chosen === null || chosen === undefined) continue;
                         loadingByExerciseId[ex.id] = { note: `nearest: ${_workoutPlanR2(chosen)} kg` };
                     }
+                    if (hit.auto && loadingByExerciseId[ex.id]) loadingByExerciseId[ex.id].auto = eq.name;
                 }
             }
         }

@@ -525,7 +525,7 @@ async function _maybeAttachBodyPartChip(headerRow, log) {
 //
 // Gear resolves once per session open and is cached on
 // window.WorkoutSessionsState.plateGear ({ sessionId, rowsById, libById,
-// eqById, loadingFor, nearestLoads, equipmentIdForExercise, pickNearestLoad }
+// inv, loadingFor, nearestLoads, equipmentForExercise, pickNearestLoad }
 // or { sessionId, failed: true }); any fetch/import failure resolves to
 // failed so cards render exactly as today.
 
@@ -597,42 +597,38 @@ async function _buildSessionPlateGear(sessionData) {
         }
         if (!Array.isArray(inv)) inv = await apiCall('/api/workout/equipment', 'GET');
         if (!Array.isArray(inv)) return fail();
-        const eqById = {};
-        for (const e of inv) {
-            if (e && e.id !== null && e.id !== undefined) eqById[e.id] = e;
-        }
         const domain = await window.WorkoutGroups.loadEquipmentDomain();
         const loadingFor = domain && domain.loadingFor;
         const nearestLoads = domain && domain.nearestLoads;
-        const equipmentIdForExercise = domain && domain.equipmentIdForExercise;
+        const equipmentForExercise = domain && domain.equipmentForExercise;
         const pickNearestLoad = domain && domain.pickNearestLoad;
         if (typeof loadingFor !== 'function' || typeof nearestLoads !== 'function'
-            || typeof equipmentIdForExercise !== 'function' || typeof pickNearestLoad !== 'function') return fail();
+            || typeof equipmentForExercise !== 'function' || typeof pickNearestLoad !== 'function') return fail();
         return {
             sessionId: sessionId, rowsById: rowsById, libById: libById,
-            eqById: eqById, loadingFor: loadingFor, nearestLoads: nearestLoads,
-            equipmentIdForExercise: equipmentIdForExercise, pickNearestLoad: pickNearestLoad
+            inv: inv, loadingFor: loadingFor, nearestLoads: nearestLoads,
+            equipmentForExercise: equipmentForExercise, pickNearestLoad: pickNearestLoad
         };
     } catch (_) {
         return fail();
     }
 }
 
-// _sessionEquipmentForLog maps a session log to its bound equipment record.
-// Ad-hoc / library-sourced logs carry the library id directly as exercise_id
-// (toLogResponse source === 'library'); plan-backed logs carry the plan row
-// id and resolve through the row — the row's own equipment_id override, else
-// the library binding (equipmentIdForExercise, the shared rule). Unbound →
-// null.
+// _sessionEquipmentForLog maps a session log to its equipment:
+// { item, auto } or null. Ad-hoc / library-sourced logs carry the library id
+// directly as exercise_id (toLogResponse source === 'library'); plan-backed
+// logs carry the plan row id and resolve through the row — the row's own
+// equipment_id override, else the library binding, else an inventory item
+// auto-matched by implement + the logged weight (equipmentForExercise, the
+// shared rule, med-x295). Nothing bound or matched → null.
 function _sessionEquipmentForLog(log, gear) {
     if (!log || !gear || gear.failed) return null;
     const planRow = log.source === 'library' ? null : (gear.rowsById[log.exercise_id] || null);
     const libRow = log.source === 'library'
         ? gear.libById[log.exercise_id]
         : (planRow ? gear.libById[planRow.exercise_library_id] : null);
-    const eqId = gear.equipmentIdForExercise(planRow || null, libRow || null);
-    if (eqId === null || eqId === undefined) return null;
-    return gear.eqById[eqId] || null;
+    if (!planRow && !libRow) return null;
+    return gear.equipmentForExercise(planRow, libRow || null, gear.inv, Number(log.weight_kg));
 }
 
 // Plate/bar kg print at most 2dp (the domain grid); String() keeps integers
@@ -653,8 +649,9 @@ function _renderSessionPlateChip(entry, log, gear) {
     if (!groups || typeof groups.plateSvg !== 'function' || typeof groups.plateText !== 'function') return false;
     const w = Number(log.weight_kg);
     if (!Number.isFinite(w) || w <= 0) return false;
-    const eq = _sessionEquipmentForLog(log, gear);
-    if (!eq) return false;
+    const hit = _sessionEquipmentForLog(log, gear);
+    if (!hit) return false;
+    const eq = hit.item;
     const unit = (typeof readWeightUnitPreference === 'function') ? readWeightUnitPreference() : 'kg';
 
     const wrap = document.createElement('div');
@@ -671,6 +668,8 @@ function _renderSessionPlateChip(entry, log, gear) {
         wrap.appendChild(svg);
         addText(text, 'wg-plates__text');
     };
+    // med-x295: an auto-matched item (no explicit binding) names itself first.
+    if (hit.auto) addText(`auto: ${eq.name}`, 'wg-plates__auto');
 
     if (eq.kind === 'plated') {
         const sides = eq.sides === 1 ? 1 : 2;

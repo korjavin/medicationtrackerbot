@@ -7386,6 +7386,12 @@ textarea.wg-input {
     color: var(--wg-fg-2);
 }
 
+.wg-plates__auto {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-3);
+}
+
 .wg-plates__delta {
     font-family: var(--wg-font-mono);
     font-size: var(--font-size-xs);

@@ -402,13 +402,12 @@ required, kind-specific fields per the create body schema),
 List/create response examples are pasted from the real router JSON;
 update/delete examples are the literal `true` their handlers return.
 
-**Binding** (med-niix.5, optional, library-level only). `equipment_id`
+**Binding** (med-niix.5, optional). `equipment_id`
 (nullable numeric) on `exerciselibrary` rows links an exercise to one
-inventory record; unbound behaves exactly as today, and the binding is what
-med-niix.2 keys progression off. Library-level only (owner decision
-2026-09-22): every plan row already resolves through `exercise_library_id`,
-so no per-plan-row override — that arrives only if a real case appears, as a
-`training_goal`-style override. Domain (`web/domain/workout.js`):
+inventory record, and the binding is what med-niix.2 keys progression off.
+A plan row may carry its own `equipment_id` override (med-3gln), which wins
+over the library binding (`equipmentIdForExercise` in
+`web/domain/equipment.js`). Domain (`web/domain/workout.js`):
 `createLibraryItem` / `updateLibraryItem` round-trip the field,
 `toLibraryResponse` emits it only when set. Deleting equipment performs no
 cascade write; a dangling id reads as unbound (the plan-modal hint resolves
@@ -420,6 +419,32 @@ the plan-exercise modal (`#workout-exercise-modal`) gets the same select
 through the shared fill helper (med-niix.8) — its helper text shows the
 picked gear's step/max from the API verbatim, and saving writes the library
 row (no write on no change), so the gear applies to the exercise in every plan.
+
+**Auto-match** (med-x295). With no explicit binding (no row override, no
+library binding), the gear is picked from the inventory on every read —
+never stored, so it follows inventory and target changes.
+`equipmentForExercise(exercise, library, inventory, kg)` in
+`web/domain/equipment.js` is the one rule progression
+(`resolveEquipmentLoads`, kg = `target_weight_kg`), the print sheet
+(kg = the row target) and the session chip (kg = the logged weight) call;
+it returns `{ item, auto }`. Explicit bindings always win, and a dangling
+explicit id stays unbound — it never falls through to auto, so a deleted
+binding cannot silently switch gear. Auto derives the implement from the
+exercise name (`implementForExerciseName`: `barbell`, `ez bar`/`ez-bar`,
+`trap bar`, `landmine`, RU `штанг` → barbell; `dumbbell`, `гантел` →
+dumbbell; `kettlebell`, `гир(я|и|е|ю|ей|ями|ях|ям)` → kettlebell; first
+match in that order; no word → no auto) and considers only inventory items
+whose read-side implement (`implementOf`: the stored label, else the plated
+default) equals it and whose `loads_kg` is non-empty; `other`/unlabelled
+items never auto-match. Tie-break: with kg > 0 the smallest distance from kg
+to the item's nearest rung (an exact rung beats every miss; nearest rung tie
+→ below), then the smaller `min_step_kg`, then the lower id. Progression
+entries carry `equipment.auto: true` for an auto pick (explicit ones keep
+`{ id, name, min_step_kg }`); the print sheet prefixes the plate line with
+`auto: <name>` and the session chip adds a `.wg-plates__auto` span. The
+name rule is a deliberate ceiling: 487/515 catalog barbell/dumbbell/
+kettlebell rows carry the implement word in the name; a catalog-backed port
+comes only if a real miss shows up. No opt-out beyond binding explicitly.
 
 **Snap** (med-niix.2). Progression always runs as before; binding only adds a
 constraint on the proposed load. The exercise's `equipment_id` (row override,

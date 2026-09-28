@@ -37,7 +37,7 @@
 // is an ESM cycle — safe because both modules export hoisted function
 // declarations and only touch the imports inside function bodies, never at
 // module top-level.
-import { achievableLoads, snapLoad, minStep, EQUIPMENT_RECORD_TYPE, equipmentIdForExercise } from './equipment.js';
+import { snapLoad, minStep, EQUIPMENT_RECORD_TYPE, equipmentForExercise, toEquipmentResponse } from './equipment.js';
 import { localDateParts, localWallToUtcMs } from './medschedule.js';
 import { formatHHMM } from './reminders.js';
 import {
@@ -985,33 +985,34 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     return toExerciseResponse(record);
   }
 
-  // resolveEquipmentLoads (med-niix.2, med-3gln) resolves one exercise's
-  // equipment — the plan row's own equipment_id override, else the library
-  // row's binding (equipmentIdForExercise, shared with the print sheet and the
-  // session chip) — then follows it to the equipment record → achievableLoads.
-  // `exercise` is the plan row, or { exercise_library_id } for a log with no
-  // plan row, or null. Resolved ONCE per propagate/preview/suggest pass, never
-  // per set. Unbound (no override, no library link, no binding, a dangling id,
-  // or gear with no computable loads) reads as { equipment: null, loads: null },
-  // and progression behaves exactly as without equipment.
+  // resolveEquipmentLoads (med-niix.2, med-3gln, med-x295) resolves one
+  // exercise's equipment through equipmentForExercise (shared with the print
+  // sheet and the session chip): the plan row's own equipment_id override,
+  // else the library row's binding, else an inventory item auto-matched by
+  // implement (from the name) + target_weight_kg. `exercise` is the plan row,
+  // or { exercise_library_id } for a log with no plan row (its name comes from
+  // the library row), or null. Resolved ONCE per propagate/preview/suggest
+  // pass, never per set. Unbound (nothing bound or matched, a dangling
+  // explicit id, or gear with no computable loads) reads as
+  // { equipment: null, loads: null }, and progression behaves exactly as
+  // without equipment. An auto pick carries auto: true; explicit bindings keep
+  // the { id, name, min_step_kg } shape.
   async function resolveEquipmentLoads(exercise) {
-    const libraryId = exercise ? exercise.exercise_library_id : null;
-    if (!hasValue(libraryId) && !(exercise && hasValue(exercise.equipment_id))) {
-      return { equipment: null, loads: null };
-    }
+    if (!exercise) return { equipment: null, loads: null };
+    const libraryId = exercise.exercise_library_id;
     const lib = hasValue(libraryId)
       ? await findByNumericId(records, WORKOUT_RECORD_TYPES.LIBRARY, libraryId)
       : null;
-    const equipmentId = equipmentIdForExercise(exercise, lib);
-    if (!hasValue(equipmentId)) return { equipment: null, loads: null };
-    const item = await findByNumericId(records, EQUIPMENT_RECORD_TYPE, equipmentId);
-    if (!item) return { equipment: null, loads: null };
-    const loads = achievableLoads(item);
-    if (loads.length === 0) return { equipment: null, loads: null };
-    return {
-      equipment: { id: item.id, name: item.name, min_step_kg: minStep(loads) },
-      loads,
-    };
+    const inventory = (await records.list(EQUIPMENT_RECORD_TYPE))
+      .filter((r) => !r.deleted)
+      .map(toEquipmentResponse);
+    const hit = equipmentForExercise(exercise, lib, inventory, exercise.target_weight_kg);
+    if (!hit) return { equipment: null, loads: null };
+    const loads = hit.item.loads_kg;
+    if (!Array.isArray(loads) || loads.length === 0) return { equipment: null, loads: null };
+    const equipment = { id: hit.item.id, name: hit.item.name, min_step_kg: minStep(loads) };
+    if (hit.auto) equipment.auto = true;
+    return { equipment, loads };
   }
 
   // libraryById maps id → non-deleted library record, for resolving the

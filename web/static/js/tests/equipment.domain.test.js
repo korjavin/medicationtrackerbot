@@ -6,6 +6,7 @@ import { describe, it, expect } from 'vitest';
 import {
   createEquipmentDomain, achievableLoads, loadingFor, minStep, snapLoad,
   nearestLoads, equipmentIdForExercise, pickNearestLoad,
+  implementForExerciseName, autoEquipmentForExercise, equipmentForExercise, implementOf,
 } from '../../../../web/domain/equipment.js';
 import {
   recordsToVault, vaultToRecords, VAULT_MANAGED_TYPES,
@@ -476,5 +477,97 @@ describe('equipmentIdForExercise + pickNearestLoad (med-3gln)', () => {
     expect(pickNearestLoad(null, 20, 10)).toBe(20);
     expect(pickNearestLoad(25, null, 30)).toBe(25);
     expect(pickNearestLoad(null, null, 20)).toBeNull();
+  });
+});
+
+// med-x295 — auto-match: with no explicit binding, the inventory item whose
+// implement matches the exercise name's implement word and best fits the
+// weight is picked on read.
+describe('equipment auto-match (med-x295)', () => {
+  const fixedBar = (id, loads, step, over) => ({
+    id, name: `Bar ${id}`, kind: 'fixed', implement: 'barbell', loads_kg: loads, min_step_kg: step, ...over,
+  });
+
+  it('derives the implement from EN and RU name keywords', () => {
+    expect(implementForExerciseName('barbell bench press')).toBe('barbell');
+    expect(implementForExerciseName('Жим штанги лёжа')).toBe('barbell');
+    expect(implementForExerciseName('dumbbell fly')).toBe('dumbbell');
+    expect(implementForExerciseName('гантели на бицепс')).toBe('dumbbell');
+    expect(implementForExerciseName('kettlebell swing')).toBe('kettlebell');
+    expect(implementForExerciseName('махи гирей')).toBe('kettlebell');
+    expect(implementForExerciseName('ez bar curl')).toBe('barbell');
+    expect(implementForExerciseName('EZ-bar curl')).toBe('barbell');
+    expect(implementForExerciseName('trap bar deadlift')).toBe('barbell');
+    expect(implementForExerciseName('landmine press')).toBe('barbell');
+    expect(implementForExerciseName('push up')).toBeNull();
+    expect(implementForExerciseName('Pezbar row')).toBeNull();
+    expect(implementForExerciseName(null)).toBeNull();
+  });
+
+  it('implementOf applies the plated read-side default and leaves unlabelled fixed items unknown', () => {
+    expect(implementOf({ kind: 'plated', sides: 2, pair: false })).toBe('barbell');
+    expect(implementOf({ kind: 'plated', sides: 2, pair: true })).toBe('dumbbell');
+    expect(implementOf({ kind: 'plated', sides: 1 })).toBe('kettlebell');
+    expect(implementOf({ kind: 'fixed', loads_kg: [10] })).toBeNull();
+    expect(implementOf({ kind: 'fixed', implement: 'dumbbell' })).toBe('dumbbell');
+  });
+
+  it('an item achieving the weight exactly beats one that does not', () => {
+    const inv = [fixedBar(1, [55, 65], 10), fixedBar(2, [50, 60, 70], 10)];
+    expect(autoEquipmentForExercise('barbell squat', inv, 60).id).toBe(2);
+  });
+
+  it('both exact → smaller min_step, then lower id', () => {
+    const inv = [fixedBar(3, [40, 60], 20), fixedBar(2, [55, 60], 5), fixedBar(1, [50, 60], 10)];
+    expect(autoEquipmentForExercise('barbell squat', inv, 60).id).toBe(2);
+    const same = [fixedBar(7, [50, 60], 10), fixedBar(4, [40, 50, 60], 10)];
+    expect(autoEquipmentForExercise('barbell squat', same, 60).id).toBe(4);
+  });
+
+  it('none exact → the item whose nearest rung is closest wins', () => {
+    const inv = [fixedBar(1, [55, 65], 10), fixedBar(2, [58, 70], 12)];
+    expect(autoEquipmentForExercise('barbell squat', inv, 60).id).toBe(2);
+  });
+
+  it('a plated barbell with no implement label matches by its read-side default', () => {
+    const rec = {
+      id: 9, name: 'Ohio bar', kind: 'plated', bar_kg: 20, sides: 2, pair: false,
+      plates: [{ kg: 20, count: 2 }],
+    };
+    const loads = achievableLoads(rec);
+    const inv = [{ ...rec, loads_kg: loads, min_step_kg: minStep(loads) }];
+    expect(autoEquipmentForExercise('Жим штанги', inv, 60).id).toBe(9);
+  });
+
+  it('other/absent implement, empty loads, empty inventory, no name implement → null', () => {
+    expect(autoEquipmentForExercise('barbell squat', [fixedBar(1, [60], null, { implement: 'other' })], 60)).toBeNull();
+    expect(autoEquipmentForExercise('barbell squat', [fixedBar(1, [60], null, { implement: undefined })], 60)).toBeNull();
+    expect(autoEquipmentForExercise('barbell squat', [fixedBar(1, [], null)], 60)).toBeNull();
+    expect(autoEquipmentForExercise('barbell squat', [], 60)).toBeNull();
+    expect(autoEquipmentForExercise('push up', [fixedBar(1, [60], null)], 60)).toBeNull();
+    expect(autoEquipmentForExercise('dumbbell fly', [fixedBar(1, [60], null)], 60)).toBeNull();
+  });
+
+  it('with no kg → min_step then id', () => {
+    const inv = [fixedBar(3, [40, 60], 20), fixedBar(2, [55, 60], 5), fixedBar(1, [50, 55], 5)];
+    expect(autoEquipmentForExercise('barbell squat', inv, null).id).toBe(1);
+    expect(autoEquipmentForExercise('barbell squat', inv, 0).id).toBe(1);
+    expect(autoEquipmentForExercise('barbell squat', inv, NaN).id).toBe(1);
+  });
+
+  it('equipmentForExercise: explicit row beats library beats auto; dangling explicit stays unbound', () => {
+    const inv = [fixedBar(1, [60], null), fixedBar(5, [60], null), fixedBar(6, [60], null)];
+    const row = { exercise_name: 'barbell squat', equipment_id: 5 };
+    const lib = { name: 'barbell squat', equipment_id: 6 };
+    expect(equipmentForExercise(row, lib, inv, 60)).toEqual({ item: inv[1], auto: false });
+    expect(equipmentForExercise({ exercise_name: 'barbell squat' }, lib, inv, 60)).toEqual({ item: inv[2], auto: false });
+    expect(equipmentForExercise({ exercise_name: 'barbell squat' }, { name: 'x' }, inv, 60))
+      .toEqual({ item: inv[0], auto: true });
+    // No row: the library name drives the auto-match.
+    expect(equipmentForExercise(null, { name: 'barbell squat' }, inv, 60)).toEqual({ item: inv[0], auto: true });
+    // A deleted binding must not silently switch gear.
+    expect(equipmentForExercise({ exercise_name: 'barbell squat', equipment_id: 99 }, lib, inv, 60)).toBeNull();
+    expect(equipmentForExercise({ exercise_name: 'barbell squat' }, { name: 'barbell squat', equipment_id: 99 }, inv, 60)).toBeNull();
+    expect(equipmentForExercise({ exercise_name: 'push up' }, null, inv, 60)).toBeNull();
   });
 });
