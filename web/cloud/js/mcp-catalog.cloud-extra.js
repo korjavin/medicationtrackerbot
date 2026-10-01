@@ -93,8 +93,19 @@ const EQUIPMENT_WRITE_BODY = {
         },
       },
     },
+    location_id: {
+      type: ['integer', 'null'],
+      description: 'Optional gym (workouts.locations.list id) this implement lives at; null = portable, available at every gym. Must name a live location. Preserved on update when omitted; send null to make it portable.',
+    },
   },
 };
+
+// Location response shape shared by the locations ops (web/domain/equipment.js
+// toLocationResponse); the id is illustrative, as with equipment below.
+const LOCATION_EXAMPLE = {
+  id: 1, name: 'Home', created_at: '2026-10-01T12:00:00.000Z', updated_at: '2026-10-01T12:00:00.000Z',
+};
+const ACTIVE_LOCATION_SUMMARY = 'Object {location_id, location}: the active gym\'s id and its {id, name, created_at, updated_at} record, both null when no gym is active (never set, cleared, or the gym was deleted).';
 
 export const CLOUD_EXTRA = [
   {
@@ -442,8 +453,8 @@ export const CLOUD_EXTRA = [
     method: 'GET',
     path: '/api/workout/equipment',
     risk: 'read',
-    description: 'List the equipment inventory: every fixed/plated implement with its achievable loads. Each record carries the computed loads_kg plus min_step_kg (the smallest gap between any two consecutive achievable loads — a global minimum, not necessarily the step available at the user\'s current load, so always pick the next value from loads_kg; null when the implement has fewer than two achievable loads) and max_kg, so progression can snap to achievable loads without recomputing.',
-    response_summary: 'Array of equipment records {id, user_id, name, kind, created_at, updated_at, loads_kg, min_step_kg, max_kg} (min_step_kg null when the implement has fewer than two achievable loads), plus bar_kg/sides/pair/plates on plated records, plus implement (barbell/dumbbell/kettlebell/other) when the record carries the label — plated reads always do (legacy rows derive it from sides/pair).',
+    description: 'List the equipment inventory: every fixed/plated implement with its achievable loads, across all gyms (filter client-side by location_id: an item is available at a gym when its location_id is that gym, absent, or names no live location — see workouts.locations.list). Each record carries the computed loads_kg plus min_step_kg (the smallest gap between any two consecutive achievable loads — a global minimum, not necessarily the step available at the user\'s current load, so always pick the next value from loads_kg; null when the implement has fewer than two achievable loads) and max_kg, so progression can snap to achievable loads without recomputing.',
+    response_summary: 'Array of equipment records {id, user_id, name, kind, created_at, updated_at, loads_kg, min_step_kg, max_kg} (min_step_kg null when the implement has fewer than two achievable loads), plus bar_kg/sides/pair/plates on plated records, plus implement (barbell/dumbbell/kettlebell/other) when the record carries the label — plated reads always do (legacy rows derive it from sides/pair), plus location_id when the item is bound to a gym (absent = portable).',
     params_schema: { type: 'object', properties: {} },
     // Captured from the real router (createApiRouter → /api/workout/equipment)
     // for a fixed dumbbell set; the numeric id below is illustrative (ids are
@@ -459,6 +470,7 @@ export const CLOUD_EXTRA = [
       min_step_kg: 2,
       max_kg: 16,
       implement: 'dumbbell',
+      location_id: 1,
     }],
   },
   {
@@ -512,6 +524,48 @@ export const CLOUD_EXTRA = [
     required: ['id'],
     // The real handler returns boolean true; see the update op above.
     response_example: true,
+  },
+  // Workout locations / gyms (med-8j5w.4): read + switch only. Served by
+  // apishim.js over web/domain/equipment.js like the equipment ops above.
+  {
+    id: 'workouts.locations.list',
+    topic: 'workouts',
+    method: 'GET',
+    path: '/api/workout/locations',
+    risk: 'read',
+    description: 'List the user\'s gyms (workout locations), sorted by name. Pair with workouts.equipment.list (each item\'s location_id) to see the gear per gym, and with workouts.locations.active.get for the current gym. No gyms = every item is available everywhere.',
+    response_summary: 'Array of {id, name, created_at, updated_at}.',
+    params_schema: { type: 'object', properties: {} },
+    response_example: [LOCATION_EXAMPLE],
+  },
+  {
+    id: 'workouts.locations.active.get',
+    topic: 'workouts',
+    method: 'GET',
+    path: '/api/workout/locations/active',
+    risk: 'read',
+    description: 'Read the active gym (synced across devices). A session is stamped with it when it starts (or at its first logged set if it was never started) and later switches do not move a stamped session, and progression preview/suggest snaps to its gear plus portable items.',
+    response_summary: ACTIVE_LOCATION_SUMMARY,
+    params_schema: { type: 'object', properties: {} },
+    response_example: { location_id: 1, location: LOCATION_EXAMPLE },
+  },
+  {
+    id: 'workouts.locations.set_active',
+    topic: 'workouts',
+    method: 'PUT',
+    path: '/api/workout/locations/active',
+    risk: 'write',
+    description: 'Switch the active gym. Started (stamped) sessions keep their gym; sessions not yet started pick up the new gym when they start. location_id must name a live gym from workouts.locations.list; null clears it (no gym: the whole inventory applies).',
+    response_summary: `${ACTIVE_LOCATION_SUMMARY} Reflects the new state.`,
+    required: ['location_id'],
+    body_schema: {
+      type: 'object',
+      required: ['location_id'],
+      properties: {
+        location_id: { type: ['integer', 'null'], description: 'Gym id to activate, or null to clear.' },
+      },
+    },
+    response_example: { location_id: 1, location: LOCATION_EXAMPLE },
   },
 ];
 
