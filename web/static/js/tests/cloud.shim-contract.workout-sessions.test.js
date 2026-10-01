@@ -1070,7 +1070,7 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
             // Preview resolves at the destination (active) gym, not the log's.
             const entryAt = async (id) => {
                 await setActive(window, id);
-                return (await window.apiCallDirect('/api/workout/progression-preview')).find((e) => e.exercise_id === ex.id);
+                return (await window.apiCallDirect('/api/workout/progression-preview')).exercises.find((e) => e.exercise_id === ex.id);
             };
             expect((await entryAt(a.id)).equipment).toMatchObject({ name: 'A bar' });
             expect((await entryAt(b.id)).equipment).toMatchObject({ name: 'B bar', auto: true });
