@@ -460,7 +460,10 @@ deleted one) means the whole inventory, exactly the rule above. Sessions stamp
 see `isLocationStamped` / `locationStamp` in `web/domain/workout.js`):
 propagate resolves at the session's gym, preview/suggest at the active one.
 Routes: `/api/workout/locations` (+ `/:id`, `/active`) and
-`PUT /api/workout/sessions/location` in `web/cloud/js/apishim.js`.
+`PUT /api/workout/sessions/location` in `web/cloud/js/apishim.js`. MCP
+(med-8j5w.4, `mcp-catalog.cloud-extra.js`): `workouts.locations.list`,
+`workouts.locations.active.get`, `workouts.locations.set_active`; the
+equipment ops carry `location_id`. Gym create/rename/delete stays UI-only.
 
 **Snap** (med-niix.2). Progression always runs as before; binding only adds a
 constraint on the proposed load. The exercise's `equipment_id` (row override,

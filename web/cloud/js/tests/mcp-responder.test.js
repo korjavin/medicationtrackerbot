@@ -455,6 +455,7 @@ describe('mcp_help wire contract (generated catalog)', () => {
       'workouts.plans.export', 'workouts.plans.import',
       'workouts.equipment.list', 'workouts.equipment.create',
       'workouts.equipment.update', 'workouts.equipment.delete',
+      'workouts.locations.list', 'workouts.locations.active.get', 'workouts.locations.set_active',
     ]) {
       expect(ids).toContain(id);
     }
@@ -493,6 +494,21 @@ describe('mcp_help wire contract (generated catalog)', () => {
     expect(byID.get('workouts.equipment.update').path_params).toEqual(['id']);
     expect(byID.get('workouts.equipment.update').response_example).toBe(true);
     expect(byID.get('workouts.equipment.delete').response_example).toBe(true);
+  });
+
+  // med-8j5w.4: gyms are reachable — list them, read and switch the active one,
+  // and equipment carries location_id both ways.
+  it('drills into the locations ops and the equipment location_id', async () => {
+    const result = await makeDispatcher().handle('mcp_help', {
+      operation_ids: ['workouts.locations.list', 'workouts.locations.active.get', 'workouts.locations.set_active', 'workouts.equipment.list', 'workouts.equipment.create'],
+    });
+    const byID = new Map(result.operations.map((op) => [op.id, op]));
+    expect(byID.get('workouts.locations.list').response_example[0]).toHaveProperty('name');
+    expect(byID.get('workouts.locations.active.get').response_example.location_id).toBe(1);
+    expect(byID.get('workouts.locations.set_active').method).toBe('PUT');
+    expect(byID.get('workouts.locations.set_active').required).toEqual(['location_id']);
+    expect(byID.get('workouts.equipment.list').response_example[0].location_id).toBe(1);
+    expect(byID.get('workouts.equipment.create').body_schema.properties).toHaveProperty('location_id');
   });
 
   it('drills into full entries by operation_ids and notes unknown ids instead of throwing', async () => {
@@ -1755,7 +1771,7 @@ describe('cloud MCP response_example conformance', () => {
     'health.sleep.list', 'medications.list', 'medications.history',
     'medications.restocks.list', 'workouts.groups.list', 'workouts.variants.list',
     'workouts.exercises.list', 'workouts.exercise_library.list', 'workouts.miband.list',
-    'workouts.sessions.list', 'workouts.equipment.list',
+    'workouts.sessions.list', 'workouts.equipment.list', 'workouts.locations.list',
   ];
 
   async function seedFixtures(dispatcher) {
@@ -1853,7 +1869,7 @@ describe('cloud MCP response_example conformance', () => {
     });
 
     const equipment = await w('workouts.equipment.create', {
-      kind: 'fixed', name: 'Hex DBs', loads_kg: [10, 12, 14, 16], implement: 'dumbbell',
+      kind: 'fixed', name: 'Hex DBs', loads_kg: [10, 12, 14, 16], implement: 'dumbbell', location_id: 1,
     });
 
     return {
@@ -1894,6 +1910,7 @@ describe('cloud MCP response_example conformance', () => {
         path_params: { id: String(ids.equipmentID) },
       };
       case 'workouts.equipment.delete': return { path_params: { id: String(ids.equipmentID) } };
+      case 'workouts.locations.set_active': return { params: { location_id: 1 } };
       case 'workouts.rotation.state': return { params: { group_id: ids.groupID } };
       case 'medications.restocks.list': return { path_params: { id: String(ids.medID) } };
       case 'food.products.search': return { params: { q: 'oat' } };
@@ -1942,6 +1959,11 @@ describe('cloud MCP response_example conformance', () => {
   function seedRecordsPort() {
     return createInMemoryRecordsPort({
       bpgoal: [{ recordId: 'bpgoal', target_systolic: 120, target_diastolic: 80 }],
+      // Gym create is UI-only (no catalogued write); the equipment fixture
+      // binds to it so equipment.list carries location_id.
+      location: [{
+        recordId: 'location-1', id: 1, name: 'Home', created_at: '2026-07-06T12:00:00.000Z', updated_at: '2026-07-06T12:00:00.000Z',
+      }],
       sleep: [{
         recordId: 305,
         start_time: '2026-07-05T23:10:00.000Z',
