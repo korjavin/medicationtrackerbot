@@ -614,8 +614,13 @@ export const CLOUD_EXTRA = [
             name: { type: 'string', description: 'Gym name (required, non-blank, at most 100 chars).' },
             equipment: {
               type: 'array',
-              description: 'At most 50 items, same fields as workouts.equipment.create minus location_id.',
-              items: EQUIPMENT_WRITE_BODY,
+              description: 'At most 50 items, same fields as workouts.equipment.create minus location_id (every item lands at the new gym).',
+              items: {
+                ...EQUIPMENT_WRITE_BODY,
+                properties: Object.fromEntries(
+                  Object.entries(EQUIPMENT_WRITE_BODY.properties).filter(([k]) => k !== 'location_id'),
+                ),
+              },
             },
           },
         },

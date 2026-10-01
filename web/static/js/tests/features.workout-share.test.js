@@ -1084,6 +1084,23 @@ describe('features/workout/share.js — share a gym (med-8j5w.3)', () => {
     const planToken = await window.WorkoutShare.encode(EXPORT);
     expect(await window.WorkoutShare.decode('g1.' + planToken.slice(3))).toBeNull();
     expect(await window.WorkoutShare.decode('p1.' + token.slice(3))).toBeNull();
+    // A p1 token smuggling a location key never reaches the gym import.
+    const both = await window.WorkoutShare.encode({ ...EXPORT, location: GYM_EXPORT.location });
+    expect(both.startsWith('p1.')).toBe(true);
+    expect(await window.WorkoutShare.decode(both)).toBeNull();
+  });
+
+  it('shareGym refuses a gym over the 50-item import cap instead of minting a dead link', async () => {
+    const { window, document } = env;
+    const toastSpy = vi.fn();
+    window.SyncManager = { showToast: toastSpy };
+    const equipment = Array.from({ length: 51 }, (_, i) => ({ name: `DB ${i}`, kind: 'fixed', loads_kg: [10] }));
+    window.apiCall = vi.fn(async () => ({ v: 1, location: { name: 'Big', equipment } }));
+
+    await window.WorkoutShare.shareGym({ id: 3, name: 'Big' });
+
+    expect(toastSpy).toHaveBeenCalledWith('This gym has 51 items — sharing is limited to 50.', 'error');
+    expect(document.getElementById('workout-share-modal').classList.contains('hidden')).toBe(true);
   });
 
   it('decode stops a gzip bomb at the inflated-size cap', async () => {

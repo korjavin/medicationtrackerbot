@@ -114,9 +114,9 @@ window.MedTrackerCloudReady = (async function boot() {
         location.href = '/unlock' + location.hash;
         return;
     }
-    // Shared-plan deeplink (bd med-uo64.3): a #share-plan= fragment rides
-    // along to /unlock so the unlock shell can hand it back to /. Only this
-    // fragment forwards — anything else (notably #claim=, which has its own
+    // Shared-plan/gym deeplink (med-uo64.3, med-8j5w.3): a #share-plan= or
+    // #share-gym= fragment rides along to /unlock and back to /. Only these
+    // fragments forward — anything else (notably #claim=, which has its own
     // branch above) must not, or the claim redirect ping-pongs.
     const sharePlanHash = /^#share-(?:plan|gym)=/.test(location.hash) ? location.hash : '';
     // --- Warm-unlock decision. This is the ONLY block allowed to redirect to

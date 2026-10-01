@@ -44,9 +44,8 @@ export const MSG = {
 
 export const SHARE_API_PREFIX = '/api/s/';
 // Server caps stored ciphertext at 16 KiB (wire contract); anything larger on
-// the read path is not a real share. That cap is also what bounds inflation:
-// 16 KiB of ciphertext times DEFLATE's ceiling stays in the low tens of MB,
-// which the tab survives.
+// the read path is not a real share. Inflation is bounded separately, during
+// the gunzip, by MAX_JSON_BYTES below.
 export const MAX_PACKED_BYTES = 16384;
 // Bound on the inflated export payload, enforced DURING the inflate (gunzip
 // stops at it) — same cap as share.js SHARE_MAX_JSON_BYTES.
@@ -118,9 +117,9 @@ export async function decodeSharedPlan(packed, key) {
   return { token, doc, kind };
 }
 
-// appHref(location, sub, token) — the EXISTING #share-plan deeplink onto the
-// visitor's account subdomain (deeplink-router.js), so the handoff needs zero
-// app-side change. http only when the landing page itself is http (dev).
+// appHref(location, sub, token) — the #share-plan (p1) or #share-gym (g1)
+// deeplink onto the visitor's account subdomain (deeplink-router.js). http
+// only when the landing page itself is http (dev).
 // Built by concatenation: no host literal, nothing for the privacy-claims
 // host scan to flag.
 export function appHref(location, sub, token) {

@@ -45,8 +45,8 @@ export async function runUnlockFlow() {
 
 function renderLocked(app, errorText) {
   // A friend on another subdomain/instance who taps the sender's link lands
-  // here (cold unlock shell) with the plan fragment intact. They still get
-  // the plan via paste: point them at their own app's Import plan. Keep it
+  // here (cold unlock shell) with the plan/gym fragment intact. They still
+  // get it via paste: point them at their own app's Import. Keep it
   // to this paragraph + Copy button — no new module (bd med-uo64.3).
   const carriesSharePlan = forwardableShareFragment(
     typeof location !== 'undefined' ? location.hash : '') !== '';
@@ -435,8 +435,8 @@ async function clearLdkRecord() {
   }
 }
 
-// Shared-plan fragment forwarding (bd med-uo64.3): only a #share-plan=
-// fragment rides between / and /unlock. Anything else — notably #claim=,
+// Shared-plan/gym fragment forwarding (med-uo64.3, med-8j5w.3): only a
+// #share-plan= / #share-gym= fragment rides between / and /unlock. Anything else — notably #claim=,
 // which cloud-boot.js routes the other way — must not forward, or the two
 // shells ping-pong the browser forever. Placed at file end (not beside its
 // callers) so the privacy-manifest file:line citations above don't shift.

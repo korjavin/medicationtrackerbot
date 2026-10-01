@@ -1,5 +1,6 @@
-// Runtime-agnostic portable workout-plan share domain module. Pure logic over
-// an injected workoutDomain — no window/document/fetch/IndexedDB, no records
+// Runtime-agnostic portable workout-plan (and gym, med-8j5w.3 — see below)
+// share domain module. Plans: pure logic over an injected workoutDomain;
+// gyms: over an injected equipmentDomain — no window/document/fetch/IndexedDB, no records
 // port of its own, no id minting. Reads/writes ONLY through the existing
 // workoutDomain surface (listGroups/listVariants/listExercises/listLibrary/
 // createGroup/createVariant/createExercise/setLibraryBodyPart/
@@ -272,11 +273,12 @@ function validateLocationSharePayload(payload) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) {
       throw invalid(`${what} must be an object`, 400);
     }
-    checkName(item.name, `${what}.name`);
+    if (typeof item.name !== 'string') throw invalid(`${what}.name must be a string`, 400);
+    const itemName = checkName(item.name, `${what}.name`);
     // Whitelist the wire keys: a hostile location_id must never reach the
     // writer (the importer binds every item to the NEW location itself).
     const input = {
-      name: item.name, kind: item.kind, implement: item.implement,
+      name: itemName, kind: item.kind, implement: item.implement,
       loads_kg: item.loads_kg, bar_kg: item.bar_kg, sides: item.sides, pair: item.pair, plates: item.plates,
     };
     try {

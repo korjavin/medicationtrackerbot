@@ -38,6 +38,7 @@ const SHARE_GYM_PREFIX = 'g1.';
 // below bounds the compressed side only, and DEFLATE inflates ~1000x. A
 // 30-day plan is ~100 KB of JSON; 1 MB matches share-landing.js.
 const SHARE_MAX_JSON_BYTES = 1024 * 1024;
+const SHARE_MAX_GYM_ITEMS = 50;
 
 // base64url without a dependency: btoa/atob with the -_ swap and padding
 // stripped on encode, restored on decode.
@@ -84,8 +85,11 @@ async function decodeShareToken(text) {
         const bytes = shareTokenB64Decode(token.slice(3));
         const json = await window.BackupCrypto.gunzipToString(bytes, SHARE_MAX_JSON_BYTES);
         const payload = JSON.parse(json);
-        const key = token.startsWith(SHARE_GYM_PREFIX) ? 'location' : 'plan';
+        const gym = token.startsWith(SHARE_GYM_PREFIX);
+        const key = gym ? 'location' : 'plan';
+        const other = gym ? 'plan' : 'location';
         if (!payload || typeof payload !== 'object' || !payload[key] || typeof payload[key] !== 'object') return null;
+        if (payload[other] !== undefined) return null;
         return payload;
     } catch (_) {
         return null;
@@ -208,7 +212,7 @@ async function encryptShareLink(token, keyBytes, nonceBytes) {
     return out;
 }
 
-// decryptShareLink(keyB64url, packedStdB64) → p1 token string or null, never
+// decryptShareLink(keyB64url, packedStdB64) → p1/g1 token string or null, never
 // throws. Wrong K, truncated/corrupt ct, oversize blob, missing crypto: null.
 async function decryptShareLink(keyB64url, packedStdB64) {
     try {
@@ -460,6 +464,12 @@ async function shareWorkoutGym(loc) {
         safeToast('Add some equipment to this gym first.', 'info');
         return;
     }
+    // Mirrors MAX_SHARE_EQUIPMENT (web/domain/workout-share.js): a bigger
+    // gym would mint a link every recipient's import rejects.
+    if (items > SHARE_MAX_GYM_ITEMS) {
+        safeToast(`This gym has ${items} items — sharing is limited to ${SHARE_MAX_GYM_ITEMS}.`, 'error');
+        return;
+    }
     let token = null;
     try {
         token = await encodeShareToken(exported);
@@ -524,10 +534,10 @@ const SHARE_IMPORT_SCAN_THROTTLE_MS = 200;
 const SHARE_IMPORT_QR_FORMATS = ['qr_code'];
 
 // Upper bound on anything receive() will hand to the gunzip: hostile input
-// reaches decodeShareToken (a tapped link decodes before any confirm), and
-// gunzipToString inflates without a limit. 100k chars is ~75 KB compressed
-// — several times any realistic plan (a 30-day plan gzips to ~15 KB) —
-// while keeping a crafted gzip bomb from OOM-killing the tab pre-confirm.
+// reaches decodeShareToken (a tapped link decodes before any confirm). 100k
+// chars is ~75 KB compressed — several times any realistic plan (a 30-day
+// plan gzips to ~15 KB). The gzip-bomb guard is SHARE_MAX_JSON_BYTES (the
+// inflate stops there); this cap just keeps the base64 decode bounded.
 const SHARE_IMPORT_MAX_TOKEN_CHARS = 100000;
 
 // Printed-sheet QR shape ("workout-plan:<v>:<id>", owned by
@@ -555,8 +565,9 @@ function setImportStatus(message) {
 }
 
 // receive(text): decode → confirm → POST /api/workout/plans/import → toast,
-// Plans refresh, workouts tab + Plans sub-tab, Edit Plan. Garbage toasts and
-// never POSTs; a cancelled confirm never POSTs.
+// Plans refresh, workouts tab + Plans sub-tab, Edit Plan. A g1 (gym) token
+// goes to receiveSharedGym instead. Garbage toasts and never POSTs; a
+// cancelled confirm never POSTs.
 async function receiveSharedPlan(text) {
     // let, not const: a resolved short link replaces the pasted URL with the
     // decrypted p1 token before the shared decode path below.

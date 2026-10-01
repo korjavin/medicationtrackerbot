@@ -439,6 +439,7 @@ describe('cloud shim contract — gym export/import (share)', () => {
             ['equipment not an array', { v: 1, location: { name: 'X', equipment: {} } }],
             ['1000 items', { v: 1, location: { name: 'X', equipment: Array.from({ length: 1000 }, () => item()) } }],
             ['bad kind', { v: 1, location: { name: 'X', equipment: [item(), item({ kind: 'magic' })] } }],
+            ['non-string item name', { v: 1, location: { name: 'X', equipment: [item({ name: 5 })] } }],
             ['overlong item name', { v: 1, location: { name: 'X', equipment: [item({ name: 'y'.repeat(201) })] } }],
             ['>20 plate types', {
                 v: 1,
