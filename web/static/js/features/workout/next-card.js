@@ -208,15 +208,17 @@ async function _attachNextCardGymSwitch(card, actions) {
     }
     if (!card.isConnected || !state || state.locations.length === 0) return;
     if (card.querySelector('.wg-workouts-gym-switch')) return;
-    const control = eq.gymSwitch(document, state.locations, state.activeId, null);
-    control.classList.add('wg-workouts-next-card__gym');
-    const select = control.querySelector('select');
-    select.addEventListener('change', async () => {
-        const prev = state.activeId;
-        const ok = await eq.setActiveLocation(select.value === '' ? null : Number(select.value));
-        if (ok) state.activeId = select.value === '' ? null : Number(select.value);
-        else select.value = prev === null || prev === undefined ? '' : String(prev);
+    // A persistent setting, not a per-workout choice: the picker says so.
+    const control = eq.gymSwitch(document, state.locations, state.activeId, {
+        title: 'Where do you train?',
+        hint: 'Stays selected for every workout until you change it.',
+        onPick: async (id) => {
+            const ok = await eq.setActiveLocation(id);
+            if (ok) state.activeId = id;
+            return ok;
+        },
     });
+    control.classList.add('wg-workouts-next-card__gym');
     card.insertBefore(control, actions);
 }
 

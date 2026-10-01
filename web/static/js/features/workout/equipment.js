@@ -845,14 +845,22 @@ async function _writeWorkoutLocations(mutator, method, url, body, failMessage) {
     return true;
 }
 
-function _promptWorkoutLocationName(current) {
-    const raw = typeof window.prompt === 'function' ? window.prompt('Gym name', current || '') : null;
-    const name = raw == null ? '' : String(raw).trim();
+// The app's own name dialog (safePrompt), never the native prompt(): trimmed,
+// non-empty enforced inline. Resolves the name or null on cancel.
+async function _promptWorkoutLocationName(current) {
+    const name = await safePrompt('', {
+        title: current ? 'Rename gym' : 'New gym',
+        label: 'Gym name',
+        value: current || '',
+        placeholder: 'Home, Gym A…',
+        maxLength: 80,
+        emptyError: 'Give the gym a name.',
+    });
     return name || null;
 }
 
 async function addWorkoutLocation() {
-    const name = _promptWorkoutLocationName('');
+    const name = await _promptWorkoutLocationName('');
     if (!name) return false;
     return _writeWorkoutLocations(
         (list) => list.concat([{ id: `local_${Date.now()}`, name }]),
@@ -865,7 +873,7 @@ async function renameWorkoutLocation(id) {
         const state = await getWorkoutLocations();
         current = (state.locations.find((l) => String(l.id) === String(id)) || {}).name || '';
     } catch (_) { current = ''; }
-    const name = _promptWorkoutLocationName(current);
+    const name = await _promptWorkoutLocationName(current);
     if (!name || name === current) return false;
     return _writeWorkoutLocations(
         (list) => list.map((l) => (l && String(l.id) === String(id) ? { ...l, name } : l)),
@@ -879,48 +887,58 @@ async function deleteWorkoutLocation(id) {
         ok = await _writeWorkoutLocations(
             (list) => list.filter((l) => !l || String(l.id) !== String(id)),
             'DELETE', `${WORKOUT_LOCATIONS_URL}/${id}`, null, "Couldn't delete the gym — try again online.");
-    });
+    }, { title: 'Delete gym', confirmLabel: 'Delete' });
     return ok;
 }
 
-// buildWorkoutGymSwitch → "At: <select>" over the gyms plus a "No gym"
-// option (value ''), preselecting `selectedId`. `extra` ({ value, label }) adds
-// a disabled placeholder option, e.g. a session's deleted gym. Shared by the
-// next-workout card and the session header.
-function buildWorkoutGymSwitch(doc, locations, selectedId, extra) {
-    const wrap = doc.createElement('label');
-    wrap.className = 'wg-workouts-gym-switch';
+// buildWorkoutGymSwitch → an "At: <gym> ▾" chip that opens the app's own
+// picker (safeChoose, never a native <select>) over the gyms plus "No gym",
+// marking `selectedId`. opts: { extra, title, hint, onPick }. `extra`
+// ({ value, label }) is a disabled current entry, e.g. a session's deleted
+// gym. onPick(locationId|null) → Promise<boolean>; the chip relabels only on
+// true. Shared by the next-workout card and the session header.
+function buildWorkoutGymSwitch(doc, locations, selectedId, opts) {
+    const o = opts || {};
+    const live = selectedId !== null && selectedId !== undefined
+        && locations.some((l) => String(l.id) === String(selectedId));
+    let current = o.extra ? o.extra.value : (live ? String(selectedId) : '');
+    const choices = () => locations.map((l) => ({ value: String(l.id), label: l.name || `Gym ${l.id}` }))
+        .concat([{ value: '', label: 'No gym' }], o.extra ? [{ ...o.extra, disabled: true }] : [])
+        .map((c) => ({ ...c, selected: c.value === current }));
+
+    const chip = doc.createElement('button');
+    chip.type = 'button';
+    chip.className = 'wg-workouts-gym-switch';
+    chip.setAttribute('aria-haspopup', 'listbox');
     const prefix = doc.createElement('span');
     prefix.className = 'wg-workouts-gym-switch__prefix';
     prefix.textContent = 'At:';
-    const select = doc.createElement('select');
-    select.className = 'wg-workouts-gym-switch__select';
-    select.setAttribute('aria-label', 'Gym');
-    for (const loc of locations) {
-        const opt = doc.createElement('option');
-        opt.value = String(loc.id);
-        opt.textContent = loc.name || `Gym ${loc.id}`;
-        select.appendChild(opt);
-    }
-    const none = doc.createElement('option');
-    none.value = '';
-    none.textContent = 'No gym';
-    select.appendChild(none);
-    if (extra) {
-        const opt = doc.createElement('option');
-        opt.value = extra.value;
-        opt.textContent = extra.label;
-        opt.disabled = true;
-        opt.selected = true;
-        select.appendChild(opt);
-    } else {
-        const live = selectedId !== null && selectedId !== undefined
-            && locations.some((l) => String(l.id) === String(selectedId));
-        select.value = live ? String(selectedId) : '';
-    }
-    wrap.appendChild(prefix);
-    wrap.appendChild(select);
-    return wrap;
+    const name = doc.createElement('span');
+    name.className = 'wg-workouts-gym-switch__name';
+    const caret = doc.createElement('span');
+    caret.className = 'wg-workouts-gym-switch__caret';
+    caret.setAttribute('aria-hidden', 'true');
+    caret.textContent = '▾';
+    chip.appendChild(prefix);
+    chip.appendChild(name);
+    chip.appendChild(caret);
+    const relabel = () => {
+        const label = (choices().find((c) => c.value === current) || {}).label || 'No gym';
+        name.textContent = label;
+        chip.setAttribute('aria-label', `Gym: ${label}. Change`);
+    };
+    relabel();
+
+    chip.addEventListener('click', async () => {
+        const picked = await safeChoose(o.hint || '', choices(), { title: o.title || 'Gym' });
+        if (picked === null || picked === undefined || picked === current) return;
+        const ok = typeof o.onPick === 'function'
+            ? await o.onPick(picked === '' ? null : Number(picked)) : true;
+        if (!ok) return;
+        current = picked;
+        relabel();
+    });
+    return chip;
 }
 
 // setWorkoutActiveLocation switches the synced active gym (null = none).

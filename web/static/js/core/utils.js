@@ -48,11 +48,35 @@ function safeConfirm(msg, callback, opts) {
     });
 }
 
-// In-page confirm dialog used by safeConfirm. It renders non-blockingly
-// (unlike the synchronous native confirm()) and resolves via the
-// Confirm/Cancel buttons, the backdrop click, or the Escape key.
+// safePrompt — the in-page replacement for native prompt(): a text field in
+// the confirm modal shell. Resolves the trimmed value, or null on cancel. An
+// empty value shows opts.emptyError inline and keeps the dialog open.
+// opts: { title, label, value, placeholder, maxLength, confirmLabel,
+// cancelLabel, emptyError }.
+function safePrompt(msg, opts) {
+    return new Promise((resolve) => {
+        _mountConfirmModal(msg, resolve, { ...(opts || {}), input: true });
+    });
+}
+
+// safeChoose — the in-page replacement for a native <select>: a list of
+// tappable options in the confirm modal shell. choices: [{ value, label,
+// selected, disabled }]. Resolves the picked choice's value, or null on
+// cancel. opts: { title, cancelLabel }.
+function safeChoose(msg, choices, opts) {
+    return new Promise((resolve) => {
+        _mountConfirmModal(msg, resolve, { ...(opts || {}), choices: choices || [] });
+    });
+}
+
+// In-page dialog used by safeConfirm / safePrompt / safeChoose. It renders
+// non-blockingly (unlike the synchronous native dialogs) and resolves via
+// its buttons, the backdrop click, or the Escape key. Confirm mode settles
+// true/false; input and choices modes settle the value or null.
 function _mountConfirmModal(msg, onResult, opts = {}) {
     const doc = document;
+    const inputMode = opts.input === true;
+    const choiceMode = Array.isArray(opts.choices);
     const backdrop = doc.createElement('div');
     backdrop.className = 'mt-confirm-backdrop';
 
@@ -68,10 +92,12 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
 
     const body = doc.createElement('div');
     body.className = 'wg-modal__body';
-    const messageEl = doc.createElement('p');
-    messageEl.className = 'mt-confirm-modal__message';
-    messageEl.textContent = String(msg ?? '');
-    body.appendChild(messageEl);
+    if (!(inputMode || choiceMode) || msg) {
+        const messageEl = doc.createElement('p');
+        messageEl.className = 'mt-confirm-modal__message';
+        messageEl.textContent = String(msg ?? '');
+        body.appendChild(messageEl);
+    }
 
     const actions = doc.createElement('div');
     actions.className = 'wg-modal__actions';
@@ -79,19 +105,76 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
     cancelBtn.type = 'button';
     cancelBtn.className = 'wg-gloss mt-confirm-modal__cancel';
     cancelBtn.textContent = opts.cancelLabel || 'Cancel';
-    const confirmBtn = doc.createElement('button');
-    confirmBtn.type = 'button';
-    confirmBtn.className = 'wg-gloss wg-gloss--sun mt-confirm-modal__confirm';
-    confirmBtn.textContent = opts.confirmLabel || 'Confirm';
     actions.appendChild(cancelBtn);
-    actions.appendChild(confirmBtn);
+    let confirmBtn = null;
+    if (!choiceMode) {
+        confirmBtn = doc.createElement('button');
+        confirmBtn.type = 'button';
+        confirmBtn.className = 'wg-gloss wg-gloss--sun mt-confirm-modal__confirm';
+        confirmBtn.textContent = opts.confirmLabel || (inputMode ? 'Save' : 'Confirm');
+        actions.appendChild(confirmBtn);
+    }
 
+    let input = null;
+    let errorEl = null;
+    if (inputMode) {
+        const field = doc.createElement('label');
+        field.className = 'wg-field';
+        if (opts.label) {
+            const labelEl = doc.createElement('span');
+            labelEl.className = 'mt-confirm-modal__label';
+            labelEl.textContent = opts.label;
+            field.appendChild(labelEl);
+        }
+        input = doc.createElement('input');
+        input.type = 'text';
+        input.className = 'wg-input mt-confirm-modal__input';
+        input.autocomplete = 'off';
+        input.value = opts.value == null ? '' : String(opts.value);
+        if (opts.placeholder) input.placeholder = opts.placeholder;
+        if (opts.maxLength) input.maxLength = opts.maxLength;
+        field.appendChild(input);
+        errorEl = doc.createElement('p');
+        errorEl.className = 'mt-confirm-modal__error';
+        errorEl.setAttribute('role', 'alert');
+        errorEl.hidden = true;
+        field.appendChild(errorEl);
+        body.appendChild(field);
+    }
+    if (choiceMode) {
+        const list = doc.createElement('div');
+        list.className = 'mt-confirm-modal__choices';
+        list.setAttribute('role', 'listbox');
+        for (const choice of opts.choices) {
+            const btn = doc.createElement('button');
+            btn.type = 'button';
+            btn.className = 'wg-gloss mt-confirm-modal__choice';
+            btn.setAttribute('role', 'option');
+            btn.setAttribute('aria-selected', choice.selected ? 'true' : 'false');
+            if (choice.selected) btn.classList.add('mt-confirm-modal__choice--selected');
+            btn.disabled = !!choice.disabled;
+            btn.textContent = choice.label;
+            btn.addEventListener('click', () => settle(choice.value));
+            list.appendChild(btn);
+        }
+        body.appendChild(list);
+    }
+
+    // Input/choices dialogs keep their actions top-right so the mobile
+    // keyboard never covers them; a plain confirm keeps them below.
     modal.appendChild(header);
     modal.appendChild(body);
-    modal.appendChild(actions);
+    if (inputMode || choiceMode) {
+        actions.classList.add('mt-confirm-modal__header-actions');
+        header.appendChild(actions);
+    } else {
+        modal.appendChild(actions);
+    }
+
+    const cancelValue = inputMode || choiceMode ? null : false;
 
     let resolved = false;
-    function settle(ok) {
+    function settle(result) {
         if (resolved) return;
         resolved = true;
         doc.removeEventListener('keydown', onKeydown, true);
@@ -100,19 +183,41 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
         }
         if (modal.parentNode) modal.parentNode.removeChild(modal);
         if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
-        onResult(ok);
+        onResult(result);
+    }
+
+    function submit() {
+        if (!inputMode) { settle(true); return; }
+        const value = input.value.trim();
+        if (!value) {
+            errorEl.textContent = opts.emptyError || 'Please enter a value.';
+            errorEl.hidden = false;
+            input.setAttribute('aria-invalid', 'true');
+            try { input.focus(); } catch (_) { /* ignore */ }
+            return;
+        }
+        settle(value);
     }
 
     function onKeydown(e) {
         if (e.key === 'Escape') {
             e.preventDefault();
-            settle(false);
+            settle(cancelValue);
+        } else if (e.key === 'Enter' && inputMode && e.target === input) {
+            e.preventDefault();
+            submit();
         }
     }
 
-    cancelBtn.addEventListener('click', () => settle(false));
-    confirmBtn.addEventListener('click', () => settle(true));
-    backdrop.addEventListener('click', () => settle(false));
+    if (input) {
+        input.addEventListener('input', () => {
+            errorEl.hidden = true;
+            input.removeAttribute('aria-invalid');
+        });
+    }
+    cancelBtn.addEventListener('click', () => settle(cancelValue));
+    if (confirmBtn) confirmBtn.addEventListener('click', submit);
+    backdrop.addEventListener('click', () => settle(cancelValue));
     doc.addEventListener('keydown', onKeydown, true);
 
     doc.body.appendChild(backdrop);
@@ -120,7 +225,11 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
     if (typeof modal.open === 'function') {
         try { modal.open(); } catch (_) { /* ignore */ }
     }
-    try { confirmBtn.focus(); } catch (_) { /* ignore */ }
+    const focusEl = input
+        || (choiceMode ? modal.querySelector('.mt-confirm-modal__choice--selected') : null)
+        || confirmBtn || cancelBtn;
+    try { focusEl.focus(); } catch (_) { /* ignore */ }
+    if (input) { try { input.select(); } catch (_) { /* ignore */ } }
 }
 
 function formatDateTimeLocalForInput(dateValue = new Date()) {

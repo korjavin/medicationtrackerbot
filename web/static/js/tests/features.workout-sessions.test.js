@@ -2611,8 +2611,20 @@ describe('features/workout/sessions.js — session gym (med-8j5w.2)', () => {
     return auto ? auto.textContent : null;
   }
 
-  function gymSelect(document) {
-    return document.querySelector('#workout-session-modal-heading .wg-workouts-gym-switch select');
+  function gymChip(document) {
+    return document.querySelector('#workout-session-modal-heading .wg-workouts-gym-switch');
+  }
+
+  function gymLabel(document) {
+    return gymChip(document).querySelector('.wg-workouts-gym-switch__name').textContent;
+  }
+
+  // Opens the header chip's in-page picker and taps the option named `label`.
+  function pickGym(document, label) {
+    gymChip(document).click();
+    const option = Array.from(document.querySelectorAll('.mt-confirm-modal__choice'))
+      .find((o) => o.textContent === label);
+    option.click();
   }
 
   function remoteChange(window) {
@@ -2636,7 +2648,7 @@ describe('features/workout/sessions.js — session gym (med-8j5w.2)', () => {
   it('no gyms: no header gym control, chips as before', async () => {
     const { window, document } = env;
     await openGymSession(window, { locations: [], activeId: null, session: session() });
-    expect(gymSelect(document)).toBeNull();
+    expect(gymChip(document)).toBeNull();
     expect(autoLabel(document)).toBe('auto: Short bar');
   });
 
@@ -2645,13 +2657,11 @@ describe('features/workout/sessions.js — session gym (med-8j5w.2)', () => {
     const world = { locations: [GYM_A, HOME], activeId: HOME.id, session: session({ location_id: HOME.id, location_name: 'Home' }) };
     await openGymSession(window, world);
 
-    const select = gymSelect(document);
-    expect(select).not.toBeNull();
-    expect(select.value).toBe(String(HOME.id));
+    expect(gymChip(document)).not.toBeNull();
+    expect(gymLabel(document)).toBe('Home');
     expect(autoLabel(document)).toBe('auto: Short bar');
 
-    select.value = String(GYM_A.id);
-    select.dispatchEvent(new window.Event('change'));
+    pickGym(document, 'Gym A');
     await drain();
 
     expect(window.apiCall).toHaveBeenCalledWith('/api/workout/sessions/location?id=77', 'PUT',
@@ -2684,8 +2694,7 @@ describe('features/workout/sessions.js — session gym (med-8j5w.2)', () => {
     await drain();
 
     await vi.waitFor(() => expect(autoLabel(document)).toBe('auto: Short bar'));
-    const select = gymSelect(document);
-    expect(select.options[select.selectedIndex].textContent).toBe('Gym A (deleted)');
+    expect(gymLabel(document)).toBe('Gym A (deleted)');
   });
 
   it('our own (non-remote) workout writes do not rebuild the chips', async () => {
