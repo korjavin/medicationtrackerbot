@@ -812,8 +812,11 @@ describe('features/workout/exercises.js — split-file integration', () => {
       });
       expect(planSelectOf(document).value).toBe('');
       expect(planHintOf(document).hidden).toBe(true);
-      // Unknown name still offers the inventory for an explicit pick.
-      expect(Array.from(planSelectOf(document).options).map((o) => o.value)).toEqual(['', '50', '51']);
+      // Unknown name still offers the inventory for an explicit pick (the
+      // fill also reads the gyms, med-8j5w.2, so it lands a tick later).
+      await vi.waitFor(() => {
+        expect(Array.from(planSelectOf(document).options).map((o) => o.value)).toEqual(['', '50', '51']);
+      });
     });
 
     it('a hand-typed rename re-resolves the inherited label and keeps the override', async () => {

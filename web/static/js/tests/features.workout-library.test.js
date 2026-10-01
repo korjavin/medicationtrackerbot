@@ -793,6 +793,8 @@ describe('features/workout/library.js — split-file integration', () => {
       window.loadExerciseLibrary = vi.fn();
       const calls = [];
       window.apiCall = vi.fn(async (url, method, body) => {
+        // The select fill also reads the gyms (med-8j5w.2): not a write.
+        if (String(url).startsWith('/api/workout/locations')) return [];
         calls.push([url, body]);
         return { id: 7 };
       });
