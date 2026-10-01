@@ -285,12 +285,25 @@ const ModalManager = {
         return [...ModalManager.getSubModalDefs(), ...ModalManager.getTopModalDefs()];
     },
 
+    // The in-page dialog (safeConfirm/safePrompt/safeChoose, core/utils.js)
+    // mounts on <body>, outside #modal-overlay. These two predicates are the
+    // single answer to "is something modal open?" for modal-history.js and
+    // back-button.js (bd med-62lh).
+    isDialogOpen() {
+        return !!document.querySelector('mt-modal.mt-confirm-modal');
+    },
+
+    isAnyOpen() {
+        const overlay = document.getElementById('modal-overlay');
+        return (!!overlay && !overlay.classList.contains('hidden')) || ModalManager.isDialogOpen();
+    },
+
     closeTopMostVisibleModal() {
-        // An in-page dialog (safeConfirm/safePrompt/safeChoose, core/utils.js)
-        // sits above every registered modal: Back cancels it first.
-        const dialogCancel = document.querySelector('mt-modal.mt-confirm-modal .mt-confirm-modal__cancel');
-        if (dialogCancel) {
-            dialogCancel.click();
+        // The in-page dialog sits above every registered modal: Back cancels
+        // it first. The last-mounted one is the topmost.
+        const cancels = document.querySelectorAll('mt-modal.mt-confirm-modal .mt-confirm-modal__cancel');
+        if (cancels.length) {
+            cancels[cancels.length - 1].click();
             return true;
         }
         for (const modalDef of ModalManager.getClosePriorityModalDefs()) {

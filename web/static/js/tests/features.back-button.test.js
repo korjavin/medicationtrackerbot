@@ -28,6 +28,7 @@ const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const STORE_JS = path.join(REPO_ROOT, 'web/static/js/core/store.js');
 const MESSENGER_ADAPTER_JS = path.join(REPO_ROOT, 'web/static/js/core/messenger-adapter.js');
 const BACK_BUTTON_JS = path.join(REPO_ROOT, 'web/static/js/features/back-button.js');
+const MODAL_MANAGER_JS = path.join(REPO_ROOT, 'web/static/js/core/modal-manager.js');
 
 function createEnv() {
     const dom = new JSDOM(
@@ -50,6 +51,8 @@ function createEnv() {
     });
 
     window.eval(fs.readFileSync(STORE_JS, 'utf8'));
+    // Real ModalManager: back-button.js asks it whether a modal is open.
+    window.eval(fs.readFileSync(MODAL_MANAGER_JS, 'utf8'));
     // Load the messenger adapter so back-button.js can call
     // window.MessengerAdapter.{isBackButtonSupported,onBack,showBack,hideBack}
     // (the BrowserAdapter renders the in-app chevron observed below).
@@ -149,8 +152,7 @@ describe('features/back-button.js — BrowserAdapter back chevron for section na
     it('back handler closes top-most modal (via ModalManager) when one is open', () => {
         const { window, document, pressBack, cleanup } = createEnv();
         try {
-            const closeSpy = vi.fn();
-            window.ModalManager = { closeTopMostVisibleModal: closeSpy };
+            const closeSpy = vi.spyOn(window.ModalManager, 'closeTopMostVisibleModal').mockImplementation(() => true);
             window.AppBackButton.setup();
             window.switchTab('bp');
             document.getElementById('modal-overlay').classList.remove('hidden');
@@ -159,6 +161,32 @@ describe('features/back-button.js — BrowserAdapter back chevron for section na
             pressBack();
 
             expect(closeSpy).toHaveBeenCalled();
+            expect(window.switchTab).not.toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
+
+    // bd med-62lh: the in-page dialog mounts outside #modal-overlay but still
+    // counts as an open modal.
+    it('back handler cancels an in-page dialog instead of switching tabs', () => {
+        const { window, document, pressBack, cleanup } = createEnv();
+        try {
+            window.AppBackButton.setup();
+            window.switchTab('bp');
+            const dialog = document.createElement('mt-modal');
+            dialog.className = 'wg-modal mt-confirm-modal';
+            const cancel = document.createElement('button');
+            cancel.className = 'mt-confirm-modal__cancel';
+            const cancelSpy = vi.fn(() => dialog.remove());
+            cancel.addEventListener('click', cancelSpy);
+            dialog.appendChild(cancel);
+            document.body.appendChild(dialog);
+            window.switchTab.mockClear();
+
+            pressBack();
+
+            expect(cancelSpy).toHaveBeenCalledTimes(1);
             expect(window.switchTab).not.toHaveBeenCalled();
         } finally {
             cleanup();
