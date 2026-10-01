@@ -525,7 +525,7 @@ async function _maybeAttachBodyPartChip(headerRow, log) {
 //
 // Gear resolves once per session open and is cached on
 // window.WorkoutSessionsState.plateGear ({ sessionId, rowsById, libById,
-// inv, loadingFor, nearestLoads, equipmentForExercise, pickNearestLoad }
+// inv, location, loadingFor, nearestLoads, equipmentForExercise, pickNearestLoad }
 // or { sessionId, failed: true }); any fetch/import failure resolves to
 // failed so cards render exactly as today.
 
@@ -604,9 +604,15 @@ async function _buildSessionPlateGear(sessionData) {
         const pickNearestLoad = domain && domain.pickNearestLoad;
         if (typeof loadingFor !== 'function' || typeof nearestLoads !== 'function'
             || typeof equipmentForExercise !== 'function' || typeof pickNearestLoad !== 'function') return fail();
+        // med-8j5w.1: resolve at the session's stamped gym (an unstamped
+        // session: the active one), same rule as the domain's propagate.
+        const stamped = sessionData && Object.prototype.hasOwnProperty.call(sessionData, 'location_id')
+            ? sessionData.location_id : undefined;
+        const location = window.WorkoutEquipment && typeof window.WorkoutEquipment.locationScope === 'function'
+            ? await window.WorkoutEquipment.locationScope(stamped) : null;
         return {
             sessionId: sessionId, rowsById: rowsById, libById: libById,
-            inv: inv, loadingFor: loadingFor, nearestLoads: nearestLoads,
+            inv: inv, location: location, loadingFor: loadingFor, nearestLoads: nearestLoads,
             equipmentForExercise: equipmentForExercise, pickNearestLoad: pickNearestLoad
         };
     } catch (_) {
@@ -628,7 +634,7 @@ function _sessionEquipmentForLog(log, gear) {
         ? gear.libById[log.exercise_id]
         : (planRow ? gear.libById[planRow.exercise_library_id] : null);
     if (!planRow && !libRow) return null;
-    return gear.equipmentForExercise(planRow, libRow || null, gear.inv, Number(log.weight_kg));
+    return gear.equipmentForExercise(planRow, libRow || null, gear.inv, Number(log.weight_kg), gear.location || null);
 }
 
 // Plate/bar kg print at most 2dp (the domain grid); String() keeps integers

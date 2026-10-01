@@ -630,9 +630,32 @@ async function _deleteWorkoutEquipmentApi(id) {
     }
 }
 
+// med-8j5w.1: the gym scope the shared equipment rule resolves at —
+// { locationId, liveLocationIds } for the domain's equipmentForExercise /
+// inventoryAt. `stamped` is a session's own location_id when the caller has a
+// stamped session (null included); undefined = the active gym. Never throws:
+// no gyms or any failed read resolves to null (whole inventory, the
+// pre-locations rule).
+async function getWorkoutLocationScope(stamped) {
+    try {
+        const locs = await apiCall('/api/workout/locations', 'GET');
+        if (!Array.isArray(locs) || locs.length === 0) return null;
+        let locationId = stamped;
+        if (locationId === undefined) {
+            const active = await apiCall('/api/workout/locations/active', 'GET');
+            locationId = active && typeof active === 'object' && !Array.isArray(active)
+                && active.location_id !== undefined ? active.location_id : null;
+        }
+        return { locationId: locationId, liveLocationIds: locs.map((l) => l && l.id) };
+    } catch (_) {
+        return null;
+    }
+}
+
 window.WorkoutEquipment = {
     load: loadWorkoutEquipment,
     list: getWorkoutEquipmentList,
+    locationScope: getWorkoutLocationScope,
     save: saveWorkoutEquipmentItem,
     openAdd: showAddWorkoutEquipmentModal,
     openEdit: showEditWorkoutEquipmentModal,

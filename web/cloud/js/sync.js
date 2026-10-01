@@ -390,6 +390,11 @@ const RECORD_TAGS = {
   exerciselog: ['workout'],
   exerciselibrary: ['workout', 'exercise_library'],
   miband: ['workout', 'health'],
+  // med-8j5w.1: gear, gyms and the active-gym switch all feed the workout
+  // screens (equipment list, plate chips, progression snaps).
+  equipment: ['workout'],
+  location: ['workout'],
+  activelocation: ['workout'],
   settings: ['settings'],
   features: ['settings', 'feature_settings'],
   taborder: ['settings'],

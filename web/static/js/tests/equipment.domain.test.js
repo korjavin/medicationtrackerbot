@@ -7,6 +7,7 @@ import {
   createEquipmentDomain, achievableLoads, loadingFor, minStep, snapLoad,
   nearestLoads, equipmentIdForExercise, pickNearestLoad,
   implementForExerciseName, autoEquipmentForExercise, equipmentForExercise, implementOf,
+  inventoryAt,
 } from '../../../../web/domain/equipment.js';
 import {
   recordsToVault, vaultToRecords, VAULT_MANAGED_TYPES,
@@ -34,9 +35,9 @@ function memPort() {
   };
 }
 
-function domain() {
+function domain(records = memPort()) {
   let t = 1_000_000;
-  return createEquipmentDomain({ records: memPort(), now: () => (t += 1000) });
+  return createEquipmentDomain({ records, now: () => (t += 1000) });
 }
 
 const BARBELL = {
@@ -573,5 +574,108 @@ describe('equipment auto-match (med-x295)', () => {
     expect(equipmentForExercise({ exercise_name: 'barbell squat', equipment_id: 99 }, lib, inv, 60)).toBeNull();
     expect(equipmentForExercise({ exercise_name: 'barbell squat' }, { name: 'barbell squat', equipment_id: 99 }, inv, 60)).toBeNull();
     expect(equipmentForExercise({ exercise_name: 'push up' }, null, inv, 60)).toBeNull();
+  });
+});
+
+// med-8j5w.1 — workout locations (gyms): inventoryAt is the one location
+// filter; equipmentForExercise scopes explicit bindings and auto-match by it.
+describe('workout locations (med-8j5w.1)', () => {
+  const A = 1;
+  const B = 2;
+  const LIVE = [A, B];
+  const BAR_A = { id: 10, name: 'A bar', implement: 'barbell', loads_kg: [20, 22.5, 25], min_step_kg: 2.5, location_id: A };
+  const BAR_B = { id: 11, name: 'B bar', implement: 'barbell', loads_kg: [20, 60, 100], min_step_kg: 40, location_id: B };
+  const DBS = { id: 12, name: 'Travel DBs', implement: 'dumbbell', loads_kg: [10, 12], min_step_kg: 2 };
+  const GONE = { id: 13, name: 'Old gym bar', implement: 'barbell', loads_kg: [20, 40], min_step_kg: 20, location_id: 99 };
+  const INV = [BAR_A, BAR_B, DBS, GONE];
+  const names = (items) => items.map((e) => e.name).sort();
+
+  it('inventoryAt: the location plus portable and dangling-location gear', () => {
+    expect(names(inventoryAt(INV, A, LIVE))).toEqual(['A bar', 'Old gym bar', 'Travel DBs']);
+    expect(names(inventoryAt(INV, B, LIVE))).toEqual(['B bar', 'Old gym bar', 'Travel DBs']);
+  });
+
+  it('inventoryAt: no location, or a deleted one, is the whole inventory', () => {
+    expect(inventoryAt(INV, null, LIVE)).toBe(INV);
+    expect(inventoryAt(INV, 99, LIVE)).toBe(INV);
+    expect(inventoryAt(INV, A, [])).toBe(INV);
+  });
+
+  it('portable gear is visible at every location', () => {
+    for (const loc of [A, B, null]) expect(inventoryAt(INV, loc, LIVE)).toContain(DBS);
+  });
+
+  it('an explicit binding to gear at another location falls through to auto within the location', () => {
+    const ex = { exercise_name: 'Barbell squat', equipment_id: BAR_A.id };
+    expect(equipmentForExercise(ex, null, INV, 60, { locationId: A, liveLocationIds: LIVE }))
+      .toEqual({ item: BAR_A, auto: false });
+    expect(equipmentForExercise(ex, null, INV, 60, { locationId: B, liveLocationIds: LIVE }))
+      .toEqual({ item: BAR_B, auto: true });
+    // Without a location context the binding resolves exactly as before.
+    expect(equipmentForExercise(ex, null, INV, 60)).toEqual({ item: BAR_A, auto: false });
+  });
+
+  it('a deleted explicit binding stays unbound (no auto) at any location', () => {
+    const ex = { exercise_name: 'Barbell squat', equipment_id: 777 };
+    expect(equipmentForExercise(ex, null, INV, 60, { locationId: B, liveLocationIds: LIVE })).toBeNull();
+  });
+
+  it('location CRUD validates the name and lists by name', async () => {
+    const d = domain();
+    await expect(d.createLocation({ name: '   ' })).rejects.toThrow(/Name is required/);
+    await expect(d.createLocation({ name: 'x'.repeat(101) })).rejects.toThrow(/may not exceed/);
+    const z = await d.createLocation({ name: '  Zeta  ' });
+    await d.createLocation({ name: 'Alpha' });
+    expect(z.name).toBe('Zeta');
+    expect((await d.listLocations()).map((l) => l.name)).toEqual(['Alpha', 'Zeta']);
+    await d.updateLocation(z.id, { name: 'Home' });
+    expect((await d.getLocation(z.id)).name).toBe('Home');
+  });
+
+  it('equipment location_id: must exist on write; absent preserves, null clears', async () => {
+    const d = domain();
+    const gym = await d.createLocation({ name: 'Gym' });
+    await expect(d.createEquipment({ kind: 'fixed', name: 'KB', loads_kg: [16], location_id: 999 }))
+      .rejects.toThrow(/location_id/);
+    const kb = await d.createEquipment({ kind: 'fixed', name: 'KB', loads_kg: [16], location_id: gym.id });
+    expect(kb.location_id).toBe(gym.id);
+    await d.updateEquipment(kb.id, { kind: 'fixed', name: 'KB', loads_kg: [16, 24] });
+    expect((await d.getEquipment(kb.id)).location_id).toBe(gym.id);
+    await d.updateEquipment(kb.id, { kind: 'fixed', name: 'KB', loads_kg: [16], location_id: null });
+    expect('location_id' in (await d.getEquipment(kb.id))).toBe(false);
+  });
+
+  it('deleting a location writes nothing to equipment; its gear keeps the dangling id', async () => {
+    const records = memPort();
+    const writes = [];
+    const put = records.put.bind(records);
+    records.put = async (type, rec) => { writes.push(type); return put(type, rec); };
+    const d = domain(records);
+    const gym = await d.createLocation({ name: 'Gym' });
+    const kb = await d.createEquipment({ kind: 'fixed', name: 'KB', loads_kg: [16], location_id: gym.id });
+    await d.setActiveLocation(gym.id);
+    writes.length = 0;
+    await d.deleteLocation(gym.id);
+    expect(writes).toEqual([]);
+    expect((await d.getEquipment(kb.id)).location_id).toBe(gym.id);
+    // The active pointer at a deleted gym reads as null, with no cleanup write.
+    expect(await d.getActiveLocation()).toEqual({ location_id: null, location: null });
+    // Re-saving the item keeps the dangling id verbatim (no existence check).
+    await d.updateEquipment(kb.id, { kind: 'fixed', name: 'KB', loads_kg: [16], location_id: gym.id });
+    expect((await d.getEquipment(kb.id)).location_id).toBe(gym.id);
+  });
+
+  it('the active gym is its own singleton: null by default, live ids only', async () => {
+    const d = domain();
+    expect(await d.getActiveLocation()).toEqual({ location_id: null, location: null });
+    const gym = await d.createLocation({ name: 'Gym' });
+    expect((await d.setActiveLocation(gym.id)).location).toMatchObject({ id: gym.id, name: 'Gym' });
+    await expect(d.setActiveLocation(12345)).rejects.toThrow(/location_id/);
+    expect((await d.setActiveLocation(null)).location_id).toBe(null);
+  });
+
+  it('locations and the active gym are vault-managed', () => {
+    expect(VAULT_MANAGED_TYPES.has('location')).toBe(true);
+    expect(VAULT_MANAGED_TYPES.has('activelocation')).toBe(true);
   });
 });
