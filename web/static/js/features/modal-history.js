@@ -21,14 +21,14 @@
 (function initModalHistory() {
     let modalPushed = false;
     let poppingFromHistory = false;
-    // True when we've just triggered history.back() ourselves from
-    // onOverlayClosed() and the resulting popstate is purely an echo of that
-    // call. Without this, BrowserAdapter's section-back popstate listener
-    // would fire on top of the in-app modal close and bounce the user to
-    // Today.
-    // A counter, not a flag: a dialog settle and an overlay close in the same
-    // tick each call history.back() and each echo must be swallowed.
-    let swallowPopstates = 0;
+    // True when we've just called history.back() ourselves (onOverlayClosed
+    // or a dialog's removal) and the next popstate is purely its echo.
+    // Without this, BrowserAdapter's section-back popstate listener would
+    // fire on top of the in-app close and bounce the user to Today.
+    // ponytail: a flag, not a counter — two back() calls in one tick collapse
+    // into one traversal (jsdom, and likely browsers), so a counter would leak
+    // and swallow the user's next real Back. No caller does that today.
+    let swallowNextPopstate = false;
     let dialogPushed = false;
     function isDialogOpen() {
         return !!(window.ModalManager && window.ModalManager.isDialogOpen());
@@ -67,7 +67,7 @@
     function onOverlayClosed() {
         if (!modalPushed || poppingFromHistory) return;
         modalPushed = false;
-        swallowPopstates++;
+        swallowNextPopstate = true;
         history.back();
         reconcileBackButtonVisibility();
     }
@@ -81,15 +81,15 @@
             history.pushState({ modalDialog: true }, '');
         } else if (!open && dialogPushed) {
             dialogPushed = false;
-            swallowPopstates++;
+            swallowNextPopstate = true;
             history.back();
         }
     }
 
     // iOS edge-swipe (and desktop browser back)
     window.addEventListener('popstate', (event) => {
-        if (swallowPopstates > 0) {
-            swallowPopstates--;
+        if (swallowNextPopstate) {
+            swallowNextPopstate = false;
             // Stop the BrowserAdapter section-back listener from also firing
             // on this synthetic-from-history.back() popstate.
             if (event && typeof event.stopImmediatePropagation === 'function') {

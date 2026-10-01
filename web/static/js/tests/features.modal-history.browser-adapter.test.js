@@ -2,7 +2,7 @@
 // mode. When window.Telegram is absent, BrowserAdapter.onBack registers a
 // popstate listener that drives section-back (switchTab('today')). Closing a
 // modal via in-app Cancel/X fires onOverlayClosed → history.back() → popstate.
-// Without the swallowPopstates guard in modal-history.js, BrowserAdapter's
+// Without the swallowNextPopstate guard in modal-history.js, BrowserAdapter's
 // listener also fires and kicks the user off the current section.
 import { describe, it, expect, vi } from 'vitest';
 import fs from 'node:fs';
@@ -83,7 +83,7 @@ describe('modal-history.js in BrowserAdapter mode', () => {
             window.switchTab.mockClear();
 
             // User clicks Cancel/X — overlay becomes hidden → MutationObserver
-            // fires onOverlayClosed → swallowPopstates++, history.back()
+            // fires onOverlayClosed → swallowNextPopstate=true, history.back()
             // → popstate. With the guard, modal-history consumes the popstate
             // and stops propagation; BrowserAdapter's section-back listener
             // must NOT fire and switchTab('today') must NOT be called.
