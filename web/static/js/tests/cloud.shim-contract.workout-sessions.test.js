@@ -990,6 +990,125 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
         });
     });
 
+    // med-8j5w.1 — workout locations (gyms): the session stamps the active gym
+    // at its first performance and progression resolves gear at that gym.
+    describe('workout locations (med-8j5w.1)', () => {
+        // Gym A: a bar with fine plates (2.5-kg steps). Gym B: a bar with only
+        // 20s (rungs 20/60/100). Neither is bound — the name auto-matches.
+        async function twoGyms(window) {
+            const a = await window.apiCall('/api/workout/locations', 'POST', { name: 'Gym A' });
+            const b = await window.apiCall('/api/workout/locations', 'POST', { name: 'Gym B' });
+            await window.apiCall('/api/workout/equipment', 'POST', {
+                kind: 'plated', name: 'A bar', bar_kg: 20, sides: 2, location_id: a.id,
+                plates: [1.25, 2.5, 5, 10, 20].map((kg) => ({ kg, count: 2 })),
+            });
+            await window.apiCall('/api/workout/equipment', 'POST', {
+                kind: 'plated', name: 'B bar', bar_kg: 20, sides: 2, location_id: b.id,
+                plates: [{ kg: 20, count: 4 }],
+            });
+            return { a, b };
+        }
+        const setActive = (window, id) => window.apiCall('/api/workout/locations/active', 'PUT', { location_id: id });
+        const sessionOf = async (window, id) => (await window.apiCall(`/api/workout/sessions/details?id=${id}`)).session;
+
+        async function squatPlan(window) {
+            const { variants } = await makeRotatingGroup(window, ['Legs']);
+            const ex = await window.apiCall('/api/workout/exercises/create', 'POST', {
+                variant_id: variants[0].id, exercise_name: 'Barbell squat', target_sets: 3,
+                target_reps_min: 8, target_reps_max: 10, target_weight_kg: 60, order_index: 0,
+                progression_rule: { type: 'linear', increment_kg: 2.5 },
+            });
+            const sessionId = (await window.apiCallDirect('/api/workout/sessions/next')).session.id;
+            return { variants, ex, sessionId };
+        }
+
+        it('locations CRUD + the active-gym singleton round-trip through the shim', async () => {
+            const { window } = env;
+            const { a, b } = await twoGyms(window);
+            expect((await window.apiCallDirect('/api/workout/locations')).map((l) => l.name)).toEqual(['Gym A', 'Gym B']);
+            expect(await window.apiCallDirect('/api/workout/locations/active')).toEqual({ location_id: null, location: null });
+            expect((await setActive(window, b.id)).location_id).toBe(b.id);
+            await window.apiCall(`/api/workout/locations/${b.id}`, 'PUT', { name: 'Gym B2' });
+            expect((await window.apiCallDirect(`/api/workout/locations/${b.id}`)).name).toBe('Gym B2');
+            // Deleting the active gym: the pointer reads as null, its gear as portable.
+            await window.apiCall(`/api/workout/locations/${b.id}`, 'DELETE');
+            expect((await window.apiCallDirect('/api/workout/locations/active')).location_id).toBe(null);
+            const gear = await window.apiCallDirect('/api/workout/equipment');
+            expect(gear.find((e) => e.name === 'B bar').location_id).toBe(b.id);
+            await expect(setActive(window, b.id)).rejects.toThrow();
+            expect((await setActive(window, a.id)).location.name).toBe('Gym A');
+        });
+
+        it('a session started at gym B snaps progression to gym B rungs even after the active gym changes', async () => {
+            const { window } = env;
+            const { a, b } = await twoGyms(window);
+            const { variants, ex, sessionId } = await squatPlan(window);
+            await setActive(window, b.id);
+            await window.apiCall(`/api/workout/sessions/${sessionId}/start`, 'POST');
+            await setActive(window, a.id);
+
+            await logAllSets(window, sessionId, ex.id, 'Barbell squat', 10, 60, 3);
+            // Gym B builds 20/60/100: 60+2.5 snaps to 100 (gym A would give 62.5).
+            expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(100);
+            expect(await sessionOf(window, sessionId)).toMatchObject({ location_id: b.id, location_name: 'Gym B' });
+        });
+
+        it('Start twice / resume keeps the first stamp', async () => {
+            const { window } = env;
+            const { a, b } = await twoGyms(window);
+            const { sessionId } = await squatPlan(window);
+            await setActive(window, a.id);
+            await window.apiCall(`/api/workout/sessions/${sessionId}/start`, 'POST');
+            await setActive(window, b.id);
+            await window.apiCall(`/api/workout/sessions/${sessionId}/start`, 'POST');
+            expect((await sessionOf(window, sessionId)).location_id).toBe(a.id);
+        });
+
+        it('a materialized placeholder is unstamped; the first log stamps it', async () => {
+            const { window } = env;
+            const { a } = await twoGyms(window);
+            await setActive(window, a.id);
+            const { ex, sessionId } = await squatPlan(window);
+            expect('location_id' in (await sessionOf(window, sessionId))).toBe(false);
+            await logAllSets(window, sessionId, ex.id, 'Barbell squat', 10, 60, 3);
+            expect((await sessionOf(window, sessionId)).location_id).toBe(a.id);
+        });
+
+        it('completing an unstarted session stamps it', async () => {
+            const { window } = env;
+            const { b } = await twoGyms(window);
+            await setActive(window, b.id);
+            const { sessionId } = await squatPlan(window);
+            await window.apiCall(`/api/workout/sessions/status?id=${sessionId}`, 'PUT', { status: 'completed' });
+            expect((await sessionOf(window, sessionId)).location_id).toBe(b.id);
+        });
+
+        it('an ad-hoc session stamps at creation; the header switch changes it (null allowed)', async () => {
+            const { window } = env;
+            const { a, b } = await twoGyms(window);
+            await setActive(window, a.id);
+            const { session } = await window.apiCall('/api/workout/sessions/adhoc', 'POST');
+            expect(session).toMatchObject({ location_id: a.id, location_name: 'Gym A' });
+            const moved = await window.apiCall(`/api/workout/sessions/location?id=${session.id}`, 'PUT', { location_id: b.id });
+            expect(moved).toMatchObject({ location_id: b.id, location_name: 'Gym B' });
+            const cleared = await window.apiCall(`/api/workout/sessions/location?id=${session.id}`, 'PUT', { location_id: null });
+            expect(cleared).toMatchObject({ location_id: null, location_name: null });
+            await expect(window.apiCall(`/api/workout/sessions/location?id=${session.id}`, 'PUT', { location_id: 999 }))
+                .rejects.toThrow();
+        });
+
+        it('no gyms: progression resolves over the whole inventory exactly as before', async () => {
+            const { window } = env;
+            await window.apiCall('/api/workout/equipment', 'POST', {
+                kind: 'plated', name: 'Only bar', bar_kg: 20, sides: 2, plates: [{ kg: 20, count: 4 }],
+            });
+            const { variants, ex, sessionId } = await squatPlan(window);
+            await logAllSets(window, sessionId, ex.id, 'Barbell squat', 10, 60, 3);
+            expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(100);
+            expect((await sessionOf(window, sessionId)).location_id).toBe(null);
+        });
+    });
+
     // Code-review regression: progression must judge the per-set MINIMUM reps, not
     // the reps_completed scalar (which deriveSetScalars stores as the MAX). A flat
     // update that omits `sets` (e.g. a notes-only re-save) previously fell back to

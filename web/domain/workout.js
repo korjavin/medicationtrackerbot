@@ -39,6 +39,7 @@
 // module top-level.
 import {
   snapLoad, minStep, EQUIPMENT_RECORD_TYPE, equipmentIdForExercise, equipmentForExercise, toEquipmentResponse,
+  inventoryAt, liveLocations, activeLocation,
 } from './equipment.js';
 import { localDateParts, localWallToUtcMs } from './medschedule.js';
 import { formatHHMM } from './reminders.js';
@@ -286,7 +287,22 @@ function toSessionResponse(record) {
   if (record.notification_message_id) resp.notification_message_id = record.notification_message_id;
   if (record.notes) resp.notes = record.notes;
   if (record.exercise_snapshot) resp.exercise_snapshot = record.exercise_snapshot;
+  // med-8j5w.1: present (even null) once the session was stamped at its first
+  // performance; location_name is the snapshot that survives rename/delete.
+  if (isLocationStamped(record)) {
+    resp.location_id = record.location_id;
+    resp.location_name = record.location_name ?? null;
+  }
   return resp;
+}
+
+// Stamp contract (med-8j5w.1): the location_id KEY being present (even null)
+// means the session's gym was fixed at its first performance; absent means
+// unstamped. Stamped only on the first real performance (ad-hoc creation, the
+// actual target of the first Start, the first createLog, completion) and never
+// on materialized placeholders or future planned sessions.
+function isLocationStamped(session) {
+  return !!session && Object.prototype.hasOwnProperty.call(session, 'location_id');
 }
 
 function toRotationResponse(record) {
@@ -1000,19 +1016,38 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // { equipment: null, loads: null }, and progression behaves exactly as
   // without equipment. An auto pick carries auto: true; explicit bindings keep
   // the { id, name, min_step_kg } shape.
-  async function resolveEquipmentLoads(exercise, kg = exercise ? exercise.target_weight_kg : null) {
+  // `opts.kg` overrides the auto-match weight; `opts.locationId` is the gym to
+  // resolve at (med-8j5w.1) — undefined means the ACTIVE gym, null means no
+  // location (whole inventory). Propagate passes the session's stamped gym;
+  // preview/suggest resolve at the active one (the destination).
+  async function resolveEquipmentLoads(exercise, opts = {}) {
     if (!exercise) return { equipment: null, loads: null };
+    const kg = opts.kg !== undefined ? opts.kg : exercise.target_weight_kg;
     const libraryId = exercise.exercise_library_id;
     const lib = hasValue(libraryId)
       ? await findByNumericId(records, WORKOUT_RECORD_TYPES.LIBRARY, libraryId)
       : null;
-    // An explicit binding reads only its own record (exactly the pre-auto
-    // path), so an unrelated malformed vault record can never break it.
+    const locations = await liveLocations(records);
+    let locationId = opts.locationId;
+    if (locationId === undefined) {
+      const active = await activeLocation(records, locations);
+      locationId = active ? active.id : null;
+    }
+    const location = { locationId, liveLocationIds: locations.map((l) => l.id) };
+    // An explicit binding available at the location reads only its own record
+    // (exactly the pre-auto path), so an unrelated malformed vault record can
+    // never break it. Only an off-location binding falls through to the
+    // location's auto-match candidates.
     const explicitId = equipmentIdForExercise(exercise, lib);
-    const inventory = (await records.list(EQUIPMENT_RECORD_TYPE))
-      .filter((r) => !r.deleted && (explicitId === null || r.id === explicitId))
-      .map(toEquipmentResponse);
-    const hit = equipmentForExercise(exercise, lib, inventory, kg);
+    const raw = (await records.list(EQUIPMENT_RECORD_TYPE)).filter((r) => !r.deleted);
+    const scoped = inventoryAt(raw, location.locationId, location.liveLocationIds);
+    let picked = scoped;
+    if (explicitId !== null) {
+      const bound = raw.find((r) => r.id === explicitId);
+      picked = !bound || scoped.includes(bound) ? (bound ? [bound] : []) : [bound, ...scoped];
+    }
+    const inventory = picked.map(toEquipmentResponse);
+    const hit = equipmentForExercise(exercise, lib, inventory, kg, location);
     if (!hit) return { equipment: null, loads: null };
     const loads = hit.item.loads_kg;
     if (!Array.isArray(loads) || loads.length === 0) return { equipment: null, loads: null };
@@ -1407,6 +1442,44 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     return findByNumericId(records, WORKOUT_RECORD_TYPES.SESSION, id);
   }
 
+  // locationStamp is the active gym as session fields; {} when the session is
+  // already stamped (a resume / repeated Start must never move the gym).
+  async function locationStamp(session) {
+    if (isLocationStamped(session)) return {};
+    const loc = await activeLocation(records);
+    return { location_id: loc ? loc.id : null, location_name: loc ? loc.name : null };
+  }
+
+  // stampSessionLocation writes the stamp onto an unstamped session (a real
+  // user write: wall-clock clientTs). Returns the session as stored.
+  async function stampSessionLocation(session) {
+    const stamp = await locationStamp(session);
+    if (!('location_id' in stamp)) return session;
+    const updated = { ...session, ...stamp, clientTs: now() };
+    await records.put(WORKOUT_RECORD_TYPES.SESSION, updated);
+    return updated;
+  }
+
+  // setSessionLocation is the explicit session-header switch: changes the gym
+  // future resolutions for this session use (no retroactive re-propagation).
+  // null = no location; any other id must name a live location. Returns the
+  // session response, or null when the session does not exist.
+  async function setSessionLocation(id, locationId) {
+    const session = await findSession(id);
+    if (!session) return null;
+    let loc = null;
+    if (locationId !== null && locationId !== undefined) {
+      const n = Number(locationId);
+      loc = Number.isInteger(n) && n > 0 ? (await liveLocations(records)).find((l) => l.id === n) : null;
+      if (!loc) throw invalidRequest('location_id does not name a location');
+    }
+    const updated = {
+      ...session, location_id: loc ? loc.id : null, location_name: loc ? loc.name : null, clientTs: now(),
+    };
+    await records.put(WORKOUT_RECORD_TYPES.SESSION, updated);
+    return toSessionResponse(updated);
+  }
+
   async function countSessionExerciseLogs(sessionId) {
     const logs = await activeRecords(WORKOUT_RECORD_TYPES.LOG);
     return logs.filter((l) => l.session_id === sessionId).length;
@@ -1443,7 +1516,9 @@ export function createWorkoutDomain({ records, now, timeZone }) {
           && localDateStr(new Date(s.scheduled_date).getTime(), timeZone) === todayStr)
         .sort((a, b) => (a.scheduled_time < b.scheduled_time ? -1 : a.scheduled_time > b.scheduled_time ? 1 : 0));
       if (activeToday.length > 0) {
-        return toSessionResponse(activeToday[0]);
+        // Adopting a running session is a resume: a stamped one keeps its gym;
+        // only a legacy unstamped one gets stamped now.
+        return toSessionResponse(await stampSessionLocation(activeToday[0]));
       }
     }
     const record = {
@@ -1463,6 +1538,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       snooze_count: 0,
       notification_message_id: null,
       notes: notes || '',
+      ...(await locationStamp(null)),
     };
     await records.put(WORKOUT_RECORD_TYPES.SESSION, record);
     return toSessionResponse(record);
@@ -1626,6 +1702,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     }
     await records.put(WORKOUT_RECORD_TYPES.SESSION, {
       ...target,
+      ...(await locationStamp(target)),
       status: 'in_progress',
       started_at: new Date(nowMs).toISOString(),
       snoozed_until: null,
@@ -1763,7 +1840,11 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     if (session.status === 'completed') return;
     const nowMs = now();
     const updated = {
-      ...session, status: 'completed', completed_at: new Date(nowMs).toISOString(), clientTs: nowMs,
+      ...session,
+      ...(await locationStamp(session)),
+      status: 'completed',
+      completed_at: new Date(nowMs).toISOString(),
+      clientTs: nowMs,
     };
     // Snapshot the planned exercises + targets so later edits to the variant,
     // library, or targets don't retroactively rewrite this completed session.
@@ -1873,7 +1954,11 @@ export function createWorkoutDomain({ records, now, timeZone }) {
 
     if (status === 'skipped') await skipSession(id);
     else if (status === 'completed') await completeSession(id);
-    else await records.put(WORKOUT_RECORD_TYPES.SESSION, { ...session, status, clientTs: now() });
+    else {
+      // Moving a session into in_progress is a Start: stamp it if unstamped.
+      const stamp = status === 'in_progress' ? await locationStamp(session) : {};
+      await records.put(WORKOUT_RECORD_TYPES.SESSION, { ...session, ...stamp, status, clientTs: now() });
+    }
 
     return { session, terminal: status === 'skipped' || status === 'completed' };
   }
@@ -1980,7 +2065,9 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     // The bound equipment's rungs resolve once here, never per set; only the
     // patch half of the result is written back — the snap detail is a
     // preview/suggest explanation, not plan state.
-    const bound = await resolveEquipmentLoads(exercise);
+    // The session's stamped gym (unstamped legacy session: the active one).
+    const bound = await resolveEquipmentLoads(exercise,
+      { locationId: isLocationStamped(session) ? session.location_id : undefined });
     const { patch } = progressionPatch(exercise, sets, reps, weight, perSet, await effectiveGoal(exercise), bound.loads);
     await records.put(WORKOUT_RECORD_TYPES.EXERCISE, {
       ...exercise,
@@ -2012,7 +2099,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       throw invalidRequest("source must be 'schedule' or 'library'");
     }
 
-    const session = await findSession(sessionId);
+    let session = await findSession(sessionId);
     if (!session) throw invalidRequest('Session not found', 'not_found');
 
     if (exerciseId > 0) {
@@ -2050,6 +2137,13 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     };
     if (perSet) record.sets = perSet;
     await records.put(WORKOUT_RECORD_TYPES.LOG, record);
+
+    // The first log on an unstamped session is its first performance: stamp
+    // the gym BEFORE propagate reads it. A finished session (adding a log to
+    // history) is not performed now, so it is left alone.
+    if (session.status !== 'completed' && session.status !== 'skipped') {
+      session = await stampSessionLocation(session);
+    }
 
     if (source !== 'library') {
       const propagateSets = effSets === 0 ? null : effSets;
@@ -3118,7 +3212,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     }
     // A library log carries no plan target: auto-match on the logged weight.
     const bound = await resolveEquipmentLoads(exercise,
-      exercise && hasValue(exercise.target_weight_kg) ? exercise.target_weight_kg : latest.weight_kg);
+      { kg: exercise && hasValue(exercise.target_weight_kg) ? exercise.target_weight_kg : latest.weight_kg });
     const { patch, snap } = progressionPatch(plan, sets, reps, latest.weight_kg, latest.sets, goal, bound.loads);
     const lastWeight = hasValue(latest.weight_kg) && latest.weight_kg > 0 ? latest.weight_kg : null;
     // {} means the rule held the plan with no anchor to hold it at; fall back to
@@ -3325,6 +3419,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     cancelPreSkipSession,
     deleteSession,
     setSessionStatus,
+    setSessionLocation,
     nextVariant,
     createLog,
     updateLog,

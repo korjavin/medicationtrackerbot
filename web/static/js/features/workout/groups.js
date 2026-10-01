@@ -1017,6 +1017,10 @@ async function printWorkoutPlan(group) {
             for (const r of lib) {
                 if (r && r.id !== null && r.id !== undefined) libById[r.id] = r;
             }
+            // med-8j5w.1: the sheet is for the next visit — resolve at the
+            // active gym (null scope = whole inventory).
+            const location = window.WorkoutEquipment && typeof window.WorkoutEquipment.locationScope === 'function'
+                ? await window.WorkoutEquipment.locationScope() : null;
             loadingByExerciseId = {};
             for (const d of days) {
                 for (const ex of (d.exercises || [])) {
@@ -1026,7 +1030,7 @@ async function printWorkoutPlan(group) {
                     const row = libById[ex.exercise_library_id] || null;
                     // Explicit binding (row, else library) wins; unbound rows
                     // auto-match the inventory by implement + weight (med-x295).
-                    const hit = equipmentForExercise(ex, row, inv, w);
+                    const hit = equipmentForExercise(ex, row, inv, w, location);
                     if (!hit) continue;
                     const eq = hit.item;
                     if (eq.kind === 'plated') {

@@ -389,8 +389,13 @@ async function _relabelPlanAutoEquipment(list, ticket) {
         try {
             const domain = await window.WorkoutGroups.loadEquipmentDomain();
             if (domain && typeof domain.autoEquipmentForExercise === 'function') {
+                // med-8j5w.1: auto-match only gear available at the active gym.
+                const location = window.WorkoutEquipment && typeof window.WorkoutEquipment.locationScope === 'function'
+                    ? await window.WorkoutEquipment.locationScope() : null;
+                const scoped = location && typeof domain.inventoryAt === 'function'
+                    ? domain.inventoryAt(list, location.locationId, location.liveLocationIds) : list;
                 item = domain.autoEquipmentForExercise(
-                    nameEl ? nameEl.value : '', list, weightEl ? parseFloat(weightEl.value) : NaN) || null;
+                    nameEl ? nameEl.value : '', scoped, weightEl ? parseFloat(weightEl.value) : NaN) || null;
             }
         } catch (_) { item = null; }
     }

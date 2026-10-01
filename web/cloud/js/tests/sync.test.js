@@ -379,6 +379,17 @@ describe('non-UI writes repaint the open tab (med-d5t.10)', () => {
     expect(ds.requestTabRefresh).toHaveBeenCalledWith(['bp'], 'cloud-write');
   });
 
+  // med-8j5w.1: equipment had no tag row, so a remote gear edit never refreshed
+  // the workout UI; gyms and the active-gym switch ride the same tag.
+  it.each(['equipment', 'location', 'activelocation'])('a remote %s write repaints the workout screens', async (type) => {
+    stubDataStore();
+    stubSync();
+
+    await writeRecord(ctx, type, { recordId: `${type}-1`, clientTs: 1, deleted: false });
+
+    expect(ds.requestTabRefresh).toHaveBeenCalledWith(['workout'], 'cloud-write');
+  });
+
   // med-dvr: the original guard here was hasAnyPendingOptimistic(), which is only
   // ever true for writes that go through DataStore.applyOptimistic. Settings
   // writes do not — toggleFeatureSetting POSTs straight through apiCall — so the
