@@ -73,6 +73,8 @@
     }
 
     function onBodyChildrenChanged() {
+        // A closing window tears <body> down after its document is gone.
+        if (!window.document) return;
         const open = isDialogOpen();
         if (open && !dialogPushed) {
             dialogPushed = true;

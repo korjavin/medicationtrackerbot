@@ -143,10 +143,9 @@ describe('modal-history.js in BrowserAdapter mode', () => {
             try {
                 window.AppStore.set('currentTab', 'today');
                 await settleHistory();
-                const startLength = window.history.length;
                 const pending = window.safePrompt('Name?');
                 await flush();
-                expect(window.history.length).toBe(startLength + 1);
+                expect(window.history.state).toEqual({ modalDialog: true });
                 window.switchTab.mockClear();
 
                 window.history.back();
