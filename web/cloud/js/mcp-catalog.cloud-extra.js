@@ -544,7 +544,7 @@ export const CLOUD_EXTRA = [
     method: 'GET',
     path: '/api/workout/locations/active',
     risk: 'read',
-    description: 'Read the active gym (synced across devices). A session is stamped with it at its first performed set (later switches do not move a stamped session), and progression preview/suggest snaps to its gear plus portable items.',
+    description: 'Read the active gym (synced across devices). A session is stamped with it when it starts (or at its first logged set if it was never started) and later switches do not move a stamped session, and progression preview/suggest snaps to its gear plus portable items.',
     response_summary: ACTIVE_LOCATION_SUMMARY,
     params_schema: { type: 'object', properties: {} },
     response_example: { location_id: 1, location: LOCATION_EXAMPLE },
@@ -555,7 +555,7 @@ export const CLOUD_EXTRA = [
     method: 'PUT',
     path: '/api/workout/locations/active',
     risk: 'write',
-    description: 'Switch the active gym. Sessions already stamped with a gym keep it; unstamped ones pick up the new gym at their first performed set. location_id must name a live gym from workouts.locations.list; null clears it (no gym: the whole inventory applies).',
+    description: 'Switch the active gym. Started (stamped) sessions keep their gym; sessions not yet started pick up the new gym when they start. location_id must name a live gym from workouts.locations.list; null clears it (no gym: the whole inventory applies).',
     response_summary: `${ACTIVE_LOCATION_SUMMARY} Reflects the new state.`,
     required: ['location_id'],
     body_schema: {
