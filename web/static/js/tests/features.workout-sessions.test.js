@@ -2670,6 +2670,25 @@ describe('features/workout/sessions.js — session gym (med-8j5w.2)', () => {
     await vi.waitFor(() => expect(autoLabel(document)).toBe('auto: Olympic bar'));
   });
 
+  it('Back with the gym picker open cancels the picker, not the session', async () => {
+    const { window, document } = env;
+    const world = { locations: [GYM_A, HOME], activeId: HOME.id, session: session({ location_id: HOME.id, location_name: 'Home' }) };
+    await openGymSession(window, world);
+    const sessionModal = document.getElementById('workout-session-modal');
+    expect(sessionModal.classList.contains('hidden')).toBe(false);
+
+    gymChip(document).click();
+    expect(document.querySelector('mt-modal.mt-confirm-modal')).not.toBeNull();
+    expect(window.ModalManager.closeTopMostVisibleModal()).toBe(true);
+    await drain();
+
+    expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
+    expect(sessionModal.classList.contains('hidden')).toBe(false);
+    expect(gymLabel(document)).toBe('Home');
+    expect(window.apiCall).not.toHaveBeenCalledWith('/api/workout/sessions/location?id=77', 'PUT',
+      expect.anything(), expect.anything());
+  });
+
   it('a remote active-gym switch while an unstamped session is open re-renders the chips', async () => {
     const { window, document } = env;
     const world = { locations: [GYM_A, HOME], activeId: HOME.id, session: session() };

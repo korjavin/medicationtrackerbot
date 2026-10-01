@@ -203,7 +203,7 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
         if (e.key === 'Escape') {
             e.preventDefault();
             settle(cancelValue);
-        } else if (e.key === 'Enter' && inputMode && e.target === input) {
+        } else if (e.key === 'Enter' && inputMode && e.target === input && !e.isComposing) {
             e.preventDefault();
             submit();
         }

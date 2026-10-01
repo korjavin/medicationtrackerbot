@@ -286,6 +286,13 @@ const ModalManager = {
     },
 
     closeTopMostVisibleModal() {
+        // An in-page dialog (safeConfirm/safePrompt/safeChoose, core/utils.js)
+        // sits above every registered modal: Back cancels it first.
+        const dialogCancel = document.querySelector('mt-modal.mt-confirm-modal .mt-confirm-modal__cancel');
+        if (dialogCancel) {
+            dialogCancel.click();
+            return true;
+        }
         for (const modalDef of ModalManager.getClosePriorityModalDefs()) {
             const modal = document.getElementById(modalDef.id);
             if (modal && !modal.classList.contains('hidden')) {
