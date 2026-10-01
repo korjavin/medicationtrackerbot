@@ -118,7 +118,7 @@ window.MedTrackerCloudReady = (async function boot() {
     // along to /unlock so the unlock shell can hand it back to /. Only this
     // fragment forwards — anything else (notably #claim=, which has its own
     // branch above) must not, or the claim redirect ping-pongs.
-    const sharePlanHash = /^#share-plan=/.test(location.hash) ? location.hash : '';
+    const sharePlanHash = /^#share-(?:plan|gym)=/.test(location.hash) ? location.hash : '';
     // --- Warm-unlock decision. This is the ONLY block allowed to redirect to
     // /unlock, and only on "there is no usable local key" — no cached LDK record
     // (warmUnlock → null) or the read itself failing. Everything that decides

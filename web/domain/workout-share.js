@@ -18,6 +18,8 @@
 // Dropped on purpose: every id, user_id, created_at/updated_at, active,
 // notification_advance_minutes, exercise_library_id.
 
+import { validateEquipmentInput, MAX_LOCATION_NAME } from './equipment.js';
+
 export const SHARE_FORMAT_VERSION = 1;
 
 // Trust boundary: the payload is an untrusted token from a stranger's QR.
@@ -144,6 +146,9 @@ function validateSharePayload(payload) {
   }
   if (payload.v !== SHARE_FORMAT_VERSION) throw invalid('Unsupported share version', 400);
   const plan = payload.plan;
+  if ((plan === undefined || plan === null) && payload.location) {
+    throw invalid("That's a gym share, not a workout plan — import it from Workouts → Equipment.", 400);
+  }
   if (!plan || typeof plan !== 'object' || Array.isArray(plan)) {
     throw invalid('Share payload is missing plan', 400);
   }
@@ -231,7 +236,73 @@ function validateSharePayload(payload) {
   };
 }
 
-export function createWorkoutShareDomain({ workoutDomain }) {
+// --- Share a gym (med-8j5w.3) ---------------------------------------------
+// Wire shape (v1, names not ids): { v:1, location:{ name, equipment:[ { name,
+// kind, implement?, loads_kg (fixed) | bar_kg, sides, pair, plates (plated) }
+// ] } }. Dropped on purpose: every id, location_id, user_id, timestamp, and
+// the computed min_step_kg/max_kg (plated loads_kg too — the recipient
+// recomputes them from bar + plates).
+// ponytail: 50 items covers any real gym; raise if a real inventory hits it.
+const MAX_SHARE_EQUIPMENT = 50;
+
+// validateLocationSharePayload validates the WHOLE untrusted gym payload —
+// location name plus every item through the same validateEquipmentInput the
+// writers use — so importLocation can promise zero writes on a bad token.
+function validateLocationSharePayload(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw invalid('Share payload is required', 400);
+  }
+  if (payload.v !== SHARE_FORMAT_VERSION) throw invalid('Unsupported share version', 400);
+  const loc = payload.location;
+  if ((loc === undefined || loc === null) && payload.plan) {
+    throw invalid("That's a workout plan share, not a gym — import it from Workouts → Plans.", 400);
+  }
+  if (!loc || typeof loc !== 'object' || Array.isArray(loc)) {
+    throw invalid('Share payload is missing location', 400);
+  }
+  const name = checkName(loc.name, 'location.name');
+  if (name.length > MAX_LOCATION_NAME) throw invalid('location.name is too long', 400);
+  const items = loc.equipment === undefined || loc.equipment === null ? [] : loc.equipment;
+  if (!Array.isArray(items)) throw invalid('location.equipment must be an array', 400);
+  if (items.length > MAX_SHARE_EQUIPMENT) {
+    throw invalid(`location may not exceed ${MAX_SHARE_EQUIPMENT} equipment items`, 400);
+  }
+  const equipment = items.map((item, i) => {
+    const what = `location.equipment[${i}]`;
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw invalid(`${what} must be an object`, 400);
+    }
+    checkName(item.name, `${what}.name`);
+    // Whitelist the wire keys: a hostile location_id must never reach the
+    // writer (the importer binds every item to the NEW location itself).
+    const input = {
+      name: item.name, kind: item.kind, implement: item.implement,
+      loads_kg: item.loads_kg, bar_kg: item.bar_kg, sides: item.sides, pair: item.pair, plates: item.plates,
+    };
+    try {
+      return validateEquipmentInput(input);
+    } catch (e) {
+      throw invalid(`${what}: ${e.message}`, 400);
+    }
+  });
+  return { name, equipment };
+}
+
+function shareEquipmentItem(item) {
+  const out = { name: item.name, kind: item.kind };
+  if (item.implement) out.implement = item.implement;
+  if (item.kind === 'plated') {
+    out.bar_kg = item.bar_kg;
+    out.sides = item.sides;
+    out.pair = !!item.pair;
+    out.plates = (item.plates || []).map((p) => ({ kg: p.kg, count: p.count }));
+  } else {
+    out.loads_kg = item.loads_kg;
+  }
+  return out;
+}
+
+export function createWorkoutShareDomain({ workoutDomain, equipmentDomain }) {
   // exportPlan(groupId) → { v, plan }. Group by numeric id (404 when
   // unknown); variants in listVariants order, exercises in listExercises order
   // (already resolving the canonical library name on read — use that name).
@@ -385,5 +456,31 @@ export function createWorkoutShareDomain({ workoutDomain }) {
     };
   }
 
-  return { exportPlan, importPlan };
+  // exportLocation(id) → { v, location:{ name, equipment } }: the gym plus
+  // the items bound to it (portable gear is the sender's, not the gym's).
+  async function exportLocation(locationId) {
+    const id = Math.trunc(Number(locationId));
+    if (!Number.isFinite(id) || id <= 0) throw notFound('Location not found');
+    const loc = await equipmentDomain.getLocation(id);
+    if (!loc) throw notFound('Location not found');
+    const equipment = (await equipmentDomain.listEquipment())
+      .filter((item) => item.location_id !== undefined && String(item.location_id) === String(id))
+      .map(shareEquipmentItem);
+    return { v: SHARE_FORMAT_VERSION, location: { name: loc.name, equipment } };
+  }
+
+  // importLocation(payload) → { id, name, equipment }. ALWAYS a NEW location
+  // (no merge; a duplicate name is allowed), every item bound to it. The whole
+  // payload is validated first, so a bad token writes nothing; a storage
+  // failure mid-import is not rolled back.
+  async function importLocation(payload) {
+    const clean = validateLocationSharePayload(payload);
+    const loc = await equipmentDomain.createLocation({ name: clean.name });
+    for (const item of clean.equipment) {
+      await equipmentDomain.createEquipment({ ...item, location_id: loc.id });
+    }
+    return { id: loc.id, name: loc.name, equipment: clean.equipment.length };
+  }
+
+  return { exportPlan, importPlan, exportLocation, importLocation };
 }

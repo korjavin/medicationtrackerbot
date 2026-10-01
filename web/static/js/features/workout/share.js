@@ -16,6 +16,11 @@
 // window.BackupCrypto. Long link: ${location.origin}/#share-plan=<token>.
 // Short link: <baseDomain>/s/<id>#<base64url(K)>.
 //
+// Gyms (med-8j5w.3) ride the same machinery: 'g1.' + the same encoding of
+// the /api/workout/locations/<id>/export payload ({ v:1, location:{...} }),
+// long link #share-gym=<token>. The prefix decides the kind and the decoded
+// payload must match it (p1 ⇒ .plan, g1 ⇒ .location) — receive() routes by it.
+//
 // Classic-script conventions (same as scan.js): namespace object, no
 // top-level let — see architecture.no-module-state.
 
@@ -27,6 +32,12 @@
 // '/#share-plan=' eats into the budget — a ~1150-char token on a long
 // subdomain already hides it. A short link is ~65 chars and always passes.)
 const SHARE_QR_MAX_CHARS = 1200;
+const SHARE_PLAN_PREFIX = 'p1.';
+const SHARE_GYM_PREFIX = 'g1.';
+// Cap on the INFLATED token JSON (gunzip stops at it): the token-length cap
+// below bounds the compressed side only, and DEFLATE inflates ~1000x. A
+// 30-day plan is ~100 KB of JSON; 1 MB matches share-landing.js.
+const SHARE_MAX_JSON_BYTES = 1024 * 1024;
 
 // base64url without a dependency: btoa/atob with the -_ swap and padding
 // stripped on encode, restored on decode.
@@ -45,34 +56,45 @@ function shareTokenB64Decode(text) {
     return out;
 }
 
-// encodeShareToken(payload) → 'p1.<base64url>'. The payload is the export
-// route's response verbatim ({ v:1, plan:{...} }) so the receive side can
-// hand it straight to the import route.
+function isShareToken(token) {
+    return token.startsWith(SHARE_PLAN_PREFIX) || token.startsWith(SHARE_GYM_PREFIX);
+}
+
+// encodeShareToken(payload) → 'p1.<base64url>' for a plan, 'g1.<base64url>'
+// for a gym. The payload is the export route's response verbatim ({ v:1,
+// plan|location:{...} }) so the receive side can hand it straight to the
+// import route.
 async function encodeShareToken(payload) {
     const gz = await window.BackupCrypto.gzipString(JSON.stringify(payload));
-    return 'p1.' + shareTokenB64Encode(gz);
+    const prefix = payload && payload.location ? SHARE_GYM_PREFIX : SHARE_PLAN_PREFIX;
+    return prefix + shareTokenB64Encode(gz);
 }
 
 // decodeShareToken(text) → payload or null, never throws. Host-agnostic:
 // accepts a bare token, a full URL, or any string containing
-// #share-plan=<token> (whatever the camera/clipboard delivers). A QR from
-// another app degrades to null ("not a plan link"), not an exception.
+// #share-plan=<token> / #share-gym=<token> (whatever the camera/clipboard
+// delivers). A QR from another app degrades to null ("not a plan link"), not
+// an exception; so does a payload whose kind disagrees with its prefix.
 async function decodeShareToken(text) {
     try {
         const raw = String(text === null || text === undefined ? '' : text);
-        const m = /#share-plan=([A-Za-z0-9\-_.~]+)/.exec(raw);
+        const m = /#share-(?:plan|gym)=([A-Za-z0-9\-_.~]+)/.exec(raw);
         const token = m ? m[1] : raw.trim();
-        if (!token.startsWith('p1.')) return null;
+        if (!isShareToken(token)) return null;
         const bytes = shareTokenB64Decode(token.slice(3));
-        const json = await window.BackupCrypto.gunzipToString(bytes);
-        return JSON.parse(json);
+        const json = await window.BackupCrypto.gunzipToString(bytes, SHARE_MAX_JSON_BYTES);
+        const payload = JSON.parse(json);
+        const key = token.startsWith(SHARE_GYM_PREFIX) ? 'location' : 'plan';
+        if (!payload || typeof payload !== 'object' || !payload[key] || typeof payload[key] !== 'object') return null;
+        return payload;
     } catch (_) {
         return null;
     }
 }
 
 function buildShareUrl(token) {
-    return `${window.location.origin}/#share-plan=${token}`;
+    const kind = String(token).startsWith(SHARE_GYM_PREFIX) ? 'gym' : 'plan';
+    return `${window.location.origin}/#share-${kind}=${token}`;
 }
 
 // ponytail: no memoization — import() already caches by specifier. The
@@ -205,7 +227,7 @@ async function decryptShareLink(keyB64url, packedStdB64) {
             ct,
         );
         const token = await shareLinkUtf8Text(new Uint8Array(pt));
-        return token && token.startsWith('p1.') ? token : null;
+        return token && isShareToken(token) ? token : null;
     } catch (_) {
         return null;
     }
@@ -295,9 +317,12 @@ function setShareModalVisible(open) {
     if (modal) modal.classList.toggle('hidden', !open);
 }
 
-async function openShareModal(plan, dayCount, exerciseCount, token, shortUrl) {
+// `what` describes the shared thing: { name, counts (summary line), noun
+// ('plan' | 'gym') }.
+async function openShareModal(what, token, shortUrl) {
     const doc = document;
-    const name = (plan && plan.name) || 'Workout plan';
+    const name = what.name;
+    const noun = what.noun;
     // ONE link in the modal: the short link when the POST minted one, else
     // the long link exactly as before. The QR encodes whatever is shown, so
     // the length check applies to the shown URL — a short link always passes.
@@ -308,7 +333,7 @@ async function openShareModal(plan, dayCount, exerciseCount, token, shortUrl) {
     const title = doc.getElementById('workout-share-title');
     if (title) title.textContent = `Share: ${name}`;
     const counts = doc.getElementById('workout-share-counts');
-    if (counts) counts.textContent = `${dayCount} day${dayCount === 1 ? '' : 's'} · ${exerciseCount} exercise${exerciseCount === 1 ? '' : 's'}`;
+    if (counts) counts.textContent = what.counts;
     const link = doc.getElementById('workout-share-link');
     if (link) link.value = url;
 
@@ -326,7 +351,7 @@ async function openShareModal(plan, dayCount, exerciseCount, token, shortUrl) {
     if (url.length > SHARE_QR_MAX_CHARS) {
         if (qrBox) qrBox.classList.add('hidden');
         if (qrNote) {
-            qrNote.textContent = 'This plan is too large for a scannable QR — copy the link or use Share… instead.';
+            qrNote.textContent = `This ${noun} is too large for a scannable QR — copy the link or use Share… instead.`;
             qrNote.classList.remove('hidden');
         }
     } else {
@@ -362,7 +387,7 @@ async function openShareModal(plan, dayCount, exerciseCount, token, shortUrl) {
     if (foot) {
         foot.textContent = isShort
             ? 'Only encrypted data is stored for this link, for 30 days — the key stays in the link itself. Anyone with the link can import it.'
-            : 'The plan travels inside this link — nothing is sent to a server. Anyone with the link can import it.';
+            : `The ${noun} travels inside this link — nothing is sent to a server. Anyone with the link can import it.`;
     }
 
     setShareModalVisible(true);
@@ -407,7 +432,50 @@ async function shareWorkoutPlan(group) {
     // try/catch with its own timeout inside, so the modal never waits on it
     // past ~3s and any failure silently keeps the long link.
     const shortUrl = await createShortLink(token);
-    await openShareModal(plan, days.length, exerciseCount, token, shortUrl);
+    const dayCount = days.length;
+    await openShareModal({
+        name: (plan && plan.name) || 'Workout plan',
+        noun: 'plan',
+        counts: `${dayCount} day${dayCount === 1 ? '' : 's'} · ${exerciseCount} exercise${exerciseCount === 1 ? '' : 's'}`,
+    }, token, shortUrl);
+}
+
+// shareWorkoutGym(loc) (med-8j5w.3): the gym twin of shareWorkoutPlan — the
+// location's export payload → g1 token → the same short link / modal.
+async function shareWorkoutGym(loc) {
+    const l = loc || {};
+    let exported = null;
+    try {
+        exported = await apiCall(`/api/workout/locations/${l.id}/export`);
+    } catch (_) {
+        exported = null;
+    }
+    const gym = exported && exported.location;
+    if (!gym) {
+        safeToast('Couldn\'t load the gym — try again online.', 'error');
+        return;
+    }
+    const items = Array.isArray(gym.equipment) ? gym.equipment.length : 0;
+    if (items === 0) {
+        safeToast('Add some equipment to this gym first.', 'info');
+        return;
+    }
+    let token = null;
+    try {
+        token = await encodeShareToken(exported);
+    } catch (_) {
+        token = null;
+    }
+    if (!token) {
+        safeToast('Couldn\'t build the share link — try again.', 'error');
+        return;
+    }
+    const shortUrl = await createShortLink(token);
+    await openShareModal({
+        name: gym.name || 'Gym',
+        noun: 'gym',
+        counts: `${items} item${items === 1 ? '' : 's'}`,
+    }, token, shortUrl);
 }
 
 async function copyShareLink() {
@@ -523,6 +591,10 @@ async function receiveSharedPlan(text) {
         raw = resolved.token;
     }
     const payload = await decodeShareToken(raw);
+    if (payload && payload.location) {
+        await receiveSharedGym(payload);
+        return;
+    }
     if (!payload || typeof payload !== 'object' || !payload.plan) {
         safeToast("That's not a workout plan link.", 'error');
         return;
@@ -570,6 +642,36 @@ async function receiveSharedPlan(text) {
     // fallback branch — either both exist or neither does).
     if (typeof switchWorkoutTab === 'function') switchWorkoutTab('groups');
     if (window.WorkoutGroups && typeof window.WorkoutGroups.openEdit === 'function') window.WorkoutGroups.openEdit(res.id);
+}
+
+// receiveSharedGym(payload) (med-8j5w.3): confirm → POST
+// /api/workout/locations/import (always a NEW gym) → Equipment sub-tab. Same
+// no-optimistic-placeholder reasoning as the plan import above: the route
+// materializes the gym plus every item, so the authoritative rows arrive
+// with the reload.
+async function receiveSharedGym(payload) {
+    const gym = payload.location;
+    const items = Array.isArray(gym.equipment) ? gym.equipment.length : 0;
+    const name = gym.name || 'Gym';
+    const ok = await safeConfirm(`Import gym "${name}" (${items} item${items === 1 ? '' : 's'})?`);
+    if (!ok) return;
+    let res = null;
+    try {
+        res = await apiCall('/api/workout/locations/import', 'POST', payload, { suppressWriteAlert: true });
+    } catch (e) {
+        safeToast((e && e.message) || "Couldn't import the gym — try again.", 'error');
+        return;
+    }
+    if (!res || !res.id) {
+        safeToast("Couldn't import the gym — try again online.", 'error');
+        return;
+    }
+    safeToast(`Added gym "${res.name || name}"`, 'info');
+    closeImportWorkoutPlanModal();
+    await invalidateWorkoutCache();
+    if (typeof switchTab === 'function') switchTab('workouts');
+    // The Equipment sub-tab switch (re)loads the grouped list, new gym included.
+    if (typeof switchWorkoutTab === 'function') switchWorkoutTab('equipment');
 }
 
 function setImportModalVisible(open) {
@@ -737,6 +839,7 @@ function stopImportScan() {
 
 window.WorkoutShare = {
     share: shareWorkoutPlan,
+    shareGym: shareWorkoutGym,
     encode: encodeShareToken,
     decode: decodeShareToken,
     buildUrl: buildShareUrl,
@@ -778,6 +881,8 @@ window.addEventListener('pagehide', stopImportScan);
     if (cancelBtn) cancelBtn.addEventListener('click', () => { closeWorkoutShareModal(); });
     const importBtn = document.getElementById('import-workout-plan-btn');
     if (importBtn) importBtn.addEventListener('click', () => { openImportWorkoutPlanModal(); });
+    const importGymBtn = document.getElementById('import-workout-location-btn');
+    if (importGymBtn) importGymBtn.addEventListener('click', () => { openImportWorkoutPlanModal(); });
     const importSubmitBtn = document.getElementById('workout-share-import-submit-btn');
     if (importSubmitBtn) importSubmitBtn.addEventListener('click', () => { submitImportField(); });
     const importScanBtn = document.getElementById('workout-share-import-scan-btn');

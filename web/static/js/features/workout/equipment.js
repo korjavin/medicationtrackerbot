@@ -236,6 +236,10 @@ function _buildWorkoutEquipmentGroup(doc, loc, items, isActive) {
     if (loc && !_isPendingEquipmentRow(loc)) {
         const actions = doc.createElement('div');
         actions.className = 'wg-equipment-row__actions wg-equipment-group__actions';
+        actions.appendChild(_buildEquipmentIconBtn(doc, 'share-location', `Share ${loc.name || 'gym'}`, 'share', () => {
+            // Via the namespace so the share-modal handoff stays stubbable in tests.
+            window.WorkoutShare.shareGym(loc);
+        }));
         actions.appendChild(_buildEquipmentIconBtn(doc, 'rename-location', `Rename ${loc.name || 'gym'}`, 'pencil', () => {
             renameWorkoutLocation(loc.id);
         }));

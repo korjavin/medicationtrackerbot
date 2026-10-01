@@ -456,6 +456,7 @@ describe('mcp_help wire contract (generated catalog)', () => {
       'workouts.equipment.list', 'workouts.equipment.create',
       'workouts.equipment.update', 'workouts.equipment.delete',
       'workouts.locations.list', 'workouts.locations.active.get', 'workouts.locations.set_active',
+      'workouts.locations.export', 'workouts.locations.import',
     ]) {
       expect(ids).toContain(id);
     }
@@ -1911,6 +1912,17 @@ describe('cloud MCP response_example conformance', () => {
       };
       case 'workouts.equipment.delete': return { path_params: { id: String(ids.equipmentID) } };
       case 'workouts.locations.set_active': return { params: { location_id: 1 } };
+      // Location 1 is seeded straight onto the records port (seedRecordsPort).
+      case 'workouts.locations.export': return { path_params: { id: '1' } };
+      case 'workouts.locations.import': return {
+        params: {
+          v: 1,
+          location: {
+            name: 'Partner Gym',
+            equipment: [{ name: 'Hex DBs', kind: 'fixed', loads_kg: [10, 12] }],
+          },
+        },
+      };
       case 'workouts.rotation.state': return { params: { group_id: ids.groupID } };
       case 'medications.restocks.list': return { path_params: { id: String(ids.medID) } };
       case 'food.products.search': return { params: { q: 'oat' } };

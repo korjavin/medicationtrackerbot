@@ -208,7 +208,8 @@ export const PRIVACY_MANIFEST = [
     },
   },
   {
-    // med-1yi5.3: the blind workout-share short link. The plan ciphertext
+    // med-1yi5.3: the blind workout-share short link (plans; gyms since
+    // med-8j5w.3 — same route, same construction). The ciphertext
     // crosses the operator (stored 30 days, served to whoever opens the
     // link) but the AES key rides only in the URL fragment, which no server
     // ever sees — so this is filed as not-a-carve-out with ciphertext
@@ -219,22 +220,22 @@ export const PRIVACY_MANIFEST = [
     // Host still identifies the resolving account — that is disclosed, not
     // hidden.
     id: 'workout-share-link',
-    feature: 'Workout plan share links',
+    feature: 'Workout plan and gym share links',
     boundary: 'not-a-carve-out',
-    data: 'The encrypted workout plan (ciphertext only — the key never leaves the link fragment)',
+    data: 'The encrypted workout plan or gym equipment list (ciphertext only — the key never leaves the link fragment)',
     destination: "The operator's share-link store, served back to anyone who opens the link",
     operatorVisibility: 'ciphertext',
     retention: '30 days, then deleted (also deleted with the account)',
     activation: 'user-initiated',
-    activationNote: 'when you tap Share on a workout plan',
+    activationNote: 'when you tap Share on a workout plan or a gym',
     byo: 'n/a',
-    evidence: ['web/static/js/features/workout/share.js:232', 'internal/cloudserver/share.go:174'],
+    evidence: ['web/static/js/features/workout/share.js:253', 'internal/cloudserver/share.go:174'],
     code: { go: ['internal/cloudserver/share.go'], hosts: [] },
     docSignal: 'Share-link ciphertext size + minting account + resolver account/IP/time',
     userCopy: {
       category: 'visible',
-      title: 'Workout plans you share by link',
-      detail: 'When you share a workout plan by link, the plan is encrypted in your browser under a key that rides only in the link fragment; the operator stores the ciphertext for 30 days and can see that you created a share, never the plan. Opening a link inside the app reaches the operator from your own account address, so the operator can also tell which account opened which share, and when.',
+      title: 'Workout plans and gyms you share by link',
+      detail: 'When you share a workout plan or a gym by link, it is encrypted in your browser under a key that rides only in the link fragment; the operator stores the ciphertext for 30 days and can see that you created a share, never what is in it. Opening a link inside the app reaches the operator from your own account address, so the operator can also tell which account opened which share, and when.',
     },
   },
 

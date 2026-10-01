@@ -567,6 +567,62 @@ export const CLOUD_EXTRA = [
     },
     response_example: { location_id: 1, location: LOCATION_EXAMPLE },
   },
+  // Share a gym (med-8j5w.3): the gym twin of workouts.plans.export/import,
+  // served by apishim.js over web/domain/workout-share.js.
+  {
+    id: 'workouts.locations.export',
+    topic: 'workouts',
+    method: 'GET',
+    path: '/api/workout/locations/{id}/export',
+    path_params: ['id'],
+    risk: 'read',
+    description: 'Export a gym and the equipment bound to it as one portable v1 JSON token — names, not ids (portable gear is not included). Feed it to workouts.locations.import on any account to hand the gym to a training partner.',
+    response_summary: 'Object {v, location}. location has name and equipment [{name, kind, implement?, loads_kg (fixed) | bar_kg, sides, pair, plates [{kg, count}] (plated)}].',
+    required: ['id'],
+    response_example: {
+      v: 1,
+      location: {
+        name: 'Home',
+        equipment: [
+          { name: 'Hex DBs', kind: 'fixed', implement: 'dumbbell', loads_kg: [10, 12, 14, 16] },
+          {
+            name: 'Ohio bar', kind: 'plated', implement: 'barbell', bar_kg: 20, sides: 2, pair: false,
+            plates: [{ kg: 20, count: 4 }, { kg: 2.5, count: 2 }],
+          },
+        ],
+      },
+    },
+  },
+  {
+    id: 'workouts.locations.import',
+    topic: 'workouts',
+    method: 'POST',
+    path: '/api/workout/locations/import',
+    risk: 'write',
+    description: 'Import a portable v1 gym token from workouts.locations.export. ALWAYS creates a NEW gym (no merge; a duplicate name is allowed) with every item bound to it. The whole token is validated first (at most 50 items, each with the workouts.equipment.create rules), so a bad token writes nothing. Does not switch the active gym.',
+    response_summary: 'Object {id, name, equipment}: the NEW gym\'s id and name, and the number of items created.',
+    required: ['v', 'location'],
+    body_schema: {
+      type: 'object',
+      required: ['v', 'location'],
+      properties: {
+        v: { type: 'integer', description: 'Share format version — always 1.' },
+        location: {
+          type: 'object',
+          required: ['name'],
+          properties: {
+            name: { type: 'string', description: 'Gym name (required, non-blank, at most 100 chars).' },
+            equipment: {
+              type: 'array',
+              description: 'At most 50 items, same fields as workouts.equipment.create minus location_id.',
+              items: EQUIPMENT_WRITE_BODY,
+            },
+          },
+        },
+      },
+    },
+    response_example: { id: 2, name: 'Home', equipment: 2 },
+  },
 ];
 
 // CLOUD_EXTRA_PARAMS: params that exist ONLY in cloud mode, merged into the

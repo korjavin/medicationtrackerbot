@@ -54,7 +54,7 @@ function renderLocked(app, errorText) {
     <section class="wizard-step">
       <h1>Med Tracker</h1>
       <p>Unlock this device with your passkey to open your vault.</p>
-      ${carriesSharePlan ? '<p>This link carries a shared workout plan. To add it to your own account, open your app and use Workouts → Plans → Import plan, then paste this link.</p><button id="share-plan-copy-button" type="button">Copy link</button>' : ''}
+      ${carriesSharePlan ? '<p>This link carries a shared workout plan or gym. To add it to your own account, open your app and use Workouts → Plans → Import plan (or Equipment → Import), then paste this link.</p><button id="share-plan-copy-button" type="button">Copy link</button>' : ''}
       <button id="unlock-button">Unlock with passkey</button>
       <p><a href="/recover">Recover with your Emergency Kit</a></p>
     </section>`;
@@ -443,7 +443,7 @@ async function clearLdkRecord() {
 // Exported for the unlock test.
 export function forwardableShareFragment(hash) {
   const h = String(hash === null || hash === undefined ? '' : hash);
-  return /^#share-plan=/.test(h) ? h : '';
+  return /^#share-(?:plan|gym)=/.test(h) ? h : '';
 }
 
 // The /unlock → / return leg both success paths share (warm LDK unwrap and
