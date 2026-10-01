@@ -13,6 +13,9 @@ import { deriveKEK, deriveKMac, toBase64, wrapEnvelope } from '../crypto.js';
 describe('unlock share-plan fragment (med-uo64.3)', () => {
   it('forwardableShareFragment passes through only #share-plan=', () => {
     expect(forwardableShareFragment('#share-plan=p1.abc')).toBe('#share-plan=p1.abc');
+    // A shared gym (med-8j5w.3) survives the round-trip the same way.
+    expect(forwardableShareFragment('#share-gym=g1.abc')).toBe('#share-gym=g1.abc');
+    expect(unlockSuccessTarget('#share-gym=g1.abc')).toBe('/#share-gym=g1.abc');
     expect(forwardableShareFragment('#claim=tok123')).toBe('');
     expect(forwardableShareFragment('#other=x')).toBe('');
     expect(forwardableShareFragment('')).toBe('');

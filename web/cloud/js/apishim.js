@@ -211,7 +211,7 @@ export function createApiRouter(ctx, {
     // the vault, via the workout domain's own session writes. Same `ai`
     // consent scope as food photos.
     workoutSheetAI = createWorkoutSheetAIDomain({ aiClient, workoutDomain: workout, now });
-    workoutShare = createWorkoutShareDomain({ workoutDomain: workout });
+    workoutShare = createWorkoutShareDomain({ workoutDomain: workout, equipmentDomain: equipment });
     gamification = createGamificationDomain({
       records, now, timeZone, getRecordsChangeCount: recordsChangeCount,
     });
@@ -1110,6 +1110,12 @@ export function createApiRouter(ctx, {
     if (path === '/api/workout/locations/active' && method === 'GET') return equipment.getActiveLocation();
     if (path === '/api/workout/locations/active' && method === 'PUT') {
       return equipment.setActiveLocation(body ? body.location_id : null);
+    }
+    // Share a gym (med-8j5w.3): portable v1 token, import = a NEW location.
+    if (path === '/api/workout/locations/import' && method === 'POST') return workoutShare.importLocation(body);
+    {
+      const m = /^\/api\/workout\/locations\/(\d+)\/export$/.exec(path);
+      if (m && method === 'GET') return workoutShare.exportLocation(Number(m[1]));
     }
     if (path === '/api/workout/locations' && method === 'GET') return equipment.listLocations();
     if (path === '/api/workout/locations' && method === 'POST') return equipment.createLocation(body);

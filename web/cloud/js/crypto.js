@@ -303,8 +303,28 @@ export function gzip(bytes) {
   return streamThrough(bytes, new CompressionStream('gzip'));
 }
 
-export function gunzip(bytes) {
-  return streamThrough(bytes, new DecompressionStream('gzip'));
+// gunzip(bytes, maxBytes?) — with maxBytes the output is read chunk by chunk
+// and the inflate aborts as soon as it passes the cap (untrusted share
+// tokens: a gzip bomb never materializes).
+export async function gunzip(bytes, maxBytes) {
+  if (!maxBytes) return streamThrough(bytes, new DecompressionStream('gzip'));
+  const reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip')).getReader();
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > maxBytes) {
+      reader.cancel().catch(() => {});
+      throw new Error('gunzip: output exceeds limit');
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) { out.set(c, off); off += c.length; }
+  return out;
 }
 
 export function isGzip(bytes) {

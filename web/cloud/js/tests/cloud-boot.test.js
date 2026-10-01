@@ -715,6 +715,14 @@ describe('cloud-boot share-plan fragment across unlock (med-uo64.3)', () => {
     expect(location.href).toBe('/unlock#share-plan=p1.abc');
   });
 
+  it('forwards a shared-gym #share-gym= fragment the same way (med-8j5w.3)', async () => {
+    const { location } = await runBoot({
+      hash: '#share-gym=g1.abc',
+      modules: { 'unlock.js': { warmUnlock: async () => null } },
+    });
+    expect(location.href).toBe('/unlock#share-gym=g1.abc');
+  });
+
   it('forwards #share-plan= to /unlock when the warm-unlock read itself throws', async () => {
     const { location } = await runBoot({
       hash: '#share-plan=p1.abc',

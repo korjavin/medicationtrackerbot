@@ -48,7 +48,10 @@ function handleDeepLinks() {
     // #share-plan=<token> link lands on our own app. Strip the fragment
     // FIRST — a reload must never re-import — then hand the token to the
     // same receive() paste/scan use, after the /bp_add settle.
-    const sharePlanToken = new URLSearchParams(window.location.hash.slice(1)).get('share-plan');
+    // #share-gym=<token> (med-8j5w.3) takes the same path — receive() routes
+    // by the token's prefix.
+    const shareHash = new URLSearchParams(window.location.hash.slice(1));
+    const sharePlanToken = shareHash.get('share-plan') || shareHash.get('share-gym');
     if (sharePlanToken) {
         if (!isDeepLinkFeatureEnabled('workouts')) {
             window.history.replaceState({}, '', '/');

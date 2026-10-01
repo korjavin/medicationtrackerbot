@@ -38,7 +38,7 @@ export const LOCATION_RECORD_TYPE = 'location';
 // reads as null, with no cleanup write.
 export const ACTIVE_LOCATION_RECORD_TYPE = 'activelocation';
 export const ACTIVE_LOCATION_RECORD_ID = 'activelocation';
-const MAX_LOCATION_NAME = 100;
+export const MAX_LOCATION_NAME = 100;
 
 // Validation + compute ceilings (kept small so the knapsack stays bounded).
 // ponytail: fixed caps, not derived from any inventory — raise only if the UI
@@ -306,8 +306,10 @@ function validateLocationId(value) {
 }
 
 // validateEquipmentInput normalizes a create/update payload or throws
-// invalid_request. Shared by both writers so the stored shape is identical.
-function validateEquipmentInput(input) {
+// invalid_request. Shared by both writers so the stored shape is identical,
+// and exported pure (no records port) so the gym share importer
+// (workout-share.js) can validate every item BEFORE its first write.
+export function validateEquipmentInput(input) {
   const name = ((input && input.name) || '').trim();
   if (!name) throw invalidRequest('Name is required');
   const kind = input && input.kind;

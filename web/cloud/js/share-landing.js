@@ -15,6 +15,8 @@
 // Then the visitor either hands the bare p1 token to their own account app
 // through the existing #share-plan deeplink ("Add to my Med Tracker"), or
 // copies the bare token for an app on another instance ("Copy plan code").
+// A shared gym (med-8j5w.3) is the same flow with a g1 token
+// ({ v:1, location:{ name, equipment } }) and the #share-gym deeplink.
 //
 // Privacy: K, the token and the plan never leave the page (no analytics, no
 // other requests). The preview renders attacker-supplied ciphertext, so it is
@@ -35,20 +37,18 @@ export const MSG = {
   incomplete: 'This link is incomplete — ask the sender to resend it.',
   expired: 'This link has expired or was never valid.',
   loadFailed: "Couldn't load the plan — try again in a minute.",
-  notPlan: "That link doesn't carry a workout plan.",
+  notPlan: "That link doesn't carry a workout plan or gym.",
   badHome: 'That address needs lowercase letters, numbers and dashes only (up to 63 characters).',
   copied: 'Copied',
 };
 
 export const SHARE_API_PREFIX = '/api/s/';
 // Server caps stored ciphertext at 16 KiB (wire contract); anything larger on
-// the read path is not a real share. That cap is also what bounds inflation:
-// 16 KiB of ciphertext times DEFLATE's ceiling stays in the low tens of MB,
-// which the tab survives.
+// the read path is not a real share. Inflation is bounded separately, during
+// the gunzip, by MAX_JSON_BYTES below.
 export const MAX_PACKED_BYTES = 16384;
-// Post-hoc sanity bound on the inflated export payload (same intent as
-// share.js SHARE_IMPORT_MAX_TOKEN_CHARS, but checked after the inflate, not
-// during it — it rejects oversize plans, it does not cap decompression).
+// Bound on the inflated export payload, enforced DURING the inflate (gunzip
+// stops at it) — same cap as share.js SHARE_MAX_JSON_BYTES.
 export const MAX_JSON_BYTES = 1024 * 1024;
 // Accept caps mirror the sender-side export caps (MAX_SHARE_DAYS /
 // MAX_SHARE_EXERCISES_PER_DAY in web/domain/workout-share.js): the sender
@@ -56,6 +56,8 @@ export const MAX_JSON_BYTES = 1024 * 1024;
 // not a legitimate plan — reject before building any DOM for it.
 export const MAX_PREVIEW_DAYS = 20;
 export const MAX_PREVIEW_EXERCISES_PER_DAY = 50;
+// Mirrors MAX_SHARE_EQUIPMENT in web/domain/workout-share.js.
+export const MAX_PREVIEW_EQUIPMENT = 50;
 export const HOME_KEY = 'mt-share-home';
 export const SUBDOMAIN_RE = /^[a-z0-9-]{1,63}$/;
 
@@ -77,10 +79,12 @@ export function parseShareLink(pathname, hash) {
   return { id, key };
 }
 
-// decodeSharedPlan(packed, key) -> { token, doc }. Throws on anything that is
-// not a well-formed share: oversize blob, AEAD failure (wrong K / tamper),
-// non-token plaintext, bad gzip, oversize JSON, or a payload that is not a
-// v1 export ({ v:1, plan:{ name, days:[...] } }). Callers map every throw to
+// decodeSharedPlan(packed, key) -> { token, doc, kind }. kind is 'plan' (p1
+// token) or 'gym' (g1 token). Throws on anything that is not a well-formed
+// share: oversize blob, AEAD failure (wrong K / tamper), non-token plaintext,
+// bad gzip, oversize JSON, or a payload that is not a v1 export of its
+// prefix's kind ({ v:1, plan:{ name, days:[...] } } /
+// { v:1, location:{ name, equipment:[...] } }). Callers map every throw to
 // one generic message.
 export async function decodeSharedPlan(packed, key) {
   if (!packed || packed.length === 0 || packed.length > MAX_PACKED_BYTES) {
@@ -88,10 +92,18 @@ export async function decodeSharedPlan(packed, key) {
   }
   const pt = await decryptSharePayload(key, packed);
   const token = new TextDecoder().decode(pt);
-  if (!token.startsWith('p1.')) throw new Error('not a p1 token');
-  const jsonBytes = await gunzip(fromBase64Url(token.slice(3)));
-  if (jsonBytes.length > MAX_JSON_BYTES) throw new Error('plan too large');
+  const kind = token.startsWith('g1.') ? 'gym' : token.startsWith('p1.') ? 'plan' : '';
+  if (!kind) throw new Error('not a share token');
+  const jsonBytes = await gunzip(fromBase64Url(token.slice(3)), MAX_JSON_BYTES);
   const doc = JSON.parse(new TextDecoder().decode(jsonBytes));
+  if (kind === 'gym') {
+    const loc = doc && doc.v === 1 ? doc.location : null;
+    if (!loc || typeof loc !== 'object' || !Array.isArray(loc.equipment)) {
+      throw new Error('not a v1 gym export');
+    }
+    if (loc.equipment.length > MAX_PREVIEW_EQUIPMENT) throw new Error('too many items');
+    return { token, doc, kind };
+  }
   if (!doc || doc.v !== 1 || !doc.plan || typeof doc.plan !== 'object') {
     throw new Error('not a v1 plan export');
   }
@@ -102,17 +114,18 @@ export async function decodeSharedPlan(packed, key) {
       throw new Error('too many exercises');
     }
   }
-  return { token, doc };
+  return { token, doc, kind };
 }
 
-// appHref(location, sub, token) — the EXISTING #share-plan deeplink onto the
-// visitor's account subdomain (deeplink-router.js), so the handoff needs zero
-// app-side change. http only when the landing page itself is http (dev).
+// appHref(location, sub, token) — the #share-plan (p1) or #share-gym (g1)
+// deeplink onto the visitor's account subdomain (deeplink-router.js). http
+// only when the landing page itself is http (dev).
 // Built by concatenation: no host literal, nothing for the privacy-claims
 // host scan to flag.
 export function appHref(location, sub, token) {
   const scheme = location.protocol === 'http:' ? 'http://' : 'https://';
-  return scheme + sub + '.' + location.host + '/#share-plan=' + token;
+  const frag = String(token).startsWith('g1.') ? '/#share-gym=' : '/#share-plan=';
+  return scheme + sub + '.' + location.host + frag + token;
 }
 
 function readHome(storage) {
@@ -130,6 +143,29 @@ function writeHome(storage, sub) {
     // Private-mode storage (or none): remembering the address is a
     // convenience, never a reason to block the handoff.
   }
+}
+
+// renderGymPreview(previewEl, doc) — read-only gym summary: name, item count,
+// one line per item. textContent only, same reason as renderPreview.
+export function renderGymPreview(previewEl, doc) {
+  const owner = previewEl.ownerDocument;
+  previewEl.replaceChildren();
+  const loc = doc.location;
+  const title = owner.createElement('h2');
+  title.textContent = typeof loc.name === 'string' && loc.name ? loc.name : 'Shared gym';
+  previewEl.append(title);
+  const items = loc.equipment;
+  const counts = owner.createElement('p');
+  counts.className = 'muted';
+  counts.textContent = `${items.length} item${items.length === 1 ? '' : 's'}`;
+  previewEl.append(counts);
+  const ul = owner.createElement('ul');
+  for (const item of items) {
+    const li = owner.createElement('li');
+    li.textContent = item && typeof item.name === 'string' && item.name ? item.name : 'Equipment';
+    ul.append(li);
+  }
+  previewEl.append(ul);
 }
 
 // renderPreview(previewEl, doc) — read-only plan summary. textContent
@@ -240,16 +276,22 @@ export async function mount(root = document, deps = {}) {
 
   let token;
   let doc;
+  let kind;
   try {
-    ({ token, doc } = await decodeSharedPlan(packed, key));
+    ({ token, doc, kind } = await decodeSharedPlan(packed, key));
   } catch {
     setText(status, MSG.notPlan);
     return;
   }
 
   setText(status, '');
+  if (kind === 'gym') {
+    setText(el('share-title'), 'Shared gym');
+    setText(copy, 'Copy gym code');
+  }
   if (preview) {
-    renderPreview(preview, doc);
+    if (kind === 'gym') renderGymPreview(preview, doc);
+    else renderPreview(preview, doc);
     preview.hidden = false;
   }
   if (!actions) return;

@@ -45,8 +45,8 @@ export async function runUnlockFlow() {
 
 function renderLocked(app, errorText) {
   // A friend on another subdomain/instance who taps the sender's link lands
-  // here (cold unlock shell) with the plan fragment intact. They still get
-  // the plan via paste: point them at their own app's Import plan. Keep it
+  // here (cold unlock shell) with the plan/gym fragment intact. They still
+  // get it via paste: point them at their own app's Import. Keep it
   // to this paragraph + Copy button — no new module (bd med-uo64.3).
   const carriesSharePlan = forwardableShareFragment(
     typeof location !== 'undefined' ? location.hash : '') !== '';
@@ -54,7 +54,7 @@ function renderLocked(app, errorText) {
     <section class="wizard-step">
       <h1>Med Tracker</h1>
       <p>Unlock this device with your passkey to open your vault.</p>
-      ${carriesSharePlan ? '<p>This link carries a shared workout plan. To add it to your own account, open your app and use Workouts → Plans → Import plan, then paste this link.</p><button id="share-plan-copy-button" type="button">Copy link</button>' : ''}
+      ${carriesSharePlan ? '<p>This link carries a shared workout plan or gym. To add it to your own account, open your app and use Workouts → Plans → Import plan (or Equipment → Import), then paste this link.</p><button id="share-plan-copy-button" type="button">Copy link</button>' : ''}
       <button id="unlock-button">Unlock with passkey</button>
       <p><a href="/recover">Recover with your Emergency Kit</a></p>
     </section>`;
@@ -435,15 +435,15 @@ async function clearLdkRecord() {
   }
 }
 
-// Shared-plan fragment forwarding (bd med-uo64.3): only a #share-plan=
-// fragment rides between / and /unlock. Anything else — notably #claim=,
+// Shared-plan/gym fragment forwarding (med-uo64.3, med-8j5w.3): only a
+// #share-plan= / #share-gym= fragment rides between / and /unlock. Anything else — notably #claim=,
 // which cloud-boot.js routes the other way — must not forward, or the two
 // shells ping-pong the browser forever. Placed at file end (not beside its
 // callers) so the privacy-manifest file:line citations above don't shift.
 // Exported for the unlock test.
 export function forwardableShareFragment(hash) {
   const h = String(hash === null || hash === undefined ? '' : hash);
-  return /^#share-plan=/.test(h) ? h : '';
+  return /^#share-(?:plan|gym)=/.test(h) ? h : '';
 }
 
 // The /unlock → / return leg both success paths share (warm LDK unwrap and

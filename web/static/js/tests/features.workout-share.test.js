@@ -1022,3 +1022,167 @@ describe('features/workout/share.js — blind short link (med-1yi5.3)', () => {
     expect(window.apiCall).not.toHaveBeenCalled();
   });
 });
+
+// Share a gym (med-8j5w.3): the same codec / modal / receive path with a g1
+// token and the location export payload.
+describe('features/workout/share.js — share a gym (med-8j5w.3)', () => {
+  let env;
+  let consoleErrorSpy;
+
+  const GYM = { id: 7, name: 'Gym A' };
+  const GYM_EXPORT = {
+    v: 1,
+    location: {
+      name: 'Gym A',
+      equipment: [
+        { name: 'Ohio bar', kind: 'plated', implement: 'barbell', bar_kg: 20, sides: 2, pair: false, plates: [{ kg: 20, count: 4 }] },
+        { name: 'Hex DBs', kind: 'fixed', implement: 'dumbbell', loads_kg: [10, 12, 14] },
+      ],
+    },
+  };
+
+  function stubGymReceiveEnv(window, res = { id: 9, name: 'Gym A', equipment: 2 }) {
+    window.apiCall = vi.fn(async (url) => {
+      if (String(url).startsWith('/api/workout/locations/import')) {
+        if (res instanceof Error) throw res;
+        return res;
+      }
+      return null;
+    });
+    vi.spyOn(window, 'safeConfirm').mockImplementation(async () => true);
+    const toastSpy = vi.fn();
+    window.SyncManager = { showToast: toastSpy };
+    window.switchTab = vi.fn();
+    window.loadWorkoutEquipment = vi.fn();
+    window.invalidateWorkoutCache = vi.fn(async () => {});
+    return toastSpy;
+  }
+
+  beforeEach(() => {
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    env = loadFrontendEnv({ withWorkout: true });
+    env.window.alert = vi.fn();
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
+    try { env.window.localStorage.clear(); } catch (_) { /* ignore */ }
+    env.cleanup();
+    env = null;
+  });
+
+  it('a gym token is g1., rides #share-gym=, and decodes back; prefix and payload kind must agree', async () => {
+    const { window } = env;
+    const token = await window.WorkoutShare.encode(GYM_EXPORT);
+    expect(token.startsWith('g1.')).toBe(true);
+    const url = window.WorkoutShare.buildUrl(token);
+    expect(url).toBe(`https://example.test/#share-gym=${token}`);
+    expect(await window.WorkoutShare.decode(token)).toEqual(GYM_EXPORT);
+    expect(await window.WorkoutShare.decode(url)).toEqual(GYM_EXPORT);
+
+    // A plan payload under the gym prefix (and vice versa) is not a share.
+    const planToken = await window.WorkoutShare.encode(EXPORT);
+    expect(await window.WorkoutShare.decode('g1.' + planToken.slice(3))).toBeNull();
+    expect(await window.WorkoutShare.decode('p1.' + token.slice(3))).toBeNull();
+    // A p1 token smuggling a location key never reaches the gym import.
+    const both = 'p1.' + (await window.WorkoutShare.encode({ ...EXPORT, location: GYM_EXPORT.location })).slice(3);
+    expect(await window.WorkoutShare.decode(both)).toBeNull();
+  });
+
+  it('shareGym refuses a gym over the 50-item import cap instead of minting a dead link', async () => {
+    const { window, document } = env;
+    const toastSpy = vi.fn();
+    window.SyncManager = { showToast: toastSpy };
+    const equipment = Array.from({ length: 51 }, (_, i) => ({ name: `DB ${i}`, kind: 'fixed', loads_kg: [10] }));
+    window.apiCall = vi.fn(async () => ({ v: 1, location: { name: 'Big', equipment } }));
+
+    await window.WorkoutShare.shareGym({ id: 3, name: 'Big' });
+
+    expect(toastSpy).toHaveBeenCalledWith('This gym has 51 items — sharing is limited to 50.', 'error');
+    expect(document.getElementById('workout-share-modal').classList.contains('hidden')).toBe(true);
+  });
+
+  it('decode stops a gzip bomb at the inflated-size cap', async () => {
+    const { window } = env;
+    // ~2 MB of JSON compresses to a few KB — under the token-length cap,
+    // over the 1 MB inflate cap.
+    const bomb = JSON.stringify({ v: 1, location: { name: 'X', pad: ' '.repeat(2 * 1024 * 1024) } });
+    const gz = await window.BackupCrypto.gzipString(bomb);
+    let bin = '';
+    for (const b of gz) bin += String.fromCharCode(b);
+    const token = 'g1.' + btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    expect(token.length).toBeLessThan(100000);
+    expect(await window.WorkoutShare.decode(token)).toBeNull();
+  });
+
+  it('each gym header carries a Share button that hands that gym to WorkoutShare.shareGym', () => {
+    const { window, document } = env;
+    const container = document.getElementById('workout-equipment-list');
+    window._renderWorkoutEquipment(container, [], { locations: [GYM, { id: 8, name: 'Home' }], activeId: null });
+    const btn = container.querySelector('button[aria-label="Share Gym A"]');
+    expect(btn).not.toBeNull();
+    const spy = vi.fn();
+    window.WorkoutShare.shareGym = spy;
+    btn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][0].id).toBe(7);
+    // The Portable group has no gym to share.
+    const sections = container.querySelectorAll('.wg-equipment-group');
+    expect(sections[sections.length - 1].querySelector('button[aria-label^="Share"]')).toBeNull();
+  });
+
+  it('shareGym(loc) exports the gym and opens the modal with a g1 link and item count', async () => {
+    const { window, document } = env;
+    window.apiCall = vi.fn(async (url) => (String(url) === '/api/workout/locations/7/export' ? GYM_EXPORT : null));
+    window.WorkoutShare.makeQr = vi.fn(async () => '<svg data-qr="1"></svg>');
+
+    await window.WorkoutShare.shareGym(GYM);
+
+    expect(document.getElementById('workout-share-modal').classList.contains('hidden')).toBe(false);
+    expect(document.getElementById('workout-share-title').textContent).toContain('Gym A');
+    expect(document.getElementById('workout-share-counts').textContent).toBe('2 items');
+    const link = document.getElementById('workout-share-link').value;
+    expect(link.startsWith('https://example.test/#share-gym=g1.')).toBe(true);
+    expect(await window.WorkoutShare.decode(link)).toEqual(GYM_EXPORT);
+    expect(document.getElementById('workout-share-foot').textContent).toContain('The gym travels inside this link');
+  });
+
+  it('shareGym on an empty gym toasts instead of opening the modal', async () => {
+    const { window, document } = env;
+    const toastSpy = vi.fn();
+    window.SyncManager = { showToast: toastSpy };
+    window.apiCall = vi.fn(async () => ({ v: 1, location: { name: 'Empty', equipment: [] } }));
+
+    await window.WorkoutShare.shareGym({ id: 3, name: 'Empty' });
+
+    expect(toastSpy).toHaveBeenCalledWith('Add some equipment to this gym first.', 'info');
+    expect(document.getElementById('workout-share-modal').classList.contains('hidden')).toBe(true);
+  });
+
+  it('receive() with a gym link confirms, POSTs the gym import, and lands on the Equipment sub-tab', async () => {
+    const { window } = env;
+    const toastSpy = stubGymReceiveEnv(window);
+
+    const token = await window.WorkoutShare.encode(GYM_EXPORT);
+    await window.WorkoutShare.receive(window.WorkoutShare.buildUrl(token));
+
+    expect(window.safeConfirm).toHaveBeenCalledWith('Import gym "Gym A" (2 items)?');
+    expect(window.apiCall).toHaveBeenCalledWith('/api/workout/locations/import', 'POST', GYM_EXPORT, { suppressWriteAlert: true });
+    expect(window.apiCall.mock.calls.some((c) => String(c[0]).startsWith('/api/workout/plans/import'))).toBe(false);
+    expect(toastSpy).toHaveBeenCalledWith('Added gym "Gym A"', 'info');
+    expect(window.invalidateWorkoutCache).toHaveBeenCalledTimes(1);
+    expect(window.switchTab).toHaveBeenCalledWith('workouts');
+    expect(window.localStorage.getItem('mt-workouts-subtab')).toBe('equipment');
+  });
+
+  it('receive() with a gym token toasts the import route\'s 400 message', async () => {
+    const { window } = env;
+    const err = Object.assign(new Error('location may not exceed 50 equipment items'), { code: 'invalid_request' });
+    const toastSpy = stubGymReceiveEnv(window, err);
+
+    await window.WorkoutShare.receive(await window.WorkoutShare.encode(GYM_EXPORT));
+
+    expect(toastSpy).toHaveBeenCalledWith('location may not exceed 50 equipment items', 'error');
+    expect(window.switchTab).not.toHaveBeenCalled();
+  });
+});
