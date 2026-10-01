@@ -1450,12 +1450,16 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     return { location_id: loc ? loc.id : null, location_name: loc ? loc.name : null };
   }
 
-  // stampSessionLocation writes the stamp onto an unstamped session (a real
-  // user write: wall-clock clientTs). Returns the session as stored.
+  // stampSessionLocation writes the stamp onto an unstamped session as a
+  // side annotation, not a transition: it takes the floor (existing.clientTs
+  // + 1) instead of now(), so it outranks only the version it read and never a
+  // concurrent real write from another device (a Start elsewhere must not be
+  // reverted to 'pending' by this device logging a set). If such a write wins,
+  // that writer stamped the session itself. Returns the session as stored.
   async function stampSessionLocation(session) {
     const stamp = await locationStamp(session);
     if (!('location_id' in stamp)) return session;
-    const updated = { ...session, ...stamp, clientTs: now() };
+    const updated = { ...session, ...stamp, clientTs: (Number(session.clientTs) || 0) + 1 };
     await records.put(WORKOUT_RECORD_TYPES.SESSION, updated);
     return updated;
   }
