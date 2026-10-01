@@ -68,7 +68,6 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
         const { document, window } = env;
 
         const alertSpy = vi.fn();
-        window.alert = alertSpy;
         window.safeAlert = alertSpy;
 
         const parse = vi.fn(async () => ({ items: SAMPLE_ITEMS, failed: 0 }));

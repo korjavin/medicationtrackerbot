@@ -49,51 +49,14 @@ describe('MessengerAdapter — Browser path', () => {
         } finally { cleanup(); }
     });
 
-    it('alert() forwards to native window.alert', () => {
+    // med-v83g: dialogs are core/utils.js's in-page safeAlert/safeConfirm —
+    // the adapter no longer exposes a native-dialog path to fall back on.
+    it('exposes no dialog methods (alert/confirm/showPopup)', () => {
         const { window, cleanup } = loadWithoutTelegram();
         try {
-            const seen = [];
-            window.alert = (msg) => { seen.push(msg); };
-            window.MessengerAdapter.alert('hello');
-            expect(seen).toEqual(['hello']);
-        } finally { cleanup(); }
-    });
-
-    it('confirm() wraps native window.confirm in a Promise<boolean>', async () => {
-        const { window, cleanup } = loadWithoutTelegram();
-        try {
-            window.confirm = vi.fn(() => true);
-            const ok = await window.MessengerAdapter.confirm('sure?');
-            expect(ok).toBe(true);
-            expect(window.confirm).toHaveBeenCalledWith('sure?');
-        } finally { cleanup(); }
-    });
-
-    it('confirm() returns false when window.confirm returns false', async () => {
-        const { window, cleanup } = loadWithoutTelegram();
-        try {
-            window.confirm = () => false;
-            await expect(window.MessengerAdapter.confirm('sure?')).resolves.toBe(false);
-        } finally { cleanup(); }
-    });
-
-    it('showPopup() falls back to window.alert with combined title/message', () => {
-        const { window, cleanup } = loadWithoutTelegram();
-        try {
-            const seen = [];
-            window.alert = (msg) => { seen.push(msg); };
-            window.MessengerAdapter.showPopup({ title: 'T', message: 'M' });
-            expect(seen).toEqual(['T\n\nM']);
-        } finally { cleanup(); }
-    });
-
-    it('showPopup() falls back to just the message when only message is set', () => {
-        const { window, cleanup } = loadWithoutTelegram();
-        try {
-            const seen = [];
-            window.alert = (msg) => { seen.push(msg); };
-            window.MessengerAdapter.showPopup({ message: 'just-msg' });
-            expect(seen).toEqual(['just-msg']);
+            for (const m of ['alert', 'confirm', 'showPopup']) {
+                expect(window.MessengerAdapter[m], m).toBeUndefined();
+            }
         } finally { cleanup(); }
     });
 

@@ -174,20 +174,24 @@ function renderDeviceRow(app, ctx, onExit, d) {
 
   const revokeButton = document.createElement('button');
   revokeButton.textContent = 'Revoke';
-  revokeButton.addEventListener('click', () => {
+  revokeButton.addEventListener('click', async () => {
     // Retiring a device you still control vs. a stolen one need different
     // responses: revocation alone only removes access going forward. A
     // stolen unlocked device already saw the DEK, so recovering from that
     // needs key rotation — out of scope here (docs/cloud-crypto.md "Removing
     // a device / revocation" status note) — hence the copy pointing there.
-    const confirmed = confirm(
+    const confirmed = await window.safeConfirm(
       d.localOnly
-        ? 'Remove this local-only sign-in?\n\nUse this to sign out a browser you still control — it holds ' +
+        ? 'Use this to sign out a browser you still control — it holds ' +
             'no vault key of its own. If the device was lost or stolen, removing here does not protect the ' +
             'copy it may have seen while unlocked — see the recovery guide about rotating your keys.'
-        : 'Revoke this device?\n\nUse this to retire a device you still control. If it was lost or ' +
+        : 'Use this to retire a device you still control. If it was lost or ' +
             'stolen, revoking here does not protect your data on its own — see the recovery guide ' +
-            'about rotating your keys.'
+            'about rotating your keys.',
+      null,
+      d.localOnly
+        ? { title: 'Remove this local-only sign-in?', confirmLabel: 'Remove' }
+        : { title: 'Revoke this device?', confirmLabel: 'Revoke' },
     );
     if (!confirmed) return;
     revokeDevice(app, ctx, onExit, d.credential_id);

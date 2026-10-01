@@ -22,6 +22,10 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const APP_CSS = path.join(REPO_ROOT, 'web/static/css/styles.css');
 const CLOUD_CSS = path.join(REPO_ROOT, 'web/cloud/css/cloud.css');
+// The in-page dialog's rules, shared by the account app and the shell
+// (signup.html links it after cloud.css, med-v83g): its tokens resolve from
+// cloud.css's :root in the shell, so they count as used and must match too.
+const DIALOG_CSS = path.join(REPO_ROOT, 'web/static/css/dialog.css');
 
 // The :root blocks hold gradients full of parens but no braces, so a
 // non-greedy match to the first '}' is a correct extraction here.
@@ -43,16 +47,16 @@ function tokens(block) {
 const appTokens = tokens(rootBlock(fs.readFileSync(APP_CSS, 'utf8')));
 const cloudCss = fs.readFileSync(CLOUD_CSS, 'utf8');
 const cloudTokens = tokens(rootBlock(cloudCss));
+const dialogCss = fs.readFileSync(DIALOG_CSS, 'utf8');
 
 describe('cloud.css design-token parity with styles.css', () => {
     it('declares at least the tokens its rules use', () => {
         expect(cloudTokens.size).toBeGreaterThan(0);
     });
 
-    it('every --wg-* token cloud.css re-declares has styles.css\'s exact value', () => {
+    it('every token cloud.css re-declares has styles.css\'s exact value', () => {
         const drift = [];
         for (const [name, value] of cloudTokens) {
-            if (!name.startsWith('--wg-')) continue;
             if (!appTokens.has(name)) {
                 drift.push(`${name}: not defined in styles.css :root`);
                 continue;
@@ -69,11 +73,16 @@ describe('cloud.css design-token parity with styles.css', () => {
         const unused = [...cloudTokens.keys()].filter((name) => {
             // A token may be referenced by another token's value (e.g. --wg-fg-1
             // resolves --wg-paper), which counts as used.
-            const inRules = body.includes(`var(${name})`);
+            const inRules = body.includes(`var(${name})`) || dialogCss.includes(`var(${name})`);
             const inTokens = [...cloudTokens.entries()].some(([n, v]) => n !== name && v.includes(`var(${name})`));
             return !inRules && !inTokens;
         });
         expect(unused).toEqual([]);
+    });
+
+    it('declares every token the shared dialog.css uses', () => {
+        const used = [...new Set([...dialogCss.matchAll(/var\((--[a-z0-9-]+)\)/gi)].map((m) => m[1]))];
+        expect(used.filter((name) => !cloudTokens.has(name))).toEqual([]);
     });
 
     it('hardcodes no color outside the :root block (CLAUDE.md rule 3)', () => {

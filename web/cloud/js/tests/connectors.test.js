@@ -18,6 +18,7 @@ vi.mock('../mcp-remote.js', () => ({
   disconnectRemote: vi.fn(),
 }));
 import { renderConnectors } from '../connectors.js';
+import { installDialogs, answerDialog } from './helpers/dialogs.js';
 import { getPairing, connectClaude, disconnectClaude } from '../mcp-pairing.js';
 import { getRemoteStatus, connectRemote, disconnectRemote } from '../mcp-remote.js';
 
@@ -28,10 +29,11 @@ const ctx = { dek: 'fake-dek' };
 const REMOTE_URL = 'https://acct.example.test/mcp/abc-def';
 
 beforeEach(() => {
-  dom = new JSDOM('<!doctype html><div id="app"></div>', { url: 'https://acct.example.test/' });
+  dom = new JSDOM('<!doctype html><div id="app"></div>', { url: 'https://acct.example.test/', runScripts: 'outside-only' });
   global.document = dom.window.document;
   vi.stubGlobal('navigator', dom.window.navigator);
-  global.confirm = vi.fn(() => true);
+  vi.stubGlobal('window', dom.window);
+  installDialogs(dom.window);
   global.fetch = vi.fn(async () => ({ ok: true, json: async () => [] }));
   app = dom.window.document.getElementById('app');
   onExit = vi.fn();
@@ -41,7 +43,6 @@ afterEach(() => {
   dom.window.close();
   vi.unstubAllGlobals();
   delete global.document;
-  delete global.confirm;
   delete global.fetch;
 });
 
@@ -56,10 +57,11 @@ describe('connectors.js Claude connector mode picker', () => {
   it('gates remote enable on consent: declining the confirm dialog never calls connectRemote', async () => {
     getPairing.mockResolvedValue(null);
     getRemoteStatus.mockResolvedValue({ enabled: false, url: '' });
-    global.confirm.mockReturnValue(false);
     await renderAndSettle();
 
     app.querySelector('#claude-remote-connect-button').dispatchEvent(new dom.window.Event('click'));
+    const dialog = await answerDialog(dom.window.document, false);
+    expect(dialog.querySelector('.wg-modal__title').textContent).toBe('Enable the remote connector?');
     await Promise.resolve();
 
     expect(connectRemote).not.toHaveBeenCalled();
@@ -83,6 +85,7 @@ describe('connectors.js Claude connector mode picker', () => {
     await renderAndSettle();
 
     app.querySelector('#claude-remote-connect-button').dispatchEvent(new dom.window.Event('click'));
+    await answerDialog(dom.window.document, true);
     await vi.waitFor(() => {
       if (!app.querySelector('#claude-remote-url')) throw new Error('not rendered yet');
     });

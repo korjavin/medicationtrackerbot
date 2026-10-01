@@ -33,7 +33,7 @@ describe('app.js weight modal helpers and workout start modal flows', () => {
 
     try {
       const alertSpy = vi.fn();
-      window.alert = alertSpy;
+      window.safeAlert = alertSpy;
       window.loadWorkouts = vi.fn();
       window.switchTab = vi.fn();
 

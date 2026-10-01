@@ -94,8 +94,8 @@ describe('workout.js loaders and next-card behavior', () => {
 
     try {
       const loadNextSpy = vi.spyOn(window, 'loadNextWorkout').mockResolvedValue(undefined);
-      const alertSpy = vi.fn();
-      window.alert = alertSpy;
+      const toastSpy = vi.fn();
+      window.safeToast = toastSpy;
 
       window.apiCall = vi.fn().mockResolvedValue({ ok: true });
       await window.nextWorkoutVariant(33);
@@ -104,7 +104,7 @@ describe('workout.js loaders and next-card behavior', () => {
 
       window.apiCall = vi.fn().mockRejectedValue(new Error('nope'));
       await window.nextWorkoutVariant(34);
-      expect(alertSpy).toHaveBeenCalledWith('Failed to switch day. Please try again.');
+      expect(toastSpy).toHaveBeenCalledWith('Failed to switch day. Please try again.', 'error');
     } finally {
       cleanup();
     }

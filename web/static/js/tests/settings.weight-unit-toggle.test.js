@@ -393,7 +393,7 @@ describe('Settings weight-unit segmented control (Task 7)', () => {
         window.SyncManager = { ...(window.SyncManager || {}), isOnline: false };
         const apiCallSpy = vi.fn();
         window.apiCall = apiCallSpy;
-        window.alert = vi.fn();
+        window.safeAlert = vi.fn();
 
         const lbBtn = document.querySelector('#weight-unit-segmented .wg-settings-segmented__btn[data-unit="lb"]');
         lbBtn.click();
@@ -401,7 +401,7 @@ describe('Settings weight-unit segmented control (Task 7)', () => {
         await new Promise((resolve) => setTimeout(resolve, 0));
 
         expect(apiCallSpy).not.toHaveBeenCalled();
-        expect(window.alert).not.toHaveBeenCalled();
+        expect(window.safeAlert).not.toHaveBeenCalled();
         expect(window.weightUnitPreference).toBe('kg');
     });
 

@@ -37,7 +37,7 @@ describe('features/workout/scan.js (med-qj4.9)', () => {
 
   beforeEach(() => {
     env = loadFrontendEnv({ withWorkout: true });
-    env.window.alert = vi.fn();
+    env.window.safeAlert = vi.fn();
     env.window.WorkoutScan._pending = null;
   });
 
@@ -70,8 +70,8 @@ describe('features/workout/scan.js (med-qj4.9)', () => {
 
     await window.WorkoutScan.scan(GROUP);
 
-    expect(window.alert).toHaveBeenCalledTimes(1);
-    expect(window.alert.mock.calls[0][0]).toContain('unavailable');
+    expect(window.safeAlert).toHaveBeenCalledTimes(1);
+    expect(window.safeAlert.mock.calls[0][0]).toContain('unavailable');
     expect(window.MediaCapture.pickPhoto).not.toHaveBeenCalled();
     expect(window.WorkoutScan._pending).toBeNull();
   });
@@ -148,8 +148,8 @@ describe('features/workout/scan.js (med-qj4.9)', () => {
     expect(arg.sets).toHaveLength(3);
     expect(window.WorkoutScan._pending).toBeNull();
     expect(document.getElementById('workout-scan-modal').classList.contains('hidden')).toBe(true);
-    expect(window.alert).toHaveBeenCalledTimes(1);
-    expect(window.alert.mock.calls[0][0]).toContain('Logged 2 exercises');
+    expect(window.safeAlert).toHaveBeenCalledTimes(1);
+    expect(window.safeAlert.mock.calls[0][0]).toContain('Logged 2 exercises');
     delete window.CloudWorkoutSheetAI;
   });
 
@@ -188,7 +188,7 @@ describe('features/workout/scan.js (med-qj4.9)', () => {
     await window.WorkoutScan.confirm();
 
     expect(log).not.toHaveBeenCalled();
-    expect(window.alert).toHaveBeenCalledTimes(1);
+    expect(window.safeAlert).toHaveBeenCalledTimes(1);
     expect(window.WorkoutScan._pending).not.toBeNull();
     delete window.CloudWorkoutSheetAI;
   });

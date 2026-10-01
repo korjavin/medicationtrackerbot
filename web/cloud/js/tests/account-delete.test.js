@@ -108,7 +108,7 @@ describe('exportVaultToFile', () => {
     };
     globalThis.URL = { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} };
     window.CloudVault = { exportAll: vi.fn(async () => '{"meds":[]}') };
-    window.confirm = vi.fn(() => true);
+    window.safeConfirm = vi.fn(async () => true);
   });
 
   afterEach(() => {
@@ -116,7 +116,7 @@ describe('exportVaultToFile', () => {
     delete globalThis.URL;
     delete globalThis.Blob;
     delete window.CloudVault;
-    delete window.confirm;
+    delete window.safeConfirm;
   });
 
   it('warns about plaintext secrets, then downloads the vault JSON and returns true', async () => {
@@ -125,7 +125,7 @@ describe('exportVaultToFile', () => {
 
     const downloaded = await exportVaultToFile(Date.parse('2026-07-10T00:00:00Z'));
 
-    expect(window.confirm).toHaveBeenCalledWith(expect.stringMatching(/plain text/i));
+    expect(window.safeConfirm).toHaveBeenCalledWith(expect.stringMatching(/plain text/i), null, expect.any(Object));
     expect(window.CloudVault.exportAll).toHaveBeenCalledWith({ includeSecrets: true });
     expect(clicks[0]).toBe('medtracker-vault-2026-07-10.json');
     expect(blobs[0]).toBe('{"meds":[]}');
@@ -133,7 +133,7 @@ describe('exportVaultToFile', () => {
   });
 
   it('returns false without downloading when the plaintext-secrets warning is declined', async () => {
-    window.confirm = vi.fn(() => false);
+    window.safeConfirm = vi.fn(async () => false);
 
     const downloaded = await exportVaultToFile(Date.parse('2026-07-10T00:00:00Z'));
 

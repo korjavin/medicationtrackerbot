@@ -15,9 +15,8 @@
 //                        the session cookie.
 //   authHeaderName()   → null — no auth header is ever attached.
 //
-//   alert(msg)         → void   — native window.alert
-//   confirm(msg)       → Promise<boolean> — native window.confirm
-//   showPopup(opts)    → void   — title + message via window.alert
+//   Dialogs are not the adapter's job: core/utils.js renders every one
+//   in-page (safeAlert / safeConfirm / safePrompt / safeChoose).
 //
 //   startParam()       → string | null
 //                        Deep-link parameter from the URL query (?start=foo),
@@ -36,7 +35,6 @@
 
     // BrowserAdapter — the only adapter. Identity: cookie-only
     // (authHeaderName returns null → no header is ever attached).
-    // Dialogs: native window.alert / window.confirm.
     // Deep links: URL query (?start=foo) or hash (#start=foo or bare #foo).
     // Back: popstate listener + an in-app chevron rendered into <body> on
     // showBack(). The chevron and popstate both invoke the registered handler.
@@ -127,22 +125,6 @@
             identityToken: function () { return null; },
 
             authHeaderName: function () { return null; },
-
-            alert: function (msg) {
-                try { window.alert(msg); } catch (e) { /* ignore */ }
-            },
-
-            confirm: function (msg) {
-                try { return Promise.resolve(!!window.confirm(msg)); }
-                catch (e) { return Promise.resolve(false); }
-            },
-
-            showPopup: function (opts) {
-                const title = (opts && opts.title) ? String(opts.title) : '';
-                const message = (opts && opts.message) ? String(opts.message) : '';
-                const text = (title && message) ? (title + '\n\n' + message) : (title || message);
-                try { window.alert(text); } catch (e) { /* ignore */ }
-            },
 
             startParam: readStartParam,
 
