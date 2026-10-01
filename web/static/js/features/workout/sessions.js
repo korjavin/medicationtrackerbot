@@ -216,10 +216,12 @@ async function _attachSessionGymSwitch(heading, session) {
         control.title = 'Changing the gym of a finished workout only affects future suggestions.';
     }
     const select = control.querySelector('select');
-    const previous = select.value;
+    let previous = select.value;
     select.addEventListener('change', async () => {
-        const ok = await setWorkoutSessionLocation(session.id, select.value === '' ? null : Number(select.value));
-        if (!ok) select.value = previous;
+        const picked = select.value;
+        const ok = await setWorkoutSessionLocation(session.id, picked === '' ? null : Number(picked));
+        if (ok) previous = picked;
+        else select.value = previous;
     });
     const status = heading.querySelector('#workout-session-modal-status');
     heading.insertBefore(control, status);
