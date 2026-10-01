@@ -21,9 +21,9 @@
         if (!adapter || typeof adapter.isBackButtonSupported !== 'function') return;
         if (!adapter.isBackButtonSupported()) return;
 
+        // Overlay modal or in-page dialog (shared predicate, bd med-62lh).
         function modalIsOpen() {
-            const overlay = document.getElementById('modal-overlay');
-            return !!overlay && !overlay.classList.contains('hidden');
+            return !!(window.ModalManager && window.ModalManager.isAnyOpen());
         }
 
         function currentTab() {

@@ -3,9 +3,15 @@
 // topmost open modal.  The messenger back-button click is handled in
 // features/back-button.js (single handler for modal-close + section-back).
 //
-// The single source of truth for modal state is the modal-overlay element:
-// visible  → push history entry + show back button
-// hidden   → pop history entry + defer visibility to AppBackButton.refresh()
+// Two kinds of modal state drive the history stack:
+// - the modal-overlay element (registered modals):
+//   visible  → push history entry + show back button
+//   hidden   → pop history entry + defer visibility to AppBackButton.refresh()
+// - the in-page dialog (safeConfirm/safePrompt/safeChoose mount
+//   mt-modal.mt-confirm-modal straight on <body>, outside the overlay):
+//   mounted  → push its own history entry
+//   removed  → pop it
+//   so Back over a dialog cancels just the dialog (bd med-62lh).
 //
 // All back-button toggling goes through window.MessengerAdapter
 // (in-app chevron + popstate in the browser PWA).
@@ -15,12 +21,18 @@
 (function initModalHistory() {
     let modalPushed = false;
     let poppingFromHistory = false;
-    // True when we've just triggered history.back() ourselves from
-    // onOverlayClosed() and the resulting popstate is purely an echo of that
-    // call. Without this, BrowserAdapter's section-back popstate listener
-    // would fire on top of the in-app modal close and bounce the user to
-    // Today.
+    // True when we've just called history.back() ourselves (onOverlayClosed
+    // or a dialog's removal) and the next popstate is purely its echo.
+    // Without this, BrowserAdapter's section-back popstate listener would
+    // fire on top of the in-app close and bounce the user to Today.
+    // ponytail: a flag, not a counter — two back() calls in one tick collapse
+    // into one traversal (jsdom, and likely browsers), so a counter would leak
+    // and swallow the user's next real Back. No caller does that today.
     let swallowNextPopstate = false;
+    let dialogPushed = false;
+    function isDialogOpen() {
+        return !!(window.ModalManager && window.ModalManager.isDialogOpen());
+    }
     // Resolve the adapter at use time, not at IIFE start, so a swapped
     // window.MessengerAdapter is picked up by the overlay handlers.
     function isBackButtonSupported() {
@@ -60,6 +72,20 @@
         reconcileBackButtonVisibility();
     }
 
+    function onBodyChildrenChanged() {
+        // A closing window tears <body> down after its document is gone.
+        if (!window.document) return;
+        const open = isDialogOpen();
+        if (open && !dialogPushed) {
+            dialogPushed = true;
+            history.pushState({ modalDialog: true }, '');
+        } else if (!open && dialogPushed) {
+            dialogPushed = false;
+            swallowNextPopstate = true;
+            history.back();
+        }
+    }
+
     // iOS edge-swipe (and desktop browser back)
     window.addEventListener('popstate', (event) => {
         if (swallowNextPopstate) {
@@ -68,6 +94,21 @@
             // on this synthetic-from-history.back() popstate.
             if (event && typeof event.stopImmediatePropagation === 'function') {
                 event.stopImmediatePropagation();
+            }
+            return;
+        }
+        if (dialogPushed && isDialogOpen()) {
+            // Back consumed the dialog's own entry: cancel the dialog only.
+            // The overlay modal / section guard entry below stays intact.
+            if (event && typeof event.stopImmediatePropagation === 'function') {
+                event.stopImmediatePropagation();
+            }
+            dialogPushed = false;
+            window.ModalManager.closeTopMostVisibleModal();
+            // A stacked dialog still open → re-push for the next Back.
+            if (isDialogOpen()) {
+                dialogPushed = true;
+                history.pushState({ modalDialog: true }, '');
             }
             return;
         }
@@ -98,8 +139,12 @@
         }
     });
 
-    // Watch modal-overlay for class changes to drive history push/pop
+    // Watch modal-overlay for class changes and <body> children for the
+    // in-page dialog to drive history push/pop
     function setupObserver() {
+        if (document.body) {
+            new MutationObserver(onBodyChildrenChanged).observe(document.body, { childList: true });
+        }
         const overlay = document.getElementById('modal-overlay');
         if (!overlay) return;
         new MutationObserver(() => {
