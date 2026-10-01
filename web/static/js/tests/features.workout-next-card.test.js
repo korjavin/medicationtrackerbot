@@ -74,25 +74,38 @@ describe('features/workout/next-card.js — split-file integration', () => {
     const container = await renderWithGyms(window, [{ id: 1, name: 'Home' }, { id: 2, name: 'Gym A' }], 1);
     const control = container.querySelector('.wg-workouts-gym-switch');
     expect(control).not.toBeNull();
+    expect(control.tagName).toBe('BUTTON');
+    expect(container.querySelector('select')).toBeNull();
     expect(control.textContent).toContain('At:');
-    const select = control.querySelector('select');
-    expect(select.value).toBe('1');
-    expect(Array.from(select.options).map((o) => o.textContent)).toEqual(['Home', 'Gym A', 'No gym']);
+    expect(control.querySelector('.wg-workouts-gym-switch__name').textContent).toBe('Home');
 
-    select.value = '2';
-    select.dispatchEvent(new window.Event('change'));
+    control.click();
+    const picker = window.document.querySelector('mt-modal.mt-confirm-modal');
+    expect(picker).not.toBeNull();
+    expect(picker.querySelector('.mt-confirm-modal__message').textContent).toMatch(/every workout until you change it/);
+    const options = Array.from(picker.querySelectorAll('.mt-confirm-modal__choice'));
+    expect(options.map((o) => o.textContent)).toEqual(['Home', 'Gym A', 'No gym']);
+    expect(options[0].getAttribute('aria-selected')).toBe('true');
+
+    options[1].click();
     await vi.waitFor(() => {
       expect(window.apiCall).toHaveBeenCalledWith('/api/workout/locations/active', 'PUT', { location_id: 2 }, expect.anything());
     });
+    await vi.waitFor(() => expect(control.querySelector('.wg-workouts-gym-switch__name').textContent).toBe('Gym A'));
+    expect(window.document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
   });
 
-  it('a failed switch reverts the select', async () => {
+  it('a failed switch keeps the chip on the previous gym', async () => {
     const { window } = env;
     window.safeToast = vi.fn();
     const container = await renderWithGyms(window, [{ id: 1, name: 'Home' }, { id: 2, name: 'Gym A' }], 1, null);
-    const select = container.querySelector('.wg-workouts-gym-switch select');
-    select.value = '2';
-    select.dispatchEvent(new window.Event('change'));
-    await vi.waitFor(() => expect(select.value).toBe('1'));
+    const control = container.querySelector('.wg-workouts-gym-switch');
+    control.click();
+    window.document.querySelectorAll('.mt-confirm-modal__choice')[1].click();
+    await vi.waitFor(() => {
+      expect(window.apiCall).toHaveBeenCalledWith('/api/workout/locations/active', 'PUT', { location_id: 2 }, expect.anything());
+    });
+    for (let i = 0; i < 4; i += 1) await new Promise((r) => setTimeout(r, 0));
+    expect(control.querySelector('.wg-workouts-gym-switch__name').textContent).toBe('Home');
   });
 });

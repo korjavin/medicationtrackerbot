@@ -209,20 +209,14 @@ async function _attachSessionGymSwitch(heading, session) {
         ? (session.location_name || 'Deleted gym') : null;
     if (state.locations.length === 0 && !deletedName) return;
     const selected = stamped ? session.location_id : state.activeId;
-    const control = eq.gymSwitch(document, state.locations, selected,
-        deletedName ? { value: '__deleted', label: `${deletedName} (deleted)` } : null);
-    control.classList.add('wg-workouts-session-modal__gym');
-    if (session.status === 'completed' || session.status === 'skipped') {
-        control.title = 'Changing the gym of a finished workout only affects future suggestions.';
-    }
-    const select = control.querySelector('select');
-    let previous = select.value;
-    select.addEventListener('change', async () => {
-        const picked = select.value;
-        const ok = await setWorkoutSessionLocation(session.id, picked === '' ? null : Number(picked));
-        if (ok) previous = picked;
-        else select.value = previous;
+    const finished = session.status === 'completed' || session.status === 'skipped';
+    const control = eq.gymSwitch(document, state.locations, selected, {
+        extra: deletedName ? { value: '__deleted', label: `${deletedName} (deleted)` } : null,
+        title: 'Gym for this workout',
+        hint: finished ? 'Changing the gym of a finished workout only affects future suggestions.' : '',
+        onPick: (id) => setWorkoutSessionLocation(session.id, id),
     });
+    control.classList.add('wg-workouts-session-modal__gym');
     const status = heading.querySelector('#workout-session-modal-status');
     heading.insertBefore(control, status);
 }

@@ -3639,6 +3639,54 @@ input:checked+.toggle-slider:before {
     font-size: var(--font-size-sm);
 }
 
+/* safePrompt / safeChoose (med-8j5w.5): actions sit top-right in the
+   header so the mobile keyboard never covers them. */
+.mt-confirm-modal__header-actions {
+    flex-wrap: nowrap;
+    flex-shrink: 0;
+}
+
+.mt-confirm-modal__label {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-3);
+}
+
+.mt-confirm-modal__error {
+    margin: 0;
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-sm);
+    color: var(--wg-clay-soft);
+}
+
+.mt-confirm-modal__error[hidden] {
+    display: none;
+}
+
+.mt-confirm-modal__choices {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.mt-confirm-modal__choice {
+    width: 100%;
+    min-height: 44px;
+    padding: var(--space-sm) var(--space-md);
+    text-align: left;
+    font-size: var(--font-size-sm);
+}
+
+.mt-confirm-modal__choice--selected {
+    border-color: var(--wg-sun);
+    color: var(--wg-sun);
+}
+
+.mt-confirm-modal__choice:disabled {
+    cursor: default;
+    opacity: 0.6;
+}
+
 .wg-field {
     display: flex;
     flex-direction: column;
@@ -8436,26 +8484,41 @@ textarea.wg-input {
 }
 
 /* Active-gym switch on the next-workout card and the gym pick in the
-   session header: a native select dressed as a quiet mono label. */
+   session header (med-8j5w.5): a compact "At: <gym> ▾" chip that opens the
+   in-page picker (safeChoose) — a setting you change, not a form field. */
 .wg-workouts-gym-switch {
     display: inline-flex;
     align-items: center;
+    align-self: flex-start;
     gap: var(--space-xs);
+    max-width: 100%;
+    min-width: 0;
+    margin: 0;
+    padding: var(--space-xs) var(--space-sm);
     font-family: var(--wg-font-mono);
     font-size: var(--font-size-xs);
     color: var(--wg-fg-3);
-    min-width: 0;
+    background: var(--wg-bg-card-inset);
+    border: 1px solid var(--wg-border-hairline);
+    border-radius: var(--wg-radius-gloss);
+    cursor: pointer;
 }
 
-.wg-workouts-gym-switch__select {
-    font: inherit;
-    color: var(--wg-fg-1);
-    background: transparent;
-    border: none;
-    padding: 0;
+.wg-workouts-gym-switch:focus-visible {
+    outline: none;
+    border-color: var(--wg-sun);
+}
+
+.wg-workouts-gym-switch__name {
     min-width: 0;
-    max-width: 100%;
-    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--wg-fg-1);
+}
+
+.wg-workouts-gym-switch__caret {
+    color: var(--wg-fg-3);
 }
 
 .wg-workouts-history-row__gym {

@@ -87,6 +87,15 @@ function seedOnlineList(window, items) {
     window.apiCallDirect = gymsAware(async () => structuredClone(items));
 }
 
+// Types into the in-page gym-name dialog (safePrompt) and presses Save.
+async function submitGymName(window, document, value) {
+    await vi.waitFor(() => expect(document.querySelector('.mt-confirm-modal__input')).not.toBeNull());
+    const input = document.querySelector('.mt-confirm-modal__input');
+    input.value = value;
+    input.dispatchEvent(new window.Event('input'));
+    document.querySelector('.mt-confirm-modal__confirm').click();
+}
+
 function rowsOf(document) {
     return Array.from(document.querySelectorAll('#workout-equipment-list .wg-equipment-row'));
 }
@@ -895,26 +904,53 @@ describe('features/workout/equipment.js — gyms (med-8j5w.2)', () => {
             return true;
         });
 
-        window.prompt = () => '  Gym B ';
         document.getElementById('add-workout-location-btn').click();
+        await submitGymName(window, document, '  Gym B ');
         await vi.waitFor(() => {
             expect(calls.some(([u, m, b]) => u === '/api/workout/locations' && m === 'POST' && b.name === 'Gym B')).toBe(true);
         });
 
-        window.prompt = () => 'Garage';
-        await window.WorkoutEquipment.renameLocation(HOME.id);
+        const renamed = window.WorkoutEquipment.renameLocation(HOME.id);
+        await vi.waitFor(() => expect(document.querySelector('.mt-confirm-modal__input')).not.toBeNull());
+        expect(document.querySelector('.mt-confirm-modal__input').value).toBe('Home');
+        await submitGymName(window, document, 'Garage');
+        await renamed;
         expect(calls).toContainEqual([`/api/workout/locations/${HOME.id}`, 'PUT', { name: 'Garage' }]);
 
         await window.WorkoutEquipment.deleteLocation(HOME.id);
         expect(calls).toContainEqual([`/api/workout/locations/${HOME.id}`, 'DELETE', null]);
     });
 
-    it('a cancelled gym prompt writes nothing', async () => {
-        const { window } = env;
+    it('the gym name dialog is the in-page modal: blank names error inline, never a native dialog', async () => {
+        const { window, document } = env;
         window.apiCallDirect = gymsAware(async () => []);
         window.apiCall = vi.fn(async () => true);
-        window.prompt = () => null;
-        expect(await window.WorkoutEquipment.addLocation()).toBe(false);
+        window.prompt = vi.fn();
+        window.alert = vi.fn();
+
+        const pending = window.WorkoutEquipment.addLocation();
+        await submitGymName(window, document, '   ');
+        const error = document.querySelector('.mt-confirm-modal__error');
+        expect(error.hidden).toBe(false);
+        expect(error.textContent).toBe('Give the gym a name.');
+        expect(document.querySelector('mt-modal.mt-confirm-modal')).not.toBeNull();
+        expect(window.apiCall).not.toHaveBeenCalled();
+
+        document.querySelector('.mt-confirm-modal__cancel').click();
+        expect(await pending).toBe(false);
+        expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
+        expect(window.prompt).not.toHaveBeenCalled();
+        expect(window.alert).not.toHaveBeenCalled();
+    });
+
+    it('a cancelled gym dialog writes nothing', async () => {
+        const { window, document } = env;
+        window.apiCallDirect = gymsAware(async () => []);
+        window.apiCall = vi.fn(async () => true);
+        const pending = window.WorkoutEquipment.addLocation();
+        await vi.waitFor(() => expect(document.querySelector('.mt-confirm-modal__cancel')).not.toBeNull());
+        document.querySelector('.mt-confirm-modal__cancel').click();
+        expect(await pending).toBe(false);
         expect(window.apiCall).not.toHaveBeenCalled();
     });
 });
