@@ -20,6 +20,7 @@ import { assertPasskey } from '../unlock.js';
 import { renderEmergencyKit } from '../signup.js';
 
 import { renderDeviceList } from '../devices.js';
+import { installDialogs, answerDialog } from './helpers/dialogs.js';
 
 let dom;
 let app;
@@ -32,10 +33,11 @@ const DEVICES = [
 ];
 
 beforeEach(() => {
-  dom = new JSDOM('<!doctype html><div id="app"></div>', { url: 'https://acct.example.test/' });
+  dom = new JSDOM('<!doctype html><div id="app"></div>', { url: 'https://acct.example.test/', runScripts: 'outside-only' });
   global.document = dom.window.document;
   vi.stubGlobal('navigator', dom.window.navigator);
-  global.confirm = vi.fn(() => true);
+  vi.stubGlobal('window', dom.window);
+  installDialogs(dom.window);
   global.fetch = vi.fn(async () => ({ ok: true, json: async () => DEVICES }));
   app = dom.window.document.getElementById('app');
   onExit = vi.fn();
@@ -45,7 +47,6 @@ afterEach(() => {
   dom.window.close();
   vi.unstubAllGlobals();
   delete global.document;
-  delete global.confirm;
   delete global.fetch;
 });
 
@@ -84,6 +85,8 @@ describe('devices.js device list', () => {
     global.fetch.mockClear();
     app.querySelectorAll('#device-list .device-row button')[0]
       .dispatchEvent(new dom.window.Event('click'));
+    const dialog = await answerDialog(dom.window.document, true);
+    expect(dialog.querySelector('.wg-modal__title').textContent).toBe('Revoke this device?');
 
     await vi.waitFor(() => {
       if (global.fetch.mock.calls.length === 0) throw new Error('not called yet');

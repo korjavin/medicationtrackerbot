@@ -37,14 +37,14 @@ describe('features/workout/variants.js — split-file integration', () => {
 
   it('showAddVariantModal short-circuits when no group is set', () => {
     const { window } = env;
-    window.alert = vi.fn();
+    window.safeAlert = vi.fn();
     window.WorkoutEdit.groupForVariant = null;
     window.WorkoutEdit.editingGroupId = null;
 
     window.showAddVariantModal();
 
-    expect(window.alert).toHaveBeenCalledTimes(1);
-    expect(window.alert.mock.calls[0][0])
+    expect(window.safeAlert).toHaveBeenCalledTimes(1);
+    expect(window.safeAlert.mock.calls[0][0])
       .toContain('Save this plan first');
   });
 

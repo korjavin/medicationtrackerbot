@@ -20,7 +20,12 @@ export async function exportVaultToFile(nowMs = Date.now()) {
   }
   // Same gate as Settings → Import/Export: the file holds live secrets, so warn
   // BEFORE they land in ~/Downloads in plain text.
-  if (!window.confirm('This backup will contain your provider API keys and access tokens in plain text. Download anyway?')) {
+  const ok = await window.safeConfirm(
+    'This backup will contain your provider API keys and access tokens in plain text. Download anyway?',
+    null,
+    { title: 'Download backup?', confirmLabel: 'Download' },
+  );
+  if (!ok) {
     return false;
   }
   const json = await window.CloudVault.exportAll({ includeSecrets: true });

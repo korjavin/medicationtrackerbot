@@ -116,24 +116,61 @@ describe('safeConfirm — in-page modal', () => {
     });
 });
 
-describe('safeAlert — adapter delegation', () => {
+// med-v83g: safeAlert is the in-page dialog's alert mode — one OK button in
+// the cancel slot (so modal-manager's Back-cancels-first path dismisses it),
+// never a native alert().
+describe('safeAlert — in-page alert mode', () => {
     let env;
 
+    beforeEach(() => {
+        env = loadFrontendEnv();
+    });
+
     afterEach(() => {
-        if (env) env.cleanup();
+        env.cleanup();
         env = null;
     });
 
-    // Regression: core/utils.js routes safeAlert through
-    // window.MessengerAdapter rather than reaching for a host SDK directly.
-    // Pin that the delegation happens — if a future refactor reintroduces a
-    // direct host-SDK read in utils.js the adapter spy stops firing.
-    it('safeAlert delegates to MessengerAdapter.alert', () => {
-        env = loadFrontendEnv();
-        const { window } = env;
-        const alertSpy = vi.spyOn(window.MessengerAdapter, 'alert');
-        window.safeAlert('hello-from-adapter');
-        expect(alertSpy).toHaveBeenCalledWith('hello-from-adapter');
+    it('renders the styled dialog with only an OK button and resolves on OK', async () => {
+        const { window, document } = env;
+        const nativeAlert = vi.fn();
+        window.alert = nativeAlert;
+        const promise = window.safeAlert('Saved offline');
+
+        const modal = document.querySelector('mt-modal.mt-confirm-modal');
+        expect(modal).not.toBeNull();
+        expect(modal.querySelector('.mt-confirm-modal__message').textContent).toBe('Saved offline');
+        expect(modal.querySelector('.mt-confirm-modal__confirm')).toBeNull();
+        const ok = modal.querySelector('.mt-confirm-modal__cancel');
+        expect(ok.textContent).toBe('OK');
+        expect(document.activeElement).toBe(ok);
+
+        ok.click();
+        await expect(promise).resolves.toBeUndefined();
+        expect(document.querySelector('.mt-confirm-modal')).toBeNull();
+        expect(document.querySelector('.mt-confirm-backdrop')).toBeNull();
+        expect(nativeAlert).not.toHaveBeenCalled();
+    });
+
+    it('settles on Escape and on a backdrop click', async () => {
+        const { window, document } = env;
+        const first = window.safeAlert('one');
+        document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await first;
+        expect(document.querySelector('.mt-confirm-modal')).toBeNull();
+
+        const second = window.safeAlert('two');
+        document.querySelector('.mt-confirm-backdrop').click();
+        await second;
+        expect(document.querySelector('.mt-confirm-modal')).toBeNull();
+    });
+
+    it('is dismissed by Back (ModalManager closes the dialog first)', async () => {
+        const { window, document } = env;
+        const promise = window.safeAlert('back me out');
+        expect(window.ModalManager.closeTopMostVisibleModal()).toBe(true);
+        await promise;
+        expect(document.querySelector('.mt-confirm-modal')).toBeNull();
     });
 });
 

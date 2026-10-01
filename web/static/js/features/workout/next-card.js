@@ -240,7 +240,7 @@ async function nextWorkoutVariant(sessionId) {
         await loadNextWorkout();
     } catch (error) {
         console.error('Error switching to next variant:', error);
-        alert('Failed to switch day. Please try again.');
+        safeToast('Failed to switch day. Please try again.', 'error');
     }
 }
 

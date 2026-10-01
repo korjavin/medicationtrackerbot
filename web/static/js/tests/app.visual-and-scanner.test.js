@@ -77,7 +77,7 @@ describe('app.js charts, scanner and visualization helpers', () => {
       expect(closeScannerSpy).toHaveBeenCalledTimes(1);
 
       const alertSpy = vi.fn();
-      window.alert = alertSpy;
+      window.safeAlert = alertSpy;
       document.getElementById('food-name').value = '';
       window.handleDecodedValue('hello from qr');
       expect(document.getElementById('food-name').value).toBe('hello from qr');

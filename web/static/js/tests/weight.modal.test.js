@@ -250,8 +250,7 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
             const { window, document } = env;
             const apiCallSpy = vi.fn();
             window.apiCall = apiCallSpy;
-            window.alert = vi.fn();
-            window.alert = vi.fn();
+            window.safeAlert = vi.fn();
 
             window.showWeightModal();
             document.getElementById('weight-datetime').value = '';

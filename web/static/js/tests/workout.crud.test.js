@@ -20,7 +20,7 @@ describe('workout.js CRUD flows', () => {
 
     try {
       const alertSpy = vi.fn();
-      window.alert = alertSpy;
+      window.safeAlert = alertSpy;
       window.showAddWorkoutGroupModal();
 
       document.getElementById('workout-group-name').value = '';
@@ -120,7 +120,7 @@ describe('workout.js CRUD flows', () => {
       window.showAddVariantModal();
 
       const alertSpy = vi.fn();
-      window.alert = alertSpy;
+      window.safeAlert = alertSpy;
       document.getElementById('workout-variant-name').value = '';
       await window.saveVariant();
       expect(alertSpy).toHaveBeenCalled();
@@ -164,7 +164,7 @@ describe('workout.js CRUD flows', () => {
       await window.showAddExerciseModal();
 
       const alertSpy = vi.fn();
-      window.alert = alertSpy;
+      window.safeAlert = alertSpy;
       document.getElementById('workout-exercise-name').value = '';
       document.getElementById('workout-exercise-sets').value = '3';
       document.getElementById('workout-exercise-reps-min').value = '8';

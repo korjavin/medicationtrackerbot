@@ -403,8 +403,13 @@ export async function mountTelegram(container, opts = {}) {
         });
     });
 
-    container.querySelector('#tg-unlink').addEventListener('click', () => {
-      if (!confirm('Unlink your Telegram bot? A managed bot stays yours — delete it in BotFather if you no longer want it.')) return;
+    container.querySelector('#tg-unlink').addEventListener('click', async () => {
+      const ok = await window.safeConfirm(
+        'A managed bot stays yours — delete it in BotFather if you no longer want it.',
+        null,
+        { title: 'Unlink your Telegram bot?', confirmLabel: 'Unlink' },
+      );
+      if (!ok) return;
       fetch('/api/telegram', { method: 'DELETE' })
         .then((res) => {
           if (!res.ok) throw new Error('Could not unlink.');

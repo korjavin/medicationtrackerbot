@@ -205,3 +205,54 @@ describe('features/weight.js — optimistic write conversion', () => {
         }
     });
 });
+
+// med-v83g: the goal editor is the app's in-page safePrompt (numeric keypad),
+// never a native prompt().
+describe('features/weight.js — target-weight goal dialog', () => {
+    let env;
+
+    beforeEach(() => {
+        env = loadFrontendEnv();
+    });
+
+    afterEach(() => {
+        env.cleanup();
+        env = null;
+    });
+
+    it('edits the goal through the styled dialog and POSTs the new target', async () => {
+        const { window, document } = env;
+        window.weightUnitPreference = 'kg';
+        window.prompt = vi.fn();
+        window.apiCall = vi.fn(async () => null);
+        window.renderWeightGoalCard([{ measured_at: new Date().toISOString(), weight: 80 }], { goal: 75, goal_direction: 'lose', highest_weight: 85 });
+
+        document.querySelector('.wg-weight-goal-card__action').click();
+        const modal = document.querySelector('mt-modal.mt-confirm-modal');
+        expect(modal).not.toBeNull();
+        const input = modal.querySelector('.mt-confirm-modal__input');
+        expect(input.value).toBe('75');
+        expect(input.getAttribute('inputmode')).toBe('decimal');
+
+        input.value = '72.5';
+        modal.querySelector('.mt-confirm-modal__confirm').click();
+        await vi.waitFor(() => {
+            if (window.apiCall.mock.calls.length === 0) throw new Error('not posted yet');
+        });
+        expect(window.apiCall).toHaveBeenCalledWith('/api/weight/goal', 'POST', { target_weight: 72.5 });
+        expect(window.prompt).not.toHaveBeenCalled();
+        expect(document.querySelector('.mt-confirm-modal')).toBeNull();
+    });
+
+    it('cancelling the dialog leaves the goal untouched', async () => {
+        const { window, document } = env;
+        window.apiCall = vi.fn(async () => null);
+        window.renderWeightGoalCard([], null);
+
+        document.querySelector('.wg-weight-goal-card__action').click();
+        document.querySelector('.mt-confirm-modal__cancel').click();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(window.apiCall).not.toHaveBeenCalled();
+    });
+});
