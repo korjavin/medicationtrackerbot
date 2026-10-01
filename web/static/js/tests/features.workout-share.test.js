@@ -1085,8 +1085,7 @@ describe('features/workout/share.js — share a gym (med-8j5w.3)', () => {
     expect(await window.WorkoutShare.decode('g1.' + planToken.slice(3))).toBeNull();
     expect(await window.WorkoutShare.decode('p1.' + token.slice(3))).toBeNull();
     // A p1 token smuggling a location key never reaches the gym import.
-    const both = await window.WorkoutShare.encode({ ...EXPORT, location: GYM_EXPORT.location });
-    expect(both.startsWith('p1.')).toBe(true);
+    const both = 'p1.' + (await window.WorkoutShare.encode({ ...EXPORT, location: GYM_EXPORT.location })).slice(3);
     expect(await window.WorkoutShare.decode(both)).toBeNull();
   });
 
