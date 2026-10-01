@@ -1053,6 +1053,29 @@ describe('cloud shim contract — workout next-workout, rotation, session lifecy
             expect(await sessionOf(window, sessionId)).toMatchObject({ location_id: b.id, location_name: 'Gym B' });
         });
 
+        it('an explicit binding to another gym\'s bar falls through to the session gym; preview resolves at the active gym', async () => {
+            const { window } = env;
+            const { a, b } = await twoGyms(window);
+            const { variants, ex, sessionId } = await squatPlan(window);
+            const barA = (await window.apiCallDirect('/api/workout/equipment')).find((e) => e.name === 'A bar');
+            const lib = (await window.apiCall('/api/workout/exercise-library')).find((l) => l.name === 'Barbell squat');
+            await window.apiCall(`/api/workout/exercise-library/update?id=${lib.id}`, 'PUT', { ...lib, equipment_id: barA.id });
+            await setActive(window, b.id);
+            await window.apiCall(`/api/workout/sessions/${sessionId}/start`, 'POST');
+
+            // Bound to gym A's bar, performed at gym B: auto-match over B's gear.
+            await logAllSets(window, sessionId, ex.id, 'Barbell squat', 10, 60, 3);
+            expect((await exerciseTargets(window, variants[0].id, ex.id)).target_weight_kg).toBe(100);
+
+            // Preview resolves at the destination (active) gym, not the log's.
+            const entryAt = async (id) => {
+                await setActive(window, id);
+                return (await window.apiCallDirect('/api/workout/progression-preview')).find((e) => e.exercise_id === ex.id);
+            };
+            expect((await entryAt(a.id)).equipment).toMatchObject({ name: 'A bar' });
+            expect((await entryAt(b.id)).equipment).toMatchObject({ name: 'B bar', auto: true });
+        });
+
         it('Start twice / resume keeps the first stamp', async () => {
             const { window } = env;
             const { a, b } = await twoGyms(window);
