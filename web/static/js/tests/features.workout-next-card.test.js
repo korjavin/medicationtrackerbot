@@ -38,4 +38,61 @@ describe('features/workout/next-card.js — split-file integration', () => {
     expect(plan.textContent).toBe('Plan 3 — Daily Split');
     expect(plan.classList.contains('wg-workouts-slot-tag--plan')).toBe(true);
   });
+
+  // med-8j5w.2: the active-gym switch on the card.
+  const NEXT = {
+    session: { id: 42, status: 'notified', scheduled_date: '2026-04-24', scheduled_time: '09:00', is_today: true },
+    group_name: 'Morning', variant_name: 'Legs', exercises_count: 2, variant_id: 7, group_id: 3, is_rotating: false,
+  };
+
+  async function renderWithGyms(window, gyms, activeId, putResult = { location_id: null }) {
+    window.apiCall = vi.fn(async (url, method, body) => {
+      if (url === '/api/workout/locations') return gyms;
+      if (url === '/api/workout/locations/active' && method === 'PUT') {
+        return putResult === null ? null : { ...putResult, location_id: body.location_id };
+      }
+      if (url === '/api/workout/locations/active') return { location_id: activeId, location: null };
+      return null;
+    });
+    const container = window.document.getElementById('next-workout-card');
+    window._renderNextWorkout(container, NEXT);
+    await vi.waitFor(() => {
+      expect(window.apiCall).toHaveBeenCalledWith('/api/workout/locations', 'GET');
+    });
+    for (let i = 0; i < 4; i += 1) await new Promise((r) => setTimeout(r, 0));
+    return container;
+  }
+
+  it('no gyms: the card has no gym switch', async () => {
+    const container = await renderWithGyms(env.window, [], null);
+    expect(container.querySelector('.wg-workouts-gym-switch')).toBeNull();
+    expect(container.querySelector('.wg-workouts-next-card__actions')).not.toBeNull();
+  });
+
+  it('with gyms: "At:" switch preselects the active gym and PUTs a switch', async () => {
+    const { window } = env;
+    const container = await renderWithGyms(window, [{ id: 1, name: 'Home' }, { id: 2, name: 'Gym A' }], 1);
+    const control = container.querySelector('.wg-workouts-gym-switch');
+    expect(control).not.toBeNull();
+    expect(control.textContent).toContain('At:');
+    const select = control.querySelector('select');
+    expect(select.value).toBe('1');
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual(['Home', 'Gym A', 'No gym']);
+
+    select.value = '2';
+    select.dispatchEvent(new window.Event('change'));
+    await vi.waitFor(() => {
+      expect(window.apiCall).toHaveBeenCalledWith('/api/workout/locations/active', 'PUT', { location_id: 2 }, expect.anything());
+    });
+  });
+
+  it('a failed switch reverts the select', async () => {
+    const { window } = env;
+    window.safeToast = vi.fn();
+    const container = await renderWithGyms(window, [{ id: 1, name: 'Home' }, { id: 2, name: 'Gym A' }], 1, null);
+    const select = container.querySelector('.wg-workouts-gym-switch select');
+    select.value = '2';
+    select.dispatchEvent(new window.Event('change'));
+    await vi.waitFor(() => expect(select.value).toBe('1'));
+  });
 });

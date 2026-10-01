@@ -321,6 +321,15 @@ function _buildSessionCard(s) {
         meta.appendChild(volume);
     }
 
+    // med-8j5w.2: where it happened — the session's gym snapshot, which
+    // survives a later rename/delete of the gym.
+    if (session.location_name) {
+        const gym = document.createElement('span');
+        gym.className = 'wg-workouts-history-row__gym';
+        gym.textContent = `@ ${session.location_name}`;
+        meta.appendChild(gym);
+    }
+
     if (s.isRejected) {
         meta.appendChild(_buildHistorySyncTag('rejected', 'Failed', s.errorMessage));
     } else if (s.isLocal) {

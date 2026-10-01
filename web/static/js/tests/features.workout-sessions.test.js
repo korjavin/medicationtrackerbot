@@ -2541,3 +2541,166 @@ describe('features/workout/sessions.js — plate-loading chip (med-v75c.2)', () 
     expect(chip.querySelector('.wg-plates__text').textContent).toBe('8 + 15 · 10 · 5 · 2 / side (kg)');
   });
 });
+
+describe('features/workout/sessions.js — session gym (med-8j5w.2)', () => {
+  let env;
+  let consoleErrorSpy;
+
+  const HOME = { id: 41, name: 'Home' };
+  const GYM_A = { id: 42, name: 'Gym A' };
+  // Two auto-matchable barbells, one per gym. Both hit 72 exactly; across the
+  // whole inventory the lower id (the short bar) wins the tie.
+  const BAR8 = {
+    id: 3, kind: 'plated', name: 'Short bar', bar_kg: 8, sides: 2, pair: false, location_id: HOME.id,
+    plates: [{ kg: 15, count: 2 }, { kg: 10, count: 2 }, { kg: 5, count: 2 }, { kg: 2, count: 2 }],
+  };
+  BAR8.loads_kg = achievableLoads(BAR8);
+  const OLY = {
+    id: 6, kind: 'plated', name: 'Olympic bar', bar_kg: 20, sides: 2, pair: false, location_id: GYM_A.id,
+    plates: [{ kg: 20, count: 4 }, { kg: 5, count: 2 }, { kg: 1, count: 2 }],
+  };
+  OLY.loads_kg = achievableLoads(OLY);
+
+  const ROWS = [{ id: 101, exercise_name: 'Barbell squat', exercise_library_id: 11, target_sets: 3, target_reps_min: 5, target_weight_kg: 72 }];
+  const LIB = [{ id: 11, name: 'Barbell squat', equipment_id: null }];
+  const session = (over) => ({
+    id: 77, variant_id: 30, variant_name: 'Legs', group_name: 'PPL',
+    status: 'in_progress', scheduled_date: '2026-04-22', scheduled_time: '09:00',
+    started_at: '2026-04-22T09:05:00Z', completed_at: null, duration_minutes: 42,
+    ...over,
+  });
+  const LOG = {
+    id: 1, exercise_id: 101, exercise_name: 'Barbell squat',
+    sets_completed: 3, reps_completed: 5, weight_kg: 72, notes: '', status: 'completed',
+  };
+
+  // `world` is mutable: tests flip the gyms / active gym / session to model a
+  // remote write, then fire the sync layer's datastore:changed signal.
+  async function openGymSession(window, world) {
+    window.apiCall = vi.fn(async (endpoint, method, body) => {
+      const url = String(endpoint);
+      if (url.startsWith('/api/workout/sessions/details')) return { session: world.session, logs: [LOG] };
+      if (url.startsWith('/api/workout/sessions/location') && method === 'PUT') {
+        const loc = world.locations.find((l) => l.id === body.location_id) || null;
+        world.session = { ...world.session, location_id: loc ? loc.id : null, location_name: loc ? loc.name : null };
+        return world.session;
+      }
+      if (url.includes('/api/workout/exercises?variant_id=')) return ROWS;
+      if (url === '/api/workout/exercise-library') return LIB;
+      if (url === '/api/workout/equipment') return [BAR8, OLY];
+      if (url === '/api/workout/locations') return world.locations;
+      if (url === '/api/workout/locations/active') return { location_id: world.activeId, location: null };
+      return [];
+    });
+    window.WorkoutEquipment.list = async () => [BAR8, OLY];
+    window.WorkoutGroups.loadEquipmentDomain = async () => ({
+      loadingFor, nearestLoads, equipmentForExercise, pickNearestLoad,
+    });
+    await window.showWorkoutSessionModal(world.session.id);
+    await drain();
+  }
+
+  async function drain() {
+    for (let i = 0; i < 6; i += 1) await new Promise((r) => setTimeout(r, 0));
+  }
+
+  function autoLabel(document) {
+    const chip = document.getElementById('workout-session-logs')
+      .querySelector('.wg-workouts-session-exercise__plates');
+    const auto = chip && chip.querySelector('.wg-plates__auto');
+    return auto ? auto.textContent : null;
+  }
+
+  function gymSelect(document) {
+    return document.querySelector('#workout-session-modal-heading .wg-workouts-gym-switch select');
+  }
+
+  function remoteChange(window) {
+    window.dispatchEvent(new window.CustomEvent('datastore:changed', {
+      detail: { changedTags: ['workout'], source: 'cloud-write' },
+    }));
+  }
+
+  beforeEach(() => {
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    env = loadFrontendEnv({ withWorkout: true });
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
+    try { env.window.localStorage.clear(); } catch (_) { /* ignore */ }
+    env.cleanup();
+    env = null;
+  });
+
+  it('no gyms: no header gym control, chips as before', async () => {
+    const { window, document } = env;
+    await openGymSession(window, { locations: [], activeId: null, session: session() });
+    expect(gymSelect(document)).toBeNull();
+    expect(autoLabel(document)).toBe('auto: Short bar');
+  });
+
+  it('the header shows the stamped gym; switching it PUTs and re-renders the chips at the new gym', async () => {
+    const { window, document } = env;
+    const world = { locations: [GYM_A, HOME], activeId: HOME.id, session: session({ location_id: HOME.id, location_name: 'Home' }) };
+    await openGymSession(window, world);
+
+    const select = gymSelect(document);
+    expect(select).not.toBeNull();
+    expect(select.value).toBe(String(HOME.id));
+    expect(autoLabel(document)).toBe('auto: Short bar');
+
+    select.value = String(GYM_A.id);
+    select.dispatchEvent(new window.Event('change'));
+    await drain();
+
+    expect(window.apiCall).toHaveBeenCalledWith('/api/workout/sessions/location?id=77', 'PUT',
+      { location_id: GYM_A.id }, expect.anything());
+    expect(window.WorkoutSessionsState.data.location_id).toBe(GYM_A.id);
+    await vi.waitFor(() => expect(autoLabel(document)).toBe('auto: Olympic bar'));
+  });
+
+  it('a remote active-gym switch while an unstamped session is open re-renders the chips', async () => {
+    const { window, document } = env;
+    const world = { locations: [GYM_A, HOME], activeId: HOME.id, session: session() };
+    await openGymSession(window, world);
+    expect(autoLabel(document)).toBe('auto: Short bar');
+
+    world.activeId = GYM_A.id; // e.g. switched over MCP or on another device
+    remoteChange(window);
+    await drain();
+
+    await vi.waitFor(() => expect(autoLabel(document)).toBe('auto: Olympic bar'));
+  });
+
+  it('a remote delete of the session gym while open shows it as deleted and resolves over the whole inventory', async () => {
+    const { window, document } = env;
+    const world = { locations: [GYM_A, HOME], activeId: HOME.id, session: session({ location_id: GYM_A.id, location_name: 'Gym A' }) };
+    await openGymSession(window, world);
+    expect(autoLabel(document)).toBe('auto: Olympic bar');
+
+    world.locations = [HOME];
+    remoteChange(window);
+    await drain();
+
+    await vi.waitFor(() => expect(autoLabel(document)).toBe('auto: Short bar'));
+    const select = gymSelect(document);
+    expect(select.options[select.selectedIndex].textContent).toBe('Gym A (deleted)');
+  });
+
+  it('our own (non-remote) workout writes do not rebuild the chips', async () => {
+    const { window, document } = env;
+    const world = { locations: [GYM_A, HOME], activeId: HOME.id, session: session() };
+    await openGymSession(window, world);
+    const before = window.apiCall.mock.calls.length;
+
+    world.activeId = GYM_A.id;
+    window.dispatchEvent(new window.CustomEvent('datastore:changed', {
+      detail: { changedTags: ['workout'], source: 'optimistic' },
+    }));
+    await drain();
+
+    expect(window.apiCall.mock.calls.length).toBe(before);
+    expect(autoLabel(document)).toBe('auto: Short bar');
+  });
+});

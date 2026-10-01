@@ -267,6 +267,11 @@
             <div id="workout-equipment-tab" class="workout-tab-content">
                 <div class="wg-equipment-header">
                     <span class="wg-section-label wg-equipment-header__label">Inventory</span>
+                    <button id="add-workout-location-btn" type="button"
+                        class="wg-gloss wg-equipment-header__add"
+                        aria-label="Add gym">
+                        <span class="wg-equipment-header__add-label">+ Gym</span>
+                    </button>
                     <button id="add-workout-equipment-btn" type="button"
                         class="wg-gloss wg-gloss--sun wg-equipment-header__add"
                         aria-label="Add equipment">
@@ -1588,6 +1593,15 @@
                         <option value="kettlebell">Kettlebell</option>
                         <option value="other">Other</option>
                     </select>
+                </div>
+            </div>
+
+            <!-- med-8j5w.2: which gym the item lives at; hidden until the
+                 account has at least one gym (equipment.js fills it). -->
+            <div class="wg-equipment-modal__field" id="workout-equipment-location-field" hidden>
+                <label for="workout-equipment-location" class="wg-equipment-modal__label">Location</label>
+                <div class="wg-gloss--inset wg-equipment-modal__input-wrap">
+                    <select id="workout-equipment-location" class="wg-equipment-modal__input"></select>
                 </div>
             </div>
 

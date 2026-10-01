@@ -740,6 +740,32 @@ describe('features/workout/library.js — split-file integration', () => {
       expect(select.value).toBe('');
     });
 
+    it('with gyms, options group per gym + Portable and every item stays selectable (med-8j5w.2)', async () => {
+      const { window, document } = env;
+      stubInventory(window, [
+        { ...INVENTORY[0], location_id: 2 },
+        { ...INVENTORY[1] },
+        { id: 52, name: 'Home bar', kind: 'plated', location_id: 1 },
+      ]);
+      window.WorkoutEquipment.locations = vi.fn(async () => ({
+        locations: [{ id: 1, name: 'Home' }, { id: 2, name: 'Gym A' }], activeId: 1,
+      }));
+
+      await window.showExerciseLibraryModal();
+
+      const select = document.getElementById('exercise-library-equipment');
+      const groups = Array.from(select.querySelectorAll('optgroup')).map((g) => [
+        g.label, Array.from(g.querySelectorAll('option')).map((o) => o.textContent),
+      ]);
+      expect(groups).toEqual([
+        ['Home', ['Home bar']],
+        ['Gym A', ['Ohio bar']],
+        ['Portable / everywhere', ['Hex DBs']],
+      ]);
+      expect(select.options[0].textContent).toBe('None');
+      expect(select.options).toHaveLength(4);
+    });
+
     it('openEdit selects the stored binding, and falls back to None when it dangles', async () => {
       const { window, document } = env;
       stubInventory(window);
@@ -767,6 +793,8 @@ describe('features/workout/library.js — split-file integration', () => {
       window.loadExerciseLibrary = vi.fn();
       const calls = [];
       window.apiCall = vi.fn(async (url, method, body) => {
+        // The select fill also reads the gyms (med-8j5w.2): not a write.
+        if (String(url).startsWith('/api/workout/locations')) return [];
         calls.push([url, body]);
         return { id: 7 };
       });

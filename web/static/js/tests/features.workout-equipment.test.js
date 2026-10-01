@@ -72,8 +72,19 @@ const PLATED_BAR = {
     loads_kg: [20, 25, 30], min_step_kg: 2.5, max_kg: 120
 };
 
+// med-8j5w.2: the list/editor also read the gyms + active gym through
+// apiCallDirect; route those URLs to an explicit gym set (none by default)
+// so the generic equipment mocks below keep meaning "the inventory".
+function gymsAware(fn, gyms = [], activeId = null) {
+    return vi.fn(async (url, ...rest) => {
+        if (url === '/api/workout/locations') return structuredClone(gyms);
+        if (url === '/api/workout/locations/active') return { location_id: activeId, location: null };
+        return fn(url, ...rest);
+    });
+}
+
 function seedOnlineList(window, items) {
-    window.apiCallDirect = vi.fn(async () => structuredClone(items));
+    window.apiCallDirect = gymsAware(async () => structuredClone(items));
 }
 
 function rowsOf(document) {
@@ -156,7 +167,7 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
             return null;
         });
         // The post-save reload revalidates through apiCallDirect.
-        window.apiCallDirect = vi.fn(async () => [structuredClone(created)]);
+        window.apiCallDirect = gymsAware(async () => [structuredClone(created)]);
 
         document.getElementById('add-workout-equipment-btn').click();
         expect(document.getElementById('workout-equipment-modal-title').textContent).toBe('Add Equipment');
@@ -188,7 +199,7 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
             if (method === 'POST') return { ...PLATED_BAR, id: 9 };
             return null;
         });
-        window.apiCallDirect = vi.fn(async () => []);
+        window.apiCallDirect = gymsAware(async () => []);
 
         document.getElementById('add-workout-equipment-btn').click();
         document.querySelector('#workout-equipment-kind [data-kind="plated"]').click();
@@ -227,7 +238,7 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
             if (method === 'POST') return { id: 9 };
             return null;
         });
-        window.apiCallDirect = vi.fn(async () => []);
+        window.apiCallDirect = gymsAware(async () => []);
 
         const cases = [
             ['barbell', { sides: 2, pair: false }],
@@ -287,7 +298,7 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
             if (method === 'POST') return { ...FIXED_DB, id: 9, implement: 'kettlebell' };
             return null;
         });
-        window.apiCallDirect = vi.fn(async () => []);
+        window.apiCallDirect = gymsAware(async () => []);
 
         document.getElementById('add-workout-equipment-btn').click();
         const type = document.getElementById('workout-equipment-type');
@@ -327,7 +338,7 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
             if (url === '/api/workout/equipment' && method === 'GET') return [structuredClone(FIXED_DB)];
             return null;
         });
-        window.apiCallDirect = vi.fn(async () => [structuredClone(FIXED_DB)]);
+        window.apiCallDirect = gymsAware(async () => [structuredClone(FIXED_DB)]);
 
         await window.WorkoutEquipment.openEdit(FIXED_DB.id);
         expect(document.getElementById('workout-equipment-type').value).toBe('');
@@ -566,7 +577,7 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
             if (method === 'PUT') return true;
             return null; // reconcile GET fails -> commit keeps the nulled projection
         });
-        window.apiCallDirect = vi.fn(async () => [structuredClone(FIXED_DB)]);
+        window.apiCallDirect = gymsAware(async () => [structuredClone(FIXED_DB)]);
 
         rowsOf(document)[0].querySelector('.wg-equipment-row__edit').click();
         document.getElementById('workout-equipment-loads').value = '10, 12';
@@ -615,7 +626,7 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
             return null;
         });
         const updated = { ...FIXED_DB, name: 'Hex DBs v2', loads_kg: [10, 12], max_kg: 12 };
-        window.apiCallDirect = vi.fn(async () => [structuredClone(updated)]);
+        window.apiCallDirect = gymsAware(async () => [structuredClone(updated)]);
 
         rowsOf(document)[0].querySelector('.wg-equipment-row__edit').click();
         expect(document.getElementById('workout-equipment-modal-title').textContent).toBe('Edit Equipment');
@@ -647,7 +658,7 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
         expect(rowsOf(document)).toHaveLength(1);
 
         window.apiCall = vi.fn(async () => true);
-        window.apiCallDirect = vi.fn(async () => []);
+        window.apiCallDirect = gymsAware(async () => []);
 
         rowsOf(document)[0].querySelector('.wg-equipment-row__delete').click();
 
@@ -672,7 +683,7 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
         window.apiCall = vi.fn(async () => null);
         // Background revalidation after rollback resolves empty; the
         // rollback-restored cache paints first and wins the assertion below.
-        window.apiCallDirect = vi.fn(async () => [structuredClone(FIXED_DB)]);
+        window.apiCallDirect = gymsAware(async () => [structuredClone(FIXED_DB)]);
 
         rowsOf(document)[0].querySelector('.wg-equipment-row__delete').click();
 
@@ -705,7 +716,7 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
     it('no-cache offline render shows the explicit empty state', async () => {
         const { window, document } = env;
         setOnline(window, false);
-        window.apiCallDirect = vi.fn(async () => { throw new TypeError('fetch failed'); });
+        window.apiCallDirect = gymsAware(async () => { throw new TypeError('fetch failed'); });
 
         await window.WorkoutEquipment.load();
 
@@ -732,5 +743,178 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
         expect(match[1]).toContain('flex: 1;');
         expect(match[1]).toContain('min-width: 0;');
         expect(match[1]).toContain('font-size: var(--font-size-xs);');
+    });
+});
+
+describe('features/workout/equipment.js — gyms (med-8j5w.2)', () => {
+    let env;
+    const HOME = { id: 41, name: 'Home' };
+    const GYM_A = { id: 42, name: 'Gym A' };
+
+    function groupLabels(document) {
+        return Array.from(document.querySelectorAll('#workout-equipment-list .wg-equipment-group__label'))
+            .map((el) => el.textContent);
+    }
+
+    beforeEach(() => {
+        env = loadFrontendEnv({ withWorkout: true });
+        installCachedFetch(env.window);
+        installApiCacheMap(env.window);
+        setOnline(env.window, true);
+        env.window.safeConfirm = async (_msg, cb) => { await cb(true); };
+    });
+
+    afterEach(() => {
+        try { env.window.localStorage.clear(); } catch (_) { /* ignore */ }
+        env.cleanup();
+        env = null;
+    });
+
+    it('no gyms: the flat list exactly as before — no group headers', async () => {
+        const { window, document } = env;
+        window.apiCallDirect = gymsAware(async () => [structuredClone(FIXED_DB)]);
+
+        await window.WorkoutEquipment.load();
+
+        expect(rowsOf(document)).toHaveLength(1);
+        expect(document.querySelector('#workout-equipment-list .wg-equipment-group')).toBeNull();
+        expect(document.querySelector('#workout-equipment-list .wg-equipment__error')).toBeNull();
+    });
+
+    it('groups items per gym with a trailing Portable group; a dangling gym reads as portable', async () => {
+        const { window, document } = env;
+        const atHome = { ...FIXED_DB, id: 1, location_id: HOME.id };
+        const atA = { ...PLATED_BAR, id: 2, location_id: GYM_A.id };
+        const dangling = { ...FIXED_DB, id: 3, name: 'Old DBs', location_id: 999 };
+        const portable = { ...FIXED_DB, id: 4, name: 'Bands' };
+        window.apiCallDirect = gymsAware(async () => [atHome, atA, dangling, portable].map((i) => structuredClone(i)),
+            [GYM_A, HOME], GYM_A.id);
+
+        await window.WorkoutEquipment.load();
+
+        expect(groupLabels(document)).toEqual(['Gym A', 'Home', 'Portable / everywhere']);
+        const sections = Array.from(document.querySelectorAll('#workout-equipment-list .wg-equipment-group'));
+        const namesIn = (s) => Array.from(s.querySelectorAll('.wg-equipment-row__name')).map((n) => n.textContent);
+        expect(namesIn(sections[0])).toEqual(['Ohio bar']);
+        expect(namesIn(sections[1])).toEqual(['Hex DBs']);
+        expect(namesIn(sections[2])).toEqual(['Old DBs', 'Bands']);
+        // Active badge on Gym A only; the Portable group has no rename/delete.
+        expect(sections[0].querySelector('.wg-equipment-group__active')).not.toBeNull();
+        expect(sections[1].querySelector('.wg-equipment-group__active')).toBeNull();
+        expect(sections[2].querySelector('.wg-equipment-group__actions')).toBeNull();
+    });
+
+    it('a failed gym read shows an error state, never "everything portable"', async () => {
+        const { window, document } = env;
+        window.apiCallDirect = vi.fn(async (url) => {
+            if (url === '/api/workout/locations') throw new Error('boom');
+            return [structuredClone({ ...FIXED_DB, location_id: HOME.id })];
+        });
+
+        await window.WorkoutEquipment.load();
+
+        expect(document.querySelector('#workout-equipment-list .wg-equipment__error')).not.toBeNull();
+        expect(document.querySelector('#workout-equipment-list .wg-equipment-group')).toBeNull();
+        expect(rowsOf(document)).toHaveLength(1);
+    });
+
+    it('the editor Location select defaults to the active gym and saves location_id', async () => {
+        const { window, document } = env;
+        window.apiCallDirect = gymsAware(async () => [], [GYM_A, HOME], HOME.id);
+        const calls = [];
+        window.apiCall = vi.fn(async (url, method, body) => {
+            calls.push([url, method, body]);
+            if (method === 'POST') return { ...FIXED_DB, id: 9 };
+            return null;
+        });
+
+        await window.WorkoutEquipment.openAdd();
+
+        const field = document.getElementById('workout-equipment-location-field');
+        const select = document.getElementById('workout-equipment-location');
+        expect(field.hidden).toBe(false);
+        expect(Array.from(select.options).map((o) => o.textContent)).toEqual(['Gym A', 'Home', 'Portable / everywhere']);
+        expect(select.value).toBe(String(HOME.id));
+
+        document.getElementById('workout-equipment-name').value = 'Hex DBs';
+        document.getElementById('workout-equipment-loads').value = '10, 12';
+        await window.WorkoutEquipment.save();
+        expect(calls[0][2]).toMatchObject({ kind: 'fixed', name: 'Hex DBs', location_id: HOME.id });
+    });
+
+    it('editing keeps an untouched gym out of the payload; Portable sends null', async () => {
+        const { window, document } = env;
+        const item = { ...FIXED_DB, location_id: GYM_A.id };
+        window.apiCallDirect = gymsAware(async () => [structuredClone(item)], [GYM_A, HOME], HOME.id);
+        await window.WorkoutEquipment.load();
+        const calls = [];
+        window.apiCall = vi.fn(async (url, method, body) => {
+            calls.push([url, method, body]);
+            return method === 'PUT' ? true : null;
+        });
+
+        await window.WorkoutEquipment.openEdit(item.id);
+        expect(document.getElementById('workout-equipment-location').value).toBe(String(GYM_A.id));
+        await window.WorkoutEquipment.save();
+        expect(calls[0][1]).toBe('PUT');
+        expect('location_id' in calls[0][2]).toBe(false);
+
+        calls.length = 0;
+        await window.WorkoutEquipment.openEdit(item.id);
+        document.getElementById('workout-equipment-location').value = '';
+        await window.WorkoutEquipment.save();
+        expect(calls[0][2].location_id).toBeNull();
+    });
+
+    it('no gyms: the editor Location field stays hidden and the payload has no location_id', async () => {
+        const { window, document } = env;
+        window.apiCallDirect = gymsAware(async () => []);
+        const calls = [];
+        window.apiCall = vi.fn(async (url, method, body) => {
+            calls.push([url, method, body]);
+            return method === 'POST' ? { id: 9 } : null;
+        });
+
+        await window.WorkoutEquipment.openAdd();
+        expect(document.getElementById('workout-equipment-location-field').hidden).toBe(true);
+        document.getElementById('workout-equipment-name').value = 'Hex DBs';
+        document.getElementById('workout-equipment-loads').value = '10';
+        await window.WorkoutEquipment.save();
+        expect('location_id' in calls[0][2]).toBe(false);
+    });
+
+    it('add / rename / delete a gym hit the location routes', async () => {
+        const { window, document } = env;
+        window.apiCallDirect = gymsAware(async () => [], [HOME], null);
+        await window.WorkoutEquipment.load();
+        const calls = [];
+        window.apiCall = vi.fn(async (url, method, body) => {
+            calls.push([url, method, body]);
+            if (url === '/api/workout/locations' && method === 'POST') return { id: 43, name: body.name };
+            if (url === '/api/workout/locations' && method === 'GET') return [HOME];
+            return true;
+        });
+
+        window.prompt = () => '  Gym B ';
+        document.getElementById('add-workout-location-btn').click();
+        await vi.waitFor(() => {
+            expect(calls.some(([u, m, b]) => u === '/api/workout/locations' && m === 'POST' && b.name === 'Gym B')).toBe(true);
+        });
+
+        window.prompt = () => 'Garage';
+        await window.WorkoutEquipment.renameLocation(HOME.id);
+        expect(calls).toContainEqual([`/api/workout/locations/${HOME.id}`, 'PUT', { name: 'Garage' }]);
+
+        await window.WorkoutEquipment.deleteLocation(HOME.id);
+        expect(calls).toContainEqual([`/api/workout/locations/${HOME.id}`, 'DELETE', null]);
+    });
+
+    it('a cancelled gym prompt writes nothing', async () => {
+        const { window } = env;
+        window.apiCallDirect = gymsAware(async () => []);
+        window.apiCall = vi.fn(async () => true);
+        window.prompt = () => null;
+        expect(await window.WorkoutEquipment.addLocation()).toBe(false);
+        expect(window.apiCall).not.toHaveBeenCalled();
     });
 });

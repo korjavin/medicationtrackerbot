@@ -464,6 +464,10 @@ Routes: `/api/workout/locations` (+ `/:id`, `/active`) and
 (med-8j5w.4, `mcp-catalog.cloud-extra.js`): `workouts.locations.list`,
 `workouts.locations.active.get`, `workouts.locations.set_active`; the
 equipment ops carry `location_id`. Gym create/rename/delete stays UI-only.
+UI (med-8j5w.2, `features/workout/equipment.js` owns the gym reads/writes):
+the Equipment tab groups by gym (+ Portable), the next-workout card carries
+the "At:" active-gym switch, the session header the session's gym; all of it
+is absent with zero gyms, and a failed gym read never reads as zero gyms.
 
 **Snap** (med-niix.2). Progression always runs as before; binding only adds a
 constraint on the proposed load. The exercise's `equipment_id` (row override,
