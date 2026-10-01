@@ -665,6 +665,20 @@ describe('features/workout/groups.js — plate loading diagrams (med-niix.6)', (
     expect((html.match(/<rect/g) || []).length).toBe(1);
   });
 
+  it('a sheet resolved at a gym names it in the meta line; none without (med-8j5w.2)', () => {
+    const { window } = env;
+    const withGym = window.WorkoutGroups.buildDocument(
+      GROUP, days([ex({ target_weight_kg: 62.5 })]),
+      { unit: 'kg', loadingByExerciseId: loading62, locationName: 'Gym <A>' },
+    );
+    expect(withGym).toContain('Gym: Gym &lt;A&gt;');
+    const plain = window.WorkoutGroups.buildDocument(
+      GROUP, days([ex({ target_weight_kg: 62.5 })]),
+      { unit: 'kg', loadingByExerciseId: loading62 },
+    );
+    expect(plain).not.toContain('Gym:');
+  });
+
   it('an lb sheet labels the plate line as kg', () => {
     const { window } = env;
     const html = window.WorkoutGroups.buildDocument(

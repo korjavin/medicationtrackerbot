@@ -8397,6 +8397,74 @@ textarea.wg-input {
     letter-spacing: 0.02em;
 }
 
+/* Gyms (med-8j5w.2): the inventory grouped by location, a Portable group
+   last; the editor's Location field hides until a gym exists. */
+.wg-equipment-modal__field[hidden] {
+    display: none;
+}
+
+.wg-equipment__error {
+    color: var(--wg-fg-3);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    margin: 0;
+}
+
+.wg-equipment-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-equipment-group__header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.wg-equipment-group__label {
+    padding: 0;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.wg-equipment-group__empty {
+    margin: var(--space-xs) 0;
+}
+
+/* Active-gym switch on the next-workout card and the gym pick in the
+   session header: a native select dressed as a quiet mono label. */
+.wg-workouts-gym-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-xs);
+    color: var(--wg-fg-3);
+    min-width: 0;
+}
+
+.wg-workouts-gym-switch__select {
+    font: inherit;
+    color: var(--wg-fg-1);
+    background: transparent;
+    border: none;
+    padding: 0;
+    min-width: 0;
+    max-width: 100%;
+    cursor: pointer;
+}
+
+.wg-workouts-history-row__gym {
+    font-family: var(--wg-font-mono);
+    font-size: var(--wg-workouts-history-count-size);
+    color: var(--wg-fg-3);
+    letter-spacing: 0.02em;
+}
+
 /* Equipment editor extras beyond the shared modal shell: generator Fill
    button alignment, the kind segmented control, plate kg x count rows. */
 .wg-equipment-modal__field--action {

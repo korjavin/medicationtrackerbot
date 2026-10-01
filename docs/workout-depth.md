@@ -461,6 +461,10 @@ see `isLocationStamped` / `locationStamp` in `web/domain/workout.js`):
 propagate resolves at the session's gym, preview/suggest at the active one.
 Routes: `/api/workout/locations` (+ `/:id`, `/active`) and
 `PUT /api/workout/sessions/location` in `web/cloud/js/apishim.js`.
+UI (med-8j5w.2, `features/workout/equipment.js` owns the gym reads/writes):
+the Equipment tab groups by gym (+ Portable), the next-workout card carries
+the "At:" active-gym switch, the session header the session's gym; all of it
+is absent with zero gyms, and a failed gym read never reads as zero gyms.
 
 **Snap** (med-niix.2). Progression always runs as before; binding only adds a
 constraint on the proposed load. The exercise's `equipment_id` (row override,
