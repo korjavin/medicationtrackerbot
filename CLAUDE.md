@@ -33,7 +33,7 @@ Cloud configuration is environment variables — see [docs/environment.md](docs/
 ```bash
 go run ./cmd/cloud                    # run the service
 go test ./...                         # must stay green tree-wide
-pnpm test                             # frontend (Vitest + jsdom) — CI only, never locally (owner directive; `.codex/hooks.json` blocks it for codex)
+pnpm test                             # frontend (Vitest + jsdom) — CI only, never locally (owner directive; `.codex/hooks.json` and `.claude/settings.json` hooks block it)
 pnpm privacy:docs                     # regenerate privacy boundary table after editing the manifest
 go run ./cmd/genmcpcatalog            # regenerate cloud MCP catalog after registry changes
 scripts/ci-local.sh                   # optional: act-friendly CI subset locally (workflow changes / green-here-red-there only)
