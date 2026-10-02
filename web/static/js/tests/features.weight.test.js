@@ -244,6 +244,21 @@ describe('features/weight.js — target-weight goal dialog', () => {
         expect(document.querySelector('.mt-confirm-modal')).toBeNull();
     });
 
+    it('a Goal Line reading already past the target says "At goal", never "N kg to goal"', () => {
+        const { window, document } = env;
+        window.weightUnitPreference = 'kg';
+        window.renderWeightGoalCard([{ measured_at: new Date().toISOString(), weight: 77 }], { goal: 78 }, {
+            enabled: true,
+            goal: {
+                status: 'preliminary', distance_to_goal: 1, trend_weight: null, start_ref_source: 'first_reading',
+                progress: { done_kg: 7, total_kg: 7, fraction: 1 },
+            },
+        });
+        const texts = [...document.querySelectorAll('.wg-weight-goal-card__delta')].map((n) => n.textContent);
+        expect(texts).toEqual(['At goal', 'Current 77.0 kg']);
+        expect(document.querySelector('.wg-weight-goal-card__fill').style.getPropertyValue('--fill-pct')).toBe('100%');
+    });
+
     it('cancelling the dialog leaves the goal untouched', async () => {
         const { window, document } = env;
         window.apiCall = vi.fn(async () => null);

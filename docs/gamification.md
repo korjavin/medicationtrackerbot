@@ -113,6 +113,7 @@ net (§6.1). Rows are feature-gated.
 | `goal.start_ref`, `start_ref_source` | episode baseline and whether it is `trend_at_set` or `first_reading` |
 | `goal.direction` | from baseline → target, fixed for the episode (never re-derived from the current trend) |
 | `goal.trend_weight`, `latest_reading`, `distance_to_goal`, `change_7d`, `coverage` | the line, in kg (UI converts); coverage = distinct weigh-in days / last weigh-in |
+| `goal.progress` | `{done_kg, total_kg, fraction}` baseline → target, read off the same value as `distance_to_goal` (fraction clamped 0–1, 1 once reached); null without a baseline or a reading. Today and the Weight tab goal card both render it |
 | `goal.too_fast` | velocity beyond the safe-pace cap — a calm safety line, the only pace judgment in slice 1 |
 | `goal.next_milestone` | stateless marker: ordinal under the episode, spacing fixed per episode (1 kg or 2.5 % of the total distance, whichever is coarser); halfway and goal flagged |
 | `goal.projected` | slice 2 (owner-confirmed): `{date, plus_minus_weeks}` — a date **with a ± weeks range** ("around 14 Nov ± 3 weeks", from velocity spread over the trend window), only under coverage / freshness / horizon rules and never beside `too_fast` |
