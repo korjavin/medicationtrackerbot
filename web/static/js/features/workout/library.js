@@ -357,12 +357,42 @@ async function _syncEquipmentSelect(currentId, selectId = 'exercise-library-equi
         items = null; // offline / failure: "None" alone, the save preserves
     }
     if (!Array.isArray(items)) return null;
-    for (const item of items) {
-        if (!item || item.id == null) continue;
+    // med-8j5w.2: with gyms, group the options per gym (+ Portable) so the
+    // owner sees which gym an explicit binding points at. Every item stays
+    // selectable — the full inventory, never filtered. No gyms (or a failed
+    // gym read) keeps the flat list.
+    let locations = [];
+    try {
+        if (window.WorkoutEquipment && typeof window.WorkoutEquipment.locations === 'function') {
+            locations = (await window.WorkoutEquipment.locations()).locations;
+        }
+    } catch (_) {
+        locations = [];
+    }
+    const option = (item) => {
         const opt = doc.createElement('option');
         opt.value = String(item.id);
         opt.textContent = item.name || `Equipment ${item.id}`;
-        select.appendChild(opt);
+        return opt;
+    };
+    const valid = items.filter((item) => item && item.id != null);
+    if (locations.length === 0) {
+        valid.forEach((item) => select.appendChild(option(item)));
+    } else {
+        const groups = locations.map((loc) => ({ label: loc.name || `Gym ${loc.id}`, id: String(loc.id), items: [] }));
+        const portable = { label: 'Portable / everywhere', items: [] };
+        valid.forEach((item) => {
+            const lid = item.location_id;
+            const g = lid == null ? null : groups.find((x) => x.id === String(lid));
+            (g || portable).items.push(item);
+        });
+        groups.concat([portable]).forEach((g) => {
+            if (g.items.length === 0) return;
+            const og = doc.createElement('optgroup');
+            og.label = g.label;
+            g.items.forEach((item) => og.appendChild(option(item)));
+            select.appendChild(og);
+        });
     }
     if (typeof isCurrent === 'function' && !isCurrent()) return null;
     select.dataset.loaded = 'true';

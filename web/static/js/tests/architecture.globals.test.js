@@ -48,7 +48,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.AppStore',                  // core/store.js — ephemeral UI state
     'window.CacheKeys',                 // core/cache-keys.js — centralized registry of api_cache keys, tags, and freshness windows; registerAll() is invoked at boot so tag-based invalidation works regardless of which feature loader has executed
     'window.BackupCrypto',              // core/backup-crypto.js — thin wrapper over vendored typage (age-encryption): isAgeFile/encryptBackup/decryptBackup for passphrase (scrypt) encryption of the Settings → Import/Export vault file, browser-side in both bot and cloud modes; lazily dynamic-imports /static/vendor/age.min.js on first use (C2e Task 4)
-    'window.MessengerAdapter',          // core/messenger-adapter.js — browser-only host adapter (in-app chevron + popstate back, native dialogs, URL start param); exposes init/identityToken/authHeaderName/alert/confirm/showPopup/startParam/onBack/showBack/hideBack/isPresent/isBackButtonSupported
+    'window.MessengerAdapter',          // core/messenger-adapter.js — browser-only host adapter (in-app chevron + popstate back, URL start param; no dialogs — those are core/utils.js in-page safeAlert/safeConfirm); exposes init/identityToken/authHeaderName/startParam/onBack/showBack/hideBack/isPresent/isBackButtonSupported
 
     // Features
     'window.handleDeepLinks',           // features/deeplink-router.js — called by bootstrap.js
@@ -91,7 +91,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.foodTargets',               // features/food/log.js — ephemeral cache of food macro targets (defineProperty getter/setter into the log.js closure)
     'window.loadFoodTargets',           // features/food/log.js — SWR loader for /api/food/settings/targets
     'window.saveFoodTargets',           // features/food/log.js — POSTs updated food targets to backend
-    'window.safeAlert',                 // core/utils.js — wrapped alert used after save actions
+    'window.safeAlert',                 // core/utils.js — in-page alert (the confirm-modal shell's single-OK mode; never native alert()), used after save actions
     'window.loadFoodLogs',              // features/food/log.js — triggers food log reload after target save
     'window.toggleFeatureSetting',      // features/settings.js — toggles a single feature flag via API (Plan 2026-06-10 finish-app-js-split, Task 2)
     'window.loadSettings',              // features/settings.js — loads all settings subsections in parallel (Plan 2026-06-10 finish-app-js-split, Task 2)

@@ -448,6 +448,30 @@ name rule is a deliberate ceiling: 487/515 catalog barbell/dumbbell/
 kettlebell rows carry the implement word in the name; a catalog-backed port
 comes only if a real miss shows up. No opt-out beyond binding explicitly.
 
+**Locations / gyms** (med-8j5w.1). Flat `location` records plus an optional
+`equipment.location_id` (absent = portable; a dangling id reads as portable,
+so deleting a gym writes nothing to its gear), and the active gym as its own
+`activelocation` singleton — all in `web/domain/equipment.js`. `inventoryAt`
+is the one location filter, and `equipmentForExercise` takes the
+`{ locationId, liveLocationIds }` context: an explicit binding to gear at
+another live gym falls through to auto-match within the gym; no gym (or a
+deleted one) means the whole inventory, exactly the rule above. Sessions stamp
+`location_id` + `location_name` at their first performance (presence-based,
+see `isLocationStamped` / `locationStamp` in `web/domain/workout.js`):
+propagate resolves at the session's gym, preview/suggest at the active one.
+Routes: `/api/workout/locations` (+ `/:id`, `/active`) and
+`PUT /api/workout/sessions/location` in `web/cloud/js/apishim.js`. MCP
+(med-8j5w.4, `mcp-catalog.cloud-extra.js`): `workouts.locations.list`,
+`workouts.locations.active.get`, `workouts.locations.set_active`; the
+equipment ops carry `location_id`. Gym create/rename/delete stays UI-only.
+Share a gym (med-8j5w.3): `GET /api/workout/locations/:id/export` +
+`POST /api/workout/locations/import` (`web/domain/workout-share.js`; MCP
+`workouts.locations.export` / `.import`), behavior in docs/features.md.
+UI (med-8j5w.2, `features/workout/equipment.js` owns the gym reads/writes):
+the Equipment tab groups by gym (+ Portable), the next-workout card carries
+the "At:" active-gym switch, the session header the session's gym; all of it
+is absent with zero gyms, and a failed gym read never reads as zero gyms.
+
 **Snap** (med-niix.2). Progression always runs as before; binding only adds a
 constraint on the proposed load. The exercise's `equipment_id` (row override,
 else the library row's binding) resolves to

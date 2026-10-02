@@ -211,7 +211,7 @@ export function createApiRouter(ctx, {
     // the vault, via the workout domain's own session writes. Same `ai`
     // consent scope as food photos.
     workoutSheetAI = createWorkoutSheetAIDomain({ aiClient, workoutDomain: workout, now });
-    workoutShare = createWorkoutShareDomain({ workoutDomain: workout });
+    workoutShare = createWorkoutShareDomain({ workoutDomain: workout, equipmentDomain: equipment });
     gamification = createGamificationDomain({
       records, now, timeZone, getRecordsChangeCount: recordsChangeCount,
     });
@@ -976,6 +976,13 @@ export function createApiRouter(ctx, {
       scheduleReminderRecompute(ctx, { records, timeZone });
       return true;
     }
+    // med-8j5w.1: the session-header gym switch. Affects future equipment
+    // resolutions for this session only (no retroactive re-propagation).
+    if (path === '/api/workout/sessions/location' && method === 'PUT') {
+      const session = await workout.setSessionLocation(intParam(params, 'id', 0), body ? body.location_id : null);
+      if (!session) throw apiError(404, 'session not found');
+      return session;
+    }
     if (path === '/api/workout/sessions/schedule' && method === 'POST') {
       const res = await workout.schedulePlannedAdHocSession(body);
       scheduleReminderRecompute(ctx, { records, timeZone });
@@ -1095,6 +1102,32 @@ export function createApiRouter(ctx, {
     if (method === 'DELETE') {
       const m = /^\/api\/workout\/equipment\/([^/]+)$/.exec(path);
       if (m) { await equipment.deleteEquipment(Number(m[1])); return true; }
+    }
+
+    // --- Workout locations / gyms (med-8j5w.1): same REST shape as equipment,
+    // plus the active-gym singleton. The equipment list above stays unfiltered;
+    // consumers scope it via the domain's inventoryAt.
+    if (path === '/api/workout/locations/active' && method === 'GET') return equipment.getActiveLocation();
+    if (path === '/api/workout/locations/active' && method === 'PUT') {
+      return equipment.setActiveLocation(body ? body.location_id : null);
+    }
+    // Share a gym (med-8j5w.3): portable v1 token, import = a NEW location.
+    if (path === '/api/workout/locations/import' && method === 'POST') return workoutShare.importLocation(body);
+    {
+      const m = /^\/api\/workout\/locations\/(\d+)\/export$/.exec(path);
+      if (m && method === 'GET') return workoutShare.exportLocation(Number(m[1]));
+    }
+    if (path === '/api/workout/locations' && method === 'GET') return equipment.listLocations();
+    if (path === '/api/workout/locations' && method === 'POST') return equipment.createLocation(body);
+    {
+      const m = /^\/api\/workout\/locations\/(\d+)$/.exec(path);
+      if (m && method === 'GET') {
+        const loc = await equipment.getLocation(Number(m[1]));
+        if (!loc) throw apiError(404, 'Location not found');
+        return loc;
+      }
+      if (m && method === 'PUT') { await equipment.updateLocation(Number(m[1]), body); return true; }
+      if (m && method === 'DELETE') { await equipment.deleteLocation(Number(m[1])); return true; }
     }
 
     // --- Gamification: Discovery Atlas POC (Phase 1). The substrate routes

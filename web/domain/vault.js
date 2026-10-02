@@ -32,7 +32,7 @@
 //     flattens them to per-sample arrays and this packs/unpacks by UTC day.
 //   - weightgoal is append-only history (many rows), not a singleton — the
 //     vault carries `weight.goals[]` oldest-first; only the newest is current.
-//   - singletons: bpgoal, weight-unit, settings, features,
+//   - singletons: bpgoal, weight-unit, settings, features, activelocation,
 //     taborder, foodtargets, integrations, medreminderpref, bpreminderpref,
 //     weightreminderpref, gamification, apitokens, tzplan-current.
 //   - the active/pending tz plan stays at `tzplan-current` (what tzplan.js and
@@ -69,6 +69,7 @@ export const VAULT_MANAGED_TYPES = new Set([
   'foodlog', 'foodproduct',
   'workoutgroup', 'workoutvariant', 'workoutexercise', 'exerciselibrary',
   'workoutrotation', 'workoutsession', 'exerciselog', 'miband', 'equipment',
+  'location', 'activelocation',
   'sleep', 'daystats', 'hrsample', 'spo2sample', 'stresssample',
   'note',
   'tzplan', 'tzhistory',
@@ -268,7 +269,14 @@ export function recordsToVault(records, { now, includeSecrets = true } = {}) {
     miband: sortBy(pick('miband'), (r) => r.source_start_ms)
       .map((r) => stripMeta(r, ['id'])),
     equipment: workoutFK('equipment', (r) => r.id),
+    // med-8j5w.1: gyms. equipment.location_id / session.location_id ride their
+    // bodies verbatim — dangling FKs included (legit after a gym delete).
+    locations: workoutFK('location', (r) => r.id),
   };
+  // The active-gym singleton: key present only when the record exists (its
+  // location_id may be null); absent on import clears it on replace.
+  const activeLocationRec = singleton('activelocation', 'activelocation');
+  if (activeLocationRec) workouts.active_location_id = activeLocationRec.location_id ?? null;
 
   // --- vitals ---
   const unpackSamples = (type) => {
@@ -508,6 +516,10 @@ export function vaultToRecords(vault, { now } = {}) {
   for (const e of workouts.exercises || []) push('workoutexercise', `exercise-${e.id}`, { ...e });
   for (const li of workouts.library || []) push('exerciselibrary', `library-${li.id}`, { ...li });
   for (const eq of workouts.equipment || []) push('equipment', `equipment-${eq.id}`, { ...eq });
+  for (const loc of workouts.locations || []) push('location', `location-${loc.id}`, { ...loc });
+  if (Object.prototype.hasOwnProperty.call(workouts, 'active_location_id')) {
+    push('activelocation', 'activelocation', { location_id: workouts.active_location_id ?? null });
+  }
   for (const rot of workouts.rotations || []) push('workoutrotation', `rotation-${rot.group_id}`, { ...rot });
   for (const s of workouts.sessions || []) {
     const recordId = s.group_id === -1

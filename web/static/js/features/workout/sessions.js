@@ -173,12 +173,93 @@ function renderWorkoutSessionHeader(session) {
         heading.insertBefore(label, status);
     }
 
+    _attachSessionGymSwitch(heading, session);
+
     // The close button is static markup (bound once at boot), so its icon is
     // mounted on first open rather than at parse time.
     const closeGloss = document.querySelector('#workout-session-cancel-btn .wg-gloss');
     if (closeGloss && !closeGloss.firstChild && window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
         closeGloss.appendChild(window.WGIcons.iconSvg('close', { size: 16 }));
     }
+}
+
+// med-8j5w.2: the session's gym in the pinned header ("At: <gym>"). Shown
+// when the account has gyms or the session carries a gym snapshot. A stamped
+// session preselects its own gym (a deleted one shows as its snapshot name),
+// an unstamped one the active gym it resolves at. Changing it PUTs the
+// session's location and re-resolves the plate chips; on a finished session
+// it only changes future resolutions (no retroactive re-propagation).
+async function _attachSessionGymSwitch(heading, session) {
+    const eq = window.WorkoutEquipment;
+    if (!eq || typeof eq.locations !== 'function' || typeof eq.gymSwitch !== 'function' || !session) return;
+    let state = null;
+    try {
+        state = await eq.locations();
+    } catch (_) {
+        return;
+    }
+    const st = window.WorkoutSessionsState;
+    if (!heading.isConnected || !st.data || st.data.id !== session.id) return;
+    const prior = heading.querySelector('.wg-workouts-gym-switch');
+    if (prior) prior.remove();
+    const stamped = Object.prototype.hasOwnProperty.call(session, 'location_id');
+    const live = stamped && session.location_id !== null && session.location_id !== undefined
+        && state.locations.some((l) => String(l.id) === String(session.location_id));
+    const deletedName = stamped && !live && session.location_id !== null && session.location_id !== undefined
+        ? (session.location_name || 'Deleted gym') : null;
+    if (state.locations.length === 0 && !deletedName) return;
+    const selected = stamped ? session.location_id : state.activeId;
+    const finished = session.status === 'completed' || session.status === 'skipped';
+    const control = eq.gymSwitch(document, state.locations, selected, {
+        extra: deletedName ? { value: '__deleted', label: `${deletedName} (deleted)` } : null,
+        title: 'Gym for this workout',
+        hint: finished ? 'Changing the gym of a finished workout only affects future suggestions.' : '',
+        onPick: (id) => setWorkoutSessionLocation(session.id, id),
+    });
+    control.classList.add('wg-workouts-session-modal__gym');
+    const status = heading.querySelector('#workout-session-modal-status');
+    heading.insertBefore(control, status);
+}
+
+// setWorkoutSessionLocation moves the open session to another gym (null = no
+// gym). Rule 9: the history row's gym label projects optimistically on the
+// `workout_history` cache. On success the session state takes the stamp and
+// the chips re-resolve at the new gym. Returns true on success.
+async function setWorkoutSessionLocation(sessionId, locationId) {
+    let name = null;
+    try {
+        const state = await window.WorkoutEquipment.locations();
+        const loc = state.locations.find((l) => String(l.id) === String(locationId));
+        name = loc ? loc.name : null;
+    } catch (_) { name = null; }
+    const project = (s) => (s && s.session && s.session.id === sessionId
+        ? { ...s, session: { ...s.session, location_id: locationId, location_name: name } } : s);
+    let handle = null;
+    try {
+        if (window.DataStore && typeof window.DataStore.applyOptimistic === 'function') {
+            handle = await window.DataStore.applyOptimistic('workout_history', (prev) => (prev && Array.isArray(prev.sessions)
+                ? { ...prev, sessions: prev.sessions.map(project) } : prev), ['workout']);
+        }
+    } catch (_) { handle = null; /* a failed cache projection must not block the write */ }
+    let result = null;
+    try {
+        result = await apiCall(`/api/workout/sessions/location?id=${sessionId}`, 'PUT',
+            { location_id: locationId }, { suppressWriteAlert: true });
+    } catch (_) {
+        result = null;
+    }
+    if (!result || typeof result !== 'object') {
+        if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+        safeToast("Couldn't change the gym — try again.", 'error');
+        return false;
+    }
+    if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
+    const st = window.WorkoutSessionsState;
+    if (st.data && st.data.id === sessionId) {
+        st.data = { ...st.data, location_id: result.location_id, location_name: result.location_name };
+        refreshSessionPlateGear();
+    }
+    return true;
 }
 
 function renderWorkoutSessionInfo(infoContainer, session) {
@@ -525,33 +606,91 @@ async function _maybeAttachBodyPartChip(headerRow, log) {
 //
 // Gear resolves once per session open and is cached on
 // window.WorkoutSessionsState.plateGear ({ sessionId, rowsById, libById,
-// inv, loadingFor, nearestLoads, equipmentForExercise, pickNearestLoad }
+// inv, location, loadingFor, nearestLoads, equipmentForExercise, pickNearestLoad }
 // or { sessionId, failed: true }); any fetch/import failure resolves to
 // failed so cards render exactly as today.
 
 // _sessionPlateGearSync returns the cached gear map for the open session, or
 // null when nothing usable is cached (cold, failed, or a stale session).
+// med-8j5w.2: the cache is keyed by session id AND a gear generation
+// (st.plateGearGen), bumped by refreshSessionPlateGear whenever the gym
+// context changes (session gym switch, active-gym switch, a remote gym /
+// inventory change). A build started under an older generation is never
+// cached or rendered, so a same-session gym switch cannot reuse old gear.
 function _sessionPlateGearSync() {
     const st = window.WorkoutSessionsState;
     const g = st && st.plateGear;
     if (!g || !st.data) return null;
-    return g.sessionId === st.data.id ? g : null;
+    return g.sessionId === st.data.id && g.gen === (st.plateGearGen || 0) ? g : null;
 }
 
 // _sessionPlateGear resolves the exercise → equipment map once per session
-// open (in-flight builds are shared across cards via plateGearPromise).
+// open and gym context (in-flight builds are shared across cards via
+// plateGearPromise).
 async function _sessionPlateGear() {
     const st = window.WorkoutSessionsState;
     const cached = _sessionPlateGearSync();
     if (cached) return cached;
-    if (st.plateGearPromise) return st.plateGearPromise;
-    const built = _buildSessionPlateGear(st.data);
+    const gen = st.plateGearGen || 0;
+    if (st.plateGearPromise && st.plateGearPromiseGen === gen) return st.plateGearPromise;
+    const built = _buildSessionPlateGear(st.data).then((g) => (g ? { ...g, gen: gen } : g));
     st.plateGearPromise = built;
+    st.plateGearPromiseGen = gen;
     const gear = await built;
     if (st.plateGearPromise === built) st.plateGearPromise = null;
-    // Only the session that triggered the build may consume it from cache.
-    if (gear && st.data && gear.sessionId === st.data.id) st.plateGear = gear;
+    // Only the session + generation that triggered the build may cache it.
+    if (gear && st.data && gear.sessionId === st.data.id && gen === (st.plateGearGen || 0)) st.plateGear = gear;
     return gear;
+}
+
+// refreshSessionPlateGear drops the open session's resolved gear (bumping the
+// generation so in-flight builds are discarded) and re-solves every mounted
+// card's chip at the current gym context. Logs/inputs are untouched.
+function refreshSessionPlateGear() {
+    const st = window.WorkoutSessionsState;
+    if (!st || !st.data) return;
+    st.plateGearGen = (st.plateGearGen || 0) + 1;
+    st.plateGear = null;
+    st.plateGearPromise = null;
+    (st.logs || []).forEach((log, index) => {
+        const entry = document.getElementById(`exercise-log-${index}`);
+        if (!entry) return;
+        const old = entry.querySelector('.wg-workouts-session-exercise__plates');
+        if (old) old.remove();
+        _maybeAttachPlateChip(entry, log);
+    });
+}
+
+// A remote write (another device, the MCP connector, a sync pull) touching
+// workout records while a session is open: re-read the session's gym stamp
+// (header) and re-resolve the chips — the active gym, a gym or the inventory
+// may have changed underneath. The UI's own writes are not 'cloud-write'.
+async function _onSessionRemoteWorkoutChange(event) {
+    const detail = event && event.detail;
+    if (!detail || detail.source !== 'cloud-write') return;
+    if (!Array.isArray(detail.changedTags) || detail.changedTags.indexOf('workout') === -1) return;
+    const st = window.WorkoutSessionsState;
+    if (!st || !st.data) return;
+    const sessionId = st.data.id;
+    try {
+        const fresh = await apiCall(`/api/workout/sessions/details?id=${sessionId}`);
+        const s = fresh && fresh.session;
+        if (s && st.data && st.data.id === sessionId) {
+            const next = { ...st.data };
+            if (Object.prototype.hasOwnProperty.call(s, 'location_id')) {
+                next.location_id = s.location_id;
+                next.location_name = s.location_name;
+            }
+            st.data = next;
+            const heading = document.getElementById('workout-session-modal-heading');
+            if (heading) _attachSessionGymSwitch(heading, { ...next, status: s.status || next.status });
+        }
+    } catch (_) { /* chips still refresh below */ }
+    if (st.data && st.data.id === sessionId) refreshSessionPlateGear();
+}
+
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('datastore:changed', (e) => { _onSessionRemoteWorkoutChange(e); });
 }
 
 // _buildSessionPlateGear fetches the plan rows (for the variant behind this
@@ -604,9 +743,15 @@ async function _buildSessionPlateGear(sessionData) {
         const pickNearestLoad = domain && domain.pickNearestLoad;
         if (typeof loadingFor !== 'function' || typeof nearestLoads !== 'function'
             || typeof equipmentForExercise !== 'function' || typeof pickNearestLoad !== 'function') return fail();
+        // med-8j5w.1: resolve at the session's stamped gym (an unstamped
+        // session: the active one), same rule as the domain's propagate.
+        const stamped = sessionData && Object.prototype.hasOwnProperty.call(sessionData, 'location_id')
+            ? sessionData.location_id : undefined;
+        const location = window.WorkoutEquipment && typeof window.WorkoutEquipment.locationScope === 'function'
+            ? await window.WorkoutEquipment.locationScope(stamped) : null;
         return {
             sessionId: sessionId, rowsById: rowsById, libById: libById,
-            inv: inv, loadingFor: loadingFor, nearestLoads: nearestLoads,
+            inv: inv, location: location, loadingFor: loadingFor, nearestLoads: nearestLoads,
             equipmentForExercise: equipmentForExercise, pickNearestLoad: pickNearestLoad
         };
     } catch (_) {
@@ -628,7 +773,7 @@ function _sessionEquipmentForLog(log, gear) {
         ? gear.libById[log.exercise_id]
         : (planRow ? gear.libById[planRow.exercise_library_id] : null);
     if (!planRow && !libRow) return null;
-    return gear.equipmentForExercise(planRow, libRow || null, gear.inv, Number(log.weight_kg));
+    return gear.equipmentForExercise(planRow, libRow || null, gear.inv, Number(log.weight_kg), gear.location || null);
 }
 
 // Plate/bar kg print at most 2dp (the domain grid); String() keeps integers
@@ -731,6 +876,7 @@ async function _maybeAttachPlateChip(entry, log) {
     if (entry.querySelector('.wg-workouts-session-exercise__plates')) return;
     const st = window.WorkoutSessionsState;
     if (!gear || gear.failed || !st.data || gear.sessionId !== st.data.id) return;
+    if (gear.gen !== (st.plateGearGen || 0)) return; // a refresh superseded this build
     _renderSessionPlateChip(entry, log, gear);
 }
 
@@ -1877,6 +2023,8 @@ window.WorkoutSessions = {
     save: saveWorkoutSessionDetails,
     finish: finishWorkoutSession,
     renderHeader: renderWorkoutSessionHeader,
+    setLocation: setWorkoutSessionLocation,
+    refreshGear: refreshSessionPlateGear,
     renderInfo: renderWorkoutSessionInfo,
     renderLogs: renderWorkoutSessionLogs,
     renderActions: renderSessionDetailActions,

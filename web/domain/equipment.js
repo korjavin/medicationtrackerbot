@@ -26,6 +26,19 @@
 import { mintNumericId, findByNumericId, genRecordId } from './workout.js';
 
 export const EQUIPMENT_RECORD_TYPE = 'equipment';
+// Workout locations (gyms, med-8j5w.1): flat named records; equipment carries
+// an optional location_id (absent/null = portable, available everywhere). A
+// location_id that resolves to no live location reads as portable — deleting
+// a gym never cascades a write onto its gear.
+export const LOCATION_RECORD_TYPE = 'location';
+// The active gym is its OWN synced singleton, not a key on the `settings`
+// record: settings is whole-record LWW, so a stale device editing the timezone
+// would revert the gym (same reason as `firstrun`, settings.js). Only the
+// explicit user setter writes it; absent or pointing at a deleted location
+// reads as null, with no cleanup write.
+export const ACTIVE_LOCATION_RECORD_TYPE = 'activelocation';
+export const ACTIVE_LOCATION_RECORD_ID = 'activelocation';
+export const MAX_LOCATION_NAME = 100;
 
 // Validation + compute ceilings (kept small so the knapsack stays bounded).
 // ponytail: fixed caps, not derived from any inventory — raise only if the UI
@@ -282,9 +295,21 @@ function validateLoads(loads) {
   return uniqueSorted(nums);
 }
 
+// validateLocationId: undefined = absent (an update preserves the stored
+// value), null = portable, else a positive integer id. Existence is checked by
+// the writer (it needs the records port).
+function validateLocationId(value) {
+  if (value === undefined || value === null) return value;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n <= 0) throw invalidRequest('location_id must be a positive integer or null');
+  return n;
+}
+
 // validateEquipmentInput normalizes a create/update payload or throws
-// invalid_request. Shared by both writers so the stored shape is identical.
-function validateEquipmentInput(input) {
+// invalid_request. Shared by both writers so the stored shape is identical,
+// and exported pure (no records port) so the gym share importer
+// (workout-share.js) can validate every item BEFORE its first write.
+export function validateEquipmentInput(input) {
   const name = ((input && input.name) || '').trim();
   if (!name) throw invalidRequest('Name is required');
   const kind = input && input.kind;
@@ -311,6 +336,8 @@ function validateEquipmentInput(input) {
     out.plates = validatePlates(input.plates);
     out.implement = validateImplement(input.implement) || defaultPlatedImplement(sides, out.pair);
   }
+  const locationId = validateLocationId(input.location_id);
+  if (locationId !== undefined) out.location_id = locationId;
   return out;
 }
 
@@ -340,6 +367,9 @@ export function toEquipmentResponse(record) {
   };
   const implement = implementOf(record);
   if (implement) resp.implement = implement;
+  // Emitted verbatim, dangling included: normalizing a dangling FK to null
+  // here would let the next edit persist the loss.
+  if (record.location_id !== null && record.location_id !== undefined) resp.location_id = record.location_id;
   if (record.kind === 'plated') {
     resp.bar_kg = record.bar_kg;
     resp.sides = record.sides;
@@ -349,9 +379,68 @@ export function toEquipmentResponse(record) {
   return resp;
 }
 
+function toLocationResponse(record) {
+  return {
+    id: record.id,
+    name: record.name,
+    created_at: record.created_at,
+    updated_at: record.updated_at,
+  };
+}
+
+function validateLocationInput(input) {
+  const name = (typeof (input && input.name) === 'string' ? input.name : '').trim();
+  if (!name) throw invalidRequest('Name is required');
+  if (name.length > MAX_LOCATION_NAME) {
+    throw invalidRequest(`Name may not exceed ${MAX_LOCATION_NAME} characters`);
+  }
+  return { name };
+}
+
+function sameId(a, b) {
+  return a !== null && a !== undefined && b !== null && b !== undefined && String(a) === String(b);
+}
+
+export async function liveLocations(records) {
+  return (await records.list(LOCATION_RECORD_TYPE)).filter((r) => !r.deleted);
+}
+
+// activeLocation resolves the active-gym singleton to its live location
+// record, or null (no record, null id, or a deleted location). Read-only.
+export async function activeLocation(records, locations) {
+  const rec = (await records.list(ACTIVE_LOCATION_RECORD_TYPE))
+    .find((r) => r.recordId === ACTIVE_LOCATION_RECORD_ID && !r.deleted);
+  if (!rec) return null;
+  const live = locations || await liveLocations(records);
+  return live.find((l) => sameId(l.id, rec.location_id)) || null;
+}
+
+// inventoryAt is THE location filter (med-8j5w.1): with a live locationId,
+// the items at that location plus portable ones (location_id null/absent or
+// dangling); a null or non-live locationId means no location — the whole
+// inventory, exactly the pre-locations behavior.
+export function inventoryAt(inventory, locationId, liveLocationIds) {
+  const inv = Array.isArray(inventory) ? inventory : [];
+  const live = new Set([...(liveLocationIds || [])].map(String));
+  if (locationId === null || locationId === undefined || !live.has(String(locationId))) return inv;
+  return inv.filter((item) => item && (
+    item.location_id === null || item.location_id === undefined
+    || !live.has(String(item.location_id))
+    || String(item.location_id) === String(locationId)));
+}
+
 export function createEquipmentDomain({ records, now }) {
+  async function assertLiveLocation(locationId) {
+    if (locationId === null || locationId === undefined) return;
+    if (!(await findByNumericId(records, LOCATION_RECORD_TYPE, locationId))) {
+      throw invalidRequest('location_id does not name a location');
+    }
+  }
+
   async function createEquipment(input) {
     const clean = validateEquipmentInput(input);
+    await assertLiveLocation(clean.location_id);
+    if (clean.location_id === null) delete clean.location_id;
     const nowMs = now();
     const record = {
       recordId: genRecordId('equipment', nowMs),
@@ -385,6 +474,9 @@ export function createEquipmentDomain({ records, now }) {
     // Mirrors updateGroup: an unknown id matches zero rows — no error, no-op.
     if (!record) return;
     const clean = validateEquipmentInput(input);
+    // Only a CHANGED location must exist: re-saving an item whose gym was
+    // deleted keeps the dangling id verbatim (it reads as portable).
+    if (!sameId(clean.location_id, record.location_id)) await assertLiveLocation(clean.location_id);
     const nowMs = now();
     const updated = {
       ...record,
@@ -398,6 +490,9 @@ export function createEquipmentDomain({ records, now }) {
       ? ['bar_kg', 'sides', 'pair', 'plates']
       : ['loads_kg'];
     for (const k of disowned) delete updated[k];
+    // location_id: absent preserves the stored gym (spread above), explicit
+    // null clears it (portable) — never persisted as null.
+    if (updated.location_id === null) delete updated.location_id;
     // implement is deliberately NOT stripped: omitting it preserves the stored
     // label (a stale second device or an older MCP caller must not wipe a
     // user-set type), and it survives kind changes — it lives on both kinds.
@@ -409,12 +504,83 @@ export function createEquipmentDomain({ records, now }) {
     if (record) await records.del(EQUIPMENT_RECORD_TYPE, record.recordId);
   }
 
+  async function createLocation(input) {
+    const clean = validateLocationInput(input);
+    const nowMs = now();
+    const record = {
+      recordId: genRecordId('location', nowMs),
+      clientTs: nowMs,
+      deleted: false,
+      id: mintNumericId(await records.list(LOCATION_RECORD_TYPE), nowMs),
+      user_id: 1,
+      ...clean,
+      created_at: new Date(nowMs).toISOString(),
+      updated_at: new Date(nowMs).toISOString(),
+    };
+    await records.put(LOCATION_RECORD_TYPE, record);
+    return toLocationResponse(record);
+  }
+
+  async function listLocations() {
+    const all = await liveLocations(records);
+    all.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.id - b.id));
+    return all.map(toLocationResponse);
+  }
+
+  async function getLocation(id) {
+    const record = await findByNumericId(records, LOCATION_RECORD_TYPE, id);
+    return record ? toLocationResponse(record) : null;
+  }
+
+  async function updateLocation(id, input) {
+    const record = await findByNumericId(records, LOCATION_RECORD_TYPE, id);
+    if (!record) return;
+    const clean = validateLocationInput(input);
+    const nowMs = now();
+    await records.put(LOCATION_RECORD_TYPE, {
+      ...record, ...clean, clientTs: nowMs, updated_at: new Date(nowMs).toISOString(),
+    });
+  }
+
+  // Deleting a gym writes nothing else: its gear reads as portable (dangling
+  // location_id) and an active pointer at it reads as null.
+  async function deleteLocation(id) {
+    const record = await findByNumericId(records, LOCATION_RECORD_TYPE, id);
+    if (record) await records.del(LOCATION_RECORD_TYPE, record.recordId);
+  }
+
+  async function getActiveLocation() {
+    const loc = await activeLocation(records);
+    return { location_id: loc ? loc.id : null, location: loc ? toLocationResponse(loc) : null };
+  }
+
+  // setActiveLocation is the only writer of the singleton: an explicit user
+  // switch, stamped with now(). null clears it; any other id must be live.
+  async function setActiveLocation(locationId) {
+    const id = validateLocationId(locationId === undefined ? null : locationId);
+    await assertLiveLocation(id);
+    await records.put(ACTIVE_LOCATION_RECORD_TYPE, {
+      recordId: ACTIVE_LOCATION_RECORD_ID,
+      clientTs: now(),
+      deleted: false,
+      location_id: id,
+    });
+    return getActiveLocation();
+  }
+
   return {
     createEquipment,
     listEquipment,
     getEquipment,
     updateEquipment,
     deleteEquipment,
+    createLocation,
+    listLocations,
+    getLocation,
+    updateLocation,
+    deleteLocation,
+    getActiveLocation,
+    setActiveLocation,
   };
 }
 
@@ -523,16 +689,22 @@ export function autoEquipmentForExercise(name, inventory, kg) {
 // never falls through to auto (a deleted binding must not silently switch
 // gear); with no explicit id, the inventory is auto-matched by implement +
 // weight. Returns { item, auto } or null. Computed on every read, never stored.
-export function equipmentForExercise(exercise, library, inventory, kg) {
+// `location` ({ locationId, liveLocationIds }, med-8j5w.1) scopes it to a gym
+// via inventoryAt: an explicit binding to gear at ANOTHER live location is
+// ignored and falls through to auto-match, and auto-match only considers gear
+// available at that location. Absent/null location = the whole inventory.
+export function equipmentForExercise(exercise, library, inventory, kg, location) {
   const id = equipmentIdForExercise(exercise, library);
   const inv = Array.isArray(inventory) ? inventory : [];
+  const scoped = location ? inventoryAt(inv, location.locationId, location.liveLocationIds) : inv;
   if (id !== null) {
     const item = inv.find((e) => e && e.id !== null && e.id !== undefined && String(e.id) === String(id));
-    return item ? { item, auto: false } : null;
+    if (!item) return null;
+    if (scoped === inv || scoped.includes(item)) return { item, auto: false };
   }
   // The library name is canonical (plan reads resolve exercise_name from it,
   // the row's own copy is a cache), so every consumer matches the same name.
   const name = (library && library.name) || (exercise && exercise.exercise_name) || '';
-  const item = autoEquipmentForExercise(name, inv, kg);
+  const item = autoEquipmentForExercise(name, scoped, kg);
   return item ? { item, auto: true } : null;
 }

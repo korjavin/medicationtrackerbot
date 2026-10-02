@@ -192,6 +192,60 @@ describe('preview counts', () => {
   });
 });
 
+// Share a gym (med-8j5w.3): a g1 token previews as a gym (not a broken
+// plan) and hands off through #share-gym=.
+describe('shared gym', () => {
+  const GYM = {
+    v: 1,
+    location: {
+      name: 'Gym A',
+      equipment: [
+        { name: 'Ohio bar', kind: 'plated', bar_kg: 20, sides: 2, plates: [{ kg: 20, count: 4 }] },
+        { name: 'Hex DBs', kind: 'fixed', loads_kg: [10, 12] },
+      ],
+    },
+  };
+  const makeGymToken = async (payload) => 'g1.' + toBase64Url(await gzip(utf8(JSON.stringify(payload))));
+
+  async function mountGym(payload) {
+    const keyBytes = crypto.getRandomValues(new Uint8Array(16));
+    const token = await makeGymToken(payload);
+    const ct = await encryptShare(keyBytes, token);
+    const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ ct }) }));
+    const location = stubLocation({ hash: '#' + toBase64Url(keyBytes) });
+    await mount(document, { fetchImpl, location, storage: memStorage(), clipboard: null });
+    return { token, location };
+  }
+
+  it('previews the gym name, item count and items, and hands off via #share-gym=', async () => {
+    const { token, location } = await mountGym(GYM);
+    expect(q('#share-status').textContent).toBe('');
+    expect(q('#share-title').textContent).toBe('Shared gym');
+    expect(q('#share-copy').textContent).toBe('Copy gym code');
+    const preview = q('#share-preview');
+    expect(preview.hidden).toBe(false);
+    expect(preview.textContent).toContain('Gym A');
+    expect(preview.textContent).toContain('2 items');
+    expect(preview.textContent).toContain('Ohio bar');
+    expect(preview.textContent).toContain('Hex DBs');
+
+    q('#share-home').value = 'alice';
+    click(q('#share-add'));
+    expect(location.href).toBe('https://alice.tracker.test/#share-gym=' + token);
+  });
+
+  it('a hostile item count is rejected before render', async () => {
+    await mountGym({ v: 1, location: { name: 'x', equipment: Array.from({ length: 500 }, () => ({})) } });
+    expect(q('#share-status').textContent).toBe(MSG.notPlan);
+    expect(q('#share-preview').textContent).toBe('');
+  });
+
+  it('a plan payload under the gym prefix is not a share', async () => {
+    await mountGym(PLAN);
+    expect(q('#share-status').textContent).toBe(MSG.notPlan);
+  });
+});
+
 describe('failure states', () => {
   it('missing hash → incomplete message, fetch NOT called', async () => {
     const fetchImpl = vi.fn();

@@ -896,6 +896,8 @@ function buildWorkoutPlanDocument(group, days, opts) {
     }
     if (rotating) meta.push(`Rotates through ${ordered.length} day${ordered.length === 1 ? '' : 's'}`);
     if (!g.active) meta.push('Inactive');
+    // med-8j5w.2: the gym the plate diagrams were resolved at.
+    if (o.locationName) meta.push(`Gym: ${o.locationName}`);
 
     const description = g.description ? `<p class="meta">${_workoutPlanEsc(g.description)}</p>` : '';
     const blocks = ordered.map((d) => _workoutPlanDayBlock(d, unit, rotating, loadCtx)).join('');
@@ -997,6 +999,7 @@ async function printWorkoutPlan(group) {
     // non-stocked fixed loads print a text-only note. Best-effort: a failed
     // read or import prints the sheet exactly as before, without glyphs.
     let loadingByExerciseId = null;
+    let printLocationName = null;
     try {
         const lib = await apiCall('/api/workout/exercise-library');
         let inv = null;
@@ -1017,6 +1020,22 @@ async function printWorkoutPlan(group) {
             for (const r of lib) {
                 if (r && r.id !== null && r.id !== undefined) libById[r.id] = r;
             }
+            // med-8j5w.1/.2: the sheet is for the next visit — resolve at the
+            // active gym, from ONE gym snapshot that also labels the sheet
+            // (no gyms / failed read / no active gym = whole inventory).
+            let location = null;
+            try {
+                if (window.WorkoutEquipment && typeof window.WorkoutEquipment.locations === 'function') {
+                    const gyms = await window.WorkoutEquipment.locations();
+                    if (gyms.locations.length > 0) {
+                        location = { locationId: gyms.activeId, liveLocationIds: gyms.locations.map((l) => l.id) };
+                        const active = gyms.locations.find((l) => String(l.id) === String(gyms.activeId));
+                        if (active) printLocationName = active.name || null;
+                    }
+                }
+            } catch (_) {
+                location = null;
+            }
             loadingByExerciseId = {};
             for (const d of days) {
                 for (const ex of (d.exercises || [])) {
@@ -1026,7 +1045,7 @@ async function printWorkoutPlan(group) {
                     const row = libById[ex.exercise_library_id] || null;
                     // Explicit binding (row, else library) wins; unbound rows
                     // auto-match the inventory by implement + weight (med-x295).
-                    const hit = equipmentForExercise(ex, row, inv, w);
+                    const hit = equipmentForExercise(ex, row, inv, w, location);
                     if (!hit) continue;
                     const eq = hit.item;
                     if (eq.kind === 'plated') {
@@ -1085,7 +1104,9 @@ async function printWorkoutPlan(group) {
     } catch (_) {
         qrSvg = '';
     }
-    const html = window.WorkoutGroups.buildDocument(g, days, { unit, qrSvg, loadingByExerciseId });
+    const html = window.WorkoutGroups.buildDocument(g, days, {
+        unit, qrSvg, loadingByExerciseId, locationName: loadingByExerciseId ? printLocationName : null,
+    });
     const mod = await window.WorkoutGroups.loadPrintDoc();
     // The adopted stylesheet is the only CSS that lands in the print frame
     // (CSP refuses the inline <style>): include the glyph rules exactly when

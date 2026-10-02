@@ -475,11 +475,17 @@ function renderWeightGoalCard(logs, goalData) {
     }
     actionBtn.appendChild(gloss);
 
-    actionBtn.addEventListener('click', () => {
+    actionBtn.addEventListener('click', async () => {
         const pref = getPreferredWeightUnit();
         const currentDisplay = hasGoal ? formatWeight(goalValue, pref).value : "";
-        const valStr = prompt(`Enter target weight (in ${pref}):`, currentDisplay);
-        if (valStr !== null && valStr.trim() !== "") {
+        const valStr = await safePrompt('', {
+            title: 'Target weight',
+            label: `Target weight (${pref})`,
+            value: currentDisplay,
+            inputMode: 'decimal',
+            emptyError: 'Enter a target weight.',
+        });
+        if (valStr !== null) {
             const num = parseFloat(valStr);
             if (!isNaN(num) && num > 0) {
                 // Convert back to kg if user's display is lb

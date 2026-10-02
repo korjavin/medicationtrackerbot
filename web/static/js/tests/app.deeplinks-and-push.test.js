@@ -499,6 +499,26 @@ describe('handleDeepLinks – #share-plan= (plan import deeplink, med-uo64.3)', 
     }
   });
 
+  it('a #share-gym= link takes the same strip → workouts → receive() path (med-8j5w.3)', async () => {
+    const { window, cleanup } = loadFrontendEnv({ url: 'https://example.test/#share-gym=g1.abc' });
+
+    try {
+      const switchTabSpy = vi.spyOn(window, 'switchTab').mockImplementation(() => {});
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState');
+      const receiveSpy = vi.fn();
+      window.WorkoutShare = { receive: receiveSpy };
+
+      window.handleDeepLinks();
+
+      expect(replaceStateSpy).toHaveBeenCalledWith({}, '', '/');
+      expect(switchTabSpy).toHaveBeenCalledWith('workouts');
+      await vi.advanceTimersByTimeAsync(110);
+      expect(receiveSpy).toHaveBeenCalledWith('g1.abc');
+    } finally {
+      cleanup();
+    }
+  });
+
   it('with Workouts disabled the share-plan link bounces to Today and never calls receive() (med-uo64.5)', async () => {
     const { window, cleanup } = loadFrontendEnv({ url: 'https://example.test/#share-plan=p1.abc' });
 

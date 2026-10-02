@@ -348,3 +348,140 @@ describe('cloud shim contract — workout plan export/import (share)', () => {
             .rejects.toMatchObject({ status: 404 });
     });
 });
+
+// Share a gym (med-8j5w.3): /api/workout/locations/:id/export and
+// /api/workout/locations/import over web/domain/workout-share.js.
+describe('cloud shim contract — gym export/import (share)', () => {
+    let env;
+
+    beforeEach(() => {
+        env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+    });
+
+    afterEach(() => {
+        env.cleanup();
+        env = null;
+    });
+
+    async function buildSourceGym(window) {
+        const gym = await window.apiCall('/api/workout/locations', 'POST', { name: 'Gym A' });
+        await window.apiCall('/api/workout/equipment', 'POST', {
+            name: 'Ohio bar', kind: 'plated', bar_kg: 20, sides: 2,
+            plates: [{ kg: 20, count: 4 }, { kg: 10, count: 2 }, { kg: 2.5, count: 2 }, { kg: 1.25, count: 1 }],
+            location_id: gym.id,
+        });
+        await window.apiCall('/api/workout/equipment', 'POST', {
+            name: 'Hex DBs', kind: 'fixed', implement: 'dumbbell', loads_kg: [10, 12.5, 15, 17.5], location_id: gym.id,
+        });
+        // Portable gear belongs to the sender, not the gym — never exported.
+        await window.apiCall('/api/workout/equipment', 'POST', { name: 'Band', kind: 'fixed', loads_kg: [5] });
+        return gym;
+    }
+
+    const loadsByName = (items) => Object.fromEntries(items.map((i) => [i.name, {
+        loads_kg: i.loads_kg, min_step_kg: i.min_step_kg, max_kg: i.max_kg, implement: i.implement,
+    }]));
+
+    it('export → import into a fresh store lands a NEW gym with identical achievable loads', async () => {
+        const { window } = env;
+        const gym = await buildSourceGym(window);
+        const token = await window.apiCall(`/api/workout/locations/${gym.id}/export`);
+        expect(token.v).toBe(1);
+        expect(token.location.name).toBe('Gym A');
+        expect(token.location.equipment.map((i) => i.name).sort()).toEqual(['Hex DBs', 'Ohio bar']);
+        // Names, not ids: nothing account-specific rides along.
+        const wire = JSON.stringify(token);
+        for (const key of ['"id"', 'location_id', 'user_id', 'created_at', 'updated_at', 'max_kg', 'min_step_kg']) {
+            expect(wire).not.toContain(key);
+        }
+
+        const env2 = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+        try {
+            const res = await env2.window.apiCall('/api/workout/locations/import', 'POST', JSON.parse(wire));
+            expect(res.name).toBe('Gym A');
+            expect(res.equipment).toBe(2);
+            const locs = await env2.window.apiCall('/api/workout/locations');
+            expect(locs.map((l) => [l.id, l.name])).toEqual([[res.id, 'Gym A']]);
+
+            const srcItems = (await window.apiCall('/api/workout/equipment')).filter((i) => i.location_id === gym.id);
+            const dstItems = await env2.window.apiCall('/api/workout/equipment');
+            expect(dstItems.every((i) => i.location_id === res.id)).toBe(true);
+            expect(loadsByName(dstItems)).toEqual(loadsByName(srcItems));
+        } finally {
+            env2.cleanup();
+        }
+    });
+
+    it('importing twice creates two gyms (no merge, duplicate names allowed)', async () => {
+        const { window } = env;
+        const gym = await buildSourceGym(window);
+        const token = await window.apiCall(`/api/workout/locations/${gym.id}/export`);
+        const first = await window.apiCall('/api/workout/locations/import', 'POST', structuredClone(token));
+        const second = await window.apiCall('/api/workout/locations/import', 'POST', structuredClone(token));
+        expect(second.id).not.toBe(first.id);
+        const names = (await window.apiCall('/api/workout/locations')).map((l) => l.name);
+        expect(names.filter((n) => n === 'Gym A')).toHaveLength(3);
+        // The source gym kept its own two items; each copy got its own two.
+        const items = await window.apiCall('/api/workout/equipment');
+        for (const id of [gym.id, first.id, second.id]) {
+            expect(items.filter((i) => i.location_id === id)).toHaveLength(2);
+        }
+    });
+
+    it('rejects hostile payloads with status 400 and writes nothing', async () => {
+        const { window } = env;
+        const item = (overrides = {}) => ({ name: 'DBs', kind: 'fixed', loads_kg: [10], ...overrides });
+        const cases = [
+            ['v !== 1', { v: 2, location: { name: 'X', equipment: [] } }],
+            ['missing location', { v: 1 }],
+            ['blank name', { v: 1, location: { name: '  ', equipment: [] } }],
+            ['overlong gym name', { v: 1, location: { name: 'x'.repeat(101), equipment: [] } }],
+            ['equipment not an array', { v: 1, location: { name: 'X', equipment: {} } }],
+            ['1000 items', { v: 1, location: { name: 'X', equipment: Array.from({ length: 1000 }, () => item()) } }],
+            ['bad kind', { v: 1, location: { name: 'X', equipment: [item(), item({ kind: 'magic' })] } }],
+            ['non-string item name', { v: 1, location: { name: 'X', equipment: [item({ name: 5 })] } }],
+            ['overlong item name', { v: 1, location: { name: 'X', equipment: [item({ name: 'y'.repeat(201) })] } }],
+            ['>20 plate types', {
+                v: 1,
+                location: {
+                    name: 'X',
+                    equipment: [{
+                        name: 'Bar', kind: 'plated', bar_kg: 20, sides: 2,
+                        plates: Array.from({ length: 21 }, (_, i) => ({ kg: i + 1, count: 2 })),
+                    }],
+                },
+            }],
+            ['non-finite plate kg', {
+                v: 1,
+                location: { name: 'X', equipment: [{ name: 'Bar', kind: 'plated', bar_kg: 20, sides: 2, plates: [{ kg: Infinity, count: 2 }] }] },
+            }],
+            ['NaN load', { v: 1, location: { name: 'X', equipment: [item({ loads_kg: [NaN] })] } }],
+        ];
+        for (const [label, payload] of cases) {
+            await expect(
+                window.offlineAwareApiCall('/api/workout/locations/import', 'POST', payload),
+                label,
+            ).rejects.toMatchObject({ status: 400 });
+        }
+        expect(await window.apiCall('/api/workout/locations')).toEqual([]);
+        expect(await window.apiCall('/api/workout/equipment')).toEqual([]);
+    });
+
+    it('a plan token in the gym importer (and a gym token in the plan importer) is a clear 400', async () => {
+        const { window } = env;
+        const plan = { v: 1, plan: { name: 'P', days: [], library: [] } };
+        await expect(window.offlineAwareApiCall('/api/workout/locations/import', 'POST', plan))
+            .rejects.toMatchObject({ status: 400, message: expect.stringContaining('workout plan share, not a gym') });
+        const gym = { v: 1, location: { name: 'G', equipment: [] } };
+        await expect(window.offlineAwareApiCall('/api/workout/plans/import', 'POST', gym))
+            .rejects.toMatchObject({ status: 400, message: expect.stringContaining('gym share, not a workout plan') });
+        expect(await window.apiCall('/api/workout/locations')).toEqual([]);
+        expect(await window.apiCallDirect('/api/workout/groups')).toEqual([]);
+    });
+
+    it('export of an unknown gym rejects with status 404', async () => {
+        const { window } = env;
+        await expect(window.offlineAwareApiCall('/api/workout/locations/999999/export'))
+            .rejects.toMatchObject({ status: 404 });
+    });
+});

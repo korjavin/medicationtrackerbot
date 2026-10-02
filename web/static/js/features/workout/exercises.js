@@ -388,9 +388,16 @@ async function _relabelPlanAutoEquipment(list, ticket) {
         const weightEl = document.getElementById('workout-exercise-weight');
         try {
             const domain = await window.WorkoutGroups.loadEquipmentDomain();
-            if (domain && typeof domain.autoEquipmentForExercise === 'function') {
-                item = domain.autoEquipmentForExercise(
-                    nameEl ? nameEl.value : '', list, weightEl ? parseFloat(weightEl.value) : NaN) || null;
+            if (domain && typeof domain.equipmentForExercise === 'function') {
+                // med-8j5w.2: the shared location-aware rule at the active gym
+                // (auto-match only gear available there). Eligible means no
+                // binding is honored here, so the row resolves unbound.
+                const location = window.WorkoutEquipment && typeof window.WorkoutEquipment.locationScope === 'function'
+                    ? await window.WorkoutEquipment.locationScope() : null;
+                const name = nameEl ? nameEl.value : '';
+                const hit = domain.equipmentForExercise({ equipment_id: null, exercise_name: name }, null,
+                    list, weightEl ? parseFloat(weightEl.value) : NaN, location);
+                item = hit && hit.auto ? hit.item : null;
             }
         } catch (_) { item = null; }
     }
@@ -475,9 +482,27 @@ async function _fillPlanExerciseEquipment(rowEquipmentId, libraryId, ticket = nu
     const inventory = await _syncEquipmentSelect(rowId, 'workout-exercise-equipment', () => ticket === _equipmentHintSeq);
     if (ticket !== _equipmentHintSeq) return; // superseded
     const list = Array.isArray(inventory) ? inventory : [];
-    const inherited = inheritedId !== ''
+    let inherited = inheritedId !== ''
         ? list.find((e) => e && String(e.id) === inheritedId) || null
         : null;
+    // med-8j5w.2: the effective preview follows the location-aware rule at the
+    // active gym — a library binding to gear at ANOTHER gym is not honored
+    // there and falls through to auto-match, so label it as such. (An explicit
+    // pick of any gym's gear stays selectable in the select itself.)
+    let inheritedOffGym = false;
+    if (inherited) {
+        try {
+            const location = window.WorkoutEquipment && typeof window.WorkoutEquipment.locationScope === 'function'
+                ? await window.WorkoutEquipment.locationScope() : null;
+            const domain = location ? await window.WorkoutGroups.loadEquipmentDomain() : null;
+            if (domain && typeof domain.inventoryAt === 'function'
+                && domain.inventoryAt(list, location.locationId, location.liveLocationIds).indexOf(inherited) === -1) {
+                inheritedOffGym = true;
+            }
+        } catch (_) { inheritedOffGym = false; }
+        if (ticket !== _equipmentHintSeq) return; // superseded
+        if (inheritedOffGym) inherited = null;
+    }
     _planInheritedEquipment = inherited
         ? { id: inheritedId, name: inherited.name || `Equipment ${inheritedId}` }
         : null;
@@ -492,13 +517,13 @@ async function _fillPlanExerciseEquipment(rowEquipmentId, libraryId, ticket = nu
     // and the domain resolves it to no gear, so it never auto-matches.
     const storedRow = _planRowEquipmentId || '';
     const rowDangling = storedRow !== '' && !list.some((e) => e && String(e.id) === storedRow);
-    _planAutoEligible = libraryKnown && inheritedId === '' && !rowDangling;
+    _planAutoEligible = libraryKnown && (inheritedId === '' || inheritedOffGym) && !rowDangling;
     if (_planAutoEligible && select && select.dataset.loaded === 'true' && select.value === '') {
         await _relabelPlanAutoEquipment(list, ticket);
         if (ticket !== _equipmentHintSeq) return; // superseded
     }
     // Helper for the effective gear (override, else inherited, else auto).
-    const effective = (select && select.value !== '') ? select.value : inheritedId;
+    const effective = (select && select.value !== '') ? select.value : (inheritedOffGym ? '' : inheritedId);
     const text = _planEquipmentHelperText(effective === '' ? _planAutoEquipment
         : (list.find((e) => e && String(e.id) === String(effective)) || null));
     if (!text) return;

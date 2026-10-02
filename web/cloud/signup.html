@@ -13,6 +13,12 @@
 <meta name="apple-mobile-web-app-title" content="Med Tracker">
 <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
 <link rel="stylesheet" href="/css/cloud.css">
+<!-- The app's in-page dialogs (safeConfirm & co., bd med-v83g) — the same
+     dependency-free classic scripts + dialog stylesheet the account app loads,
+     served from /static/ on this same account host; no native confirm(). -->
+<link rel="stylesheet" href="/static/css/dialog.css">
+<script src="/static/js/core/utils.js"></script>
+<script src="/static/js/components/mt-elements.js"></script>
 </head>
 <body>
   <main id="app">

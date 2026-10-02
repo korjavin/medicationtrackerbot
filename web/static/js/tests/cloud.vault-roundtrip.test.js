@@ -68,6 +68,13 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
       // Equipment is cloud-only inventory (med-niix.1); a real bot export
       // never carries it, so it canonicalizes away here like med_reminder_pref.
       if (d.workouts) delete d.workouts.equipment;
+      // Gyms are cloud-only too (med-8j5w.1): the locations list, the
+      // active-gym singleton and the per-session stamp.
+      if (d.workouts) {
+        delete d.workouts.locations;
+        delete d.workouts.active_location_id;
+        for (const s of d.workouts.sessions || []) { delete s.location_id; delete s.location_name; }
+      }
       // equipment_id is the cloud-only binding (med-niix.5 library-level,
       // med-3gln plan-row override); the bot has no such columns, so a real
       // bot export drops them per row — mirrors normalizeVault in
@@ -117,6 +124,7 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
       ['integrations', 'integrations'], ['medreminderpref', 'medreminderpref'],
       ['bpreminderpref', 'bpreminderpref'], ['weightreminderpref', 'weightreminderpref'],
       ['gamification', 'gamification'], ['apitokens', 'apitokens'],
+      ['activelocation', 'activelocation'],
     ]) {
       expect(idsByType(type)).toEqual([id]);
     }
@@ -137,6 +145,32 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     expect(bpPref.snoozed_until).toBe('2026-07-08T18:00:00Z');
     expect(bpPref.dont_remind_until).toBe(null);
     expect(bpPref.preferred_reminder_hour).toBe(20);
+  });
+
+  // med-8j5w.1: gyms re-mint on location-<id>; FKs (equipment/session
+  // location_id, including the fixture's dangling one) ride verbatim.
+  it('round-trips locations, the active gym and dangling location FKs', () => {
+    const records = vaultToRecords(fixture, { now: NOW });
+    const ids = records.filter((r) => r.recordType === 'location').map((r) => r.recordId).sort();
+    expect(ids).toEqual(['location-60', 'location-61']);
+    expect(records.find((r) => r.recordType === 'activelocation').location_id).toBe(61);
+    const back = recordsToVault(records, { now: NOW });
+    expect(back.data.workouts.equipment.map((e) => e.location_id)).toEqual([60, 99]);
+    expect(back.data.workouts.sessions[0]).toMatchObject({ location_id: 60, location_name: 'Home gym' });
+  });
+
+  it('a legacy backup without gyms imports with no locations and no active-gym record', () => {
+    const v = JSON.parse(JSON.stringify(fixture));
+    delete v.data.workouts.locations;
+    delete v.data.workouts.active_location_id;
+    const records = vaultToRecords(v, { now: NOW });
+    expect(records.some((r) => r.recordType === 'location' || r.recordType === 'activelocation')).toBe(false);
+    const back = recordsToVault(records, { now: NOW });
+    expect(back.data.workouts.locations).toEqual([]);
+    expect('active_location_id' in back.data.workouts).toBe(false);
+    // Both types are vault-managed, so the replace clears a stale active gym.
+    expect(managedTypesForImport(v).has('activelocation')).toBe(true);
+    expect(managedTypesForImport(v).has('location')).toBe(true);
   });
 
   it('maps a NOTIFIED plan to tzplan-current (bot mode treats it as the live plan)', () => {

@@ -173,7 +173,9 @@ Food targets are a settings singleton — see `settings.food_targets`, not repea
   "sessions": [ { session } ],
   "exercise_logs": [ { exercise_log } ],
   "miband": [ { miband_workout } ],
-  "equipment": [ { equipment } ]
+  "equipment": [ { equipment } ],
+  "locations": [ { location } ],
+  "active_location_id": 61
 }
 ```
 
@@ -197,8 +199,14 @@ Workout entities carry a numeric body `id` (FK glue; `-1` is the ad-hoc sentinel
   `updated_at`.
 - **equipment** — `id`, `user_id`, `name`, `kind` (`fixed`|`plated`); fixed
   carries `loads_kg` (num array), plated carries `bar_kg` (num), `sides` (1|2),
-  `pair` (bool), `plates` (`[{kg, count}]`); `created_at`, `updated_at`.
+  `pair` (bool), `plates` (`[{kg, count}]`); `created_at`, `updated_at`;
+  `location_id` (num, omitted when portable — carried verbatim even when it
+  names a deleted location, which reads as portable).
   Cloud inventory (med-niix.1): legacy bot files predate it and simply omit the key.
+- **location** (med-8j5w.1) — `id`, `user_id`, `name`, `created_at`, `updated_at`;
+  re-mints as `location-<id>`. `active_location_id` (num|null) is the
+  active-gym singleton, present only when the account has one; a file without
+  it clears the active gym on the replace import.
 - **rotation** — `group_id`, `current_variant_id`, `last_session_date` (RFC3339|null),
   `updated_at`. No stored `id`; re-mints deterministically as `rotation-<groupId>`
   (one row per group) on cloud import.
@@ -208,7 +216,8 @@ Workout entities carry a numeric body `id` (FK glue; `-1` is the ad-hoc sentinel
   deliberately not UTC), `scheduled_time` (`"HH:MM"`), `status` (`pending`|`notified`|
   `in_progress`|`pre_skipped`|`completed`|`skipped`), `started_at`, `completed_at`,
   `snoozed_until` (RFC3339|null), `snooze_count` (int), `notification_message_id`
-  (num|null), `notes` (str). Scheduled sessions re-mint deterministically as
+  (num|null), `notes` (str), and once stamped (med-8j5w.1) `location_id`
+  (num|null) + `location_name` (str|null). Scheduled sessions re-mint deterministically as
   `session-<groupId>-<YYYY-MM-DD>` (local date prefix); ad-hoc keep/mint a random id.
 - **exercise_log** (leaf, no `id`) — `session_id` (num → session.id), `exercise_id`
   (num → exercise.id), `exercise_name`, `sets_completed` (int|null), `reps_completed`
@@ -490,9 +499,11 @@ Export → import → export (and each single hop) must be
   same keys the `.nxk` migration path mints — so a full-vault import followed by a Mi Band
   `.nxk` migration of the same night/session converges to one record instead of double-
   counting.
-- **Cloud-only equipment** — `workouts.equipment` and the per-row
-  `library.equipment_id` / `exercises.equipment_id` are cloud inventory
-  (med-niix.1/med-niix.5/med-3gln). Legacy bot
+- **Cloud-only equipment** — `workouts.equipment`, `workouts.locations`,
+  `workouts.active_location_id`, the per-row
+  `library.equipment_id` / `exercises.equipment_id` and the session
+  `location_id` / `location_name` stamp are cloud inventory
+  (med-niix.1/med-niix.5/med-3gln/med-8j5w.1). Legacy bot
   files omit them; equality holds after stripping, the way
   `med_reminder_pref` is stripped.
 - **Timestamp offsets** — timestamps compare as **instants**, not as text. (Legacy

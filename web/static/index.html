@@ -26,6 +26,7 @@
     <link rel="stylesheet" href="/static/css/fonts.css?v=TIMESTAMP_PLACEHOLDER">
     <link rel="stylesheet" href="/static/css/base-fallback.css?v=TIMESTAMP_PLACEHOLDER">
     <link rel="stylesheet" href="/static/css/styles.css?v=TIMESTAMP_PLACEHOLDER">
+    <link rel="stylesheet" href="/static/css/dialog.css?v=TIMESTAMP_PLACEHOLDER">
     <link rel="stylesheet" href="/static/css/firstrun.css?v=TIMESTAMP_PLACEHOLDER">
 </head>
 
@@ -267,6 +268,16 @@
             <div id="workout-equipment-tab" class="workout-tab-content">
                 <div class="wg-equipment-header">
                     <span class="wg-section-label wg-equipment-header__label">Inventory</span>
+                    <button id="import-workout-location-btn" type="button"
+                        class="wg-gloss wg-equipment-header__add"
+                        aria-label="Import gym">
+                        <span class="wg-equipment-header__add-label">Import</span>
+                    </button>
+                    <button id="add-workout-location-btn" type="button"
+                        class="wg-gloss wg-equipment-header__add"
+                        aria-label="Add gym">
+                        <span class="wg-equipment-header__add-label">+ Gym</span>
+                    </button>
                     <button id="add-workout-equipment-btn" type="button"
                         class="wg-gloss wg-gloss--sun wg-equipment-header__add"
                         aria-label="Add equipment">
@@ -1245,7 +1256,7 @@
         <div class="wg-workouts-group-modal__header">
             <div class="wg-workouts-group-modal__heading">
                 <span class="wg-section-label wg-workouts-group-modal__eyebrow">Import</span>
-                <span class="wg-mono-display wg-workouts-group-modal__title" id="workout-share-import-title">Import plan</span>
+                <span class="wg-mono-display wg-workouts-group-modal__title" id="workout-share-import-title">Import plan or gym</span>
             </div>
             <div class="wg-workouts-group-modal__header-actions">
                 <button type="button" id="workout-share-import-cancel-btn"
@@ -1254,10 +1265,10 @@
         </div>
 
         <div class="wg-workouts-group-modal__body">
-            <p class="wg-share-foot">Paste a plan link or code, or scan its QR.</p>
+            <p class="wg-share-foot">Paste a plan or gym link or code, or scan its QR.</p>
             <div class="wg-gloss--inset wg-share-import__input-wrap">
                 <input type="text" id="workout-share-import-input" class="wg-share-import__input"
-                    placeholder="Paste a plan link or code" autocomplete="off" inputmode="text">
+                    placeholder="Paste a plan or gym link or code" autocomplete="off" inputmode="text">
             </div>
             <div class="wg-share-import__row">
                 <button type="button" id="workout-share-import-submit-btn"
@@ -1588,6 +1599,15 @@
                         <option value="kettlebell">Kettlebell</option>
                         <option value="other">Other</option>
                     </select>
+                </div>
+            </div>
+
+            <!-- med-8j5w.2: which gym the item lives at; hidden until the
+                 account has at least one gym (equipment.js fills it). -->
+            <div class="wg-equipment-modal__field" id="workout-equipment-location-field" hidden>
+                <label for="workout-equipment-location" class="wg-equipment-modal__label">Location</label>
+                <div class="wg-gloss--inset wg-equipment-modal__input-wrap">
+                    <select id="workout-equipment-location" class="wg-equipment-modal__input"></select>
                 </div>
             </div>
 

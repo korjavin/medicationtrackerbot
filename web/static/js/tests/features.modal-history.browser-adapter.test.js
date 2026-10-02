@@ -21,13 +21,22 @@ const MODAL_HISTORY_SRC = fs.readFileSync(
     path.join(REPO_ROOT, 'web/static/js/features/modal-history.js'), 'utf8');
 const BACK_BUTTON_SRC = fs.readFileSync(
     path.join(REPO_ROOT, 'web/static/js/features/back-button.js'), 'utf8');
+const UTILS_SRC = fs.readFileSync(
+    path.join(REPO_ROOT, 'web/static/js/core/utils.js'), 'utf8');
+const MODAL_MANAGER_SRC = fs.readFileSync(
+    path.join(REPO_ROOT, 'web/static/js/core/modal-manager.js'), 'utf8');
 
 function flush() { return new Promise((resolve) => setTimeout(resolve, 0)); }
+
+// history.back() in jsdom: one task to traverse, one more to fire popstate.
+async function settleHistory() { await flush(); await flush(); await flush(); }
 
 function createBrowserEnv() {
     const dom = new JSDOM(
         `<!doctype html><html><body>
-            <div id="modal-overlay" class="hidden"></div>
+            <div id="modal-overlay" class="hidden">
+                <div id="bp-modal" class="hidden"></div>
+            </div>
             <div id="today-view" class="view active"></div>
             <div id="bp-view" class="view"></div>
         </body></html>`,
@@ -39,12 +48,8 @@ function createBrowserEnv() {
     window.switchTab = vi.fn((tab) => {
         if (window.AppStore) window.AppStore.set('currentTab', tab);
     });
-    window.ModalManager = {
-        closeTopMostVisibleModal: vi.fn(() => {
-            window.document.getElementById('modal-overlay').classList.add('hidden');
-        })
-    };
-
+    window.eval(UTILS_SRC);
+    window.eval(MODAL_MANAGER_SRC);
     window.eval(STORE_SRC);
     window.eval(ADAPTER_SRC);
     window.eval(MODAL_HISTORY_SRC);
@@ -101,5 +106,129 @@ describe('modal-history.js in BrowserAdapter mode', () => {
             await flush();
             expect(window.switchTab).toHaveBeenCalledWith('today');
         } finally { cleanup(); }
+    });
+
+    // bd med-62lh: the in-page dialog (safeConfirm/safePrompt/safeChoose)
+    // mounts on <body> outside #modal-overlay; it owns its own history entry.
+    describe('in-page dialog (safeConfirm) and Back', () => {
+        function dialogMounted(document) {
+            return !!document.querySelector('mt-modal.mt-confirm-modal');
+        }
+
+        it('Back over a dialog on a plain section cancels it and stays; the next Back goes to Today', async () => {
+            const { window, document, cleanup } = createBrowserEnv();
+            try {
+                await settleHistory();
+                const pending = window.safeConfirm('Delete?');
+                await flush();
+                expect(dialogMounted(document)).toBe(true);
+                window.switchTab.mockClear();
+
+                window.history.back();
+                await settleHistory();
+
+                await expect(pending).resolves.toBe(false);
+                expect(dialogMounted(document)).toBe(false);
+                expect(window.switchTab).not.toHaveBeenCalled();
+                expect(window.AppStore.get('currentTab')).toBe('bp');
+
+                window.history.back();
+                await settleHistory();
+                expect(window.switchTab).toHaveBeenCalledWith('today');
+            } finally { cleanup(); }
+        });
+
+        it('Back over a dialog on Today cancels it without leaving the app', async () => {
+            const { window, document, cleanup } = createBrowserEnv();
+            try {
+                window.AppStore.set('currentTab', 'today');
+                await settleHistory();
+                const pending = window.safePrompt('Name?');
+                await flush();
+                expect(window.history.state).toEqual({ modalDialog: true });
+                window.switchTab.mockClear();
+
+                window.history.back();
+                await settleHistory();
+
+                await expect(pending).resolves.toBe(null);
+                expect(dialogMounted(document)).toBe(false);
+                expect(window.switchTab).not.toHaveBeenCalled();
+                // Back consumed the dialog's own entry, not the page's.
+                expect(window.history.state).toBe(null);
+                expect(window.location.href).toBe('https://example.test/');
+            } finally { cleanup(); }
+        });
+
+        it('Back over a dialog on a registered modal cancels only the dialog', async () => {
+            const { window, document, cleanup } = createBrowserEnv();
+            try {
+                window.ModalManager.bp.open();
+                await settleHistory();
+                const pending = window.safeConfirm('Discard?');
+                await flush();
+                window.switchTab.mockClear();
+
+                window.history.back();
+                await settleHistory();
+
+                await expect(pending).resolves.toBe(false);
+                expect(dialogMounted(document)).toBe(false);
+                expect(document.getElementById('bp-modal').classList.contains('hidden')).toBe(false);
+                expect(document.getElementById('modal-overlay').classList.contains('hidden')).toBe(false);
+                expect(window.switchTab).not.toHaveBeenCalled();
+
+                // The parent modal's own entry is intact: the next Back closes it.
+                window.history.back();
+                await settleHistory();
+                expect(document.getElementById('bp-modal').classList.contains('hidden')).toBe(true);
+                expect(window.switchTab).not.toHaveBeenCalled();
+            } finally { cleanup(); }
+        });
+
+        it('the in-app chevron with a dialog open cancels the dialog and keeps the tab', async () => {
+            const { window, document, cleanup } = createBrowserEnv();
+            try {
+                await settleHistory();
+                const pending = window.safeConfirm('Delete?');
+                await flush();
+                window.switchTab.mockClear();
+
+                document.getElementById('wg-browser-back-button').click();
+                await settleHistory();
+
+                await expect(pending).resolves.toBe(false);
+                expect(dialogMounted(document)).toBe(false);
+                expect(window.switchTab).not.toHaveBeenCalled();
+                expect(window.AppStore.get('currentTab')).toBe('bp');
+            } finally { cleanup(); }
+        });
+
+        it.each([
+            ['its Confirm button', (d) => d.querySelector('.mt-confirm-modal__confirm').click(), true],
+            ['its Cancel button', (d) => d.querySelector('.mt-confirm-modal__cancel').click(), false],
+            ['Escape', (d, w) => d.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape' })), false],
+            ['the backdrop', (d) => d.querySelector('.mt-confirm-backdrop').click(), false],
+        ])('closing a dialog via %s pops exactly its entry and does not bounce to Today', async (_label, close, expected) => {
+            const { window, document, cleanup } = createBrowserEnv();
+            try {
+                await settleHistory();
+                const before = window.history.length;
+                const pending = window.safeConfirm('Delete?');
+                await flush();
+                const backSpy = vi.spyOn(window.history, 'back');
+                window.switchTab.mockClear();
+
+                close(document, window);
+                await settleHistory();
+
+                await expect(pending).resolves.toBe(expected);
+                expect(backSpy).toHaveBeenCalledTimes(1);
+                expect(window.history.length).toBe(before + 1);
+                expect(window.history.state).toEqual({ wgSectionBack: true });
+                expect(window.switchTab).not.toHaveBeenCalled();
+                expect(window.AppStore.get('currentTab')).toBe('bp');
+            } finally { cleanup(); }
+        });
     });
 });

@@ -47,7 +47,6 @@ const CLAUDE_STATUS_TEXT = {
 };
 
 const REMOTE_CONSENT_TEXT =
-  'Enable the remote connector?\n\n' +
   'The server will relay MCP traffic between claude.ai/ChatGPT and your unlocked browser tab. It can read the requests ' +
   'and the answers while relaying — nothing is stored. The connector key is kept on the server so the URL keeps ' +
   'working across restarts, until you Disconnect.';
@@ -99,8 +98,8 @@ function renderPicker(app, ctx, onExit, pairing, remote) {
       .addEventListener('click', () => navigator.clipboard.writeText(remote.url));
   }
 
-  app.querySelector('#claude-remote-connect-button').addEventListener('click', () => {
-    if (!confirm(REMOTE_CONSENT_TEXT)) return;
+  app.querySelector('#claude-remote-connect-button').addEventListener('click', async () => {
+    if (!(await window.safeConfirm(REMOTE_CONSENT_TEXT, null, { title: 'Enable the remote connector?', confirmLabel: 'Enable' }))) return;
     connectRemote(ctx)
       .then(({ token, url }) => renderRemoteURL(app, ctx, onExit, token, url))
       .catch((err) => renderConnectorsError(app, ctx, onExit, err.message || String(err)));

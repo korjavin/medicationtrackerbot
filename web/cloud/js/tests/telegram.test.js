@@ -8,6 +8,7 @@ import { JSDOM } from 'jsdom';
 import { mountTelegram } from '../telegram.js';
 import { createApiRouter } from '../apishim.js';
 import { allowConsoleNoise } from '../../../static/js/tests/helpers/setup.js';
+import { installDialogs, answerDialog } from './helpers/dialogs.js';
 
 let dom;
 let app;
@@ -40,9 +41,8 @@ function fakeRecords(seed = {}) {
 }
 
 beforeEach(() => {
-  dom = new JSDOM('<!doctype html><div id="app"></div>', { url: 'https://acct.example.test/' });
+  dom = new JSDOM('<!doctype html><div id="app"></div>', { url: 'https://acct.example.test/', runScripts: 'outside-only' });
   global.document = dom.window.document;
-  global.confirm = vi.fn(() => true);
   app = dom.window.document.getElementById('app');
   // DEFAULT_PREFS_PORT reads window.apiCall (the seam apishim.js installs in
   // production). Tests that don't care about the glossary never override
@@ -51,12 +51,12 @@ beforeEach(() => {
   // not defined on every unrelated linked-state render.
   global.window = dom.window;
   dom.window.apiCall = vi.fn(async () => ({ note: '' }));
+  installDialogs(dom.window);
 });
 
 afterEach(() => {
   dom.window.close();
   delete global.document;
-  delete global.confirm;
   delete global.fetch;
   delete global.window;
   vi.useRealTimers();
@@ -285,6 +285,30 @@ describe('telegram.js onboarding module', () => {
       if (!app.querySelector('#tg-test-result').textContent.includes('Sent')) throw new Error('not sent yet');
     });
     expect(fetch).toHaveBeenCalledWith('/api/telegram/test', { method: 'POST' });
+  });
+
+  // med-v83g: Unlink asks through the app's styled in-page dialog — the same
+  // safeConfirm in the account app and the passkey shell — never a native
+  // confirm(). Declining keeps the bot; accepting DELETEs it.
+  it('unlink asks via the in-page dialog and only DELETEs on confirm', async () => {
+    const fetch = fetchStub({
+      '/api/telegram/status': { ok: true, json: async () => ({ enabled: true, state: 'linked', bot_username: 'mt_abc_bot' }) },
+      'DELETE /api/telegram': { ok: true, json: async () => ({}) },
+    });
+    global.fetch = fetch;
+    await mountTelegram(app, {});
+
+    app.querySelector('#tg-unlink').dispatchEvent(new dom.window.Event('click'));
+    const declined = await answerDialog(dom.window.document, false);
+    expect(declined.querySelector('.wg-modal__title').textContent).toBe('Unlink your Telegram bot?');
+    await Promise.resolve();
+    expect(fetch).not.toHaveBeenCalledWith('/api/telegram', { method: 'DELETE' });
+
+    app.querySelector('#tg-unlink').dispatchEvent(new dom.window.Event('click'));
+    await answerDialog(dom.window.document, true);
+    await vi.waitFor(() => {
+      if (!fetch.mock.calls.some(([u, o]) => u === '/api/telegram' && o && o.method === 'DELETE')) throw new Error('not unlinked yet');
+    });
   });
 
   it('omits the open-bot link when linked without a bot_username (bd med-tgop)', async () => {

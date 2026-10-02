@@ -44,7 +44,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
     const { window, document } = env;
     const apiCallSpy = vi.fn();
     window.apiCall = apiCallSpy;
-    window.alert = vi.fn();
+    window.safeAlert = vi.fn();
 
     // Set variant context but leave name/sets/reps empty
     window.WorkoutEdit.variantForExercise = 1;
@@ -55,7 +55,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
     await window.saveExercise();
 
     expect(apiCallSpy).not.toHaveBeenCalled();
-    expect(window.alert).toHaveBeenCalledTimes(1);
+    expect(window.safeAlert).toHaveBeenCalledTimes(1);
   });
 
   it('closeExerciseModal clears the closure-private editingExerciseId', () => {
@@ -812,8 +812,11 @@ describe('features/workout/exercises.js — split-file integration', () => {
       });
       expect(planSelectOf(document).value).toBe('');
       expect(planHintOf(document).hidden).toBe(true);
-      // Unknown name still offers the inventory for an explicit pick.
-      expect(Array.from(planSelectOf(document).options).map((o) => o.value)).toEqual(['', '50', '51']);
+      // Unknown name still offers the inventory for an explicit pick (the
+      // fill also reads the gyms, med-8j5w.2, so it lands a tick later).
+      await vi.waitFor(() => {
+        expect(Array.from(planSelectOf(document).options).map((o) => o.value)).toEqual(['', '50', '51']);
+      });
     });
 
     it('a hand-typed rename re-resolves the inherited label and keeps the override', async () => {
@@ -1205,6 +1208,32 @@ describe('features/workout/exercises.js — split-file integration', () => {
           equipment: [OLY_BAR, EZ_BAR],
         });
         await window.showEditExerciseModal(7);
+        expect(blankLabelOf(document)).toBe('from library: EZ bar');
+      });
+
+      it('a library binding to another gym\'s gear previews as auto at the active gym (med-8j5w.2)', async () => {
+        const { window, document } = env;
+        const open = async (activeId) => {
+          stubPlan(window, {
+            exercises: unboundRow(),
+            library: [libraryRow({ name: 'Barbell Bench Press', equipment_id: 61 })],
+            equipment: [{ ...OLY_BAR, location_id: 1 }, { ...EZ_BAR, location_id: 2 }],
+          });
+          const base = window.apiCall;
+          window.apiCall = vi.fn(async (url, method, body) => {
+            if (url === '/api/workout/locations') return [{ id: 1, name: 'Home' }, { id: 2, name: 'Gym A' }];
+            if (url === '/api/workout/locations/active') return { location_id: activeId, location: null };
+            return base(url, method, body);
+          });
+          await window.showEditExerciseModal(7);
+        };
+
+        await open(1); // EZ bar lives at Gym A: not honored at Home
+        expect(blankLabelOf(document)).toBe('auto: Olympic bar');
+        // Every gym's gear stays selectable as an explicit binding.
+        expect(Array.from(planSelectOf(document).options).map((o) => o.value)).toEqual(['', '60', '61']);
+
+        await open(2); // at Gym A the library binding holds
         expect(blankLabelOf(document)).toBe('from library: EZ bar');
       });
 

@@ -42,12 +42,21 @@
 
 const WORKOUT_EQUIPMENT_CACHE_KEY = 'workout_equipment';
 const WORKOUT_EQUIPMENT_URL = '/api/workout/equipment';
+// med-8j5w.2: gyms (flat location list) + the synced active-gym singleton,
+// each its own cachedFetch key so writes can project optimistically (rule 9).
+const WORKOUT_LOCATIONS_CACHE_KEY = 'workout_locations';
+const WORKOUT_ACTIVE_LOCATION_CACHE_KEY = 'workout_active_location';
+const WORKOUT_LOCATIONS_URL = '/api/workout/locations';
+const WORKOUT_ACTIVE_LOCATION_URL = '/api/workout/locations/active';
+const WORKOUT_LOCATION_FETCH_OPTS = { tags: ['workout'], freshAfterMs: 60_000, staleAfterMs: 24 * 60 * 60_000 };
 // ponytail: mirrors the domain's MAX_FIXED_LOADS ceiling (web/domain/equipment.js)
 // so the generator can never build a list the API would reject.
 const WORKOUT_EQUIPMENT_MAX_GENERATED_LOADS = 200;
 // med-v75c.1: the shared Type select values, stored as `implement` on both
 // kinds (mirrors the domain's IMPLEMENT_VALUES in web/domain/equipment.js).
 const WORKOUT_EQUIPMENT_IMPLEMENTS = ['barbell', 'dumbbell', 'kettlebell', 'other'];
+// Implements with a row icon (a WGIcons name each); 'other' gets none.
+const WORKOUT_EQUIPMENT_ICON_IMPLEMENTS = ['barbell', 'dumbbell', 'kettlebell'];
 
 async function loadWorkoutEquipment() {
     const container = document.getElementById('workout-equipment-list');
@@ -59,7 +68,7 @@ async function loadWorkoutEquipment() {
             const raw = await apiCall(WORKOUT_EQUIPMENT_URL, 'GET');
             const items = Array.isArray(raw) ? raw : [];
             window.WorkoutEdit.cachedEquipment = items;
-            _renderWorkoutEquipment(container, items);
+            _renderWorkoutEquipment(container, items, await _readWorkoutLocationsForList());
         } catch (e) {
             console.error('Error loading workout equipment:', e);
             _renderWorkoutEquipmentEmpty(container, 'Failed to load equipment.');
@@ -75,7 +84,7 @@ async function loadWorkoutEquipment() {
         );
         const items = result && Array.isArray(result.data) ? result.data : [];
         window.WorkoutEdit.cachedEquipment = items;
-        _renderWorkoutEquipment(container, items);
+        _renderWorkoutEquipment(container, items, await _readWorkoutLocationsForList());
     } catch (e) {
         if (window.OfflineNoCacheError && e instanceof window.OfflineNoCacheError) {
             window.WorkoutEdit.cachedEquipment = [];
@@ -125,24 +134,134 @@ function _renderWorkoutEquipmentEmpty(container, message) {
     container.replaceChildren(empty);
 }
 
-function _renderWorkoutEquipment(container, items) {
+// med-8j5w.2: shared gyms read — { locations, activeId } (activeId null when
+// unset, deleted, or its read failed). Throws when the location LIST fails:
+// a failed read must never pass for "no gyms", which would show every item
+// as portable and let an edit save it that way.
+async function getWorkoutLocations() {
+    const read = async (key, url) => {
+        if (typeof window.cachedFetch === 'function') {
+            const result = await window.cachedFetch(key, url, WORKOUT_LOCATION_FETCH_OPTS);
+            return result ? result.data : null;
+        }
+        return apiCall(url, 'GET');
+    };
+    const raw = await read(WORKOUT_LOCATIONS_CACHE_KEY, WORKOUT_LOCATIONS_URL);
+    if (!Array.isArray(raw)) throw new Error('Gyms failed to load');
+    const locations = raw.filter((l) => l && l.id !== null && l.id !== undefined);
+    let activeId = null;
+    try {
+        const active = await read(WORKOUT_ACTIVE_LOCATION_CACHE_KEY, WORKOUT_ACTIVE_LOCATION_URL);
+        const id = active && typeof active === 'object' ? active.location_id : null;
+        if (locations.some((l) => String(l.id) === String(id))) activeId = id;
+    } catch (_) { activeId = null; }
+    return { locations, activeId };
+}
+
+// The list's gym read: { locations, activeId } or { failed: true }.
+async function _readWorkoutLocationsForList() {
+    try {
+        return await getWorkoutLocations();
+    } catch (_) {
+        return { failed: true };
+    }
+}
+
+function _renderWorkoutEquipment(container, items, locState) {
     if (!container) return;
     const doc = container.ownerDocument;
     if (!doc || typeof doc.createElement !== 'function') return;
 
     container.classList.add('wg-equipment');
+    const locations = locState && Array.isArray(locState.locations) ? locState.locations : [];
 
-    if (!items || items.length === 0) {
-        _renderWorkoutEquipmentEmpty(container, 'No equipment yet — tap Add to log your first barbell.');
+    // No gyms (or a failed gym read): exactly the pre-locations flat list.
+    if (locations.length === 0) {
+        if (!items || items.length === 0) {
+            _renderWorkoutEquipmentEmpty(container, 'No equipment yet — tap Add to log your first barbell.');
+        } else {
+            const list = doc.createElement('ul');
+            list.className = 'list-reset wg-equipment__list';
+            items.forEach((item) => {
+                list.appendChild(_buildWorkoutEquipmentRow(doc, item));
+            });
+            container.replaceChildren(list);
+        }
+        if (locState && locState.failed) {
+            const err = doc.createElement('p');
+            err.className = 'wg-equipment__error';
+            err.textContent = 'Couldn\'t load your gyms — showing all equipment ungrouped.';
+            container.insertBefore(err, container.firstChild);
+        }
         return;
     }
 
-    const list = doc.createElement('ul');
-    list.className = 'list-reset wg-equipment__list';
-    items.forEach((item) => {
-        list.appendChild(_buildWorkoutEquipmentRow(doc, item));
+    // Grouped by gym: one section per location, then "Portable / everywhere"
+    // for unassigned items and items whose gym no longer exists (dangling).
+    const groups = locations.map((loc) => ({ loc, items: [] }));
+    const portable = [];
+    (items || []).forEach((item) => {
+        const lid = item && item.location_id;
+        const group = (lid === null || lid === undefined) ? null
+            : groups.find((g) => String(g.loc.id) === String(lid));
+        if (group) group.items.push(item);
+        else portable.push(item);
     });
-    container.replaceChildren(list);
+    const sections = groups.map((g) => _buildWorkoutEquipmentGroup(
+        doc, g.loc, g.items, String(g.loc.id) === String(locState.activeId)));
+    sections.push(_buildWorkoutEquipmentGroup(doc, null, portable, false));
+    container.replaceChildren(...sections);
+}
+
+// One gym section: header (name, active badge, rename/delete for a real gym)
+// plus its rows. `loc` null is the Portable / everywhere group.
+function _buildWorkoutEquipmentGroup(doc, loc, items, isActive) {
+    const section = doc.createElement('section');
+    section.className = 'wg-equipment-group';
+    section.dataset.locationId = loc ? String(loc.id) : '';
+
+    const header = doc.createElement('div');
+    header.className = 'wg-equipment-group__header';
+    const label = doc.createElement('span');
+    label.className = 'wg-section-label wg-equipment-group__label';
+    label.textContent = loc ? (loc.name || 'Gym') : 'Portable / everywhere';
+    header.appendChild(label);
+    if (isActive) {
+        const badge = doc.createElement('span');
+        badge.className = 'wg-tag wg-tag--mono wg-equipment-group__active';
+        badge.textContent = 'Active';
+        header.appendChild(badge);
+    }
+    // A pending optimistic gym carries a local_ id the API would reject.
+    if (loc && !_isPendingEquipmentRow(loc)) {
+        const actions = doc.createElement('div');
+        actions.className = 'wg-equipment-row__actions wg-equipment-group__actions';
+        actions.appendChild(_buildEquipmentIconBtn(doc, 'share-location', `Share ${loc.name || 'gym'}`, 'share', () => {
+            // Via the namespace so the share-modal handoff stays stubbable in tests.
+            window.WorkoutShare.shareGym(loc);
+        }));
+        actions.appendChild(_buildEquipmentIconBtn(doc, 'rename-location', `Rename ${loc.name || 'gym'}`, 'pencil', () => {
+            renameWorkoutLocation(loc.id);
+        }));
+        actions.appendChild(_buildEquipmentIconBtn(doc, 'delete-location', `Delete ${loc.name || 'gym'}`, 'trash', () => {
+            deleteWorkoutLocation(loc.id);
+        }));
+        header.appendChild(actions);
+    }
+    section.appendChild(header);
+
+    if (items.length === 0) {
+        const empty = doc.createElement('p');
+        empty.className = 'wg-equipment__empty wg-equipment-group__empty';
+        empty.textContent = loc ? 'No equipment here yet.' : 'Nothing portable.';
+        section.appendChild(empty);
+    } else {
+        const list = doc.createElement('ul');
+        list.className = 'list-reset wg-equipment__list';
+        items.forEach((item) => list.appendChild(_buildWorkoutEquipmentRow(doc, item)));
+        section.appendChild(list);
+    }
+    return section;
 }
 
 // The step/max line is the API's computed min_step_kg / max_kg, rendered
@@ -174,6 +293,16 @@ function _buildWorkoutEquipmentRow(doc, item) {
     const implementLabel = _implementLabel(item.implement);
     kindTag.textContent = implementLabel ? `${implementLabel} · ${kindLabel}` : kindLabel;
     title.appendChild(kindTag);
+
+    // Decorative implement icon (iconSvg sets aria-hidden). The response's
+    // implement is already resolved (implementOf: a plated item without a
+    // stored implement reads as barbell); other/absent renders none.
+    if (WORKOUT_EQUIPMENT_ICON_IMPLEMENTS.indexOf(item.implement) !== -1
+        && typeof window !== 'undefined' && window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+        const icon = window.WGIcons.iconSvg(item.implement, { size: 16 });
+        icon.classList.add('wg-equipment-row__icon');
+        title.appendChild(icon);
+    }
 
     const name = doc.createElement('span');
     name.className = 'wg-equipment-row__name';
@@ -428,6 +557,59 @@ function showAddWorkoutEquipmentModal() {
     const plates = document.getElementById('workout-equipment-plates');
     if (plates) plates.replaceChildren();
     _addEquipmentPlateRow('', '');
+    return _fillEquipmentLocationSelect(undefined);
+}
+
+// med-8j5w.2: the editor's Location select. Hidden (and left unloaded) until a
+// real gym read lands with at least one gym; with none, the editor is exactly
+// today's. `current` is the item's stored location_id (undefined = a new item,
+// which defaults to the active gym). A dangling id preselects Portable — it
+// already reads as portable. The save sends location_id only when the user
+// changed the pick, so a failed read or an untouched dangling id is preserved.
+async function _fillEquipmentLocationSelect(current) {
+    const select = document.getElementById('workout-equipment-location');
+    const field = document.getElementById('workout-equipment-location-field');
+    if (!select) return;
+    const doc = select.ownerDocument;
+    const seq = String(Number(select.dataset.seq || 0) + 1);
+    select.dataset.seq = seq;
+    select.replaceChildren();
+    select.dataset.loaded = 'false';
+    select.dataset.initial = '';
+    if (field) field.hidden = true;
+    let state = null;
+    try {
+        state = await getWorkoutLocations();
+    } catch (_) {
+        state = null;
+    }
+    if (select.dataset.seq !== seq || !state || state.locations.length === 0) return;
+    for (const loc of state.locations) {
+        const opt = doc.createElement('option');
+        opt.value = String(loc.id);
+        opt.textContent = loc.name || `Gym ${loc.id}`;
+        select.appendChild(opt);
+    }
+    const portable = doc.createElement('option');
+    portable.value = '';
+    portable.textContent = 'Portable / everywhere';
+    select.appendChild(portable);
+    const want = current === undefined ? state.activeId : current;
+    const live = want !== null && want !== undefined
+        && state.locations.some((l) => String(l.id) === String(want));
+    select.value = live ? String(want) : '';
+    select.dataset.initial = current === undefined ? 'new-item' : select.value;
+    select.dataset.loaded = 'true';
+    if (field) field.hidden = false;
+}
+
+// The payload's location_id: absent unless the select holds a real gym read
+// and (for an edit) the user changed it; '' = Portable (null).
+function _equipmentLocationPayload() {
+    const select = document.getElementById('workout-equipment-location');
+    if (!select || select.dataset.loaded !== 'true') return undefined;
+    if (select.value === select.dataset.initial) return undefined;
+    return select.value === '' ? null : Number(select.value);
 }
 
 async function showEditWorkoutEquipmentModal(id) {
@@ -476,6 +658,7 @@ async function showEditWorkoutEquipmentModal(id) {
         const rows = Array.isArray(item.plates) && item.plates.length > 0 ? item.plates : [{ kg: '', count: '' }];
         rows.forEach((p) => _addEquipmentPlateRow(p.kg, p.count));
     }
+    await _fillEquipmentLocationSelect(item.location_id === undefined ? null : item.location_id);
 }
 
 function closeWorkoutEquipmentModal() {
@@ -484,6 +667,14 @@ function closeWorkoutEquipmentModal() {
 }
 
 function _buildEquipmentPayload() {
+    const payload = _buildEquipmentShapePayload();
+    if (!payload) return null;
+    const locationId = _equipmentLocationPayload();
+    if (locationId !== undefined) payload.location_id = locationId;
+    return payload;
+}
+
+function _buildEquipmentShapePayload() {
     const name = document.getElementById('workout-equipment-name').value.trim();
     if (!name) {
         safeAlert('Equipment name is required!');
@@ -618,9 +809,200 @@ async function _deleteWorkoutEquipmentApi(id) {
     }
 }
 
+// ====================================
+// GYMS (med-8j5w.2)
+// ====================================
+
+// _writeWorkoutLocations runs one gym write under rule 9: `mutator` projects
+// the cached gym list up-front, the request runs, and success commits an
+// authoritative re-read (or keeps the projection) while failure rolls back.
+// Returns true on success. The equipment list repaints either way.
+async function _writeWorkoutLocations(mutator, method, url, body, failMessage) {
+    const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+        ? await window.DataStore.applyOptimistic(WORKOUT_LOCATIONS_CACHE_KEY, (prev) => mutator(Array.isArray(prev) ? prev.slice() : []), ['workout'])
+        : null;
+    let result = null;
+    try {
+        result = await apiCall(url, method, body, { suppressWriteAlert: true });
+    } catch (e) {
+        if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+        safeAlert('Error: ' + (e && e.message ? e.message : e));
+        await loadWorkoutEquipment();
+        return false;
+    }
+    if (!result) {
+        if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+        safeAlert(failMessage);
+        await loadWorkoutEquipment();
+        return false;
+    }
+    let fresh = null;
+    try {
+        fresh = await apiCall(WORKOUT_LOCATIONS_URL, 'GET', null, { suppressWriteAlert: true });
+    } catch (_) { /* commit keeps the projection; the next load reconciles */ }
+    if (handle) { try { await handle.commit(Array.isArray(fresh) ? fresh : null); } catch (_) { /* reload covers it */ } }
+    await loadWorkoutEquipment();
+    return true;
+}
+
+// The app's own name dialog (safePrompt), never the native prompt(): trimmed,
+// non-empty enforced inline. Resolves the name or null on cancel.
+async function _promptWorkoutLocationName(current) {
+    const name = await safePrompt('', {
+        title: current ? 'Rename gym' : 'New gym',
+        label: 'Gym name',
+        value: current || '',
+        placeholder: 'Home, Gym A…',
+        maxLength: 80,
+        emptyError: 'Give the gym a name.',
+    });
+    return name || null;
+}
+
+async function addWorkoutLocation() {
+    const name = await _promptWorkoutLocationName('');
+    if (!name) return false;
+    return _writeWorkoutLocations(
+        (list) => list.concat([{ id: `local_${Date.now()}`, name }]),
+        'POST', WORKOUT_LOCATIONS_URL, { name }, "Couldn't add the gym — try again online.");
+}
+
+async function renameWorkoutLocation(id) {
+    let current = '';
+    try {
+        const state = await getWorkoutLocations();
+        current = (state.locations.find((l) => String(l.id) === String(id)) || {}).name || '';
+    } catch (_) { current = ''; }
+    const name = await _promptWorkoutLocationName(current);
+    if (!name || name === current) return false;
+    return _writeWorkoutLocations(
+        (list) => list.map((l) => (l && String(l.id) === String(id) ? { ...l, name } : l)),
+        'PUT', `${WORKOUT_LOCATIONS_URL}/${id}`, { name }, "Couldn't rename the gym — try again online.");
+}
+
+async function deleteWorkoutLocation(id) {
+    let ok = false;
+    await safeConfirm('Delete this gym? Its equipment becomes portable (available everywhere).', async (yes) => {
+        if (!yes) return;
+        ok = await _writeWorkoutLocations(
+            (list) => list.filter((l) => !l || String(l.id) !== String(id)),
+            'DELETE', `${WORKOUT_LOCATIONS_URL}/${id}`, null, "Couldn't delete the gym — try again online.");
+    }, { title: 'Delete gym', confirmLabel: 'Delete' });
+    return ok;
+}
+
+// buildWorkoutGymSwitch → an "At: <gym> ▾" chip that opens the app's own
+// picker (safeChoose, never a native <select>) over the gyms plus "No gym",
+// marking `selectedId`. opts: { extra, title, hint, onPick }. `extra`
+// ({ value, label }) is a disabled current entry, e.g. a session's deleted
+// gym. onPick(locationId|null) → Promise<boolean>; the chip relabels only on
+// true. Shared by the next-workout card and the session header.
+function buildWorkoutGymSwitch(doc, locations, selectedId, opts) {
+    const o = opts || {};
+    const live = selectedId !== null && selectedId !== undefined
+        && locations.some((l) => String(l.id) === String(selectedId));
+    let current = o.extra ? o.extra.value : (live ? String(selectedId) : '');
+    const choices = () => locations.map((l) => ({ value: String(l.id), label: l.name || `Gym ${l.id}` }))
+        .concat([{ value: '', label: 'No gym' }], o.extra ? [{ ...o.extra, disabled: true }] : [])
+        .map((c) => ({ ...c, selected: c.value === current }));
+
+    const chip = doc.createElement('button');
+    chip.type = 'button';
+    chip.className = 'wg-workouts-gym-switch';
+    chip.setAttribute('aria-haspopup', 'listbox');
+    const prefix = doc.createElement('span');
+    prefix.className = 'wg-workouts-gym-switch__prefix';
+    prefix.textContent = 'At:';
+    const name = doc.createElement('span');
+    name.className = 'wg-workouts-gym-switch__name';
+    const caret = doc.createElement('span');
+    caret.className = 'wg-workouts-gym-switch__caret';
+    caret.setAttribute('aria-hidden', 'true');
+    caret.textContent = '▾';
+    chip.appendChild(prefix);
+    chip.appendChild(name);
+    chip.appendChild(caret);
+    const relabel = () => {
+        const label = (choices().find((c) => c.value === current) || {}).label || 'No gym';
+        name.textContent = label;
+        chip.setAttribute('aria-label', `Gym: ${label}. Change`);
+    };
+    relabel();
+
+    chip.addEventListener('click', async () => {
+        const picked = await safeChoose(o.hint || '', choices(), { title: o.title || 'Gym' });
+        if (picked === null || picked === undefined || picked === current) return;
+        const ok = typeof o.onPick === 'function'
+            ? await o.onPick(picked === '' ? null : Number(picked)) : true;
+        if (!ok) return;
+        current = picked;
+        relabel();
+    });
+    return chip;
+}
+
+// setWorkoutActiveLocation switches the synced active gym (null = none).
+// Rule 9 on the active-gym cache key; returns true on success. Callers
+// repaint what depends on it (next card, open session chips).
+async function setWorkoutActiveLocation(locationId) {
+    const id = locationId === '' || locationId === undefined ? null : locationId;
+    let handle = null;
+    try {
+        if (window.DataStore && typeof window.DataStore.applyOptimistic === 'function') {
+            handle = await window.DataStore.applyOptimistic(WORKOUT_ACTIVE_LOCATION_CACHE_KEY,
+                () => ({ location_id: id, location: null }), ['workout']);
+        }
+    } catch (_) { handle = null; /* a failed cache projection must not block the write */ }
+    let result = null;
+    try {
+        result = await apiCall(WORKOUT_ACTIVE_LOCATION_URL, 'PUT', { location_id: id }, { suppressWriteAlert: true });
+    } catch (e) {
+        result = null;
+    }
+    if (!result) {
+        if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+        safeToast("Couldn't switch the gym — try again.", 'error');
+        return false;
+    }
+    if (handle) { try { await handle.commit(result); } catch (_) { /* best-effort */ } }
+    if (window.WorkoutSessions && typeof window.WorkoutSessions.refreshGear === 'function') {
+        window.WorkoutSessions.refreshGear();
+    }
+    return true;
+}
+
+// med-8j5w.1: the gym scope the shared equipment rule resolves at —
+// { locationId, liveLocationIds } for the domain's equipmentForExercise /
+// inventoryAt. `stamped` is a session's own location_id when the caller has a
+// stamped session (null included); undefined = the active gym. Never throws:
+// no gyms or any failed read resolves to null (whole inventory, the
+// pre-locations rule).
+async function getWorkoutLocationScope(stamped) {
+    try {
+        const locs = await apiCall('/api/workout/locations', 'GET');
+        if (!Array.isArray(locs) || locs.length === 0) return null;
+        let locationId = stamped;
+        if (locationId === undefined) {
+            const active = await apiCall('/api/workout/locations/active', 'GET');
+            locationId = active && typeof active === 'object' && !Array.isArray(active)
+                && active.location_id !== undefined ? active.location_id : null;
+        }
+        return { locationId: locationId, liveLocationIds: locs.map((l) => l && l.id) };
+    } catch (_) {
+        return null;
+    }
+}
+
 window.WorkoutEquipment = {
     load: loadWorkoutEquipment,
     list: getWorkoutEquipmentList,
+    locationScope: getWorkoutLocationScope,
+    locations: getWorkoutLocations,
+    setActiveLocation: setWorkoutActiveLocation,
+    gymSwitch: buildWorkoutGymSwitch,
+    addLocation: addWorkoutLocation,
+    renameLocation: renameWorkoutLocation,
+    deleteLocation: deleteWorkoutLocation,
     save: saveWorkoutEquipmentItem,
     openAdd: showAddWorkoutEquipmentModal,
     openEdit: showEditWorkoutEquipmentModal,
@@ -644,7 +1026,11 @@ window.WorkoutEquipment = {
         // paints stale inventory (registerTags is the documented seam for
         // keys read outside loadSWR; see data-store.js).
         if (window.DataStore && typeof window.DataStore.registerTags === 'function') {
-            try { window.DataStore.registerTags(WORKOUT_EQUIPMENT_CACHE_KEY, ['workout']); } catch (_) { /* best-effort */ }
+            try {
+                window.DataStore.registerTags(WORKOUT_EQUIPMENT_CACHE_KEY, ['workout']);
+                window.DataStore.registerTags(WORKOUT_LOCATIONS_CACHE_KEY, ['workout']);
+                window.DataStore.registerTags(WORKOUT_ACTIVE_LOCATION_CACHE_KEY, ['workout']);
+            } catch (_) { /* best-effort */ }
         }
 
         const bindClick = (id, handler) => {
@@ -653,6 +1039,7 @@ window.WorkoutEquipment = {
         };
 
         bindClick('add-workout-equipment-btn', () => showAddWorkoutEquipmentModal());
+        bindClick('add-workout-location-btn', () => addWorkoutLocation());
         bindClick('workout-equipment-cancel-btn', () => closeWorkoutEquipmentModal());
         bindClick('workout-equipment-save-btn', () => saveWorkoutEquipmentItem());
         bindClick('workout-equipment-gen-fill', () => fillEquipmentLoadsFromGenerator());

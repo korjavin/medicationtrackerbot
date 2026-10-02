@@ -78,10 +78,31 @@
         return new Uint8Array(buf);
     }
 
-    // gunzipToString(bytes) -> string (the original text).
-    function gunzipToString(bytes) {
+    // gunzipToString(bytes, maxBytes?) -> string (the original text). With
+    // maxBytes it inflates chunk by chunk and rejects as soon as the output
+    // passes the cap — untrusted share tokens use it so a gzip bomb never
+    // materializes in memory.
+    async function gunzipToString(bytes, maxBytes) {
         const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-        return piped(u8, new DecompressionStream('gzip')).text();
+        const out = piped(u8, new DecompressionStream('gzip'));
+        if (!maxBytes) return out.text();
+        const reader = out.body.getReader();
+        const chunks = [];
+        let total = 0;
+        for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            total += value.length;
+            if (total > maxBytes) {
+                reader.cancel().catch(() => {});
+                throw new Error('gunzipToString: output exceeds limit');
+            }
+            chunks.push(value);
+        }
+        const all = new Uint8Array(total);
+        let off = 0;
+        for (const c of chunks) { all.set(c, off); off += c.length; }
+        return new Response(all).text();
     }
 
     // bytesToString(bytes) -> string. Same portability reason as above; the

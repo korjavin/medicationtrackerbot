@@ -79,7 +79,7 @@ describe('workout invalidation: tag + legacy cache + push-modal flows', () => {
         await window.DataStore.setCached('workout_groups', [{ id: 7, name: 'Pre-snooze' }]);
 
         window.apiCall = vi.fn().mockResolvedValue({ ok: true });
-        window.alert = vi.fn();
+        window.safeAlert = vi.fn();
 
         window.showWorkoutStartModal(55);
         expect(document.getElementById('workout-start-modal').classList.contains('hidden')).toBe(false);

@@ -97,6 +97,7 @@ function _renderNextWorkout(container, data) {
     if (!session) {
         card.appendChild(actions);
         container.replaceChildren(card);
+        _attachNextCardGymSwitch(card, actions);
         return;
     }
 
@@ -189,6 +190,36 @@ function _renderNextWorkout(container, data) {
     card.appendChild(actions);
 
     container.replaceChildren(card);
+    _attachNextCardGymSwitch(card, actions);
+}
+
+// med-8j5w.2: "At: <gym>" active-gym switch above the card's actions.
+// Fire-and-forget after the card mounts; absent when the account has no gyms
+// or the gym read fails (the switch is a write affordance, not data). A
+// switch re-resolves plate chips / progression at the new gym from then on.
+async function _attachNextCardGymSwitch(card, actions) {
+    const eq = window.WorkoutEquipment;
+    if (!eq || typeof eq.locations !== 'function' || typeof eq.gymSwitch !== 'function') return;
+    let state = null;
+    try {
+        state = await eq.locations();
+    } catch (_) {
+        return;
+    }
+    if (!card.isConnected || !state || state.locations.length === 0) return;
+    if (card.querySelector('.wg-workouts-gym-switch')) return;
+    // A persistent setting, not a per-workout choice: the picker says so.
+    const control = eq.gymSwitch(document, state.locations, state.activeId, {
+        title: 'Where do you train?',
+        hint: 'Stays selected for every workout until you change it.',
+        onPick: async (id) => {
+            const ok = await eq.setActiveLocation(id);
+            if (ok) state.activeId = id;
+            return ok;
+        },
+    });
+    control.classList.add('wg-workouts-next-card__gym');
+    card.insertBefore(control, actions);
 }
 
 // ====================================
@@ -209,7 +240,7 @@ async function nextWorkoutVariant(sessionId) {
         await loadNextWorkout();
     } catch (error) {
         console.error('Error switching to next variant:', error);
-        alert('Failed to switch day. Please try again.');
+        safeToast('Failed to switch day. Please try again.', 'error');
     }
 }
 

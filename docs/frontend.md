@@ -189,11 +189,26 @@ entry to `architecture.globals.test.js` with justification, and add a
 `tests/native.<capability>.test.js` (pure-unit is the right shape — these sit
 below the feature-module integration entry point).
 
+### In-Page Dialogs
+
+No native browser dialogs anywhere: `alert()` / `confirm()` / `prompt()` render
+the browser's unstyled box. Every dialog goes through `_mountConfirmModal` in
+`core/utils.js` — `safeAlert` (single OK), `safeConfirm`, `safePrompt`,
+`safeChoose` — or `safeToast` for a non-blocking note. Its rules live in
+`web/static/css/dialog.css`, linked by both `index.html` and the passkey shell
+`web/cloud/signup.html` (which also loads `utils.js` + `mt-elements.js`), so
+`web/cloud/js` modules call `window.safeConfirm` in either document. Back
+cancels an open dialog first (`ModalManager.closeTopMostVisibleModal`).
+
+**Guard** — `web/static/js/tests/architecture.no-native-dialogs.test.js` scans
+`web/static/js` and `web/cloud/js` (tests/vendor excluded) for bare or
+`window.`-prefixed `alert(` / `confirm(` / `prompt(` on code lines. No allowlist.
+
 ## Script Load Order (`index.html`)
 
 Loading order matters — there is no bundler; cross-file communication happens via `window.*` globals.
 
-1. `core/utils.js` — `safeAlert`, `safeConfirm` (confirm via the messenger adapter when available, else an `<mt-modal>` overlay — never the synchronous native `confirm()`, which would block first paint), format helpers
+1. `core/utils.js` — the in-page dialogs `safeAlert` / `safeConfirm` / `safePrompt` / `safeChoose` (an `<mt-modal>` overlay — never a native dialog, see [In-Page Dialogs](#in-page-dialogs)), `safeToast`, format helpers
 2. `components/mt-elements.js` — registers `<mt-modal>`, `<mt-setting-toggle>`
 3. `components/empty-state.js`, `stat-card.js`, `action-row.js` — UI primitives
 3b. `components/wg-icons.js`, `wg-bottom-nav.js`, `wg-sparkline.js`, `wg-ring.js`, `wg-ring-stack.js`, `wg-phone-chrome.js`, `wg-bp-chart.js`, `wg-weight-chart.js`, `wg-workout-chart.js`, `wg-macro-bar.js`, `wg-sleep-chart.js`, `wg-steps-chart.js`, `wg-vitals-chart.js` — Wandergeek design-system primitives (icon registry, bottom nav, sparkline, single-arc ring gauge, concentric ring stack, phone-chrome, BP chart, weight chart with optional goal overlay, workout sessions-per-week chart, macro bar, sleep stacked-bar chart with HR overlay, steps bar chart, vitals area+line chart parameterised by `vital`). Must load before `features/bootstrap.js` mounts the bottom nav, before `today.js` renders sparklines and the rings tile, before `features/journey.js` renders the rings card, before `features/food.js` renders the daily macros card, before `features/workout.js` renders the Stats sub-tab chart, and before `features/health.js` renders the Overview sub-tab sleep/steps/vitals cards.
@@ -211,7 +226,7 @@ Loading order matters — there is no bundler; cross-file communication happens 
 15. `features/auth-flow.js` — auth-cache helpers used by `checkAuth()`
 16. `features/modal-history.js` — MutationObserver setup
 17. `features/deeplink-router.js` — `window.handleDeepLinks`
-19. `features/bootstrap.js` — **must be last**. Runs `checkAuth()`, then `mountCanonicalBottomNav()` (filters `WGBottomNav.DEFAULT_ITEMS` by `window.featureSettings`, mounts the nav into `#app`, and registers an AppKernel module so `switchTab()` mirrors into `ctrl.setActive()`), then the initial `switchTab('today')`, then schedules `maybeUpdateTimezone()` via `queueMicrotask` so the TZ-mismatch prompt (`safeConfirm` → messenger adapter or `<mt-modal>`) runs after first paint and never blocks the visible shell, then `AppBackButton.setup()`, then `handleDeepLinks()`.
+19. `features/bootstrap.js` — **must be last**. Runs `checkAuth()`, then `mountCanonicalBottomNav()` (filters `WGBottomNav.DEFAULT_ITEMS` by `window.featureSettings`, mounts the nav into `#app`, and registers an AppKernel module so `switchTab()` mirrors into `ctrl.setActive()`), then the initial `switchTab('today')`, then schedules `maybeUpdateTimezone()` via `queueMicrotask` so the TZ-mismatch prompt (`safeConfirm`'s in-page `<mt-modal>`) runs after first paint and never blocks the visible shell, then `AppBackButton.setup()`, then `handleDeepLinks()`.
 
 ## Global Namespace Policy
 

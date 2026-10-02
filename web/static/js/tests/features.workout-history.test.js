@@ -141,6 +141,32 @@ describe('features/workout/history.js — split-file integration', () => {
     expect(row.querySelector('.wg-workouts-history-row__name').textContent).toBe('Upper Back & Grip');
   });
 
+  it('labels a session with its gym snapshot; no gym, no label (med-8j5w.2)', async () => {
+    const { window, document } = env;
+    const row = (id, extra) => ({
+      group_name: 'Plan', variant_name: `Day ${id}`, exercises_completed: 1, exercises_count: 1,
+      session: {
+        id, group_id: 3, variant_id: 7, status: 'completed',
+        started_at: '2026-07-20T10:00:00Z', scheduled_date: '2026-07-20', ...extra,
+      },
+    });
+    window.apiCall = vi.fn(async (url) => {
+      if (url.includes('/api/workout/sessions')) {
+        return [row(601, { location_id: 9, location_name: 'Gym A' }), row(602, { location_id: null, location_name: null })];
+      }
+      if (url.includes('/api/workout/miband')) return [];
+      if (url.includes('/api/settings')) return { timezone: '' };
+      return null;
+    });
+
+    await window.loadWorkoutHistoryTab();
+
+    const display = document.getElementById('workout-history-display');
+    const gyms = Array.from(display.querySelectorAll('.wg-workouts-history-row__gym')).map((el) => el.textContent);
+    expect(gyms).toEqual(['@ Gym A']);
+    expect(display.querySelector('[data-session-id="601"] .wg-workouts-history-row__gym')).not.toBeNull();
+  });
+
   it('deleteSession short-circuits when sessionId is falsy', async () => {
     const { window } = env;
     const apiCallSpy = vi.fn();
