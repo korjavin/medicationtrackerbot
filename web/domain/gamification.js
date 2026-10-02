@@ -2902,11 +2902,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       plan_scope: planWeek === isoWeekKey(today) ? 'this_week' : 'next_week',
       // A stored intention whose feature is now off (or weight under ED-safe)
       // drops out of the plan too, not just out of the options.
-      plan: (() => {
-        const v = weekPlanView(planRec);
-        const it = v && v.intention && WEEK_INTENTIONS.find((i) => i.id === v.intention.id);
-        return it && !on(it.feature) ? { ...v, intention: null } : v;
-      })(),
+      plan: visiblePlan(weekPlanView(planRec), on),
       options: {
         intentions: WEEK_INTENTIONS.filter((i) => on(i.feature)).map(({ id, text }) => ({ id, text })),
         weigh_in: on('weight') ? [...WEEK_WEIGH_IN_CADENCES] : [],
@@ -2950,6 +2946,14 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
 
   async function currentWeekPlanRecord() {
     return weekPlanRecord(isoWeekKey(localDayString(now(), timeZone)));
+  }
+
+  // visiblePlan drops a stored intention whose feature is off (`on(feature)`
+  // false — weight under ED-safe included), so neither the review read nor a
+  // week-plan write response can show it.
+  function visiblePlan(view, on) {
+    const it = view && view.intention && WEEK_INTENTIONS.find((i) => i.id === view.intention.id);
+    return it && !on(it.feature) ? { ...view, intention: null } : view;
   }
 
   function weekPlanView(rec) {
@@ -3017,7 +3021,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       episode_id: goal ? goal.recordId : null, goal_set_at: goal ? goal.set_at || null : null,
     };
     await records.put(WEEK_PLAN_RECORD_TYPE, rec);
-    return { ok: true, plan: weekPlanView(rec) };
+    const edSafe = (await readMode()).ed_safe;
+    return { ok: true, plan: visiblePlan(weekPlanView(rec), (k) => !(edSafe && k === 'weight')) };
   }
 
   // ----- targets CRUD (targets.go) --------------------------------------------

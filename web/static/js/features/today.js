@@ -355,21 +355,25 @@
         const workoutEnabled = pickFeature(features, 'workout');
         const healthEnabled = pickFeature(features, 'health');
         const gamificationEnabled = pickFeature(features, 'gamification');
+        // ED-safe (med-8tur.12) rides the Goal Line payload: no weight numbers
+        // on Today — the Weight tab itself stays the user's own data.
+        const goalLinePayload = caches.gamification_goal_line;
+        const edSafe = gamificationEnabled && !!(goalLinePayload && goalLinePayload.ed_safe);
 
         const result = {
             greeting: cell(greetingFor(nowDate), null, 'ok'),
             nextMed: nextMedCell(bootstrap, nowMs, medEnabled, opts),
             bpLatest: bpLatestCell(bootstrap, nowMs, bpEnabled),
             bpTrend7d: bpTrendCell(bootstrap, nowMs, bpEnabled),
-            weightLatest: weightLatestCell(bootstrap, nowMs, weightEnabled),
-            weightTrend7d: weightTrendCell(bootstrap, nowMs, weightEnabled),
+            weightLatest: weightLatestCell(bootstrap, nowMs, weightEnabled && !edSafe),
+            weightTrend7d: weightTrendCell(bootstrap, nowMs, weightEnabled && !edSafe),
             caloriesToday: caloriesTodayCell(bootstrap, caches, nowMs, foodEnabled),
             caloriesTarget: caloriesTargetCell(bootstrap, foodEnabled),
             macrosToday: macrosTodayCell(caches, foodEnabled),
             macrosTarget: macrosTargetCell(bootstrap, foodEnabled),
             nextWorkout: nextWorkoutCell(caches, workoutEnabled),
             sleepLastNight: sleepLastNightCell(caches, nowMs, healthEnabled),
-            goalLine: goalLineCell(caches.gamification_goal_line, gamificationEnabled, weightEnabled)
+            goalLine: goalLineCell(goalLinePayload, gamificationEnabled, weightEnabled)
         };
         return result;
     }

@@ -253,7 +253,7 @@ switches) carries `ed_safe` plus per-mechanic `experiments` / `traits` /
 `{enabled:false, ed_safe:true}` (no hero, no Journey goal card, no milestone
 materialization, goal-free weigh-in push), drops goal milestones from the
 keystones, nulls the weight gauge, reads the weekly review as weight-off, and
-drops Atlas probes flagged `weight: true`. The Weight tab itself is the user's
+drops Atlas probes flagged `weight: true`; Today reads `ed_safe` off the Goal Line payload and hides its weight metric too. The Weight tab itself is the user’s
 own data and is not gated. There is no height
 record, so the BMI floor from earlier drafts is replaced by plain target
 validation in `weight.setGoal`.

@@ -733,6 +733,22 @@ describe('TodayDashboard.renderToday', () => {
         env.render(goalLineState(now, { enabled: false }), root, { now });
         expect(root.querySelector('.wg-goal-line')).toBeNull();
     });
+
+    // med-8tur.12: ED-safe rides the Goal Line payload — no Goal Line card and
+    // no weight numbers on Today (the weight metric cells go 'disabled').
+    it('ED-safe payload → no Goal Line card and no weight metric on Today', () => {
+        const bootstrap = {
+            features: { gamification: true, weight: true },
+            weight: { logs: [{ measured_at: new Date(now).toISOString(), weight: 82.4 }] },
+        };
+        const safe = env.aggregate(bootstrap, { gamification_goal_line: { enabled: false, ed_safe: true } }, now);
+        expect(safe.goalLine.status).toBe('disabled');
+        expect(safe.weightLatest.status).toBe('disabled');
+        expect(safe.weightTrend7d.status).toBe('disabled');
+
+        const normal = env.aggregate(bootstrap, { gamification_goal_line: goalLinePayload() }, now);
+        expect(normal.weightLatest.status).toBe('ok');
+    });
 });
 
 // The card's cache entry must evict on its SOURCE tags: only goal milestones

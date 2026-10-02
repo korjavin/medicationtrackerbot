@@ -879,6 +879,8 @@ describe('gamification mode — per-mechanic switches + ED-safe (med-8tur.12)', 
     expect(review.gauges.weight).toBeNull();
     // A weigh-in intention picked before ED-safe drops out of the plan too.
     expect(review.plan.intention).toBeNull();
+    // ...and a cadence-only write's response cannot bring it back.
+    expect((await gam.putWeekPlan({ cadence: { bp_days: 3 } })).plan.intention).toBeNull();
   });
 
   it('experiments off → no trial list and no new trial; traits off → no traits, and no strip line for either', async () => {
