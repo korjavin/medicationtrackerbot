@@ -2918,7 +2918,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // WRITES NOTHING. Every day key here is the owner's LOCAL day (localDayString):
   // "today" and "this week" are facts the user checks against their own clock,
   // so the substrate's UTC-day keys (msToUTCDay, loadForRead's memo key) are
-  // deliberately not reused. Weeks are ISO Monday–Sunday (workout.js stats).
+  // deliberately not reused — except for adherence_alert, which is the
+  // substrate's own trailing-PDC view (UTC-day window) kept unchanged. Weeks are ISO Monday–Sunday (workout.js stats).
   // `features` is the settings flag map (the shim passes it; absent = all on).
   async function getGoalLine({ features } = {}) {
     const on = (k) => !features || !!features[k];
@@ -2955,8 +2956,9 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       const { cfg, ctx } = await loadForRead();
       adherenceAlert = adherenceAlertView(ctx, msToUTCDay(ctx.nowMs), cfg);
     }
-    // `day` is the local-day key every fact above is bucketed on (settings
-    // timezone when pinned); `time_zone` lets the UI tell when it went stale.
+    // `day` is the local-day key the goal/workout/BP facts are bucketed on
+    // (settings timezone when pinned); `time_zone` lets the UI tell when it
+    // went stale. adherence_alert keeps the substrate's UTC-day window.
     return {
       enabled: true, goal, workouts, bp, weighed_today: weighedToday, cta,
       adherence_alert: adherenceAlert, day: today, time_zone: timeZone || null,

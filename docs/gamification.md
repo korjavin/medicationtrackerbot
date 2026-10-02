@@ -122,7 +122,7 @@ net (§6.1). Rows are feature-gated.
 | `workouts` | `completed_this_week`, `next_scheduled`, `scheduled_this_week \| null` |
 | `bp` | `recorded_today`, `days_this_week`, `mean_7d {systolic, diastolic, days}`, `target`, `status in_range · above · unknown` |
 | `weighed_today`, `cta` | local-day fact; `cta ∈ weigh_in · start_session · none`, deterministic, nothing "owed" |
-| `adherence_alert`, `day`, `time_zone` | the medication safety net (§6.1 trailing-PDC alert, `null` with medication off) shown on the Today card only while active; the local-day key the facts are bucketed on and its zone, so the UI refetches a payload from an earlier day |
+| `adherence_alert`, `day`, `time_zone` | the medication safety net (§6.1 trailing-PDC alert, `null` with medication off) shown on the Today card only while active; the local-day key the goal/workout/BP facts are bucketed on and its zone (the adherence alert keeps the substrate's UTC-day window), so the UI refetches a payload from an earlier day |
 
 **0.3.2 The Today card** (replaces the rings tile and the mounted forecast as the
 gamification headline):
