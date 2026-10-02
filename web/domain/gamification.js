@@ -3032,13 +3032,16 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     });
     // progress: baseline → target, read off the same `current` as the distance,
     // so every screen (Today hero, Weight tab card) renders one number.
-    if (current !== null && direction) {
+    // done_kg is clamped to [0, total_kg]: past the target (even on a
+    // preliminary reading) is fraction 1, never "8 of 7 kg". A maintenance goal
+    // (target == baseline, direction 0) is 1 within reach of it, else 0.
+    if (current !== null && direction !== null) {
       const totalKg = Math.abs(target - startRef);
-      const doneKg = (current - startRef) * direction;
-      out.progress = {
-        done_kg: round2(doneKg), total_kg: round2(totalKg),
-        fraction: Math.round(Math.max(0, Math.min(1, doneKg / totalKg)) * 1000) / 1000,
-      };
+      const doneKg = direction === 0 ? 0 : Math.max(0, Math.min(totalKg, (current - startRef) * direction));
+      const fraction = direction === 0
+        ? (Math.abs(target - current) <= GOAL_LINE_REACH_KG ? 1 : 0)
+        : Math.round((doneKg / totalKg) * 1000) / 1000;
+      out.progress = { done_kg: round2(doneKg), total_kg: round2(totalKg), fraction };
     }
     if (preliminary || direction === null) {
       out.status = 'preliminary';

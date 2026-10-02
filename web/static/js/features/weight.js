@@ -338,7 +338,8 @@ async function handleWeightSubmit(event) {
                     && l.id !== parseInt(editingId, 10));
             return {
                 logsRes: [optimisticLog, ...filtered],
-                goalRes: base.goalRes || null
+                goalRes: base.goalRes || null,
+                lineRes: base.lineRes || null
             };
         }, ['weight']);
     }
@@ -558,12 +559,15 @@ function renderWeightGoalCard(logs, goalData, goalLine) {
     let pct = 0;
     if (line) {
         if (line.progress) pct = Math.round(line.progress.fraction * 1000) / 10;
-        if (line.status === 'at_goal') deltaLines.push('At goal');
-        else if (line.status === 'maintaining') deltaLines.push('Maintaining your goal');
+        // fraction 1 covers a preliminary reading already past the target.
+        const reached = line.status === 'at_goal' || line.status === 'maintaining'
+            || (line.progress && line.progress.fraction === 1);
+        if (line.status === 'maintaining') deltaLines.push('Maintaining your goal');
+        else if (reached) deltaLines.push('At goal');
         else if (line.distance_to_goal !== null) deltaLines.push(`${fmt(line.distance_to_goal)} to goal`);
         else deltaLines.push('Log a weight to see progress');
-        if (line.progress && line.status !== 'at_goal' && line.status !== 'maintaining') {
-            const done = Math.max(0, line.progress.done_kg);
+        if (line.progress && !reached) {
+            const done = line.progress.done_kg;
             const since = line.start_ref_source === 'first_reading' ? 'since your first reading' : 'since you set the goal';
             deltaLines.push(`${fmt(done)} of ${fmt(line.progress.total_kg)} ${since}`);
         }
@@ -1074,7 +1078,8 @@ async function _deleteWeightApi(id) {
             const filtered = prevLogs.filter((l) => l && l.id !== numericId && l.id !== id);
             return {
                 logsRes: filtered,
-                goalRes: prev.goalRes || null
+                goalRes: prev.goalRes || null,
+                lineRes: prev.lineRes || null
             };
         }, ['weight']);
     }

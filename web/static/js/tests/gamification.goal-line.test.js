@@ -91,6 +91,25 @@ describe('gamification Goal Line — weight goal', () => {
     expect(goal.coverage).toEqual({ weigh_in_days_28d: 3, last_weigh_in_day: '2026-06-17' });
   });
 
+  it('a preliminary reading past the target caps progress at the target — never "8 of 7 kg"', async () => {
+    const { gam } = domainOver({
+      weight: [weightRec(0, 77), weightRec(6, 85)],
+      weightgoal: [goalRec(6, 78, 85)],
+    });
+    const { goal } = await gam.getGoalLine();
+
+    expect(goal.status).toBe('preliminary');
+    expect(goal.progress).toEqual({ done_kg: 7, total_kg: 7, fraction: 1 });
+  });
+
+  it('a maintenance goal (target == baseline) is 1 within reach, 0 when away from it', async () => {
+    const near = await domainOver({ weight: [weightRec(0, 80.2)], weightgoal: [goalRec(1, 80, 80)] }).gam.getGoalLine();
+    expect(near.goal.direction).toBe(0);
+    expect(near.goal.progress).toEqual({ done_kg: 0, total_kg: 0, fraction: 1 });
+    const away = await domainOver({ weight: [weightRec(0, 82)], weightgoal: [goalRec(1, 80, 80)] }).gam.getGoalLine();
+    expect(away.goal.progress.fraction).toBe(0);
+  });
+
   it('a 60-day downward trend + goal → ok with distance, change_7d, next milestone and direction', async () => {
     // 0.05 kg/day down (≈0.4 %/wk — inside the safe pace), goal set 30 days ago.
     const { records, gam } = domainOver({
