@@ -1190,6 +1190,18 @@
         goalLineWeightRows(card, v.goal, h.onDeeplink, cell.weightOn !== false);
         goalLineFactRows(card, v, h.nowMs);
 
+        // Medication safety net (carried over from the rings tile): invisible
+        // unless the trailing PDC has actually slipped; one line to Meds.
+        const aa = v.adherence_alert;
+        if (aa && aa.active) {
+            const n = Number(aa.missed_doses) || 0;
+            const nudge = goalLineEl('div', 'wg-goal-line__adherence wg-muted',
+                `${n} missed dose${n === 1 ? '' : 's'} recently — worth a look`);
+            nudge.setAttribute('data-section', 'meds');
+            goalLineAction(nudge, 'meds', () => { if (typeof h.onDeeplink === 'function') h.onDeeplink('meds'); });
+            card.appendChild(nudge);
+        }
+
         let cta = null;
         if (v.cta === 'weigh_in' && typeof h.onAddWeight === 'function') {
             cta = goalLineAction(goalLineEl('button', 'btn btn-sm btn-primary wg-goal-line__cta', 'Weigh in'),

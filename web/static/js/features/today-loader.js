@@ -190,9 +190,10 @@ function todayFetchSpecs(foodKey) {
             // Goal Line hero (med-8tur.2). Synced records carry no
             // 'gamification' tag (sync.js RECORD_TAGS: weightgoal→weight,
             // workoutsession→workout, bp→bp, settings→settings), so the card
-            // evicts on its source tags too or a synced goal edit repaints a
-            // stale card. Mirrors the cache-keys.js registry entry.
-            tags: ['gamification', 'weight', 'workout', 'bp', 'settings'],
+            // evicts on its source tags too (medications/history for the
+            // missed-dose line) or a synced edit repaints a stale card.
+            // Mirrors the cache-keys.js registry entry.
+            tags: ['gamification', 'weight', 'workout', 'bp', 'settings', 'medications', 'history'],
             // apiCall returns null on failure so fetchFresh leaves the cache alone.
             fetch: () => apiCall('/api/gamification/goal-line', 'GET')
         }
@@ -327,10 +328,7 @@ async function _todayReadCaches(foodKey) {
                 const groups = Array.isArray(foodM.data.groups) ? foodM.data.groups : [];
                 swrCaches.food_today = { groups };
             }
-            if (gamM?.data) {
-                swrCaches.gamification_goal_line = gamM.data;
-                swrCaches.goal_line_fetched_at = gamM.timestamp;
-            }
+            if (gamM?.data) swrCaches.gamification_goal_line = gamM.data;
             for (let i = 0; i < keys.length; i++) {
                 const m = metas[i];
                 if (!m) continue;
@@ -400,12 +398,21 @@ async function _todayReadCaches(foodKey) {
     return { bootstrap, swrCaches, latestCacheTimestamp, cardOrder };
 }
 
-// True when the cached Goal Line was fetched on an earlier local day than now
-// (its payload is day-relative). Unknown fetch time → treated as current.
+// True when the cached Goal Line belongs to an earlier local day (its payload
+// is day-relative). Compared on getGoalLine's own day key: payload.day is
+// localDayString(now, timeZone) and payload.time_zone the zone it used (the
+// pinned settings timezone, else the device's) — re-derived here the same way
+// (en-CA → YYYY-MM-DD). A payload without a day key is treated as current.
 function _todayGoalLineFromPastDay(swrCaches) {
-    const ts = swrCaches && swrCaches.goal_line_fetched_at;
-    if (!swrCaches || !swrCaches.gamification_goal_line || !Number.isFinite(ts)) return false;
-    return new Date(ts).toDateString() !== new Date().toDateString();
+    const gl = swrCaches && swrCaches.gamification_goal_line;
+    if (!gl || typeof gl.day !== 'string') return false;
+    let today;
+    try {
+        today = new Intl.DateTimeFormat('en-CA', {
+            timeZone: gl.time_zone || undefined, year: 'numeric', month: '2-digit', day: '2-digit'
+        }).format(new Date());
+    } catch (_) { return false; } // unknown zone string — leave revalidation event-driven
+    return gl.day !== today;
 }
 
 async function _todayRender(foodKey) {

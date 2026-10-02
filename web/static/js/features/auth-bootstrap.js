@@ -260,7 +260,7 @@ window.AuthBootstrap = (function () {
         // backend error, so a transient failure preserves the cached card.
         if (res.gamification_goal_line && typeof res.gamification_goal_line === 'object') {
             await cacheApiSnapshot('gamification_goal_line', res.gamification_goal_line,
-                ['gamification', 'weight', 'workout', 'bp', 'settings']);
+                ['gamification', 'weight', 'workout', 'bp', 'settings', 'medications', 'history']);
         }
 
         const settingsBundle = normalizeSettingsBundle({

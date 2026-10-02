@@ -577,6 +577,23 @@ describe('TodayDashboard.renderToday', () => {
         expect(card.querySelector('[data-fact="workouts"]')).not.toBeNull();
     });
 
+    it('missed-dose safety net: an active adherence alert renders one line to Meds; inactive renders nothing', () => {
+        const root = env.document.getElementById('today-content');
+        const onDeeplink = vi.fn();
+        env.render(goalLineState(now, goalLinePayload({}, { adherence_alert: { active: true, pdc: 0.72, missed_doses: 2 } })), root, { now, onDeeplink });
+        const nudge = root.querySelector('.wg-goal-line__adherence');
+        expect(nudge).not.toBeNull();
+        expect(nudge.textContent).toBe('2 missed doses recently — worth a look');
+        nudge.click();
+        expect(onDeeplink).toHaveBeenCalledWith('meds');
+        expect(onDeeplink).not.toHaveBeenCalledWith('journey');
+
+        env.render(goalLineState(now, goalLinePayload({}, { adherence_alert: { active: false, pdc: 0.95, missed_doses: 1 } })), root, { now });
+        expect(root.querySelector('.wg-goal-line__adherence')).toBeNull();
+        env.render(goalLineState(now, goalLinePayload({}, { adherence_alert: null })), root, { now });
+        expect(root.querySelector('.wg-goal-line__adherence')).toBeNull();
+    });
+
     it('preliminary: the latest reading as a reading, and how many weigh-ins until a trend', () => {
         const root = env.document.getElementById('today-content');
         const payload = goalLinePayload({
@@ -659,7 +676,7 @@ describe('TodayDashboard.renderToday', () => {
 describe('Goal Line cache tags', () => {
     beforeEach(() => { allowConsoleNoise(); });
 
-    it.each(['gamification', 'weight', 'workout', 'bp', 'settings'])('invalidating %s evicts gamification_goal_line', async (tag) => {
+    it.each(['gamification', 'weight', 'workout', 'bp', 'settings', 'medications', 'history'])('invalidating %s evicts gamification_goal_line', async (tag) => {
         const { window, cacheMap, cleanup } = loadDataStoreEnv({
             initialCache: { gamification_goal_line: { enabled: true }, food_products_cache: { keep: true } }
         });

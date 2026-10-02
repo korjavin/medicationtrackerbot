@@ -5347,6 +5347,15 @@ textarea.wg-input {
     cursor: pointer;
 }
 
+/* Medication safety net (carried over from the rings tile): invisible unless
+   the trailing PDC slips — one tappable, token-neutral line to Meds. */
+.wg-goal-line__adherence {
+    display: block;
+    margin-top: var(--space-xs);
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+}
+
 .wg-goal-line__cta {
     margin-top: var(--space-sm);
 }

@@ -394,40 +394,48 @@ describe('Today loader — features/today-loader.js', () => {
     });
 
     // med-8tur.2: the Goal Line payload is day-relative (weighed_today, cta,
-    // BP recorded today) and no tag fires at midnight, so a payload cached on an
-    // earlier local day counts as missing and refetches; today's does not.
+    // BP recorded today) and no tag fires at midnight, so a payload whose day
+    // key (getGoalLine's `day`, bucketed in its `time_zone` — the pinned
+    // settings timezone) is not today in that zone counts as missing.
     describe('Goal Line day-relative refetch', () => {
         const GAM_ONLY = { medication: false, bp: false, weight: true, food: false, workout: false, health: false, gamification: true };
-        function cacheWithGoalLine(fetchedAt) {
+        const dayIn = (tz) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+        function cacheWithGoalLine(day, timeZone) {
             return makeApiCache({
                 settings_bundle: {
                     data: { featureSettings: { ...GAM_ONLY }, foodTargets: {}, tabOrder: [], weightUnitPreference: 'kg' },
                     timestamp: Date.now()
                 },
                 gamification_goal_line: {
-                    data: { enabled: true, goal: { status: 'no_goal', coverage: {} }, workouts: { feature_on: false }, bp: { feature_on: false }, cta: 'weigh_in' },
-                    timestamp: fetchedAt
+                    data: { enabled: true, goal: { status: 'no_goal', coverage: {} }, workouts: { feature_on: false }, bp: { feature_on: false }, cta: 'weigh_in', day, time_zone: timeZone },
+                    timestamp: Date.now()
                 }
             });
         }
         const goalLineFetches = () => window.DataStore.fetchFresh.mock.calls.filter((c) => c[0] === 'gamification_goal_line');
-
-        it('refetches a Goal Line cached on an earlier local day', async () => {
+        async function run(day, timeZone) {
             setOnline(window, true);
             window.featureSettings = { ...GAM_ONLY };
-            window.MedTrackerDB = cacheWithGoalLine(Date.now() - 2 * 24 * 60 * 60 * 1000);
+            window.MedTrackerDB = cacheWithGoalLine(day, timeZone);
             await window.loadToday();
+        }
+
+        it('refetches a Goal Line from an earlier day', async () => {
+            await run('2000-01-01', null);
             expect(env.document.querySelector('.wg-goal-line')).not.toBeNull();
             expect(goalLineFetches().length).toBe(1);
-            expect(goalLineFetches()[0][2]).toEqual(['gamification', 'weight', 'workout', 'bp', 'settings']);
+            expect(goalLineFetches()[0][2]).toEqual(['gamification', 'weight', 'workout', 'bp', 'settings', 'medications', 'history']);
         });
 
-        it('keeps a Goal Line fetched today without a refetch', async () => {
-            setOnline(window, true);
-            window.featureSettings = { ...GAM_ONLY };
-            window.MedTrackerDB = cacheWithGoalLine(Date.now());
-            await window.loadToday();
+        it('keeps a Goal Line whose day is today in its pinned zone', async () => {
+            await run(dayIn('Pacific/Kiritimati'), 'Pacific/Kiritimati');
             expect(goalLineFetches().length).toBe(0);
+        });
+
+        it('judges the day in the pinned zone, not the device zone', async () => {
+            // UTC+14 vs UTC-11: their calendar days never coincide.
+            await run(dayIn('Pacific/Pago_Pago'), 'Pacific/Kiritimati');
+            expect(goalLineFetches().length).toBe(1);
         });
     });
 });

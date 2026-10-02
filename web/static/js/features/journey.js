@@ -77,7 +77,7 @@
     // decision 2026-10-02; UI-only — the read-models keep computing them).
     const GOAL_LINE_CACHE_KEY = 'gamification_goal_line';
     const GOAL_LINE_URL = '/api/gamification/goal-line';
-    const GOAL_LINE_TAGS = ['gamification', 'weight', 'workout', 'bp', 'settings'];
+    const GOAL_LINE_TAGS = ['gamification', 'weight', 'workout', 'bp', 'settings', 'medications', 'history'];
 
     function goalWeight(kg) {
         const unit = window.weightUnitPreference === 'lb' ? 'lb' : 'kg';

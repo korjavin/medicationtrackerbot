@@ -2947,7 +2947,20 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     let cta = 'none';
     if (!weighedToday && on('weight')) cta = 'weigh_in';
     else if (workouts.next_scheduled && workouts.next_scheduled.day === today) cta = 'start_session';
-    return { enabled: true, goal, workouts, bp, weighed_today: weighedToday, cta };
+    // Medication safety net (§6.1): the same trailing-PDC alert the rings tile
+    // carried (adherenceAlertView over the memoized read context) — inactive
+    // unless adherence has actually slipped.
+    let adherenceAlert = null;
+    if (on('medication')) {
+      const { cfg, ctx } = await loadForRead();
+      adherenceAlert = adherenceAlertView(ctx, msToUTCDay(ctx.nowMs), cfg);
+    }
+    // `day` is the local-day key every fact above is bucketed on (settings
+    // timezone when pinned); `time_zone` lets the UI tell when it went stale.
+    return {
+      enabled: true, goal, workouts, bp, weighed_today: weighedToday, cta,
+      adherence_alert: adherenceAlert, day: today, time_zone: timeZone || null,
+    };
   }
 
   function round2(x) {

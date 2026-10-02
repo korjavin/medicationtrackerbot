@@ -102,8 +102,9 @@
             key: 'gamification_goal_line',
             // Synced records carry no 'gamification' tag (sync.js RECORD_TAGS),
             // so the Today Goal Line also evicts on its source tags: a synced
-            // goal edit / weigh-in / session / BP reading or a feature flip.
-            tag: ['gamification', 'weight', 'workout', 'bp', 'settings'],
+            // goal edit / weigh-in / session / BP reading / dose (missed-dose line) or a
+            // feature flip.
+            tag: ['gamification', 'weight', 'workout', 'bp', 'settings', 'medications', 'history'],
             description: 'Goal Line read model (GET /api/gamification/goal-line): weight goal on the trend + workout/BP facts + one CTA. Today hero + Journey goal-context card. Bootstrap-warmed from res.gamification_goal_line so the Today card renders on a cold-start/offline relaunch.'
         },
         gamification_insights: {

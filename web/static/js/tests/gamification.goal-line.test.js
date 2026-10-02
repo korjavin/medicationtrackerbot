@@ -324,4 +324,17 @@ describe('gamification Goal Line — workouts, BP, cta', () => {
     const noWeight = await gam.getGoalLine({ features: { weight: false, workout: true, bp: true, gamification: true } });
     expect(noWeight.cta).toBe('start_session'); // weigh_in skipped; today's 18:00 plan session is next
   });
+
+  // med-8tur.2: the Today card's day key + the medication safety net the rings
+  // tile used to carry (same adherenceAlertView source), gated on medication.
+  it('carries its local-day key, its zone and the adherence alert (null with medication off)', async () => {
+    const { records, gam } = domainOver({});
+    const gl = await gam.getGoalLine();
+    expect(gl.day).toBe('2026-06-17');
+    expect(gl.time_zone).toBe('UTC');
+    expect(gl.adherence_alert).toEqual({ active: false, pdc: 0, missed_doses: 0 });
+    const off = await gam.getGoalLine({ features: { medication: false, weight: true, workout: true, bp: true, gamification: true } });
+    expect(off.adherence_alert).toBeNull();
+    expectNoWrites(records);
+  });
 });
