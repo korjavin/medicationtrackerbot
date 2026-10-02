@@ -437,6 +437,17 @@ describe('gamification Goal Line — durable milestones', () => {
     });
   });
 
+  it('a twin left under a dead episode id (old-client import) shows as ONE keystone — the live one', async () => {
+    const { records, gam } = domainOver(crossing());
+    await gam.getGoalLineCard();
+    const [live] = await records.list('gamificationmilestone');
+    await records.put('gamificationmilestone', {
+      ...live, recordId: 'gamificationmilestone-weightgoal-dead-1', episode_id: 'weightgoal-dead', acknowledged: true,
+    });
+    const goalKeystones = (await gam.getKeystones()).keystones.filter((k) => k.kind === 'goal_milestone');
+    expect(goalKeystones.map((k) => k.id)).toEqual([MS_ID]);
+  });
+
   it('vault export → import keeps the record and its ack, re-attached to the re-minted goal', async () => {
     const { records, gam } = domainOver(crossing());
     await gam.getGoalLineCard();

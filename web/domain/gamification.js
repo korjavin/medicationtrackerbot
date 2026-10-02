@@ -3213,8 +3213,9 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     const days = [...byDay.keys()].sort();
     // A day is evidence only once the trend there is established — the Goal
     // Line's preliminary floor (GOAL_LINE_MIN_WEIGH_IN_DAYS weigh-in days of the
-    // run in the coverage window ending that day) — so the raw first reading a
-    // run's EMA seeds on can never earn a marker by itself.
+    // run in the coverage window ending that day). The first evidence day is
+    // the 5th weigh-in, not the seed: a low seed still decays at 0.9/weigh-in,
+    // so markers follow the same trend the card shows (one trend definition).
     const trendOn = new Map(); // established weigh-in day → trend
     let runStart = 0;
     for (let i = 0; i <= days.length; i++) {

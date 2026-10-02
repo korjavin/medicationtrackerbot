@@ -718,8 +718,8 @@ describe('TodayDashboard.renderToday', () => {
     });
 });
 
-// The card's cache entry must evict on its SOURCE tags: synced records carry
-// no 'gamification' tag (sync.js RECORD_TAGS), so a weigh-in, session, BP
+// The card's cache entry must evict on its SOURCE tags: only goal milestones
+// sync under 'gamification' (sync.js RECORD_TAGS), so a weigh-in, session, BP
 // reading, synced goal edit or feature flip would otherwise repaint a stale
 // card. Eviction → Today's loader sees it missing and refetches.
 describe('Goal Line cache tags', () => {
