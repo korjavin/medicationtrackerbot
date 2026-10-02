@@ -444,3 +444,108 @@ describe('cloud shim horizon — pinned settings.timezone', () => {
         expect(firstBPFire(entries)).toBe('2026-03-10T19:00:00.000Z');
     });
 });
+
+// med-8tur.6 — the weigh-in reminder: weekly (default) | daily cadence, a
+// goal-aware body carried ONLY as `pushText` (push.js seals it under the NK;
+// Telegram's tg_text keeps the goal-free `text`), and a goal edit re-pushes.
+describe('cloud shim horizon — weigh-in cadence + goal-aware web push', () => {
+    // Mon Jun 15 2026, 06:00 UTC; the weigh-in slot is 09:00 UTC.
+    const NOW = Date.UTC(2026, 5, 15, 6, 0, 0);
+    const DAY = 24 * 60 * 60 * 1000;
+    const slot = (d) => (Date.UTC(2026, 5, 15 + d, 9, 0, 0)) / 1000;
+
+    beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(NOW); pushSchedule.mockClear(); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    const pref = (extra = {}) => ({
+        weightreminderpref: [{ recordId: 'weightreminderpref', clientTs: NOW, deleted: false, enabled: true, preferred_reminder_hour: 9, ...extra }],
+    });
+    const reading = (id, ms, weight) => ({ recordId: id, clientTs: ms, deleted: false, measured_at: new Date(ms).toISOString(), weight });
+    const goal = { recordId: 'g1', clientTs: NOW, deleted: false, set_at: new Date(NOW - 3 * DAY).toISOString(), target_weight: 75, target_date: null, start_weight: 82 };
+    const weightEntries = async (seed) => (await computeReminderEntries({}, { records: createInMemoryRecordsPort(seed), timeZone: 'UTC' }))
+        .filter((e) => e.kind === 'weight');
+
+    it('status defaults the cadence to weekly', async () => {
+        const env = loadCloudShimFrontendEnv({ seedRecords: pref() });
+        try {
+            const status = await env.window.offlineAwareApiCall('/api/weight/reminder/status', 'GET');
+            expect(status.cadence).toBe('weekly');
+        } finally { env.cleanup(); }
+    });
+
+    it('weekly (default) is unchanged: fires only once the last reading is a week old', async () => {
+        const entries = await weightEntries({ ...pref(), weight: [reading('w1', NOW - 2 * DAY, 80)] });
+        expect(entries.map((e) => e.fireAtUnix)).toEqual([slot(5), slot(6)]);
+        expect(entries[0].text).toContain('about a week');
+    });
+
+    it('daily: one slot per local day, satisfied by any reading that day', async () => {
+        const none = await weightEntries(pref({ cadence: 'daily' }));
+        expect(none.map((e) => e.fireAtUnix)).toEqual([0, 1, 2, 3, 4, 5, 6].map(slot));
+        expect(none[0].text).not.toContain('about a week');
+
+        // A reading earlier today (05:00, before the slot) satisfies today only.
+        const today = await weightEntries({ ...pref({ cadence: 'daily' }), weight: [reading('w1', NOW - 60 * 60 * 1000, 80)] });
+        expect(today.map((e) => e.fireAtUnix)).toEqual([1, 2, 3, 4, 5, 6].map(slot));
+
+        // Yesterday's reading does not satisfy today's daily slot.
+        const yday = await weightEntries({ ...pref({ cadence: 'daily' }), weight: [reading('w1', NOW - DAY, 80)] });
+        expect(yday[0].fireAtUnix).toBe(slot(0));
+    });
+
+    it('daily slots stay muted by snooze / don\'t-bug', async () => {
+        const entries = await weightEntries(pref({ cadence: 'daily', dont_remind_until: NOW + DAY + 1000 }));
+        expect(entries.map((e) => e.fireAtUnix)).toEqual([2, 3, 4, 5, 6].map(slot));
+    });
+
+    it('carries the goal (trend/latest + to-go) on pushText only; text and genericText stay goal-free', async () => {
+        const seed = { ...pref({ cadence: 'daily' }), weight: [reading('w1', NOW - 2 * DAY, 80), reading('w2', NOW - DAY, 79)], weightgoal: [goal] };
+        const entries = await weightEntries(seed);
+        expect(entries.length).toBeGreaterThan(0);
+        for (const e of entries) {
+            // Two weigh-in days < the trend floor: the latest READING, labeled so.
+            expect(e.pushText).toBe('\u{2696}\u{FE0F} Weigh in — latest 79.0 kg, 4.0 to go');
+            expect(e.text).not.toMatch(/79|to go/);
+            expect(e.genericText).not.toMatch(/79|to go/);
+        }
+    });
+
+    it('converts the goal text to the user\'s lb preference', async () => {
+        const entries = await weightEntries({
+            ...pref(), weight: [reading('w1', NOW - 8 * DAY, 79)], weightgoal: [goal],
+            weightunitpref: [{ recordId: 'weight-unit', clientTs: NOW, deleted: false, unit: 'lb' }],
+        });
+        expect(entries[0].pushText).toBe('\u{2696}\u{FE0F} Weigh in — latest 174.2 lb, 8.8 to go');
+    });
+
+    it('no goal, or gamification off → no pushText (goal-free body)', async () => {
+        const noGoal = await weightEntries({ ...pref(), weight: [reading('w1', NOW - 8 * DAY, 79)] });
+        expect(noGoal[0].pushText).toBeUndefined();
+
+        const off = await weightEntries({
+            ...pref(), weight: [reading('w1', NOW - 8 * DAY, 79)], weightgoal: [goal],
+            features: [{ recordId: 'features', clientTs: NOW, deleted: false, flags: { gamification: false } }],
+        });
+        expect(off[0].pushText).toBeUndefined();
+    });
+
+    it('a goal-text failure is isolated: the weigh-in still fires with the goal-free body', async () => {
+        const records = createInMemoryRecordsPort({ ...pref(), weight: [reading('w1', NOW - 8 * DAY, 79)], weightgoal: [goal] });
+        const list = records.list.bind(records);
+        records.list = async (type) => { if (type === 'weightunitpref') throw new Error('boom'); return list(type); };
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        const entries = (await computeReminderEntries({}, { records, timeZone: 'UTC' })).filter((e) => e.kind === 'weight');
+        expect(entries[0].fireAtUnix).toBe(slot(0));
+        expect(entries[0].pushText).toBeUndefined();
+        console.error.mockRestore();
+    });
+
+    it('a goal edit (POST /api/weight/goal) schedules a recompute+push', async () => {
+        const env = loadCloudShimFrontendEnv({ seedRecords: pref() });
+        try {
+            await env.window.offlineAwareApiCall('/api/weight/goal', 'POST', { target_weight: 72.5 });
+            await vi.advanceTimersByTimeAsync(2100);
+            expect(pushSchedule).toHaveBeenCalled();
+        } finally { env.cleanup(); }
+    });
+});

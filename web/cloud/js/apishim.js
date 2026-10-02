@@ -466,7 +466,12 @@ export function createApiRouter(ctx, {
       if (m) { await weight.remove(m[1]); return true; }
     }
     if (path === '/api/weight/goal' && method === 'GET') return weight.getGoal();
-    if (path === '/api/weight/goal' && method === 'POST') return weight.setGoal(body);
+    if (path === '/api/weight/goal' && method === 'POST') {
+      const res = await weight.setGoal(body);
+      // The queued weigh-in push carries the goal's distance (Web Push only).
+      scheduleReminderRecompute(ctx, { records, timeZone });
+      return res;
+    }
     if (path === '/api/weight/goals/history' && method === 'GET') {
       // max 200: the domain's own append-only-history cap, so a deeper offset
       // legitimately runs out of rows rather than being an error.

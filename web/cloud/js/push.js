@@ -322,7 +322,9 @@ async function pushScheduleInner(ctx, reminders, pref = {}) {
       // `kind` rides inside the NK ciphertext (never on the wire in clear) so
       // the service worker can attach the right Snooze / Don't-bug action
       // buttons without the relay learning what sort of reminder this is.
-      const plaintext = new TextEncoder().encode(JSON.stringify({ title: 'Med Tracker', body: r.text, kind: r.kind }));
+      // `pushText` (goal-aware weigh-in body) exists ONLY here, inside the NK
+      // ciphertext — never on tg_text, which reaches the relay in plaintext.
+      const plaintext = new TextEncoder().encode(JSON.stringify({ title: 'Med Tracker', body: r.pushText || r.text, kind: r.kind }));
       entry.ct = toBase64(await encryptPushPayload(nk, plaintext));
     }
     if (needsText) {

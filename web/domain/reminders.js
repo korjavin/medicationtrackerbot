@@ -28,6 +28,10 @@ const DELIVERYPREF_RECORD_TYPE = 'reminderdeliverypref';
 const DELIVERYPREF_RECORD_ID = 'reminderdeliverypref';
 
 export const DELIVERY_CHANNELS = ['webpush', 'telegram', 'both'];
+// Weigh-in reminder cadence (docs/gamification.md §0.3.3): 'weekly' (default)
+// fires once the last reading is a week old; 'daily' fires each day at the
+// preferred hour unless that local day already has a reading.
+export const WEIGHT_CADENCES = ['weekly', 'daily'];
 export const VERBOSITIES = ['detailed', 'generic'];
 
 const FORECAST_DAYS = 7;
@@ -264,6 +268,36 @@ const MEASURE_SATISFIED_MS = {
   wt: 7 * 24 * 60 * 60 * 1000,
 };
 
+// localDayKey is the local calendar day of `ms` — the unit a DAILY weigh-in slot
+// is satisfied on (any reading that local day, before or after the slot).
+function localDayKey(ms, timeZone) {
+  const { year, month, day } = localDateParts(ms, timeZone);
+  return `${year}-${month}-${day}`;
+}
+
+const KG_PER_LB = 0.45359237;
+
+// formatWeighInPushText is the goal-aware weigh-in body (docs/gamification.md
+// §0.3.3) — "⚖️ Weigh in — trend 82.4 kg, 4.4 to go". `goal` is getGoalLine()'s
+// `goal` block (kg); `unit` is the display unit. Returns null when there is no
+// goal or nothing to read it against, so the caller keeps the goal-free text.
+// WEB PUSH ONLY: this rides the NK-encrypted payload; Telegram's tg_text reaches
+// the relay in plaintext and must never carry it (push.js reads `pushText` only
+// for the ciphertext).
+export function formatWeighInPushText(goal, unit = 'kg') {
+  if (!goal || goal.status === 'no_goal' || !Number.isFinite(goal.distance_to_goal)) return null;
+  const isTrend = Number.isFinite(goal.trend_weight);
+  const current = isTrend ? goal.trend_weight : (goal.latest_reading && goal.latest_reading.weight);
+  if (!Number.isFinite(current)) return null;
+  const lb = unit === 'lb';
+  const fmt = (kg) => (Math.round((lb ? kg / KG_PER_LB : kg) * 10) / 10).toFixed(1);
+  const u = lb ? 'lb' : 'kg';
+  const where = goal.status === 'at_goal' || goal.status === 'maintaining'
+    ? 'at your goal'
+    : `${fmt(goal.distance_to_goal)} to go`;
+  return `\u{2696}\u{FE0F} Weigh in \u2014 ${isTrend ? 'trend' : 'latest'} ${fmt(current)} ${u}, ${where}`;
+}
+
 // measureReminderStem rebuilds the Telegram callback stem the horizon put on
 // TODAY's measure reminder — `bp:<slotUnix>` / `wt:<slotUnix>` — so a reading
 // logged in the app can end that chain (med-9bmb). `prefix` is 'bp' or 'wt';
@@ -286,6 +320,11 @@ export function measureReminderStem(prefix, status, timeZone, now, measuredAtMs 
   if (!Number.isFinite(hour)) return '';
   const slotMs = measureSlotMs(now, timeZone, hour);
   if (slotMs > now) return '';
+  // Daily weigh-in: only a reading on the slot's own local day satisfies it.
+  if (prefix === 'wt' && status.cadence === 'daily') {
+    return Number.isFinite(measuredAtMs) && localDayKey(measuredAtMs, timeZone) === localDayKey(slotMs, timeZone)
+      ? `${prefix}:${Math.floor(slotMs / 1000)}` : '';
+  }
   // Negative when the reading came after the slot — the ordinary case.
   if (!(slotMs - measuredAtMs <= MEASURE_SATISFIED_MS[prefix])) return '';
   return `${prefix}:${Math.floor(slotMs / 1000)}`;
@@ -426,7 +465,7 @@ export function computeReminderHorizon({
   workoutGroups = [], workoutVariants = [], workoutExercises = [],
   workoutRotations = [], workoutSessions = [],
   timeZone, now, tzPlan, bpStatus = { enabled: false }, weightStatus = { enabled: false },
-  workoutStatus = { enabled: false },
+  workoutStatus = { enabled: false }, weighInPushText = null,
 } = {}) {
   const meds = medications.filter((m) => !m.deleted && !m.archived);
   const medById = new Map(meds.map((m) => [m.recordId ?? m.id, m]));
@@ -537,15 +576,30 @@ export function computeReminderHorizon({
     const lastWeight = sortedWeights[0];
     const lastWeightMs = lastWeight ? new Date(lastWeight.measured_at || lastWeight.measuredAt).getTime() : 0;
     const preferredHour = weightStatus.preferred_reminder_hour !== undefined ? weightStatus.preferred_reminder_hour : 9;
+    const daily = weightStatus.cadence === 'daily';
+    const weighedDays = daily
+      ? new Set(weights.map((w) => new Date(w.measured_at || w.measuredAt).getTime())
+        .filter(Number.isFinite).map((ms) => localDayKey(ms, timeZone)))
+      : null;
+    const text = daily
+      ? '⚖️ **Time to weigh in**\n\nA quick daily weigh-in keeps your trend current.'
+      : "⚖️ **Time to track your weight**\n\nIt's been about a week since your last measurement. Regular tracking helps you stay on top of your goals!";
 
     for (let d = 0; d < FORECAST_DAYS; d++) {
       const targetMs = measureSlotMs(now, timeZone, preferredHour, d);
+      // weekly: fire if no reading within 7 days before target; daily: fire
+      // unless the target's local day already has a reading.
+      const satisfied = daily
+        ? weighedDays.has(localDayKey(targetMs, timeZone))
+        : targetMs - lastWeightMs <= MEASURE_SATISFIED_MS.wt;
 
-      // Fire if no reading within 7 days before target
       // Same mute gate as BP: skip targets inside an active snooze / don't-bug window.
-      if (targetMs > now && targetMs > weightMutedUntil && targetMs - lastWeightMs > MEASURE_SATISFIED_MS.wt) {
+      if (targetMs > now && targetMs > weightMutedUntil && !satisfied) {
         const fireAtUnix = Math.floor(targetMs / 1000);
-        entries.push({ fireAtUnix, kind: 'weight', text: "⚖️ **Time to track your weight**\n\nIt's been about a week since your last measurement. Regular tracking helps you stay on top of your goals!", genericText: GENERIC_WEIGHT_TEXT, callback: `wt:${fireAtUnix}` });
+        const entry = { fireAtUnix, kind: 'weight', text, genericText: GENERIC_WEIGHT_TEXT, callback: `wt:${fireAtUnix}` };
+        // Web-Push-only body (push.js); `text`/`genericText` stay goal-free for Telegram.
+        if (weighInPushText) entry.pushText = weighInPushText;
+        entries.push(entry);
       }
     }
   }
@@ -692,6 +746,7 @@ export function createRemindersDomain({ records, now }) {
     return {
       enabled: rec ? !!rec.enabled : false,
       preferred_reminder_hour: rec && rec.preferred_reminder_hour !== undefined ? rec.preferred_reminder_hour : 9,
+      cadence: rec && WEIGHT_CADENCES.includes(rec.cadence) ? rec.cadence : 'weekly',
       snoozed_until: (rec && rec.snoozed_until) || 0,
       dont_remind_until: (rec && rec.dont_remind_until) || 0,
     };
@@ -709,6 +764,12 @@ export function createRemindersDomain({ records, now }) {
     const patch = { enabled: !!enabled };
     if (preferred_reminder_hour !== undefined) patch.preferred_reminder_hour = preferred_reminder_hour;
     return putWeightPref(patch);
+  }
+
+  // Cadence switch for the weekly review's daily opt-in (med-8tur.4); no route yet.
+  async function setWeightCadence(cadence) {
+    if (!WEIGHT_CADENCES.includes(cadence)) return getWeightStatus();
+    return putWeightPref({ cadence });
   }
 
   async function snoozeWeightReminder(durationMs = SNOOZE_MS) {
@@ -752,6 +813,7 @@ export function createRemindersDomain({ records, now }) {
     medications, intakes, bps, weights, timeZone, tzPlan,
     workoutGroups = [], workoutVariants = [], workoutExercises = [],
     workoutRotations = [], workoutSessions = [], workoutEnabled = false,
+    weighInPushText = null,
   }) {
     const [{ enabled }, bpStatus, weightStatus] = await Promise.all([
       getStatus(),
@@ -786,11 +848,12 @@ export function createRemindersDomain({ records, now }) {
       bpStatus,
       weightStatus,
       workoutStatus,
+      weighInPushText,
     });
   }
 
   return {
-    getStatus, setEnabled, getBPStatus, setBPEnabled, getWeightStatus, setWeightEnabled,
+    getStatus, setEnabled, getBPStatus, setBPEnabled, getWeightStatus, setWeightEnabled, setWeightCadence,
     snoozeBPReminder, dontBugBPReminder, snoozeWeightReminder, dontBugWeightReminder,
     getDeliveryPref, setDeliveryPref, buildHorizon,
   };
