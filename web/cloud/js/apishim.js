@@ -366,7 +366,9 @@ export function createApiRouter(ctx, {
     // (auth-bootstrap.js applyBootstrapPayload). Only included when the feature
     // is on, so a disabled toggle leaves the cache untouched.
     if (settingsPart.features.gamification) {
-      payload.gamification_goal_line = await gamification.getGoalLine({ features: settingsPart.features });
+      // getGoalLineCard, not getGoalLine: byte-identical to a live GET /goal-line
+      // (incl. the unacknowledged `milestone`, med-8tur.5).
+      payload.gamification_goal_line = await gamification.getGoalLineCard({ features: settingsPart.features });
     }
     return payload;
   }

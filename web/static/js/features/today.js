@@ -1188,6 +1188,19 @@
         card.setAttribute('data-status', v.goal.status);
 
         goalLineWeightRows(card, v.goal, h.onDeeplink, cell.weightOn !== false);
+
+        // A reached milestone (med-8tur.5): shown once, until acknowledged.
+        const ms = v.milestone;
+        if (ms && ms.id && typeof h.onAckMilestone === 'function') {
+            const row = goalLineEl('div', 'wg-goal-line__milestone');
+            row.setAttribute('data-milestone-id', ms.id);
+            row.appendChild(goalLineEl('span', 'wg-goal-line__milestone-text', ms.title || 'Goal milestone reached'));
+            const ack = goalLineAction(goalLineEl('button', 'btn btn-sm btn-secondary', 'Got it'),
+                'ack-milestone', () => h.onAckMilestone(ms.id));
+            ack.type = 'button';
+            row.appendChild(ack);
+            card.appendChild(row);
+        }
         goalLineFactRows(card, v, h.nowMs);
 
         // Medication safety net (carried over from the rings tile): invisible
@@ -1220,6 +1233,26 @@
             if (typeof h.onDeeplink === 'function') h.onDeeplink(cell.deeplink || 'journey');
         });
         return card;
+    }
+
+    // Default milestone ack (med-8tur.5): optimistic `milestone: null` on the
+    // cached Goal Line, then the user write; rolled back when it fails.
+    async function ackMilestoneDefault(id) {
+        const ds = typeof window !== 'undefined' ? window.DataStore : null;
+        const handle = (ds && typeof ds.applyOptimistic === 'function')
+            ? await ds.applyOptimistic('gamification_goal_line',
+                (prev) => (prev && typeof prev === 'object' ? { ...prev, milestone: null } : prev), ['gamification'])
+            : null;
+        const call = typeof window !== 'undefined' ? (window.offlineAwareApiCall || window.apiCallDirect) : null;
+        let res = null;
+        try {
+            if (typeof call === 'function') res = await call(`/api/gamification/milestones/${encodeURIComponent(id)}/ack`, 'POST');
+        } catch (_) { res = null; }
+        if (!handle) return;
+        try {
+            if (res && res.ok) await handle.commit(null);
+            else await handle.rollback();
+        } catch (_) { /* best-effort */ }
     }
 
     function briefOpenerOrNull() {
@@ -1348,7 +1381,8 @@
         // Goal Line hero (med-8tur.2) — the gamification headline, directly
         // above the food card. It replaced the rings tile and the Tomorrow
         // Forecast mounted inside it; neither renders on Today any more.
-        const goalLineTile = renderGoalLineTile(state && state.goalLine, { onDeeplink, onAddWeight, nowMs });
+        const onAckMilestone = opts.onAckMilestone || ackMilestoneDefault;
+        const goalLineTile = renderGoalLineTile(state && state.goalLine, { onDeeplink, onAddWeight, onAckMilestone, nowMs });
         if (goalLineTile) {
             root.appendChild(goalLineTile);
             rendered += 1;

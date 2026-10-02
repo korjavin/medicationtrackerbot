@@ -129,6 +129,7 @@ try {
 | Workout finish | `workout_next`, sessions history cache | null out `workout_next`; flip session status in history |
 | Workout add / delete exercise log | session details cache + `WorkoutSessionsState.logs` | push / splice the log (new logs use `local_*` ids, replaced on commit) |
 | Workout ad-hoc start / complete / pre-skip / cancel / snooze / skip | `workout_next` | synthesise the post-action session/state |
+| Goal milestone ack (Today Goal Line card, med-8tur.5) | `gamification_goal_line` | set `milestone` to `null` |
 | Diary add / edit / delete | `diary_notes` | prepend (with `local_*` id, replaced on commit) / patch / filter the note |
 
 **Rollback semantics** — on POST rejection: restore the captured snapshot (or clear the entry if the cache was cold), call `invalidateTags(tags)` so the next read goes to network and authoritatively resyncs, and surface a toast via the existing offline-write error UI where applicable.
