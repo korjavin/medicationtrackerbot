@@ -653,6 +653,99 @@
           "picked_at": 1783252800000,
           "goal_set_at": "2026-06-01T09:00:00Z"
         }
+      ],
+      "journal": {
+        "seen_discoveries": [
+          "short_sleep_next_morning_bp",
+          "workout_next_morning_bp"
+        ],
+        "chapter": {
+          "theme_id": "steady_mornings",
+          "started_at": 1782000000000
+        },
+        "closed_chapters": [
+          {
+            "theme_id": "move_more",
+            "started_at": 1779000000000,
+            "closed_at": 1781000000000,
+            "review": "Four of six weeks hit the cadence"
+          }
+        ],
+        "traits": {
+          "early_riser": 1781500000000,
+          "consistent_logger": 1781600000000
+        },
+        "keystones": [
+          {
+            "id": "experiment-exp-workout_cadence-1780000000000",
+            "kind": "experiment",
+            "title": "Move before noon",
+            "text": "A clean null result over 14 days",
+            "earned_at": 1781209600000
+          },
+          {
+            "id": "bp_in_target_band",
+            "kind": "bp",
+            "title": "BP in your band",
+            "text": "Seven mornings in range",
+            "earned_at": 1781800000000
+          }
+        ]
+      },
+      "target_overrides": [
+        {
+          "metric_key": "bedtime",
+          "low_val": null,
+          "high_val": 1380,
+          "falloff": 60
+        },
+        {
+          "metric_key": "steps",
+          "low_val": 7000,
+          "high_val": null,
+          "falloff": null
+        }
+      ],
+      "experiments": [
+        {
+          "id": "exp-bedtime_window-1782500000000",
+          "template_id": "bedtime_window",
+          "status": "active",
+          "started_at": 1782500000000,
+          "duration_days": 14,
+          "source_discovery": "short_sleep_next_morning_bp"
+        },
+        {
+          "id": "exp-workout_cadence-1780000000000",
+          "template_id": "workout_cadence",
+          "status": "resolved",
+          "started_at": 1780000000000,
+          "duration_days": 14,
+          "source_discovery": "workout_next_morning_bp",
+          "resolved_at": 1781209600000,
+          "verdict": {
+            "verdict": "no_effect",
+            "rewarded": true,
+            "delta": -0.8,
+            "n_on": 6,
+            "n_off": 7
+          },
+          "acknowledged": true
+        }
+      ],
+      "modes": [
+        {
+          "id": "mode-illness-1781000000000",
+          "recovery": false,
+          "reason": "illness",
+          "started_at": 1781000000000
+        },
+        {
+          "id": "mode-travel-1782400000000",
+          "recovery": true,
+          "reason": "travel",
+          "started_at": 1782400000000
+        }
       ]
     },
     "api_tokens": [
