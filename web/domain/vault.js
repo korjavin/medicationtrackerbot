@@ -358,7 +358,14 @@ export function recordsToVault(records, { now, includeSecrets = true } = {}) {
   // Goal milestones (med-8tur.5): keyed to their goal by goal_set_at, not by the
   // weightgoal recordId — import re-mints goal ids. Omitted when empty so a
   // milestone-free store exports byte-identical to a pre-milestone client.
-  const milestones = pick('gamificationmilestone');
+  // One row per natural key (goal_set_at, ordinal): a twin left by an old
+  // client's import collapses, the acknowledged copy winning.
+  const msByKey = new Map();
+  for (const m of pick('gamificationmilestone')) {
+    const key = `${m.goal_set_at}|${m.ordinal}`;
+    if (!msByKey.has(key) || (m.acknowledged && !msByKey.get(key).acknowledged)) msByKey.set(key, m);
+  }
+  const milestones = [...msByKey.values()];
   if (milestones.length > 0) {
     gamification.milestones = sortBy(milestones, (r) => `${r.goal_set_at}|${String(r.ordinal).padStart(6, '0')}`)
       .map((r) => stripMeta(r, ['episode_id']));
