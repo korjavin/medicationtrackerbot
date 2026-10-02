@@ -197,25 +197,12 @@
         return { ...prev, plan: next, options };
     }
 
-    // The Today Goal Line shows the LIVE week's plan, so a this-week pick
-    // patches its cache too: a pause drops the week's change / too-fast /
-    // projection exactly as getGoalLine does; un-pausing cannot rebuild them
-    // client-side, so that clears the entry and the next read refetches.
-    function projectGoalLinePlan(prev, plan) {
-        if (!prev || typeof prev !== 'object' || !prev.goal) return prev;
-        if (plan.paused) {
-            return {
-                ...prev, plan,
-                goal: { ...prev.goal, change_7d: null, too_fast: false, projected: { date: null, plus_minus_weeks: null, reason: 'paused' } },
-            };
-        }
-        if (prev.plan && prev.plan.paused) return null;
-        return { ...prev, plan };
-    }
-
-    // The weekly-plan user write: DataStore.applyOptimistic on the review cache
-    // (and, for a this-week pick, the Goal Line cache), then POST; commit with
-    // the server's plan, roll both back on failure.
+    // The weekly-plan user write: DataStore.applyOptimistic on the review cache,
+    // then POST; commit with the server's plan, roll back on failure. A
+    // committed this-week pick also clears the Today Goal Line entry (it shows
+    // the live week's plan, and a pause hides its change / too-fast /
+    // projection) so the next read refetches getGoalLine's truth — never a
+    // hand-patched copy.
     async function saveWeekPlan(body, scope) {
         const ds = window.DataStore;
         const optimistic = !!(ds && typeof ds.applyOptimistic === 'function');
@@ -223,23 +210,24 @@
         const handle = optimistic
             ? await ds.applyOptimistic(WEEKLY_CACHE_KEY, (prev) => { projected = projectWeekPlan(prev, body); return projected; }, ['gamification'])
             : null;
-        const goalHandle = optimistic && scope !== 'next_week' && projected && projected.plan
-            ? await ds.applyOptimistic(GOAL_LINE_CACHE_KEY, (prev) => projectGoalLinePlan(prev, projected.plan), GOAL_LINE_TAGS)
-            : null;
         const call = window.offlineAwareApiCall || window.apiCallDirect;
         let res = null;
         try {
             if (typeof call === 'function') res = await call(WEEK_PLAN_URL, 'POST', body);
         } catch (_) { res = null; }
+        const ok = !!(res && res.ok);
         try {
-            if (res && res.ok) {
-                if (handle) await handle.commit(projected ? { ...projected, plan: res.plan } : null);
-                if (goalHandle) await goalHandle.commit(null);
-            } else {
-                if (handle) await handle.rollback();
-                if (goalHandle) await goalHandle.rollback();
+            if (handle) {
+                if (ok) await handle.commit(projected ? { ...projected, plan: res.plan } : null);
+                else await handle.rollback();
             }
         } catch (_) { /* best-effort */ }
+        if (ok && optimistic && scope !== 'next_week') {
+            try {
+                const goalHandle = await ds.applyOptimistic(GOAL_LINE_CACHE_KEY, () => null, GOAL_LINE_TAGS);
+                await goalHandle.commit(null);
+            } catch (_) { /* best-effort: the entry still expires on its own */ }
+        }
         return res;
     }
 

@@ -542,40 +542,34 @@ describe('Journey render', () => {
         expect(w.posted[1].body.cadence.weigh_in).toBe('daily');
     });
 
-    // Send-back #3: a this-week pause patches the Today Goal Line cache too.
-    it('a this-week pause patches the Goal Line cache: paused, no change / too-fast / projection', async () => {
+    // Send-back #3: a committed this-week pick clears the Today Goal Line
+    // entry so the next read refetches getGoalLine (pause hides change /
+    // too-fast / projection there) — never a hand-patched copy.
+    it('a committed this-week pause clears the Goal Line entry (refetch), settled at once', async () => {
         const w = stubWrite(env, { ok: true, plan: { week: '2026-W26', intention: null, cadence: {}, paused: true } });
         env.window.Gamification.render(journey({ weekly_review: { ...WEEKLY, plan_scope: 'this_week' } }));
         env.document.querySelector('[data-choice="pause"]').click();
         await flush(); await flush();
         expect(env.window.DataStore.applyOptimistic).toHaveBeenCalledWith('gamification_goal_line', expect.any(Function),
             ['gamification', 'weight', 'workout', 'bp', 'settings', 'medications', 'history']);
-        const gl = w.projectedFor('gamification_goal_line');
-        expect(gl.plan.paused).toBe(true);
-        expect(gl.goal).toMatchObject({ change_7d: null, too_fast: false, projected: { date: null, plus_minus_weeks: null, reason: 'paused' } });
+        expect(w.projectedFor('gamification_goal_line')).toBeNull();
         expect(w.handles.gamification_goal_line.commit).toHaveBeenCalled();
+        expect(w.handles.gamification_goal_line.rollback).not.toHaveBeenCalled();
     });
 
-    it('un-pausing clears the Goal Line entry (refetch); a next-week pick leaves it alone; failure rolls both back', async () => {
-        const pausedGL = { ...GOAL_LINE, plan: { week: '2026-W26', paused: true }, goal: { ...GOAL_LINE.goal, change_7d: null } };
-        let w = stubWrite(env, { ok: true, plan: { week: '2026-W26', intention: null, cadence: {}, paused: false } }, { gamification_goal_line: pausedGL });
+    it('a failed pick and a next-week pick leave the Goal Line entry alone', async () => {
+        let w = stubWrite(env, new Error('offline'));
         env.window.Gamification.render(journey({ weekly_review: WEEKLY }));
-        env.document.querySelector('[data-choice="weigh_before_coffee"]').click();
+        env.document.querySelector('[data-choice="pause"]').click();
         await flush(); await flush();
-        expect(w.projectedFor('gamification_goal_line')).toBeNull();
+        expect(w.handles.gamification_weekly.rollback).toHaveBeenCalled();
+        expect(env.window.DataStore.applyOptimistic.mock.calls.map((c) => c[0])).toEqual(['gamification_weekly']);
 
         w = stubWrite(env, { ok: true, plan: { week: '2026-W27', paused: true } });
         env.window.Gamification.render(journey({ weekly_review: { ...WEEKLY, plan_scope: 'next_week' } }));
         env.document.querySelector('[data-choice="pause"]').click();
         await flush(); await flush();
         expect(env.window.DataStore.applyOptimistic.mock.calls.map((c) => c[0])).toEqual(['gamification_weekly']);
-
-        w = stubWrite(env, new Error('offline'));
-        env.window.Gamification.render(journey({ weekly_review: WEEKLY }));
-        env.document.querySelector('[data-choice="pause"]').click();
-        await flush(); await flush();
-        expect(w.handles.gamification_weekly.rollback).toHaveBeenCalled();
-        expect(w.handles.gamification_goal_line.rollback).toHaveBeenCalled();
     });
 
     it('Weekly Review card reads a zero-HP week as "a quiet week", never a wall of zeros', () => {
