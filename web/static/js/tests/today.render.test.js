@@ -594,6 +594,55 @@ describe('TodayDashboard.renderToday', () => {
         expect(root.querySelector('.wg-goal-line__adherence')).toBeNull();
     });
 
+    // med-8tur.5: a reached milestone shows one line until acknowledged.
+    const MILESTONE = {
+        id: 'gamificationmilestone-weightgoal-1-4', ordinal: 4, count: 8, is_halfway: true, is_goal: false,
+        earned_at: '2026-06-10', title: 'Halfway to your weight goal',
+    };
+
+    it('milestone: one line with "Got it" that acks without opening Journey; none without a milestone', () => {
+        const root = env.document.getElementById('today-content');
+        const onDeeplink = vi.fn();
+        const onAckMilestone = vi.fn();
+        env.render(goalLineState(now, goalLinePayload({}, { milestone: MILESTONE })), root, { now, onDeeplink, onAckMilestone });
+        const row = root.querySelector('.wg-goal-line__milestone');
+        expect(row.querySelector('.wg-goal-line__milestone-text').textContent).toBe('Halfway to your weight goal');
+        row.querySelector('[data-action="ack-milestone"]').click();
+        expect(onAckMilestone).toHaveBeenCalledWith(MILESTONE.id);
+        expect(onDeeplink).not.toHaveBeenCalled();
+
+        env.render(goalLineState(now, goalLinePayload({}, { milestone: null })), root, { now, onAckMilestone });
+        expect(root.querySelector('.wg-goal-line__milestone')).toBeNull();
+    });
+
+    it('milestone default ack: optimistic milestone:null on the Goal Line cache, POST ack, commit (rollback on failure)', async () => {
+        const root = env.document.getElementById('today-content');
+        const handle = { commit: vi.fn(async () => {}), rollback: vi.fn(async () => {}) };
+        let projected = null;
+        env.window.DataStore = {
+            applyOptimistic: vi.fn(async (key, mutator) => { projected = mutator({ goal: {}, milestone: MILESTONE }); return handle; }),
+        };
+        env.window.offlineAwareApiCall = vi.fn(async () => ({ ok: true }));
+        const click = async () => {
+            env.render(goalLineState(now, goalLinePayload({}, { milestone: MILESTONE })), root, { now });
+            root.querySelector('[data-action="ack-milestone"]').click();
+            await vi.waitFor(() => expect(handle.commit.mock.calls.length + handle.rollback.mock.calls.length).toBeGreaterThan(0));
+        };
+
+        await click();
+        expect(env.window.DataStore.applyOptimistic).toHaveBeenCalledWith('gamification_goal_line', expect.any(Function), ['gamification']);
+        expect(projected).toEqual({ goal: {}, milestone: null });
+        expect(env.window.offlineAwareApiCall).toHaveBeenCalledWith(`/api/gamification/milestones/${encodeURIComponent(MILESTONE.id)}/ack`, 'POST');
+        expect(handle.commit).toHaveBeenCalledWith(null);
+        expect(handle.rollback).not.toHaveBeenCalled();
+
+        handle.commit.mockClear();
+        env.window.offlineAwareApiCall = vi.fn(async () => ({ ok: false, error: 'not_found' }));
+        await click();
+        expect(handle.rollback).toHaveBeenCalled();
+        expect(handle.commit).not.toHaveBeenCalled();
+    });
+
     it('preliminary: the latest reading as a reading, and how many weigh-ins until a trend', () => {
         const root = env.document.getElementById('today-content');
         const payload = goalLinePayload({
@@ -669,8 +718,8 @@ describe('TodayDashboard.renderToday', () => {
     });
 });
 
-// The card's cache entry must evict on its SOURCE tags: synced records carry
-// no 'gamification' tag (sync.js RECORD_TAGS), so a weigh-in, session, BP
+// The card's cache entry must evict on its SOURCE tags: only goal milestones
+// sync under 'gamification' (sync.js RECORD_TAGS), so a weigh-in, session, BP
 // reading, synced goal edit or feature flip would otherwise repaint a stale
 // card. Eviction → Today's loader sees it missing and refetches.
 describe('Goal Line cache tags', () => {

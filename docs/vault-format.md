@@ -354,12 +354,15 @@ domain block carries only logs + products).
 "gamification": {
   "targets": [ { target } ],
   "ledger":  [ { ledger_entry } ],
-  "state":   { state } | null
+  "state":   { state } | null,
+  "milestones": [ { milestone } ]   // optional — omitted when empty
 }
 ```
 
-Cloud mode has no gamification engine; it carries the whole block verbatim as a
-passthrough record (like `tzhistory`) purely for backup fidelity.
+Cloud mode carries `targets` / `ledger` / `state` verbatim as one passthrough record
+(like `tzhistory`) purely for backup fidelity. `milestones` is the exception: each row
+becomes its own `gamificationmilestone` record, read by the Goal Line card and the
+Journey timeline.
 
 - **target** (leaf, no `id`; `metric_key` is the natural key) — `metric_key` (str),
   `low_val`, `high_val`, `falloff` (num|null), `mode` (str|null), `updated_at` (RFC3339).
@@ -372,6 +375,13 @@ passthrough record (like `tzhistory`) purely for backup fidelity.
   `freezes`, `insight_tier` (int), `last_scored_day` (RFC3339|null), `backfilled_at`
   (RFC3339|null), `updated_at` (RFC3339). Cached/derivable, but only from health data
   the user may no longer have — so it travels.
+- **milestone** (cloud-only, med-8tur.5; leaf, no `id`) — a reached Goal Line marker
+  (docs/gamification.md §0.3.5): `goal_set_at` (RFC3339 — the owning goal's `set_at`,
+  the natural key into `weight.goals[]`, since import re-mints goal recordIds),
+  `ordinal`, `count` (int), `is_halfway`, `is_goal`, `acknowledged` (bool), `earned_at`
+  (local `YYYY-MM-DD`), `acknowledged_at` (ms, present once acknowledged).
+  `(goal_set_at, ordinal)` is the natural key. Older files omit the key; a legacy bot
+  export never carries it.
 
 ### `api_tokens`
 

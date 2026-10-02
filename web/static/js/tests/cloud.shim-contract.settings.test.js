@@ -131,6 +131,25 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         expect(await window.apiCall('/api/gamification/goal-line', 'GET')).toEqual({ enabled: false });
     });
 
+    // med-8tur.5: the route materializes a reached milestone (floored) and
+    // serves it as `milestone` until POST .../ack retires it.
+    it('GET /api/gamification/goal-line serves a reached milestone until POST /milestones/:id/ack', async () => {
+        const { window, records } = env;
+        const ago = (days, hour = 7) => new Date(Date.now() - days * 86400000 - hour * 3600000).toISOString();
+        for (let d = 0; d <= 20; d++) {
+            await records.put('weight', { recordId: `w-${d}`, clientTs: 1, deleted: false, measured_at: ago(d), weight: 83.8 });
+        }
+        await records.put('weightgoal', { recordId: 'g1', clientTs: 1, deleted: false, set_at: ago(21), target_weight: 80, start_weight: 85 });
+
+        const first = await window.apiCall('/api/gamification/goal-line', 'GET');
+        expect(first.milestone).toMatchObject({ id: 'gamificationmilestone-g1-1', ordinal: 1, count: 5 });
+        expect((await records.list('gamificationmilestone'))[0].clientTs).toBe(0);
+
+        expect(await window.apiCall('/api/gamification/milestones/gamificationmilestone-g1-1/ack', 'POST')).toEqual({ ok: true });
+        expect((await window.apiCall('/api/gamification/goal-line', 'GET')).milestone).toBeNull();
+        expect((await records.list('gamificationmilestone'))[0].acknowledged).toBe(true);
+    });
+
     // The card caches its payload at bootstrap only, so a mid-session re-enable
     // has to re-fetch — otherwise the gate above leaves it empty until reload.
     it('toggling gamification back on re-refreshes the forecast card', async () => {

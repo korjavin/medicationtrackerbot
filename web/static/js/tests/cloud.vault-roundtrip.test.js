@@ -42,6 +42,20 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     expect(back.data).toEqual(dropGps(fixture.data));
   });
 
+  it('re-attaches goal milestones to the re-minted goal with their goal_set_at (med-8tur.5)', () => {
+    const records = vaultToRecords(fixture, { now: NOW });
+    const goal = records.find((r) => r.recordType === 'weightgoal' && r.set_at === '2026-06-01T09:00:00Z');
+    const ms = records.filter((r) => r.recordType === 'gamificationmilestone');
+    expect(ms.map((m) => m.recordId)).toEqual([1, 2].map((k) => `gamificationmilestone-${goal.recordId}-${k}`));
+    expect(ms.every((m) => m.episode_id === goal.recordId)).toBe(true);
+    expect(ms.map((m) => m.acknowledged)).toEqual([true, false]);
+    // A pre-milestone file (no key) imports none and re-exports without the key.
+    const legacy = JSON.parse(JSON.stringify(fixture));
+    delete legacy.data.gamification.milestones;
+    const back = recordsToVault(vaultToRecords(legacy, { now: NOW }), { now: NOW });
+    expect('milestones' in back.data.gamification).toBe(false);
+  });
+
   it('drops gps at import and keeps every other miband field', () => {
     const records = vaultToRecords(fixture, { now: NOW });
     const miband = records.filter((r) => r.recordType === 'miband');
@@ -65,6 +79,8 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
       // Tombstones are a cloud-only v1 addition (med-jtaj); a real bot export
       // never carries them, so they canonicalize away like med_reminder_pref.
       delete d.tombstones;
+      // Goal milestones are cloud-only too (med-8tur.5).
+      if (d.gamification) delete d.gamification.milestones;
       // Equipment is cloud-only inventory (med-niix.1); a real bot export
       // never carries it, so it canonicalizes away here like med_reminder_pref.
       if (d.workouts) delete d.workouts.equipment;

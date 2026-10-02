@@ -187,8 +187,8 @@ function todayFetchSpecs(foodKey) {
         },
         gamification_goal_line: {
             feature: 'gamification',
-            // Goal Line hero (med-8tur.2). Synced records carry no
-            // 'gamification' tag (sync.js RECORD_TAGS: weightgoal→weight,
+            // Goal Line hero (med-8tur.2). Only gamificationmilestone syncs
+            // under 'gamification' (sync.js RECORD_TAGS: weightgoal→weight,
             // workoutsession→workout, bp→bp, settings→settings), so the card
             // evicts on its source tags too (medications/history for the
             // missed-dose line) or a synced edit repaints a stale card.

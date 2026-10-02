@@ -100,8 +100,9 @@
         },
         gamification_goal_line: {
             key: 'gamification_goal_line',
-            // Synced records carry no 'gamification' tag (sync.js RECORD_TAGS),
-            // so the Today Goal Line also evicts on its source tags: a synced
+            // Only goal milestones carry the 'gamification' tag in sync.js
+            // RECORD_TAGS (a synced ack, med-8tur.5), so the Today Goal Line
+            // also evicts on its source tags: a synced
             // goal edit / weigh-in / session / BP reading / dose (missed-dose line) or a
             // feature flip.
             tag: ['gamification', 'weight', 'workout', 'bp', 'settings', 'medications', 'history'],

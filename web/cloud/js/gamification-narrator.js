@@ -77,7 +77,10 @@ export function weeklyPayload(s) {
       : null,
     traits: (s.traits && Array.isArray(s.traits.traits) ? s.traits.traits : [])
       .map((t) => ({ name: t.title, state: t.state })),
+    // Weight-goal milestones stay out of the LLM payload until the goal recap
+    // (med-8tur.8) updates the privacy-manifest row that covers this egress.
     keystones: (s.keystones && Array.isArray(s.keystones.keystones) ? s.keystones.keystones : [])
+      .filter((k) => k.kind !== 'goal_milestone')
       .map((k) => ({ title: k.title })),
   };
 }

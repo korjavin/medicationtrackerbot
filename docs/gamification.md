@@ -174,6 +174,14 @@ under the floored-write rule (`clientTs: 0`, `putIfAbsent`, `earned_at` = the
 third qualifying weigh-in day, acknowledgment a separate user write), shown once
 on the card until acknowledged and permanently in the Journey timeline. A later
 regression never removes one; a goal edit starts a new episode.
+*Implemented (med-8tur.5):* `syncGoalMilestones` / `getGoalLineCard` /
+`acknowledgeMilestone` in `web/domain/gamification.js` — the Goal Line route
+serves `getGoalLine` plus `milestone` (the newest unacknowledged one; one ack
+retires it and every earlier one of the episode),
+`POST /api/gamification/milestones/:id/ack` is the user write, and
+`getKeystones` merges every episode's milestones (`kind: 'goal_milestone'`,
+kept out of the narrator payload until med-8tur.8). The vault carries them in
+`gamification.milestones`, keyed by `goal_set_at` (docs/vault-format.md).
 
 **0.3.6 Together: the joint observation.** The holistic link is shown as a
 symmetric fact, not a "dividend": over two matched, non-overlapping periods of

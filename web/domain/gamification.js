@@ -51,6 +51,8 @@ const GOAL_LINE_MAINTAIN_DAYS = 14;         // reached continuously this long = 
 const GOAL_LINE_MILESTONE_MIN_KG = 1;       // milestone spacing: 1 kg or 2.5% of the total
 const GOAL_LINE_MILESTONE_FRACTION = 0.025; //   distance, whichever is coarser, fixed per episode
 const GOAL_LINE_DEFAULT_DIASTOLIC = 80;     // docs/features.md <130/80 target, per missing bpgoal component
+const GOAL_MILESTONE_RECORD_TYPE = 'gamificationmilestone'; // §0.3.5 durable milestones (vault-managed)
+const GOAL_MILESTONE_EVIDENCE_DAYS = 3;     // distinct weigh-in days at/past a marker before it is earned
 
 // The one persisted record: a singleton holding reveal-once bookkeeping.
 const JOURNAL_RECORD_TYPE = 'gamificationjournal';
@@ -2025,6 +2027,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     await maybeDetectBpBandKeystone(days, band);
     const journal = await readJournal();
     const list = Array.isArray(journal && journal.keystones) ? journal.keystones.slice() : [];
+    list.push(...await milestoneKeystones());
     list.sort((a, b) => (b.earned_at || 0) - (a.earned_at || 0));
     return { enabled: true, keystones: list };
   }
@@ -3176,6 +3179,144 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     };
   }
 
+  // ----- Goal milestones (docs/gamification.md §0.3.5, bd med-8tur.5) ----------
+  // A reached marker becomes a durable record gamificationmilestone-<episode>-<k>
+  // (k = the next_milestone ordinal; the episode is the weightgoal recordId, so a
+  // goal edit starts a new series). Earned when the trend sat at/past the marker
+  // on GOAL_MILESTONE_EVIDENCE_DAYS distinct weigh-in days of the episode;
+  // earned_at = the local day of the last of those (the evidence), never now().
+  // DERIVED WRITE TAKES THE FLOOR (CLAUDE.md rule 12): putIfAbsent + clientTs 0,
+  // so a stale device re-deriving can never clobber an acknowledgment (a user
+  // write at now()). A later regression never removes a record.
+  // ponytail: on a same-id clientTs-0 tie two devices each keep their own body
+  // (cosmetic earned_at drift if their weigh-in history differed) until an ack.
+  async function syncGoalMilestones() {
+    const nowMs = now();
+    const today = localDayString(nowMs, timeZone);
+    const [weightAll, goalAll] = await Promise.all([
+      records.list(WEIGHT_RECORD_TYPE), records.list(WEIGHTGOAL_RECORD_TYPE),
+    ]);
+    const goal = goalLineWeight(weightAll, goalAll, today, nowMs);
+    if (!goal.episode_id || !goal.direction || goal.start_ref === null) return goal;
+    const { target, direction, start_ref: startRef, start_day: startDay } = goal;
+    const total = Math.abs(target - startRef);
+    const spacing = Math.max(GOAL_LINE_MILESTONE_MIN_KG, total * GOAL_LINE_MILESTONE_FRACTION);
+    const count = Math.ceil(total / spacing - 1e-9);
+    const halfway = Math.ceil(total / 2 / spacing - 1e-9);
+
+    // The same per-run EMA replay goalLineWeight uses, over EVERY run, so a
+    // device reading after a weigh-in gap re-derives the same evidence days.
+    const byDay = new Map();
+    weightAll.filter((r) => Number.isFinite(r.weight) && Date.parse(r.measured_at) <= nowMs)
+      .sort((a, b) => Date.parse(a.measured_at) - Date.parse(b.measured_at))
+      .forEach((r) => byDay.set(localDayString(Date.parse(r.measured_at), timeZone), r.weight));
+    const days = [...byDay.keys()].sort();
+    // A day is evidence only once the trend there is established — the Goal
+    // Line's preliminary floor (GOAL_LINE_MIN_WEIGH_IN_DAYS weigh-in days of the
+    // run in the coverage window ending that day). The first evidence day is
+    // the 5th weigh-in, not the seed: a low seed still decays at 0.9/weigh-in,
+    // so markers follow the same trend the card shows (one trend definition).
+    const trendOn = new Map(); // established weigh-in day → trend
+    let runStart = 0;
+    for (let i = 0; i <= days.length; i++) {
+      if (i === days.length || (i > runStart && dayDiff(days[i - 1], days[i]) > GOAL_LINE_COVERAGE_DAYS)) {
+        if (i > runStart) {
+          const t = emaTrendByDay(byDay, days[runStart], days[i - 1], DEFAULT_CONFIG.gaugeWeightEMAAlpha);
+          let lo = runStart;
+          for (let j = runStart; j < i; j++) {
+            while (dayDiff(days[lo], days[j]) >= GOAL_LINE_COVERAGE_DAYS) lo++;
+            if (j - lo + 1 >= GOAL_LINE_MIN_WEIGH_IN_DAYS) trendOn.set(days[j], t.get(days[j]));
+          }
+        }
+        runStart = i;
+      }
+    }
+    const evidence = days.filter((d) => d >= startDay && d <= today && trendOn.has(d));
+
+    const g = goalAll.find((r) => r.recordId === goal.episode_id);
+    // The goal reads "reached" within GOAL_LINE_REACH_KG (like status at_goal);
+    // no earlier marker may be stricter than that, which keeps the thresholds
+    // nested — so the first unearned marker ends the walk, and earned_at never
+    // runs backwards along the ordinals.
+    const goalThr = target - direction * GOAL_LINE_REACH_KG;
+    for (let k = 1; k <= count; k++) {
+      const isGoal = k === count;
+      const marker = startRef + direction * k * spacing;
+      const thr = isGoal || (marker - goalThr) * direction > 0 ? goalThr : marker;
+      const hits = evidence.filter((d) => (trendOn.get(d) - thr) * direction >= -1e-9);
+      if (hits.length < GOAL_MILESTONE_EVIDENCE_DAYS) break;
+      await records.putIfAbsent(GOAL_MILESTONE_RECORD_TYPE, {
+        recordId: `${GOAL_MILESTONE_RECORD_TYPE}-${goal.episode_id}-${k}`,
+        deleted: false, clientTs: 0,
+        episode_id: goal.episode_id, goal_set_at: (g && g.set_at) || null,
+        ordinal: k, count, is_halfway: k === halfway && !isGoal, is_goal: isGoal,
+        earned_at: hits[GOAL_MILESTONE_EVIDENCE_DAYS - 1], acknowledged: false,
+      });
+    }
+    return goal;
+  }
+
+  function milestoneTitle(m) {
+    if (m.is_goal) return 'Weight goal reached';
+    if (m.is_halfway) return 'Halfway to your weight goal';
+    return `Weight goal milestone ${m.ordinal} of ${m.count}`;
+  }
+
+  // getGoalLineCard is the Goal Line route's payload: getGoalLine (which stays
+  // write-free) plus `milestone` — the newest unacknowledged milestone of the
+  // current episode, after materializing any newly earned ones.
+  async function getGoalLineCard({ features } = {}) {
+    const goal = await syncGoalMilestones();
+    const gl = await getGoalLine({ features });
+    const open = (await records.list(GOAL_MILESTONE_RECORD_TYPE))
+      .filter((m) => m.episode_id === goal.episode_id && !m.acknowledged)
+      .sort((a, b) => b.ordinal - a.ordinal)[0];
+    gl.milestone = open ? {
+      id: open.recordId, ordinal: open.ordinal, count: open.count, is_halfway: !!open.is_halfway,
+      is_goal: !!open.is_goal, earned_at: open.earned_at, title: milestoneTitle(open),
+    } : null;
+    return gl;
+  }
+
+  // acknowledgeMilestone is the USER write (clientTs now()) that retires the
+  // card line. It acks every earlier unacknowledged milestone of the episode
+  // too: the card only ever shows the newest, so one tap means "seen".
+  async function acknowledgeMilestone(id) {
+    const all = await records.list(GOAL_MILESTONE_RECORD_TYPE);
+    const rec = all.find((m) => m.recordId === id);
+    if (!rec) return { ok: false, error: 'not_found' };
+    const nowMs = now();
+    for (const m of all) {
+      if (m.episode_id !== rec.episode_id || m.ordinal > rec.ordinal || m.acknowledged) continue;
+      await records.put(GOAL_MILESTONE_RECORD_TYPE, {
+        ...m, acknowledged: true, acknowledged_at: nowMs, clientTs: nowMs, deleted: false,
+      });
+    }
+    return { ok: true };
+  }
+
+  // Milestones as Journey keystones (every episode, permanent). earned_at is a
+  // local day; noon UTC keeps toLocaleDateString on that day for |offset| < 12h.
+  // One keystone per (goal_set_at, ordinal): a goal re-minted by a vault import
+  // can leave a twin under the dead episode id (e.g. an import by a client that
+  // predates milestones) — the twin whose episode still exists wins.
+  async function milestoneKeystones() {
+    await syncGoalMilestones();
+    const [all, goals] = await Promise.all([
+      records.list(GOAL_MILESTONE_RECORD_TYPE), records.list(WEIGHTGOAL_RECORD_TYPE),
+    ]);
+    const live = new Set(goals.map((r) => r.recordId));
+    const byKey = new Map();
+    for (const m of all) {
+      const key = `${m.goal_set_at}|${m.ordinal}`;
+      if (!byKey.has(key) || live.has(m.episode_id)) byKey.set(key, m);
+    }
+    return [...byKey.values()].map((m) => ({
+      id: m.recordId, kind: 'goal_milestone', title: milestoneTitle(m),
+      earned_at: Date.parse(`${m.earned_at}T12:00:00Z`),
+    }));
+  }
+
   async function getTargets() {
     return effectiveTargetsView(await readTargets(), DEFAULT_CONFIG);
   }
@@ -3233,6 +3374,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     getSummary, getRings, getJourney, getGauges, getWeeklyReview,
     // Goal Line (med-8tur.1)
     getGoalLine,
+    // Goal milestones (med-8tur.5)
+    getGoalLineCard, acknowledgeMilestone,
     getTargets, putTargets,
   };
 }
