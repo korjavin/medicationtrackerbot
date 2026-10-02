@@ -196,9 +196,11 @@ the browser's unstyled box. Every dialog goes through `_mountConfirmModal` in
 `core/utils.js` — `safeAlert` (single OK), `safeConfirm`, `safePrompt`,
 `safeChoose` — or `safeToast` for a non-blocking note. Its rules live in
 `web/static/css/dialog.css`, linked by both `index.html` and the passkey shell
-`web/cloud/signup.html` (which also loads `utils.js` + `mt-elements.js`), so
-`web/cloud/js` modules call `window.safeConfirm` in either document. Back
-cancels an open dialog first (`ModalManager.closeTopMostVisibleModal`).
+`web/cloud/signup.html` (which also loads `utils.js`, `mt-elements.js`,
+`modal-manager.js` and `modal-history.js`), so `web/cloud/js` modules call
+`window.safeConfirm` in either document. In both, an open dialog gets its own
+history entry (`modal-history.js`), so Back cancels just the dialog
+(`ModalManager.closeTopMostVisibleModal`).
 
 **Guard** — `web/static/js/tests/architecture.no-native-dialogs.test.js` scans
 `web/static/js` and `web/cloud/js` (tests/vendor excluded) for bare or

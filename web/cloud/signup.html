@@ -15,10 +15,15 @@
 <link rel="stylesheet" href="/css/cloud.css">
 <!-- The app's in-page dialogs (safeConfirm & co., bd med-v83g) — the same
      dependency-free classic scripts + dialog stylesheet the account app loads,
-     served from /static/ on this same account host; no native confirm(). -->
+     served from /static/ on this same account host; no native confirm().
+     modal-manager + modal-history give an open dialog its own history entry,
+     so browser Back closes just the dialog (bd med-kj0w, as med-62lh does in
+     the app). -->
 <link rel="stylesheet" href="/static/css/dialog.css">
 <script src="/static/js/core/utils.js"></script>
 <script src="/static/js/components/mt-elements.js"></script>
+<script src="/static/js/core/modal-manager.js"></script>
+<script src="/static/js/features/modal-history.js"></script>
 </head>
 <body>
   <main id="app">

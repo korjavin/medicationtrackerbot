@@ -8,11 +8,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { vi } from 'vitest';
 
-const UTILS_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../static/js/core/utils.js');
-const UTILS_SRC = fs.readFileSync(UTILS_PATH, 'utf8');
+// modal-manager + modal-history ride along exactly as signup.html loads them,
+// so Back over a dialog cancels just the dialog (bd med-kj0w).
+const STATIC_JS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../static/js');
+export const SHELL_DIALOG_SCRIPTS = ['core/utils.js', 'core/modal-manager.js', 'features/modal-history.js'];
+const SRCS = SHELL_DIALOG_SCRIPTS.map((f) => fs.readFileSync(path.join(STATIC_JS, f), 'utf8'));
 
 export function installDialogs(window) {
-  window.eval(UTILS_SRC);
+  for (const src of SRCS) window.eval(src);
 }
 
 export function openDialog(document) {
