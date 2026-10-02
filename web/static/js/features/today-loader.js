@@ -438,8 +438,9 @@ async function _todayRender(foodKey) {
 // "in Xh Ym" next-dose kicker, the timezone-transition card past its last step,
 // dose-boundary states. Nothing dispatches an event when the wall clock simply
 // moves, so a tab left open keeps painting the past. One minute-ish tick
-// re-renders from the caches already in hand — _todayRender, never loadToday,
-// so a tick can never trigger a refetch (revalidation stays event-driven).
+// re-renders from the caches already in hand via _todayRender. The one
+// exception: a Goal Line payload fetched on an earlier local day makes the tick
+// call loadToday once to refetch it (otherwise revalidation stays event-driven).
 const TODAY_REPAINT_INTERVAL_MS = 60 * 1000;
 
 async function loadToday() {

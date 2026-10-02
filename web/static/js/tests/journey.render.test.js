@@ -120,6 +120,16 @@ describe('Journey render', () => {
         expect(cards[0].querySelector('.wg-journey-bar__fill').style.getPropertyValue('--fill-pct')).toBe('45.0%');
     });
 
+    it('no goal-context card for no_goal when the Weight feature is off (no dead link)', () => {
+        env.window.featureSettings = { weight: false };
+        env.window.Gamification.render({
+            enabled: false,
+            goal_line: { enabled: true, goal: { status: 'no_goal' } },
+            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }] },
+        });
+        expect(env.document.getElementById('journey-goal-card')).toBeNull();
+    });
+
     it('the goal-context card leads even when the HP substrate is disabled, and offers to set a goal', () => {
         const switchTab = vi.fn();
         env.window.switchTab = switchTab;
