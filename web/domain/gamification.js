@@ -2939,15 +2939,17 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       last_weigh_in_day: days.length ? days[days.length - 1] : null,
     };
     const preliminary = coverage.weigh_in_days_28d < GOAL_LINE_MIN_WEIGH_IN_DAYS;
-    // Ordered replay from the first reading of the current weigh-in run — a
-    // fixed origin, so the baseline never shifts as old samples leave a moving
-    // window. A gap longer than the coverage window starts a new run: an EMA
-    // carried flat across months would otherwise pass a stale value off as
-    // today's trend (and as a goal's baseline) for weeks after the user returns.
-    let origin = days[0];
+    // Ordered replay from the first reading of a weigh-in run — a fixed origin,
+    // so nothing shifts as old samples leave a moving window. A gap longer than
+    // the coverage window starts a new run: an EMA carried flat across months
+    // would otherwise pass a stale value off as the trend for weeks after the
+    // user returns. runStarts only ever grows at the end (a later gap never
+    // moves an earlier run's start), which keeps an episode's baseline stable.
+    const runStarts = days.length ? [days[0]] : [];
     for (let i = 1; i < days.length; i++) {
-      if (dayDiff(days[i - 1], days[i]) > GOAL_LINE_COVERAGE_DAYS) origin = days[i];
+      if (dayDiff(days[i - 1], days[i]) > GOAL_LINE_COVERAGE_DAYS) runStarts.push(days[i]);
     }
+    const origin = runStarts[runStarts.length - 1];
     const trend = days.length ? emaTrendByDay(byDay, origin, today, cfg.gaugeWeightEMAAlpha) : new Map();
     const trendWeight = preliminary ? null : trend.get(today);
     const weekAgo = addDays(today, -7);
@@ -2972,14 +2974,17 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     let startDay = Number.isFinite(setMs) ? localDayString(setMs, timeZone) : (days[0] || today);
     if (startDay > today) startDay = today; // a set_at ahead of this device's clock
     // Episode baseline, stated not implied: the trend on the set day when enough
-    // weigh-in days of the current run, inside the coverage window ending on it,
-    // back it; else the goal's recorded starting reading labeled first_reading —
-    // the two are never silently equated.
+    // weigh-in days of the run holding that day, inside the coverage window
+    // ending on it, back it; else the goal's recorded starting reading labeled
+    // first_reading — the two are never silently equated. Only data on or
+    // before the set day decides, so the episode's baseline stays fixed.
+    const baseOrigin = runStarts.filter((d) => d <= startDay).pop();
     const baselineFrom = addDays(startDay, -(GOAL_LINE_COVERAGE_DAYS - 1));
     let startRef; let startRefSource;
-    if (startDay >= origin
-      && days.filter((d) => d >= origin && d >= baselineFrom && d <= startDay).length >= GOAL_LINE_MIN_WEIGH_IN_DAYS) {
-      startRef = trend.get(startDay);
+    if (baseOrigin !== undefined
+      && days.filter((d) => d >= baseOrigin && d >= baselineFrom && d <= startDay).length >= GOAL_LINE_MIN_WEIGH_IN_DAYS) {
+      const baseTrend = baseOrigin === origin ? trend : emaTrendByDay(byDay, baseOrigin, startDay, cfg.gaugeWeightEMAAlpha);
+      startRef = baseTrend.get(startDay);
       startRefSource = 'trend_at_set';
     } else {
       const firstAfter = days.find((d) => d >= startDay);
@@ -3065,7 +3070,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     // "Next" = not yet done: a snoozed ('notified') or in-progress session is
     // still today's workout (workout.js getNext), unlike the horizon's
     // fire-once rule.
-    const done = (st) => st === 'completed' || st === 'skipped' || st === 'deleted';
+    // 'pre_skipped' is an explicit decline (workout.js preSkipSession) — done too.
+    const done = (st) => st === 'completed' || st === 'skipped' || st === 'pre_skipped' || st === 'deleted';
     const hhmm = (t) => `${String(t.hour).padStart(2, '0')}:${String(t.minute).padStart(2, '0')}`;
     const candidates = [
       ...groupOccurrences.filter((o) => o.dateStr >= today && !done(o.status))
