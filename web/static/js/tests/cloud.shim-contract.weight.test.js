@@ -231,6 +231,18 @@ describe('cloud shim contract — weight flows (features/weight.js over web/doma
             expect(cancelCallbacks()).toEqual([]);
         });
 
+        // med-8tur.6: a DAILY weigh-in slot is satisfied only by a reading on its
+        // own local day — yesterday's reading (inside the weekly 7d window) is not.
+        it('daily cadence: cancels for a same-day reading, not for yesterday\'s', async () => {
+            withWeightPref({ enabled: true, preferred_reminder_hour: PAST_HOUR, cadence: 'daily' });
+            await env.window.apiCall('/api/weight', 'POST', log(NOW - 24 * 60 * 60 * 1000));
+            expect(cancelCallbacks()).toEqual([]);
+
+            withWeightPref({ enabled: true, preferred_reminder_hour: PAST_HOUR, cadence: 'daily' });
+            await env.window.apiCall('/api/weight', 'POST', log(Date.parse('2026-09-05T07:00:00Z')));
+            expect(cancelCallbacks()).toEqual([`wt:${PAST_SLOT_UNIX}`]);
+        });
+
         it('does not cancel when weight reminders are disabled or unconfigured', async () => {
             withWeightPref({ enabled: false, preferred_reminder_hour: PAST_HOUR });
             await env.window.apiCall('/api/weight', 'POST', log());
