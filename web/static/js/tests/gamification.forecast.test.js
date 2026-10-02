@@ -86,7 +86,7 @@ describe('gamification Tomorrow Forecast — evaluator', () => {
     expect(f.resolution.systolic).toBe(118);
     expect(f.resolution.inRange).toBe(true);
     expect(f.resolution.matched).toBe(true);
-    expect(f.resolution.text).toMatch(/agreed/i);
+    expect(f.resolution.text).toMatch(/Matched the pattern this time/);
   });
 
   it('self-suppresses below the gate — no number, calibration meter fills instead', async () => {
