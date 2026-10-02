@@ -7,7 +7,8 @@
 // flag gating is covered in cloud.shim-contract.settings.test.js.
 import { describe, it, expect, vi } from 'vitest';
 import { createGamificationDomain } from '../../../../web/domain/gamification.js';
-import { createInMemoryRecordsPort } from './helpers/cloud-shim-harness.js';
+import { recordsToVault, vaultToRecords } from '../../../../web/domain/vault.js';
+import { createInMemoryRecordsPort, applyIncomingReplica } from './helpers/cloud-shim-harness.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NOW = Date.UTC(2026, 5, 17, 12, 0, 0); // Wed 2026-06-17 noon; ISO week Mon 06-15 … Sun 06-21
@@ -323,5 +324,107 @@ describe('gamification Goal Line — workouts, BP, cta', () => {
 
     const noWeight = await gam.getGoalLine({ features: { weight: false, workout: true, bp: true, gamification: true } });
     expect(noWeight.cta).toBe('start_session'); // weigh_in skipped; today's 18:00 plan session is next
+  });
+});
+
+// Durable goal milestones (docs/gamification.md §0.3.5, bd med-8tur.5): reached
+// markers materialize floored (putIfAbsent, clientTs 0) from the Goal Line read
+// path; acknowledgment is a separate user write; vault round-trip keeps both.
+describe('gamification Goal Line — durable milestones', () => {
+  // Goal set 20 days ago from a recorded 85 kg start (no earlier readings →
+  // first_reading baseline), target 80: 1 kg spacing, 5 markers. The trend sits
+  // at 83.8 from the first weigh-in, so marker 1 (84) is earned on the THIRD
+  // weigh-in day (offset 18 = 2026-05-30) and marker 2 (83) never.
+  const crossing = () => ({ weight: series(21, () => 83.8), weightgoal: [goalRec(20, 80, 85)] });
+  const MS_ID = 'gamificationmilestone-weightgoal-episode-1-1';
+
+  it('a seeded crossing creates exactly one floored record, earned on the evidence day', async () => {
+    const { records, gam } = domainOver(crossing());
+    const gl = await gam.getGoalLineCard();
+
+    expect(gl.goal.status).toBe('ok');
+    expect(gl.milestone).toEqual({
+      id: MS_ID, ordinal: 1, count: 5, is_halfway: false, is_goal: false,
+      earned_at: '2026-05-30', title: 'Weight goal milestone 1 of 5',
+    });
+    expect(records.put).not.toHaveBeenCalled();
+    expect(records.putIfAbsent).toHaveBeenCalledTimes(1);
+    expect(records.putIfAbsent.mock.calls[0][1]).toMatchObject({ recordId: MS_ID, clientTs: 0, acknowledged: false });
+
+    await gam.getGoalLineCard(); // re-read: no duplicate
+    expect(await records.list('gamificationmilestone')).toHaveLength(1);
+  });
+
+  it('a single low reading does not fire a milestone', async () => {
+    const weight = series(21, (o) => (o === 10 ? 80 : 85));
+    const { records, gam } = domainOver({ weight, weightgoal: [goalRec(20, 80, 85)] });
+    expect((await gam.getGoalLineCard()).milestone).toBeNull();
+    expect(await records.list('gamificationmilestone')).toHaveLength(0);
+  });
+
+  it('ack retires the card line; re-reads and another device\'s floored replay never clobber it', async () => {
+    const { records, gam } = domainOver(crossing());
+    await gam.getGoalLineCard();
+    expect(await gam.acknowledgeMilestone(MS_ID)).toEqual({ ok: true });
+    const [acked] = await records.list('gamificationmilestone');
+    expect(acked).toMatchObject({ acknowledged: true, acknowledged_at: NOW, clientTs: NOW });
+
+    expect((await gam.getGoalLineCard()).milestone).toBeNull();
+    expect((await records.list('gamificationmilestone'))[0].acknowledged).toBe(true);
+
+    // Device B derives its own floored copy before A's ack arrives; strict-`>`
+    // LWW keeps the ack in both apply orders.
+    const b = domainOver(crossing());
+    await b.gam.getGoalLineCard();
+    const [floored] = await b.records.list('gamificationmilestone');
+    expect(floored.clientTs).toBe(0);
+    expect(applyIncomingReplica(floored, acked)).toBe(acked);
+    expect(applyIncomingReplica(acked, floored)).toBe(acked);
+
+    expect(await gam.acknowledgeMilestone('gamificationmilestone-nope-1')).toEqual({ ok: false, error: 'not_found' });
+  });
+
+  it('a goal edit starts a new series; the old episode\'s record stays (a keystone), off the card', async () => {
+    const { records, gam } = domainOver(crossing());
+    await gam.getGoalLineCard();
+    await records.put('weightgoal', {
+      recordId: 'weightgoal-episode-2', deleted: false, set_at: isoAt(2, 9), target_weight: 78, start_weight: 83.8,
+    });
+    const gl = await gam.getGoalLineCard();
+    expect(gl.goal.episode_id).toBe('weightgoal-episode-2');
+    expect(gl.milestone).toBeNull(); // 82.8 not reached yet
+    expect((await records.list('gamificationmilestone')).map((m) => m.recordId)).toEqual([MS_ID]);
+
+    const { keystones } = await gam.getKeystones();
+    expect(keystones).toContainEqual({
+      id: MS_ID, kind: 'goal_milestone', title: 'Weight goal milestone 1 of 5',
+      earned_at: Date.parse('2026-05-30T12:00:00Z'),
+    });
+  });
+
+  it('vault export → import keeps the record and its ack, re-attached to the re-minted goal', async () => {
+    const { records, gam } = domainOver(crossing());
+    await gam.getGoalLineCard();
+    await gam.acknowledgeMilestone(MS_ID);
+    const all = [];
+    for (const t of ['weight', 'weightgoal', 'gamificationmilestone']) {
+      for (const r of await records.listRaw(t)) all.push({ ...r, recordType: t });
+    }
+    const vault = recordsToVault(all, { now: NOW });
+    expect(vault.data.gamification.milestones).toHaveLength(1);
+
+    const imported = vaultToRecords(vault, { now: NOW });
+    const seed = {};
+    for (const r of imported) (seed[r.recordType] = seed[r.recordType] || []).push(r);
+    const [goal] = seed.weightgoal;
+    expect(goal.recordId).not.toBe('weightgoal-episode-1'); // import re-mints goal ids
+    expect(seed.gamificationmilestone).toEqual([expect.objectContaining({
+      recordId: `gamificationmilestone-${goal.recordId}-1`, episode_id: goal.recordId,
+      acknowledged: true, earned_at: '2026-05-30',
+    })]);
+
+    const after = domainOver(seed);
+    expect((await after.gam.getGoalLineCard()).milestone).toBeNull(); // ack survived, no re-celebration
+    expect(await after.records.list('gamificationmilestone')).toHaveLength(1);
   });
 });

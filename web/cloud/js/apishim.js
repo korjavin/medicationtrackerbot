@@ -1169,8 +1169,14 @@ export function createApiRouter(ctx, {
     if (path === '/api/gamification/goal-line' && method === 'GET') {
       const flags = clampFeatures(await settings.getFeatures());
       if (!flags.gamification) return { enabled: false };
-      return gamification.getGoalLine({ features: flags });
+      // getGoalLineCard = getGoalLine + `milestone` (the newest unacknowledged
+      // goal milestone, materialized floored on this read — med-8tur.5).
+      return gamification.getGoalLineCard({ features: flags });
     }
+    // Acknowledging a goal milestone is the user write that retires its line
+    // on the Goal Line card; the record stays in the Journey keystones.
+    const msAck = path.match(/^\/api\/gamification\/milestones\/([^/]+)\/ack$/);
+    if (msAck && method === 'POST') return gamification.acknowledgeMilestone(decodeURIComponent(msAck[1]));
     // Self-Experiments (Phase 4): the flagship N-of-1 mechanic. listExperiments
     // recomputes the active trial's tracker + any un-acknowledged verdict from
     // vault records (persisting only the frozen verdict + lifecycle status);

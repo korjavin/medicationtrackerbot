@@ -608,7 +608,28 @@
         "last_scored_day": "2026-07-07T00:00:00Z",
         "backfilled_at": "2026-06-01T03:00:00Z",
         "updated_at": "2026-07-08T00:05:00Z"
-      }
+      },
+      "milestones": [
+        {
+          "goal_set_at": "2026-06-01T09:00:00Z",
+          "ordinal": 1,
+          "count": 7,
+          "is_halfway": false,
+          "is_goal": false,
+          "earned_at": "2026-06-20",
+          "acknowledged": true,
+          "acknowledged_at": 1781946000000
+        },
+        {
+          "goal_set_at": "2026-06-01T09:00:00Z",
+          "ordinal": 2,
+          "count": 7,
+          "is_halfway": false,
+          "is_goal": false,
+          "earned_at": "2026-07-04",
+          "acknowledged": false
+        }
+      ]
     },
     "api_tokens": [
       {

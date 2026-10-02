@@ -43,6 +43,9 @@
 //     suppression signals (bd med-jtaj): recordsToVault carries them as
 //     data.tombstones and vaultToRecords re-materializes them as bodyless
 //     deleted rows. All other tombstones are delete-by-absence (dropped).
+//   - gamificationmilestone (goal milestones) rides in data.gamification.milestones
+//     keyed by goal_set_at; import re-attaches each to the re-minted weightgoal
+//     with that set_at (its episode), rebuilding the deterministic recordId.
 //   - timezone_history, gamification and api_tokens have no cloud consumer, so
 //     imported entries land in passthrough `tzhistory` / `gamification` /
 //     `apitokens` stores purely for backup fidelity. The reminder-pref bodies
@@ -75,6 +78,7 @@ export const VAULT_MANAGED_TYPES = new Set([
   'tzplan', 'tzhistory',
   'settings', 'features', 'taborder', 'foodtargets', 'integrations', 'medreminderpref',
   'bpreminderpref', 'weightreminderpref', 'gamification', 'apitokens',
+  'gamificationmilestone',
 ]);
 
 // Record types whose rows are lazily materialized into deterministic recordIds
@@ -348,6 +352,14 @@ export function recordsToVault(records, { now, includeSecrets = true } = {}) {
     ledger: (gamRec && gamRec.ledger) || [],
     state: (gamRec && gamRec.state) || null,
   };
+  // Goal milestones (med-8tur.5): keyed to their goal by goal_set_at, not by the
+  // weightgoal recordId — import re-mints goal ids. Omitted when empty so a
+  // milestone-free store exports byte-identical to a pre-milestone client.
+  const milestones = pick('gamificationmilestone');
+  if (milestones.length > 0) {
+    gamification.milestones = sortBy(milestones, (r) => `${r.goal_set_at}|${String(r.ordinal).padStart(6, '0')}`)
+      .map((r) => stripMeta(r, ['episode_id']));
+  }
   const tokensRec = singleton('apitokens', 'apitokens');
 
   const data = {
@@ -617,6 +629,17 @@ export function vaultToRecords(vault, { now } = {}) {
     });
   }
   if (data.api_tokens) push('apitokens', 'apitokens', { tokens: [...data.api_tokens] });
+  // Goal milestones re-attach to the goal re-minted above with the same set_at
+  // (the episode id); one whose goal is not in the file keeps a stable orphan
+  // episode so it still lands in the Journey timeline.
+  for (const m of (gam && gam.milestones) || []) {
+    if (!Number.isInteger(m && m.ordinal) || m.ordinal < 1) {
+      throw new Error(`Corrupt backup: goal milestone has no usable ordinal ${JSON.stringify(m)}`);
+    }
+    const goal = out.find((r) => r.recordType === 'weightgoal' && r.set_at === m.goal_set_at);
+    const episode = goal ? goal.recordId : `weightgoal-orphan-${m.goal_set_at}`;
+    push('gamificationmilestone', `gamificationmilestone-${episode}-${m.ordinal}`, { ...m, episode_id: episode });
+  }
 
   // --- tombstones (derived-slot suppression signals, bd med-jtaj) ---
   // Old files predate the key and import exactly as before (no tombstones).
