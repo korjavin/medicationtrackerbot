@@ -30,9 +30,8 @@
 
     // Ring display metadata in canonical order (matches the backend's
     // ringScores ordering) — the three daily levers (gamification-10 §2.5).
-    // Today owns the rings card now (med-edxz.1); what survives here is the
-    // key→label map the weekly-review lever line reads. `icon`/`how` are kept
-    // as the canonical lever description, mirroring today.js RING_MOVE_META.
+    // No rings card renders anywhere now (med-8tur.2); what survives here is
+    // the key→label map the weekly-review lever line reads.
     const RINGS = [
         { ring: 'bedtime', label: 'Bedtime', icon: 'moon', how: 'Keep a steady lights-out time' },
         { ring: 'movement', label: 'Movement', icon: 'activity', how: 'Log a workout' },
@@ -94,6 +93,8 @@
         card.id = 'journey-goal-card';
         card.appendChild(el('div', 'wg-section-label', 'YOUR GOAL'));
         if (g.status === 'no_goal') {
+            // Weight tab off → switchTab('weight') bounces to Today; no dead link.
+            if (window.featureSettings && window.featureSettings.weight === false) return null;
             const set = el('button', 'btn btn-sm btn-secondary', 'Set a weight goal');
             set.type = 'button';
             set.addEventListener('click', () => { if (typeof window.switchTab === 'function') window.switchTab('weight'); });
@@ -113,7 +114,7 @@
         else {
             const total = Math.abs(g.target - g.start_ref);
             const done = (g.trend_weight - g.start_ref) * (g.direction || 0);
-            card.appendChild(progressBar(total > 0 ? done / total : 0));
+            card.appendChild(progressBar(total > 0 ? done / total : 0, 'wg-journey-bar__fill--sun'));
             line = `${goalWeight(Math.abs(g.distance_to_goal || 0))} to go`;
             if (g.next_milestone && !g.next_milestone.is_goal) line += ` · next marker ${goalWeight(g.next_milestone.weight)}`;
         }
@@ -126,10 +127,10 @@
 
     // "Your week" card (gamification-12 §Task3): the primary reading cadence
     // for gauges (Overview) — this week vs last, folded from the same
-    // ledger/gauge/Health-Score reads the other cards already use. Fetched
-    // through its own cachedFetch entry (loadWeeklyReview), rendered as a
-    // native <details>/<summary> collapsible (the tz-plan-banner convention)
-    // between the Health Score and Gauges cards. Tone rules: neutral-to-
+    // ledger/gauge reads the other cards already use. Fetched through its own
+    // cachedFetch entry (loadWeeklyReview), rendered as a native
+    // <details>/<summary> collapsible (the tz-plan-banner convention) above
+    // the Gauges card. Tone rules: neutral-to-
     // positive phrasing only, no red styling for a down week — every line
     // renders wg-muted regardless of direction, same as the Gauges panel.
     const WEEKLY_CACHE_KEY = 'gamification_weekly';
@@ -972,9 +973,9 @@
         const content = document.getElementById('journey-content');
         if (!content) return;
 
-        // Personal content leads (med-edxz.1): Atlas → your week → gauges →
-        // health score → traits → experiment/chapter → keystones → AI story,
-        // with level/HP as a muted footer line. The narrative layer (atlas /
+        // The goal leads (med-8tur.2), then personal content (med-edxz.1):
+        // Atlas → your week → gauges → traits → experiment/chapter → keystones
+        // → AI story. HP/levels/Health Score are not rendered. The narrative layer (atlas /
         // traits / experiment / chapter / keystones) also stands on its own:
         // in cloud mode the HP/levels substrate is a later phase (returns
         // {enabled:false}), so a disabled substrate with a live narrative

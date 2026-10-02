@@ -564,6 +564,18 @@ describe('TodayDashboard.renderToday', () => {
         expect(card.querySelector('[data-fact="bp"]')).not.toBeNull();
     });
 
+    it('no_goal with the Weight feature off: no dead "Set a weight goal" link', () => {
+        const root = env.document.getElementById('today-content');
+        const payload = goalLinePayload({ status: 'no_goal', target: null, start_ref: null, direction: null, next_milestone: null }, { cta: 'none' });
+        const state = allPresentState(now);
+        state.goalLine = env.aggregate({ features: { gamification: true, weight: false } }, { gamification_goal_line: payload }, now).goalLine;
+        env.render(state, root, { now });
+        const card = root.querySelector('.wg-goal-line');
+        expect(card).not.toBeNull();
+        expect(card.querySelector('[data-action="set-goal"]')).toBeNull();
+        expect(card.querySelector('[data-fact="workouts"]')).not.toBeNull();
+    });
+
     it('preliminary: the latest reading as a reading, and how many weigh-ins until a trend', () => {
         const root = env.document.getElementById('today-content');
         const payload = goalLinePayload({

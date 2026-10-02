@@ -327,7 +327,10 @@ async function _todayReadCaches(foodKey) {
                 const groups = Array.isArray(foodM.data.groups) ? foodM.data.groups : [];
                 swrCaches.food_today = { groups };
             }
-            if (gamM?.data) swrCaches.gamification_goal_line = gamM.data;
+            if (gamM?.data) {
+                swrCaches.gamification_goal_line = gamM.data;
+                swrCaches.goal_line_fetched_at = gamM.timestamp;
+            }
             for (let i = 0; i < keys.length; i++) {
                 const m = metas[i];
                 if (!m) continue;
@@ -395,6 +398,14 @@ async function _todayReadCaches(foodKey) {
         if (persisted) cardOrder = persisted;
     }
     return { bootstrap, swrCaches, latestCacheTimestamp, cardOrder };
+}
+
+// True when the cached Goal Line was fetched on an earlier local day than now
+// (its payload is day-relative). Unknown fetch time → treated as current.
+function _todayGoalLineFromPastDay(swrCaches) {
+    const ts = swrCaches && swrCaches.goal_line_fetched_at;
+    if (!swrCaches || !swrCaches.gamification_goal_line || !Number.isFinite(ts)) return false;
+    return new Date(ts).toDateString() !== new Date().toDateString();
 }
 
 async function _todayRender(foodKey) {
@@ -476,7 +487,12 @@ async function loadToday() {
                 ? window.WGCallAgent.getState()
                 : null;
             if (call && (call.state === 'connecting' || call.state === 'in_call')) return;
-            _todayRender(todayFoodKey(new Date()));
+            _todayRender(todayFoodKey(new Date())).then((rctx) => {
+                // The Goal Line payload is day-relative (weighed_today, cta, BP
+                // recorded today, this week's workouts) and no tag fires at
+                // midnight — a payload fetched on an earlier local day refetches.
+                if (rctx && rctx.rendered && rctx.online && _todayGoalLineFromPastDay(rctx.swrCaches)) loadToday();
+            });
         };
         _todayLoaderState.repaintTick = setInterval(repaint, TODAY_REPAINT_INTERVAL_MS);
         document.addEventListener('visibilitychange', repaint);
@@ -537,7 +553,7 @@ async function loadToday() {
             workout_next: !!swrCaches.workout_next,
             [hoKey]: !!swrCaches.health_overview,
             [foodKey]: !!swrCaches.food_today,
-            gamification_goal_line: !!swrCaches.gamification_goal_line
+            gamification_goal_line: !!swrCaches.gamification_goal_line && !_todayGoalLineFromPastDay(swrCaches)
         };
         const missing = Object.keys(presence).filter((k) => {
             if (presence[k]) return false;

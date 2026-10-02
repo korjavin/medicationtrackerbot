@@ -369,7 +369,7 @@
             macrosTarget: macrosTargetCell(bootstrap, foodEnabled),
             nextWorkout: nextWorkoutCell(caches, workoutEnabled),
             sleepLastNight: sleepLastNightCell(caches, nowMs, healthEnabled),
-            goalLine: goalLineCell(caches.gamification_goal_line, gamificationEnabled)
+            goalLine: goalLineCell(caches.gamification_goal_line, gamificationEnabled, weightEnabled)
         };
         return result;
     }
@@ -1038,11 +1038,13 @@
         return next.time ? `${day} ${next.time}` : day;
     }
 
-    function goalLineCell(payload, enabled) {
+    function goalLineCell(payload, enabled, weightEnabled) {
         if (!enabled) return cell(null, 'journey', 'disabled');
         if (payload && payload.enabled === false) return cell(null, 'journey', 'disabled');
         if (!payload || !payload.goal) return cell(null, 'journey', 'missing');
-        return cell(payload, 'journey', 'ok');
+        const c = cell(payload, 'journey', 'ok');
+        c.weightOn = weightEnabled !== false;
+        return c;
     }
 
     function goalLineEl(tag, className, text) {
@@ -1067,7 +1069,7 @@
 
     // The weight part: headline numbers + the state body (progress, 7 days,
     // safety line, or the no_goal / preliminary / reached copy).
-    function goalLineWeightRows(card, g, onDeeplink) {
+    function goalLineWeightRows(card, g, onDeeplink, weightOn) {
         const header = goalLineEl('div', 'wg-goal-line__header');
         header.appendChild(goalLineEl('span', 'wg-goal-line__title', 'Goal line'));
         const hasGoal = g.status !== 'no_goal';
@@ -1087,6 +1089,8 @@
         card.appendChild(header);
 
         if (!hasGoal) {
+            // Weight tab off → switchTab('weight') bounces to Today; no dead link.
+            if (!weightOn) return;
             const set = goalLineEl('div', 'wg-goal-line__set', 'Set a weight goal →');
             goalLineAction(set, 'set-goal', () => { if (typeof onDeeplink === 'function') onDeeplink('weight'); });
             card.appendChild(set);
@@ -1111,8 +1115,9 @@
         } else {
             const total = Math.abs(g.target - g.start_ref);
             const done = (g.trend_weight - g.start_ref) * (g.direction || 0);
-            const track = goalLineEl('div', 'wg-gloss--inset wg-goal-line__track');
-            const fill = goalLineEl('div', 'wg-goal-line__fill');
+            // Same bar classes + sun fill as the Journey goal card (styles.css).
+            const track = goalLineEl('div', 'wg-gloss--inset wg-journey-bar__track wg-goal-line__track');
+            const fill = goalLineEl('div', 'wg-journey-bar__fill wg-journey-bar__fill--sun wg-goal-line__fill');
             const ratio = total > 0 ? Math.max(0, Math.min(1, done / total)) : 0;
             // Neutral custom property, same convention as wg-ring.js --ring-progress.
             fill.style.setProperty('--fill-pct', `${(ratio * 100).toFixed(1)}%`);
@@ -1181,7 +1186,7 @@
         card.setAttribute('data-section', 'goal-line');
         card.setAttribute('data-status', v.goal.status);
 
-        goalLineWeightRows(card, v.goal, h.onDeeplink);
+        goalLineWeightRows(card, v.goal, h.onDeeplink, cell.weightOn !== false);
         goalLineFactRows(card, v, h.nowMs);
 
         let cta = null;

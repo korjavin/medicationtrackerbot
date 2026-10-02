@@ -392,4 +392,42 @@ describe('Today loader — features/today-loader.js', () => {
             expect(window.apiCall).toHaveBeenCalledWith('/api/medications/next-intake');
         });
     });
+
+    // med-8tur.2: the Goal Line payload is day-relative (weighed_today, cta,
+    // BP recorded today) and no tag fires at midnight, so a payload cached on an
+    // earlier local day counts as missing and refetches; today's does not.
+    describe('Goal Line day-relative refetch', () => {
+        const GAM_ONLY = { medication: false, bp: false, weight: true, food: false, workout: false, health: false, gamification: true };
+        function cacheWithGoalLine(fetchedAt) {
+            return makeApiCache({
+                settings_bundle: {
+                    data: { featureSettings: { ...GAM_ONLY }, foodTargets: {}, tabOrder: [], weightUnitPreference: 'kg' },
+                    timestamp: Date.now()
+                },
+                gamification_goal_line: {
+                    data: { enabled: true, goal: { status: 'no_goal', coverage: {} }, workouts: { feature_on: false }, bp: { feature_on: false }, cta: 'weigh_in' },
+                    timestamp: fetchedAt
+                }
+            });
+        }
+        const goalLineFetches = () => window.DataStore.fetchFresh.mock.calls.filter((c) => c[0] === 'gamification_goal_line');
+
+        it('refetches a Goal Line cached on an earlier local day', async () => {
+            setOnline(window, true);
+            window.featureSettings = { ...GAM_ONLY };
+            window.MedTrackerDB = cacheWithGoalLine(Date.now() - 2 * 24 * 60 * 60 * 1000);
+            await window.loadToday();
+            expect(env.document.querySelector('.wg-goal-line')).not.toBeNull();
+            expect(goalLineFetches().length).toBe(1);
+            expect(goalLineFetches()[0][2]).toEqual(['gamification', 'weight', 'workout', 'bp', 'settings']);
+        });
+
+        it('keeps a Goal Line fetched today without a refetch', async () => {
+            setOnline(window, true);
+            window.featureSettings = { ...GAM_ONLY };
+            window.MedTrackerDB = cacheWithGoalLine(Date.now());
+            await window.loadToday();
+            expect(goalLineFetches().length).toBe(0);
+        });
+    });
 });

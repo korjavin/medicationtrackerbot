@@ -5318,21 +5318,6 @@ textarea.wg-input {
     font-size: var(--font-size-xs);
 }
 
-.wg-goal-line__track {
-    position: relative;
-    height: 10px;
-    border-radius: var(--radius-pill);
-    overflow: hidden;
-}
-
-.wg-goal-line__fill {
-    height: 100%;
-    width: var(--fill-pct, 0%);
-    background: var(--wg-sun);
-    border-radius: inherit;
-    transition: width 0.4s ease;
-}
-
 .wg-goal-line__line,
 .wg-goal-line__fact,
 .wg-goal-line__safety {
