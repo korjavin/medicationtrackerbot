@@ -10,7 +10,8 @@
 // sees is recomputed on read from decrypted vault records; the only persisted
 // state is reveal-once "seen" flags (§4.2 — scores are pure functions of the log).
 
-import { dayStartMs } from './bp.js';
+import { dayStartMs, buildDailyWeightedStats } from './bp.js';
+import { workoutScheduleOccurrences } from './reminders.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WINDOW_DAYS = 90; // trailing window (§4.1)
@@ -37,6 +38,19 @@ const SLEEP_RECORD_TYPE = 'sleep';
 const DAYSTATS_RECORD_TYPE = 'daystats';
 const WORKOUT_SESSION_RECORD_TYPE = 'workoutsession';
 const FOOD_LOG_RECORD_TYPE = 'foodlog';
+
+// Goal Line (docs/gamification.md §0.3.1) — read-only inputs + its constants
+// (weight/weightgoal reuse the factory's WEIGHT_RECORD_TYPE/WEIGHTGOAL_RECORD_TYPE).
+const WORKOUT_GROUP_RECORD_TYPE = 'workoutgroup';
+const WORKOUT_VARIANT_RECORD_TYPE = 'workoutvariant';
+const WORKOUT_ROTATION_RECORD_TYPE = 'workoutrotation';
+const GOAL_LINE_COVERAGE_DAYS = 28;         // coverage window for weigh-in days; a longer weigh-in gap restarts the trend
+const GOAL_LINE_MIN_WEIGH_IN_DAYS = 5;      // fewer (in 28d) = preliminary: a reading, never a trend
+const GOAL_LINE_REACH_KG = 0.5;             // trend within this of the target (or past it) = reached
+const GOAL_LINE_MAINTAIN_DAYS = 14;         // reached continuously this long = maintaining
+const GOAL_LINE_MILESTONE_MIN_KG = 1;       // milestone spacing: 1 kg or 2.5% of the total
+const GOAL_LINE_MILESTONE_FRACTION = 0.025; //   distance, whichever is coarser, fixed per episode
+const GOAL_LINE_DEFAULT_DIASTOLIC = 80;     // docs/features.md <130/80 target, per missing bpgoal component
 
 // The one persisted record: a singleton holding reveal-once bookkeeping.
 const JOURNAL_RECORD_TYPE = 'gamificationjournal';
@@ -601,6 +615,25 @@ function sleepOnsetMinutes(startIso, tzOffsetMin) {
 function pctChangePerWeek(nowT, pastT, windowDays) {
   if (pastT === 0) return 0;
   return ((nowT - pastT) / pastT * 100) * 7 / windowDays;
+}
+
+// emaTrendByDay is THE per-day weight EMA replay (gauges.go trend walk), shared
+// by the substrate gauge and the Goal Line so there is one trend definition:
+// walk calendar days startStr…endStr in order, seed on the first day that has a
+// reading, then current += alpha·(w − current) on every day with one (byDay =
+// one weight per day key). Days before the seed carry 0 (the gauge's historic
+// behavior); callers that start the walk at the first reading never see them.
+function emaTrendByDay(byDay, startStr, endStr, alpha) {
+  const trend = new Map();
+  let current = 0; let have = false;
+  for (let d = startStr; d <= endStr; d = addDays(d, 1)) {
+    if (byDay.has(d)) {
+      const w = byDay.get(d);
+      if (!have) { current = w; have = true; } else current += alpha * (w - current);
+    }
+    trend.set(d, current);
+  }
+  return trend;
 }
 
 // weightPaceStatus / weightAcceleration (gauges.go).
@@ -2365,17 +2398,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     if (dayDiff(msToUTCDay(latestMs), todayStr) > cfg.gaugeWeightVelocityWindowDays) {
       return { status: 'insufficient_data' };
     }
-    const trend = new Map();
-    let current = 0; let have = false;
-    let d = startStr;
-    while (d <= todayStr) {
-      if (byDay.has(d)) {
-        const w = byDay.get(d);
-        if (!have) { current = w; have = true; } else current += cfg.gaugeWeightEMAAlpha * (w - current);
-      }
-      trend.set(d, current);
-      d = addDays(d, 1);
-    }
+    const trend = emaTrendByDay(byDay, startStr, todayStr, cfg.gaugeWeightEMAAlpha);
     const velDays = cfg.gaugeWeightVelocityWindowDays;
     const nowTrend = trend.get(todayStr);
     const pastTrend = trend.get(addDays(todayStr, -velDays)) || 0;
@@ -2889,6 +2912,239 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     return { enabled: true, targets: out };
   }
 
+  // ----- Goal Line (docs/gamification.md §0.3.1) -------------------------------
+  // getGoalLine is the slice-1 spine read-model: the user's weight goal read on
+  // the EMA trend, plus workout / BP facts. Recomputed on read; it persists and
+  // WRITES NOTHING. Every day key here is the owner's LOCAL day (localDayString):
+  // "today" and "this week" are facts the user checks against their own clock,
+  // so the substrate's UTC-day keys (msToUTCDay, loadForRead's memo key) are
+  // deliberately not reused. Weeks are ISO Monday–Sunday (workout.js stats).
+  // `features` is the settings flag map (the shim passes it; absent = all on).
+  async function getGoalLine({ features } = {}) {
+    const on = (k) => !features || !!features[k];
+    const nowMs = now();
+    const today = localDayString(nowMs, timeZone);
+    const sinceMonday = (dayOfWeek(today) + 6) % 7;
+    const monday = addDays(today, -sinceMonday);
+    const [weightAll, goalAll, bpAll, bpGoalAll, groups, variants, rotations, sessionsRaw] = await Promise.all([
+      records.list(WEIGHT_RECORD_TYPE), records.list(WEIGHTGOAL_RECORD_TYPE),
+      records.list(BP_RECORD_TYPE), records.list(BP_GOAL_RECORD_TYPE),
+      records.list(WORKOUT_GROUP_RECORD_TYPE), records.list(WORKOUT_VARIANT_RECORD_TYPE),
+      records.list(WORKOUT_ROTATION_RECORD_TYPE),
+      // RAW: a tombstoned scheduled day must not count as scheduled (bd med-w0fe).
+      records.listRaw(WORKOUT_SESSION_RECORD_TYPE),
+    ]);
+
+    const goal = goalLineWeight(weightAll, goalAll, today, nowMs);
+    const workouts = on('workout')
+      ? goalLineWorkouts({ groups, variants, rotations, sessionsRaw, today, monday, sinceMonday, nowMs })
+      : { feature_on: false, completed_this_week: null, next_scheduled: null, scheduled_this_week: null };
+    const bp = on('bp')
+      ? goalLineBP(bpAll, bpGoalAll, today, monday, nowMs)
+      : { feature_on: false, recorded_today: null, days_this_week: null, mean_7d: null, target: null, status: 'unknown' };
+    const weighedToday = goal.coverage.last_weigh_in_day === today;
+    // Deterministic priority; nothing is "owed" — 'none' is a valid resting state.
+    let cta = 'none';
+    if (!weighedToday && on('weight')) cta = 'weigh_in';
+    else if (workouts.next_scheduled && workouts.next_scheduled.day === today) cta = 'start_session';
+    return { enabled: true, goal, workouts, bp, weighed_today: weighedToday, cta };
+  }
+
+  function round2(x) {
+    return x === null || x === undefined ? null : Math.round(x * 100) / 100;
+  }
+
+  function goalLineWeight(weightAll, goalAll, today, nowMs) {
+    const cfg = DEFAULT_CONFIG;
+    const logs = weightAll
+      .filter((r) => Number.isFinite(r.weight) && Date.parse(r.measured_at) <= nowMs)
+      .sort((a, b) => Date.parse(a.measured_at) - Date.parse(b.measured_at));
+    const byDay = new Map(); // local day → that day's latest reading (ascending walk, last wins)
+    for (const r of logs) byDay.set(localDayString(Date.parse(r.measured_at), timeZone), r.weight);
+    const days = [...byDay.keys()].sort();
+    const latest = logs.length ? logs[logs.length - 1] : null;
+
+    const coverageStart = addDays(today, -(GOAL_LINE_COVERAGE_DAYS - 1));
+    const coverage = {
+      weigh_in_days_28d: days.filter((d) => d >= coverageStart).length,
+      last_weigh_in_day: days.length ? days[days.length - 1] : null,
+    };
+    const preliminary = coverage.weigh_in_days_28d < GOAL_LINE_MIN_WEIGH_IN_DAYS;
+    // Ordered replay from the first reading of a weigh-in run — a fixed origin,
+    // so nothing shifts as old samples leave a moving window. A gap longer than
+    // the coverage window starts a new run: an EMA carried flat across months
+    // would otherwise pass a stale value off as the trend for weeks after the
+    // user returns. runStarts only ever grows at the end (a later gap never
+    // moves an earlier run's start), which keeps an episode's baseline stable.
+    const runStarts = days.length ? [days[0]] : [];
+    for (let i = 1; i < days.length; i++) {
+      if (dayDiff(days[i - 1], days[i]) > GOAL_LINE_COVERAGE_DAYS) runStarts.push(days[i]);
+    }
+    const origin = runStarts[runStarts.length - 1];
+    const trend = days.length ? emaTrendByDay(byDay, origin, today, cfg.gaugeWeightEMAAlpha) : new Map();
+    const trendWeight = preliminary ? null : trend.get(today);
+    const weekAgo = addDays(today, -7);
+    const change7d = (!preliminary && weekAgo >= origin) ? trendWeight - trend.get(weekAgo) : null;
+    // Preliminary shows the latest READING as a reading; distance reads off it.
+    const current = trendWeight !== null ? trendWeight : (latest ? latest.weight : null);
+
+    const out = {
+      status: 'no_goal', target: null, episode_id: null,
+      start_ref: null, start_ref_source: null, start_day: null, direction: null,
+      trend_weight: round2(trendWeight),
+      latest_reading: latest ? { weight: latest.weight, measured_at: latest.measured_at } : null,
+      distance_to_goal: null, change_7d: round2(change7d), coverage,
+      too_fast: false, next_milestone: null,
+    };
+
+    const g = goalAll.filter((r) => Number.isFinite(r.target_weight))
+      .sort((a, b) => Date.parse(b.set_at || 0) - Date.parse(a.set_at || 0))[0];
+    if (!g) return out;
+    const target = g.target_weight;
+    const setMs = Date.parse(g.set_at);
+    let startDay = Number.isFinite(setMs) ? localDayString(setMs, timeZone) : (days[0] || today);
+    if (startDay > today) startDay = today; // a set_at ahead of this device's clock
+    // Episode baseline, stated not implied: the trend on the set day when enough
+    // weigh-in days of the run holding that day, inside the coverage window
+    // ending on it, back it; else the goal's recorded starting reading labeled
+    // first_reading — the two are never silently equated. Only data on or
+    // before the set day decides, so the episode's baseline stays fixed.
+    const baseOrigin = runStarts.filter((d) => d <= startDay).pop();
+    const baselineFrom = addDays(startDay, -(GOAL_LINE_COVERAGE_DAYS - 1));
+    let startRef; let startRefSource;
+    if (baseOrigin !== undefined
+      && days.filter((d) => d >= baseOrigin && d >= baselineFrom && d <= startDay).length >= GOAL_LINE_MIN_WEIGH_IN_DAYS) {
+      const baseTrend = baseOrigin === origin ? trend : emaTrendByDay(byDay, baseOrigin, startDay, cfg.gaugeWeightEMAAlpha);
+      startRef = baseTrend.get(startDay);
+      startRefSource = 'trend_at_set';
+    } else {
+      const firstAfter = days.find((d) => d >= startDay);
+      startRef = Number.isFinite(g.start_weight) ? g.start_weight : (firstAfter ? byDay.get(firstAfter) : null);
+      startRefSource = startRef === null ? null : 'first_reading';
+    }
+    // Direction is fixed for the episode: baseline → target. Never re-derived
+    // from the current trend (weightPaceStatus does that and flips on a crossing).
+    const direction = startRef === null ? null : Math.sign(target - startRef);
+    Object.assign(out, {
+      status: 'ok', target, episode_id: g.recordId,
+      start_ref: round2(startRef), start_ref_source: startRefSource, start_day: startDay, direction,
+      distance_to_goal: current === null ? null : round2(Math.abs(target - current)),
+    });
+    if (preliminary || direction === null) {
+      out.status = 'preliminary';
+      return out;
+    }
+
+    // too_fast: trend velocity toward the target beyond the safe-pace cap — a
+    // safety flag only; no other pace grade exists on the Goal Line.
+    const velDays = cfg.gaugeWeightVelocityWindowDays;
+    const pastDay = addDays(today, -velDays);
+    if (direction !== 0 && pastDay >= origin) {
+      const velocity = pctChangePerWeek(trendWeight, trend.get(pastDay), velDays);
+      out.too_fast = velocity * direction > cfg.weightSafePaceMaxPct;
+    }
+
+    const reached = (v) => direction === 0 || (target - v) * direction <= GOAL_LINE_REACH_KG;
+    if (reached(trendWeight)) {
+      // maintaining = the current reached run has lasted GOAL_LINE_MAINTAIN_DAYS.
+      let runStart = today;
+      const floor = startDay > origin ? startDay : origin;
+      while (runStart > floor && reached(trend.get(addDays(runStart, -1)))) runStart = addDays(runStart, -1);
+      out.status = dayDiff(runStart, today) >= GOAL_LINE_MAINTAIN_DAYS ? 'maintaining' : 'at_goal';
+      return out;
+    }
+
+    // next_milestone: stateless marker along baseline → target. Ordinal k sits
+    // at start_ref + direction·k·spacing; the last ordinal IS the target.
+    const total = Math.abs(target - startRef);
+    const spacing = Math.max(GOAL_LINE_MILESTONE_MIN_KG, total * GOAL_LINE_MILESTONE_FRACTION);
+    const count = Math.ceil(total / spacing - 1e-9);
+    const progressed = (trendWeight - startRef) * direction;
+    const ordinal = Math.max(1, Math.floor(progressed / spacing + 1e-9) + 1);
+    if (ordinal <= count) {
+      const weight = ordinal === count ? target : startRef + direction * ordinal * spacing;
+      const halfway = Math.ceil(total / 2 / spacing - 1e-9);
+      out.next_milestone = {
+        ordinal, count, weight: round2(weight), distance: round2(Math.abs(weight - trendWeight)),
+        is_halfway: ordinal === halfway && ordinal < count, is_goal: ordinal === count,
+      };
+    }
+    return out;
+  }
+
+  // Workout facts: completed sessions this week (distinct session records,
+  // workout.js stats semantics — not the one-flag-per-day Atlas map) plus the
+  // schedule the reminder horizon fires from (workoutScheduleOccurrences).
+  function goalLineWorkouts({ groups, variants, rotations, sessionsRaw, today, monday, sinceMonday, nowMs }) {
+    const sunday = addDays(monday, 6);
+    const inWeek = (d) => !!d && d >= monday && d <= sunday;
+    // scheduled_date's 'YYYY-MM-DD' prefix IS the local day (scheduledDateRFC).
+    const dayOf = (s) => {
+      const m = /^(\d{4}-\d{2}-\d{2})/.exec(String(s.scheduled_date || ''));
+      return m ? m[1] : null;
+    };
+    const live = sessionsRaw.filter((s) => !s.deleted);
+    const completedIds = new Set(live.filter((s) => s.status === 'completed' && inWeek(dayOf(s))).map((s) => s.recordId));
+
+    const { groupOccurrences, adhoc, scheduleGroups } = workoutScheduleOccurrences({
+      workoutGroups: groups, workoutVariants: variants, workoutRotations: rotations, workoutSessions: sessionsRaw,
+      timeZone, now: nowMs, fromDay: -sinceMonday, days: sinceMonday + 7,
+    });
+    // A denominator exists only when an active weekly plan with weekdays exists
+    // — never a guessed default. It counts the PLAN's occurrences this week,
+    // minus tombstoned days; ad-hoc sessions stay out (a spontaneous "start now"
+    // session and a planned one are indistinguishable once done), so completed
+    // may exceed scheduled.
+    const scheduledThisWeek = scheduleGroups === 0 ? null
+      : groupOccurrences.filter((o) => inWeek(o.dateStr) && o.status !== 'deleted').length;
+
+    // "Next" = not yet done: a snoozed ('notified') or in-progress session is
+    // still today's workout (workout.js getNext), unlike the horizon's
+    // fire-once rule.
+    // 'pre_skipped' is an explicit decline (workout.js preSkipSession) — done too.
+    const done = (st) => st === 'completed' || st === 'skipped' || st === 'pre_skipped' || st === 'deleted';
+    const hhmm = (t) => `${String(t.hour).padStart(2, '0')}:${String(t.minute).padStart(2, '0')}`;
+    const candidates = [
+      ...groupOccurrences.filter((o) => o.dateStr >= today && !done(o.status))
+        .map((o) => ({ ms: o.scheduledMs, day: o.dateStr, time: hhmm(o.hhmm), group_title: o.group.name || null })),
+      ...adhoc.filter((a) => a.dateStr >= today)
+        .map((a) => ({ ms: a.scheduledMs, day: a.dateStr, time: hhmm(a.hhmm), group_title: null })),
+    ].sort((a, b) => a.ms - b.ms);
+    const next = candidates[0];
+    return {
+      feature_on: true,
+      completed_this_week: completedIds.size,
+      next_scheduled: next ? { day: next.day, time: next.time, group_title: next.group_title } : null,
+      scheduled_this_week: scheduledThisWeek,
+    };
+  }
+
+  // BP facts: daily-weighted (bp.js, docs/features.md convention) mean of both
+  // components over 7 local days beside the bpgoal target. A fact, never a checkmark.
+  function goalLineBP(bpAll, bpGoalAll, today, monday, nowMs) {
+    const readings = bpAll.filter((r) => !r.ignore_calc && Date.parse(r.measured_at) <= nowMs);
+    const readingDays = new Set(readings.map((r) => localDayString(Date.parse(r.measured_at), timeZone)));
+    const st = buildDailyWeightedStats(readings, nowMs, timeZone, [6]).stats_6; // 6 back + today = 7 local days
+    const mean7d = st ? { systolic: st.systolic, diastolic: st.diastolic, days: st.days } : null;
+    const g = bpGoalAll.find((r) => r.recordId === BP_GOAL_RECORD_ID);
+    const tSys = g && Number.isFinite(g.target_systolic) ? g.target_systolic : null;
+    const tDia = g && Number.isFinite(g.target_diastolic) ? g.target_diastolic : null;
+    let status = 'unknown';
+    if (mean7d) {
+      const above = mean7d.systolic > (tSys !== null ? tSys : DEFAULT_IN_RANGE_SYSTOLIC)
+        || mean7d.diastolic > (tDia !== null ? tDia : GOAL_LINE_DEFAULT_DIASTOLIC);
+      status = above ? 'above' : 'in_range';
+    }
+    return {
+      feature_on: true,
+      recorded_today: readingDays.has(today),
+      days_this_week: [...readingDays].filter((d) => d >= monday && d <= today).length,
+      mean_7d: mean7d,
+      target: tSys === null && tDia === null ? null : { systolic: tSys, diastolic: tDia },
+      status,
+    };
+  }
+
   async function getTargets() {
     return effectiveTargetsView(await readTargets(), DEFAULT_CONFIG);
   }
@@ -2944,6 +3200,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     getTraits, getKeystones,
     // substrate parity (med-eyb)
     getSummary, getRings, getJourney, getGauges, getWeeklyReview,
+    // Goal Line (med-8tur.1)
+    getGoalLine,
     getTargets, putTargets,
   };
 }

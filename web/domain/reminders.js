@@ -291,6 +291,131 @@ export function measureReminderStem(prefix, status, timeZone, now, measuredAtMs 
   return `${prefix}:${Math.floor(slotMs / 1000)}`;
 }
 
+// workoutScheduleOccurrences is the schedule walk the workout reminders fire
+// from, shared with the gamification Goal Line (next_scheduled /
+// scheduled_this_week) so the two can never disagree about what is scheduled.
+// Pure over the record arrays; workoutSessions must be RAW (tombstones
+// included) — a deleted day's tombstone surfaces as status 'deleted'.
+//   groupOccurrences — every matching-weekday occurrence of an ACTIVE group with
+//     a parseable days_of_week + scheduled_time and a resolvable variant, for the
+//     local days today+fromDay … today+fromDay+days-1, each carrying the
+//     materialized session's status (undefined when not materialized yet).
+//   adhoc — planned ad-hoc sessions (status pending, parseable date + time).
+//   scheduleGroups — how many groups produced a schedule (0 = no weekly plan).
+export function workoutScheduleOccurrences({
+  workoutGroups = [], workoutVariants = [], workoutRotations = [], workoutSessions = [],
+  timeZone, now, fromDay = 0, days = FORECAST_DAYS,
+} = {}) {
+  const variants = workoutVariants.filter((v) => !v.deleted);
+  const variantById = new Map(variants.map((v) => [v.id, v]));
+
+  const variantsByGroup = new Map();
+  for (const v of variants) {
+    const list = variantsByGroup.get(v.group_id) || [];
+    list.push(v);
+    variantsByGroup.set(v.group_id, list);
+  }
+  // listVariants order: rotation_order asc (999 default), then name — the
+  // first variant is the non-rotating group's picked variant.
+  for (const list of variantsByGroup.values()) {
+    list.sort((a, b) => {
+      const ra = a.rotation_order !== null && a.rotation_order !== undefined ? a.rotation_order : 999;
+      const rb = b.rotation_order !== null && b.rotation_order !== undefined ? b.rotation_order : 999;
+      if (ra !== rb) return ra - rb;
+      return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+    });
+  }
+
+  const rotationByGroup = new Map();
+  for (const r of workoutRotations.filter((r) => !r.deleted)) {
+    rotationByGroup.set(r.group_id, r.current_variant_id);
+  }
+
+  // resolveVariantId ports next.go's resolveVariantID: rotation cursor for a
+  // rotating group (if present), else the first variant; 0 when none.
+  const resolveVariantId = (group) => {
+    if (group.is_rotating && rotationByGroup.has(group.id)) return rotationByGroup.get(group.id);
+    const vs = variantsByGroup.get(group.id) || [];
+    return vs.length > 0 ? vs[0].id : 0;
+  };
+
+  // Schedule-materialized sessions (real group_id, keyed by local day) suppress
+  // the primary fire once the user has acted: the bot only notifies a 'pending'
+  // session (workout.go step 9), and getNext skips completed/skipped ones. Key
+  // by `group_id|YYYY-MM-DD` — the scheduled_date prefix IS the local day.
+  const sessionStatusByKey = new Map();
+  for (const s of workoutSessions.filter((x) => !x.deleted && x.group_id !== WORKOUT_ADHOC_GROUP_ID)) {
+    const p = /^(\d{4}-\d{2}-\d{2})/.exec(String(s.scheduled_date));
+    if (p) sessionStatusByKey.set(`${s.group_id}|${p[1]}`, s.status);
+  }
+  // A day deleted via deleteSession leaves a TOMBSTONE at the deterministic
+  // slot, and getNext treats that as occupied — the card skips the day. This
+  // horizon used to see only live rows, so it read the day as "never
+  // materialized" and kept firing its recurring reminder: Telegram asked about
+  // a workout the app no longer offered, and the Snooze/Skip buttons on that
+  // push re-materialized the slot (bd med-w0fe). A tombstone carries no body
+  // (records.del writes {recordId, clientTs, deleted}), so the day comes off
+  // the slot id. Ad-hoc sessions have random recordIds and group_id -1, so
+  // neither shape matches — they are left alone.
+  for (const s of workoutSessions) {
+    if (!s.deleted) continue;
+    const m = /^session-(\d+)-(\d{4}-\d{2}-\d{2})$/.exec(String(s.recordId));
+    // 'deleted' is a SENTINEL, not a session status — the only thing read off
+    // this map is "not pending", i.e. do not fire. Never override a live row:
+    // a legacy session at a random recordId can hold the same day, and it is
+    // the one that decides.
+    if (m && !sessionStatusByKey.has(`${m[1]}|${m[2]}`)) {
+      sessionStatusByKey.set(`${m[1]}|${m[2]}`, 'deleted');
+    }
+  }
+
+  const { year, month, day } = localDateParts(now, timeZone);
+  const groupOccurrences = [];
+  let scheduleGroups = 0;
+  for (const group of workoutGroups.filter((g) => !g.deleted && g.active)) {
+    let daysOfWeek;
+    try { daysOfWeek = JSON.parse(group.days_of_week); } catch { continue; }
+    // An active plan with no weekdays schedules nothing — not a denominator.
+    if (!Array.isArray(daysOfWeek) || daysOfWeek.length === 0) continue;
+    const variantId = resolveVariantId(group);
+    if (!variantId) continue;
+    const variant = variantById.get(variantId);
+    if (!variant) continue;
+    const hhmm = parseHHMM(group.scheduled_time);
+    if (!hhmm) continue;
+    scheduleGroups++;
+    for (let d = fromDay; d < fromDay + days; d++) {
+      const occ = new Date(Date.UTC(year, month - 1, day + d));
+      if (!daysOfWeek.includes(occ.getUTCDay())) continue;
+      const dateStr = `${occ.getUTCFullYear()}-${String(occ.getUTCMonth() + 1).padStart(2, '0')}-${String(occ.getUTCDate()).padStart(2, '0')}`;
+      const scheduledMs = localWallToUtcMs(Date.UTC(year, month - 1, day + d, hhmm.hour, hhmm.minute), timeZone);
+      groupOccurrences.push({
+        group, variant, variantId, dateStr, scheduledMs, hhmm,
+        status: sessionStatusByKey.get(`${group.id}|${dateStr}`),
+      });
+    }
+  }
+
+  // Planned ad-hoc sessions (group_id === -1, status 'pending'): a concrete
+  // scheduled_date (local midnight rendered as an offset-stamped instant) +
+  // scheduled_time. The date prefix IS the local calendar day (scheduledDateRFC,
+  // workout.js) — read it as a string, never via UTC parts, which shift the day
+  // backward in positive-offset zones. Re-anchor HH:MM to the local wall.
+  const adhoc = [];
+  for (const s of workoutSessions.filter((s) => !s.deleted && s.group_id === WORKOUT_ADHOC_GROUP_ID && s.status === 'pending')) {
+    const hhmm = parseHHMM(s.scheduled_time);
+    if (!hhmm) continue;
+    const datePrefix = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s.scheduled_date));
+    if (!datePrefix) continue;
+    const scheduledMs = localWallToUtcMs(
+      Date.UTC(+datePrefix[1], +datePrefix[2] - 1, +datePrefix[3], hhmm.hour, hhmm.minute),
+      timeZone,
+    );
+    adhoc.push({ session: s, dateStr: datePrefix[0], scheduledMs, hhmm });
+  }
+  return { groupOccurrences, adhoc, scheduleGroups };
+}
+
 // computeReminderHorizon is pure: medications/intakes are raw records
 // (server field names), timeZone is an IANA string, now is ms epoch, tzPlan
 // is the optional active tzplan record (a passthrough, see tzplan.js).
@@ -457,31 +582,6 @@ export function computeReminderHorizon({
   // can't see, so we emit only the single "workout starting" push — the same
   // accepted limitation as the medication re-reminders above (see the plan).
   if (workoutStatus.enabled) {
-    const variants = workoutVariants.filter((v) => !v.deleted);
-    const variantById = new Map(variants.map((v) => [v.id, v]));
-
-    const variantsByGroup = new Map();
-    for (const v of variants) {
-      const list = variantsByGroup.get(v.group_id) || [];
-      list.push(v);
-      variantsByGroup.set(v.group_id, list);
-    }
-    // listVariants order: rotation_order asc (999 default), then name — the
-    // first variant is the non-rotating group's picked variant.
-    for (const list of variantsByGroup.values()) {
-      list.sort((a, b) => {
-        const ra = a.rotation_order !== null && a.rotation_order !== undefined ? a.rotation_order : 999;
-        const rb = b.rotation_order !== null && b.rotation_order !== undefined ? b.rotation_order : 999;
-        if (ra !== rb) return ra - rb;
-        return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
-      });
-    }
-
-    const rotationByGroup = new Map();
-    for (const r of workoutRotations.filter((r) => !r.deleted)) {
-      rotationByGroup.set(r.group_id, r.current_variant_id);
-    }
-
     const exercisesByVariant = new Map();
     for (const e of workoutExercises.filter((e) => !e.deleted)) {
       const list = exercisesByVariant.get(e.variant_id) || [];
@@ -492,14 +592,6 @@ export function computeReminderHorizon({
       list.sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
     }
 
-    // resolveVariantId ports next.go's resolveVariantID: rotation cursor for a
-    // rotating group (if present), else the first variant; 0 when none.
-    const resolveVariantId = (group) => {
-      if (group.is_rotating && rotationByGroup.has(group.id)) return rotationByGroup.get(group.id);
-      const vs = variantsByGroup.get(group.id) || [];
-      return vs.length > 0 ? vs[0].id : 0;
-    };
-
     const pushWorkout = (fireMs, text, callback) => {
       if (fireMs <= now) return;
       const entry = { fireAtUnix: Math.floor(fireMs / 1000), kind: 'workout', text, genericText: GENERIC_WORKOUT_TEXT };
@@ -509,80 +601,22 @@ export function computeReminderHorizon({
       entries.push(entry);
     };
 
-    // Schedule-materialized sessions (real group_id, keyed by local day) suppress
-    // the primary fire once the user has acted: the bot only notifies a 'pending'
-    // session (workout.go step 9), and getNext skips completed/skipped ones. Key
-    // by `group_id|YYYY-MM-DD` — the scheduled_date prefix IS the local day.
-    const sessionStatusByKey = new Map();
-    for (const s of workoutSessions.filter((x) => !x.deleted && x.group_id !== WORKOUT_ADHOC_GROUP_ID)) {
-      const p = /^(\d{4}-\d{2}-\d{2})/.exec(String(s.scheduled_date));
-      if (p) sessionStatusByKey.set(`${s.group_id}|${p[1]}`, s.status);
-    }
-    // A day deleted via deleteSession leaves a TOMBSTONE at the deterministic
-    // slot, and getNext treats that as occupied — the card skips the day. This
-    // horizon used to see only live rows, so it read the day as "never
-    // materialized" and kept firing its recurring reminder: Telegram asked about
-    // a workout the app no longer offered, and the Snooze/Skip buttons on that
-    // push re-materialized the slot (bd med-w0fe). A tombstone carries no body
-    // (records.del writes {recordId, clientTs, deleted}), so the day comes off
-    // the slot id. Ad-hoc sessions have random recordIds and group_id -1, so
-    // neither shape matches — they are left alone.
-    for (const s of workoutSessions) {
-      if (!s.deleted) continue;
-      const m = /^session-(\d+)-(\d{4}-\d{2}-\d{2})$/.exec(String(s.recordId));
-      // 'deleted' is a SENTINEL, not a session status — the only thing read off
-      // this map is "not pending", i.e. do not fire. Never override a live row:
-      // a legacy session at a random recordId can hold the same day, and it is
-      // the one that decides.
-      if (m && !sessionStatusByKey.has(`${m[1]}|${m[2]}`)) {
-        sessionStatusByKey.set(`${m[1]}|${m[2]}`, 'deleted');
-      }
-    }
-
-    const { year, month, day } = localDateParts(now, timeZone);
-
+    const { groupOccurrences, adhoc } = workoutScheduleOccurrences({
+      workoutGroups, workoutVariants, workoutRotations, workoutSessions, timeZone, now,
+    });
     // Recurring groups: every matching-weekday occurrence within the horizon,
-    // fired at scheduledInstant - notification_advance_minutes.
-    for (const group of workoutGroups.filter((g) => !g.deleted && g.active)) {
-      let daysOfWeek;
-      try { daysOfWeek = JSON.parse(group.days_of_week); } catch { continue; }
-      if (!Array.isArray(daysOfWeek)) continue;
-      const variantId = resolveVariantId(group);
-      if (!variantId) continue;
-      const variant = variantById.get(variantId);
-      if (!variant) continue;
-      const hhmm = parseHHMM(group.scheduled_time);
-      if (!hhmm) continue;
-      const advance = group.notification_advance_minutes || 0;
-      const text = workoutRecurringText(advance, group.name, variant.name, exercisesByVariant.get(variantId) || []);
-      for (let d = 0; d < FORECAST_DAYS; d++) {
-        const occ = new Date(Date.UTC(year, month - 1, day + d));
-        if (!daysOfWeek.includes(occ.getUTCDay())) continue;
-        const dateStr = `${occ.getUTCFullYear()}-${String(occ.getUTCMonth() + 1).padStart(2, '0')}-${String(occ.getUTCDate()).padStart(2, '0')}`;
-        const existingStatus = sessionStatusByKey.get(`${group.id}|${dateStr}`);
-        if (existingStatus !== undefined && existingStatus !== 'pending') continue;
-        const scheduledMs = localWallToUtcMs(Date.UTC(year, month - 1, day + d, hhmm.hour, hhmm.minute), timeZone);
-        const callback = `w:${group.id}:${dateStr.replaceAll('-', '')}`;
-        pushWorkout(scheduledMs - advance * 60 * 1000, text, callback);
-      }
+    // fired at scheduledInstant - notification_advance_minutes. Schedule-
+    // materialized sessions suppress the primary fire once the user has acted
+    // (the bot only notifies a 'pending' session, workout.go step 9) — and a
+    // tombstoned day ('deleted') never fires (bd med-w0fe).
+    for (const o of groupOccurrences) {
+      if (o.status !== undefined && o.status !== 'pending') continue;
+      const advance = o.group.notification_advance_minutes || 0;
+      const text = workoutRecurringText(advance, o.group.name, o.variant.name, exercisesByVariant.get(o.variantId) || []);
+      const callback = `w:${o.group.id}:${o.dateStr.replaceAll('-', '')}`;
+      pushWorkout(o.scheduledMs - advance * 60 * 1000, text, callback);
     }
-
-    // Planned ad-hoc sessions (group_id === -1, status 'pending'): a concrete
-    // scheduled_date (local midnight rendered as an offset-stamped instant) +
-    // scheduled_time. The date prefix IS the local calendar day (scheduledDateRFC,
-    // workout.js) — read it as a string, never via UTC parts, which shift the day
-    // backward in positive-offset zones. Re-anchor HH:MM to the local wall.
-    for (const s of workoutSessions.filter((s) => !s.deleted && s.group_id === WORKOUT_ADHOC_GROUP_ID && s.status === 'pending')) {
-      const hhmm = parseHHMM(s.scheduled_time);
-      if (!hhmm) continue;
-      const datePrefix = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s.scheduled_date));
-      if (!datePrefix) continue;
-      const scheduledMs = localWallToUtcMs(
-        Date.UTC(+datePrefix[1], +datePrefix[2] - 1, +datePrefix[3], hhmm.hour, hhmm.minute),
-        timeZone,
-      );
-      pushWorkout(scheduledMs, WORKOUT_ADHOC_TEXT);
-    }
+    for (const a of adhoc) pushWorkout(a.scheduledMs, WORKOUT_ADHOC_TEXT);
   }
 
   entries.sort((a, b) => a.fireAtUnix - b.fireAtUnix);
