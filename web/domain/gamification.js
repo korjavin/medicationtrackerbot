@@ -833,7 +833,7 @@ export const PROBES = [
     unit: 'kg/wk',
     lag: 0,
     gate: { minPerArm: 3, noiseFloor: 0.2 },
-    arm: (w) => w.workoutDays >= 3,
+    arm: (w) => w.workouts >= 3,
     gauge: (w) => w.trendChange,
     next: 'Weigh in through the week and log your workouts to add a week.',
     revealPhrase: (delta, n) => `In weeks with 3+ workouts your weight trend moved ~${Math.abs(delta).toFixed(1)} kg/week ${delta < 0 ? 'more downward' : 'more upward'} than in other weeks · ${n} weeks`,
@@ -1128,8 +1128,9 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // buildDays materializes the trailing-window per-day signal map from the vault.
   // One pass per record type; every signal buckets on the same local-day string,
   // so a probe's arm/gauge just reads fields off a day object. Recompute-on-read:
-  // nothing here is cached or persisted (§4.2).
-  async function buildDays() {
+  // nothing here is cached or persisted (§4.2). `weight: false` skips the
+  // weight + food-target reads — the forecast never reads weight (§0.5).
+  async function buildDays({ weight = true } = {}) {
     const nowMs = now();
     const windowStartMs = dayStartMs(nowMs - WINDOW_DAYS * DAY_MS, timeZone);
     const days = new Map(); // 'YYYY-MM-DD' -> signal object
@@ -1149,6 +1150,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
           lastMealMs: null,
           lastMealHour: null,
           weighedIn: false,      // goal-relevant fields (med-8tur.10)
+          workoutSessions: 0,    // completed sessions (the weekly probe counts sessions, not days)
           weightTrendStep: null, // the Goal Line trend's EMA step on a weigh-in day (kg)
           foodLogs: 0,
           mealHoursSet: new Set(), // internal: distinct local hours with a food log
@@ -1201,7 +1203,9 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
         : (r.scheduled_date ? Date.parse(`${r.scheduled_date}T12:00:00Z`) : NaN);
       if (!inWindow(ms)) continue;
       const key = r.completed_at ? localDayString(ms, timeZone) : r.scheduled_date;
-      dayObj(key).workoutCompleted = true;
+      const wd = dayObj(key);
+      wd.workoutCompleted = true;
+      wd.workoutSessions += 1;
     }
 
     // Food logs — latest meal hour per day (the late-dinner lever).
@@ -1222,7 +1226,9 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     // window). A weigh-in day carries the EMA step it made, so a week's trend
     // change is the sum of its steps. The run's first reading, and any weigh-in
     // from an earlier run, has no step (null) — a week holding one is unreadable.
-    const run = weightTrendRun(await records.list(WEIGHT_RECORD_TYPE), localDayString(nowMs, timeZone), nowMs);
+    const run = weight
+      ? weightTrendRun(await records.list(WEIGHT_RECORD_TYPE), localDayString(nowMs, timeZone), nowMs)
+      : { days: [] };
     // run.days are local day keys already capped at now — compare keys, not a
     // UTC-midnight anchor (which drops today east of UTC before midnight UTC).
     const windowFirstKey = localDayString(windowStartMs, timeZone);
@@ -1230,9 +1236,12 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       if (key < windowFirstKey) continue;
       const d = dayObj(key);
       d.weighedIn = true;
+      // Materialize the day before, so a lag-1 template pairs this weigh-in
+      // with an otherwise empty rest day (its lever reads false, not absent).
+      if (addDays(key, -1) >= windowFirstKey) dayObj(addDays(key, -1));
       d.weightTrendStep = key > run.origin ? run.trend.get(key) - run.trend.get(addDays(key, -1)) : null;
     }
-    const ft = (await records.list(FOODTARGETS_RECORD_TYPE)).find((r) => r.recordId === 'foodtargets' && !r.deleted);
+    const ft = weight && (await records.list(FOODTARGETS_RECORD_TYPE)).find((r) => r.recordId === 'foodtargets' && !r.deleted);
     const proteinTarget = ft && ft.protein > 0 ? ft.protein : 0;
 
     // Finalize derived BP fields.
@@ -1317,10 +1326,10 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       if (monday < firstKey || addDays(monday, 6) >= todayKey) continue;
       let w = weeks.get(monday);
       if (!w) {
-        w = { key: monday, workoutDays: 0, foodLoggedDays: 0, trendChange: null, unreadable: false };
+        w = { key: monday, workouts: 0, foodLoggedDays: 0, trendChange: null, unreadable: false };
         weeks.set(monday, w);
       }
-      if (d.workoutCompleted) w.workoutDays += 1;
+      w.workouts += d.workoutSessions;
       if (d.foodLogs > 0) w.foodLoggedDays += 1;
       if (d.weighedIn) {
         if (d.weightTrendStep === null) w.unreadable = true;
@@ -1621,7 +1630,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // quote a probability and the calibration meter carries the progress instead.
   async function getForecast() {
     const nowMs = now();
-    const [days, band] = await Promise.all([buildDays(), inRangeBand()]);
+    const [days, band] = await Promise.all([buildDays({ weight: false }), inRangeBand()]);
     const { good, short } = forecastPairs(days, band);
     const nGood = good.length;
     const nShort = short.length;
