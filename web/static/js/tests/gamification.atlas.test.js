@@ -37,7 +37,8 @@ function dayAt(offset) {
 function bpRec(offset, systolic) {
   return {
     recordId: `bp-${offset}`, deleted: false,
-    measured_at: isoAt(offset), systolic, diastolic: 80, ignore_calc: false,
+    // 07:00 UTC: firstMorningSystolic only counts readings before local noon.
+    measured_at: new Date(NOW - offset * DAY_MS - 5 * 3600000).toISOString(), systolic, diastolic: 80, ignore_calc: false,
   };
 }
 function workoutRec(offset) {
@@ -190,6 +191,130 @@ describe('gamification Discovery Atlas — probe evaluator', () => {
     // Zero server-side reads: every number came from the injected records port.
     expect(cardById(atlas, 'workout_next_morning_bp').state).toBe('revealed');
     expect(cardById(atlas, 'short_sleep_next_day_steps').state).toBe('developing');
+  });
+});
+
+// --- Morning gauge (med-8tur.14) ---------------------------------------------
+// firstMorningSystolic only counts a day's earliest reading before local noon,
+// so evening-only readings never feed a "next-morning" probe.
+describe('gamification Discovery Atlas — morning-only gauge', () => {
+  it('evening-only readings in the short-night arm never reveal', async () => {
+    for (const [shortNightHour, expected] of [[7, 'revealed'], [19, 'developing']]) {
+      const bp = [];
+      const sleep = [];
+      for (let offset = 0; offset < 26; offset++) {
+        const short = offset % 2 === 0;
+        sleep.push(sleepRec(offset, short ? 360 : 480, 60));
+        const hour = short ? shortNightHour : 7;
+        bp.push({
+          recordId: `bp-${offset}`, deleted: false, ignore_calc: false, diastolic: 80,
+          measured_at: new Date(NOW - offset * DAY_MS - (12 - hour) * 3600000).toISOString(),
+          systolic: short ? 140 : 120,
+        });
+      }
+      const { gam } = domainOver({ bp, sleep });
+      const card = cardById(await gam.getAtlas({ whatsNew: false }), 'short_sleep_next_morning_bp');
+      expect(card.state).toBe(expected);
+    }
+  });
+});
+
+// --- Sleep-timing probes (med-8tur.15) ---------------------------------------
+// Bedtime vs the window's own median onset; gauge = next-morning systolic.
+describe('gamification Discovery Atlas — sleep-timing probes', () => {
+  const TIMING = ['late_bedtime_next_morning_bp', 'irregular_bedtime_next_morning_bp'];
+
+  // A night ending on wake day `offset`: bedtime at `localMin` minutes after
+  // the previous local midnight (23:30 = 1410, 01:00 = 1500) on a clock
+  // `tz` minutes west of UTC (the sleep record's timezone_offset).
+  function night({ offset, localMin, tz = 0, minutes = 420 }) {
+    const wakeMidnight = Date.parse(`${dayAt(offset)}T00:00:00Z`);
+    const start = wakeMidnight - DAY_MS + localMin * 60000 + tz * 60000;
+    const rec = {
+      recordId: `sleep-${offset}`, deleted: false, day: dayAt(offset),
+      start_time: new Date(start).toISOString(), timezone_offset: tz,
+    };
+    if (minutes !== undefined) rec.total_minutes = minutes;
+    return rec;
+  }
+
+  // 20 usual nights (23:00) and `late` late nights (01:00), each followed by
+  // a morning reading: usualBp / lateBp.
+  function timingVault({ late = 10, usualBp = 125, lateBp = 135 } = {}) {
+    const sleep = [];
+    const bp = [];
+    for (let offset = 0; offset < 20 + late; offset++) {
+      const isLate = offset < late;
+      sleep.push(night({ offset, localMin: isLate ? 1500 : 1380 }));
+      bp.push(bpRec(offset, isLate ? lateBp : usualBp));
+    }
+    return { sleep, bp };
+  }
+
+  it('reveals later-than-usual bedtimes with the delta and its spread', async () => {
+    const { gam } = domainOver(timingVault());
+    const atlas = await gam.getAtlas({ whatsNew: false });
+    for (const id of TIMING) {
+      const card = cardById(atlas, id);
+      expect(card.state).toBe('revealed');
+      expect(Math.round(card.delta)).toBe(10);
+      expect(card.n).toBe(30);
+      expect(Number.isFinite(card.se)).toBe(true);
+      expect(card.text).toContain('~10 mmHg higher · 30 paired days');
+    }
+  });
+
+  it('reports matching mornings as no_effect', async () => {
+    const { gam } = domainOver(timingVault({ usualBp: 120, lateBp: 121 }));
+    const atlas = await gam.getAtlas({ whatsNew: false });
+    for (const id of TIMING) {
+      const card = cardById(atlas, id);
+      expect(card.state).toBe('no_effect');
+      expect(card.text).toMatch(/about the same/);
+      expect(card).not.toHaveProperty('se');
+    }
+  });
+
+  it('stays developing below 8 nights per arm', async () => {
+    const { gam } = domainOver(timingVault({ late: 5 }));
+    const atlas = await gam.getAtlas({ whatsNew: false });
+    for (const id of TIMING) {
+      const card = cardById(atlas, id);
+      expect(card.state).toBe('developing');
+      expect(card.have).toBe(5);
+      expect(card.next).toMatch(/sleep/);
+    }
+  });
+
+  it('needs 5 nights with a bedtime: start_time-only nights count, minutes-only nights never do', async () => {
+    const bp = Array.from({ length: 90 }, (_, offset) => bpRec(offset, 120));
+    const sleep = [1, 2, 3, 4].map((offset) => night({ offset, localMin: 1380 }));
+    // No start_time → no bedtime (and no NaN), however long the night.
+    sleep.push({ recordId: 'sleep-5', deleted: false, day: dayAt(5), total_minutes: 600 });
+    let atlas = await domainOver({ bp, sleep }).gam.getAtlas({ whatsNew: false });
+    for (const id of TIMING) expect(cardById(atlas, id).have).toBe(0);
+
+    // A late night with a start_time but no total_minutes is the fifth onset.
+    sleep.push(night({ offset: 6, localMin: 1500, minutes: undefined }));
+    atlas = await domainOver({ bp, sleep }).gam.getAtlas({ whatsNew: false });
+    for (const id of TIMING) expect(cardById(atlas, id).have).toBe(1);
+  });
+
+  it('reads each night on its own clock: 23:30 in UTC-5 and UTC+3 are both usual', async () => {
+    const sleep = [];
+    const bp = [];
+    for (let offset = 0; offset < 28; offset++) {
+      const isLate = offset < 8;
+      sleep.push(isLate
+        ? night({ offset, localMin: 1500 })
+        : night({ offset, localMin: 1410, tz: offset % 2 ? 300 : -180 }));
+      bp.push(bpRec(offset, isLate ? 140 : 120));
+    }
+    const atlas = await domainOver({ sleep, bp }).gam.getAtlas({ whatsNew: false });
+    const card = cardById(atlas, 'late_bedtime_next_morning_bp');
+    expect(card.state).toBe('revealed');
+    expect(Math.round(card.delta)).toBe(20); // every shifted-zone night sat in the usual arm
+    expect(card.n).toBe(28);
   });
 });
 

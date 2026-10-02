@@ -544,7 +544,13 @@
 
         // revealed / no_effect — both terminal findings with equal dignity. The
         // finding states the question, so there is no separate question line.
-        item.appendChild(el('p', 'wg-journey-atlas__finding', card.text || card.question));
+        const finding = el('p', 'wg-journey-atlas__finding', card.text || card.question);
+        // Honest spread: ± two standard errors of the delta, when the domain sent one.
+        if (card.state === 'revealed' && Number.isFinite(card.se)) {
+            const spread = card.unit === 'kg/wk' ? (2 * card.se).toFixed(1) : Math.round(2 * card.se);
+            finding.appendChild(el('span', 'wg-journey-atlas__spread wg-muted', `±${spread} ${card.unit || ''}`.trim()));
+        }
+        item.appendChild(finding);
         const tags = el('div', 'wg-journey-atlas__tags');
         if (isNew) tags.appendChild(el('span', 'wg-tag wg-tag--mono wg-tag--sun wg-journey-atlas__tag--new', 'New'));
         tags.appendChild(el('span', 'wg-tag wg-tag--mono wg-journey-atlas__tag',

@@ -139,6 +139,13 @@ function meanOr0(xs) {
   return xs.reduce((a, b) => a + b, 0) / xs.length;
 }
 
+// sampleVar: unbiased (n−1) variance; 0 for fewer than two values.
+function sampleVar(xs) {
+  if (xs.length < 2) return 0;
+  const m = mean(xs);
+  return xs.reduce((a, x) => a + (x - m) ** 2, 0) / (xs.length - 1);
+}
+
 function medianOf(xs) {
   if (!xs.length) return 0;
   const s = xs.slice().sort((a, b) => a - b);
@@ -722,7 +729,7 @@ export const scoring = {
 };
 
 // -------------------------------------------------------------------------
-// The probe catalog. Six pre-registered lever→gauge questions. Each probe:
+// The probe catalog: pre-registered lever→gauge questions. Each probe:
 //   lag        — 0 = gauge read on the same day the lever is classified;
 //                1 = gauge read the next calendar day.
 //   gate       — { minPerArm, noiseFloor }. minPerArm is required in BOTH arms
@@ -762,6 +769,33 @@ export const PROBES = [
     next: 'Keep logging sleep and a morning BP reading to add a pair.',
     revealPhrase: (delta, n) => `Mornings after nights under 7h: systolic ~${Math.abs(Math.round(delta))} mmHg ${delta > 0 ? 'higher' : 'lower'} · ${n} paired days`,
     noEffectPhrase: (n) => `Your morning BP looks steady regardless of sleep length — solid · ${n} days`,
+  },
+  // Sleep-timing probes (med-8tur.15): bedtime vs the user's OWN median onset
+  // over the window (onsetDeviationMin, null below HS_MIN_NIGHTS nights), so
+  // shift workers and early birds are compared to themselves, never a clock.
+  {
+    id: 'late_bedtime_next_morning_bp',
+    question: 'Do later-than-usual bedtimes show in your next-morning blood pressure?',
+    unit: 'mmHg',
+    lag: 0, // sleep.day is the wake day; the morning reading shares that date
+    gate: { minPerArm: 8, noiseFloor: 3 },
+    arm: (d) => (d.onsetDeviationMin === null ? null : d.onsetDeviationMin >= 60),
+    gauge: (d) => d.firstMorningSystolic,
+    next: 'Import your band’s sleep and log a BP reading before noon to add a pair.',
+    revealPhrase: (delta, n) => `Mornings after bedtimes an hour+ later than usual: systolic ~${Math.abs(Math.round(delta))} mmHg ${delta > 0 ? 'higher' : 'lower'} · ${n} paired days`,
+    noEffectPhrase: (n) => `Your morning BP looks about the same after late bedtimes as after usual ones · ${n} days`,
+  },
+  {
+    id: 'irregular_bedtime_next_morning_bp',
+    question: 'Does an off-schedule bedtime (either way) show in your next-morning blood pressure?',
+    unit: 'mmHg',
+    lag: 0,
+    gate: { minPerArm: 8, noiseFloor: 3 },
+    arm: (d) => (d.onsetDeviationMin === null ? null : Math.abs(d.onsetDeviationMin) > 60),
+    gauge: (d) => d.firstMorningSystolic,
+    next: 'Import your band’s sleep and log a BP reading before noon to add a pair.',
+    revealPhrase: (delta, n) => `Mornings after off-schedule bedtimes (an hour+ either way): systolic ~${Math.abs(Math.round(delta))} mmHg ${delta > 0 ? 'higher' : 'lower'} · ${n} paired days`,
+    noEffectPhrase: (n) => `Your morning BP looks about the same after off-schedule bedtimes as after on-schedule ones · ${n} days`,
   },
   {
     id: 'weekend_systolic',
@@ -881,18 +915,18 @@ export const EXPERIMENT_TEMPLATES = [
   {
     id: 'bedtime_window',
     fromProbe: 'short_sleep_next_morning_bp',
-    title: 'A steady bedtime window',
+    title: 'A 7h+ night',
     intention: 'When it’s 22:30, I will start winding down for a 7h+ night.',
-    measure: 'Your next-morning systolic on window-nights (7h+) vs shorter nights.',
+    measure: 'Your next-morning systolic after 7h+ nights vs shorter nights.',
     unit: 'mmHg',
     lag: 0, // sleep wake-day shares the morning reading's date
     noiseFloor: 3,
     lever: (d) => (d.sleepMinutes === null ? null : d.sleepMinutes >= 7 * 60),
     gauge: (d) => d.firstMorningSystolic,
-    onLabel: 'window nights',
+    onLabel: '7h+ nights',
     offLabel: 'shorter nights',
-    effectPhrase: (delta, n) => `On your window nights, mornings ran ~${Math.abs(Math.round(delta))} mmHg ${delta < 0 ? 'lower' : 'higher'} · ${n} paired days`,
-    noEffectPhrase: (n) => `Your morning BP held steady whether or not you hit the window — a clean null result over ${n} days`,
+    effectPhrase: (delta, n) => `After your 7h+ nights, mornings ran ~${Math.abs(Math.round(delta))} mmHg ${delta < 0 ? 'lower' : 'higher'} · ${n} paired days`,
+    noEffectPhrase: (n) => `Your morning BP held steady whether or not you slept 7h+ — a clean null result over ${n} days`,
   },
   {
     id: 'workout_cadence',
@@ -1144,6 +1178,9 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
           sleepMinutes: null,
           sleepHeartRate: null,
           sleepBestMinutes: -1, // internal: pick the longest session's HR
+          sleepOnsetMin: null,     // bedtime, minutes since the previous local noon (med-8tur.15)
+          sleepOnsetBest: -1,      // internal: pick the longest session's onset
+          onsetDeviationMin: null, // sleepOnsetMin − the window's median onset
           steps: null,
           workoutCompleted: false,
           lastMealMs: null,
@@ -1171,18 +1208,27 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       dayObj(localDayString(ms, timeZone)).systolics.push({ ms, systolic: r.systolic });
     }
 
-    // Sleep — total minutes + a resting-HR proxy, bucketed on the wake day.
+    // Sleep — total minutes + a resting-HR proxy + bedtime, bucketed on the
+    // wake day. A night with a start_time but no total_minutes still has an
+    // onset; one with neither contributes nothing.
     for (const r of await records.list(SLEEP_RECORD_TYPE)) {
-      if (r.total_minutes === null || r.total_minutes === undefined) continue;
+      const hasMinutes = r.total_minutes !== null && r.total_minutes !== undefined;
+      const onset = r.start_time ? sleepOnsetMinutes(r.start_time, r.timezone_offset || 0) : NaN;
+      if (!hasMinutes && !Number.isFinite(onset)) continue;
       const key = r.day || (r.start_time ? localDayString(Date.parse(r.start_time), timeZone) : '');
       if (!key) continue;
       const anchorMs = Date.parse(`${key}T00:00:00Z`);
       if (!inWindow(anchorMs)) continue;
       const d = dayObj(key);
-      d.sleepMinutes = (d.sleepMinutes || 0) + r.total_minutes;
-      if (r.heart_rate_avg && r.total_minutes > d.sleepBestMinutes) {
+      const minutes = hasMinutes ? r.total_minutes : 0;
+      if (hasMinutes) d.sleepMinutes = (d.sleepMinutes || 0) + r.total_minutes;
+      if (r.heart_rate_avg && hasMinutes && r.total_minutes > d.sleepBestMinutes) {
         d.sleepBestMinutes = r.total_minutes;
         d.sleepHeartRate = r.heart_rate_avg;
+      }
+      if (Number.isFinite(onset) && minutes > d.sleepOnsetBest) {
+        d.sleepOnsetBest = minutes;
+        d.sleepOnsetMin = onset;
       }
     }
 
@@ -1241,11 +1287,24 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     const ft = (await records.list(FOODTARGETS_RECORD_TYPE)).find((r) => r.recordId === 'foodtargets' && !r.deleted);
     const proteinTarget = ft && ft.protein > 0 ? ft.protein : 0;
 
+    // Bedtime deviation from the window's own median onset: a centering
+    // constant (self-relative, never a fixed clock), not a fitted model. Both
+    // fields stay null below HS_MIN_NIGHTS onsets.
+    const onsetDays = [...days.values()].filter((d) => d.sleepOnsetMin !== null);
+    if (onsetDays.length >= HS_MIN_NIGHTS) {
+      const medianOnset = medianOf(onsetDays.map((d) => d.sleepOnsetMin));
+      for (const d of onsetDays) d.onsetDeviationMin = d.sleepOnsetMin - medianOnset;
+    }
+
     // Finalize derived BP fields.
     for (const d of days.values()) {
       if (d.systolics.length > 0) {
         d.systolics.sort((a, b) => a.ms - b.ms);
-        d.firstMorningSystolic = d.systolics[0].systolic;
+        // A morning gauge only from a morning reading: the day's earliest
+        // reading counts when it is before local noon, else the day has none.
+        // ponytail: a fixed noon cut-off; upgrade to "within N h of that
+        // night's sleep end_time" when sleep is known, if late risers matter.
+        d.firstMorningSystolic = localHour(d.systolics[0].ms, timeZone) < 12 ? d.systolics[0].systolic : null;
         d.meanSystolic = mean(d.systolics.map((s) => s.systolic));
       } else {
         d.firstMorningSystolic = null;
@@ -1305,6 +1364,9 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       n,
       mean_true: mean(armTrue),
       mean_false: mean(armFalse),
+      // Standard error of the delta (Welch): honest spread shown beside the
+      // number; the verdict above stays the noise-floor rule.
+      se: Math.sqrt(sampleVar(armTrue) / nTrue + sampleVar(armFalse) / nFalse),
       text: probe.revealPhrase(delta, n),
     };
   }
@@ -1847,7 +1909,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     let morningReadings = 0;
     for (const d of days.values()) {
       if (d.key < startDay || d.key > endDay) continue;
-      const logged = d.firstMorningSystolic !== null || d.sleepMinutes !== null || d.workoutCompleted;
+      const logged = d.meanSystolic !== null || d.sleepMinutes !== null || d.workoutCompleted;
       if (logged) loggedDays += 1;
       if (d.sleepMinutes !== null && d.sleepMinutes >= 7 * 60) windowNights += 1;
       if (d.workoutCompleted === true) moveDays += 1;

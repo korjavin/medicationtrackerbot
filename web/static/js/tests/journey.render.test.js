@@ -772,6 +772,21 @@ describe('Journey render', () => {
         expect(card.classList.contains('wg-journey-atlas__card--new')).toBe(false);
     });
 
+    it('revealed Atlas card shows ± two standard errors only when se is a finite number', () => {
+        const base = {
+            id: 'late_bedtime_next_morning_bp', question: 'Q', unit: 'mmHg',
+            state: 'revealed', delta: 9, n: 30, seen: true,
+            text: 'Mornings after bedtimes an hour+ later than usual: systolic ~9 mmHg higher · 30 paired days',
+        };
+        env.window.Gamification.render(journey({
+            atlas: { cards: [{ ...base, se: 2.4 }, { ...base, id: 'no_se', text: 'no spread here', se: null }] },
+        }));
+        const spreads = env.document.querySelectorAll('.wg-journey-atlas__spread');
+        expect(spreads).toHaveLength(1);
+        expect(spreads[0].textContent).toBe('±5 mmHg');
+        expect(spreads[0].parentElement.textContent).toContain('9 mmHg higher');
+    });
+
     it('no_effect Atlas card is rendered as a genuine finding, not a blank', () => {
         env.window.Gamification.render(journey({
             atlas: {
