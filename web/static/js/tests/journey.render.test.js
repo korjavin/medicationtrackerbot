@@ -1081,7 +1081,7 @@ describe('Journey render', () => {
         expect(card).not.toBeNull();
         // Honest leakage note is present, and the weekly/workout buttons always show.
         expect(card.querySelector('.wg-journey-narrator__note').textContent)
-            .toBe('Optional — sends computed summaries, never raw logs, to your own AI key.');
+            .toBe('Optional — sends computed summaries, never raw logs, to your own AI key or, with your consent, the trial AI.');
         const labels = [...card.querySelectorAll('button')].map((b) => b.textContent);
         expect(labels).toContain('Narrate my week');
         expect(labels).toContain('Workout insight');

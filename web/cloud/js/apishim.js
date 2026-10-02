@@ -1260,13 +1260,11 @@ export function createApiRouter(ctx, {
     // returns { text: null } and journey.js keeps its deterministic cards.
     if (path === '/api/gamification/narrate' && method === 'GET') return { enabled: true };
     if (path === '/api/gamification/narrate/weekly' && method === 'POST') {
-      // whatsNew:false — the narrator never reads the strip, and computing it
-      // would re-derive the five payloads this Promise.all already holds.
-      const [atlas, forecast, experiments, chapter, traits, keystones] = await Promise.all([
-        gamification.getAtlas({ whatsNew: false }), gamification.getForecast(), gamification.listExperiments(),
-        gamification.getChapter(), gamification.getTraits(), gamification.getKeystones(),
-      ]);
-      return narrator.narrateWeekly({ atlas, forecast, experiments, chapter, traits, keystones });
+      // The goal recap (med-8tur.8): the completed-week review — its weight row
+      // is the Goal Line as of the reviewed Sunday — under the same feature
+      // flags the /weekly-review route uses.
+      const review = await gamification.getWeeklyReview({ features: clampFeatures(await settings.getFeatures()) });
+      return narrator.narrateWeekly({ review });
     }
     if (path === '/api/gamification/narrate/chapter' && method === 'POST') {
       return narrator.narrateChapter(await gamification.getChapter());

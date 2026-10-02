@@ -183,6 +183,13 @@ skips that week's weigh-in pushes (`computeReminderHorizon`
 *defers* a verdict and blocks a new start. The digest (`formatWeeklyDigest`)
 puts the goal reading on the Web Push body only; the Telegram text stays
 goal-free. The vault carries the records in `gamification.weeks`.
+*Narrator recap (med-8tur.8):* `POST /api/gamification/narrate/weekly`
+feeds `narrateWeekly` the review (its weight row is the Goal Line as of the
+reviewed Sunday, incl. direction and progress); `weeklyPayload` in
+`web/cloud/js/gamification-narrator.js` is the whitelist (counts, kg deltas,
+BP means — no absolute weight, dates, ids or free text) and the prompt forbids
+attribution and pace grading. Same egress as before (the
+`gamification-narration` manifest row); one recap per week is cached in memory.
 
 **0.3.5 Milestones.** Reached markers become durable records
 (`gamificationmilestone-<episode>-<ordinal>`), materialized from a read path
@@ -195,8 +202,8 @@ regression never removes one; a goal edit starts a new episode.
 serves `getGoalLine` plus `milestone` (the newest unacknowledged one; one ack
 retires it and every earlier one of the episode),
 `POST /api/gamification/milestones/:id/ack` is the user write, and
-`getKeystones` merges every episode's milestones (`kind: 'goal_milestone'`,
-kept out of the narrator payload until med-8tur.8). The vault carries them in
+`getKeystones` merges every episode's milestones (`kind: 'goal_milestone'`;
+the narrator sees only the week's milestone count, via the review). The vault carries them in
 `gamification.milestones`, keyed by `goal_set_at` (docs/vault-format.md).
 
 **0.3.6 Together: the joint observation.** The holistic link is shown as a

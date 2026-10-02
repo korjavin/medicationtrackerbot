@@ -2966,6 +2966,10 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       feature_on: true,
       status: g.trend_weight === null ? 'unknown' : 'ok',
       goal_status: g.status,
+      // Direction + progress of the goal in force at the week's end, so the
+      // recap never pairs this week's facts with a goal edited since.
+      goal_direction: g.direction,
+      progress_fraction: g.progress ? g.progress.fraction : null,
       trend_weight: g.trend_weight,
       trend_change_kg: g.change_7d,
       distance_to_goal: g.distance_to_goal,
