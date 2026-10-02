@@ -34,6 +34,23 @@ export const DELIVERY_CHANNELS = ['webpush', 'telegram', 'both'];
 export const WEIGHT_CADENCES = ['weekly', 'daily'];
 export const VERBOSITIES = ['detailed', 'generic'];
 
+// isoWeekKey names the ISO-8601 week (Monday–Sunday) holding a 'YYYY-MM-DD'
+// calendar day as '<isoWeekYear>-W<ww>' — the week identity of the weekly
+// plan record (gamification.js gamificationweek-<key>, docs/gamification.md
+// §0.3.4). The week-year comes from the week's Thursday, so 2027-01-01 (a
+// Friday) is '2026-W53', never '2027-W53'. Pure calendar maths: a timezone
+// edit changes which local DAY "now" is, never the key of a stored day.
+export function isoWeekKey(day) {
+  const DAY = 86400000;
+  const d = Date.parse(`${day}T00:00:00Z`);
+  const thursday = d + (3 - ((new Date(d).getUTCDay() + 6) % 7)) * DAY;
+  const year = new Date(thursday).getUTCFullYear();
+  const jan4 = Date.UTC(year, 0, 4);
+  const firstThursday = jan4 + (3 - ((new Date(jan4).getUTCDay() + 6) % 7)) * DAY;
+  const week = 1 + Math.round((thursday - firstThursday) / (7 * DAY));
+  return `${year}-W${String(week).padStart(2, '0')}`;
+}
+
 const FORECAST_DAYS = 7;
 // ponytail: hard cap far under the relay's 2000-entry/4KB limit; unrealistic
 // to hit with real schedules, guards a pathological edge case only.
@@ -145,94 +162,85 @@ function lowStockText(lowMeds) {
   return lines.join('\n');
 }
 
-// ---- Weekly digest (med-eas.58) --------------------------------------------
-// Ports the Go text formatter internal/bot/gamification_commands.go's
-// FormatWeeklyReview + friends line-for-line. Input is the snake_case
-// WeeklyReview read model web/domain/gamification.js getWeeklyReview() returns
-// (identical shape to the Go read model). Kept pure so the same file runs in
-// goja server-side later. Wired into the horizon by web/cloud/js/reminders.js
-// (Task 5).
-const DIGEST_LEVER_LABELS = { bedtime: 'Bedtime', movement: 'Movement', nourishment: 'Nourishment' };
-const DIGEST_PACE_LABELS = {
-  on_pace: 'on pace',
-  too_slow: 'slower than your pace',
-  too_fast: 'faster than your pace',
-  wrong_direction: 'moving away from goal',
-};
-const DIGEST_ACCEL_LABELS = { speeding_up: 'speeding up', holding: 'holding steady', slowing: 'slowing' };
+// ---- Weekly digest (med-eas.58, re-anchored on the goal by med-8tur.4) ----
+// Renders getWeeklyReview()'s three fact rows (docs/gamification.md §0.3.4) —
+// weight, workouts, BP — for the most recently completed week, the best day,
+// and the nudge to pick next week's intention in the app. No composite score
+// (the Health Score is hidden), no ring lines; a missing row reads as unknown.
+// Kept pure so the same file runs in goja server-side later. Wired into the
+// horizon by web/cloud/js/reminders.js. `unit` is the weight display unit.
+// `goalFree` drops the goal reading (distance / at-goal / milestone) — the
+// Telegram text reaches the relay in plaintext, so like the weigh-in push the
+// goal rides only the Web Push body (push.js `pushText`).
 const DIGEST_WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-function digestScoreLine(hs) {
-  if (!hs || !hs.now || hs.now.value === null || hs.now.value === undefined) return '';
-  const now = Math.round(hs.now.value);
-  if (!hs.prior || hs.prior.value === null || hs.prior.value === undefined) return `Health Score ${now}`;
-  const delta = now - Math.round(hs.prior.value);
-  if (delta === 0) return `Health Score ${now} \u{00B7} holding steady`;
-  return delta > 0 ? `Health Score ${now} \u{00B7} up ${delta}` : `Health Score ${now} \u{00B7} down ${-delta}`;
+function digestKg(kg, unit) {
+  const lb = unit === 'lb';
+  return `${(Math.round((lb ? kg / KG_PER_LB : kg) * 10) / 10).toFixed(1)} ${lb ? 'lb' : 'kg'}`;
 }
 
-function digestLeverLine(levers) {
-  if (!levers || levers.length === 0) return '';
-  return levers.map((lv, i) => {
-    const label = DIGEST_LEVER_LABELS[lv.key] || lv.key;
-    return i === 0 ? `${label} closed ${lv.closed_this_week} of 7` : `${label} ${lv.closed_this_week}`;
-  }).join(' \u{00B7} ');
+function digestWeightRow(w, unit, goalFree) {
+  if (!w || w.feature_on === false) return '';
+  const n = Number(w.weigh_in_days) || 0;
+  const days = `${n} weigh-in${n === 1 ? '' : 's'}`;
+  if (w.status !== 'ok') return `Weight: ${days} \u{00B7} not enough for a trend yet`;
+  const parts = [];
+  if (Number.isFinite(w.trend_change_kg)) {
+    const c = w.trend_change_kg;
+    parts.push(`trend ${c > 0 ? '+' : c < 0 ? '\u2212' : '\u00B1'}${digestKg(Math.abs(c), unit)}`);
+  } else if (Number.isFinite(w.trend_weight)) {
+    parts.push(`trend ${digestKg(w.trend_weight, unit)}`);
+  }
+  if (!goalFree) {
+    if (w.goal_status === 'at_goal' || w.goal_status === 'maintaining') parts.push('at your goal');
+    else if (Number.isFinite(w.distance_to_goal)) parts.push(`${digestKg(w.distance_to_goal, unit)} to go`);
+  }
+  parts.push(days);
+  if (!goalFree && Array.isArray(w.milestones_reached) && w.milestones_reached.length) parts.push('milestone reached');
+  return `Weight: ${parts.join(' \u{00B7} ')}`;
 }
 
-function digestWeightLine(w) {
-  if (!w || w.status !== 'ok') return '';
-  const sign = w.velocity_pct_per_week >= 0 ? '+' : '';
-  const parts = [`${sign}${w.velocity_pct_per_week.toFixed(1)}%/wk`];
-  const pace = DIGEST_PACE_LABELS[w.pace_status];
-  if (pace) parts.push(pace);
-  const accel = DIGEST_ACCEL_LABELS[w.acceleration];
-  if (accel) parts.push(accel);
-  return 'Weight ' + parts.join(' \u{00B7} ');
+function digestWorkoutRow(wo) {
+  if (!wo || wo.feature_on === false) return '';
+  const done = Number(wo.completed) || 0;
+  return Number.isFinite(wo.scheduled)
+    ? `Workouts: ${done} of ${wo.scheduled} scheduled`
+    : `Workouts: ${done} session${done === 1 ? '' : 's'}`;
 }
 
-function digestBPLine(bp, priorShare) {
-  if (!bp || bp.status !== 'ok' || !(bp.count_30d > 0)) return '';
-  const share = Math.round((bp.share_30d || 0) * 100);
-  const prior = Math.round((priorShare || 0) * 100);
-  if (prior <= 0) return `BP in range ${share}%`;
-  const delta = share - prior;
-  const word = delta > 0 ? `up from ${prior}%` : delta < 0 ? `down from ${prior}%` : 'holding steady';
-  return `BP in range ${share}% \u{00B7} ${word}`;
-}
-
-function digestRestingHRLine(hr) {
-  if (!hr || hr.status !== 'ok') return '';
-  const recent = Math.round(hr.recent_14d_mean);
-  const delta = Math.round(hr.delta_from_baseline);
-  const deltaWord = delta > 0 ? `${delta} above your baseline`
-    : delta < 0 ? `${-delta} below your baseline` : 'at your baseline';
-  return `Resting HR ${recent} avg \u{00B7} ${deltaWord}`;
+function digestBPRow(bp) {
+  if (!bp || bp.feature_on === false) return '';
+  if (!bp.mean) return 'BP: no readings this week';
+  let text = `BP: avg ${Math.round(bp.mean.systolic)}/${Math.round(bp.mean.diastolic)}`;
+  if (bp.target && (Number.isFinite(bp.target.systolic) || Number.isFinite(bp.target.diastolic))) {
+    const t = (x) => (Number.isFinite(x) ? String(x) : '\u2014');
+    text += ` vs ${t(bp.target.systolic)}/${t(bp.target.diastolic)}`;
+  }
+  const n = Number(bp.days_measured) || 0;
+  return `${text} \u{00B7} ${n} day${n === 1 ? '' : 's'} measured`;
 }
 
 function digestBestDayLine(bd) {
   if (!bd) return '';
-  const day = DIGEST_WEEKDAYS[new Date(bd.day_unix * 1000).getUTCDay()];
-  const plural = bd.rings_closed === 1 ? '' : 's';
-  return `Best day: ${day} \u{00B7} ${bd.rings_closed} ring${plural} closed`;
+  return `Best day: ${DIGEST_WEEKDAYS[new Date(bd.day_unix * 1000).getUTCDay()]}`;
 }
 
-export function formatWeeklyDigest(review) {
+export function formatWeeklyDigest(review, unit = 'kg', { goalFree = false } = {}) {
   if (!review || !review.enabled) return '\u{1F3AE} Gamification is turned off in Settings.';
   if (review.quiet) {
     return '\u{1F5D3} Your week\nA quiet week \u{2014} everything picks up where you left off.';
   }
-  const g = review.gauges || {};
+  const rows = review.rows || {};
   const lines = ['\u{1F5D3} Your week'];
   for (const line of [
-    digestScoreLine(review.health_score),
-    digestLeverLine(review.levers),
-    digestWeightLine(g.weight),
-    digestBPLine(g.bp, g.bp_share_30d_prior),
-    digestRestingHRLine(g.resting_hr),
+    digestWeightRow(rows.weight, unit, goalFree),
+    digestWorkoutRow(rows.workouts),
+    digestBPRow(rows.bp),
     digestBestDayLine(review.best_day),
   ]) {
     if (line !== '') lines.push(line);
   }
+  lines.push("Pick next week's intention in the app.");
   return lines.join('\n');
 }
 
@@ -471,7 +479,7 @@ export function computeReminderHorizon({
   workoutGroups = [], workoutVariants = [], workoutExercises = [],
   workoutRotations = [], workoutSessions = [],
   timeZone, now, tzPlan, bpStatus = { enabled: false }, weightStatus = { enabled: false },
-  workoutStatus = { enabled: false }, weighInPushText = null,
+  workoutStatus = { enabled: false }, weighInPushText = null, weighInPausedWeeks = [],
 } = {}) {
   const meds = medications.filter((m) => !m.deleted && !m.archived);
   const medById = new Map(meds.map((m) => [m.recordId ?? m.id, m]));
@@ -599,8 +607,14 @@ export function computeReminderHorizon({
         ? weighedDays.has(localDayKey(targetMs, timeZone))
         : targetMs - lastWeightMs <= MEASURE_SATISFIED_MS.wt;
 
+      // A week the user paused in the weekly review (docs/gamification.md
+      // §0.3.4) sends no weigh-in nudge at all.
+      const { year, month, day } = localDateParts(targetMs, timeZone);
+      const pausedWeek = weighInPausedWeeks.includes(
+        isoWeekKey(`${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`));
+
       // Same mute gate as BP: skip targets inside an active snooze / don't-bug window.
-      if (targetMs > now && targetMs > weightMutedUntil && !satisfied) {
+      if (targetMs > now && targetMs > weightMutedUntil && !satisfied && !pausedWeek) {
         const fireAtUnix = Math.floor(targetMs / 1000);
         const entry = { fireAtUnix, kind: 'weight', text, genericText: GENERIC_WEIGHT_TEXT, callback: `wt:${fireAtUnix}` };
         // Web-Push-only body (push.js); `text`/`genericText` stay goal-free for Telegram.
@@ -766,6 +780,13 @@ export function createRemindersDomain({ records, now }) {
     return getWeightStatus();
   }
 
+  // setWeightCadence is the weigh-in cadence contract the weekly review picks
+  // (daily is opt-in there, med-8tur.4); the caller recomputes the horizon.
+  async function setWeightCadence(cadence) {
+    if (!WEIGHT_CADENCES.includes(cadence)) return getWeightStatus();
+    return putWeightPref({ cadence });
+  }
+
   async function setWeightEnabled(enabled, preferred_reminder_hour) {
     const patch = { enabled: !!enabled };
     if (preferred_reminder_hour !== undefined) patch.preferred_reminder_hour = preferred_reminder_hour;
@@ -813,7 +834,7 @@ export function createRemindersDomain({ records, now }) {
     medications, intakes, bps, weights, timeZone, tzPlan,
     workoutGroups = [], workoutVariants = [], workoutExercises = [],
     workoutRotations = [], workoutSessions = [], workoutEnabled = false,
-    weighInPushText = null,
+    weighInPushText = null, weighInPausedWeeks = [],
   }) {
     const [{ enabled }, bpStatus, weightStatus] = await Promise.all([
       getStatus(),
@@ -849,11 +870,12 @@ export function createRemindersDomain({ records, now }) {
       weightStatus,
       workoutStatus,
       weighInPushText,
+      weighInPausedWeeks,
     });
   }
 
   return {
-    getStatus, setEnabled, getBPStatus, setBPEnabled, getWeightStatus, setWeightEnabled,
+    getStatus, setEnabled, getBPStatus, setBPEnabled, getWeightStatus, setWeightEnabled, setWeightCadence,
     snoozeBPReminder, dontBugBPReminder, snoozeWeightReminder, dontBugWeightReminder,
     getDeliveryPref, setDeliveryPref, buildHorizon,
   };

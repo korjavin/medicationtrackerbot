@@ -536,6 +536,27 @@ describe('TodayDashboard.renderToday', () => {
         expect(onDeeplink).toHaveBeenCalledWith('journey');
     });
 
+    // med-8tur.4: the week's plan picked in the Journey weekly review shows
+    // under the rows; a paused week reads "paused" (the domain already dropped
+    // change_7d / too_fast for it).
+    it('shows the chosen intention + cadence, or "Paused this week"', () => {
+        const root = env.document.getElementById('today-content');
+        const plan = {
+            week: '2026-W17', intention: { id: 'weigh_before_coffee', text: 'When I wake, I will weigh in before coffee' },
+            cadence: { weigh_in: 'daily', bp_days: 3 }, paused: false, picked_at: 1,
+        };
+        env.render(goalLineState(now, goalLinePayload({}, { plan })), root, { now });
+        expect(root.querySelector('[data-fact="plan"]').textContent)
+            .toBe('This week: When I wake, I will weigh in before coffee · weigh-in daily · BP 3 days');
+
+        env.render(goalLineState(now, goalLinePayload({ change_7d: null }, { plan: { ...plan, paused: true } })), root, { now });
+        expect(root.querySelector('[data-fact="plan"]').textContent).toBe('Paused this week');
+        expect(root.querySelector('.wg-goal-line').textContent).not.toContain('7 days:');
+
+        env.render(goalLineState(now, goalLinePayload({}, { plan: null })), root, { now });
+        expect(root.querySelector('[data-fact="plan"]')).toBeNull();
+    });
+
     it('rings tile and forecast no longer mount on Today', () => {
         const root = env.document.getElementById('today-content');
         const mountCard = vi.fn();

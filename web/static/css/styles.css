@@ -5235,7 +5235,8 @@ textarea.wg-input {
     margin-top: var(--space-sm);
 }
 
-.wg-journey-weekly__line {
+.wg-journey-weekly__line,
+.wg-journey-weekly__current {
     font-size: var(--font-size-sm);
     margin: 0;
 }
@@ -5243,6 +5244,45 @@ textarea.wg-input {
 .wg-journey-weekly__empty,
 .wg-journey-weekly__body {
     margin-top: var(--space-sm);
+}
+
+/* Next-week choice (med-8tur.4): intention buttons + a compact cadence row.
+   The pressed choice reads through aria-pressed, never a color judgment. */
+.wg-journey-weekly__plan {
+    margin-top: var(--space-md);
+    padding-top: var(--space-sm);
+    border-top: 1px solid var(--wg-border-hairline);
+}
+
+.wg-journey-weekly__choices {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    margin-top: var(--space-sm);
+}
+
+.wg-journey-weekly__choice {
+    text-align: left;
+    white-space: normal;
+}
+
+.wg-journey-weekly__choice[aria-pressed="true"] {
+    border-color: var(--wg-fg-1);
+    font-weight: 600;
+}
+
+.wg-journey-weekly__cadence {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-md);
+    margin-top: var(--space-sm);
+    font-size: var(--font-size-sm);
+}
+
+.wg-journey-weekly__cadence-field {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
 }
 
 /* Gauges panel (gamification-11 §Task4): weight/BP/resting-HR trends.

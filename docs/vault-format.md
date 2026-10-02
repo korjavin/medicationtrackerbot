@@ -355,14 +355,15 @@ domain block carries only logs + products).
   "targets": [ { target } ],
   "ledger":  [ { ledger_entry } ],
   "state":   { state } | null,
-  "milestones": [ { milestone } ]   // optional — omitted when empty
+  "milestones": [ { milestone } ],  // optional — omitted when empty
+  "weeks": [ { week_plan } ]         // optional — omitted when empty
 }
 ```
 
 Cloud mode carries `targets` / `ledger` / `state` verbatim as one passthrough record
-(like `tzhistory`) purely for backup fidelity. `milestones` is the exception: each row
-becomes its own `gamificationmilestone` record, read by the Goal Line card and the
-Journey timeline.
+(like `tzhistory`) purely for backup fidelity. `milestones` and `weeks` are the
+exceptions: each row becomes its own `gamificationmilestone` / `gamificationweek`
+record, read by the Goal Line card, the Journey timeline and the weekly review.
 
 - **target** (leaf, no `id`; `metric_key` is the natural key) — `metric_key` (str),
   `low_val`, `high_val`, `falloff` (num|null), `mode` (str|null), `updated_at` (RFC3339).
@@ -382,6 +383,12 @@ Journey timeline.
   (local `YYYY-MM-DD`), `acknowledged_at` (ms, present once acknowledged).
   `(goal_set_at, ordinal)` is the natural key. Older files omit the key; a legacy bot
   export never carries it.
+- **week_plan** (cloud-only, med-8tur.4; leaf, no `id`) — the weekly review's choice
+  for one ISO week (docs/gamification.md §0.3.4): `week` (`<isoWeekYear>-W<ww>`, the
+  natural key; the recordId is rebuilt from it), `intention_id` (str|null),
+  `cadence` (`{weigh_in: "weekly"|"daily", bp_days: int|null}`), `paused` (bool),
+  `picked_at` (ms), `goal_set_at` (RFC3339|null — the goal active at pick time; import
+  re-attaches `episode_id` by it). Older files omit the key.
 
 ### `api_tokens`
 

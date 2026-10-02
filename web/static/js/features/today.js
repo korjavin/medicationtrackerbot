@@ -1178,6 +1178,27 @@
         if (facts.childNodes.length) card.appendChild(facts);
     }
 
+    // The week's chosen plan (med-8tur.4, picked in the Journey weekly review):
+    // the intention + cadence contract under the rows, or "paused" — the domain
+    // has already dropped the week's change / too-fast line for a paused week.
+    function goalLinePlanRow(card, plan) {
+        if (!plan) return;
+        let text = null;
+        if (plan.paused) text = 'Paused this week';
+        else {
+            const c = plan.cadence || {};
+            const parts = [];
+            if (plan.intention && plan.intention.text) parts.push(plan.intention.text);
+            if (c.weigh_in === 'daily') parts.push('weigh-in daily');
+            if (Number.isInteger(c.bp_days) && c.bp_days > 0) parts.push(`BP ${c.bp_days} day${c.bp_days === 1 ? '' : 's'}`);
+            if (parts.length) text = `This week: ${parts.join(' · ')}`;
+        }
+        if (!text) return;
+        const row = goalLineEl('p', 'wg-goal-line__fact wg-muted', text);
+        row.setAttribute('data-fact', 'plan');
+        card.appendChild(row);
+    }
+
     function renderGoalLineTile(cell, handlers) {
         if (!cell || cell.status === 'disabled' || cell.status === 'missing' || !cell.value) return null;
         const h = handlers || {};
@@ -1202,6 +1223,7 @@
             card.appendChild(row);
         }
         goalLineFactRows(card, v, h.nowMs);
+        goalLinePlanRow(card, v.plan);
 
         // Medication safety net (carried over from the rings tile): invisible
         // unless the trailing PDC has actually slipped; one line to Meds.

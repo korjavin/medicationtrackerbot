@@ -28,16 +28,6 @@
     const GAUGES_CACHE_KEY = 'gamification_gauges';
     const GAUGES_URL = '/api/gamification/gauges';
 
-    // Ring display metadata in canonical order (matches the backend's
-    // ringScores ordering) — the three daily levers (gamification-10 §2.5).
-    // No rings card renders anywhere now (med-8tur.2); what survives here is
-    // the key→label map the weekly-review lever line reads.
-    const RINGS = [
-        { ring: 'bedtime', label: 'Bedtime', icon: 'moon', how: 'Keep a steady lights-out time' },
-        { ring: 'movement', label: 'Movement', icon: 'activity', how: 'Log a workout' },
-        { ring: 'nourishment', label: 'Nourishment', icon: 'apple', how: 'Log a meal' },
-    ];
-
     function icon(name, size) {
         if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
             try { return window.WGIcons.iconSvg(name, { size: size || 18 }); }
@@ -124,16 +114,16 @@
         return card;
     }
 
-    // "Your week" card (gamification-12 §Task3): the primary reading cadence
-    // for gauges (Overview) — this week vs last, folded from the same
-    // ledger/gauge reads the other cards already use. Fetched through its own
-    // cachedFetch entry (loadWeeklyReview), rendered as a native
-    // <details>/<summary> collapsible (the tz-plan-banner convention) above
-    // the Gauges card. Tone rules: neutral-to-
-    // positive phrasing only, no red styling for a down week — every line
-    // renders wg-muted regardless of direction, same as the Gauges panel.
+    // "Your week" card (med-8tur.4, docs/gamification.md §0.3.4): the most
+    // recently COMPLETED week as three fact rows — weight, workouts, BP — plus
+    // the best day, then one choice for the week ahead: a curated
+    // implementation intention, Keep this plan or Pause this week, and a
+    // compact cadence control. Fetched through its own cachedFetch entry
+    // (loadWeeklyReview), rendered as a native <details>/<summary>. Tone
+    // rules: facts only, every line wg-muted, missing reads as unknown.
     const WEEKLY_CACHE_KEY = 'gamification_weekly';
     const WEEKLY_URL = '/api/gamification/weekly-review';
+    const WEEK_PLAN_URL = '/api/gamification/week-plan';
 
     function weekdayLabel(dayUnix) {
         const t = Number(dayUnix) * 1000;
@@ -145,63 +135,184 @@
         }
     }
 
-    // First lever spells out "closed N of 7"; the rest just carry the count —
-    // the denominator (a week) doesn't need repeating per lever.
-    function weeklyLeverLine(levers) {
-        const list = Array.isArray(levers) ? levers : [];
-        if (list.length === 0) return null;
-        return list.map((lv, i) => {
-            const meta = RINGS.find((r) => r.ring === lv.key);
-            const label = (meta && meta.label) || lv.key;
-            const closed = Number(lv.closed_this_week) || 0;
-            return i === 0 ? `${label} closed ${closed} of 7` : `${label} ${closed}`;
-        }).join(' · ');
+    function signedGoalWeight(kg) {
+        const v = Number(kg);
+        if (v === 0) return `±${goalWeight(0)}`;
+        return `${v > 0 ? '+' : '−'}${goalWeight(Math.abs(v))}`;
     }
 
-    function weeklyWeightLine(w) {
-        if (!w || w.status !== 'ok') return null;
-        const velocity = Number(w.velocity_pct_per_week) || 0;
-        const parts = [`${velocity >= 0 ? '+' : ''}${velocity.toFixed(1)}%/wk`];
-        const pace = GAUGE_PACE_STATUS_LABEL[w.pace_status];
-        if (pace) parts.push(pace);
-        const accel = GAUGE_ACCELERATION_LABEL[w.acceleration];
-        if (accel) parts.push(accel);
-        return `Weight ${parts.join(' · ')}`;
+    function weeklyWeightRow(w) {
+        if (!w || w.feature_on === false) return null;
+        const n = Number(w.weigh_in_days) || 0;
+        const days = `${n} weigh-in${n === 1 ? '' : 's'}`;
+        if (w.status !== 'ok') return `Weight: ${days} · not enough for a trend yet`;
+        const parts = [];
+        if (Number.isFinite(w.trend_change_kg)) parts.push(`trend ${signedGoalWeight(w.trend_change_kg)}`);
+        else if (Number.isFinite(w.trend_weight)) parts.push(`trend ${goalWeight(w.trend_weight)}`);
+        if (w.goal_status === 'at_goal' || w.goal_status === 'maintaining') parts.push('at your goal');
+        else if (Number.isFinite(w.distance_to_goal)) parts.push(`${goalWeight(w.distance_to_goal)} to go`);
+        parts.push(days);
+        return `Weight: ${parts.join(' · ')}`;
     }
 
-    function weeklyBPLine(bp, priorSharePct) {
-        if (!bp || bp.status !== 'ok' || !(Number(bp.count_30d) > 0)) return null;
-        const share = Math.round((Number(bp.share_30d) || 0) * 100);
-        const prior = Math.round((Number(priorSharePct) || 0) * 100);
-        // No comparable prior week (too few readings a week ago yields a 0
-        // share) → show just the current share, not a misleading "up from 0%".
-        if (prior <= 0) return `BP in range ${share}%`;
-        const delta = share - prior;
-        const word = delta === 0 ? 'holding steady' : `${delta > 0 ? 'up' : 'down'} from ${prior}%`;
-        return `BP in range ${share}% · ${word}`;
+    function weeklyWorkoutRow(wo) {
+        if (!wo || wo.feature_on === false) return null;
+        const done = Number(wo.completed) || 0;
+        return Number.isFinite(wo.scheduled)
+            ? `Workouts: ${done} of ${wo.scheduled} scheduled`
+            : `Workouts: ${done} session${done === 1 ? '' : 's'}`;
     }
 
-    function weeklyRestingHRLine(hr) {
-        if (!hr || hr.status !== 'ok') return null;
-        const recent = Math.round(Number(hr.recent_14d_mean) || 0);
-        const delta = Math.round(Number(hr.delta_from_baseline) || 0);
-        const deltaWord = delta === 0 ? 'at your baseline' : `${Math.abs(delta)} ${delta < 0 ? 'below' : 'above'} your baseline`;
-        return `Resting HR ${recent} avg · ${deltaWord}`;
+    function weeklyBPRow(bp) {
+        if (!bp || bp.feature_on === false) return null;
+        if (!bp.mean) return 'BP: no readings this week';
+        let text = `BP: avg ${Math.round(bp.mean.systolic)}/${Math.round(bp.mean.diastolic)}`;
+        if (bp.target && (Number.isFinite(bp.target.systolic) || Number.isFinite(bp.target.diastolic))) {
+            const t = (x) => (Number.isFinite(x) ? String(x) : '—');
+            text += ` vs ${t(bp.target.systolic)}/${t(bp.target.diastolic)}`;
+        }
+        const n = Number(bp.days_measured) || 0;
+        return `${text} · ${n} day${n === 1 ? '' : 's'} measured`;
     }
 
-    function weeklyBestDayLine(bestDay) {
-        if (!bestDay) return null;
-        const day = weekdayLabel(bestDay.day_unix);
-        if (!day) return null;
-        const rings = Number(bestDay.rings_closed) || 0;
-        return `Best day: ${day} · ${rings} ring${rings === 1 ? '' : 's'} closed`;
+    // Optimistic projection of a pick onto the cached review — the server
+    // (gamification.js putWeekPlan) stays the authority; commit swaps its plan in.
+    function projectWeekPlan(prev, body) {
+        if (!prev || typeof prev !== 'object') return prev;
+        const cur = prev.plan || {
+            week: prev.plan_week, intention: null, cadence: { weigh_in: 'weekly', bp_days: null }, paused: false,
+        };
+        const next = { ...cur, cadence: { ...(cur.cadence || {}), ...(body.cadence || {}) } };
+        if (body.choice === 'pause') next.paused = true;
+        else if (body.choice === 'keep') next.paused = false;
+        else if (body.choice) {
+            const opts = (prev.options && prev.options.intentions) || [];
+            next.intention = opts.find((o) => o.id === body.choice) || null;
+            next.paused = false;
+        }
+        // A weigh-in pick IS the reminder's cadence: weigh_in_current follows
+        // it, so the select repaints to it and later edits never revert it.
+        const weighIn = body.cadence && body.cadence.weigh_in;
+        const options = weighIn ? { ...(prev.options || {}), weigh_in_current: weighIn } : prev.options;
+        return { ...prev, plan: next, options };
+    }
+
+    // The weekly-plan user write: DataStore.applyOptimistic on the review cache,
+    // then POST; commit with the server's plan, roll back on failure. A
+    // committed this-week pick also clears the Today Goal Line entry (it shows
+    // the live week's plan, and a pause hides its change / too-fast /
+    // projection) so the next read refetches getGoalLine's truth — never a
+    // hand-patched copy.
+    async function saveWeekPlan(body, scope) {
+        const ds = window.DataStore;
+        const optimistic = !!(ds && typeof ds.applyOptimistic === 'function');
+        let projected = null;
+        const handle = optimistic
+            ? await ds.applyOptimistic(WEEKLY_CACHE_KEY, (prev) => { projected = projectWeekPlan(prev, body); return projected; }, ['gamification'])
+            : null;
+        const call = window.offlineAwareApiCall || window.apiCallDirect;
+        let res = null;
+        try {
+            if (typeof call === 'function') res = await call(WEEK_PLAN_URL, 'POST', body);
+        } catch (_) { res = null; }
+        const ok = !!(res && res.ok);
+        try {
+            if (handle) {
+                if (ok) await handle.commit(projected ? { ...projected, plan: res.plan } : null);
+                else await handle.rollback();
+            }
+        } catch (_) { /* best-effort */ }
+        if (ok && optimistic && scope !== 'next_week') {
+            try {
+                const goalHandle = await ds.applyOptimistic(GOAL_LINE_CACHE_KEY, () => null, GOAL_LINE_TAGS);
+                await goalHandle.commit(null);
+            } catch (_) { /* best-effort: the entry still expires on its own */ }
+        }
+        return res;
+    }
+
+    function cadenceSelect(label, key, options, value) {
+        const wrap = el('label', 'wg-journey-weekly__cadence-field');
+        wrap.appendChild(el('span', 'wg-muted', label));
+        const select = el('select', 'wg-select');
+        select.setAttribute('data-cadence', key);
+        options.forEach(([v, text]) => {
+            const opt = el('option', null, text);
+            opt.value = v;
+            if (v === value) opt.selected = true;
+            select.appendChild(opt);
+        });
+        wrap.appendChild(select);
+        return wrap;
+    }
+
+    function renderWeekPlan(wr) {
+        const opts = wr.options || {};
+        const plan = wr.plan;
+        const section = el('div', 'wg-journey-weekly__plan');
+        section.setAttribute('data-plan-week', wr.plan_week || '');
+        const nextWeek = wr.plan_scope === 'next_week';
+        const scope = nextWeek ? 'next week' : 'this week';
+        section.appendChild(el('p', 'wg-section-label', nextWeek ? 'NEXT WEEK' : 'THIS WEEK'));
+        let current = `No pick yet — choose one for ${scope}.`;
+        if (plan && plan.paused) current = `Paused ${scope}.`;
+        else if (plan && plan.intention) current = plan.intention.text;
+        section.appendChild(el('p', 'wg-journey-weekly__current wg-muted', current));
+
+        const choices = el('div', 'wg-journey-weekly__choices');
+        const choice = (id, text, pressed) => {
+            const btn = el('button', 'btn btn-sm btn-secondary wg-journey-weekly__choice', text);
+            btn.type = 'button';
+            btn.setAttribute('data-choice', id);
+            btn.setAttribute('aria-pressed', pressed ? 'true' : 'false');
+            // weigh_in goes out only from its own select (it sets the reminder).
+            btn.addEventListener('click', () => {
+                const { weigh_in: _w, ...cadence } = readCadence(section);
+                saveWeekPlan({ choice: id, cadence }, wr.plan_scope);
+            });
+            choices.appendChild(btn);
+        };
+        (opts.intentions || []).forEach((it) => choice(it.id, it.text,
+            !!(plan && !plan.paused && plan.intention && plan.intention.id === it.id)));
+        choice('keep', 'Keep this plan', false);
+        choice('pause', `Pause ${scope}`, !!(plan && plan.paused));
+        section.appendChild(choices);
+
+        const cad = (plan && plan.cadence) || {};
+        const cadence = el('div', 'wg-journey-weekly__cadence');
+        if (Array.isArray(opts.weigh_in) && opts.weigh_in.length) {
+            cadence.appendChild(cadenceSelect('Weigh-in', 'weigh_in',
+                opts.weigh_in.map((v) => [v, v === 'daily' ? 'Daily' : 'Weekly']), opts.weigh_in_current || cad.weigh_in || 'weekly'));
+        }
+        const bpMax = Number(opts.bp_days_max) || 0;
+        if (bpMax > 0) {
+            const days = [['', '—']];
+            for (let d = 1; d <= bpMax; d++) days.push([String(d), `${d} day${d === 1 ? '' : 's'}`]);
+            cadence.appendChild(cadenceSelect('BP', 'bp_days', days,
+                Number.isInteger(cad.bp_days) && cad.bp_days > 0 ? String(cad.bp_days) : ''));
+        }
+        // A cadence change alone keeps the week's pick (no `choice`).
+        cadence.querySelectorAll('select').forEach((s) => {
+            s.addEventListener('change', () => { saveWeekPlan({ cadence: readCadence(section) }, wr.plan_scope); });
+        });
+        if (cadence.childNodes.length) section.appendChild(cadence);
+        return section;
+    }
+
+    function readCadence(section) {
+        const out = {};
+        const w = section.querySelector('select[data-cadence="weigh_in"]');
+        if (w) out.weigh_in = w.value;
+        const b = section.querySelector('select[data-cadence="bp_days"]');
+        if (b) out.bp_days = b.value === '' ? null : Number(b.value);
+        return out;
     }
 
     // Reads `journey.weekly_review` (attached by load() from its own
     // cachedFetch entry — GET /api/gamification/weekly-review), same pattern
-    // as Gauges/Insights. Renders an explicit offline-empty state, omits the
-    // card entirely while gate-off or not loaded yet, and reads a zero-HP
-    // week as "a quiet week" rather than a wall of zeros (Overview).
+    // as Gauges. Renders an explicit offline-empty state, omits the card
+    // entirely while gate-off or not loaded yet, and reads an empty week as
+    // "a quiet week" rather than a wall of zeros — the choice still shows.
     function renderWeeklyReview(j) {
         const wr = j.weekly_review;
         if (!wr) return null;
@@ -221,22 +332,22 @@
         if (wr.quiet) {
             details.appendChild(el('p', 'wg-journey-weekly__body wg-muted',
                 'A quiet week — everything picks up where you left off.'));
-            card.appendChild(details);
-            return card;
+        } else {
+            const rows = wr.rows || {};
+            const best = wr.best_day ? weekdayLabel(wr.best_day.day_unix) : null;
+            const lines = [
+                weeklyWeightRow(rows.weight),
+                weeklyWorkoutRow(rows.workouts),
+                weeklyBPRow(rows.bp),
+                best ? `Best day: ${best}` : null,
+            ].filter(Boolean);
+            const list = el('div', 'wg-journey-weekly__list');
+            lines.forEach((line) => list.appendChild(el('p', 'wg-journey-weekly__line wg-muted', line)));
+            const reached = rows.weight && Array.isArray(rows.weight.milestones_reached) ? rows.weight.milestones_reached : [];
+            reached.forEach((m) => list.appendChild(el('p', 'wg-journey-weekly__line wg-muted', `Reached: ${m.title}`)));
+            details.appendChild(list);
         }
-
-        const gauges = wr.gauges || {};
-        const lines = [
-            weeklyLeverLine(wr.levers),
-            weeklyWeightLine(gauges.weight),
-            weeklyBPLine(gauges.bp, gauges.bp_share_30d_prior),
-            weeklyRestingHRLine(gauges.resting_hr),
-            weeklyBestDayLine(wr.best_day),
-        ].filter(Boolean);
-
-        const list = el('div', 'wg-journey-weekly__list');
-        lines.forEach((line) => list.appendChild(el('p', 'wg-journey-weekly__line wg-muted', line)));
-        details.appendChild(list);
+        details.appendChild(renderWeekPlan(wr));
         card.appendChild(details);
         return card;
     }

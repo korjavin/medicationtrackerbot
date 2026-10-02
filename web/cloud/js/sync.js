@@ -408,6 +408,9 @@ const RECORD_TAGS = {
   // med-8tur.5: an ack synced from another device retires the Today Goal Line
   // milestone line (gamification_goal_line carries the 'gamification' tag).
   gamificationmilestone: ['gamification'],
+  // med-8tur.4: a weekly-plan pick synced from another device (Journey card +
+  // the Today Goal Line plan line).
+  gamificationweek: ['gamification'],
   // ponytail: unmapped types (nk, firstrun, tzplan, *reminderpref, voiceprovisioning)
   // back no tag-cached screen, so they emit nothing. Add a row when one does.
 };

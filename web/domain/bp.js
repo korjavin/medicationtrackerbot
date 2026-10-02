@@ -31,7 +31,10 @@ export function offsetMsAt(ms, timeZone) {
   const map = {};
   for (const p of parts) map[p.type] = p.value;
   const wallAsUtc = Date.UTC(+map.year, +map.month - 1, +map.day, +map.hour, +map.minute, +map.second);
-  return wallAsUtc - ms;
+  // The parts carry whole seconds: compare against `ms` truncated the same
+  // way, or a fractional instant (23:59:59.999) skews the offset by its
+  // milliseconds and dayStartMs lands at 00:00:00.999 (med-8tur.4).
+  return wallAsUtc - Math.floor(ms / 1000) * 1000;
 }
 
 export function dayStartMs(ms, timeZone) {
