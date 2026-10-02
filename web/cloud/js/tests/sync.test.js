@@ -2534,6 +2534,58 @@ describe('gamificationjournal merges grow-only fields on apply (med-ooeh)', () =
     expect(raw.keystones).toEqual([KEYSTONE]);
   });
 
+  const seedPendingJournal = async (record) => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(['records', 'pending'], 'readwrite');
+        tx.objectStore('records').put(record);
+        tx.objectStore('pending').put({ recordId: record.recordId, recordType: record.recordType });
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  it('a compaction re-bootstrap folds the snapshot\'s keystone under a pending journal overlay', async () => {
+    // The op that carried the keystone was compacted, so the snapshot is the
+    // only place it still exists.
+    await seedPendingJournal({
+      recordId: 'journal', recordType: 'gamificationjournal', clientTs: 5001, deleted: false,
+      keystones: [], traits: TRAIT, chapter: null,
+    });
+
+    await replaceAllRecords([{
+      recordId: 'journal', recordType: 'gamificationjournal', clientTs: 5001, deleted: false,
+      keystones: [KEYSTONE], traits: {}, chapter: { theme_id: 'snap', started_at: 1 },
+    }]);
+
+    const raw = await getRaw('journal');
+    expect(raw.clientTs).toBe(5001);
+    expect(raw.chapter).toBeNull(); // the pending overlay's scalars stand
+    expect(raw.traits).toEqual(TRAIT);
+    expect(raw.keystones).toEqual([KEYSTONE]);
+  });
+
+  it('a floored pending journal still loses to the snapshot, but its grow-only fields survive', async () => {
+    await seedPendingJournal({
+      recordId: 'journal', recordType: 'gamificationjournal', clientTs: 0, deleted: false,
+      keystones: [KEYSTONE],
+    });
+
+    await replaceAllRecords([{
+      recordId: 'journal', recordType: 'gamificationjournal', clientTs: 7000, deleted: false,
+      keystones: [], traits: TRAIT,
+    }]);
+
+    const raw = await getRaw('journal');
+    expect(raw.clientTs).toBe(7000);
+    expect(raw.traits).toEqual(TRAIT);
+    expect(raw.keystones).toEqual([KEYSTONE]);
+  });
+
   it('other record types keep strict LWW: a tie still applies nothing', async () => {
     await seed([{ recordId: 'note-1', recordType: 'note', clientTs: 5001, deleted: false, text: 'mine' }]);
 

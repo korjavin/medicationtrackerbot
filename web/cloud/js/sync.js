@@ -251,11 +251,16 @@ export async function replaceAllRecords(records) {
       const r = await getRecord(recordId);
       if (!r) continue;
       const snap = snapshotById.get(recordId);
+      // Same grow-only fold as applyIncoming (med-ooeh): the op that carried a
+      // field may already be compacted into this snapshot, so neither side may
+      // simply replace the other.
+      const merge = snap && !snap.deleted && !r.deleted ? APPLY_MERGE[r.recordType] : null;
       if (snap && r.clientTs === 0 && snap.clientTs > 0) {
         losingPending.push(recordId);
+        if (merge) overlay.push(merge(snap, r));
         continue;
       }
-      overlay.push(r);
+      overlay.push(merge ? merge(r, snap) : r);
     }
     await withStore('records', 'readwrite', (store) => {
       store.clear();
@@ -502,9 +507,9 @@ async function noteServerDate(res) {
 
 // --- remote sync ---------------------------------------------------------
 
-// Returns the recordType when the incoming record actually won (LWW on
-// clientTs), so the caller can batch one repaint per pulled page rather than one
-// per record.
+// Returns the recordType when the local row changed (the incoming record won
+// LWW on clientTs, or a merge-aware type folded fields in), so the caller can
+// batch one repaint per pulled page rather than one per record.
 // Serialized against writeRecord (withRecordsLock): a derived put-if-absent
 // checks the slot and writes it, and an op landing between those two steps would
 // be silently overwritten by a placeholder (bd med-qhpu).
@@ -513,7 +518,8 @@ async function noteServerDate(res) {
 // tie (both stamped `existing.clientTs + 1`) or a newer blob that never saw the
 // field cannot drop it. The merged row keeps the winner's clientTs and is not
 // re-queued: peers fold the same ops themselves, and this device's next write of
-// the record carries the union. Tombstones are never merged.
+// the record carries the union. replaceAllRecords applies the same fold when a
+// pending row meets a snapshot row. Tombstones are never merged.
 const APPLY_MERGE = { gamificationjournal: mergeGamificationJournal };
 
 async function applyIncoming(recordType, record) {
