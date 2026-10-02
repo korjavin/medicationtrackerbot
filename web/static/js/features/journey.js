@@ -577,7 +577,10 @@
     // warm Atlas cache is the routine case), so only a line whose destination
     // exists becomes a button — a role="button" that scrolls nowhere is a
     // worse control than a plain line.
-    function renderWhatsNew(j, builtIds) {
+    // A goal-milestone line targets the goal card's timeline; when that
+    // timeline didn't render (no goal, goal-line fetch failed) the milestone
+    // sits in the Keystones card instead, so the line follows it there.
+    function renderWhatsNew(j, builtIds, timelineShown) {
         const atlas = j && j.atlas;
         const items = (atlas && Array.isArray(atlas.whats_new)) ? atlas.whats_new : [];
         if (items.length === 0) return null;
@@ -592,7 +595,8 @@
 
         const list = el('div', 'wg-journey-whatsnew__list');
         items.forEach((it) => {
-            const target = (it.target && builtIds && builtIds.has(it.target)) ? it.target : null;
+            const want = (it.target === 'journey-goal-card' && !timelineShown) ? 'journey-keystones-card' : it.target;
+            const target = (want && builtIds && builtIds.has(want)) ? want : null;
             const row = el('p', 'wg-journey-whatsnew__item'
                 + (target ? ' wg-journey-whatsnew__item--tappable' : ''), it.text);
             if (target) {
@@ -1163,7 +1167,7 @@
             // The strip is built LAST: it can only link to a card this pass produced.
             const builtIds = new Set([goalCard, atlasCard, traitsCard, experimentCard, chapterCard, keystonesCard]
                 .filter(Boolean).map((c) => c.id));
-            const whatsNewCard = renderWhatsNew(journey, builtIds);
+            const whatsNewCard = renderWhatsNew(journey, builtIds, timelineShown);
             const chapterLive = !!(journey.chapter && journey.chapter.active);
             cards = [
                 goalCard,

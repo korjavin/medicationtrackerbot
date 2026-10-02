@@ -290,6 +290,19 @@ describe('Journey render', () => {
         expect(scrollIntoView).toHaveBeenCalled();
     });
 
+    it('without a goal timeline, a milestone news line falls back to the Keystones card', () => {
+        env.window.Gamification.render(fullJourney({
+            goal_line: { enabled: true, goal: { status: 'no_goal' } },
+            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }], whats_new: [{ kind: 'keystone', text: 'Weight goal milestone 1 of 8', target: 'journey-goal-card' }] },
+        }));
+        const { document } = env;
+        const scrollIntoView = vi.fn();
+        document.getElementById('journey-keystones-card').scrollIntoView = scrollIntoView;
+        document.querySelector('.wg-journey-whatsnew__item').click();
+        expect(scrollIntoView).toHaveBeenCalled();
+        expect(document.getElementById('journey-more').open).toBe(true);
+    });
+
     it('a disabled substrate still renders the goal + narrative layer, without the week or gauges', () => {
         env.window.Gamification.render(fullJourney({ enabled: false }));
         expect(topLevelOrder(env.document)).toEqual([
