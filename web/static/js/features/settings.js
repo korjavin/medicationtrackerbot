@@ -964,6 +964,9 @@ async function toggleFeatureSetting(feature, enabled) {
         console.warn(`Failed to invalidate settings cache after toggling ${feature}:`, e);
     }
     updateFeatureTabVisibility();
+    // The Journey mode switches are revealed with gamification; a Settings load
+    // made while it was off never hydrated them.
+    if (feature === 'gamification' && enabled) await loadGamificationMode();
 }
 
 function updateFeatureTabVisibility() {

@@ -845,6 +845,10 @@ describe('gamification mode — per-mechanic switches + ED-safe (med-8tur.12)', 
       .toMatchObject({ ed_safe: true, traits: false, experiments: true });
     const [rec] = await records.list('gamificationmode');
     expect(rec).toMatchObject({ recordId: 'gamificationmode', recovery: true, ed_safe: true, traits: false, clientTs: NOW });
+
+    // Overlapping flips of two switches both land (writes are serialized).
+    await Promise.all([gam.putMode({ narration: false }), gam.putMode({ experiments: false })]);
+    expect(await gam.getMode()).toMatchObject({ ed_safe: true, traits: false, narration: false, experiments: false });
   });
 
   it('ED-safe hides the Goal Line, materializes no milestone, and drops weight from keystones, gauges and the review', async () => {
@@ -856,6 +860,10 @@ describe('gamification mode — per-mechanic switches + ED-safe (med-8tur.12)', 
 
     const { records, gam } = domainOver({
       ...crossing(), gamificationmilestone: milestones, gamificationmode: [mode({ ed_safe: true })],
+      gamificationweek: [{
+        recordId: 'gamificationweek-2026-W25', deleted: false, clientTs: 1, week: '2026-W25',
+        intention_id: 'weigh_before_coffee', cadence: { weigh_in: 'weekly', bp_days: null }, paused: false, picked_at: 1,
+      }],
     });
     expect(await gam.getGoalLine()).toEqual({ enabled: false, ed_safe: true });
     expect(await gam.getGoalLineCard()).toEqual({ enabled: false, ed_safe: true });
@@ -869,6 +877,8 @@ describe('gamification mode — per-mechanic switches + ED-safe (med-8tur.12)', 
     expect(review.options.weigh_in).toEqual([]);
     expect(review.options.intentions.map((i) => i.id)).not.toContain('weigh_before_coffee');
     expect(review.gauges.weight).toBeNull();
+    // A weigh-in intention picked before ED-safe drops out of the plan too.
+    expect(review.plan.intention).toBeNull();
   });
 
   it('experiments off → no trial list and no new trial; traits off → no traits, and no strip line for either', async () => {

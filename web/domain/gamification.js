@@ -1443,7 +1443,16 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
 
   // putMode is the USER write behind the Settings switches: a partial patch of
   // known boolean keys, merged over the stored row (its recovery flag kept).
-  async function putMode(body) {
+  // Serialized: two overlapping flips would otherwise both read the same row
+  // and the later write would drop the other's switch.
+  let modeWrites = Promise.resolve();
+  function putMode(body) {
+    const run = modeWrites.then(() => writeMode(body));
+    modeWrites = run.catch(() => {});
+    return run;
+  }
+
+  async function writeMode(body) {
     const patch = {};
     for (const k of Object.keys(MODE_DEFAULTS)) {
       if (!body || body[k] === undefined) continue;
@@ -2876,6 +2885,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       : { feature_on: false, status: 'unknown', mean: null, target: null, days_measured: null };
 
     const planWeek = planWeekKey(today);
+    const planRec = await weekPlanRecord(planWeek);
     const weighInNow = await currentWeighInCadence();
     const quiet = hpDays.size === 0 && weighInDays === 0 && !(workoutsRow.completed > 0) && !(bpRow.days_measured > 0);
 
@@ -2890,7 +2900,13 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       plan_week: planWeek,
       // Mon–Sat the pick shapes the live week; from Sunday on, the coming one.
       plan_scope: planWeek === isoWeekKey(today) ? 'this_week' : 'next_week',
-      plan: weekPlanView(await weekPlanRecord(planWeek)),
+      // A stored intention whose feature is now off (or weight under ED-safe)
+      // drops out of the plan too, not just out of the options.
+      plan: (() => {
+        const v = weekPlanView(planRec);
+        const it = v && v.intention && WEEK_INTENTIONS.find((i) => i.id === v.intention.id);
+        return it && !on(it.feature) ? { ...v, intention: null } : v;
+      })(),
       options: {
         intentions: WEEK_INTENTIONS.filter((i) => on(i.feature)).map(({ id, text }) => ({ id, text })),
         weigh_in: on('weight') ? [...WEEK_WEIGH_IN_CADENCES] : [],
