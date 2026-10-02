@@ -63,7 +63,7 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
   const [
     medications, intakes, tzplans, bps, weights,
     workoutGroups, workoutVariants, workoutExercises, workoutRotations, workoutSessions,
-    weekPlans, units,
+    weekPlans,
   ] = await Promise.all([
     records.list(MEDICATION_RECORD_TYPE),
     // RAW, tombstones included: a dose slot deleted on purpose must suppress
@@ -84,11 +84,9 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
     records.listRaw(WORKOUT_SESSION_RECORD_TYPE),
     // A week paused in the weekly review sends no weigh-in nudges (med-8tur.4).
     records.list(WEEK_PLAN_RECORD_TYPE),
-    records.list(WEIGHT_UNIT_RECORD_TYPE),
   ]);
-  const unit = weightUnit(units);
   const tzPlan = tzplans.find((r) => r.recordId === TZPLAN_RECORD_ID && !r.deleted) || null;
-  const weighInPushText = await computeWeighInPushText(records, remindersDomain, timeZone, now, features, unit);
+  const weighInPushText = await computeWeighInPushText(records, remindersDomain, timeZone, now, features);
 
   const entries = await remindersDomain.buildHorizon({
     medications: medications.filter((m) => !m.deleted),
@@ -107,13 +105,15 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
     weighInPausedWeeks: weekPlans.filter((w) => !w.deleted && w.paused).map((w) => w.week),
   });
 
-  const digest = await computeDigestEntry(records, timeZone, now(), features, unit);
+  const digest = await computeDigestEntry(records, timeZone, now(), features);
   if (digest) entries.push(digest);
   return entries;
 }
 
-function weightUnit(units) {
-  const u = units.filter((r) => !r.deleted).sort((a, b) => b.clientTs - a.clientTs)[0];
+// Read inside each failure-isolated helper below, never in the shared
+// Promise.all: a unit-read failure must not strand the whole horizon.
+async function weightUnit(records) {
+  const u = (await records.list(WEIGHT_UNIT_RECORD_TYPE)).filter((r) => !r.deleted).sort((a, b) => b.clientTs - a.clientTs)[0];
   return u && u.unit === 'lb' ? 'lb' : 'kg';
 }
 
@@ -129,13 +129,13 @@ function weightUnit(units) {
 // (that would strand the already-built medication/BP/weight/workout horizon and
 // stop replace-all propagation). The bot isolates weekly_digest as a best-effort
 // checker for the same reason — its failure never affects other reminders.
-async function computeDigestEntry(records, timeZone, now, features, unit) {
+async function computeDigestEntry(records, timeZone, now, features) {
   if (!features.weekly_digest || !features.gamification) return null;
 
   try {
     const fireAtUnix = nextWeeklyDigestFireUnix(now, timeZone);
     const gamification = createGamificationDomain({ records, now: () => fireAtUnix * 1000 + 86400000, timeZone });
-    const review = await gamification.getWeeklyReview({ features });
+    const [review, unit] = await Promise.all([gamification.getWeeklyReview({ features }), weightUnit(records)]);
 
     return {
       fireAtUnix,
@@ -158,13 +158,15 @@ async function computeDigestEntry(records, timeZone, now, features, unit) {
 // being on (no point reading the Goal Line for a reminder that never fires).
 // Failure-isolated like computeDigestEntry: a throw falls back to the goal-free
 // text instead of stranding the whole horizon.
-async function computeWeighInPushText(records, remindersDomain, timeZone, now, features, unit) {
+async function computeWeighInPushText(records, remindersDomain, timeZone, now, features) {
   if (!features.weight || !features.gamification) return null;
   try {
     if (!(await remindersDomain.getWeightStatus()).enabled) return null;
     const gamification = createGamificationDomain({ records, now, timeZone });
     // Only the goal block is used: switch the lever rows + adherence read off.
-    const line = await gamification.getGoalLine({ features: { weight: true } });
+    const [line, unit] = await Promise.all([
+      gamification.getGoalLine({ features: { weight: true } }), weightUnit(records),
+    ]);
     return formatWeighInPushText(line.goal, unit);
   } catch (e) {
     console.error('[reminders] weigh-in goal text failed', e);
