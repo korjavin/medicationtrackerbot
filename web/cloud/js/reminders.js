@@ -11,7 +11,9 @@
 // Task 7 alongside the route table that wires those domains into the shim in
 // the first place — this module only ships the reusable recompute+upload
 // primitive.
-import { createRemindersDomain, formatWeeklyDigest, nextWeeklyDigestFireUnix } from '../../domain/reminders.js';
+import {
+  createRemindersDomain, formatWeeklyDigest, nextWeeklyDigestFireUnix, formatWeighInPushText,
+} from '../../domain/reminders.js';
 import { createSettingsDomain } from '../../domain/settings.js';
 import { createGamificationDomain } from '../../domain/gamification.js';
 import { recordsPort } from './sync.js';
@@ -30,6 +32,7 @@ const WORKOUT_VARIANT_RECORD_TYPE = 'workoutvariant';
 const WORKOUT_EXERCISE_RECORD_TYPE = 'workoutexercise';
 const WORKOUT_ROTATION_RECORD_TYPE = 'workoutrotation';
 const WORKOUT_SESSION_RECORD_TYPE = 'workoutsession';
+const WEIGHT_UNIT_RECORD_TYPE = 'weightunitpref';
 const DEBOUNCE_MS = 2000;
 
 const timers = new Map();
@@ -79,6 +82,7 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
     records.listRaw(WORKOUT_SESSION_RECORD_TYPE),
   ]);
   const tzPlan = tzplans.find((r) => r.recordId === TZPLAN_RECORD_ID && !r.deleted) || null;
+  const weighInPushText = await computeWeighInPushText(records, remindersDomain, timeZone, now, features);
 
   const entries = await remindersDomain.buildHorizon({
     medications: medications.filter((m) => !m.deleted),
@@ -93,6 +97,7 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
     workoutEnabled: features.workout,
     timeZone,
     tzPlan,
+    weighInPushText,
   });
 
   const digest = await computeDigestEntry(records, timeZone, now(), features);
@@ -127,6 +132,30 @@ async function computeDigestEntry(records, timeZone, now, features) {
     };
   } catch (e) {
     console.error('[reminders] digest compute failed', e);
+    return null;
+  }
+}
+
+// Goal-aware weigh-in body (med-8tur.6, docs/gamification.md §0.3.3): the Goal
+// Line read on the same getGoalLine the Today hero uses, so the push and the
+// card never disagree. Gated on weight + gamification and on the weight reminder
+// being on (no point reading the Goal Line for a reminder that never fires).
+// Failure-isolated like computeDigestEntry: a throw falls back to the goal-free
+// text instead of stranding the whole horizon.
+async function computeWeighInPushText(records, remindersDomain, timeZone, now, features) {
+  if (!features.weight || !features.gamification) return null;
+  try {
+    if (!(await remindersDomain.getWeightStatus()).enabled) return null;
+    const gamification = createGamificationDomain({ records, now, timeZone });
+    // Only the goal block is used: switch the lever rows + adherence read off.
+    const [line, units] = await Promise.all([
+      gamification.getGoalLine({ features: { weight: true } }),
+      records.list(WEIGHT_UNIT_RECORD_TYPE),
+    ]);
+    const unit = units.filter((r) => !r.deleted).sort((a, b) => b.clientTs - a.clientTs)[0];
+    return formatWeighInPushText(line.goal, unit && unit.unit === 'lb' ? 'lb' : 'kg');
+  } catch (e) {
+    console.error('[reminders] weigh-in goal text failed', e);
     return null;
   }
 }

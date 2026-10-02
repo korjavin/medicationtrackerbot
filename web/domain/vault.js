@@ -392,6 +392,8 @@ function reminderToVault(rec) {
     preferred_reminder_hour: rec.preferred_reminder_hour,
     snoozed_until: rec.snoozed_until ?? null,
     dont_remind_until: rec.dont_remind_until ?? null,
+    // weight only (med-8tur.6): weekly | daily; absent = weekly.
+    ...(rec.cadence ? { cadence: rec.cadence } : {}),
   };
 }
 
@@ -677,6 +679,8 @@ function reminderFromVault(st) {
     preferred_reminder_hour: st.preferred_reminder_hour,
     snoozed_until: st.snoozed_until ?? null,
     dont_remind_until: st.dont_remind_until ?? null,
+    // weight only (med-8tur.6): weekly | daily; absent = weekly.
+    ...(st.cadence ? { cadence: st.cadence } : {}),
   };
 }
 

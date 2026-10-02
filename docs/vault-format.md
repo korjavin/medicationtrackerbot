@@ -335,6 +335,8 @@ Flat per-sample arrays — the format hides the cloud day-batching (see
   **not** carried. Cloud has only `{enabled, preferred_reminder_hour}` in its
   `bpreminderpref` / `weightreminderpref` records; the other two fields ride along on
   the record body as passthrough so a bot→cloud→bot loop is lossless.
+  `weight_reminder` may also carry `cadence` (`weekly` | `daily`, the weigh-in
+  cadence — `web/domain/reminders.js` `WEIGHT_CADENCES`); absent means weekly.
 - **integrations** — the user's own provider keys, stored **unmasked**:
   `openai: {api_key, url, model, vision_api_key, vision_url, vision_model}`,
   `food: {api_key, url, domain}`, `elevenlabs: {api_key, agent_id}`. This makes the
