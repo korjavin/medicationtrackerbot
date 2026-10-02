@@ -50,6 +50,9 @@ const GOAL_LINE_REACH_KG = 0.5;             // trend within this of the target (
 const GOAL_LINE_MAINTAIN_DAYS = 14;         // reached continuously this long = maintaining
 const GOAL_LINE_MILESTONE_MIN_KG = 1;       // milestone spacing: 1 kg or 2.5% of the total
 const GOAL_LINE_MILESTONE_FRACTION = 0.025; //   distance, whichever is coarser, fixed per episode
+const GOAL_LINE_PROJECT_MIN_DAYS = 8;      // projected date needs ≥ this many weigh-in days in 28 (≈2/week)
+const GOAL_LINE_PROJECT_FRESH_DAYS = 7;     //   and a reading within this many days
+const GOAL_LINE_PROJECT_HORIZON_DAYS = 365; //   and its latest end inside 12 months, else "more than a year"
 const GOAL_LINE_DEFAULT_DIASTOLIC = 80;     // docs/features.md <130/80 target, per missing bpgoal component
 const GOAL_MILESTONE_RECORD_TYPE = 'gamificationmilestone'; // §0.3.5 durable milestones (vault-managed)
 const GOAL_MILESTONE_EVIDENCE_DAYS = 3;     // distinct weigh-in days at/past a marker before it is earned
@@ -636,6 +639,53 @@ function emaTrendByDay(byDay, startStr, endStr, alpha) {
     trend.set(d, current);
   }
   return trend;
+}
+
+// goalLineProjection is goal.projected (docs/gamification.md §0.3.1, med-8tur.7):
+// "around <date> ± N weeks", or date null with the reason it is withheld.
+// The rule, stated once: over the last 4 weeks of trend, take each week's trend
+// change toward the target (kg/week); with distance = trend → within reach of
+// the target (where status turns at_goal), earliest = distance / fastest week,
+// latest = distance / slowest week; the date is today + their midpoint and the
+// ± is half their spread rounded up (≥ 1 week). Never a bare day count.
+// Withheld (date null) when: too_fast (no date for a crash pace), < 8 weigh-in
+// days in 28 (sparse), no reading in 7 days (stale), the trend run is younger
+// than 28 days (short_window), the 4-week trend is not toward the target
+// (not_toward), or a week stalled or reversed so the range is unbounded
+// (unsteady — deliberately unworded: an unbounded range is no estimate, not
+// "more than a year"). A displayed far end (date + N weeks) past 12 months is
+// beyond_horizon — the one withheld case the UI words ("more than a year at
+// this pace").
+function goalLineProjection({ trend, origin, today, trendWeight, target, direction, coverage, tooFast }) {
+  const none = (reason) => ({ date: null, plus_minus_weeks: null, reason });
+  if (tooFast) return none('too_fast');
+  if (coverage.weigh_in_days_28d < GOAL_LINE_PROJECT_MIN_DAYS) return none('sparse');
+  if (dayDiff(coverage.last_weigh_in_day, today) > GOAL_LINE_PROJECT_FRESH_DAYS) return none('stale');
+  if (addDays(today, -28) < origin) return none('short_window');
+  const weekly = [0, 1, 2, 3].map((i) =>
+    (trend.get(addDays(today, -7 * i)) - trend.get(addDays(today, -7 * (i + 1)))) * direction);
+  if (weekly.reduce((a, b) => a + b, 0) <= 0) return none('not_toward');
+  const slowest = Math.min(...weekly);
+  if (slowest <= 0) return none('unsteady');
+  // Aim at the point the status flips to at_goal (within GOAL_LINE_REACH_KG).
+  const distance = (target - trendWeight) * direction - GOAL_LINE_REACH_KG;
+  const earliestWeeks = distance / Math.max(...weekly);
+  const latestWeeks = distance / slowest;
+  const midDays = Math.round(((earliestWeeks + latestWeeks) / 2) * 7);
+  const plusMinusWeeks = Math.max(1, Math.ceil((latestWeeks - earliestWeeks) / 2));
+  // The displayed far end (date + N weeks) must sit inside the horizon too.
+  if (midDays + plusMinusWeeks * 7 > GOAL_LINE_PROJECT_HORIZON_DAYS) return none('beyond_horizon');
+  return { date: addDays(today, midDays), plus_minus_weeks: plusMinusWeeks, reason: null };
+}
+
+// projectedShift compares two weeks' goal.projected: 'earlier' | 'later' |
+// 'unchanged' (within a week), or null unless BOTH carry a date — a week
+// without a valid date is never compared against (med-8tur.7).
+export function projectedShift(prev, cur) {
+  if (!prev || !cur || !prev.date || !cur.date) return null;
+  const d = dayDiff(prev.date, cur.date);
+  if (Math.abs(d) < 7) return 'unchanged';
+  return d < 0 ? 'earlier' : 'later';
 }
 
 // weightPaceStatus / weightAcceleration (gauges.go).
@@ -3015,6 +3065,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       latest_reading: latest ? { weight: latest.weight, measured_at: latest.measured_at } : null,
       distance_to_goal: null, change_7d: round2(change7d), coverage,
       too_fast: false, next_milestone: null, progress: null,
+      projected: { date: null, plus_minus_weeks: null, reason: 'no_goal' },
     };
 
     const g = goalAll.filter((r) => Number.isFinite(r.target_weight))
@@ -3065,6 +3116,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     }
     if (preliminary || direction === null) {
       out.status = 'preliminary';
+      out.projected.reason = 'preliminary';
       return out;
     }
 
@@ -3085,8 +3137,12 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       while (runStart > floor && reached(trend.get(addDays(runStart, -1)))) runStart = addDays(runStart, -1);
       out.status = dayDiff(runStart, today) >= GOAL_LINE_MAINTAIN_DAYS ? 'maintaining' : 'at_goal';
       if (out.progress) out.progress.fraction = 1; // reached within GOAL_LINE_REACH_KG
+      out.projected.reason = out.status;
       return out;
     }
+    out.projected = goalLineProjection({
+      trend, origin, today, trendWeight, target, direction, coverage, tooFast: out.too_fast,
+    });
 
     // next_milestone: stateless marker along baseline → target. Ordinal k sits
     // at start_ref + direction·k·spacing; the last ordinal IS the target.

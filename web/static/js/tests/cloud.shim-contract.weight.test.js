@@ -270,7 +270,7 @@ describe('cloud shim contract — weight flows (features/weight.js over web/doma
     // med-8tur.3: the Weight tab goal card reads the Goal Line episode progress
     // (the same GET /api/gamification/goal-line Today renders), not lifetime
     // highest + latest raw reading; the frontend-regression prognosis is gone.
-    it('goal card renders the Goal Line distance/progress; prognosis stays hidden', async () => {
+    it('goal card renders the Goal Line distance/progress; prognosis stays hidden on a preliminary line', async () => {
         const now = Date.now();
         const ago = (days) => new Date(now - days * 24 * 60 * 60 * 1000 - 3600000).toISOString();
         const w = (id, days, weight) => ({ recordId: id, clientTs: 1, deleted: false, measured_at: ago(days), weight, weight_trend: weight, body_fat: null, muscle_mass: null, notes: '' });
@@ -295,6 +295,38 @@ describe('cloud shim contract — weight flows (features/weight.js over web/doma
         const fill = document.querySelector('.wg-weight-goal-card__fill');
         expect(fill.style.getPropertyValue('--fill-pct')).toBe('14.3%');
         expect(document.getElementById('weight-prognosis-card').hidden).toBe(true);
+    });
+
+    // med-8tur.7: the prognosis card renders goal.projected from the same
+    // Goal Line payload — a date with a ± weeks range, or "more than a year",
+    // or nothing at all.
+    it('prognosis card shows the projected date ± weeks, "more than a year", or stays hidden', async () => {
+        const now = Date.now();
+        const ago = (days) => new Date(now - days * 24 * 60 * 60 * 1000 - 3600000).toISOString();
+        const seed = (perDay, target) => ({
+            weight: Array.from({ length: 60 }, (_, d) => ({ recordId: `w${d}`, clientTs: 1, deleted: false, measured_at: ago(d), weight: 87 + perDay * d, weight_trend: null, body_fat: null, muscle_mass: null, notes: '' })),
+            weightgoal: [{ recordId: 'g1', clientTs: 1, deleted: false, set_at: ago(30), target_weight: target, target_date: null, start_weight: 88.5 }],
+        });
+        const card = () => env.document.getElementById('weight-prognosis-card');
+
+        setupEnv(seed(0.05, 80)); // steady 0.35 kg/week, 7.45 kg to go
+        env.window.weightUnitPreference = 'kg';
+        await realLoadWeightLogs();
+        expect(card().hidden).toBe(false);
+        expect(card().querySelector('.wg-weight-prognosis-card__label').textContent).toBe('Projected goal date');
+        expect(card().querySelector('.wg-weight-prognosis-card__value').textContent).toMatch(/^Around .+ \u00b1 1 week$/);
+
+        setupEnv(seed(0.01, 70)); // 0.07 kg/week toward a goal 17 kg away
+        env.window.weightUnitPreference = 'kg';
+        await realLoadWeightLogs();
+        expect(card().hidden).toBe(false);
+        expect(card().textContent).toContain('More than a year at this pace');
+
+        setupEnv(seed(-0.05, 80)); // trending away from the goal: no guess
+        env.window.weightUnitPreference = 'kg';
+        await realLoadWeightLogs();
+        expect(card().hidden).toBe(true);
+        expect(card().textContent).toBe('');
     });
 
     it('setGoal rejects non-finite, non-positive and absurd targets', async () => {
