@@ -317,7 +317,8 @@ async function handleWeightSubmit(event) {
 
     // Optimistic: prepend the new log into the cached `weight` payload so the
     // History list + Today's tile repaint before the POST resolves. The cache
-    // value is `{ logsRes, goalRes }`. On edit, also strip the prior entry so
+    // value is `{ logsRes, goalRes, lineRes }` — keep all three, or the goal
+    // card drops to the gamification-off branch mid-write. On edit, also strip the prior entry so
     // the visible row count stays correct ahead of the trailing DELETE.
     const optimisticLog = {
         id: `local_optimistic_${Date.now()}`,
@@ -566,7 +567,7 @@ function renderWeightGoalCard(logs, goalData, goalLine) {
         else if (reached) deltaLines.push('At goal');
         else if (line.distance_to_goal !== null) deltaLines.push(`${fmt(line.distance_to_goal)} to goal`);
         else deltaLines.push('Log a weight to see progress');
-        if (line.progress && !reached) {
+        if (line.progress && line.progress.total_kg > 0 && !reached) {
             const done = line.progress.done_kg;
             const since = line.start_ref_source === 'first_reading' ? 'since your first reading' : 'since you set the goal';
             deltaLines.push(`${fmt(done)} of ${fmt(line.progress.total_kg)} ${since}`);
@@ -1067,7 +1068,7 @@ async function _deleteWeightApi(id) {
 
     // Optimistic: filter the log out of the cached `weight` payload before
     // awaiting the DELETE so the list + Today tile update immediately. The
-    // mutator preserves `goalRes` (recomputed by the post-commit loadWeightLogs
+    // mutator preserves `goalRes` and `lineRes` (recomputed by the post-commit loadWeightLogs
     // refetch).
     const numericId = parseInt(id, 10);
     let handle = null;
