@@ -26,26 +26,32 @@ function stubClient(impl) {
 }
 
 // Read-model fixtures mirroring the domain outputs the apishim routes pass in.
+// The weekly recap's inputs: getWeeklyReview + getGoalLine, carrying fields
+// that must NOT reach the wire (absolute weight, ids, dates, ring/score keys).
 const WEEKLY_STATS = {
-  atlas: {
-    enabled: true,
-    cards: [
-      { id: 'sleep_bp', question: 'Does a longer night lower tomorrow’s BP?', state: 'revealed', text: 'On 7h+ nights your morning systolic ran 6 lower.', delta: -6, n: 40 },
-      { id: 'wo_bp', question: 'Do workout days help?', state: 'no_effect', text: 'No clear difference yet.', n: 22 },
-      { id: 'dev', question: 'developing one', state: 'developing', text: 'Keep logging.' },
-    ],
+  review: {
+    enabled: true, quiet: false,
+    week: { id: '2026-W39', start_day: '2026-09-21', end_day: '2026-09-27' },
+    week_start: 1790000000,
+    rows: {
+      weight: {
+        feature_on: true, status: 'ok', goal_status: 'on_track', trend_weight: 91.4, trend_change_kg: -0.6,
+        distance_to_goal: 6.4, weigh_in_days: 4,
+        milestones_reached: [{ id: 'gamificationmilestone-weightgoal-1-2', ordinal: 2, title: 'Weight goal milestone 2 of 5' }],
+      },
+      workouts: { feature_on: true, completed: 3, scheduled: 3 },
+      bp: { feature_on: true, status: 'in_range', mean: { systolic: 124, diastolic: 79, days: 5 }, target: { systolic: 130, diastolic: 85 }, days_measured: 5 },
+    },
+    plan: { week: '2026-W40', intention: { id: 'weigh_before_coffee', text: 'When I wake, I will weigh in before coffee' }, cadence: null, paused: false, picked_at: '2026-09-28T07:00:00Z' },
+    levers: [{ key: 'bp', closed_this_week: 5, closed_last_week: 3 }],
+    health_score: { now: 71, prior: 68 },
   },
-  forecast: { enabled: true, evening: { state: 'ready', goodShare: 78, otherShare: 55, text: 'A 7h+ night → 78% in range.' } },
-  experiments: {
+  goalLine: {
     enabled: true,
-    active: { title: 'A steady bedtime window', tracker: 'Day 6 of 14 · 5 window nights so far' },
-    verdict: null,
-    can_start: false,
-    templates: [],
+    goal: { status: 'on_track', target: 85, trend_weight: 91.2, direction: -1, progress: { done_kg: 3.6, total_kg: 10, fraction: 0.36 }, start_day: '2026-08-01' },
+    workouts: { next_scheduled: { day: '2026-10-03', time: '18:00', group_title: 'Push' } },
+    day: '2026-10-02',
   },
-  chapter: { enabled: true, active: { title: 'The Steady Month', focus: 'BP consistency', day_number: 12, duration: 28 } },
-  traits: { enabled: true, traits: [{ id: 'early', title: 'Early Sleeper', state: 'held' }] },
-  keystones: { enabled: true, keystones: [{ id: 'bp_band', title: 'Blood pressure in your target band' }] },
 };
 
 const CHAPTER_STATE = {
@@ -65,7 +71,13 @@ const EXPERIMENT_STATE = {
       { id: 'move_before_bp', title: 'A walk before your reading', measure: 'systolic on move days', from_probe: 'workout_bp' },
     ],
   },
-  atlas: WEEKLY_STATS.atlas,
+  atlas: {
+    enabled: true,
+    cards: [
+      { id: 'sleep_bp', question: 'Does a longer night lower tomorrow’s BP?', state: 'revealed', text: 'On 7h+ nights your morning systolic ran 6 lower.', delta: -6, n: 40 },
+      { id: 'dev', question: 'developing one', state: 'developing', text: 'Keep logging.' },
+    ],
+  },
 };
 
 const WORKOUT_STATS = {
@@ -88,14 +100,52 @@ function assertNoRawRecords(payload) {
 }
 
 describe('gamification narrator — payload building (invariant 1: computed summaries only)', () => {
-  it('weekly payload whitelists computed fields and carries no raw records', () => {
-    const p = weeklyPayload(WEEKLY_STATS);
-    // developing card excluded; only revealed / no_effect summaries forwarded.
-    expect(p.discoveries).toHaveLength(2);
-    expect(p.discoveries.map((d) => d.state).sort()).toEqual(['no_effect', 'revealed']);
-    expect(p.active_chapter).toMatchObject({ title: 'The Steady Month', day: 12, of: 28 });
-    expect(p.traits).toEqual([{ name: 'Early Sleeper', state: 'held' }]);
-    assertNoRawRecords(p);
+  it('weekly recap payload carries ONLY the whitelisted goal-review fields', () => {
+    expect(weeklyPayload(WEEKLY_STATS)).toEqual({
+      quiet: false,
+      weight: {
+        goal_status: 'on_track', goal_direction: 'lose', progress_fraction: 0.36,
+        trend_change_kg: -0.6, distance_to_goal_kg: 6.4, weigh_in_days: 4, milestones_reached: 1,
+      },
+      workouts: { completed: 3, scheduled: 3 },
+      bp: { status: 'in_range', days_measured: 5, mean_sys: 124, mean_dia: 79, target_sys: 130, target_dia: 85 },
+      next_week: { intention: 'When I wake, I will weigh in before coffee', paused: false },
+    });
+    const json = JSON.stringify(weeklyPayload(WEEKLY_STATS));
+    // No absolute body weight, dates, record/milestone ids or week keys.
+    for (const leak of ['91.', '2026', 'gamificationmilestone', 'weightgoal', 'health_score', 'levers', 'Push']) {
+      expect(json).not.toContain(leak);
+    }
+    assertNoRawRecords(weeklyPayload(WEEKLY_STATS));
+  });
+
+  it('weekly recap payload drops feature-off rows and survives an empty review', () => {
+    const off = { review: { rows: { weight: { feature_on: false }, workouts: { feature_on: false }, bp: { feature_on: false } }, plan: null } };
+    expect(weeklyPayload(off)).toEqual({ quiet: false, weight: null, workouts: null, bp: null, next_week: null });
+    expect(weeklyPayload()).toEqual({ quiet: false, weight: null, workouts: null, bp: null, next_week: null });
+  });
+
+  it('weekly prompt forbids attribution and asks for one intention reflection', async () => {
+    const aiClient = stubClient(async () => ({ content: 'ok' }));
+    await createGamificationNarrator({ aiClient }).narrateWeekly(WEEKLY_STATS);
+    const user = aiClient.chat.mock.calls[0][0].messages[1].content;
+    expect(user).toMatch(/without attribution/);
+    expect(user).toMatch(/never that one thing caused/);
+    expect(user).toMatch(/exactly one reflective sentence/);
+  });
+
+  it('caches one recap per reviewed week; a changed pick re-narrates; failures are not cached', async () => {
+    let fail = true;
+    const aiClient = stubClient(async () => { if (fail) throw new Error('down'); return { content: 'recap' }; });
+    const n = createGamificationNarrator({ aiClient });
+    await expect(n.narrateWeekly(WEEKLY_STATS)).resolves.toEqual({ text: null, source: 'deterministic' });
+    fail = false;
+    await expect(n.narrateWeekly(WEEKLY_STATS)).resolves.toEqual({ text: 'recap', source: 'ai' });
+    await n.narrateWeekly(WEEKLY_STATS);
+    expect(aiClient.chat).toHaveBeenCalledTimes(2);
+    const repicked = { ...WEEKLY_STATS, review: { ...WEEKLY_STATS.review, plan: { ...WEEKLY_STATS.review.plan, paused: true } } };
+    await n.narrateWeekly(repicked);
+    expect(aiClient.chat).toHaveBeenCalledTimes(3);
   });
 
   it('chapter/workout payloads carry only computed summaries', () => {
@@ -172,7 +222,7 @@ describe('gamification narrator — invariants 1 & 2 on the wire', () => {
     expect(res).toEqual({ text: 'Your BP is 999/500 and you slept 40 hours!', source: 'ai' });
     // The deterministic stats object passed in is unmodified — narration is
     // strictly downstream of computation.
-    expect(WEEKLY_STATS.forecast.evening.goodShare).toBe(78);
-    expect(WEEKLY_STATS.atlas.cards[0].delta).toBe(-6);
+    expect(WEEKLY_STATS.review.rows.weight.trend_change_kg).toBe(-0.6);
+    expect(WEEKLY_STATS.goalLine.goal.progress.fraction).toBe(0.36);
   });
 });

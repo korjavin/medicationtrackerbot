@@ -1062,7 +1062,7 @@
         card.id = 'journey-narrator-card';
         card.appendChild(el('div', 'wg-section-label', 'AI STORY'));
         card.appendChild(el('p', 'wg-journey-narrator__note wg-muted',
-            'Optional — sends computed summaries, never raw logs, to your own AI key.'));
+            'Optional — sends computed summaries, never raw logs, to your own AI key or, with your consent, the trial AI.'));
 
         const out = el('div', 'wg-journey-narrator__out');
         const buttons = el('div', 'wg-journey-narrator__buttons');

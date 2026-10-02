@@ -6,8 +6,8 @@
 //
 // The hard invariants (do not weaken):
 //   1. Narrates, never computes. Every function is handed the computed
-//      stats-JSON (the same objects the /atlas, /forecast, /experiments,
-//      /chapter, /traits, /keystones routes return) and returns PROSE ONLY.
+//      stats-JSON (the same objects the /weekly-review, /goal-line,
+//      /experiments, /chapter, /atlas routes and workout stats return) and returns PROSE ONLY.
 //      The payload sent to the provider is built here by whitelisting a
 //      handful of already-summarised fields — zero raw vault records ever
 //      cross this boundary (no recordId / measured_at / systolic-log arrays).
@@ -27,7 +27,8 @@
 //   - no key → the operator-proxied trial path (POST /api/trial/openai), gated
 //     on the `tg` consent scope (aiclient.js ensureTrialConsent('tg')). The
 //     scope is shared deliberately: the tg disclosure names this narrator and
-//     what it sends ("computed health summaries (weekly and workout stats)"),
+//     what it sends ("computed health summaries (weekly weight-goal progress,
+//     workout and blood-pressure stats)"),
 //     so a user granting it has been told narration is included. Both callers
 //     feed vault-derived health data to the same model, which is what that
 //     scope actually authorizes — the name is Telegram-flavoured, the boundary
@@ -58,30 +59,46 @@ function num(x) {
 // exported so the unit suite can assert the wire payload carries no raw record
 // shapes (invariant 1) without a live provider. ------------------------------
 
-export function weeklyPayload(s) {
-  s = s || {};
-  const cards = (s.atlas && Array.isArray(s.atlas.cards) ? s.atlas.cards : [])
-    .filter((c) => c.state === 'revealed' || c.state === 'no_effect')
-    .map((c) => ({ question: c.question, state: c.state, summary: c.text }));
-  const ev = s.forecast && s.forecast.evening;
-  const active = s.experiments && s.experiments.active;
-  const verdict = s.experiments && s.experiments.verdict;
-  const chapter = s.chapter && s.chapter.active;
+// The weekly recap (med-8tur.8, docs/gamification.md §0.3.4) narrates the
+// owner's progress on their goal, not game features: the completed-week review
+// (getWeeklyReview — three fact rows + the picked plan) plus the goal's
+// direction and progress off the live Goal Line (getGoalLine). Counts, kg
+// deltas and BP means only — no absolute body weight, no dates, no ids, no
+// free text (the intention is a curated string from WEEK_INTENTIONS).
+export function weeklyPayload({ review, goalLine } = {}) {
+  const rows = (review && review.rows) || {};
+  const w = rows.weight || {};
+  const wo = rows.workouts || {};
+  const bp = rows.bp || {};
+  const goal = (goalLine && goalLine.goal) || {};
+  const plan = review && review.plan;
+  const dir = goal.direction;
   return {
-    discoveries: cards,
-    forecast: ev ? { state: ev.state, summary: ev.text } : null,
-    active_experiment: active ? { title: active.title, tracker: active.tracker } : null,
-    latest_verdict: verdict ? { title: verdict.title, verdict: verdict.verdict } : null,
-    active_chapter: chapter
-      ? { title: chapter.title, focus: chapter.focus, day: num(chapter.day_number), of: num(chapter.duration) }
-      : null,
-    traits: (s.traits && Array.isArray(s.traits.traits) ? s.traits.traits : [])
-      .map((t) => ({ name: t.title, state: t.state })),
-    // Weight-goal milestones stay out of the LLM payload until the goal recap
-    // (med-8tur.8) updates the privacy-manifest row that covers this egress.
-    keystones: (s.keystones && Array.isArray(s.keystones.keystones) ? s.keystones.keystones : [])
-      .filter((k) => k.kind !== 'goal_milestone')
-      .map((k) => ({ title: k.title })),
+    quiet: !!(review && review.quiet),
+    weight: w.feature_on ? {
+      goal_status: w.goal_status || null,
+      goal_direction: dir === -1 ? 'lose' : dir === 1 ? 'gain' : dir === 0 ? 'maintain' : null,
+      progress_fraction: goal.progress ? num(goal.progress.fraction) : null,
+      trend_change_kg: num(w.trend_change_kg),
+      distance_to_goal_kg: num(w.distance_to_goal),
+      weigh_in_days: num(w.weigh_in_days),
+      milestones_reached: Array.isArray(w.milestones_reached) ? w.milestones_reached.length : 0,
+    } : null,
+    workouts: wo.feature_on ? { completed: num(wo.completed), scheduled: num(wo.scheduled) } : null,
+    // mean_sys/mean_dia, not systolic/diastolic: those keys are the raw-record
+    // shape the suite's wire guard rejects.
+    bp: bp.feature_on ? {
+      status: bp.status || null,
+      days_measured: num(bp.days_measured),
+      mean_sys: bp.mean ? num(bp.mean.systolic) : null,
+      mean_dia: bp.mean ? num(bp.mean.diastolic) : null,
+      target_sys: bp.target ? num(bp.target.systolic) : null,
+      target_dia: bp.target ? num(bp.target.diastolic) : null,
+    } : null,
+    next_week: plan ? {
+      intention: plan.intention ? plan.intention.text : null,
+      paused: !!plan.paused,
+    } : null,
   };
 }
 
@@ -131,7 +148,13 @@ export function workoutPayload(s) {
 }
 
 const PROMPTS = {
-  weekly: (p) => `Write this week's short recap from the user's computed stats:\n${JSON.stringify(p)}`,
+  weekly: (p) => [
+    "Write a short recap of the user's completed week from the computed facts below: their weight goal, workouts, and blood pressure.",
+    'Describe each fact side by side without attribution — say "your weight stayed steady while you completed your plan", never that one thing caused, drove, or helped another.',
+    'Never grade the pace of weight change and never suggest a target pace. A null field means unknown: say nothing about it.',
+    'If next_week has an intention, end with exactly one reflective sentence about it; if the week is paused, acknowledge the pause kindly instead.',
+    JSON.stringify(p),
+  ].join('\n'),
   chapter: (p) => `Narrate this finished four-week chapter warmly from its computed review:\n${JSON.stringify(p)}`,
   experiments: (p) => `From the curated templates and revealed discoveries below, recommend one experiment from the templates below, named by its title, and explain in prose why it fits the user right now. Recommend only a template from this list.\n${JSON.stringify(p)}`,
   workout: (p) => `Write an encouraging insight about the user's last 30 days of workouts from these computed stats:\n${JSON.stringify(p)}`,
@@ -145,6 +168,7 @@ function extractText(msg) {
 // createGamificationNarrator builds the narration port. aiClient is the same
 // object food AI consumes (createAIClient) — null when no provider is wired.
 export function createGamificationNarrator({ aiClient } = {}) {
+  let weeklyCache = null;
   async function run(kind, payload) {
     // Invariant 3: absent provider degrades to nothing, never an error.
     if (!aiClient || typeof aiClient.chat !== 'function') {
@@ -167,7 +191,17 @@ export function createGamificationNarrator({ aiClient } = {}) {
   }
 
   return {
-    narrateWeekly: (stats) => run('weekly', weeklyPayload(stats)),
+    narrateWeekly: async (stats) => {
+      const payload = weeklyPayload(stats);
+      // One recap per reviewed week: a re-tap with the same facts reuses it
+      // instead of paying the provider again. A changed pick re-narrates.
+      // ponytail: single in-memory slot, lost on reload; persist in the vault if re-asks matter.
+      const key = `${stats && stats.review && stats.review.week && stats.review.week.id}:${JSON.stringify(payload)}`;
+      if (weeklyCache && weeklyCache.key === key) return weeklyCache.res;
+      const res = await run('weekly', payload);
+      if (res.text) weeklyCache = { key, res };
+      return res;
+    },
     narrateChapter: (chapter) => run('chapter', chapterPayload(chapter)),
     suggestExperiments: (state) => run('experiments', experimentPayload(state)),
     narrateWorkout: (stats) => run('workout', workoutPayload(stats)),
