@@ -579,6 +579,17 @@ describe('gamification Goal Line — durable milestones', () => {
     const { milestones } = recordsToVault(all, { now: NOW }).data.gamification;
     expect(milestones).toHaveLength(1);
     expect(milestones[0].acknowledged).toBe(true);
+
+    // An UNacknowledged milestone left under the dead id still reaches the card
+    // (minted under the live episode) and can be acknowledged there.
+    const pending = domainOver({
+      weight, weightgoal: [{ ...goal, recordId: 'weightgoal-reminted' }],
+      gamificationmilestone: [{ ...acked, acknowledged: false, acknowledged_at: undefined, clientTs: 0 }],
+    });
+    const card = await pending.gam.getGoalLineCard();
+    expect(card.milestone).toMatchObject({ id: 'gamificationmilestone-weightgoal-reminted-1', ordinal: 1 });
+    expect(await pending.gam.acknowledgeMilestone(card.milestone.id)).toEqual({ ok: true });
+    expect((await pending.gam.getGoalLineCard()).milestone).toBeNull();
   });
 
   it('vault export → import keeps the record and its ack, re-attached to the re-minted goal', async () => {

@@ -3307,13 +3307,16 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     // nested — so the first unearned marker ends the walk, and earned_at never
     // runs backwards along the ordinals.
     const goalThr = target - direction * GOAL_LINE_REACH_KG;
-    // (goal_set_at, ordinal) is the natural key: an ordinal already held under
-    // another episode id (a goal re-minted by an old client's vault import,
-    // which passes milestones through untouched) is not minted again — no
-    // unacknowledged twin re-celebrates it, no export carries the key twice.
+    // (goal_set_at, ordinal) is the natural key: an ordinal already ACKNOWLEDGED
+    // under another episode id (a goal re-minted by an old client's vault
+    // import, which passes milestones through untouched) is not minted again,
+    // so no unacknowledged twin re-celebrates it. An unacknowledged one is
+    // still minted under the live episode — the card reads that one, and
+    // export/keystones collapse the pair by the natural key.
     const setAt = (g && g.set_at) || null;
     const held = new Set(setAt === null ? [] : (await records.list(GOAL_MILESTONE_RECORD_TYPE))
-      .filter((m) => m.goal_set_at === setAt && m.episode_id !== goal.episode_id).map((m) => m.ordinal));
+      .filter((m) => m.goal_set_at === setAt && m.episode_id !== goal.episode_id && m.acknowledged)
+      .map((m) => m.ordinal));
     for (let k = 1; k <= count; k++) {
       const isGoal = k === count;
       const marker = startRef + direction * k * spacing;
