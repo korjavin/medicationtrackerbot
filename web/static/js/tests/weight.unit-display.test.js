@@ -1,7 +1,7 @@
 // Smart weight unit preference (Plan 2026-04-29, Task 5).
 //
 // All weight display surfaces (Today tile, goal card, delta-to-goal, chart
-// legend, prognosis trend, current badge, history list) honor the user's
+// legend, current badge, history list) honor the user's
 // saved preference (window.weightUnitPreference). Storage stays in kg —
 // values are converted at render time only.
 
@@ -138,35 +138,6 @@ describe('Weight render surfaces honor unit preference (Task 5)', () => {
             const labels = Array.from(document.querySelectorAll('.wg-weight-chart-legend__label'))
                 .map((n) => n.textContent);
             expect(labels[2]).toMatch(/Goal 165\.3 lb/);
-        });
-    });
-
-    describe('renderWeightPrognosisCard', () => {
-        it('renders weekly trend in kg/week when preference is kg', () => {
-            const { window, document } = env;
-            window.weightUnitPreference = 'kg';
-            const logs = [
-                { measured_at: isoDaysAgo(0), weight: 81.4 },
-                { measured_at: isoDaysAgo(7), weight: 80.7 },
-                { measured_at: isoDaysAgo(14), weight: 80.0 },
-            ];
-            window.renderWeightPrognosisCard(logs, { goal: 75, goal_direction: 'lose' });
-            const trendValue = document.querySelector('.wg-weight-prognosis-card__trend-value');
-            expect(trendValue.textContent).toMatch(/kg\/week/);
-        });
-
-        it('renders weekly trend in lb/week when preference is lb', () => {
-            const { window, document } = env;
-            window.weightUnitPreference = 'lb';
-            const logs = [
-                { measured_at: isoDaysAgo(0), weight: 81.4 },
-                { measured_at: isoDaysAgo(7), weight: 80.7 },
-                { measured_at: isoDaysAgo(14), weight: 80.0 },
-            ];
-            window.renderWeightPrognosisCard(logs, { goal: 75, goal_direction: 'lose' });
-            const trendValue = document.querySelector('.wg-weight-prognosis-card__trend-value');
-            expect(trendValue.textContent).toMatch(/lb\/week/);
-            expect(trendValue.textContent).not.toMatch(/kg\/week/);
         });
     });
 

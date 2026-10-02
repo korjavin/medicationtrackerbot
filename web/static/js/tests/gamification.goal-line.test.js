@@ -57,6 +57,7 @@ describe('gamification Goal Line — weight goal', () => {
 
     expect(gl.goal.status).toBe('no_goal');
     expect(gl.goal.target).toBeNull();
+    expect(gl.goal.progress).toBeNull();
     expect(gl.workouts.feature_on).toBe(true);
     expect(gl.workouts.scheduled_this_week).toBe(3); // Mon, Wed, Fri
     expect(gl.workouts.next_scheduled).toEqual({ day: '2026-06-17', time: '18:00', group_title: 'Push' });
@@ -85,6 +86,8 @@ describe('gamification Goal Line — weight goal', () => {
     expect(goal.start_ref).toBe(85);
     expect(goal.start_ref_source).toBe('first_reading');
     expect(goal.distance_to_goal).toBe(6);
+    // progress reads off the same reading as the distance: 1 of 7 kg.
+    expect(goal.progress).toEqual({ done_kg: 1, total_kg: 7, fraction: 0.143 });
     expect(goal.coverage).toEqual({ weigh_in_days_28d: 3, last_weigh_in_day: '2026-06-17' });
   });
 
@@ -106,6 +109,9 @@ describe('gamification Goal Line — weight goal', () => {
     expect(goal.start_day).toBe('2026-05-18');
     expect(goal.trend_weight).toBeCloseTo(87.45, 1);
     expect(goal.distance_to_goal).toBeCloseTo(goal.trend_weight - 80, 2);
+    expect(goal.progress.total_kg).toBeCloseTo(goal.start_ref - 80, 1);
+    expect(goal.progress.done_kg + goal.distance_to_goal).toBeCloseTo(goal.progress.total_kg, 1);
+    expect(goal.progress.fraction).toBeCloseTo(goal.progress.done_kg / goal.progress.total_kg, 2);
     expect(goal.change_7d).toBeCloseTo(-0.35, 1);
     expect(goal.too_fast).toBe(false);
     // 1 kg spacing from the baseline: marker 1 (≈87.93) passed, marker 2 next.
@@ -125,6 +131,7 @@ describe('gamification Goal Line — weight goal', () => {
     expect(goal.status).toBe('at_goal');
     expect(goal.direction).toBe(-1);
     expect(goal.next_milestone).toBeNull();
+    expect(goal.progress.fraction).toBe(1);
   });
 
   it('crossing the target and then regressing never flips the direction', async () => {

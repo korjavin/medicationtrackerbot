@@ -5,6 +5,8 @@
 
 const RECORD_TYPE = 'weight';
 const GOAL_RECORD_TYPE = 'weightgoal';
+const GOAL_MIN_KG = 20;
+const GOAL_MAX_KG = 500;
 
 // Single-account cloud mode has exactly one user; user_id is echoed back only
 // where the server's JSON shape carries it (goal history). See workout.js.
@@ -156,6 +158,14 @@ export function createWeightDomain({ records, now, timeZone }) {
   }
 
   async function setGoal(goal) {
+    // No height record exists, so no BMI floor — plain sanity bounds (kg).
+    const target = goal && goal.target_weight;
+    if (typeof target !== 'number' || !Number.isFinite(target)
+      || target < GOAL_MIN_KG || target > GOAL_MAX_KG) {
+      const err = new Error(`target_weight must be a number between ${GOAL_MIN_KG} and ${GOAL_MAX_KG} kg`);
+      err.code = 'invalid_request';
+      throw err;
+    }
     const nowMs = now();
     const all = await records.list(RECORD_TYPE);
     const latestLog = all.sort((a, b) => Date.parse(b.measured_at) - Date.parse(a.measured_at))[0];

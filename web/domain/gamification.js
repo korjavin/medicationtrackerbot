@@ -2994,7 +2994,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       trend_weight: round2(trendWeight),
       latest_reading: latest ? { weight: latest.weight, measured_at: latest.measured_at } : null,
       distance_to_goal: null, change_7d: round2(change7d), coverage,
-      too_fast: false, next_milestone: null,
+      too_fast: false, next_milestone: null, progress: null,
     };
 
     const g = goalAll.filter((r) => Number.isFinite(r.target_weight))
@@ -3030,6 +3030,16 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       start_ref: round2(startRef), start_ref_source: startRefSource, start_day: startDay, direction,
       distance_to_goal: current === null ? null : round2(Math.abs(target - current)),
     });
+    // progress: baseline → target, read off the same `current` as the distance,
+    // so every screen (Today hero, Weight tab card) renders one number.
+    if (current !== null && direction) {
+      const totalKg = Math.abs(target - startRef);
+      const doneKg = (current - startRef) * direction;
+      out.progress = {
+        done_kg: round2(doneKg), total_kg: round2(totalKg),
+        fraction: Math.round(Math.max(0, Math.min(1, doneKg / totalKg)) * 1000) / 1000,
+      };
+    }
     if (preliminary || direction === null) {
       out.status = 'preliminary';
       return out;
@@ -3051,6 +3061,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       const floor = startDay > origin ? startDay : origin;
       while (runStart > floor && reached(trend.get(addDays(runStart, -1)))) runStart = addDays(runStart, -1);
       out.status = dayDiff(runStart, today) >= GOAL_LINE_MAINTAIN_DAYS ? 'maintaining' : 'at_goal';
+      if (out.progress) out.progress.fraction = 1; // reached within GOAL_LINE_REACH_KG
       return out;
     }
 
