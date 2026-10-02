@@ -3,7 +3,7 @@
 // Pure-unit suite for the Phase 5 narrative layer of web/domain/gamification.js:
 // Chapters (getChapter / startChapter / closeChapter), Traits (getTraits), and
 // Keystones (getKeystones + the experiment-completion timeline). Like the
-// Atlas/Forecast/Experiments suites, a pure-unit test is the right shape
+// Atlas/Experiments suites, a pure-unit test is the right shape
 // (CLAUDE.md testing posture): the domain layer is driven only by injected
 // ports, so it has no integration entry point.
 //

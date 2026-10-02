@@ -3,7 +3,7 @@
 // Pure-unit suite for the Self-Experiments (N-of-1) domain lifecycle
 // (web/domain/gamification.js — listExperiments / startExperiment /
 // cancelExperiment + EXPERIMENT_TEMPLATES), the Phase 4 flagship mechanic.
-// Like the Atlas/Forecast suites, a pure-unit test is the right shape
+// Like the Atlas suites, a pure-unit test is the right shape
 // (CLAUDE.md testing posture): the domain layer is driven only by injected
 // ports, so it has no integration entry point.
 //
@@ -322,5 +322,17 @@ describe('gamification Self-Experiments — goal-lever templates', () => {
     expect(verdict.verdict).toBe('effect');
     expect(verdict.delta).toBeLessThan(-0.05);
     expect(verdict.text).toMatch(/^After session days your trend stepped ~0\.\d\d kg more downward · \d+ paired days$/);
+  });
+
+  it('ED-safe hides the weight-outcome templates, refuses to start one, and hides its verdict', async () => {
+    const vault = goalLeverVault(2);
+    vault.gamificationmode = [{ recordId: 'gamificationmode', deleted: false, ed_safe: true }];
+    const { gam } = domainOver(vault);
+    const res = await gam.listExperiments();
+    const ids = res.templates.map((t) => t.id);
+    for (const id of ['three_sessions_week', 'log_every_meal', 'protein_target']) expect(ids).not.toContain(id);
+    expect(ids).toContain('bedtime_window');
+    expect(res.verdict).toBeNull(); // the resolved weight trial's kg text stays hidden
+    expect(await gam.startExperiment('three_sessions_week', {})).toEqual({ ok: false, error: 'ed_safe' });
   });
 });

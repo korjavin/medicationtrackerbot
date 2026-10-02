@@ -143,8 +143,9 @@ card reads the same episode progress so the two screens agree.
 *Journey (med-8tur.9):* goal-first — the order and the "More" disclosure
 (experiment / chapter / traits / keystones) live in `render()` in
 `web/static/js/features/journey.js`; reached milestones render as the goal
-card's timeline. The standalone Tomorrow Forecast card is removed; the
-forecast surfaces only as the Atlas "since you last looked" line.
+card's timeline. The Tomorrow Forecast is gone entirely (card in med-8tur.9;
+route, `getForecast` and its strip line in med-8tur.12 — its calibration was
+in-sample, so it was removed rather than relabeled).
 
 **0.3.3 The daily loop.** Weigh in → the trend, distance and next-marker
 distance move → the facts rows show what is done and what is next → evening:
@@ -221,7 +222,8 @@ Atlas, labeled "association".
 goal card. The two week-bucketed probes (`bucket: 'week'`, evaluated over
 `buildWeeks`) and the three templates (`three_sessions_week`,
 `log_every_meal`, `protein_target` — gauge = the next weigh-in's trend step)
-read the Goal Line trend through `weightTrendRun`. Every terminal Atlas card is
+read the Goal Line trend through `weightTrendRun`; all five carry `weight: true`,
+so ED-safe hides them (and the joint line, with the Goal Line). Every terminal Atlas card is
 tagged "Descriptive association"; experiment verdicts say "a difference", not
 "an effect".
 
@@ -252,8 +254,17 @@ and no "slow / behind / days late" copy exists; a projected date exists only
 under explicit coverage, freshness and horizon rules and never beside
 `too_fast`; progress attaches to the trend at a safe pace and to executed,
 user-chosen actions — never to intake amount; levers are facts from the user's
-own schedule, never inferred daily quotas; an ED-safe toggle (slice 4) hides
-the Goal Line, milestones and weight probes entirely. There is no height
+own schedule, never inferred daily quotas; an ED-safe toggle hides
+the Goal Line, milestones and weight probes entirely. *Built (med-8tur.12):*
+the `gamificationmode` singleton (`getMode` / `putMode` in
+`web/domain/gamification.js`, `GET`/`PUT /api/gamification/mode`, Settings
+switches) carries `ed_safe` plus per-mechanic `experiments` / `traits` /
+`narration` switches. ED-safe makes `getGoalLine` / `getGoalLineCard` answer
+`{enabled:false, ed_safe:true, adherence_alert}` (no hero — Today renders only the missed-dose safety alert when active —, no Journey goal card, no milestone
+materialization, goal-free weigh-in push), drops goal milestones from the
+keystones, nulls the weight gauge, reads the weekly review as weight-off, and
+drops Atlas probes flagged `weight: true`; Today reads `ed_safe` off the Goal Line payload and hides its weight metric too. The Weight tab itself is the user’s
+own data and is not gated. There is no height
 record, so the BMI floor from earlier drafts is replaced by plain target
 validation in `weight.setGoal`.
 

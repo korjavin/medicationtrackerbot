@@ -2,7 +2,7 @@
 //
 // Fixture-vault suite for the Goal Line read-model (web/domain/gamification.js
 // getGoalLine, docs/gamification.md §0.3.1, bd med-8tur.1). Same shape as the
-// Atlas/forecast suites: the domain layer is driven only by injected ports, so
+// Atlas suites: the domain layer is driven only by injected ports, so
 // a seeded in-memory vault is its integration entry point. The shim route's
 // flag gating is covered in cloud.shim-contract.settings.test.js.
 import { describe, it, expect, vi } from 'vitest';
@@ -872,6 +872,14 @@ describe('gamification Goal Line — joint weight/BP observation', () => {
     ]);
   });
 
+  it('ED-safe hides the joint line with the rest of the Goal Line', async () => {
+    const vault = jointVault(-0.05, [140, 90], [128, 82]);
+    vault.gamificationmode = [{ recordId: 'gamificationmode', deleted: false, ed_safe: true }];
+    const gl = await domainOver(vault).gam.getGoalLine();
+    expect(gl.enabled).toBe(false);
+    expect(gl).not.toHaveProperty('joint');
+  });
+
   it('null without BP in one period, without enough weeks, or with BP off', async () => {
     const noFirst = jointVault(-0.05, [140, 90], [128, 82]);
     noFirst.bp = noFirst.bp.filter((r) => r.recordId === 'bp-spike' || Number(r.recordId.slice(3)) <= 35);
@@ -886,3 +894,70 @@ describe('gamification Goal Line — joint weight/BP observation', () => {
   });
 });
 
+describe('gamification mode — per-mechanic switches + ED-safe (med-8tur.12)', () => {
+  const mode = (extra) => ({ recordId: 'gamificationmode', deleted: false, ...extra });
+  const crossing = () => ({ weight: series(21, () => 83.8), weightgoal: [goalRec(20, 80, 85)] });
+
+  it('defaults to everything on, ED-safe off; putMode merges booleans and keeps the recovery flag', async () => {
+    const { records, gam } = domainOver({ gamificationmode: [mode({ recovery: true })] });
+    expect(await gam.getMode()).toEqual({ enabled: true, ed_safe: false, experiments: true, traits: true, narration: true });
+
+    expect(await gam.putMode({ ed_safe: 'yes' })).toEqual({ ok: false, error: 'invalid_ed_safe' });
+    expect(records.put).not.toHaveBeenCalled();
+
+    expect(await gam.putMode({ ed_safe: true, traits: false }))
+      .toMatchObject({ ed_safe: true, traits: false, experiments: true });
+    const [rec] = await records.list('gamificationmode');
+    expect(rec).toMatchObject({ recordId: 'gamificationmode', recovery: true, ed_safe: true, traits: false, clientTs: NOW });
+
+    // Overlapping flips of two switches both land (writes are serialized).
+    await Promise.all([gam.putMode({ narration: false }), gam.putMode({ experiments: false })]);
+    expect(await gam.getMode()).toMatchObject({ ed_safe: true, traits: false, narration: false, experiments: false });
+  });
+
+  it('ED-safe hides the Goal Line, materializes no milestone, and drops weight from keystones, gauges and the review', async () => {
+    // A milestone earned before ED-safe was switched on stays stored, never shown.
+    const seeded = domainOver(crossing());
+    await seeded.gam.getGoalLineCard();
+    const milestones = await seeded.records.list('gamificationmilestone');
+    expect(milestones).toHaveLength(1);
+
+    const { records, gam } = domainOver({
+      ...crossing(), gamificationmilestone: milestones, gamificationmode: [mode({ ed_safe: true })],
+      gamificationweek: [{
+        recordId: 'gamificationweek-2026-W25', deleted: false, clientTs: 1, week: '2026-W25',
+        intention_id: 'weigh_before_coffee', cadence: { weigh_in: 'weekly', bp_days: null }, paused: false, picked_at: 1,
+      }],
+    });
+    // Only the (inactive here) medication alert survives — a safety signal.
+    const hidden = { enabled: false, ed_safe: true, adherence_alert: { active: false, pdc: 0, missed_doses: 0 } };
+    expect(await gam.getGoalLine()).toEqual(hidden);
+    expect(await gam.getGoalLineCard()).toEqual(hidden);
+    expect(await gam.getGoalLine({ features: { medication: false } }))
+      .toEqual({ enabled: false, ed_safe: true, adherence_alert: null });
+    expect(records.putIfAbsent).not.toHaveBeenCalled();
+    const { keystones } = await gam.getKeystones();
+    expect(keystones.filter((k) => k.kind === 'goal_milestone')).toEqual([]);
+
+    expect((await gam.getGauges()).weight).toBeNull();
+    const review = await gam.getWeeklyReview();
+    expect(review.rows.weight).toEqual({ feature_on: false, status: 'unknown' });
+    expect(review.options.weigh_in).toEqual([]);
+    expect(review.options.intentions.map((i) => i.id)).not.toContain('weigh_before_coffee');
+    expect(review.gauges.weight).toBeNull();
+    // A weigh-in intention picked before ED-safe drops out of the plan too.
+    expect(review.plan.intention).toBeNull();
+    // ...and a cadence-only write's response cannot bring it back.
+    expect((await gam.putWeekPlan({ cadence: { bp_days: 3 } })).plan.intention).toBeNull();
+  });
+
+  it('experiments off → no trial list and no new trial; traits off → no traits, and no strip line for either', async () => {
+    const { gam } = domainOver({ gamificationmode: [mode({ experiments: false, traits: false })] });
+    expect(await gam.listExperiments()).toEqual({ enabled: false });
+    expect(await gam.startExperiment('bedtime_window', {})).toEqual({ ok: false, error: 'disabled' });
+    expect(await gam.getTraits()).toEqual({ enabled: false });
+    const kinds = (await gam.getAtlas()).whats_new.map((it) => it.kind);
+    expect(kinds).not.toContain('trait');
+    expect(kinds).not.toContain('experiment');
+  });
+});

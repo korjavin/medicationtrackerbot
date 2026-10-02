@@ -99,7 +99,7 @@ describe('Settings Features section (Phase 9, Task 5)', () => {
             const list = featuresCard.querySelector('.wg-settings-row-list');
             expect(list).not.toBeNull();
             const toggles = list.querySelectorAll('mt-setting-toggle');
-            expect(toggles.length).toBe(9);
+            expect(toggles.length).toBe(13); // 9 feature flags + 4 Journey mode switches (med-8tur.12)
         } finally {
             cleanup();
         }
@@ -622,6 +622,46 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             window.featureSettings = { weekly_digest: true, gamification: false };
             window.SettingsView.updateFeatureToggles();
             expect(weeklyDigest().classList.contains('wg-settings-hidden')).toBe(true);
+        } finally {
+            cleanup();
+        }
+    });
+
+    // med-8tur.12: the Journey mode switches share the gamification gate, load
+    // from GET /api/gamification/mode, PUT one key per flip, and revert on failure.
+    it('Journey mode switches: gated on gamification, loaded from and written to /api/gamification/mode', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            const row = (id) => document.querySelector(`mt-setting-toggle[input-id="${id}"]`);
+            const ids = ['gam-mode-experiments-toggle', 'gam-mode-traits-toggle', 'gam-mode-narration-toggle', 'gam-mode-ed-safe-toggle'];
+            window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+            await window.loadSettings();
+
+            window.featureSettings = { gamification: false };
+            window.SettingsView.updateFeatureToggles();
+            for (const id of ids) expect(row(id).classList.contains('wg-settings-hidden')).toBe(true);
+            window.featureSettings = { gamification: true };
+            window.SettingsView.updateFeatureToggles();
+            for (const id of ids) expect(row(id).classList.contains('wg-settings-hidden')).toBe(false);
+
+            window.apiCall = vi.fn(async (url, method, body) => {
+                if (method === 'GET') return { enabled: true, ed_safe: false, experiments: true, traits: false, narration: true };
+                return { enabled: true, ed_safe: body.ed_safe === true, experiments: true, traits: false, narration: true };
+            });
+            await window.SettingsView.loadGamificationMode();
+            expect(document.getElementById('gam-mode-traits-toggle').checked).toBe(false);
+            expect(document.getElementById('gam-mode-experiments-toggle').checked).toBe(true);
+
+            const edSafe = document.getElementById('gam-mode-ed-safe-toggle');
+            edSafe.checked = true;
+            edSafe.dispatchEvent(new window.Event('change'));
+            await vi.waitFor(() => expect(window.apiCall).toHaveBeenCalledWith('/api/gamification/mode', 'PUT', { ed_safe: true }));
+
+            // A failed write restores the switch.
+            window.apiCall = vi.fn(async () => null);
+            await window.SettingsView.saveGamificationMode('narration', false);
+            expect(document.getElementById('gam-mode-narration-toggle').checked).toBe(true);
         } finally {
             cleanup();
         }
