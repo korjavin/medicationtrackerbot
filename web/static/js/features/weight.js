@@ -728,6 +728,40 @@ function buildWeightChartCurrentBadge(logs) {
 
 
 
+// #weight-prognosis-card renders the Goal Line's goal.projected (domain
+// read-model, med-8tur.7): "Around 15 Nov ± 3 weeks" only when the domain's
+// coverage / freshness / horizon rules produced a date; beyond_horizon reads
+// "More than a year at this pace"; every other reason hides the card — no guess.
+function renderWeightPrognosisCard(goalLine) {
+    const container = document.getElementById('weight-prognosis-card');
+    if (!container) return;
+    container.replaceChildren();
+    const projected = goalLine && goalLine.enabled !== false && goalLine.goal && goalLine.goal.projected;
+    let text = null;
+    if (projected && projected.date) {
+        const [y, m, d] = projected.date.split('-').map(Number);
+        const when = new Date(y, m - 1, d);
+        const opts = { day: 'numeric', month: 'short' };
+        if (y !== new Date().getFullYear()) opts.year = 'numeric';
+        const n = projected.plus_minus_weeks;
+        text = `Around ${when.toLocaleDateString(undefined, opts)} \u00b1 ${n} week${n === 1 ? '' : 's'}`;
+    } else if (projected && projected.reason === 'beyond_horizon') {
+        text = 'More than a year at this pace';
+    }
+    container.hidden = text === null;
+    if (text === null) return;
+
+    const col = document.createElement('div');
+    const label = document.createElement('div');
+    label.className = 'wg-weight-prognosis-card__label';
+    label.textContent = 'Projected goal date';
+    const value = document.createElement('div');
+    value.className = 'wg-weight-prognosis-card__value';
+    value.textContent = text;
+    col.append(label, value);
+    container.appendChild(col);
+}
+
 async function loadWeightLogs() {
     const list = document.getElementById('weight-list');
     // Mirrors loadBPReadings: when offline with no api_cache row, apiCall
@@ -807,9 +841,7 @@ async function _renderWeightData(logsRes, goalRes, lineRes) {
     });
     renderWeightChart(allLogs, goalData);
     renderWeightChartLegend(goalData);
-    // #weight-prognosis-card stays hidden: the frontend 14-day regression ETA
-    // disagreed with the Goal Line; a projected date returns via the domain
-    // read-model (med-8tur.7) or not at all.
+    renderWeightPrognosisCard(lineRes);
 
     if (allLogs.length === 0 && logsRes === null) {
         list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));

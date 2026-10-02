@@ -4941,16 +4941,21 @@ textarea.wg-input {
     background: var(--wg-sun);
 }
 
-/* Weight prognosis card — shows days-to-goal + weekly trend using a
-   simple linear-regression projection. Shown when a goal is set and we
-   have enough data points; the render helper guards against NaN/Infinity
-   and falls back to "—" when the projection isn't meaningful. */
+/* Weight prognosis card — renders the Goal Line's goal.projected
+   ("Around 15 Nov ± 3 weeks" / "More than a year at this pace"); hidden
+   whenever the domain withholds a date (features/weight.js
+   renderWeightPrognosisCard, med-8tur.7). */
 .wg-weight-prognosis-card {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
     gap: var(--space-md);
     margin-bottom: var(--space-md);
+}
+
+/* display:flex above would beat the UA [hidden] rule — withheld = gone. */
+.wg-weight-prognosis-card[hidden] {
+    display: none;
 }
 
 .wg-weight-prognosis-card__label {

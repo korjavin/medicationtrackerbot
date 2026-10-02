@@ -6,7 +6,7 @@
 // a seeded in-memory vault is its integration entry point. The shim route's
 // flag gating is covered in cloud.shim-contract.settings.test.js.
 import { describe, it, expect, vi } from 'vitest';
-import { createGamificationDomain } from '../../../../web/domain/gamification.js';
+import { createGamificationDomain, projectedShift } from '../../../../web/domain/gamification.js';
 import { recordsToVault, vaultToRecords } from '../../../../web/domain/vault.js';
 import { createInMemoryRecordsPort, applyIncomingReplica } from './helpers/cloud-shim-harness.js';
 
@@ -210,6 +210,85 @@ describe('gamification Goal Line — weight goal', () => {
 
     expect(goal.status).toBe('ok');
     expect(goal.too_fast).toBe(true);
+  });
+});
+
+// goal.projected (med-8tur.7): a date with a ± weeks range from the spread of
+// the four weekly trend velocities, only under coverage/freshness/horizon rules.
+describe('gamification Goal Line — projected date ± weeks', () => {
+  const steady = (o) => 87 + 0.05 * o; // 0.35 kg/week down, 7.45 kg from the 80 kg goal
+  const projectedOf = async (weight, goal = goalRec(30, 80, 88.5)) =>
+    (await domainOver({ weight, weightgoal: [goal] }).gam.getGoalLine()).goal;
+
+  it('a steady trend → around a date, ± 1 week', async () => {
+    const goal = await projectedOf(series(60, steady));
+    expect(goal.status).toBe('ok');
+    // (7.45 − 0.5 reach) kg ÷ 0.35 kg/week ≈ 19.9 weeks from 2026-06-17.
+    expect(goal.projected).toEqual({ date: '2026-11-05', plus_minus_weeks: 1, reason: null });
+  });
+
+  it('a noisy trend at the same mean pace → a wider ± around a similar date', async () => {
+    // Alternating ±0.1 kg weekly steps on top of the steady line: the weekly
+    // trend velocities spread, so the range widens (and the midpoint drifts later,
+    // since distance/v is convex in v).
+    const goal = await projectedOf(series(60, (o) => steady(o) + (Math.floor(o / 7) % 2 ? 0.1 : -0.1)));
+    expect(goal.projected).toEqual({ date: '2026-11-12', plus_minus_weeks: 5, reason: null });
+  });
+
+  it('too_fast never carries a date', async () => {
+    const goal = await projectedOf(series(60, (o) => 100 * (1 + (0.02 / 7) * o)), goalRec(59, 80, 117));
+    expect(goal.too_fast).toBe(true);
+    expect(goal.projected).toEqual({ date: null, plus_minus_weeks: null, reason: 'too_fast' });
+  });
+
+  it('fewer than 8 weigh-in days in 28 → sparse', async () => {
+    const goal = await projectedOf(series(60, steady).filter((_, o) => o % 4 === 0));
+    expect(goal.status).toBe('ok');
+    expect(goal.projected).toMatchObject({ date: null, reason: 'sparse' });
+  });
+
+  it('no reading in the last 7 days → stale', async () => {
+    const goal = await projectedOf(series(60, steady).filter((_, o) => o >= 8));
+    expect(goal.status).toBe('ok');
+    expect(goal.projected).toMatchObject({ date: null, reason: 'stale' });
+  });
+
+  it('a trend run younger than 28 days → short_window', async () => {
+    const goal = await projectedOf(series(20, steady), goalRec(19, 80, 88));
+    expect(goal.status).toBe('ok');
+    expect(goal.projected).toMatchObject({ date: null, reason: 'short_window' });
+  });
+
+  it('trending away from the goal → not_toward, no date', async () => {
+    const goal = await projectedOf(series(60, (o) => 87 - 0.05 * o));
+    expect(goal.projected).toMatchObject({ date: null, reason: 'not_toward' });
+  });
+
+  it('a stalled or reversed week leaves the range unbounded → unsteady, no date', async () => {
+    // Steady loss, except the trend rose over the last week.
+    const goal = await projectedOf(series(60, (o) => (o < 7 ? steady(7) + 0.2 * (7 - o) : steady(o))));
+    expect(goal.projected).toMatchObject({ date: null, reason: 'unsteady' });
+  });
+
+  it('a latest end past 12 months → beyond_horizon (the UI says "more than a year at this pace")', async () => {
+    const goal = await projectedOf(series(60, (o) => 87 + 0.01 * o), goalRec(30, 70, 88.5));
+    expect(goal.projected).toMatchObject({ date: null, plus_minus_weeks: null, reason: 'beyond_horizon' });
+  });
+
+  it('non-ok statuses carry their status as the reason', async () => {
+    expect((await domainOver({ weight: series(60, steady) }).gam.getGoalLine()).goal.projected.reason).toBe('no_goal');
+    expect((await projectedOf([weightRec(0, 84), weightRec(6, 85)], goalRec(6, 78, 85))).projected.reason).toBe('preliminary');
+    const atGoal = await projectedOf(series(60, (o) => (o < 20 ? 80.1 : 80.1 + 0.15 * (o - 20))), goalRec(59, 80, 87.6));
+    expect(atGoal.projected).toMatchObject({ date: null, reason: 'at_goal' });
+  });
+
+  it('week-over-week shift is reported only when both weeks have a date', () => {
+    expect(projectedShift({ date: '2026-11-15' }, { date: '2026-11-01' })).toBe('earlier');
+    expect(projectedShift({ date: '2026-11-01' }, { date: '2026-11-15' })).toBe('later');
+    expect(projectedShift({ date: '2026-11-15' }, { date: '2026-11-18' })).toBe('unchanged');
+    expect(projectedShift({ date: null, reason: 'sparse' }, { date: '2026-11-15' })).toBeNull();
+    expect(projectedShift({ date: '2026-11-15' }, { date: null, reason: 'too_fast' })).toBeNull();
+    expect(projectedShift(null, { date: '2026-11-15' })).toBeNull();
   });
 });
 
