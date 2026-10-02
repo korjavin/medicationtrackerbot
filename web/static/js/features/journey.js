@@ -140,6 +140,20 @@
         if (g.too_fast) {
             card.appendChild(el('p', 'wg-journey-goal__line', 'Faster than 1% a week — worth checking with your doctor.'));
         }
+        // Together (med-8tur.10, §0.3.6): the joint weight/BP observation — the
+        // first vs last full weeks of this goal, shown whichever way it points.
+        const jt = gl.joint;
+        if (jt && Array.isArray(jt.periods) && jt.periods.length === 2 && jt.bp_target) {
+            const [a, b] = jt.periods;
+            const t = jt.bp_target;
+            card.appendChild(el('div', 'wg-section-label wg-journey-goal__timeline-label', 'TOGETHER'));
+            card.appendChild(el('p', 'wg-journey-goal__line',
+                `First vs last ${jt.weeks_per_period} full weeks of this goal: weight trend changed ${signedGoalWeight(jt.weight_change_kg)}; `
+                + `daily-weighted BP averaged ${a.bp.systolic}/${a.bp.diastolic} → ${b.bp.systolic}/${b.bp.diastolic} `
+                + `over ${a.bp.days}/${b.bp.days} measurement days (target ${t.systolic}/${t.diastolic}).`));
+            card.appendChild(el('p', 'wg-journey-goal__line wg-muted',
+                `${a.weigh_in_days}/${b.weigh_in_days} weigh-in days · concurrent changes don’t identify a cause.`));
+        }
         const reached = goalMilestones(j);
         if (reached.length > 0) {
             card.appendChild(el('div', 'wg-section-label wg-journey-goal__timeline-label', 'MILESTONES'));
@@ -547,7 +561,7 @@
         const tags = el('div', 'wg-journey-atlas__tags');
         if (isNew) tags.appendChild(el('span', 'wg-tag wg-tag--mono wg-tag--sun wg-journey-atlas__tag--new', 'New'));
         tags.appendChild(el('span', 'wg-tag wg-tag--mono wg-journey-atlas__tag',
-            card.state === 'revealed' ? 'Discovery' : 'No effect — a finding'));
+            card.state === 'revealed' ? 'Descriptive association' : 'Descriptive association · no difference'));
         item.appendChild(tags);
 
         // "Test it" (Phase 4): a terminal discovery with a matching lever
@@ -694,8 +708,8 @@
     }
 
     function verdictTagText(verdict) {
-        if (verdict === 'effect') return 'Effect — a finding';
-        if (verdict === 'no_effect') return 'No effect — an equally real finding';
+        if (verdict === 'effect') return 'A difference — a finding';
+        if (verdict === 'no_effect') return 'No difference — an equally real finding';
         return 'Not enough contrast';
     }
 

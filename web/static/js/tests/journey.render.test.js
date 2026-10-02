@@ -246,6 +246,37 @@ describe('Journey render', () => {
         expect(env.document.getElementById('journey-more').open).toBe(true);
     });
 
+    // med-8tur.10 (§0.3.6): the joint weight/BP observation — both components,
+    // coverage, the frozen target and the no-cause line, favorable or not.
+    it('goal detail: the joint weight/BP line renders for favorable AND unfavorable periods', () => {
+        const goalLine = (joint) => ({ ...fullJourney().goal_line, joint });
+        const period = (start, sys, dia, bpDays, weighIns) => ({
+            start_day: start, end_day: start, weigh_in_days: weighIns, bp: { systolic: sys, diastolic: dia, days: bpDays },
+        });
+        const target = { systolic: 130, diastolic: 85 };
+        const jointLines = () => [...env.document.querySelectorAll('#journey-goal-card .wg-journey-goal__line')]
+            .map((l) => l.textContent).slice(-2);
+
+        env.window.Gamification.render(fullJourney({ goal_line: goalLine({
+            weeks_per_period: 4, weight_change_kg: -1.6, bp_target: target,
+            periods: [period('2026-04-13', 140, 90, 9, 20), period('2026-05-18', 128, 82, 11, 24)],
+        }) }));
+        expect(jointLines()).toEqual([
+            'First vs last 4 full weeks of this goal: weight trend changed −1.6 kg; daily-weighted BP averaged 140/90 → 128/82 over 9/11 measurement days (target 130/85).',
+            '20/24 weigh-in days · concurrent changes don’t identify a cause.',
+        ]);
+
+        env.window.Gamification.render(fullJourney({ goal_line: goalLine({
+            weeks_per_period: 2, weight_change_kg: 1.2, bp_target: target,
+            periods: [period('2026-04-13', 126, 80, 6, 7), period('2026-05-18', 139, 88, 5, 8)],
+        }) }));
+        expect(jointLines()[0]).toBe('First vs last 2 full weeks of this goal: weight trend changed +1.2 kg; daily-weighted BP averaged 126/80 → 139/88 over 6/5 measurement days (target 130/85).');
+        expect(jointLines()[1]).toMatch(/don’t identify a cause/);
+
+        env.window.Gamification.render(fullJourney({ goal_line: goalLine(null) }));
+        expect(env.document.getElementById('journey-goal-card').textContent).not.toMatch(/TOGETHER|identify a cause/);
+    });
+
     it('goal detail: progress, markers, coverage and the milestone timeline (moved out of Keystones)', () => {
         env.window.Gamification.render(fullJourney());
         const { document } = env;
@@ -842,7 +873,7 @@ describe('Journey render', () => {
         expect(card.querySelector('.wg-journey-bar__fill')).toBeNull();
     });
 
-    it('revealed Atlas card shows the finding and a Discovery tag', () => {
+    it('revealed Atlas card shows the finding, labeled a descriptive association', () => {
         env.window.Gamification.render(journey({
             atlas: {
                 cards: [{
@@ -855,7 +886,7 @@ describe('Journey render', () => {
         }));
         const card = env.document.querySelector('.wg-journey-atlas__card--revealed');
         expect(card.querySelector('.wg-journey-atlas__finding').textContent).toContain('16 mmHg lower');
-        expect(card.querySelector('.wg-journey-atlas__tag').textContent).toBe('Discovery');
+        expect(card.querySelector('.wg-journey-atlas__tag').textContent).toBe('Descriptive association');
         // The finding states the question — no separate question line.
         expect(card.querySelector('.wg-journey-atlas__question')).toBeNull();
         // Already seen: no NEW treatment.
@@ -875,7 +906,7 @@ describe('Journey render', () => {
         }));
         const card = env.document.querySelector('.wg-journey-atlas__card--no_effect');
         expect(card.querySelector('.wg-journey-atlas__finding').textContent).toContain('holds steady');
-        expect(card.querySelector('.wg-journey-atlas__tag').textContent).toBe('No effect — a finding');
+        expect(card.querySelector('.wg-journey-atlas__tag').textContent).toBe('Descriptive association · no difference');
         expect(card.querySelector('.wg-journey-atlas__question')).toBeNull();
     });
 
@@ -1155,7 +1186,7 @@ describe('Journey render', () => {
     const WHATS_NEW = [
         { kind: 'discovery', text: 'New: Workout mornings run 16 mmHg lower · 25 pairs', target: 'journey-atlas-card' },
         { kind: 'trait', text: 'You\u2019re now a Consistent Mover.', target: 'journey-traits-card' },
-        { kind: 'forecast', text: 'Last night 7h 30m · this morning 118 — in range. Your body agreed.', target: null },
+        { kind: 'forecast', text: 'Last night 7h 30m · this morning 118 — in range. Matched the pattern this time.', target: null },
     ];
 
     function withStrip(items) {

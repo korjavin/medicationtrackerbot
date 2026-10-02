@@ -17,6 +17,7 @@ import { describe, it, expect } from 'vitest';
 import {
   createGamificationDomain,
   EXPERIMENT_TEMPLATES,
+  PROBES,
 } from '../../../../web/domain/gamification.js';
 import {
   applyIncomingReplica,
@@ -272,11 +273,54 @@ describe('gamification Self-Experiments — a stale resolution cannot overwrite 
 describe('gamification Self-Experiments — curated lever-only template library', () => {
   it('every template is a lever tied to a probe, never a restriction or weight target', () => {
     expect(EXPERIMENT_TEMPLATES.length).toBeGreaterThan(0);
+    const probeIds = PROBES.map((p) => p.id);
     for (const t of EXPERIMENT_TEMPLATES) {
       expect(typeof t.lever).toBe('function'); // a behavior, not a value target
-      expect(typeof t.fromProbe).toBe('string');
+      // protein_target is the one template no probe feeds (the user's own
+      // target, med-8tur.10); every other one names a real probe.
+      if (t.id === 'protein_target') expect(t.fromProbe).toBeNull();
+      else expect(probeIds).toContain(t.fromProbe);
       const blob = `${t.title} ${t.intention} ${t.measure}`.toLowerCase();
       expect(blob).not.toMatch(/weight|calorie|kg|lose|less|restrict/);
     }
+  });
+});
+
+// med-8tur.10: the goal-lever templates read the next weigh-in's step in the
+// Goal Line trend; the same honesty gate calls the trial either way.
+describe('gamification Self-Experiments — goal-lever templates', () => {
+  // Daily 07:00 weigh-ins over the elapsed window; workouts on even offsets,
+  // so the morning AFTER a workout day is an odd offset, `swing` kg lower.
+  function goalLeverVault(swing) {
+    const weight = [];
+    const workoutsession = [];
+    for (let offset = 0; offset <= 40; offset++) {
+      weight.push({
+        recordId: `w-${offset}`, deleted: false,
+        measured_at: new Date(NOW - offset * DAY_MS - 5 * 3600000).toISOString(),
+        weight: 80 - (offset % 2 ? swing : 0),
+      });
+      if (offset % 2 === 0) {
+        workoutsession.push({ recordId: `ws-${offset}`, deleted: false, status: 'completed', completed_at: isoAt(offset) });
+      }
+    }
+    return { weight, workoutsession, gamificationexperiment: [expRec({ template_id: 'three_sessions_week' })] };
+  }
+
+  it('three_sessions_week: a flat trend is a rewarded no_effect', async () => {
+    const { gam } = domainOver(goalLeverVault(0));
+    const { verdict } = await gam.listExperiments();
+    expect(verdict.template_id).toBe('three_sessions_week');
+    expect(verdict.verdict).toBe('no_effect');
+    expect(verdict.rewarded).toBe(true);
+    expect(verdict.unit).toBe('kg');
+  });
+
+  it('three_sessions_week: lower mornings after session days read as a difference, in kg', async () => {
+    const { gam } = domainOver(goalLeverVault(2));
+    const { verdict } = await gam.listExperiments();
+    expect(verdict.verdict).toBe('effect');
+    expect(verdict.delta).toBeLessThan(-0.05);
+    expect(verdict.text).toMatch(/^After session days your trend stepped ~0\.\d\d kg more downward · \d+ paired days$/);
   });
 });

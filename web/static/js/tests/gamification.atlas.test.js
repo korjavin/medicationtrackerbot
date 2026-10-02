@@ -12,7 +12,7 @@
 // with a meter that names the next log action, and a flat dataset yields a
 // dignified no_effect finding.
 import { describe, it, expect } from 'vitest';
-import { createGamificationDomain } from '../../../../web/domain/gamification.js';
+import { createGamificationDomain, PROBES } from '../../../../web/domain/gamification.js';
 import { createInMemoryRecordsPort } from './helpers/cloud-shim-harness.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -180,7 +180,7 @@ describe('gamification Discovery Atlas — probe evaluator', () => {
       bp, workoutsession, sleep, foodlog,
     });
     const atlas = await gam.getAtlas();
-    expect(atlas.cards).toHaveLength(6);
+    expect(atlas.cards).toHaveLength(PROBES.length);
 
     const states = new Set(atlas.cards.map((c) => c.state));
     expect(states.has('revealed')).toBe(true);
@@ -190,6 +190,81 @@ describe('gamification Discovery Atlas — probe evaluator', () => {
     // Zero server-side reads: every number came from the injected records port.
     expect(cardById(atlas, 'workout_next_morning_bp').state).toBe('revealed');
     expect(cardById(atlas, 'short_sleep_next_day_steps').state).toBe('developing');
+  });
+});
+
+// --- Goal-relevant probes (med-8tur.10, docs/gamification.md §0.3.6) ---------
+// Week-bucketed: complete local ISO weeks of the 90-day window, gauge = the
+// week's change in the Goal Line trend (sum of its EMA steps). NOW is a Monday,
+// so offsets 1..7 are the last complete week; daily weigh-ins from offset 110
+// keep the trend run older than the window, so every week is readable.
+describe('gamification Discovery Atlas — goal-relevant weekly probes', () => {
+  const WEEK_PROBES = ['workout_weeks_vs_trend_velocity', 'food_logged_weeks_vs_trend_velocity'];
+
+  // Odd weeks back (1, 3, 5, ...) are "active": workouts Mon/Wed/Fri and food
+  // logged Mon–Fri. weightAt(offset, active) sets that morning's reading.
+  function weeklyVault(weightAt) {
+    const weight = [];
+    const workoutsession = [];
+    const foodlog = [];
+    for (let offset = 0; offset <= 110; offset++) {
+      const active = Math.floor((offset + 6) / 7) % 2 === 1;
+      const morning = new Date(NOW - offset * DAY_MS - 5 * 3600000).toISOString();
+      weight.push({ recordId: `w-${offset}`, deleted: false, measured_at: morning, weight: weightAt(offset, active) });
+      const dow = new Date(NOW - offset * DAY_MS).getUTCDay();
+      if (active && [1, 3, 5].includes(dow)) workoutsession.push(workoutRec(offset));
+      if (active && dow >= 1 && dow <= 5) foodlog.push(foodRec(offset, 13));
+    }
+    return { weight, workoutsession, foodlog };
+  }
+
+  it('reveals a trend that moves more downward in active weeks, in kg/week', async () => {
+    // −0.3 kg/day through active weeks, +0.3 kg/day through the others.
+    const byOffset = new Map();
+    let w = 90;
+    for (let offset = 110; offset >= 0; offset--) {
+      w += Math.floor((offset + 6) / 7) % 2 === 1 ? -0.3 : 0.3;
+      byOffset.set(offset, w);
+    }
+    const { gam } = domainOver(weeklyVault((offset) => byOffset.get(offset)));
+    const atlas = await gam.getAtlas({ whatsNew: false });
+    for (const id of WEEK_PROBES) {
+      const card = cardById(atlas, id);
+      expect(card.state).toBe('revealed');
+      expect(card.bucket).toBe('week');
+      expect(card.unit).toBe('kg/wk');
+      expect(card.delta).toBeLessThan(-0.2);
+      expect(card.n).toBe(12); // twelve complete weeks in the window
+      expect(card.text).toMatch(/kg\/week more downward than in other weeks · 12 weeks/);
+    }
+  });
+
+  it('reports a flat trend as a no_effect finding, not a blank', async () => {
+    const { gam } = domainOver(weeklyVault(() => 80));
+    const atlas = await gam.getAtlas({ whatsNew: false });
+    for (const id of WEEK_PROBES) {
+      const card = cardById(atlas, id);
+      expect(card.state).toBe('no_effect');
+      expect(card.text).toMatch(/about the same/);
+      expect(card).not.toHaveProperty('delta');
+    }
+  });
+
+  it('stays developing while the trend run is too young to read a week', async () => {
+    // 18 days of weigh-ins: the run starts inside the window, so the week that
+    // holds its first reading is unreadable and no week has both arms.
+    const weight = Array.from({ length: 18 }, (_, offset) => ({
+      recordId: `w-${offset}`, deleted: false, measured_at: isoAt(offset), weight: 80,
+    }));
+    const { gam } = domainOver({ weight });
+    const atlas = await gam.getAtlas({ whatsNew: false });
+    for (const id of WEEK_PROBES) {
+      const card = cardById(atlas, id);
+      expect(card.state).toBe('developing');
+      expect(card.needed).toBe(3);
+      expect(card.have).toBe(0);
+      expect(card.next).toMatch(/Weigh in/);
+    }
   });
 });
 
