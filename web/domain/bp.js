@@ -91,7 +91,9 @@ function goalResponse(rec) {
 // internal/store/bp/repo.go:346 (GetDailyWeightedStats). Stage 1: per-day
 // time-weighted average (each reading weighted by seconds until the next
 // event). Stage 2: equal-weight average of the day-averages over the window.
-function buildDailyWeightedStats(bpRecords, nowMs, timeZone) {
+// `periods` picks the stats_<N> windows (N days back from today's start, so
+// N+1 local days including today); gamification's Goal Line reads stats_6.
+export function buildDailyWeightedStats(bpRecords, nowMs, timeZone, periods = [14, 30, 60]) {
   const maxDays = 60;
   const windowStart = dayStartMs(nowMs - maxDays * DAY_MS, timeZone);
 
@@ -160,12 +162,10 @@ function buildDailyWeightedStats(bpRecords, nowMs, timeZone) {
   }
 
   const result = {};
-  const s14 = buildPeriod(14);
-  const s30 = buildPeriod(30);
-  const s60 = buildPeriod(60);
-  if (s14) result.stats_14 = s14;
-  if (s30) result.stats_30 = s30;
-  if (s60) result.stats_60 = s60;
+  for (const n of periods) {
+    const st = buildPeriod(n);
+    if (st) result[`stats_${n}`] = st;
+  }
   return result;
 }
 

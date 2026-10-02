@@ -1160,6 +1160,17 @@ export function createApiRouter(ctx, {
       if (!flags.gamification) return { enabled: false };
       return gamification.getForecast();
     }
+    // Goal Line (med-8tur.1, docs/gamification.md §0.3.1): the weight goal on
+    // the trend + workout/BP facts, recomputed client-side from vault records.
+    // A UI-only route like /atlas and /forecast — deliberately NOT a registry
+    // op (agents already reach weight/workout/BP through their own ops). Gated
+    // on the gamification flag like the forecast (its card lives on Today); the
+    // workout/BP rows carry their own feature_on from the same flag map.
+    if (path === '/api/gamification/goal-line' && method === 'GET') {
+      const flags = clampFeatures(await settings.getFeatures());
+      if (!flags.gamification) return { enabled: false };
+      return gamification.getGoalLine({ features: flags });
+    }
     // Self-Experiments (Phase 4): the flagship N-of-1 mechanic. listExperiments
     // recomputes the active trial's tracker + any un-acknowledged verdict from
     // vault records (persisting only the frozen verdict + lifecycle status);

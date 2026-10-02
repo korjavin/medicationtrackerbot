@@ -107,6 +107,30 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         expect(await window.apiCall('/api/gamification/forecast', 'GET')).toEqual({ enabled: false });
     });
 
+    // med-8tur.1: the Goal Line route carries the flag map into the read-model —
+    // a feature toggled off reports feature_on:false on its row, and the
+    // gamification flag gates the whole payload like the forecast.
+    it('GET /api/gamification/goal-line honors the workout/bp/gamification flags', async () => {
+        const { window } = env;
+        window.rebuildCanonicalBottomNav = vi.fn();
+
+        const on = await window.apiCall('/api/gamification/goal-line', 'GET');
+        expect(on.enabled).toBe(true);
+        expect(on.goal.status).toBe('no_goal');
+        expect(on.workouts.feature_on).toBe(true);
+        expect(on.bp.feature_on).toBe(true);
+
+        await window.toggleFeatureSetting('workout', false);
+        await window.toggleFeatureSetting('bp', false);
+        const off = await window.apiCall('/api/gamification/goal-line', 'GET');
+        expect(off.workouts.feature_on).toBe(false);
+        expect(off.workouts.scheduled_this_week).toBeNull();
+        expect(off.bp.feature_on).toBe(false);
+
+        await window.toggleFeatureSetting('gamification', false);
+        expect(await window.apiCall('/api/gamification/goal-line', 'GET')).toEqual({ enabled: false });
+    });
+
     // The card caches its payload at bootstrap only, so a mid-session re-enable
     // has to re-fetch — otherwise the gate above leaves it empty until reload.
     it('toggling gamification back on re-refreshes the forecast card', async () => {
