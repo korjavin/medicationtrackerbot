@@ -71,6 +71,29 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     expect('weeks' in back.data.gamification).toBe(false);
   });
 
+  it('live gamification state survives export/import: active trial, chapter, band overrides (med-8tur.11)', () => {
+    const records = vaultToRecords(fixture, { now: NOW });
+    const of = (type) => records.filter((r) => r.recordType === type);
+    // Back on the exact recordIds gamification.js reads.
+    expect(of('gamificationjournal').map((r) => r.recordId)).toEqual(['journal']);
+    expect(of('gamificationjournal')[0].chapter).toEqual({ theme_id: 'steady_mornings', started_at: 1782000000000 });
+    expect(of('gamificationtargets').map((r) => r.recordId)).toEqual(['targets']);
+    expect(of('gamificationtargets')[0].targets.map((t) => t.metric_key)).toEqual(['bedtime', 'steps']);
+    const exps = of('gamificationexperiment');
+    // recordId kept verbatim: the keystone id `experiment-<recordId>` must still match.
+    expect(exps.map((e) => e.recordId)).toEqual(['exp-bedtime_window-1782500000000', 'exp-workout_cadence-1780000000000']);
+    expect(exps.map((e) => e.status)).toEqual(['active', 'resolved']);
+    expect(exps.some((e) => 'id' in e)).toBe(false);
+    expect(of('gamificationmode').map((r) => r.recordId)).toEqual(['mode-illness-1781000000000', 'mode-travel-1782400000000']);
+    // An older file (no keys) imports none of them and re-exports without the keys.
+    const legacy = JSON.parse(JSON.stringify(fixture));
+    for (const k of ['journal', 'target_overrides', 'experiments', 'modes']) delete legacy.data.gamification[k];
+    const legacyRecords = vaultToRecords(legacy, { now: NOW });
+    expect(legacyRecords.some((r) => /^gamification(journal|targets|experiment|mode)$/.test(r.recordType))).toBe(false);
+    const back = recordsToVault(legacyRecords, { now: NOW });
+    for (const k of ['journal', 'target_overrides', 'experiments', 'modes']) expect(k in back.data.gamification).toBe(false);
+  });
+
   it('drops gps at import and keeps every other miband field', () => {
     const records = vaultToRecords(fixture, { now: NOW });
     const miband = records.filter((r) => r.recordType === 'miband');
@@ -98,6 +121,10 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
       if (d.gamification) delete d.gamification.milestones;
       // So are weekly plans (med-8tur.4).
       if (d.gamification) delete d.gamification.weeks;
+      // And the live gamification state (med-8tur.11).
+      for (const k of ['journal', 'target_overrides', 'experiments', 'modes']) {
+        if (d.gamification) delete d.gamification[k];
+      }
       // Equipment is cloud-only inventory (med-niix.1); a real bot export
       // never carries it, so it canonicalizes away here like med_reminder_pref.
       if (d.workouts) delete d.workouts.equipment;

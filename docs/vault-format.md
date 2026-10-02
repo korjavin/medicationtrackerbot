@@ -356,7 +356,11 @@ domain block carries only logs + products).
   "ledger":  [ { ledger_entry } ],
   "state":   { state } | null,
   "milestones": [ { milestone } ],  // optional — omitted when empty
-  "weeks": [ { week_plan } ]         // optional — omitted when empty
+  "weeks": [ { week_plan } ],        // optional — omitted when empty
+  "journal": { journal },            // optional — omitted when absent
+  "target_overrides": [ { band_target } ],  // optional — omitted when empty
+  "experiments": [ { experiment } ], // optional — omitted when empty
+  "modes": [ { mode } ]              // optional — omitted when empty
 }
 ```
 
@@ -364,6 +368,9 @@ Cloud mode carries `targets` / `ledger` / `state` verbatim as one passthrough re
 (like `tzhistory`) purely for backup fidelity. `milestones` and `weeks` are the
 exceptions: each row becomes its own `gamificationmilestone` / `gamificationweek`
 record, read by the Goal Line card, the Journey timeline and the weekly review.
+The four cloud-only live-state keys (med-8tur.11) map back onto the records
+`web/domain/gamification.js` reads; a legacy bot export never carries them, an older
+cloud file omits them (and imports none), and an older client ignores them on import.
 
 - **target** (leaf, no `id`; `metric_key` is the natural key) — `metric_key` (str),
   `low_val`, `high_val`, `falloff` (num|null), `mode` (str|null), `updated_at` (RFC3339).
@@ -389,6 +396,19 @@ record, read by the Goal Line card, the Journey timeline and the weekly review.
   `cadence` (`{weigh_in: "weekly"|"daily", bp_days: int|null}`), `paused` (bool),
   `picked_at` (ms), `goal_set_at` (RFC3339|null — the goal active at pick time; import
   re-attaches `episode_id` by it). Older files omit the key.
+- **journal** (cloud-only) — the `gamificationjournal` singleton body (recordId
+  `journal`) verbatim: `seen_discoveries`, `chapter`, `closed_chapters`, `traits`,
+  `keystones`.
+- **band_target** (cloud-only; leaf, `metric_key` is the natural key) — one Health
+  Score band override from the `gamificationtargets` singleton (recordId `targets`):
+  `metric_key`, `low_val`, `high_val`, `falloff` (num|null). Distinct from the legacy
+  passthrough `targets` above.
+- **experiment** (cloud-only) — one `gamificationexperiment` record body plus `id` (its
+  recordId, kept verbatim: keystones reference `experiment-<id>`): `template_id`,
+  `status` (`active`|`resolved`|`cancelled`), `started_at`, `duration_days`, and the
+  resolution/cancellation fields once set.
+- **mode** (cloud-only) — one `gamificationmode` record body plus `id` (its recordId);
+  `recovery: true` pauses experiments.
 
 ### `api_tokens`
 
@@ -546,7 +566,7 @@ the bot runtime): real legacy export output, kept to prove old exports remain
 importable.
 
 Every list-shaped block carries **≥2 rows** on purpose (two gamification targets, two
-ledger rows, two api tokens, two tz plans — one `COMPLETED` + one `PENDING_APPROVAL`) so
+ledger rows, two band overrides, two experiments — one active + one resolved, two modes, two api tokens, two tz plans — one `COMPLETED` + one `PENDING_APPROVAL`) so
 an exporter that drops all but the newest row fails the pin rather than passing it. The
 reminder blocks cover both shapes: `bp_reminder` has a non-null `snoozed_until`,
 `weight_reminder` has nulls.

@@ -48,6 +48,10 @@
 //     with that set_at (its episode), rebuilding the deterministic recordId.
 //   - gamificationweek (weekly plans, med-8tur.4) rides in data.gamification.weeks;
 //     the recordId is rebuilt from `week`, episode_id re-attached by goal_set_at.
+//   - the live gamification state (med-8tur.11) rides in data.gamification too:
+//     the `journal` singleton body, the `target_overrides` list (body of the
+//     `gamificationtargets` singleton), and `experiments` / `modes` lists that
+//     keep their recordId as `id` (keystones reference `experiment-<recordId>`).
 //   - timezone_history, gamification and api_tokens have no cloud consumer, so
 //     imported entries land in passthrough `tzhistory` / `gamification` /
 //     `apitokens` stores purely for backup fidelity. The reminder-pref bodies
@@ -81,6 +85,7 @@ export const VAULT_MANAGED_TYPES = new Set([
   'settings', 'features', 'taborder', 'foodtargets', 'integrations', 'medreminderpref',
   'bpreminderpref', 'weightreminderpref', 'gamification', 'apitokens',
   'gamificationmilestone', 'gamificationweek',
+  'gamificationjournal', 'gamificationexperiment', 'gamificationtargets', 'gamificationmode',
 ]);
 
 // Record types whose rows are lazily materialized into deterministic recordIds
@@ -376,6 +381,20 @@ export function recordsToVault(records, { now, includeSecrets = true } = {}) {
   if (weeks.length > 0) {
     gamification.weeks = sortBy(weeks, (r) => String(r.week)).map((r) => stripMeta(r, ['episode_id']));
   }
+  // Live gamification state (med-8tur.11): chapter/seen/traits/keystones, band
+  // overrides, trials, recovery flags. Each key omitted when empty, like weeks.
+  const journalRec = singleton('gamificationjournal', 'journal');
+  if (journalRec) gamification.journal = stripMeta(journalRec);
+  const targetsRec = singleton('gamificationtargets', 'targets');
+  if (targetsRec && Array.isArray(targetsRec.targets) && targetsRec.targets.length > 0) {
+    gamification.target_overrides = sortBy(targetsRec.targets, (t) => String(t.metric_key));
+  }
+  for (const [key, type] of [['experiments', 'gamificationexperiment'], ['modes', 'gamificationmode']]) {
+    const rows = pick(type);
+    if (rows.length > 0) {
+      gamification[key] = sortBy(rows, (r) => String(r.recordId)).map((r) => ({ id: r.recordId, ...stripMeta(r) }));
+    }
+  }
   const tokensRec = singleton('apitokens', 'apitokens');
 
   const data = {
@@ -664,6 +683,15 @@ export function vaultToRecords(vault, { now } = {}) {
     }
     const goal = w.goal_set_at ? out.find((r) => r.recordType === 'weightgoal' && r.set_at === w.goal_set_at) : null;
     push('gamificationweek', `gamificationweek-${w.week}`, { ...w, episode_id: goal ? goal.recordId : null });
+  }
+  // Live gamification state (med-8tur.11) back onto the recordIds gamification.js
+  // reads. Older files omit these keys and import none of them.
+  if (gam && gam.journal) push('gamificationjournal', 'journal', { ...gam.journal });
+  if (gam && Array.isArray(gam.target_overrides) && gam.target_overrides.length > 0) {
+    push('gamificationtargets', 'targets', { targets: gam.target_overrides.map((t) => ({ ...t })) });
+  }
+  for (const [key, type] of [['experiments', 'gamificationexperiment'], ['modes', 'gamificationmode']]) {
+    for (const { id, ...body } of (gam && gam[key]) || []) push(type, id, body);
   }
 
   // --- tombstones (derived-slot suppression signals, bd med-jtaj) ---
