@@ -2955,7 +2955,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       records.list(WORKOUT_ROTATION_RECORD_TYPE), records.listRaw(WORKOUT_SESSION_RECORD_TYPE),
       records.list(GOAL_MILESTONE_RECORD_TYPE),
     ]);
-    const g = goalLineWeight(weightAll, goalAll, sunday, weekEndMs);
+    // The goal in force at the week's end — one set later never re-reads it.
+    const g = goalLineWeight(weightAll, goalAll.filter((r) => !(Date.parse(r.set_at) > weekEndMs)), sunday, weekEndMs);
     const weighInDays = new Set(weightAll
       .filter((r) => Number.isFinite(r.weight) && Date.parse(r.measured_at) <= weekEndMs)
       .map((r) => localDayString(Date.parse(r.measured_at), timeZone))
@@ -2987,6 +2988,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       : { feature_on: false, status: 'unknown', mean: null, target: null, days_measured: null };
 
     const planWeek = planWeekKey(today);
+    const weighInNow = await currentWeighInCadence();
     const quiet = hpDays.size === 0 && weighInDays === 0 && !(workoutsRow.completed > 0) && !(bpRow.days_measured > 0);
 
     return {
@@ -2998,10 +3000,14 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       rows: { weight: weightRow, workouts: workoutsRow, bp: bpRow },
       best_day: bestDay,
       plan_week: planWeek,
+      // Mon–Sat the pick shapes the live week; from Sunday on, the coming one.
+      plan_scope: planWeek === isoWeekKey(today) ? 'this_week' : 'next_week',
       plan: weekPlanView(await weekPlanRecord(planWeek)),
       options: {
         intentions: WEEK_INTENTIONS.filter((i) => on(i.feature)).map(({ id, text }) => ({ id, text })),
         weigh_in: on('weight') ? [...WEEK_WEIGH_IN_CADENCES] : [],
+        // The weigh-in reminder's cadence today — the control's starting value.
+        weigh_in_current: weighInNow,
         bp_days_max: on('bp') ? WEEK_BP_DAYS_MAX : 0,
       },
       days_with_any_hp: hpDays.size,
@@ -3031,6 +3037,13 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     return (await records.list(WEEK_PLAN_RECORD_TYPE)).find((r) => r.recordId === `${WEEK_PLAN_RECORD_TYPE}-${week}`) || null;
   }
 
+  // The weigh-in reminder pref's cadence (reminders.js owns the record): the
+  // weekly plan's weigh-in contract IS that cadence, so it seeds the default.
+  async function currentWeighInCadence() {
+    const pref = (await records.list('weightreminderpref')).find((r) => r.recordId === 'weightreminderpref');
+    return pref && WEEK_WEIGH_IN_CADENCES.includes(pref.cadence) ? pref.cadence : 'weekly';
+  }
+
   async function currentWeekPlanRecord() {
     return weekPlanRecord(isoWeekKey(localDayString(now(), timeZone)));
   }
@@ -3051,9 +3064,10 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // now()). body: { choice?, cadence? } — choice is an intention id, 'keep'
   // (carry the latest earlier week's intention), 'pause' (the week is off: no
   // change/too-fast on the Goal Line, no weigh-in nudges, experiments wait),
-  // or absent (a cadence-only edit keeps the week's current pick). cadence:
-  // { weigh_in: 'weekly'|'daily', bp_days: 0..7|null }, merged over the week's
-  // (or the previous week's) contract. Returns { ok, plan } / { ok:false, error }.
+  // or absent (a cadence-only edit keeps the week's current pick, if any).
+  // cadence: { weigh_in: 'weekly'|'daily', bp_days: 0..7|null }, merged over the
+  // week's (or the previous week's) contract, defaulting weigh_in to the
+  // reminder's current cadence. Returns { ok, plan } / { ok:false, error }.
   async function putWeekPlan(body) {
     const choice = body && body.choice;
     const patch = (body && body.cadence) || {};
@@ -3074,8 +3088,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     const existing = all.find((r) => r.recordId === recordId);
     // Lexical order on '<year>-W<ww>' is chronological.
     const prior = all.filter((r) => r.week && r.week < week).sort((a, b) => (a.week < b.week ? 1 : -1))[0];
-    const base = existing || prior || {};
-    let intentionId = base.intention_id || null;
+    let intentionId = (existing && existing.intention_id) || null;
     let paused = existing ? !!existing.paused : false;
     if (choice === 'keep') {
       intentionId = (prior && prior.intention_id) || (existing && existing.intention_id) || null;
@@ -3087,7 +3100,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       paused = false;
     }
     const cadence = {
-      weigh_in: 'weekly', bp_days: null, ...(base.cadence || {}),
+      weigh_in: await currentWeighInCadence(), bp_days: null, ...((existing || prior || {}).cadence || {}),
       ...(patch.weigh_in !== undefined ? { weigh_in: patch.weigh_in } : {}),
       ...(patch.bp_days !== undefined ? { bp_days: patch.bp_days } : {}),
     };

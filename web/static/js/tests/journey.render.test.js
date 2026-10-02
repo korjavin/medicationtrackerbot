@@ -431,6 +431,18 @@ describe('Journey render', () => {
         expect(plan.querySelector('.wg-journey-weekly__current').textContent).toBe('When I log dinner, I will stop eating for the night');
         expect(plan.querySelector('select[data-cadence="weigh_in"]').value).toBe('daily');
         expect(plan.querySelector('select[data-cadence="bp_days"]').value).toBe('3');
+        expect(plan.querySelector('.wg-section-label').textContent).toBe('THIS WEEK');
+    });
+
+    it('on Sunday the choice is for next week; the weigh-in control starts at the reminder\'s cadence', () => {
+        env.window.Gamification.render(journey({
+            weekly_review: { ...WEEKLY, plan_scope: 'next_week', options: { ...WEEKLY.options, weigh_in_current: 'daily' } },
+        }));
+        const plan = env.document.querySelector('.wg-journey-weekly__plan');
+        expect(plan.querySelector('.wg-section-label').textContent).toBe('NEXT WEEK');
+        expect(plan.querySelector('.wg-journey-weekly__current').textContent).toBe('No pick yet — choose one for next week.');
+        expect(plan.querySelector('[data-choice="pause"]').textContent).toBe('Pause next week');
+        expect(plan.querySelector('select[data-cadence="weigh_in"]').value).toBe('daily');
     });
 
     function stubWrite(env, response) {

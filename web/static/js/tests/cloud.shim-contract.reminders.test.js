@@ -81,6 +81,12 @@ describe('cloud shim contract — reminders', () => {
         expect((await window.offlineAwareApiCall('/api/weight/reminder/status', 'GET')).cadence).toBe('daily');
         const review = await window.offlineAwareApiCall('/api/gamification/weekly-review', 'GET');
         expect(review.plan).toMatchObject({ intention: { id: 'weigh_before_coffee' }, cadence: { weigh_in: 'daily' } });
+
+        // A pick that does not name weigh_in (pause, an intention, BP days)
+        // leaves the reminder's daily cadence alone.
+        await window.offlineAwareApiCall('/api/gamification/week-plan', 'POST', { choice: 'pause' });
+        await window.offlineAwareApiCall('/api/gamification/week-plan', 'POST', { cadence: { bp_days: 2 } });
+        expect((await window.offlineAwareApiCall('/api/weight/reminder/status', 'GET')).cadence).toBe('daily');
     });
 
     it('bootstrap payload reflects persisted prefs instead of constants', async () => {

@@ -671,6 +671,7 @@ describe('gamification weekly review + week plan', () => {
     });
     expect(wr.quiet).toBe(false);
     expect(wr.plan_week).toBe('2026-W26');
+    expect(wr.plan_scope).toBe('this_week');
     expect(wr.plan).toBeNull();
     expect(wr.options.intentions.map((i) => i.id)).toEqual(['start_session', 'weigh_before_coffee', 'stop_after_dinner', 'log_every_meal']);
     expect(records.put).not.toHaveBeenCalled();
@@ -687,7 +688,7 @@ describe('gamification weekly review + week plan', () => {
     const off = await gam.getWeeklyReview({ features: { weight: false, workout: false, food: false, bp: true } });
     expect(off.rows.weight.feature_on).toBe(false);
     expect(off.rows.workouts.feature_on).toBe(false);
-    expect(off.options).toEqual({ intentions: [], weigh_in: [], bp_days_max: 7 });
+    expect(off.options).toEqual({ intentions: [], weigh_in: [], weigh_in_current: 'weekly', bp_days_max: 7 });
   });
 
   it('intention + cadence persist as a user write and getGoalLine reads them back', async () => {
@@ -722,12 +723,38 @@ describe('gamification weekly review + week plan', () => {
     expect(plan).toMatchObject({ week: '2026-W26', intention: { id: 'weigh_before_coffee' }, cadence: { weigh_in: 'daily', bp_days: 2 }, paused: false });
   });
 
+  it('a cadence-only edit never adopts last week\'s intention; weigh_in defaults to the reminder\'s cadence', async () => {
+    const { gam } = at(MON, {
+      gamificationweek: [weekRec('2026-W25', { intention_id: 'weigh_before_coffee' })],
+      weightreminderpref: [{ recordId: 'weightreminderpref', deleted: false, clientTs: 1, enabled: true, cadence: 'daily' }],
+    });
+    expect((await gam.getWeeklyReview()).options.weigh_in_current).toBe('daily');
+    const { plan } = await gam.putWeekPlan({ cadence: { bp_days: 2 } });
+    expect(plan.intention).toBeNull();
+    expect(plan.cadence).toEqual({ weigh_in: 'weekly', bp_days: 2 }); // last week's contract carries
+    const fresh = await at(MON, {
+      weightreminderpref: [{ recordId: 'weightreminderpref', deleted: false, clientTs: 1, enabled: true, cadence: 'daily' }],
+    }).gam.putWeekPlan({ choice: 'pause' });
+    expect(fresh.plan.cadence.weigh_in).toBe('daily'); // no prior contract → the reminder's cadence
+  });
+
+  it('a goal set after the reviewed week never re-reads it', async () => {
+    const { gam } = at(MON, {
+      weight: Array.from({ length: 20 }, (_, o) => wMon(o, 85)),
+      weightgoal: [{ recordId: 'weightgoal-new', deleted: false, set_at: isoMon(0), target_weight: 80, start_weight: 85 }],
+    });
+    const wr = await gam.getWeeklyReview();
+    expect(wr.rows.weight.goal_status).toBe('no_goal');
+    expect(wr.rows.weight.distance_to_goal).toBeNull();
+  });
+
   it('a Sunday read still reviews the previous week; the pick takes effect on Monday', async () => {
     const seed = {};
     const sun = at(SUN, seed);
     const wr = await sun.gam.getWeeklyReview();
     expect(wr.week.id).toBe('2026-W25');
     expect(wr.plan_week).toBe('2026-W27');
+    expect(wr.plan_scope).toBe('next_week');
     await sun.gam.putWeekPlan({ choice: 'log_every_meal' });
     expect((await sun.gam.getGoalLine()).plan).toBeNull(); // the live week has no pick
 

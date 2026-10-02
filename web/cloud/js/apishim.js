@@ -1231,11 +1231,14 @@ export function createApiRouter(ctx, {
     // user write of next week's intention / cadence / pause. A weigh-in cadence
     // pick IS the weigh-in reminder's cadence (daily is opt-in here), and a
     // pause silences that week's weigh-in nudges — so the horizon recomputes.
+    // Only an explicit weigh_in in the request touches the reminder pref.
+    // ponytail: the pref is global, so a Sunday pick (next week's plan) moves
+    // it now and it outlives the week; per-week cadence if that ever matters.
     if (method === 'POST' && path === '/api/gamification/week-plan') {
       const res = await gamification.putWeekPlan(body || {});
       if (res.ok) {
-        const c = res.plan.cadence;
-        if (c && c.weigh_in) await reminders.setWeightCadence(c.weigh_in);
+        const asked = body && body.cadence && body.cadence.weigh_in;
+        if (asked) await reminders.setWeightCadence(asked);
         scheduleReminderRecompute(ctx, { records, timeZone });
       }
       return res;

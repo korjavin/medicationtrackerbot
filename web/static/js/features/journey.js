@@ -217,7 +217,7 @@
     function cadenceSelect(label, key, options, value) {
         const wrap = el('label', 'wg-journey-weekly__cadence-field');
         wrap.appendChild(el('span', 'wg-muted', label));
-        const select = el('select', 'wg-journey-weekly__select');
+        const select = el('select', 'wg-select');
         select.setAttribute('data-cadence', key);
         options.forEach(([v, text]) => {
             const opt = el('option', null, text);
@@ -234,9 +234,11 @@
         const plan = wr.plan;
         const section = el('div', 'wg-journey-weekly__plan');
         section.setAttribute('data-plan-week', wr.plan_week || '');
-        section.appendChild(el('p', 'wg-section-label', 'NEXT WEEK'));
-        let current = 'No pick yet — choose one for the week ahead.';
-        if (plan && plan.paused) current = 'Paused this week.';
+        const nextWeek = wr.plan_scope === 'next_week';
+        const scope = nextWeek ? 'next week' : 'this week';
+        section.appendChild(el('p', 'wg-section-label', nextWeek ? 'NEXT WEEK' : 'THIS WEEK'));
+        let current = `No pick yet — choose one for ${scope}.`;
+        if (plan && plan.paused) current = `Paused ${scope}.`;
         else if (plan && plan.intention) current = plan.intention.text;
         section.appendChild(el('p', 'wg-journey-weekly__current wg-muted', current));
 
@@ -252,14 +254,14 @@
         (opts.intentions || []).forEach((it) => choice(it.id, it.text,
             !!(plan && !plan.paused && plan.intention && plan.intention.id === it.id)));
         choice('keep', 'Keep this plan', false);
-        choice('pause', 'Pause this week', !!(plan && plan.paused));
+        choice('pause', `Pause ${scope}`, !!(plan && plan.paused));
         section.appendChild(choices);
 
         const cad = (plan && plan.cadence) || {};
         const cadence = el('div', 'wg-journey-weekly__cadence');
         if (Array.isArray(opts.weigh_in) && opts.weigh_in.length) {
             cadence.appendChild(cadenceSelect('Weigh-in', 'weigh_in',
-                opts.weigh_in.map((v) => [v, v === 'daily' ? 'Daily' : 'Weekly']), cad.weigh_in || 'weekly'));
+                opts.weigh_in.map((v) => [v, v === 'daily' ? 'Daily' : 'Weekly']), cad.weigh_in || opts.weigh_in_current || 'weekly'));
         }
         const bpMax = Number(opts.bp_days_max) || 0;
         if (bpMax > 0) {
