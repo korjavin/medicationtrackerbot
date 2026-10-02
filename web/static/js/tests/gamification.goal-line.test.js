@@ -740,6 +740,18 @@ describe('gamification weekly review + week plan', () => {
     expect(fresh.plan.cadence.weigh_in).toBe('daily');
   });
 
+  // Send-back #1: the week ends at Sun 23:59:59.999; a sub-second instant
+  // used to skew bp.js dayStartMs to Mon 00:00:00.999 and drop Monday.
+  it('a Monday reading counts in the BP row (week-end milliseconds never shift the window)', async () => {
+    for (const tz of ['UTC', 'America/Los_Angeles']) {
+      const onlyMonday = await at(MON, { bp: [bpMon(7, 120, 80)] }, tz).gam.getWeeklyReview(); // Mon 06-15
+      expect(onlyMonday.rows.bp).toMatchObject({ status: 'in_range', mean: { systolic: 120, diastolic: 80, days: 1 }, days_measured: 1 });
+      const everyDay = await at(MON, { bp: [1, 2, 3, 4, 5, 6, 7].map((o) => bpMon(o, 120, 80)) }, tz).gam.getWeeklyReview();
+      expect(everyDay.rows.bp.mean.days).toBe(7);
+      expect(everyDay.rows.bp.days_measured).toBe(7);
+    }
+  });
+
   it('a goal set after the reviewed week never re-reads it', async () => {
     const { gam } = at(MON, {
       weight: Array.from({ length: 20 }, (_, o) => wMon(o, 85)),

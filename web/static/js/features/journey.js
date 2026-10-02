@@ -190,26 +190,55 @@
             next.intention = opts.find((o) => o.id === body.choice) || null;
             next.paused = false;
         }
-        return { ...prev, plan: next };
+        // A weigh-in pick IS the reminder's cadence: weigh_in_current follows
+        // it, so the select repaints to it and later edits never revert it.
+        const weighIn = body.cadence && body.cadence.weigh_in;
+        const options = weighIn ? { ...(prev.options || {}), weigh_in_current: weighIn } : prev.options;
+        return { ...prev, plan: next, options };
     }
 
-    // The weekly-plan user write: DataStore.applyOptimistic on the review cache,
-    // then POST; commit with the server's plan, roll back on failure.
-    async function saveWeekPlan(body) {
+    // The Today Goal Line shows the LIVE week's plan, so a this-week pick
+    // patches its cache too: a pause drops the week's change / too-fast /
+    // projection exactly as getGoalLine does; un-pausing cannot rebuild them
+    // client-side, so that clears the entry and the next read refetches.
+    function projectGoalLinePlan(prev, plan) {
+        if (!prev || typeof prev !== 'object' || !prev.goal) return prev;
+        if (plan.paused) {
+            return {
+                ...prev, plan,
+                goal: { ...prev.goal, change_7d: null, too_fast: false, projected: { date: null, plus_minus_weeks: null, reason: 'paused' } },
+            };
+        }
+        if (prev.plan && prev.plan.paused) return null;
+        return { ...prev, plan };
+    }
+
+    // The weekly-plan user write: DataStore.applyOptimistic on the review cache
+    // (and, for a this-week pick, the Goal Line cache), then POST; commit with
+    // the server's plan, roll both back on failure.
+    async function saveWeekPlan(body, scope) {
         const ds = window.DataStore;
+        const optimistic = !!(ds && typeof ds.applyOptimistic === 'function');
         let projected = null;
-        const handle = (ds && typeof ds.applyOptimistic === 'function')
+        const handle = optimistic
             ? await ds.applyOptimistic(WEEKLY_CACHE_KEY, (prev) => { projected = projectWeekPlan(prev, body); return projected; }, ['gamification'])
+            : null;
+        const goalHandle = optimistic && scope !== 'next_week' && projected && projected.plan
+            ? await ds.applyOptimistic(GOAL_LINE_CACHE_KEY, (prev) => projectGoalLinePlan(prev, projected.plan), GOAL_LINE_TAGS)
             : null;
         const call = window.offlineAwareApiCall || window.apiCallDirect;
         let res = null;
         try {
             if (typeof call === 'function') res = await call(WEEK_PLAN_URL, 'POST', body);
         } catch (_) { res = null; }
-        if (!handle) return res;
         try {
-            if (res && res.ok) await handle.commit(projected ? { ...projected, plan: res.plan } : null);
-            else await handle.rollback();
+            if (res && res.ok) {
+                if (handle) await handle.commit(projected ? { ...projected, plan: res.plan } : null);
+                if (goalHandle) await goalHandle.commit(null);
+            } else {
+                if (handle) await handle.rollback();
+                if (goalHandle) await goalHandle.rollback();
+            }
         } catch (_) { /* best-effort */ }
         return res;
     }
@@ -251,7 +280,7 @@
             // weigh_in goes out only from its own select (it sets the reminder).
             btn.addEventListener('click', () => {
                 const { weigh_in: _w, ...cadence } = readCadence(section);
-                saveWeekPlan({ choice: id, cadence });
+                saveWeekPlan({ choice: id, cadence }, wr.plan_scope);
             });
             choices.appendChild(btn);
         };
@@ -276,7 +305,7 @@
         }
         // A cadence change alone keeps the week's pick (no `choice`).
         cadence.querySelectorAll('select').forEach((s) => {
-            s.addEventListener('change', () => { saveWeekPlan({ cadence: readCadence(section) }); });
+            s.addEventListener('change', () => { saveWeekPlan({ cadence: readCadence(section) }, wr.plan_scope); });
         });
         if (cadence.childNodes.length) section.appendChild(cadence);
         return section;
