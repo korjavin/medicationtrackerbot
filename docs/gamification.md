@@ -167,6 +167,17 @@ write), is exported with the vault, and is what allows a "today" chip for the
 chosen cadence to exist at all. The weekly digest push and the Journey card
 both render this; the narrator recap (`narrateWeekly`, existing seam) is fed
 the same computed fields.
+*Implemented (med-8tur.4):* `getWeeklyReview({features})` / `putWeekPlan` in
+`web/domain/gamification.js` (window, DST policy, row shapes and the plan-week
+rule — the live week, or from Sunday on the coming one — are in the code
+comments); `POST /api/gamification/week-plan` is the user write, and a
+weigh-in cadence pick sets `weightreminderpref.cadence` and recomputes the
+horizon. A paused week drops `change_7d` / `too_fast` from `getGoalLine`,
+skips that week's weigh-in pushes (`computeReminderHorizon`
+`weighInPausedWeeks`), and reads as recovery for experiments — which only
+*defers* a verdict and blocks a new start. The digest (`formatWeeklyDigest`)
+puts the goal reading on the Web Push body only; the Telegram text stays
+goal-free. The vault carries the records in `gamification.weeks`.
 
 **0.3.5 Milestones.** Reached markers become durable records
 (`gamificationmilestone-<episode>-<ordinal>`), materialized from a read path

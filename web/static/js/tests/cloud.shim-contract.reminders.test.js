@@ -63,6 +63,26 @@ describe('cloud shim contract — reminders', () => {
         expect(bpStatus.enabled).toBe(true);
     });
 
+    // med-8tur.4: the weekly review's cadence pick IS the weigh-in reminder's
+    // cadence (daily is opt-in there); an invalid pick changes nothing.
+    it('a weekly-plan pick sets the weigh-in cadence; a bad pick leaves it alone', async () => {
+        const { window } = env;
+        expect((await window.offlineAwareApiCall('/api/weight/reminder/status', 'GET')).cadence).toBe('weekly');
+
+        const bad = await window.offlineAwareApiCall('/api/gamification/week-plan', 'POST', { cadence: { weigh_in: 'hourly' } });
+        expect(bad).toEqual({ ok: false, error: 'invalid_cadence' });
+        expect((await window.offlineAwareApiCall('/api/weight/reminder/status', 'GET')).cadence).toBe('weekly');
+
+        const res = await window.offlineAwareApiCall('/api/gamification/week-plan', 'POST', {
+            choice: 'weigh_before_coffee', cadence: { weigh_in: 'daily' },
+        });
+        expect(res.ok).toBe(true);
+        expect(res.plan.intention.id).toBe('weigh_before_coffee');
+        expect((await window.offlineAwareApiCall('/api/weight/reminder/status', 'GET')).cadence).toBe('daily');
+        const review = await window.offlineAwareApiCall('/api/gamification/weekly-review', 'GET');
+        expect(review.plan).toMatchObject({ intention: { id: 'weigh_before_coffee' }, cadence: { weigh_in: 'daily' } });
+    });
+
     it('bootstrap payload reflects persisted prefs instead of constants', async () => {
         setupEnv({
             bpreminderpref: [{ recordId: 'bpreminderpref', clientTs: Date.now(), deleted: false, enabled: true, preferred_reminder_hour: 18 }],

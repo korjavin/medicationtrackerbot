@@ -11,7 +11,8 @@
 // state is reveal-once "seen" flags (§4.2 — scores are pure functions of the log).
 
 import { dayStartMs, buildDailyWeightedStats } from './bp.js';
-import { workoutScheduleOccurrences } from './reminders.js';
+import { workoutScheduleOccurrences, isoWeekKey } from './reminders.js';
+import { localWallToUtcMs } from './medschedule.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WINDOW_DAYS = 90; // trailing window (§4.1)
@@ -53,6 +54,18 @@ const GOAL_LINE_MILESTONE_FRACTION = 0.025; //   distance, whichever is coarser,
 const GOAL_LINE_DEFAULT_DIASTOLIC = 80;     // docs/features.md <130/80 target, per missing bpgoal component
 const GOAL_MILESTONE_RECORD_TYPE = 'gamificationmilestone'; // §0.3.5 durable milestones (vault-managed)
 const GOAL_MILESTONE_EVIDENCE_DAYS = 3;     // distinct weigh-in days at/past a marker before it is earned
+// §0.3.4 weekly plan: one user-written record per ISO week (vault-managed),
+// gamificationweek-<isoWeekYear>-W<ww> — the chosen implementation intention,
+// the cadence contract, or a pause. `feature` gates which intentions are offered.
+const WEEK_PLAN_RECORD_TYPE = 'gamificationweek';
+const WEEK_INTENTIONS = [
+  { id: 'start_session', feature: 'workout', text: 'When I finish work on my training days, I will start the session' },
+  { id: 'weigh_before_coffee', feature: 'weight', text: 'When I wake, I will weigh in before coffee' },
+  { id: 'stop_after_dinner', feature: 'food', text: 'When I log dinner, I will stop eating for the night' },
+  { id: 'log_every_meal', feature: 'food', text: 'When I sit down to eat, I will log the meal' },
+];
+const WEEK_WEIGH_IN_CADENCES = ['weekly', 'daily']; // = reminders.js WEIGHT_CADENCES
+const WEEK_BP_DAYS_MAX = 7;
 
 // The one persisted record: a singleton holding reveal-once bookkeeping.
 const JOURNAL_RECORD_TYPE = 'gamificationjournal';
@@ -1522,10 +1535,16 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // recoveryActive — the defensive recovery/illness-mode seam (§5). No such
   // flag exists yet; this reads an optional signal record and returns false
   // when absent, so experiments auto-pause for free once the flag lands.
+  // A week paused in the weekly review (§0.3.4, med-8tur.4) reads as recovery
+  // too. NOTE what that does and does not do: an active experiment only DEFERS
+  // its verdict (resolution waits; its window is not extended) and no new one
+  // can start; a chapter is not force-ended. Nothing else changes.
   async function recoveryActive() {
     try {
-      const modes = await records.list(RECOVERY_MODE_RECORD_TYPE);
-      return modes.some((m) => m && m.recovery === true);
+      const [modes, plan] = await Promise.all([
+        records.list(RECOVERY_MODE_RECORD_TYPE), currentWeekPlanRecord(),
+      ]);
+      return modes.some((m) => m && m.recovery === true) || !!(plan && plan.paused);
     } catch (_) {
       return false;
     }
@@ -2813,23 +2832,38 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     };
   }
 
-  // getWeeklyReview ports weekly.go: this-week vs last-week lever closes, best
-  // day, strengths now/prior, gauges (+ bp 30d share a week ago), health score
-  // now/prior — anchored on the ISO week containing now().
-  async function getWeeklyReview() {
+  // getWeeklyReview (docs/gamification.md §0.3.4, med-8tur.4) reviews the most
+  // recently COMPLETED local week, Monday–Sunday in the owner's zone — the live
+  // week is the Goal Line card's job. A Monday read reviews last week; so does
+  // a Sunday read (Sunday is still live). DST policy: a week is seven local
+  // calendar days, so a DST week is 167 or 169 hours long and nothing is
+  // re-bucketed by the shift. Three fact rows, no composite, missing = unknown:
+  //   rows.weight   — the Goal Line read as of Sunday's end: trend change over
+  //                   the week, distance, weigh-in days, milestones earned;
+  //   rows.workouts — completed vs the plan's scheduled count (null = no
+  //                   weekly plan; planned rest is never a miss);
+  //   rows.bp       — daily-weighted mean of both components vs bpgoal, days.
+  // Then the choice: `plan` is the record for `plan_week` (the live week, or
+  // from Sunday on the coming one), `options` the curated list to pick from.
+  // The ring/score keys (levers, strengths, gauges, health_score) stay for the
+  // MCP op's shape, now over the same completed week — nothing renders them.
+  async function getWeeklyReview({ features } = {}) {
+    const on = (k) => !features || !!features[k];
     const { cfg, ctx } = await loadForRead();
     const scored = scoreWindow(ctx, cfg);
-    const todayStr = scored.todayStr;
-    const week = weekIndexOf(todayStr);
-    const thisB = weekBoundsOf(week);
-    const priorB = weekBoundsOf(week - 1);
+    const nowMs = now();
+    const today = localDayString(nowMs, timeZone);
+    const monday = addDays(today, -((dayOfWeek(today) + 6) % 7) - 7);
+    const sunday = addDays(monday, 6);
+    const priorMonday = addDays(monday, -7);
+    // Last instant of the reviewed Sunday, local: data after it is next week's.
+    const weekEndMs = localWallToUtcMs(utcDayToMs(addDays(sunday, 1)), timeZone) - 1;
 
-    // closed days per lever within a [firstUnix,lastUnix] week from scored awards.
-    const closedDaysByLever = (firstUnix, lastUnix) => {
+    // Substrate awards are keyed by UTC day; the local day strings index them
+    // directly (an award near midnight can land one day off — display-only).
+    const closedDaysByLever = (fromDay, toDay) => {
       const out = {}; for (const lv of LEVER_RINGS) out[lv.key] = new Set();
-      let d = msToUTCDay(firstUnix * 1000);
-      const endDay = msToUTCDay(lastUnix * 1000);
-      while (d <= endDay) {
+      for (let d = fromDay; d <= toDay; d = addDays(d, 1)) {
         for (const a of (scored.byDay.get(d) || [])) {
           if (a.kind === KIND_FLOOR) continue;
           for (const lv of LEVER_RINGS) {
@@ -2837,62 +2871,185 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
             out[lv.key].add(d); break;
           }
         }
-        d = addDays(d, 1);
       }
       return out;
     };
-    const thisClosed = closedDaysByLever(thisB.first, thisB.last);
-    const lastClosed = closedDaysByLever(priorB.first, priorB.last);
+    const thisClosed = closedDaysByLever(monday, sunday);
+    const lastClosed = closedDaysByLever(priorMonday, addDays(monday, -1));
     const levers = LEVER_RINGS.map((lv) => ({
       key: lv.key, closed_this_week: thisClosed[lv.key].size, closed_last_week: lastClosed[lv.key].size,
     }));
 
-    // days with any HP this week + best day (most levers closed).
+    // days with any HP in the week + best day (most levers closed, earliest wins).
     const hpDays = new Set();
-    const closedByDay = new Map();
-    let dd = msToUTCDay(thisB.first * 1000);
-    const weekEndDay = msToUTCDay(thisB.last * 1000);
-    while (dd <= weekEndDay) {
-      const awards = scored.byDay.get(dd) || [];
-      let hp = 0; for (const a of awards) hp += a.hp;
-      if (hp > 0) hpDays.add(dd);
-      let n = 0; for (const lv of LEVER_RINGS) if (thisClosed[lv.key].has(dd)) n += 1;
-      if (n > 0) closedByDay.set(dd, n);
-      dd = addDays(dd, 1);
-    }
     let bestDay = null;
-    for (const [day, count] of closedByDay) {
-      if (!bestDay || count > bestDay.rings_closed || (count === bestDay.rings_closed && utcDayUnix(day) < bestDay.day_unix)) {
-        bestDay = { day_unix: utcDayUnix(day), rings_closed: count };
-      }
+    for (let d = monday; d <= sunday; d = addDays(d, 1)) {
+      let hp = 0; for (const a of (scored.byDay.get(d) || [])) hp += a.hp;
+      if (hp > 0) hpDays.add(d);
+      let n = 0; for (const lv of LEVER_RINGS) if (thisClosed[lv.key].has(d)) n += 1;
+      if (n > 0 && (!bestDay || n > bestDay.rings_closed)) bestDay = { day_unix: utcDayUnix(d), rings_closed: n };
     }
 
-    const weekAgo = addDays(todayStr, -7);
-    const sNow = strengthsView(ctx, ctx._bpReadings, todayStr, cfg);
-    const sPrior = strengthsView(ctx, ctx._bpReadings, weekAgo, cfg);
-    const strengths = sNow.map((s, i) => ({ key: s.key, label: s.label, value_now: s.value, value_prior: (sPrior[i] && sPrior[i].value) || 0 }));
+    const sPrior = strengthsView(ctx, ctx._bpReadings, addDays(sunday, -7), cfg);
+    const strengths = strengthsView(ctx, ctx._bpReadings, sunday, cfg)
+      .map((st, i) => ({ key: st.key, label: st.label, value_now: st.value, value_prior: (sPrior[i] && sPrior[i].value) || 0 }));
+    const weightGauge = computeWeightGaugeAt(ctx, sunday, cfg); delete weightGauge.goal_direction;
+    const bpGauge = computeBPGaugeAt(ctx, ctx._bpReadings, sunday, cfg);
+    const bpPrior = computeBPGaugeAt(ctx, ctx._bpReadings, addDays(sunday, -7), cfg);
 
-    const weight = computeWeightGaugeAt(ctx, todayStr, cfg); delete weight.goal_direction;
-    const bp = computeBPGaugeAt(ctx, ctx._bpReadings, todayStr, cfg);
-    const bpPrior = computeBPGaugeAt(ctx, ctx._bpReadings, weekAgo, cfg);
-    const hr = computeRestingHRGaugeAt(ctx, todayStr, cfg);
-    const bpSharePrior = bpPrior.status === 'ok' ? (bpPrior.share_30d || 0) : 0;
+    // ---- the three goal rows, each read as of the reviewed Sunday's end ----
+    const [weightAll, goalAll, bpAll, bpGoalAll, groups, variants, rotations, sessionsRaw, milestones] = await Promise.all([
+      records.list(WEIGHT_RECORD_TYPE), records.list(WEIGHTGOAL_RECORD_TYPE),
+      records.list(BP_RECORD_TYPE), records.list(BP_GOAL_RECORD_TYPE),
+      records.list(WORKOUT_GROUP_RECORD_TYPE), records.list(WORKOUT_VARIANT_RECORD_TYPE),
+      records.list(WORKOUT_ROTATION_RECORD_TYPE), records.listRaw(WORKOUT_SESSION_RECORD_TYPE),
+      records.list(GOAL_MILESTONE_RECORD_TYPE),
+    ]);
+    const g = goalLineWeight(weightAll, goalAll, sunday, weekEndMs);
+    const weighInDays = new Set(weightAll
+      .filter((r) => Number.isFinite(r.weight) && Date.parse(r.measured_at) <= weekEndMs)
+      .map((r) => localDayString(Date.parse(r.measured_at), timeZone))
+      .filter((d) => d >= monday && d <= sunday)).size;
+    const weightRow = on('weight') ? {
+      feature_on: true,
+      status: g.trend_weight === null ? 'unknown' : 'ok',
+      goal_status: g.status,
+      trend_weight: g.trend_weight,
+      trend_change_kg: g.change_7d,
+      distance_to_goal: g.distance_to_goal,
+      weigh_in_days: weighInDays,
+      milestones_reached: milestones
+        .filter((m) => m.episode_id === g.episode_id && m.earned_at >= monday && m.earned_at <= sunday)
+        .sort((a, b) => a.ordinal - b.ordinal)
+        .map((m) => ({ id: m.recordId, ordinal: m.ordinal, title: milestoneTitle(m) })),
+    } : { feature_on: false, status: 'unknown' };
+    // ponytail: scheduled counts the CURRENT plan's weekdays over the past
+    // week — a plan edited since then re-labels it. Snapshot plans if it matters.
+    const wo = on('workout')
+      ? goalLineWorkouts({ groups, variants, rotations, sessionsRaw, today: sunday, monday, sinceMonday: 6, nowMs: weekEndMs })
+      : null;
+    const workoutsRow = wo
+      ? { feature_on: true, completed: wo.completed_this_week, scheduled: wo.scheduled_this_week }
+      : { feature_on: false, completed: null, scheduled: null };
+    const bpl = on('bp') ? goalLineBP(bpAll, bpGoalAll, sunday, monday, weekEndMs) : null;
+    const bpRow = bpl
+      ? { feature_on: true, status: bpl.status, mean: bpl.mean_7d, target: bpl.target, days_measured: bpl.days_this_week }
+      : { feature_on: false, status: 'unknown', mean: null, target: null, days_measured: null };
 
-    const hsNow = healthScoreView(ctx, ctx._bpReadings, todayStr, cfg);
-    const hsPrior = healthScoreView(ctx, ctx._bpReadings, weekAgo, cfg);
+    const planWeek = planWeekKey(today);
+    const quiet = hpDays.size === 0 && weighInDays === 0 && !(workoutsRow.completed > 0) && !(bpRow.days_measured > 0);
 
     return {
       enabled: true,
-      quiet: hpDays.size === 0,
-      week_start: thisB.first,
-      week_end: thisB.last,
+      quiet,
+      week: { id: isoWeekKey(monday), start_day: monday, end_day: sunday },
+      week_start: utcDayUnix(monday),
+      week_end: utcDayUnix(sunday),
+      rows: { weight: weightRow, workouts: workoutsRow, bp: bpRow },
+      best_day: bestDay,
+      plan_week: planWeek,
+      plan: weekPlanView(await weekPlanRecord(planWeek)),
+      options: {
+        intentions: WEEK_INTENTIONS.filter((i) => on(i.feature)).map(({ id, text }) => ({ id, text })),
+        weigh_in: on('weight') ? [...WEEK_WEIGH_IN_CADENCES] : [],
+        bp_days_max: on('bp') ? WEEK_BP_DAYS_MAX : 0,
+      },
       days_with_any_hp: hpDays.size,
       levers,
-      best_day: bestDay,
       strengths,
-      gauges: { weight, bp, bp_share_30d_prior: bpSharePrior, resting_hr: hr },
-      health_score: { now: hsNow, prior: hsPrior },
+      gauges: {
+        weight: weightGauge, bp: bpGauge,
+        bp_share_30d_prior: bpPrior.status === 'ok' ? (bpPrior.share_30d || 0) : 0,
+        resting_hr: computeRestingHRGaugeAt(ctx, sunday, cfg),
+      },
+      health_score: {
+        now: healthScoreView(ctx, ctx._bpReadings, sunday, cfg),
+        prior: healthScoreView(ctx, ctx._bpReadings, addDays(sunday, -7), cfg),
+      },
     };
+  }
+
+  // ----- Weekly plan (docs/gamification.md §0.3.4, med-8tur.4) ---------------
+  // The plan week is the live ISO week — or, from Sunday on, the coming one:
+  // the Sunday digest asks for NEXT week's intention, and getGoalLine reads the
+  // live week's record, so a Sunday pick takes effect on Monday.
+  function planWeekKey(today) {
+    return isoWeekKey(dayOfWeek(today) === 0 ? addDays(today, 1) : today);
+  }
+
+  async function weekPlanRecord(week) {
+    return (await records.list(WEEK_PLAN_RECORD_TYPE)).find((r) => r.recordId === `${WEEK_PLAN_RECORD_TYPE}-${week}`) || null;
+  }
+
+  async function currentWeekPlanRecord() {
+    return weekPlanRecord(isoWeekKey(localDayString(now(), timeZone)));
+  }
+
+  function weekPlanView(rec) {
+    if (!rec) return null;
+    const it = WEEK_INTENTIONS.find((i) => i.id === rec.intention_id);
+    return {
+      week: rec.week,
+      intention: it ? { id: it.id, text: it.text } : null,
+      cadence: rec.cadence || null,
+      paused: !!rec.paused,
+      picked_at: rec.picked_at || null,
+    };
+  }
+
+  // putWeekPlan is the USER write behind the weekly review's choice (clientTs
+  // now()). body: { choice?, cadence? } — choice is an intention id, 'keep'
+  // (carry the latest earlier week's intention), 'pause' (the week is off: no
+  // change/too-fast on the Goal Line, no weigh-in nudges, experiments wait),
+  // or absent (a cadence-only edit keeps the week's current pick). cadence:
+  // { weigh_in: 'weekly'|'daily', bp_days: 0..7|null }, merged over the week's
+  // (or the previous week's) contract. Returns { ok, plan } / { ok:false, error }.
+  async function putWeekPlan(body) {
+    const choice = body && body.choice;
+    const patch = (body && body.cadence) || {};
+    if (choice !== undefined && choice !== 'keep' && choice !== 'pause' && !WEEK_INTENTIONS.some((i) => i.id === choice)) {
+      return { ok: false, error: 'unknown_intention' };
+    }
+    if (patch.weigh_in !== undefined && !WEEK_WEIGH_IN_CADENCES.includes(patch.weigh_in)) {
+      return { ok: false, error: 'invalid_cadence' };
+    }
+    if (patch.bp_days !== undefined && patch.bp_days !== null
+      && !(Number.isInteger(patch.bp_days) && patch.bp_days >= 0 && patch.bp_days <= WEEK_BP_DAYS_MAX)) {
+      return { ok: false, error: 'invalid_cadence' };
+    }
+    const nowMs = now();
+    const week = planWeekKey(localDayString(nowMs, timeZone));
+    const recordId = `${WEEK_PLAN_RECORD_TYPE}-${week}`;
+    const [all, goalAll] = await Promise.all([records.list(WEEK_PLAN_RECORD_TYPE), records.list(WEIGHTGOAL_RECORD_TYPE)]);
+    const existing = all.find((r) => r.recordId === recordId);
+    // Lexical order on '<year>-W<ww>' is chronological.
+    const prior = all.filter((r) => r.week && r.week < week).sort((a, b) => (a.week < b.week ? 1 : -1))[0];
+    const base = existing || prior || {};
+    let intentionId = base.intention_id || null;
+    let paused = existing ? !!existing.paused : false;
+    if (choice === 'keep') {
+      intentionId = (prior && prior.intention_id) || (existing && existing.intention_id) || null;
+      paused = false;
+    } else if (choice === 'pause') {
+      paused = true;
+    } else if (choice !== undefined) {
+      intentionId = choice;
+      paused = false;
+    }
+    const cadence = {
+      weigh_in: 'weekly', bp_days: null, ...(base.cadence || {}),
+      ...(patch.weigh_in !== undefined ? { weigh_in: patch.weigh_in } : {}),
+      ...(patch.bp_days !== undefined ? { bp_days: patch.bp_days } : {}),
+    };
+    const goal = goalAll.filter((r) => Number.isFinite(r.target_weight))
+      .sort((a, b) => Date.parse(b.set_at || 0) - Date.parse(a.set_at || 0))[0];
+    const rec = {
+      recordId, deleted: false, clientTs: nowMs,
+      week, intention_id: intentionId, cadence, paused, picked_at: nowMs,
+      episode_id: goal ? goal.recordId : null, goal_set_at: goal ? goal.set_at || null : null,
+    };
+    await records.put(WEEK_PLAN_RECORD_TYPE, rec);
+    return { ok: true, plan: weekPlanView(rec) };
   }
 
   // ----- targets CRUD (targets.go) --------------------------------------------
@@ -2962,9 +3119,18 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     // `day` is the local-day key the goal/workout/BP facts are bucketed on
     // (settings timezone when pinned); `time_zone` lets the UI tell when it
     // went stale. adherence_alert keeps the substrate's UTC-day window.
+    // The live week's plan (§0.3.4, med-8tur.4): the chosen intention/cadence
+    // shown under the rows; a paused week shows "paused" instead of the
+    // week's change and the too-fast line (and any projection).
+    const plan = weekPlanView(await weekPlanRecord(isoWeekKey(today)));
+    if (plan && plan.paused) {
+      goal.change_7d = null;
+      goal.too_fast = false;
+      if ('projected' in goal) goal.projected = null;
+    }
     return {
       enabled: true, goal, workouts, bp, weighed_today: weighedToday, cta,
-      adherence_alert: adherenceAlert, day: today, time_zone: timeZone || null,
+      adherence_alert: adherenceAlert, day: today, time_zone: timeZone || null, plan,
     };
   }
 
@@ -3372,6 +3538,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     getTraits, getKeystones,
     // substrate parity (med-eyb)
     getSummary, getRings, getJourney, getGauges, getWeeklyReview,
+    // Weekly plan (med-8tur.4)
+    putWeekPlan,
     // Goal Line (med-8tur.1)
     getGoalLine,
     // Goal milestones (med-8tur.5)

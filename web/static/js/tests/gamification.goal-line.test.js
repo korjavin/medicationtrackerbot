@@ -474,3 +474,169 @@ describe('gamification Goal Line — durable milestones', () => {
     expect(await after.records.list('gamificationmilestone')).toHaveLength(1);
   });
 });
+
+// Weekly review re-anchored on the goal + the next-week plan (docs/gamification.md
+// §0.3.4, bd med-8tur.4): the most recently COMPLETED local week as three fact
+// rows, and one user-written gamificationweek-<isoWeekYear>-W<ww> record.
+describe('gamification weekly review + week plan', () => {
+  const MON = Date.UTC(2026, 5, 22, 12, 0, 0); // Mon 2026-06-22 (2026-W26); last week = 06-15 … 06-21
+  const SUN = Date.UTC(2026, 5, 28, 12, 0, 0); // Sun 2026-06-28 (still 2026-W26)
+  const at = (nowMs, seed, tz = TZ) => {
+    const records = createInMemoryRecordsPort(seed);
+    records.put = vi.fn(records.put);
+    return { records, gam: createGamificationDomain({ records, now: () => nowMs, timeZone: tz }) };
+  };
+  // 07:00 UTC `offset` days before MON.
+  const isoMon = (offset) => new Date(MON - offset * DAY_MS - 5 * 3600000).toISOString();
+  const wMon = (offset, weight) => ({ recordId: `w-${offset}`, deleted: false, measured_at: isoMon(offset), weight });
+  const bpMon = (offset, systolic, diastolic) => ({
+    recordId: `bp-${offset}`, deleted: false, measured_at: isoMon(offset), systolic, diastolic, ignore_calc: false,
+  });
+  const weekRec = (week, extra) => ({
+    recordId: `gamificationweek-${week}`, deleted: false, clientTs: 1, week,
+    intention_id: null, cadence: { weigh_in: 'weekly', bp_days: null }, paused: false, picked_at: 1, ...extra,
+  });
+
+  it('a Monday read reviews last week (Mon–Sun), never the partial live week', async () => {
+    const { records, gam } = at(MON, {
+      weight: Array.from({ length: 40 }, (_, o) => wMon(o, 85 + 0.05 * o)),
+      weightgoal: [{ recordId: 'weightgoal-episode-1', deleted: false, set_at: isoMon(30), target_weight: 80, start_weight: 86.5 }],
+      // Thu + Sat last week; today's (Monday) high reading belongs to THIS week.
+      bp: [bpMon(4, 130, 84), bpMon(2, 126, 80), bpMon(0, 150, 99)],
+      bpgoal: [{ recordId: 'bpgoal', deleted: false, target_systolic: 130, target_diastolic: 85 }],
+      workoutgroup: [GROUP], workoutvariant: [VARIANT],
+      workoutsession: [{ recordId: 'session-7-2026-06-17', deleted: false, status: 'completed', scheduled_date: '2026-06-17T18:00:00Z', group_id: 7 }],
+      gamificationmilestone: [{
+        recordId: 'gamificationmilestone-weightgoal-episode-1-1', deleted: false, episode_id: 'weightgoal-episode-1',
+        ordinal: 1, count: 7, is_halfway: false, is_goal: false, earned_at: '2026-06-18', acknowledged: false,
+      }],
+    });
+    const wr = await gam.getWeeklyReview();
+
+    expect(wr.week).toEqual({ id: '2026-W25', start_day: '2026-06-15', end_day: '2026-06-21' });
+    expect(wr.rows.weight).toMatchObject({
+      feature_on: true, status: 'ok', goal_status: 'ok', weigh_in_days: 7,
+      milestones_reached: [{ id: 'gamificationmilestone-weightgoal-episode-1-1', ordinal: 1, title: 'Weight goal milestone 1 of 7' }],
+    });
+    expect(wr.rows.weight.trend_change_kg).toBeLessThan(0);
+    expect(wr.rows.weight.distance_to_goal).toBeGreaterThan(5);
+    expect(wr.rows.workouts).toEqual({ feature_on: true, completed: 1, scheduled: 3 }); // planned rest is not a miss
+    expect(wr.rows.bp).toEqual({
+      feature_on: true, status: 'in_range', mean: { systolic: 128, diastolic: 82, days: 2 },
+      target: { systolic: 130, diastolic: 85 }, days_measured: 2,
+    });
+    expect(wr.quiet).toBe(false);
+    expect(wr.plan_week).toBe('2026-W26');
+    expect(wr.plan).toBeNull();
+    expect(wr.options.intentions.map((i) => i.id)).toEqual(['start_session', 'weigh_before_coffee', 'stop_after_dinner', 'log_every_meal']);
+    expect(records.put).not.toHaveBeenCalled();
+  });
+
+  it('missing data is unknown, never zero-as-failure; feature-off rows and their options drop out', async () => {
+    const { gam } = at(MON, {});
+    const wr = await gam.getWeeklyReview();
+    expect(wr.quiet).toBe(true);
+    expect(wr.rows.weight).toMatchObject({ status: 'unknown', weigh_in_days: 0 });
+    expect(wr.rows.bp).toMatchObject({ status: 'unknown', mean: null, days_measured: 0 });
+    expect(wr.rows.workouts).toEqual({ feature_on: true, completed: 0, scheduled: null });
+
+    const off = await gam.getWeeklyReview({ features: { weight: false, workout: false, food: false, bp: true } });
+    expect(off.rows.weight.feature_on).toBe(false);
+    expect(off.rows.workouts.feature_on).toBe(false);
+    expect(off.options).toEqual({ intentions: [], weigh_in: [], bp_days_max: 7 });
+  });
+
+  it('intention + cadence persist as a user write and getGoalLine reads them back', async () => {
+    const { records, gam } = at(MON, {});
+    const res = await gam.putWeekPlan({ choice: 'stop_after_dinner', cadence: { weigh_in: 'daily', bp_days: 3 } });
+    expect(res.ok).toBe(true);
+    expect(records.put).toHaveBeenCalledWith('gamificationweek', expect.objectContaining({
+      recordId: 'gamificationweek-2026-W26', week: '2026-W26', clientTs: MON, picked_at: MON,
+      intention_id: 'stop_after_dinner', cadence: { weigh_in: 'daily', bp_days: 3 }, paused: false,
+    }));
+    const plan = {
+      week: '2026-W26', intention: { id: 'stop_after_dinner', text: 'When I log dinner, I will stop eating for the night' },
+      cadence: { weigh_in: 'daily', bp_days: 3 }, paused: false, picked_at: MON,
+    };
+    expect((await gam.getGoalLine()).plan).toEqual(plan);
+    expect((await gam.getWeeklyReview()).plan).toEqual(plan);
+  });
+
+  it('rejects an unknown intention or cadence without writing', async () => {
+    const { records, gam } = at(MON, {});
+    expect(await gam.putWeekPlan({ choice: 'eat_less' })).toEqual({ ok: false, error: 'unknown_intention' });
+    expect(await gam.putWeekPlan({ cadence: { weigh_in: 'hourly' } })).toEqual({ ok: false, error: 'invalid_cadence' });
+    expect(await gam.putWeekPlan({ cadence: { bp_days: 9 } })).toEqual({ ok: false, error: 'invalid_cadence' });
+    expect(records.put).not.toHaveBeenCalled();
+  });
+
+  it('"Keep this plan" carries last week\'s intention and cadence forward', async () => {
+    const { gam } = at(MON, {
+      gamificationweek: [weekRec('2026-W25', { intention_id: 'weigh_before_coffee', cadence: { weigh_in: 'daily', bp_days: 2 } })],
+    });
+    const { plan } = await gam.putWeekPlan({ choice: 'keep' });
+    expect(plan).toMatchObject({ week: '2026-W26', intention: { id: 'weigh_before_coffee' }, cadence: { weigh_in: 'daily', bp_days: 2 }, paused: false });
+  });
+
+  it('a Sunday read still reviews the previous week; the pick takes effect on Monday', async () => {
+    const seed = {};
+    const sun = at(SUN, seed);
+    const wr = await sun.gam.getWeeklyReview();
+    expect(wr.week.id).toBe('2026-W25');
+    expect(wr.plan_week).toBe('2026-W27');
+    await sun.gam.putWeekPlan({ choice: 'log_every_meal' });
+    expect((await sun.gam.getGoalLine()).plan).toBeNull(); // the live week has no pick
+
+    const mon = createGamificationDomain({ records: sun.records, now: () => SUN + DAY_MS, timeZone: TZ });
+    expect((await mon.getGoalLine()).plan).toMatchObject({ week: '2026-W27', intention: { id: 'log_every_meal' } });
+  });
+
+  it('a paused week shows paused instead of change / too-fast, and defers experiments', async () => {
+    // NOW (this file's clock) is Wed 2026-06-17, ISO week 2026-W25.
+    const seed = {
+      weight: series(60, (o) => 100 * (1 + (0.02 / 7) * o)),
+      weightgoal: [goalRec(59, 80, 117)],
+    };
+    const live = await domainOver(seed).gam.getGoalLine();
+    expect(live.goal.too_fast).toBe(true);
+    expect(live.goal.change_7d).not.toBeNull();
+
+    const { gam } = domainOver({ ...seed, gamificationweek: [weekRec('2026-W25', { paused: true })] });
+    const paused = await gam.getGoalLine();
+    expect(paused.plan.paused).toBe(true);
+    expect(paused.goal.change_7d).toBeNull();
+    expect(paused.goal.too_fast).toBe(false);
+    expect((await gam.listExperiments()).recovery_paused).toBe(true);
+  });
+
+  it('a timezone edit never relabels a stored week', async () => {
+    // Mon 03:00 UTC = Sun 20:00 in Los Angeles.
+    const t = Date.UTC(2026, 5, 22, 3, 0, 0);
+    const utc = at(t, {});
+    await utc.gam.putWeekPlan({ choice: 'start_session' });
+    const la = createGamificationDomain({ records: utc.records, now: () => t, timeZone: 'America/Los_Angeles' });
+    expect((await la.getGoalLine()).plan).toBeNull(); // LA's live week is still 2026-W25
+    const wr = await la.getWeeklyReview();
+    expect(wr.plan_week).toBe('2026-W26'); // LA Sunday → the coming week: the same record
+    expect(wr.plan).toMatchObject({ week: '2026-W26', intention: { id: 'start_session' } });
+    expect((await utc.records.list('gamificationweek')).map((r) => r.recordId)).toEqual(['gamificationweek-2026-W26']);
+  });
+
+  it('vault export → import keeps the week record, re-attached to the re-minted goal', async () => {
+    const { records, gam } = at(MON, {
+      weightgoal: [{ recordId: 'weightgoal-episode-1', deleted: false, set_at: '2026-06-01T09:00:00Z', target_weight: 80, start_weight: 86 }],
+    });
+    await gam.putWeekPlan({ choice: 'pause' });
+    const all = [];
+    for (const t of ['weightgoal', 'gamificationweek']) {
+      for (const r of await records.listRaw(t)) all.push({ ...r, recordType: t });
+    }
+    const vault = recordsToVault(all, { now: MON });
+    expect(vault.data.gamification.weeks).toEqual([expect.objectContaining({ week: '2026-W26', paused: true, goal_set_at: '2026-06-01T09:00:00Z' })]);
+
+    const imported = vaultToRecords(vault, { now: MON });
+    const goal = imported.find((r) => r.recordType === 'weightgoal');
+    const week = imported.find((r) => r.recordType === 'gamificationweek');
+    expect(week).toMatchObject({ recordId: 'gamificationweek-2026-W26', episode_id: goal.recordId, paused: true });
+  });
+});

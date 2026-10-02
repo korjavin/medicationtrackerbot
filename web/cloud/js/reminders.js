@@ -33,6 +33,7 @@ const WORKOUT_EXERCISE_RECORD_TYPE = 'workoutexercise';
 const WORKOUT_ROTATION_RECORD_TYPE = 'workoutrotation';
 const WORKOUT_SESSION_RECORD_TYPE = 'workoutsession';
 const WEIGHT_UNIT_RECORD_TYPE = 'weightunitpref';
+const WEEK_PLAN_RECORD_TYPE = 'gamificationweek';
 const DEBOUNCE_MS = 2000;
 
 const timers = new Map();
@@ -62,6 +63,7 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
   const [
     medications, intakes, tzplans, bps, weights,
     workoutGroups, workoutVariants, workoutExercises, workoutRotations, workoutSessions,
+    weekPlans, units,
   ] = await Promise.all([
     records.list(MEDICATION_RECORD_TYPE),
     // RAW, tombstones included: a dose slot deleted on purpose must suppress
@@ -80,9 +82,13 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
     // recurring reminder, and a tombstone is the only trace it leaves
     // (bd med-w0fe). buildHorizon filters the live rows itself.
     records.listRaw(WORKOUT_SESSION_RECORD_TYPE),
+    // A week paused in the weekly review sends no weigh-in nudges (med-8tur.4).
+    records.list(WEEK_PLAN_RECORD_TYPE),
+    records.list(WEIGHT_UNIT_RECORD_TYPE),
   ]);
+  const unit = weightUnit(units);
   const tzPlan = tzplans.find((r) => r.recordId === TZPLAN_RECORD_ID && !r.deleted) || null;
-  const weighInPushText = await computeWeighInPushText(records, remindersDomain, timeZone, now, features);
+  const weighInPushText = await computeWeighInPushText(records, remindersDomain, timeZone, now, features, unit);
 
   const entries = await remindersDomain.buildHorizon({
     medications: medications.filter((m) => !m.deleted),
@@ -98,36 +104,46 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
     timeZone,
     tzPlan,
     weighInPushText,
+    weighInPausedWeeks: weekPlans.filter((w) => !w.deleted && w.paused).map((w) => w.week),
   });
 
-  const digest = await computeDigestEntry(records, timeZone, now(), features);
+  const digest = await computeDigestEntry(records, timeZone, now(), features, unit);
   if (digest) entries.push(digest);
   return entries;
 }
 
+function weightUnit(units) {
+  const u = units.filter((r) => !r.deleted).sort((a, b) => b.clientTs - a.clientTs)[0];
+  return u && u.unit === 'lb' ? 'lb' : 'kg';
+}
+
 // Weekly-digest horizon entry (med-eas.58): gated on both the weekly_digest
 // feature flag and gamification being on (mirrors the bot's both-on gate,
-// weekly_digest.go). The review is anchored on now-24h so it reports the week
-// ending at recompute time; unlike the bot (which recomputes AT Sunday 19:00),
-// a mid-week recompute forward-schedules a snapshot that can be up to a week
-// stale by the time it fires — an accepted blind-relay limitation, self-healing
-// for active users. Forward-dated + replace-all means the next Sunday 19:00 is
+// weekly_digest.go). The review reads as of the Monday after the fire instant,
+// so its "most recently completed week" (med-8tur.4) is the week the Sunday
+// digest closes — with the data known at recompute time; a mid-week recompute
+// forward-schedules a snapshot that can miss the rest of the week — an
+// accepted blind-relay limitation, self-healing for active users. Forward-dated + replace-all means the next Sunday 19:00 is
 // re-derived on each recompute — no last-sent state. Both-on gate + failure
 // isolation live here: a digest-compute error must NOT reject computeReminderEntries
 // (that would strand the already-built medication/BP/weight/workout horizon and
 // stop replace-all propagation). The bot isolates weekly_digest as a best-effort
 // checker for the same reason — its failure never affects other reminders.
-async function computeDigestEntry(records, timeZone, now, features) {
+async function computeDigestEntry(records, timeZone, now, features, unit) {
   if (!features.weekly_digest || !features.gamification) return null;
 
   try {
-    const gamification = createGamificationDomain({ records, now: () => now - 86400000, timeZone });
-    const review = await gamification.getWeeklyReview();
+    const fireAtUnix = nextWeeklyDigestFireUnix(now, timeZone);
+    const gamification = createGamificationDomain({ records, now: () => fireAtUnix * 1000 + 86400000, timeZone });
+    const review = await gamification.getWeeklyReview({ features });
 
     return {
-      fireAtUnix: nextWeeklyDigestFireUnix(now, timeZone),
+      fireAtUnix,
       kind: 'digest',
-      text: formatWeeklyDigest(review),
+      // Goal reading on the Web Push body only (push.js pushText); the
+      // Telegram text stays goal-free like the weigh-in push (med-8tur.6).
+      text: formatWeeklyDigest(review, unit, { goalFree: true }),
+      pushText: formatWeeklyDigest(review, unit),
       genericText: 'Your weekly summary is ready',
     };
   } catch (e) {
@@ -142,18 +158,14 @@ async function computeDigestEntry(records, timeZone, now, features) {
 // being on (no point reading the Goal Line for a reminder that never fires).
 // Failure-isolated like computeDigestEntry: a throw falls back to the goal-free
 // text instead of stranding the whole horizon.
-async function computeWeighInPushText(records, remindersDomain, timeZone, now, features) {
+async function computeWeighInPushText(records, remindersDomain, timeZone, now, features, unit) {
   if (!features.weight || !features.gamification) return null;
   try {
     if (!(await remindersDomain.getWeightStatus()).enabled) return null;
     const gamification = createGamificationDomain({ records, now, timeZone });
     // Only the goal block is used: switch the lever rows + adherence read off.
-    const [line, units] = await Promise.all([
-      gamification.getGoalLine({ features: { weight: true } }),
-      records.list(WEIGHT_UNIT_RECORD_TYPE),
-    ]);
-    const unit = units.filter((r) => !r.deleted).sort((a, b) => b.clientTs - a.clientTs)[0];
-    return formatWeighInPushText(line.goal, unit && unit.unit === 'lb' ? 'lb' : 'kg');
+    const line = await gamification.getGoalLine({ features: { weight: true } });
+    return formatWeighInPushText(line.goal, unit);
   } catch (e) {
     console.error('[reminders] weigh-in goal text failed', e);
     return null;

@@ -229,34 +229,46 @@ describe('domain/reminders.js — workout reminder kind', () => {
     });
 });
 
-// med-eas.58 — the weekly-digest formatter ports Go FormatWeeklyReview, and
-// the fire-time helper lands on the next Sunday 19:00 local (weekly_digest.go).
+// med-eas.58 / med-8tur.4 — the weekly digest renders getWeeklyReview's three
+// goal rows for the completed week (no Health Score, no ring lines), the best
+// day and the nudge to pick next week's intention; the fire-time helper lands
+// on the next Sunday 19:00 local (weekly_digest.go).
 describe('domain/reminders.js — weekly digest formatter + fire time', () => {
-    it('formats a populated weekly review into the section lines', async () => {
-        const { formatWeeklyDigest } = await import('../../../domain/reminders.js');
-        const review = {
-            enabled: true, quiet: false,
-            health_score: { now: { value: 72.4 }, prior: { value: 68.6 } },
-            levers: [
-                { key: 'bedtime', closed_this_week: 5 },
-                { key: 'movement', closed_this_week: 3 },
-            ],
-            best_day: { day_unix: Date.UTC(2026, 6, 8, 0, 0, 0) / 1000, rings_closed: 3 }, // Wed
-            gauges: {
-                weight: { status: 'ok', velocity_pct_per_week: -0.42, pace_status: 'on_pace', acceleration: 'holding' },
-                bp: { status: 'ok', count_30d: 12, share_30d: 0.75 },
-                bp_share_30d_prior: 0.6,
-                resting_hr: { status: 'ok', recent_14d_mean: 58.3, delta_from_baseline: -2.1 },
+    const REVIEW = {
+        enabled: true, quiet: false,
+        rows: {
+            weight: {
+                feature_on: true, status: 'ok', goal_status: 'ok', trend_weight: 85.6, trend_change_kg: -0.42,
+                distance_to_goal: 5.6, weigh_in_days: 4, milestones_reached: [{ id: 'm', ordinal: 2, title: 'x' }],
             },
-        };
-        const text = formatWeeklyDigest(review);
-        expect(text).toContain('\u{1F5D3} Your week');
-        expect(text).toContain('Health Score 72 \u{00B7} up 3');
-        expect(text).toContain('Bedtime closed 5 of 7 \u{00B7} Movement 3');
-        expect(text).toContain('Weight -0.4%/wk \u{00B7} on pace \u{00B7} holding steady');
-        expect(text).toContain('BP in range 75% \u{00B7} up from 60%');
-        expect(text).toContain('Resting HR 58 avg \u{00B7} 2 below your baseline');
-        expect(text).toContain('Best day: Wednesday \u{00B7} 3 rings closed');
+            workouts: { feature_on: true, completed: 2, scheduled: 3 },
+            bp: { feature_on: true, status: 'in_range', mean: { systolic: 128.4, diastolic: 81.6, days: 4 }, target: { systolic: 130, diastolic: 85 }, days_measured: 4 },
+        },
+        best_day: { day_unix: Date.UTC(2026, 6, 8, 0, 0, 0) / 1000, rings_closed: 3 }, // Wed
+        // Legacy keys the old formatter read — must no longer render.
+        health_score: { now: { value: 72.4 }, prior: { value: 68.6 } },
+        levers: [{ key: 'bedtime', closed_this_week: 5 }],
+        gauges: { resting_hr: { status: 'ok', recent_14d_mean: 58.3, delta_from_baseline: -2.1 } },
+    };
+
+    it('renders the three goal rows, the best day and the pick nudge — no Health Score, no rings', async () => {
+        const { formatWeeklyDigest } = await import('../../../domain/reminders.js');
+        expect(formatWeeklyDigest(REVIEW)).toBe([
+            '\u{1F5D3} Your week',
+            'Weight: trend −0.4 kg \u{00B7} 5.6 kg to go \u{00B7} 4 weigh-ins \u{00B7} milestone reached',
+            'Workouts: 2 of 3 scheduled',
+            'BP: avg 128/82 vs 130/85 \u{00B7} 4 days measured',
+            'Best day: Wednesday',
+            "Pick next week's intention in the app.",
+        ].join('\n'));
+    });
+
+    it('goalFree drops the goal reading (the Telegram text); lb converts', async () => {
+        const { formatWeeklyDigest } = await import('../../../domain/reminders.js');
+        const tg = formatWeeklyDigest(REVIEW, 'kg', { goalFree: true });
+        expect(tg).toContain('Weight: trend −0.4 kg \u{00B7} 4 weigh-ins');
+        expect(tg).not.toMatch(/to go|at your goal|milestone/);
+        expect(formatWeeklyDigest(REVIEW, 'lb')).toContain('Weight: trend −0.9 lb \u{00B7} 12.3 lb to go');
     });
 
     it('renders the quiet-week fallback', async () => {
@@ -265,20 +277,21 @@ describe('domain/reminders.js — weekly digest formatter + fire time', () => {
         expect(text).toBe('\u{1F5D3} Your week\nA quiet week \u{2014} everything picks up where you left off.');
     });
 
-    it('omits absent gauge sections and singularizes one ring', async () => {
+    it('missing data reads as unknown; a feature that is off drops its row', async () => {
         const { formatWeeklyDigest } = await import('../../../domain/reminders.js');
         const text = formatWeeklyDigest({
             enabled: true, quiet: false,
-            health_score: { now: { value: 50 }, prior: { value: null } },
-            levers: [],
-            best_day: { day_unix: Date.UTC(2026, 6, 12, 0, 0, 0) / 1000, rings_closed: 1 }, // Sun
-            gauges: { weight: { status: 'insufficient_data' }, bp: { status: 'insufficient_data' }, resting_hr: { status: 'insufficient_data' } },
+            rows: {
+                weight: { feature_on: true, status: 'unknown', weigh_in_days: 1, milestones_reached: [] },
+                workouts: { feature_on: false, completed: null, scheduled: null },
+                bp: { feature_on: true, status: 'unknown', mean: null, target: null, days_measured: 0 },
+            },
+            best_day: null,
         });
-        expect(text).toContain('Health Score 50');
-        expect(text).not.toContain('Weight');
-        expect(text).not.toContain('BP in range');
-        expect(text).not.toContain('Resting HR');
-        expect(text).toContain('Best day: Sunday \u{00B7} 1 ring closed');
+        expect(text).toContain('Weight: 1 weigh-in \u{00B7} not enough for a trend yet');
+        expect(text).toContain('BP: no readings this week');
+        expect(text).not.toContain('Workouts');
+        expect(text).not.toContain('Best day');
     });
 
     it('nextWeeklyDigestFireUnix lands on next Sunday 19:00 local', async () => {
@@ -423,5 +436,28 @@ describe('domain/reminders.js — snooze / dont-bug mute windows', () => {
         const toggled = await domain.setBPEnabled(false);
         expect(toggled.snoozed_until).toBe(fixedNow + SNOOZE_MS);
         expect(toggled.dont_remind_until).toBe(fixedNow + DONT_BUG_MS);
+    });
+});
+
+// med-8tur.4 — a week paused in the weekly review sends no weigh-in nudges;
+// the ISO week key carries the week-year.
+describe('domain/reminders.js — paused weeks + ISO week keys', () => {
+    it('skips weigh-in targets inside a paused ISO week, keeps the next week', async () => {
+        const { computeReminderHorizon } = await import('../../../domain/reminders.js');
+        const nowMs = Date.UTC(2026, 5, 25, 1, 0, 0); // Thu 2026-06-25 (2026-W26)
+        const fires = (paused) => computeReminderHorizon({
+            medications: [], intakes: [], bps: [], weights: [], timeZone: 'UTC', now: nowMs,
+            weightStatus: { enabled: true, cadence: 'daily', preferred_reminder_hour: 9 },
+            weighInPausedWeeks: paused,
+        }).filter((e) => e.kind === 'weight').map((e) => new Date(e.fireAtUnix * 1000).toISOString().slice(0, 10));
+        expect(fires([])).toEqual(['2026-06-25', '2026-06-26', '2026-06-27', '2026-06-28', '2026-06-29', '2026-06-30', '2026-07-01']);
+        expect(fires(['2026-W26'])).toEqual(['2026-06-29', '2026-06-30', '2026-07-01']);
+    });
+
+    it('isoWeekKey uses the ISO week-year', async () => {
+        const { isoWeekKey } = await import('../../../domain/reminders.js');
+        expect(isoWeekKey('2026-06-22')).toBe('2026-W26');
+        expect(isoWeekKey('2027-01-01')).toBe('2026-W53'); // a Friday: still 2026's last week
+        expect(isoWeekKey('2025-12-29')).toBe('2026-W01'); // a Monday: already 2026's first week
     });
 });

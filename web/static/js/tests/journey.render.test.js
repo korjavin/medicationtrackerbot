@@ -343,40 +343,151 @@ describe('Journey render', () => {
         expect(env.document.querySelector('.wg-journey-weekly')).toBeNull();
     });
 
-    it('Weekly Review card renders the lever line, gauge lines, and best day (no Health Score line)', () => {
-        env.window.Gamification.render(journey({
-            weekly_review: {
-                enabled: true,
-                quiet: false,
-                levers: [
-                    { key: 'bedtime', closed_this_week: 5, closed_last_week: 4 },
-                    { key: 'movement', closed_this_week: 4, closed_last_week: 3 },
-                    { key: 'nourishment', closed_this_week: 6, closed_last_week: 5 }
-                ],
-                best_day: { day_unix: 1751328000, rings_closed: 3 }, // 2025-07-01 (Tuesday, UTC)
-                gauges: {
-                    weight: { status: 'ok', velocity_pct_per_week: -0.4, pace_status: 'on_pace', acceleration: 'speeding_up' },
-                    bp: { status: 'ok', share_30d: 0.82, count_30d: 26 },
-                    bp_share_30d_prior: 0.76,
-                    resting_hr: { status: 'ok', recent_14d_mean: 62, delta_from_baseline: -3 }
-                },
-                health_score: { now: { value: 78, contributors: [], missing: [] }, prior: { value: 74, contributors: [], missing: [] } }
-            }
-        }));
-        const { document } = env;
+    // med-8tur.4 — the review is re-anchored on the goal: three fact rows for
+    // the completed week (no ring / score lines), the best day, then one
+    // choice for the week ahead.
+    const WEEKLY = {
+        enabled: true,
+        quiet: false,
+        week: { id: '2026-W25', start_day: '2026-06-15', end_day: '2026-06-21' },
+        rows: {
+            weight: {
+                feature_on: true, status: 'ok', goal_status: 'ok', trend_weight: 85.6, trend_change_kg: -0.4,
+                distance_to_goal: 5.6, weigh_in_days: 4,
+                milestones_reached: [{ id: 'm1', ordinal: 2, title: 'Weight goal milestone 2 of 6' }],
+            },
+            workouts: { feature_on: true, completed: 2, scheduled: 3 },
+            bp: { feature_on: true, status: 'in_range', mean: { systolic: 128, diastolic: 82, days: 4 }, target: { systolic: 130, diastolic: 85 }, days_measured: 4 },
+        },
+        best_day: { day_unix: 1751328000, rings_closed: 3 }, // 2025-07-01 (Tuesday, UTC)
+        plan_week: '2026-W26',
+        plan: null,
+        options: {
+            intentions: [
+                { id: 'weigh_before_coffee', text: 'When I wake, I will weigh in before coffee' },
+                { id: 'stop_after_dinner', text: 'When I log dinner, I will stop eating for the night' },
+            ],
+            weigh_in: ['weekly', 'daily'],
+            bp_days_max: 7,
+        },
+        // Legacy ring/score keys still ride the payload — never rendered.
+        levers: [{ key: 'bedtime', closed_this_week: 5, closed_last_week: 4 }],
+        gauges: { weight: { status: 'ok', velocity_pct_per_week: -0.4, pace_status: 'on_pace' } },
+        health_score: { now: { value: 78 }, prior: { value: 74 } },
+    };
 
-        const card = document.querySelector('.wg-journey-weekly');
+    it('Weekly Review card renders the three goal rows, the milestone and the best day — no ring or score lines', () => {
+        env.window.Gamification.render(journey({ weekly_review: WEEKLY }));
+        const card = env.document.querySelector('.wg-journey-weekly');
         expect(card).not.toBeNull();
         expect(card.querySelector('.wg-journey-weekly__summary').textContent).toBe('YOUR WEEK');
 
         const lines = Array.from(card.querySelectorAll('.wg-journey-weekly__line')).map((n) => n.textContent);
         expect(lines).toEqual([
-            'Bedtime closed 5 of 7 · Movement 4 · Nourishment 6',
-            'Weight -0.4%/wk · on pace · speeding up',
-            'BP in range 82% · up from 76%',
-            'Resting HR 62 avg · 3 below your baseline',
-            'Best day: Tuesday · 3 rings closed'
+            'Weight: trend −0.4 kg · 5.6 kg to go · 4 weigh-ins',
+            'Workouts: 2 of 3 scheduled',
+            'BP: avg 128/82 vs 130/85 · 4 days measured',
+            'Best day: Tuesday',
+            'Reached: Weight goal milestone 2 of 6',
         ]);
+        expect(card.textContent).not.toMatch(/closed|ring|%\/wk|Health Score/i);
+    });
+
+    it('missing data reads as unknown, never as a zero', () => {
+        env.window.Gamification.render(journey({
+            weekly_review: {
+                ...WEEKLY,
+                rows: {
+                    weight: { feature_on: true, status: 'unknown', weigh_in_days: 1, milestones_reached: [] },
+                    workouts: { feature_on: true, completed: 0, scheduled: null },
+                    bp: { feature_on: true, status: 'unknown', mean: null, target: null, days_measured: 0 },
+                },
+                best_day: null,
+            },
+        }));
+        const lines = Array.from(env.document.querySelectorAll('.wg-journey-weekly__line')).map((n) => n.textContent);
+        expect(lines).toEqual([
+            'Weight: 1 weigh-in · not enough for a trend yet',
+            'Workouts: 0 sessions',
+            'BP: no readings this week',
+        ]);
+    });
+
+    it('offers the curated intentions plus Keep this plan / Pause this week and a cadence control', () => {
+        env.window.Gamification.render(journey({
+            weekly_review: {
+                ...WEEKLY,
+                plan: {
+                    week: '2026-W26', intention: { id: 'stop_after_dinner', text: 'When I log dinner, I will stop eating for the night' },
+                    cadence: { weigh_in: 'daily', bp_days: 3 }, paused: false, picked_at: 1,
+                },
+            },
+        }));
+        const plan = env.document.querySelector('.wg-journey-weekly__plan');
+        expect(plan.getAttribute('data-plan-week')).toBe('2026-W26');
+        const choices = Array.from(plan.querySelectorAll('[data-choice]'));
+        expect(choices.map((b) => b.getAttribute('data-choice'))).toEqual(['weigh_before_coffee', 'stop_after_dinner', 'keep', 'pause']);
+        expect(choices.filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.getAttribute('data-choice'))).toEqual(['stop_after_dinner']);
+        expect(plan.querySelector('.wg-journey-weekly__current').textContent).toBe('When I log dinner, I will stop eating for the night');
+        expect(plan.querySelector('select[data-cadence="weigh_in"]').value).toBe('daily');
+        expect(plan.querySelector('select[data-cadence="bp_days"]').value).toBe('3');
+    });
+
+    function stubWrite(env, response) {
+        let projected = null;
+        const handle = { commit: vi.fn(async () => {}), rollback: vi.fn(async () => {}) };
+        env.window.DataStore = {
+            applyOptimistic: vi.fn(async (key, mutator) => { projected = mutator(WEEKLY); return handle; }),
+        };
+        const posted = [];
+        env.window.offlineAwareApiCall = vi.fn(async (url, method, body) => {
+            posted.push({ url, method, body });
+            if (response instanceof Error) throw response;
+            return response;
+        });
+        return { handle, posted, projected: () => projected };
+    }
+
+    const flush = () => new Promise((r) => setTimeout(r, 0));
+
+    it('a pick writes through DataStore.applyOptimistic and commits the server plan', async () => {
+        const serverPlan = {
+            week: '2026-W26', intention: { id: 'weigh_before_coffee', text: 'When I wake, I will weigh in before coffee' },
+            cadence: { weigh_in: 'daily', bp_days: null }, paused: false, picked_at: 2,
+        };
+        const w = stubWrite(env, { ok: true, plan: serverPlan });
+        env.window.Gamification.render(journey({ weekly_review: WEEKLY }));
+        const plan = env.document.querySelector('.wg-journey-weekly__plan');
+        plan.querySelector('select[data-cadence="weigh_in"]').value = 'daily';
+        plan.querySelector('[data-choice="weigh_before_coffee"]').click();
+        await flush(); await flush();
+
+        expect(env.window.DataStore.applyOptimistic).toHaveBeenCalledWith('gamification_weekly', expect.any(Function), ['gamification']);
+        expect(w.projected().plan.intention.id).toBe('weigh_before_coffee');
+        expect(w.posted).toEqual([{ url: '/api/gamification/week-plan', method: 'POST', body: { choice: 'weigh_before_coffee', cadence: { weigh_in: 'daily', bp_days: null } } }]);
+        expect(w.handle.commit).toHaveBeenCalledWith(expect.objectContaining({ plan: serverPlan }));
+        expect(w.handle.rollback).not.toHaveBeenCalled();
+    });
+
+    it('a failed pick rolls the optimistic projection back', async () => {
+        const w = stubWrite(env, new Error('offline'));
+        env.window.Gamification.render(journey({ weekly_review: WEEKLY }));
+        env.document.querySelector('[data-choice="pause"]').click();
+        await flush(); await flush();
+
+        expect(w.projected().plan.paused).toBe(true);
+        expect(w.handle.rollback).toHaveBeenCalled();
+        expect(w.handle.commit).not.toHaveBeenCalled();
+    });
+
+    it('a cadence change alone keeps the pick (no choice in the body)', async () => {
+        const w = stubWrite(env, { ok: true, plan: { week: '2026-W26', intention: null, cadence: { weigh_in: 'weekly', bp_days: 2 }, paused: false } });
+        env.window.Gamification.render(journey({ weekly_review: WEEKLY }));
+        const sel = env.document.querySelector('select[data-cadence="bp_days"]');
+        sel.value = '2';
+        sel.dispatchEvent(new env.window.Event('change'));
+        await flush(); await flush();
+        expect(w.posted[0].body).toEqual({ cadence: { weigh_in: 'weekly', bp_days: 2 } });
     });
 
     it('Weekly Review card reads a zero-HP week as "a quiet week", never a wall of zeros', () => {

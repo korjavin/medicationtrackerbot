@@ -287,7 +287,7 @@ const RM_NOW = Date.UTC(2026, 5, 15, 12, 0, 0); // Mon Jun 15 2026, noon UTC
 const RM_TODAY = '2026-06-15';
 const isoAtMs = (ms) => new Date(ms).toISOString();
 
-function seededDomain() {
+function seededDomain(nowMs = RM_NOW) {
   const records = createInMemoryRecordsPort({
     foodtargets: [{ recordId: 'foodtargets', deleted: false, calories: 2000, protein: 100 }],
     foodlog: [{ recordId: 'f1', deleted: false, eaten_at: isoAtMs(RM_NOW), calories: 2000, protein: 100 }],
@@ -298,7 +298,7 @@ function seededDomain() {
     weight: [{ recordId: 'wt1', deleted: false, measured_at: isoAtMs(RM_NOW), weight: 80 }],
     note: [{ recordId: 'n1', deleted: false, created_at: isoAtMs(RM_NOW), content: 'hi' }],
   });
-  return { records, gam: createGamificationDomain({ records, now: () => RM_NOW, timeZone: 'UTC' }) };
+  return { records, gam: createGamificationDomain({ records, now: () => nowMs, timeZone: 'UTC' }) };
 }
 
 describe('substrate read models — end-to-end HP over a synthetic vault', () => {
@@ -342,13 +342,20 @@ describe('substrate read models — end-to-end HP over a synthetic vault', () =>
     expect(g.weight.goal_direction).toBeUndefined(); // internal-only, stripped
   });
 
-  it('getWeeklyReview folds 3 levers with best-day', async () => {
-    const { gam } = seededDomain();
+  it('getWeeklyReview folds 3 levers with best-day over the last COMPLETED week', async () => {
+    // med-8tur.4: the review covers the most recently completed week, so a
+    // read on the seed day itself (a Monday) sees nothing yet …
+    const live = await seededDomain().gam.getWeeklyReview();
+    expect(live.levers.every((lv) => lv.closed_this_week === 0)).toBe(true);
+    expect(live.best_day).toBeNull();
+    // … and the next Monday's read reviews it.
+    const { gam } = seededDomain(RM_NOW + 7 * 86400000);
     const w = await gam.getWeeklyReview();
     expect(w.enabled).toBe(true);
+    expect(w.week.start_day).toBe(RM_TODAY);
     expect(w.levers).toHaveLength(3);
     expect(w.days_with_any_hp).toBeGreaterThanOrEqual(1);
-    // both nourishment + movement closed today → best day has 2 rings closed.
+    // both nourishment + movement closed on the seed day → best day has 2 rings closed.
     expect(w.best_day.rings_closed).toBe(2);
   });
 

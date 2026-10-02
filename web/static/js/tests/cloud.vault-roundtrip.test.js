@@ -56,6 +56,21 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     expect('milestones' in back.data.gamification).toBe(false);
   });
 
+  it('weekly plans survive export/import: id rebuilt from the week, episode re-attached (med-8tur.4)', () => {
+    const records = vaultToRecords(fixture, { now: NOW });
+    const goal = records.find((r) => r.recordType === 'weightgoal' && r.set_at === '2026-06-01T09:00:00Z');
+    const weeks = records.filter((r) => r.recordType === 'gamificationweek');
+    expect(weeks.map((w) => w.recordId)).toEqual(['gamificationweek-2026-W27', 'gamificationweek-2026-W28']);
+    expect(weeks.every((w) => w.episode_id === goal.recordId)).toBe(true);
+    expect(weeks.map((w) => w.paused)).toEqual([false, true]);
+    expect(weeks[0].cadence).toEqual({ weigh_in: 'daily', bp_days: 3 });
+    // A pre-plan file (no key) imports none and re-exports without the key.
+    const legacy = JSON.parse(JSON.stringify(fixture));
+    delete legacy.data.gamification.weeks;
+    const back = recordsToVault(vaultToRecords(legacy, { now: NOW }), { now: NOW });
+    expect('weeks' in back.data.gamification).toBe(false);
+  });
+
   it('drops gps at import and keeps every other miband field', () => {
     const records = vaultToRecords(fixture, { now: NOW });
     const miband = records.filter((r) => r.recordType === 'miband');
@@ -81,6 +96,8 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
       delete d.tombstones;
       // Goal milestones are cloud-only too (med-8tur.5).
       if (d.gamification) delete d.gamification.milestones;
+      // So are weekly plans (med-8tur.4).
+      if (d.gamification) delete d.gamification.weeks;
       // Equipment is cloud-only inventory (med-niix.1); a real bot export
       // never carries it, so it canonicalizes away here like med_reminder_pref.
       if (d.workouts) delete d.workouts.equipment;

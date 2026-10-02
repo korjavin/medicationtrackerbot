@@ -46,6 +46,8 @@
 //   - gamificationmilestone (goal milestones) rides in data.gamification.milestones
 //     keyed by goal_set_at; import re-attaches each to the re-minted weightgoal
 //     with that set_at (its episode), rebuilding the deterministic recordId.
+//   - gamificationweek (weekly plans, med-8tur.4) rides in data.gamification.weeks;
+//     the recordId is rebuilt from `week`, episode_id re-attached by goal_set_at.
 //   - timezone_history, gamification and api_tokens have no cloud consumer, so
 //     imported entries land in passthrough `tzhistory` / `gamification` /
 //     `apitokens` stores purely for backup fidelity. The reminder-pref bodies
@@ -78,7 +80,7 @@ export const VAULT_MANAGED_TYPES = new Set([
   'tzplan', 'tzhistory',
   'settings', 'features', 'taborder', 'foodtargets', 'integrations', 'medreminderpref',
   'bpreminderpref', 'weightreminderpref', 'gamification', 'apitokens',
-  'gamificationmilestone',
+  'gamificationmilestone', 'gamificationweek',
 ]);
 
 // Record types whose rows are lazily materialized into deterministic recordIds
@@ -361,6 +363,12 @@ export function recordsToVault(records, { now, includeSecrets = true } = {}) {
     gamification.milestones = sortBy(milestones, (r) => `${r.goal_set_at}|${String(r.ordinal).padStart(6, '0')}`)
       .map((r) => stripMeta(r, ['episode_id']));
   }
+  // Weekly plans (med-8tur.4): user choices, one per ISO week. Same goal_set_at
+  // keying as milestones; omitted when empty (byte-identical older exports).
+  const weeks = pick('gamificationweek');
+  if (weeks.length > 0) {
+    gamification.weeks = sortBy(weeks, (r) => String(r.week)).map((r) => stripMeta(r, ['episode_id']));
+  }
   const tokensRec = singleton('apitokens', 'apitokens');
 
   const data = {
@@ -642,6 +650,13 @@ export function vaultToRecords(vault, { now } = {}) {
     const goal = out.find((r) => r.recordType === 'weightgoal' && r.set_at === m.goal_set_at);
     const episode = goal ? goal.recordId : `weightgoal-orphan-${m.goal_set_at}`;
     push('gamificationmilestone', `gamificationmilestone-${episode}-${m.ordinal}`, { ...m, episode_id: episode });
+  }
+  for (const w of (gam && gam.weeks) || []) {
+    if (!w || !/^\d{4}-W\d{2}$/.test(w.week)) {
+      throw new Error(`Corrupt backup: weekly plan has no usable week ${JSON.stringify(w)}`);
+    }
+    const goal = w.goal_set_at ? out.find((r) => r.recordType === 'weightgoal' && r.set_at === w.goal_set_at) : null;
+    push('gamificationweek', `gamificationweek-${w.week}`, { ...w, episode_id: goal ? goal.recordId : null });
   }
 
   // --- tombstones (derived-slot suppression signals, bd med-jtaj) ---

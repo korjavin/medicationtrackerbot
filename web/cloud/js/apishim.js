@@ -1224,7 +1224,22 @@ export function createApiRouter(ctx, {
     if (method === 'GET' && path === '/api/gamification/rings') return gamification.getRings();
     if (method === 'GET' && path === '/api/gamification/journey') return gamification.getJourney();
     if (method === 'GET' && path === '/api/gamification/gauges') return gamification.getGauges();
-    if (method === 'GET' && path === '/api/gamification/weekly-review') return gamification.getWeeklyReview();
+    if (method === 'GET' && path === '/api/gamification/weekly-review') {
+      return gamification.getWeeklyReview({ features: clampFeatures(await settings.getFeatures()) });
+    }
+    // The weekly review's choice (med-8tur.4, docs/gamification.md §0.3.4): the
+    // user write of next week's intention / cadence / pause. A weigh-in cadence
+    // pick IS the weigh-in reminder's cadence (daily is opt-in here), and a
+    // pause silences that week's weigh-in nudges — so the horizon recomputes.
+    if (method === 'POST' && path === '/api/gamification/week-plan') {
+      const res = await gamification.putWeekPlan(body || {});
+      if (res.ok) {
+        const c = res.plan.cadence;
+        if (c && c.weigh_in) await reminders.setWeightCadence(c.weigh_in);
+        scheduleReminderRecompute(ctx, { records, timeZone });
+      }
+      return res;
+    }
     if (path === '/api/gamification/targets') {
       if (method === 'GET') return gamification.getTargets();
       if (method === 'PUT' || method === 'POST') return gamification.putTargets(body || {});

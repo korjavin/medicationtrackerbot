@@ -124,7 +124,7 @@
             key: 'gamification_weekly',
             tag: 'gamification',
             staleAfterMs: 6 * HOUR_MS,
-            description: 'Weekly review read model (GET /api/gamification/weekly-review): this week vs last — lever closed-day counts, best day, strengths, gauge movement, Health Score movement. Journey "Your week" card.'
+            description: 'Weekly review read model (GET /api/gamification/weekly-review): the most recently completed week — weight / workouts / BP fact rows, best day, and the next-week plan choice (intention, cadence, pause). Journey "Your week" card; optimistic write target for POST /api/gamification/week-plan.'
         }
     };
 

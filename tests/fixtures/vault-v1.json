@@ -629,6 +629,30 @@
           "earned_at": "2026-07-04",
           "acknowledged": false
         }
+      ],
+      "weeks": [
+        {
+          "week": "2026-W27",
+          "intention_id": "weigh_before_coffee",
+          "cadence": {
+            "weigh_in": "daily",
+            "bp_days": 3
+          },
+          "paused": false,
+          "picked_at": 1782648000000,
+          "goal_set_at": "2026-06-01T09:00:00Z"
+        },
+        {
+          "week": "2026-W28",
+          "intention_id": null,
+          "cadence": {
+            "weigh_in": "weekly",
+            "bp_days": null
+          },
+          "paused": true,
+          "picked_at": 1783252800000,
+          "goal_set_at": "2026-06-01T09:00:00Z"
+        }
       ]
     },
     "api_tokens": [
