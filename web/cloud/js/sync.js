@@ -411,6 +411,9 @@ const RECORD_TAGS = {
   // med-8tur.4: a weekly-plan pick synced from another device (Journey card +
   // the Today Goal Line plan line).
   gamificationweek: ['gamification'],
+  // med-8tur.12: a mode switch (per-mechanic / ED-safe) synced from another
+  // device re-renders Today's Goal Line and the Journey.
+  gamificationmode: ['gamification'],
   // ponytail: unmapped types (nk, firstrun, tzplan, *reminderpref, voiceprovisioning)
   // back no tag-cached screen, so they emit nothing. Add a row when one does.
 };

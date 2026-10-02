@@ -96,7 +96,7 @@
             key: 'gamification',
             tag: 'gamification',
             staleAfterMs: 6 * HOUR_MS,
-            description: 'Gamification Journey read model (GET /api/gamification/journey): level/HP/streak, five rings, insight ladder. Shared cache key reused by the Settings targets editor optimistic write.'
+            description: 'Gamification Journey read model (GET /api/gamification/journey): only its enabled gate is rendered (the substrate fields stay for the registry shape). Shared cache key reused by the Settings targets editor optimistic write.'
         },
         gamification_goal_line: {
             key: 'gamification_goal_line',
@@ -107,12 +107,6 @@
             // feature flip.
             tag: ['gamification', 'weight', 'workout', 'bp', 'settings', 'medications', 'history'],
             description: 'Goal Line read model (GET /api/gamification/goal-line): weight goal on the trend + workout/BP facts + one CTA. Today hero + Journey goal-context card. Bootstrap-warmed from res.gamification_goal_line so the Today card renders on a cold-start/offline relaunch.'
-        },
-        gamification_insights: {
-            key: 'gamification_insights',
-            tag: 'gamification',
-            staleAfterMs: 6 * HOUR_MS,
-            description: 'Tier-3 sleep→BP personal insight (GET /api/gamification/insights): honest three-state result (effect/no_effect/insufficient_data). Only fetched once the Journey payload reports tier 3 unlocked.'
         },
         gamification_gauges: {
             key: 'gamification_gauges',

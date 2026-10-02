@@ -274,8 +274,7 @@ describe('gamification "since you last looked" strip', () => {
   });
 
   // A vault rich enough to fire every candidate at once: four unseen terminal
-  // findings, a BP keystone, a freshly held trait, and a calibrated forecast
-  // resolution. Both caps have to bite.
+  // findings, a BP keystone and a freshly held trait. Both caps have to bite.
   function saturatedVault() {
     const bp = [];
     const workoutsession = [];
@@ -301,13 +300,11 @@ describe('gamification "since you last looked" strip', () => {
     expect(atlas.cards.filter((c) => c.seen === false)).toHaveLength(4);
     // ...but only two reach the strip, and the whole strip is four lines.
     expect(atlas.whats_new.map((it) => it.kind)).toEqual(['discovery', 'discovery', 'keystone', 'trait']);
-
-    // The forecast resolution is real and calibrated — it lost the last slot
-    // to higher-priority news rather than being absent.
-    expect((await gam.getForecast()).resolution).not.toBeNull();
   });
 
-  it('drops the forecast line when the gamification flag is off, and the whole strip on demand', async () => {
+  // med-8tur.12: the Tomorrow Forecast is gone, so it no longer contributes a
+  // strip line; the strip can still be skipped outright.
+  it('falls through to the lower-priority lines once findings are read, and drops the strip on demand', async () => {
     const { gam } = domainOver(saturatedVault());
     // Read every finding so the strip falls through to the lower-priority items.
     for (const c of (await gam.getAtlas()).cards) {
@@ -315,10 +312,6 @@ describe('gamification "since you last looked" strip', () => {
     }
 
     expect((await gam.getAtlas()).whats_new.map((it) => it.kind))
-      .toEqual(['keystone', 'trait', 'forecast']);
-    // The shim passes the feature flag down, because getForecast() itself
-    // always reports enabled (the same reason /forecast is gated there).
-    expect((await gam.getAtlas({ forecast: false })).whats_new.map((it) => it.kind))
       .toEqual(['keystone', 'trait']);
     // The narrate handlers hold these payloads already and drop whats_new, so
     // they opt out of composing it entirely.
@@ -330,7 +323,7 @@ describe('gamification "since you last looked" strip', () => {
   // non-empty (and starving the anticipation fallback) forever.
 
   // Three weeks of above-band BP and nothing else: no finding clears its
-  // gate, no keystone, no forecast — the weekend probe holds real pairs, so
+  // gate, no keystone — the weekend probe holds real pairs, so
   // the strip falls through to anticipation unless a recent dormant/verdict
   // line claims it first.
   function quietVaultWithPairs() {

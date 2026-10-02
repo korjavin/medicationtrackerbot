@@ -323,125 +323,24 @@ describe('Journey render', () => {
         expect(urls).toContain('/api/gamification/goal-line');
     });
 
-    // The insight-ladder card was retired in the gamification redesign (Phase
-    // 5): the narrative layer (chapters / traits / keystones) replaces the
-    // level-gated ladder progression. The sleep→BP and good-day insight cards
-    // themselves survive and are covered by the dedicated tests below; they no
-    // longer have a ladder row as an entry point. Below-tier gating is asserted
-    // by "insight card is omitted…" further down.
-
-    // Sleep→BP insight card (Task 3): all three honesty-gate states render as
-    // plain-language copy, plus the omitted-until-loaded case.
-    it('insight card renders the "effect" state in plain language', () => {
+    // med-8tur.12: the level-tier-gated sleep→BP / good-day insight cards were
+    // the last level consumers (cloud /insights always answers {enabled:false},
+    // so they never rendered). Gone with them: the Gauges "why is this moving?"
+    // link that pointed at them.
+    it('renders no insight cards even when a tier and an insight payload are present', () => {
         env.window.Gamification.render(journey({
-            unlocked_tiers: [1, 2, 3],
-            insight: { sleep_bp: { status: 'effect', short_threshold_hours: 7, delta_systolic: 8, n_short: 23, n_in_band: 40 } }
+            unlocked_tiers: [1, 2, 3, 4],
+            insight: { sleep_bp: { status: 'effect', short_threshold_hours: 7, delta_systolic: 8, n_short: 23, n_in_band: 40 } },
+            gauges: { enabled: true, weight: { status: 'insufficient_data' }, bp: { status: 'insufficient_data' }, resting_hr: { status: 'insufficient_data' } },
         }));
-        const card = env.document.getElementById('journey-insight-card');
-        expect(card).not.toBeNull();
-        expect(card.querySelector('.wg-journey-insight__body').textContent)
-            .toBe('Nights under 7h → next-morning systolic ~+8 mmHg · 23 nights');
-    });
-
-    it('insight card renders the "no_effect" state as its own honest finding', () => {
-        env.window.Gamification.render(journey({
-            unlocked_tiers: [1, 2, 3],
-            insight: { sleep_bp: { status: 'no_effect', short_threshold_hours: 7, delta_systolic: 1, n_short: 12, n_in_band: 30 } }
-        }));
-        const card = env.document.getElementById('journey-insight-card');
-        expect(card.querySelector('.wg-journey-insight__body').textContent).toMatch(/steady regardless of sleep/i);
-    });
-
-    it('insight card renders the "insufficient_data" state with the paired-night count', () => {
-        env.window.Gamification.render(journey({
-            unlocked_tiers: [1, 2, 3],
-            insight: { sleep_bp: { status: 'insufficient_data', short_threshold_hours: 7, n_short: 5, n_in_band: 9, needed: 8 } }
-        }));
-        const card = env.document.getElementById('journey-insight-card');
-        expect(card.querySelector('.wg-journey-insight__body').textContent).toBe('Not enough paired nights yet · 5 of 8 — keep logging');
-    });
-
-    it('insight card renders the offline-empty state when the fetch had no cache', () => {
-        env.window.Gamification.render(journey({
-            unlocked_tiers: [1, 2, 3],
-            insight: { emptyState: 'No cached insight — connect to load.' }
-        }));
-        const card = env.document.getElementById('journey-insight-card');
-        expect(card.querySelector('.wg-journey-insight__body').textContent).toBe('No cached insight — connect to load.');
-    });
-
-    it('insight card is omitted when tier 3 is unlocked but insight has not loaded yet', () => {
-        env.window.Gamification.render(journey({ unlocked_tiers: [1, 2, 3] }));
         expect(env.document.getElementById('journey-insight-card')).toBeNull();
-    });
-
-    // Good-day card (gamification-13 Task 3): the tier-4 association scan,
-    // same honesty-gate states as the sleep→BP card above, plus the
-    // good_day_definition sub-line spelling out the user's own band.
-    it('good-day card renders the "effect" state as one line per finding plus the definition', () => {
-        env.window.Gamification.render(journey({
-            unlocked_tiers: [1, 2, 3, 4],
-            insight: {
-                good_day: {
-                    status: 'effect',
-                    good_day_definition: 'in range = systolic 90–120',
-                    findings: [
-                        { behavior: 'workout', rate_with: 0.78, rate_without: 0.55, delta_pp: 23, n_with: 21, n_without: 13 }
-                    ]
-                }
-            }
-        }));
-        const card = env.document.getElementById('journey-goodday-card');
-        expect(card).not.toBeNull();
-        expect(card.querySelector('.wg-journey-insight__body').textContent)
-            .toBe('On days after a workout, BP in range 78% vs 55% · 21/34 days');
-        expect(card.querySelector('.wg-journey-goodday__definition').textContent)
-            .toBe('in range = systolic 90–120');
-    });
-
-    it('good-day card renders the "no_effect" state as its own honest finding', () => {
-        env.window.Gamification.render(journey({
-            unlocked_tiers: [1, 2, 3, 4],
-            insight: { good_day: { status: 'no_effect', good_day_definition: 'in range = systolic 90–120' } }
-        }));
-        const card = env.document.getElementById('journey-goodday-card');
-        expect(card.querySelector('.wg-journey-insight__body').textContent)
-            .toMatch(/no single habit stands out/i);
-    });
-
-    it('good-day card renders the "insufficient_data" state with the per-behavior day count', () => {
-        env.window.Gamification.render(journey({
-            unlocked_tiers: [1, 2, 3, 4],
-            insight: {
-                good_day: {
-                    status: 'insufficient_data',
-                    good_day_definition: 'in range = systolic 90–120',
-                    insufficient: [{ behavior: 'workout', n_with: 6, n_without: 20, needed: 10 }]
-                }
-            }
-        }));
-        const card = env.document.getElementById('journey-goodday-card');
-        expect(card.querySelector('.wg-journey-insight__body').textContent)
-            .toBe('Not enough contrast yet for a workout · keep logging — 6 of 10 days needed');
-    });
-
-    it('good-day card renders the offline-empty state when the fetch had no cache', () => {
-        env.window.Gamification.render(journey({
-            unlocked_tiers: [1, 2, 3, 4],
-            insight: { emptyState: 'No cached insight — connect to load.' }
-        }));
-        const card = env.document.getElementById('journey-goodday-card');
-        expect(card.querySelector('.wg-journey-insight__body').textContent).toBe('No cached insight — connect to load.');
-    });
-
-    it('good-day card is omitted when tier 4 is unlocked but insight has not loaded yet', () => {
-        env.window.Gamification.render(journey({ unlocked_tiers: [1, 2, 3, 4] }));
         expect(env.document.getElementById('journey-goodday-card')).toBeNull();
+        expect(env.document.querySelector('.wg-journey-gauges__link')).toBeNull();
     });
 
     // "Your week" card (gamification-12 §Task3) — sourced from
     // `journey.weekly_review` (attached by load() from its own fetch, same
-    // pattern as Gauges/Insights). Omitted entirely until it has loaded.
+    // pattern as Gauges). Omitted entirely until it has loaded.
     it('omits the Weekly Review card until journey.weekly_review has loaded', () => {
         env.window.Gamification.render(journey());
         expect(env.document.querySelector('.wg-journey-weekly')).toBeNull();
@@ -717,7 +616,7 @@ describe('Journey render', () => {
 
     // Gauges panel (gamification-11 §Task4): weight/BP/resting-HR read as
     // trends, sourced from `journey.gauges` (attached by load() from its own
-    // fetch, same pattern as the tier-3 insight). Omitted entirely until
+    // fetch, same pattern as Gauges). Omitted entirely until
     // `gauges` has loaded — render() tests attach it directly.
     it('omits the Gauges card until journey.gauges has loaded', () => {
         env.window.Gamification.render(journey());
@@ -754,8 +653,6 @@ describe('Journey render', () => {
         expect(rows[2].querySelector('.wg-journey-gauge__label').textContent).toBe('Resting heart rate');
         expect(rows[2].querySelector('.wg-journey-gauge__caption').textContent).toBe('62 avg · 3 below your baseline');
 
-        const link = card.querySelector('.wg-journey-gauges__link');
-        expect(link.textContent).toMatch(/why is this moving/i);
     });
 
     it('Gauges card renders each gauge\'s insufficient_data honestly instead of a distorted number', () => {
@@ -785,24 +682,6 @@ describe('Journey render', () => {
         const rows = env.document.querySelectorAll('.wg-journey-gauges .wg-journey-gauge__caption');
         expect(rows[1].textContent).toBe('Baseline 76% in range · none logged in the last 30 days');
         expect(rows[1].textContent).not.toMatch(/0%/);
-    });
-
-    it('Gauges card link scrolls to the tier-3 insight card', () => {
-        env.window.Gamification.render(journey({
-            unlocked_tiers: [1, 2, 3],
-            insight: { sleep_bp: { status: 'no_effect', short_threshold_hours: 7, delta_systolic: 1, n_short: 12, n_in_band: 30 } },
-            gauges: {
-                enabled: true,
-                weight: { status: 'insufficient_data' },
-                bp: { status: 'insufficient_data' },
-                resting_hr: { status: 'insufficient_data' }
-            }
-        }));
-        const { document } = env;
-        const scrollIntoView = vi.fn();
-        document.getElementById('journey-insight-card').scrollIntoView = scrollIntoView;
-        document.querySelector('.wg-journey-gauges__link').click();
-        expect(scrollIntoView).toHaveBeenCalled();
     });
 
     it('Gauges card renders the offline-empty state when the fetch had no cache', () => {
@@ -1155,7 +1034,7 @@ describe('Journey render', () => {
     const WHATS_NEW = [
         { kind: 'discovery', text: 'New: Workout mornings run 16 mmHg lower · 25 pairs', target: 'journey-atlas-card' },
         { kind: 'trait', text: 'You\u2019re now a Consistent Mover.', target: 'journey-traits-card' },
-        { kind: 'forecast', text: 'Last night 7h 30m · this morning 118 — in range. Your body agreed.', target: null },
+        { kind: 'note', text: 'A line with no card to scroll to.', target: null },
     ];
 
     function withStrip(items) {
@@ -1176,8 +1055,8 @@ describe('Journey render', () => {
 
         const rows = [...document.querySelectorAll('.wg-journey-whatsnew__item')];
         expect(rows.map((r) => r.textContent)).toEqual(WHATS_NEW.map((i) => i.text));
-        // Every item with a target card is a real button; the forecast line has
-        // no Journey card to scroll to, so it stays a plain line.
+        // Every item with a target card is a real button; a line with no
+        // Journey card to scroll to stays a plain line.
         expect(rows.map((r) => r.getAttribute('role'))).toEqual(['button', 'button', null]);
     });
 

@@ -91,24 +91,9 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         expect(boot.features.live_hr).toBe(true);
     });
 
-    // med-ja0u: the forecast route is the feature gate for the stats it serves
-    // (the standalone Today card is gone since med-8tur.9).
-    it('gamification off gates GET /api/gamification/forecast to {enabled:false}', async () => {
-        const { window } = env;
-        window.rebuildCanonicalBottomNav = vi.fn();
-
-        const on = await window.apiCall('/api/gamification/forecast', 'GET');
-        expect(on.enabled).toBe(true);
-        expect(on.calibration).toBeTruthy();
-
-        await window.toggleFeatureSetting('gamification', false);
-
-        expect(await window.apiCall('/api/gamification/forecast', 'GET')).toEqual({ enabled: false });
-    });
-
     // med-8tur.1: the Goal Line route carries the flag map into the read-model —
     // a feature toggled off reports feature_on:false on its row, and the
-    // gamification flag gates the whole payload like the forecast.
+    // gamification flag gates the whole payload.
     it('GET /api/gamification/goal-line honors the workout/bp/gamification flags', async () => {
         const { window } = env;
         window.rebuildCanonicalBottomNav = vi.fn();
@@ -128,6 +113,25 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
 
         await window.toggleFeatureSetting('gamification', false);
         expect(await window.apiCall('/api/gamification/goal-line', 'GET')).toEqual({ enabled: false });
+    });
+
+    // med-8tur.12: the Journey mode switches persist through the shim and gate
+    // the routes — ED-safe hides the Goal Line, narration off turns the probe
+    // off and every narrate POST into {text:null}.
+    it('saveGamificationMode persists ED-safe / narration and the routes honor them', async () => {
+        const { window } = env;
+
+        expect(await window.apiCall('/api/gamification/mode', 'GET'))
+            .toEqual({ enabled: true, ed_safe: false, experiments: true, traits: true, narration: true });
+        expect((await window.apiCall('/api/gamification/narrate', 'GET')).enabled).toBe(true);
+
+        await window.saveGamificationMode('ed_safe', true);
+        await window.saveGamificationMode('narration', false);
+
+        expect(await window.apiCall('/api/gamification/mode', 'GET')).toMatchObject({ ed_safe: true, narration: false });
+        expect(await window.apiCall('/api/gamification/goal-line', 'GET')).toMatchObject({ enabled: false, ed_safe: true });
+        expect(await window.apiCall('/api/gamification/narrate', 'GET')).toEqual({ enabled: false });
+        expect(await window.apiCall('/api/gamification/narrate/weekly', 'POST', {})).toEqual({ text: null });
     });
 
     // med-8tur.5: the route materializes a reached milestone (floored) and

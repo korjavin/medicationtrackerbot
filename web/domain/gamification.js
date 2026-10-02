@@ -17,21 +17,9 @@ import { localWallToUtcMs } from './medschedule.js';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WINDOW_DAYS = 90; // trailing window (§4.1)
 
-// Tomorrow Forecast (§3.4). One fixed, pre-registered lever→outcome pairing —
-// NOT a best-of scan (guardrail §5: no fishing). Lever: an adequate night
-// (≥ 7h sleep, the tonight-actionable behavior in the design's example).
-// Outcome: the same morning's first BP reading landing in range. Same-day
-// bucketing (the probe catalog's short_sleep_next_morning_bp is lag 0). The
-// forecast never reads weight — only bp + sleep + the user's own bp goal band.
-const FORECAST_SLEEP_WINDOW_MIN = 7 * 60;
-const FORECAST_GATE_PER_ARM = 8;          // min resolvable nights in EACH arm
 const DEFAULT_IN_RANGE_SYSTOLIC = 130;    // High-BP Stage-1 threshold (bp.js)
 const BP_GOAL_RECORD_TYPE = 'bpgoal';
 const BP_GOAL_RECORD_ID = 'bpgoal';
-
-function pct(x) {
-  return Math.round(x * 100);
-}
 
 // Vault record types read (never written — the owning domain modules own writes).
 const BP_RECORD_TYPE = 'bp';
@@ -745,6 +733,8 @@ export const scoring = {
 //                e.g. no sleep record that night). Never dredges: the predicate
 //                is fixed, not chosen from the data.
 //   gauge(day) — the outcome number for a day, or null if absent.
+//   weight     — optional; true when the probe reads weight. ED-safe mode
+//                (gamificationmode.ed_safe) drops these cards from the Atlas.
 //   the *Phrase / next fields are deterministic copy templates (never causal
 //   language, §4.1): "mornings after X were lower", never "X lowered".
 // -------------------------------------------------------------------------
@@ -848,6 +838,11 @@ const EXP_MIN_PER_ARM = 4;         // real contrast needed in BOTH arms over the
 // optional record and returns false when absent, so the pause activates for
 // free once a recovery-mode subsystem lands. No subsystem is invented here.
 const RECOVERY_MODE_RECORD_TYPE = 'gamificationmode';
+// The same record type also carries the user's gamification mode (med-8tur.12,
+// docs/gamification.md §0.5): per-mechanic switches plus the ED-safe toggle,
+// on one singleton row. Absent = the defaults below (everything on, ED-safe off).
+const MODE_RECORD_ID = 'gamificationmode';
+const MODE_DEFAULTS = Object.freeze({ ed_safe: false, experiments: true, traits: true, narration: true });
 
 export const EXPERIMENT_TEMPLATES = [
   {
@@ -1236,14 +1231,11 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // yet). Returns { enabled, cards } — the shape journey.js's Atlas feed reads.
   // `whatsNew: false` keeps this the cheap, read-only Atlas it has always been
   // — the narrate handlers hold their own copies of every payload getWhatsNew
-  // composes and drop `whats_new`, so they must not pay for it. `forecast`
-  // carries the gamification feature flag down from the shim: /forecast is
-  // gated there because getForecast() always reports enabled, and the strip's
-  // forecast line has to honour the same gate.
-  async function getAtlas({ whatsNew = true, forecast = true } = {}) {
-    const [days, seen] = await Promise.all([buildDays(), readSeen()]);
+  // composes and drop `whats_new`, so they must not pay for it.
+  async function getAtlas({ whatsNew = true } = {}) {
+    const [days, seen, mode] = await Promise.all([buildDays(), readSeen(), readMode()]);
     const seenSet = new Set(seen);
-    const cards = PROBES.map((probe) => {
+    const cards = PROBES.filter((probe) => !(mode.ed_safe && probe.weight)).map((probe) => {
       const card = evaluateProbe(probe, days);
       if (card.state === 'revealed' || card.state === 'no_effect') {
         card.seen = seenSet.has(card.id);
@@ -1251,7 +1243,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       return card;
     });
     if (!whatsNew) return { enabled: true, cards };
-    return { enabled: true, cards, whats_new: await getWhatsNew(cards, forecast) };
+    return { enabled: true, cards, whats_new: await getWhatsNew(cards) };
   }
 
   // --- "Since you last looked" (med-edxz.3) -------------------------------
@@ -1271,8 +1263,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // timestamp, no localStorage, so items age out on their own.
   //
   // Priority: unseen discoveries (max 2) -> a recently resolved trial -> a
-  // fresh keystone -> a trait (freshly earned, else recently dormant) -> this
-  // morning's forecast resolution. When none of those fired, ONE anticipation
+  // fresh keystone -> a trait (freshly earned, else recently dormant). When none of those fired, ONE anticipation
   // line for the developing probe closest to revealing (goal gradient) — and
   // only once that probe has real data, so a fresh account shows no strip at
   // all.
@@ -1282,7 +1273,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // keystones / experiments again for their own cards. Fine for one vault
   // in-browser; memoize buildDays the way loadForRead memoizes ctx if a real
   // device measurably stutters.
-  async function getWhatsNew(cards, includeForecast) {
+  async function getWhatsNew(cards) {
     const nowMs = now();
     // Sequential, not Promise.all: getTraits / getKeystones / listExperiments
     // each read-modify-write the journal singleton, so awaiting them in turn
@@ -1292,7 +1283,6 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     const traits = await getTraits();
     const keystones = await getKeystones();
     const experiments = await listExperiments();
-    const forecast = includeForecast ? await getForecast() : null;
     const items = [];
 
     // 1. Unseen findings — the genuinely new thing on the screen.
@@ -1368,19 +1358,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       });
     }
 
-    // 5. This morning's forecast resolution — the only forecast surface left
-    // (med-8tur.9 removed the Today card) — hidden with the gamification flag off (carried in as
-    // includeForecast, since getForecast always reports enabled — the same
-    // reason the /forecast route gates it at the shim) and below the
-    // calibration gate (getForecast only sets `resolution` once calibrated).
-    // Never a weight reference: the text is the forecast card's own sleep/BP
-    // line. No Journey card owns the forecast, so this line has no target.
-    const resolution = forecast && forecast.enabled ? forecast.resolution : null;
-    if (resolution && resolution.text) {
-      items.push({ kind: 'forecast', text: resolution.text, target: null });
-    }
-
-    // 6. Fallback — the closest-to-reveal developing probe, but only one that
+    // 5. Fallback — the closest-to-reveal developing probe, but only one that
     // has actually started collecting pairs (a fresh account gets no strip).
     if (items.length === 0) {
       const closest = cards
@@ -1426,8 +1404,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     return list;
   }
 
-  // inRangeBand reads the user's own bp goal (systolic) so the forecast is
-  // never a black box — in-range means "at or below your target", or the
+  // inRangeBand reads the user's own bp goal (systolic) so the BP-band keystone
+  // is never a black box — in-range means "at or below your target", or the
   // High-BP Stage-1 threshold when no goal is set. Weight is never consulted.
   async function inRangeBand() {
     const goals = await records.list(BP_GOAL_RECORD_TYPE);
@@ -1439,139 +1417,6 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     return { max: DEFAULT_IN_RANGE_SYSTOLIC, source: 'default' };
   }
 
-  // forecastPairs buckets the trailing window into the two lever arms. A day is
-  // "resolvable" only when it has BOTH a classifiable night (sleepMinutes) and a
-  // first-morning systolic — the exact same-day pairing the probe catalog uses.
-  // Each entry carries the outcome boolean (in range) so calibration can replay
-  // the model's majority-class call per arm. Pure over the day map.
-  function forecastPairs(days, band) {
-    const good = []; // { key, inRange, systolic, sleepMinutes }
-    const short = [];
-    for (const d of days.values()) {
-      if (d.sleepMinutes === null || d.sleepMinutes === undefined) continue;
-      if (d.firstMorningSystolic === null || d.firstMorningSystolic === undefined) continue;
-      const inRange = d.firstMorningSystolic <= band.max;
-      const entry = {
-        key: d.key, inRange, systolic: d.firstMorningSystolic, sleepMinutes: d.sleepMinutes,
-      };
-      (d.sleepMinutes >= FORECAST_SLEEP_WINDOW_MIN ? good : short).push(entry);
-    }
-    return { good, short };
-  }
-
-  function share(arm) {
-    return arm.length ? arm.reduce((a, e) => a + (e.inRange ? 1 : 0), 0) / arm.length : 0;
-  }
-
-  function fmtHours(min) {
-    const h = Math.floor(min / 60);
-    const m = Math.round(min % 60);
-    return m === 0 ? `${h}h` : `${h}h ${m}m`;
-  }
-
-  // getForecast — tonight's prospective card + this morning's resolution + the
-  // "how well do we know you" calibration meter (§3.4). Recompute-on-read: the
-  // model, the resolution, and the trailing hit-rate are all pure functions of
-  // the log (§4.2), so nothing here is persisted. Self-suppresses below the gate:
-  // when either arm holds fewer than FORECAST_GATE_PER_ARM nights it declines to
-  // quote a probability and the calibration meter carries the progress instead.
-  async function getForecast() {
-    const nowMs = now();
-    const [days, band] = await Promise.all([buildDays(), inRangeBand()]);
-    const { good, short } = forecastPairs(days, band);
-    const nGood = good.length;
-    const nShort = short.length;
-    const have = Math.min(nGood, nShort);
-    const needed = FORECAST_GATE_PER_ARM;
-    const total = nGood + nShort;
-    const calibrated = have >= needed;
-
-    const goodShare = share(good);
-    const shortShare = share(short);
-    const phase = localHour(nowMs, timeZone) < 12 ? 'morning' : 'evening';
-
-    // Evening card — the tonight-actionable, lever-conditioned chance. Below the
-    // gate it names no number (honesty over theater, §5 forecast guardrail).
-    let evening;
-    if (!calibrated) {
-      evening = {
-        state: 'insufficient',
-        lever: 'sleep_window',
-        text: 'We don’t know your mornings well enough yet — keep logging a morning BP after each night and this fills in.',
-      };
-    } else {
-      evening = {
-        state: 'ready',
-        lever: 'sleep_window',
-        goodShare: pct(goodShare),
-        otherShare: pct(shortShare),
-        n: total,
-        text: `A 7h+ night tonight → mornings like that have been in range ${pct(goodShare)}% for you (vs ${pct(shortShare)}% after shorter nights).`,
-      };
-    }
-
-    // Morning resolution — the most recent resolvable morning, today or
-    // yesterday, scored against the model's majority-class call for its arm.
-    // Only meaningful once calibrated; a miss is always framed as noise.
-    let resolution = null;
-    if (calibrated) {
-      const todayKey = localDayString(nowMs, timeZone);
-      const yesterdayKey = localDayString(nowMs - DAY_MS, timeZone);
-      let latest = null;
-      for (const e of [...good, ...short]) {
-        if (e.key !== todayKey && e.key !== yesterdayKey) continue;
-        if (!latest || e.key > latest.key) latest = e;
-      }
-      if (latest) {
-        const wasGoodNight = latest.sleepMinutes >= FORECAST_SLEEP_WINDOW_MIN;
-        const armShare = wasGoodNight ? goodShare : shortShare;
-        const predictedInRange = armShare >= 0.5;
-        const matched = predictedInRange === latest.inRange;
-        resolution = {
-          day: latest.key,
-          nightMinutes: latest.sleepMinutes,
-          systolic: latest.systolic,
-          inRange: latest.inRange,
-          matched,
-          text: `Last night ${fmtHours(latest.sleepMinutes)} · this morning ${latest.systolic} — ${latest.inRange ? 'in range ✓' : 'above your range'}. ${matched ? 'Your body agreed ✓' : 'Not this time — one morning is noise; the pattern needs weeks.'}`,
-        };
-      }
-    }
-
-    // Calibration meter — the honest progress bar. While learning, the fill is
-    // data readiness toward the gate; once calibrated, the fill IS the model's
-    // trailing hit-rate over every resolvable morning (majority-class call vs
-    // actual), which can honestly be modest.
-    let calibration;
-    if (!calibrated) {
-      calibration = {
-        state: 'learning',
-        have,
-        needed,
-        fraction: needed > 0 ? Math.min(1, have / needed) : 0,
-        label: `Getting to know your mornings — ${have} of ${needed} paired nights each way.`,
-      };
-    } else {
-      let hits = 0;
-      for (const e of good) if ((goodShare >= 0.5) === e.inRange) hits += 1;
-      for (const e of short) if ((shortShare >= 0.5) === e.inRange) hits += 1;
-      const hitRate = total ? hits / total : 0;
-      calibration = {
-        state: 'calibrated',
-        have,
-        needed,
-        n: total,
-        hitRate: pct(hitRate),
-        fraction: hitRate,
-        label: `Calibrated on ${total} mornings — the pattern held ${pct(hitRate)}% of the time so far.`,
-      };
-    }
-
-    return {
-      enabled: true, phase, band, evening, resolution, calibration,
-    };
-  }
-
   // --- Self-Experiments lifecycle -----------------------------------------
   // Persisted state (§4.2: only irreducible user state is stored) — one
   // gamificationexperiment record per trial: status active → resolved(verdict)
@@ -1581,6 +1426,44 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
 
   async function readExperiments() {
     return await records.list(EXPERIMENT_RECORD_TYPE);
+  }
+
+  // readMode — the gamificationmode singleton over MODE_DEFAULTS. Only
+  // booleans count; anything else falls back to the default.
+  async function readMode() {
+    const rec = (await records.list(RECOVERY_MODE_RECORD_TYPE)).find((r) => r.recordId === MODE_RECORD_ID);
+    const mode = { ...MODE_DEFAULTS };
+    for (const k of Object.keys(MODE_DEFAULTS)) if (rec && typeof rec[k] === 'boolean') mode[k] = rec[k];
+    return mode;
+  }
+
+  async function getMode() {
+    return { enabled: true, ...(await readMode()) };
+  }
+
+  // putMode is the USER write behind the Settings switches: a partial patch of
+  // known boolean keys, merged over the stored row (its recovery flag kept).
+  // Serialized: two overlapping flips would otherwise both read the same row
+  // and the later write would drop the other's switch.
+  let modeWrites = Promise.resolve();
+  function putMode(body) {
+    const run = modeWrites.then(() => writeMode(body));
+    modeWrites = run.catch(() => {});
+    return run;
+  }
+
+  async function writeMode(body) {
+    const patch = {};
+    for (const k of Object.keys(MODE_DEFAULTS)) {
+      if (!body || body[k] === undefined) continue;
+      if (typeof body[k] !== 'boolean') return { ok: false, error: `invalid_${k}` };
+      patch[k] = body[k];
+    }
+    const prev = (await records.list(RECOVERY_MODE_RECORD_TYPE)).find((r) => r.recordId === MODE_RECORD_ID);
+    await records.put(RECOVERY_MODE_RECORD_TYPE, {
+      ...(prev || {}), ...patch, recordId: MODE_RECORD_ID, deleted: false, clientTs: now(),
+    });
+    return getMode();
   }
 
   // recoveryActive — the defensive recovery/illness-mode seam (§5). No such
@@ -1697,6 +1580,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // can start. Auto-freezes an elapsed trial as a side effect (markDiscoverySeen
   // pattern).
   async function listExperiments() {
+    if (!(await readMode()).experiments) return { enabled: false };
     const nowMs = now();
     const [all, days, paused] = await Promise.all([readExperiments(), buildDays(), recoveryActive()]);
     const activeRaw = all.find((e) => e.status === 'active') || null;
@@ -1730,6 +1614,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   async function startExperiment(templateId, params) {
     const template = experimentTemplateById(templateId);
     if (!template) return { ok: false, error: 'unknown_template' };
+    if (!(await readMode()).experiments) return { ok: false, error: 'disabled' };
     const paused = await recoveryActive();
     if (paused) return { ok: false, error: 'recovery_paused' };
 
@@ -2046,6 +1931,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // which shouldn't mint new identity off a paused clock). The write is the only
   // durable side effect; every other field is recomputed.
   async function getTraits() {
+    if (!(await readMode()).traits) return { enabled: false };
     const nowMs = now();
     const [days, paused, journal] = await Promise.all([buildDays(), recoveryActive(), readJournal()]);
     const persistedTraits = (journal && journal.traits) || {};
@@ -2097,7 +1983,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     await maybeDetectBpBandKeystone(days, band);
     const journal = await readJournal();
     const list = Array.isArray(journal && journal.keystones) ? journal.keystones.slice() : [];
-    list.push(...await milestoneKeystones());
+    // ED-safe: goal milestones are weight outcomes — hidden with the Goal Line.
+    if (!(await readMode()).ed_safe) list.push(...await milestoneKeystones());
     list.sort((a, b) => (b.earned_at || 0) - (a.earned_at || 0));
     return { enabled: true, keystones: list };
   }
@@ -2877,7 +2764,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     delete weight.goal_direction; // internal-only (json:"-" in Go)
     return {
       enabled: true,
-      weight,
+      // ED-safe: no weight numbers on the Journey gauges.
+      weight: (await readMode()).ed_safe ? null : weight,
       bp: computeBPGaugeAt(ctx, ctx._bpReadings, todayStr, cfg),
       resting_hr: computeRestingHRGaugeAt(ctx, todayStr, cfg),
     };
@@ -2899,7 +2787,10 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // The ring/score keys (levers, strengths, gauges, health_score) stay for the
   // MCP op's shape, now over the same completed week — nothing renders them.
   async function getWeeklyReview({ features } = {}) {
-    const on = (k) => !features || !!features[k];
+    // ED-safe reads as the weight feature being off: no weight row, no
+    // weigh-in cadence pick, no weight intention, no weight gauge.
+    const edSafe = (await readMode()).ed_safe;
+    const on = (k) => !(edSafe && k === 'weight') && (!features || !!features[k]);
     const { cfg, ctx } = await loadForRead();
     const scored = scoreWindow(ctx, cfg);
     const nowMs = now();
@@ -2944,7 +2835,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     const sPrior = strengthsView(ctx, ctx._bpReadings, addDays(sunday, -7), cfg);
     const strengths = strengthsView(ctx, ctx._bpReadings, sunday, cfg)
       .map((st, i) => ({ key: st.key, label: st.label, value_now: st.value, value_prior: (sPrior[i] && sPrior[i].value) || 0 }));
-    const weightGauge = computeWeightGaugeAt(ctx, sunday, cfg); delete weightGauge.goal_direction;
+    let weightGauge = computeWeightGaugeAt(ctx, sunday, cfg); delete weightGauge.goal_direction;
+    if (edSafe) weightGauge = null;
     const bpGauge = computeBPGaugeAt(ctx, ctx._bpReadings, sunday, cfg);
     const bpPrior = computeBPGaugeAt(ctx, ctx._bpReadings, addDays(sunday, -7), cfg);
 
@@ -2993,6 +2885,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       : { feature_on: false, status: 'unknown', mean: null, target: null, days_measured: null };
 
     const planWeek = planWeekKey(today);
+    const planRec = await weekPlanRecord(planWeek);
     const weighInNow = await currentWeighInCadence();
     const quiet = hpDays.size === 0 && weighInDays === 0 && !(workoutsRow.completed > 0) && !(bpRow.days_measured > 0);
 
@@ -3007,7 +2900,9 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       plan_week: planWeek,
       // Mon–Sat the pick shapes the live week; from Sunday on, the coming one.
       plan_scope: planWeek === isoWeekKey(today) ? 'this_week' : 'next_week',
-      plan: weekPlanView(await weekPlanRecord(planWeek)),
+      // A stored intention whose feature is now off (or weight under ED-safe)
+      // drops out of the plan too, not just out of the options.
+      plan: visiblePlan(weekPlanView(planRec), on),
       options: {
         intentions: WEEK_INTENTIONS.filter((i) => on(i.feature)).map(({ id, text }) => ({ id, text })),
         weigh_in: on('weight') ? [...WEEK_WEIGH_IN_CADENCES] : [],
@@ -3051,6 +2946,14 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
 
   async function currentWeekPlanRecord() {
     return weekPlanRecord(isoWeekKey(localDayString(now(), timeZone)));
+  }
+
+  // visiblePlan drops a stored intention whose feature is off (`on(feature)`
+  // false — weight under ED-safe included), so neither the review read nor a
+  // week-plan write response can show it.
+  function visiblePlan(view, on) {
+    const it = view && view.intention && WEEK_INTENTIONS.find((i) => i.id === view.intention.id);
+    return it && !on(it.feature) ? { ...view, intention: null } : view;
   }
 
   function weekPlanView(rec) {
@@ -3118,7 +3021,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       episode_id: goal ? goal.recordId : null, goal_set_at: goal ? goal.set_at || null : null,
     };
     await records.put(WEEK_PLAN_RECORD_TYPE, rec);
-    return { ok: true, plan: weekPlanView(rec) };
+    const edSafe = (await readMode()).ed_safe;
+    return { ok: true, plan: visiblePlan(weekPlanView(rec), (k) => !(edSafe && k === 'weight')) };
   }
 
   // ----- targets CRUD (targets.go) --------------------------------------------
@@ -3152,6 +3056,19 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // `features` is the settings flag map (the shim passes it; absent = all on).
   async function getGoalLine({ features } = {}) {
     const on = (k) => !features || !!features[k];
+    // Medication safety net (§6.1): the same trailing-PDC alert the rings tile
+    // carried (adherenceAlertView over the memoized read context) — inactive
+    // unless adherence has actually slipped. Not a weight signal, so ED-safe
+    // keeps it.
+    const adherenceAlertNow = async () => {
+      if (!on('medication')) return null;
+      const { cfg, ctx } = await loadForRead();
+      return adherenceAlertView(ctx, msToUTCDay(ctx.nowMs), cfg);
+    };
+    // ED-safe (§0.5) hides the Goal Line: the Today hero, the Journey goal
+    // card and the goal-aware weigh-in push all read this. Only the
+    // medication alert survives (Today renders it alone).
+    if ((await readMode()).ed_safe) return { enabled: false, ed_safe: true, adherence_alert: await adherenceAlertNow() };
     const nowMs = now();
     const today = localDayString(nowMs, timeZone);
     const sinceMonday = (dayOfWeek(today) + 6) % 7;
@@ -3177,14 +3094,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     let cta = 'none';
     if (!weighedToday && on('weight')) cta = 'weigh_in';
     else if (workouts.next_scheduled && workouts.next_scheduled.day === today) cta = 'start_session';
-    // Medication safety net (§6.1): the same trailing-PDC alert the rings tile
-    // carried (adherenceAlertView over the memoized read context) — inactive
-    // unless adherence has actually slipped.
-    let adherenceAlert = null;
-    if (on('medication')) {
-      const { cfg, ctx } = await loadForRead();
-      adherenceAlert = adherenceAlertView(ctx, msToUTCDay(ctx.nowMs), cfg);
-    }
+    const adherenceAlert = await adherenceAlertNow();
     // `day` is the local-day key the goal/workout/BP facts are bucketed on
     // (settings timezone when pinned); `time_zone` lets the UI tell when it
     // went stale. adherence_alert keeps the substrate's UTC-day window.
@@ -3531,6 +3441,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // write-free) plus `milestone` — the newest unacknowledged milestone of the
   // current episode, after materializing any newly earned ones.
   async function getGoalLineCard({ features } = {}) {
+    // ED-safe: no milestones materialize either — checked before the sync.
+    if ((await readMode()).ed_safe) return getGoalLine({ features });
     const goal = await syncGoalMilestones();
     const gl = await getGoalLine({ features });
     const open = (await records.list(GOAL_MILESTONE_RECORD_TYPE))
@@ -3631,7 +3543,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   }
 
   return {
-    getAtlas, markDiscoverySeen, getForecast,
+    getAtlas, markDiscoverySeen, getMode, putMode,
     listExperiments, startExperiment, cancelExperiment,
     getChapter, startChapter, closeChapter,
     getTraits, getKeystones,

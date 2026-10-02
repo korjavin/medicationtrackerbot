@@ -355,21 +355,25 @@
         const workoutEnabled = pickFeature(features, 'workout');
         const healthEnabled = pickFeature(features, 'health');
         const gamificationEnabled = pickFeature(features, 'gamification');
+        // ED-safe (med-8tur.12) rides the Goal Line payload: no weight numbers
+        // on Today — the Weight tab itself stays the user's own data.
+        const goalLinePayload = caches.gamification_goal_line;
+        const edSafe = gamificationEnabled && !!(goalLinePayload && goalLinePayload.ed_safe);
 
         const result = {
             greeting: cell(greetingFor(nowDate), null, 'ok'),
             nextMed: nextMedCell(bootstrap, nowMs, medEnabled, opts),
             bpLatest: bpLatestCell(bootstrap, nowMs, bpEnabled),
             bpTrend7d: bpTrendCell(bootstrap, nowMs, bpEnabled),
-            weightLatest: weightLatestCell(bootstrap, nowMs, weightEnabled),
-            weightTrend7d: weightTrendCell(bootstrap, nowMs, weightEnabled),
+            weightLatest: weightLatestCell(bootstrap, nowMs, weightEnabled && !edSafe),
+            weightTrend7d: weightTrendCell(bootstrap, nowMs, weightEnabled && !edSafe),
             caloriesToday: caloriesTodayCell(bootstrap, caches, nowMs, foodEnabled),
             caloriesTarget: caloriesTargetCell(bootstrap, foodEnabled),
             macrosToday: macrosTodayCell(caches, foodEnabled),
             macrosTarget: macrosTargetCell(bootstrap, foodEnabled),
             nextWorkout: nextWorkoutCell(caches, workoutEnabled),
             sleepLastNight: sleepLastNightCell(caches, nowMs, healthEnabled),
-            goalLine: goalLineCell(caches.gamification_goal_line, gamificationEnabled, weightEnabled)
+            goalLine: goalLineCell(goalLinePayload, gamificationEnabled, weightEnabled)
         };
         return result;
     }
@@ -1040,6 +1044,12 @@
 
     function goalLineCell(payload, enabled, weightEnabled) {
         if (!enabled) return cell(null, 'journey', 'disabled');
+        // ED-safe (med-8tur.12): no Goal Line, but the medication alert it
+        // carries is a safety signal — kept, rendered on its own.
+        if (payload && payload.ed_safe) {
+            const aa = payload.adherence_alert;
+            return aa && aa.active ? cell({ ed_safe: true, adherence_alert: aa }, 'journey', 'ok') : cell(null, 'journey', 'disabled');
+        }
         if (payload && payload.enabled === false) return cell(null, 'journey', 'disabled');
         if (!payload || !payload.goal) return cell(null, 'journey', 'missing');
         const c = cell(payload, 'journey', 'ok');
@@ -1199,10 +1209,28 @@
         card.appendChild(row);
     }
 
+    function goalLineAdherenceNudge(aa, h) {
+        if (!aa || !aa.active) return null;
+        const n = Number(aa.missed_doses) || 0;
+        const nudge = goalLineEl('div', 'wg-goal-line__adherence wg-muted',
+            `${n} missed dose${n === 1 ? '' : 's'} recently — worth a look`);
+        nudge.setAttribute('data-section', 'meds');
+        goalLineAction(nudge, 'meds', () => { if (typeof h.onDeeplink === 'function') h.onDeeplink('meds'); });
+        return nudge;
+    }
+
     function renderGoalLineTile(cell, handlers) {
         if (!cell || cell.status === 'disabled' || cell.status === 'missing' || !cell.value) return null;
         const h = handlers || {};
         const v = cell.value;
+        if (v.ed_safe) {
+            // ED-safe: just the medication alert, in a plain card — no goal,
+            // no weight, no tap-through to Journey.
+            const alertCard = goalLineEl('div', 'wg-card');
+            alertCard.setAttribute('data-section', 'adherence-alert');
+            alertCard.appendChild(goalLineAdherenceNudge(v.adherence_alert, h));
+            return alertCard;
+        }
         const card = goalLineEl('div', 'wg-card wg-goal-line');
         card.setAttribute('data-deeplink', cell.deeplink || 'journey');
         card.setAttribute('data-section', 'goal-line');
@@ -1227,15 +1255,8 @@
 
         // Medication safety net (carried over from the rings tile): invisible
         // unless the trailing PDC has actually slipped; one line to Meds.
-        const aa = v.adherence_alert;
-        if (aa && aa.active) {
-            const n = Number(aa.missed_doses) || 0;
-            const nudge = goalLineEl('div', 'wg-goal-line__adherence wg-muted',
-                `${n} missed dose${n === 1 ? '' : 's'} recently — worth a look`);
-            nudge.setAttribute('data-section', 'meds');
-            goalLineAction(nudge, 'meds', () => { if (typeof h.onDeeplink === 'function') h.onDeeplink('meds'); });
-            card.appendChild(nudge);
-        }
+        const nudge = goalLineAdherenceNudge(v.adherence_alert, h);
+        if (nudge) card.appendChild(nudge);
 
         let cta = null;
         if (v.cta === 'weigh_in' && typeof h.onAddWeight === 'function') {

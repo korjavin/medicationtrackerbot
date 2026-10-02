@@ -12,7 +12,6 @@ const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const EMPTY_STATE_JS = path.join(REPO_ROOT, 'web/static/js/components/empty-state.js');
 const WG_ICONS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-icons.js');
 const WG_SPARKLINE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-sparkline.js');
-const WG_RING_STACK_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-ring-stack.js');
 const TODAY_JS = path.join(REPO_ROOT, 'web/static/js/features/today.js');
 const CACHE_KEYS_JS = path.join(REPO_ROOT, 'web/static/js/core/cache-keys.js');
 
@@ -26,7 +25,6 @@ function loadRenderEnv() {
     window.eval(fs.readFileSync(EMPTY_STATE_JS, 'utf8') + '\nwindow.createEmptyState = createEmptyState;');
     window.eval(fs.readFileSync(WG_ICONS_JS, 'utf8'));
     window.eval(fs.readFileSync(WG_SPARKLINE_JS, 'utf8'));
-    window.eval(fs.readFileSync(WG_RING_STACK_JS, 'utf8'));
     window.eval(fs.readFileSync(TODAY_JS, 'utf8'));
     return {
         window,
@@ -734,6 +732,44 @@ describe('TodayDashboard.renderToday', () => {
 
         env.render(goalLineState(now, { enabled: false }), root, { now });
         expect(root.querySelector('.wg-goal-line')).toBeNull();
+    });
+
+    // med-8tur.12: ED-safe rides the Goal Line payload — no Goal Line card and
+    // no weight numbers on Today (the weight metric cells go 'disabled').
+    it('ED-safe payload → no Goal Line card and no weight metric on Today', () => {
+        const bootstrap = {
+            features: { gamification: true, weight: true },
+            weight: { logs: [{ measured_at: new Date(now).toISOString(), weight: 82.4 }] },
+        };
+        const safe = env.aggregate(bootstrap, { gamification_goal_line: { enabled: false, ed_safe: true } }, now);
+        expect(safe.goalLine.status).toBe('disabled');
+        expect(safe.weightLatest.status).toBe('disabled');
+        expect(safe.weightTrend7d.status).toBe('disabled');
+
+        const normal = env.aggregate(bootstrap, { gamification_goal_line: goalLinePayload() }, now);
+        expect(normal.weightLatest.status).toBe('ok');
+    });
+
+    // The missed-dose alert is a medication safety signal, not a weight one:
+    // ED-safe keeps it, rendered on its own with no goal or weight numbers.
+    it('ED-safe + active adherence alert → the alert line alone, no weight numbers', () => {
+        const root = env.document.getElementById('today-content');
+        const bootstrap = {
+            features: { gamification: true, weight: true },
+            weight: { logs: [{ measured_at: new Date(now).toISOString(), weight: 82.4 }] },
+        };
+        const payload = { enabled: false, ed_safe: true, adherence_alert: { active: true, pdc: 0.6, missed_doses: 3 } };
+        const state = env.aggregate(bootstrap, { gamification_goal_line: payload }, now);
+        const onDeeplink = vi.fn();
+        env.render(state, root, { now, onDeeplink });
+
+        const alert = root.querySelector('.wg-goal-line__adherence');
+        expect(alert).not.toBeNull();
+        expect(alert.textContent).toBe('3 missed doses recently — worth a look');
+        alert.click();
+        expect(onDeeplink).toHaveBeenCalledWith('meds');
+        expect(root.querySelector('.wg-goal-line')).toBeNull();
+        expect(root.textContent).not.toMatch(/82\.4|kg/);
     });
 });
 
