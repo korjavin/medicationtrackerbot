@@ -6,7 +6,7 @@
 //
 // The hard invariants (do not weaken):
 //   1. Narrates, never computes. Every function is handed the computed
-//      stats-JSON (the same objects the /weekly-review, /goal-line,
+//      stats-JSON (the same objects the /weekly-review,
 //      /experiments, /chapter, /atlas routes and workout stats return) and returns PROSE ONLY.
 //      The payload sent to the provider is built here by whitelisting a
 //      handful of already-summarised fields — zero raw vault records ever
@@ -61,24 +61,23 @@ function num(x) {
 
 // The weekly recap (med-8tur.8, docs/gamification.md §0.3.4) narrates the
 // owner's progress on their goal, not game features: the completed-week review
-// (getWeeklyReview — three fact rows + the picked plan) plus the goal's
-// direction and progress off the live Goal Line (getGoalLine). Counts, kg
-// deltas and BP means only — no absolute body weight, no dates, no ids, no
+// (getWeeklyReview — three fact rows, the weight row being the Goal Line read
+// as of the reviewed Sunday, + the picked plan). Counts, kg deltas, a progress
+// fraction and BP means only — no absolute body weight, no dates, no ids, no
 // free text (the intention is a curated string from WEEK_INTENTIONS).
-export function weeklyPayload({ review, goalLine } = {}) {
+export function weeklyPayload({ review } = {}) {
   const rows = (review && review.rows) || {};
   const w = rows.weight || {};
   const wo = rows.workouts || {};
   const bp = rows.bp || {};
-  const goal = (goalLine && goalLine.goal) || {};
   const plan = review && review.plan;
-  const dir = goal.direction;
+  const dir = w.goal_direction;
   return {
     quiet: !!(review && review.quiet),
     weight: w.feature_on ? {
       goal_status: w.goal_status || null,
       goal_direction: dir === -1 ? 'lose' : dir === 1 ? 'gain' : dir === 0 ? 'maintain' : null,
-      progress_fraction: goal.progress ? num(goal.progress.fraction) : null,
+      progress_fraction: num(w.progress_fraction),
       trend_change_kg: num(w.trend_change_kg),
       distance_to_goal_kg: num(w.distance_to_goal),
       weigh_in_days: num(w.weigh_in_days),

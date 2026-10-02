@@ -179,7 +179,8 @@ skips that week's weigh-in pushes (`computeReminderHorizon`
 puts the goal reading on the Web Push body only; the Telegram text stays
 goal-free. The vault carries the records in `gamification.weeks`.
 *Narrator recap (med-8tur.8):* `POST /api/gamification/narrate/weekly`
-feeds `narrateWeekly` the review plus the live Goal Line; `weeklyPayload` in
+feeds `narrateWeekly` the review (its weight row is the Goal Line as of the
+reviewed Sunday, incl. direction and progress); `weeklyPayload` in
 `web/cloud/js/gamification-narrator.js` is the whitelist (counts, kg deltas,
 BP means — no absolute weight, dates, ids or free text) and the prompt forbids
 attribution and pace grading. Same egress as before (the

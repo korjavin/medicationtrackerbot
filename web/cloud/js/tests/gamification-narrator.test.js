@@ -26,7 +26,7 @@ function stubClient(impl) {
 }
 
 // Read-model fixtures mirroring the domain outputs the apishim routes pass in.
-// The weekly recap's inputs: getWeeklyReview + getGoalLine, carrying fields
+// The weekly recap's input: getWeeklyReview, carrying fields
 // that must NOT reach the wire (absolute weight, ids, dates, ring/score keys).
 const WEEKLY_STATS = {
   review: {
@@ -35,7 +35,8 @@ const WEEKLY_STATS = {
     week_start: 1790000000,
     rows: {
       weight: {
-        feature_on: true, status: 'ok', goal_status: 'on_track', trend_weight: 91.4, trend_change_kg: -0.6,
+        feature_on: true, status: 'ok', goal_status: 'on_track', goal_direction: -1, progress_fraction: 0.36,
+        trend_weight: 91.4, trend_change_kg: -0.6,
         distance_to_goal: 6.4, weigh_in_days: 4,
         milestones_reached: [{ id: 'gamificationmilestone-weightgoal-1-2', ordinal: 2, title: 'Weight goal milestone 2 of 5' }],
       },
@@ -45,12 +46,6 @@ const WEEKLY_STATS = {
     plan: { week: '2026-W40', intention: { id: 'weigh_before_coffee', text: 'When I wake, I will weigh in before coffee' }, cadence: null, paused: false, picked_at: '2026-09-28T07:00:00Z' },
     levers: [{ key: 'bp', closed_this_week: 5, closed_last_week: 3 }],
     health_score: { now: 71, prior: 68 },
-  },
-  goalLine: {
-    enabled: true,
-    goal: { status: 'on_track', target: 85, trend_weight: 91.2, direction: -1, progress: { done_kg: 3.6, total_kg: 10, fraction: 0.36 }, start_day: '2026-08-01' },
-    workouts: { next_scheduled: { day: '2026-10-03', time: '18:00', group_title: 'Push' } },
-    day: '2026-10-02',
   },
 };
 
@@ -113,7 +108,7 @@ describe('gamification narrator — payload building (invariant 1: computed summ
     });
     const json = JSON.stringify(weeklyPayload(WEEKLY_STATS));
     // No absolute body weight, dates, record/milestone ids or week keys.
-    for (const leak of ['91.', '2026', 'gamificationmilestone', 'weightgoal', 'health_score', 'levers', 'Push']) {
+    for (const leak of ['91.', '2026', 'gamificationmilestone', 'weightgoal', 'health_score', 'levers']) {
       expect(json).not.toContain(leak);
     }
     assertNoRawRecords(weeklyPayload(WEEKLY_STATS));
@@ -223,6 +218,6 @@ describe('gamification narrator — invariants 1 & 2 on the wire', () => {
     // The deterministic stats object passed in is unmodified — narration is
     // strictly downstream of computation.
     expect(WEEKLY_STATS.review.rows.weight.trend_change_kg).toBe(-0.6);
-    expect(WEEKLY_STATS.goalLine.goal.progress.fraction).toBe(0.36);
+    expect(WEEKLY_STATS.review.rows.weight.progress_fraction).toBe(0.36);
   });
 });

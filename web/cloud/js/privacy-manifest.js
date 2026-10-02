@@ -311,7 +311,7 @@ export const PRIVACY_MANIFEST = [
     byo: 'With your own OpenAI key the summary goes browser-direct',
     evidence: [
       'web/cloud/js/gamification-narrator.js:68',
-      'web/cloud/js/gamification-narrator.js:178',
+      'web/cloud/js/gamification-narrator.js:177',
       'web/cloud/js/apishim.js:1264',
       'web/cloud/js/aiclient.js:584',
     ],
