@@ -248,7 +248,11 @@
             btn.type = 'button';
             btn.setAttribute('data-choice', id);
             btn.setAttribute('aria-pressed', pressed ? 'true' : 'false');
-            btn.addEventListener('click', () => { saveWeekPlan({ choice: id, cadence: readCadence(section) }); });
+            // weigh_in goes out only from its own select (it sets the reminder).
+            btn.addEventListener('click', () => {
+                const { weigh_in: _w, ...cadence } = readCadence(section);
+                saveWeekPlan({ choice: id, cadence });
+            });
             choices.appendChild(btn);
         };
         (opts.intentions || []).forEach((it) => choice(it.id, it.text,
@@ -261,7 +265,7 @@
         const cadence = el('div', 'wg-journey-weekly__cadence');
         if (Array.isArray(opts.weigh_in) && opts.weigh_in.length) {
             cadence.appendChild(cadenceSelect('Weigh-in', 'weigh_in',
-                opts.weigh_in.map((v) => [v, v === 'daily' ? 'Daily' : 'Weekly']), cad.weigh_in || opts.weigh_in_current || 'weekly'));
+                opts.weigh_in.map((v) => [v, v === 'daily' ? 'Daily' : 'Weekly']), opts.weigh_in_current || cad.weigh_in || 'weekly'));
         }
         const bpMax = Number(opts.bp_days_max) || 0;
         if (bpMax > 0) {

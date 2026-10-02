@@ -3066,8 +3066,9 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // change/too-fast on the Goal Line, no weigh-in nudges, experiments wait),
   // or absent (a cadence-only edit keeps the week's current pick, if any).
   // cadence: { weigh_in: 'weekly'|'daily', bp_days: 0..7|null }, merged over the
-  // week's (or the previous week's) contract, defaulting weigh_in to the
-  // reminder's current cadence. Returns { ok, plan } / { ok:false, error }.
+  // week's (or the previous week's) contract — except weigh_in, which IS the
+  // weigh-in reminder's cadence: the request's value, else the reminder's
+  // current one (a stored week never overrides it). Returns { ok, plan } / { ok:false, error }.
   async function putWeekPlan(body) {
     const choice = body && body.choice;
     const patch = (body && body.cadence) || {};
@@ -3100,8 +3101,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       paused = false;
     }
     const cadence = {
-      weigh_in: await currentWeighInCadence(), bp_days: null, ...((existing || prior || {}).cadence || {}),
-      ...(patch.weigh_in !== undefined ? { weigh_in: patch.weigh_in } : {}),
+      bp_days: null, ...((existing || prior || {}).cadence || {}),
+      weigh_in: patch.weigh_in !== undefined ? patch.weigh_in : await currentWeighInCadence(),
       ...(patch.bp_days !== undefined ? { bp_days: patch.bp_days } : {}),
     };
     const goal = goalAll.filter((r) => Number.isFinite(r.target_weight))

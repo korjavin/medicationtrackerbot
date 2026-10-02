@@ -476,7 +476,8 @@ describe('Journey render', () => {
 
         expect(env.window.DataStore.applyOptimistic).toHaveBeenCalledWith('gamification_weekly', expect.any(Function), ['gamification']);
         expect(w.projected().plan.intention.id).toBe('weigh_before_coffee');
-        expect(w.posted).toEqual([{ url: '/api/gamification/week-plan', method: 'POST', body: { choice: 'weigh_before_coffee', cadence: { weigh_in: 'daily', bp_days: null } } }]);
+        // weigh_in rides only its own select's change, never a choice tap.
+        expect(w.posted).toEqual([{ url: '/api/gamification/week-plan', method: 'POST', body: { choice: 'weigh_before_coffee', cadence: { bp_days: null } } }]);
         expect(w.handle.commit).toHaveBeenCalledWith(expect.objectContaining({ plan: serverPlan }));
         expect(w.handle.rollback).not.toHaveBeenCalled();
     });

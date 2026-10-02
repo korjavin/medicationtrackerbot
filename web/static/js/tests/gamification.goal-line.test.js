@@ -718,6 +718,7 @@ describe('gamification weekly review + week plan', () => {
   it('"Keep this plan" carries last week\'s intention and cadence forward', async () => {
     const { gam } = at(MON, {
       gamificationweek: [weekRec('2026-W25', { intention_id: 'weigh_before_coffee', cadence: { weigh_in: 'daily', bp_days: 2 } })],
+      weightreminderpref: [{ recordId: 'weightreminderpref', deleted: false, clientTs: 1, enabled: true, cadence: 'daily' }],
     });
     const { plan } = await gam.putWeekPlan({ choice: 'keep' });
     expect(plan).toMatchObject({ week: '2026-W26', intention: { id: 'weigh_before_coffee' }, cadence: { weigh_in: 'daily', bp_days: 2 }, paused: false });
@@ -731,11 +732,12 @@ describe('gamification weekly review + week plan', () => {
     expect((await gam.getWeeklyReview()).options.weigh_in_current).toBe('daily');
     const { plan } = await gam.putWeekPlan({ cadence: { bp_days: 2 } });
     expect(plan.intention).toBeNull();
-    expect(plan.cadence).toEqual({ weigh_in: 'weekly', bp_days: 2 }); // last week's contract carries
+    // bp_days merges over last week's contract; weigh_in is the reminder's.
+    expect(plan.cadence).toEqual({ weigh_in: 'daily', bp_days: 2 });
     const fresh = await at(MON, {
       weightreminderpref: [{ recordId: 'weightreminderpref', deleted: false, clientTs: 1, enabled: true, cadence: 'daily' }],
     }).gam.putWeekPlan({ choice: 'pause' });
-    expect(fresh.plan.cadence.weigh_in).toBe('daily'); // no prior contract → the reminder's cadence
+    expect(fresh.plan.cadence.weigh_in).toBe('daily');
   });
 
   it('a goal set after the reviewed week never re-reads it', async () => {
