@@ -553,4 +553,13 @@ describe('cloud shim horizon — weigh-in cadence + goal-aware web push', () => 
             expect(pushSchedule).toHaveBeenCalled();
         } finally { env.cleanup(); }
     });
+
+    it('a weight-unit change schedules a recompute+push (the goal text is unit-aware)', async () => {
+        const env = loadCloudShimFrontendEnv({ seedRecords: pref() });
+        try {
+            await env.window.offlineAwareApiCall('/api/settings/weight-unit', 'PATCH', { unit: 'lb' });
+            await vi.advanceTimersByTimeAsync(2100);
+            expect(pushSchedule).toHaveBeenCalled();
+        } finally { env.cleanup(); }
+    });
 });
