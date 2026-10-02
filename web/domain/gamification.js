@@ -1223,8 +1223,11 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     // change is the sum of its steps. The run's first reading, and any weigh-in
     // from an earlier run, has no step (null) — a week holding one is unreadable.
     const run = weightTrendRun(await records.list(WEIGHT_RECORD_TYPE), localDayString(nowMs, timeZone), nowMs);
+    // run.days are local day keys already capped at now — compare keys, not a
+    // UTC-midnight anchor (which drops today east of UTC before midnight UTC).
+    const windowFirstKey = localDayString(windowStartMs, timeZone);
     for (const key of run.days) {
-      if (!inWindow(Date.parse(`${key}T00:00:00Z`))) continue;
+      if (key < windowFirstKey) continue;
       const d = dayObj(key);
       d.weighedIn = true;
       d.weightTrendStep = key > run.origin ? run.trend.get(key) - run.trend.get(addDays(key, -1)) : null;
@@ -3394,7 +3397,12 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       const end = addDays(start, len - 1);
       let sum = 0;
       for (let d = start; d <= end; d = addDays(d, 1)) sum += run.trend.get(d);
-      const st = buildDailyWeightedStats(readings, zoneDayStartMs(addDays(end, 1)) - 1, timeZone, [len - 1])[`stats_${len - 1}`];
+      // The period's own local bounds pick the readings; the stats window is a
+      // day wider so its DAY_MS arithmetic never clips the first day across DST.
+      const fromMs = zoneDayStartMs(start);
+      const toMs = zoneDayStartMs(addDays(end, 1)) - 1;
+      const inPeriod = readings.filter((r) => { const ms = Date.parse(r.measured_at); return ms >= fromMs && ms <= toMs; });
+      const st = buildDailyWeightedStats(inPeriod, toMs, timeZone, [len])[`stats_${len}`];
       return {
         start_day: start, end_day: end, trend_mean: sum / len,
         weigh_in_days: run.days.filter((d) => d >= start && d <= end).length,
