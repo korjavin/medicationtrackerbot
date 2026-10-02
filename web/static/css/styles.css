@@ -4953,6 +4953,11 @@ textarea.wg-input {
     margin-bottom: var(--space-md);
 }
 
+/* display:flex above would beat the UA [hidden] rule — withheld = gone. */
+.wg-weight-prognosis-card[hidden] {
+    display: none;
+}
+
 .wg-weight-prognosis-card__label {
     font-family: var(--wg-font-ui);
     font-size: var(--font-size-xs);

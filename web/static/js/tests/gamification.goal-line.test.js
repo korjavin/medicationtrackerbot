@@ -223,8 +223,8 @@ describe('gamification Goal Line — projected date ± weeks', () => {
   it('a steady trend → around a date, ± 1 week', async () => {
     const goal = await projectedOf(series(60, steady));
     expect(goal.status).toBe('ok');
-    // 7.45 kg ÷ 0.35 kg/week ≈ 21.3 weeks from 2026-06-17.
-    expect(goal.projected).toEqual({ date: '2026-11-15', plus_minus_weeks: 1, reason: null });
+    // (7.45 − 0.5 reach) kg ÷ 0.35 kg/week ≈ 19.9 weeks from 2026-06-17.
+    expect(goal.projected).toEqual({ date: '2026-11-05', plus_minus_weeks: 1, reason: null });
   });
 
   it('a noisy trend at the same mean pace → a wider ± around a similar date', async () => {
@@ -232,7 +232,7 @@ describe('gamification Goal Line — projected date ± weeks', () => {
     // trend velocities spread, so the range widens (and the midpoint drifts later,
     // since distance/v is convex in v).
     const goal = await projectedOf(series(60, (o) => steady(o) + (Math.floor(o / 7) % 2 ? 0.1 : -0.1)));
-    expect(goal.projected).toEqual({ date: '2026-11-22', plus_minus_weeks: 5, reason: null });
+    expect(goal.projected).toEqual({ date: '2026-11-12', plus_minus_weeks: 5, reason: null });
   });
 
   it('too_fast never carries a date', async () => {

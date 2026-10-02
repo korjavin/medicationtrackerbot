@@ -644,15 +644,18 @@ function emaTrendByDay(byDay, startStr, endStr, alpha) {
 // goalLineProjection is goal.projected (docs/gamification.md §0.3.1, med-8tur.7):
 // "around <date> ± N weeks", or date null with the reason it is withheld.
 // The rule, stated once: over the last 4 weeks of trend, take each week's trend
-// change toward the target (kg/week); earliest = distance / fastest week,
+// change toward the target (kg/week); with distance = trend → within reach of
+// the target (where status turns at_goal), earliest = distance / fastest week,
 // latest = distance / slowest week; the date is today + their midpoint and the
 // ± is half their spread rounded up (≥ 1 week). Never a bare day count.
 // Withheld (date null) when: too_fast (no date for a crash pace), < 8 weigh-in
 // days in 28 (sparse), no reading in 7 days (stale), the trend run is younger
 // than 28 days (short_window), the 4-week trend is not toward the target
 // (not_toward), or a week stalled or reversed so the range is unbounded
-// (unsteady). A latest end past 12 months is beyond_horizon — the one withheld
-// case the UI words ("more than a year at this pace").
+// (unsteady — deliberately unworded: an unbounded range is no estimate, not
+// "more than a year"). A displayed far end (date + N weeks) past 12 months is
+// beyond_horizon — the one withheld case the UI words ("more than a year at
+// this pace").
 function goalLineProjection({ trend, origin, today, trendWeight, target, direction, coverage, tooFast }) {
   const none = (reason) => ({ date: null, plus_minus_weeks: null, reason });
   if (tooFast) return none('too_fast');
@@ -664,15 +667,15 @@ function goalLineProjection({ trend, origin, today, trendWeight, target, directi
   if (weekly.reduce((a, b) => a + b, 0) <= 0) return none('not_toward');
   const slowest = Math.min(...weekly);
   if (slowest <= 0) return none('unsteady');
-  const distance = (target - trendWeight) * direction;
+  // Aim at the point the status flips to at_goal (within GOAL_LINE_REACH_KG).
+  const distance = (target - trendWeight) * direction - GOAL_LINE_REACH_KG;
   const earliestWeeks = distance / Math.max(...weekly);
   const latestWeeks = distance / slowest;
-  if (latestWeeks * 7 > GOAL_LINE_PROJECT_HORIZON_DAYS) return none('beyond_horizon');
-  return {
-    date: addDays(today, Math.round(((earliestWeeks + latestWeeks) / 2) * 7)),
-    plus_minus_weeks: Math.max(1, Math.ceil((latestWeeks - earliestWeeks) / 2)),
-    reason: null,
-  };
+  const midDays = Math.round(((earliestWeeks + latestWeeks) / 2) * 7);
+  const plusMinusWeeks = Math.max(1, Math.ceil((latestWeeks - earliestWeeks) / 2));
+  // The displayed far end (date + N weeks) must sit inside the horizon too.
+  if (midDays + plusMinusWeeks * 7 > GOAL_LINE_PROJECT_HORIZON_DAYS) return none('beyond_horizon');
+  return { date: addDays(today, midDays), plus_minus_weeks: plusMinusWeeks, reason: null };
 }
 
 // projectedShift compares two weeks' goal.projected: 'earlier' | 'later' |
