@@ -2,7 +2,7 @@
 //
 // Fixture-vault suite for the Goal Line read-model (web/domain/gamification.js
 // getGoalLine, docs/gamification.md §0.3.1, bd med-8tur.1). Same shape as the
-// Atlas/forecast suites: the domain layer is driven only by injected ports, so
+// Atlas suites: the domain layer is driven only by injected ports, so
 // a seeded in-memory vault is its integration entry point. The shim route's
 // flag gating is covered in cloud.shim-contract.settings.test.js.
 import { describe, it, expect, vi } from 'vitest';

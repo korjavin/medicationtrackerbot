@@ -3,14 +3,13 @@
 // Closure-scoped module exposing window.Gamification — a loader (load) that
 // reads GET /api/gamification/journey through cachedFetch (local-first +
 // freshness chip) and a pure-ish render(journey) that paints #journey-content
-// from the Plan 2 Journey read model:
-//   { enabled, level, lifetime_hp, unlocked_tiers:[1..],
-//     health_score:{value,contributors:[{key,label,score,weight,missing}],missing:[]} }
-// plus the separately-fetched atlas / weekly_review / gauges / insight /
-// traits / experiments / chapter / keystones / narration / goal_line layers.
-// The rings, strengths, hp_history, level/HP and health_score fields are still
-// served but no longer rendered (med-edxz.1; HP/levels/Health Score hidden
-// outright by med-8tur.2).
+// from the Journey read model — only its `enabled` gate is read; the
+// substrate fields it still serves for the registry shape (rings, strengths,
+// hp_history, level/HP, unlocked_tiers, health_score) are not rendered
+// (HP/levels/Health Score hidden outright, owner decision; their last
+// consumers — the tier-gated insight cards — went in med-8tur.12) — plus the
+// separately-fetched atlas / weekly_review / gauges / traits / experiments /
+// chapter / keystones / narration / goal_line layers.
 //
 // Visuals come only from CSS classes + --wg-* tokens; the only inline style is
 // `style.setProperty('--fill-pct', …)` for progress fills (allowed by the
@@ -23,8 +22,6 @@
     const CACHE_KEY = 'gamification';
     const JOURNEY_URL = '/api/gamification/journey';
     const STALE_AFTER_MS = 6 * 60 * 60 * 1000; // 6h — matches the cache-keys registry
-    const INSIGHTS_CACHE_KEY = 'gamification_insights';
-    const INSIGHTS_URL = '/api/gamification/insights';
     const GAUGES_CACHE_KEY = 'gamification_gauges';
     const GAUGES_URL = '/api/gamification/gauges';
 
@@ -451,8 +448,7 @@
 
     // Reads `journey.gauges` (attached by load() from its own cachedFetch
     // entry — GET /api/gamification/gauges, gamification-11 §Task3) rather
-    // than the Journey payload itself, same pattern as the tier-3 insight
-    // card. Renders an explicit offline-empty state via `emptyState`, and
+    // than the Journey payload itself. Renders an explicit offline-empty state via `emptyState`, and
     // omits the whole card while gate-off (`enabled:false`) or not loaded yet.
     function renderGauges(j) {
         const gauges = j.gauges;
@@ -472,18 +468,6 @@
         list.appendChild(renderGaugeRow('Blood pressure', bpGaugeCopy(gauges.bp)));
         list.appendChild(renderGaugeRow('Resting heart rate', restingHRGaugeCopy(gauges.resting_hr)));
         card.appendChild(list);
-
-        // Attribution loop (Task4, item 2): the tier-3/4 insight cards answer
-        // "why is this moving?" — reuses the ladder's own scroll target so
-        // there's one destination for "your insights", not two.
-        const link = el('div', 'wg-journey-gauges__link', 'Why is this moving? → your insights');
-        link.setAttribute('role', 'button');
-        link.setAttribute('tabindex', '0');
-        link.addEventListener('click', goToInsightCard);
-        link.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToInsightCard(); }
-        });
-        card.appendChild(link);
 
         return card;
     }
@@ -751,133 +735,6 @@
         return card;
     }
 
-    // Plain-language copy for the tier-3 sleep→BP insight (Task 3 — the first
-    // real destination in the Insight Ladder). Mirrors the honesty gate in
-    // internal/domain/gamification/insights.go: "no effect" and "insufficient
-    // data" are terminal, genuine findings, not error states, so they render
-    // with the same wording style as the effect case, not an apology.
-    function insightCopy(sleepBp) {
-        if (!sleepBp) return null;
-        if (sleepBp.status === 'effect') {
-            const delta = Number(sleepBp.delta_systolic) || 0;
-            const signed = `${delta >= 0 ? '+' : ''}${Math.round(delta)}`;
-            return `Nights under ${sleepBp.short_threshold_hours}h → next-morning systolic ~${signed} mmHg · ${sleepBp.n_short} nights`;
-        }
-        if (sleepBp.status === 'no_effect') {
-            return 'Your morning BP looks steady regardless of sleep length — solid.';
-        }
-        if (sleepBp.status === 'insufficient_data') {
-            const have = Math.min(Number(sleepBp.n_short) || 0, Number(sleepBp.n_in_band) || 0);
-            return `Not enough paired nights yet · ${have} of ${sleepBp.needed} — keep logging`;
-        }
-        return null;
-    }
-
-    // Tier-3 destination card (Task 3): the sleep→BP insight, fetched
-    // separately from the Journey payload (`load()` attaches it to
-    // `journey.insight` once it sees tier 3 in unlocked_tiers). Omitted
-    // entirely below tier 3 — matching how the ladder itself keeps the row
-    // "locked" — and while `journey.insight` hasn't arrived yet (e.g. render()
-    // called directly, as in tests, without a preceding load()).
-    // True when the Journey payload reports insight tier `n` unlocked.
-    function tierUnlocked(j, n) {
-        return Array.isArray(j.unlocked_tiers) && j.unlocked_tiers.map(Number).includes(n);
-    }
-
-    function renderInsightCard(j) {
-        if (!tierUnlocked(j, 3)) return null;
-
-        const insight = j.insight;
-        if (!insight) return null;
-
-        const card = el('section', 'wg-card wg-journey-insight');
-        card.id = 'journey-insight-card';
-        card.appendChild(el('div', 'wg-section-label', 'YOUR INSIGHT'));
-
-        const copy = insight.emptyState || insightCopy(insight.sleep_bp);
-        if (!copy) return null;
-        card.appendChild(el('p', 'wg-journey-insight__body wg-muted', copy));
-        return card;
-    }
-
-    // Plain-language behavior labels for the tier-4 good-day scan (Task 3),
-    // matching the fixed candidate set in insights_goodday.go.
-    const GOOD_DAY_BEHAVIOR_LABEL = {
-        workout: 'a workout',
-        bedtime: 'bedtime in your window',
-        steps: 'hitting your step goal',
-        adherence: 'taking all doses on time',
-    };
-
-    function goodDayFindingLine(finding) {
-        const label = GOOD_DAY_BEHAVIOR_LABEL[finding.behavior] || finding.behavior;
-        const withPct = Math.round((Number(finding.rate_with) || 0) * 100);
-        const withoutPct = Math.round((Number(finding.rate_without) || 0) * 100);
-        const nWith = Number(finding.n_with) || 0;
-        const total = nWith + (Number(finding.n_without) || 0);
-        return `On days after ${label}, BP in range ${withPct}% vs ${withoutPct}% · ${nWith}/${total} days`;
-    }
-
-    function goodDayInsufficientLine(item) {
-        const label = GOOD_DAY_BEHAVIOR_LABEL[item.behavior] || item.behavior;
-        const have = Math.min(Number(item.n_with) || 0, Number(item.n_without) || 0);
-        return `Not enough contrast yet for ${label} · keep logging — ${have} of ${item.needed} days needed`;
-    }
-
-    // Mirrors the honesty gate in insights_goodday.go: `effect` (one line per
-    // finding, max 3 — already capped server-side), `no_effect` (a genuine
-    // "nothing stands out" result, not an apology), and `insufficient_data`
-    // (one line per behavior still short on paired days).
-    function goodDayLines(gd) {
-        if (!gd) return [];
-        if (gd.status === 'effect') {
-            return (Array.isArray(gd.findings) ? gd.findings : []).map(goodDayFindingLine);
-        }
-        if (gd.status === 'no_effect') {
-            return ['No single habit stands out yet — your good days look evenly spread.'];
-        }
-        if (gd.status === 'insufficient_data') {
-            const items = Array.isArray(gd.insufficient) ? gd.insufficient : [];
-            return items.length > 0
-                ? items.map(goodDayInsufficientLine)
-                : ['Not enough contrast yet — keep logging.'];
-        }
-        return [];
-    }
-
-    // Tier-4 destination card (Task 3): the good-day association scan, reusing
-    // the same `insight` fetch as the tier-3 card (both live under
-    // GET /api/gamification/insights). Omitted below tier 4 or before
-    // `journey.insight` has loaded, matching renderInsightCard's contract.
-    function renderGoodDayCard(j) {
-        if (!tierUnlocked(j, 4)) return null;
-
-        const insight = j.insight;
-        if (!insight) return null;
-
-        const card = el('section', 'wg-card wg-journey-insight wg-journey-goodday');
-        card.id = 'journey-goodday-card';
-        card.appendChild(el('div', 'wg-section-label', 'YOUR GOOD-DAY MODEL'));
-
-        if (insight.emptyState) {
-            card.appendChild(el('p', 'wg-journey-insight__body wg-muted', insight.emptyState));
-            return card;
-        }
-
-        const gd = insight.good_day;
-        const lines = goodDayLines(gd);
-        if (lines.length === 0) return null;
-
-        const list = el('div', 'wg-journey-goodday__list');
-        lines.forEach((line) => list.appendChild(el('p', 'wg-journey-insight__body wg-muted', line)));
-        card.appendChild(list);
-
-        if (gd.good_day_definition) {
-            card.appendChild(el('p', 'wg-journey-goodday__definition wg-muted', gd.good_day_definition));
-        }
-        return card;
-    }
-
     // Scrolls to another card on this screen. A no-op if that card wasn't
     // rendered this pass — every caller's destination is conditional on its
     // own payload having loaded.
@@ -890,10 +747,6 @@
             target.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
     }
-
-    // The sleep→BP insight card (renderInsightCard), reached from the Gauges
-    // "why is this moving?" link.
-    function goToInsightCard() { goToCard('journey-insight-card'); }
 
     // --- Chapters (Phase 5) -----------------------------------------------
     // Opt-in 4-week themed arcs. Reads `journey.chapter` (GET
@@ -1148,12 +1001,12 @@
         if (!content) return;
 
         // Goal-first (med-8tur.9): Goal Line detail → your week → discoveries
-        // (the "since you last looked" strip + Atlas) → gauges + insights →
+        // (the "since you last looked" strip + Atlas) → gauges →
         // experiment/chapter/traits/keystones behind a disclosure → AI story.
         // HP/levels/Health Score are not rendered. The narrative layer also
         // stands on its own: a disabled substrate ({enabled:false}) with a live
         // narrative layer still renders it rather than the "gamification is
-        // off" state — without the substrate-fed week / gauges / insights.
+        // off" state — without the substrate-fed week / gauges.
         const substrate = !!journey && journey.enabled !== false;
         let cards = [];
         if (journey) {
@@ -1175,8 +1028,6 @@
                 whatsNewCard,
                 atlasCard,
                 substrate ? renderGauges(journey) : null,
-                substrate ? renderInsightCard(journey) : null,
-                substrate ? renderGoodDayCard(journey) : null,
                 renderMore([experimentCard, chapterCard, traitsCard, keystonesCard], !!experimentCard || chapterLive),
                 renderNarrator(journey),
             ].filter(Boolean);
@@ -1189,31 +1040,8 @@
         content.replaceChildren(...cards);
     }
 
-    // Fetches the tier-3 sleep→BP insight through its own cachedFetch entry
-    // (Task 3) — only called once the Journey payload reports tier 3
-    // unlocked, so accounts below level 5 never pay for the extra request.
-    // A cold cache offline read renders an explicit empty state on the card
-    // rather than silently omitting it (local-first read pattern).
-    async function loadInsight() {
-        try {
-            const result = await window.cachedFetch(INSIGHTS_CACHE_KEY, INSIGHTS_URL, {
-                tags: ['gamification'],
-                freshAfterMs: 60_000,
-                staleAfterMs: STALE_AFTER_MS,
-            });
-            return result ? result.data : null;
-        } catch (e) {
-            if (window.OfflineNoCacheError && e instanceof window.OfflineNoCacheError) {
-                return { emptyState: 'No cached insight — connect to load.' };
-            }
-            console.error('Failed to load gamification insight:', e);
-            return null;
-        }
-    }
-
     // Fetches the Gauges read model through its own cachedFetch entry (Task
-    // 4) — unlike the tier-3 insight, this isn't ladder-gated: it's fetched
-    // whenever the Journey payload loads. A cold cache offline read renders
+    // 4), whenever the Journey payload loads. A cold cache offline read renders
     // an explicit empty state on the card rather than omitting it silently.
     async function loadGauges() {
         try {
@@ -1323,9 +1151,6 @@
 
         if (typeof window.cachedFetch !== 'function') {
             // Early boot / non-browser harness: best-effort direct read.
-            // ponytail: no insight fetch on this degraded path — the tier-3
-            // card just won't show; the primary cachedFetch path below covers
-            // real usage.
             try {
                 const raw = await (window.offlineAwareApiCall || window.apiCallDirect)(JOURNEY_URL, 'GET');
                 render(raw);
@@ -1343,9 +1168,6 @@
                 staleAfterMs: STALE_AFTER_MS,
             });
             const data = result ? result.data : null;
-            if (data && tierUnlocked(data, 3)) {
-                data.insight = await loadInsight();
-            }
             if (data) {
                 data.gauges = await loadGauges();
                 data.weekly_review = await loadWeeklyReview();

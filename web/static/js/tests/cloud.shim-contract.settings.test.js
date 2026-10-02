@@ -91,24 +91,9 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         expect(boot.features.live_hr).toBe(true);
     });
 
-    // med-ja0u: the forecast route is the feature gate for the stats it serves
-    // (the standalone Today card is gone since med-8tur.9).
-    it('gamification off gates GET /api/gamification/forecast to {enabled:false}', async () => {
-        const { window } = env;
-        window.rebuildCanonicalBottomNav = vi.fn();
-
-        const on = await window.apiCall('/api/gamification/forecast', 'GET');
-        expect(on.enabled).toBe(true);
-        expect(on.calibration).toBeTruthy();
-
-        await window.toggleFeatureSetting('gamification', false);
-
-        expect(await window.apiCall('/api/gamification/forecast', 'GET')).toEqual({ enabled: false });
-    });
-
     // med-8tur.1: the Goal Line route carries the flag map into the read-model —
     // a feature toggled off reports feature_on:false on its row, and the
-    // gamification flag gates the whole payload like the forecast.
+    // gamification flag gates the whole payload.
     it('GET /api/gamification/goal-line honors the workout/bp/gamification flags', async () => {
         const { window } = env;
         window.rebuildCanonicalBottomNav = vi.fn();

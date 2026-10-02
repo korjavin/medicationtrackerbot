@@ -3,7 +3,7 @@
 // Pure-unit suite for the Self-Experiments (N-of-1) domain lifecycle
 // (web/domain/gamification.js — listExperiments / startExperiment /
 // cancelExperiment + EXPERIMENT_TEMPLATES), the Phase 4 flagship mechanic.
-// Like the Atlas/Forecast suites, a pure-unit test is the right shape
+// Like the Atlas suites, a pure-unit test is the right shape
 // (CLAUDE.md testing posture): the domain layer is driven only by injected
 // ports, so it has no integration entry point.
 //
