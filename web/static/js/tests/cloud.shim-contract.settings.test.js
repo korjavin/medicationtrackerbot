@@ -129,7 +129,7 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         await window.saveGamificationMode('narration', false);
 
         expect(await window.apiCall('/api/gamification/mode', 'GET')).toMatchObject({ ed_safe: true, narration: false });
-        expect(await window.apiCall('/api/gamification/goal-line', 'GET')).toEqual({ enabled: false, ed_safe: true });
+        expect(await window.apiCall('/api/gamification/goal-line', 'GET')).toMatchObject({ enabled: false, ed_safe: true });
         expect(await window.apiCall('/api/gamification/narrate', 'GET')).toEqual({ enabled: false });
         expect(await window.apiCall('/api/gamification/narrate/weekly', 'POST', {})).toEqual({ text: null });
     });

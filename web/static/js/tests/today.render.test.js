@@ -749,6 +749,28 @@ describe('TodayDashboard.renderToday', () => {
         const normal = env.aggregate(bootstrap, { gamification_goal_line: goalLinePayload() }, now);
         expect(normal.weightLatest.status).toBe('ok');
     });
+
+    // The missed-dose alert is a medication safety signal, not a weight one:
+    // ED-safe keeps it, rendered on its own with no goal or weight numbers.
+    it('ED-safe + active adherence alert → the alert line alone, no weight numbers', () => {
+        const root = env.document.getElementById('today-content');
+        const bootstrap = {
+            features: { gamification: true, weight: true },
+            weight: { logs: [{ measured_at: new Date(now).toISOString(), weight: 82.4 }] },
+        };
+        const payload = { enabled: false, ed_safe: true, adherence_alert: { active: true, pdc: 0.6, missed_doses: 3 } };
+        const state = env.aggregate(bootstrap, { gamification_goal_line: payload }, now);
+        const onDeeplink = vi.fn();
+        env.render(state, root, { now, onDeeplink });
+
+        const alert = root.querySelector('.wg-goal-line__adherence');
+        expect(alert).not.toBeNull();
+        expect(alert.textContent).toBe('3 missed doses recently — worth a look');
+        alert.click();
+        expect(onDeeplink).toHaveBeenCalledWith('meds');
+        expect(root.querySelector('.wg-goal-line')).toBeNull();
+        expect(root.textContent).not.toMatch(/82\.4|kg/);
+    });
 });
 
 // The card's cache entry must evict on its SOURCE tags: only goal milestones

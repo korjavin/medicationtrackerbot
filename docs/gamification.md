@@ -250,7 +250,7 @@ the `gamificationmode` singleton (`getMode` / `putMode` in
 `web/domain/gamification.js`, `GET`/`PUT /api/gamification/mode`, Settings
 switches) carries `ed_safe` plus per-mechanic `experiments` / `traits` /
 `narration` switches. ED-safe makes `getGoalLine` / `getGoalLineCard` answer
-`{enabled:false, ed_safe:true}` (no hero, no Journey goal card, no milestone
+`{enabled:false, ed_safe:true, adherence_alert}` (no hero — Today renders only the missed-dose safety alert when active —, no Journey goal card, no milestone
 materialization, goal-free weigh-in push), drops goal milestones from the
 keystones, nulls the weight gauge, reads the weekly review as weight-off, and
 drops Atlas probes flagged `weight: true`; Today reads `ed_safe` off the Goal Line payload and hides its weight metric too. The Weight tab itself is the user’s

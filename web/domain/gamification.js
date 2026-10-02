@@ -3055,10 +3055,20 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // substrate's own trailing-PDC view (UTC-day window) kept unchanged. Weeks are ISO Monday–Sunday (workout.js stats).
   // `features` is the settings flag map (the shim passes it; absent = all on).
   async function getGoalLine({ features } = {}) {
-    // ED-safe (§0.5) hides the Goal Line entirely: the Today hero, the Journey
-    // goal card and the goal-aware weigh-in push all read this.
-    if ((await readMode()).ed_safe) return { enabled: false, ed_safe: true };
     const on = (k) => !features || !!features[k];
+    // Medication safety net (§6.1): the same trailing-PDC alert the rings tile
+    // carried (adherenceAlertView over the memoized read context) — inactive
+    // unless adherence has actually slipped. Not a weight signal, so ED-safe
+    // keeps it.
+    const adherenceAlertNow = async () => {
+      if (!on('medication')) return null;
+      const { cfg, ctx } = await loadForRead();
+      return adherenceAlertView(ctx, msToUTCDay(ctx.nowMs), cfg);
+    };
+    // ED-safe (§0.5) hides the Goal Line: the Today hero, the Journey goal
+    // card and the goal-aware weigh-in push all read this. Only the
+    // medication alert survives (Today renders it alone).
+    if ((await readMode()).ed_safe) return { enabled: false, ed_safe: true, adherence_alert: await adherenceAlertNow() };
     const nowMs = now();
     const today = localDayString(nowMs, timeZone);
     const sinceMonday = (dayOfWeek(today) + 6) % 7;
@@ -3084,14 +3094,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     let cta = 'none';
     if (!weighedToday && on('weight')) cta = 'weigh_in';
     else if (workouts.next_scheduled && workouts.next_scheduled.day === today) cta = 'start_session';
-    // Medication safety net (§6.1): the same trailing-PDC alert the rings tile
-    // carried (adherenceAlertView over the memoized read context) — inactive
-    // unless adherence has actually slipped.
-    let adherenceAlert = null;
-    if (on('medication')) {
-      const { cfg, ctx } = await loadForRead();
-      adherenceAlert = adherenceAlertView(ctx, msToUTCDay(ctx.nowMs), cfg);
-    }
+    const adherenceAlert = await adherenceAlertNow();
     // `day` is the local-day key the goal/workout/BP facts are bucketed on
     // (settings timezone when pinned); `time_zone` lets the UI tell when it
     // went stale. adherence_alert keeps the substrate's UTC-day window.
@@ -3439,7 +3442,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // current episode, after materializing any newly earned ones.
   async function getGoalLineCard({ features } = {}) {
     // ED-safe: no milestones materialize either — checked before the sync.
-    if ((await readMode()).ed_safe) return { enabled: false, ed_safe: true };
+    if ((await readMode()).ed_safe) return getGoalLine({ features });
     const goal = await syncGoalMilestones();
     const gl = await getGoalLine({ features });
     const open = (await records.list(GOAL_MILESTONE_RECORD_TYPE))

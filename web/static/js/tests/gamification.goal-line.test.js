@@ -865,8 +865,12 @@ describe('gamification mode — per-mechanic switches + ED-safe (med-8tur.12)', 
         intention_id: 'weigh_before_coffee', cadence: { weigh_in: 'weekly', bp_days: null }, paused: false, picked_at: 1,
       }],
     });
-    expect(await gam.getGoalLine()).toEqual({ enabled: false, ed_safe: true });
-    expect(await gam.getGoalLineCard()).toEqual({ enabled: false, ed_safe: true });
+    // Only the (inactive here) medication alert survives — a safety signal.
+    const hidden = { enabled: false, ed_safe: true, adherence_alert: { active: false, pdc: 0, missed_doses: 0 } };
+    expect(await gam.getGoalLine()).toEqual(hidden);
+    expect(await gam.getGoalLineCard()).toEqual(hidden);
+    expect(await gam.getGoalLine({ features: { medication: false } }))
+      .toEqual({ enabled: false, ed_safe: true, adherence_alert: null });
     expect(records.putIfAbsent).not.toHaveBeenCalled();
     const { keystones } = await gam.getKeystones();
     expect(keystones.filter((k) => k.kind === 'goal_milestone')).toEqual([]);
