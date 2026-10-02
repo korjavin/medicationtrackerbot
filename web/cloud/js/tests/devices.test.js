@@ -20,7 +20,10 @@ import { assertPasskey } from '../unlock.js';
 import { renderEmergencyKit } from '../signup.js';
 
 import { renderDeviceList } from '../devices.js';
-import { installDialogs, answerDialog } from './helpers/dialogs.js';
+import { installDialogs, answerDialog, openDialog, SHELL_DIALOG_SCRIPTS } from './helpers/dialogs.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 let dom;
 let app;
@@ -94,6 +97,41 @@ describe('devices.js device list', () => {
     const [url, opts] = global.fetch.mock.calls[0];
     expect(url).toBe('/api/devices/aaaabbbbcccc');
     expect(opts.method).toBe('DELETE');
+  });
+
+  // bd med-kj0w: in the passkey shell, browser Back over an open dialog
+  // cancels just the dialog (its own history entry, via modal-history.js);
+  // the page's entry below stays, so Back with no dialog behaves as before.
+  it('browser Back over the revoke dialog cancels it and stays on the page', async () => {
+    const signupHtml = fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../signup.html'), 'utf8');
+    for (const f of SHELL_DIALOG_SCRIPTS) expect(signupHtml).toContain(`<script src="/static/js/${f}"></script>`);
+
+    await renderAndSettle();
+    const flush = () => new Promise((r) => setTimeout(r, 0));
+    const startLength = dom.window.history.length;
+
+    global.fetch.mockClear();
+    app.querySelectorAll('#device-list .device-row button')[0]
+      .dispatchEvent(new dom.window.Event('click'));
+    await vi.waitFor(() => {
+      if (!openDialog(dom.window.document)) throw new Error('no dialog open');
+    });
+    await vi.waitFor(() => {
+      if (dom.window.history.state?.modalDialog !== true) throw new Error('no dialog entry yet');
+    });
+
+    dom.window.history.back();
+    await vi.waitFor(() => {
+      if (openDialog(dom.window.document)) throw new Error('dialog still open');
+    });
+    await flush(); await flush();
+
+    expect(dom.window.history.state).toBe(null);
+    expect(dom.window.history.length).toBe(startLength + 1);
+    expect(dom.window.location.href).toBe('https://acct.example.test/');
+    expect(onExit).not.toHaveBeenCalled();
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(app.querySelectorAll('#device-list .device-row')).toHaveLength(2);
   });
 
   it('Back exits the page', async () => {

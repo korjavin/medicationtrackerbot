@@ -6,9 +6,9 @@
 // `?replaces=` edit path. Additive suite — the original (network-mocked)
 // features.weight.test.js keeps running unshimmed.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { calculateWeightTrend } from '../../../domain/weight.js';
+import { calculateWeightTrend, createWeightDomain } from '../../../domain/weight.js';
 import { computeReminderHorizon } from '../../../domain/reminders.js';
-import { loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
+import { createInMemoryRecordsPort, loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 
 function installApiCache(window, seed = {}) {
     const map = new Map(Object.entries(seed));
@@ -231,6 +231,18 @@ describe('cloud shim contract — weight flows (features/weight.js over web/doma
             expect(cancelCallbacks()).toEqual([]);
         });
 
+        // med-8tur.6: a DAILY weigh-in slot is satisfied only by a reading on its
+        // own local day — yesterday's reading (inside the weekly 7d window) is not.
+        it('daily cadence: cancels for a same-day reading, not for yesterday\'s', async () => {
+            withWeightPref({ enabled: true, preferred_reminder_hour: PAST_HOUR, cadence: 'daily' });
+            await env.window.apiCall('/api/weight', 'POST', log(NOW - 24 * 60 * 60 * 1000));
+            expect(cancelCallbacks()).toEqual([]);
+
+            withWeightPref({ enabled: true, preferred_reminder_hour: PAST_HOUR, cadence: 'daily' });
+            await env.window.apiCall('/api/weight', 'POST', log(Date.parse('2026-09-05T07:00:00Z')));
+            expect(cancelCallbacks()).toEqual([`wt:${PAST_SLOT_UNIX}`]);
+        });
+
         it('does not cancel when weight reminders are disabled or unconfigured', async () => {
             withWeightPref({ enabled: false, preferred_reminder_hour: PAST_HOUR });
             await env.window.apiCall('/api/weight', 'POST', log());
@@ -253,5 +265,78 @@ describe('cloud shim contract — weight flows (features/weight.js over web/doma
         expect(cache.get('weight').logsRes).toHaveLength(0);
         const listRes = await window.apiCall('/api/weight?days=0&limit=1000');
         expect(listRes).toHaveLength(0);
+    });
+
+    // med-8tur.3: the Weight tab goal card reads the Goal Line episode progress
+    // (the same GET /api/gamification/goal-line Today renders), not lifetime
+    // highest + latest raw reading; the frontend-regression prognosis is gone.
+    it('goal card renders the Goal Line distance/progress; prognosis stays hidden on a preliminary line', async () => {
+        const now = Date.now();
+        const ago = (days) => new Date(now - days * 24 * 60 * 60 * 1000 - 3600000).toISOString();
+        const w = (id, days, weight) => ({ recordId: id, clientTs: 1, deleted: false, measured_at: ago(days), weight, weight_trend: weight, body_fat: null, muscle_mass: null, notes: '' });
+        setupEnv({
+            // A lifetime high of 95 a year ago: the legacy card measured from it.
+            weight: [w('w0', 400, 95), w('w1', 6, 85), w('w2', 3, 84.4), w('w3', 0, 84)],
+            weightgoal: [{ recordId: 'g1', clientTs: 1, deleted: false, set_at: ago(6), target_weight: 78, target_date: null, start_weight: 85 }],
+        });
+        const { window, document } = env;
+        window.weightUnitPreference = 'kg';
+        await realLoadWeightLogs();
+
+        const line = (await window.apiCall('/api/gamification/goal-line')).goal;
+        expect(line.status).toBe('preliminary');
+        expect(line.distance_to_goal).toBe(6);
+        expect(line.progress).toEqual({ done_kg: 1, total_kg: 7, fraction: 0.143 });
+
+        const texts = [...document.querySelectorAll('.wg-weight-goal-card__delta')].map((n) => n.textContent);
+        expect(texts).toContain('6.0 kg to goal');
+        expect(texts).toContain('1.0 kg of 7.0 kg since your first reading');
+        expect(texts).toContain('Current 84.0 kg'); // preliminary: a reading, no trend
+        const fill = document.querySelector('.wg-weight-goal-card__fill');
+        expect(fill.style.getPropertyValue('--fill-pct')).toBe('14.3%');
+        expect(document.getElementById('weight-prognosis-card').hidden).toBe(true);
+    });
+
+    // med-8tur.7: the prognosis card renders goal.projected from the same
+    // Goal Line payload — a date with a ± weeks range, or "more than a year",
+    // or nothing at all.
+    it('prognosis card shows the projected date ± weeks, "more than a year", or stays hidden', async () => {
+        const now = Date.now();
+        const ago = (days) => new Date(now - days * 24 * 60 * 60 * 1000 - 3600000).toISOString();
+        const seed = (perDay, target) => ({
+            weight: Array.from({ length: 60 }, (_, d) => ({ recordId: `w${d}`, clientTs: 1, deleted: false, measured_at: ago(d), weight: 87 + perDay * d, weight_trend: null, body_fat: null, muscle_mass: null, notes: '' })),
+            weightgoal: [{ recordId: 'g1', clientTs: 1, deleted: false, set_at: ago(30), target_weight: target, target_date: null, start_weight: 88.5 }],
+        });
+        const card = () => env.document.getElementById('weight-prognosis-card');
+
+        setupEnv(seed(0.05, 80)); // steady 0.35 kg/week, 7.45 kg to go
+        env.window.weightUnitPreference = 'kg';
+        await realLoadWeightLogs();
+        expect(card().hidden).toBe(false);
+        expect(card().querySelector('.wg-weight-prognosis-card__label').textContent).toBe('Projected goal date');
+        expect(card().querySelector('.wg-weight-prognosis-card__value').textContent).toMatch(/^Around .+ \u00b1 1 week$/);
+
+        setupEnv(seed(0.01, 70)); // 0.07 kg/week toward a goal 17 kg away
+        env.window.weightUnitPreference = 'kg';
+        await realLoadWeightLogs();
+        expect(card().hidden).toBe(false);
+        expect(card().textContent).toContain('More than a year at this pace');
+
+        setupEnv(seed(-0.05, 80)); // trending away from the goal: no guess
+        env.window.weightUnitPreference = 'kg';
+        await realLoadWeightLogs();
+        expect(card().hidden).toBe(true);
+        expect(card().textContent).toBe('');
+    });
+
+    it('setGoal rejects non-finite, non-positive and absurd targets', async () => {
+        const records = createInMemoryRecordsPort({});
+        const weight = createWeightDomain({ records, now: () => Date.now(), timeZone: 'UTC' });
+        for (const bad of [0, -5, NaN, Infinity, '80', null, undefined, 5, 900]) {
+            await expect(weight.setGoal({ target_weight: bad })).rejects.toMatchObject({ code: 'invalid_request' });
+        }
+        expect(await records.list('weightgoal')).toHaveLength(0);
+        const ok = await weight.setGoal({ target_weight: 72.5 });
+        expect(ok.goal).toBe(72.5);
     });
 });

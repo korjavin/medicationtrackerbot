@@ -2416,3 +2416,181 @@ describe('pending overlay on a re-bootstrapped snapshot applies LWW (med-z2dq)',
     expect(await readPendingIds()).toEqual([SLOT]);
   });
 });
+
+// med-ooeh — two devices deriving DIFFERENT fields of the gamificationjournal
+// singleton both stamp `existing.clientTs + 1`. Strict-`>` LWW kept neither op,
+// and the next real write dropped whatever only the loser derived. The journal's
+// grow-only fields (keystones, seen_discoveries, traits) now merge on apply.
+describe('gamificationjournal merges grow-only fields on apply (med-ooeh)', () => {
+  const accountId = 'acct-ooeh';
+  let ctx;
+  let pulledOps;
+
+  const seed = async (records) => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(['records', 'sync_meta'], 'readwrite');
+        for (const r of records) tx.objectStore('records').put(r);
+        tx.objectStore('sync_meta').put(5, 'localLastSeq');
+        tx.objectStore('sync_meta').put(0, 'lastSnapshotSeq');
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  const getRaw = async (recordId) => {
+    const db = await openDb();
+    try {
+      const tx = db.transaction('records', 'readonly');
+      return await new Promise((resolve, reject) => {
+        const req = tx.objectStore('records').get(recordId);
+        req.onsuccess = () => resolve(req.result ?? null);
+        req.onerror = () => reject(req.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  const pull = async (recordType, record) => {
+    const kData = await deriveKData(ctx.dek);
+    const { nonce, ct } = await encryptRecord({
+      kData, accountId, recordType, recordId: record.recordId, seq: 6,
+      plaintext: new TextEncoder().encode(JSON.stringify(record)),
+    });
+    pulledOps.push({
+      seq: 6, record_type_tag: `${recordType}:${record.recordId}`,
+      nonce: toBase64(nonce), ct: toBase64(new Uint8Array(ct)),
+    });
+    await pullOnOpen(ctx);
+  };
+
+  const KEYSTONE = { id: 'exp-1', kind: 'experiment', earned_at: 111 };
+  const TRAIT = { steady: { earned_at: 222 } };
+
+  beforeEach(async () => {
+    dropCachedDb();
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    ctx = { accountId, dek: await generateDEK() };
+    pulledOps = [];
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/snapshot' && !init?.method) return new Response(null, { status: 204 });
+      if (u.startsWith('/api/sync/ops?')) {
+        const ops = pulledOps.splice(0, pulledOps.length);
+        return new Response(JSON.stringify({ ops, next: false }), { status: 200 });
+      }
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('a TIE keeps both devices\' derived fields instead of neither', async () => {
+    // This device appended a keystone at base+1; the peer stamped a trait at base+1.
+    await seed([{
+      recordId: 'journal', recordType: 'gamificationjournal', clientTs: 5001, deleted: false,
+      keystones: [KEYSTONE], traits: {}, seen_discoveries: ['d1'],
+    }]);
+
+    await pull('gamificationjournal', {
+      recordId: 'journal', clientTs: 5001, deleted: false,
+      keystones: [], traits: TRAIT, seen_discoveries: ['d1', 'd2'],
+    });
+
+    const raw = await getRaw('journal');
+    expect(raw.clientTs).toBe(5001);
+    expect(raw.keystones).toEqual([KEYSTONE]);
+    expect(raw.traits).toEqual(TRAIT);
+    expect(raw.seen_discoveries).toEqual(['d1', 'd2']);
+  });
+
+  it('a NEWER blob that never saw a keystone wins its fields but keeps the keystone', async () => {
+    await seed([{
+      recordId: 'journal', recordType: 'gamificationjournal', clientTs: 5001, deleted: false,
+      keystones: [KEYSTONE], chapter: { theme_id: 'old', started_at: 1 },
+    }]);
+
+    await pull('gamificationjournal', {
+      recordId: 'journal', clientTs: 9000, deleted: false,
+      keystones: [], chapter: null, closed_chapters: [{ theme_id: 'old' }], traits: TRAIT,
+    });
+
+    const raw = await getRaw('journal');
+    expect(raw.clientTs).toBe(9000);
+    expect(raw.chapter).toBeNull(); // scalar fields stay plain LWW
+    expect(raw.closed_chapters).toEqual([{ theme_id: 'old' }]);
+    expect(raw.traits).toEqual(TRAIT);
+    expect(raw.keystones).toEqual([KEYSTONE]);
+  });
+
+  const seedPendingJournal = async (record) => {
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(['records', 'pending'], 'readwrite');
+        tx.objectStore('records').put(record);
+        tx.objectStore('pending').put({ recordId: record.recordId, recordType: record.recordType });
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  it('a compaction re-bootstrap folds the snapshot\'s keystone under a pending journal overlay', async () => {
+    // The op that carried the keystone was compacted, so the snapshot is the
+    // only place it still exists.
+    await seedPendingJournal({
+      recordId: 'journal', recordType: 'gamificationjournal', clientTs: 5001, deleted: false,
+      keystones: [], traits: TRAIT, chapter: null,
+    });
+
+    await replaceAllRecords([{
+      recordId: 'journal', recordType: 'gamificationjournal', clientTs: 5001, deleted: false,
+      keystones: [KEYSTONE], traits: {}, chapter: { theme_id: 'snap', started_at: 1 },
+    }]);
+
+    const raw = await getRaw('journal');
+    expect(raw.clientTs).toBe(5001);
+    expect(raw.chapter).toBeNull(); // the pending overlay's scalars stand
+    expect(raw.traits).toEqual(TRAIT);
+    expect(raw.keystones).toEqual([KEYSTONE]);
+  });
+
+  it('a floored pending journal still loses to the snapshot, but its grow-only fields survive', async () => {
+    await seedPendingJournal({
+      recordId: 'journal', recordType: 'gamificationjournal', clientTs: 0, deleted: false,
+      keystones: [KEYSTONE],
+    });
+
+    await replaceAllRecords([{
+      recordId: 'journal', recordType: 'gamificationjournal', clientTs: 7000, deleted: false,
+      keystones: [], traits: TRAIT,
+    }]);
+
+    const raw = await getRaw('journal');
+    expect(raw.clientTs).toBe(7000);
+    expect(raw.traits).toEqual(TRAIT);
+    expect(raw.keystones).toEqual([KEYSTONE]);
+  });
+
+  it('other record types keep strict LWW: a tie still applies nothing', async () => {
+    await seed([{ recordId: 'note-1', recordType: 'note', clientTs: 5001, deleted: false, text: 'mine' }]);
+
+    await pull('note', { recordId: 'note-1', clientTs: 5001, deleted: false, text: 'theirs' });
+
+    expect((await getRaw('note-1')).text).toBe('mine');
+  });
+});

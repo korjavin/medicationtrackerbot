@@ -10,6 +10,285 @@
 > per-Ring toggles, chat nudges) remains a design proposal specifying *what* we want
 > and *why* (the science and the ethics), not yet built. Treat every number below as
 > a tunable default, not a fixed constant.
+>
+> **2026-10 redesign:** the loop below is being superseded by **§0 — the Goal
+> Line** (weight goal as the spine, workouts/BP/food as levers). §0 is the
+> normative direction; everything after it is substrate rationale.
+
+## 0. Redesign 2026-10 — the Goal Line (current direction; supersedes the loop below)
+
+> **Status: in implementation (epic `med-8tur`).** Built so far: the Goal Line
+> read-model + route (`getGoalLine`, med-8tur.1) and the Today hero + Journey
+> goal-context card with HP/levels/Health Score hidden (`features/today.js`
+> `renderGoalLineTile`, `features/journey.js` `renderGoalContext`, med-8tur.2). `goal.projected` (med-8tur.7) is computed by `goalLineProjection` and rendered on the Weight tab prognosis card; `projectedShift` is the week-over-week comparison (null unless both weeks carry a date). This section is the normative direction. Everything after it
+> (§1–§17 and `docs/design/2026-07-11-gamification-redesign.md`) stays as
+> rationale and as the description of the substrate the Goal Line is built on.
+> Where they conflict, this section wins. Produced by an architect ⇄ Codex
+> adversarial review (three rounds); the record is linked from the epic.
+
+### 0.1 Owner's brief
+
+> "It's not engaging at all. It doesn't motivate me to look at anything or do
+> anything. My motivation should be built around weight loss — hitting weight
+> goals — and also workouts and blood pressure, all of it together."
+
+### 0.2 Why the shipped system doesn't motivate (root causes, not cosmetics)
+
+1. **The user's goal is designed out of the game.** The levers/gauges doctrine
+   (§2.5) plus the Discovery-Engine guardrails ("forecast never about weight",
+   "no gauge traits", "no weight-loss-amount chapter", "never lose X kg"
+   experiments) keep the weight goal out of every mechanic. All six probes, all
+   three experiment templates, all three chapter themes and all three traits are
+   BP / sleep / dinner-time / workout-cadence. The `weightgoal` record is
+   consulted once, to produce a `pace_status` word in the Gauges card
+   (`web/domain/gamification.js` `weightPaceStatus` → `journey.js` Gauges row),
+   four cards deep on a screen that is not in the nav. The Weight tab's own goal
+   card and "Time to goal" prognosis (`features/weight.js`) are never referenced
+   by the game — and they disagree with the game's own trend math (lifetime-
+   highest + raw latest vs a 14-day regression vs the gamification EMA).
+2. **Nothing on open answers "am I winning?".** The Today tile is "N of 3 rings
+   closed" (bedtime / movement / nourishment), a 0–100 Health Score composite
+   with no target — whose weight contributor is *stability* vs a trailing
+   average, i.e. a demerit while losing — and "Your move: Log last night's
+   sleep". The rings were chosen for being daily decisions, not for being the
+   decisions that move *this user's* goal. Closing them feeds a lifetime HP
+   counter.
+3. **The daily open-loop is dead on arrival.** The Tomorrow Forecast is
+   hard-wired to one lever (7h+ night) and one gauge (first-morning systolic);
+   without a nightly sleep log *and* a morning BP it sits at "insufficient"
+   forever, and its "calibration" is in-sample agreement, not a prospective
+   hit-rate. Atlas cards reveal once and then never change — the 2026-07-11
+   design's own "museum exhibit" critique now applies to the Atlas.
+4. **Fragmentation.** Journey renders 13 cards from three overlapping progress
+   systems (HP/levels, Health Score, habit strengths) and four narrative
+   systems (atlas, traits, chapters, keystones). Nothing is ranked by
+   relevance to a goal; nothing is the headline.
+5. **No daily cadence hook.** The only proactive channel is the Sunday weekly
+   digest (opt-in, default off). The weight reminder is a bare "time to track
+   your weight" ping that fires after seven days without a reading and is off
+   by default; a goal edit does not even recompute the reminder horizon.
+6. **Rewards are abstract.** Lifetime HP, levels that gate nothing, traits
+   named after levers the user did not choose.
+
+**What is kept** (it is good substrate): the pure domain module and its
+`buildDays`/`buildContext` folds, the weight EMA trend + velocity machinery
+(`computeWeightGaugeAt`, the safe-pace constant `weightSafePaceMaxPct` used as a
+*safety flag*), the honesty-gate probe evaluator, the experiment lifecycle, the
+weekly-review read-model, the narrator seam (`web/cloud/js/gamification-
+narrator.js`) and its privacy-manifest row, the weekly-digest push plumbing, the
+ring web components. **Hidden outright (owner decision):** HP/levels and the
+Health Score leave every surface in slice 1 — a UI-only hide, their routes and
+record shapes stay. **Demoted:** traits, chapters, forecast — kept, moved below
+the fold. Nothing is deleted in the first slices.
+
+### 0.3 The design: one goal, facts about the levers, one card, one weekly beat
+
+**Spine.** The user's existing weight goal (`weightgoal`, set on the Weight tab;
+its `recordId` is the *goal episode*) becomes the single progress object of the
+game. Progress is read on the smoothed **trend weight** (the existing EMA,
+replayed in order from the first reading on record — not from a moving 120-day
+boundary), against an **episode baseline** that is stated, not implied: the
+trend on the day the goal was set when enough weigh-ins precede it, otherwise
+the goal's recorded first reading, labeled as such. With too few distinct
+weigh-in days the card shows the latest *reading* as a reading, never a trend.
+
+**Levers are facts, not debts.** The card shows what the user actually did and
+what is actually scheduled, drawn from existing data — never an inferred daily
+quota: **workouts** = completed sessions this week + the next scheduled session
+(from the same group/ad-hoc/tombstone logic the reminder horizon uses; "N of M
+scheduled" only when the schedule supports a denominator, never a guessed 3);
+**blood pressure** = recorded today / days this week + a daily-weighted 7-day
+mean of both components beside the `bpgoal` target (status shown as a fact,
+never as a checkmark); **food** is informational on the card and becomes a
+lever only when the user *chooses* a food intention in the weekly review
+(0.3.4 — owner-confirmed: "don't eat after dinner", "log every meal"). Medications stay the silent safety
+net (§6.1). Rows are feature-gated.
+
+**0.3.1 The Goal Line read-model** — `getGoalLine()` in
+`web/domain/gamification.js`, recomputed on read, served at
+`GET /api/gamification/goal-line` through the shim (a UI-only route like
+`/atlas`; deliberately not a registry op):
+
+| field | meaning |
+|---|---|
+| `goal.status` | `no_goal · preliminary · ok · at_goal · maintaining` |
+| `goal.start_ref`, `start_ref_source` | episode baseline and whether it is `trend_at_set` or `first_reading` |
+| `goal.direction` | from baseline → target, fixed for the episode (never re-derived from the current trend) |
+| `goal.trend_weight`, `latest_reading`, `distance_to_goal`, `change_7d`, `coverage` | the line, in kg (UI converts); coverage = distinct weigh-in days (28d) / last weigh-in / the preliminary floor `min_weigh_in_days` |
+| `goal.progress` | `{done_kg, total_kg, fraction}` baseline → target, read off the same value as `distance_to_goal` (fraction clamped 0–1, 1 once reached); null without a baseline or a reading. Today and the Weight tab goal card both render it |
+| `goal.too_fast` | velocity beyond the safe-pace cap — a calm safety line, the only pace judgment in slice 1 |
+| `goal.next_milestone` | stateless marker: ordinal under the episode, spacing fixed per episode (1 kg or 2.5 % of the total distance, whichever is coarser); halfway and goal flagged |
+| `goal.projected` | `{date, plus_minus_weeks, reason}` — a date **with a ± weeks range** ("around 14 Nov ± 3 weeks", from the spread of the four weekly trend velocities), or `date: null` with the reason it is withheld; the rule and thresholds live in `goalLineProjection`. Never beside `too_fast`; only `beyond_horizon` is worded ("more than a year at this pace") |
+| `workouts` | `completed_this_week`, `next_scheduled`, `scheduled_this_week \| null` |
+| `bp` | `recorded_today`, `days_this_week`, `mean_7d {systolic, diastolic, days}`, `target`, `status in_range · above · unknown` |
+| `weighed_today`, `cta` | local-day fact; `cta ∈ weigh_in · start_session · none`, deterministic, nothing "owed" |
+| `adherence_alert`, `day`, `time_zone` | the medication safety net (§6.1 trailing-PDC alert, `null` with medication off) shown on the Today card only while active; the local-day key the goal/workout/BP facts are bucketed on and its zone (the adherence alert keeps the substrate's UTC-day window), so the UI refetches a payload from an earlier day |
+
+**0.3.2 The Today card** (replaces the rings tile and the mounted forecast as the
+gamification headline):
+
+```
+ GOAL LINE                          82.4 → 78.0 kg   trend · 12 weigh-ins/28d
+ ████████░░░░░░   3.6 of 8.0 kg since you set the goal · next marker 80 kg
+ 7 days: −0.4 kg
+ Workouts: 2 done this week · next Wed 18:00    BP: recorded today · 7d 128/82 vs 130/85
+ [ Weigh in ]
+```
+
+One CTA that lands in the owning form (weight log, or the scheduled session);
+the whole card taps through to Journey, whose top card is the same goal
+context. No HP, level, score or rings on this card; `no_goal` shows "Set a
+weight goal →" with the workout/BP facts still present. The Weight tab's goal
+card reads the same episode progress so the two screens agree.
+*Journey (med-8tur.9):* goal-first — the order and the "More" disclosure
+(experiment / chapter / traits / keystones) live in `render()` in
+`web/static/js/features/journey.js`; reached milestones render as the goal
+card's timeline. The Tomorrow Forecast is gone entirely (card in med-8tur.9;
+route, `getForecast` and its strip line in med-8tur.12 — its calibration was
+in-sample, so it was removed rather than relabeled).
+
+**0.3.3 The daily loop.** Weigh in → the trend, distance and next-marker
+distance move → the facts rows show what is done and what is next → evening:
+the next scheduled action or "nothing owed". The number moving every morning
+*is* the reason to open the app. The weigh-in push (slice 1) rides the existing
+weight reminder: cadence preference `weekly` (owner decision: the default) |
+`daily` (opt-in, switched from the weekly review in slice 2), goal-aware text
+**on the Web Push path only** (encrypted under the push key); Telegram text
+stays goal-free because it reaches the relay in plaintext; a goal edit
+recomputes the horizon.
+
+**0.3.4 The weekly beat (Sunday).** `getWeeklyReview` is re-anchored on the
+goal and on the most recently *completed* local week (the live week is the
+card): three rows — weight (trend change, distance, coverage, milestone
+reached), workouts (done vs scheduled; planned rest is not a miss), BP
+(daily-weighted mean of both components vs target, days measured) — no
+composite, missing = unknown. It ends with one choice: a curated
+implementation intention for next week ("When I wake, I will weigh in before
+coffee"; "When I finish work on my training days, I will start the session";
+"When I log dinner, I will stop eating for the night"), a compact cadence
+control (weigh-in daily/weekly, BP days) — the explicit frequency contract the
+daily facts deliberately lack — or *Keep this plan* / *Pause this week*. The
+pick lives in a per-week record (`gamificationweek-<weekYear>-W<ww>`, user
+write), is exported with the vault, and is what allows a "today" chip for the
+chosen cadence to exist at all. The weekly digest push and the Journey card
+both render this; the narrator recap (`narrateWeekly`, existing seam) is fed
+the same computed fields.
+*Implemented (med-8tur.4):* `getWeeklyReview({features})` / `putWeekPlan` in
+`web/domain/gamification.js` (window, DST policy, row shapes and the plan-week
+rule — the live week, or from Sunday on the coming one — are in the code
+comments); `POST /api/gamification/week-plan` is the user write, and a
+weigh-in cadence pick sets `weightreminderpref.cadence` and recomputes the
+horizon. A paused week drops `change_7d` / `too_fast` from `getGoalLine`,
+skips that week's weigh-in pushes (`computeReminderHorizon`
+`weighInPausedWeeks`), and reads as recovery for experiments — which only
+*defers* a verdict and blocks a new start. The digest (`formatWeeklyDigest`)
+puts the goal reading on the Web Push body only; the Telegram text stays
+goal-free. The vault carries the records in `gamification.weeks`.
+*Narrator recap (med-8tur.8):* `POST /api/gamification/narrate/weekly`
+feeds `narrateWeekly` the review (its weight row is the Goal Line as of the
+reviewed Sunday, incl. direction and progress); `weeklyPayload` in
+`web/cloud/js/gamification-narrator.js` is the whitelist (counts, kg deltas,
+BP means — no absolute weight, dates, ids or free text) and the prompt forbids
+attribution and pace grading. Same egress as before (the
+`gamification-narration` manifest row); one recap per week is cached in memory.
+
+**0.3.5 Milestones.** Reached markers become durable records
+(`gamificationmilestone-<episode>-<ordinal>`), materialized from a read path
+under the floored-write rule (`clientTs: 0`, `putIfAbsent`, `earned_at` = the
+third qualifying weigh-in day, acknowledgment a separate user write), shown once
+on the card until acknowledged and permanently in the Journey timeline. A later
+regression never removes one; a goal edit starts a new episode.
+*Implemented (med-8tur.5):* `syncGoalMilestones` / `getGoalLineCard` /
+`acknowledgeMilestone` in `web/domain/gamification.js` — the Goal Line route
+serves `getGoalLine` plus `milestone` (the newest unacknowledged one; one ack
+retires it and every earlier one of the episode),
+`POST /api/gamification/milestones/:id/ack` is the user write, and
+`getKeystones` merges every episode's milestones (`kind: 'goal_milestone'`;
+the narrator sees only the week's milestone count, via the review). The vault carries them in
+`gamification.milestones`, keyed by `goal_set_at` (docs/vault-format.md).
+
+**0.3.6 Together: the joint observation.** The holistic link is shown as a
+symmetric fact, not a "dividend": over two matched, non-overlapping periods of
+the episode, "weight trend changed X; daily-weighted BP averaged Y/Z → A/B over
+N/M measurement days", both components, rendered whenever both periods have
+data — including when it is unfavorable — with a one-line "concurrent changes
+don't identify a cause". Goal-relevant *descriptive* probes (workout weeks vs
+trend velocity, food-logged weeks vs trend velocity) and lever-only experiment
+templates (three sessions a week, log every meal, protein target) join the
+Atlas, labeled "association".
+*Implemented (med-8tur.10):* `getGoalLine().joint` (`goalLineJoint` in
+`web/domain/gamification.js` — period rule, the null cases and the frozen
+`bp_target` are in its comment) renders as the "Together" lines on the Journey
+goal card. The two week-bucketed probes (`bucket: 'week'`, evaluated over
+`buildWeeks`) and the three templates (`three_sessions_week`,
+`log_every_meal`, `protein_target` — gauge = the next weigh-in's trend step)
+read the Goal Line trend through `weightTrendRun`; all five carry `weight: true`,
+so ED-safe hides them (and the joint line, with the Goal Line). Every terminal Atlas card is
+tagged "Descriptive association"; experiment verdicts say "a difference", not
+"an effect".
+*Sleep timing (med-8tur.14/.15):* two non-weight probes, `late_bedtime_next_morning_bp`
+and `irregular_bedtime_next_morning_bp`, compare next-morning systolic after
+bedtimes an hour+ off the window's own median onset (`onsetDeviationMin` in
+`buildDays`); every morning-BP gauge counts only a reading before local noon,
+and revealed cards carry `se`, rendered as "±2·se".
+
+### 0.4 Evidence this leans on — and its limits
+
+Self-monitoring with feedback on the actual goal improves goal attainment
+(Harkin et al. 2016 meta-analysis of randomized monitoring interventions;
+Michie et al. 2009 on self-monitoring + feedback + goal-setting as the
+effective BCT cluster in weight management). Self-weighing plus graphical
+feedback has modest, heterogeneous effects (Steinberg et al. 2015; Zheng et al.
+2015; Madigan et al. 2015 found no significant daily-vs-weekly difference — so
+cadence is a user choice, not a rule). Implementation intentions translate
+intention into action (Gollwitzer & Sheeran 2006). Nearby sub-goals are a
+goal-gradient *hypothesis* (Kivetz, Urminsky & Zheng 2006 — purchase-reward
+evidence; transfer to weight goals is an inference to validate with the owner).
+Weight reduction lowers BP at the population level (Neter et al. 2003) — which
+justifies showing the joint observation, not quoting a personal mmHg/kg.
+Deliberately **not** used: badges/XP for logging, daily all-or-nothing streaks,
+inferred quotas, leaderboards, variable-ratio rewards, loss-framed penalties.
+
+### 0.5 Guardrail revision
+
+§3 invariants stand. The Discovery-Engine rule "never about weight" is
+**replaced** by: *the user-selected weight goal may be the spine under these
+conditions* — `too_fast` (beyond the existing ≤ 1 % bodyweight/week cap) is a
+calm safety line, never praise; pace is never graded against a generic target
+and no "slow / behind / days late" copy exists; a projected date exists only
+under explicit coverage, freshness and horizon rules and never beside
+`too_fast`; progress attaches to the trend at a safe pace and to executed,
+user-chosen actions — never to intake amount; levers are facts from the user's
+own schedule, never inferred daily quotas; an ED-safe toggle hides
+the Goal Line, milestones and weight probes entirely. *Built (med-8tur.12):*
+the `gamificationmode` singleton (`getMode` / `putMode` in
+`web/domain/gamification.js`, `GET`/`PUT /api/gamification/mode`, Settings
+switches) carries `ed_safe` plus per-mechanic `experiments` / `traits` /
+`narration` switches. ED-safe makes `getGoalLine` / `getGoalLineCard` answer
+`{enabled:false, ed_safe:true, adherence_alert}` (no hero — Today renders only the missed-dose safety alert when active —, no Journey goal card, no milestone
+materialization, goal-free weigh-in push), drops goal milestones from the
+keystones, nulls the weight gauge, reads the weekly review as weight-off, and
+drops Atlas probes flagged `weight: true`; Today reads `ed_safe` off the Goal Line payload and hides its weight metric too. The Weight tab itself is the user’s
+own data and is not gated. There is no height
+record, so the BMI floor from earlier drafts is replaced by plain target
+validation in `weight.setGoal`.
+
+### 0.6 Phasing
+
+| Slice | Delivers | Why |
+|---|---|---|
+| 1 (poc, ~2 weeks, owner-confirmed) | `getGoalLine()` + route; Today hero replacing rings + forecast with HP/levels/Health Score hidden outright; Journey goal-context card on top; Weight tab reads the same progress; durable milestones (floored `putIfAbsent`, ack, vault export); goal-aware weigh-in push (weekly default, Web Push only, recompute on goal edit); cache/bootstrap/tag wiring | The owner sees his goal, his facts, one real action, an honest milestone and a morning nudge — self-contained |
+| 2 | Completed-week review + intention (incl. food intentions) / cadence pick (daily weigh-in opt-in) + pause; projected date ± weeks; Journey reorder; narrator recap over the goal review | The weekly beat, the chosen commitments, the LLM recap |
+| 3 | Joint weight/BP observation; goal-relevant probes + templates; "association" labeling | The "together" layer |
+| 4 (polish) | Vault coverage for existing gamification state types; dead Health Score/HP consumers removed; rings contract drift; forecast relabel/removal; per-mechanic + ED-safe toggles | Hardening and cleanup |
+
+### 0.7 Owner decisions (2026-10-02, resolved)
+
+1. Weigh-in push defaults to **weekly**; daily is an opt-in from the weekly review.
+2. A projected goal date **exists**, shown with a **± weeks range**, never month-only, under the coverage / freshness / horizon rules.
+3. HP / levels / Health Score are **hidden outright** (UI-only; no data-shape change), in the same slice that replaces the rings tile.
+4. Food intentions ("don't eat after dinner", "log every meal") **are offered** in the weekly-review intention list.
+5. Slice 1 is **~2 weeks** and self-contained: it includes durable milestones and the goal-aware weigh-in push alongside the hero / route / Journey card / Weight tab.
 
 ## TL;DR — the core loop
 

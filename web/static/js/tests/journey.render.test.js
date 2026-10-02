@@ -83,20 +83,65 @@ describe('Journey render', () => {
         expect(document.body.textContent).not.toMatch(/HealthPoints/);
     });
 
-    // Level/HP is demoted from the hero card to ONE muted line, last on the
-    // screen — levels never decay (gamification §13), they're just not news.
-    it('level/HP renders once, as a muted line after the last card', () => {
-        env.window.Gamification.render(journey());
+    // med-8tur.2 (owner decision 2026-10-02): HP / levels / the Health Score
+    // are hidden outright — UI-only; the payload still carries them.
+    it('renders no level/HP line, no Health Score card and no Health Score weekly line', () => {
+        env.window.Gamification.render(journey({
+            weekly_review: {
+                enabled: true, quiet: false, levers: [], gauges: {},
+                health_score: { now: { value: 78 }, prior: { value: 74 } }
+            }
+        }));
         const content = env.document.getElementById('journey-content');
+        expect(content.querySelector('.wg-journey-level-line')).toBeNull();
+        expect(content.querySelector('.wg-journey-score')).toBeNull();
+        expect(content.textContent).not.toMatch(/Lvl|\bHP\b|Health Score/);
+    });
 
-        expect(content.querySelector('.wg-journey-header')).toBeNull();
-        const lines = content.querySelectorAll('.wg-journey-level-line');
-        expect(lines.length).toBe(1);
-        expect(lines[0].textContent).toBe(`Lvl 7 · ${(4820).toLocaleString()} HP`);
-        expect(lines[0].classList.contains('wg-muted')).toBe(true);
-        expect(content.lastElementChild).toBe(lines[0]);
-        // It is a footnote, not a card — it doesn't count against the budget.
-        expect(lines[0].classList.contains('wg-card')).toBe(false);
+    // med-8tur.2: the goal-context card (same Goal Line read-model as the
+    // Today hero) leads Journey, so a tap through from Today lands on the goal.
+    it('the goal-context card leads, ahead of the strip and the Atlas', () => {
+        env.window.Gamification.render(journey({
+            goal_line: {
+                enabled: true,
+                goal: {
+                    status: 'ok', target: 78, start_ref: 86, start_ref_source: 'trend_at_set', direction: -1,
+                    trend_weight: 82.4, distance_to_goal: 4.4, too_fast: false,
+                    progress: { done_kg: 3.6, total_kg: 8, fraction: 0.45 },
+                    next_milestone: { ordinal: 4, count: 8, weight: 82, is_goal: false }
+                }
+            },
+            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }], whats_new: [{ kind: 'trait', text: 'New.', target: 'journey-atlas-card' }] },
+        }));
+        const cards = [...env.document.querySelectorAll('#journey-content > .wg-card')];
+        expect(cards[0].id).toBe('journey-goal-card');
+        expect(cards[0].querySelector('.wg-journey-goal__value').textContent).toBe('82.4 kg → 78.0 kg');
+        expect(cards[0].textContent).toContain('4.4 kg to go · next marker 82.0 kg');
+        expect(cards[0].querySelector('.wg-journey-bar__fill').style.getPropertyValue('--fill-pct')).toBe('45.0%');
+    });
+
+    it('no goal-context card for no_goal when the Weight feature is off (no dead link)', () => {
+        env.window.featureSettings = { weight: false };
+        env.window.Gamification.render({
+            enabled: false,
+            goal_line: { enabled: true, goal: { status: 'no_goal' } },
+            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }] },
+        });
+        expect(env.document.getElementById('journey-goal-card')).toBeNull();
+    });
+
+    it('the goal-context card leads even when the HP substrate is disabled, and offers to set a goal', () => {
+        const switchTab = vi.fn();
+        env.window.switchTab = switchTab;
+        env.window.Gamification.render({
+            enabled: false,
+            goal_line: { enabled: true, goal: { status: 'no_goal' } },
+            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }] },
+        });
+        const cards = [...env.document.querySelectorAll('#journey-content > .wg-card')];
+        expect(cards[0].id).toBe('journey-goal-card');
+        cards[0].querySelector('button').click();
+        expect(switchTab).toHaveBeenCalledWith('weight');
     });
 
     // The why-lines were static forever and rendered on every visit.
@@ -114,271 +159,451 @@ describe('Journey render', () => {
         expect(document.querySelector('.wg-journey-keystones__why')).toBeNull();
     });
 
-    // Personal content first: at most 8 cards with every payload present and
-    // no active chapter or trial (the bead's budget). A running experiment
-    // adds a transient 9th card by design — it's the live thing the user came
-    // to see, and it disappears when the trial ends. The "since you last
-    // looked" strip (med-edxz.3) takes the first slot when it has something to
-    // say; with no whats_new items the Discovery Atlas leads, as here.
-    it('with no active chapter or trial, renders at most 8 cards, Atlas first, in the personal-first order', () => {
-        env.window.Gamification.render(journey({
+    // med-8tur.9 — goal-first order: Goal Line detail → your week →
+    // discoveries (strip + Atlas) → gauges → the "More" disclosure holding
+    // experiment / chapter / traits / keystones → AI story.
+    function fullJourney(extra) {
+        return journey({
+            goal_line: {
+                enabled: true,
+                goal: {
+                    status: 'ok', target: 78, start_ref: 86, start_ref_source: 'trend_at_set', direction: -1,
+                    trend_weight: 82.4, distance_to_goal: 4.4, too_fast: false,
+                    progress: { done_kg: 3.6, total_kg: 8, fraction: 0.45 },
+                    next_milestone: { ordinal: 4, count: 8, weight: 82, is_goal: false },
+                    coverage: { weigh_in_days_28d: 12, last_weigh_in_day: '2026-04-19', min_weigh_in_days: 4 },
+                }
+            },
             atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }] },
             weekly_review: { enabled: true, quiet: true, levers: [], gauges: {}, health_score: {} },
             gauges: { enabled: true, weight: { status: 'insufficient_data' }, bp: { status: 'insufficient_data' }, resting_hr: { status: 'insufficient_data' } },
             traits: { enabled: true, traits: [{ id: 't', title: 'T', state: 'held', on_28d: 24, lever_label: 'nights' }] },
             experiments: { enabled: true, can_start: true, templates: [] },
             chapter: { enabled: true, active: null, can_start: true, review: { title: 'The Steady Month', text: 'recap' }, themes: [{ id: 'x', title: 'X', blurb: 'b' }] },
-            keystones: { enabled: true, keystones: [{ id: 'k', title: 'K', earned_at: Date.UTC(2026, 4, 1) }] },
+            keystones: { enabled: true, keystones: [
+                { id: 'k', title: 'K', earned_at: Date.UTC(2026, 4, 1) },
+                { id: 'gamificationmilestone-g1-1', kind: 'goal_milestone', title: 'Weight goal milestone 1 of 8', earned_at: Date.UTC(2026, 3, 1) },
+            ] },
             narration: { enabled: true },
-        }));
-        const cards = [...env.document.querySelectorAll('#journey-content > .wg-card')];
-        expect(cards.length).toBeLessThanOrEqual(8);
-        expect(cards[0].classList.contains('wg-journey-atlas')).toBe(true);
-        expect(cards.map((c) => c.className.split(' ').pop())).toEqual([
-            'wg-journey-atlas',
+            ...extra,
+        });
+    }
+
+    function topLevelOrder(document) {
+        return [...document.querySelectorAll('#journey-content > *')].map((c) => c.className.split(' ').pop());
+    }
+
+    it('renders goal-first: goal → week → discoveries → gauges → More disclosure → AI story', () => {
+        env.window.Gamification.render(fullJourney());
+        const { document } = env;
+        expect(topLevelOrder(document)).toEqual([
+            'wg-journey-goal',
             'wg-journey-weekly',
+            'wg-journey-atlas',
             'wg-journey-gauges',
-            'wg-journey-score',
-            'wg-journey-traits',
-            'wg-journey-chapter',
-            'wg-journey-keystones',
+            'wg-journey-more',
             'wg-journey-narrator',
+        ]);
+        const more = document.getElementById('journey-more');
+        expect(more.tagName).toBe('DETAILS');
+        expect(more.open).toBe(false);
+        expect([...more.querySelectorAll(':scope > .wg-card')].map((c) => c.className.split(' ').pop()))
+            .toEqual(['wg-journey-chapter', 'wg-journey-traits', 'wg-journey-keystones']);
+    });
+
+    it('the strip sits with the discoveries, after the goal and the week', () => {
+        env.window.Gamification.render(fullJourney({
+            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }], whats_new: [{ kind: 'trait', text: 'New trait.', target: 'journey-traits-card' }] },
+        }));
+        expect(topLevelOrder(env.document).slice(0, 4)).toEqual([
+            'wg-journey-goal', 'wg-journey-weekly', 'wg-journey-whatsnew', 'wg-journey-atlas',
         ]);
     });
 
-    // With the strip present (med-huec): the same full payload plus one
-    // whats_new line renders at most 9 cards — the strip leads, the other
-    // eight keep their personal-first order.
-    it('with the strip present, renders at most 9 cards, strip first', () => {
-        env.window.Gamification.render(journey({
-            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }], whats_new: [{ kind: 'trait', text: 'You\u2019re now a Consistent Mover.', target: 'journey-traits-card' }] },
-            weekly_review: { enabled: true, quiet: true, levers: [], gauges: {}, health_score: {} },
-            gauges: { enabled: true, weight: { status: 'insufficient_data' }, bp: { status: 'insufficient_data' }, resting_hr: { status: 'insufficient_data' } },
-            traits: { enabled: true, traits: [{ id: 't', title: 'T', state: 'held', on_28d: 24, lever_label: 'nights' }] },
-            experiments: { enabled: true, can_start: true, templates: [] },
-            chapter: { enabled: true, active: null, can_start: true, review: { title: 'The Steady Month', text: 'recap' }, themes: [{ id: 'x', title: 'X', blurb: 'b' }] },
-            keystones: { enabled: true, keystones: [{ id: 'k', title: 'K', earned_at: Date.UTC(2026, 4, 1) }] },
-            narration: { enabled: true },
-        }));
-        const cards = [...env.document.querySelectorAll('#journey-content > .wg-card')];
-        expect(cards.length).toBeLessThanOrEqual(9);
-        expect(cards[0].classList.contains('wg-journey-whatsnew')).toBe(true);
-        expect(cards.map((c) => c.className.split(' ').pop())).toEqual([
-            'wg-journey-whatsnew',
-            'wg-journey-atlas',
-            'wg-journey-weekly',
-            'wg-journey-gauges',
-            'wg-journey-score',
-            'wg-journey-traits',
-            'wg-journey-chapter',
-            'wg-journey-keystones',
-            'wg-journey-narrator',
-        ]);
-    });
-
-    // The insight-ladder card was retired in the gamification redesign (Phase
-    // 5): the narrative layer (chapters / traits / keystones) replaces the
-    // level-gated ladder progression. The sleep→BP and good-day insight cards
-    // themselves survive and are covered by the dedicated tests below; they no
-    // longer have a ladder row as an entry point. Below-tier gating is asserted
-    // by "insight card is omitted…" further down.
-
-    // Sleep→BP insight card (Task 3): all three honesty-gate states render as
-    // plain-language copy, plus the omitted-until-loaded case.
-    it('insight card renders the "effect" state in plain language', () => {
-        env.window.Gamification.render(journey({
-            unlocked_tiers: [1, 2, 3],
-            insight: { sleep_bp: { status: 'effect', short_threshold_hours: 7, delta_systolic: 8, n_short: 23, n_in_band: 40 } }
-        }));
-        const card = env.document.getElementById('journey-insight-card');
-        expect(card).not.toBeNull();
-        expect(card.querySelector('.wg-journey-insight__body').textContent)
-            .toBe('Nights under 7h → next-morning systolic ~+8 mmHg · 23 nights');
-    });
-
-    it('insight card renders the "no_effect" state as its own honest finding', () => {
-        env.window.Gamification.render(journey({
-            unlocked_tiers: [1, 2, 3],
-            insight: { sleep_bp: { status: 'no_effect', short_threshold_hours: 7, delta_systolic: 1, n_short: 12, n_in_band: 30 } }
-        }));
-        const card = env.document.getElementById('journey-insight-card');
-        expect(card.querySelector('.wg-journey-insight__body').textContent).toMatch(/steady regardless of sleep/i);
-    });
-
-    it('insight card renders the "insufficient_data" state with the paired-night count', () => {
-        env.window.Gamification.render(journey({
-            unlocked_tiers: [1, 2, 3],
-            insight: { sleep_bp: { status: 'insufficient_data', short_threshold_hours: 7, n_short: 5, n_in_band: 9, needed: 8 } }
-        }));
-        const card = env.document.getElementById('journey-insight-card');
-        expect(card.querySelector('.wg-journey-insight__body').textContent).toBe('Not enough paired nights yet · 5 of 8 — keep logging');
-    });
-
-    it('insight card renders the offline-empty state when the fetch had no cache', () => {
-        env.window.Gamification.render(journey({
-            unlocked_tiers: [1, 2, 3],
-            insight: { emptyState: 'No cached insight — connect to load.' }
-        }));
-        const card = env.document.getElementById('journey-insight-card');
-        expect(card.querySelector('.wg-journey-insight__body').textContent).toBe('No cached insight — connect to load.');
-    });
-
-    it('insight card is omitted when tier 3 is unlocked but insight has not loaded yet', () => {
-        env.window.Gamification.render(journey({ unlocked_tiers: [1, 2, 3] }));
-        expect(env.document.getElementById('journey-insight-card')).toBeNull();
-    });
-
-    // Good-day card (gamification-13 Task 3): the tier-4 association scan,
-    // same honesty-gate states as the sleep→BP card above, plus the
-    // good_day_definition sub-line spelling out the user's own band.
-    it('good-day card renders the "effect" state as one line per finding plus the definition', () => {
-        env.window.Gamification.render(journey({
-            unlocked_tiers: [1, 2, 3, 4],
-            insight: {
-                good_day: {
-                    status: 'effect',
-                    good_day_definition: 'in range = systolic 90–120',
-                    findings: [
-                        { behavior: 'workout', rate_with: 0.78, rate_without: 0.55, delta_pp: 23, n_with: 21, n_without: 13 }
-                    ]
-                }
-            }
-        }));
-        const card = env.document.getElementById('journey-goodday-card');
-        expect(card).not.toBeNull();
-        expect(card.querySelector('.wg-journey-insight__body').textContent)
-            .toBe('On days after a workout, BP in range 78% vs 55% · 21/34 days');
-        expect(card.querySelector('.wg-journey-goodday__definition').textContent)
-            .toBe('in range = systolic 90–120');
-    });
-
-    it('good-day card renders the "no_effect" state as its own honest finding', () => {
-        env.window.Gamification.render(journey({
-            unlocked_tiers: [1, 2, 3, 4],
-            insight: { good_day: { status: 'no_effect', good_day_definition: 'in range = systolic 90–120' } }
-        }));
-        const card = env.document.getElementById('journey-goodday-card');
-        expect(card.querySelector('.wg-journey-insight__body').textContent)
-            .toMatch(/no single habit stands out/i);
-    });
-
-    it('good-day card renders the "insufficient_data" state with the per-behavior day count', () => {
-        env.window.Gamification.render(journey({
-            unlocked_tiers: [1, 2, 3, 4],
-            insight: {
-                good_day: {
-                    status: 'insufficient_data',
-                    good_day_definition: 'in range = systolic 90–120',
-                    insufficient: [{ behavior: 'workout', n_with: 6, n_without: 20, needed: 10 }]
-                }
-            }
-        }));
-        const card = env.document.getElementById('journey-goodday-card');
-        expect(card.querySelector('.wg-journey-insight__body').textContent)
-            .toBe('Not enough contrast yet for a workout · keep logging — 6 of 10 days needed');
-    });
-
-    it('good-day card renders the offline-empty state when the fetch had no cache', () => {
-        env.window.Gamification.render(journey({
-            unlocked_tiers: [1, 2, 3, 4],
-            insight: { emptyState: 'No cached insight — connect to load.' }
-        }));
-        const card = env.document.getElementById('journey-goodday-card');
-        expect(card.querySelector('.wg-journey-insight__body').textContent).toBe('No cached insight — connect to load.');
-    });
-
-    it('good-day card is omitted when tier 4 is unlocked but insight has not loaded yet', () => {
-        env.window.Gamification.render(journey({ unlocked_tiers: [1, 2, 3, 4] }));
-        expect(env.document.getElementById('journey-goodday-card')).toBeNull();
-    });
-
-    // Health Score card (Task 8): big number + band word, then one mini-bar
-    // per named contributor — a missing contributor reads "No data", never a
-    // misleading 0%.
-    it('Health Score card shows the composite, a band tag, and per-contributor bars including a missing one', () => {
-        env.window.Gamification.render(journey({
-            health_score: {
-                value: 78.4,
-                contributors: [
-                    { key: 'bp', label: 'Blood pressure', score: 0.9, weight: 1, missing: false },
-                    { key: 'sleep', label: 'Sleep', score: 0, weight: 1, missing: true }
-                ],
-                missing: ['sleep']
-            }
+    it('a strip item pointing into the folded disclosure opens it before scrolling', () => {
+        env.window.Gamification.render(fullJourney({
+            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }], whats_new: [{ kind: 'trait', text: 'New trait.', target: 'journey-traits-card' }] },
         }));
         const { document } = env;
-
-        const card = document.querySelector('.wg-journey-score');
-        expect(card).not.toBeNull();
-        expect(card.querySelector('.wg-journey-score__value').textContent).toBe('78');
-        expect(card.querySelector('.wg-tag').textContent).toBe('Good');
-
-        // The contributor list is the detail behind the hero: collapsed by
-        // default, so the card reads as one number + one word at a glance.
-        const details = card.querySelector('.wg-journey-score__details');
-        expect(details.open).toBe(false);
-        expect(details.querySelector('summary').textContent).toBe('Contributors');
-
-        const rows = details.querySelectorAll('.wg-journey-score__row');
-        expect(rows.length).toBe(2);
-        expect(rows[0].querySelector('.wg-journey-score__row-label').textContent).toBe('Blood pressure');
-        expect(rows[0].querySelector('.wg-journey-score__row-value').textContent).toBe('90%');
-        expect(rows[1].querySelector('.wg-journey-score__row-label').textContent).toBe('Sleep');
-        expect(rows[1].querySelector('.wg-journey-score__row-value').textContent).toBe('No data');
+        const scrollIntoView = vi.fn();
+        document.getElementById('journey-traits-card').scrollIntoView = scrollIntoView;
+        expect(document.getElementById('journey-more').open).toBe(false);
+        document.querySelector('.wg-journey-whatsnew__item').click();
+        expect(document.getElementById('journey-more').open).toBe(true);
+        expect(scrollIntoView).toHaveBeenCalled();
     });
 
-    it('Health Score renders "not enough data" instead of a misleading number below the min-contributors floor', () => {
-        env.window.Gamification.render(journey({ health_score: { value: null, contributors: [], missing: [] } }));
-        const card = env.document.querySelector('.wg-journey-score');
-        expect(card.querySelector('.wg-journey-score__value').textContent).toBe('—');
-        expect(card.textContent).toMatch(/not enough data/i);
-        // Nothing to collapse when there are no contributors.
-        expect(card.querySelector('.wg-journey-score__details')).toBeNull();
+    it('the disclosure opens by itself while a trial or a chapter is live', () => {
+        env.window.Gamification.render(fullJourney({
+            experiments: { enabled: true, can_start: false, templates: [], active: { id: 'e', title: 'Trial', duration: 14, day_number: 3 } },
+        }));
+        expect(env.document.getElementById('journey-more').open).toBe(true);
+        expect(env.document.querySelector('#journey-more #journey-experiment-card')).not.toBeNull();
+
+        env.window.Gamification.render(fullJourney({
+            chapter: { enabled: true, active: { title: 'C', duration: 28, day_number: 2 } },
+        }));
+        expect(env.document.getElementById('journey-more').open).toBe(true);
+    });
+
+    // med-8tur.10 (§0.3.6): the joint weight/BP observation — both components,
+    // coverage, the frozen target and the no-cause line, favorable or not.
+    it('goal detail: the joint weight/BP line renders for favorable AND unfavorable periods', () => {
+        const goalLine = (joint) => ({ ...fullJourney().goal_line, joint });
+        const period = (start, sys, dia, bpDays, weighIns) => ({
+            start_day: start, end_day: start, weigh_in_days: weighIns, bp: { systolic: sys, diastolic: dia, days: bpDays },
+        });
+        const target = { systolic: 130, diastolic: 85 };
+        const jointLines = () => [...env.document.querySelectorAll('#journey-goal-card .wg-journey-goal__line')]
+            .map((l) => l.textContent).slice(-2);
+
+        env.window.Gamification.render(fullJourney({ goal_line: goalLine({
+            weeks_per_period: 4, weight_change_kg: -1.6, bp_target: target,
+            periods: [period('2026-04-13', 140, 90, 9, 20), period('2026-05-18', 128, 82, 11, 24)],
+        }) }));
+        expect(jointLines()).toEqual([
+            'First vs last 4 full weeks of this goal: weight trend changed −1.6 kg; daily-weighted BP averaged 140/90 → 128/82 over 9/11 measurement days (target 130/85).',
+            '20/24 weigh-in days · concurrent changes don’t identify a cause.',
+        ]);
+
+        env.window.Gamification.render(fullJourney({ goal_line: goalLine({
+            weeks_per_period: 2, weight_change_kg: 1.2, bp_target: target,
+            periods: [period('2026-04-13', 126, 80, 6, 7), period('2026-05-18', 139, 88, 5, 8)],
+        }) }));
+        expect(jointLines()[0]).toBe('First vs last 2 full weeks of this goal: weight trend changed +1.2 kg; daily-weighted BP averaged 126/80 → 139/88 over 6/5 measurement days (target 130/85).');
+        expect(jointLines()[1]).toMatch(/don’t identify a cause/);
+
+        env.window.Gamification.render(fullJourney({ goal_line: goalLine(null) }));
+        expect(env.document.getElementById('journey-goal-card').textContent).not.toMatch(/TOGETHER|identify a cause/);
+    });
+
+    it('goal detail: progress, markers, coverage and the milestone timeline (moved out of Keystones)', () => {
+        env.window.Gamification.render(fullJourney());
+        const { document } = env;
+        const goal = document.getElementById('journey-goal-card');
+        const lines = [...goal.querySelectorAll('.wg-journey-goal__line')].map((l) => l.textContent);
+        expect(lines).toEqual([
+            '4.4 kg to go · next marker 82.0 kg',
+            '3.6 kg of 8.0 kg since you set the goal',
+            'Markers: 3 of 8 passed',
+            'trend · 12 weigh-in days in the last 28',
+        ]);
+        expect([...goal.querySelectorAll('.wg-journey-keystone__title')].map((t) => t.textContent))
+            .toEqual(['Weight goal milestone 1 of 8']);
+        // Shown once: the Keystones card keeps only the non-goal entries.
+        expect([...document.querySelectorAll('#journey-keystones-card .wg-journey-keystone__title')].map((t) => t.textContent))
+            .toEqual(['K']);
+    });
+
+    it('goal milestones stay in Keystones when the goal card is absent', () => {
+        env.window.Gamification.render(fullJourney({ goal_line: null }));
+        expect([...env.document.querySelectorAll('#journey-keystones-card .wg-journey-keystone__title')].map((t) => t.textContent))
+            .toEqual(['K', 'Weight goal milestone 1 of 8']);
+    });
+
+    it('goal milestones stay in Keystones when there is no goal (no timeline to hold them)', () => {
+        env.window.Gamification.render(fullJourney({ goal_line: { enabled: true, goal: { status: 'no_goal' } } }));
+        expect(env.document.getElementById('journey-goal-card')).not.toBeNull();
+        expect([...env.document.querySelectorAll('#journey-keystones-card .wg-journey-keystone__title')].map((t) => t.textContent))
+            .toEqual(['K', 'Weight goal milestone 1 of 8']);
+    });
+
+    it('a milestone news line scrolls to the goal card that holds the timeline', () => {
+        env.window.Gamification.render(fullJourney({
+            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }], whats_new: [{ kind: 'keystone', text: 'Weight goal milestone 1 of 8', target: 'journey-goal-card' }] },
+        }));
+        const { document } = env;
+        const scrollIntoView = vi.fn();
+        document.getElementById('journey-goal-card').scrollIntoView = scrollIntoView;
+        const row = document.querySelector('.wg-journey-whatsnew__item');
+        expect(row.getAttribute('role')).toBe('button');
+        row.click();
+        expect(scrollIntoView).toHaveBeenCalled();
+    });
+
+    it('without a goal timeline, a milestone news line falls back to the Keystones card', () => {
+        env.window.Gamification.render(fullJourney({
+            goal_line: { enabled: true, goal: { status: 'no_goal' } },
+            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }], whats_new: [{ kind: 'keystone', text: 'Weight goal milestone 1 of 8', target: 'journey-goal-card' }] },
+        }));
+        const { document } = env;
+        const scrollIntoView = vi.fn();
+        document.getElementById('journey-keystones-card').scrollIntoView = scrollIntoView;
+        document.querySelector('.wg-journey-whatsnew__item').click();
+        expect(scrollIntoView).toHaveBeenCalled();
+        expect(document.getElementById('journey-more').open).toBe(true);
+    });
+
+    it('a disabled substrate still renders the goal + narrative layer, without the week or gauges', () => {
+        env.window.Gamification.render(fullJourney({ enabled: false }));
+        expect(topLevelOrder(env.document)).toEqual([
+            'wg-journey-goal', 'wg-journey-atlas', 'wg-journey-more', 'wg-journey-narrator',
+        ]);
+    });
+
+    // Every read model is fetched exactly once per load() — the goal card's
+    // milestone timeline reuses the keystones payload, no extra request.
+    it('load() fetches each read model once', async () => {
+        const { window } = env;
+        const urls = [];
+        window.cachedFetch = vi.fn(async (_key, url) => { urls.push(url); return { data: url.endsWith('/journey') ? journey() : null }; });
+        window.offlineAwareApiCall = vi.fn(async (url) => { urls.push(url); return null; });
+        await window.Gamification.load();
+        expect(urls.length).toBe(new Set(urls).size);
+        expect(urls).toContain('/api/gamification/keystones');
+        expect(urls).toContain('/api/gamification/goal-line');
+    });
+
+    // med-8tur.12: the level-tier-gated sleep→BP / good-day insight cards were
+    // the last level consumers (cloud /insights always answers {enabled:false},
+    // so they never rendered). Gone with them: the Gauges "why is this moving?"
+    // link that pointed at them.
+    it('renders no insight cards even when a tier and an insight payload are present', () => {
+        env.window.Gamification.render(journey({
+            unlocked_tiers: [1, 2, 3, 4],
+            insight: { sleep_bp: { status: 'effect', short_threshold_hours: 7, delta_systolic: 8, n_short: 23, n_in_band: 40 } },
+            gauges: { enabled: true, weight: { status: 'insufficient_data' }, bp: { status: 'insufficient_data' }, resting_hr: { status: 'insufficient_data' } },
+        }));
+        expect(env.document.getElementById('journey-insight-card')).toBeNull();
+        expect(env.document.getElementById('journey-goodday-card')).toBeNull();
+        expect(env.document.querySelector('.wg-journey-gauges__link')).toBeNull();
     });
 
     // "Your week" card (gamification-12 §Task3) — sourced from
     // `journey.weekly_review` (attached by load() from its own fetch, same
-    // pattern as Gauges/Insights). Omitted entirely until it has loaded.
+    // pattern as Gauges). Omitted entirely until it has loaded.
     it('omits the Weekly Review card until journey.weekly_review has loaded', () => {
         env.window.Gamification.render(journey());
         expect(env.document.querySelector('.wg-journey-weekly')).toBeNull();
     });
 
-    it('Weekly Review card renders score movement, lever line, gauge lines, and best day', () => {
-        env.window.Gamification.render(journey({
-            weekly_review: {
-                enabled: true,
-                quiet: false,
-                levers: [
-                    { key: 'bedtime', closed_this_week: 5, closed_last_week: 4 },
-                    { key: 'movement', closed_this_week: 4, closed_last_week: 3 },
-                    { key: 'nourishment', closed_this_week: 6, closed_last_week: 5 }
-                ],
-                best_day: { day_unix: 1751328000, rings_closed: 3 }, // 2025-07-01 (Tuesday, UTC)
-                gauges: {
-                    weight: { status: 'ok', velocity_pct_per_week: -0.4, pace_status: 'on_pace', acceleration: 'speeding_up' },
-                    bp: { status: 'ok', share_30d: 0.82, count_30d: 26 },
-                    bp_share_30d_prior: 0.76,
-                    resting_hr: { status: 'ok', recent_14d_mean: 62, delta_from_baseline: -3 }
-                },
-                health_score: { now: { value: 78, contributors: [], missing: [] }, prior: { value: 74, contributors: [], missing: [] } }
-            }
-        }));
-        const { document } = env;
+    // med-8tur.4 — the review is re-anchored on the goal: three fact rows for
+    // the completed week (no ring / score lines), the best day, then one
+    // choice for the week ahead.
+    const WEEKLY = {
+        enabled: true,
+        quiet: false,
+        week: { id: '2026-W25', start_day: '2026-06-15', end_day: '2026-06-21' },
+        rows: {
+            weight: {
+                feature_on: true, status: 'ok', goal_status: 'ok', trend_weight: 85.6, trend_change_kg: -0.4,
+                distance_to_goal: 5.6, weigh_in_days: 4,
+                milestones_reached: [{ id: 'm1', ordinal: 2, title: 'Weight goal milestone 2 of 6' }],
+            },
+            workouts: { feature_on: true, completed: 2, scheduled: 3 },
+            bp: { feature_on: true, status: 'in_range', mean: { systolic: 128, diastolic: 82, days: 4 }, target: { systolic: 130, diastolic: 85 }, days_measured: 4 },
+        },
+        best_day: { day_unix: 1751328000, rings_closed: 3 }, // 2025-07-01 (Tuesday, UTC)
+        plan_week: '2026-W26',
+        plan: null,
+        options: {
+            intentions: [
+                { id: 'weigh_before_coffee', text: 'When I wake, I will weigh in before coffee' },
+                { id: 'stop_after_dinner', text: 'When I log dinner, I will stop eating for the night' },
+            ],
+            weigh_in: ['weekly', 'daily'],
+            bp_days_max: 7,
+        },
+        // Legacy ring/score keys still ride the payload — never rendered.
+        levers: [{ key: 'bedtime', closed_this_week: 5, closed_last_week: 4 }],
+        gauges: { weight: { status: 'ok', velocity_pct_per_week: -0.4, pace_status: 'on_pace' } },
+        health_score: { now: { value: 78 }, prior: { value: 74 } },
+    };
 
-        const card = document.querySelector('.wg-journey-weekly');
+    it('Weekly Review card renders the three goal rows, the milestone and the best day — no ring or score lines', () => {
+        env.window.Gamification.render(journey({ weekly_review: WEEKLY }));
+        const card = env.document.querySelector('.wg-journey-weekly');
         expect(card).not.toBeNull();
         expect(card.querySelector('.wg-journey-weekly__summary').textContent).toBe('YOUR WEEK');
 
         const lines = Array.from(card.querySelectorAll('.wg-journey-weekly__line')).map((n) => n.textContent);
         expect(lines).toEqual([
-            'Health Score 78 · up 4',
-            'Bedtime closed 5 of 7 · Movement 4 · Nourishment 6',
-            'Weight -0.4%/wk · on pace · speeding up',
-            'BP in range 82% · up from 76%',
-            'Resting HR 62 avg · 3 below your baseline',
-            'Best day: Tuesday · 3 rings closed'
+            'Weight: trend −0.4 kg · 5.6 kg to go · 4 weigh-ins',
+            'Workouts: 2 of 3 scheduled',
+            'BP: avg 128/82 vs 130/85 · 4 days measured',
+            'Best day: Tuesday',
+            'Reached: Weight goal milestone 2 of 6',
         ]);
+        expect(card.textContent).not.toMatch(/closed|ring|%\/wk|Health Score/i);
+    });
+
+    it('missing data reads as unknown, never as a zero', () => {
+        env.window.Gamification.render(journey({
+            weekly_review: {
+                ...WEEKLY,
+                rows: {
+                    weight: { feature_on: true, status: 'unknown', weigh_in_days: 1, milestones_reached: [] },
+                    workouts: { feature_on: true, completed: 0, scheduled: null },
+                    bp: { feature_on: true, status: 'unknown', mean: null, target: null, days_measured: 0 },
+                },
+                best_day: null,
+            },
+        }));
+        const lines = Array.from(env.document.querySelectorAll('.wg-journey-weekly__line')).map((n) => n.textContent);
+        expect(lines).toEqual([
+            'Weight: 1 weigh-in · not enough for a trend yet',
+            'Workouts: 0 sessions',
+            'BP: no readings this week',
+        ]);
+    });
+
+    it('offers the curated intentions plus Keep this plan / Pause this week and a cadence control', () => {
+        env.window.Gamification.render(journey({
+            weekly_review: {
+                ...WEEKLY,
+                plan: {
+                    week: '2026-W26', intention: { id: 'stop_after_dinner', text: 'When I log dinner, I will stop eating for the night' },
+                    cadence: { weigh_in: 'daily', bp_days: 3 }, paused: false, picked_at: 1,
+                },
+            },
+        }));
+        const plan = env.document.querySelector('.wg-journey-weekly__plan');
+        expect(plan.getAttribute('data-plan-week')).toBe('2026-W26');
+        const choices = Array.from(plan.querySelectorAll('[data-choice]'));
+        expect(choices.map((b) => b.getAttribute('data-choice'))).toEqual(['weigh_before_coffee', 'stop_after_dinner', 'keep', 'pause']);
+        expect(choices.filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.getAttribute('data-choice'))).toEqual(['stop_after_dinner']);
+        expect(plan.querySelector('.wg-journey-weekly__current').textContent).toBe('When I log dinner, I will stop eating for the night');
+        expect(plan.querySelector('select[data-cadence="weigh_in"]').value).toBe('daily');
+        expect(plan.querySelector('select[data-cadence="bp_days"]').value).toBe('3');
+        expect(plan.querySelector('.wg-section-label').textContent).toBe('THIS WEEK');
+    });
+
+    it('on Sunday the choice is for next week; the weigh-in control starts at the reminder\'s cadence', () => {
+        env.window.Gamification.render(journey({
+            weekly_review: { ...WEEKLY, plan_scope: 'next_week', options: { ...WEEKLY.options, weigh_in_current: 'daily' } },
+        }));
+        const plan = env.document.querySelector('.wg-journey-weekly__plan');
+        expect(plan.querySelector('.wg-section-label').textContent).toBe('NEXT WEEK');
+        expect(plan.querySelector('.wg-journey-weekly__current').textContent).toBe('No pick yet — choose one for next week.');
+        expect(plan.querySelector('[data-choice="pause"]').textContent).toBe('Pause next week');
+        expect(plan.querySelector('select[data-cadence="weigh_in"]').value).toBe('daily');
+    });
+
+    // The cached Today Goal Line the pick may patch (med-8tur.4 send-back).
+    const GOAL_LINE = {
+        enabled: true, plan: null,
+        goal: { status: 'ok', change_7d: -0.4, too_fast: true, projected: { date: '2026-11-14', plus_minus_weeks: 3, reason: null } },
+    };
+
+    function stubWrite(env, response, caches = {}) {
+        const seeds = { gamification_weekly: WEEKLY, gamification_goal_line: GOAL_LINE, ...caches };
+        const projected = {};
+        const handles = {};
+        env.window.DataStore = {
+            applyOptimistic: vi.fn(async (key, mutator) => {
+                projected[key] = mutator(seeds[key]);
+                handles[key] = { commit: vi.fn(async () => {}), rollback: vi.fn(async () => {}) };
+                return handles[key];
+            }),
+        };
+        const posted = [];
+        env.window.offlineAwareApiCall = vi.fn(async (url, method, body) => {
+            posted.push({ url, method, body });
+            if (response instanceof Error) throw response;
+            return response;
+        });
+        return {
+            posted, handles, projectedFor: (k) => projected[k],
+            get handle() { return handles.gamification_weekly; },
+            projected: () => projected.gamification_weekly,
+        };
+    }
+
+    const flush = () => new Promise((r) => setTimeout(r, 0));
+
+    it('a pick writes through DataStore.applyOptimistic and commits the server plan', async () => {
+        const serverPlan = {
+            week: '2026-W26', intention: { id: 'weigh_before_coffee', text: 'When I wake, I will weigh in before coffee' },
+            cadence: { weigh_in: 'daily', bp_days: null }, paused: false, picked_at: 2,
+        };
+        const w = stubWrite(env, { ok: true, plan: serverPlan });
+        env.window.Gamification.render(journey({ weekly_review: WEEKLY }));
+        const plan = env.document.querySelector('.wg-journey-weekly__plan');
+        plan.querySelector('select[data-cadence="weigh_in"]').value = 'daily';
+        plan.querySelector('[data-choice="weigh_before_coffee"]').click();
+        await flush(); await flush();
+
+        expect(env.window.DataStore.applyOptimistic).toHaveBeenCalledWith('gamification_weekly', expect.any(Function), ['gamification']);
+        expect(w.projected().plan.intention.id).toBe('weigh_before_coffee');
+        // weigh_in rides only its own select's change, never a choice tap.
+        expect(w.posted).toEqual([{ url: '/api/gamification/week-plan', method: 'POST', body: { choice: 'weigh_before_coffee', cadence: { bp_days: null } } }]);
+        expect(w.handle.commit).toHaveBeenCalledWith(expect.objectContaining({ plan: serverPlan }));
+        expect(w.handle.rollback).not.toHaveBeenCalled();
+    });
+
+    it('a failed pick rolls the optimistic projection back', async () => {
+        const w = stubWrite(env, new Error('offline'));
+        env.window.Gamification.render(journey({ weekly_review: WEEKLY }));
+        env.document.querySelector('[data-choice="pause"]').click();
+        await flush(); await flush();
+
+        expect(w.projected().plan.paused).toBe(true);
+        expect(w.handle.rollback).toHaveBeenCalled();
+        expect(w.handle.commit).not.toHaveBeenCalled();
+    });
+
+    it('a cadence change alone keeps the pick (no choice in the body)', async () => {
+        const w = stubWrite(env, { ok: true, plan: { week: '2026-W26', intention: null, cadence: { weigh_in: 'weekly', bp_days: 2 }, paused: false } });
+        env.window.Gamification.render(journey({ weekly_review: WEEKLY }));
+        const sel = env.document.querySelector('select[data-cadence="bp_days"]');
+        sel.value = '2';
+        sel.dispatchEvent(new env.window.Event('change'));
+        await flush(); await flush();
+        expect(w.posted[0].body).toEqual({ cadence: { weigh_in: 'weekly', bp_days: 2 } });
+    });
+
+    // Send-back #2: a daily opt-in must survive the repaint — the committed
+    // review carries weigh_in_current = daily, so the select (and the next
+    // bp_days edit) never revert it to weekly.
+    it('a weigh-in pick moves weigh_in_current, so the repainted select keeps it', async () => {
+        const serverPlan = { week: '2026-W26', intention: null, cadence: { weigh_in: 'daily', bp_days: null }, paused: false };
+        const w = stubWrite(env, { ok: true, plan: serverPlan });
+        env.window.Gamification.render(journey({ weekly_review: WEEKLY }));
+        const sel = env.document.querySelector('select[data-cadence="weigh_in"]');
+        sel.value = 'daily';
+        sel.dispatchEvent(new env.window.Event('change'));
+        await flush(); await flush();
+        expect(w.projected().options.weigh_in_current).toBe('daily');
+        const committed = w.handle.commit.mock.calls[0][0];
+        expect(committed.options.weigh_in_current).toBe('daily');
+
+        env.window.Gamification.render(journey({ weekly_review: committed }));
+        expect(env.document.querySelector('select[data-cadence="weigh_in"]').value).toBe('daily');
+        const bp = env.document.querySelector('select[data-cadence="bp_days"]');
+        bp.value = '2';
+        bp.dispatchEvent(new env.window.Event('change'));
+        await flush(); await flush();
+        expect(w.posted[1].body.cadence.weigh_in).toBe('daily');
+    });
+
+    // Send-back #3: a committed this-week pick clears the Today Goal Line
+    // entry so the next read refetches getGoalLine (pause hides change /
+    // too-fast / projection there) — never a hand-patched copy.
+    it('a committed this-week pause clears the Goal Line entry (refetch), settled at once', async () => {
+        const w = stubWrite(env, { ok: true, plan: { week: '2026-W26', intention: null, cadence: {}, paused: true } });
+        env.window.Gamification.render(journey({ weekly_review: { ...WEEKLY, plan_scope: 'this_week' } }));
+        env.document.querySelector('[data-choice="pause"]').click();
+        await flush(); await flush();
+        expect(env.window.DataStore.applyOptimistic).toHaveBeenCalledWith('gamification_goal_line', expect.any(Function),
+            ['gamification', 'weight', 'workout', 'bp', 'settings', 'medications', 'history']);
+        expect(w.projectedFor('gamification_goal_line')).toBeNull();
+        expect(w.handles.gamification_goal_line.commit).toHaveBeenCalled();
+        expect(w.handles.gamification_goal_line.rollback).not.toHaveBeenCalled();
+    });
+
+    it('a failed pick and a next-week pick leave the Goal Line entry alone', async () => {
+        let w = stubWrite(env, new Error('offline'));
+        env.window.Gamification.render(journey({ weekly_review: WEEKLY }));
+        env.document.querySelector('[data-choice="pause"]').click();
+        await flush(); await flush();
+        expect(w.handles.gamification_weekly.rollback).toHaveBeenCalled();
+        expect(env.window.DataStore.applyOptimistic.mock.calls.map((c) => c[0])).toEqual(['gamification_weekly']);
+
+        w = stubWrite(env, { ok: true, plan: { week: '2026-W27', paused: true } });
+        env.window.Gamification.render(journey({ weekly_review: { ...WEEKLY, plan_scope: 'next_week' } }));
+        env.document.querySelector('[data-choice="pause"]').click();
+        await flush(); await flush();
+        expect(env.window.DataStore.applyOptimistic.mock.calls.map((c) => c[0])).toEqual(['gamification_weekly']);
     });
 
     it('Weekly Review card reads a zero-HP week as "a quiet week", never a wall of zeros', () => {
@@ -422,7 +647,7 @@ describe('Journey render', () => {
 
     // Gauges panel (gamification-11 §Task4): weight/BP/resting-HR read as
     // trends, sourced from `journey.gauges` (attached by load() from its own
-    // fetch, same pattern as the tier-3 insight). Omitted entirely until
+    // fetch, same pattern as Gauges). Omitted entirely until
     // `gauges` has loaded — render() tests attach it directly.
     it('omits the Gauges card until journey.gauges has loaded', () => {
         env.window.Gamification.render(journey());
@@ -459,8 +684,6 @@ describe('Journey render', () => {
         expect(rows[2].querySelector('.wg-journey-gauge__label').textContent).toBe('Resting heart rate');
         expect(rows[2].querySelector('.wg-journey-gauge__caption').textContent).toBe('62 avg · 3 below your baseline');
 
-        const link = card.querySelector('.wg-journey-gauges__link');
-        expect(link.textContent).toMatch(/why is this moving/i);
     });
 
     it('Gauges card renders each gauge\'s insufficient_data honestly instead of a distorted number', () => {
@@ -490,24 +713,6 @@ describe('Journey render', () => {
         const rows = env.document.querySelectorAll('.wg-journey-gauges .wg-journey-gauge__caption');
         expect(rows[1].textContent).toBe('Baseline 76% in range · none logged in the last 30 days');
         expect(rows[1].textContent).not.toMatch(/0%/);
-    });
-
-    it('Gauges card link scrolls to the tier-3 insight card', () => {
-        env.window.Gamification.render(journey({
-            unlocked_tiers: [1, 2, 3],
-            insight: { sleep_bp: { status: 'no_effect', short_threshold_hours: 7, delta_systolic: 1, n_short: 12, n_in_band: 30 } },
-            gauges: {
-                enabled: true,
-                weight: { status: 'insufficient_data' },
-                bp: { status: 'insufficient_data' },
-                resting_hr: { status: 'insufficient_data' }
-            }
-        }));
-        const { document } = env;
-        const scrollIntoView = vi.fn();
-        document.getElementById('journey-insight-card').scrollIntoView = scrollIntoView;
-        document.querySelector('.wg-journey-gauges__link').click();
-        expect(scrollIntoView).toHaveBeenCalled();
     });
 
     it('Gauges card renders the offline-empty state when the fetch had no cache', () => {
@@ -547,7 +752,7 @@ describe('Journey render', () => {
         expect(card.querySelector('.wg-journey-bar__fill')).toBeNull();
     });
 
-    it('revealed Atlas card shows the finding and a Discovery tag', () => {
+    it('revealed Atlas card shows the finding, labeled a descriptive association', () => {
         env.window.Gamification.render(journey({
             atlas: {
                 cards: [{
@@ -560,11 +765,26 @@ describe('Journey render', () => {
         }));
         const card = env.document.querySelector('.wg-journey-atlas__card--revealed');
         expect(card.querySelector('.wg-journey-atlas__finding').textContent).toContain('16 mmHg lower');
-        expect(card.querySelector('.wg-journey-atlas__tag').textContent).toBe('Discovery');
+        expect(card.querySelector('.wg-journey-atlas__tag').textContent).toBe('Descriptive association');
         // The finding states the question — no separate question line.
         expect(card.querySelector('.wg-journey-atlas__question')).toBeNull();
         // Already seen: no NEW treatment.
         expect(card.classList.contains('wg-journey-atlas__card--new')).toBe(false);
+    });
+
+    it('revealed Atlas card shows ± two standard errors only when se is a finite number', () => {
+        const base = {
+            id: 'late_bedtime_next_morning_bp', question: 'Q', unit: 'mmHg',
+            state: 'revealed', delta: 9, n: 30, seen: true,
+            text: 'Mornings after bedtimes an hour+ later than usual: systolic ~9 mmHg higher · 30 paired days',
+        };
+        env.window.Gamification.render(journey({
+            atlas: { cards: [{ ...base, se: 2.4 }, { ...base, id: 'no_se', text: 'no spread here', se: null }] },
+        }));
+        const spreads = env.document.querySelectorAll('.wg-journey-atlas__spread');
+        expect(spreads).toHaveLength(1);
+        expect(spreads[0].textContent).toBe('±5 mmHg');
+        expect(spreads[0].parentElement.textContent).toContain('9 mmHg higher');
     });
 
     it('no_effect Atlas card is rendered as a genuine finding, not a blank', () => {
@@ -580,7 +800,7 @@ describe('Journey render', () => {
         }));
         const card = env.document.querySelector('.wg-journey-atlas__card--no_effect');
         expect(card.querySelector('.wg-journey-atlas__finding').textContent).toContain('holds steady');
-        expect(card.querySelector('.wg-journey-atlas__tag').textContent).toBe('No effect — a finding');
+        expect(card.querySelector('.wg-journey-atlas__tag').textContent).toBe('Descriptive association · no difference');
         expect(card.querySelector('.wg-journey-atlas__question')).toBeNull();
     });
 
@@ -786,7 +1006,7 @@ describe('Journey render', () => {
         expect(card).not.toBeNull();
         // Honest leakage note is present, and the weekly/workout buttons always show.
         expect(card.querySelector('.wg-journey-narrator__note').textContent)
-            .toBe('Optional — sends computed summaries, never raw logs, to your own AI key.');
+            .toBe('Optional — sends computed summaries, never raw logs, to your own AI key or, with your consent, the trial AI.');
         const labels = [...card.querySelectorAll('button')].map((b) => b.textContent);
         expect(labels).toContain('Narrate my week');
         expect(labels).toContain('Workout insight');
@@ -860,7 +1080,7 @@ describe('Journey render', () => {
     const WHATS_NEW = [
         { kind: 'discovery', text: 'New: Workout mornings run 16 mmHg lower · 25 pairs', target: 'journey-atlas-card' },
         { kind: 'trait', text: 'You\u2019re now a Consistent Mover.', target: 'journey-traits-card' },
-        { kind: 'forecast', text: 'Last night 7h 30m · this morning 118 — in range. Your body agreed.', target: null },
+        { kind: 'note', text: 'A line with no card to scroll to.', target: null },
     ];
 
     function withStrip(items) {
@@ -881,8 +1101,8 @@ describe('Journey render', () => {
 
         const rows = [...document.querySelectorAll('.wg-journey-whatsnew__item')];
         expect(rows.map((r) => r.textContent)).toEqual(WHATS_NEW.map((i) => i.text));
-        // Every item with a target card is a real button; the forecast line has
-        // no Journey card to scroll to, so it stays a plain line.
+        // Every item with a target card is a real button; a line with no
+        // Journey card to scroll to stays a plain line.
         expect(rows.map((r) => r.getAttribute('role'))).toEqual(['button', 'button', null]);
     });
 

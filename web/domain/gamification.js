@@ -10,26 +10,16 @@
 // sees is recomputed on read from decrypted vault records; the only persisted
 // state is reveal-once "seen" flags (§4.2 — scores are pure functions of the log).
 
-import { dayStartMs } from './bp.js';
+import { dayStartMs, buildDailyWeightedStats } from './bp.js';
+import { workoutScheduleOccurrences, isoWeekKey } from './reminders.js';
+import { localWallToUtcMs } from './medschedule.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WINDOW_DAYS = 90; // trailing window (§4.1)
 
-// Tomorrow Forecast (§3.4). One fixed, pre-registered lever→outcome pairing —
-// NOT a best-of scan (guardrail §5: no fishing). Lever: an adequate night
-// (≥ 7h sleep, the tonight-actionable behavior in the design's example).
-// Outcome: the same morning's first BP reading landing in range. Same-day
-// bucketing (the probe catalog's short_sleep_next_morning_bp is lag 0). The
-// forecast never reads weight — only bp + sleep + the user's own bp goal band.
-const FORECAST_SLEEP_WINDOW_MIN = 7 * 60;
-const FORECAST_GATE_PER_ARM = 8;          // min resolvable nights in EACH arm
 const DEFAULT_IN_RANGE_SYSTOLIC = 130;    // High-BP Stage-1 threshold (bp.js)
 const BP_GOAL_RECORD_TYPE = 'bpgoal';
 const BP_GOAL_RECORD_ID = 'bpgoal';
-
-function pct(x) {
-  return Math.round(x * 100);
-}
 
 // Vault record types read (never written — the owning domain modules own writes).
 const BP_RECORD_TYPE = 'bp';
@@ -38,9 +28,70 @@ const DAYSTATS_RECORD_TYPE = 'daystats';
 const WORKOUT_SESSION_RECORD_TYPE = 'workoutsession';
 const FOOD_LOG_RECORD_TYPE = 'foodlog';
 
+// Goal Line (docs/gamification.md §0.3.1) — read-only inputs + its constants
+// (weight/weightgoal reuse the factory's WEIGHT_RECORD_TYPE/WEIGHTGOAL_RECORD_TYPE).
+const WORKOUT_GROUP_RECORD_TYPE = 'workoutgroup';
+const WORKOUT_VARIANT_RECORD_TYPE = 'workoutvariant';
+const WORKOUT_ROTATION_RECORD_TYPE = 'workoutrotation';
+const GOAL_LINE_COVERAGE_DAYS = 28;         // coverage window for weigh-in days; a longer weigh-in gap restarts the trend
+const GOAL_LINE_MIN_WEIGH_IN_DAYS = 5;      // fewer (in 28d) = preliminary: a reading, never a trend
+const GOAL_LINE_REACH_KG = 0.5;             // trend within this of the target (or past it) = reached
+const GOAL_LINE_MAINTAIN_DAYS = 14;         // reached continuously this long = maintaining
+const GOAL_LINE_MILESTONE_MIN_KG = 1;       // milestone spacing: 1 kg or 2.5% of the total
+const GOAL_LINE_MILESTONE_FRACTION = 0.025; //   distance, whichever is coarser, fixed per episode
+const GOAL_LINE_PROJECT_MIN_DAYS = 8;      // projected date needs ≥ this many weigh-in days in 28 (≈2/week)
+const GOAL_LINE_PROJECT_FRESH_DAYS = 7;     //   and a reading within this many days
+const GOAL_LINE_PROJECT_HORIZON_DAYS = 365; //   and its latest end inside 12 months, else "more than a year"
+const GOAL_LINE_DEFAULT_DIASTOLIC = 80;     // docs/features.md <130/80 target, per missing bpgoal component
+const GOAL_MILESTONE_RECORD_TYPE = 'gamificationmilestone'; // §0.3.5 durable milestones (vault-managed)
+const GOAL_MILESTONE_EVIDENCE_DAYS = 3;     // distinct weigh-in days at/past a marker before it is earned
+// §0.3.4 weekly plan: one user-written record per ISO week (vault-managed),
+// gamificationweek-<isoWeekYear>-W<ww> — the chosen implementation intention,
+// the cadence contract, or a pause. `feature` gates which intentions are offered.
+const WEEK_PLAN_RECORD_TYPE = 'gamificationweek';
+const WEEK_INTENTIONS = [
+  { id: 'start_session', feature: 'workout', text: 'When I finish work on my training days, I will start the session' },
+  { id: 'weigh_before_coffee', feature: 'weight', text: 'When I wake, I will weigh in before coffee' },
+  { id: 'stop_after_dinner', feature: 'food', text: 'When I log dinner, I will stop eating for the night' },
+  { id: 'log_every_meal', feature: 'food', text: 'When I sit down to eat, I will log the meal' },
+];
+const WEEK_WEIGH_IN_CADENCES = ['weekly', 'daily']; // = reminders.js WEIGHT_CADENCES
+const WEEK_BP_DAYS_MAX = 7;
+
 // The one persisted record: a singleton holding reveal-once bookkeeping.
 const JOURNAL_RECORD_TYPE = 'gamificationjournal';
 const JOURNAL_RECORD_ID = 'journal';
+
+// mergeGamificationJournal folds the grow-only journal fields of the LWW loser
+// into the winner (bd med-ooeh). Two devices deriving different fields of the
+// singleton in one sync window both stamp `existing.clientTs + 1`, so sync's
+// strict-`>` apply kept neither op and the next real write dropped whatever only
+// the loser derived. keystones (by id), seen_discoveries and traits (by key) are
+// append-only — nothing ever removes an entry — so a union is always safe and
+// converges regardless of apply order. chapter / closed_chapters stay plain LWW
+// from the winner: they move as a pair and a stale close is re-derived anyway.
+// Returns `win` itself when the loser adds nothing, so callers can skip a write.
+// ponytail: a same-id/same-key collision keeps the winner's entry; on a tie each
+// device keeps its own (cosmetic earned_at drift) until its next write.
+export function mergeGamificationJournal(win, lose) {
+  let out = win;
+  const set = (key, value) => {
+    if (out === win) out = { ...win };
+    out[key] = value;
+  };
+  const arr = (v) => (Array.isArray(v) ? v : []);
+  const wk = arr(win.keystones);
+  const extraK = arr(lose.keystones).filter((k) => k && !wk.some((w) => w && w.id === k.id));
+  if (extraK.length) set('keystones', wk.concat(extraK));
+  const ws = arr(win.seen_discoveries);
+  const extraS = [...new Set(arr(lose.seen_discoveries))].filter((id) => !ws.includes(id));
+  if (extraS.length) set('seen_discoveries', ws.concat(extraS));
+  const wt = (win.traits && typeof win.traits === 'object') ? win.traits : {};
+  const lt = (lose.traits && typeof lose.traits === 'object') ? lose.traits : {};
+  const extraT = Object.keys(lt).filter((id) => !(id in wt));
+  if (extraT.length) set('traits', { ...wt, ...Object.fromEntries(extraT.map((id) => [id, lt[id]])) });
+  return out;
+}
 
 // localDayString → 'YYYY-MM-DD' in the user's zone (en-CA yields ISO order),
 // the same key vitals.js uses. All per-day signals bucket on this string so BP
@@ -86,6 +137,13 @@ function mean(xs) {
 function meanOr0(xs) {
   if (!xs.length) return 0;
   return xs.reduce((a, b) => a + b, 0) / xs.length;
+}
+
+// sampleVar: unbiased (n−1) variance; 0 for fewer than two values.
+function sampleVar(xs) {
+  if (xs.length < 2) return 0;
+  const m = mean(xs);
+  return xs.reduce((a, x) => a + (x - m) ** 2, 0) / (xs.length - 1);
 }
 
 function medianOf(xs) {
@@ -572,6 +630,72 @@ function pctChangePerWeek(nowT, pastT, windowDays) {
   return ((nowT - pastT) / pastT * 100) * 7 / windowDays;
 }
 
+// emaTrendByDay is THE per-day weight EMA replay (gauges.go trend walk), shared
+// by the substrate gauge and the Goal Line so there is one trend definition:
+// walk calendar days startStr…endStr in order, seed on the first day that has a
+// reading, then current += alpha·(w − current) on every day with one (byDay =
+// one weight per day key). Days before the seed carry 0 (the gauge's historic
+// behavior); callers that start the walk at the first reading never see them.
+function emaTrendByDay(byDay, startStr, endStr, alpha) {
+  const trend = new Map();
+  let current = 0; let have = false;
+  for (let d = startStr; d <= endStr; d = addDays(d, 1)) {
+    if (byDay.has(d)) {
+      const w = byDay.get(d);
+      if (!have) { current = w; have = true; } else current += alpha * (w - current);
+    }
+    trend.set(d, current);
+  }
+  return trend;
+}
+
+// goalLineProjection is goal.projected (docs/gamification.md §0.3.1, med-8tur.7):
+// "around <date> ± N weeks", or date null with the reason it is withheld.
+// The rule, stated once: over the last 4 weeks of trend, take each week's trend
+// change toward the target (kg/week); with distance = trend → within reach of
+// the target (where status turns at_goal), earliest = distance / fastest week,
+// latest = distance / slowest week; the date is today + their midpoint and the
+// ± is half their spread rounded up (≥ 1 week). Never a bare day count.
+// Withheld (date null) when: too_fast (no date for a crash pace), < 8 weigh-in
+// days in 28 (sparse), no reading in 7 days (stale), the trend run is younger
+// than 28 days (short_window), the 4-week trend is not toward the target
+// (not_toward), or a week stalled or reversed so the range is unbounded
+// (unsteady — deliberately unworded: an unbounded range is no estimate, not
+// "more than a year"). A displayed far end (date + N weeks) past 12 months is
+// beyond_horizon — the one withheld case the UI words ("more than a year at
+// this pace").
+function goalLineProjection({ trend, origin, today, trendWeight, target, direction, coverage, tooFast }) {
+  const none = (reason) => ({ date: null, plus_minus_weeks: null, reason });
+  if (tooFast) return none('too_fast');
+  if (coverage.weigh_in_days_28d < GOAL_LINE_PROJECT_MIN_DAYS) return none('sparse');
+  if (dayDiff(coverage.last_weigh_in_day, today) > GOAL_LINE_PROJECT_FRESH_DAYS) return none('stale');
+  if (addDays(today, -28) < origin) return none('short_window');
+  const weekly = [0, 1, 2, 3].map((i) =>
+    (trend.get(addDays(today, -7 * i)) - trend.get(addDays(today, -7 * (i + 1)))) * direction);
+  if (weekly.reduce((a, b) => a + b, 0) <= 0) return none('not_toward');
+  const slowest = Math.min(...weekly);
+  if (slowest <= 0) return none('unsteady');
+  // Aim at the point the status flips to at_goal (within GOAL_LINE_REACH_KG).
+  const distance = (target - trendWeight) * direction - GOAL_LINE_REACH_KG;
+  const earliestWeeks = distance / Math.max(...weekly);
+  const latestWeeks = distance / slowest;
+  const midDays = Math.round(((earliestWeeks + latestWeeks) / 2) * 7);
+  const plusMinusWeeks = Math.max(1, Math.ceil((latestWeeks - earliestWeeks) / 2));
+  // The displayed far end (date + N weeks) must sit inside the horizon too.
+  if (midDays + plusMinusWeeks * 7 > GOAL_LINE_PROJECT_HORIZON_DAYS) return none('beyond_horizon');
+  return { date: addDays(today, midDays), plus_minus_weeks: plusMinusWeeks, reason: null };
+}
+
+// projectedShift compares two weeks' goal.projected: 'earlier' | 'later' |
+// 'unchanged' (within a week), or null unless BOTH carry a date — a week
+// without a valid date is never compared against (med-8tur.7).
+export function projectedShift(prev, cur) {
+  if (!prev || !cur || !prev.date || !cur.date) return null;
+  const d = dayDiff(prev.date, cur.date);
+  if (Math.abs(d) < 7) return 'unchanged';
+  return d < 0 ? 'earlier' : 'later';
+}
+
 // weightPaceStatus / weightAcceleration (gauges.go).
 function weightPaceStatus(velocityPctPerWeek, currentTrend, goalWeight, cfg) {
   const atGoal = Number.isFinite(goalWeight)
@@ -605,7 +729,7 @@ export const scoring = {
 };
 
 // -------------------------------------------------------------------------
-// The probe catalog. Six pre-registered lever→gauge questions. Each probe:
+// The probe catalog: pre-registered lever→gauge questions. Each probe:
 //   lag        — 0 = gauge read on the same day the lever is classified;
 //                1 = gauge read the next calendar day.
 //   gate       — { minPerArm, noiseFloor }. minPerArm is required in BOTH arms
@@ -616,6 +740,8 @@ export const scoring = {
 //                e.g. no sleep record that night). Never dredges: the predicate
 //                is fixed, not chosen from the data.
 //   gauge(day) — the outcome number for a day, or null if absent.
+//   weight     — optional; true when the probe reads weight. ED-safe mode
+//                (gamificationmode.ed_safe) drops these cards from the Atlas.
 //   the *Phrase / next fields are deterministic copy templates (never causal
 //   language, §4.1): "mornings after X were lower", never "X lowered".
 // -------------------------------------------------------------------------
@@ -643,6 +769,33 @@ export const PROBES = [
     next: 'Keep logging sleep and a morning BP reading to add a pair.',
     revealPhrase: (delta, n) => `Mornings after nights under 7h: systolic ~${Math.abs(Math.round(delta))} mmHg ${delta > 0 ? 'higher' : 'lower'} · ${n} paired days`,
     noEffectPhrase: (n) => `Your morning BP looks steady regardless of sleep length — solid · ${n} days`,
+  },
+  // Sleep-timing probes (med-8tur.15): bedtime vs the user's OWN median onset
+  // over the window (onsetDeviationMin, null below HS_MIN_NIGHTS nights), so
+  // shift workers and early birds are compared to themselves, never a clock.
+  {
+    id: 'late_bedtime_next_morning_bp',
+    question: 'Do later-than-usual bedtimes show in your next-morning blood pressure?',
+    unit: 'mmHg',
+    lag: 0, // sleep.day is the wake day; the morning reading shares that date
+    gate: { minPerArm: 8, noiseFloor: 3 },
+    arm: (d) => (d.onsetDeviationMin === null ? null : d.onsetDeviationMin >= 60),
+    gauge: (d) => d.firstMorningSystolic,
+    next: 'Import your band’s sleep and log a BP reading before noon to add a pair.',
+    revealPhrase: (delta, n) => `Mornings after bedtimes an hour+ later than usual: systolic ~${Math.abs(Math.round(delta))} mmHg ${delta > 0 ? 'higher' : 'lower'} · ${n} paired days`,
+    noEffectPhrase: (n) => `Your morning BP looks about the same after late bedtimes as after usual ones · ${n} days`,
+  },
+  {
+    id: 'irregular_bedtime_next_morning_bp',
+    question: 'Does an off-schedule bedtime (either way) show in your next-morning blood pressure?',
+    unit: 'mmHg',
+    lag: 0,
+    gate: { minPerArm: 8, noiseFloor: 3 },
+    arm: (d) => (d.onsetDeviationMin === null ? null : Math.abs(d.onsetDeviationMin) > 60),
+    gauge: (d) => d.firstMorningSystolic,
+    next: 'Import your band’s sleep and log a BP reading before noon to add a pair.',
+    revealPhrase: (delta, n) => `Mornings after off-schedule bedtimes (an hour+ either way): systolic ~${Math.abs(Math.round(delta))} mmHg ${delta > 0 ? 'higher' : 'lower'} · ${n} paired days`,
+    noEffectPhrase: (n) => `Your morning BP looks about the same after off-schedule bedtimes as after on-schedule ones · ${n} days`,
   },
   {
     id: 'weekend_systolic',
@@ -692,6 +845,39 @@ export const PROBES = [
     revealPhrase: (delta, n) => `After dinners past 21:00 you sleep ~${Math.abs(Math.round(delta))} min ${delta < 0 ? 'less' : 'more'} · ${n} paired days`,
     noEffectPhrase: (n) => `Late dinners don’t seem to shorten your sleep · ${n} days`,
   },
+  // Goal-relevant probes (§0.3.6, med-8tur.10): week-bucketed — `bucket:
+  // 'week'` evaluates over buildWeeks (complete local ISO weeks of the window),
+  // not the day map, so arm/gauge read week objects and lag is 0. The gauge is
+  // the week's change in the Goal Line trend (kg); a descriptive association
+  // between two weekly facts, never a claim that one moved the other.
+  {
+    id: 'workout_weeks_vs_trend_velocity',
+    bucket: 'week',
+    weight: true,
+    question: 'Does your weight trend move differently in weeks with 3+ workouts?',
+    unit: 'kg/wk',
+    lag: 0,
+    gate: { minPerArm: 3, noiseFloor: 0.2 },
+    arm: (w) => w.workouts >= 3,
+    gauge: (w) => w.trendChange,
+    next: 'Weigh in through the week and log your workouts to add a week.',
+    revealPhrase: (delta, n) => `In weeks with 3+ workouts your weight trend moved ~${Math.abs(delta).toFixed(1)} kg/week ${delta < 0 ? 'more downward' : 'more upward'} than in other weeks · ${n} weeks`,
+    noEffectPhrase: (n) => `Your weight trend moved about the same in 3+ workout weeks as in other weeks · ${n} weeks`,
+  },
+  {
+    id: 'food_logged_weeks_vs_trend_velocity',
+    bucket: 'week',
+    weight: true,
+    question: 'Does your weight trend move differently in weeks you log food most days?',
+    unit: 'kg/wk',
+    lag: 0,
+    gate: { minPerArm: 3, noiseFloor: 0.2 },
+    arm: (w) => w.foodLoggedDays >= 5,
+    gauge: (w) => w.trendChange,
+    next: 'Weigh in through the week and log what you eat to add a week.',
+    revealPhrase: (delta, n) => `In weeks you logged food on 5+ days your weight trend moved ~${Math.abs(delta).toFixed(1)} kg/week ${delta < 0 ? 'more downward' : 'more upward'} than in other weeks · ${n} weeks`,
+    noEffectPhrase: (n) => `Your weight trend moved about the same whether or not you logged food most days · ${n} weeks`,
+  },
 ];
 
 // -------------------------------------------------------------------------
@@ -719,23 +905,28 @@ const EXP_MIN_PER_ARM = 4;         // real contrast needed in BOTH arms over the
 // optional record and returns false when absent, so the pause activates for
 // free once a recovery-mode subsystem lands. No subsystem is invented here.
 const RECOVERY_MODE_RECORD_TYPE = 'gamificationmode';
+// The same record type also carries the user's gamification mode (med-8tur.12,
+// docs/gamification.md §0.5): per-mechanic switches plus the ED-safe toggle,
+// on one singleton row. Absent = the defaults below (everything on, ED-safe off).
+const MODE_RECORD_ID = 'gamificationmode';
+const MODE_DEFAULTS = Object.freeze({ ed_safe: false, experiments: true, traits: true, narration: true });
 
 export const EXPERIMENT_TEMPLATES = [
   {
     id: 'bedtime_window',
     fromProbe: 'short_sleep_next_morning_bp',
-    title: 'A steady bedtime window',
+    title: 'A 7h+ night',
     intention: 'When it’s 22:30, I will start winding down for a 7h+ night.',
-    measure: 'Your next-morning systolic on window-nights (7h+) vs shorter nights.',
+    measure: 'Your next-morning systolic after 7h+ nights vs shorter nights.',
     unit: 'mmHg',
     lag: 0, // sleep wake-day shares the morning reading's date
     noiseFloor: 3,
     lever: (d) => (d.sleepMinutes === null ? null : d.sleepMinutes >= 7 * 60),
     gauge: (d) => d.firstMorningSystolic,
-    onLabel: 'window nights',
+    onLabel: '7h+ nights',
     offLabel: 'shorter nights',
-    effectPhrase: (delta, n) => `On your window nights, mornings ran ~${Math.abs(Math.round(delta))} mmHg ${delta < 0 ? 'lower' : 'higher'} · ${n} paired days`,
-    noEffectPhrase: (n) => `Your morning BP held steady whether or not you hit the window — a clean null result over ${n} days`,
+    effectPhrase: (delta, n) => `After your 7h+ nights, mornings ran ~${Math.abs(Math.round(delta))} mmHg ${delta < 0 ? 'lower' : 'higher'} · ${n} paired days`,
+    noEffectPhrase: (n) => `Your morning BP held steady whether or not you slept 7h+ — a clean null result over ${n} days`,
   },
   {
     id: 'workout_cadence',
@@ -768,6 +959,63 @@ export const EXPERIMENT_TEMPLATES = [
     offLabel: 'late-dinner days',
     effectPhrase: (delta, n) => `After early dinners you slept ~${Math.abs(Math.round(delta))} min ${delta > 0 ? 'more' : 'less'} · ${n} paired days`,
     noEffectPhrase: (n) => `Dinner timing didn’t move your sleep length — a clean null result over ${n} days`,
+  },
+  // Goal-lever templates (§0.3.6, med-8tur.10): the intention is a behavior,
+  // never an amount (no kg, no calories). The gauge is the next weigh-in's step
+  // in the Goal Line trend (weightTrendStep, kg) — read the next day, so only
+  // a day followed by a weigh-in pairs.
+  {
+    id: 'three_sessions_week',
+    fromProbe: 'workout_weeks_vs_trend_velocity',
+    weight: true, // ED-safe hides it (listExperiments / startExperiment)
+    title: 'Three sessions a week',
+    intention: 'When my training days come round, I will fit in three sessions this week.',
+    measure: 'Your next weigh-in’s trend step after session days vs other days.',
+    unit: 'kg',
+    lag: 1,
+    noiseFloor: 0.05,
+    lever: (d) => d.workoutCompleted === true,
+    gauge: (d) => d.weightTrendStep,
+    onLabel: 'session days',
+    offLabel: 'other days',
+    effectPhrase: (delta, n) => `After session days your trend stepped ~${Math.abs(delta).toFixed(2)} kg ${delta < 0 ? 'more downward' : 'more upward'} · ${n} paired days`,
+    noEffectPhrase: (n) => `Your trend stepped about the same after session days and other days — a clean null result over ${n} days`,
+  },
+  {
+    id: 'log_every_meal',
+    fromProbe: 'food_logged_weeks_vs_trend_velocity',
+    weight: true,
+    title: 'Log every meal',
+    intention: 'When I finish eating, I will log it before I leave the table.',
+    measure: 'Your next weigh-in’s trend step after fully logged days vs other days.',
+    unit: 'kg',
+    lag: 1,
+    noiseFloor: 0.05,
+    lever: (d) => d.mealsLogged >= 3,
+    gauge: (d) => d.weightTrendStep,
+    onLabel: 'fully logged days',
+    offLabel: 'other days',
+    effectPhrase: (delta, n) => `After fully logged days your trend stepped ~${Math.abs(delta).toFixed(2)} kg ${delta < 0 ? 'more downward' : 'more upward'} · ${n} paired days`,
+    noEffectPhrase: (n) => `Your trend stepped about the same after fully logged days and other days — a clean null result over ${n} days`,
+  },
+  {
+    // The user's OWN protein target (foodtargets), never a number we suggest.
+    // No probe feeds it, so it has no "Test it" entry point on the Atlas.
+    id: 'protein_target',
+    fromProbe: null,
+    weight: true,
+    title: 'Hit your protein target',
+    intention: 'When I plan a meal, I will build it around a protein source.',
+    measure: 'Your next weigh-in’s trend step after days at your protein target vs below it.',
+    unit: 'kg',
+    lag: 1,
+    noiseFloor: 0.05,
+    lever: (d) => d.proteinTargetMet,
+    gauge: (d) => d.weightTrendStep,
+    onLabel: 'target days',
+    offLabel: 'other logged days',
+    effectPhrase: (delta, n) => `After days at your protein target your trend stepped ~${Math.abs(delta).toFixed(2)} kg ${delta < 0 ? 'more downward' : 'more upward'} · ${n} paired days`,
+    noEffectPhrase: (n) => `Your trend stepped about the same after target and other days — a clean null result over ${n} days`,
   },
 ];
 
@@ -930,10 +1178,19 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
           sleepMinutes: null,
           sleepHeartRate: null,
           sleepBestMinutes: -1, // internal: pick the longest session's HR
+          sleepOnsetMin: null,     // bedtime, minutes since the previous local noon (med-8tur.15)
+          sleepOnsetBest: -1,      // internal: pick the longest session's onset
+          onsetDeviationMin: null, // sleepOnsetMin − the window's median onset
           steps: null,
           workoutCompleted: false,
           lastMealMs: null,
           lastMealHour: null,
+          weighedIn: false,      // goal-relevant fields (med-8tur.10)
+          workoutSessions: 0,    // completed sessions (the weekly probe counts sessions, not days)
+          weightTrendStep: null, // the Goal Line trend's EMA step on a weigh-in day (kg)
+          foodLogs: 0,
+          mealHoursSet: new Set(), // internal: distinct local hours with a food log
+          protein: 0,
         };
         days.set(key, d);
       }
@@ -951,18 +1208,27 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       dayObj(localDayString(ms, timeZone)).systolics.push({ ms, systolic: r.systolic });
     }
 
-    // Sleep — total minutes + a resting-HR proxy, bucketed on the wake day.
+    // Sleep — total minutes + a resting-HR proxy + bedtime, bucketed on the
+    // wake day. A night with a start_time but no total_minutes still has an
+    // onset; one with neither contributes nothing.
     for (const r of await records.list(SLEEP_RECORD_TYPE)) {
-      if (r.total_minutes === null || r.total_minutes === undefined) continue;
+      const hasMinutes = r.total_minutes !== null && r.total_minutes !== undefined;
+      const onset = r.start_time ? sleepOnsetMinutes(r.start_time, r.timezone_offset || 0) : NaN;
+      if (!hasMinutes && !Number.isFinite(onset)) continue;
       const key = r.day || (r.start_time ? localDayString(Date.parse(r.start_time), timeZone) : '');
       if (!key) continue;
       const anchorMs = Date.parse(`${key}T00:00:00Z`);
       if (!inWindow(anchorMs)) continue;
       const d = dayObj(key);
-      d.sleepMinutes = (d.sleepMinutes || 0) + r.total_minutes;
-      if (r.heart_rate_avg && r.total_minutes > d.sleepBestMinutes) {
+      const minutes = hasMinutes ? r.total_minutes : 0;
+      if (hasMinutes) d.sleepMinutes = (d.sleepMinutes || 0) + r.total_minutes;
+      if (r.heart_rate_avg && hasMinutes && r.total_minutes > d.sleepBestMinutes) {
         d.sleepBestMinutes = r.total_minutes;
         d.sleepHeartRate = r.heart_rate_avg;
+      }
+      if (Number.isFinite(onset) && minutes > d.sleepOnsetBest) {
+        d.sleepOnsetBest = minutes;
+        d.sleepOnsetMin = onset;
       }
     }
 
@@ -982,7 +1248,9 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
         : (r.scheduled_date ? Date.parse(`${r.scheduled_date}T12:00:00Z`) : NaN);
       if (!inWindow(ms)) continue;
       const key = r.completed_at ? localDayString(ms, timeZone) : r.scheduled_date;
-      dayObj(key).workoutCompleted = true;
+      const wd = dayObj(key);
+      wd.workoutCompleted = true;
+      wd.workoutSessions += 1;
     }
 
     // Food logs — latest meal hour per day (the late-dinner lever).
@@ -994,18 +1262,58 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
         d.lastMealMs = ms;
         d.lastMealHour = localHour(ms, timeZone);
       }
+      d.foodLogs += 1;
+      d.mealHoursSet.add(localHour(ms, timeZone));
+      d.protein += r.protein || 0;
+    }
+
+    // Weight — the Goal Line trend (weightTrendRun: full history, not this
+    // window). A weigh-in day carries the EMA step it made, so a week's trend
+    // change is the sum of its steps. The run's first reading, and any weigh-in
+    // from an earlier run, has no step (null) — a week holding one is unreadable.
+    const run = weightTrendRun(await records.list(WEIGHT_RECORD_TYPE), localDayString(nowMs, timeZone), nowMs);
+    // run.days are local day keys already capped at now — compare keys, not a
+    // UTC-midnight anchor (which drops today east of UTC before midnight UTC).
+    const windowFirstKey = localDayString(windowStartMs, timeZone);
+    for (const key of run.days) {
+      if (key < windowFirstKey) continue;
+      const d = dayObj(key);
+      d.weighedIn = true;
+      // Materialize the day before, so a lag-1 template pairs this weigh-in
+      // with an otherwise empty rest day (its lever reads false, not absent).
+      if (addDays(key, -1) >= windowFirstKey) dayObj(addDays(key, -1));
+      d.weightTrendStep = key > run.origin ? run.trend.get(key) - run.trend.get(addDays(key, -1)) : null;
+    }
+    const ft = (await records.list(FOODTARGETS_RECORD_TYPE)).find((r) => r.recordId === 'foodtargets' && !r.deleted);
+    const proteinTarget = ft && ft.protein > 0 ? ft.protein : 0;
+
+    // Bedtime deviation from the window's own median onset: a centering
+    // constant (self-relative, never a fixed clock), not a fitted model. Both
+    // fields stay null below HS_MIN_NIGHTS onsets.
+    const onsetDays = [...days.values()].filter((d) => d.sleepOnsetMin !== null);
+    if (onsetDays.length >= HS_MIN_NIGHTS) {
+      const medianOnset = medianOf(onsetDays.map((d) => d.sleepOnsetMin));
+      for (const d of onsetDays) d.onsetDeviationMin = d.sleepOnsetMin - medianOnset;
     }
 
     // Finalize derived BP fields.
     for (const d of days.values()) {
       if (d.systolics.length > 0) {
         d.systolics.sort((a, b) => a.ms - b.ms);
-        d.firstMorningSystolic = d.systolics[0].systolic;
+        // A morning gauge only from a morning reading: the day's earliest
+        // reading counts when it is before local noon, else the day has none.
+        // ponytail: a fixed noon cut-off; upgrade to "within N h of that
+        // night's sleep end_time" when sleep is known, if late risers matter.
+        d.firstMorningSystolic = localHour(d.systolics[0].ms, timeZone) < 12 ? d.systolics[0].systolic : null;
         d.meanSystolic = mean(d.systolics.map((s) => s.systolic));
       } else {
         d.firstMorningSystolic = null;
         d.meanSystolic = null;
       }
+      // ponytail: distinct hours with a log stand in for meals (3+ = a fully
+      // logged day); the is_meal flag marks recipes, not meal slots.
+      d.mealsLogged = d.mealHoursSet.size;
+      d.proteinTargetMet = proteinTarget > 0 && d.foodLogs > 0 ? d.protein >= proteinTarget : null;
     }
     return days;
   }
@@ -1056,8 +1364,39 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       n,
       mean_true: mean(armTrue),
       mean_false: mean(armFalse),
+      // Standard error of the delta (Welch): honest spread shown beside the
+      // number; the verdict above stays the noise-floor rule.
+      se: Math.sqrt(sampleVar(armTrue) / nTrue + sampleVar(armFalse) / nFalse),
       text: probe.revealPhrase(delta, n),
     };
+  }
+
+  // buildWeeks folds the day map into complete local ISO weeks (Mon–Sun) for
+  // the week-bucketed probes: only weeks wholly inside the window and before
+  // the live week. trendChange = the sum of the week's trend steps — null
+  // without a weigh-in, or when a weigh-in carries no step (a run start).
+  function buildWeeks(days) {
+    const nowMs = now();
+    const firstKey = localDayString(nowMs - WINDOW_DAYS * DAY_MS, timeZone);
+    const todayKey = localDayString(nowMs, timeZone);
+    const weeks = new Map();
+    for (const d of days.values()) {
+      const monday = addDays(d.key, -((dayOfWeek(d.key) + 6) % 7));
+      if (monday < firstKey || addDays(monday, 6) >= todayKey) continue;
+      let w = weeks.get(monday);
+      if (!w) {
+        w = { key: monday, workouts: 0, foodLoggedDays: 0, trendChange: null, unreadable: false };
+        weeks.set(monday, w);
+      }
+      w.workouts += d.workoutSessions;
+      if (d.foodLogs > 0) w.foodLoggedDays += 1;
+      if (d.weighedIn) {
+        if (d.weightTrendStep === null) w.unreadable = true;
+        else w.trendChange = (w.trendChange || 0) + d.weightTrendStep;
+      }
+    }
+    for (const w of weeks.values()) if (w.unreadable) w.trendChange = null;
+    return weeks;
   }
 
   // The gamificationjournal singleton is shared state (§6.3): seen-discovery
@@ -1107,27 +1446,26 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // yet). Returns { enabled, cards } — the shape journey.js's Atlas feed reads.
   // `whatsNew: false` keeps this the cheap, read-only Atlas it has always been
   // — the narrate handlers hold their own copies of every payload getWhatsNew
-  // composes and drop `whats_new`, so they must not pay for it. `forecast`
-  // carries the gamification feature flag down from the shim: /forecast is
-  // gated there because getForecast() always reports enabled, and the strip's
-  // forecast line has to honour the same gate.
-  async function getAtlas({ whatsNew = true, forecast = true } = {}) {
-    const [days, seen] = await Promise.all([buildDays(), readSeen()]);
+  // composes and drop `whats_new`, so they must not pay for it.
+  async function getAtlas({ whatsNew = true } = {}) {
+    const [days, seen, mode] = await Promise.all([buildDays(), readSeen(), readMode()]);
     const seenSet = new Set(seen);
-    const cards = PROBES.map((probe) => {
-      const card = evaluateProbe(probe, days);
+    const weeks = buildWeeks(days);
+    const cards = PROBES.filter((probe) => !(mode.ed_safe && probe.weight)).map((probe) => {
+      const card = evaluateProbe(probe, probe.bucket === 'week' ? weeks : days);
+      if (probe.bucket) card.bucket = probe.bucket;
       if (card.state === 'revealed' || card.state === 'no_effect') {
         card.seen = seenSet.has(card.id);
       }
       return card;
     });
     if (!whatsNew) return { enabled: true, cards };
-    return { enabled: true, cards, whats_new: await getWhatsNew(cards, forecast) };
+    return { enabled: true, cards, whats_new: await getWhatsNew(cards) };
   }
 
   // --- "Since you last looked" (med-edxz.3) -------------------------------
   function verdictLabel(v) {
-    if (v === 'effect') return 'an effect';
+    if (v === 'effect') return 'a difference';
     if (v === 'no_effect') return 'a clean null result';
     return 'not enough contrast to call it';
   }
@@ -1142,8 +1480,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // timestamp, no localStorage, so items age out on their own.
   //
   // Priority: unseen discoveries (max 2) -> a recently resolved trial -> a
-  // fresh keystone -> a trait (freshly earned, else recently dormant) -> this
-  // morning's forecast resolution. When none of those fired, ONE anticipation
+  // fresh keystone -> a trait (freshly earned, else recently dormant). When none of those fired, ONE anticipation
   // line for the developing probe closest to revealing (goal gradient) — and
   // only once that probe has real data, so a fresh account shows no strip at
   // all.
@@ -1153,7 +1490,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // keystones / experiments again for their own cards. Fine for one vault
   // in-browser; memoize buildDays the way loadForRead memoizes ctx if a real
   // device measurably stutters.
-  async function getWhatsNew(cards, includeForecast) {
+  async function getWhatsNew(cards) {
     const nowMs = now();
     // Sequential, not Promise.all: getTraits / getKeystones / listExperiments
     // each read-modify-write the journal singleton, so awaiting them in turn
@@ -1163,7 +1500,6 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     const traits = await getTraits();
     const keystones = await getKeystones();
     const experiments = await listExperiments();
-    const forecast = includeForecast ? await getForecast() : null;
     const items = [];
 
     // 1. Unseen findings — the genuinely new thing on the screen.
@@ -1201,7 +1537,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       items.push({
         kind: 'keystone',
         text: keystone.title || 'A new keystone.',
-        target: 'journey-keystones-card',
+        // Goal milestones render as the Journey goal card's timeline (med-8tur.9).
+        target: keystone.kind === 'goal_milestone' ? 'journey-goal-card' : 'journey-keystones-card',
       });
     }
 
@@ -1238,19 +1575,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       });
     }
 
-    // 5. This morning's forecast resolution, hidden in exactly the states
-    // forecast-card.js hides it: the gamification flag off (carried in as
-    // includeForecast, since getForecast always reports enabled — the same
-    // reason the /forecast route gates it at the shim) and below the
-    // calibration gate (getForecast only sets `resolution` once calibrated).
-    // Never a weight reference: the text is the forecast card's own sleep/BP
-    // line. No Journey card owns the forecast, so this line has no target.
-    const resolution = forecast && forecast.enabled ? forecast.resolution : null;
-    if (resolution && resolution.text) {
-      items.push({ kind: 'forecast', text: resolution.text, target: null });
-    }
-
-    // 6. Fallback — the closest-to-reveal developing probe, but only one that
+    // 5. Fallback — the closest-to-reveal developing probe, but only one that
     // has actually started collecting pairs (a fresh account gets no strip).
     if (items.length === 0) {
       const closest = cards
@@ -1259,7 +1584,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       if (closest) {
         items.push({
           kind: 'anticipation',
-          text: `${Number(closest.remaining) || 0} more paired days until: ${closest.question}`,
+          text: `${Number(closest.remaining) || 0} more ${closest.bucket === 'week' ? 'weeks' : 'paired days'} until: ${closest.question}`,
           target: 'journey-atlas-card',
         });
       }
@@ -1296,8 +1621,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     return list;
   }
 
-  // inRangeBand reads the user's own bp goal (systolic) so the forecast is
-  // never a black box — in-range means "at or below your target", or the
+  // inRangeBand reads the user's own bp goal (systolic) so the BP-band keystone
+  // is never a black box — in-range means "at or below your target", or the
   // High-BP Stage-1 threshold when no goal is set. Weight is never consulted.
   async function inRangeBand() {
     const goals = await records.list(BP_GOAL_RECORD_TYPE);
@@ -1307,139 +1632,6 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       return { max: target, source: 'goal' };
     }
     return { max: DEFAULT_IN_RANGE_SYSTOLIC, source: 'default' };
-  }
-
-  // forecastPairs buckets the trailing window into the two lever arms. A day is
-  // "resolvable" only when it has BOTH a classifiable night (sleepMinutes) and a
-  // first-morning systolic — the exact same-day pairing the probe catalog uses.
-  // Each entry carries the outcome boolean (in range) so calibration can replay
-  // the model's majority-class call per arm. Pure over the day map.
-  function forecastPairs(days, band) {
-    const good = []; // { key, inRange, systolic, sleepMinutes }
-    const short = [];
-    for (const d of days.values()) {
-      if (d.sleepMinutes === null || d.sleepMinutes === undefined) continue;
-      if (d.firstMorningSystolic === null || d.firstMorningSystolic === undefined) continue;
-      const inRange = d.firstMorningSystolic <= band.max;
-      const entry = {
-        key: d.key, inRange, systolic: d.firstMorningSystolic, sleepMinutes: d.sleepMinutes,
-      };
-      (d.sleepMinutes >= FORECAST_SLEEP_WINDOW_MIN ? good : short).push(entry);
-    }
-    return { good, short };
-  }
-
-  function share(arm) {
-    return arm.length ? arm.reduce((a, e) => a + (e.inRange ? 1 : 0), 0) / arm.length : 0;
-  }
-
-  function fmtHours(min) {
-    const h = Math.floor(min / 60);
-    const m = Math.round(min % 60);
-    return m === 0 ? `${h}h` : `${h}h ${m}m`;
-  }
-
-  // getForecast — tonight's prospective card + this morning's resolution + the
-  // "how well do we know you" calibration meter (§3.4). Recompute-on-read: the
-  // model, the resolution, and the trailing hit-rate are all pure functions of
-  // the log (§4.2), so nothing here is persisted. Self-suppresses below the gate:
-  // when either arm holds fewer than FORECAST_GATE_PER_ARM nights it declines to
-  // quote a probability and the calibration meter carries the progress instead.
-  async function getForecast() {
-    const nowMs = now();
-    const [days, band] = await Promise.all([buildDays(), inRangeBand()]);
-    const { good, short } = forecastPairs(days, band);
-    const nGood = good.length;
-    const nShort = short.length;
-    const have = Math.min(nGood, nShort);
-    const needed = FORECAST_GATE_PER_ARM;
-    const total = nGood + nShort;
-    const calibrated = have >= needed;
-
-    const goodShare = share(good);
-    const shortShare = share(short);
-    const phase = localHour(nowMs, timeZone) < 12 ? 'morning' : 'evening';
-
-    // Evening card — the tonight-actionable, lever-conditioned chance. Below the
-    // gate it names no number (honesty over theater, §5 forecast guardrail).
-    let evening;
-    if (!calibrated) {
-      evening = {
-        state: 'insufficient',
-        lever: 'sleep_window',
-        text: 'We don’t know your mornings well enough yet — keep logging a morning BP after each night and this fills in.',
-      };
-    } else {
-      evening = {
-        state: 'ready',
-        lever: 'sleep_window',
-        goodShare: pct(goodShare),
-        otherShare: pct(shortShare),
-        n: total,
-        text: `A 7h+ night tonight → mornings like that have been in range ${pct(goodShare)}% for you (vs ${pct(shortShare)}% after shorter nights).`,
-      };
-    }
-
-    // Morning resolution — the most recent resolvable morning, today or
-    // yesterday, scored against the model's majority-class call for its arm.
-    // Only meaningful once calibrated; a miss is always framed as noise.
-    let resolution = null;
-    if (calibrated) {
-      const todayKey = localDayString(nowMs, timeZone);
-      const yesterdayKey = localDayString(nowMs - DAY_MS, timeZone);
-      let latest = null;
-      for (const e of [...good, ...short]) {
-        if (e.key !== todayKey && e.key !== yesterdayKey) continue;
-        if (!latest || e.key > latest.key) latest = e;
-      }
-      if (latest) {
-        const wasGoodNight = latest.sleepMinutes >= FORECAST_SLEEP_WINDOW_MIN;
-        const armShare = wasGoodNight ? goodShare : shortShare;
-        const predictedInRange = armShare >= 0.5;
-        const matched = predictedInRange === latest.inRange;
-        resolution = {
-          day: latest.key,
-          nightMinutes: latest.sleepMinutes,
-          systolic: latest.systolic,
-          inRange: latest.inRange,
-          matched,
-          text: `Last night ${fmtHours(latest.sleepMinutes)} · this morning ${latest.systolic} — ${latest.inRange ? 'in range ✓' : 'above your range'}. ${matched ? 'Your body agreed ✓' : 'Not this time — one morning is noise; the pattern needs weeks.'}`,
-        };
-      }
-    }
-
-    // Calibration meter — the honest progress bar. While learning, the fill is
-    // data readiness toward the gate; once calibrated, the fill IS the model's
-    // trailing hit-rate over every resolvable morning (majority-class call vs
-    // actual), which can honestly be modest.
-    let calibration;
-    if (!calibrated) {
-      calibration = {
-        state: 'learning',
-        have,
-        needed,
-        fraction: needed > 0 ? Math.min(1, have / needed) : 0,
-        label: `Getting to know your mornings — ${have} of ${needed} paired nights each way.`,
-      };
-    } else {
-      let hits = 0;
-      for (const e of good) if ((goodShare >= 0.5) === e.inRange) hits += 1;
-      for (const e of short) if ((shortShare >= 0.5) === e.inRange) hits += 1;
-      const hitRate = total ? hits / total : 0;
-      calibration = {
-        state: 'calibrated',
-        have,
-        needed,
-        n: total,
-        hitRate: pct(hitRate),
-        fraction: hitRate,
-        label: `Calibrated on ${total} mornings — the pattern held ${pct(hitRate)}% of the time so far.`,
-      };
-    }
-
-    return {
-      enabled: true, phase, band, evening, resolution, calibration,
-    };
   }
 
   // --- Self-Experiments lifecycle -----------------------------------------
@@ -1453,13 +1645,57 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     return await records.list(EXPERIMENT_RECORD_TYPE);
   }
 
+  // readMode — the gamificationmode singleton over MODE_DEFAULTS. Only
+  // booleans count; anything else falls back to the default.
+  async function readMode() {
+    const rec = (await records.list(RECOVERY_MODE_RECORD_TYPE)).find((r) => r.recordId === MODE_RECORD_ID);
+    const mode = { ...MODE_DEFAULTS };
+    for (const k of Object.keys(MODE_DEFAULTS)) if (rec && typeof rec[k] === 'boolean') mode[k] = rec[k];
+    return mode;
+  }
+
+  async function getMode() {
+    return { enabled: true, ...(await readMode()) };
+  }
+
+  // putMode is the USER write behind the Settings switches: a partial patch of
+  // known boolean keys, merged over the stored row (its recovery flag kept).
+  // Serialized: two overlapping flips would otherwise both read the same row
+  // and the later write would drop the other's switch.
+  let modeWrites = Promise.resolve();
+  function putMode(body) {
+    const run = modeWrites.then(() => writeMode(body));
+    modeWrites = run.catch(() => {});
+    return run;
+  }
+
+  async function writeMode(body) {
+    const patch = {};
+    for (const k of Object.keys(MODE_DEFAULTS)) {
+      if (!body || body[k] === undefined) continue;
+      if (typeof body[k] !== 'boolean') return { ok: false, error: `invalid_${k}` };
+      patch[k] = body[k];
+    }
+    const prev = (await records.list(RECOVERY_MODE_RECORD_TYPE)).find((r) => r.recordId === MODE_RECORD_ID);
+    await records.put(RECOVERY_MODE_RECORD_TYPE, {
+      ...(prev || {}), ...patch, recordId: MODE_RECORD_ID, deleted: false, clientTs: now(),
+    });
+    return getMode();
+  }
+
   // recoveryActive — the defensive recovery/illness-mode seam (§5). No such
   // flag exists yet; this reads an optional signal record and returns false
   // when absent, so experiments auto-pause for free once the flag lands.
+  // A week paused in the weekly review (§0.3.4, med-8tur.4) reads as recovery
+  // too. NOTE what that does and does not do: an active experiment only DEFERS
+  // its verdict (resolution waits; its window is not extended) and no new one
+  // can start; a chapter is not force-ended. Nothing else changes.
   async function recoveryActive() {
     try {
-      const modes = await records.list(RECOVERY_MODE_RECORD_TYPE);
-      return modes.some((m) => m && m.recovery === true);
+      const [modes, plan] = await Promise.all([
+        records.list(RECOVERY_MODE_RECORD_TYPE), currentWeekPlanRecord(),
+      ]);
+      return modes.some((m) => m && m.recovery === true) || !!(plan && plan.paused);
     } catch (_) {
       return false;
     }
@@ -1502,7 +1738,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
         kind: 'experiment',
         title: template.title,
         text: verdict.verdict === 'effect'
-          ? `Completed a clean 14-day trial and found an effect: ${template.title.toLowerCase()}.`
+          ? `Completed a clean 14-day trial and found a difference: ${template.title.toLowerCase()}.`
           : `Completed a clean 14-day trial — a genuine null result, an equally real finding.`,
         earned_at: nowMs,
       });
@@ -1561,6 +1797,11 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // can start. Auto-freezes an elapsed trial as a side effect (markDiscoverySeen
   // pattern).
   async function listExperiments() {
+    const mode = await readMode();
+    if (!mode.experiments) return { enabled: false };
+    // ED-safe (§0.5): weight-outcome templates, and their trial / verdict
+    // cards, leave the surface (a running one still blocks a new start).
+    const shown = (e) => (e && !(mode.ed_safe && (experimentTemplateById(e.template_id) || {}).weight) ? e : null);
     const nowMs = now();
     const [all, days, paused] = await Promise.all([readExperiments(), buildDays(), recoveryActive()]);
     const activeRaw = all.find((e) => e.status === 'active') || null;
@@ -1578,10 +1819,10 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     return {
       enabled: true,
       recovery_paused: paused,
-      active: active ? enrichActive(active, days, nowMs, paused) : null,
-      verdict: latest ? verdictView(latest) : null,
+      active: shown(active) ? enrichActive(active, days, nowMs, paused) : null,
+      verdict: shown(latest) ? verdictView(latest) : null,
       can_start: !active && !paused,
-      templates: EXPERIMENT_TEMPLATES.map((t) => ({
+      templates: EXPERIMENT_TEMPLATES.filter((t) => !(mode.ed_safe && t.weight)).map((t) => ({
         id: t.id, title: t.title, intention: t.intention,
         measure: t.measure, from_probe: t.fromProbe, unit: t.unit,
       })),
@@ -1594,6 +1835,9 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   async function startExperiment(templateId, params) {
     const template = experimentTemplateById(templateId);
     if (!template) return { ok: false, error: 'unknown_template' };
+    const mode = await readMode();
+    if (!mode.experiments) return { ok: false, error: 'disabled' };
+    if (mode.ed_safe && template.weight) return { ok: false, error: 'ed_safe' };
     const paused = await recoveryActive();
     if (paused) return { ok: false, error: 'recovery_paused' };
 
@@ -1665,7 +1909,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     let morningReadings = 0;
     for (const d of days.values()) {
       if (d.key < startDay || d.key > endDay) continue;
-      const logged = d.firstMorningSystolic !== null || d.sleepMinutes !== null || d.workoutCompleted;
+      const logged = d.meanSystolic !== null || d.sleepMinutes !== null || d.workoutCompleted;
       if (logged) loggedDays += 1;
       if (d.sleepMinutes !== null && d.sleepMinutes >= 7 * 60) windowNights += 1;
       if (d.workoutCompleted === true) moveDays += 1;
@@ -1910,6 +2154,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // which shouldn't mint new identity off a paused clock). The write is the only
   // durable side effect; every other field is recomputed.
   async function getTraits() {
+    if (!(await readMode()).traits) return { enabled: false };
     const nowMs = now();
     const [days, paused, journal] = await Promise.all([buildDays(), recoveryActive(), readJournal()]);
     const persistedTraits = (journal && journal.traits) || {};
@@ -1961,6 +2206,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     await maybeDetectBpBandKeystone(days, band);
     const journal = await readJournal();
     const list = Array.isArray(journal && journal.keystones) ? journal.keystones.slice() : [];
+    // ED-safe: goal milestones are weight outcomes — hidden with the Goal Line.
+    if (!(await readMode()).ed_safe) list.push(...await milestoneKeystones());
     list.sort((a, b) => (b.earned_at || 0) - (a.earned_at || 0));
     return { enabled: true, keystones: list };
   }
@@ -2334,17 +2581,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     if (dayDiff(msToUTCDay(latestMs), todayStr) > cfg.gaugeWeightVelocityWindowDays) {
       return { status: 'insufficient_data' };
     }
-    const trend = new Map();
-    let current = 0; let have = false;
-    let d = startStr;
-    while (d <= todayStr) {
-      if (byDay.has(d)) {
-        const w = byDay.get(d);
-        if (!have) { current = w; have = true; } else current += cfg.gaugeWeightEMAAlpha * (w - current);
-      }
-      trend.set(d, current);
-      d = addDays(d, 1);
-    }
+    const trend = emaTrendByDay(byDay, startStr, todayStr, cfg.gaugeWeightEMAAlpha);
     const velDays = cfg.gaugeWeightVelocityWindowDays;
     const nowTrend = trend.get(todayStr);
     const pastTrend = trend.get(addDays(todayStr, -velDays)) || 0;
@@ -2750,29 +2987,48 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     delete weight.goal_direction; // internal-only (json:"-" in Go)
     return {
       enabled: true,
-      weight,
+      // ED-safe: no weight numbers on the Journey gauges.
+      weight: (await readMode()).ed_safe ? null : weight,
       bp: computeBPGaugeAt(ctx, ctx._bpReadings, todayStr, cfg),
       resting_hr: computeRestingHRGaugeAt(ctx, todayStr, cfg),
     };
   }
 
-  // getWeeklyReview ports weekly.go: this-week vs last-week lever closes, best
-  // day, strengths now/prior, gauges (+ bp 30d share a week ago), health score
-  // now/prior — anchored on the ISO week containing now().
-  async function getWeeklyReview() {
+  // getWeeklyReview (docs/gamification.md §0.3.4, med-8tur.4) reviews the most
+  // recently COMPLETED local week, Monday–Sunday in the owner's zone — the live
+  // week is the Goal Line card's job. A Monday read reviews last week; so does
+  // a Sunday read (Sunday is still live). DST policy: a week is seven local
+  // calendar days, so a DST week is 167 or 169 hours long and nothing is
+  // re-bucketed by the shift. Three fact rows, no composite, missing = unknown:
+  //   rows.weight   — the Goal Line read as of Sunday's end: trend change over
+  //                   the week, distance, weigh-in days, milestones earned;
+  //   rows.workouts — completed vs the plan's scheduled count (null = no
+  //                   weekly plan; planned rest is never a miss);
+  //   rows.bp       — daily-weighted mean of both components vs bpgoal, days.
+  // Then the choice: `plan` is the record for `plan_week` (the live week, or
+  // from Sunday on the coming one), `options` the curated list to pick from.
+  // The ring/score keys (levers, strengths, gauges, health_score) stay for the
+  // MCP op's shape, now over the same completed week — nothing renders them.
+  async function getWeeklyReview({ features } = {}) {
+    // ED-safe reads as the weight feature being off: no weight row, no
+    // weigh-in cadence pick, no weight intention, no weight gauge.
+    const edSafe = (await readMode()).ed_safe;
+    const on = (k) => !(edSafe && k === 'weight') && (!features || !!features[k]);
     const { cfg, ctx } = await loadForRead();
     const scored = scoreWindow(ctx, cfg);
-    const todayStr = scored.todayStr;
-    const week = weekIndexOf(todayStr);
-    const thisB = weekBoundsOf(week);
-    const priorB = weekBoundsOf(week - 1);
+    const nowMs = now();
+    const today = localDayString(nowMs, timeZone);
+    const monday = addDays(today, -((dayOfWeek(today) + 6) % 7) - 7);
+    const sunday = addDays(monday, 6);
+    const priorMonday = addDays(monday, -7);
+    // Last instant of the reviewed Sunday, local: data after it is next week's.
+    const weekEndMs = localWallToUtcMs(utcDayToMs(addDays(sunday, 1)), timeZone) - 1;
 
-    // closed days per lever within a [firstUnix,lastUnix] week from scored awards.
-    const closedDaysByLever = (firstUnix, lastUnix) => {
+    // Substrate awards are keyed by UTC day; the local day strings index them
+    // directly (an award near midnight can land one day off — display-only).
+    const closedDaysByLever = (fromDay, toDay) => {
       const out = {}; for (const lv of LEVER_RINGS) out[lv.key] = new Set();
-      let d = msToUTCDay(firstUnix * 1000);
-      const endDay = msToUTCDay(lastUnix * 1000);
-      while (d <= endDay) {
+      for (let d = fromDay; d <= toDay; d = addDays(d, 1)) {
         for (const a of (scored.byDay.get(d) || [])) {
           if (a.kind === KIND_FLOOR) continue;
           for (const lv of LEVER_RINGS) {
@@ -2780,62 +3036,216 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
             out[lv.key].add(d); break;
           }
         }
-        d = addDays(d, 1);
       }
       return out;
     };
-    const thisClosed = closedDaysByLever(thisB.first, thisB.last);
-    const lastClosed = closedDaysByLever(priorB.first, priorB.last);
+    const thisClosed = closedDaysByLever(monday, sunday);
+    const lastClosed = closedDaysByLever(priorMonday, addDays(monday, -1));
     const levers = LEVER_RINGS.map((lv) => ({
       key: lv.key, closed_this_week: thisClosed[lv.key].size, closed_last_week: lastClosed[lv.key].size,
     }));
 
-    // days with any HP this week + best day (most levers closed).
+    // days with any HP in the week + best day (most levers closed, earliest wins).
     const hpDays = new Set();
-    const closedByDay = new Map();
-    let dd = msToUTCDay(thisB.first * 1000);
-    const weekEndDay = msToUTCDay(thisB.last * 1000);
-    while (dd <= weekEndDay) {
-      const awards = scored.byDay.get(dd) || [];
-      let hp = 0; for (const a of awards) hp += a.hp;
-      if (hp > 0) hpDays.add(dd);
-      let n = 0; for (const lv of LEVER_RINGS) if (thisClosed[lv.key].has(dd)) n += 1;
-      if (n > 0) closedByDay.set(dd, n);
-      dd = addDays(dd, 1);
-    }
     let bestDay = null;
-    for (const [day, count] of closedByDay) {
-      if (!bestDay || count > bestDay.rings_closed || (count === bestDay.rings_closed && utcDayUnix(day) < bestDay.day_unix)) {
-        bestDay = { day_unix: utcDayUnix(day), rings_closed: count };
-      }
+    for (let d = monday; d <= sunday; d = addDays(d, 1)) {
+      let hp = 0; for (const a of (scored.byDay.get(d) || [])) hp += a.hp;
+      if (hp > 0) hpDays.add(d);
+      let n = 0; for (const lv of LEVER_RINGS) if (thisClosed[lv.key].has(d)) n += 1;
+      if (n > 0 && (!bestDay || n > bestDay.rings_closed)) bestDay = { day_unix: utcDayUnix(d), rings_closed: n };
     }
 
-    const weekAgo = addDays(todayStr, -7);
-    const sNow = strengthsView(ctx, ctx._bpReadings, todayStr, cfg);
-    const sPrior = strengthsView(ctx, ctx._bpReadings, weekAgo, cfg);
-    const strengths = sNow.map((s, i) => ({ key: s.key, label: s.label, value_now: s.value, value_prior: (sPrior[i] && sPrior[i].value) || 0 }));
+    const sPrior = strengthsView(ctx, ctx._bpReadings, addDays(sunday, -7), cfg);
+    const strengths = strengthsView(ctx, ctx._bpReadings, sunday, cfg)
+      .map((st, i) => ({ key: st.key, label: st.label, value_now: st.value, value_prior: (sPrior[i] && sPrior[i].value) || 0 }));
+    let weightGauge = computeWeightGaugeAt(ctx, sunday, cfg); delete weightGauge.goal_direction;
+    if (edSafe) weightGauge = null;
+    const bpGauge = computeBPGaugeAt(ctx, ctx._bpReadings, sunday, cfg);
+    const bpPrior = computeBPGaugeAt(ctx, ctx._bpReadings, addDays(sunday, -7), cfg);
 
-    const weight = computeWeightGaugeAt(ctx, todayStr, cfg); delete weight.goal_direction;
-    const bp = computeBPGaugeAt(ctx, ctx._bpReadings, todayStr, cfg);
-    const bpPrior = computeBPGaugeAt(ctx, ctx._bpReadings, weekAgo, cfg);
-    const hr = computeRestingHRGaugeAt(ctx, todayStr, cfg);
-    const bpSharePrior = bpPrior.status === 'ok' ? (bpPrior.share_30d || 0) : 0;
+    // ---- the three goal rows, each read as of the reviewed Sunday's end ----
+    const [weightAll, goalAll, bpAll, bpGoalAll, groups, variants, rotations, sessionsRaw, milestones] = await Promise.all([
+      records.list(WEIGHT_RECORD_TYPE), records.list(WEIGHTGOAL_RECORD_TYPE),
+      records.list(BP_RECORD_TYPE), records.list(BP_GOAL_RECORD_TYPE),
+      records.list(WORKOUT_GROUP_RECORD_TYPE), records.list(WORKOUT_VARIANT_RECORD_TYPE),
+      records.list(WORKOUT_ROTATION_RECORD_TYPE), records.listRaw(WORKOUT_SESSION_RECORD_TYPE),
+      records.list(GOAL_MILESTONE_RECORD_TYPE),
+    ]);
+    // The goal in force at the week's end — one set later never re-reads it.
+    const g = goalLineWeight(weightAll, goalAll.filter((r) => !(Date.parse(r.set_at) > weekEndMs)), sunday, weekEndMs);
+    const weighInDays = new Set(weightAll
+      .filter((r) => Number.isFinite(r.weight) && Date.parse(r.measured_at) <= weekEndMs)
+      .map((r) => localDayString(Date.parse(r.measured_at), timeZone))
+      .filter((d) => d >= monday && d <= sunday)).size;
+    const weightRow = on('weight') ? {
+      feature_on: true,
+      status: g.trend_weight === null ? 'unknown' : 'ok',
+      goal_status: g.status,
+      // Direction + progress of the goal in force at the week's end, so the
+      // recap never pairs this week's facts with a goal edited since.
+      goal_direction: g.direction,
+      progress_fraction: g.progress ? g.progress.fraction : null,
+      trend_weight: g.trend_weight,
+      trend_change_kg: g.change_7d,
+      distance_to_goal: g.distance_to_goal,
+      weigh_in_days: weighInDays,
+      milestones_reached: milestones
+        .filter((m) => m.episode_id === g.episode_id && m.earned_at >= monday && m.earned_at <= sunday)
+        .sort((a, b) => a.ordinal - b.ordinal)
+        .map((m) => ({ id: m.recordId, ordinal: m.ordinal, title: milestoneTitle(m) })),
+    } : { feature_on: false, status: 'unknown' };
+    // ponytail: scheduled counts the CURRENT plan's weekdays over the past
+    // week — a plan edited since then re-labels it. Snapshot plans if it matters.
+    const wo = on('workout')
+      ? goalLineWorkouts({ groups, variants, rotations, sessionsRaw, today: sunday, monday, sinceMonday: 6, nowMs: weekEndMs })
+      : null;
+    const workoutsRow = wo
+      ? { feature_on: true, completed: wo.completed_this_week, scheduled: wo.scheduled_this_week }
+      : { feature_on: false, completed: null, scheduled: null };
+    const bpl = on('bp') ? goalLineBP(bpAll, bpGoalAll, sunday, monday, weekEndMs) : null;
+    const bpRow = bpl
+      ? { feature_on: true, status: bpl.status, mean: bpl.mean_7d, target: bpl.target, days_measured: bpl.days_this_week }
+      : { feature_on: false, status: 'unknown', mean: null, target: null, days_measured: null };
 
-    const hsNow = healthScoreView(ctx, ctx._bpReadings, todayStr, cfg);
-    const hsPrior = healthScoreView(ctx, ctx._bpReadings, weekAgo, cfg);
+    const planWeek = planWeekKey(today);
+    const planRec = await weekPlanRecord(planWeek);
+    const weighInNow = await currentWeighInCadence();
+    const quiet = hpDays.size === 0 && weighInDays === 0 && !(workoutsRow.completed > 0) && !(bpRow.days_measured > 0);
 
     return {
       enabled: true,
-      quiet: hpDays.size === 0,
-      week_start: thisB.first,
-      week_end: thisB.last,
+      quiet,
+      week: { id: isoWeekKey(monday), start_day: monday, end_day: sunday },
+      week_start: utcDayUnix(monday),
+      week_end: utcDayUnix(sunday),
+      rows: { weight: weightRow, workouts: workoutsRow, bp: bpRow },
+      best_day: bestDay,
+      plan_week: planWeek,
+      // Mon–Sat the pick shapes the live week; from Sunday on, the coming one.
+      plan_scope: planWeek === isoWeekKey(today) ? 'this_week' : 'next_week',
+      // A stored intention whose feature is now off (or weight under ED-safe)
+      // drops out of the plan too, not just out of the options.
+      plan: visiblePlan(weekPlanView(planRec), on),
+      options: {
+        intentions: WEEK_INTENTIONS.filter((i) => on(i.feature)).map(({ id, text }) => ({ id, text })),
+        weigh_in: on('weight') ? [...WEEK_WEIGH_IN_CADENCES] : [],
+        // The weigh-in reminder's cadence today — the control's starting value.
+        weigh_in_current: weighInNow,
+        bp_days_max: on('bp') ? WEEK_BP_DAYS_MAX : 0,
+      },
       days_with_any_hp: hpDays.size,
       levers,
-      best_day: bestDay,
       strengths,
-      gauges: { weight, bp, bp_share_30d_prior: bpSharePrior, resting_hr: hr },
-      health_score: { now: hsNow, prior: hsPrior },
+      gauges: {
+        weight: weightGauge, bp: bpGauge,
+        bp_share_30d_prior: bpPrior.status === 'ok' ? (bpPrior.share_30d || 0) : 0,
+        resting_hr: computeRestingHRGaugeAt(ctx, sunday, cfg),
+      },
+      health_score: {
+        now: healthScoreView(ctx, ctx._bpReadings, sunday, cfg),
+        prior: healthScoreView(ctx, ctx._bpReadings, addDays(sunday, -7), cfg),
+      },
     };
+  }
+
+  // ----- Weekly plan (docs/gamification.md §0.3.4, med-8tur.4) ---------------
+  // The plan week is the live ISO week — or, from Sunday on, the coming one:
+  // the Sunday digest asks for NEXT week's intention, and getGoalLine reads the
+  // live week's record, so a Sunday pick takes effect on Monday.
+  function planWeekKey(today) {
+    return isoWeekKey(dayOfWeek(today) === 0 ? addDays(today, 1) : today);
+  }
+
+  async function weekPlanRecord(week) {
+    return (await records.list(WEEK_PLAN_RECORD_TYPE)).find((r) => r.recordId === `${WEEK_PLAN_RECORD_TYPE}-${week}`) || null;
+  }
+
+  // The weigh-in reminder pref's cadence (reminders.js owns the record): the
+  // weekly plan's weigh-in contract IS that cadence, so it seeds the default.
+  async function currentWeighInCadence() {
+    const pref = (await records.list('weightreminderpref')).find((r) => r.recordId === 'weightreminderpref');
+    return pref && WEEK_WEIGH_IN_CADENCES.includes(pref.cadence) ? pref.cadence : 'weekly';
+  }
+
+  async function currentWeekPlanRecord() {
+    return weekPlanRecord(isoWeekKey(localDayString(now(), timeZone)));
+  }
+
+  // visiblePlan drops a stored intention whose feature is off (`on(feature)`
+  // false — weight under ED-safe included), so neither the review read nor a
+  // week-plan write response can show it.
+  function visiblePlan(view, on) {
+    const it = view && view.intention && WEEK_INTENTIONS.find((i) => i.id === view.intention.id);
+    return it && !on(it.feature) ? { ...view, intention: null } : view;
+  }
+
+  function weekPlanView(rec) {
+    if (!rec) return null;
+    const it = WEEK_INTENTIONS.find((i) => i.id === rec.intention_id);
+    return {
+      week: rec.week,
+      intention: it ? { id: it.id, text: it.text } : null,
+      cadence: rec.cadence || null,
+      paused: !!rec.paused,
+      picked_at: rec.picked_at || null,
+    };
+  }
+
+  // putWeekPlan is the USER write behind the weekly review's choice (clientTs
+  // now()). body: { choice?, cadence? } — choice is an intention id, 'keep'
+  // (carry the latest earlier week's intention), 'pause' (the week is off: no
+  // change/too-fast on the Goal Line, no weigh-in nudges, experiments wait),
+  // or absent (a cadence-only edit keeps the week's current pick, if any).
+  // cadence: { weigh_in: 'weekly'|'daily', bp_days: 0..7|null }, merged over the
+  // week's (or the previous week's) contract — except weigh_in, which IS the
+  // weigh-in reminder's cadence: the request's value, else the reminder's
+  // current one (a stored week never overrides it). Returns { ok, plan } / { ok:false, error }.
+  async function putWeekPlan(body) {
+    const choice = body && body.choice;
+    const patch = (body && body.cadence) || {};
+    if (choice !== undefined && choice !== 'keep' && choice !== 'pause' && !WEEK_INTENTIONS.some((i) => i.id === choice)) {
+      return { ok: false, error: 'unknown_intention' };
+    }
+    if (patch.weigh_in !== undefined && !WEEK_WEIGH_IN_CADENCES.includes(patch.weigh_in)) {
+      return { ok: false, error: 'invalid_cadence' };
+    }
+    if (patch.bp_days !== undefined && patch.bp_days !== null
+      && !(Number.isInteger(patch.bp_days) && patch.bp_days >= 0 && patch.bp_days <= WEEK_BP_DAYS_MAX)) {
+      return { ok: false, error: 'invalid_cadence' };
+    }
+    const nowMs = now();
+    const week = planWeekKey(localDayString(nowMs, timeZone));
+    const recordId = `${WEEK_PLAN_RECORD_TYPE}-${week}`;
+    const [all, goalAll] = await Promise.all([records.list(WEEK_PLAN_RECORD_TYPE), records.list(WEIGHTGOAL_RECORD_TYPE)]);
+    const existing = all.find((r) => r.recordId === recordId);
+    // Lexical order on '<year>-W<ww>' is chronological.
+    const prior = all.filter((r) => r.week && r.week < week).sort((a, b) => (a.week < b.week ? 1 : -1))[0];
+    let intentionId = (existing && existing.intention_id) || null;
+    let paused = existing ? !!existing.paused : false;
+    if (choice === 'keep') {
+      intentionId = (prior && prior.intention_id) || (existing && existing.intention_id) || null;
+      paused = false;
+    } else if (choice === 'pause') {
+      paused = true;
+    } else if (choice !== undefined) {
+      intentionId = choice;
+      paused = false;
+    }
+    const cadence = {
+      bp_days: null, ...((existing || prior || {}).cadence || {}),
+      weigh_in: patch.weigh_in !== undefined ? patch.weigh_in : await currentWeighInCadence(),
+      ...(patch.bp_days !== undefined ? { bp_days: patch.bp_days } : {}),
+    };
+    const goal = goalAll.filter((r) => Number.isFinite(r.target_weight))
+      .sort((a, b) => Date.parse(b.set_at || 0) - Date.parse(a.set_at || 0))[0];
+    const rec = {
+      recordId, deleted: false, clientTs: nowMs,
+      week, intention_id: intentionId, cadence, paused, picked_at: nowMs,
+      episode_id: goal ? goal.recordId : null, goal_set_at: goal ? goal.set_at || null : null,
+    };
+    await records.put(WEEK_PLAN_RECORD_TYPE, rec);
+    const edSafe = (await readMode()).ed_safe;
+    return { ok: true, plan: visiblePlan(weekPlanView(rec), (k) => !(edSafe && k === 'weight')) };
   }
 
   // ----- targets CRUD (targets.go) --------------------------------------------
@@ -2856,6 +3266,525 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       };
     });
     return { enabled: true, targets: out };
+  }
+
+  // ----- Goal Line (docs/gamification.md §0.3.1) -------------------------------
+  // getGoalLine is the slice-1 spine read-model: the user's weight goal read on
+  // the EMA trend, plus workout / BP facts. Recomputed on read; it persists and
+  // WRITES NOTHING. Every day key here is the owner's LOCAL day (localDayString):
+  // "today" and "this week" are facts the user checks against their own clock,
+  // so the substrate's UTC-day keys (msToUTCDay, loadForRead's memo key) are
+  // deliberately not reused — except for adherence_alert, which is the
+  // substrate's own trailing-PDC view (UTC-day window) kept unchanged. Weeks are ISO Monday–Sunday (workout.js stats).
+  // `features` is the settings flag map (the shim passes it; absent = all on).
+  async function getGoalLine({ features } = {}) {
+    const on = (k) => !features || !!features[k];
+    // Medication safety net (§6.1): the same trailing-PDC alert the rings tile
+    // carried (adherenceAlertView over the memoized read context) — inactive
+    // unless adherence has actually slipped. Not a weight signal, so ED-safe
+    // keeps it.
+    const adherenceAlertNow = async () => {
+      if (!on('medication')) return null;
+      const { cfg, ctx } = await loadForRead();
+      return adherenceAlertView(ctx, msToUTCDay(ctx.nowMs), cfg);
+    };
+    // ED-safe (§0.5) hides the Goal Line: the Today hero, the Journey goal
+    // card and the goal-aware weigh-in push all read this. Only the
+    // medication alert survives (Today renders it alone).
+    if ((await readMode()).ed_safe) return { enabled: false, ed_safe: true, adherence_alert: await adherenceAlertNow() };
+    const nowMs = now();
+    const today = localDayString(nowMs, timeZone);
+    const sinceMonday = (dayOfWeek(today) + 6) % 7;
+    const monday = addDays(today, -sinceMonday);
+    const [weightAll, goalAll, bpAll, bpGoalAll, groups, variants, rotations, sessionsRaw] = await Promise.all([
+      records.list(WEIGHT_RECORD_TYPE), records.list(WEIGHTGOAL_RECORD_TYPE),
+      records.list(BP_RECORD_TYPE), records.list(BP_GOAL_RECORD_TYPE),
+      records.list(WORKOUT_GROUP_RECORD_TYPE), records.list(WORKOUT_VARIANT_RECORD_TYPE),
+      records.list(WORKOUT_ROTATION_RECORD_TYPE),
+      // RAW: a tombstoned scheduled day must not count as scheduled (bd med-w0fe).
+      records.listRaw(WORKOUT_SESSION_RECORD_TYPE),
+    ]);
+
+    const goal = goalLineWeight(weightAll, goalAll, today, nowMs);
+    const workouts = on('workout')
+      ? goalLineWorkouts({ groups, variants, rotations, sessionsRaw, today, monday, sinceMonday, nowMs })
+      : { feature_on: false, completed_this_week: null, next_scheduled: null, scheduled_this_week: null };
+    const bp = on('bp')
+      ? goalLineBP(bpAll, bpGoalAll, today, monday, nowMs)
+      : { feature_on: false, recorded_today: null, days_this_week: null, mean_7d: null, target: null, status: 'unknown' };
+    const weighedToday = goal.coverage.last_weigh_in_day === today;
+    // The joint weight/BP observation (§0.3.6): both components or nothing.
+    const joint = on('weight') && on('bp') ? goalLineJoint(goal, weightAll, bpAll, bpGoalAll, today, nowMs) : null;
+    // Deterministic priority; nothing is "owed" — 'none' is a valid resting state.
+    let cta = 'none';
+    if (!weighedToday && on('weight')) cta = 'weigh_in';
+    else if (workouts.next_scheduled && workouts.next_scheduled.day === today) cta = 'start_session';
+    const adherenceAlert = await adherenceAlertNow();
+    // `day` is the local-day key the goal/workout/BP facts are bucketed on
+    // (settings timezone when pinned); `time_zone` lets the UI tell when it
+    // went stale. adherence_alert keeps the substrate's UTC-day window.
+    // The live week's plan (§0.3.4, med-8tur.4): the chosen intention/cadence
+    // shown under the rows; a paused week shows "paused" instead of the
+    // week's change and the too-fast line — and withholds the projected date,
+    // which must never appear where the too-fast flag was just hidden.
+    const plan = weekPlanView(await weekPlanRecord(isoWeekKey(today)));
+    if (plan && plan.paused) {
+      goal.change_7d = null;
+      goal.too_fast = false;
+      goal.projected = { date: null, plus_minus_weeks: null, reason: 'paused' };
+    }
+    return {
+      enabled: true, goal, workouts, bp, weighed_today: weighedToday, cta,
+      adherence_alert: adherenceAlert, day: today, time_zone: timeZone || null, plan, joint,
+    };
+  }
+
+  function round2(x) {
+    return x === null || x === undefined ? null : Math.round(x * 100) / 100;
+  }
+
+  // weightTrendRun replays the Goal Line trend for the Atlas day map and the
+  // joint observation: readings by local day (latest wins), weigh-in runs (a
+  // gap longer than the coverage window starts one), the EMA from the latest
+  // run's first reading through `today`.
+  // ponytail: mirrors the first lines of goalLineWeight instead of refactoring
+  // it under parallel edits; fold goalLineWeight onto this when that settles.
+  function weightTrendRun(weightAll, today, nowMs) {
+    const logs = weightAll
+      .filter((r) => Number.isFinite(r.weight) && Date.parse(r.measured_at) <= nowMs)
+      .sort((a, b) => Date.parse(a.measured_at) - Date.parse(b.measured_at));
+    const byDay = new Map();
+    for (const r of logs) byDay.set(localDayString(Date.parse(r.measured_at), timeZone), r.weight);
+    const days = [...byDay.keys()].sort();
+    let origin = days[0];
+    for (let i = 1; i < days.length; i++) {
+      if (dayDiff(days[i - 1], days[i]) > GOAL_LINE_COVERAGE_DAYS) origin = days[i];
+    }
+    const trend = days.length ? emaTrendByDay(byDay, origin, today, DEFAULT_CONFIG.gaugeWeightEMAAlpha) : new Map();
+    return { days, origin, trend };
+  }
+
+  // goalLineJoint is the "together" line (§0.3.6, med-8tur.10): the first vs
+  // the last k complete ISO weeks of the goal episode, k = min(4, half the
+  // complete weeks) so the two periods never overlap; null under 2 weeks each.
+  // Symmetric facts, shown whichever way they point: each period's mean Goal
+  // Line trend (weight_change_kg = last − first) and its daily-weighted BP mean
+  // (both components, ignore_calc excluded) over its measurement days, against
+  // ONE target — the current bpgoal, frozen for the comparison. Null unless
+  // both periods sit inside the current trend run with a weigh-in and a BP day.
+  function goalLineJoint(goal, weightAll, bpAll, bpGoalAll, today, nowMs) {
+    if (!goal.start_day || goal.status === 'no_goal') return null;
+    const firstMonday = addDays(goal.start_day, (8 - dayOfWeek(goal.start_day)) % 7);
+    const lastSunday = addDays(today, -(((dayOfWeek(today) + 6) % 7) + 1));
+    const k = Math.min(4, Math.floor(Math.floor((dayDiff(firstMonday, lastSunday) + 1) / 7) / 2));
+    if (k < 2) return null;
+    const len = 7 * k;
+    const run = weightTrendRun(weightAll, today, nowMs);
+    if (!run.days.length || firstMonday < run.origin) return null;
+    const readings = bpAll.filter((r) => !r.ignore_calc);
+    const periods = [firstMonday, addDays(lastSunday, -(len - 1))].map((start) => {
+      const end = addDays(start, len - 1);
+      let sum = 0;
+      for (let d = start; d <= end; d = addDays(d, 1)) sum += run.trend.get(d);
+      // The period's own local bounds pick the readings; the stats window is a
+      // day wider so its DAY_MS arithmetic never clips the first day across DST.
+      const fromMs = zoneDayStartMs(start);
+      const toMs = zoneDayStartMs(addDays(end, 1)) - 1;
+      const inPeriod = readings.filter((r) => { const ms = Date.parse(r.measured_at); return ms >= fromMs && ms <= toMs; });
+      const st = buildDailyWeightedStats(inPeriod, toMs, timeZone, [len])[`stats_${len}`];
+      return {
+        start_day: start, end_day: end, trend_mean: sum / len,
+        weigh_in_days: run.days.filter((d) => d >= start && d <= end).length,
+        bp: st ? { systolic: st.systolic, diastolic: st.diastolic, days: st.days } : null,
+      };
+    });
+    if (periods.some((p) => p.weigh_in_days === 0 || !p.bp)) return null;
+    const g = bpGoalAll.find((r) => r.recordId === BP_GOAL_RECORD_ID);
+    return {
+      weeks_per_period: k,
+      weight_change_kg: round2(periods[1].trend_mean - periods[0].trend_mean),
+      periods: periods.map(({ trend_mean: _t, ...p }) => p),
+      bp_target: {
+        systolic: g && Number.isFinite(g.target_systolic) ? g.target_systolic : DEFAULT_IN_RANGE_SYSTOLIC,
+        diastolic: g && Number.isFinite(g.target_diastolic) ? g.target_diastolic : GOAL_LINE_DEFAULT_DIASTOLIC,
+      },
+    };
+  }
+
+  function goalLineWeight(weightAll, goalAll, today, nowMs) {
+    const cfg = DEFAULT_CONFIG;
+    const logs = weightAll
+      .filter((r) => Number.isFinite(r.weight) && Date.parse(r.measured_at) <= nowMs)
+      .sort((a, b) => Date.parse(a.measured_at) - Date.parse(b.measured_at));
+    const byDay = new Map(); // local day → that day's latest reading (ascending walk, last wins)
+    for (const r of logs) byDay.set(localDayString(Date.parse(r.measured_at), timeZone), r.weight);
+    const days = [...byDay.keys()].sort();
+    const latest = logs.length ? logs[logs.length - 1] : null;
+
+    const coverageStart = addDays(today, -(GOAL_LINE_COVERAGE_DAYS - 1));
+    const coverage = {
+      weigh_in_days_28d: days.filter((d) => d >= coverageStart).length,
+      last_weigh_in_day: days.length ? days[days.length - 1] : null,
+      // The preliminary floor, so the UI can say "trend forms after N more".
+      min_weigh_in_days: GOAL_LINE_MIN_WEIGH_IN_DAYS,
+    };
+    const preliminary = coverage.weigh_in_days_28d < GOAL_LINE_MIN_WEIGH_IN_DAYS;
+    // Ordered replay from the first reading of a weigh-in run — a fixed origin,
+    // so nothing shifts as old samples leave a moving window. A gap longer than
+    // the coverage window starts a new run: an EMA carried flat across months
+    // would otherwise pass a stale value off as the trend for weeks after the
+    // user returns. runStarts only ever grows at the end (a later gap never
+    // moves an earlier run's start), which keeps an episode's baseline stable.
+    const runStarts = days.length ? [days[0]] : [];
+    for (let i = 1; i < days.length; i++) {
+      if (dayDiff(days[i - 1], days[i]) > GOAL_LINE_COVERAGE_DAYS) runStarts.push(days[i]);
+    }
+    const origin = runStarts[runStarts.length - 1];
+    const trend = days.length ? emaTrendByDay(byDay, origin, today, cfg.gaugeWeightEMAAlpha) : new Map();
+    const trendWeight = preliminary ? null : trend.get(today);
+    const weekAgo = addDays(today, -7);
+    const change7d = (!preliminary && weekAgo >= origin) ? trendWeight - trend.get(weekAgo) : null;
+    // Preliminary shows the latest READING as a reading; distance reads off it.
+    const current = trendWeight !== null ? trendWeight : (latest ? latest.weight : null);
+
+    const out = {
+      status: 'no_goal', target: null, episode_id: null,
+      start_ref: null, start_ref_source: null, start_day: null, direction: null,
+      trend_weight: round2(trendWeight),
+      latest_reading: latest ? { weight: latest.weight, measured_at: latest.measured_at } : null,
+      distance_to_goal: null, change_7d: round2(change7d), coverage,
+      too_fast: false, next_milestone: null, progress: null,
+      projected: { date: null, plus_minus_weeks: null, reason: 'no_goal' },
+    };
+
+    const g = goalAll.filter((r) => Number.isFinite(r.target_weight))
+      .sort((a, b) => Date.parse(b.set_at || 0) - Date.parse(a.set_at || 0))[0];
+    if (!g) return out;
+    const target = g.target_weight;
+    const setMs = Date.parse(g.set_at);
+    let startDay = Number.isFinite(setMs) ? localDayString(setMs, timeZone) : (days[0] || today);
+    if (startDay > today) startDay = today; // a set_at ahead of this device's clock
+    // Episode baseline, stated not implied: the trend on the set day when enough
+    // weigh-in days of the run holding that day, inside the coverage window
+    // ending on it, back it; else the goal's recorded starting reading labeled
+    // first_reading — the two are never silently equated. Only readings at or
+    // before set_at decide (a weigh-in later on the set day does not), so the
+    // episode's baseline stays fixed.
+    const baseByDay = new Map();
+    for (const r of logs) {
+      const ms = Date.parse(r.measured_at);
+      if (Number.isFinite(setMs) ? ms <= setMs : localDayString(ms, timeZone) <= startDay) {
+        baseByDay.set(localDayString(ms, timeZone), r.weight);
+      }
+    }
+    const baseDays = [...baseByDay.keys()].sort();
+    const baseOrigin = runStarts.filter((d) => baseByDay.has(d) && d <= startDay).pop();
+    const baselineFrom = addDays(startDay, -(GOAL_LINE_COVERAGE_DAYS - 1));
+    let startRef; let startRefSource;
+    if (baseOrigin !== undefined
+      && baseDays.filter((d) => d >= baseOrigin && d >= baselineFrom && d <= startDay).length >= GOAL_LINE_MIN_WEIGH_IN_DAYS) {
+      startRef = emaTrendByDay(baseByDay, baseOrigin, startDay, cfg.gaugeWeightEMAAlpha).get(startDay);
+      startRefSource = 'trend_at_set';
+    } else {
+      const firstAfter = days.find((d) => d >= startDay);
+      startRef = Number.isFinite(g.start_weight) ? g.start_weight : (firstAfter ? byDay.get(firstAfter) : null);
+      startRefSource = startRef === null ? null : 'first_reading';
+    }
+    // Direction is fixed for the episode: baseline → target. Never re-derived
+    // from the current trend (weightPaceStatus does that and flips on a crossing).
+    const direction = startRef === null ? null : Math.sign(target - startRef);
+    Object.assign(out, {
+      status: 'ok', target, episode_id: g.recordId,
+      start_ref: round2(startRef), start_ref_source: startRefSource, start_day: startDay, direction,
+      distance_to_goal: current === null ? null : round2(Math.abs(target - current)),
+    });
+    // progress: baseline → target, read off the same `current` as the distance,
+    // so every screen (Today hero, Weight tab card) renders one number.
+    // done_kg is clamped to [0, total_kg]: past the target (even on a
+    // preliminary reading) is fraction 1, never "8 of 7 kg". A maintenance goal
+    // (target == baseline, direction 0) is 1 within reach of it, else 0.
+    if (current !== null && direction !== null) {
+      const totalKg = Math.abs(target - startRef);
+      const doneKg = direction === 0 ? 0 : Math.max(0, Math.min(totalKg, (current - startRef) * direction));
+      const fraction = direction === 0
+        ? (Math.abs(target - current) <= GOAL_LINE_REACH_KG ? 1 : 0)
+        : Math.round((doneKg / totalKg) * 1000) / 1000;
+      out.progress = { done_kg: round2(doneKg), total_kg: round2(totalKg), fraction };
+    }
+    if (preliminary || direction === null) {
+      out.status = 'preliminary';
+      out.projected.reason = 'preliminary';
+      return out;
+    }
+
+    // too_fast: trend velocity toward the target beyond the safe-pace cap — a
+    // safety flag only; no other pace grade exists on the Goal Line.
+    const velDays = cfg.gaugeWeightVelocityWindowDays;
+    const pastDay = addDays(today, -velDays);
+    if (direction !== 0 && pastDay >= origin) {
+      const velocity = pctChangePerWeek(trendWeight, trend.get(pastDay), velDays);
+      out.too_fast = velocity * direction > cfg.weightSafePaceMaxPct;
+    }
+
+    // A maintenance goal (direction 0) is reached only within reach of the
+    // target — never "any weight counts".
+    const reached = (v) => (direction === 0
+      ? Math.abs(target - v) <= GOAL_LINE_REACH_KG
+      : (target - v) * direction <= GOAL_LINE_REACH_KG);
+    if (reached(trendWeight)) {
+      // maintaining = the current reached run has lasted GOAL_LINE_MAINTAIN_DAYS.
+      let runStart = today;
+      const floor = startDay > origin ? startDay : origin;
+      while (runStart > floor && reached(trend.get(addDays(runStart, -1)))) runStart = addDays(runStart, -1);
+      out.status = dayDiff(runStart, today) >= GOAL_LINE_MAINTAIN_DAYS ? 'maintaining' : 'at_goal';
+      if (out.progress) out.progress.fraction = 1; // reached within GOAL_LINE_REACH_KG
+      out.projected.reason = out.status;
+      return out;
+    }
+    out.projected = goalLineProjection({
+      trend, origin, today, trendWeight, target, direction, coverage, tooFast: out.too_fast,
+    });
+
+    // next_milestone: stateless marker along baseline → target. Ordinal k sits
+    // at start_ref + direction·k·spacing; the last ordinal IS the target.
+    const total = Math.abs(target - startRef);
+    const spacing = Math.max(GOAL_LINE_MILESTONE_MIN_KG, total * GOAL_LINE_MILESTONE_FRACTION);
+    const count = Math.ceil(total / spacing - 1e-9);
+    const progressed = (trendWeight - startRef) * direction;
+    const ordinal = Math.max(1, Math.floor(progressed / spacing + 1e-9) + 1);
+    if (ordinal <= count) {
+      const weight = ordinal === count ? target : startRef + direction * ordinal * spacing;
+      const halfway = Math.ceil(total / 2 / spacing - 1e-9);
+      out.next_milestone = {
+        ordinal, count, weight: round2(weight), distance: round2(Math.abs(weight - trendWeight)),
+        is_halfway: ordinal === halfway && ordinal < count, is_goal: ordinal === count,
+      };
+    }
+    return out;
+  }
+
+  // Workout facts: completed sessions this week (distinct session records,
+  // workout.js stats semantics — not the one-flag-per-day Atlas map) plus the
+  // schedule the reminder horizon fires from (workoutScheduleOccurrences).
+  function goalLineWorkouts({ groups, variants, rotations, sessionsRaw, today, monday, sinceMonday, nowMs }) {
+    const sunday = addDays(monday, 6);
+    const inWeek = (d) => !!d && d >= monday && d <= sunday;
+    // scheduled_date's 'YYYY-MM-DD' prefix IS the local day (scheduledDateRFC).
+    const dayOf = (s) => {
+      const m = /^(\d{4}-\d{2}-\d{2})/.exec(String(s.scheduled_date || ''));
+      return m ? m[1] : null;
+    };
+    const live = sessionsRaw.filter((s) => !s.deleted);
+    const completedIds = new Set(live.filter((s) => s.status === 'completed' && inWeek(dayOf(s))).map((s) => s.recordId));
+
+    const { groupOccurrences, adhoc, scheduleGroups } = workoutScheduleOccurrences({
+      workoutGroups: groups, workoutVariants: variants, workoutRotations: rotations, workoutSessions: sessionsRaw,
+      timeZone, now: nowMs, fromDay: -sinceMonday, days: sinceMonday + 7,
+    });
+    // A denominator exists only when an active weekly plan with weekdays exists
+    // — never a guessed default. It counts the PLAN's occurrences this week,
+    // minus tombstoned days; ad-hoc sessions stay out (a spontaneous "start now"
+    // session and a planned one are indistinguishable once done), so completed
+    // may exceed scheduled.
+    const scheduledThisWeek = scheduleGroups === 0 ? null
+      : groupOccurrences.filter((o) => inWeek(o.dateStr) && o.status !== 'deleted').length;
+
+    // "Next" = not yet done: a snoozed ('notified') or in-progress session is
+    // still today's workout (workout.js getNext), unlike the horizon's
+    // fire-once rule.
+    // 'pre_skipped' is an explicit decline (workout.js preSkipSession) — done too.
+    const done = (st) => st === 'completed' || st === 'skipped' || st === 'pre_skipped' || st === 'deleted';
+    const hhmm = (t) => `${String(t.hour).padStart(2, '0')}:${String(t.minute).padStart(2, '0')}`;
+    const candidates = [
+      ...groupOccurrences.filter((o) => o.dateStr >= today && !done(o.status))
+        .map((o) => ({ ms: o.scheduledMs, day: o.dateStr, time: hhmm(o.hhmm), group_title: o.group.name || null })),
+      ...adhoc.filter((a) => a.dateStr >= today)
+        .map((a) => ({ ms: a.scheduledMs, day: a.dateStr, time: hhmm(a.hhmm), group_title: null })),
+    ].sort((a, b) => a.ms - b.ms);
+    const next = candidates[0];
+    return {
+      feature_on: true,
+      completed_this_week: completedIds.size,
+      next_scheduled: next ? { day: next.day, time: next.time, group_title: next.group_title } : null,
+      scheduled_this_week: scheduledThisWeek,
+    };
+  }
+
+  // BP facts: daily-weighted (bp.js, docs/features.md convention) mean of both
+  // components over 7 local days beside the bpgoal target. A fact, never a checkmark.
+  function goalLineBP(bpAll, bpGoalAll, today, monday, nowMs) {
+    const readings = bpAll.filter((r) => !r.ignore_calc && Date.parse(r.measured_at) <= nowMs);
+    const readingDays = new Set(readings.map((r) => localDayString(Date.parse(r.measured_at), timeZone)));
+    const st = buildDailyWeightedStats(readings, nowMs, timeZone, [6]).stats_6; // 6 back + today = 7 local days
+    const mean7d = st ? { systolic: st.systolic, diastolic: st.diastolic, days: st.days } : null;
+    const g = bpGoalAll.find((r) => r.recordId === BP_GOAL_RECORD_ID);
+    const tSys = g && Number.isFinite(g.target_systolic) ? g.target_systolic : null;
+    const tDia = g && Number.isFinite(g.target_diastolic) ? g.target_diastolic : null;
+    let status = 'unknown';
+    if (mean7d) {
+      const above = mean7d.systolic > (tSys !== null ? tSys : DEFAULT_IN_RANGE_SYSTOLIC)
+        || mean7d.diastolic > (tDia !== null ? tDia : GOAL_LINE_DEFAULT_DIASTOLIC);
+      status = above ? 'above' : 'in_range';
+    }
+    return {
+      feature_on: true,
+      recorded_today: readingDays.has(today),
+      days_this_week: [...readingDays].filter((d) => d >= monday && d <= today).length,
+      mean_7d: mean7d,
+      target: tSys === null && tDia === null ? null : { systolic: tSys, diastolic: tDia },
+      status,
+    };
+  }
+
+  // ----- Goal milestones (docs/gamification.md §0.3.5, bd med-8tur.5) ----------
+  // A reached marker becomes a durable record gamificationmilestone-<episode>-<k>
+  // (k = the next_milestone ordinal; the episode is the weightgoal recordId, so a
+  // goal edit starts a new series). Earned when the trend sat at/past the marker
+  // on GOAL_MILESTONE_EVIDENCE_DAYS distinct weigh-in days of the episode;
+  // earned_at = the local day of the last of those (the evidence), never now().
+  // DERIVED WRITE TAKES THE FLOOR (CLAUDE.md rule 12): putIfAbsent + clientTs 0,
+  // so a stale device re-deriving can never clobber an acknowledgment (a user
+  // write at now()). A later regression never removes a record.
+  // ponytail: on a same-id clientTs-0 tie two devices each keep their own body
+  // (cosmetic earned_at drift if their weigh-in history differed) until an ack.
+  async function syncGoalMilestones() {
+    const nowMs = now();
+    const today = localDayString(nowMs, timeZone);
+    const [weightAll, goalAll] = await Promise.all([
+      records.list(WEIGHT_RECORD_TYPE), records.list(WEIGHTGOAL_RECORD_TYPE),
+    ]);
+    const goal = goalLineWeight(weightAll, goalAll, today, nowMs);
+    if (!goal.episode_id || !goal.direction || goal.start_ref === null) return goal;
+    const { target, direction, start_ref: startRef, start_day: startDay } = goal;
+    const total = Math.abs(target - startRef);
+    const spacing = Math.max(GOAL_LINE_MILESTONE_MIN_KG, total * GOAL_LINE_MILESTONE_FRACTION);
+    const count = Math.ceil(total / spacing - 1e-9);
+    const halfway = Math.ceil(total / 2 / spacing - 1e-9);
+
+    // The same per-run EMA replay goalLineWeight uses, over EVERY run, so a
+    // device reading after a weigh-in gap re-derives the same evidence days.
+    const byDay = new Map();
+    weightAll.filter((r) => Number.isFinite(r.weight) && Date.parse(r.measured_at) <= nowMs)
+      .sort((a, b) => Date.parse(a.measured_at) - Date.parse(b.measured_at))
+      .forEach((r) => byDay.set(localDayString(Date.parse(r.measured_at), timeZone), r.weight));
+    const days = [...byDay.keys()].sort();
+    // A day is evidence only once the trend there is established — the Goal
+    // Line's preliminary floor (GOAL_LINE_MIN_WEIGH_IN_DAYS weigh-in days of the
+    // run in the coverage window ending that day). The first evidence day is
+    // the 5th weigh-in, not the seed: a low seed still decays at 0.9/weigh-in,
+    // so markers follow the same trend the card shows (one trend definition).
+    const trendOn = new Map(); // established weigh-in day → trend
+    let runStart = 0;
+    for (let i = 0; i <= days.length; i++) {
+      if (i === days.length || (i > runStart && dayDiff(days[i - 1], days[i]) > GOAL_LINE_COVERAGE_DAYS)) {
+        if (i > runStart) {
+          const t = emaTrendByDay(byDay, days[runStart], days[i - 1], DEFAULT_CONFIG.gaugeWeightEMAAlpha);
+          let lo = runStart;
+          for (let j = runStart; j < i; j++) {
+            while (dayDiff(days[lo], days[j]) >= GOAL_LINE_COVERAGE_DAYS) lo++;
+            if (j - lo + 1 >= GOAL_LINE_MIN_WEIGH_IN_DAYS) trendOn.set(days[j], t.get(days[j]));
+          }
+        }
+        runStart = i;
+      }
+    }
+    const evidence = days.filter((d) => d >= startDay && d <= today && trendOn.has(d));
+
+    const g = goalAll.find((r) => r.recordId === goal.episode_id);
+    // The goal reads "reached" within GOAL_LINE_REACH_KG (like status at_goal);
+    // no earlier marker may be stricter than that, which keeps the thresholds
+    // nested — so the first unearned marker ends the walk, and earned_at never
+    // runs backwards along the ordinals.
+    const goalThr = target - direction * GOAL_LINE_REACH_KG;
+    // (goal_set_at, ordinal) is the natural key: an ordinal already ACKNOWLEDGED
+    // under another episode id (a goal re-minted by an old client's vault
+    // import, which passes milestones through untouched) is not minted again,
+    // so no unacknowledged twin re-celebrates it. An unacknowledged one is
+    // still minted under the live episode — the card reads that one, and
+    // export/keystones collapse the pair by the natural key.
+    const setAt = (g && g.set_at) || null;
+    const held = new Set(setAt === null ? [] : (await records.list(GOAL_MILESTONE_RECORD_TYPE))
+      .filter((m) => m.goal_set_at === setAt && m.episode_id !== goal.episode_id && m.acknowledged)
+      .map((m) => m.ordinal));
+    for (let k = 1; k <= count; k++) {
+      const isGoal = k === count;
+      const marker = startRef + direction * k * spacing;
+      const thr = isGoal || (marker - goalThr) * direction > 0 ? goalThr : marker;
+      const hits = evidence.filter((d) => (trendOn.get(d) - thr) * direction >= -1e-9);
+      if (hits.length < GOAL_MILESTONE_EVIDENCE_DAYS) break;
+      if (held.has(k)) continue;
+      await records.putIfAbsent(GOAL_MILESTONE_RECORD_TYPE, {
+        recordId: `${GOAL_MILESTONE_RECORD_TYPE}-${goal.episode_id}-${k}`,
+        deleted: false, clientTs: 0,
+        episode_id: goal.episode_id, goal_set_at: setAt,
+        ordinal: k, count, is_halfway: k === halfway && !isGoal, is_goal: isGoal,
+        earned_at: hits[GOAL_MILESTONE_EVIDENCE_DAYS - 1], acknowledged: false,
+      });
+    }
+    return goal;
+  }
+
+  function milestoneTitle(m) {
+    if (m.is_goal) return 'Weight goal reached';
+    if (m.is_halfway) return 'Halfway to your weight goal';
+    return `Weight goal milestone ${m.ordinal} of ${m.count}`;
+  }
+
+  // getGoalLineCard is the Goal Line route's payload: getGoalLine (which stays
+  // write-free) plus `milestone` — the newest unacknowledged milestone of the
+  // current episode, after materializing any newly earned ones.
+  async function getGoalLineCard({ features } = {}) {
+    // ED-safe: no milestones materialize either — checked before the sync.
+    if ((await readMode()).ed_safe) return getGoalLine({ features });
+    const goal = await syncGoalMilestones();
+    const gl = await getGoalLine({ features });
+    const open = (await records.list(GOAL_MILESTONE_RECORD_TYPE))
+      .filter((m) => m.episode_id === goal.episode_id && !m.acknowledged)
+      .sort((a, b) => b.ordinal - a.ordinal)[0];
+    gl.milestone = open ? {
+      id: open.recordId, ordinal: open.ordinal, count: open.count, is_halfway: !!open.is_halfway,
+      is_goal: !!open.is_goal, earned_at: open.earned_at, title: milestoneTitle(open),
+    } : null;
+    return gl;
+  }
+
+  // acknowledgeMilestone is the USER write (clientTs now()) that retires the
+  // card line. It acks every earlier unacknowledged milestone of the episode
+  // too: the card only ever shows the newest, so one tap means "seen".
+  async function acknowledgeMilestone(id) {
+    const all = await records.list(GOAL_MILESTONE_RECORD_TYPE);
+    const rec = all.find((m) => m.recordId === id);
+    if (!rec) return { ok: false, error: 'not_found' };
+    const nowMs = now();
+    for (const m of all) {
+      if (m.episode_id !== rec.episode_id || m.ordinal > rec.ordinal || m.acknowledged) continue;
+      await records.put(GOAL_MILESTONE_RECORD_TYPE, {
+        ...m, acknowledged: true, acknowledged_at: nowMs, clientTs: nowMs, deleted: false,
+      });
+    }
+    return { ok: true };
+  }
+
+  // Milestones as Journey keystones (every episode, permanent). earned_at is a
+  // local day; noon UTC keeps toLocaleDateString on that day for |offset| < 12h.
+  // One keystone per (goal_set_at, ordinal): a goal re-minted by a vault import
+  // can leave a twin under the dead episode id (e.g. an import by a client that
+  // predates milestones) — the twin whose episode still exists wins.
+  async function milestoneKeystones() {
+    await syncGoalMilestones();
+    const [all, goals] = await Promise.all([
+      records.list(GOAL_MILESTONE_RECORD_TYPE), records.list(WEIGHTGOAL_RECORD_TYPE),
+    ]);
+    const live = new Set(goals.map((r) => r.recordId));
+    const byKey = new Map();
+    for (const m of all) {
+      const key = `${m.goal_set_at}|${m.ordinal}`;
+      if (!byKey.has(key) || live.has(m.episode_id)) byKey.set(key, m);
+    }
+    return [...byKey.values()].map((m) => ({
+      id: m.recordId, kind: 'goal_milestone', title: milestoneTitle(m),
+      earned_at: Date.parse(`${m.earned_at}T12:00:00Z`),
+    }));
   }
 
   async function getTargets() {
@@ -2907,12 +3836,18 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   }
 
   return {
-    getAtlas, markDiscoverySeen, getForecast,
+    getAtlas, markDiscoverySeen, getMode, putMode,
     listExperiments, startExperiment, cancelExperiment,
     getChapter, startChapter, closeChapter,
     getTraits, getKeystones,
     // substrate parity (med-eyb)
     getSummary, getRings, getJourney, getGauges, getWeeklyReview,
+    // Weekly plan (med-8tur.4)
+    putWeekPlan,
+    // Goal Line (med-8tur.1)
+    getGoalLine,
+    // Goal milestones (med-8tur.5)
+    getGoalLineCard, acknowledgeMilestone,
     getTargets, putTargets,
   };
 }

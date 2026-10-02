@@ -12,7 +12,7 @@
 // with a meter that names the next log action, and a flat dataset yields a
 // dignified no_effect finding.
 import { describe, it, expect } from 'vitest';
-import { createGamificationDomain } from '../../../../web/domain/gamification.js';
+import { createGamificationDomain, PROBES } from '../../../../web/domain/gamification.js';
 import { createInMemoryRecordsPort } from './helpers/cloud-shim-harness.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -37,7 +37,8 @@ function dayAt(offset) {
 function bpRec(offset, systolic) {
   return {
     recordId: `bp-${offset}`, deleted: false,
-    measured_at: isoAt(offset), systolic, diastolic: 80, ignore_calc: false,
+    // 07:00 UTC: firstMorningSystolic only counts readings before local noon.
+    measured_at: new Date(NOW - offset * DAY_MS - 5 * 3600000).toISOString(), systolic, diastolic: 80, ignore_calc: false,
   };
 }
 function workoutRec(offset) {
@@ -180,7 +181,7 @@ describe('gamification Discovery Atlas — probe evaluator', () => {
       bp, workoutsession, sleep, foodlog,
     });
     const atlas = await gam.getAtlas();
-    expect(atlas.cards).toHaveLength(6);
+    expect(atlas.cards).toHaveLength(PROBES.length);
 
     const states = new Set(atlas.cards.map((c) => c.state));
     expect(states.has('revealed')).toBe(true);
@@ -190,6 +191,214 @@ describe('gamification Discovery Atlas — probe evaluator', () => {
     // Zero server-side reads: every number came from the injected records port.
     expect(cardById(atlas, 'workout_next_morning_bp').state).toBe('revealed');
     expect(cardById(atlas, 'short_sleep_next_day_steps').state).toBe('developing');
+  });
+});
+
+// --- Morning gauge (med-8tur.14) ---------------------------------------------
+// firstMorningSystolic only counts a day's earliest reading before local noon,
+// so evening-only readings never feed a "next-morning" probe.
+describe('gamification Discovery Atlas — morning-only gauge', () => {
+  it('evening-only readings in the short-night arm never reveal', async () => {
+    for (const [shortNightHour, expected] of [[7, 'revealed'], [19, 'developing']]) {
+      const bp = [];
+      const sleep = [];
+      for (let offset = 0; offset < 26; offset++) {
+        const short = offset % 2 === 0;
+        sleep.push(sleepRec(offset, short ? 360 : 480, 60));
+        const hour = short ? shortNightHour : 7;
+        bp.push({
+          recordId: `bp-${offset}`, deleted: false, ignore_calc: false, diastolic: 80,
+          measured_at: new Date(NOW - offset * DAY_MS - (12 - hour) * 3600000).toISOString(),
+          systolic: short ? 140 : 120,
+        });
+      }
+      const { gam } = domainOver({ bp, sleep });
+      const card = cardById(await gam.getAtlas({ whatsNew: false }), 'short_sleep_next_morning_bp');
+      expect(card.state).toBe(expected);
+    }
+  });
+});
+
+// --- Sleep-timing probes (med-8tur.15) ---------------------------------------
+// Bedtime vs the window's own median onset; gauge = next-morning systolic.
+describe('gamification Discovery Atlas — sleep-timing probes', () => {
+  const TIMING = ['late_bedtime_next_morning_bp', 'irregular_bedtime_next_morning_bp'];
+
+  // A night ending on wake day `offset`: bedtime at `localMin` minutes after
+  // the previous local midnight (23:30 = 1410, 01:00 = 1500) on a clock
+  // `tz` minutes west of UTC (the sleep record's timezone_offset).
+  function night({ offset, localMin, tz = 0, minutes = 420 }) {
+    const wakeMidnight = Date.parse(`${dayAt(offset)}T00:00:00Z`);
+    const start = wakeMidnight - DAY_MS + localMin * 60000 + tz * 60000;
+    const rec = {
+      recordId: `sleep-${offset}`, deleted: false, day: dayAt(offset),
+      start_time: new Date(start).toISOString(), timezone_offset: tz,
+    };
+    if (minutes !== undefined) rec.total_minutes = minutes;
+    return rec;
+  }
+
+  // 20 usual nights (23:00) and `late` late nights (01:00), each followed by
+  // a morning reading: usualBp / lateBp.
+  function timingVault({ late = 10, usualBp = 125, lateBp = 135 } = {}) {
+    const sleep = [];
+    const bp = [];
+    for (let offset = 0; offset < 20 + late; offset++) {
+      const isLate = offset < late;
+      sleep.push(night({ offset, localMin: isLate ? 1500 : 1380 }));
+      bp.push(bpRec(offset, isLate ? lateBp : usualBp));
+    }
+    return { sleep, bp };
+  }
+
+  it('reveals later-than-usual bedtimes with the delta and its spread', async () => {
+    const { gam } = domainOver(timingVault());
+    const atlas = await gam.getAtlas({ whatsNew: false });
+    for (const id of TIMING) {
+      const card = cardById(atlas, id);
+      expect(card.state).toBe('revealed');
+      expect(Math.round(card.delta)).toBe(10);
+      expect(card.n).toBe(30);
+      expect(Number.isFinite(card.se)).toBe(true);
+      expect(card.text).toContain('~10 mmHg higher · 30 paired days');
+    }
+  });
+
+  it('reports matching mornings as no_effect', async () => {
+    const { gam } = domainOver(timingVault({ usualBp: 120, lateBp: 121 }));
+    const atlas = await gam.getAtlas({ whatsNew: false });
+    for (const id of TIMING) {
+      const card = cardById(atlas, id);
+      expect(card.state).toBe('no_effect');
+      expect(card.text).toMatch(/about the same/);
+      expect(card).not.toHaveProperty('se');
+    }
+  });
+
+  it('stays developing below 8 nights per arm', async () => {
+    const { gam } = domainOver(timingVault({ late: 5 }));
+    const atlas = await gam.getAtlas({ whatsNew: false });
+    for (const id of TIMING) {
+      const card = cardById(atlas, id);
+      expect(card.state).toBe('developing');
+      expect(card.have).toBe(5);
+      expect(card.next).toMatch(/sleep/);
+    }
+  });
+
+  it('needs 5 nights with a bedtime: start_time-only nights count, minutes-only nights never do', async () => {
+    const bp = Array.from({ length: 90 }, (_, offset) => bpRec(offset, 120));
+    const sleep = [1, 2, 3, 4].map((offset) => night({ offset, localMin: 1380 }));
+    // No start_time → no bedtime (and no NaN), however long the night.
+    sleep.push({ recordId: 'sleep-5', deleted: false, day: dayAt(5), total_minutes: 600 });
+    let atlas = await domainOver({ bp, sleep }).gam.getAtlas({ whatsNew: false });
+    for (const id of TIMING) expect(cardById(atlas, id).have).toBe(0);
+
+    // A late night with a start_time but no total_minutes is the fifth onset.
+    sleep.push(night({ offset: 6, localMin: 1500, minutes: undefined }));
+    atlas = await domainOver({ bp, sleep }).gam.getAtlas({ whatsNew: false });
+    for (const id of TIMING) expect(cardById(atlas, id).have).toBe(1);
+  });
+
+  it('reads each night on its own clock: 23:30 in UTC-5 and UTC+3 are both usual', async () => {
+    const sleep = [];
+    const bp = [];
+    for (let offset = 0; offset < 28; offset++) {
+      const isLate = offset < 8;
+      sleep.push(isLate
+        ? night({ offset, localMin: 1500 })
+        : night({ offset, localMin: 1410, tz: offset % 2 ? 300 : -180 }));
+      bp.push(bpRec(offset, isLate ? 140 : 120));
+    }
+    const atlas = await domainOver({ sleep, bp }).gam.getAtlas({ whatsNew: false });
+    const card = cardById(atlas, 'late_bedtime_next_morning_bp');
+    expect(card.state).toBe('revealed');
+    expect(Math.round(card.delta)).toBe(20); // every shifted-zone night sat in the usual arm
+    expect(card.n).toBe(28);
+  });
+});
+
+// --- Goal-relevant probes (med-8tur.10, docs/gamification.md §0.3.6) ---------
+// Week-bucketed: complete local ISO weeks of the 90-day window, gauge = the
+// week's change in the Goal Line trend (sum of its EMA steps). NOW is a Monday,
+// so offsets 1..7 are the last complete week; daily weigh-ins from offset 110
+// keep the trend run older than the window, so every week is readable.
+describe('gamification Discovery Atlas — goal-relevant weekly probes', () => {
+  const WEEK_PROBES = ['workout_weeks_vs_trend_velocity', 'food_logged_weeks_vs_trend_velocity'];
+
+  // Odd weeks back (1, 3, 5, ...) are "active": workouts Mon/Wed/Fri and food
+  // logged Mon–Fri. weightAt(offset, active) sets that morning's reading.
+  function weeklyVault(weightAt) {
+    const weight = [];
+    const workoutsession = [];
+    const foodlog = [];
+    for (let offset = 0; offset <= 110; offset++) {
+      const active = Math.floor((offset + 6) / 7) % 2 === 1;
+      const morning = new Date(NOW - offset * DAY_MS - 5 * 3600000).toISOString();
+      weight.push({ recordId: `w-${offset}`, deleted: false, measured_at: morning, weight: weightAt(offset, active) });
+      const dow = new Date(NOW - offset * DAY_MS).getUTCDay();
+      if (active && [1, 3, 5].includes(dow)) workoutsession.push(workoutRec(offset));
+      if (active && dow >= 1 && dow <= 5) foodlog.push(foodRec(offset, 13));
+    }
+    return { weight, workoutsession, foodlog };
+  }
+
+  it('reveals a trend that moves more downward in active weeks, in kg/week', async () => {
+    // −0.3 kg/day through active weeks, +0.3 kg/day through the others.
+    const byOffset = new Map();
+    let w = 90;
+    for (let offset = 110; offset >= 0; offset--) {
+      w += Math.floor((offset + 6) / 7) % 2 === 1 ? -0.3 : 0.3;
+      byOffset.set(offset, w);
+    }
+    const { gam } = domainOver(weeklyVault((offset) => byOffset.get(offset)));
+    const atlas = await gam.getAtlas({ whatsNew: false });
+    for (const id of WEEK_PROBES) {
+      const card = cardById(atlas, id);
+      expect(card.state).toBe('revealed');
+      expect(card.bucket).toBe('week');
+      expect(card.unit).toBe('kg/wk');
+      expect(card.delta).toBeLessThan(-0.2);
+      expect(card.n).toBe(12); // twelve complete weeks in the window
+      expect(card.text).toMatch(/kg\/week more downward than in other weeks · 12 weeks/);
+    }
+  });
+
+  it('reports a flat trend as a no_effect finding, not a blank', async () => {
+    const { gam } = domainOver(weeklyVault(() => 80));
+    const atlas = await gam.getAtlas({ whatsNew: false });
+    for (const id of WEEK_PROBES) {
+      const card = cardById(atlas, id);
+      expect(card.state).toBe('no_effect');
+      expect(card.text).toMatch(/about the same/);
+      expect(card).not.toHaveProperty('delta');
+    }
+  });
+
+  it('ED-safe drops both weight-trend probes from the Atlas', async () => {
+    const vault = weeklyVault(() => 80);
+    vault.gamificationmode = [{ recordId: 'gamificationmode', deleted: false, ed_safe: true }];
+    const { gam } = domainOver(vault);
+    const atlas = await gam.getAtlas({ whatsNew: false });
+    for (const id of WEEK_PROBES) expect(cardById(atlas, id)).toBeUndefined();
+    expect(atlas.cards).toHaveLength(PROBES.filter((p) => !p.weight).length);
+  });
+
+  it('stays developing while the trend run is too young to read a week', async () => {
+    // 18 days of weigh-ins: the run starts inside the window, so the week that
+    // holds its first reading is unreadable and no week has both arms.
+    const weight = Array.from({ length: 18 }, (_, offset) => ({
+      recordId: `w-${offset}`, deleted: false, measured_at: isoAt(offset), weight: 80,
+    }));
+    const { gam } = domainOver({ weight });
+    const atlas = await gam.getAtlas({ whatsNew: false });
+    for (const id of WEEK_PROBES) {
+      const card = cardById(atlas, id);
+      expect(card.state).toBe('developing');
+      expect(card.needed).toBe(3);
+      expect(card.have).toBe(0);
+      expect(card.next).toMatch(/Weigh in/);
+    }
   });
 });
 
@@ -274,8 +483,7 @@ describe('gamification "since you last looked" strip', () => {
   });
 
   // A vault rich enough to fire every candidate at once: four unseen terminal
-  // findings, a BP keystone, a freshly held trait, and a calibrated forecast
-  // resolution. Both caps have to bite.
+  // findings, a BP keystone and a freshly held trait. Both caps have to bite.
   function saturatedVault() {
     const bp = [];
     const workoutsession = [];
@@ -301,13 +509,11 @@ describe('gamification "since you last looked" strip', () => {
     expect(atlas.cards.filter((c) => c.seen === false)).toHaveLength(4);
     // ...but only two reach the strip, and the whole strip is four lines.
     expect(atlas.whats_new.map((it) => it.kind)).toEqual(['discovery', 'discovery', 'keystone', 'trait']);
-
-    // The forecast resolution is real and calibrated — it lost the last slot
-    // to higher-priority news rather than being absent.
-    expect((await gam.getForecast()).resolution).not.toBeNull();
   });
 
-  it('drops the forecast line when the gamification flag is off, and the whole strip on demand', async () => {
+  // med-8tur.12: the Tomorrow Forecast is gone, so it no longer contributes a
+  // strip line; the strip can still be skipped outright.
+  it('falls through to the lower-priority lines once findings are read, and drops the strip on demand', async () => {
     const { gam } = domainOver(saturatedVault());
     // Read every finding so the strip falls through to the lower-priority items.
     for (const c of (await gam.getAtlas()).cards) {
@@ -315,10 +521,6 @@ describe('gamification "since you last looked" strip', () => {
     }
 
     expect((await gam.getAtlas()).whats_new.map((it) => it.kind))
-      .toEqual(['keystone', 'trait', 'forecast']);
-    // The shim passes the feature flag down, because getForecast() itself
-    // always reports enabled (the same reason /forecast is gated there).
-    expect((await gam.getAtlas({ forecast: false })).whats_new.map((it) => it.kind))
       .toEqual(['keystone', 'trait']);
     // The narrate handlers hold these payloads already and drop whats_new, so
     // they opt out of composing it entirely.
@@ -330,7 +532,7 @@ describe('gamification "since you last looked" strip', () => {
   // non-empty (and starving the anticipation fallback) forever.
 
   // Three weeks of above-band BP and nothing else: no finding clears its
-  // gate, no keystone, no forecast — the weekend probe holds real pairs, so
+  // gate, no keystone — the weekend probe holds real pairs, so
   // the strip falls through to anticipation unless a recent dormant/verdict
   // line claims it first.
   function quietVaultWithPairs() {

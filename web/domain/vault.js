@@ -43,6 +43,15 @@
 //     suppression signals (bd med-jtaj): recordsToVault carries them as
 //     data.tombstones and vaultToRecords re-materializes them as bodyless
 //     deleted rows. All other tombstones are delete-by-absence (dropped).
+//   - gamificationmilestone (goal milestones) rides in data.gamification.milestones
+//     keyed by goal_set_at; import re-attaches each to the re-minted weightgoal
+//     with that set_at (its episode), rebuilding the deterministic recordId.
+//   - gamificationweek (weekly plans, med-8tur.4) rides in data.gamification.weeks;
+//     the recordId is rebuilt from `week`, episode_id re-attached by goal_set_at.
+//   - the live gamification state (med-8tur.11) rides in data.gamification too:
+//     the `journal` singleton body, the `target_overrides` list (body of the
+//     `gamificationtargets` singleton), and `experiments` / `modes` lists that
+//     keep their recordId as `id` (keystones reference `experiment-<recordId>`).
 //   - timezone_history, gamification and api_tokens have no cloud consumer, so
 //     imported entries land in passthrough `tzhistory` / `gamification` /
 //     `apitokens` stores purely for backup fidelity. The reminder-pref bodies
@@ -75,6 +84,8 @@ export const VAULT_MANAGED_TYPES = new Set([
   'tzplan', 'tzhistory',
   'settings', 'features', 'taborder', 'foodtargets', 'integrations', 'medreminderpref',
   'bpreminderpref', 'weightreminderpref', 'gamification', 'apitokens',
+  'gamificationmilestone', 'gamificationweek',
+  'gamificationjournal', 'gamificationexperiment', 'gamificationtargets', 'gamificationmode',
 ]);
 
 // Record types whose rows are lazily materialized into deterministic recordIds
@@ -341,13 +352,49 @@ export function recordsToVault(records, { now, includeSecrets = true } = {}) {
   // absent means "leave the destination's provider keys alone" on import).
   if (!includeSecrets) delete settings.integrations;
 
-  // --- gamification / api_tokens (passthrough; no cloud reader) ---
+  // --- gamification / api_tokens (passthrough; no cloud reader — except the
+  // milestones below, read by the Goal Line) ---
   const gamRec = singleton('gamification', 'gamification');
   const gamification = {
     targets: (gamRec && gamRec.targets) || [],
     ledger: (gamRec && gamRec.ledger) || [],
     state: (gamRec && gamRec.state) || null,
   };
+  // Goal milestones (med-8tur.5): keyed to their goal by goal_set_at, not by the
+  // weightgoal recordId — import re-mints goal ids. Omitted when empty so a
+  // milestone-free store exports byte-identical to a pre-milestone client.
+  // One row per natural key (goal_set_at, ordinal): a twin left by an old
+  // client's import collapses, the acknowledged copy winning.
+  const msByKey = new Map();
+  for (const m of pick('gamificationmilestone')) {
+    const key = `${m.goal_set_at}|${m.ordinal}`;
+    if (!msByKey.has(key) || (m.acknowledged && !msByKey.get(key).acknowledged)) msByKey.set(key, m);
+  }
+  const milestones = [...msByKey.values()];
+  if (milestones.length > 0) {
+    gamification.milestones = sortBy(milestones, (r) => `${r.goal_set_at}|${String(r.ordinal).padStart(6, '0')}`)
+      .map((r) => stripMeta(r, ['episode_id']));
+  }
+  // Weekly plans (med-8tur.4): user choices, one per ISO week. Same goal_set_at
+  // keying as milestones; omitted when empty (byte-identical older exports).
+  const weeks = pick('gamificationweek');
+  if (weeks.length > 0) {
+    gamification.weeks = sortBy(weeks, (r) => String(r.week)).map((r) => stripMeta(r, ['episode_id']));
+  }
+  // Live gamification state (med-8tur.11): chapter/seen/traits/keystones, band
+  // overrides, trials, recovery flags. Each key omitted when empty, like weeks.
+  const journalRec = singleton('gamificationjournal', 'journal');
+  if (journalRec) gamification.journal = stripMeta(journalRec);
+  const targetsRec = singleton('gamificationtargets', 'targets');
+  if (targetsRec && Array.isArray(targetsRec.targets) && targetsRec.targets.length > 0) {
+    gamification.target_overrides = sortBy(targetsRec.targets, (t) => String(t.metric_key));
+  }
+  for (const [key, type] of [['experiments', 'gamificationexperiment'], ['modes', 'gamificationmode']]) {
+    const rows = pick(type);
+    if (rows.length > 0) {
+      gamification[key] = sortBy(rows, (r) => String(r.recordId)).map((r) => ({ id: r.recordId, ...stripMeta(r) }));
+    }
+  }
   const tokensRec = singleton('apitokens', 'apitokens');
 
   const data = {
@@ -379,6 +426,8 @@ function reminderToVault(rec) {
     preferred_reminder_hour: rec.preferred_reminder_hour,
     snoozed_until: rec.snoozed_until ?? null,
     dont_remind_until: rec.dont_remind_until ?? null,
+    // weight only (med-8tur.6): weekly | daily; absent = weekly.
+    ...(rec.cadence ? { cadence: rec.cadence } : {}),
   };
 }
 
@@ -617,6 +666,33 @@ export function vaultToRecords(vault, { now } = {}) {
     });
   }
   if (data.api_tokens) push('apitokens', 'apitokens', { tokens: [...data.api_tokens] });
+  // Goal milestones re-attach to the goal re-minted above with the same set_at
+  // (the episode id); one whose goal is not in the file keeps a stable orphan
+  // episode so it still lands in the Journey timeline.
+  for (const m of (gam && gam.milestones) || []) {
+    if (!Number.isInteger(m && m.ordinal) || m.ordinal < 1) {
+      throw new Error(`Corrupt backup: goal milestone has no usable ordinal ${JSON.stringify(m)}`);
+    }
+    const goal = out.find((r) => r.recordType === 'weightgoal' && r.set_at === m.goal_set_at);
+    const episode = goal ? goal.recordId : `weightgoal-orphan-${m.goal_set_at}`;
+    push('gamificationmilestone', `gamificationmilestone-${episode}-${m.ordinal}`, { ...m, episode_id: episode });
+  }
+  for (const w of (gam && gam.weeks) || []) {
+    if (!w || !/^\d{4}-W\d{2}$/.test(w.week)) {
+      throw new Error(`Corrupt backup: weekly plan has no usable week ${JSON.stringify(w)}`);
+    }
+    const goal = w.goal_set_at ? out.find((r) => r.recordType === 'weightgoal' && r.set_at === w.goal_set_at) : null;
+    push('gamificationweek', `gamificationweek-${w.week}`, { ...w, episode_id: goal ? goal.recordId : null });
+  }
+  // Live gamification state (med-8tur.11) back onto the recordIds gamification.js
+  // reads. Older files omit these keys and import none of them.
+  if (gam && gam.journal) push('gamificationjournal', 'journal', { ...gam.journal });
+  if (gam && Array.isArray(gam.target_overrides) && gam.target_overrides.length > 0) {
+    push('gamificationtargets', 'targets', { targets: gam.target_overrides.map((t) => ({ ...t })) });
+  }
+  for (const [key, type] of [['experiments', 'gamificationexperiment'], ['modes', 'gamificationmode']]) {
+    for (const { id, ...body } of (gam && gam[key]) || []) push(type, id, body);
+  }
 
   // --- tombstones (derived-slot suppression signals, bd med-jtaj) ---
   // Old files predate the key and import exactly as before (no tombstones).
@@ -653,6 +729,8 @@ function reminderFromVault(st) {
     preferred_reminder_hour: st.preferred_reminder_hour,
     snoozed_until: st.snoozed_until ?? null,
     dont_remind_until: st.dont_remind_until ?? null,
+    // weight only (med-8tur.6): weekly | daily; absent = weekly.
+    ...(st.cadence ? { cadence: st.cadence } : {}),
   };
 }
 

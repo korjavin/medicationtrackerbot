@@ -28,7 +28,28 @@ const DELIVERYPREF_RECORD_TYPE = 'reminderdeliverypref';
 const DELIVERYPREF_RECORD_ID = 'reminderdeliverypref';
 
 export const DELIVERY_CHANNELS = ['webpush', 'telegram', 'both'];
+// Weigh-in reminder cadence (docs/gamification.md §0.3.3): 'weekly' (default)
+// fires once the last reading is a week old; 'daily' fires each day at the
+// preferred hour unless that local day already has a reading.
+export const WEIGHT_CADENCES = ['weekly', 'daily'];
 export const VERBOSITIES = ['detailed', 'generic'];
+
+// isoWeekKey names the ISO-8601 week (Monday–Sunday) holding a 'YYYY-MM-DD'
+// calendar day as '<isoWeekYear>-W<ww>' — the week identity of the weekly
+// plan record (gamification.js gamificationweek-<key>, docs/gamification.md
+// §0.3.4). The week-year comes from the week's Thursday, so 2027-01-01 (a
+// Friday) is '2026-W53', never '2027-W53'. Pure calendar maths: a timezone
+// edit changes which local DAY "now" is, never the key of a stored day.
+export function isoWeekKey(day) {
+  const DAY = 86400000;
+  const d = Date.parse(`${day}T00:00:00Z`);
+  const thursday = d + (3 - ((new Date(d).getUTCDay() + 6) % 7)) * DAY;
+  const year = new Date(thursday).getUTCFullYear();
+  const jan4 = Date.UTC(year, 0, 4);
+  const firstThursday = jan4 + (3 - ((new Date(jan4).getUTCDay() + 6) % 7)) * DAY;
+  const week = 1 + Math.round((thursday - firstThursday) / (7 * DAY));
+  return `${year}-W${String(week).padStart(2, '0')}`;
+}
 
 const FORECAST_DAYS = 7;
 // ponytail: hard cap far under the relay's 2000-entry/4KB limit; unrealistic
@@ -141,94 +162,85 @@ function lowStockText(lowMeds) {
   return lines.join('\n');
 }
 
-// ---- Weekly digest (med-eas.58) --------------------------------------------
-// Ports the Go text formatter internal/bot/gamification_commands.go's
-// FormatWeeklyReview + friends line-for-line. Input is the snake_case
-// WeeklyReview read model web/domain/gamification.js getWeeklyReview() returns
-// (identical shape to the Go read model). Kept pure so the same file runs in
-// goja server-side later. Wired into the horizon by web/cloud/js/reminders.js
-// (Task 5).
-const DIGEST_LEVER_LABELS = { bedtime: 'Bedtime', movement: 'Movement', nourishment: 'Nourishment' };
-const DIGEST_PACE_LABELS = {
-  on_pace: 'on pace',
-  too_slow: 'slower than your pace',
-  too_fast: 'faster than your pace',
-  wrong_direction: 'moving away from goal',
-};
-const DIGEST_ACCEL_LABELS = { speeding_up: 'speeding up', holding: 'holding steady', slowing: 'slowing' };
+// ---- Weekly digest (med-eas.58, re-anchored on the goal by med-8tur.4) ----
+// Renders getWeeklyReview()'s three fact rows (docs/gamification.md §0.3.4) —
+// weight, workouts, BP — for the most recently completed week, the best day,
+// and the nudge to pick next week's intention in the app. No composite score
+// (the Health Score is hidden), no ring lines; a missing row reads as unknown.
+// Kept pure so the same file runs in goja server-side later. Wired into the
+// horizon by web/cloud/js/reminders.js. `unit` is the weight display unit.
+// `goalFree` drops the goal reading (distance / at-goal / milestone) — the
+// Telegram text reaches the relay in plaintext, so like the weigh-in push the
+// goal rides only the Web Push body (push.js `pushText`).
 const DIGEST_WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-function digestScoreLine(hs) {
-  if (!hs || !hs.now || hs.now.value === null || hs.now.value === undefined) return '';
-  const now = Math.round(hs.now.value);
-  if (!hs.prior || hs.prior.value === null || hs.prior.value === undefined) return `Health Score ${now}`;
-  const delta = now - Math.round(hs.prior.value);
-  if (delta === 0) return `Health Score ${now} \u{00B7} holding steady`;
-  return delta > 0 ? `Health Score ${now} \u{00B7} up ${delta}` : `Health Score ${now} \u{00B7} down ${-delta}`;
+function digestKg(kg, unit) {
+  const lb = unit === 'lb';
+  return `${(Math.round((lb ? kg / KG_PER_LB : kg) * 10) / 10).toFixed(1)} ${lb ? 'lb' : 'kg'}`;
 }
 
-function digestLeverLine(levers) {
-  if (!levers || levers.length === 0) return '';
-  return levers.map((lv, i) => {
-    const label = DIGEST_LEVER_LABELS[lv.key] || lv.key;
-    return i === 0 ? `${label} closed ${lv.closed_this_week} of 7` : `${label} ${lv.closed_this_week}`;
-  }).join(' \u{00B7} ');
+function digestWeightRow(w, unit, goalFree) {
+  if (!w || w.feature_on === false) return '';
+  const n = Number(w.weigh_in_days) || 0;
+  const days = `${n} weigh-in${n === 1 ? '' : 's'}`;
+  if (w.status !== 'ok') return `Weight: ${days} \u{00B7} not enough for a trend yet`;
+  const parts = [];
+  if (Number.isFinite(w.trend_change_kg)) {
+    const c = w.trend_change_kg;
+    parts.push(`trend ${c > 0 ? '+' : c < 0 ? '\u2212' : '\u00B1'}${digestKg(Math.abs(c), unit)}`);
+  } else if (Number.isFinite(w.trend_weight)) {
+    parts.push(`trend ${digestKg(w.trend_weight, unit)}`);
+  }
+  if (!goalFree) {
+    if (w.goal_status === 'at_goal' || w.goal_status === 'maintaining') parts.push('at your goal');
+    else if (Number.isFinite(w.distance_to_goal)) parts.push(`${digestKg(w.distance_to_goal, unit)} to go`);
+  }
+  parts.push(days);
+  if (!goalFree && Array.isArray(w.milestones_reached) && w.milestones_reached.length) parts.push('milestone reached');
+  return `Weight: ${parts.join(' \u{00B7} ')}`;
 }
 
-function digestWeightLine(w) {
-  if (!w || w.status !== 'ok') return '';
-  const sign = w.velocity_pct_per_week >= 0 ? '+' : '';
-  const parts = [`${sign}${w.velocity_pct_per_week.toFixed(1)}%/wk`];
-  const pace = DIGEST_PACE_LABELS[w.pace_status];
-  if (pace) parts.push(pace);
-  const accel = DIGEST_ACCEL_LABELS[w.acceleration];
-  if (accel) parts.push(accel);
-  return 'Weight ' + parts.join(' \u{00B7} ');
+function digestWorkoutRow(wo) {
+  if (!wo || wo.feature_on === false) return '';
+  const done = Number(wo.completed) || 0;
+  return Number.isFinite(wo.scheduled)
+    ? `Workouts: ${done} of ${wo.scheduled} scheduled`
+    : `Workouts: ${done} session${done === 1 ? '' : 's'}`;
 }
 
-function digestBPLine(bp, priorShare) {
-  if (!bp || bp.status !== 'ok' || !(bp.count_30d > 0)) return '';
-  const share = Math.round((bp.share_30d || 0) * 100);
-  const prior = Math.round((priorShare || 0) * 100);
-  if (prior <= 0) return `BP in range ${share}%`;
-  const delta = share - prior;
-  const word = delta > 0 ? `up from ${prior}%` : delta < 0 ? `down from ${prior}%` : 'holding steady';
-  return `BP in range ${share}% \u{00B7} ${word}`;
-}
-
-function digestRestingHRLine(hr) {
-  if (!hr || hr.status !== 'ok') return '';
-  const recent = Math.round(hr.recent_14d_mean);
-  const delta = Math.round(hr.delta_from_baseline);
-  const deltaWord = delta > 0 ? `${delta} above your baseline`
-    : delta < 0 ? `${-delta} below your baseline` : 'at your baseline';
-  return `Resting HR ${recent} avg \u{00B7} ${deltaWord}`;
+function digestBPRow(bp) {
+  if (!bp || bp.feature_on === false) return '';
+  if (!bp.mean) return 'BP: no readings this week';
+  let text = `BP: avg ${Math.round(bp.mean.systolic)}/${Math.round(bp.mean.diastolic)}`;
+  if (bp.target && (Number.isFinite(bp.target.systolic) || Number.isFinite(bp.target.diastolic))) {
+    const t = (x) => (Number.isFinite(x) ? String(x) : '\u2014');
+    text += ` vs ${t(bp.target.systolic)}/${t(bp.target.diastolic)}`;
+  }
+  const n = Number(bp.days_measured) || 0;
+  return `${text} \u{00B7} ${n} day${n === 1 ? '' : 's'} measured`;
 }
 
 function digestBestDayLine(bd) {
   if (!bd) return '';
-  const day = DIGEST_WEEKDAYS[new Date(bd.day_unix * 1000).getUTCDay()];
-  const plural = bd.rings_closed === 1 ? '' : 's';
-  return `Best day: ${day} \u{00B7} ${bd.rings_closed} ring${plural} closed`;
+  return `Best day: ${DIGEST_WEEKDAYS[new Date(bd.day_unix * 1000).getUTCDay()]}`;
 }
 
-export function formatWeeklyDigest(review) {
+export function formatWeeklyDigest(review, unit = 'kg', { goalFree = false } = {}) {
   if (!review || !review.enabled) return '\u{1F3AE} Gamification is turned off in Settings.';
   if (review.quiet) {
     return '\u{1F5D3} Your week\nA quiet week \u{2014} everything picks up where you left off.';
   }
-  const g = review.gauges || {};
+  const rows = review.rows || {};
   const lines = ['\u{1F5D3} Your week'];
   for (const line of [
-    digestScoreLine(review.health_score),
-    digestLeverLine(review.levers),
-    digestWeightLine(g.weight),
-    digestBPLine(g.bp, g.bp_share_30d_prior),
-    digestRestingHRLine(g.resting_hr),
+    digestWeightRow(rows.weight, unit, goalFree),
+    digestWorkoutRow(rows.workouts),
+    digestBPRow(rows.bp),
     digestBestDayLine(review.best_day),
   ]) {
     if (line !== '') lines.push(line);
   }
+  lines.push("Pick next week's intention in the app.");
   return lines.join('\n');
 }
 
@@ -258,11 +270,47 @@ export function measureSlotMs(now, timeZone, preferredHour, dayOffset = 0) {
 // How recent a reading has to be for a measure slot to count as satisfied. The
 // horizon fires a target only when the last reading is OLDER than this, so a
 // reading inside the window is exactly the one that answers the reminder. Keyed
-// by callback prefix; the horizon loops below read the same constants.
+// by callback prefix; the horizon loops below read the same constants. `wt` is
+// the WEEKLY cadence; a daily weigh-in slot is satisfied only by a reading on
+// its own local day (localDayKey).
 const MEASURE_SATISFIED_MS = {
   bp: 12 * 60 * 60 * 1000,
   wt: 7 * 24 * 60 * 60 * 1000,
 };
+
+// localDayKey is the local calendar day of `ms` — the unit a DAILY weigh-in slot
+// is satisfied on (any reading that local day, before or after the slot).
+function localDayKey(ms, timeZone) {
+  const { year, month, day } = localDateParts(ms, timeZone);
+  return `${year}-${month}-${day}`;
+}
+
+const KG_PER_LB = 0.45359237;
+
+// formatWeighInPushText is the goal-aware weigh-in body (docs/gamification.md
+// §0.3.3) — "⚖️ Weigh in — trend 82.4 kg, 4.4 to go". `goal` is getGoalLine()'s
+// `goal` block (kg); `unit` is the display unit. Returns null when there is no
+// goal or nothing to read it against, so the caller keeps the goal-free text.
+// WEB PUSH ONLY: this rides the NK-encrypted payload; Telegram's tg_text reaches
+// the relay in plaintext and must never carry it (push.js reads `pushText` only
+// for the ciphertext).
+export function formatWeighInPushText(goal, unit = 'kg') {
+  if (!goal || goal.status === 'no_goal' || !Number.isFinite(goal.distance_to_goal)) return null;
+  const isTrend = Number.isFinite(goal.trend_weight);
+  const current = isTrend ? goal.trend_weight : (goal.latest_reading && goal.latest_reading.weight);
+  if (!Number.isFinite(current)) return null;
+  const lb = unit === 'lb';
+  const fmt = (kg) => (Math.round((lb ? kg / KG_PER_LB : kg) * 10) / 10).toFixed(1);
+  const u = lb ? 'lb' : 'kg';
+  // A preliminary reading already past the target is reached too (progress
+  // clamps to 1) — never "0.6 to go" for an overshoot.
+  const reached = goal.status === 'at_goal' || goal.status === 'maintaining'
+    || (goal.progress && goal.progress.fraction === 1);
+  const where = reached
+    ? 'at your goal'
+    : `${fmt(goal.distance_to_goal)} to go`;
+  return `\u{2696}\u{FE0F} Weigh in \u2014 ${isTrend ? 'trend' : 'latest'} ${fmt(current)} ${u}, ${where}`;
+}
 
 // measureReminderStem rebuilds the Telegram callback stem the horizon put on
 // TODAY's measure reminder — `bp:<slotUnix>` / `wt:<slotUnix>` — so a reading
@@ -275,7 +323,7 @@ const MEASURE_SATISFIED_MS = {
 //   - reminders off;
 //   - today's slot is still in the future, so the relay has not sent it yet;
 //   - the reading is too old to satisfy that slot (a BP backdated past 12h, a
-//     weight past 7d). The horizon would still fire the target for such a
+//     weekly weight past 7d, a daily weight not on the slot's local day). The horizon would still fire the target for such a
 //     reading, and cancelling deletes a message no recompute can put back.
 // Deliberately ignores the horizon's mute gate: a Snooze tapped in Telegram
 // mutes the pref precisely BECAUSE a message is live, so gating on it would skip
@@ -286,9 +334,139 @@ export function measureReminderStem(prefix, status, timeZone, now, measuredAtMs 
   if (!Number.isFinite(hour)) return '';
   const slotMs = measureSlotMs(now, timeZone, hour);
   if (slotMs > now) return '';
+  // Daily weigh-in: only a reading on the slot's own local day satisfies it.
+  if (prefix === 'wt' && status.cadence === 'daily') {
+    return Number.isFinite(measuredAtMs) && localDayKey(measuredAtMs, timeZone) === localDayKey(slotMs, timeZone)
+      ? `${prefix}:${Math.floor(slotMs / 1000)}` : '';
+  }
   // Negative when the reading came after the slot — the ordinary case.
   if (!(slotMs - measuredAtMs <= MEASURE_SATISFIED_MS[prefix])) return '';
   return `${prefix}:${Math.floor(slotMs / 1000)}`;
+}
+
+// workoutScheduleOccurrences is the schedule walk the workout reminders fire
+// from, shared with the gamification Goal Line (next_scheduled /
+// scheduled_this_week) so the two can never disagree about what is scheduled.
+// Pure over the record arrays; workoutSessions must be RAW (tombstones
+// included) — a deleted day's tombstone surfaces as status 'deleted'.
+//   groupOccurrences — every matching-weekday occurrence of an ACTIVE group with
+//     a parseable days_of_week + scheduled_time and a resolvable variant, for the
+//     local days today+fromDay … today+fromDay+days-1, each carrying the
+//     materialized session's status (undefined when not materialized yet).
+//   adhoc — planned ad-hoc sessions (status pending, parseable date + time).
+//   scheduleGroups — how many groups produced a schedule (0 = no weekly plan).
+export function workoutScheduleOccurrences({
+  workoutGroups = [], workoutVariants = [], workoutRotations = [], workoutSessions = [],
+  timeZone, now, fromDay = 0, days = FORECAST_DAYS,
+} = {}) {
+  const variants = workoutVariants.filter((v) => !v.deleted);
+  const variantById = new Map(variants.map((v) => [v.id, v]));
+
+  const variantsByGroup = new Map();
+  for (const v of variants) {
+    const list = variantsByGroup.get(v.group_id) || [];
+    list.push(v);
+    variantsByGroup.set(v.group_id, list);
+  }
+  // listVariants order: rotation_order asc (999 default), then name — the
+  // first variant is the non-rotating group's picked variant.
+  for (const list of variantsByGroup.values()) {
+    list.sort((a, b) => {
+      const ra = a.rotation_order !== null && a.rotation_order !== undefined ? a.rotation_order : 999;
+      const rb = b.rotation_order !== null && b.rotation_order !== undefined ? b.rotation_order : 999;
+      if (ra !== rb) return ra - rb;
+      return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+    });
+  }
+
+  const rotationByGroup = new Map();
+  for (const r of workoutRotations.filter((r) => !r.deleted)) {
+    rotationByGroup.set(r.group_id, r.current_variant_id);
+  }
+
+  // resolveVariantId ports next.go's resolveVariantID: rotation cursor for a
+  // rotating group (if present), else the first variant; 0 when none.
+  const resolveVariantId = (group) => {
+    if (group.is_rotating && rotationByGroup.has(group.id)) return rotationByGroup.get(group.id);
+    const vs = variantsByGroup.get(group.id) || [];
+    return vs.length > 0 ? vs[0].id : 0;
+  };
+
+  // Schedule-materialized sessions (real group_id, keyed by local day) suppress
+  // the primary fire once the user has acted: the bot only notifies a 'pending'
+  // session (workout.go step 9), and getNext skips completed/skipped ones. Key
+  // by `group_id|YYYY-MM-DD` — the scheduled_date prefix IS the local day.
+  const sessionStatusByKey = new Map();
+  for (const s of workoutSessions.filter((x) => !x.deleted && x.group_id !== WORKOUT_ADHOC_GROUP_ID)) {
+    const p = /^(\d{4}-\d{2}-\d{2})/.exec(String(s.scheduled_date));
+    if (p) sessionStatusByKey.set(`${s.group_id}|${p[1]}`, s.status);
+  }
+  // A day deleted via deleteSession leaves a TOMBSTONE at the deterministic
+  // slot, and getNext treats that as occupied — the card skips the day. This
+  // horizon used to see only live rows, so it read the day as "never
+  // materialized" and kept firing its recurring reminder: Telegram asked about
+  // a workout the app no longer offered, and the Snooze/Skip buttons on that
+  // push re-materialized the slot (bd med-w0fe). A tombstone carries no body
+  // (records.del writes {recordId, clientTs, deleted}), so the day comes off
+  // the slot id. Ad-hoc sessions have random recordIds and group_id -1, so
+  // neither shape matches — they are left alone.
+  for (const s of workoutSessions) {
+    if (!s.deleted) continue;
+    const m = /^session-(\d+)-(\d{4}-\d{2}-\d{2})$/.exec(String(s.recordId));
+    // 'deleted' is a SENTINEL, not a session status — the only thing read off
+    // this map is "not pending", i.e. do not fire. Never override a live row:
+    // a legacy session at a random recordId can hold the same day, and it is
+    // the one that decides.
+    if (m && !sessionStatusByKey.has(`${m[1]}|${m[2]}`)) {
+      sessionStatusByKey.set(`${m[1]}|${m[2]}`, 'deleted');
+    }
+  }
+
+  const { year, month, day } = localDateParts(now, timeZone);
+  const groupOccurrences = [];
+  let scheduleGroups = 0;
+  for (const group of workoutGroups.filter((g) => !g.deleted && g.active)) {
+    let daysOfWeek;
+    try { daysOfWeek = JSON.parse(group.days_of_week); } catch { continue; }
+    // An active plan with no weekdays schedules nothing — not a denominator.
+    if (!Array.isArray(daysOfWeek) || daysOfWeek.length === 0) continue;
+    const variantId = resolveVariantId(group);
+    if (!variantId) continue;
+    const variant = variantById.get(variantId);
+    if (!variant) continue;
+    const hhmm = parseHHMM(group.scheduled_time);
+    if (!hhmm) continue;
+    scheduleGroups++;
+    for (let d = fromDay; d < fromDay + days; d++) {
+      const occ = new Date(Date.UTC(year, month - 1, day + d));
+      if (!daysOfWeek.includes(occ.getUTCDay())) continue;
+      const dateStr = `${occ.getUTCFullYear()}-${String(occ.getUTCMonth() + 1).padStart(2, '0')}-${String(occ.getUTCDate()).padStart(2, '0')}`;
+      const scheduledMs = localWallToUtcMs(Date.UTC(year, month - 1, day + d, hhmm.hour, hhmm.minute), timeZone);
+      groupOccurrences.push({
+        group, variant, variantId, dateStr, scheduledMs, hhmm,
+        status: sessionStatusByKey.get(`${group.id}|${dateStr}`),
+      });
+    }
+  }
+
+  // Planned ad-hoc sessions (group_id === -1, status 'pending'): a concrete
+  // scheduled_date (local midnight rendered as an offset-stamped instant) +
+  // scheduled_time. The date prefix IS the local calendar day (scheduledDateRFC,
+  // workout.js) — read it as a string, never via UTC parts, which shift the day
+  // backward in positive-offset zones. Re-anchor HH:MM to the local wall.
+  const adhoc = [];
+  for (const s of workoutSessions.filter((s) => !s.deleted && s.group_id === WORKOUT_ADHOC_GROUP_ID && s.status === 'pending')) {
+    const hhmm = parseHHMM(s.scheduled_time);
+    if (!hhmm) continue;
+    const datePrefix = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s.scheduled_date));
+    if (!datePrefix) continue;
+    const scheduledMs = localWallToUtcMs(
+      Date.UTC(+datePrefix[1], +datePrefix[2] - 1, +datePrefix[3], hhmm.hour, hhmm.minute),
+      timeZone,
+    );
+    adhoc.push({ session: s, dateStr: datePrefix[0], scheduledMs, hhmm });
+  }
+  return { groupOccurrences, adhoc, scheduleGroups };
 }
 
 // computeReminderHorizon is pure: medications/intakes are raw records
@@ -301,7 +479,7 @@ export function computeReminderHorizon({
   workoutGroups = [], workoutVariants = [], workoutExercises = [],
   workoutRotations = [], workoutSessions = [],
   timeZone, now, tzPlan, bpStatus = { enabled: false }, weightStatus = { enabled: false },
-  workoutStatus = { enabled: false },
+  workoutStatus = { enabled: false }, weighInPushText = null, weighInPausedWeeks = [],
 } = {}) {
   const meds = medications.filter((m) => !m.deleted && !m.archived);
   const medById = new Map(meds.map((m) => [m.recordId ?? m.id, m]));
@@ -412,15 +590,36 @@ export function computeReminderHorizon({
     const lastWeight = sortedWeights[0];
     const lastWeightMs = lastWeight ? new Date(lastWeight.measured_at || lastWeight.measuredAt).getTime() : 0;
     const preferredHour = weightStatus.preferred_reminder_hour !== undefined ? weightStatus.preferred_reminder_hour : 9;
+    const daily = weightStatus.cadence === 'daily';
+    const weighedDays = daily
+      ? new Set(weights.map((w) => new Date(w.measured_at || w.measuredAt).getTime())
+        .filter(Number.isFinite).map((ms) => localDayKey(ms, timeZone)))
+      : null;
+    const text = daily
+      ? '⚖️ **Time to weigh in**\n\nA quick daily weigh-in keeps your trend current.'
+      : "⚖️ **Time to track your weight**\n\nIt's been about a week since your last measurement. Regular tracking helps you stay on top of your goals!";
 
     for (let d = 0; d < FORECAST_DAYS; d++) {
       const targetMs = measureSlotMs(now, timeZone, preferredHour, d);
+      // weekly: fire if no reading within 7 days before target; daily: fire
+      // unless the target's local day already has a reading.
+      const satisfied = daily
+        ? weighedDays.has(localDayKey(targetMs, timeZone))
+        : targetMs - lastWeightMs <= MEASURE_SATISFIED_MS.wt;
 
-      // Fire if no reading within 7 days before target
+      // A week the user paused in the weekly review (docs/gamification.md
+      // §0.3.4) sends no weigh-in nudge at all.
+      const { year, month, day } = localDateParts(targetMs, timeZone);
+      const pausedWeek = weighInPausedWeeks.includes(
+        isoWeekKey(`${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`));
+
       // Same mute gate as BP: skip targets inside an active snooze / don't-bug window.
-      if (targetMs > now && targetMs > weightMutedUntil && targetMs - lastWeightMs > MEASURE_SATISFIED_MS.wt) {
+      if (targetMs > now && targetMs > weightMutedUntil && !satisfied && !pausedWeek) {
         const fireAtUnix = Math.floor(targetMs / 1000);
-        entries.push({ fireAtUnix, kind: 'weight', text: "⚖️ **Time to track your weight**\n\nIt's been about a week since your last measurement. Regular tracking helps you stay on top of your goals!", genericText: GENERIC_WEIGHT_TEXT, callback: `wt:${fireAtUnix}` });
+        const entry = { fireAtUnix, kind: 'weight', text, genericText: GENERIC_WEIGHT_TEXT, callback: `wt:${fireAtUnix}` };
+        // Web-Push-only body (push.js); `text`/`genericText` stay goal-free for Telegram.
+        if (weighInPushText) entry.pushText = weighInPushText;
+        entries.push(entry);
       }
     }
   }
@@ -457,31 +656,6 @@ export function computeReminderHorizon({
   // can't see, so we emit only the single "workout starting" push — the same
   // accepted limitation as the medication re-reminders above (see the plan).
   if (workoutStatus.enabled) {
-    const variants = workoutVariants.filter((v) => !v.deleted);
-    const variantById = new Map(variants.map((v) => [v.id, v]));
-
-    const variantsByGroup = new Map();
-    for (const v of variants) {
-      const list = variantsByGroup.get(v.group_id) || [];
-      list.push(v);
-      variantsByGroup.set(v.group_id, list);
-    }
-    // listVariants order: rotation_order asc (999 default), then name — the
-    // first variant is the non-rotating group's picked variant.
-    for (const list of variantsByGroup.values()) {
-      list.sort((a, b) => {
-        const ra = a.rotation_order !== null && a.rotation_order !== undefined ? a.rotation_order : 999;
-        const rb = b.rotation_order !== null && b.rotation_order !== undefined ? b.rotation_order : 999;
-        if (ra !== rb) return ra - rb;
-        return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
-      });
-    }
-
-    const rotationByGroup = new Map();
-    for (const r of workoutRotations.filter((r) => !r.deleted)) {
-      rotationByGroup.set(r.group_id, r.current_variant_id);
-    }
-
     const exercisesByVariant = new Map();
     for (const e of workoutExercises.filter((e) => !e.deleted)) {
       const list = exercisesByVariant.get(e.variant_id) || [];
@@ -492,14 +666,6 @@ export function computeReminderHorizon({
       list.sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
     }
 
-    // resolveVariantId ports next.go's resolveVariantID: rotation cursor for a
-    // rotating group (if present), else the first variant; 0 when none.
-    const resolveVariantId = (group) => {
-      if (group.is_rotating && rotationByGroup.has(group.id)) return rotationByGroup.get(group.id);
-      const vs = variantsByGroup.get(group.id) || [];
-      return vs.length > 0 ? vs[0].id : 0;
-    };
-
     const pushWorkout = (fireMs, text, callback) => {
       if (fireMs <= now) return;
       const entry = { fireAtUnix: Math.floor(fireMs / 1000), kind: 'workout', text, genericText: GENERIC_WORKOUT_TEXT };
@@ -509,80 +675,22 @@ export function computeReminderHorizon({
       entries.push(entry);
     };
 
-    // Schedule-materialized sessions (real group_id, keyed by local day) suppress
-    // the primary fire once the user has acted: the bot only notifies a 'pending'
-    // session (workout.go step 9), and getNext skips completed/skipped ones. Key
-    // by `group_id|YYYY-MM-DD` — the scheduled_date prefix IS the local day.
-    const sessionStatusByKey = new Map();
-    for (const s of workoutSessions.filter((x) => !x.deleted && x.group_id !== WORKOUT_ADHOC_GROUP_ID)) {
-      const p = /^(\d{4}-\d{2}-\d{2})/.exec(String(s.scheduled_date));
-      if (p) sessionStatusByKey.set(`${s.group_id}|${p[1]}`, s.status);
-    }
-    // A day deleted via deleteSession leaves a TOMBSTONE at the deterministic
-    // slot, and getNext treats that as occupied — the card skips the day. This
-    // horizon used to see only live rows, so it read the day as "never
-    // materialized" and kept firing its recurring reminder: Telegram asked about
-    // a workout the app no longer offered, and the Snooze/Skip buttons on that
-    // push re-materialized the slot (bd med-w0fe). A tombstone carries no body
-    // (records.del writes {recordId, clientTs, deleted}), so the day comes off
-    // the slot id. Ad-hoc sessions have random recordIds and group_id -1, so
-    // neither shape matches — they are left alone.
-    for (const s of workoutSessions) {
-      if (!s.deleted) continue;
-      const m = /^session-(\d+)-(\d{4}-\d{2}-\d{2})$/.exec(String(s.recordId));
-      // 'deleted' is a SENTINEL, not a session status — the only thing read off
-      // this map is "not pending", i.e. do not fire. Never override a live row:
-      // a legacy session at a random recordId can hold the same day, and it is
-      // the one that decides.
-      if (m && !sessionStatusByKey.has(`${m[1]}|${m[2]}`)) {
-        sessionStatusByKey.set(`${m[1]}|${m[2]}`, 'deleted');
-      }
-    }
-
-    const { year, month, day } = localDateParts(now, timeZone);
-
+    const { groupOccurrences, adhoc } = workoutScheduleOccurrences({
+      workoutGroups, workoutVariants, workoutRotations, workoutSessions, timeZone, now,
+    });
     // Recurring groups: every matching-weekday occurrence within the horizon,
-    // fired at scheduledInstant - notification_advance_minutes.
-    for (const group of workoutGroups.filter((g) => !g.deleted && g.active)) {
-      let daysOfWeek;
-      try { daysOfWeek = JSON.parse(group.days_of_week); } catch { continue; }
-      if (!Array.isArray(daysOfWeek)) continue;
-      const variantId = resolveVariantId(group);
-      if (!variantId) continue;
-      const variant = variantById.get(variantId);
-      if (!variant) continue;
-      const hhmm = parseHHMM(group.scheduled_time);
-      if (!hhmm) continue;
-      const advance = group.notification_advance_minutes || 0;
-      const text = workoutRecurringText(advance, group.name, variant.name, exercisesByVariant.get(variantId) || []);
-      for (let d = 0; d < FORECAST_DAYS; d++) {
-        const occ = new Date(Date.UTC(year, month - 1, day + d));
-        if (!daysOfWeek.includes(occ.getUTCDay())) continue;
-        const dateStr = `${occ.getUTCFullYear()}-${String(occ.getUTCMonth() + 1).padStart(2, '0')}-${String(occ.getUTCDate()).padStart(2, '0')}`;
-        const existingStatus = sessionStatusByKey.get(`${group.id}|${dateStr}`);
-        if (existingStatus !== undefined && existingStatus !== 'pending') continue;
-        const scheduledMs = localWallToUtcMs(Date.UTC(year, month - 1, day + d, hhmm.hour, hhmm.minute), timeZone);
-        const callback = `w:${group.id}:${dateStr.replaceAll('-', '')}`;
-        pushWorkout(scheduledMs - advance * 60 * 1000, text, callback);
-      }
+    // fired at scheduledInstant - notification_advance_minutes. Schedule-
+    // materialized sessions suppress the primary fire once the user has acted
+    // (the bot only notifies a 'pending' session, workout.go step 9) — and a
+    // tombstoned day ('deleted') never fires (bd med-w0fe).
+    for (const o of groupOccurrences) {
+      if (o.status !== undefined && o.status !== 'pending') continue;
+      const advance = o.group.notification_advance_minutes || 0;
+      const text = workoutRecurringText(advance, o.group.name, o.variant.name, exercisesByVariant.get(o.variantId) || []);
+      const callback = `w:${o.group.id}:${o.dateStr.replaceAll('-', '')}`;
+      pushWorkout(o.scheduledMs - advance * 60 * 1000, text, callback);
     }
-
-    // Planned ad-hoc sessions (group_id === -1, status 'pending'): a concrete
-    // scheduled_date (local midnight rendered as an offset-stamped instant) +
-    // scheduled_time. The date prefix IS the local calendar day (scheduledDateRFC,
-    // workout.js) — read it as a string, never via UTC parts, which shift the day
-    // backward in positive-offset zones. Re-anchor HH:MM to the local wall.
-    for (const s of workoutSessions.filter((s) => !s.deleted && s.group_id === WORKOUT_ADHOC_GROUP_ID && s.status === 'pending')) {
-      const hhmm = parseHHMM(s.scheduled_time);
-      if (!hhmm) continue;
-      const datePrefix = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s.scheduled_date));
-      if (!datePrefix) continue;
-      const scheduledMs = localWallToUtcMs(
-        Date.UTC(+datePrefix[1], +datePrefix[2] - 1, +datePrefix[3], hhmm.hour, hhmm.minute),
-        timeZone,
-      );
-      pushWorkout(scheduledMs, WORKOUT_ADHOC_TEXT);
-    }
+    for (const a of adhoc) pushWorkout(a.scheduledMs, WORKOUT_ADHOC_TEXT);
   }
 
   entries.sort((a, b) => a.fireAtUnix - b.fireAtUnix);
@@ -658,6 +766,7 @@ export function createRemindersDomain({ records, now }) {
     return {
       enabled: rec ? !!rec.enabled : false,
       preferred_reminder_hour: rec && rec.preferred_reminder_hour !== undefined ? rec.preferred_reminder_hour : 9,
+      cadence: rec && WEIGHT_CADENCES.includes(rec.cadence) ? rec.cadence : 'weekly',
       snoozed_until: (rec && rec.snoozed_until) || 0,
       dont_remind_until: (rec && rec.dont_remind_until) || 0,
     };
@@ -669,6 +778,13 @@ export function createRemindersDomain({ records, now }) {
       recordId: WEIGHT_REMINDERPREF_RECORD_ID, clientTs: now(), deleted: false, ...current, ...patch,
     });
     return getWeightStatus();
+  }
+
+  // setWeightCadence is the weigh-in cadence contract the weekly review picks
+  // (daily is opt-in there, med-8tur.4); the caller recomputes the horizon.
+  async function setWeightCadence(cadence) {
+    if (!WEIGHT_CADENCES.includes(cadence)) return getWeightStatus();
+    return putWeightPref({ cadence });
   }
 
   async function setWeightEnabled(enabled, preferred_reminder_hour) {
@@ -718,6 +834,7 @@ export function createRemindersDomain({ records, now }) {
     medications, intakes, bps, weights, timeZone, tzPlan,
     workoutGroups = [], workoutVariants = [], workoutExercises = [],
     workoutRotations = [], workoutSessions = [], workoutEnabled = false,
+    weighInPushText = null, weighInPausedWeeks = [],
   }) {
     const [{ enabled }, bpStatus, weightStatus] = await Promise.all([
       getStatus(),
@@ -752,11 +869,13 @@ export function createRemindersDomain({ records, now }) {
       bpStatus,
       weightStatus,
       workoutStatus,
+      weighInPushText,
+      weighInPausedWeeks,
     });
   }
 
   return {
-    getStatus, setEnabled, getBPStatus, setBPEnabled, getWeightStatus, setWeightEnabled,
+    getStatus, setEnabled, getBPStatus, setBPEnabled, getWeightStatus, setWeightEnabled, setWeightCadence,
     snoozeBPReminder, dontBugBPReminder, snoozeWeightReminder, dontBugWeightReminder,
     getDeliveryPref, setDeliveryPref, buildHorizon,
   };

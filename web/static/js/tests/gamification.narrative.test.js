@@ -3,7 +3,7 @@
 // Pure-unit suite for the Phase 5 narrative layer of web/domain/gamification.js:
 // Chapters (getChapter / startChapter / closeChapter), Traits (getTraits), and
 // Keystones (getKeystones + the experiment-completion timeline). Like the
-// Atlas/Forecast/Experiments suites, a pure-unit test is the right shape
+// Atlas/Experiments suites, a pure-unit test is the right shape
 // (CLAUDE.md testing posture): the domain layer is driven only by injected
 // ports, so it has no integration entry point.
 //
@@ -56,7 +56,8 @@ function workoutRec(offset) {
 function bpRec(offset, systolic) {
   return {
     recordId: `bp-${offset}`, deleted: false,
-    measured_at: isoAt(offset), systolic, diastolic: 80, ignore_calc: false,
+    // 07:00 UTC: firstMorningSystolic only counts readings before local noon.
+    measured_at: new Date(NOW - offset * DAY_MS - 5 * 3600000).toISOString(), systolic, diastolic: 80, ignore_calc: false,
   };
 }
 

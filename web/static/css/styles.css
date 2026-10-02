@@ -796,25 +796,6 @@
     --wg-health-vitals-spo2-line: #32ade6;
     --wg-health-vitals-stress-line: #ff9500;
 
-    /* wg-ring-stack tokens (Plan 7, Task 1) — one accent per canonical
-       ring domain, aliased to existing palette/chart hues so the stack
-       stays visually coherent with the rest of the app rather than
-       introducing new raw colors. --wg-ring-closed-brightness is the
-       filter: brightness() multiplier a closed arc gets instead of a
-       second per-ring color. --wg-ring-stack-size is the default
-       rendered width/height (Today tile size); --wg-ring-stack-size-lg
-       is the Journey screen's larger modifier (Task 3). */
-    --wg-ring-adherence: var(--wg-sun);
-    --wg-ring-movement: var(--wg-health-steps-bar);
-    --wg-ring-vitals: var(--wg-health-vitals-hr-line);
-    --wg-ring-nourishment: var(--wg-clay-soft);
-    --wg-ring-mind: var(--wg-health-sleep-rem);
-    --wg-ring-bedtime: var(--wg-health-sleep-rem);
-    --wg-ring-closed-brightness: 1.18;
-    --wg-ring-stack-size: 180px;
-    --wg-ring-stack-size-lg: 220px;
-    --wg-ring-stack-size-sm: 116px; /* compact Today rings tile (us0.1) */
-
     /* Settings screen tokens (Phase 9, Task 1) — sectioned cards, canonical
        setting-row grid (left column title+description, right column control),
        token'd row hairline divider, read-only info grid used by the Timezone
@@ -4941,16 +4922,21 @@ textarea.wg-input {
     background: var(--wg-sun);
 }
 
-/* Weight prognosis card — shows days-to-goal + weekly trend using a
-   simple linear-regression projection. Shown when a goal is set and we
-   have enough data points; the render helper guards against NaN/Infinity
-   and falls back to "—" when the projection isn't meaningful. */
+/* Weight prognosis card — renders the Goal Line's goal.projected
+   ("Around 15 Nov ± 3 weeks" / "More than a year at this pace"); hidden
+   whenever the domain withholds a date (features/weight.js
+   renderWeightPrognosisCard, med-8tur.7). */
 .wg-weight-prognosis-card {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
     gap: var(--space-md);
     margin-bottom: var(--space-md);
+}
+
+/* display:flex above would beat the UA [hidden] rule — withheld = gone. */
+.wg-weight-prognosis-card[hidden] {
+    display: none;
 }
 
 .wg-weight-prognosis-card__label {
@@ -5088,87 +5074,6 @@ textarea.wg-input {
 }
 
 /* ============================================================
-   wg-ring-stack — concentric ring stack (Plan 7 "concentric rings",
-   Task 1). Up to 5 wg-ring-style arcs sharing one SVG, outer→inner in
-   canonical ring order, replacing the old stacked-list-of-rings
-   presentation with one glanceable object. Same JS/CSS split as
-   wg-ring: JS sets only the neutral --ring-progress custom property
-   per arc circle (0..100, via each circle's own pathLength="100" so
-   the dash math stays a flat percentage regardless of that ring's
-   radius); CSS owns dash offset, per-ring hue, and the closed /
-   sync-pending states. Stroke width is fixed at 5 user units against
-   the SVG's 100x100 viewBox — keep in sync with STROKE_WIDTH in
-   wg-ring-stack.js if either changes.
-   ============================================================ */
-.wg-ring-stack {
-    position: relative;
-    display: inline-flex;
-    flex-shrink: 0;
-    width: var(--wg-ring-stack-size);
-    height: var(--wg-ring-stack-size);
-}
-
-/* Journey screen modifier (Task 3) — larger than the Today tile default. */
-.wg-ring-stack--lg {
-    width: var(--wg-ring-stack-size-lg);
-    height: var(--wg-ring-stack-size-lg);
-}
-
-.wg-ring-stack__svg {
-    display: block;
-    width: 100%;
-    height: 100%;
-}
-
-.wg-ring-stack__track {
-    fill: none;
-    stroke: var(--wg-border-strong);
-    stroke-width: 5;
-}
-
-/* Sync-pending rings render only this dimmed track — never a 0%
-   progress arc, which would read as "you did nothing" rather than
-   "this hasn't synced from your device yet". */
-.wg-ring-stack__track--sync-pending {
-    stroke: var(--wg-border-hairline);
-}
-
-.wg-ring-stack__arc {
-    fill: none;
-    stroke-linecap: round;
-    stroke-width: 5;
-    stroke-dashoffset: calc(100 - var(--ring-progress, 0));
-    transition: stroke-dashoffset 0.4s ease, stroke 0.3s ease, filter 0.3s ease;
-}
-
-/* Closed rings keep their own hue (so adjacent closed/open rings stay
-   distinguishable) but render slightly brighter than open progress. */
-.wg-ring-stack__arc--closed {
-    filter: brightness(var(--wg-ring-closed-brightness));
-}
-
-.wg-ring-stack__arc--adherence { stroke: var(--wg-ring-adherence); }
-.wg-ring-stack__arc--movement { stroke: var(--wg-ring-movement); }
-.wg-ring-stack__arc--vitals { stroke: var(--wg-ring-vitals); }
-.wg-ring-stack__arc--nourishment { stroke: var(--wg-ring-nourishment); }
-.wg-ring-stack__arc--mind { stroke: var(--wg-ring-mind); }
-.wg-ring-stack__arc--bedtime { stroke: var(--wg-ring-bedtime); }
-
-/* Center content (closed count / check glyph) is caller-supplied via
-   opts.centerLabel; this just centers whatever DOM lands there. */
-.wg-ring-stack__center {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    color: var(--wg-fg-1);
-    font-family: var(--wg-font-mono);
-    text-align: center;
-}
-
-/* ============================================================
    Gamification Journey screen (Plan 3, Task 2; cut back to
    personal-first cards in med-edxz.1). Stacked gloss cards, in
    render order: Discovery Atlas, your week, gauges, health score,
@@ -5178,8 +5083,18 @@ textarea.wg-input {
    --fill-pct fill width (same convention as the weight-goal card
    and the macro bar).
    ============================================================ */
-#journey-content > .wg-card {
+#journey-content > .wg-card,
+#journey-content > .wg-journey-more,
+.wg-journey-more > .wg-card {
     margin-bottom: var(--space-md);
+}
+
+/* med-8tur.9: experiment / chapter / traits / keystones folded behind one
+   native disclosure below the goal, week, discoveries and gauges. */
+.wg-journey-more__summary {
+    cursor: pointer;
+    user-select: none;
+    margin-bottom: var(--space-sm);
 }
 
 /* Shared progress bar (health-score contributors, atlas, chapter, trial). */
@@ -5202,61 +5117,26 @@ textarea.wg-input {
     background: var(--wg-sun);
 }
 
-/* Level/HP footer line (med-edxz.1) — the last thing on the screen, not the
-   hero card it used to be. */
-.wg-journey-level-line {
-    margin: var(--space-sm) 0 0;
-    font-size: var(--font-size-xs);
-    text-align: center;
-    letter-spacing: 0.04em;
-}
-
-/* Health Score card (Task 8): big number + band tag, then one mini-bar row
-   per named contributor, collapsed behind a <summary> (med-edxz.1). Reuses
-   .wg-journey-bar__track/__fill for the contributor bars. */
-.wg-journey-score__hero {
-    display: flex;
-    align-items: baseline;
-    gap: var(--space-sm);
-    margin-bottom: var(--space-sm);
-}
-
-.wg-journey-score__value {
-    font-size: var(--font-size-xl);
+/* Journey goal-context card (med-8tur.2): the Goal Line, leading the screen. */
+.wg-journey-goal__value {
+    margin: 0 0 var(--space-sm);
+    font-size: var(--font-size-lg);
     color: var(--wg-fg-1);
 }
 
-.wg-journey-score__hero-note {
+.wg-journey-goal__line {
+    margin: var(--space-xs) 0 0;
     font-size: var(--font-size-sm);
 }
 
-.wg-journey-score__list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-sm);
-}
-
-.wg-journey-score__row-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    margin-bottom: var(--space-xs);
-}
-
-.wg-journey-score__row-label {
-    font-size: var(--font-size-sm);
-    color: var(--wg-fg-2);
-}
-
-.wg-journey-score__row-value {
-    font-size: var(--font-size-xs);
+.wg-journey-goal__timeline-label {
+    margin-top: var(--space-md);
 }
 
 /* "Your week" card (gamification-12 §Task3): a native <details>/<summary>
    collapsible, second in the feed after the Atlas. Every line is wg-muted
    regardless of direction — no red styling for a down week (tone rules). */
 .wg-journey-weekly__summary,
-.wg-journey-score__summary,
 .wg-journey-chapter__summary {
     cursor: pointer;
     user-select: none;
@@ -5269,7 +5149,8 @@ textarea.wg-input {
     margin-top: var(--space-sm);
 }
 
-.wg-journey-weekly__line {
+.wg-journey-weekly__line,
+.wg-journey-weekly__current {
     font-size: var(--font-size-sm);
     margin: 0;
 }
@@ -5277,6 +5158,45 @@ textarea.wg-input {
 .wg-journey-weekly__empty,
 .wg-journey-weekly__body {
     margin-top: var(--space-sm);
+}
+
+/* Next-week choice (med-8tur.4): intention buttons + a compact cadence row.
+   The pressed choice reads through aria-pressed, never a color judgment. */
+.wg-journey-weekly__plan {
+    margin-top: var(--space-md);
+    padding-top: var(--space-sm);
+    border-top: 1px solid var(--wg-border-hairline);
+}
+
+.wg-journey-weekly__choices {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    margin-top: var(--space-sm);
+}
+
+.wg-journey-weekly__choice {
+    text-align: left;
+    white-space: normal;
+}
+
+.wg-journey-weekly__choice[aria-pressed="true"] {
+    border-color: var(--wg-fg-1);
+    font-weight: 600;
+}
+
+.wg-journey-weekly__cadence {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-md);
+    margin-top: var(--space-sm);
+    font-size: var(--font-size-sm);
+}
+
+.wg-journey-weekly__cadence-field {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
 }
 
 /* Gauges panel (gamification-11 §Task4): weight/BP/resting-HR trends.
@@ -5309,33 +5229,23 @@ textarea.wg-input {
     margin: 0;
 }
 
-.wg-journey-gauges__link {
-    margin-top: var(--space-sm);
-    font-size: var(--font-size-sm);
-    color: var(--wg-fg-3);
+/* Today Goal Line hero (med-8tur.2): the gamification headline. Facts only —
+   the one accent is the progress fill and the CTA; the safety line stays calm
+   (fg, not alert red). */
+.wg-goal-line {
     cursor: pointer;
 }
 
-/* Today rings summary tile: full-width card — stack centered over a
-   per-ring icon state row. The full legend lives on Journey. */
-.wg-today-rings {
-    cursor: pointer;
-    /* Compact tile (us0.1): render the concentric stack at the small size so the
-       gamification pane matches the footprint of the other Today tiles instead
-       of dominating the stack. */
-    --wg-ring-stack-size: var(--wg-ring-stack-size-sm);
-}
-
-.wg-today-rings__header {
+.wg-goal-line__header {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
     justify-content: space-between;
-    gap: var(--space-sm);
+    gap: var(--space-xs) var(--space-sm);
     margin-bottom: var(--space-sm);
 }
 
-.wg-today-rings__title {
+.wg-goal-line__title {
     font-family: var(--wg-font-ui);
     font-size: var(--wg-font-size-tag);
     letter-spacing: 0.14em;
@@ -5344,163 +5254,80 @@ textarea.wg-input {
     color: var(--wg-fg-4);
 }
 
-.wg-today-rings__score {
+.wg-goal-line__numbers {
     display: inline-flex;
+    flex-wrap: wrap;
     align-items: baseline;
     gap: var(--space-xs);
 }
 
-.wg-today-rings__score-value {
+.wg-goal-line__value {
     font-size: var(--font-size-lg);
-    color: var(--wg-sun);
-}
-
-.wg-today-rings__score-note {
-    font-size: var(--font-size-sm);
-}
-
-.wg-today-rings__empty {
-    font-size: var(--font-size-sm);
-    padding: var(--space-sm) var(--space-xs);
-}
-
-/* Rings body: wg-ring-stack centered, per-ring icon state row beneath it. */
-.wg-today-rings__body {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--space-sm);
-}
-
-.wg-today-rings__icons {
-    display: flex;
-    justify-content: center;
-    gap: var(--space-sm);
-}
-
-.wg-today-rings__ic {
-    display: inline-flex;
-    color: var(--wg-fg-3);
-}
-
-.wg-today-rings__ic--closed {
-    color: var(--wg-sun);
-}
-
-.wg-today-rings__ic--sync {
-    color: var(--wg-fg-4);
-}
-
-/* "Your move" — the suggested next action. Tappable, accent-tinted; the
-   all-closed celebration variant reuses .wg-muted for a calm, non-tappable look. */
-.wg-today-rings__move {
-    display: flex;
-    align-items: center;
-    gap: var(--space-xs);
-    margin-bottom: var(--space-sm);
-    padding: var(--space-xs) var(--space-sm);
-    border-radius: var(--wg-radius-icon);
-    background: var(--wg-bg-card-inset);
-    cursor: pointer;
-}
-
-.wg-today-rings__move.wg-muted {
-    background: transparent;
-    cursor: default;
-}
-
-.wg-today-rings__move-icon {
-    display: inline-flex;
-    color: var(--wg-sun);
-}
-
-.wg-today-rings__move.wg-muted .wg-today-rings__move-icon {
-    color: var(--wg-fg-3);
-}
-
-.wg-today-rings__move-text {
-    font-size: var(--font-size-sm);
-    font-weight: 600;
     color: var(--wg-fg-1);
 }
 
-.wg-today-rings__move.wg-muted .wg-today-rings__move-text {
-    font-weight: 400;
-    color: var(--wg-fg-3);
+.wg-goal-line__basis {
+    font-size: var(--font-size-xs);
 }
 
-/* Adherence safety-net nudge (Task 3): invisible unless the trailing PDC
-   slips — one tappable, token-neutral line to Meds, no icon/urgency styling. */
-.wg-today-rings__adherence {
+.wg-goal-line__line,
+.wg-goal-line__fact,
+.wg-goal-line__safety {
+    margin: var(--space-xs) 0 0;
+    font-size: var(--font-size-sm);
+}
+
+.wg-goal-line__line {
+    color: var(--wg-fg-2);
+}
+
+.wg-goal-line__safety {
+    color: var(--wg-fg-1);
+}
+
+.wg-goal-line__facts {
+    margin-top: var(--space-sm);
+    padding-top: var(--space-xs);
+    border-top: 1px solid var(--wg-border-hairline);
+}
+
+.wg-goal-line__set {
+    display: inline-block;
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--wg-fg-1);
+    cursor: pointer;
+}
+
+/* Medication safety net (carried over from the rings tile): invisible unless
+   the trailing PDC slips — one tappable, token-neutral line to Meds. */
+.wg-goal-line__adherence {
     display: block;
-    margin-bottom: var(--space-sm);
-    padding: 0 var(--space-sm);
+    margin-top: var(--space-xs);
     font-size: var(--font-size-sm);
     cursor: pointer;
 }
 
-/* Explicit "View Journey →" affordance, distinct from the "your move" deep
-   link — the whole card already navigates to Journey on tap; this just makes
-   that destination discoverable instead of implicit. */
-.wg-today-rings__journey-link {
+.wg-goal-line__cta {
+    margin-top: var(--space-sm);
+}
+
+/* Reached goal milestone (med-8tur.5): one line until acknowledged. */
+.wg-goal-line__milestone {
     display: flex;
     align-items: center;
-    justify-content: flex-end;
-    gap: var(--space-xs);
+    justify-content: space-between;
+    gap: var(--space-sm);
     margin-top: var(--space-sm);
-    font-size: var(--font-size-sm);
-    color: var(--wg-fg-3);
-}
-
-/* Tomorrow Forecast (us0.3). Standalone (gamification off) it's a compact
-   card; merged into the rings tile it drops its own card chrome and reads as
-   one bottom section of the rings card, divided by a hairline. Content
-   (evening chance / morning resolution + calibration meter) is unchanged; the
-   below-gate self-suppress lives in forecast-card.js and is untouched. */
-.wg-forecast-card .wg-section-label {
-    padding-top: 0;
-    padding-bottom: var(--space-xs);
-}
-
-.wg-forecast-card__evening,
-.wg-forecast-card__resolution,
-.wg-forecast-card__calibration {
-    margin: 0;
-    font-size: var(--font-size-sm);
-}
-
-.wg-forecast-card__calibration {
-    margin-top: var(--space-xs);
-}
-
-.wg-today-rings .wg-forecast-card {
-    background: none;
-    border: 0;
-    box-shadow: none;
-    padding: 0;
-    margin-top: var(--space-sm);
-    padding-top: var(--space-sm);
+    padding: var(--space-xs) 0;
     border-top: 1px solid var(--wg-border-hairline);
+    border-bottom: 1px solid var(--wg-border-hairline);
 }
 
-/* Tier-3 insight card (Task 3) — one plain-language line. */
-.wg-journey-insight__body {
+.wg-goal-line__milestone-text {
     font-size: var(--font-size-sm);
-    margin: 0;
-}
-
-/* Tier-4 good-day card (gamification-13 Task 3) — up to 3 finding lines,
-   same list rhythm as the weekly-review lines, plus a definition sub-line
-   in the user's own numbers so the model is never a black box. */
-.wg-journey-goodday__list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-}
-
-.wg-journey-goodday__definition {
-    font-size: var(--font-size-xs);
-    margin: var(--space-sm) 0 0;
+    font-weight: 600;
+    color: var(--wg-fg-1);
 }
 
 /* Narrative layer (gamification redesign Phase 5) — Chapters, Traits,
@@ -5778,13 +5605,16 @@ textarea.wg-input {
 }
 
 .wg-journey-atlas__meter,
+.wg-journey-atlas__spread,
 .wg-journey-atlas__next,
 .wg-journey-atlas__empty {
     font-size: var(--font-size-sm);
 }
 
-/* The meter rides inline at the end of the question line — one line per card. */
-.wg-journey-atlas__meter {
+/* The meter rides inline at the end of the question line — one line per card;
+   a revealed finding's ± spread rides the same way. */
+.wg-journey-atlas__meter,
+.wg-journey-atlas__spread {
     margin-left: var(--space-xs);
     white-space: nowrap;
 }

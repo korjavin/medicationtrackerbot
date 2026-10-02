@@ -20,7 +20,7 @@ func GamificationOperations() []*Operation {
 			Path:            "/api/gamification/summary",
 			Risk:            RiskRead,
 			Description:     "Full gamification read model: lifetime HP, level + within-level progress, current/longest streak + banked freezes, insight tier, per-ring HP totals for today and the trailing 7-day period, the 0-100 Health Score composite, and per-pillar habit-strength EMAs.",
-			ResponseSummary: "Summary object: enabled, lifetime_hp, level, insight_tier, hp_into_level/level_span_hp/hp_to_next_level, current_streak/longest_streak/freezes, today_hp, today_rings[] and period_rings[] ({ring, hp, closed, progress, goal, sync_pending} for the three daily levers bedtime/movement/nourishment — adherence and vitals awards and the Mind ring's diary awards still earn lifetime_hp but produce no ring), period_days, last_scored_day, health_score ({value (0-100 or null below min-contributors), contributors[] ({key, label, score, weight, missing} for bp/sleep/resting_hr/weight/adherence), missing[] (keys absent from the composite, weights renormalized over the rest)}), strengths[] ({key, label, value (0..1 EMA), frequency} for meds/movement/measurement), adherence_alert ({active, pdc, missed_doses} — a safety-net nudge over the trailing window when dose-level PDC drops below threshold; adherence has no ring/daily grading, so active is false the vast majority of the time). sync_pending is true only on today's bedtime/movement rings when open and no device-synced sample (sleep/steps) has arrived yet today — always false on period_rings.",
+			ResponseSummary: "Summary object: enabled, lifetime_hp, level, insight_tier, hp_into_level/level_span_hp/hp_to_next_level, current_streak/longest_streak/freezes, today_hp, today_rings[] and period_rings[] ({ring, hp, closed, progress} for the three daily levers bedtime/movement/nourishment — adherence and vitals awards and the Mind ring's diary awards still earn lifetime_hp but produce no ring), period_days, last_scored_day, health_score ({value (0-100 or null below min-contributors), contributors[] ({key, label, score, weight, missing} for bp/sleep/resting_hr/weight/adherence), missing[] (keys absent from the composite, weights renormalized over the rest)}), strengths[] ({key, label, value (0..1 EMA), frequency} for meds/movement/measurement), adherence_alert ({active, pdc, missed_doses} — a safety-net nudge over the trailing window when dose-level PDC drops below threshold; adherence has no ring/daily grading, so active is false the vast majority of the time).",
 			ResponseExample: `{
   "enabled": true,
   "lifetime_hp": 4820,
@@ -34,15 +34,15 @@ func GamificationOperations() []*Operation {
   "freezes": 2,
   "today_hp": 65,
   "today_rings": [
-    {"ring": "bedtime", "hp": 0, "closed": false, "progress": 0.0, "goal": "Lights out 22:45–00:15", "sync_pending": true},
-    {"ring": "movement", "hp": 25, "closed": true, "progress": 1.0, "goal": "Move toward ~7,000 steps", "sync_pending": false},
-    {"ring": "nourishment", "hp": 10, "closed": true, "progress": 1.0, "goal": "Eat near target · 1,800–2,200 kcal", "sync_pending": false}
+    {"ring": "bedtime", "hp": 0, "closed": false, "progress": 0.0},
+    {"ring": "movement", "hp": 25, "closed": true, "progress": 1.0},
+    {"ring": "nourishment", "hp": 10, "closed": true, "progress": 1.0}
   ],
   "period_days": 7,
   "period_rings": [
-    {"ring": "bedtime", "hp": 60, "closed": true, "progress": 0.0, "goal": "Lights out 22:45–00:15", "sync_pending": false},
-    {"ring": "movement", "hp": 180, "closed": true, "progress": 0.0, "goal": "Move toward ~7,000 steps", "sync_pending": false},
-    {"ring": "nourishment", "hp": 70, "closed": true, "progress": 0.0, "goal": "Eat near target · 1,800–2,200 kcal", "sync_pending": false}
+    {"ring": "bedtime", "hp": 60, "closed": true, "progress": 0.0},
+    {"ring": "movement", "hp": 180, "closed": true, "progress": 0.0},
+    {"ring": "nourishment", "hp": 70, "closed": true, "progress": 0.0}
   ],
   "last_scored_day": "2026-06-28T00:00:00Z",
   "health_score": {
@@ -86,9 +86,9 @@ output(result)`,
   "longest_streak": 21,
   "freezes": 2,
   "today_hp": 95,
-  "today_rings": [{"ring": "movement", "hp": 40, "closed": true, "progress": 1.0, "goal": "Move toward ~7,000 steps", "sync_pending": false}],
+  "today_rings": [{"ring": "movement", "hp": 40, "closed": true, "progress": 1.0}],
   "period_days": 7,
-  "period_rings": [{"ring": "movement", "hp": 260, "closed": true, "progress": 0.0, "goal": "Move toward ~7,000 steps", "sync_pending": false}],
+  "period_rings": [{"ring": "movement", "hp": 260, "closed": true, "progress": 0.0}],
   "last_scored_day": "2026-06-28T00:00:00Z",
   "health_score": {
     "value": 78,
@@ -123,15 +123,15 @@ output(result["hp_history"])`,
 			Path:            "/api/gamification/rings",
 			Risk:            RiskRead,
 			Description:     "Slim Today-widget projection of the summary: the level badge plus per-ring HP earned today and whether each ring is closed (earned a non-floor award today). Use this (not gamification.summary) when you only need today's ring fill.",
-			ResponseSummary: "Object {enabled, level, today_hp, rings[] of {ring, hp, closed, progress, goal, sync_pending} for the three daily levers bedtime/movement/nourishment, health_score, adherence_alert}. closed=true means the ring earned an outcome/consistency award today (not just the honesty floor). progress is the 0..1 fill gauge (1.0 when closed), goal is the short imperative subtitle. sync_pending=true means the ring is open only because its device-synced sample (sleep/steps) hasn't arrived yet today — not a failure. health_score rides along (same shape as gamification.summary's field) so the Today widget can show the 0-100 composite without a second call. adherence_alert ({active, pdc, missed_doses}) is the safety-net nudge, active only when trailing dose-level PDC drops below threshold; adherence itself has no ring.",
+			ResponseSummary: "Object {enabled, level, today_hp, rings[] of {ring, hp, closed, progress} for the three daily levers bedtime/movement/nourishment, health_score, adherence_alert}. closed=true means the ring earned an outcome/consistency award today (not just the honesty floor). progress is the 0..1 fill gauge (1.0 when closed; always 0 on period_rings). health_score rides along (same shape as gamification.summary's field) so the Today widget can show the 0-100 composite without a second call. adherence_alert ({active, pdc, missed_doses}) is the safety-net nudge, active only when trailing dose-level PDC drops below threshold; adherence itself has no ring.",
 			ResponseExample: `{
   "enabled": true,
   "level": 7,
   "today_hp": 65,
   "rings": [
-    {"ring": "bedtime", "hp": 0, "closed": false, "progress": 0.0, "goal": "Lights out 22:45–00:15", "sync_pending": true},
-    {"ring": "movement", "hp": 25, "closed": true, "progress": 1.0, "goal": "Move toward ~7,000 steps", "sync_pending": false},
-    {"ring": "nourishment", "hp": 10, "closed": true, "progress": 1.0, "goal": "Eat near target · 1,800–2,200 kcal", "sync_pending": false}
+    {"ring": "bedtime", "hp": 0, "closed": false, "progress": 0.0},
+    {"ring": "movement", "hp": 25, "closed": true, "progress": 1.0},
+    {"ring": "nourishment", "hp": 10, "closed": true, "progress": 1.0}
   ],
   "health_score": {"value": 78.5, "contributors": [{"key": "bp", "label": "Blood pressure", "score": 0.9, "weight": 1.0, "missing": false}], "missing": []},
   "adherence_alert": {"active": false, "pdc": 0.95, "missed_doses": 1}
@@ -238,36 +238,33 @@ output(result)
 			Method:          "GET",
 			Path:            "/api/gamification/weekly-review",
 			Risk:            RiskRead,
-			Description:     "Weekly review read model: the reading cadence for gauges — current ISO week (Mon-Sun, UTC day-keyed, weekIndex-consistent — the same UTC-midnight bucketing the streak/gauge-award day keys use across the gamification package) vs the previous week. Combines lever closed-day counts, the best day, strength deltas, gauge movement (weight velocity/pace/acceleration, BP 30-day share now vs a week ago, resting HR delta), and Health Score movement. A week with no HP returns quiet: true (a valid empty week, not an error) instead of zero-filled fields.",
-			ResponseSummary: "Object {enabled, quiet, week_start, week_end, days_with_any_hp, levers, best_day, strengths, gauges, health_score}. levers: [{key, closed_this_week, closed_last_week}]. best_day: {day_unix, rings_closed} or omitted if no rings closed. strengths: [{key, label, value_now, value_prior}]. gauges: {weight, bp, bp_share_30d_prior, resting_hr} — weight/bp/resting_hr have the same shape as gamification.gauges. health_score: {now, prior} — each a HealthScoreView (see gamification.summary).",
+			Description:     "Weekly review read model (web/domain/gamification.js getWeeklyReview): the most recently COMPLETED local week (Mon-Sun in the owner's zone; a Monday or Sunday read reviews the previous week) as three goal fact rows — weight (Goal Line trend change, distance, weigh-in days, milestones earned), workouts (completed vs the plan's scheduled count), BP (daily-weighted mean vs bpgoal, days measured) — plus the best day and the next-week plan (intention / cadence / pause) with the curated options to pick from. Missing data reads as status unknown, never zero. A week with no data returns quiet: true. The legacy lever/strength/gauge/health_score keys still ride the payload over the same week.",
+			ResponseSummary: "Object {enabled, quiet, week: {id, start_day, end_day}, week_start, week_end, rows: {weight, workouts, bp}, best_day, plan_week, plan_scope this_week|next_week, plan, options, days_with_any_hp, levers, strengths, gauges, health_score}. rows.weight: {feature_on, status ok|unknown, goal_status, goal_direction -1|0|1|null, progress_fraction|null, trend_weight, trend_change_kg, distance_to_goal, weigh_in_days, milestones_reached}. rows.workouts: {feature_on, completed, scheduled|null}. rows.bp: {feature_on, status, mean {systolic, diastolic, days}|null, target, days_measured}. plan: {week, intention {id, text}|null, cadence {weigh_in, bp_days}, paused, picked_at} or null. options: {intentions [{id, text}], weigh_in, weigh_in_current, bp_days_max}.",
 			ResponseExample: `{
   "enabled": true,
   "quiet": false,
-  "week_start": "2026-06-29T00:00:00Z",
-  "week_end": "2026-07-05T00:00:00Z",
-  "days_with_any_hp": 6,
-  "levers": [
-    { "key": "bedtime", "closed_this_week": 5, "closed_last_week": 4 },
-    { "key": "movement", "closed_this_week": 4, "closed_last_week": 3 }
-  ],
-  "best_day": { "day_unix": 1751500800, "rings_closed": 3 },
-  "strengths": [
-    { "key": "bedtime", "label": "Bedtime", "value_now": 0.71, "value_prior": 0.6 }
-  ],
-  "gauges": {
-    "weight": { "status": "ok", "trend_weight": 81.4, "velocity_pct_per_week": -0.4, "pace_status": "on_pace", "acceleration": "holding" },
-    "bp": { "status": "ok", "share_14d": 0.82, "share_30d": 0.79, "baseline_share_60d": 0.76 },
-    "bp_share_30d_prior": 0.74,
-    "resting_hr": { "status": "ok", "recent_14d_mean": 62.1, "baseline_60d_mean": 65.0, "delta_from_baseline": -2.9 }
+  "week": { "id": "2026-W27", "start_day": "2026-06-29", "end_day": "2026-07-05" },
+  "week_start": 1782691200,
+  "week_end": 1783209600,
+  "rows": {
+    "weight": { "feature_on": true, "status": "ok", "goal_status": "ok", "goal_direction": -1, "progress_fraction": 0.42, "trend_weight": 81.4, "trend_change_kg": -0.4, "distance_to_goal": 3.4, "weigh_in_days": 5, "milestones_reached": [] },
+    "workouts": { "feature_on": true, "completed": 2, "scheduled": 3 },
+    "bp": { "feature_on": true, "status": "in_range", "mean": { "systolic": 128, "diastolic": 82, "days": 4 }, "target": { "systolic": 130, "diastolic": 85 }, "days_measured": 4 }
   },
-  "health_score": {
-    "now": { "value": 78.0, "contributors": [], "missing": [] },
-    "prior": { "value": 74.0, "contributors": [], "missing": [] }
-  }
+  "best_day": { "day_unix": 1782950400, "rings_closed": 2 },
+  "plan_week": "2026-W28",
+  "plan_scope": "next_week",
+  "plan": { "week": "2026-W28", "intention": { "id": "weigh_before_coffee", "text": "When I wake, I will weigh in before coffee" }, "cadence": { "weigh_in": "daily", "bp_days": 3 }, "paused": false, "picked_at": 1783252800000 },
+  "options": { "intentions": [ { "id": "weigh_before_coffee", "text": "When I wake, I will weigh in before coffee" } ], "weigh_in": ["weekly", "daily"], "weigh_in_current": "daily", "bp_days_max": 7 },
+  "days_with_any_hp": 6,
+  "levers": [ { "key": "bedtime", "closed_this_week": 5, "closed_last_week": 4 } ],
+  "strengths": [],
+  "gauges": {},
+  "health_score": { "now": { "value": 78.0, "contributors": [], "missing": [] }, "prior": { "value": 74.0, "contributors": [], "missing": [] } }
 }`,
 			Example: `result = api.call("gamification.weekly_review")
 output(result)
-# Quiet week: {"enabled": true, "quiet": true, "week_start": "...", "week_end": "...", "days_with_any_hp": 0, "levers": [...zeros...], "strengths": [...]}`,
+# Quiet week: {"enabled": true, "quiet": true, "rows": {"weight": {"status": "unknown", ...}, ...}, "plan": null, ...}`,
 		},
 		{
 			ID:     "gamification.targets.set",

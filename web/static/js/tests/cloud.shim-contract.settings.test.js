@@ -91,34 +91,66 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         expect(boot.features.live_hr).toBe(true);
     });
 
-    // med-ja0u: the Tomorrow Forecast card lives on Today — a screen that keeps
-    // rendering with Journey off — so the shim route is the feature gate. The
-    // card only knows how to hide itself on !enabled.
-    it('gamification off gates GET /api/gamification/forecast to {enabled:false}', async () => {
+    // med-8tur.1: the Goal Line route carries the flag map into the read-model —
+    // a feature toggled off reports feature_on:false on its row, and the
+    // gamification flag gates the whole payload.
+    it('GET /api/gamification/goal-line honors the workout/bp/gamification flags', async () => {
         const { window } = env;
         window.rebuildCanonicalBottomNav = vi.fn();
 
-        const on = await window.apiCall('/api/gamification/forecast', 'GET');
+        const on = await window.apiCall('/api/gamification/goal-line', 'GET');
         expect(on.enabled).toBe(true);
-        expect(on.calibration).toBeTruthy();
+        expect(on.goal.status).toBe('no_goal');
+        expect(on.workouts.feature_on).toBe(true);
+        expect(on.bp.feature_on).toBe(true);
+
+        await window.toggleFeatureSetting('workout', false);
+        await window.toggleFeatureSetting('bp', false);
+        const off = await window.apiCall('/api/gamification/goal-line', 'GET');
+        expect(off.workouts.feature_on).toBe(false);
+        expect(off.workouts.scheduled_this_week).toBeNull();
+        expect(off.bp.feature_on).toBe(false);
 
         await window.toggleFeatureSetting('gamification', false);
-
-        expect(await window.apiCall('/api/gamification/forecast', 'GET')).toEqual({ enabled: false });
+        expect(await window.apiCall('/api/gamification/goal-line', 'GET')).toEqual({ enabled: false });
     });
 
-    // The card caches its payload at bootstrap only, so a mid-session re-enable
-    // has to re-fetch — otherwise the gate above leaves it empty until reload.
-    it('toggling gamification back on re-refreshes the forecast card', async () => {
+    // med-8tur.12: the Journey mode switches persist through the shim and gate
+    // the routes — ED-safe hides the Goal Line, narration off turns the probe
+    // off and every narrate POST into {text:null}.
+    it('saveGamificationMode persists ED-safe / narration and the routes honor them', async () => {
         const { window } = env;
-        window.rebuildCanonicalBottomNav = vi.fn();
-        window.WGForecastCard = { refresh: vi.fn(), mountCard: vi.fn() };
 
-        await window.toggleFeatureSetting('gamification', false);
-        await window.toggleFeatureSetting('gamification', true);
+        expect(await window.apiCall('/api/gamification/mode', 'GET'))
+            .toEqual({ enabled: true, ed_safe: false, experiments: true, traits: true, narration: true });
+        expect((await window.apiCall('/api/gamification/narrate', 'GET')).enabled).toBe(true);
 
-        expect(window.WGForecastCard.refresh).toHaveBeenCalledTimes(2);
-        expect((await window.apiCall('/api/gamification/forecast', 'GET')).enabled).toBe(true);
+        await window.saveGamificationMode('ed_safe', true);
+        await window.saveGamificationMode('narration', false);
+
+        expect(await window.apiCall('/api/gamification/mode', 'GET')).toMatchObject({ ed_safe: true, narration: false });
+        expect(await window.apiCall('/api/gamification/goal-line', 'GET')).toMatchObject({ enabled: false, ed_safe: true });
+        expect(await window.apiCall('/api/gamification/narrate', 'GET')).toEqual({ enabled: false });
+        expect(await window.apiCall('/api/gamification/narrate/weekly', 'POST', {})).toEqual({ text: null });
+    });
+
+    // med-8tur.5: the route materializes a reached milestone (floored) and
+    // serves it as `milestone` until POST .../ack retires it.
+    it('GET /api/gamification/goal-line serves a reached milestone until POST /milestones/:id/ack', async () => {
+        const { window, records } = env;
+        const ago = (days, hour = 7) => new Date(Date.now() - days * 86400000 - hour * 3600000).toISOString();
+        for (let d = 0; d <= 20; d++) {
+            await records.put('weight', { recordId: `w-${d}`, clientTs: 1, deleted: false, measured_at: ago(d), weight: 83.8 });
+        }
+        await records.put('weightgoal', { recordId: 'g1', clientTs: 1, deleted: false, set_at: ago(21), target_weight: 80, start_weight: 85 });
+
+        const first = await window.apiCall('/api/gamification/goal-line', 'GET');
+        expect(first.milestone).toMatchObject({ id: 'gamificationmilestone-g1-1', ordinal: 1, count: 5 });
+        expect((await records.list('gamificationmilestone'))[0].clientTs).toBe(0);
+
+        expect(await window.apiCall('/api/gamification/milestones/gamificationmilestone-g1-1/ack', 'POST')).toEqual({ ok: true });
+        expect((await window.apiCall('/api/gamification/goal-line', 'GET')).milestone).toBeNull();
+        expect((await records.list('gamificationmilestone'))[0].acknowledged).toBe(true);
     });
 
     it('saveTabOrder persists through the shim and is echoed by bootstrap', async () => {

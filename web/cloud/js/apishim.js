@@ -362,11 +362,13 @@ export function createApiRouter(ctx, {
       weight: { logs, goal: weightGoal },
       settings: settingsPart.settings,
     };
-    // The Today rings tile warms 'gamification_rings' from res.gamification (the
-    // full Summary — auth-bootstrap.js applyBootstrapPayload). Only include it
-    // when the feature is on, so a disabled toggle leaves the cache untouched.
+    // The Today Goal Line hero warms 'gamification_goal_line' from this
+    // (auth-bootstrap.js applyBootstrapPayload). Only included when the feature
+    // is on, so a disabled toggle leaves the cache untouched.
     if (settingsPart.features.gamification) {
-      payload.gamification = await gamification.getSummary();
+      // getGoalLineCard, not getGoalLine: byte-identical to a live GET /goal-line
+      // (incl. the unacknowledged `milestone`, med-8tur.5).
+      payload.gamification_goal_line = await gamification.getGoalLineCard({ features: settingsPart.features });
     }
     return payload;
   }
@@ -466,7 +468,12 @@ export function createApiRouter(ctx, {
       if (m) { await weight.remove(m[1]); return true; }
     }
     if (path === '/api/weight/goal' && method === 'GET') return weight.getGoal();
-    if (path === '/api/weight/goal' && method === 'POST') return weight.setGoal(body);
+    if (path === '/api/weight/goal' && method === 'POST') {
+      const res = await weight.setGoal(body);
+      // The queued weigh-in push carries the goal's distance (Web Push only).
+      scheduleReminderRecompute(ctx, { records, timeZone });
+      return res;
+    }
     if (path === '/api/weight/goals/history' && method === 'GET') {
       // max 200: the domain's own append-only-history cap, so a deeper offset
       // legitimately runs out of rows rather than being an error.
@@ -497,6 +504,8 @@ export function createApiRouter(ctx, {
     if (path === '/api/settings/weight-unit' && method === 'PATCH') {
       const unit = body && body.unit === 'lb' ? 'lb' : 'kg';
       await writeWeightUnit(unit);
+      // The queued goal-aware weigh-in push is worded in this unit.
+      scheduleReminderRecompute(ctx, { records, timeZone });
       return { unit };
     }
 
@@ -1137,29 +1146,28 @@ export function createApiRouter(ctx, {
     // vault records (zero server-side health reads), and /atlas/seen persists
     // reveal-once flags. journey.js renders the feed above the (empty) substrate.
     // The payload also carries the Journey's "since you last looked" strip
-    // (whats_new). Its forecast line is the one item drawn from a route that
-    // IS flag-gated below, so the flag rides along rather than leaking a
-    // forecast through the ungated Atlas.
-    if (path === '/api/gamification/atlas' && method === 'GET') {
-      const flags = await settings.getFeatures();
-      return gamification.getAtlas({ forecast: !!flags.gamification });
-    }
+    // (whats_new).
+    if (path === '/api/gamification/atlas' && method === 'GET') return gamification.getAtlas();
     if (path === '/api/gamification/atlas/seen' && method === 'POST') {
       return gamification.markDiscoverySeen(body && body.id);
     }
-    // Tomorrow Forecast (Phase 3): evening lever-conditioned in-range-morning
-    // chance + this-morning resolution + the "how well do we know you"
-    // calibration meter, all recomputed client-side from vault bp+sleep records
-    // (never weight). Bot mode 404s this route; the Today card then omits itself.
-    // The forecast is a Journey feature, and its card lives on Today (a screen
-    // that renders with the feature off), so the flag has to be enforced here:
-    // forecast-card.js hides itself on !enabled, which is the only gate the
-    // Today mount respects.
-    if (path === '/api/gamification/forecast' && method === 'GET') {
-      const flags = await settings.getFeatures();
+    // Goal Line (med-8tur.1, docs/gamification.md §0.3.1): the weight goal on
+    // the trend + workout/BP facts, recomputed client-side from vault records.
+    // A UI-only route like /atlas — deliberately NOT a registry
+    // op (agents already reach weight/workout/BP through their own ops). Gated
+    // on the gamification flag (its card lives on Today); the
+    // workout/BP rows carry their own feature_on from the same flag map.
+    if (path === '/api/gamification/goal-line' && method === 'GET') {
+      const flags = clampFeatures(await settings.getFeatures());
       if (!flags.gamification) return { enabled: false };
-      return gamification.getForecast();
+      // getGoalLineCard = getGoalLine + `milestone` (the newest unacknowledged
+      // goal milestone, materialized floored on this read — med-8tur.5).
+      return gamification.getGoalLineCard({ features: flags });
     }
+    // Acknowledging a goal milestone is the user write that retires its line
+    // on the Goal Line card; the record stays in the Journey keystones.
+    const msAck = path.match(/^\/api\/gamification\/milestones\/([^/]+)\/ack$/);
+    if (msAck && method === 'POST') return gamification.acknowledgeMilestone(decodeURIComponent(msAck[1]));
     // Self-Experiments (Phase 4): the flagship N-of-1 mechanic. listExperiments
     // recomputes the active trial's tracker + any un-acknowledged verdict from
     // vault records (persisting only the frozen verdict + lifecycle status);
@@ -1198,7 +1206,37 @@ export function createApiRouter(ctx, {
     if (method === 'GET' && path === '/api/gamification/rings') return gamification.getRings();
     if (method === 'GET' && path === '/api/gamification/journey') return gamification.getJourney();
     if (method === 'GET' && path === '/api/gamification/gauges') return gamification.getGauges();
-    if (method === 'GET' && path === '/api/gamification/weekly-review') return gamification.getWeeklyReview();
+    if (method === 'GET' && path === '/api/gamification/weekly-review') {
+      return gamification.getWeeklyReview({ features: clampFeatures(await settings.getFeatures()) });
+    }
+    // The weekly review's choice (med-8tur.4, docs/gamification.md §0.3.4): the
+    // user write of next week's intention / cadence / pause. A weigh-in cadence
+    // pick IS the weigh-in reminder's cadence (daily is opt-in here), and a
+    // pause silences that week's weigh-in nudges — so the horizon recomputes.
+    // Only an explicit weigh_in in the request touches the reminder pref.
+    // ponytail: the pref is global, so a Sunday pick (next week's plan) moves
+    // it now and it outlives the week; per-week cadence if that ever matters.
+    if (method === 'POST' && path === '/api/gamification/week-plan') {
+      const res = await gamification.putWeekPlan(body || {});
+      if (res.ok) {
+        const asked = body && body.cadence && body.cadence.weigh_in;
+        if (asked) await reminders.setWeightCadence(asked);
+        scheduleReminderRecompute(ctx, { records, timeZone });
+      }
+      return res;
+    }
+    // Gamification mode (med-8tur.12, docs/gamification.md §0.5): per-mechanic
+    // switches (experiments / traits / narration) + the ED-safe toggle. UI-only
+    // like /goal-line. ED-safe changes the weigh-in push and digest text, so a
+    // write recomputes the reminder horizon.
+    if (path === '/api/gamification/mode') {
+      if (method === 'GET') return gamification.getMode();
+      if (method === 'PUT') {
+        const res = await gamification.putMode(body || {});
+        if (res.ok !== false) scheduleReminderRecompute(ctx, { records, timeZone });
+        return res;
+      }
+    }
     if (path === '/api/gamification/targets') {
       if (method === 'GET') return gamification.getTargets();
       if (method === 'PUT' || method === 'POST') return gamification.putTargets(body || {});
@@ -1216,15 +1254,19 @@ export function createApiRouter(ctx, {
     // already-computed summaries to the user's own provider via the narrator —
     // raw vault records never cross the boundary. No key / any provider error
     // returns { text: null } and journey.js keeps its deterministic cards.
-    if (path === '/api/gamification/narrate' && method === 'GET') return { enabled: true };
+    // The narration switch (gamificationmode, med-8tur.12) turns the probe off
+    // and every POST into the same {text:null} a missing key produces.
+    if (path === '/api/gamification/narrate' && method === 'GET') {
+      return { enabled: (await gamification.getMode()).narration };
+    }
+    if (path.startsWith('/api/gamification/narrate/') && method === 'POST'
+      && !(await gamification.getMode()).narration) return { text: null };
     if (path === '/api/gamification/narrate/weekly' && method === 'POST') {
-      // whatsNew:false — the narrator never reads the strip, and computing it
-      // would re-derive the five payloads this Promise.all already holds.
-      const [atlas, forecast, experiments, chapter, traits, keystones] = await Promise.all([
-        gamification.getAtlas({ whatsNew: false }), gamification.getForecast(), gamification.listExperiments(),
-        gamification.getChapter(), gamification.getTraits(), gamification.getKeystones(),
-      ]);
-      return narrator.narrateWeekly({ atlas, forecast, experiments, chapter, traits, keystones });
+      // The goal recap (med-8tur.8): the completed-week review — its weight row
+      // is the Goal Line as of the reviewed Sunday — under the same feature
+      // flags the /weekly-review route uses.
+      const review = await gamification.getWeeklyReview({ features: clampFeatures(await settings.getFeatures()) });
+      return narrator.narrateWeekly({ review });
     }
     if (path === '/api/gamification/narrate/chapter' && method === 'POST') {
       return narrator.narrateChapter(await gamification.getChapter());

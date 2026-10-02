@@ -12,12 +12,6 @@ let cachedWeightLogs = [];
 const WEIGHT_RANGE_STORAGE_KEY = 'mt-weight-range';
 const WEIGHT_RANGE_OPTIONS = ['7d', '30d', '90d', 'all'];
 const WEIGHT_RANGE_DEFAULT = '30d';
-// Below this the trend is flat, not slow. computeWeightTrendPerDay is a linear
-// regression, so genuinely flat weigh-ins that sit a few milliseconds off a
-// whole number of days apart return ~1e-15 rather than exactly 0. An exact
-// `!== 0` guard let that through and divided by it. 1e-6 kg/day is under a gram
-// a year — no real trend lives there. (bd med-3oa)
-const FLAT_SLOPE_KG_PER_DAY = 1e-6;
 
 function getActiveWeightRange() {
     try {
@@ -323,7 +317,8 @@ async function handleWeightSubmit(event) {
 
     // Optimistic: prepend the new log into the cached `weight` payload so the
     // History list + Today's tile repaint before the POST resolves. The cache
-    // value is `{ logsRes, goalRes }`. On edit, also strip the prior entry so
+    // value is `{ logsRes, goalRes, lineRes }` — keep all three, or the goal
+    // card drops to the gamification-off branch mid-write. On edit, also strip the prior entry so
     // the visible row count stays correct ahead of the trailing DELETE.
     const optimisticLog = {
         id: `local_optimistic_${Date.now()}`,
@@ -344,7 +339,8 @@ async function handleWeightSubmit(event) {
                     && l.id !== parseInt(editingId, 10));
             return {
                 logsRes: [optimisticLog, ...filtered],
-                goalRes: base.goalRes || null
+                goalRes: base.goalRes || null,
+                lineRes: base.lineRes || null
             };
         }, ['weight']);
     }
@@ -448,7 +444,7 @@ function setWeightValue(weight) {
 // surfaces on Today's weight tile, the chart below, and the history list.
 
 
-function renderWeightGoalCard(logs, goalData) {
+function renderWeightGoalCard(logs, goalData, goalLine) {
     const container = document.getElementById('weight-goal-card');
     if (!container) return;
     container.replaceChildren();
@@ -552,28 +548,63 @@ function renderWeightGoalCard(logs, goalData) {
     const fill = document.createElement('div');
     fill.className = 'wg-weight-goal-card__fill';
 
-    // Compute progress. For lose: start from goalData.highest_weight (fallback
-    // to latest + |delta| when absent). For gain: start from goalData.lowest_weight
-    // if present, else from 0 relative to goal. Clamp to [0, 100].
+    // Gamification on → the Goal Line episode progress (docs/gamification.md
+    // §0.3.1) so this card and Today render the same distance/progress.
+    const line = goalLine && goalLine.enabled && goalLine.goal && goalLine.goal.status !== 'no_goal'
+        ? goalLine.goal : null;
+    const fmt = (kg) => {
+        const d = formatWeight(kg, preferredUnit);
+        return `${d.value.toFixed(1)} ${d.label}`;
+    };
+    const deltaLines = [];
     let pct = 0;
-    if (hasLatest) {
-        if (goalDirection === 'lose') {
-            const start = Number(goalData.highest_weight);
-            if (Number.isFinite(start) && start > goalValue) {
-                const total = start - goalValue;
-                const done = start - latestWeight;
-                pct = (done / total) * 100;
-            } else if (latestWeight <= goalValue) {
-                pct = 100;
+    if (line) {
+        if (line.progress) pct = Math.round(line.progress.fraction * 1000) / 10;
+        // fraction 1 covers a preliminary reading already past the target.
+        const reached = line.status === 'at_goal' || line.status === 'maintaining'
+            || (line.progress && line.progress.fraction === 1);
+        if (line.status === 'maintaining') deltaLines.push('Maintaining your goal');
+        else if (reached) deltaLines.push('At goal');
+        else if (line.distance_to_goal !== null) deltaLines.push(`${fmt(line.distance_to_goal)} to goal`);
+        else deltaLines.push('Log a weight to see progress');
+        if (line.progress && line.progress.total_kg > 0 && !reached) {
+            const done = line.progress.done_kg;
+            const since = line.start_ref_source === 'first_reading' ? 'since your first reading' : 'since you set the goal';
+            deltaLines.push(`${fmt(done)} of ${fmt(line.progress.total_kg)} ${since}`);
+        }
+        // Trend is labeled; the raw latest reading sits beside it as a reading.
+        const readings = [];
+        if (line.trend_weight !== null) readings.push(`Trend ${fmt(line.trend_weight)}`);
+        if (hasLatest) readings.push(`Current ${fmt(latestWeight)}`);
+        if (readings.length) deltaLines.push(readings.join(' \u00b7 '));
+    } else {
+        // Legacy (gamification off): lifetime highest/lowest → latest reading.
+        if (hasLatest) {
+            if (goalDirection === 'lose') {
+                const start = Number(goalData.highest_weight);
+                if (Number.isFinite(start) && start > goalValue) {
+                    pct = ((start - latestWeight) / (start - goalValue)) * 100;
+                } else if (latestWeight <= goalValue) {
+                    pct = 100;
+                }
+            } else {
+                const start = Number(goalData.lowest_weight);
+                if (Number.isFinite(start) && start < goalValue) {
+                    pct = ((latestWeight - start) / (goalValue - start)) * 100;
+                } else if (latestWeight >= goalValue) {
+                    pct = 100;
+                }
             }
+        }
+        if (!hasLatest) {
+            deltaLines.push('Log a weight to see progress');
         } else {
-            const start = Number(goalData.lowest_weight);
-            if (Number.isFinite(start) && start < goalValue) {
-                const total = goalValue - start;
-                const done = latestWeight - start;
-                pct = (done / total) * 100;
-            } else if (latestWeight >= goalValue) {
-                pct = 100;
+            const diff = latestWeight - goalValue;
+            if (Math.abs(diff) < 0.05) {
+                deltaLines.push('At goal');
+            } else {
+                const sign = diff > 0 ? '+' : '\u2212';
+                deltaLines.push(`${sign}${fmt(Math.abs(diff))} to goal`);
             }
         }
     }
@@ -583,56 +614,12 @@ function renderWeightGoalCard(logs, goalData) {
     track.appendChild(fill);
     container.appendChild(track);
 
-    const delta = document.createElement('div');
-    delta.className = 'wg-weight-goal-card__delta wg-muted';
-    if (!hasLatest) {
-        delta.textContent = 'Log a weight to see progress';
-    } else {
-        const diff = latestWeight - goalValue;
-        if (Math.abs(diff) < 0.05) {
-            delta.textContent = 'At goal';
-        } else {
-            const sign = diff > 0 ? '+' : '\u2212';
-            const diffDisplay = formatWeight(Math.abs(diff), preferredUnit);
-            delta.textContent = `${sign}${diffDisplay.value.toFixed(1)} ${diffDisplay.label} to goal`;
-        }
-    }
-    container.appendChild(delta);
-}
-
-// Linear regression on the last N logs (default 14). Returns a slope in
-// kg/day. NaN/Infinity safe — returns null when there isn't enough data or
-// when the regression denominator is zero (all timestamps equal). Consumers
-// must guard against a null return.
-function computeWeightTrendPerDay(logs, n) {
-    if (!Array.isArray(logs) || logs.length === 0) return null;
-    const cleaned = [];
-    for (const l of logs) {
-        if (!l || l.measured_at == null) continue;
-        const t = new Date(l.measured_at).getTime();
-        const w = Number(l.weight);
-        if (!Number.isFinite(t) || !Number.isFinite(w)) continue;
-        cleaned.push({ t, w });
-    }
-    if (cleaned.length < 2) return null;
-    // Logs arrive newest-first from _renderWeightData. Sort ascending so the
-    // regression runs over the chronological ordering the user expects.
-    cleaned.sort((a, b) => a.t - b.t);
-    const limit = Math.min(Number.isFinite(n) && n > 0 ? n : 14, cleaned.length);
-    const slice = cleaned.slice(cleaned.length - limit);
-    let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
-    const base = slice[0].t;
-    for (const p of slice) {
-        const x = (p.t - base) / 86400000;
-        sumX += x;
-        sumY += p.w;
-        sumXY += x * p.w;
-        sumXX += x * x;
-    }
-    const denom = slice.length * sumXX - sumX * sumX;
-    if (denom === 0) return null;
-    const slope = (slice.length * sumXY - sumX * sumY) / denom;
-    return Number.isFinite(slope) ? slope : null;
+    deltaLines.forEach((text) => {
+        const delta = document.createElement('div');
+        delta.className = 'wg-weight-goal-card__delta wg-muted';
+        delta.textContent = text;
+        container.appendChild(delta);
+    });
 }
 
 // Render the chart legend — Actual / Plan / Goal swatches. Mirrors the design
@@ -668,87 +655,6 @@ function renderWeightChartLegend(goalData) {
         li.appendChild(label);
         container.appendChild(li);
     });
-}
-
-// Render the goal-prognosis card — "days to goal" + weekly trend. Hidden
-// when no goal is set. All numeric outputs guard against NaN/Infinity and
-// fall back to "—" so users never see a literal "NaN" on screen.
-function renderWeightPrognosisCard(logs, goalData) {
-    const container = document.getElementById('weight-prognosis-card');
-    if (!container) return;
-    container.replaceChildren();
-
-    const goalValue = goalData != null ? Number(goalData.goal) : NaN;
-    if (!Number.isFinite(goalValue)) {
-        container.hidden = true;
-        return;
-    }
-    container.hidden = false;
-
-    const list = Array.isArray(logs) ? logs : [];
-    const currentRaw = list.length > 0 ? Number(list[0].weight) : NaN;
-    const current = Number.isFinite(currentRaw) ? currentRaw : null;
-    const slopePerDay = computeWeightTrendPerDay(list, 14);
-
-    // Days-to-goal projection. We want the slope to point TOWARDS the goal
-    // (losing when above, gaining when below). If the slope is flat, zero,
-    // or NaN, or points away from the goal, we fall back to "—". "Flat" is a
-    // magnitude test: -5 / -1e-15 is finite and positive, and rendered as
-    // "in 1616282084813448 days" (bd med-3oa).
-    let daysToGoal = Infinity;
-    if (current != null && slopePerDay != null && Math.abs(slopePerDay) > FLAT_SLOPE_KG_PER_DAY) {
-        const diff = goalValue - current;
-        const projected = diff / slopePerDay;
-        if (Number.isFinite(projected) && projected > 0) {
-            daysToGoal = projected;
-        }
-    }
-
-    const leftCol = document.createElement('div');
-    leftCol.className = 'wg-weight-prognosis-card__col wg-weight-prognosis-card__col--days';
-    const leftLabel = document.createElement('div');
-    leftLabel.className = 'wg-weight-prognosis-card__label';
-    leftLabel.textContent = 'Time to goal';
-    leftCol.appendChild(leftLabel);
-    const leftValue = document.createElement('div');
-    leftValue.className = 'wg-weight-prognosis-card__value';
-    if (current != null && Math.abs(current - goalValue) < 0.05) {
-        leftValue.textContent = 'At goal';
-    } else if (Number.isFinite(daysToGoal)) {
-        const rounded = Math.round(daysToGoal);
-        leftValue.textContent = `in ${rounded} day${rounded === 1 ? '' : 's'}`;
-    } else {
-        leftValue.textContent = '—';
-    }
-    leftCol.appendChild(leftValue);
-    container.appendChild(leftCol);
-
-    const rightCol = document.createElement('div');
-    rightCol.className = 'wg-weight-prognosis-card__col wg-weight-prognosis-card__col--trend';
-    const rightLabel = document.createElement('div');
-    rightLabel.className = 'wg-weight-prognosis-card__label';
-    rightLabel.textContent = 'Trend';
-    rightCol.appendChild(rightLabel);
-    const rightValue = document.createElement('div');
-    const perWeek = slopePerDay != null ? slopePerDay * 7 : NaN;
-    let variant = 'flat';
-    if (Number.isFinite(perWeek) && Math.abs(perWeek) >= 0.05) {
-        const goalDir = (goalData && typeof goalData.goal_direction === 'string')
-            ? goalData.goal_direction.toLowerCase()
-            : (current != null && current > goalValue ? 'lose' : 'gain');
-        if (goalDir === 'lose') variant = perWeek < 0 ? 'good' : 'bad';
-        else variant = perWeek > 0 ? 'good' : 'bad';
-    }
-    rightValue.className = `wg-weight-prognosis-card__trend-value wg-weight-prognosis-card__trend-value--${variant}`;
-    if (Number.isFinite(perWeek)) {
-        const sign = perWeek > 0 ? '+' : (perWeek < 0 ? '−' : '');
-        const perWeekDisplay = formatWeight(Math.abs(perWeek), getPreferredWeightUnit());
-        rightValue.textContent = `${sign}${perWeekDisplay.value.toFixed(1)} ${perWeekDisplay.label}/week`;
-    } else {
-        rightValue.textContent = '—';
-    }
-    rightCol.appendChild(rightValue);
-    container.appendChild(rightCol);
 }
 
 // Render weight chart — delegates to WGWeightChart for the Wandergeek SVG,
@@ -822,6 +728,40 @@ function buildWeightChartCurrentBadge(logs) {
 
 
 
+// #weight-prognosis-card renders the Goal Line's goal.projected (domain
+// read-model, med-8tur.7): "Around 15 Nov ± 3 weeks" only when the domain's
+// coverage / freshness / horizon rules produced a date; beyond_horizon reads
+// "More than a year at this pace"; every other reason hides the card — no guess.
+function renderWeightPrognosisCard(goalLine) {
+    const container = document.getElementById('weight-prognosis-card');
+    if (!container) return;
+    container.replaceChildren();
+    const projected = goalLine && goalLine.enabled !== false && goalLine.goal && goalLine.goal.projected;
+    let text = null;
+    if (projected && projected.date) {
+        const [y, m, d] = projected.date.split('-').map(Number);
+        const when = new Date(y, m - 1, d);
+        const opts = { day: 'numeric', month: 'short' };
+        if (y !== new Date().getFullYear()) opts.year = 'numeric';
+        const n = projected.plus_minus_weeks;
+        text = `Around ${when.toLocaleDateString(undefined, opts)} \u00b1 ${n} week${n === 1 ? '' : 's'}`;
+    } else if (projected && projected.reason === 'beyond_horizon') {
+        text = 'More than a year at this pace';
+    }
+    container.hidden = text === null;
+    if (text === null) return;
+
+    const col = document.createElement('div');
+    const label = document.createElement('div');
+    label.className = 'wg-weight-prognosis-card__label';
+    label.textContent = 'Projected goal date';
+    const value = document.createElement('div');
+    value.className = 'wg-weight-prognosis-card__value';
+    value.textContent = text;
+    col.append(label, value);
+    container.appendChild(col);
+}
+
 async function loadWeightLogs() {
     const list = document.getElementById('weight-list');
     // Mirrors loadBPReadings: when offline with no api_cache row, apiCall
@@ -836,22 +776,25 @@ async function loadWeightLogs() {
             // days=0 disables the server's since filter; limit=1000 overrides
             // the 100-row default so the 90d / All range-selector options can
             // actually plot older history for long-term users.
-            const [logsResult, goalResult] = await Promise.allSettled([
+            // goal-line answers {enabled:false} when gamification is off.
+            const [logsResult, goalResult, lineResult] = await Promise.allSettled([
                 apiCall('/api/weight?days=0&limit=1000'),
-                apiCall('/api/weight/goal')
+                apiCall('/api/weight/goal'),
+                apiCall('/api/gamification/goal-line')
             ]);
             const logsRes = logsResult.status === 'fulfilled' ? logsResult.value : null;
             const goalRes = goalResult.status === 'fulfilled' ? goalResult.value : null;
+            const lineRes = lineResult.status === 'fulfilled' ? lineResult.value : null;
             if (logsRes === null) return null;
-            return { logsRes, goalRes };
+            return { logsRes, goalRes, lineRes };
         },
         onCached: async (cached) => {
             renderedSomething = true;
-            await _renderWeightData(cached.logsRes, cached.goalRes);
+            await _renderWeightData(cached.logsRes, cached.goalRes, cached.lineRes);
         },
         onFresh: async (fresh) => {
             renderedSomething = true;
-            await _renderWeightData(fresh.logsRes, fresh.goalRes);
+            await _renderWeightData(fresh.logsRes, fresh.goalRes, fresh.lineRes);
         },
         onError: async (e, cached) => {
             console.error('Failed to load weight data:', e);
@@ -868,7 +811,7 @@ async function loadWeightLogs() {
     }
 }
 
-async function _renderWeightData(logsRes, goalRes) {
+async function _renderWeightData(logsRes, goalRes, lineRes) {
     const list = document.getElementById('weight-list');
 
     const allLogs = logsRes || [];
@@ -888,17 +831,17 @@ async function _renderWeightData(logsRes, goalRes) {
     cachedWeightLogs = allLogs;
 
     const goalData = goalRes || {};
-    renderWeightGoalCard(allLogs, goalData);
+    renderWeightGoalCard(allLogs, goalData, lineRes);
     renderWeightRangeSelector({
         active: getActiveWeightRange(),
         onChange: (range) => {
             setActiveWeightRange(range);
-            _renderWeightData(logsRes, goalRes);
+            _renderWeightData(logsRes, goalRes, lineRes);
         }
     });
     renderWeightChart(allLogs, goalData);
     renderWeightChartLegend(goalData);
-    renderWeightPrognosisCard(allLogs, goalData);
+    renderWeightPrognosisCard(lineRes);
 
     if (allLogs.length === 0 && logsRes === null) {
         list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
@@ -1157,7 +1100,7 @@ async function _deleteWeightApi(id) {
 
     // Optimistic: filter the log out of the cached `weight` payload before
     // awaiting the DELETE so the list + Today tile update immediately. The
-    // mutator preserves `goalRes` (recomputed by the post-commit loadWeightLogs
+    // mutator preserves `goalRes` and `lineRes` (recomputed by the post-commit loadWeightLogs
     // refetch).
     const numericId = parseInt(id, 10);
     let handle = null;
@@ -1168,7 +1111,8 @@ async function _deleteWeightApi(id) {
             const filtered = prevLogs.filter((l) => l && l.id !== numericId && l.id !== id);
             return {
                 logsRes: filtered,
-                goalRes: prev.goalRes || null
+                goalRes: prev.goalRes || null,
+                lineRes: prev.lineRes || null
             };
         }, ['weight']);
     }

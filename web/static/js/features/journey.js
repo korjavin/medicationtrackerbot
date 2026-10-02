@@ -3,13 +3,13 @@
 // Closure-scoped module exposing window.Gamification — a loader (load) that
 // reads GET /api/gamification/journey through cachedFetch (local-first +
 // freshness chip) and a pure-ish render(journey) that paints #journey-content
-// from the Plan 2 Journey read model:
-//   { enabled, level, lifetime_hp, unlocked_tiers:[1..],
-//     health_score:{value,contributors:[{key,label,score,weight,missing}],missing:[]} }
-// plus the separately-fetched atlas / weekly_review / gauges / insight /
-// traits / experiments / chapter / keystones / narration layers. The rings,
-// strengths and hp_history fields are still served but no longer rendered
-// here — Today owns the rings tile (med-edxz.1).
+// from the Journey read model — only its `enabled` gate is read; the
+// substrate fields it still serves for the registry shape (rings, strengths,
+// hp_history, level/HP, unlocked_tiers, health_score) are not rendered
+// (HP/levels/Health Score hidden outright, owner decision; their last
+// consumers — the tier-gated insight cards — went in med-8tur.12) — plus the
+// separately-fetched atlas / weekly_review / gauges / traits / experiments /
+// chapter / keystones / narration / goal_line layers.
 //
 // Visuals come only from CSS classes + --wg-* tokens; the only inline style is
 // `style.setProperty('--fill-pct', …)` for progress fills (allowed by the
@@ -22,21 +22,8 @@
     const CACHE_KEY = 'gamification';
     const JOURNEY_URL = '/api/gamification/journey';
     const STALE_AFTER_MS = 6 * 60 * 60 * 1000; // 6h — matches the cache-keys registry
-    const INSIGHTS_CACHE_KEY = 'gamification_insights';
-    const INSIGHTS_URL = '/api/gamification/insights';
     const GAUGES_CACHE_KEY = 'gamification_gauges';
     const GAUGES_URL = '/api/gamification/gauges';
-
-    // Ring display metadata in canonical order (matches the backend's
-    // ringScores ordering) — the three daily levers (gamification-10 §2.5).
-    // Today owns the rings card now (med-edxz.1); what survives here is the
-    // key→label map the weekly-review lever line reads. `icon`/`how` are kept
-    // as the canonical lever description, mirroring today.js RING_MOVE_META.
-    const RINGS = [
-        { ring: 'bedtime', label: 'Bedtime', icon: 'moon', how: 'Keep a steady lights-out time' },
-        { ring: 'movement', label: 'Movement', icon: 'activity', how: 'Log a workout' },
-        { ring: 'nourishment', label: 'Nourishment', icon: 'apple', how: 'Log a meal' },
-    ];
 
     function icon(name, size) {
         if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
@@ -70,80 +57,120 @@
         content.replaceChildren(el('p', 'wg-journey-empty wg-muted', message));
     }
 
-    // Level/HP, demoted to one muted line at the very bottom of the screen
-    // (med-edxz.1). Levels never decay (gamification §13) so the number stays,
-    // but it is a footnote, not the hero of the Journey.
-    function renderLevelLine(j) {
-        const level = Number(j.level) || 0;
-        const hp = Number(j.lifetime_hp) || 0;
-        return el('p', 'wg-journey-level-line wg-muted', `Lvl ${level} · ${hp.toLocaleString()} HP`);
+    // Goal Line detail (med-8tur.2 card, expanded by med-8tur.9): the same
+    // Goal Line read-model the Today hero shows, so a tap through from Today
+    // lands on the goal — progress, coverage, the marker count and the
+    // reached-milestone timeline. HP / levels / the Health Score are hidden
+    // outright (owner decision 2026-10-02; UI-only — the read-models keep
+    // computing them).
+    const GOAL_LINE_CACHE_KEY = 'gamification_goal_line';
+    const GOAL_LINE_URL = '/api/gamification/goal-line';
+    const GOAL_LINE_TAGS = ['gamification', 'weight', 'workout', 'bp', 'settings', 'medications', 'history'];
+
+    function goalWeight(kg) {
+        const unit = window.weightUnitPreference === 'lb' ? 'lb' : 'kg';
+        const d = typeof formatWeight === 'function' ? formatWeight(kg, unit) : { value: Number(kg), label: unit };
+        return `${Number(d.value).toFixed(1)} ${d.label}`;
     }
 
-    // Qualitative band for the 0-100 Health Score composite (Task 8). Duplicated
-    // from today.js rather than shared, matching the RINGS/RING_TILE_META
-    // convention already in this file pair.
-    function healthScoreBand(value) {
-        if (!Number.isFinite(value)) return null;
-        if (value >= 70) return { label: 'Good', kind: 'normal' };
-        if (value >= 40) return { label: 'Fair', kind: 'high' };
-        return { label: 'Needs attention', kind: 'alert' };
+    // Reached goal milestones ride the keystones payload (kind 'goal_milestone',
+    // getKeystones) — rendered here as the goal's timeline instead of in the
+    // Keystones card, so nothing is fetched or shown twice.
+    function isGoalMilestone(k) { return !!k && k.kind === 'goal_milestone'; }
+
+    function goalMilestones(j) {
+        const ks = j && j.keystones;
+        if (!ks || ks.enabled === false || !Array.isArray(ks.keystones)) return [];
+        return ks.keystones.filter(isGoalMilestone);
     }
 
-    // Health Score card (Task 8): the Oura/Whoop-pattern 0-100 composite as a
-    // big number + band word, then one mini-bar per named contributor. A
-    // contributor with no data in its window renders "No data" instead of a
-    // misleading 0-width bar — the composite renormalizes over what's present,
-    // it never scores an absent signal as zero.
-    function renderHealthScore(j) {
-        const hs = (j && j.health_score) || {};
-        const card = el('section', 'wg-card wg-journey-score');
-        card.appendChild(el('div', 'wg-section-label', 'HEALTH SCORE'));
-
-        const hero = el('div', 'wg-journey-score__hero');
-        const scoreValue = Number.isFinite(hs.value) ? Math.round(hs.value) : null;
-        hero.appendChild(el('span', 'wg-mono-display wg-journey-score__value', scoreValue != null ? String(scoreValue) : '—'));
-        const band = healthScoreBand(scoreValue);
-        if (band) {
-            hero.appendChild(el('span', `wg-tag wg-tag--${band.kind}`, band.label));
-        } else {
-            hero.appendChild(el('span', 'wg-journey-score__hero-note wg-muted', 'Not enough data yet'));
+    function renderGoalContext(j) {
+        const gl = j && j.goal_line;
+        if (!gl || gl.enabled === false || !gl.goal) return null;
+        const g = gl.goal;
+        const card = el('section', 'wg-card wg-journey-goal');
+        card.id = 'journey-goal-card';
+        card.appendChild(el('div', 'wg-section-label', 'YOUR GOAL'));
+        if (g.status === 'no_goal') {
+            // Weight tab off → switchTab('weight') bounces to Today; no dead link.
+            if (window.featureSettings && window.featureSettings.weight === false) return null;
+            const set = el('button', 'btn btn-sm btn-secondary', 'Set a weight goal');
+            set.type = 'button';
+            set.addEventListener('click', () => { if (typeof window.switchTab === 'function') window.switchTab('weight'); });
+            card.appendChild(set);
+            return card;
         }
-        card.appendChild(hero);
-
-        const contributors = Array.isArray(hs.contributors) ? hs.contributors : [];
-        if (contributors.length === 0) return card;
-
-        // Contributors are the detail behind the hero number — collapsed by
-        // default so the screen reads in a glance (med-edxz.1). Native
-        // <details>, same convention as the weekly review; no JS state.
-        const details = el('details', 'wg-journey-score__details');
-        details.appendChild(el('summary', 'wg-journey-score__summary wg-muted', 'Contributors'));
-        const list = el('div', 'wg-journey-score__list');
-        contributors.forEach((c) => {
-            const row = el('div', 'wg-journey-score__row');
-            const head = el('div', 'wg-journey-score__row-head');
-            head.appendChild(el('span', 'wg-journey-score__row-label', c.label || c.key));
-            head.appendChild(el('span', 'wg-journey-score__row-value wg-muted',
-                c.missing ? 'No data' : `${Math.round((Number(c.score) || 0) * 100)}%`));
-            row.appendChild(head);
-            row.appendChild(progressBar(c.missing ? 0 : c.score, 'wg-journey-bar__fill--sun'));
-            list.appendChild(row);
-        });
-        details.appendChild(list);
-        card.appendChild(details);
+        const current = Number.isFinite(g.trend_weight) ? g.trend_weight
+            : (g.latest_reading ? g.latest_reading.weight : null);
+        if (Number.isFinite(current)) {
+            card.appendChild(el('p', 'wg-mono-display wg-journey-goal__value',
+                `${goalWeight(current)} → ${goalWeight(g.target)}`));
+        }
+        let line;
+        if (g.status === 'preliminary') line = 'Latest reading — your trend forms after a few more weigh-ins.';
+        else if (g.status === 'maintaining') line = 'Maintaining your goal.';
+        else if (g.status === 'at_goal') line = 'At your goal.';
+        else {
+            // goal.progress: the same episode progress Today + the Weight tab render.
+            if (g.progress) card.appendChild(progressBar(g.progress.fraction, 'wg-journey-bar__fill--sun'));
+            line = `${goalWeight(Math.abs(g.distance_to_goal || 0))} to go`;
+            if (g.next_milestone && !g.next_milestone.is_goal) line += ` · next marker ${goalWeight(g.next_milestone.weight)}`;
+        }
+        card.appendChild(el('p', 'wg-journey-goal__line wg-muted', line));
+        if (g.status === 'ok' && g.progress) {
+            const since = g.start_ref_source === 'trend_at_set' ? 'since you set the goal' : 'since your first reading';
+            card.appendChild(el('p', 'wg-journey-goal__line wg-muted',
+                `${goalWeight(g.progress.done_kg)} of ${goalWeight(g.progress.total_kg)} ${since}`));
+        }
+        const nm = g.next_milestone;
+        if (g.status === 'ok' && nm && Number(nm.count) > 0) {
+            const passed = Math.max(0, (Number(nm.ordinal) || 1) - 1);
+            card.appendChild(el('p', 'wg-journey-goal__line wg-muted', `Markers: ${passed} of ${nm.count} passed`));
+        }
+        const cov = g.coverage;
+        if (cov) {
+            const n = Number(cov.weigh_in_days_28d) || 0;
+            const basis = Number.isFinite(g.trend_weight) ? 'trend' : 'latest reading';
+            card.appendChild(el('p', 'wg-journey-goal__line wg-muted',
+                `${basis} · ${n} weigh-in day${n === 1 ? '' : 's'} in the last 28`));
+        }
+        if (g.too_fast) {
+            card.appendChild(el('p', 'wg-journey-goal__line', 'Faster than 1% a week — worth checking with your doctor.'));
+        }
+        // Together (med-8tur.10, §0.3.6): the joint weight/BP observation — the
+        // first vs last full weeks of this goal, shown whichever way it points.
+        const jt = gl.joint;
+        if (jt && Array.isArray(jt.periods) && jt.periods.length === 2 && jt.bp_target) {
+            const [a, b] = jt.periods;
+            const t = jt.bp_target;
+            card.appendChild(el('div', 'wg-section-label wg-journey-goal__timeline-label', 'TOGETHER'));
+            card.appendChild(el('p', 'wg-journey-goal__line',
+                `First vs last ${jt.weeks_per_period} full weeks of this goal: weight trend changed ${signedGoalWeight(jt.weight_change_kg)}; `
+                + `daily-weighted BP averaged ${a.bp.systolic}/${a.bp.diastolic} → ${b.bp.systolic}/${b.bp.diastolic} `
+                + `over ${a.bp.days}/${b.bp.days} measurement days (target ${t.systolic}/${t.diastolic}).`));
+            card.appendChild(el('p', 'wg-journey-goal__line wg-muted',
+                `${a.weigh_in_days}/${b.weigh_in_days} weigh-in days · concurrent changes don’t identify a cause.`));
+        }
+        const reached = goalMilestones(j);
+        if (reached.length > 0) {
+            card.appendChild(el('div', 'wg-section-label wg-journey-goal__timeline-label', 'MILESTONES'));
+            const list = el('div', 'wg-journey-keystones__list');
+            reached.forEach((k) => list.appendChild(keystoneRow(k)));
+            card.appendChild(list);
+        }
         return card;
     }
 
-    // "Your week" card (gamification-12 §Task3): the primary reading cadence
-    // for gauges (Overview) — this week vs last, folded from the same
-    // ledger/gauge/Health-Score reads the other cards already use. Fetched
-    // through its own cachedFetch entry (loadWeeklyReview), rendered as a
-    // native <details>/<summary> collapsible (the tz-plan-banner convention)
-    // between the Health Score and Gauges cards. Tone rules: neutral-to-
-    // positive phrasing only, no red styling for a down week — every line
-    // renders wg-muted regardless of direction, same as the Gauges panel.
+    // "Your week" card (med-8tur.4, docs/gamification.md §0.3.4): the most
+    // recently COMPLETED week as three fact rows — weight, workouts, BP — plus
+    // the best day, then one choice for the week ahead: a curated
+    // implementation intention, Keep this plan or Pause this week, and a
+    // compact cadence control. Fetched through its own cachedFetch entry
+    // (loadWeeklyReview), rendered as a native <details>/<summary>. Tone
+    // rules: facts only, every line wg-muted, missing reads as unknown.
     const WEEKLY_CACHE_KEY = 'gamification_weekly';
     const WEEKLY_URL = '/api/gamification/weekly-review';
+    const WEEK_PLAN_URL = '/api/gamification/week-plan';
 
     function weekdayLabel(dayUnix) {
         const t = Number(dayUnix) * 1000;
@@ -155,75 +182,184 @@
         }
     }
 
-    function weeklyScoreLine(hs) {
-        const now = hs && hs.now;
-        const prior = hs && hs.prior;
-        const nowValue = now && Number.isFinite(now.value) ? Math.round(now.value) : null;
-        if (nowValue == null) return null;
-        const priorValue = prior && Number.isFinite(prior.value) ? Math.round(prior.value) : null;
-        if (priorValue == null) return `Health Score ${nowValue}`;
-        const delta = nowValue - priorValue;
-        if (delta === 0) return `Health Score ${nowValue} · holding steady`;
-        return `Health Score ${nowValue} · ${delta > 0 ? 'up' : 'down'} ${Math.abs(delta)}`;
+    function signedGoalWeight(kg) {
+        const v = Number(kg);
+        if (v === 0) return `±${goalWeight(0)}`;
+        return `${v > 0 ? '+' : '−'}${goalWeight(Math.abs(v))}`;
     }
 
-    // First lever spells out "closed N of 7"; the rest just carry the count —
-    // the denominator (a week) doesn't need repeating per lever.
-    function weeklyLeverLine(levers) {
-        const list = Array.isArray(levers) ? levers : [];
-        if (list.length === 0) return null;
-        return list.map((lv, i) => {
-            const meta = RINGS.find((r) => r.ring === lv.key);
-            const label = (meta && meta.label) || lv.key;
-            const closed = Number(lv.closed_this_week) || 0;
-            return i === 0 ? `${label} closed ${closed} of 7` : `${label} ${closed}`;
-        }).join(' · ');
+    function weeklyWeightRow(w) {
+        if (!w || w.feature_on === false) return null;
+        const n = Number(w.weigh_in_days) || 0;
+        const days = `${n} weigh-in${n === 1 ? '' : 's'}`;
+        if (w.status !== 'ok') return `Weight: ${days} · not enough for a trend yet`;
+        const parts = [];
+        if (Number.isFinite(w.trend_change_kg)) parts.push(`trend ${signedGoalWeight(w.trend_change_kg)}`);
+        else if (Number.isFinite(w.trend_weight)) parts.push(`trend ${goalWeight(w.trend_weight)}`);
+        if (w.goal_status === 'at_goal' || w.goal_status === 'maintaining') parts.push('at your goal');
+        else if (Number.isFinite(w.distance_to_goal)) parts.push(`${goalWeight(w.distance_to_goal)} to go`);
+        parts.push(days);
+        return `Weight: ${parts.join(' · ')}`;
     }
 
-    function weeklyWeightLine(w) {
-        if (!w || w.status !== 'ok') return null;
-        const velocity = Number(w.velocity_pct_per_week) || 0;
-        const parts = [`${velocity >= 0 ? '+' : ''}${velocity.toFixed(1)}%/wk`];
-        const pace = GAUGE_PACE_STATUS_LABEL[w.pace_status];
-        if (pace) parts.push(pace);
-        const accel = GAUGE_ACCELERATION_LABEL[w.acceleration];
-        if (accel) parts.push(accel);
-        return `Weight ${parts.join(' · ')}`;
+    function weeklyWorkoutRow(wo) {
+        if (!wo || wo.feature_on === false) return null;
+        const done = Number(wo.completed) || 0;
+        return Number.isFinite(wo.scheduled)
+            ? `Workouts: ${done} of ${wo.scheduled} scheduled`
+            : `Workouts: ${done} session${done === 1 ? '' : 's'}`;
     }
 
-    function weeklyBPLine(bp, priorSharePct) {
-        if (!bp || bp.status !== 'ok' || !(Number(bp.count_30d) > 0)) return null;
-        const share = Math.round((Number(bp.share_30d) || 0) * 100);
-        const prior = Math.round((Number(priorSharePct) || 0) * 100);
-        // No comparable prior week (too few readings a week ago yields a 0
-        // share) → show just the current share, not a misleading "up from 0%".
-        if (prior <= 0) return `BP in range ${share}%`;
-        const delta = share - prior;
-        const word = delta === 0 ? 'holding steady' : `${delta > 0 ? 'up' : 'down'} from ${prior}%`;
-        return `BP in range ${share}% · ${word}`;
+    function weeklyBPRow(bp) {
+        if (!bp || bp.feature_on === false) return null;
+        if (!bp.mean) return 'BP: no readings this week';
+        let text = `BP: avg ${Math.round(bp.mean.systolic)}/${Math.round(bp.mean.diastolic)}`;
+        if (bp.target && (Number.isFinite(bp.target.systolic) || Number.isFinite(bp.target.diastolic))) {
+            const t = (x) => (Number.isFinite(x) ? String(x) : '—');
+            text += ` vs ${t(bp.target.systolic)}/${t(bp.target.diastolic)}`;
+        }
+        const n = Number(bp.days_measured) || 0;
+        return `${text} · ${n} day${n === 1 ? '' : 's'} measured`;
     }
 
-    function weeklyRestingHRLine(hr) {
-        if (!hr || hr.status !== 'ok') return null;
-        const recent = Math.round(Number(hr.recent_14d_mean) || 0);
-        const delta = Math.round(Number(hr.delta_from_baseline) || 0);
-        const deltaWord = delta === 0 ? 'at your baseline' : `${Math.abs(delta)} ${delta < 0 ? 'below' : 'above'} your baseline`;
-        return `Resting HR ${recent} avg · ${deltaWord}`;
+    // Optimistic projection of a pick onto the cached review — the server
+    // (gamification.js putWeekPlan) stays the authority; commit swaps its plan in.
+    function projectWeekPlan(prev, body) {
+        if (!prev || typeof prev !== 'object') return prev;
+        const cur = prev.plan || {
+            week: prev.plan_week, intention: null, cadence: { weigh_in: 'weekly', bp_days: null }, paused: false,
+        };
+        const next = { ...cur, cadence: { ...(cur.cadence || {}), ...(body.cadence || {}) } };
+        if (body.choice === 'pause') next.paused = true;
+        else if (body.choice === 'keep') next.paused = false;
+        else if (body.choice) {
+            const opts = (prev.options && prev.options.intentions) || [];
+            next.intention = opts.find((o) => o.id === body.choice) || null;
+            next.paused = false;
+        }
+        // A weigh-in pick IS the reminder's cadence: weigh_in_current follows
+        // it, so the select repaints to it and later edits never revert it.
+        const weighIn = body.cadence && body.cadence.weigh_in;
+        const options = weighIn ? { ...(prev.options || {}), weigh_in_current: weighIn } : prev.options;
+        return { ...prev, plan: next, options };
     }
 
-    function weeklyBestDayLine(bestDay) {
-        if (!bestDay) return null;
-        const day = weekdayLabel(bestDay.day_unix);
-        if (!day) return null;
-        const rings = Number(bestDay.rings_closed) || 0;
-        return `Best day: ${day} · ${rings} ring${rings === 1 ? '' : 's'} closed`;
+    // The weekly-plan user write: DataStore.applyOptimistic on the review cache,
+    // then POST; commit with the server's plan, roll back on failure. A
+    // committed this-week pick also clears the Today Goal Line entry (it shows
+    // the live week's plan, and a pause hides its change / too-fast /
+    // projection) so the next read refetches getGoalLine's truth — never a
+    // hand-patched copy.
+    async function saveWeekPlan(body, scope) {
+        const ds = window.DataStore;
+        const optimistic = !!(ds && typeof ds.applyOptimistic === 'function');
+        let projected = null;
+        const handle = optimistic
+            ? await ds.applyOptimistic(WEEKLY_CACHE_KEY, (prev) => { projected = projectWeekPlan(prev, body); return projected; }, ['gamification'])
+            : null;
+        const call = window.offlineAwareApiCall || window.apiCallDirect;
+        let res = null;
+        try {
+            if (typeof call === 'function') res = await call(WEEK_PLAN_URL, 'POST', body);
+        } catch (_) { res = null; }
+        const ok = !!(res && res.ok);
+        try {
+            if (handle) {
+                if (ok) await handle.commit(projected ? { ...projected, plan: res.plan } : null);
+                else await handle.rollback();
+            }
+        } catch (_) { /* best-effort */ }
+        if (ok && optimistic && scope !== 'next_week') {
+            try {
+                const goalHandle = await ds.applyOptimistic(GOAL_LINE_CACHE_KEY, () => null, GOAL_LINE_TAGS);
+                await goalHandle.commit(null);
+            } catch (_) { /* best-effort: the entry still expires on its own */ }
+        }
+        return res;
+    }
+
+    function cadenceSelect(label, key, options, value) {
+        const wrap = el('label', 'wg-journey-weekly__cadence-field');
+        wrap.appendChild(el('span', 'wg-muted', label));
+        const select = el('select', 'wg-select');
+        select.setAttribute('data-cadence', key);
+        options.forEach(([v, text]) => {
+            const opt = el('option', null, text);
+            opt.value = v;
+            if (v === value) opt.selected = true;
+            select.appendChild(opt);
+        });
+        wrap.appendChild(select);
+        return wrap;
+    }
+
+    function renderWeekPlan(wr) {
+        const opts = wr.options || {};
+        const plan = wr.plan;
+        const section = el('div', 'wg-journey-weekly__plan');
+        section.setAttribute('data-plan-week', wr.plan_week || '');
+        const nextWeek = wr.plan_scope === 'next_week';
+        const scope = nextWeek ? 'next week' : 'this week';
+        section.appendChild(el('p', 'wg-section-label', nextWeek ? 'NEXT WEEK' : 'THIS WEEK'));
+        let current = `No pick yet — choose one for ${scope}.`;
+        if (plan && plan.paused) current = `Paused ${scope}.`;
+        else if (plan && plan.intention) current = plan.intention.text;
+        section.appendChild(el('p', 'wg-journey-weekly__current wg-muted', current));
+
+        const choices = el('div', 'wg-journey-weekly__choices');
+        const choice = (id, text, pressed) => {
+            const btn = el('button', 'btn btn-sm btn-secondary wg-journey-weekly__choice', text);
+            btn.type = 'button';
+            btn.setAttribute('data-choice', id);
+            btn.setAttribute('aria-pressed', pressed ? 'true' : 'false');
+            // weigh_in goes out only from its own select (it sets the reminder).
+            btn.addEventListener('click', () => {
+                const { weigh_in: _w, ...cadence } = readCadence(section);
+                saveWeekPlan({ choice: id, cadence }, wr.plan_scope);
+            });
+            choices.appendChild(btn);
+        };
+        (opts.intentions || []).forEach((it) => choice(it.id, it.text,
+            !!(plan && !plan.paused && plan.intention && plan.intention.id === it.id)));
+        choice('keep', 'Keep this plan', false);
+        choice('pause', `Pause ${scope}`, !!(plan && plan.paused));
+        section.appendChild(choices);
+
+        const cad = (plan && plan.cadence) || {};
+        const cadence = el('div', 'wg-journey-weekly__cadence');
+        if (Array.isArray(opts.weigh_in) && opts.weigh_in.length) {
+            cadence.appendChild(cadenceSelect('Weigh-in', 'weigh_in',
+                opts.weigh_in.map((v) => [v, v === 'daily' ? 'Daily' : 'Weekly']), opts.weigh_in_current || cad.weigh_in || 'weekly'));
+        }
+        const bpMax = Number(opts.bp_days_max) || 0;
+        if (bpMax > 0) {
+            const days = [['', '—']];
+            for (let d = 1; d <= bpMax; d++) days.push([String(d), `${d} day${d === 1 ? '' : 's'}`]);
+            cadence.appendChild(cadenceSelect('BP', 'bp_days', days,
+                Number.isInteger(cad.bp_days) && cad.bp_days > 0 ? String(cad.bp_days) : ''));
+        }
+        // A cadence change alone keeps the week's pick (no `choice`).
+        cadence.querySelectorAll('select').forEach((s) => {
+            s.addEventListener('change', () => { saveWeekPlan({ cadence: readCadence(section) }, wr.plan_scope); });
+        });
+        if (cadence.childNodes.length) section.appendChild(cadence);
+        return section;
+    }
+
+    function readCadence(section) {
+        const out = {};
+        const w = section.querySelector('select[data-cadence="weigh_in"]');
+        if (w) out.weigh_in = w.value;
+        const b = section.querySelector('select[data-cadence="bp_days"]');
+        if (b) out.bp_days = b.value === '' ? null : Number(b.value);
+        return out;
     }
 
     // Reads `journey.weekly_review` (attached by load() from its own
     // cachedFetch entry — GET /api/gamification/weekly-review), same pattern
-    // as Gauges/Insights. Renders an explicit offline-empty state, omits the
-    // card entirely while gate-off or not loaded yet, and reads a zero-HP
-    // week as "a quiet week" rather than a wall of zeros (Overview).
+    // as Gauges. Renders an explicit offline-empty state, omits the card
+    // entirely while gate-off or not loaded yet, and reads an empty week as
+    // "a quiet week" rather than a wall of zeros — the choice still shows.
     function renderWeeklyReview(j) {
         const wr = j.weekly_review;
         if (!wr) return null;
@@ -243,23 +379,22 @@
         if (wr.quiet) {
             details.appendChild(el('p', 'wg-journey-weekly__body wg-muted',
                 'A quiet week — everything picks up where you left off.'));
-            card.appendChild(details);
-            return card;
+        } else {
+            const rows = wr.rows || {};
+            const best = wr.best_day ? weekdayLabel(wr.best_day.day_unix) : null;
+            const lines = [
+                weeklyWeightRow(rows.weight),
+                weeklyWorkoutRow(rows.workouts),
+                weeklyBPRow(rows.bp),
+                best ? `Best day: ${best}` : null,
+            ].filter(Boolean);
+            const list = el('div', 'wg-journey-weekly__list');
+            lines.forEach((line) => list.appendChild(el('p', 'wg-journey-weekly__line wg-muted', line)));
+            const reached = rows.weight && Array.isArray(rows.weight.milestones_reached) ? rows.weight.milestones_reached : [];
+            reached.forEach((m) => list.appendChild(el('p', 'wg-journey-weekly__line wg-muted', `Reached: ${m.title}`)));
+            details.appendChild(list);
         }
-
-        const gauges = wr.gauges || {};
-        const lines = [
-            weeklyScoreLine(wr.health_score),
-            weeklyLeverLine(wr.levers),
-            weeklyWeightLine(gauges.weight),
-            weeklyBPLine(gauges.bp, gauges.bp_share_30d_prior),
-            weeklyRestingHRLine(gauges.resting_hr),
-            weeklyBestDayLine(wr.best_day),
-        ].filter(Boolean);
-
-        const list = el('div', 'wg-journey-weekly__list');
-        lines.forEach((line) => list.appendChild(el('p', 'wg-journey-weekly__line wg-muted', line)));
-        details.appendChild(list);
+        details.appendChild(renderWeekPlan(wr));
         card.appendChild(details);
         return card;
     }
@@ -327,8 +462,7 @@
 
     // Reads `journey.gauges` (attached by load() from its own cachedFetch
     // entry — GET /api/gamification/gauges, gamification-11 §Task3) rather
-    // than the Journey payload itself, same pattern as the tier-3 insight
-    // card. Renders an explicit offline-empty state via `emptyState`, and
+    // than the Journey payload itself. Renders an explicit offline-empty state via `emptyState`, and
     // omits the whole card while gate-off (`enabled:false`) or not loaded yet.
     function renderGauges(j) {
         const gauges = j.gauges;
@@ -344,22 +478,13 @@
         if (gauges.enabled === false) return null;
 
         const list = el('div', 'wg-journey-gauges__list');
-        list.appendChild(renderGaugeRow('Weight', weightGaugeCopy(gauges.weight), gauges.weight && gauges.weight.trend_history));
+        // weight === null is ED-safe mode (med-8tur.12): no weight row at all.
+        if (gauges.weight !== null) {
+            list.appendChild(renderGaugeRow('Weight', weightGaugeCopy(gauges.weight), gauges.weight && gauges.weight.trend_history));
+        }
         list.appendChild(renderGaugeRow('Blood pressure', bpGaugeCopy(gauges.bp)));
         list.appendChild(renderGaugeRow('Resting heart rate', restingHRGaugeCopy(gauges.resting_hr)));
         card.appendChild(list);
-
-        // Attribution loop (Task4, item 2): the tier-3/4 insight cards answer
-        // "why is this moving?" — reuses the ladder's own scroll target so
-        // there's one destination for "your insights", not two.
-        const link = el('div', 'wg-journey-gauges__link', 'Why is this moving? → your insights');
-        link.setAttribute('role', 'button');
-        link.setAttribute('tabindex', '0');
-        link.addEventListener('click', goToInsightCard);
-        link.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goToInsightCard(); }
-        });
-        card.appendChild(link);
 
         return card;
     }
@@ -419,11 +544,17 @@
 
         // revealed / no_effect — both terminal findings with equal dignity. The
         // finding states the question, so there is no separate question line.
-        item.appendChild(el('p', 'wg-journey-atlas__finding', card.text || card.question));
+        const finding = el('p', 'wg-journey-atlas__finding', card.text || card.question);
+        // Honest spread: ± two standard errors of the delta, when the domain sent one.
+        if (card.state === 'revealed' && Number.isFinite(card.se)) {
+            const spread = card.unit === 'kg/wk' ? (2 * card.se).toFixed(1) : Math.round(2 * card.se);
+            finding.appendChild(el('span', 'wg-journey-atlas__spread wg-muted', `±${spread} ${card.unit || ''}`.trim()));
+        }
+        item.appendChild(finding);
         const tags = el('div', 'wg-journey-atlas__tags');
         if (isNew) tags.appendChild(el('span', 'wg-tag wg-tag--mono wg-tag--sun wg-journey-atlas__tag--new', 'New'));
         tags.appendChild(el('span', 'wg-tag wg-tag--mono wg-journey-atlas__tag',
-            card.state === 'revealed' ? 'Discovery' : 'No effect — a finding'));
+            card.state === 'revealed' ? 'Descriptive association' : 'Descriptive association · no difference'));
         item.appendChild(tags);
 
         // "Test it" (Phase 4): a terminal discovery with a matching lever
@@ -453,7 +584,10 @@
     // warm Atlas cache is the routine case), so only a line whose destination
     // exists becomes a button — a role="button" that scrolls nowhere is a
     // worse control than a plain line.
-    function renderWhatsNew(j, builtIds) {
+    // A goal-milestone line targets the goal card's timeline; when that
+    // timeline didn't render (no goal, goal-line fetch failed) the milestone
+    // sits in the Keystones card instead, so the line follows it there.
+    function renderWhatsNew(j, builtIds, timelineShown) {
         const atlas = j && j.atlas;
         const items = (atlas && Array.isArray(atlas.whats_new)) ? atlas.whats_new : [];
         if (items.length === 0) return null;
@@ -468,7 +602,8 @@
 
         const list = el('div', 'wg-journey-whatsnew__list');
         items.forEach((it) => {
-            const target = (it.target && builtIds && builtIds.has(it.target)) ? it.target : null;
+            const want = (it.target === 'journey-goal-card' && !timelineShown) ? 'journey-keystones-card' : it.target;
+            const target = (want && builtIds && builtIds.has(want)) ? want : null;
             const row = el('p', 'wg-journey-whatsnew__item'
                 + (target ? ' wg-journey-whatsnew__item--tappable' : ''), it.text);
             if (target) {
@@ -566,8 +701,8 @@
     }
 
     function verdictTagText(verdict) {
-        if (verdict === 'effect') return 'Effect — a finding';
-        if (verdict === 'no_effect') return 'No effect — an equally real finding';
+        if (verdict === 'effect') return 'A difference — a finding';
+        if (verdict === 'no_effect') return 'No difference — an equally real finding';
         return 'Not enough contrast';
     }
 
@@ -623,146 +758,18 @@
         return card;
     }
 
-    // Plain-language copy for the tier-3 sleep→BP insight (Task 3 — the first
-    // real destination in the Insight Ladder). Mirrors the honesty gate in
-    // internal/domain/gamification/insights.go: "no effect" and "insufficient
-    // data" are terminal, genuine findings, not error states, so they render
-    // with the same wording style as the effect case, not an apology.
-    function insightCopy(sleepBp) {
-        if (!sleepBp) return null;
-        if (sleepBp.status === 'effect') {
-            const delta = Number(sleepBp.delta_systolic) || 0;
-            const signed = `${delta >= 0 ? '+' : ''}${Math.round(delta)}`;
-            return `Nights under ${sleepBp.short_threshold_hours}h → next-morning systolic ~${signed} mmHg · ${sleepBp.n_short} nights`;
-        }
-        if (sleepBp.status === 'no_effect') {
-            return 'Your morning BP looks steady regardless of sleep length — solid.';
-        }
-        if (sleepBp.status === 'insufficient_data') {
-            const have = Math.min(Number(sleepBp.n_short) || 0, Number(sleepBp.n_in_band) || 0);
-            return `Not enough paired nights yet · ${have} of ${sleepBp.needed} — keep logging`;
-        }
-        return null;
-    }
-
-    // Tier-3 destination card (Task 3): the sleep→BP insight, fetched
-    // separately from the Journey payload (`load()` attaches it to
-    // `journey.insight` once it sees tier 3 in unlocked_tiers). Omitted
-    // entirely below tier 3 — matching how the ladder itself keeps the row
-    // "locked" — and while `journey.insight` hasn't arrived yet (e.g. render()
-    // called directly, as in tests, without a preceding load()).
-    // True when the Journey payload reports insight tier `n` unlocked.
-    function tierUnlocked(j, n) {
-        return Array.isArray(j.unlocked_tiers) && j.unlocked_tiers.map(Number).includes(n);
-    }
-
-    function renderInsightCard(j) {
-        if (!tierUnlocked(j, 3)) return null;
-
-        const insight = j.insight;
-        if (!insight) return null;
-
-        const card = el('section', 'wg-card wg-journey-insight');
-        card.id = 'journey-insight-card';
-        card.appendChild(el('div', 'wg-section-label', 'YOUR INSIGHT'));
-
-        const copy = insight.emptyState || insightCopy(insight.sleep_bp);
-        if (!copy) return null;
-        card.appendChild(el('p', 'wg-journey-insight__body wg-muted', copy));
-        return card;
-    }
-
-    // Plain-language behavior labels for the tier-4 good-day scan (Task 3),
-    // matching the fixed candidate set in insights_goodday.go.
-    const GOOD_DAY_BEHAVIOR_LABEL = {
-        workout: 'a workout',
-        bedtime: 'bedtime in your window',
-        steps: 'hitting your step goal',
-        adherence: 'taking all doses on time',
-    };
-
-    function goodDayFindingLine(finding) {
-        const label = GOOD_DAY_BEHAVIOR_LABEL[finding.behavior] || finding.behavior;
-        const withPct = Math.round((Number(finding.rate_with) || 0) * 100);
-        const withoutPct = Math.round((Number(finding.rate_without) || 0) * 100);
-        const nWith = Number(finding.n_with) || 0;
-        const total = nWith + (Number(finding.n_without) || 0);
-        return `On days after ${label}, BP in range ${withPct}% vs ${withoutPct}% · ${nWith}/${total} days`;
-    }
-
-    function goodDayInsufficientLine(item) {
-        const label = GOOD_DAY_BEHAVIOR_LABEL[item.behavior] || item.behavior;
-        const have = Math.min(Number(item.n_with) || 0, Number(item.n_without) || 0);
-        return `Not enough contrast yet for ${label} · keep logging — ${have} of ${item.needed} days needed`;
-    }
-
-    // Mirrors the honesty gate in insights_goodday.go: `effect` (one line per
-    // finding, max 3 — already capped server-side), `no_effect` (a genuine
-    // "nothing stands out" result, not an apology), and `insufficient_data`
-    // (one line per behavior still short on paired days).
-    function goodDayLines(gd) {
-        if (!gd) return [];
-        if (gd.status === 'effect') {
-            return (Array.isArray(gd.findings) ? gd.findings : []).map(goodDayFindingLine);
-        }
-        if (gd.status === 'no_effect') {
-            return ['No single habit stands out yet — your good days look evenly spread.'];
-        }
-        if (gd.status === 'insufficient_data') {
-            const items = Array.isArray(gd.insufficient) ? gd.insufficient : [];
-            return items.length > 0
-                ? items.map(goodDayInsufficientLine)
-                : ['Not enough contrast yet — keep logging.'];
-        }
-        return [];
-    }
-
-    // Tier-4 destination card (Task 3): the good-day association scan, reusing
-    // the same `insight` fetch as the tier-3 card (both live under
-    // GET /api/gamification/insights). Omitted below tier 4 or before
-    // `journey.insight` has loaded, matching renderInsightCard's contract.
-    function renderGoodDayCard(j) {
-        if (!tierUnlocked(j, 4)) return null;
-
-        const insight = j.insight;
-        if (!insight) return null;
-
-        const card = el('section', 'wg-card wg-journey-insight wg-journey-goodday');
-        card.id = 'journey-goodday-card';
-        card.appendChild(el('div', 'wg-section-label', 'YOUR GOOD-DAY MODEL'));
-
-        if (insight.emptyState) {
-            card.appendChild(el('p', 'wg-journey-insight__body wg-muted', insight.emptyState));
-            return card;
-        }
-
-        const gd = insight.good_day;
-        const lines = goodDayLines(gd);
-        if (lines.length === 0) return null;
-
-        const list = el('div', 'wg-journey-goodday__list');
-        lines.forEach((line) => list.appendChild(el('p', 'wg-journey-insight__body wg-muted', line)));
-        card.appendChild(list);
-
-        if (gd.good_day_definition) {
-            card.appendChild(el('p', 'wg-journey-goodday__definition wg-muted', gd.good_day_definition));
-        }
-        return card;
-    }
-
     // Scrolls to another card on this screen. A no-op if that card wasn't
     // rendered this pass — every caller's destination is conditional on its
     // own payload having loaded.
     function goToCard(id) {
         const target = document.getElementById(id);
+        // A card folded behind the "More" disclosure opens before the scroll.
+        const fold = target && target.closest('details.wg-journey-more');
+        if (fold) fold.open = true;
         if (target && typeof target.scrollIntoView === 'function') {
             target.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
     }
-
-    // The sleep→BP insight card (renderInsightCard), reached from the Gauges
-    // "why is this moving?" link.
-    function goToInsightCard() { goToCard('journey-insight-card'); }
 
     // --- Chapters (Phase 5) -----------------------------------------------
     // Opt-in 4-week themed arcs. Reads `journey.chapter` (GET
@@ -900,30 +907,35 @@
         } catch (_) { return ''; }
     }
 
-    function renderKeystones(j) {
+    function keystoneRow(k) {
+        const row = el('div', 'wg-journey-keystone');
+        const marker = el('span', 'wg-journey-keystone__marker');
+        const star = icon('check', 14);
+        if (star) marker.appendChild(star);
+        row.appendChild(marker);
+        const body = el('div', 'wg-journey-keystone__body');
+        body.appendChild(el('span', 'wg-journey-keystone__title', k.title || 'Milestone'));
+        if (k.text) body.appendChild(el('span', 'wg-journey-keystone__text wg-muted', k.text));
+        const date = keystoneDateLabel(k.earned_at);
+        if (date) body.appendChild(el('span', 'wg-journey-keystone__date wg-muted', date));
+        row.appendChild(body);
+        return row;
+    }
+
+    // Goal milestones move to the goal card's timeline whenever that timeline
+    // renders; without it (goal-line fetch failed, no_goal) they stay here.
+    function renderKeystones(j, timelineShown) {
         const ks = j && j.keystones;
         if (!ks || ks.enabled === false) return null;
-        const entries = Array.isArray(ks.keystones) ? ks.keystones : [];
+        const entries = (Array.isArray(ks.keystones) ? ks.keystones : [])
+            .filter((k) => !(timelineShown && isGoalMilestone(k)));
         if (entries.length === 0) return null;
 
         const card = el('section', 'wg-card wg-journey-keystones');
         card.id = 'journey-keystones-card';
         card.appendChild(el('div', 'wg-section-label', 'KEYSTONES'));
         const list = el('div', 'wg-journey-keystones__list');
-        entries.forEach((k) => {
-            const row = el('div', 'wg-journey-keystone');
-            const marker = el('span', 'wg-journey-keystone__marker');
-            const star = icon('check', 14);
-            if (star) marker.appendChild(star);
-            row.appendChild(marker);
-            const body = el('div', 'wg-journey-keystone__body');
-            body.appendChild(el('span', 'wg-journey-keystone__title', k.title || 'Milestone'));
-            if (k.text) body.appendChild(el('span', 'wg-journey-keystone__text wg-muted', k.text));
-            const date = keystoneDateLabel(k.earned_at);
-            if (date) body.appendChild(el('span', 'wg-journey-keystone__date wg-muted', date));
-            row.appendChild(body);
-            list.appendChild(row);
-        });
+        entries.forEach((k) => list.appendChild(keystoneRow(k)));
         card.appendChild(list);
         return card;
     }
@@ -974,7 +986,7 @@
         card.id = 'journey-narrator-card';
         card.appendChild(el('div', 'wg-section-label', 'AI STORY'));
         card.appendChild(el('p', 'wg-journey-narrator__note wg-muted',
-            'Optional — sends computed summaries, never raw logs, to your own AI key.'));
+            'Optional — sends computed summaries, never raw logs, to your own AI key or, with your consent, the trial AI.'));
 
         const out = el('div', 'wg-journey-narrator__out');
         const buttons = el('div', 'wg-journey-narrator__buttons');
@@ -991,85 +1003,68 @@
         return card;
     }
 
+    // Experiment / chapter / traits / keystones fold behind one native
+    // disclosure (med-8tur.9): Atlas machinery, not the goal. It opens by
+    // itself while a trial (or its verdict) or a chapter is live — the thing
+    // the user came for.
+    function renderMore(cards, open) {
+        const live = cards.filter(Boolean);
+        if (live.length === 0) return null;
+        const details = el('details', 'wg-journey-more');
+        details.id = 'journey-more';
+        details.open = open;
+        details.appendChild(el('summary', 'wg-journey-more__summary wg-section-label',
+            'MORE · EXPERIMENTS, CHAPTERS, TRAITS, KEYSTONES'));
+        live.forEach((c) => details.appendChild(c));
+        return details;
+    }
+
     function render(journey) {
         const content = document.getElementById('journey-content');
         if (!content) return;
 
-        // Personal content leads (med-edxz.1): Atlas → your week → gauges →
-        // health score → traits → experiment/chapter → keystones → AI story,
-        // with level/HP as a muted footer line. The narrative layer (atlas /
-        // traits / experiment / chapter / keystones) also stands on its own:
-        // in cloud mode the HP/levels substrate is a later phase (returns
-        // {enabled:false}), so a disabled substrate with a live narrative
-        // layer still renders it rather than the "gamification is off" state.
-        const atlasCard = journey ? renderAtlas(journey) : null;
-        const traitsCard = journey ? renderTraits(journey) : null;
-        const experimentCard = journey ? renderExperiment(journey) : null;
-        const chapterCard = journey ? renderChapter(journey) : null;
-        const keystonesCard = journey ? renderKeystones(journey) : null;
-        const narratorCard = journey ? renderNarrator(journey) : null;
-        // The strip is built LAST and placed FIRST: it can only link to a card
-        // that this pass actually produced.
-        const builtIds = new Set([atlasCard, traitsCard, experimentCard, chapterCard, keystonesCard]
-            .filter(Boolean).map((c) => c.id));
-        const whatsNewCard = journey ? renderWhatsNew(journey, builtIds) : null;
-        const narrativeCards = [whatsNewCard, atlasCard, traitsCard, experimentCard, chapterCard, keystonesCard, narratorCard];
+        // Goal-first (med-8tur.9): Goal Line detail → your week → discoveries
+        // (the "since you last looked" strip + Atlas) → gauges →
+        // experiment/chapter/traits/keystones behind a disclosure → AI story.
+        // HP/levels/Health Score are not rendered. The narrative layer also
+        // stands on its own: a disabled substrate ({enabled:false}) with a live
+        // narrative layer still renders it rather than the "gamification is
+        // off" state — without the substrate-fed week / gauges.
+        const substrate = !!journey && journey.enabled !== false;
+        let cards = [];
+        if (journey) {
+            const goalCard = renderGoalContext(journey);
+            const atlasCard = renderAtlas(journey);
+            const traitsCard = renderTraits(journey);
+            const experimentCard = renderExperiment(journey);
+            const chapterCard = renderChapter(journey);
+            const timelineShown = !!(goalCard && goalCard.querySelector('.wg-journey-goal__timeline-label'));
+            const keystonesCard = renderKeystones(journey, timelineShown);
+            // The strip is built LAST: it can only link to a card this pass produced.
+            const builtIds = new Set([goalCard, atlasCard, traitsCard, experimentCard, chapterCard, keystonesCard]
+                .filter(Boolean).map((c) => c.id));
+            const whatsNewCard = renderWhatsNew(journey, builtIds, timelineShown);
+            const chapterLive = !!(journey.chapter && journey.chapter.active);
+            cards = [
+                goalCard,
+                substrate ? renderWeeklyReview(journey) : null,
+                whatsNewCard,
+                atlasCard,
+                substrate ? renderGauges(journey) : null,
+                renderMore([experimentCard, chapterCard, traitsCard, keystonesCard], !!experimentCard || chapterLive),
+                renderNarrator(journey),
+            ].filter(Boolean);
+        }
 
-        if (!journey || journey.enabled === false) {
-            const live = narrativeCards.filter(Boolean);
-            if (live.length > 0) {
-                content.replaceChildren(...live);
-                return;
-            }
+        if (cards.length === 0 && !substrate) {
             renderEmpty(content, 'Gamification is off. Enable it in Settings to start your Journey.');
             return;
         }
-
-        const cards = [
-            // What changed since the last visit leads (med-edxz.3); the
-            // Discovery Atlas follows it.
-            whatsNewCard,
-            atlasCard,
-            renderWeeklyReview(journey),
-            renderGauges(journey),
-            renderHealthScore(journey),
-            traitsCard,
-            experimentCard,
-            chapterCard,
-            renderInsightCard(journey),
-            renderGoodDayCard(journey),
-            keystonesCard,
-            narratorCard,
-            renderLevelLine(journey),
-        ].filter(Boolean);
         content.replaceChildren(...cards);
     }
 
-    // Fetches the tier-3 sleep→BP insight through its own cachedFetch entry
-    // (Task 3) — only called once the Journey payload reports tier 3
-    // unlocked, so accounts below level 5 never pay for the extra request.
-    // A cold cache offline read renders an explicit empty state on the card
-    // rather than silently omitting it (local-first read pattern).
-    async function loadInsight() {
-        try {
-            const result = await window.cachedFetch(INSIGHTS_CACHE_KEY, INSIGHTS_URL, {
-                tags: ['gamification'],
-                freshAfterMs: 60_000,
-                staleAfterMs: STALE_AFTER_MS,
-            });
-            return result ? result.data : null;
-        } catch (e) {
-            if (window.OfflineNoCacheError && e instanceof window.OfflineNoCacheError) {
-                return { emptyState: 'No cached insight — connect to load.' };
-            }
-            console.error('Failed to load gamification insight:', e);
-            return null;
-        }
-    }
-
     // Fetches the Gauges read model through its own cachedFetch entry (Task
-    // 4) — unlike the tier-3 insight, this isn't ladder-gated: it's fetched
-    // whenever the Journey payload loads. A cold cache offline read renders
+    // 4), whenever the Journey payload loads. A cold cache offline read renders
     // an explicit empty state on the card rather than omitting it silently.
     async function loadGauges() {
         try {
@@ -1105,6 +1100,22 @@
                 return { emptyState: 'No cached weekly review — connect to load.' };
             }
             console.error('Failed to load gamification weekly review:', e);
+            return null;
+        }
+    }
+
+    // Goal Line read-model for the goal-context card — same cache entry as the
+    // Today hero. Offline cold cache / error → no card (the Today card carries
+    // the offline story; this one is context).
+    async function loadGoalLine() {
+        try {
+            const result = await window.cachedFetch(GOAL_LINE_CACHE_KEY, GOAL_LINE_URL, {
+                tags: GOAL_LINE_TAGS,
+                freshAfterMs: 60_000,
+                staleAfterMs: STALE_AFTER_MS,
+            });
+            return result ? result.data : null;
+        } catch (_) {
             return null;
         }
     }
@@ -1163,9 +1174,6 @@
 
         if (typeof window.cachedFetch !== 'function') {
             // Early boot / non-browser harness: best-effort direct read.
-            // ponytail: no insight fetch on this degraded path — the tier-3
-            // card just won't show; the primary cachedFetch path below covers
-            // real usage.
             try {
                 const raw = await (window.offlineAwareApiCall || window.apiCallDirect)(JOURNEY_URL, 'GET');
                 render(raw);
@@ -1183,9 +1191,6 @@
                 staleAfterMs: STALE_AFTER_MS,
             });
             const data = result ? result.data : null;
-            if (data && tierUnlocked(data, 3)) {
-                data.insight = await loadInsight();
-            }
             if (data) {
                 data.gauges = await loadGauges();
                 data.weekly_review = await loadWeeklyReview();
@@ -1194,15 +1199,16 @@
             // enabled: in cloud mode the substrate returns {enabled:false} but
             // the Atlas/chapters/traits/keystones are the whole point of the
             // screen, so they must still render.
-            const [atlas, experiments, chapter, traits, keystones, narration] = await Promise.all([
+            const [atlas, experiments, chapter, traits, keystones, narration, goalLine] = await Promise.all([
                 loadAtlas(), loadExperiments(),
                 loadNarrative('/api/gamification/chapter'),
                 loadNarrative('/api/gamification/traits'),
                 loadNarrative('/api/gamification/keystones'),
                 loadNarrative('/api/gamification/narrate'),
+                loadGoalLine(),
             ]);
-            if (atlas || experiments || chapter || traits || keystones || narration) {
-                const narrative = { atlas, experiments, chapter, traits, keystones, narration };
+            if (atlas || experiments || chapter || traits || keystones || narration || goalLine) {
+                const narrative = { atlas, experiments, chapter, traits, keystones, narration, goal_line: goalLine };
                 if (!data) render({ enabled: false, ...narrative });
                 else { Object.assign(data, narrative); render(data); }
                 return;
