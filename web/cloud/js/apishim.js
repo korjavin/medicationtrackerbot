@@ -1159,11 +1159,9 @@ export function createApiRouter(ctx, {
     // Tomorrow Forecast (Phase 3): evening lever-conditioned in-range-morning
     // chance + this-morning resolution + the "how well do we know you"
     // calibration meter, all recomputed client-side from vault bp+sleep records
-    // (never weight). Bot mode 404s this route; the Today card then omits itself.
-    // The forecast is a Journey feature, and its card lives on Today (a screen
-    // that renders with the feature off), so the flag has to be enforced here:
-    // forecast-card.js hides itself on !enabled, which is the only gate the
-    // Today mount respects.
+    // (never weight). The standalone Today card is gone (med-8tur.9) — the
+    // forecast surfaces only as the Atlas "since you last looked" line — but
+    // the route stays a flag-gated read of the same stats the narrator uses.
     if (path === '/api/gamification/forecast' && method === 'GET') {
       const flags = await settings.getFeatures();
       if (!flags.gamification) return { enabled: false };

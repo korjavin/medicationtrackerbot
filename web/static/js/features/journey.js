@@ -60,11 +60,12 @@
         content.replaceChildren(el('p', 'wg-journey-empty wg-muted', message));
     }
 
-    // Goal-context card (med-8tur.2): the same Goal Line read-model the Today
-    // hero shows, so a tap through from Today lands on the goal, not on Atlas
-    // machinery. Small on purpose — the goal-first Journey reorder is
-    // med-8tur.9. HP / levels / the Health Score are hidden outright (owner
-    // decision 2026-10-02; UI-only — the read-models keep computing them).
+    // Goal Line detail (med-8tur.2 card, expanded by med-8tur.9): the same
+    // Goal Line read-model the Today hero shows, so a tap through from Today
+    // lands on the goal — progress, coverage, the marker count and the
+    // reached-milestone timeline. HP / levels / the Health Score are hidden
+    // outright (owner decision 2026-10-02; UI-only — the read-models keep
+    // computing them).
     const GOAL_LINE_CACHE_KEY = 'gamification_goal_line';
     const GOAL_LINE_URL = '/api/gamification/goal-line';
     const GOAL_LINE_TAGS = ['gamification', 'weight', 'workout', 'bp', 'settings', 'medications', 'history'];
@@ -73,6 +74,17 @@
         const unit = window.weightUnitPreference === 'lb' ? 'lb' : 'kg';
         const d = typeof formatWeight === 'function' ? formatWeight(kg, unit) : { value: Number(kg), label: unit };
         return `${Number(d.value).toFixed(1)} ${d.label}`;
+    }
+
+    // Reached goal milestones ride the keystones payload (kind 'goal_milestone',
+    // getKeystones) — rendered here as the goal's timeline instead of in the
+    // Keystones card, so nothing is fetched or shown twice.
+    function isGoalMilestone(k) { return !!k && k.kind === 'goal_milestone'; }
+
+    function goalMilestones(j) {
+        const ks = j && j.keystones;
+        if (!ks || ks.enabled === false || !Array.isArray(ks.keystones)) return [];
+        return ks.keystones.filter(isGoalMilestone);
     }
 
     function renderGoalContext(j) {
@@ -108,8 +120,32 @@
             if (g.next_milestone && !g.next_milestone.is_goal) line += ` · next marker ${goalWeight(g.next_milestone.weight)}`;
         }
         card.appendChild(el('p', 'wg-journey-goal__line wg-muted', line));
+        if (g.status === 'ok' && g.progress) {
+            const since = g.start_ref_source === 'trend_at_set' ? 'since you set the goal' : 'since your first reading';
+            card.appendChild(el('p', 'wg-journey-goal__line wg-muted',
+                `${goalWeight(g.progress.done_kg)} of ${goalWeight(g.progress.total_kg)} ${since}`));
+        }
+        const nm = g.next_milestone;
+        if (g.status === 'ok' && nm && Number(nm.count) > 0) {
+            const passed = Math.max(0, (Number(nm.ordinal) || 1) - 1);
+            card.appendChild(el('p', 'wg-journey-goal__line wg-muted', `Markers: ${passed} of ${nm.count} passed`));
+        }
+        const cov = g.coverage;
+        if (cov) {
+            const n = Number(cov.weigh_in_days_28d) || 0;
+            const basis = Number.isFinite(g.trend_weight) ? 'trend' : 'latest reading';
+            card.appendChild(el('p', 'wg-journey-goal__line wg-muted',
+                `${basis} · ${n} weigh-in day${n === 1 ? '' : 's'} in the last 28`));
+        }
         if (g.too_fast) {
             card.appendChild(el('p', 'wg-journey-goal__line', 'Faster than 1% a week — worth checking with your doctor.'));
+        }
+        const reached = goalMilestones(j);
+        if (reached.length > 0) {
+            card.appendChild(el('div', 'wg-section-label wg-journey-goal__timeline-label', 'MILESTONES'));
+            const list = el('div', 'wg-journey-keystones__list');
+            reached.forEach((k) => list.appendChild(keystoneRow(k)));
+            card.appendChild(list);
         }
         return card;
     }
@@ -541,7 +577,10 @@
     // warm Atlas cache is the routine case), so only a line whose destination
     // exists becomes a button — a role="button" that scrolls nowhere is a
     // worse control than a plain line.
-    function renderWhatsNew(j, builtIds) {
+    // A goal-milestone line targets the goal card's timeline; when that
+    // timeline didn't render (no goal, goal-line fetch failed) the milestone
+    // sits in the Keystones card instead, so the line follows it there.
+    function renderWhatsNew(j, builtIds, timelineShown) {
         const atlas = j && j.atlas;
         const items = (atlas && Array.isArray(atlas.whats_new)) ? atlas.whats_new : [];
         if (items.length === 0) return null;
@@ -556,7 +595,8 @@
 
         const list = el('div', 'wg-journey-whatsnew__list');
         items.forEach((it) => {
-            const target = (it.target && builtIds && builtIds.has(it.target)) ? it.target : null;
+            const want = (it.target === 'journey-goal-card' && !timelineShown) ? 'journey-keystones-card' : it.target;
+            const target = (want && builtIds && builtIds.has(want)) ? want : null;
             const row = el('p', 'wg-journey-whatsnew__item'
                 + (target ? ' wg-journey-whatsnew__item--tappable' : ''), it.text);
             if (target) {
@@ -843,6 +883,9 @@
     // own payload having loaded.
     function goToCard(id) {
         const target = document.getElementById(id);
+        // A card folded behind the "More" disclosure opens before the scroll.
+        const fold = target && target.closest('details.wg-journey-more');
+        if (fold) fold.open = true;
         if (target && typeof target.scrollIntoView === 'function') {
             target.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
@@ -988,30 +1031,35 @@
         } catch (_) { return ''; }
     }
 
-    function renderKeystones(j) {
+    function keystoneRow(k) {
+        const row = el('div', 'wg-journey-keystone');
+        const marker = el('span', 'wg-journey-keystone__marker');
+        const star = icon('check', 14);
+        if (star) marker.appendChild(star);
+        row.appendChild(marker);
+        const body = el('div', 'wg-journey-keystone__body');
+        body.appendChild(el('span', 'wg-journey-keystone__title', k.title || 'Milestone'));
+        if (k.text) body.appendChild(el('span', 'wg-journey-keystone__text wg-muted', k.text));
+        const date = keystoneDateLabel(k.earned_at);
+        if (date) body.appendChild(el('span', 'wg-journey-keystone__date wg-muted', date));
+        row.appendChild(body);
+        return row;
+    }
+
+    // Goal milestones move to the goal card's timeline whenever that timeline
+    // renders; without it (goal-line fetch failed, no_goal) they stay here.
+    function renderKeystones(j, timelineShown) {
         const ks = j && j.keystones;
         if (!ks || ks.enabled === false) return null;
-        const entries = Array.isArray(ks.keystones) ? ks.keystones : [];
+        const entries = (Array.isArray(ks.keystones) ? ks.keystones : [])
+            .filter((k) => !(timelineShown && isGoalMilestone(k)));
         if (entries.length === 0) return null;
 
         const card = el('section', 'wg-card wg-journey-keystones');
         card.id = 'journey-keystones-card';
         card.appendChild(el('div', 'wg-section-label', 'KEYSTONES'));
         const list = el('div', 'wg-journey-keystones__list');
-        entries.forEach((k) => {
-            const row = el('div', 'wg-journey-keystone');
-            const marker = el('span', 'wg-journey-keystone__marker');
-            const star = icon('check', 14);
-            if (star) marker.appendChild(star);
-            row.appendChild(marker);
-            const body = el('div', 'wg-journey-keystone__body');
-            body.appendChild(el('span', 'wg-journey-keystone__title', k.title || 'Milestone'));
-            if (k.text) body.appendChild(el('span', 'wg-journey-keystone__text wg-muted', k.text));
-            const date = keystoneDateLabel(k.earned_at);
-            if (date) body.appendChild(el('span', 'wg-journey-keystone__date wg-muted', date));
-            row.appendChild(body);
-            list.appendChild(row);
-        });
+        entries.forEach((k) => list.appendChild(keystoneRow(k)));
         card.appendChild(list);
         return card;
     }
@@ -1079,57 +1127,65 @@
         return card;
     }
 
+    // Experiment / chapter / traits / keystones fold behind one native
+    // disclosure (med-8tur.9): Atlas machinery, not the goal. It opens by
+    // itself while a trial (or its verdict) or a chapter is live — the thing
+    // the user came for.
+    function renderMore(cards, open) {
+        const live = cards.filter(Boolean);
+        if (live.length === 0) return null;
+        const details = el('details', 'wg-journey-more');
+        details.id = 'journey-more';
+        details.open = open;
+        details.appendChild(el('summary', 'wg-journey-more__summary wg-section-label',
+            'MORE · EXPERIMENTS, CHAPTERS, TRAITS, KEYSTONES'));
+        live.forEach((c) => details.appendChild(c));
+        return details;
+    }
+
     function render(journey) {
         const content = document.getElementById('journey-content');
         if (!content) return;
 
-        // The goal leads (med-8tur.2), then personal content (med-edxz.1):
-        // Atlas → your week → gauges → traits → experiment/chapter → keystones
-        // → AI story. HP/levels/Health Score are not rendered. The narrative layer (atlas /
-        // traits / experiment / chapter / keystones) also stands on its own:
-        // in cloud mode the HP/levels substrate is a later phase (returns
-        // {enabled:false}), so a disabled substrate with a live narrative
-        // layer still renders it rather than the "gamification is off" state.
-        const atlasCard = journey ? renderAtlas(journey) : null;
-        const traitsCard = journey ? renderTraits(journey) : null;
-        const experimentCard = journey ? renderExperiment(journey) : null;
-        const chapterCard = journey ? renderChapter(journey) : null;
-        const keystonesCard = journey ? renderKeystones(journey) : null;
-        const narratorCard = journey ? renderNarrator(journey) : null;
-        const goalCard = journey ? renderGoalContext(journey) : null;
-        // The strip is built LAST and placed FIRST: it can only link to a card
-        // that this pass actually produced.
-        const builtIds = new Set([atlasCard, traitsCard, experimentCard, chapterCard, keystonesCard]
-            .filter(Boolean).map((c) => c.id));
-        const whatsNewCard = journey ? renderWhatsNew(journey, builtIds) : null;
-        const narrativeCards = [goalCard, whatsNewCard, atlasCard, traitsCard, experimentCard, chapterCard, keystonesCard, narratorCard];
+        // Goal-first (med-8tur.9): Goal Line detail → your week → discoveries
+        // (the "since you last looked" strip + Atlas) → gauges + insights →
+        // experiment/chapter/traits/keystones behind a disclosure → AI story.
+        // HP/levels/Health Score are not rendered. The narrative layer also
+        // stands on its own: a disabled substrate ({enabled:false}) with a live
+        // narrative layer still renders it rather than the "gamification is
+        // off" state — without the substrate-fed week / gauges / insights.
+        const substrate = !!journey && journey.enabled !== false;
+        let cards = [];
+        if (journey) {
+            const goalCard = renderGoalContext(journey);
+            const atlasCard = renderAtlas(journey);
+            const traitsCard = renderTraits(journey);
+            const experimentCard = renderExperiment(journey);
+            const chapterCard = renderChapter(journey);
+            const timelineShown = !!(goalCard && goalCard.querySelector('.wg-journey-goal__timeline-label'));
+            const keystonesCard = renderKeystones(journey, timelineShown);
+            // The strip is built LAST: it can only link to a card this pass produced.
+            const builtIds = new Set([goalCard, atlasCard, traitsCard, experimentCard, chapterCard, keystonesCard]
+                .filter(Boolean).map((c) => c.id));
+            const whatsNewCard = renderWhatsNew(journey, builtIds, timelineShown);
+            const chapterLive = !!(journey.chapter && journey.chapter.active);
+            cards = [
+                goalCard,
+                substrate ? renderWeeklyReview(journey) : null,
+                whatsNewCard,
+                atlasCard,
+                substrate ? renderGauges(journey) : null,
+                substrate ? renderInsightCard(journey) : null,
+                substrate ? renderGoodDayCard(journey) : null,
+                renderMore([experimentCard, chapterCard, traitsCard, keystonesCard], !!experimentCard || chapterLive),
+                renderNarrator(journey),
+            ].filter(Boolean);
+        }
 
-        if (!journey || journey.enabled === false) {
-            const live = narrativeCards.filter(Boolean);
-            if (live.length > 0) {
-                content.replaceChildren(...live);
-                return;
-            }
+        if (cards.length === 0 && !substrate) {
             renderEmpty(content, 'Gamification is off. Enable it in Settings to start your Journey.');
             return;
         }
-
-        const cards = [
-            // The goal context leads (med-8tur.2); what changed since the last
-            // visit follows (med-edxz.3), then the Discovery Atlas.
-            goalCard,
-            whatsNewCard,
-            atlasCard,
-            renderWeeklyReview(journey),
-            renderGauges(journey),
-            traitsCard,
-            experimentCard,
-            chapterCard,
-            renderInsightCard(journey),
-            renderGoodDayCard(journey),
-            keystonesCard,
-            narratorCard,
-        ].filter(Boolean);
         content.replaceChildren(...cards);
     }
 

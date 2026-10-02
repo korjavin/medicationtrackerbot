@@ -91,9 +91,8 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         expect(boot.features.live_hr).toBe(true);
     });
 
-    // med-ja0u: the Tomorrow Forecast card lives on Today — a screen that keeps
-    // rendering with Journey off — so the shim route is the feature gate. The
-    // card only knows how to hide itself on !enabled.
+    // med-ja0u: the forecast route is the feature gate for the stats it serves
+    // (the standalone Today card is gone since med-8tur.9).
     it('gamification off gates GET /api/gamification/forecast to {enabled:false}', async () => {
         const { window } = env;
         window.rebuildCanonicalBottomNav = vi.fn();
@@ -148,20 +147,6 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         expect(await window.apiCall('/api/gamification/milestones/gamificationmilestone-g1-1/ack', 'POST')).toEqual({ ok: true });
         expect((await window.apiCall('/api/gamification/goal-line', 'GET')).milestone).toBeNull();
         expect((await records.list('gamificationmilestone'))[0].acknowledged).toBe(true);
-    });
-
-    // The card caches its payload at bootstrap only, so a mid-session re-enable
-    // has to re-fetch — otherwise the gate above leaves it empty until reload.
-    it('toggling gamification back on re-refreshes the forecast card', async () => {
-        const { window } = env;
-        window.rebuildCanonicalBottomNav = vi.fn();
-        window.WGForecastCard = { refresh: vi.fn(), mountCard: vi.fn() };
-
-        await window.toggleFeatureSetting('gamification', false);
-        await window.toggleFeatureSetting('gamification', true);
-
-        expect(window.WGForecastCard.refresh).toHaveBeenCalledTimes(2);
-        expect((await window.apiCall('/api/gamification/forecast', 'GET')).enabled).toBe(true);
     });
 
     it('saveTabOrder persists through the shim and is echoed by bootstrap', async () => {

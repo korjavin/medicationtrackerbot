@@ -159,64 +159,168 @@ describe('Journey render', () => {
         expect(document.querySelector('.wg-journey-keystones__why')).toBeNull();
     });
 
-    // Personal content first: at most 8 cards with every payload present and
-    // no active chapter or trial (the bead's budget). A running experiment
-    // adds a transient 9th card by design — it's the live thing the user came
-    // to see, and it disappears when the trial ends. The "since you last
-    // looked" strip (med-edxz.3) takes the first slot when it has something to
-    // say; with no whats_new items the Discovery Atlas leads, as here.
-    it('with no active chapter or trial, renders at most 8 cards, Atlas first, in the personal-first order', () => {
-        env.window.Gamification.render(journey({
+    // med-8tur.9 — goal-first order: Goal Line detail → your week →
+    // discoveries (strip + Atlas) → gauges → the "More" disclosure holding
+    // experiment / chapter / traits / keystones → AI story.
+    function fullJourney(extra) {
+        return journey({
+            goal_line: {
+                enabled: true,
+                goal: {
+                    status: 'ok', target: 78, start_ref: 86, start_ref_source: 'trend_at_set', direction: -1,
+                    trend_weight: 82.4, distance_to_goal: 4.4, too_fast: false,
+                    progress: { done_kg: 3.6, total_kg: 8, fraction: 0.45 },
+                    next_milestone: { ordinal: 4, count: 8, weight: 82, is_goal: false },
+                    coverage: { weigh_in_days_28d: 12, last_weigh_in_day: '2026-04-19', min_weigh_in_days: 4 },
+                }
+            },
             atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }] },
             weekly_review: { enabled: true, quiet: true, levers: [], gauges: {}, health_score: {} },
             gauges: { enabled: true, weight: { status: 'insufficient_data' }, bp: { status: 'insufficient_data' }, resting_hr: { status: 'insufficient_data' } },
             traits: { enabled: true, traits: [{ id: 't', title: 'T', state: 'held', on_28d: 24, lever_label: 'nights' }] },
             experiments: { enabled: true, can_start: true, templates: [] },
             chapter: { enabled: true, active: null, can_start: true, review: { title: 'The Steady Month', text: 'recap' }, themes: [{ id: 'x', title: 'X', blurb: 'b' }] },
-            keystones: { enabled: true, keystones: [{ id: 'k', title: 'K', earned_at: Date.UTC(2026, 4, 1) }] },
+            keystones: { enabled: true, keystones: [
+                { id: 'k', title: 'K', earned_at: Date.UTC(2026, 4, 1) },
+                { id: 'gamificationmilestone-g1-1', kind: 'goal_milestone', title: 'Weight goal milestone 1 of 8', earned_at: Date.UTC(2026, 3, 1) },
+            ] },
             narration: { enabled: true },
-        }));
-        const cards = [...env.document.querySelectorAll('#journey-content > .wg-card')];
-        expect(cards.length).toBeLessThanOrEqual(8);
-        expect(cards[0].classList.contains('wg-journey-atlas')).toBe(true);
-        expect(cards.map((c) => c.className.split(' ').pop())).toEqual([
-            'wg-journey-atlas',
+            ...extra,
+        });
+    }
+
+    function topLevelOrder(document) {
+        return [...document.querySelectorAll('#journey-content > *')].map((c) => c.className.split(' ').pop());
+    }
+
+    it('renders goal-first: goal → week → discoveries → gauges → More disclosure → AI story', () => {
+        env.window.Gamification.render(fullJourney());
+        const { document } = env;
+        expect(topLevelOrder(document)).toEqual([
+            'wg-journey-goal',
             'wg-journey-weekly',
+            'wg-journey-atlas',
             'wg-journey-gauges',
-            'wg-journey-traits',
-            'wg-journey-chapter',
-            'wg-journey-keystones',
+            'wg-journey-more',
             'wg-journey-narrator',
+        ]);
+        const more = document.getElementById('journey-more');
+        expect(more.tagName).toBe('DETAILS');
+        expect(more.open).toBe(false);
+        expect([...more.querySelectorAll(':scope > .wg-card')].map((c) => c.className.split(' ').pop()))
+            .toEqual(['wg-journey-chapter', 'wg-journey-traits', 'wg-journey-keystones']);
+    });
+
+    it('the strip sits with the discoveries, after the goal and the week', () => {
+        env.window.Gamification.render(fullJourney({
+            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }], whats_new: [{ kind: 'trait', text: 'New trait.', target: 'journey-traits-card' }] },
+        }));
+        expect(topLevelOrder(env.document).slice(0, 4)).toEqual([
+            'wg-journey-goal', 'wg-journey-weekly', 'wg-journey-whatsnew', 'wg-journey-atlas',
         ]);
     });
 
-    // With the strip present (med-huec): the same full payload plus one
-    // whats_new line renders at most 9 cards — the strip leads, the other
-    // eight keep their personal-first order.
-    it('with the strip present, renders at most 9 cards, strip first', () => {
-        env.window.Gamification.render(journey({
-            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }], whats_new: [{ kind: 'trait', text: 'You\u2019re now a Consistent Mover.', target: 'journey-traits-card' }] },
-            weekly_review: { enabled: true, quiet: true, levers: [], gauges: {}, health_score: {} },
-            gauges: { enabled: true, weight: { status: 'insufficient_data' }, bp: { status: 'insufficient_data' }, resting_hr: { status: 'insufficient_data' } },
-            traits: { enabled: true, traits: [{ id: 't', title: 'T', state: 'held', on_28d: 24, lever_label: 'nights' }] },
-            experiments: { enabled: true, can_start: true, templates: [] },
-            chapter: { enabled: true, active: null, can_start: true, review: { title: 'The Steady Month', text: 'recap' }, themes: [{ id: 'x', title: 'X', blurb: 'b' }] },
-            keystones: { enabled: true, keystones: [{ id: 'k', title: 'K', earned_at: Date.UTC(2026, 4, 1) }] },
-            narration: { enabled: true },
+    it('a strip item pointing into the folded disclosure opens it before scrolling', () => {
+        env.window.Gamification.render(fullJourney({
+            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }], whats_new: [{ kind: 'trait', text: 'New trait.', target: 'journey-traits-card' }] },
         }));
-        const cards = [...env.document.querySelectorAll('#journey-content > .wg-card')];
-        expect(cards.length).toBeLessThanOrEqual(9);
-        expect(cards[0].classList.contains('wg-journey-whatsnew')).toBe(true);
-        expect(cards.map((c) => c.className.split(' ').pop())).toEqual([
-            'wg-journey-whatsnew',
-            'wg-journey-atlas',
-            'wg-journey-weekly',
-            'wg-journey-gauges',
-            'wg-journey-traits',
-            'wg-journey-chapter',
-            'wg-journey-keystones',
-            'wg-journey-narrator',
+        const { document } = env;
+        const scrollIntoView = vi.fn();
+        document.getElementById('journey-traits-card').scrollIntoView = scrollIntoView;
+        expect(document.getElementById('journey-more').open).toBe(false);
+        document.querySelector('.wg-journey-whatsnew__item').click();
+        expect(document.getElementById('journey-more').open).toBe(true);
+        expect(scrollIntoView).toHaveBeenCalled();
+    });
+
+    it('the disclosure opens by itself while a trial or a chapter is live', () => {
+        env.window.Gamification.render(fullJourney({
+            experiments: { enabled: true, can_start: false, templates: [], active: { id: 'e', title: 'Trial', duration: 14, day_number: 3 } },
+        }));
+        expect(env.document.getElementById('journey-more').open).toBe(true);
+        expect(env.document.querySelector('#journey-more #journey-experiment-card')).not.toBeNull();
+
+        env.window.Gamification.render(fullJourney({
+            chapter: { enabled: true, active: { title: 'C', duration: 28, day_number: 2 } },
+        }));
+        expect(env.document.getElementById('journey-more').open).toBe(true);
+    });
+
+    it('goal detail: progress, markers, coverage and the milestone timeline (moved out of Keystones)', () => {
+        env.window.Gamification.render(fullJourney());
+        const { document } = env;
+        const goal = document.getElementById('journey-goal-card');
+        const lines = [...goal.querySelectorAll('.wg-journey-goal__line')].map((l) => l.textContent);
+        expect(lines).toEqual([
+            '4.4 kg to go · next marker 82.0 kg',
+            '3.6 kg of 8.0 kg since you set the goal',
+            'Markers: 3 of 8 passed',
+            'trend · 12 weigh-in days in the last 28',
         ]);
+        expect([...goal.querySelectorAll('.wg-journey-keystone__title')].map((t) => t.textContent))
+            .toEqual(['Weight goal milestone 1 of 8']);
+        // Shown once: the Keystones card keeps only the non-goal entries.
+        expect([...document.querySelectorAll('#journey-keystones-card .wg-journey-keystone__title')].map((t) => t.textContent))
+            .toEqual(['K']);
+    });
+
+    it('goal milestones stay in Keystones when the goal card is absent', () => {
+        env.window.Gamification.render(fullJourney({ goal_line: null }));
+        expect([...env.document.querySelectorAll('#journey-keystones-card .wg-journey-keystone__title')].map((t) => t.textContent))
+            .toEqual(['K', 'Weight goal milestone 1 of 8']);
+    });
+
+    it('goal milestones stay in Keystones when there is no goal (no timeline to hold them)', () => {
+        env.window.Gamification.render(fullJourney({ goal_line: { enabled: true, goal: { status: 'no_goal' } } }));
+        expect(env.document.getElementById('journey-goal-card')).not.toBeNull();
+        expect([...env.document.querySelectorAll('#journey-keystones-card .wg-journey-keystone__title')].map((t) => t.textContent))
+            .toEqual(['K', 'Weight goal milestone 1 of 8']);
+    });
+
+    it('a milestone news line scrolls to the goal card that holds the timeline', () => {
+        env.window.Gamification.render(fullJourney({
+            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }], whats_new: [{ kind: 'keystone', text: 'Weight goal milestone 1 of 8', target: 'journey-goal-card' }] },
+        }));
+        const { document } = env;
+        const scrollIntoView = vi.fn();
+        document.getElementById('journey-goal-card').scrollIntoView = scrollIntoView;
+        const row = document.querySelector('.wg-journey-whatsnew__item');
+        expect(row.getAttribute('role')).toBe('button');
+        row.click();
+        expect(scrollIntoView).toHaveBeenCalled();
+    });
+
+    it('without a goal timeline, a milestone news line falls back to the Keystones card', () => {
+        env.window.Gamification.render(fullJourney({
+            goal_line: { enabled: true, goal: { status: 'no_goal' } },
+            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }], whats_new: [{ kind: 'keystone', text: 'Weight goal milestone 1 of 8', target: 'journey-goal-card' }] },
+        }));
+        const { document } = env;
+        const scrollIntoView = vi.fn();
+        document.getElementById('journey-keystones-card').scrollIntoView = scrollIntoView;
+        document.querySelector('.wg-journey-whatsnew__item').click();
+        expect(scrollIntoView).toHaveBeenCalled();
+        expect(document.getElementById('journey-more').open).toBe(true);
+    });
+
+    it('a disabled substrate still renders the goal + narrative layer, without the week or gauges', () => {
+        env.window.Gamification.render(fullJourney({ enabled: false }));
+        expect(topLevelOrder(env.document)).toEqual([
+            'wg-journey-goal', 'wg-journey-atlas', 'wg-journey-more', 'wg-journey-narrator',
+        ]);
+    });
+
+    // Every read model is fetched exactly once per load() — the goal card's
+    // milestone timeline reuses the keystones payload, no extra request.
+    it('load() fetches each read model once', async () => {
+        const { window } = env;
+        const urls = [];
+        window.cachedFetch = vi.fn(async (_key, url) => { urls.push(url); return { data: url.endsWith('/journey') ? journey() : null }; });
+        window.offlineAwareApiCall = vi.fn(async (url) => { urls.push(url); return null; });
+        await window.Gamification.load();
+        expect(urls.length).toBe(new Set(urls).size);
+        expect(urls).toContain('/api/gamification/keystones');
+        expect(urls).toContain('/api/gamification/goal-line');
     });
 
     // The insight-ladder card was retired in the gamification redesign (Phase
