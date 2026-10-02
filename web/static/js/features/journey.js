@@ -1042,13 +1042,13 @@
         return row;
     }
 
-    // Goal milestones move to the goal card's timeline whenever that card
-    // renders; with it absent (goal-line fetch failed) they stay here.
-    function renderKeystones(j, goalCardShown) {
+    // Goal milestones move to the goal card's timeline whenever that timeline
+    // renders; without it (goal-line fetch failed, no_goal) they stay here.
+    function renderKeystones(j, timelineShown) {
         const ks = j && j.keystones;
         if (!ks || ks.enabled === false) return null;
         const entries = (Array.isArray(ks.keystones) ? ks.keystones : [])
-            .filter((k) => !(goalCardShown && isGoalMilestone(k)));
+            .filter((k) => !(timelineShown && isGoalMilestone(k)));
         if (entries.length === 0) return null;
 
         const card = el('section', 'wg-card wg-journey-keystones');
@@ -1158,9 +1158,10 @@
             const traitsCard = renderTraits(journey);
             const experimentCard = renderExperiment(journey);
             const chapterCard = renderChapter(journey);
-            const keystonesCard = renderKeystones(journey, !!goalCard);
+            const timelineShown = !!(goalCard && goalCard.querySelector('.wg-journey-goal__timeline-label'));
+            const keystonesCard = renderKeystones(journey, timelineShown);
             // The strip is built LAST: it can only link to a card this pass produced.
-            const builtIds = new Set([atlasCard, traitsCard, experimentCard, chapterCard, keystonesCard]
+            const builtIds = new Set([goalCard, atlasCard, traitsCard, experimentCard, chapterCard, keystonesCard]
                 .filter(Boolean).map((c) => c.id));
             const whatsNewCard = renderWhatsNew(journey, builtIds);
             const chapterLive = !!(journey.chapter && journey.chapter.active);

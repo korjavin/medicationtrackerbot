@@ -270,6 +270,26 @@ describe('Journey render', () => {
             .toEqual(['K', 'Weight goal milestone 1 of 8']);
     });
 
+    it('goal milestones stay in Keystones when there is no goal (no timeline to hold them)', () => {
+        env.window.Gamification.render(fullJourney({ goal_line: { enabled: true, goal: { status: 'no_goal' } } }));
+        expect(env.document.getElementById('journey-goal-card')).not.toBeNull();
+        expect([...env.document.querySelectorAll('#journey-keystones-card .wg-journey-keystone__title')].map((t) => t.textContent))
+            .toEqual(['K', 'Weight goal milestone 1 of 8']);
+    });
+
+    it('a milestone news line scrolls to the goal card that holds the timeline', () => {
+        env.window.Gamification.render(fullJourney({
+            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }], whats_new: [{ kind: 'keystone', text: 'Weight goal milestone 1 of 8', target: 'journey-goal-card' }] },
+        }));
+        const { document } = env;
+        const scrollIntoView = vi.fn();
+        document.getElementById('journey-goal-card').scrollIntoView = scrollIntoView;
+        const row = document.querySelector('.wg-journey-whatsnew__item');
+        expect(row.getAttribute('role')).toBe('button');
+        row.click();
+        expect(scrollIntoView).toHaveBeenCalled();
+    });
+
     it('a disabled substrate still renders the goal + narrative layer, without the week or gauges', () => {
         env.window.Gamification.render(fullJourney({ enabled: false }));
         expect(topLevelOrder(env.document)).toEqual([

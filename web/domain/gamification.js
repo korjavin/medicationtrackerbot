@@ -1330,7 +1330,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       items.push({
         kind: 'keystone',
         text: keystone.title || 'A new keystone.',
-        target: 'journey-keystones-card',
+        // Goal milestones render as the Journey goal card's timeline (med-8tur.9).
+        target: keystone.kind === 'goal_milestone' ? 'journey-goal-card' : 'journey-keystones-card',
       });
     }
 
