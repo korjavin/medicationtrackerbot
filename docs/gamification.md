@@ -226,6 +226,11 @@ read the Goal Line trend through `weightTrendRun`; all five carry `weight: true`
 so ED-safe hides them (and the joint line, with the Goal Line). Every terminal Atlas card is
 tagged "Descriptive association"; experiment verdicts say "a difference", not
 "an effect".
+*Sleep timing (med-8tur.14/.15):* two non-weight probes, `late_bedtime_next_morning_bp`
+and `irregular_bedtime_next_morning_bp`, compare next-morning systolic after
+bedtimes an hour+ off the window's own median onset (`onsetDeviationMin` in
+`buildDays`); every morning-BP gauge counts only a reading before local noon,
+and revealed cards carry `se`, rendered as "±2·se".
 
 ### 0.4 Evidence this leans on — and its limits
 

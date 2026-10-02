@@ -44,7 +44,8 @@ function dayAt(offset) {
 function bpRec(offset, systolic) {
   return {
     recordId: `bp-${offset}`, deleted: false,
-    measured_at: isoAt(offset), systolic, diastolic: 80, ignore_calc: false,
+    // 07:00 UTC: firstMorningSystolic only counts readings before local noon.
+    measured_at: new Date(NOW - offset * DAY_MS - 5 * 3600000).toISOString(), systolic, diastolic: 80, ignore_calc: false,
   };
 }
 function sleepRec(offset, totalMinutes) {

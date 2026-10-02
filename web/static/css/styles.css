@@ -5605,13 +5605,16 @@ textarea.wg-input {
 }
 
 .wg-journey-atlas__meter,
+.wg-journey-atlas__spread,
 .wg-journey-atlas__next,
 .wg-journey-atlas__empty {
     font-size: var(--font-size-sm);
 }
 
-/* The meter rides inline at the end of the question line — one line per card. */
-.wg-journey-atlas__meter {
+/* The meter rides inline at the end of the question line — one line per card;
+   a revealed finding's ± spread rides the same way. */
+.wg-journey-atlas__meter,
+.wg-journey-atlas__spread {
     margin-left: var(--space-xs);
     white-space: nowrap;
 }
