@@ -42,6 +42,37 @@ const FOOD_LOG_RECORD_TYPE = 'foodlog';
 const JOURNAL_RECORD_TYPE = 'gamificationjournal';
 const JOURNAL_RECORD_ID = 'journal';
 
+// mergeGamificationJournal folds the grow-only journal fields of the LWW loser
+// into the winner (bd med-ooeh). Two devices deriving different fields of the
+// singleton in one sync window both stamp `existing.clientTs + 1`, so sync's
+// strict-`>` apply kept neither op and the next real write dropped whatever only
+// the loser derived. keystones (by id), seen_discoveries and traits (by key) are
+// append-only — nothing ever removes an entry — so a union is always safe and
+// converges regardless of apply order. chapter / closed_chapters stay plain LWW
+// from the winner: they move as a pair and a stale close is re-derived anyway.
+// Returns `win` itself when the loser adds nothing, so callers can skip a write.
+// ponytail: a same-id/same-key collision keeps the winner's entry; on a tie each
+// device keeps its own (cosmetic earned_at drift) until its next write.
+export function mergeGamificationJournal(win, lose) {
+  let out = win;
+  const set = (key, value) => {
+    if (out === win) out = { ...win };
+    out[key] = value;
+  };
+  const arr = (v) => (Array.isArray(v) ? v : []);
+  const wk = arr(win.keystones);
+  const extraK = arr(lose.keystones).filter((k) => k && !wk.some((w) => w && w.id === k.id));
+  if (extraK.length) set('keystones', wk.concat(extraK));
+  const ws = arr(win.seen_discoveries);
+  const extraS = [...new Set(arr(lose.seen_discoveries))].filter((id) => !ws.includes(id));
+  if (extraS.length) set('seen_discoveries', ws.concat(extraS));
+  const wt = (win.traits && typeof win.traits === 'object') ? win.traits : {};
+  const lt = (lose.traits && typeof lose.traits === 'object') ? lose.traits : {};
+  const extraT = Object.keys(lt).filter((id) => !(id in wt));
+  if (extraT.length) set('traits', { ...wt, ...Object.fromEntries(extraT.map((id) => [id, lt[id]])) });
+  return out;
+}
+
 // localDayString → 'YYYY-MM-DD' in the user's zone (en-CA yields ISO order),
 // the same key vitals.js uses. All per-day signals bucket on this string so BP
 // instants, sleep wake-days, daystats days and food instants share one key.

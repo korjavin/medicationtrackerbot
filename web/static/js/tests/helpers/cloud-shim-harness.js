@@ -93,6 +93,9 @@ export function createStampingRecordsPort(seed = {}) {
 
 // The comparison applyIncoming makes on every pulled record: strict `>` on
 // clientTs, so equal stamps leave the existing row in place (sync.js:479).
+// ponytail: strict LWW only — real applyIncoming also folds gamificationjournal's
+// grow-only fields (keystones/seen_discoveries/traits, med-ooeh; covered in
+// web/cloud/js/tests/sync.test.js). Suites using this must not assert on those.
 export const applyIncomingReplica = (existing, incoming) => (
     !existing || incoming.clientTs > existing.clientTs ? incoming : existing
 );

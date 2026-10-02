@@ -7,6 +7,7 @@
 // web/domain/'s domain modules are built on.
 import { deriveKData, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, toBase64, fromBase64, gzip, gunzip, isGzip } from './crypto.js';
 import { cachedDb, dropCachedDb, onCachedDbDropped } from './localdb.js';
+import { mergeGamificationJournal } from '../../domain/gamification.js';
 
 // Task 6: the NK (push notification key) is itself a vault record so every
 // enrolled device converges on the same one via the ordinary oplog, exactly
@@ -250,11 +251,16 @@ export async function replaceAllRecords(records) {
       const r = await getRecord(recordId);
       if (!r) continue;
       const snap = snapshotById.get(recordId);
+      // Same grow-only fold as applyIncoming (med-ooeh): the op that carried a
+      // field may already be compacted into this snapshot, so neither side may
+      // simply replace the other.
+      const merge = snap && !snap.deleted && !r.deleted ? APPLY_MERGE[r.recordType] : null;
       if (snap && r.clientTs === 0 && snap.clientTs > 0) {
         losingPending.push(recordId);
+        if (merge) overlay.push(merge(snap, r));
         continue;
       }
-      overlay.push(r);
+      overlay.push(merge ? merge(r, snap) : r);
     }
     await withStore('records', 'readwrite', (store) => {
       store.clear();
@@ -501,16 +507,34 @@ async function noteServerDate(res) {
 
 // --- remote sync ---------------------------------------------------------
 
-// Returns the recordType when the incoming record actually won (LWW on
-// clientTs), so the caller can batch one repaint per pulled page rather than one
-// per record.
+// Returns the recordType when the local row changed (the incoming record won
+// LWW on clientTs, or a merge-aware type folded fields in), so the caller can
+// batch one repaint per pulled page rather than one per record.
 // Serialized against writeRecord (withRecordsLock): a derived put-if-absent
 // checks the slot and writes it, and an op landing between those two steps would
 // be silently overwritten by a placeholder (bd med-qhpu).
+// Merge-aware types (bd med-ooeh): a singleton several devices derive different
+// fields of gets the LWW loser's grow-only fields folded into the winner, so a
+// tie (both stamped `existing.clientTs + 1`) or a newer blob that never saw the
+// field cannot drop it. The merged row keeps the winner's clientTs and is not
+// re-queued: peers fold the same ops themselves, and this device's next write of
+// the record carries the union. replaceAllRecords applies the same fold when a
+// pending row meets a snapshot row. Tombstones are never merged.
+const APPLY_MERGE = { gamificationjournal: mergeGamificationJournal };
+
 async function applyIncoming(recordType, record) {
   return withRecordsLock(async () => {
     const existing = await getRecord(record.recordId);
-    if (!existing || record.clientTs > existing.clientTs) {
+    const incomingWins = !existing || record.clientTs > existing.clientTs;
+    const merge = APPLY_MERGE[recordType];
+    if (merge && existing && !existing.deleted && !record.deleted) {
+      const winner = incomingWins ? record : existing;
+      const merged = merge(winner, incomingWins ? existing : record);
+      if (!incomingWins && merged === existing) return null;
+      await putRecord({ ...merged, recordType });
+      return recordType;
+    }
+    if (incomingWins) {
       await putRecord({ ...record, recordType });
       return recordType;
     }
