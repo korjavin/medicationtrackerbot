@@ -5202,61 +5202,22 @@ textarea.wg-input {
     background: var(--wg-sun);
 }
 
-/* Level/HP footer line (med-edxz.1) — the last thing on the screen, not the
-   hero card it used to be. */
-.wg-journey-level-line {
-    margin: var(--space-sm) 0 0;
-    font-size: var(--font-size-xs);
-    text-align: center;
-    letter-spacing: 0.04em;
-}
-
-/* Health Score card (Task 8): big number + band tag, then one mini-bar row
-   per named contributor, collapsed behind a <summary> (med-edxz.1). Reuses
-   .wg-journey-bar__track/__fill for the contributor bars. */
-.wg-journey-score__hero {
-    display: flex;
-    align-items: baseline;
-    gap: var(--space-sm);
-    margin-bottom: var(--space-sm);
-}
-
-.wg-journey-score__value {
-    font-size: var(--font-size-xl);
+/* Journey goal-context card (med-8tur.2): the Goal Line, leading the screen. */
+.wg-journey-goal__value {
+    margin: 0 0 var(--space-sm);
+    font-size: var(--font-size-lg);
     color: var(--wg-fg-1);
 }
 
-.wg-journey-score__hero-note {
+.wg-journey-goal__line {
+    margin: var(--space-xs) 0 0;
     font-size: var(--font-size-sm);
-}
-
-.wg-journey-score__list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-sm);
-}
-
-.wg-journey-score__row-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    margin-bottom: var(--space-xs);
-}
-
-.wg-journey-score__row-label {
-    font-size: var(--font-size-sm);
-    color: var(--wg-fg-2);
-}
-
-.wg-journey-score__row-value {
-    font-size: var(--font-size-xs);
 }
 
 /* "Your week" card (gamification-12 §Task3): a native <details>/<summary>
    collapsible, second in the feed after the Atlas. Every line is wg-muted
    regardless of direction — no red styling for a down week (tone rules). */
 .wg-journey-weekly__summary,
-.wg-journey-score__summary,
 .wg-journey-chapter__summary {
     cursor: pointer;
     user-select: none;
@@ -5316,26 +5277,23 @@ textarea.wg-input {
     cursor: pointer;
 }
 
-/* Today rings summary tile: full-width card — stack centered over a
-   per-ring icon state row. The full legend lives on Journey. */
-.wg-today-rings {
+/* Today Goal Line hero (med-8tur.2): the gamification headline. Facts only —
+   the one accent is the progress fill and the CTA; the safety line stays calm
+   (fg, not alert red). */
+.wg-goal-line {
     cursor: pointer;
-    /* Compact tile (us0.1): render the concentric stack at the small size so the
-       gamification pane matches the footprint of the other Today tiles instead
-       of dominating the stack. */
-    --wg-ring-stack-size: var(--wg-ring-stack-size-sm);
 }
 
-.wg-today-rings__header {
+.wg-goal-line__header {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
     justify-content: space-between;
-    gap: var(--space-sm);
+    gap: var(--space-xs) var(--space-sm);
     margin-bottom: var(--space-sm);
 }
 
-.wg-today-rings__title {
+.wg-goal-line__title {
     font-family: var(--wg-font-ui);
     font-size: var(--wg-font-size-tag);
     letter-spacing: 0.14em;
@@ -5344,119 +5302,72 @@ textarea.wg-input {
     color: var(--wg-fg-4);
 }
 
-.wg-today-rings__score {
+.wg-goal-line__numbers {
     display: inline-flex;
+    flex-wrap: wrap;
     align-items: baseline;
     gap: var(--space-xs);
 }
 
-.wg-today-rings__score-value {
+.wg-goal-line__value {
     font-size: var(--font-size-lg);
-    color: var(--wg-sun);
-}
-
-.wg-today-rings__score-note {
-    font-size: var(--font-size-sm);
-}
-
-.wg-today-rings__empty {
-    font-size: var(--font-size-sm);
-    padding: var(--space-sm) var(--space-xs);
-}
-
-/* Rings body: wg-ring-stack centered, per-ring icon state row beneath it. */
-.wg-today-rings__body {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--space-sm);
-}
-
-.wg-today-rings__icons {
-    display: flex;
-    justify-content: center;
-    gap: var(--space-sm);
-}
-
-.wg-today-rings__ic {
-    display: inline-flex;
-    color: var(--wg-fg-3);
-}
-
-.wg-today-rings__ic--closed {
-    color: var(--wg-sun);
-}
-
-.wg-today-rings__ic--sync {
-    color: var(--wg-fg-4);
-}
-
-/* "Your move" — the suggested next action. Tappable, accent-tinted; the
-   all-closed celebration variant reuses .wg-muted for a calm, non-tappable look. */
-.wg-today-rings__move {
-    display: flex;
-    align-items: center;
-    gap: var(--space-xs);
-    margin-bottom: var(--space-sm);
-    padding: var(--space-xs) var(--space-sm);
-    border-radius: var(--wg-radius-icon);
-    background: var(--wg-bg-card-inset);
-    cursor: pointer;
-}
-
-.wg-today-rings__move.wg-muted {
-    background: transparent;
-    cursor: default;
-}
-
-.wg-today-rings__move-icon {
-    display: inline-flex;
-    color: var(--wg-sun);
-}
-
-.wg-today-rings__move.wg-muted .wg-today-rings__move-icon {
-    color: var(--wg-fg-3);
-}
-
-.wg-today-rings__move-text {
-    font-size: var(--font-size-sm);
-    font-weight: 600;
     color: var(--wg-fg-1);
 }
 
-.wg-today-rings__move.wg-muted .wg-today-rings__move-text {
-    font-weight: 400;
-    color: var(--wg-fg-3);
+.wg-goal-line__basis {
+    font-size: var(--font-size-xs);
 }
 
-/* Adherence safety-net nudge (Task 3): invisible unless the trailing PDC
-   slips — one tappable, token-neutral line to Meds, no icon/urgency styling. */
-.wg-today-rings__adherence {
-    display: block;
-    margin-bottom: var(--space-sm);
-    padding: 0 var(--space-sm);
+.wg-goal-line__track {
+    position: relative;
+    height: 10px;
+    border-radius: var(--radius-pill);
+    overflow: hidden;
+}
+
+.wg-goal-line__fill {
+    height: 100%;
+    width: var(--fill-pct, 0%);
+    background: var(--wg-sun);
+    border-radius: inherit;
+    transition: width 0.4s ease;
+}
+
+.wg-goal-line__line,
+.wg-goal-line__fact,
+.wg-goal-line__safety {
+    margin: var(--space-xs) 0 0;
     font-size: var(--font-size-sm);
+}
+
+.wg-goal-line__line {
+    color: var(--wg-fg-2);
+}
+
+.wg-goal-line__safety {
+    color: var(--wg-fg-1);
+}
+
+.wg-goal-line__facts {
+    margin-top: var(--space-sm);
+    padding-top: var(--space-xs);
+    border-top: 1px solid var(--wg-border-hairline);
+}
+
+.wg-goal-line__set {
+    display: inline-block;
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--wg-fg-1);
     cursor: pointer;
 }
 
-/* Explicit "View Journey →" affordance, distinct from the "your move" deep
-   link — the whole card already navigates to Journey on tap; this just makes
-   that destination discoverable instead of implicit. */
-.wg-today-rings__journey-link {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: var(--space-xs);
+.wg-goal-line__cta {
     margin-top: var(--space-sm);
-    font-size: var(--font-size-sm);
-    color: var(--wg-fg-3);
 }
 
-/* Tomorrow Forecast (us0.3). Standalone (gamification off) it's a compact
-   card; merged into the rings tile it drops its own card chrome and reads as
-   one bottom section of the rings card, divided by a hairline. Content
-   (evening chance / morning resolution + calibration meter) is unchanged; the
-   below-gate self-suppress lives in forecast-card.js and is untouched. */
+/* Tomorrow Forecast (us0.3). No longer mounted on Today (med-8tur.2 — the
+   Goal Line replaced the rings tile it lived in); kept until slice-4 cleanup. */
 .wg-forecast-card .wg-section-label {
     padding-top: 0;
     padding-bottom: var(--space-xs);
@@ -5471,16 +5382,6 @@ textarea.wg-input {
 
 .wg-forecast-card__calibration {
     margin-top: var(--space-xs);
-}
-
-.wg-today-rings .wg-forecast-card {
-    background: none;
-    border: 0;
-    box-shadow: none;
-    padding: 0;
-    margin-top: var(--space-sm);
-    padding-top: var(--space-sm);
-    border-top: 1px solid var(--wg-border-hairline);
 }
 
 /* Tier-3 insight card (Task 3) — one plain-language line. */

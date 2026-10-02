@@ -185,12 +185,16 @@ function todayFetchSpecs(foodKey) {
                 return { groups: groups || [] };
             }
         },
-        gamification_rings: {
+        gamification_goal_line: {
             feature: 'gamification',
-            tags: ['gamification'],
-            // Slim Today payload: { enabled, level, today_hp, rings:[{ring,hp}] }.
+            // Goal Line hero (med-8tur.2). Synced records carry no
+            // 'gamification' tag (sync.js RECORD_TAGS: weightgoal→weight,
+            // workoutsession→workout, bp→bp, settings→settings), so the card
+            // evicts on its source tags too or a synced goal edit repaints a
+            // stale card. Mirrors the cache-keys.js registry entry.
+            tags: ['gamification', 'weight', 'workout', 'bp', 'settings'],
             // apiCall returns null on failure so fetchFresh leaves the cache alone.
-            fetch: () => apiCall('/api/gamification/rings', 'GET')
+            fetch: () => apiCall('/api/gamification/goal-line', 'GET')
         }
     };
 }
@@ -264,7 +268,7 @@ async function _todayReadCaches(foodKey) {
             : null;
         const hoKey = healthOverviewCacheKey();
         if (readMeta) {
-            const keys = ['settings_bundle', 'next_intake', 'medications', 'bp', 'weight', 'workout_next', hoKey, foodKey, 'gamification_rings'];
+            const keys = ['settings_bundle', 'next_intake', 'medications', 'bp', 'weight', 'workout_next', hoKey, foodKey, 'gamification_goal_line'];
             const metas = await Promise.all(keys.map(readMeta));
             const [bundleM, nextIntakeM, medsM, bpM, weightM, workoutM, healthM, foodM, gamM] = metas;
             if (bundleM?.data) {
@@ -323,14 +327,14 @@ async function _todayReadCaches(foodKey) {
                 const groups = Array.isArray(foodM.data.groups) ? foodM.data.groups : [];
                 swrCaches.food_today = { groups };
             }
-            if (gamM?.data) swrCaches.gamification_rings = gamM.data;
+            if (gamM?.data) swrCaches.gamification_goal_line = gamM.data;
             for (let i = 0; i < keys.length; i++) {
                 const m = metas[i];
                 if (!m) continue;
                 trackTs(m.timestamp);
             }
         } else if (window.DataStore && typeof window.DataStore.getCached === 'function') {
-            const keys = ['settings_bundle', 'next_intake', 'medications', 'bp', 'weight', 'workout_next', hoKey, foodKey, 'gamification_rings'];
+            const keys = ['settings_bundle', 'next_intake', 'medications', 'bp', 'weight', 'workout_next', hoKey, foodKey, 'gamification_goal_line'];
             const [bundle, nextIntake, meds, bp, weight, workout, health, food, gam] = await Promise.all(
                 keys.map((k) => window.DataStore.getCached(k).catch(() => null))
             );
@@ -366,7 +370,7 @@ async function _todayReadCaches(foodKey) {
                 const groups = Array.isArray(food.groups) ? food.groups : [];
                 swrCaches.food_today = { groups };
             }
-            if (gam) swrCaches.gamification_rings = gam;
+            if (gam) swrCaches.gamification_goal_line = gam;
         }
     } catch (_) { /* best-effort — render whatever we have */ }
     // Register key→tag mappings for every Today cache we just read directly
@@ -533,7 +537,7 @@ async function loadToday() {
             workout_next: !!swrCaches.workout_next,
             [hoKey]: !!swrCaches.health_overview,
             [foodKey]: !!swrCaches.food_today,
-            gamification_rings: !!swrCaches.gamification_rings
+            gamification_goal_line: !!swrCaches.gamification_goal_line
         };
         const missing = Object.keys(presence).filter((k) => {
             if (presence[k]) return false;

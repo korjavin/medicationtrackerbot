@@ -342,37 +342,6 @@
         return cell(value, 'health', status);
     }
 
-    // Today gamification rings tile. Reads the slim Plan 2 rings payload
-    // ({ enabled, level, today_hp, rings:[{ring,hp}] }) and projects it into a
-    // cell the renderer turns into a tappable summary card that deep-links to
-    // the Journey screen. `enabled` is the cached feature flag; the payload's
-    // own `enabled:false` is honoured too so a lagged flag still hides the tile.
-    function gamificationRingsCell(rings, enabled) {
-        if (!enabled) return cell(null, 'journey', 'disabled');
-        if (rings && rings.enabled === false) return cell(null, 'journey', 'disabled');
-        const list = rings && Array.isArray(rings.rings) ? rings.rings : null;
-        if (!list || list.length === 0) return cell(null, 'journey', 'missing');
-        const hs = rings.health_score;
-        const aa = rings.adherence_alert;
-        const value = {
-            level: Number.isFinite(rings.level) ? rings.level : 0,
-            todayHp: Number.isFinite(rings.today_hp) ? rings.today_hp : 0,
-            healthScore: { value: (hs && Number.isFinite(hs.value)) ? hs.value : null },
-            adherenceAlert: (aa && aa.active) ? { missedDoses: Number(aa.missed_doses) || 0 } : null,
-            rings: list
-                .filter((r) => r && typeof r.ring === 'string')
-                .map((r) => ({
-                    ring: r.ring,
-                    hp: Number(r.hp) || 0,
-                    closed: !!r.closed,
-                    progress: Number.isFinite(r.progress) ? r.progress : (r.closed ? 1 : 0),
-                    goal: typeof r.goal === 'string' ? r.goal : '',
-                    sync_pending: !!r.sync_pending
-                }))
-        };
-        return cell(value, 'journey', 'ok');
-    }
-
     function aggregateToday(bootstrap, swrCaches, now, opts) {
         const caches = swrCaches || {};
         const nowDate = now instanceof Date ? now : new Date(now || Date.now());
@@ -400,7 +369,7 @@
             macrosTarget: macrosTargetCell(bootstrap, foodEnabled),
             nextWorkout: nextWorkoutCell(caches, workoutEnabled),
             sleepLastNight: sleepLastNightCell(caches, nowMs, healthEnabled),
-            gamificationRings: gamificationRingsCell(caches.gamification_rings, gamificationEnabled)
+            goalLine: goalLineCell(caches.gamification_goal_line, gamificationEnabled)
         };
         return result;
     }
@@ -588,17 +557,6 @@
         span.className = `wg-tag wg-tag--${kind}`;
         span.textContent = text;
         return span;
-    }
-
-    // Qualitative band for the 0-100 Health Score composite (Task 8, Oura/Whoop
-    // pattern), token-colored via the same wg-tag palette bpStatusTag uses.
-    // Duplicated in journey.js rather than shared — same convention as
-    // RING_TILE_META (today.js stays self-contained for its pure-render tests).
-    function healthScoreBand(value) {
-        if (!Number.isFinite(value)) return null;
-        if (value >= 70) return { label: 'Good', kind: 'normal' };
-        if (value >= 40) return { label: 'Fair', kind: 'high' };
-        return { label: 'Needs attention', kind: 'alert' };
     }
 
     function bpStatusTag(systolic, diastolic) {
@@ -1033,243 +991,215 @@
         });
     }
 
-    // Ring display metadata for the Today tile, canonical order — the three
-    // daily levers (gamification-10 §2.5): a decision made today, not a
-    // delayed body signal. Mirrors the RINGS list in features/journey.js —
-    // kept as a small local copy rather than reaching into window.Gamification
-    // so today.js stays self-contained for the pure-render tests.
-    const RING_TILE_META = [
-        { ring: 'bedtime', label: 'Bedtime', icon: 'moon' },
-        { ring: 'movement', label: 'Movement', icon: 'activity' },
-        { ring: 'nourishment', label: 'Nourishment', icon: 'apple' }
-    ];
+    // ---- Goal Line hero (docs/gamification.md §0.3.2) ------------------------
+    //
+    // Replaces the rings tile + mounted forecast as the gamification headline.
+    // Reads the GET /api/gamification/goal-line payload as-is (kg; converted
+    // here). Facts only: no pace grade, no projected date, no HP / level /
+    // Health Score / rings. The whole card taps through to Journey; the one CTA
+    // (or none) lands in its owning form and stops propagation.
 
-    // "Your move" — the single suggested action to close an open ring. We pick
-    // the first ring in canonical order whose `closed` is false. The action
-    // deep-links to the section where that ring is logged. No HP number here on
-    // purpose: a ring's outcome max lives in the backend scoring Config and
-    // would drift if duplicated client-side; the ring name + action is the
-    // prompt.
-    const RING_MOVE_META = {
-        bedtime: { verb: 'Log last night’s sleep', section: 'health' },
-        movement: { verb: 'Log a workout', section: 'workouts' },
-        nourishment: { verb: 'Log a meal', section: 'food' }
-    };
-
-    function ringStackOrNull(opts) {
-        if (typeof window === 'undefined' || !window.WGRingStack || typeof window.WGRingStack.render !== 'function') {
-            return null;
-        }
-        return window.WGRingStack.render(opts);
+    function weightFmt(kg) {
+        const unit = (typeof window !== 'undefined' && window.weightUnitPreference === 'lb') ? 'lb' : 'kg';
+        const display = (typeof formatWeight === 'function')
+            ? formatWeight(kg, unit)
+            : { value: Math.round(Number(kg) * 10) / 10, label: unit };
+        return { text: Number(display.value).toFixed(1), unit: display.label };
     }
 
-    // Today rings summary card: a compact, square-ish tappable card — the
-    // wg-ring-stack (Plan 7) centered over a per-ring icon state row; tapping
-    // deep-links to Journey (which carries the full legend with goals + HP).
-    function renderRingsTile(cell, onDeeplink) {
-        if (!cell || cell.status === 'disabled') return null;
-        const d = doc();
-        const card = d.createElement('div');
-        card.className = 'wg-card wg-today-rings';
-        card.setAttribute('data-deeplink', cell.deeplink || 'journey');
-        card.setAttribute('data-section', 'rings');
+    function weightText(kg) {
+        const f = weightFmt(kg);
+        return `${f.text} ${f.unit}`;
+    }
 
-        const hasValue = !(cell.status === 'missing' || !cell.value);
-        const ringList = hasValue ? cell.value.rings : [];
-        const closedByRing = {};
-        const syncPendingByRing = {};
-        let closedCount = 0;
-        let syncPendingCount = 0;
-        for (const r of ringList) {
-            if (!r) continue;
-            if (r.closed) { closedByRing[r.ring] = true; closedCount += 1; }
-            if (r.sync_pending) { syncPendingByRing[r.ring] = true; syncPendingCount += 1; }
+    function signedWeightText(kg) {
+        const f = weightFmt(Math.abs(kg));
+        const sign = kg > 0.05 ? '+' : (kg < -0.05 ? '−' : '');
+        return `${sign}${f.text} ${f.unit}`;
+    }
+
+    function localDayKey(ms) {
+        const d = new Date(ms);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+
+    // "today 18:00" / "tomorrow 18:00" / "Wed 18:00" for a local 'YYYY-MM-DD'.
+    function nextSessionLabel(next, nowMs) {
+        if (!next || !next.day) return null;
+        const today = localDayKey(nowMs);
+        const tomorrow = localDayKey(new Date(nowMs).setDate(new Date(nowMs).getDate() + 1));
+        let day;
+        if (next.day === today) day = 'today';
+        else if (next.day === tomorrow) day = 'tomorrow';
+        else {
+            const [y, m, dd] = next.day.split('-').map(Number);
+            day = new Date(y, m - 1, dd).toLocaleDateString(undefined, { weekday: 'short' });
         }
-        // First open, actionable (not sync_pending) ring in canonical order is
-        // the suggested "your move" — a ring waiting on a device sync isn't
-        // something the user can act on right now.
-        const openMeta = hasValue
-            ? RING_TILE_META.find((m) => !closedByRing[m.ring] && !syncPendingByRing[m.ring])
-            : null;
+        return next.time ? `${day} ${next.time}` : day;
+    }
 
-        const header = d.createElement('div');
-        header.className = 'wg-today-rings__header';
-        const title = d.createElement('span');
-        title.className = 'wg-today-rings__title';
-        title.textContent = hasValue
-            ? `${closedCount} of ${RING_TILE_META.length} rings closed`
-                + (syncPendingCount > 0 ? ` · ${syncPendingCount} waiting for sync` : '')
-            : 'Today’s rings';
-        header.appendChild(title);
+    function goalLineCell(payload, enabled) {
+        if (!enabled) return cell(null, 'journey', 'disabled');
+        if (payload && payload.enabled === false) return cell(null, 'journey', 'disabled');
+        if (!payload || !payload.goal) return cell(null, 'journey', 'missing');
+        return cell(payload, 'journey', 'ok');
+    }
 
-        // Headline is the Health Score (Task 8), not the raw today_hp count —
-        // "34 HP today" doesn't tell the user whether that's good; a 0-100
-        // score with a band word does. Falls back to a muted note below the
-        // min-contributors threshold ("not enough data") rather than a
-        // misleadingly confident number.
-        const scoreValue = (cell.value && cell.value.healthScore) ? cell.value.healthScore.value : null;
-        const band = healthScoreBand(scoreValue);
-        const scoreWrap = d.createElement('span');
-        scoreWrap.className = 'wg-today-rings__score';
-        const scoreNum = d.createElement('span');
-        scoreNum.className = 'wg-mono-display wg-today-rings__score-value';
-        scoreNum.textContent = Number.isFinite(scoreValue) ? String(Math.round(scoreValue)) : '—';
-        scoreWrap.appendChild(scoreNum);
-        if (band) {
-            scoreWrap.appendChild(statusTag(band.kind, band.label));
-        } else {
-            const note = d.createElement('span');
-            note.className = 'wg-today-rings__score-note wg-muted';
-            note.textContent = 'Not enough data';
-            scoreWrap.appendChild(note);
+    function goalLineEl(tag, className, text) {
+        const node = doc().createElement(tag);
+        node.className = className;
+        if (text != null) node.textContent = text;
+        return node;
+    }
+
+    // Tappable inline action that does not also fire the card's Journey tap.
+    function goalLineAction(node, action, go) {
+        node.setAttribute('data-action', action);
+        const run = (e) => { if (e) e.stopPropagation(); go(); };
+        node.addEventListener('click', run);
+        if (node.tagName !== 'BUTTON') { // a real <button> already maps Enter/Space to click
+            node.setAttribute('role', 'button');
+            node.setAttribute('tabindex', '0');
+            node.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); run(e); } });
         }
-        header.appendChild(scoreWrap);
+        return node;
+    }
+
+    // The weight part: headline numbers + the state body (progress, 7 days,
+    // safety line, or the no_goal / preliminary / reached copy).
+    function goalLineWeightRows(card, g, onDeeplink) {
+        const header = goalLineEl('div', 'wg-goal-line__header');
+        header.appendChild(goalLineEl('span', 'wg-goal-line__title', 'Goal line'));
+        const hasGoal = g.status !== 'no_goal';
+        const current = Number.isFinite(g.trend_weight) ? g.trend_weight
+            : (g.latest_reading && Number.isFinite(g.latest_reading.weight) ? g.latest_reading.weight : null);
+        if (hasGoal && current !== null && Number.isFinite(g.target)) {
+            const nums = goalLineEl('span', 'wg-goal-line__numbers');
+            nums.appendChild(goalLineEl('span', 'wg-mono-display wg-goal-line__value',
+                `${weightFmt(current).text} → ${weightText(g.target)}`));
+            const cov = g.coverage || {};
+            nums.appendChild(goalLineEl('span', 'wg-goal-line__basis wg-muted',
+                Number.isFinite(g.trend_weight)
+                    ? `trend · ${cov.weigh_in_days_28d || 0} weigh-ins/28d`
+                    : 'latest reading'));
+            header.appendChild(nums);
+        }
         card.appendChild(header);
 
-        // "Your move" — one tappable next action that deep-links to the open
-        // ring's section (not the Journey screen). Stop propagation so the
-        // card's own Journey deep-link doesn't fire too. When every actionable
-        // ring is closed — whether or not sync-pending rings remain — celebrate
-        // instead of nagging: a ring waiting on a device sync isn't a "your move".
-        if (hasValue) {
-            const move = d.createElement('div');
-            move.className = 'wg-today-rings__move';
-            if (openMeta) {
-                const m = RING_MOVE_META[openMeta.ring];
-                const ic = iconSvgOrNull('target', 16);
-                if (ic) {
-                    const wrap = d.createElement('span');
-                    wrap.className = 'wg-today-rings__move-icon';
-                    wrap.appendChild(ic);
-                    move.appendChild(wrap);
-                }
-                const text = d.createElement('span');
-                text.className = 'wg-today-rings__move-text';
-                text.textContent = `Your move: ${m.verb} · ${openMeta.label}`;
-                move.appendChild(text);
-                move.setAttribute('role', 'button');
-                move.setAttribute('tabindex', '0');
-                move.setAttribute('data-section', m.section);
-                const go = (e) => { if (e) e.stopPropagation(); if (typeof onDeeplink === 'function') onDeeplink(m.section); };
-                move.addEventListener('click', go);
-                move.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') go(e); });
-            } else {
-                move.classList.add('wg-muted');
-                const ic = iconSvgOrNull('check', 16);
-                if (ic) {
-                    const wrap = d.createElement('span');
-                    wrap.className = 'wg-today-rings__move-icon';
-                    wrap.appendChild(ic);
-                    move.appendChild(wrap);
-                }
-                const text = d.createElement('span');
-                text.className = 'wg-today-rings__move-text';
-                text.textContent = closedCount >= RING_TILE_META.length
-                    ? 'All rings closed today — nice.'
-                    : 'All caught up — the rest will sync in.';
-                move.appendChild(text);
-            }
-            card.appendChild(move);
+        if (!hasGoal) {
+            const set = goalLineEl('div', 'wg-goal-line__set', 'Set a weight goal →');
+            goalLineAction(set, 'set-goal', () => { if (typeof onDeeplink === 'function') onDeeplink('weight'); });
+            card.appendChild(set);
+            return;
         }
 
-        // Adherence safety net (Task 3): a solved habit is invisible — this
-        // line only renders while the trailing PDC has actually slipped, and
-        // links to Meds rather than nagging inline every day.
-        const adherenceAlert = hasValue ? cell.value.adherenceAlert : null;
-        if (adherenceAlert) {
-            const nudge = d.createElement('div');
-            nudge.className = 'wg-today-rings__adherence wg-muted';
-            nudge.textContent = `${adherenceAlert.missedDoses} missed dose${adherenceAlert.missedDoses === 1 ? '' : 's'} recently — worth a look`;
-            nudge.setAttribute('role', 'button');
-            nudge.setAttribute('tabindex', '0');
-            nudge.setAttribute('data-section', 'meds');
-            const goMeds = (e) => { if (e) e.stopPropagation(); if (typeof onDeeplink === 'function') onDeeplink('meds'); };
-            nudge.addEventListener('click', goMeds);
-            nudge.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') goMeds(e); });
-            card.appendChild(nudge);
+        if (g.status === 'preliminary') {
+            const cov = g.coverage || {};
+            const needed = Math.max(1, (Number(cov.min_weigh_in_days) || 0) - (Number(cov.weigh_in_days_28d) || 0));
+            const text = g.latest_reading && Number.isFinite(g.latest_reading.weight)
+                ? `Latest ${weightText(g.latest_reading.weight)} · trend forms after ${needed} more weigh-in${needed === 1 ? '' : 's'}`
+                : 'Log a weigh-in to start your goal line';
+            card.appendChild(goalLineEl('p', 'wg-goal-line__line', text));
+            return;
         }
 
-        if (!hasValue) {
-            const empty = d.createElement('div');
-            empty.className = 'wg-today-rings__empty wg-muted';
-            empty.textContent = 'No points yet today';
-            card.appendChild(empty);
+        if (g.status === 'at_goal' || g.status === 'maintaining') {
+            card.appendChild(goalLineEl('p', 'wg-goal-line__line',
+                g.status === 'maintaining'
+                    ? `Maintaining your goal — trend holding at ${weightText(g.target)}`
+                    : `At your goal — trend has reached ${weightText(g.target)}`));
         } else {
-            const progressByRing = {};
-            const goalByRing = {};
-            for (const r of ringList) {
-                progressByRing[r.ring] = r.progress;
-                goalByRing[r.ring] = r.goal;
-            }
-            const body = d.createElement('div');
-            body.className = 'wg-today-rings__body';
-
-            // One big concentric stack (Plan 7) replaces the old per-ring gauge;
-            // outer→inner follows RING_TILE_META's canonical order. The center
-            // check doubles as the celebration state once every *actionable*
-            // ring is closed — the same condition as the "your move" celebration
-            // above (no open, non-sync-pending ring left), so sync-pending rings
-            // don't block it and the two never disagree.
-            const allActionableClosed = !openMeta;
-            const stack = ringStackOrNull({
-                rings: RING_TILE_META.map((meta) => ({
-                    key: meta.ring,
-                    progress: progressByRing[meta.ring],
-                    closed: !!closedByRing[meta.ring],
-                    syncPending: !!syncPendingByRing[meta.ring]
-                })),
-                centerLabel: allActionableClosed ? iconSvgOrNull('check', 20) : `${closedCount}/${RING_TILE_META.length}`,
-                label: 'Today’s rings'
-            });
-            if (stack) body.appendChild(stack);
-
-            // Compact per-ring state row: one icon per ring, colored by state
-            // (closed / syncs-later / open), with the label + goal in the
-            // accessible name. The verbose legend (labels, goals, per-ring HP)
-            // lives on the Journey screen — Today stays square.
-            const icons = d.createElement('div');
-            icons.className = 'wg-today-rings__icons';
-            for (const meta of RING_TILE_META) {
-                const isClosed = !!closedByRing[meta.ring];
-                const isSyncPending = !!syncPendingByRing[meta.ring];
-                const goal = goalByRing[meta.ring] || '';
-                const item = d.createElement('span');
-                item.className = 'wg-today-rings__ic'
-                    + (isClosed ? ' wg-today-rings__ic--closed' : '')
-                    + (isSyncPending ? ' wg-today-rings__ic--sync' : '');
-                const stateText = isClosed ? 'closed' : (isSyncPending ? 'syncs later' : (goal || 'open'));
-                item.setAttribute('aria-label', meta.label + ' — ' + stateText);
-                item.setAttribute('title', meta.label + ' — ' + stateText);
-                const ic = iconSvgOrNull(meta.icon, 16);
-                if (ic) item.appendChild(ic);
-                icons.appendChild(item);
-            }
-            body.appendChild(icons);
-            card.appendChild(body);
+            const total = Math.abs(g.target - g.start_ref);
+            const done = (g.trend_weight - g.start_ref) * (g.direction || 0);
+            const track = goalLineEl('div', 'wg-gloss--inset wg-goal-line__track');
+            const fill = goalLineEl('div', 'wg-goal-line__fill');
+            const ratio = total > 0 ? Math.max(0, Math.min(1, done / total)) : 0;
+            // Neutral custom property, same convention as wg-ring.js --ring-progress.
+            fill.style.setProperty('--fill-pct', `${(ratio * 100).toFixed(1)}%`);
+            track.appendChild(fill);
+            card.appendChild(track);
+            const since = g.start_ref_source === 'trend_at_set' ? 'since you set the goal' : 'since your first reading';
+            const progress = done >= 0
+                ? `${weightFmt(done).text} of ${weightText(total)} ${since}`
+                : `${weightText(-done)} the other way ${since}`;
+            const marker = g.next_milestone && Number.isFinite(g.next_milestone.weight) && !g.next_milestone.is_goal
+                ? ` · next marker ${weightText(g.next_milestone.weight)}`
+                : '';
+            card.appendChild(goalLineEl('p', 'wg-goal-line__line', progress + marker));
         }
 
-        // Tomorrow Forecast (us0.3): merged into the rings card so forecast +
-        // calibration read as one compact unit rather than a separate large
-        // block above. The module appends its own content (or nothing, when
-        // below the confidence gate / in bot mode) — the self-suppress and
-        // lifecycle live entirely in forecast-card.js; here we only relocate
-        // where it mounts. CSS strips the nested-card chrome inside .wg-today-rings.
-        if (typeof window !== 'undefined' && window.WGForecastCard
-            && typeof window.WGForecastCard.mountCard === 'function') {
-            window.WGForecastCard.mountCard(card);
+        if (Number.isFinite(g.change_7d)) {
+            card.appendChild(goalLineEl('p', 'wg-goal-line__line wg-muted', `7 days: ${signedWeightText(g.change_7d)}`));
         }
+        // The only pace judgment on the card: a calm safety line, never praise.
+        if (g.too_fast) {
+            card.appendChild(goalLineEl('p', 'wg-goal-line__safety',
+                'Faster than 1% a week — worth checking with your doctor.'));
+        }
+    }
 
-        const journeyLink = d.createElement('div');
-        journeyLink.className = 'wg-today-rings__journey-link';
-        const journeyText = d.createElement('span');
-        journeyText.textContent = 'View Journey';
-        journeyLink.appendChild(journeyText);
-        const journeyIcon = iconSvgOrNull('chevronRight', 14);
-        if (journeyIcon) journeyLink.appendChild(journeyIcon);
-        card.appendChild(journeyLink);
+    function goalLineFactRows(card, v, nowMs) {
+        const facts = goalLineEl('div', 'wg-goal-line__facts');
+        const w = v.workouts;
+        if (w && w.feature_on) {
+            const done = Number(w.completed_this_week) || 0;
+            let text = Number.isFinite(w.scheduled_this_week)
+                ? `Workouts: ${done} of ${w.scheduled_this_week} done this week`
+                : `Workouts: ${done} done this week`;
+            const next = nextSessionLabel(w.next_scheduled, nowMs);
+            if (next) text += ` · next ${next}`;
+            const row = goalLineEl('p', 'wg-goal-line__fact wg-muted', text);
+            row.setAttribute('data-fact', 'workouts');
+            facts.appendChild(row);
+        }
+        const bp = v.bp;
+        if (bp && bp.feature_on) {
+            const days = Number(bp.days_this_week) || 0;
+            let text = bp.recorded_today
+                ? 'BP: recorded today'
+                : `BP: ${days} day${days === 1 ? '' : 's'} this week`;
+            if (bp.mean_7d) {
+                text += ` · 7d avg ${Math.round(bp.mean_7d.systolic)}/${Math.round(bp.mean_7d.diastolic)}`;
+                if (bp.target && (Number.isFinite(bp.target.systolic) || Number.isFinite(bp.target.diastolic))) {
+                    const t = (x) => (Number.isFinite(x) ? String(x) : '—');
+                    text += ` vs ${t(bp.target.systolic)}/${t(bp.target.diastolic)}`;
+                }
+            }
+            const row = goalLineEl('p', 'wg-goal-line__fact wg-muted', text);
+            row.setAttribute('data-fact', 'bp');
+            facts.appendChild(row);
+        }
+        if (facts.childNodes.length) card.appendChild(facts);
+    }
+
+    function renderGoalLineTile(cell, handlers) {
+        if (!cell || cell.status === 'disabled' || cell.status === 'missing' || !cell.value) return null;
+        const h = handlers || {};
+        const v = cell.value;
+        const card = goalLineEl('div', 'wg-card wg-goal-line');
+        card.setAttribute('data-deeplink', cell.deeplink || 'journey');
+        card.setAttribute('data-section', 'goal-line');
+        card.setAttribute('data-status', v.goal.status);
+
+        goalLineWeightRows(card, v.goal, h.onDeeplink);
+        goalLineFactRows(card, v, h.nowMs);
+
+        let cta = null;
+        if (v.cta === 'weigh_in' && typeof h.onAddWeight === 'function') {
+            cta = goalLineAction(goalLineEl('button', 'btn btn-sm btn-primary wg-goal-line__cta', 'Weigh in'),
+                'weigh-in', h.onAddWeight);
+        } else if (v.cta === 'start_session') {
+            // The session itself starts from the Workouts tab's next-session card.
+            cta = goalLineAction(goalLineEl('button', 'btn btn-sm btn-primary wg-goal-line__cta', 'Start today’s session'),
+                'start-session', () => { if (typeof h.onDeeplink === 'function') h.onDeeplink('workouts'); });
+        }
+        if (cta) {
+            cta.type = 'button';
+            card.appendChild(cta);
+        }
 
         card.addEventListener('click', () => {
-            if (typeof onDeeplink === 'function') onDeeplink(cell.deeplink || 'journey');
+            if (typeof h.onDeeplink === 'function') h.onDeeplink(cell.deeplink || 'journey');
         });
         return card;
     }
@@ -1397,14 +1327,12 @@
             rendered += 1;
         }
 
-        // Gamification rings — a compact tile (us0.1) sitting directly above the
-        // food card. The Tomorrow Forecast (us0.3) is merged inside this tile by
-        // renderRingsTile. With gamification off there is no tile and no
-        // forecast: the shim's forecast route returns {enabled:false}, so the
-        // card has nothing to mount anywhere on Today.
-        const ringsTile = renderRingsTile(state && state.gamificationRings, onDeeplink);
-        if (ringsTile) {
-            root.appendChild(ringsTile);
+        // Goal Line hero (med-8tur.2) — the gamification headline, directly
+        // above the food card. It replaced the rings tile and the Tomorrow
+        // Forecast mounted inside it; neither renders on Today any more.
+        const goalLineTile = renderGoalLineTile(state && state.goalLine, { onDeeplink, onAddWeight, nowMs });
+        if (goalLineTile) {
+            root.appendChild(goalLineTile);
             rendered += 1;
         }
 

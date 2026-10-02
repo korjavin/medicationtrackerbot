@@ -7,9 +7,10 @@
 //   { enabled, level, lifetime_hp, unlocked_tiers:[1..],
 //     health_score:{value,contributors:[{key,label,score,weight,missing}],missing:[]} }
 // plus the separately-fetched atlas / weekly_review / gauges / insight /
-// traits / experiments / chapter / keystones / narration layers. The rings,
-// strengths and hp_history fields are still served but no longer rendered
-// here — Today owns the rings tile (med-edxz.1).
+// traits / experiments / chapter / keystones / narration / goal_line layers.
+// The rings, strengths, hp_history, level/HP and health_score fields are still
+// served but no longer rendered (med-edxz.1; HP/levels/Health Score hidden
+// outright by med-8tur.2).
 //
 // Visuals come only from CSS classes + --wg-* tokens; the only inline style is
 // `style.setProperty('--fill-pct', …)` for progress fills (allowed by the
@@ -70,67 +71,56 @@
         content.replaceChildren(el('p', 'wg-journey-empty wg-muted', message));
     }
 
-    // Level/HP, demoted to one muted line at the very bottom of the screen
-    // (med-edxz.1). Levels never decay (gamification §13) so the number stays,
-    // but it is a footnote, not the hero of the Journey.
-    function renderLevelLine(j) {
-        const level = Number(j.level) || 0;
-        const hp = Number(j.lifetime_hp) || 0;
-        return el('p', 'wg-journey-level-line wg-muted', `Lvl ${level} · ${hp.toLocaleString()} HP`);
+    // Goal-context card (med-8tur.2): the same Goal Line read-model the Today
+    // hero shows, so a tap through from Today lands on the goal, not on Atlas
+    // machinery. Small on purpose — the goal-first Journey reorder is
+    // med-8tur.9. HP / levels / the Health Score are hidden outright (owner
+    // decision 2026-10-02; UI-only — the read-models keep computing them).
+    const GOAL_LINE_CACHE_KEY = 'gamification_goal_line';
+    const GOAL_LINE_URL = '/api/gamification/goal-line';
+    const GOAL_LINE_TAGS = ['gamification', 'weight', 'workout', 'bp', 'settings'];
+
+    function goalWeight(kg) {
+        const unit = window.weightUnitPreference === 'lb' ? 'lb' : 'kg';
+        const d = typeof formatWeight === 'function' ? formatWeight(kg, unit) : { value: Number(kg), label: unit };
+        return `${Number(d.value).toFixed(1)} ${d.label}`;
     }
 
-    // Qualitative band for the 0-100 Health Score composite (Task 8). Duplicated
-    // from today.js rather than shared, matching the RINGS/RING_TILE_META
-    // convention already in this file pair.
-    function healthScoreBand(value) {
-        if (!Number.isFinite(value)) return null;
-        if (value >= 70) return { label: 'Good', kind: 'normal' };
-        if (value >= 40) return { label: 'Fair', kind: 'high' };
-        return { label: 'Needs attention', kind: 'alert' };
-    }
-
-    // Health Score card (Task 8): the Oura/Whoop-pattern 0-100 composite as a
-    // big number + band word, then one mini-bar per named contributor. A
-    // contributor with no data in its window renders "No data" instead of a
-    // misleading 0-width bar — the composite renormalizes over what's present,
-    // it never scores an absent signal as zero.
-    function renderHealthScore(j) {
-        const hs = (j && j.health_score) || {};
-        const card = el('section', 'wg-card wg-journey-score');
-        card.appendChild(el('div', 'wg-section-label', 'HEALTH SCORE'));
-
-        const hero = el('div', 'wg-journey-score__hero');
-        const scoreValue = Number.isFinite(hs.value) ? Math.round(hs.value) : null;
-        hero.appendChild(el('span', 'wg-mono-display wg-journey-score__value', scoreValue != null ? String(scoreValue) : '—'));
-        const band = healthScoreBand(scoreValue);
-        if (band) {
-            hero.appendChild(el('span', `wg-tag wg-tag--${band.kind}`, band.label));
-        } else {
-            hero.appendChild(el('span', 'wg-journey-score__hero-note wg-muted', 'Not enough data yet'));
+    function renderGoalContext(j) {
+        const gl = j && j.goal_line;
+        if (!gl || gl.enabled === false || !gl.goal) return null;
+        const g = gl.goal;
+        const card = el('section', 'wg-card wg-journey-goal');
+        card.id = 'journey-goal-card';
+        card.appendChild(el('div', 'wg-section-label', 'YOUR GOAL'));
+        if (g.status === 'no_goal') {
+            const set = el('button', 'btn btn-sm btn-secondary', 'Set a weight goal');
+            set.type = 'button';
+            set.addEventListener('click', () => { if (typeof window.switchTab === 'function') window.switchTab('weight'); });
+            card.appendChild(set);
+            return card;
         }
-        card.appendChild(hero);
-
-        const contributors = Array.isArray(hs.contributors) ? hs.contributors : [];
-        if (contributors.length === 0) return card;
-
-        // Contributors are the detail behind the hero number — collapsed by
-        // default so the screen reads in a glance (med-edxz.1). Native
-        // <details>, same convention as the weekly review; no JS state.
-        const details = el('details', 'wg-journey-score__details');
-        details.appendChild(el('summary', 'wg-journey-score__summary wg-muted', 'Contributors'));
-        const list = el('div', 'wg-journey-score__list');
-        contributors.forEach((c) => {
-            const row = el('div', 'wg-journey-score__row');
-            const head = el('div', 'wg-journey-score__row-head');
-            head.appendChild(el('span', 'wg-journey-score__row-label', c.label || c.key));
-            head.appendChild(el('span', 'wg-journey-score__row-value wg-muted',
-                c.missing ? 'No data' : `${Math.round((Number(c.score) || 0) * 100)}%`));
-            row.appendChild(head);
-            row.appendChild(progressBar(c.missing ? 0 : c.score, 'wg-journey-bar__fill--sun'));
-            list.appendChild(row);
-        });
-        details.appendChild(list);
-        card.appendChild(details);
+        const current = Number.isFinite(g.trend_weight) ? g.trend_weight
+            : (g.latest_reading ? g.latest_reading.weight : null);
+        if (Number.isFinite(current)) {
+            card.appendChild(el('p', 'wg-mono-display wg-journey-goal__value',
+                `${goalWeight(current)} → ${goalWeight(g.target)}`));
+        }
+        let line;
+        if (g.status === 'preliminary') line = 'Latest reading — your trend forms after a few more weigh-ins.';
+        else if (g.status === 'maintaining') line = 'Maintaining your goal.';
+        else if (g.status === 'at_goal') line = 'At your goal.';
+        else {
+            const total = Math.abs(g.target - g.start_ref);
+            const done = (g.trend_weight - g.start_ref) * (g.direction || 0);
+            card.appendChild(progressBar(total > 0 ? done / total : 0));
+            line = `${goalWeight(Math.abs(g.distance_to_goal || 0))} to go`;
+            if (g.next_milestone && !g.next_milestone.is_goal) line += ` · next marker ${goalWeight(g.next_milestone.weight)}`;
+        }
+        card.appendChild(el('p', 'wg-journey-goal__line wg-muted', line));
+        if (g.too_fast) {
+            card.appendChild(el('p', 'wg-journey-goal__line', 'Faster than 1% a week — worth checking with your doctor.'));
+        }
         return card;
     }
 
@@ -153,18 +143,6 @@
         } catch (_) {
             return null;
         }
-    }
-
-    function weeklyScoreLine(hs) {
-        const now = hs && hs.now;
-        const prior = hs && hs.prior;
-        const nowValue = now && Number.isFinite(now.value) ? Math.round(now.value) : null;
-        if (nowValue == null) return null;
-        const priorValue = prior && Number.isFinite(prior.value) ? Math.round(prior.value) : null;
-        if (priorValue == null) return `Health Score ${nowValue}`;
-        const delta = nowValue - priorValue;
-        if (delta === 0) return `Health Score ${nowValue} · holding steady`;
-        return `Health Score ${nowValue} · ${delta > 0 ? 'up' : 'down'} ${Math.abs(delta)}`;
     }
 
     // First lever spells out "closed N of 7"; the rest just carry the count —
@@ -249,7 +227,6 @@
 
         const gauges = wr.gauges || {};
         const lines = [
-            weeklyScoreLine(wr.health_score),
             weeklyLeverLine(wr.levers),
             weeklyWeightLine(gauges.weight),
             weeklyBPLine(gauges.bp, gauges.bp_share_30d_prior),
@@ -1008,12 +985,13 @@
         const chapterCard = journey ? renderChapter(journey) : null;
         const keystonesCard = journey ? renderKeystones(journey) : null;
         const narratorCard = journey ? renderNarrator(journey) : null;
+        const goalCard = journey ? renderGoalContext(journey) : null;
         // The strip is built LAST and placed FIRST: it can only link to a card
         // that this pass actually produced.
         const builtIds = new Set([atlasCard, traitsCard, experimentCard, chapterCard, keystonesCard]
             .filter(Boolean).map((c) => c.id));
         const whatsNewCard = journey ? renderWhatsNew(journey, builtIds) : null;
-        const narrativeCards = [whatsNewCard, atlasCard, traitsCard, experimentCard, chapterCard, keystonesCard, narratorCard];
+        const narrativeCards = [goalCard, whatsNewCard, atlasCard, traitsCard, experimentCard, chapterCard, keystonesCard, narratorCard];
 
         if (!journey || journey.enabled === false) {
             const live = narrativeCards.filter(Boolean);
@@ -1026,13 +1004,13 @@
         }
 
         const cards = [
-            // What changed since the last visit leads (med-edxz.3); the
-            // Discovery Atlas follows it.
+            // The goal context leads (med-8tur.2); what changed since the last
+            // visit follows (med-edxz.3), then the Discovery Atlas.
+            goalCard,
             whatsNewCard,
             atlasCard,
             renderWeeklyReview(journey),
             renderGauges(journey),
-            renderHealthScore(journey),
             traitsCard,
             experimentCard,
             chapterCard,
@@ -1040,7 +1018,6 @@
             renderGoodDayCard(journey),
             keystonesCard,
             narratorCard,
-            renderLevelLine(journey),
         ].filter(Boolean);
         content.replaceChildren(...cards);
     }
@@ -1105,6 +1082,22 @@
                 return { emptyState: 'No cached weekly review — connect to load.' };
             }
             console.error('Failed to load gamification weekly review:', e);
+            return null;
+        }
+    }
+
+    // Goal Line read-model for the goal-context card — same cache entry as the
+    // Today hero. Offline cold cache / error → no card (the Today card carries
+    // the offline story; this one is context).
+    async function loadGoalLine() {
+        try {
+            const result = await window.cachedFetch(GOAL_LINE_CACHE_KEY, GOAL_LINE_URL, {
+                tags: GOAL_LINE_TAGS,
+                freshAfterMs: 60_000,
+                staleAfterMs: STALE_AFTER_MS,
+            });
+            return result ? result.data : null;
+        } catch (_) {
             return null;
         }
     }
@@ -1194,15 +1187,16 @@
             // enabled: in cloud mode the substrate returns {enabled:false} but
             // the Atlas/chapters/traits/keystones are the whole point of the
             // screen, so they must still render.
-            const [atlas, experiments, chapter, traits, keystones, narration] = await Promise.all([
+            const [atlas, experiments, chapter, traits, keystones, narration, goalLine] = await Promise.all([
                 loadAtlas(), loadExperiments(),
                 loadNarrative('/api/gamification/chapter'),
                 loadNarrative('/api/gamification/traits'),
                 loadNarrative('/api/gamification/keystones'),
                 loadNarrative('/api/gamification/narrate'),
+                loadGoalLine(),
             ]);
-            if (atlas || experiments || chapter || traits || keystones || narration) {
-                const narrative = { atlas, experiments, chapter, traits, keystones, narration };
+            if (atlas || experiments || chapter || traits || keystones || narration || goalLine) {
+                const narrative = { atlas, experiments, chapter, traits, keystones, narration, goal_line: goalLine };
                 if (!data) render({ enabled: false, ...narrative });
                 else { Object.assign(data, narrative); render(data); }
                 return;

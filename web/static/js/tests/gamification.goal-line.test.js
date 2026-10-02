@@ -85,7 +85,7 @@ describe('gamification Goal Line — weight goal', () => {
     expect(goal.start_ref).toBe(85);
     expect(goal.start_ref_source).toBe('first_reading');
     expect(goal.distance_to_goal).toBe(6);
-    expect(goal.coverage).toEqual({ weigh_in_days_28d: 3, last_weigh_in_day: '2026-06-17' });
+    expect(goal.coverage).toEqual({ weigh_in_days_28d: 3, last_weigh_in_day: '2026-06-17', min_weigh_in_days: 5 });
   });
 
   it('a 60-day downward trend + goal → ok with distance, change_7d, next milestone and direction', async () => {

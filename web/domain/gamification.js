@@ -2968,6 +2968,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     const coverage = {
       weigh_in_days_28d: days.filter((d) => d >= coverageStart).length,
       last_weigh_in_day: days.length ? days[days.length - 1] : null,
+      // The preliminary floor, so the UI can say "trend forms after N more".
+      min_weigh_in_days: GOAL_LINE_MIN_WEIGH_IN_DAYS,
     };
     const preliminary = coverage.weigh_in_days_28d < GOAL_LINE_MIN_WEIGH_IN_DAYS;
     // Ordered replay from the first reading of a weigh-in run — a fixed origin,

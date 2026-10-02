@@ -17,8 +17,10 @@
 
 ## 0. Redesign 2026-10 — the Goal Line (current direction; supersedes the loop below)
 
-> **Status: design accepted for implementation (epic `med-8tur`); nothing below is
-> built yet.** This section is the normative direction. Everything after it
+> **Status: in implementation (epic `med-8tur`).** Built so far: the Goal Line
+> read-model + route (`getGoalLine`, med-8tur.1) and the Today hero + Journey
+> goal-context card with HP/levels/Health Score hidden (`features/today.js`
+> `renderGoalLineTile`, `features/journey.js` `renderGoalContext`, med-8tur.2). This section is the normative direction. Everything after it
 > (§1–§17 and `docs/design/2026-07-11-gamification-redesign.md`) stays as
 > rationale and as the description of the substrate the Goal Line is built on.
 > Where they conflict, this section wins. Produced by an architect ⇄ Codex
@@ -112,7 +114,7 @@ net (§6.1). Rows are feature-gated.
 | `goal.status` | `no_goal · preliminary · ok · at_goal · maintaining` |
 | `goal.start_ref`, `start_ref_source` | episode baseline and whether it is `trend_at_set` or `first_reading` |
 | `goal.direction` | from baseline → target, fixed for the episode (never re-derived from the current trend) |
-| `goal.trend_weight`, `latest_reading`, `distance_to_goal`, `change_7d`, `coverage` | the line, in kg (UI converts); coverage = distinct weigh-in days / last weigh-in |
+| `goal.trend_weight`, `latest_reading`, `distance_to_goal`, `change_7d`, `coverage` | the line, in kg (UI converts); coverage = distinct weigh-in days (28d) / last weigh-in / the preliminary floor `min_weigh_in_days` |
 | `goal.too_fast` | velocity beyond the safe-pace cap — a calm safety line, the only pace judgment in slice 1 |
 | `goal.next_milestone` | stateless marker: ordinal under the episode, spacing fixed per episode (1 kg or 2.5 % of the total distance, whichever is coarser); halfway and goal flagged |
 | `goal.projected` | slice 2 (owner-confirmed): `{date, plus_minus_weeks}` — a date **with a ± weeks range** ("around 14 Nov ± 3 weeks", from velocity spread over the trend window), only under coverage / freshness / horizon rules and never beside `too_fast` |

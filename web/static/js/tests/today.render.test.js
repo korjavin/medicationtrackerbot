@@ -3,6 +3,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { loadDataStoreEnv } from './helpers/data-store-harness.js';
+import { allowConsoleNoise } from './helpers/setup.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,6 +14,7 @@ const WG_ICONS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-icons.js')
 const WG_SPARKLINE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-sparkline.js');
 const WG_RING_STACK_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-ring-stack.js');
 const TODAY_JS = path.join(REPO_ROOT, 'web/static/js/features/today.js');
+const CACHE_KEYS_JS = path.join(REPO_ROOT, 'web/static/js/core/cache-keys.js');
 
 function loadRenderEnv() {
     const dom = new JSDOM('<!DOCTYPE html><html><body><div id="today-content"></div></body></html>', {
@@ -474,263 +477,187 @@ describe('TodayDashboard.renderToday', () => {
         expect(empty.textContent).toBe('Connect to load your day');
     });
 
-    // Gamification rings tile: "X of 3 closed" headline + the "your move"
-    // next-step prompt (first open ring in canonical order, deep-linking to its
-    // own section, not Journey).
-    function ringsState(now, closedRings, syncPendingRings, healthScoreValue) {
-        const all = ['bedtime', 'movement', 'nourishment'];
-        const pending = syncPendingRings || [];
-        const state = allPresentState(now);
-        state.gamificationRings = {
-            value: {
-                level: 4,
-                todayHp: 28,
-                healthScore: { value: healthScoreValue === undefined ? null : healthScoreValue },
-                rings: all.map((ring) => ({
-                    ring,
-                    hp: closedRings.includes(ring) ? 12 : 2,
-                    closed: closedRings.includes(ring),
-                    sync_pending: pending.includes(ring)
-                }))
+    // Goal Line hero (med-8tur.2, docs/gamification.md §0.3.2): the weight goal
+    // on the trend + workout/BP facts + one CTA. Replaces the rings tile and the
+    // Tomorrow Forecast that mounted inside it.
+    function goalLinePayload(goalOverrides, rest) {
+        return {
+            enabled: true,
+            goal: {
+                status: 'ok', target: 78, episode_id: 'g1',
+                start_ref: 86, start_ref_source: 'trend_at_set', start_day: '2026-03-01', direction: -1,
+                trend_weight: 82.4, latest_reading: { weight: 82.1, measured_at: '2026-04-19T07:00:00Z' },
+                distance_to_goal: 4.4, change_7d: -0.4,
+                coverage: { weigh_in_days_28d: 12, last_weigh_in_day: '2026-04-18', min_weigh_in_days: 5 },
+                too_fast: false,
+                next_milestone: { ordinal: 4, count: 8, weight: 82, distance: 0.4, is_halfway: false, is_goal: false },
+                ...goalOverrides
             },
-            deeplink: 'journey',
-            status: 'ok'
+            workouts: { feature_on: true, completed_this_week: 2, next_scheduled: { day: '2026-04-22', time: '18:00', group_title: 'Push' }, scheduled_this_week: null },
+            bp: { feature_on: true, recorded_today: true, days_this_week: 3, mean_7d: { systolic: 128.4, diastolic: 82.2, days: 5 }, target: { systolic: 130, diastolic: 85 }, status: 'in_range' },
+            weighed_today: false,
+            cta: 'weigh_in',
+            ...rest
         };
+    }
+
+    function goalLineState(now, payload) {
+        const state = allPresentState(now);
+        state.goalLine = env.aggregate({ features: { gamification: true } }, { gamification_goal_line: payload }, now).goalLine;
         return state;
     }
 
-    it('rings tile headlines "N of 3 rings closed" and checks each closed ring', () => {
+    it('ok: headline trend → target, progress since the goal, next marker, 7 days, facts and the Weigh in CTA', () => {
         const root = env.document.getElementById('today-content');
-        env.render(ringsState(now, ['bedtime', 'movement']), root, { now });
-
-        const tile = root.querySelector('.wg-today-rings');
-        expect(tile).not.toBeNull();
-        expect(tile.querySelector('.wg-today-rings__title').textContent).toBe('2 of 3 rings closed');
-        expect(tile.querySelectorAll('.wg-today-rings__ic--closed').length).toBe(2);
-        // Open actionable rings remain → center shows the "2/3" count, not a check.
-        expect(tile.querySelector('.wg-ring-stack__center').textContent).toBe('2/3');
-    });
-
-    it('"your move" targets the first open ring and deep-links to its section', () => {
-        const root = env.document.getElementById('today-content');
+        const onAddWeight = vi.fn();
         const onDeeplink = vi.fn();
-        // bedtime + movement closed → nourishment is the first open ring → "Log a meal".
-        env.render(ringsState(now, ['bedtime', 'movement']), root, { now, onDeeplink });
+        env.render(goalLineState(now, goalLinePayload()), root, { now, onAddWeight, onDeeplink });
 
-        const move = root.querySelector('.wg-today-rings__move');
-        expect(move).not.toBeNull();
-        expect(move.textContent).toMatch(/Your move:.*Log a meal.*Nourishment/);
+        const card = root.querySelector('.wg-goal-line');
+        expect(card).not.toBeNull();
+        expect(card.getAttribute('data-status')).toBe('ok');
+        expect(card.querySelector('.wg-goal-line__value').textContent).toBe('82.4 → 78.0 kg');
+        expect(card.querySelector('.wg-goal-line__basis').textContent).toBe('trend · 12 weigh-ins/28d');
+        expect(card.querySelector('.wg-goal-line__fill').style.getPropertyValue('--fill-pct')).toBe('45.0%');
+        expect(card.textContent).toContain('3.6 of 8.0 kg since you set the goal · next marker 82.0 kg');
+        expect(card.textContent).toContain('7 days: −0.4 kg');
+        const wed = new Date(2026, 3, 22).toLocaleDateString(undefined, { weekday: 'short' });
+        expect(card.querySelector('[data-fact="workouts"]').textContent).toBe(`Workouts: 2 done this week · next ${wed} 18:00`);
+        expect(card.querySelector('[data-fact="bp"]').textContent).toBe('BP: recorded today · 7d avg 128/82 vs 130/85');
+        expect(card.querySelector('.wg-goal-line__safety')).toBeNull();
+        // No HP, level, Health Score or rings on this card.
+        expect(card.textContent).not.toMatch(/\bHP\b|Lvl|Health Score|rings/i);
 
-        move.click();
-        expect(onDeeplink).toHaveBeenCalledWith('food');
-        // The move click must not also trigger the card's Journey deep-link.
-        expect(onDeeplink).not.toHaveBeenCalledWith('journey');
+        card.querySelector('[data-action="weigh-in"]').click();
+        expect(onAddWeight).toHaveBeenCalledTimes(1);
+        expect(onDeeplink).not.toHaveBeenCalled();
+        card.click();
+        expect(onDeeplink).toHaveBeenCalledWith('journey');
     });
 
-    it('all rings closed → celebration, not an actionable move', () => {
+    it('rings tile and forecast no longer mount on Today', () => {
         const root = env.document.getElementById('today-content');
-        env.render(ringsState(now, ['bedtime', 'movement', 'nourishment']), root, { now });
-
-        const tile = root.querySelector('.wg-today-rings');
-        expect(tile.querySelector('.wg-today-rings__title').textContent).toBe('3 of 3 rings closed');
-        const move = root.querySelector('.wg-today-rings__move');
-        expect(move.textContent.toLowerCase()).toMatch(/all rings closed/);
-        // Celebration is not a button — no section deep-link of its own.
-        expect(move.getAttribute('role')).toBeNull();
-        expect(move.getAttribute('data-section')).toBeNull();
-    });
-
-    // Sync-pending rings (Plan 6, Task 3): a device-synced ring (Bedtime/Movement)
-    // with no sample yet reads as "waiting", not "failed".
-    it('sync-pending ring renders as a dimmed "syncs later" icon, not the goal text', () => {
-        const root = env.document.getElementById('today-content');
-        env.render(ringsState(now, [], ['bedtime']), root, { now });
-
-        const icons = root.querySelectorAll('.wg-today-rings__ic');
-        const bedtime = Array.from(icons).find((el) => (el.getAttribute('aria-label') || '').startsWith('Bedtime'));
-        expect(bedtime).not.toBeUndefined();
-        expect(bedtime.classList.contains('wg-today-rings__ic--sync')).toBe(true);
-        expect(bedtime.getAttribute('aria-label')).toMatch(/syncs later/i);
-    });
-
-    it('headline appends "· M waiting for sync" when sync-pending rings exist', () => {
-        const root = env.document.getElementById('today-content');
-        env.render(ringsState(now, ['nourishment'], ['bedtime', 'movement']), root, { now });
-
-        const tile = root.querySelector('.wg-today-rings');
-        expect(tile.querySelector('.wg-today-rings__title').textContent)
-            .toBe('1 of 3 rings closed · 2 waiting for sync');
-    });
-
-    it('"your move" skips sync-pending rings and targets the first actionable open ring', () => {
-        const root = env.document.getElementById('today-content');
-        const onDeeplink = vi.fn();
-        // bedtime closed, movement sync-pending → nourishment is the first actionable open ring.
-        env.render(ringsState(now, ['bedtime'], ['movement']), root, { now, onDeeplink });
-
-        const move = root.querySelector('.wg-today-rings__move');
-        expect(move.textContent).toMatch(/Your move:.*Log a meal.*Nourishment/);
-        move.click();
-        expect(onDeeplink).toHaveBeenCalledWith('food');
-    });
-
-    // med-ja0u: the Tomorrow Forecast is a Journey (gamification) feature and
-    // its only home on Today is inside the rings tile. With the feature off the
-    // tile is absent and Today must mount no forecast anywhere — the shim's
-    // {enabled:false} keeps the card empty, and there is no standalone mount.
-    function stubForecastCard(window, document) {
-        const mountCard = vi.fn((host) => {
-            const card = document.createElement('section');
-            card.className = 'wg-forecast-card';
-            host.appendChild(card);
-            return card;
-        });
-        window.WGForecastCard = { mountCard, refresh: vi.fn() };
-        return mountCard;
-    }
-
-    it('gamification disabled → no rings tile and no forecast card on Today', () => {
-        const root = env.document.getElementById('today-content');
-        const mountCard = stubForecastCard(env.window, env.document);
-
-        const state = allPresentState(now);
-        state.gamificationRings = { value: null, deeplink: 'journey', status: 'disabled' };
-        env.render(state, root, { now });
-
+        const mountCard = vi.fn();
+        env.window.WGForecastCard = { mountCard, refresh: vi.fn() };
+        env.render(goalLineState(now, goalLinePayload()), root, { now });
+        expect(root.querySelector('.wg-goal-line')).not.toBeNull();
         expect(root.querySelector('.wg-today-rings')).toBeNull();
-        expect(root.querySelector('.wg-forecast-card')).toBeNull();
+        expect(root.querySelector('.wg-ring-stack')).toBeNull();
         expect(mountCard).not.toHaveBeenCalled();
     });
 
-    it('gamification enabled → the forecast mounts inside the rings tile', () => {
-        const root = env.document.getElementById('today-content');
-        const mountCard = stubForecastCard(env.window, env.document);
-
-        env.render(ringsState(now, ['bedtime']), root, { now });
-
-        const tile = root.querySelector('.wg-today-rings');
-        expect(tile).not.toBeNull();
-        expect(mountCard).toHaveBeenCalledTimes(1);
-        expect(tile.querySelector('.wg-forecast-card')).not.toBeNull();
-    });
-
-    it('only sync-pending rings remaining reads as caught up, not a nag', () => {
-        const root = env.document.getElementById('today-content');
-        env.render(ringsState(now, ['movement', 'nourishment'], ['bedtime']), root, { now });
-
-        const move = root.querySelector('.wg-today-rings__move');
-        expect(move.textContent.toLowerCase()).toMatch(/all caught up/);
-        expect(move.getAttribute('role')).toBeNull();
-        expect(move.getAttribute('data-section')).toBeNull();
-        // The stack center must agree with the "caught up" prompt: all
-        // actionable rings closed → check glyph, not the "2/3" count.
-        const center = root.querySelector('.wg-ring-stack__center');
-        expect(center).not.toBeNull();
-        expect(center.querySelector('svg')).not.toBeNull();
-        expect(center.textContent).not.toMatch(/\d/);
-    });
-
-    // Guard the runtime projection: aggregateToday remaps the raw rings payload
-    // into the render cell, and must carry sync_pending through — the other
-    // sync-pending tests build the cell by hand and would miss a dropped field.
-    it('aggregateToday carries sync_pending from the raw rings payload into the cell', () => {
-        const caches = {
-            gamification_rings: {
-                level: 4,
-                today_hp: 28,
-                rings: [
-                    { ring: 'nourishment', hp: 12, closed: true },
-                    { ring: 'bedtime', hp: 2, closed: false, sync_pending: true }
-                ]
-            }
-        };
-        const state = env.aggregate({ features: {} }, caches, now);
-        const rings = state.gamificationRings.value.rings;
-        expect(rings.find((r) => r.ring === 'bedtime').sync_pending).toBe(true);
-        expect(rings.find((r) => r.ring === 'nourishment').sync_pending).toBe(false);
-    });
-
-    // Headline (Task 8): the Health Score composite replaces the raw "N HP
-    // today" number — a 0-100 score with a qualitative band word reads as
-    // "good or not" at a glance, which a bare HP count doesn't.
-    it('aggregateToday carries health_score from the raw rings payload into the cell', () => {
-        const caches = {
-            gamification_rings: {
-                level: 4,
-                today_hp: 28,
-                rings: [{ ring: 'nourishment', hp: 12, closed: true }],
-                health_score: { value: 82.4, contributors: [], missing: [] }
-            }
-        };
-        const state = env.aggregate({ features: {} }, caches, now);
-        expect(state.gamificationRings.value.healthScore.value).toBe(82.4);
-    });
-
-    // Adherence safety net (Task 3): a solved habit stays invisible until the
-    // trailing PDC actually slips, then Today surfaces one gentle line.
-    it('aggregateToday carries an active adherence_alert from the raw rings payload into the cell', () => {
-        const caches = {
-            gamification_rings: {
-                level: 4,
-                today_hp: 28,
-                rings: [{ ring: 'nourishment', hp: 12, closed: true }],
-                adherence_alert: { active: true, pdc: 0.72, missed_doses: 2 }
-            }
-        };
-        const state = env.aggregate({ features: {} }, caches, now);
-        expect(state.gamificationRings.value.adherenceAlert).toEqual({ missedDoses: 2 });
-    });
-
-    it('aggregateToday drops an inactive adherence_alert — a solved habit stays invisible', () => {
-        const caches = {
-            gamification_rings: {
-                level: 4,
-                today_hp: 28,
-                rings: [{ ring: 'nourishment', hp: 12, closed: true }],
-                adherence_alert: { active: false, pdc: 0.95, missed_doses: 1 }
-            }
-        };
-        const state = env.aggregate({ features: {} }, caches, now);
-        expect(state.gamificationRings.value.adherenceAlert).toBeNull();
-    });
-
-    it('renders the adherence nudge line when active and deep-links to Meds', () => {
+    it('no_goal: compact "Set a weight goal →" to the Weight tab, facts still shown', () => {
         const root = env.document.getElementById('today-content');
         const onDeeplink = vi.fn();
-        const state = ringsState(now, ['bedtime', 'movement']);
-        state.gamificationRings.value.adherenceAlert = { missedDoses: 2 };
-        env.render(state, root, { now, onDeeplink });
+        const payload = goalLinePayload({ status: 'no_goal', target: null, start_ref: null, start_ref_source: null, direction: null, distance_to_goal: null, next_milestone: null });
+        env.render(goalLineState(now, payload), root, { now, onDeeplink });
 
-        const nudge = root.querySelector('.wg-today-rings__adherence');
-        expect(nudge).not.toBeNull();
-        expect(nudge.textContent).toMatch(/2 missed doses/i);
-
-        nudge.click();
-        expect(onDeeplink).toHaveBeenCalledWith('meds');
+        const card = root.querySelector('.wg-goal-line');
+        expect(card.querySelector('.wg-goal-line__value')).toBeNull();
+        expect(card.querySelector('.wg-goal-line__track')).toBeNull();
+        const set = card.querySelector('[data-action="set-goal"]');
+        expect(set.textContent).toBe('Set a weight goal →');
+        set.click();
+        expect(onDeeplink).toHaveBeenCalledWith('weight');
         expect(onDeeplink).not.toHaveBeenCalledWith('journey');
+        expect(card.querySelector('[data-fact="workouts"]')).not.toBeNull();
+        expect(card.querySelector('[data-fact="bp"]')).not.toBeNull();
     });
 
-    it('renders no adherence line at all when the alert is inactive', () => {
+    it('preliminary: the latest reading as a reading, and how many weigh-ins until a trend', () => {
         const root = env.document.getElementById('today-content');
-        env.render(ringsState(now, ['bedtime', 'movement']), root, { now });
-        expect(root.querySelector('.wg-today-rings__adherence')).toBeNull();
+        const payload = goalLinePayload({
+            status: 'preliminary', trend_weight: null, change_7d: null, next_milestone: null, start_ref_source: 'first_reading',
+            latest_reading: { weight: 82.9, measured_at: '2026-04-19T07:00:00Z' },
+            coverage: { weigh_in_days_28d: 3, last_weigh_in_day: '2026-04-19', min_weigh_in_days: 5 }
+        });
+        env.render(goalLineState(now, payload), root, { now });
+
+        const card = root.querySelector('.wg-goal-line');
+        expect(card.querySelector('.wg-goal-line__basis').textContent).toBe('latest reading');
+        expect(card.textContent).toContain('Latest 82.9 kg · trend forms after 2 more weigh-ins');
+        expect(card.querySelector('.wg-goal-line__track')).toBeNull();
+        expect(card.textContent).not.toContain('7 days');
     });
 
-    it('rings tile headline shows the Health Score number and a token-colored band tag', () => {
+    it('at_goal and maintaining get explicit copy, no progress bar', () => {
         const root = env.document.getElementById('today-content');
-        env.render(ringsState(now, ['bedtime', 'movement'], [], 82), root, { now });
+        env.render(goalLineState(now, goalLinePayload({ status: 'at_goal', trend_weight: 78.2, next_milestone: null })), root, { now });
+        expect(root.querySelector('.wg-goal-line').textContent).toContain('At your goal — trend has reached 78.0 kg');
+        expect(root.querySelector('.wg-goal-line__track')).toBeNull();
 
-        const tile = root.querySelector('.wg-today-rings');
-        expect(tile.querySelector('.wg-today-rings__score-value').textContent).toBe('82');
-        expect(tile.querySelector('.wg-tag').textContent).toBe('Good');
+        env.render(goalLineState(now, goalLinePayload({ status: 'maintaining', trend_weight: 77.9, next_milestone: null })), root, { now });
+        expect(root.querySelector('.wg-goal-line').textContent).toContain('Maintaining your goal — trend holding at 78.0 kg');
     });
 
-    it('rings tile headline shows "Not enough data" instead of a misleading number below the min-contributors floor', () => {
+    it('too_fast: one calm safety line, never praise', () => {
         const root = env.document.getElementById('today-content');
-        env.render(ringsState(now, ['bedtime', 'movement'], [], null), root, { now });
+        env.render(goalLineState(now, goalLinePayload({ too_fast: true })), root, { now });
+        const card = root.querySelector('.wg-goal-line');
+        const safety = card.querySelectorAll('.wg-goal-line__safety');
+        expect(safety.length).toBe(1);
+        expect(safety[0].textContent).toBe('Faster than 1% a week — worth checking with your doctor.');
+        expect(card.textContent).not.toMatch(/great|nice|well done|on pace|ahead/i);
+    });
 
-        const tile = root.querySelector('.wg-today-rings');
-        expect(tile.querySelector('.wg-today-rings__score-value').textContent).toBe('—');
-        expect(tile.querySelector('.wg-today-rings__score-note').textContent).toBe('Not enough data');
+    it('start_session CTA routes to the Workouts tab; cta none renders no button', () => {
+        const root = env.document.getElementById('today-content');
+        const onDeeplink = vi.fn();
+        env.render(goalLineState(now, goalLinePayload({}, { cta: 'start_session', weighed_today: true })), root, { now, onDeeplink });
+        const cta = root.querySelector('.wg-goal-line__cta');
+        expect(cta.getAttribute('data-action')).toBe('start-session');
+        cta.click();
+        expect(onDeeplink).toHaveBeenCalledWith('workouts');
+        expect(onDeeplink).not.toHaveBeenCalledWith('journey');
+
+        env.render(goalLineState(now, goalLinePayload({}, { cta: 'none', weighed_today: true })), root, { now });
+        expect(root.querySelector('.wg-goal-line__cta')).toBeNull();
+    });
+
+    it('workout / BP rows are hidden when their feature is off', () => {
+        const root = env.document.getElementById('today-content');
+        const payload = goalLinePayload({}, {
+            workouts: { feature_on: false, completed_this_week: null, next_scheduled: null, scheduled_this_week: null },
+            bp: { feature_on: false, recorded_today: null, days_this_week: null, mean_7d: null, target: null, status: 'unknown' }
+        });
+        env.render(goalLineState(now, payload), root, { now });
+        const card = root.querySelector('.wg-goal-line');
+        expect(card).not.toBeNull();
+        expect(card.querySelector('[data-fact]')).toBeNull();
+        expect(card.querySelector('.wg-goal-line__facts')).toBeNull();
+    });
+
+    it('gamification off (flag or payload) → no card at all', () => {
+        const root = env.document.getElementById('today-content');
+        const off = allPresentState(now);
+        off.goalLine = env.aggregate({ features: { gamification: false } }, { gamification_goal_line: goalLinePayload() }, now).goalLine;
+        env.render(off, root, { now });
+        expect(root.querySelector('.wg-goal-line')).toBeNull();
+
+        env.render(goalLineState(now, { enabled: false }), root, { now });
+        expect(root.querySelector('.wg-goal-line')).toBeNull();
+    });
+});
+
+// The card's cache entry must evict on its SOURCE tags: synced records carry
+// no 'gamification' tag (sync.js RECORD_TAGS), so a weigh-in, session, BP
+// reading, synced goal edit or feature flip would otherwise repaint a stale
+// card. Eviction → Today's loader sees it missing and refetches.
+describe('Goal Line cache tags', () => {
+    beforeEach(() => { allowConsoleNoise(); });
+
+    it.each(['gamification', 'weight', 'workout', 'bp', 'settings'])('invalidating %s evicts gamification_goal_line', async (tag) => {
+        const { window, cacheMap, cleanup } = loadDataStoreEnv({
+            initialCache: { gamification_goal_line: { enabled: true }, food_products_cache: { keep: true } }
+        });
+        try {
+            window.eval(fs.readFileSync(CACHE_KEYS_JS, 'utf8'));
+            window.CacheKeys.registerAll(window.DataStore);
+            await window.DataStore.invalidateTags([tag]);
+            expect(cacheMap.has('gamification_goal_line')).toBe(false);
+            expect(cacheMap.has('food_products_cache')).toBe(true);
+        } finally {
+            cleanup();
+        }
     });
 });

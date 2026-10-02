@@ -98,10 +98,13 @@
             staleAfterMs: 6 * HOUR_MS,
             description: 'Gamification Journey read model (GET /api/gamification/journey): level/HP/streak, five rings, insight ladder. Shared cache key reused by the Settings targets editor optimistic write.'
         },
-        gamification_rings: {
-            key: 'gamification_rings',
-            tag: 'gamification',
-            description: 'Slim Today rings payload (GET /api/gamification/rings). Bootstrap-warmed: applyBootstrapPayload seeds this from res.gamification.today_rings so the Today tile renders on a cold-start/offline relaunch. Registered at boot so a Settings-first targets save (invalidateTags([\'gamification\'])) evicts the Today tile even before Today has been visited this session.'
+        gamification_goal_line: {
+            key: 'gamification_goal_line',
+            // Synced records carry no 'gamification' tag (sync.js RECORD_TAGS),
+            // so the Today Goal Line also evicts on its source tags: a synced
+            // goal edit / weigh-in / session / BP reading or a feature flip.
+            tag: ['gamification', 'weight', 'workout', 'bp', 'settings'],
+            description: 'Goal Line read model (GET /api/gamification/goal-line): weight goal on the trend + workout/BP facts + one CTA. Today hero + Journey goal-context card. Bootstrap-warmed from res.gamification_goal_line so the Today card renders on a cold-start/offline relaunch.'
         },
         gamification_insights: {
             key: 'gamification_insights',
