@@ -20,7 +20,7 @@
 > **Status: in implementation (epic `med-8tur`).** Built so far: the Goal Line
 > read-model + route (`getGoalLine`, med-8tur.1) and the Today hero + Journey
 > goal-context card with HP/levels/Health Score hidden (`features/today.js`
-> `renderGoalLineTile`, `features/journey.js` `renderGoalContext`, med-8tur.2). This section is the normative direction. Everything after it
+> `renderGoalLineTile`, `features/journey.js` `renderGoalContext`, med-8tur.2). `goal.projected` (med-8tur.7) is computed by `goalLineProjection` and rendered on the Weight tab prognosis card; `projectedShift` is the week-over-week comparison (null unless both weeks carry a date). This section is the normative direction. Everything after it
 > (§1–§17 and `docs/design/2026-07-11-gamification-redesign.md`) stays as
 > rationale and as the description of the substrate the Goal Line is built on.
 > Where they conflict, this section wins. Produced by an architect ⇄ Codex
@@ -118,7 +118,7 @@ net (§6.1). Rows are feature-gated.
 | `goal.progress` | `{done_kg, total_kg, fraction}` baseline → target, read off the same value as `distance_to_goal` (fraction clamped 0–1, 1 once reached); null without a baseline or a reading. Today and the Weight tab goal card both render it |
 | `goal.too_fast` | velocity beyond the safe-pace cap — a calm safety line, the only pace judgment in slice 1 |
 | `goal.next_milestone` | stateless marker: ordinal under the episode, spacing fixed per episode (1 kg or 2.5 % of the total distance, whichever is coarser); halfway and goal flagged |
-| `goal.projected` | slice 2 (owner-confirmed): `{date, plus_minus_weeks}` — a date **with a ± weeks range** ("around 14 Nov ± 3 weeks", from velocity spread over the trend window), only under coverage / freshness / horizon rules and never beside `too_fast` |
+| `goal.projected` | `{date, plus_minus_weeks, reason}` — a date **with a ± weeks range** ("around 14 Nov ± 3 weeks", from the spread of the four weekly trend velocities), or `date: null` with the reason it is withheld; the rule and thresholds live in `goalLineProjection`. Never beside `too_fast`; only `beyond_horizon` is worded ("more than a year at this pace") |
 | `workouts` | `completed_this_week`, `next_scheduled`, `scheduled_this_week \| null` |
 | `bp` | `recorded_today`, `days_this_week`, `mean_7d {systolic, diastolic, days}`, `target`, `status in_range · above · unknown` |
 | `weighed_today`, `cta` | local-day fact; `cta ∈ weigh_in · start_session · none`, deterministic, nothing "owed" |
