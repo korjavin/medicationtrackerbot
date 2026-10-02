@@ -502,6 +502,8 @@ export function createApiRouter(ctx, {
     if (path === '/api/settings/weight-unit' && method === 'PATCH') {
       const unit = body && body.unit === 'lb' ? 'lb' : 'kg';
       await writeWeightUnit(unit);
+      // The queued goal-aware weigh-in push is worded in this unit.
+      scheduleReminderRecompute(ctx, { records, timeZone });
       return { unit };
     }
 

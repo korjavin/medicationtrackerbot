@@ -494,7 +494,7 @@ describe('cloud shim horizon — weigh-in cadence + goal-aware web push', () => 
     });
 
     it('daily slots stay muted by snooze / don\'t-bug', async () => {
-        const entries = await weightEntries(pref({ cadence: 'daily', dont_remind_until: NOW + DAY + 1000 }));
+        const entries = await weightEntries(pref({ cadence: 'daily', dont_remind_until: NOW + DAY + 4 * 60 * 60 * 1000 }));
         expect(entries.map((e) => e.fireAtUnix)).toEqual([2, 3, 4, 5, 6].map(slot));
     });
 
@@ -516,6 +516,11 @@ describe('cloud shim horizon — weigh-in cadence + goal-aware web push', () => 
             weightunitpref: [{ recordId: 'weight-unit', clientTs: NOW, deleted: false, unit: 'lb' }],
         });
         expect(entries[0].pushText).toBe('\u{2696}\u{FE0F} Weigh in — latest 174.2 lb, 8.8 to go');
+    });
+
+    it('a preliminary reading already past the target reads "at your goal", never "to go"', async () => {
+        const entries = await weightEntries({ ...pref(), weight: [reading('w1', NOW - 8 * DAY, 74.4)], weightgoal: [goal] });
+        expect(entries[0].pushText).toBe('\u{2696}\u{FE0F} Weigh in \u2014 latest 74.4 kg, at your goal');
     });
 
     it('no goal, or gamification off → no pushText (goal-free body)', async () => {

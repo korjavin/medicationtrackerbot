@@ -262,7 +262,9 @@ export function measureSlotMs(now, timeZone, preferredHour, dayOffset = 0) {
 // How recent a reading has to be for a measure slot to count as satisfied. The
 // horizon fires a target only when the last reading is OLDER than this, so a
 // reading inside the window is exactly the one that answers the reminder. Keyed
-// by callback prefix; the horizon loops below read the same constants.
+// by callback prefix; the horizon loops below read the same constants. `wt` is
+// the WEEKLY cadence; a daily weigh-in slot is satisfied only by a reading on
+// its own local day (localDayKey).
 const MEASURE_SATISFIED_MS = {
   bp: 12 * 60 * 60 * 1000,
   wt: 7 * 24 * 60 * 60 * 1000,
@@ -292,7 +294,11 @@ export function formatWeighInPushText(goal, unit = 'kg') {
   const lb = unit === 'lb';
   const fmt = (kg) => (Math.round((lb ? kg / KG_PER_LB : kg) * 10) / 10).toFixed(1);
   const u = lb ? 'lb' : 'kg';
-  const where = goal.status === 'at_goal' || goal.status === 'maintaining'
+  // A preliminary reading already past the target is reached too (progress
+  // clamps to 1) — never "0.6 to go" for an overshoot.
+  const reached = goal.status === 'at_goal' || goal.status === 'maintaining'
+    || (goal.progress && goal.progress.fraction === 1);
+  const where = reached
     ? 'at your goal'
     : `${fmt(goal.distance_to_goal)} to go`;
   return `\u{2696}\u{FE0F} Weigh in \u2014 ${isTrend ? 'trend' : 'latest'} ${fmt(current)} ${u}, ${where}`;
@@ -309,7 +315,7 @@ export function formatWeighInPushText(goal, unit = 'kg') {
 //   - reminders off;
 //   - today's slot is still in the future, so the relay has not sent it yet;
 //   - the reading is too old to satisfy that slot (a BP backdated past 12h, a
-//     weight past 7d). The horizon would still fire the target for such a
+//     weekly weight past 7d, a daily weight not on the slot's local day). The horizon would still fire the target for such a
 //     reading, and cancelling deletes a message no recompute can put back.
 // Deliberately ignores the horizon's mute gate: a Snooze tapped in Telegram
 // mutes the pref precisely BECAUSE a message is live, so gating on it would skip
@@ -766,12 +772,6 @@ export function createRemindersDomain({ records, now }) {
     return putWeightPref(patch);
   }
 
-  // Cadence switch for the weekly review's daily opt-in (med-8tur.4); no route yet.
-  async function setWeightCadence(cadence) {
-    if (!WEIGHT_CADENCES.includes(cadence)) return getWeightStatus();
-    return putWeightPref({ cadence });
-  }
-
   async function snoozeWeightReminder(durationMs = SNOOZE_MS) {
     return putWeightPref({ snoozed_until: now() + durationMs });
   }
@@ -853,7 +853,7 @@ export function createRemindersDomain({ records, now }) {
   }
 
   return {
-    getStatus, setEnabled, getBPStatus, setBPEnabled, getWeightStatus, setWeightEnabled, setWeightCadence,
+    getStatus, setEnabled, getBPStatus, setBPEnabled, getWeightStatus, setWeightEnabled,
     snoozeBPReminder, dontBugBPReminder, snoozeWeightReminder, dontBugWeightReminder,
     getDeliveryPref, setDeliveryPref, buildHorizon,
   };
