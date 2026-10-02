@@ -2918,7 +2918,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // WRITES NOTHING. Every day key here is the owner's LOCAL day (localDayString):
   // "today" and "this week" are facts the user checks against their own clock,
   // so the substrate's UTC-day keys (msToUTCDay, loadForRead's memo key) are
-  // deliberately not reused. Weeks are ISO Monday–Sunday (workout.js stats).
+  // deliberately not reused — except for adherence_alert, which is the
+  // substrate's own trailing-PDC view (UTC-day window) kept unchanged. Weeks are ISO Monday–Sunday (workout.js stats).
   // `features` is the settings flag map (the shim passes it; absent = all on).
   async function getGoalLine({ features } = {}) {
     const on = (k) => !features || !!features[k];
@@ -2947,7 +2948,21 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     let cta = 'none';
     if (!weighedToday && on('weight')) cta = 'weigh_in';
     else if (workouts.next_scheduled && workouts.next_scheduled.day === today) cta = 'start_session';
-    return { enabled: true, goal, workouts, bp, weighed_today: weighedToday, cta };
+    // Medication safety net (§6.1): the same trailing-PDC alert the rings tile
+    // carried (adherenceAlertView over the memoized read context) — inactive
+    // unless adherence has actually slipped.
+    let adherenceAlert = null;
+    if (on('medication')) {
+      const { cfg, ctx } = await loadForRead();
+      adherenceAlert = adherenceAlertView(ctx, msToUTCDay(ctx.nowMs), cfg);
+    }
+    // `day` is the local-day key the goal/workout/BP facts are bucketed on
+    // (settings timezone when pinned); `time_zone` lets the UI tell when it
+    // went stale. adherence_alert keeps the substrate's UTC-day window.
+    return {
+      enabled: true, goal, workouts, bp, weighed_today: weighedToday, cta,
+      adherence_alert: adherenceAlert, day: today, time_zone: timeZone || null,
+    };
   }
 
   function round2(x) {
@@ -2968,6 +2983,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     const coverage = {
       weigh_in_days_28d: days.filter((d) => d >= coverageStart).length,
       last_weigh_in_day: days.length ? days[days.length - 1] : null,
+      // The preliminary floor, so the UI can say "trend forms after N more".
+      min_weigh_in_days: GOAL_LINE_MIN_WEIGH_IN_DAYS,
     };
     const preliminary = coverage.weigh_in_days_28d < GOAL_LINE_MIN_WEIGH_IN_DAYS;
     // Ordered replay from the first reading of a weigh-in run — a fixed origin,

@@ -83,20 +83,65 @@ describe('Journey render', () => {
         expect(document.body.textContent).not.toMatch(/HealthPoints/);
     });
 
-    // Level/HP is demoted from the hero card to ONE muted line, last on the
-    // screen — levels never decay (gamification §13), they're just not news.
-    it('level/HP renders once, as a muted line after the last card', () => {
-        env.window.Gamification.render(journey());
+    // med-8tur.2 (owner decision 2026-10-02): HP / levels / the Health Score
+    // are hidden outright — UI-only; the payload still carries them.
+    it('renders no level/HP line, no Health Score card and no Health Score weekly line', () => {
+        env.window.Gamification.render(journey({
+            weekly_review: {
+                enabled: true, quiet: false, levers: [], gauges: {},
+                health_score: { now: { value: 78 }, prior: { value: 74 } }
+            }
+        }));
         const content = env.document.getElementById('journey-content');
+        expect(content.querySelector('.wg-journey-level-line')).toBeNull();
+        expect(content.querySelector('.wg-journey-score')).toBeNull();
+        expect(content.textContent).not.toMatch(/Lvl|\bHP\b|Health Score/);
+    });
 
-        expect(content.querySelector('.wg-journey-header')).toBeNull();
-        const lines = content.querySelectorAll('.wg-journey-level-line');
-        expect(lines.length).toBe(1);
-        expect(lines[0].textContent).toBe(`Lvl 7 · ${(4820).toLocaleString()} HP`);
-        expect(lines[0].classList.contains('wg-muted')).toBe(true);
-        expect(content.lastElementChild).toBe(lines[0]);
-        // It is a footnote, not a card — it doesn't count against the budget.
-        expect(lines[0].classList.contains('wg-card')).toBe(false);
+    // med-8tur.2: the goal-context card (same Goal Line read-model as the
+    // Today hero) leads Journey, so a tap through from Today lands on the goal.
+    it('the goal-context card leads, ahead of the strip and the Atlas', () => {
+        env.window.Gamification.render(journey({
+            goal_line: {
+                enabled: true,
+                goal: {
+                    status: 'ok', target: 78, start_ref: 86, start_ref_source: 'trend_at_set', direction: -1,
+                    trend_weight: 82.4, distance_to_goal: 4.4, too_fast: false,
+                    progress: { done_kg: 3.6, total_kg: 8, fraction: 0.45 },
+                    next_milestone: { ordinal: 4, count: 8, weight: 82, is_goal: false }
+                }
+            },
+            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }], whats_new: [{ kind: 'trait', text: 'New.', target: 'journey-atlas-card' }] },
+        }));
+        const cards = [...env.document.querySelectorAll('#journey-content > .wg-card')];
+        expect(cards[0].id).toBe('journey-goal-card');
+        expect(cards[0].querySelector('.wg-journey-goal__value').textContent).toBe('82.4 kg → 78.0 kg');
+        expect(cards[0].textContent).toContain('4.4 kg to go · next marker 82.0 kg');
+        expect(cards[0].querySelector('.wg-journey-bar__fill').style.getPropertyValue('--fill-pct')).toBe('45.0%');
+    });
+
+    it('no goal-context card for no_goal when the Weight feature is off (no dead link)', () => {
+        env.window.featureSettings = { weight: false };
+        env.window.Gamification.render({
+            enabled: false,
+            goal_line: { enabled: true, goal: { status: 'no_goal' } },
+            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }] },
+        });
+        expect(env.document.getElementById('journey-goal-card')).toBeNull();
+    });
+
+    it('the goal-context card leads even when the HP substrate is disabled, and offers to set a goal', () => {
+        const switchTab = vi.fn();
+        env.window.switchTab = switchTab;
+        env.window.Gamification.render({
+            enabled: false,
+            goal_line: { enabled: true, goal: { status: 'no_goal' } },
+            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }] },
+        });
+        const cards = [...env.document.querySelectorAll('#journey-content > .wg-card')];
+        expect(cards[0].id).toBe('journey-goal-card');
+        cards[0].querySelector('button').click();
+        expect(switchTab).toHaveBeenCalledWith('weight');
     });
 
     // The why-lines were static forever and rendered on every visit.
@@ -138,7 +183,6 @@ describe('Journey render', () => {
             'wg-journey-atlas',
             'wg-journey-weekly',
             'wg-journey-gauges',
-            'wg-journey-score',
             'wg-journey-traits',
             'wg-journey-chapter',
             'wg-journey-keystones',
@@ -168,7 +212,6 @@ describe('Journey render', () => {
             'wg-journey-atlas',
             'wg-journey-weekly',
             'wg-journey-gauges',
-            'wg-journey-score',
             'wg-journey-traits',
             'wg-journey-chapter',
             'wg-journey-keystones',
@@ -292,50 +335,6 @@ describe('Journey render', () => {
         expect(env.document.getElementById('journey-goodday-card')).toBeNull();
     });
 
-    // Health Score card (Task 8): big number + band word, then one mini-bar
-    // per named contributor — a missing contributor reads "No data", never a
-    // misleading 0%.
-    it('Health Score card shows the composite, a band tag, and per-contributor bars including a missing one', () => {
-        env.window.Gamification.render(journey({
-            health_score: {
-                value: 78.4,
-                contributors: [
-                    { key: 'bp', label: 'Blood pressure', score: 0.9, weight: 1, missing: false },
-                    { key: 'sleep', label: 'Sleep', score: 0, weight: 1, missing: true }
-                ],
-                missing: ['sleep']
-            }
-        }));
-        const { document } = env;
-
-        const card = document.querySelector('.wg-journey-score');
-        expect(card).not.toBeNull();
-        expect(card.querySelector('.wg-journey-score__value').textContent).toBe('78');
-        expect(card.querySelector('.wg-tag').textContent).toBe('Good');
-
-        // The contributor list is the detail behind the hero: collapsed by
-        // default, so the card reads as one number + one word at a glance.
-        const details = card.querySelector('.wg-journey-score__details');
-        expect(details.open).toBe(false);
-        expect(details.querySelector('summary').textContent).toBe('Contributors');
-
-        const rows = details.querySelectorAll('.wg-journey-score__row');
-        expect(rows.length).toBe(2);
-        expect(rows[0].querySelector('.wg-journey-score__row-label').textContent).toBe('Blood pressure');
-        expect(rows[0].querySelector('.wg-journey-score__row-value').textContent).toBe('90%');
-        expect(rows[1].querySelector('.wg-journey-score__row-label').textContent).toBe('Sleep');
-        expect(rows[1].querySelector('.wg-journey-score__row-value').textContent).toBe('No data');
-    });
-
-    it('Health Score renders "not enough data" instead of a misleading number below the min-contributors floor', () => {
-        env.window.Gamification.render(journey({ health_score: { value: null, contributors: [], missing: [] } }));
-        const card = env.document.querySelector('.wg-journey-score');
-        expect(card.querySelector('.wg-journey-score__value').textContent).toBe('—');
-        expect(card.textContent).toMatch(/not enough data/i);
-        // Nothing to collapse when there are no contributors.
-        expect(card.querySelector('.wg-journey-score__details')).toBeNull();
-    });
-
     // "Your week" card (gamification-12 §Task3) — sourced from
     // `journey.weekly_review` (attached by load() from its own fetch, same
     // pattern as Gauges/Insights). Omitted entirely until it has loaded.
@@ -344,7 +343,7 @@ describe('Journey render', () => {
         expect(env.document.querySelector('.wg-journey-weekly')).toBeNull();
     });
 
-    it('Weekly Review card renders score movement, lever line, gauge lines, and best day', () => {
+    it('Weekly Review card renders the lever line, gauge lines, and best day (no Health Score line)', () => {
         env.window.Gamification.render(journey({
             weekly_review: {
                 enabled: true,
@@ -372,7 +371,6 @@ describe('Journey render', () => {
 
         const lines = Array.from(card.querySelectorAll('.wg-journey-weekly__line')).map((n) => n.textContent);
         expect(lines).toEqual([
-            'Health Score 78 · up 4',
             'Bedtime closed 5 of 7 · Movement 4 · Nourishment 6',
             'Weight -0.4%/wk · on pace · speeding up',
             'BP in range 82% · up from 76%',

@@ -362,11 +362,11 @@ export function createApiRouter(ctx, {
       weight: { logs, goal: weightGoal },
       settings: settingsPart.settings,
     };
-    // The Today rings tile warms 'gamification_rings' from res.gamification (the
-    // full Summary — auth-bootstrap.js applyBootstrapPayload). Only include it
-    // when the feature is on, so a disabled toggle leaves the cache untouched.
+    // The Today Goal Line hero warms 'gamification_goal_line' from this
+    // (auth-bootstrap.js applyBootstrapPayload). Only included when the feature
+    // is on, so a disabled toggle leaves the cache untouched.
     if (settingsPart.features.gamification) {
-      payload.gamification = await gamification.getSummary();
+      payload.gamification_goal_line = await gamification.getGoalLine({ features: settingsPart.features });
     }
     return payload;
   }
