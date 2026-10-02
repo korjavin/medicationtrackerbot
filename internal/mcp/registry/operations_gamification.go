@@ -239,7 +239,7 @@ output(result)
 			Path:            "/api/gamification/weekly-review",
 			Risk:            RiskRead,
 			Description:     "Weekly review read model (web/domain/gamification.js getWeeklyReview): the most recently COMPLETED local week (Mon-Sun in the owner's zone; a Monday or Sunday read reviews the previous week) as three goal fact rows — weight (Goal Line trend change, distance, weigh-in days, milestones earned), workouts (completed vs the plan's scheduled count), BP (daily-weighted mean vs bpgoal, days measured) — plus the best day and the next-week plan (intention / cadence / pause) with the curated options to pick from. Missing data reads as status unknown, never zero. A week with no data returns quiet: true. The legacy lever/strength/gauge/health_score keys still ride the payload over the same week.",
-			ResponseSummary: "Object {enabled, quiet, week: {id, start_day, end_day}, week_start, week_end, rows: {weight, workouts, bp}, best_day, plan_week, plan_scope this_week|next_week, plan, options, days_with_any_hp, levers, strengths, gauges, health_score}. rows.weight: {feature_on, status ok|unknown, goal_status, trend_weight, trend_change_kg, distance_to_goal, weigh_in_days, milestones_reached}. rows.workouts: {feature_on, completed, scheduled|null}. rows.bp: {feature_on, status, mean {systolic, diastolic, days}|null, target, days_measured}. plan: {week, intention {id, text}|null, cadence {weigh_in, bp_days}, paused, picked_at} or null. options: {intentions [{id, text}], weigh_in, weigh_in_current, bp_days_max}.",
+			ResponseSummary: "Object {enabled, quiet, week: {id, start_day, end_day}, week_start, week_end, rows: {weight, workouts, bp}, best_day, plan_week, plan_scope this_week|next_week, plan, options, days_with_any_hp, levers, strengths, gauges, health_score}. rows.weight: {feature_on, status ok|unknown, goal_status, goal_direction -1|0|1|null, progress_fraction|null, trend_weight, trend_change_kg, distance_to_goal, weigh_in_days, milestones_reached}. rows.workouts: {feature_on, completed, scheduled|null}. rows.bp: {feature_on, status, mean {systolic, diastolic, days}|null, target, days_measured}. plan: {week, intention {id, text}|null, cadence {weigh_in, bp_days}, paused, picked_at} or null. options: {intentions [{id, text}], weigh_in, weigh_in_current, bp_days_max}.",
 			ResponseExample: `{
   "enabled": true,
   "quiet": false,
@@ -247,7 +247,7 @@ output(result)
   "week_start": 1782691200,
   "week_end": 1783209600,
   "rows": {
-    "weight": { "feature_on": true, "status": "ok", "goal_status": "ok", "trend_weight": 81.4, "trend_change_kg": -0.4, "distance_to_goal": 3.4, "weigh_in_days": 5, "milestones_reached": [] },
+    "weight": { "feature_on": true, "status": "ok", "goal_status": "ok", "goal_direction": -1, "progress_fraction": 0.42, "trend_weight": 81.4, "trend_change_kg": -0.4, "distance_to_goal": 3.4, "weigh_in_days": 5, "milestones_reached": [] },
     "workouts": { "feature_on": true, "completed": 2, "scheduled": 3 },
     "bp": { "feature_on": true, "status": "in_range", "mean": { "systolic": 128, "diastolic": 82, "days": 4 }, "target": { "systolic": 130, "diastolic": 85 }, "days_measured": 4 }
   },

@@ -664,6 +664,9 @@ describe('gamification weekly review + week plan', () => {
     });
     expect(wr.rows.weight.trend_change_kg).toBeLessThan(0);
     expect(wr.rows.weight.distance_to_goal).toBeGreaterThan(5);
+    // The narrator recap's goal context comes from the goal in force at the week's end.
+    expect(wr.rows.weight.goal_direction).toBe(-1);
+    expect(wr.rows.weight.progress_fraction).toBeGreaterThanOrEqual(0);
     expect(wr.rows.workouts).toEqual({ feature_on: true, completed: 1, scheduled: 3 }); // planned rest is not a miss
     expect(wr.rows.bp).toEqual({
       feature_on: true, status: 'in_range', mean: { systolic: 128, diastolic: 82, days: 2 },
