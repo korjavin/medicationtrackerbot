@@ -3211,26 +3211,39 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       .sort((a, b) => Date.parse(a.measured_at) - Date.parse(b.measured_at))
       .forEach((r) => byDay.set(localDayString(Date.parse(r.measured_at), timeZone), r.weight));
     const days = [...byDay.keys()].sort();
-    const trendOn = new Map(); // weigh-in day → trend
+    // A day is evidence only once the trend there is established — the Goal
+    // Line's preliminary floor (GOAL_LINE_MIN_WEIGH_IN_DAYS weigh-in days of the
+    // run in the coverage window ending that day) — so the raw first reading a
+    // run's EMA seeds on can never earn a marker by itself.
+    const trendOn = new Map(); // established weigh-in day → trend
     let runStart = 0;
     for (let i = 0; i <= days.length; i++) {
       if (i === days.length || (i > runStart && dayDiff(days[i - 1], days[i]) > GOAL_LINE_COVERAGE_DAYS)) {
         if (i > runStart) {
           const t = emaTrendByDay(byDay, days[runStart], days[i - 1], DEFAULT_CONFIG.gaugeWeightEMAAlpha);
-          for (let j = runStart; j < i; j++) trendOn.set(days[j], t.get(days[j]));
+          let lo = runStart;
+          for (let j = runStart; j < i; j++) {
+            while (dayDiff(days[lo], days[j]) >= GOAL_LINE_COVERAGE_DAYS) lo++;
+            if (j - lo + 1 >= GOAL_LINE_MIN_WEIGH_IN_DAYS) trendOn.set(days[j], t.get(days[j]));
+          }
         }
         runStart = i;
       }
     }
-    const evidence = days.filter((d) => d >= startDay && d <= today);
+    const evidence = days.filter((d) => d >= startDay && d <= today && trendOn.has(d));
 
     const g = goalAll.find((r) => r.recordId === goal.episode_id);
+    // The goal reads "reached" within GOAL_LINE_REACH_KG (like status at_goal);
+    // no earlier marker may be stricter than that, which keeps the thresholds
+    // nested — so the first unearned marker ends the walk, and earned_at never
+    // runs backwards along the ordinals.
+    const goalThr = target - direction * GOAL_LINE_REACH_KG;
     for (let k = 1; k <= count; k++) {
       const isGoal = k === count;
-      const marker = isGoal ? target : startRef + direction * k * spacing;
-      const slack = isGoal ? GOAL_LINE_REACH_KG : 0; // the goal reads "reached" like status at_goal
-      const hits = evidence.filter((d) => (trendOn.get(d) - marker) * direction >= -slack - 1e-9);
-      if (hits.length < GOAL_MILESTONE_EVIDENCE_DAYS) break; // markers are nested: k+1 can't be earned either
+      const marker = startRef + direction * k * spacing;
+      const thr = isGoal || (marker - goalThr) * direction > 0 ? goalThr : marker;
+      const hits = evidence.filter((d) => (trendOn.get(d) - thr) * direction >= -1e-9);
+      if (hits.length < GOAL_MILESTONE_EVIDENCE_DAYS) break;
       await records.putIfAbsent(GOAL_MILESTONE_RECORD_TYPE, {
         recordId: `${GOAL_MILESTONE_RECORD_TYPE}-${goal.episode_id}-${k}`,
         deleted: false, clientTs: 0,
@@ -3283,9 +3296,21 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
 
   // Milestones as Journey keystones (every episode, permanent). earned_at is a
   // local day; noon UTC keeps toLocaleDateString on that day for |offset| < 12h.
+  // One keystone per (goal_set_at, ordinal): a goal re-minted by a vault import
+  // can leave a twin under the dead episode id (e.g. an import by a client that
+  // predates milestones) — the twin whose episode still exists wins.
   async function milestoneKeystones() {
     await syncGoalMilestones();
-    return (await records.list(GOAL_MILESTONE_RECORD_TYPE)).map((m) => ({
+    const [all, goals] = await Promise.all([
+      records.list(GOAL_MILESTONE_RECORD_TYPE), records.list(WEIGHTGOAL_RECORD_TYPE),
+    ]);
+    const live = new Set(goals.map((r) => r.recordId));
+    const byKey = new Map();
+    for (const m of all) {
+      const key = `${m.goal_set_at}|${m.ordinal}`;
+      if (!byKey.has(key) || live.has(m.episode_id)) byKey.set(key, m);
+    }
+    return [...byKey.values()].map((m) => ({
       id: m.recordId, kind: 'goal_milestone', title: milestoneTitle(m),
       earned_at: Date.parse(`${m.earned_at}T12:00:00Z`),
     }));

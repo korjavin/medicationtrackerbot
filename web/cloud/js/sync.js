@@ -405,6 +405,9 @@ const RECORD_TAGS = {
   features: ['settings', 'feature_settings'],
   taborder: ['settings'],
   integrations: ['settings'],
+  // med-8tur.5: an ack synced from another device retires the Today Goal Line
+  // milestone line (gamification_goal_line carries the 'gamification' tag).
+  gamificationmilestone: ['gamification'],
   // ponytail: unmapped types (nk, firstrun, tzplan, *reminderpref, voiceprovisioning)
   // back no tag-cached screen, so they emit nothing. Add a row when one does.
 };

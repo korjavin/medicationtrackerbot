@@ -345,7 +345,8 @@ export function recordsToVault(records, { now, includeSecrets = true } = {}) {
   // absent means "leave the destination's provider keys alone" on import).
   if (!includeSecrets) delete settings.integrations;
 
-  // --- gamification / api_tokens (passthrough; no cloud reader) ---
+  // --- gamification / api_tokens (passthrough; no cloud reader — except the
+  // milestones below, read by the Goal Line) ---
   const gamRec = singleton('gamification', 'gamification');
   const gamification = {
     targets: (gamRec && gamRec.targets) || [],

@@ -346,8 +346,9 @@ describe('gamification Goal Line — workouts, BP, cta', () => {
 describe('gamification Goal Line — durable milestones', () => {
   // Goal set 20 days ago from a recorded 85 kg start (no earlier readings →
   // first_reading baseline), target 80: 1 kg spacing, 5 markers. The trend sits
-  // at 83.8 from the first weigh-in, so marker 1 (84) is earned on the THIRD
-  // weigh-in day (offset 18 = 2026-05-30) and marker 2 (83) never.
+  // at 83.8 from the first weigh-in; a day counts once the trend is established
+  // (5th weigh-in day, offset 16), so marker 1 (84) is earned on the third
+  // established day (offset 14 = 2026-06-03) and marker 2 (83) never.
   const crossing = () => ({ weight: series(21, () => 83.8), weightgoal: [goalRec(20, 80, 85)] });
   const MS_ID = 'gamificationmilestone-weightgoal-episode-1-1';
 
@@ -358,7 +359,7 @@ describe('gamification Goal Line — durable milestones', () => {
     expect(gl.goal.status).toBe('ok');
     expect(gl.milestone).toEqual({
       id: MS_ID, ordinal: 1, count: 5, is_halfway: false, is_goal: false,
-      earned_at: '2026-05-30', title: 'Weight goal milestone 1 of 5',
+      earned_at: '2026-06-03', title: 'Weight goal milestone 1 of 5',
     });
     expect(records.put).not.toHaveBeenCalled();
     expect(records.putIfAbsent).toHaveBeenCalledTimes(1);
@@ -373,6 +374,27 @@ describe('gamification Goal Line — durable milestones', () => {
     const { records, gam } = domainOver({ weight, weightgoal: [goalRec(20, 80, 85)] });
     expect((await gam.getGoalLineCard()).milestone).toBeNull();
     expect(await records.list('gamificationmilestone')).toHaveLength(0);
+
+    // …nor at the start of a run, where the EMA seeds on the raw reading: a
+    // goal from 85 after a long gap, then 82.5, 84.5, 84.5 (still preliminary).
+    const run = domainOver({
+      weight: [weightRec(2, 82.5), weightRec(1, 84.5), weightRec(0, 84.5), weightRec(90, 85)],
+      weightgoal: [goalRec(3, 80, 85)],
+    });
+    expect((await run.gam.getGoalLineCard()).milestone).toBeNull();
+    expect(await run.records.list('gamificationmilestone')).toHaveLength(0);
+  });
+
+  it('the goal milestone fires within reach of the target even when the last marker is stricter', async () => {
+    // 85.3 → 80: 1 kg markers, marker 5 sits at 80.3; a trend holding at 80.4
+    // is at_goal (within 0.5 kg), so the goal ordinal — and 5 with it — is earned.
+    const { records, gam } = domainOver({ weight: series(10, () => 80.4), weightgoal: [goalRec(9, 80, 85.3)] });
+    const gl = await gam.getGoalLineCard();
+    expect(gl.goal.status).toBe('at_goal');
+    expect(gl.milestone).toMatchObject({ ordinal: 6, count: 6, is_goal: true, title: 'Weight goal reached' });
+    const earned = (await records.list('gamificationmilestone')).sort((a, b) => a.ordinal - b.ordinal);
+    expect(earned.map((m) => m.ordinal)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(new Set(earned.map((m) => m.earned_at)).size).toBe(1); // nested thresholds: one evidence day for all
   });
 
   it('ack retires the card line; re-reads and another device\'s floored replay never clobber it', async () => {
@@ -411,7 +433,7 @@ describe('gamification Goal Line — durable milestones', () => {
     const { keystones } = await gam.getKeystones();
     expect(keystones).toContainEqual({
       id: MS_ID, kind: 'goal_milestone', title: 'Weight goal milestone 1 of 5',
-      earned_at: Date.parse('2026-05-30T12:00:00Z'),
+      earned_at: Date.parse('2026-06-03T12:00:00Z'),
     });
   });
 
@@ -433,7 +455,7 @@ describe('gamification Goal Line — durable milestones', () => {
     expect(goal.recordId).not.toBe('weightgoal-episode-1'); // import re-mints goal ids
     expect(seed.gamificationmilestone).toEqual([expect.objectContaining({
       recordId: `gamificationmilestone-${goal.recordId}-1`, episode_id: goal.recordId,
-      acknowledged: true, earned_at: '2026-05-30',
+      acknowledged: true, earned_at: '2026-06-03',
     })]);
 
     const after = domainOver(seed);

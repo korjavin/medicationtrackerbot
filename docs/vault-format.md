@@ -357,8 +357,10 @@ domain block carries only logs + products).
 }
 ```
 
-Cloud mode has no gamification engine; it carries the whole block verbatim as a
-passthrough record (like `tzhistory`) purely for backup fidelity.
+Cloud mode carries `targets` / `ledger` / `state` verbatim as one passthrough record
+(like `tzhistory`) purely for backup fidelity. `milestones` is the exception: each row
+becomes its own `gamificationmilestone` record, read by the Goal Line card and the
+Journey timeline.
 
 - **target** (leaf, no `id`; `metric_key` is the natural key) — `metric_key` (str),
   `low_val`, `high_val`, `falloff` (num|null), `mode` (str|null), `updated_at` (RFC3339).
