@@ -39,20 +39,18 @@ const DAYSTATS_RECORD_TYPE = 'daystats';
 const WORKOUT_SESSION_RECORD_TYPE = 'workoutsession';
 const FOOD_LOG_RECORD_TYPE = 'foodlog';
 
-// Goal Line (docs/gamification.md §0.3.1) — read-only inputs + its constants.
-const WEIGHT_LOG_RECORD_TYPE = 'weight';
-const WEIGHT_GOAL_RECORD_TYPE = 'weightgoal';
+// Goal Line (docs/gamification.md §0.3.1) — read-only inputs + its constants
+// (weight/weightgoal reuse the factory's WEIGHT_RECORD_TYPE/WEIGHTGOAL_RECORD_TYPE).
 const WORKOUT_GROUP_RECORD_TYPE = 'workoutgroup';
 const WORKOUT_VARIANT_RECORD_TYPE = 'workoutvariant';
 const WORKOUT_ROTATION_RECORD_TYPE = 'workoutrotation';
-const WORKOUT_ADHOC_GROUP_ID = -1;
-const GOAL_LINE_COVERAGE_DAYS = 28;         // coverage window for weigh-in days
+const GOAL_LINE_COVERAGE_DAYS = 28;         // coverage window for weigh-in days; a longer weigh-in gap restarts the trend
 const GOAL_LINE_MIN_WEIGH_IN_DAYS = 5;      // fewer (in 28d) = preliminary: a reading, never a trend
 const GOAL_LINE_REACH_KG = 0.5;             // trend within this of the target (or past it) = reached
 const GOAL_LINE_MAINTAIN_DAYS = 14;         // reached continuously this long = maintaining
 const GOAL_LINE_MILESTONE_MIN_KG = 1;       // milestone spacing: 1 kg or 2.5% of the total
 const GOAL_LINE_MILESTONE_FRACTION = 0.025; //   distance, whichever is coarser, fixed per episode
-const GOAL_LINE_BP_DEFAULT = { systolic: 130, diastolic: 80 }; // docs/features.md target, per missing bpgoal component
+const GOAL_LINE_DEFAULT_DIASTOLIC = 80;     // docs/features.md <130/80 target, per missing bpgoal component
 
 // The one persisted record: a singleton holding reveal-once bookkeeping.
 const JOURNAL_RECORD_TYPE = 'gamificationjournal';
@@ -2898,7 +2896,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     const sinceMonday = (dayOfWeek(today) + 6) % 7;
     const monday = addDays(today, -sinceMonday);
     const [weightAll, goalAll, bpAll, bpGoalAll, groups, variants, rotations, sessionsRaw] = await Promise.all([
-      records.list(WEIGHT_LOG_RECORD_TYPE), records.list(WEIGHT_GOAL_RECORD_TYPE),
+      records.list(WEIGHT_RECORD_TYPE), records.list(WEIGHTGOAL_RECORD_TYPE),
       records.list(BP_RECORD_TYPE), records.list(BP_GOAL_RECORD_TYPE),
       records.list(WORKOUT_GROUP_RECORD_TYPE), records.list(WORKOUT_VARIANT_RECORD_TYPE),
       records.list(WORKOUT_ROTATION_RECORD_TYPE),
@@ -2916,7 +2914,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     const weighedToday = goal.coverage.last_weigh_in_day === today;
     // Deterministic priority; nothing is "owed" — 'none' is a valid resting state.
     let cta = 'none';
-    if (!weighedToday) cta = 'weigh_in';
+    if (!weighedToday && on('weight')) cta = 'weigh_in';
     else if (workouts.next_scheduled && workouts.next_scheduled.day === today) cta = 'start_session';
     return { enabled: true, goal, workouts, bp, weighed_today: weighedToday, cta };
   }
@@ -2941,12 +2939,19 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       last_weigh_in_day: days.length ? days[days.length - 1] : null,
     };
     const preliminary = coverage.weigh_in_days_28d < GOAL_LINE_MIN_WEIGH_IN_DAYS;
-    // Ordered replay from the FIRST reading on record — a fixed origin, so the
-    // episode baseline never shifts as old samples leave a moving window.
-    const trend = days.length ? emaTrendByDay(byDay, days[0], today, cfg.gaugeWeightEMAAlpha) : new Map();
+    // Ordered replay from the first reading of the current weigh-in run — a
+    // fixed origin, so the baseline never shifts as old samples leave a moving
+    // window. A gap longer than the coverage window starts a new run: an EMA
+    // carried flat across months would otherwise pass a stale value off as
+    // today's trend (and as a goal's baseline) for weeks after the user returns.
+    let origin = days[0];
+    for (let i = 1; i < days.length; i++) {
+      if (dayDiff(days[i - 1], days[i]) > GOAL_LINE_COVERAGE_DAYS) origin = days[i];
+    }
+    const trend = days.length ? emaTrendByDay(byDay, origin, today, cfg.gaugeWeightEMAAlpha) : new Map();
     const trendWeight = preliminary ? null : trend.get(today);
     const weekAgo = addDays(today, -7);
-    const change7d = (!preliminary && weekAgo >= days[0]) ? trendWeight - trend.get(weekAgo) : null;
+    const change7d = (!preliminary && weekAgo >= origin) ? trendWeight - trend.get(weekAgo) : null;
     // Preliminary shows the latest READING as a reading; distance reads off it.
     const current = trendWeight !== null ? trendWeight : (latest ? latest.weight : null);
 
@@ -2967,10 +2972,13 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     let startDay = Number.isFinite(setMs) ? localDayString(setMs, timeZone) : (days[0] || today);
     if (startDay > today) startDay = today; // a set_at ahead of this device's clock
     // Episode baseline, stated not implied: the trend on the set day when enough
-    // weigh-in days (on or before it) back it, else the goal's recorded starting
-    // reading labeled first_reading — the two are never silently equated.
+    // weigh-in days of the current run, inside the coverage window ending on it,
+    // back it; else the goal's recorded starting reading labeled first_reading —
+    // the two are never silently equated.
+    const baselineFrom = addDays(startDay, -(GOAL_LINE_COVERAGE_DAYS - 1));
     let startRef; let startRefSource;
-    if (days.filter((d) => d <= startDay).length >= GOAL_LINE_MIN_WEIGH_IN_DAYS) {
+    if (startDay >= origin
+      && days.filter((d) => d >= origin && d >= baselineFrom && d <= startDay).length >= GOAL_LINE_MIN_WEIGH_IN_DAYS) {
       startRef = trend.get(startDay);
       startRefSource = 'trend_at_set';
     } else {
@@ -2995,7 +3003,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     // safety flag only; no other pace grade exists on the Goal Line.
     const velDays = cfg.gaugeWeightVelocityWindowDays;
     const pastDay = addDays(today, -velDays);
-    if (direction !== 0 && pastDay >= days[0]) {
+    if (direction !== 0 && pastDay >= origin) {
       const velocity = pctChangePerWeek(trendWeight, trend.get(pastDay), velDays);
       out.too_fast = velocity * direction > cfg.weightSafePaceMaxPct;
     }
@@ -3004,7 +3012,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     if (reached(trendWeight)) {
       // maintaining = the current reached run has lasted GOAL_LINE_MAINTAIN_DAYS.
       let runStart = today;
-      const floor = startDay > days[0] ? startDay : days[0];
+      const floor = startDay > origin ? startDay : origin;
       while (runStart > floor && reached(trend.get(addDays(runStart, -1)))) runStart = addDays(runStart, -1);
       out.status = dayDiff(runStart, today) >= GOAL_LINE_MAINTAIN_DAYS ? 'maintaining' : 'at_goal';
       return out;
@@ -3046,16 +3054,21 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       workoutGroups: groups, workoutVariants: variants, workoutRotations: rotations, workoutSessions: sessionsRaw,
       timeZone, now: nowMs, fromDay: -sinceMonday, days: sinceMonday + 7,
     });
-    // A denominator exists only when an active weekly plan exists — never a
-    // guessed default. Tombstoned plan days are not scheduled; every live ad-hoc
-    // session dated this week is.
+    // A denominator exists only when an active weekly plan with weekdays exists
+    // — never a guessed default. It counts the PLAN's occurrences this week,
+    // minus tombstoned days; ad-hoc sessions stay out (a spontaneous "start now"
+    // session and a planned one are indistinguishable once done), so completed
+    // may exceed scheduled.
     const scheduledThisWeek = scheduleGroups === 0 ? null
-      : groupOccurrences.filter((o) => inWeek(o.dateStr) && o.status !== 'deleted').length
-        + live.filter((s) => s.group_id === WORKOUT_ADHOC_GROUP_ID && inWeek(dayOf(s))).length;
+      : groupOccurrences.filter((o) => inWeek(o.dateStr) && o.status !== 'deleted').length;
 
+    // "Next" = not yet done: a snoozed ('notified') or in-progress session is
+    // still today's workout (workout.js getNext), unlike the horizon's
+    // fire-once rule.
+    const done = (st) => st === 'completed' || st === 'skipped' || st === 'deleted';
     const hhmm = (t) => `${String(t.hour).padStart(2, '0')}:${String(t.minute).padStart(2, '0')}`;
     const candidates = [
-      ...groupOccurrences.filter((o) => o.dateStr >= today && (o.status === undefined || o.status === 'pending'))
+      ...groupOccurrences.filter((o) => o.dateStr >= today && !done(o.status))
         .map((o) => ({ ms: o.scheduledMs, day: o.dateStr, time: hhmm(o.hhmm), group_title: o.group.name || null })),
       ...adhoc.filter((a) => a.dateStr >= today)
         .map((a) => ({ ms: a.scheduledMs, day: a.dateStr, time: hhmm(a.hhmm), group_title: null })),
@@ -3081,8 +3094,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     const tDia = g && Number.isFinite(g.target_diastolic) ? g.target_diastolic : null;
     let status = 'unknown';
     if (mean7d) {
-      const above = mean7d.systolic > (tSys !== null ? tSys : GOAL_LINE_BP_DEFAULT.systolic)
-        || mean7d.diastolic > (tDia !== null ? tDia : GOAL_LINE_BP_DEFAULT.diastolic);
+      const above = mean7d.systolic > (tSys !== null ? tSys : DEFAULT_IN_RANGE_SYSTOLIC)
+        || mean7d.diastolic > (tDia !== null ? tDia : GOAL_LINE_DEFAULT_DIASTOLIC);
       status = above ? 'above' : 'in_range';
     }
     return {

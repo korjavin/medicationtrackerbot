@@ -291,11 +291,6 @@ export function measureReminderStem(prefix, status, timeZone, now, measuredAtMs 
   return `${prefix}:${Math.floor(slotMs / 1000)}`;
 }
 
-// computeReminderHorizon is pure: medications/intakes are raw records
-// (server field names), timeZone is an IANA string, now is ms epoch, tzPlan
-// is the optional active tzplan record (a passthrough, see tzplan.js).
-// `intakes` and `workoutSessions` are the two inputs that WANT tombstones —
-// pass them raw (recordsPort.listRaw); everything else is filtered live.
 // workoutScheduleOccurrences is the schedule walk the workout reminders fire
 // from, shared with the gamification Goal Line (next_scheduled /
 // scheduled_this_week) so the two can never disagree about what is scheduled.
@@ -380,7 +375,8 @@ export function workoutScheduleOccurrences({
   for (const group of workoutGroups.filter((g) => !g.deleted && g.active)) {
     let daysOfWeek;
     try { daysOfWeek = JSON.parse(group.days_of_week); } catch { continue; }
-    if (!Array.isArray(daysOfWeek)) continue;
+    // An active plan with no weekdays schedules nothing — not a denominator.
+    if (!Array.isArray(daysOfWeek) || daysOfWeek.length === 0) continue;
     const variantId = resolveVariantId(group);
     if (!variantId) continue;
     const variant = variantById.get(variantId);
@@ -420,6 +416,11 @@ export function workoutScheduleOccurrences({
   return { groupOccurrences, adhoc, scheduleGroups };
 }
 
+// computeReminderHorizon is pure: medications/intakes are raw records
+// (server field names), timeZone is an IANA string, now is ms epoch, tzPlan
+// is the optional active tzplan record (a passthrough, see tzplan.js).
+// `intakes` and `workoutSessions` are the two inputs that WANT tombstones —
+// pass them raw (recordsPort.listRaw); everything else is filtered live.
 export function computeReminderHorizon({
   medications = [], intakes = [], bps = [], weights = [],
   workoutGroups = [], workoutVariants = [], workoutExercises = [],

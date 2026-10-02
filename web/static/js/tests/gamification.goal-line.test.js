@@ -142,6 +142,25 @@ describe('gamification Goal Line — weight goal', () => {
     expect(goal.next_milestone.is_goal).toBe(true);
   });
 
+  it('a long weigh-in gap restarts the trend — a year-old EMA is never the baseline', async () => {
+    // 5 days at 100 kg a year ago; back at 90 kg for the last 8 days with a
+    // gain goal of 95 set 7 days ago (start_weight 90 recorded at set time).
+    const { gam } = domainOver({
+      weight: [
+        ...[0, 1, 2, 3, 4].map((k) => weightRec(365 + k, 100)),
+        ...series(8, () => 90),
+      ],
+      weightgoal: [goalRec(7, 95, 90)],
+    });
+    const { goal } = await gam.getGoalLine();
+
+    expect(goal.start_ref_source).toBe('first_reading');
+    expect(goal.start_ref).toBe(90);
+    expect(goal.direction).toBe(1);
+    expect(goal.trend_weight).toBe(90);
+    expect(goal.status).toBe('ok');
+  });
+
   it('a 2 %/week drop raises too_fast (the only pace judgment)', async () => {
     const { gam } = domainOver({
       weight: series(60, (o) => 100 * (1 + (0.02 / 7) * o)),
@@ -155,20 +174,23 @@ describe('gamification Goal Line — weight goal', () => {
 });
 
 describe('gamification Goal Line — workouts, BP, cta', () => {
-  it('duplicate same-session logs count once; last week does not count', async () => {
+  it('counts distinct completed sessions (two on one day = 2, many logs = 1 each); last week does not count', async () => {
     const { gam } = domainOver({
       workoutgroup: [GROUP], workoutvariant: [VARIANT],
       weight: [weightRec(0, 80)],
       workoutsession: [
         { recordId: 'session-7-2026-06-15', deleted: false, group_id: 7, status: 'completed', scheduled_date: '2026-06-15T00:00:00Z' },
-        { recordId: 'adhoc-1', deleted: false, group_id: -1, status: 'completed', scheduled_date: '2026-06-16T00:00:00Z' },
+        { recordId: 'adhoc-1', deleted: false, group_id: -1, status: 'completed', scheduled_date: '2026-06-15T00:00:00Z' },
         { recordId: 'session-7-2026-06-12', deleted: false, group_id: 7, status: 'completed', scheduled_date: '2026-06-12T00:00:00Z' },
       ],
       workoutlog: [1, 2, 3, 4].map((k) => ({ recordId: `log-${k}`, deleted: false, session_id: 'session-7-2026-06-15' })),
     });
     const gl = await gam.getGoalLine();
 
+    // Not the one-flag-per-day map: both 06-15 sessions count.
     expect(gl.workouts.completed_this_week).toBe(2);
+    // The denominator is the plan (Mon/Wed/Fri); the extra ad-hoc session is not "scheduled".
+    expect(gl.workouts.scheduled_this_week).toBe(3);
     // weighed today + next scheduled session is today (18:00) → start_session.
     expect(gl.weighed_today).toBe(true);
     expect(gl.workouts.next_scheduled.day).toBe('2026-06-17');
@@ -202,6 +224,28 @@ describe('gamification Goal Line — workouts, BP, cta', () => {
     expect(workouts.next_scheduled).toEqual({ day: '2026-06-19', time: '18:00', group_title: 'Push' });
   });
 
+  it('a snoozed (notified) session today is still next and drives start_session', async () => {
+    const { gam } = domainOver({
+      workoutgroup: [GROUP], workoutvariant: [VARIANT],
+      weight: [weightRec(0, 80)],
+      workoutsession: [{
+        recordId: 'session-7-2026-06-17', deleted: false, group_id: 7, status: 'notified', scheduled_date: '2026-06-17T00:00:00Z',
+      }],
+    });
+    const gl = await gam.getGoalLine();
+
+    expect(gl.workouts.next_scheduled.day).toBe('2026-06-17');
+    expect(gl.cta).toBe('start_session');
+  });
+
+  it('an active plan with no weekdays gives no denominator', async () => {
+    const { gam } = domainOver({ workoutgroup: [{ ...GROUP, days_of_week: '[]' }], workoutvariant: [VARIANT] });
+    const { workouts } = await gam.getGoalLine();
+
+    expect(workouts.scheduled_this_week).toBeNull();
+    expect(workouts.next_scheduled).toBeNull();
+  });
+
   it('BP missing → status unknown; mean above the goal → above', async () => {
     const empty = await domainOver({}).gam.getGoalLine();
     expect(empty.bp).toMatchObject({ recorded_today: false, days_this_week: 0, mean_7d: null, status: 'unknown' });
@@ -223,5 +267,8 @@ describe('gamification Goal Line — workouts, BP, cta', () => {
     expect(gl.bp.feature_on).toBe(false);
     expect(gl.bp.mean_7d).toBeNull();
     expect(gl.cta).toBe('weigh_in');
+
+    const noWeight = await gam.getGoalLine({ features: { weight: false, workout: true, bp: true, gamification: true } });
+    expect(noWeight.cta).not.toBe('weigh_in');
   });
 });
