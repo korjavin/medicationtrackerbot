@@ -1367,8 +1367,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       });
     }
 
-    // 5. This morning's forecast resolution, hidden in exactly the states
-    // forecast-card.js hides it: the gamification flag off (carried in as
+    // 5. This morning's forecast resolution — the only forecast surface left
+    // (med-8tur.9 removed the Today card) — hidden with the gamification flag off (carried in as
     // includeForecast, since getForecast always reports enabled — the same
     // reason the /forecast route gates it at the shim) and below the
     // calibration gate (getForecast only sets `resolution` once calibrated).

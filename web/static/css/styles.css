@@ -5183,8 +5183,18 @@ textarea.wg-input {
    --fill-pct fill width (same convention as the weight-goal card
    and the macro bar).
    ============================================================ */
-#journey-content > .wg-card {
+#journey-content > .wg-card,
+#journey-content > .wg-journey-more,
+.wg-journey-more > .wg-card {
     margin-bottom: var(--space-md);
+}
+
+/* med-8tur.9: experiment / chapter / traits / keystones folded behind one
+   native disclosure below the goal, week, discoveries and gauges. */
+.wg-journey-more__summary {
+    cursor: pointer;
+    user-select: none;
+    margin-bottom: var(--space-sm);
 }
 
 /* Shared progress bar (health-score contributors, atlas, chapter, trial). */
@@ -5217,6 +5227,10 @@ textarea.wg-input {
 .wg-journey-goal__line {
     margin: var(--space-xs) 0 0;
     font-size: var(--font-size-sm);
+}
+
+.wg-journey-goal__timeline-label {
+    margin-top: var(--space-md);
 }
 
 /* "Your week" card (gamification-12 §Task3): a native <details>/<summary>
@@ -5421,24 +5435,6 @@ textarea.wg-input {
     font-size: var(--font-size-sm);
     font-weight: 600;
     color: var(--wg-fg-1);
-}
-
-/* Tomorrow Forecast (us0.3). No longer mounted on Today (med-8tur.2 — the
-   Goal Line replaced the rings tile it lived in); kept until slice-4 cleanup. */
-.wg-forecast-card .wg-section-label {
-    padding-top: 0;
-    padding-bottom: var(--space-xs);
-}
-
-.wg-forecast-card__evening,
-.wg-forecast-card__resolution,
-.wg-forecast-card__calibration {
-    margin: 0;
-    font-size: var(--font-size-sm);
-}
-
-.wg-forecast-card__calibration {
-    margin-top: var(--space-xs);
 }
 
 /* Tier-3 insight card (Task 3) — one plain-language line. */

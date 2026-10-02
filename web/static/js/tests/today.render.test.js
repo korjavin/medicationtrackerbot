@@ -559,13 +559,11 @@ describe('TodayDashboard.renderToday', () => {
 
     it('rings tile and forecast no longer mount on Today', () => {
         const root = env.document.getElementById('today-content');
-        const mountCard = vi.fn();
-        env.window.WGForecastCard = { mountCard, refresh: vi.fn() };
         env.render(goalLineState(now, goalLinePayload()), root, { now });
         expect(root.querySelector('.wg-goal-line')).not.toBeNull();
         expect(root.querySelector('.wg-today-rings')).toBeNull();
         expect(root.querySelector('.wg-ring-stack')).toBeNull();
-        expect(mountCard).not.toHaveBeenCalled();
+        expect(root.querySelector('.wg-forecast-card')).toBeNull();
     });
 
     it('no_goal: compact "Set a weight goal →" to the Weight tab, facts still shown', () => {

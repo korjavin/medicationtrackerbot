@@ -140,6 +140,11 @@ the whole card taps through to Journey, whose top card is the same goal
 context. No HP, level, score or rings on this card; `no_goal` shows "Set a
 weight goal →" with the workout/BP facts still present. The Weight tab's goal
 card reads the same episode progress so the two screens agree.
+*Journey (med-8tur.9):* goal-first — the order and the "More" disclosure
+(experiment / chapter / traits / keystones) live in `render()` in
+`web/static/js/features/journey.js`; reached milestones render as the goal
+card's timeline. The standalone Tomorrow Forecast card is removed; the
+forecast surfaces only as the Atlas "since you last looked" line.
 
 **0.3.3 The daily loop.** Weigh in → the trend, distance and next-marker
 distance move → the facts rows show what is done and what is next → evening:
