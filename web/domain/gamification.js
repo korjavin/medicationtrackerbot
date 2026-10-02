@@ -3171,12 +3171,13 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     // went stale. adherence_alert keeps the substrate's UTC-day window.
     // The live week's plan (§0.3.4, med-8tur.4): the chosen intention/cadence
     // shown under the rows; a paused week shows "paused" instead of the
-    // week's change and the too-fast line (and any projection).
+    // week's change and the too-fast line — and withholds the projected date,
+    // which must never appear where the too-fast flag was just hidden.
     const plan = weekPlanView(await weekPlanRecord(isoWeekKey(today)));
     if (plan && plan.paused) {
       goal.change_7d = null;
       goal.too_fast = false;
-      if ('projected' in goal) goal.projected = null;
+      goal.projected = { date: null, plus_minus_weeks: null, reason: 'paused' };
     }
     return {
       enabled: true, goal, workouts, bp, weighed_today: weighedToday, cta,

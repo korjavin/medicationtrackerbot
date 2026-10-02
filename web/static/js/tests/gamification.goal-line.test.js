@@ -685,6 +685,7 @@ describe('gamification weekly review + week plan', () => {
     expect(paused.plan.paused).toBe(true);
     expect(paused.goal.change_7d).toBeNull();
     expect(paused.goal.too_fast).toBe(false);
+    expect(paused.goal.projected).toEqual({ date: null, plus_minus_weeks: null, reason: 'paused' });
     expect((await gam.listExperiments()).recovery_paused).toBe(true);
   });
 
