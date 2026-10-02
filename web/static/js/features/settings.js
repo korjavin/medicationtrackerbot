@@ -702,6 +702,7 @@ async function loadSettings() {
     // Journey targets editor — loaded lazily off its own endpoint (best-effort;
     // internally gated on the gamification flag).
     await loadGamificationTargets();
+    await loadGamificationMode();
     // Collapse any <details> group whose sections are all hidden (e.g. a
     // cloud-only group in bot mode) so an empty fold doesn't render.
     hideEmptySettingsGroups();
@@ -742,10 +743,67 @@ function updateFeatureToggles() {
 }
 
 // The weekly-digest toggle drives a gamification-summary push, so it's only
-// meaningful when gamification is on (both-on gate).
+// meaningful when gamification is on (both-on gate). The Journey mode switches
+// (med-8tur.12) share the same gate.
 function updateWeeklyDigestVisibility(flags) {
     const row = document.querySelector('mt-setting-toggle[input-id="weekly-digest-feature-toggle"]');
     row?.classList.toggle('wg-settings-hidden', !flags.gamification);
+    for (const key of GAMIFICATION_MODE_KEYS) {
+        document.querySelector(`mt-setting-toggle[input-id="${gamificationModeToggleId(key)}"]`)
+            ?.classList.toggle('wg-settings-hidden', !flags.gamification);
+    }
+}
+
+// ---- Journey mode switches (med-8tur.12, docs/gamification.md §0.5) ---------
+// Per-mechanic switches + ED-safe, stored on the gamificationmode record via
+// GET/PUT /api/gamification/mode.
+const GAMIFICATION_MODE_KEYS = ['experiments', 'traits', 'narration', 'ed_safe'];
+
+function gamificationModeToggleId(key) {
+    return `gam-mode-${key.replace(/_/g, '-')}-toggle`;
+}
+
+function applyGamificationMode(mode) {
+    for (const key of GAMIFICATION_MODE_KEYS) {
+        const input = document.getElementById(gamificationModeToggleId(key));
+        if (input && typeof mode[key] === 'boolean') input.checked = mode[key];
+    }
+}
+
+async function loadGamificationMode() {
+    if (!window.featureSettings || !window.featureSettings.gamification) return;
+    try {
+        const mode = await apiCall('/api/gamification/mode', 'GET');
+        if (mode && mode.enabled !== false) applyGamificationMode(mode);
+    } catch (e) {
+        console.warn('Failed to load journey mode:', e);
+    }
+}
+
+// Optimistic write (Critical Rule #9), same shape as saveGamificationTargets:
+// the switch already flipped in the DOM; a failure rolls the 'gamification'
+// cache back and restores the switch, success invalidates the tag so Today's
+// Goal Line and the Journey re-read under the new mode.
+async function saveGamificationMode(key, value) {
+    const ds = window.DataStore;
+    const handle = (ds && typeof ds.applyOptimistic === 'function')
+        ? await ds.applyOptimistic('gamification', (prev) => prev, ['gamification'])
+        : null;
+    let res = null;
+    try {
+        res = await apiCall('/api/gamification/mode', 'PUT', { [key]: value });
+    } catch (e) {
+        console.error('Failed to save journey mode:', e);
+    }
+    if (!res || res.ok === false) {
+        if (handle) await handle.rollback();
+        const input = document.getElementById(gamificationModeToggleId(key));
+        if (input) input.checked = !value;
+        return;
+    }
+    if (handle) await handle.commit(null);
+    applyGamificationMode(res);
+    try { await ds.invalidateTags(['gamification']); } catch (_) { /* best-effort */ }
 }
 
 function updateFoodTargetsVisibility() {
@@ -954,6 +1012,8 @@ window.SettingsView = {
     updateFeatureTabVisibility,
     loadGamificationTargets,
     applyGamificationTargets,
+    loadGamificationMode,
+    saveGamificationMode,
     saveGamificationTargets,
     updateGamificationTargetsVisibility
 };

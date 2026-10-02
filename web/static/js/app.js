@@ -193,6 +193,14 @@ document.getElementById('workout-feature-toggle').addEventListener('change', asy
 document.getElementById('weekly-digest-feature-toggle').addEventListener('change', async function () {
     await toggleFeatureSetting('weekly_digest', this.checked);
 });
+// Journey mode switches (med-8tur.12) — saveGamificationMode lives in
+// features/settings.js, which loads after this file (resolved at event time).
+[['gam-mode-experiments-toggle', 'experiments'], ['gam-mode-traits-toggle', 'traits'],
+    ['gam-mode-narration-toggle', 'narration'], ['gam-mode-ed-safe-toggle', 'ed_safe']].forEach(([id, key]) => {
+    document.getElementById(id).addEventListener('change', async function () {
+        await saveGamificationMode(key, this.checked);
+    });
+});
 document.getElementById('live-hr-feature-toggle').addEventListener('change', async function () {
     await toggleFeatureSetting('live_hr', this.checked);
 });

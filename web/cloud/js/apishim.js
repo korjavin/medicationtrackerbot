@@ -1225,6 +1225,18 @@ export function createApiRouter(ctx, {
       }
       return res;
     }
+    // Gamification mode (med-8tur.12, docs/gamification.md §0.5): per-mechanic
+    // switches (experiments / traits / narration) + the ED-safe toggle. UI-only
+    // like /goal-line. ED-safe changes the weigh-in push and digest text, so a
+    // write recomputes the reminder horizon.
+    if (path === '/api/gamification/mode') {
+      if (method === 'GET') return gamification.getMode();
+      if (method === 'PUT') {
+        const res = await gamification.putMode(body || {});
+        if (res.ok !== false) scheduleReminderRecompute(ctx, { records, timeZone });
+        return res;
+      }
+    }
     if (path === '/api/gamification/targets') {
       if (method === 'GET') return gamification.getTargets();
       if (method === 'PUT' || method === 'POST') return gamification.putTargets(body || {});
@@ -1242,7 +1254,13 @@ export function createApiRouter(ctx, {
     // already-computed summaries to the user's own provider via the narrator —
     // raw vault records never cross the boundary. No key / any provider error
     // returns { text: null } and journey.js keeps its deterministic cards.
-    if (path === '/api/gamification/narrate' && method === 'GET') return { enabled: true };
+    // The narration switch (gamificationmode, med-8tur.12) turns the probe off
+    // and every POST into the same {text:null} a missing key produces.
+    if (path === '/api/gamification/narrate' && method === 'GET') {
+      return { enabled: (await gamification.getMode()).narration };
+    }
+    if (path.startsWith('/api/gamification/narrate/') && method === 'POST'
+      && !(await gamification.getMode()).narration) return { text: null };
     if (path === '/api/gamification/narrate/weekly' && method === 'POST') {
       // The goal recap (med-8tur.8): the completed-week review — its weight row
       // is the Goal Line as of the reviewed Sunday — under the same feature

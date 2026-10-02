@@ -733,6 +733,8 @@ export const scoring = {
 //                e.g. no sleep record that night). Never dredges: the predicate
 //                is fixed, not chosen from the data.
 //   gauge(day) — the outcome number for a day, or null if absent.
+//   weight     — optional; true when the probe reads weight. ED-safe mode
+//                (gamificationmode.ed_safe) drops these cards from the Atlas.
 //   the *Phrase / next fields are deterministic copy templates (never causal
 //   language, §4.1): "mornings after X were lower", never "X lowered".
 // -------------------------------------------------------------------------
@@ -836,6 +838,11 @@ const EXP_MIN_PER_ARM = 4;         // real contrast needed in BOTH arms over the
 // optional record and returns false when absent, so the pause activates for
 // free once a recovery-mode subsystem lands. No subsystem is invented here.
 const RECOVERY_MODE_RECORD_TYPE = 'gamificationmode';
+// The same record type also carries the user's gamification mode (med-8tur.12,
+// docs/gamification.md §0.5): per-mechanic switches plus the ED-safe toggle,
+// on one singleton row. Absent = the defaults below (everything on, ED-safe off).
+const MODE_RECORD_ID = 'gamificationmode';
+const MODE_DEFAULTS = Object.freeze({ ed_safe: false, experiments: true, traits: true, narration: true });
 
 export const EXPERIMENT_TEMPLATES = [
   {
@@ -1226,9 +1233,9 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // — the narrate handlers hold their own copies of every payload getWhatsNew
   // composes and drop `whats_new`, so they must not pay for it.
   async function getAtlas({ whatsNew = true } = {}) {
-    const [days, seen] = await Promise.all([buildDays(), readSeen()]);
+    const [days, seen, mode] = await Promise.all([buildDays(), readSeen(), readMode()]);
     const seenSet = new Set(seen);
-    const cards = PROBES.map((probe) => {
+    const cards = PROBES.filter((probe) => !(mode.ed_safe && probe.weight)).map((probe) => {
       const card = evaluateProbe(probe, days);
       if (card.state === 'revealed' || card.state === 'no_effect') {
         card.seen = seenSet.has(card.id);
@@ -1421,6 +1428,35 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     return await records.list(EXPERIMENT_RECORD_TYPE);
   }
 
+  // readMode — the gamificationmode singleton over MODE_DEFAULTS. Only
+  // booleans count; anything else falls back to the default.
+  async function readMode() {
+    const rec = (await records.list(RECOVERY_MODE_RECORD_TYPE)).find((r) => r.recordId === MODE_RECORD_ID);
+    const mode = { ...MODE_DEFAULTS };
+    for (const k of Object.keys(MODE_DEFAULTS)) if (rec && typeof rec[k] === 'boolean') mode[k] = rec[k];
+    return mode;
+  }
+
+  async function getMode() {
+    return { enabled: true, ...(await readMode()) };
+  }
+
+  // putMode is the USER write behind the Settings switches: a partial patch of
+  // known boolean keys, merged over the stored row (its recovery flag kept).
+  async function putMode(body) {
+    const patch = {};
+    for (const k of Object.keys(MODE_DEFAULTS)) {
+      if (!body || body[k] === undefined) continue;
+      if (typeof body[k] !== 'boolean') return { ok: false, error: `invalid_${k}` };
+      patch[k] = body[k];
+    }
+    const prev = (await records.list(RECOVERY_MODE_RECORD_TYPE)).find((r) => r.recordId === MODE_RECORD_ID);
+    await records.put(RECOVERY_MODE_RECORD_TYPE, {
+      ...(prev || {}), ...patch, recordId: MODE_RECORD_ID, deleted: false, clientTs: now(),
+    });
+    return getMode();
+  }
+
   // recoveryActive — the defensive recovery/illness-mode seam (§5). No such
   // flag exists yet; this reads an optional signal record and returns false
   // when absent, so experiments auto-pause for free once the flag lands.
@@ -1535,6 +1571,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // can start. Auto-freezes an elapsed trial as a side effect (markDiscoverySeen
   // pattern).
   async function listExperiments() {
+    if (!(await readMode()).experiments) return { enabled: false };
     const nowMs = now();
     const [all, days, paused] = await Promise.all([readExperiments(), buildDays(), recoveryActive()]);
     const activeRaw = all.find((e) => e.status === 'active') || null;
@@ -1568,6 +1605,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   async function startExperiment(templateId, params) {
     const template = experimentTemplateById(templateId);
     if (!template) return { ok: false, error: 'unknown_template' };
+    if (!(await readMode()).experiments) return { ok: false, error: 'disabled' };
     const paused = await recoveryActive();
     if (paused) return { ok: false, error: 'recovery_paused' };
 
@@ -1884,6 +1922,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // which shouldn't mint new identity off a paused clock). The write is the only
   // durable side effect; every other field is recomputed.
   async function getTraits() {
+    if (!(await readMode()).traits) return { enabled: false };
     const nowMs = now();
     const [days, paused, journal] = await Promise.all([buildDays(), recoveryActive(), readJournal()]);
     const persistedTraits = (journal && journal.traits) || {};
@@ -1935,7 +1974,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     await maybeDetectBpBandKeystone(days, band);
     const journal = await readJournal();
     const list = Array.isArray(journal && journal.keystones) ? journal.keystones.slice() : [];
-    list.push(...await milestoneKeystones());
+    // ED-safe: goal milestones are weight outcomes — hidden with the Goal Line.
+    if (!(await readMode()).ed_safe) list.push(...await milestoneKeystones());
     list.sort((a, b) => (b.earned_at || 0) - (a.earned_at || 0));
     return { enabled: true, keystones: list };
   }
@@ -2715,7 +2755,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     delete weight.goal_direction; // internal-only (json:"-" in Go)
     return {
       enabled: true,
-      weight,
+      // ED-safe: no weight numbers on the Journey gauges.
+      weight: (await readMode()).ed_safe ? null : weight,
       bp: computeBPGaugeAt(ctx, ctx._bpReadings, todayStr, cfg),
       resting_hr: computeRestingHRGaugeAt(ctx, todayStr, cfg),
     };
@@ -2737,7 +2778,10 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // The ring/score keys (levers, strengths, gauges, health_score) stay for the
   // MCP op's shape, now over the same completed week — nothing renders them.
   async function getWeeklyReview({ features } = {}) {
-    const on = (k) => !features || !!features[k];
+    // ED-safe reads as the weight feature being off: no weight row, no
+    // weigh-in cadence pick, no weight intention, no weight gauge.
+    const edSafe = (await readMode()).ed_safe;
+    const on = (k) => !(edSafe && k === 'weight') && (!features || !!features[k]);
     const { cfg, ctx } = await loadForRead();
     const scored = scoreWindow(ctx, cfg);
     const nowMs = now();
@@ -2782,7 +2826,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     const sPrior = strengthsView(ctx, ctx._bpReadings, addDays(sunday, -7), cfg);
     const strengths = strengthsView(ctx, ctx._bpReadings, sunday, cfg)
       .map((st, i) => ({ key: st.key, label: st.label, value_now: st.value, value_prior: (sPrior[i] && sPrior[i].value) || 0 }));
-    const weightGauge = computeWeightGaugeAt(ctx, sunday, cfg); delete weightGauge.goal_direction;
+    let weightGauge = computeWeightGaugeAt(ctx, sunday, cfg); delete weightGauge.goal_direction;
+    if (edSafe) weightGauge = null;
     const bpGauge = computeBPGaugeAt(ctx, ctx._bpReadings, sunday, cfg);
     const bpPrior = computeBPGaugeAt(ctx, ctx._bpReadings, addDays(sunday, -7), cfg);
 
@@ -2989,6 +3034,9 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // substrate's own trailing-PDC view (UTC-day window) kept unchanged. Weeks are ISO Monday–Sunday (workout.js stats).
   // `features` is the settings flag map (the shim passes it; absent = all on).
   async function getGoalLine({ features } = {}) {
+    // ED-safe (§0.5) hides the Goal Line entirely: the Today hero, the Journey
+    // goal card and the goal-aware weigh-in push all read this.
+    if ((await readMode()).ed_safe) return { enabled: false, ed_safe: true };
     const on = (k) => !features || !!features[k];
     const nowMs = now();
     const today = localDayString(nowMs, timeZone);
@@ -3369,6 +3417,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // write-free) plus `milestone` — the newest unacknowledged milestone of the
   // current episode, after materializing any newly earned ones.
   async function getGoalLineCard({ features } = {}) {
+    // ED-safe: no milestones materialize either — checked before the sync.
+    if ((await readMode()).ed_safe) return { enabled: false, ed_safe: true };
     const goal = await syncGoalMilestones();
     const gl = await getGoalLine({ features });
     const open = (await records.list(GOAL_MILESTONE_RECORD_TYPE))
@@ -3469,7 +3519,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   }
 
   return {
-    getAtlas, markDiscoverySeen,
+    getAtlas, markDiscoverySeen, getMode, putMode,
     listExperiments, startExperiment, cancelExperiment,
     getChapter, startChapter, closeChapter,
     getTraits, getKeystones,

@@ -115,6 +115,25 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         expect(await window.apiCall('/api/gamification/goal-line', 'GET')).toEqual({ enabled: false });
     });
 
+    // med-8tur.12: the Journey mode switches persist through the shim and gate
+    // the routes — ED-safe hides the Goal Line, narration off turns the probe
+    // off and every narrate POST into {text:null}.
+    it('saveGamificationMode persists ED-safe / narration and the routes honor them', async () => {
+        const { window } = env;
+
+        expect(await window.apiCall('/api/gamification/mode', 'GET'))
+            .toEqual({ enabled: true, ed_safe: false, experiments: true, traits: true, narration: true });
+        expect((await window.apiCall('/api/gamification/narrate', 'GET')).enabled).toBe(true);
+
+        await window.saveGamificationMode('ed_safe', true);
+        await window.saveGamificationMode('narration', false);
+
+        expect(await window.apiCall('/api/gamification/mode', 'GET')).toMatchObject({ ed_safe: true, narration: false });
+        expect(await window.apiCall('/api/gamification/goal-line', 'GET')).toEqual({ enabled: false, ed_safe: true });
+        expect(await window.apiCall('/api/gamification/narrate', 'GET')).toEqual({ enabled: false });
+        expect(await window.apiCall('/api/gamification/narrate/weekly', 'POST', {})).toEqual({ text: null });
+    });
+
     // med-8tur.5: the route materializes a reached milestone (floored) and
     // serves it as `milestone` until POST .../ack retires it.
     it('GET /api/gamification/goal-line serves a reached milestone until POST /milestones/:id/ack', async () => {

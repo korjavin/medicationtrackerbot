@@ -829,3 +829,55 @@ describe('gamification weekly review + week plan', () => {
     expect(week).toMatchObject({ recordId: 'gamificationweek-2026-W26', episode_id: goal.recordId, paused: true });
   });
 });
+
+describe('gamification mode — per-mechanic switches + ED-safe (med-8tur.12)', () => {
+  const mode = (extra) => ({ recordId: 'gamificationmode', deleted: false, ...extra });
+  const crossing = () => ({ weight: series(21, () => 83.8), weightgoal: [goalRec(20, 80, 85)] });
+
+  it('defaults to everything on, ED-safe off; putMode merges booleans and keeps the recovery flag', async () => {
+    const { records, gam } = domainOver({ gamificationmode: [mode({ recovery: true })] });
+    expect(await gam.getMode()).toEqual({ enabled: true, ed_safe: false, experiments: true, traits: true, narration: true });
+
+    expect(await gam.putMode({ ed_safe: 'yes' })).toEqual({ ok: false, error: 'invalid_ed_safe' });
+    expect(records.put).not.toHaveBeenCalled();
+
+    expect(await gam.putMode({ ed_safe: true, traits: false }))
+      .toMatchObject({ ed_safe: true, traits: false, experiments: true });
+    const [rec] = await records.list('gamificationmode');
+    expect(rec).toMatchObject({ recordId: 'gamificationmode', recovery: true, ed_safe: true, traits: false, clientTs: NOW });
+  });
+
+  it('ED-safe hides the Goal Line, materializes no milestone, and drops weight from keystones, gauges and the review', async () => {
+    // A milestone earned before ED-safe was switched on stays stored, never shown.
+    const seeded = domainOver(crossing());
+    await seeded.gam.getGoalLineCard();
+    const milestones = await seeded.records.list('gamificationmilestone');
+    expect(milestones).toHaveLength(1);
+
+    const { records, gam } = domainOver({
+      ...crossing(), gamificationmilestone: milestones, gamificationmode: [mode({ ed_safe: true })],
+    });
+    expect(await gam.getGoalLine()).toEqual({ enabled: false, ed_safe: true });
+    expect(await gam.getGoalLineCard()).toEqual({ enabled: false, ed_safe: true });
+    expect(records.putIfAbsent).not.toHaveBeenCalled();
+    const { keystones } = await gam.getKeystones();
+    expect(keystones.filter((k) => k.kind === 'goal_milestone')).toEqual([]);
+
+    expect((await gam.getGauges()).weight).toBeNull();
+    const review = await gam.getWeeklyReview();
+    expect(review.rows.weight).toEqual({ feature_on: false, status: 'unknown' });
+    expect(review.options.weigh_in).toEqual([]);
+    expect(review.options.intentions.map((i) => i.id)).not.toContain('weigh_before_coffee');
+    expect(review.gauges.weight).toBeNull();
+  });
+
+  it('experiments off → no trial list and no new trial; traits off → no traits, and no strip line for either', async () => {
+    const { gam } = domainOver({ gamificationmode: [mode({ experiments: false, traits: false })] });
+    expect(await gam.listExperiments()).toEqual({ enabled: false });
+    expect(await gam.startExperiment('bedtime_window', {})).toEqual({ ok: false, error: 'disabled' });
+    expect(await gam.getTraits()).toEqual({ enabled: false });
+    const kinds = (await gam.getAtlas()).whats_new.map((it) => it.kind);
+    expect(kinds).not.toContain('trait');
+    expect(kinds).not.toContain('experiment');
+  });
+});

@@ -464,7 +464,10 @@
         if (gauges.enabled === false) return null;
 
         const list = el('div', 'wg-journey-gauges__list');
-        list.appendChild(renderGaugeRow('Weight', weightGaugeCopy(gauges.weight), gauges.weight && gauges.weight.trend_history));
+        // weight === null is ED-safe mode (med-8tur.12): no weight row at all.
+        if (gauges.weight !== null) {
+            list.appendChild(renderGaugeRow('Weight', weightGaugeCopy(gauges.weight), gauges.weight && gauges.weight.trend_history));
+        }
         list.appendChild(renderGaugeRow('Blood pressure', bpGaugeCopy(gauges.bp)));
         list.appendChild(renderGaugeRow('Resting heart rate', restingHRGaugeCopy(gauges.resting_hr)));
         card.appendChild(list);
