@@ -830,6 +830,70 @@ describe('gamification weekly review + week plan', () => {
   });
 });
 
+// med-8tur.10 (§0.3.6): the joint weight/BP observation. Goal set 70 days ago
+// (Wed 04-08) → complete weeks Mon 04-13 … Sun 06-14 = 9 → k = 4: first
+// period 04-13…05-10, last 05-18…06-14 (offsets 66…39 and 31…3).
+describe('gamification Goal Line — joint weight/BP observation', () => {
+  // Weight moves `perDay` kg each day (positive = gaining); BP reads sysA/diaA
+  // before offset 35, sysB/diaB from it on; one ignore_calc spike in the last period.
+  function jointVault(perDay, [sysA, diaA], [sysB, diaB]) {
+    return {
+      weight: series(101, (offset) => 90 + perDay * (100 - offset)),
+      weightgoal: [goalRec(70, 80, 86)],
+      bp: Array.from({ length: 70 }, (_, offset) => (offset > 35 ? bpRec(offset, sysA, diaA) : bpRec(offset, sysB, diaB)))
+        .concat([{ recordId: 'bp-spike', deleted: false, measured_at: isoAt(10, 9), systolic: 200, diastolic: 120, ignore_calc: true }]),
+      bpgoal: [{ recordId: 'bpgoal', deleted: false, target_systolic: 130, target_diastolic: 85 }],
+    };
+  }
+
+  it('favorable: both components, coverage and the frozen target', async () => {
+    const { records, gam } = domainOver(jointVault(-0.05, [140, 90], [128, 82]));
+    const { joint } = await gam.getGoalLine();
+    expect(joint.weeks_per_period).toBe(4);
+    expect(joint.weight_change_kg).toBe(-1.75); // 35 days apart at −0.05 kg/day
+    expect(joint.periods.map((p) => [p.start_day, p.end_day])).toEqual([
+      ['2026-04-13', '2026-05-10'], ['2026-05-18', '2026-06-14'],
+    ]);
+    // ignore_calc excluded: the 200/120 spike does not move the last period.
+    expect(joint.periods.map((p) => p.bp)).toEqual([
+      { systolic: 140, diastolic: 90, days: 28 }, { systolic: 128, diastolic: 82, days: 28 },
+    ]);
+    expect(joint.periods.map((p) => p.weigh_in_days)).toEqual([28, 28]);
+    expect(joint.bp_target).toEqual({ systolic: 130, diastolic: 85 });
+    expectNoWrites(records);
+  });
+
+  it('unfavorable: rendered all the same — weight up, BP up', async () => {
+    const { gam } = domainOver(jointVault(0.05, [126, 80], [139, 88]));
+    const { joint } = await gam.getGoalLine();
+    expect(joint.weight_change_kg).toBe(1.75);
+    expect(joint.periods.map((p) => p.bp)).toEqual([
+      { systolic: 126, diastolic: 80, days: 28 }, { systolic: 139, diastolic: 88, days: 28 },
+    ]);
+  });
+
+  it('ED-safe hides the joint line with the rest of the Goal Line', async () => {
+    const vault = jointVault(-0.05, [140, 90], [128, 82]);
+    vault.gamificationmode = [{ recordId: 'gamificationmode', deleted: false, ed_safe: true }];
+    const gl = await domainOver(vault).gam.getGoalLine();
+    expect(gl.enabled).toBe(false);
+    expect(gl).not.toHaveProperty('joint');
+  });
+
+  it('null without BP in one period, without enough weeks, or with BP off', async () => {
+    const noFirst = jointVault(-0.05, [140, 90], [128, 82]);
+    noFirst.bp = noFirst.bp.filter((r) => r.recordId === 'bp-spike' || Number(r.recordId.slice(3)) <= 35);
+    expect((await domainOver(noFirst).gam.getGoalLine()).joint).toBeNull();
+
+    const young = jointVault(-0.05, [140, 90], [128, 82]);
+    young.weightgoal = [goalRec(20, 80, 86)]; // two complete weeks → one per period, under the 2-week floor
+    expect((await domainOver(young).gam.getGoalLine()).joint).toBeNull();
+
+    const { gam } = domainOver(jointVault(-0.05, [140, 90], [128, 82]));
+    expect((await gam.getGoalLine({ features: { weight: true, bp: false } })).joint).toBeNull();
+  });
+});
+
 describe('gamification mode — per-mechanic switches + ED-safe (med-8tur.12)', () => {
   const mode = (extra) => ({ recordId: 'gamificationmode', deleted: false, ...extra });
   const crossing = () => ({ weight: series(21, () => 83.8), weightgoal: [goalRec(20, 80, 85)] });

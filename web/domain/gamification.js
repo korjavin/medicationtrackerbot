@@ -811,6 +811,39 @@ export const PROBES = [
     revealPhrase: (delta, n) => `After dinners past 21:00 you sleep ~${Math.abs(Math.round(delta))} min ${delta < 0 ? 'less' : 'more'} · ${n} paired days`,
     noEffectPhrase: (n) => `Late dinners don’t seem to shorten your sleep · ${n} days`,
   },
+  // Goal-relevant probes (§0.3.6, med-8tur.10): week-bucketed — `bucket:
+  // 'week'` evaluates over buildWeeks (complete local ISO weeks of the window),
+  // not the day map, so arm/gauge read week objects and lag is 0. The gauge is
+  // the week's change in the Goal Line trend (kg); a descriptive association
+  // between two weekly facts, never a claim that one moved the other.
+  {
+    id: 'workout_weeks_vs_trend_velocity',
+    bucket: 'week',
+    weight: true,
+    question: 'Does your weight trend move differently in weeks with 3+ workouts?',
+    unit: 'kg/wk',
+    lag: 0,
+    gate: { minPerArm: 3, noiseFloor: 0.2 },
+    arm: (w) => w.workouts >= 3,
+    gauge: (w) => w.trendChange,
+    next: 'Weigh in through the week and log your workouts to add a week.',
+    revealPhrase: (delta, n) => `In weeks with 3+ workouts your weight trend moved ~${Math.abs(delta).toFixed(1)} kg/week ${delta < 0 ? 'more downward' : 'more upward'} than in other weeks · ${n} weeks`,
+    noEffectPhrase: (n) => `Your weight trend moved about the same in 3+ workout weeks as in other weeks · ${n} weeks`,
+  },
+  {
+    id: 'food_logged_weeks_vs_trend_velocity',
+    bucket: 'week',
+    weight: true,
+    question: 'Does your weight trend move differently in weeks you log food most days?',
+    unit: 'kg/wk',
+    lag: 0,
+    gate: { minPerArm: 3, noiseFloor: 0.2 },
+    arm: (w) => w.foodLoggedDays >= 5,
+    gauge: (w) => w.trendChange,
+    next: 'Weigh in through the week and log what you eat to add a week.',
+    revealPhrase: (delta, n) => `In weeks you logged food on 5+ days your weight trend moved ~${Math.abs(delta).toFixed(1)} kg/week ${delta < 0 ? 'more downward' : 'more upward'} than in other weeks · ${n} weeks`,
+    noEffectPhrase: (n) => `Your weight trend moved about the same whether or not you logged food most days · ${n} weeks`,
+  },
 ];
 
 // -------------------------------------------------------------------------
@@ -892,6 +925,63 @@ export const EXPERIMENT_TEMPLATES = [
     offLabel: 'late-dinner days',
     effectPhrase: (delta, n) => `After early dinners you slept ~${Math.abs(Math.round(delta))} min ${delta > 0 ? 'more' : 'less'} · ${n} paired days`,
     noEffectPhrase: (n) => `Dinner timing didn’t move your sleep length — a clean null result over ${n} days`,
+  },
+  // Goal-lever templates (§0.3.6, med-8tur.10): the intention is a behavior,
+  // never an amount (no kg, no calories). The gauge is the next weigh-in's step
+  // in the Goal Line trend (weightTrendStep, kg) — read the next day, so only
+  // a day followed by a weigh-in pairs.
+  {
+    id: 'three_sessions_week',
+    fromProbe: 'workout_weeks_vs_trend_velocity',
+    weight: true, // ED-safe hides it (listExperiments / startExperiment)
+    title: 'Three sessions a week',
+    intention: 'When my training days come round, I will fit in three sessions this week.',
+    measure: 'Your next weigh-in’s trend step after session days vs other days.',
+    unit: 'kg',
+    lag: 1,
+    noiseFloor: 0.05,
+    lever: (d) => d.workoutCompleted === true,
+    gauge: (d) => d.weightTrendStep,
+    onLabel: 'session days',
+    offLabel: 'other days',
+    effectPhrase: (delta, n) => `After session days your trend stepped ~${Math.abs(delta).toFixed(2)} kg ${delta < 0 ? 'more downward' : 'more upward'} · ${n} paired days`,
+    noEffectPhrase: (n) => `Your trend stepped about the same after session days and other days — a clean null result over ${n} days`,
+  },
+  {
+    id: 'log_every_meal',
+    fromProbe: 'food_logged_weeks_vs_trend_velocity',
+    weight: true,
+    title: 'Log every meal',
+    intention: 'When I finish eating, I will log it before I leave the table.',
+    measure: 'Your next weigh-in’s trend step after fully logged days vs other days.',
+    unit: 'kg',
+    lag: 1,
+    noiseFloor: 0.05,
+    lever: (d) => d.mealsLogged >= 3,
+    gauge: (d) => d.weightTrendStep,
+    onLabel: 'fully logged days',
+    offLabel: 'other days',
+    effectPhrase: (delta, n) => `After fully logged days your trend stepped ~${Math.abs(delta).toFixed(2)} kg ${delta < 0 ? 'more downward' : 'more upward'} · ${n} paired days`,
+    noEffectPhrase: (n) => `Your trend stepped about the same after fully logged days and other days — a clean null result over ${n} days`,
+  },
+  {
+    // The user's OWN protein target (foodtargets), never a number we suggest.
+    // No probe feeds it, so it has no "Test it" entry point on the Atlas.
+    id: 'protein_target',
+    fromProbe: null,
+    weight: true,
+    title: 'Hit your protein target',
+    intention: 'When I plan a meal, I will build it around a protein source.',
+    measure: 'Your next weigh-in’s trend step after days at your protein target vs below it.',
+    unit: 'kg',
+    lag: 1,
+    noiseFloor: 0.05,
+    lever: (d) => d.proteinTargetMet,
+    gauge: (d) => d.weightTrendStep,
+    onLabel: 'target days',
+    offLabel: 'other logged days',
+    effectPhrase: (delta, n) => `After days at your protein target your trend stepped ~${Math.abs(delta).toFixed(2)} kg ${delta < 0 ? 'more downward' : 'more upward'} · ${n} paired days`,
+    noEffectPhrase: (n) => `Your trend stepped about the same after target and other days — a clean null result over ${n} days`,
   },
 ];
 
@@ -1058,6 +1148,12 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
           workoutCompleted: false,
           lastMealMs: null,
           lastMealHour: null,
+          weighedIn: false,      // goal-relevant fields (med-8tur.10)
+          workoutSessions: 0,    // completed sessions (the weekly probe counts sessions, not days)
+          weightTrendStep: null, // the Goal Line trend's EMA step on a weigh-in day (kg)
+          foodLogs: 0,
+          mealHoursSet: new Set(), // internal: distinct local hours with a food log
+          protein: 0,
         };
         days.set(key, d);
       }
@@ -1106,7 +1202,9 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
         : (r.scheduled_date ? Date.parse(`${r.scheduled_date}T12:00:00Z`) : NaN);
       if (!inWindow(ms)) continue;
       const key = r.completed_at ? localDayString(ms, timeZone) : r.scheduled_date;
-      dayObj(key).workoutCompleted = true;
+      const wd = dayObj(key);
+      wd.workoutCompleted = true;
+      wd.workoutSessions += 1;
     }
 
     // Food logs — latest meal hour per day (the late-dinner lever).
@@ -1118,7 +1216,30 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
         d.lastMealMs = ms;
         d.lastMealHour = localHour(ms, timeZone);
       }
+      d.foodLogs += 1;
+      d.mealHoursSet.add(localHour(ms, timeZone));
+      d.protein += r.protein || 0;
     }
+
+    // Weight — the Goal Line trend (weightTrendRun: full history, not this
+    // window). A weigh-in day carries the EMA step it made, so a week's trend
+    // change is the sum of its steps. The run's first reading, and any weigh-in
+    // from an earlier run, has no step (null) — a week holding one is unreadable.
+    const run = weightTrendRun(await records.list(WEIGHT_RECORD_TYPE), localDayString(nowMs, timeZone), nowMs);
+    // run.days are local day keys already capped at now — compare keys, not a
+    // UTC-midnight anchor (which drops today east of UTC before midnight UTC).
+    const windowFirstKey = localDayString(windowStartMs, timeZone);
+    for (const key of run.days) {
+      if (key < windowFirstKey) continue;
+      const d = dayObj(key);
+      d.weighedIn = true;
+      // Materialize the day before, so a lag-1 template pairs this weigh-in
+      // with an otherwise empty rest day (its lever reads false, not absent).
+      if (addDays(key, -1) >= windowFirstKey) dayObj(addDays(key, -1));
+      d.weightTrendStep = key > run.origin ? run.trend.get(key) - run.trend.get(addDays(key, -1)) : null;
+    }
+    const ft = (await records.list(FOODTARGETS_RECORD_TYPE)).find((r) => r.recordId === 'foodtargets' && !r.deleted);
+    const proteinTarget = ft && ft.protein > 0 ? ft.protein : 0;
 
     // Finalize derived BP fields.
     for (const d of days.values()) {
@@ -1130,6 +1251,10 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
         d.firstMorningSystolic = null;
         d.meanSystolic = null;
       }
+      // ponytail: distinct hours with a log stand in for meals (3+ = a fully
+      // logged day); the is_meal flag marks recipes, not meal slots.
+      d.mealsLogged = d.mealHoursSet.size;
+      d.proteinTargetMet = proteinTarget > 0 && d.foodLogs > 0 ? d.protein >= proteinTarget : null;
     }
     return days;
   }
@@ -1184,6 +1309,34 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     };
   }
 
+  // buildWeeks folds the day map into complete local ISO weeks (Mon–Sun) for
+  // the week-bucketed probes: only weeks wholly inside the window and before
+  // the live week. trendChange = the sum of the week's trend steps — null
+  // without a weigh-in, or when a weigh-in carries no step (a run start).
+  function buildWeeks(days) {
+    const nowMs = now();
+    const firstKey = localDayString(nowMs - WINDOW_DAYS * DAY_MS, timeZone);
+    const todayKey = localDayString(nowMs, timeZone);
+    const weeks = new Map();
+    for (const d of days.values()) {
+      const monday = addDays(d.key, -((dayOfWeek(d.key) + 6) % 7));
+      if (monday < firstKey || addDays(monday, 6) >= todayKey) continue;
+      let w = weeks.get(monday);
+      if (!w) {
+        w = { key: monday, workouts: 0, foodLoggedDays: 0, trendChange: null, unreadable: false };
+        weeks.set(monday, w);
+      }
+      w.workouts += d.workoutSessions;
+      if (d.foodLogs > 0) w.foodLoggedDays += 1;
+      if (d.weighedIn) {
+        if (d.weightTrendStep === null) w.unreadable = true;
+        else w.trendChange = (w.trendChange || 0) + d.weightTrendStep;
+      }
+    }
+    for (const w of weeks.values()) if (w.unreadable) w.trendChange = null;
+    return weeks;
+  }
+
   // The gamificationjournal singleton is shared state (§6.3): seen-discovery
   // ids, chapter enrollment + closed-chapter reviews, trait earned-timestamps,
   // and the keystone timeline all live on the ONE record. readJournal/writeJournal
@@ -1235,8 +1388,10 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   async function getAtlas({ whatsNew = true } = {}) {
     const [days, seen, mode] = await Promise.all([buildDays(), readSeen(), readMode()]);
     const seenSet = new Set(seen);
+    const weeks = buildWeeks(days);
     const cards = PROBES.filter((probe) => !(mode.ed_safe && probe.weight)).map((probe) => {
-      const card = evaluateProbe(probe, days);
+      const card = evaluateProbe(probe, probe.bucket === 'week' ? weeks : days);
+      if (probe.bucket) card.bucket = probe.bucket;
       if (card.state === 'revealed' || card.state === 'no_effect') {
         card.seen = seenSet.has(card.id);
       }
@@ -1248,7 +1403,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
 
   // --- "Since you last looked" (med-edxz.3) -------------------------------
   function verdictLabel(v) {
-    if (v === 'effect') return 'an effect';
+    if (v === 'effect') return 'a difference';
     if (v === 'no_effect') return 'a clean null result';
     return 'not enough contrast to call it';
   }
@@ -1367,7 +1522,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       if (closest) {
         items.push({
           kind: 'anticipation',
-          text: `${Number(closest.remaining) || 0} more paired days until: ${closest.question}`,
+          text: `${Number(closest.remaining) || 0} more ${closest.bucket === 'week' ? 'weeks' : 'paired days'} until: ${closest.question}`,
           target: 'journey-atlas-card',
         });
       }
@@ -1521,7 +1676,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
         kind: 'experiment',
         title: template.title,
         text: verdict.verdict === 'effect'
-          ? `Completed a clean 14-day trial and found an effect: ${template.title.toLowerCase()}.`
+          ? `Completed a clean 14-day trial and found a difference: ${template.title.toLowerCase()}.`
           : `Completed a clean 14-day trial — a genuine null result, an equally real finding.`,
         earned_at: nowMs,
       });
@@ -1580,7 +1735,11 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // can start. Auto-freezes an elapsed trial as a side effect (markDiscoverySeen
   // pattern).
   async function listExperiments() {
-    if (!(await readMode()).experiments) return { enabled: false };
+    const mode = await readMode();
+    if (!mode.experiments) return { enabled: false };
+    // ED-safe (§0.5): weight-outcome templates, and their trial / verdict
+    // cards, leave the surface (a running one still blocks a new start).
+    const shown = (e) => (e && !(mode.ed_safe && (experimentTemplateById(e.template_id) || {}).weight) ? e : null);
     const nowMs = now();
     const [all, days, paused] = await Promise.all([readExperiments(), buildDays(), recoveryActive()]);
     const activeRaw = all.find((e) => e.status === 'active') || null;
@@ -1598,10 +1757,10 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     return {
       enabled: true,
       recovery_paused: paused,
-      active: active ? enrichActive(active, days, nowMs, paused) : null,
-      verdict: latest ? verdictView(latest) : null,
+      active: shown(active) ? enrichActive(active, days, nowMs, paused) : null,
+      verdict: shown(latest) ? verdictView(latest) : null,
       can_start: !active && !paused,
-      templates: EXPERIMENT_TEMPLATES.map((t) => ({
+      templates: EXPERIMENT_TEMPLATES.filter((t) => !(mode.ed_safe && t.weight)).map((t) => ({
         id: t.id, title: t.title, intention: t.intention,
         measure: t.measure, from_probe: t.fromProbe, unit: t.unit,
       })),
@@ -1614,7 +1773,9 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   async function startExperiment(templateId, params) {
     const template = experimentTemplateById(templateId);
     if (!template) return { ok: false, error: 'unknown_template' };
-    if (!(await readMode()).experiments) return { ok: false, error: 'disabled' };
+    const mode = await readMode();
+    if (!mode.experiments) return { ok: false, error: 'disabled' };
+    if (mode.ed_safe && template.weight) return { ok: false, error: 'ed_safe' };
     const paused = await recoveryActive();
     if (paused) return { ok: false, error: 'recovery_paused' };
 
@@ -3090,6 +3251,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       ? goalLineBP(bpAll, bpGoalAll, today, monday, nowMs)
       : { feature_on: false, recorded_today: null, days_this_week: null, mean_7d: null, target: null, status: 'unknown' };
     const weighedToday = goal.coverage.last_weigh_in_day === today;
+    // The joint weight/BP observation (§0.3.6): both components or nothing.
+    const joint = on('weight') && on('bp') ? goalLineJoint(goal, weightAll, bpAll, bpGoalAll, today, nowMs) : null;
     // Deterministic priority; nothing is "owed" — 'none' is a valid resting state.
     let cta = 'none';
     if (!weighedToday && on('weight')) cta = 'weigh_in';
@@ -3110,12 +3273,80 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     }
     return {
       enabled: true, goal, workouts, bp, weighed_today: weighedToday, cta,
-      adherence_alert: adherenceAlert, day: today, time_zone: timeZone || null, plan,
+      adherence_alert: adherenceAlert, day: today, time_zone: timeZone || null, plan, joint,
     };
   }
 
   function round2(x) {
     return x === null || x === undefined ? null : Math.round(x * 100) / 100;
+  }
+
+  // weightTrendRun replays the Goal Line trend for the Atlas day map and the
+  // joint observation: readings by local day (latest wins), weigh-in runs (a
+  // gap longer than the coverage window starts one), the EMA from the latest
+  // run's first reading through `today`.
+  // ponytail: mirrors the first lines of goalLineWeight instead of refactoring
+  // it under parallel edits; fold goalLineWeight onto this when that settles.
+  function weightTrendRun(weightAll, today, nowMs) {
+    const logs = weightAll
+      .filter((r) => Number.isFinite(r.weight) && Date.parse(r.measured_at) <= nowMs)
+      .sort((a, b) => Date.parse(a.measured_at) - Date.parse(b.measured_at));
+    const byDay = new Map();
+    for (const r of logs) byDay.set(localDayString(Date.parse(r.measured_at), timeZone), r.weight);
+    const days = [...byDay.keys()].sort();
+    let origin = days[0];
+    for (let i = 1; i < days.length; i++) {
+      if (dayDiff(days[i - 1], days[i]) > GOAL_LINE_COVERAGE_DAYS) origin = days[i];
+    }
+    const trend = days.length ? emaTrendByDay(byDay, origin, today, DEFAULT_CONFIG.gaugeWeightEMAAlpha) : new Map();
+    return { days, origin, trend };
+  }
+
+  // goalLineJoint is the "together" line (§0.3.6, med-8tur.10): the first vs
+  // the last k complete ISO weeks of the goal episode, k = min(4, half the
+  // complete weeks) so the two periods never overlap; null under 2 weeks each.
+  // Symmetric facts, shown whichever way they point: each period's mean Goal
+  // Line trend (weight_change_kg = last − first) and its daily-weighted BP mean
+  // (both components, ignore_calc excluded) over its measurement days, against
+  // ONE target — the current bpgoal, frozen for the comparison. Null unless
+  // both periods sit inside the current trend run with a weigh-in and a BP day.
+  function goalLineJoint(goal, weightAll, bpAll, bpGoalAll, today, nowMs) {
+    if (!goal.start_day || goal.status === 'no_goal') return null;
+    const firstMonday = addDays(goal.start_day, (8 - dayOfWeek(goal.start_day)) % 7);
+    const lastSunday = addDays(today, -(((dayOfWeek(today) + 6) % 7) + 1));
+    const k = Math.min(4, Math.floor(Math.floor((dayDiff(firstMonday, lastSunday) + 1) / 7) / 2));
+    if (k < 2) return null;
+    const len = 7 * k;
+    const run = weightTrendRun(weightAll, today, nowMs);
+    if (!run.days.length || firstMonday < run.origin) return null;
+    const readings = bpAll.filter((r) => !r.ignore_calc);
+    const periods = [firstMonday, addDays(lastSunday, -(len - 1))].map((start) => {
+      const end = addDays(start, len - 1);
+      let sum = 0;
+      for (let d = start; d <= end; d = addDays(d, 1)) sum += run.trend.get(d);
+      // The period's own local bounds pick the readings; the stats window is a
+      // day wider so its DAY_MS arithmetic never clips the first day across DST.
+      const fromMs = zoneDayStartMs(start);
+      const toMs = zoneDayStartMs(addDays(end, 1)) - 1;
+      const inPeriod = readings.filter((r) => { const ms = Date.parse(r.measured_at); return ms >= fromMs && ms <= toMs; });
+      const st = buildDailyWeightedStats(inPeriod, toMs, timeZone, [len])[`stats_${len}`];
+      return {
+        start_day: start, end_day: end, trend_mean: sum / len,
+        weigh_in_days: run.days.filter((d) => d >= start && d <= end).length,
+        bp: st ? { systolic: st.systolic, diastolic: st.diastolic, days: st.days } : null,
+      };
+    });
+    if (periods.some((p) => p.weigh_in_days === 0 || !p.bp)) return null;
+    const g = bpGoalAll.find((r) => r.recordId === BP_GOAL_RECORD_ID);
+    return {
+      weeks_per_period: k,
+      weight_change_kg: round2(periods[1].trend_mean - periods[0].trend_mean),
+      periods: periods.map(({ trend_mean: _t, ...p }) => p),
+      bp_target: {
+        systolic: g && Number.isFinite(g.target_systolic) ? g.target_systolic : DEFAULT_IN_RANGE_SYSTOLIC,
+        diastolic: g && Number.isFinite(g.target_diastolic) ? g.target_diastolic : GOAL_LINE_DEFAULT_DIASTOLIC,
+      },
+    };
   }
 
   function goalLineWeight(weightAll, goalAll, today, nowMs) {

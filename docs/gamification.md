@@ -216,6 +216,16 @@ don't identify a cause". Goal-relevant *descriptive* probes (workout weeks vs
 trend velocity, food-logged weeks vs trend velocity) and lever-only experiment
 templates (three sessions a week, log every meal, protein target) join the
 Atlas, labeled "association".
+*Implemented (med-8tur.10):* `getGoalLine().joint` (`goalLineJoint` in
+`web/domain/gamification.js` — period rule, the null cases and the frozen
+`bp_target` are in its comment) renders as the "Together" lines on the Journey
+goal card. The two week-bucketed probes (`bucket: 'week'`, evaluated over
+`buildWeeks`) and the three templates (`three_sessions_week`,
+`log_every_meal`, `protein_target` — gauge = the next weigh-in's trend step)
+read the Goal Line trend through `weightTrendRun`; all five carry `weight: true`,
+so ED-safe hides them (and the joint line, with the Goal Line). Every terminal Atlas card is
+tagged "Descriptive association"; experiment verdicts say "a difference", not
+"an effect".
 
 ### 0.4 Evidence this leans on — and its limits
 

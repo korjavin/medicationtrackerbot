@@ -302,7 +302,7 @@ export const PRIVACY_MANIFEST = [
     id: 'gamification-narration',
     feature: 'Journey narration summaries',
     boundary: 'carve-out',
-    data: 'Already-computed summaries — the weekly recap\'s weight-goal progress (goal direction, share of the way there, trend change and distance in kg, weigh-in days, milestones reached), workouts done vs scheduled, the week\'s BP mean vs target and days measured, and the chosen next-week intention; plus workout stats, chapter and experiment state. Never raw records, dates or body weight',
+    data: 'Already-computed summaries — the weekly recap\'s weight-goal progress (goal direction, share of the way there, trend change and distance in kg, weigh-in days, milestones reached), workouts done vs scheduled, the week\'s BP mean vs target and days measured, and the chosen next-week intention; plus workout stats, chapter and experiment state, and revealed discoveries and experiment verdicts as their card text — which for the goal probes and goal-lever trials includes a weight-trend change in kg (per week, or per weigh-in step). Never raw records, dates or body weight',
     destination: 'Your own OpenAI(-compatible) endpoint, or — with no key of your own — the operator\'s server and the operator\'s OpenAI account',
     operatorVisibility: 'plaintext',
     retention: 'Not stored by the app; provider retention applies',
@@ -320,7 +320,7 @@ export const PRIVACY_MANIFEST = [
     userCopy: {
       category: 'visible',
       title: 'Journey narration, if you turn it on',
-      detail: 'The Journey screen can turn its already-computed numbers into a few written sentences — for the weekly recap, your weight-goal progress (how far along you are, the week\'s trend change and remaining distance in kg, weigh-in days, milestones), workouts done vs scheduled, your week\'s average blood pressure vs your target, and the intention you picked for next week. Those summary numbers go to your own AI provider, or, with no key of your own, through the operator\'s trial account under the same consent as the Telegram assistant. Raw records are never sent, and declining just leaves the plain deterministic card in place.',
+      detail: 'The Journey screen can turn its already-computed numbers into a few written sentences — for the weekly recap, your weight-goal progress (how far along you are, the week\'s trend change and remaining distance in kg, weigh-in days, milestones), workouts done vs scheduled, your week\'s average blood pressure vs your target, and the intention you picked for next week; experiment suggestions also carry your revealed discoveries and trial results as written, which can include how your weight trend moved in kg per week. Those summary numbers go to your own AI provider, or, with no key of your own, through the operator\'s trial account under the same consent as the Telegram assistant. Raw records are never sent, and declining just leaves the plain deterministic card in place.',
     },
   },
   {
