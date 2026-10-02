@@ -3078,15 +3078,23 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     // Episode baseline, stated not implied: the trend on the set day when enough
     // weigh-in days of the run holding that day, inside the coverage window
     // ending on it, back it; else the goal's recorded starting reading labeled
-    // first_reading — the two are never silently equated. Only data on or
-    // before the set day decides, so the episode's baseline stays fixed.
-    const baseOrigin = runStarts.filter((d) => d <= startDay).pop();
+    // first_reading — the two are never silently equated. Only readings at or
+    // before set_at decide (a weigh-in later on the set day does not), so the
+    // episode's baseline stays fixed.
+    const baseByDay = new Map();
+    for (const r of logs) {
+      const ms = Date.parse(r.measured_at);
+      if (Number.isFinite(setMs) ? ms <= setMs : localDayString(ms, timeZone) <= startDay) {
+        baseByDay.set(localDayString(ms, timeZone), r.weight);
+      }
+    }
+    const baseDays = [...baseByDay.keys()].sort();
+    const baseOrigin = runStarts.filter((d) => baseByDay.has(d) && d <= startDay).pop();
     const baselineFrom = addDays(startDay, -(GOAL_LINE_COVERAGE_DAYS - 1));
     let startRef; let startRefSource;
     if (baseOrigin !== undefined
-      && days.filter((d) => d >= baseOrigin && d >= baselineFrom && d <= startDay).length >= GOAL_LINE_MIN_WEIGH_IN_DAYS) {
-      const baseTrend = baseOrigin === origin ? trend : emaTrendByDay(byDay, baseOrigin, startDay, cfg.gaugeWeightEMAAlpha);
-      startRef = baseTrend.get(startDay);
+      && baseDays.filter((d) => d >= baseOrigin && d >= baselineFrom && d <= startDay).length >= GOAL_LINE_MIN_WEIGH_IN_DAYS) {
+      startRef = emaTrendByDay(baseByDay, baseOrigin, startDay, cfg.gaugeWeightEMAAlpha).get(startDay);
       startRefSource = 'trend_at_set';
     } else {
       const firstAfter = days.find((d) => d >= startDay);
@@ -3129,7 +3137,11 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       out.too_fast = velocity * direction > cfg.weightSafePaceMaxPct;
     }
 
-    const reached = (v) => direction === 0 || (target - v) * direction <= GOAL_LINE_REACH_KG;
+    // A maintenance goal (direction 0) is reached only within reach of the
+    // target — never "any weight counts".
+    const reached = (v) => (direction === 0
+      ? Math.abs(target - v) <= GOAL_LINE_REACH_KG
+      : (target - v) * direction <= GOAL_LINE_REACH_KG);
     if (reached(trendWeight)) {
       // maintaining = the current reached run has lasted GOAL_LINE_MAINTAIN_DAYS.
       let runStart = today;
@@ -3295,16 +3307,24 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     // nested — so the first unearned marker ends the walk, and earned_at never
     // runs backwards along the ordinals.
     const goalThr = target - direction * GOAL_LINE_REACH_KG;
+    // (goal_set_at, ordinal) is the natural key: an ordinal already held under
+    // another episode id (a goal re-minted by an old client's vault import,
+    // which passes milestones through untouched) is not minted again — no
+    // unacknowledged twin re-celebrates it, no export carries the key twice.
+    const setAt = (g && g.set_at) || null;
+    const held = new Set(setAt === null ? [] : (await records.list(GOAL_MILESTONE_RECORD_TYPE))
+      .filter((m) => m.goal_set_at === setAt && m.episode_id !== goal.episode_id).map((m) => m.ordinal));
     for (let k = 1; k <= count; k++) {
       const isGoal = k === count;
       const marker = startRef + direction * k * spacing;
       const thr = isGoal || (marker - goalThr) * direction > 0 ? goalThr : marker;
       const hits = evidence.filter((d) => (trendOn.get(d) - thr) * direction >= -1e-9);
       if (hits.length < GOAL_MILESTONE_EVIDENCE_DAYS) break;
+      if (held.has(k)) continue;
       await records.putIfAbsent(GOAL_MILESTONE_RECORD_TYPE, {
         recordId: `${GOAL_MILESTONE_RECORD_TYPE}-${goal.episode_id}-${k}`,
         deleted: false, clientTs: 0,
-        episode_id: goal.episode_id, goal_set_at: (g && g.set_at) || null,
+        episode_id: goal.episode_id, goal_set_at: setAt,
         ordinal: k, count, is_halfway: k === halfway && !isGoal, is_goal: isGoal,
         earned_at: hits[GOAL_MILESTONE_EVIDENCE_DAYS - 1], acknowledged: false,
       });

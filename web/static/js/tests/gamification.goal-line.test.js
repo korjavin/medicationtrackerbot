@@ -111,6 +111,30 @@ describe('gamification Goal Line — weight goal', () => {
     expect(away.goal.progress.fraction).toBe(0);
   });
 
+  it('a maintenance goal is reached only within reach of the target — 85 kg against 80 is not "maintaining"', async () => {
+    const away = await domainOver({ weight: series(20, () => 85), weightgoal: [goalRec(19, 80, 80)] }).gam.getGoalLine();
+    expect(away.goal.direction).toBe(0);
+    expect(away.goal.status).toBe('ok');
+    expect(away.goal.progress.fraction).toBe(0);
+    expect(away.goal.distance_to_goal).toBe(5);
+
+    const near = await domainOver({ weight: series(20, () => 80.2), weightgoal: [goalRec(19, 80, 80)] }).gam.getGoalLine();
+    expect(near.goal.status).toBe('maintaining');
+    expect(near.goal.progress.fraction).toBe(1);
+  });
+
+  it('the episode baseline ignores a weigh-in later on the set day than set_at', async () => {
+    // 85 kg every morning; goal set at 09:00 three days ago, then a 70 kg
+    // reading at 20:00 that same day must not move trend_at_set.
+    const { gam } = domainOver({
+      weight: [...series(10, () => 85), { recordId: 'w-3-late', deleted: false, measured_at: isoAt(3, 20), weight: 70 }],
+      weightgoal: [goalRec(3, 80, 85)],
+    });
+    const { goal } = await gam.getGoalLine();
+    expect(goal.start_ref_source).toBe('trend_at_set');
+    expect(goal.start_ref).toBe(85);
+  });
+
   it('a 60-day downward trend + goal → ok with distance, change_7d, next milestone and direction', async () => {
     // 0.05 kg/day down (≈0.4 %/wk — inside the safe pace), goal set 30 days ago.
     const { records, gam } = domainOver({
@@ -525,6 +549,36 @@ describe('gamification Goal Line — durable milestones', () => {
     });
     const goalKeystones = (await gam.getKeystones()).keystones.filter((k) => k.kind === 'goal_milestone');
     expect(goalKeystones.map((k) => k.id)).toEqual([MS_ID]);
+  });
+
+  it('an old client\'s import (goal re-minted, milestone passed through) mints no twin; export keeps one row per key', async () => {
+    const first = domainOver(crossing());
+    await first.gam.getGoalLineCard();
+    await first.gam.acknowledgeMilestone(MS_ID);
+    const [acked] = await first.records.list('gamificationmilestone');
+
+    // The old client re-mints the goal id (same set_at) and leaves the
+    // milestone under the now-dead episode id.
+    const { weight, weightgoal: [goal] } = crossing();
+    const { records, gam } = domainOver({
+      weight, weightgoal: [{ ...goal, recordId: 'weightgoal-reminted' }], gamificationmilestone: [acked],
+    });
+    expect((await gam.getGoalLineCard()).milestone).toBeNull(); // no re-celebration
+    expect(records.putIfAbsent).not.toHaveBeenCalled();
+    expect(await records.list('gamificationmilestone')).toHaveLength(1);
+
+    // A store already holding an unacknowledged twin exports one row, the ack.
+    await records.put('gamificationmilestone', {
+      ...acked, recordId: 'gamificationmilestone-weightgoal-reminted-1', episode_id: 'weightgoal-reminted',
+      acknowledged: false, acknowledged_at: undefined, clientTs: 0,
+    });
+    const all = [];
+    for (const t of ['weight', 'weightgoal', 'gamificationmilestone']) {
+      for (const r of await records.listRaw(t)) all.push({ ...r, recordType: t });
+    }
+    const { milestones } = recordsToVault(all, { now: NOW }).data.gamification;
+    expect(milestones).toHaveLength(1);
+    expect(milestones[0].acknowledged).toBe(true);
   });
 
   it('vault export → import keeps the record and its ack, re-attached to the re-minted goal', async () => {
