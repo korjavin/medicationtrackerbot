@@ -185,12 +185,17 @@ function todayFetchSpecs(foodKey) {
                 return { groups: groups || [] };
             }
         },
-        gamification_rings: {
+        gamification_goal_line: {
             feature: 'gamification',
-            tags: ['gamification'],
-            // Slim Today payload: { enabled, level, today_hp, rings:[{ring,hp}] }.
+            // Goal Line hero (med-8tur.2). Synced records carry no
+            // 'gamification' tag (sync.js RECORD_TAGS: weightgoal→weight,
+            // workoutsession→workout, bp→bp, settings→settings), so the card
+            // evicts on its source tags too (medications/history for the
+            // missed-dose line) or a synced edit repaints a stale card.
+            // Mirrors the cache-keys.js registry entry.
+            tags: ['gamification', 'weight', 'workout', 'bp', 'settings', 'medications', 'history'],
             // apiCall returns null on failure so fetchFresh leaves the cache alone.
-            fetch: () => apiCall('/api/gamification/rings', 'GET')
+            fetch: () => apiCall('/api/gamification/goal-line', 'GET')
         }
     };
 }
@@ -264,7 +269,7 @@ async function _todayReadCaches(foodKey) {
             : null;
         const hoKey = healthOverviewCacheKey();
         if (readMeta) {
-            const keys = ['settings_bundle', 'next_intake', 'medications', 'bp', 'weight', 'workout_next', hoKey, foodKey, 'gamification_rings'];
+            const keys = ['settings_bundle', 'next_intake', 'medications', 'bp', 'weight', 'workout_next', hoKey, foodKey, 'gamification_goal_line'];
             const metas = await Promise.all(keys.map(readMeta));
             const [bundleM, nextIntakeM, medsM, bpM, weightM, workoutM, healthM, foodM, gamM] = metas;
             if (bundleM?.data) {
@@ -323,14 +328,14 @@ async function _todayReadCaches(foodKey) {
                 const groups = Array.isArray(foodM.data.groups) ? foodM.data.groups : [];
                 swrCaches.food_today = { groups };
             }
-            if (gamM?.data) swrCaches.gamification_rings = gamM.data;
+            if (gamM?.data) swrCaches.gamification_goal_line = gamM.data;
             for (let i = 0; i < keys.length; i++) {
                 const m = metas[i];
                 if (!m) continue;
                 trackTs(m.timestamp);
             }
         } else if (window.DataStore && typeof window.DataStore.getCached === 'function') {
-            const keys = ['settings_bundle', 'next_intake', 'medications', 'bp', 'weight', 'workout_next', hoKey, foodKey, 'gamification_rings'];
+            const keys = ['settings_bundle', 'next_intake', 'medications', 'bp', 'weight', 'workout_next', hoKey, foodKey, 'gamification_goal_line'];
             const [bundle, nextIntake, meds, bp, weight, workout, health, food, gam] = await Promise.all(
                 keys.map((k) => window.DataStore.getCached(k).catch(() => null))
             );
@@ -366,7 +371,7 @@ async function _todayReadCaches(foodKey) {
                 const groups = Array.isArray(food.groups) ? food.groups : [];
                 swrCaches.food_today = { groups };
             }
-            if (gam) swrCaches.gamification_rings = gam;
+            if (gam) swrCaches.gamification_goal_line = gam;
         }
     } catch (_) { /* best-effort — render whatever we have */ }
     // Register key→tag mappings for every Today cache we just read directly
@@ -391,6 +396,23 @@ async function _todayReadCaches(foodKey) {
         if (persisted) cardOrder = persisted;
     }
     return { bootstrap, swrCaches, latestCacheTimestamp, cardOrder };
+}
+
+// True when the cached Goal Line belongs to an earlier local day (its payload
+// is day-relative). Compared on getGoalLine's own day key: payload.day is
+// localDayString(now, timeZone) and payload.time_zone the zone it used (the
+// pinned settings timezone, else the device's) — re-derived here the same way
+// (en-CA → YYYY-MM-DD). A payload without a day key is treated as current.
+function _todayGoalLineFromPastDay(swrCaches) {
+    const gl = swrCaches && swrCaches.gamification_goal_line;
+    if (!gl || typeof gl.day !== 'string') return false;
+    let today;
+    try {
+        today = new Intl.DateTimeFormat('en-CA', {
+            timeZone: gl.time_zone || undefined, year: 'numeric', month: '2-digit', day: '2-digit'
+        }).format(new Date());
+    } catch (_) { return false; } // unknown zone string — leave revalidation event-driven
+    return gl.day !== today;
 }
 
 async function _todayRender(foodKey) {
@@ -423,8 +445,9 @@ async function _todayRender(foodKey) {
 // "in Xh Ym" next-dose kicker, the timezone-transition card past its last step,
 // dose-boundary states. Nothing dispatches an event when the wall clock simply
 // moves, so a tab left open keeps painting the past. One minute-ish tick
-// re-renders from the caches already in hand — _todayRender, never loadToday,
-// so a tick can never trigger a refetch (revalidation stays event-driven).
+// re-renders from the caches already in hand via _todayRender. The one
+// exception: a Goal Line payload fetched on an earlier local day makes the tick
+// call loadToday once to refetch it (otherwise revalidation stays event-driven).
 const TODAY_REPAINT_INTERVAL_MS = 60 * 1000;
 
 async function loadToday() {
@@ -472,7 +495,12 @@ async function loadToday() {
                 ? window.WGCallAgent.getState()
                 : null;
             if (call && (call.state === 'connecting' || call.state === 'in_call')) return;
-            _todayRender(todayFoodKey(new Date()));
+            _todayRender(todayFoodKey(new Date())).then((rctx) => {
+                // The Goal Line payload is day-relative (weighed_today, cta, BP
+                // recorded today, this week's workouts) and no tag fires at
+                // midnight — a payload fetched on an earlier local day refetches.
+                if (rctx && rctx.rendered && rctx.online && _todayGoalLineFromPastDay(rctx.swrCaches)) loadToday();
+            });
         };
         _todayLoaderState.repaintTick = setInterval(repaint, TODAY_REPAINT_INTERVAL_MS);
         document.addEventListener('visibilitychange', repaint);
@@ -533,7 +561,7 @@ async function loadToday() {
             workout_next: !!swrCaches.workout_next,
             [hoKey]: !!swrCaches.health_overview,
             [foodKey]: !!swrCaches.food_today,
-            gamification_rings: !!swrCaches.gamification_rings
+            gamification_goal_line: !!swrCaches.gamification_goal_line && !_todayGoalLineFromPastDay(swrCaches)
         };
         const missing = Object.keys(presence).filter((k) => {
             if (presence[k]) return false;
