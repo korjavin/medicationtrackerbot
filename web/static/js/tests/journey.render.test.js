@@ -107,6 +107,7 @@ describe('Journey render', () => {
                 goal: {
                     status: 'ok', target: 78, start_ref: 86, start_ref_source: 'trend_at_set', direction: -1,
                     trend_weight: 82.4, distance_to_goal: 4.4, too_fast: false,
+                    progress: { done_kg: 3.6, total_kg: 8, fraction: 0.45 },
                     next_milestone: { ordinal: 4, count: 8, weight: 82, is_goal: false }
                 }
             },

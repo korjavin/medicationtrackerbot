@@ -112,9 +112,8 @@
         else if (g.status === 'maintaining') line = 'Maintaining your goal.';
         else if (g.status === 'at_goal') line = 'At your goal.';
         else {
-            const total = Math.abs(g.target - g.start_ref);
-            const done = (g.trend_weight - g.start_ref) * (g.direction || 0);
-            card.appendChild(progressBar(total > 0 ? done / total : 0, 'wg-journey-bar__fill--sun'));
+            // goal.progress: the same episode progress Today + the Weight tab render.
+            if (g.progress) card.appendChild(progressBar(g.progress.fraction, 'wg-journey-bar__fill--sun'));
             line = `${goalWeight(Math.abs(g.distance_to_goal || 0))} to go`;
             if (g.next_milestone && !g.next_milestone.is_goal) line += ` · next marker ${goalWeight(g.next_milestone.weight)}`;
         }

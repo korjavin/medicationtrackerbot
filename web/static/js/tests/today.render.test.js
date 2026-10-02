@@ -488,6 +488,7 @@ describe('TodayDashboard.renderToday', () => {
                 start_ref: 86, start_ref_source: 'trend_at_set', start_day: '2026-03-01', direction: -1,
                 trend_weight: 82.4, latest_reading: { weight: 82.1, measured_at: '2026-04-19T07:00:00Z' },
                 distance_to_goal: 4.4, change_7d: -0.4,
+                progress: { done_kg: 3.6, total_kg: 8, fraction: 0.45 },
                 coverage: { weigh_in_days_28d: 12, last_weigh_in_day: '2026-04-18', min_weigh_in_days: 5 },
                 too_fast: false,
                 next_milestone: { ordinal: 4, count: 8, weight: 82, distance: 0.4, is_halfway: false, is_goal: false },

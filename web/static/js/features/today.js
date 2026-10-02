@@ -1113,24 +1113,25 @@
                     ? `Maintaining your goal — trend holding at ${weightText(g.target)}`
                     : `At your goal — trend has reached ${weightText(g.target)}`));
         } else {
-            const total = Math.abs(g.target - g.start_ref);
-            const done = (g.trend_weight - g.start_ref) * (g.direction || 0);
-            // Same bar classes + sun fill as the Journey goal card (styles.css).
-            const track = goalLineEl('div', 'wg-gloss--inset wg-journey-bar__track wg-goal-line__track');
-            const fill = goalLineEl('div', 'wg-journey-bar__fill wg-journey-bar__fill--sun wg-goal-line__fill');
-            const ratio = total > 0 ? Math.max(0, Math.min(1, done / total)) : 0;
-            // Neutral custom property, same convention as wg-ring.js --ring-progress.
-            fill.style.setProperty('--fill-pct', `${(ratio * 100).toFixed(1)}%`);
-            track.appendChild(fill);
-            card.appendChild(track);
-            const since = g.start_ref_source === 'trend_at_set' ? 'since you set the goal' : 'since your first reading';
-            const progress = done >= 0
-                ? `${weightFmt(done).text} of ${weightText(total)} ${since}`
-                : `${weightText(-done)} the other way ${since}`;
-            const marker = g.next_milestone && Number.isFinite(g.next_milestone.weight) && !g.next_milestone.is_goal
-                ? ` · next marker ${weightText(g.next_milestone.weight)}`
-                : '';
-            card.appendChild(goalLineEl('p', 'wg-goal-line__line', progress + marker));
+            // goal.progress is the episode progress the Weight tab card renders
+            // too (getGoalLine) — never recomputed here, so the screens agree.
+            const p = g.progress;
+            if (p) {
+                // Same bar classes + sun fill as the Journey goal card (styles.css).
+                const track = goalLineEl('div', 'wg-gloss--inset wg-journey-bar__track wg-goal-line__track');
+                const fill = goalLineEl('div', 'wg-journey-bar__fill wg-journey-bar__fill--sun wg-goal-line__fill');
+                const ratio = Math.max(0, Math.min(1, Number(p.fraction) || 0));
+                // Neutral custom property, same convention as wg-ring.js --ring-progress.
+                fill.style.setProperty('--fill-pct', `${(ratio * 100).toFixed(1)}%`);
+                track.appendChild(fill);
+                card.appendChild(track);
+                const since = g.start_ref_source === 'trend_at_set' ? 'since you set the goal' : 'since your first reading';
+                const marker = g.next_milestone && Number.isFinite(g.next_milestone.weight) && !g.next_milestone.is_goal
+                    ? ` · next marker ${weightText(g.next_milestone.weight)}`
+                    : '';
+                card.appendChild(goalLineEl('p', 'wg-goal-line__line',
+                    `${weightFmt(p.done_kg).text} of ${weightText(p.total_kg)} ${since}${marker}`));
+            }
         }
 
         if (Number.isFinite(g.change_7d)) {
