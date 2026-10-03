@@ -199,7 +199,9 @@ Workout entities carry a numeric body `id` (FK glue; `-1` is the ad-hoc sentinel
   `updated_at`.
 - **equipment** — `id`, `user_id`, `name`, `kind` (`fixed`|`plated`); fixed
   carries `loads_kg` (num array), plated carries `bar_kg` (num), `sides` (1|2),
-  `pair` (bool), `plates` (`[{kg, count}]`); `created_at`, `updated_at`;
+  `pair` (bool), `plates` (`[{kg, count}]`), and optionally
+  `max_plates_per_side` (int, omitted when unlimited — the sleeve capacity; a
+  non-integer value reads as unlimited); `created_at`, `updated_at`;
   `location_id` (num, omitted when portable — carried verbatim even when it
   names a deleted location, which reads as portable).
   Cloud inventory (med-niix.1): legacy bot files predate it and simply omit the key.

@@ -357,6 +357,17 @@ covered below (med-niix.4).
   (sides:1), plate-loaded dumbbells (sides:2, pair:true, each plate type usable
   `floor(count/(sides*2))` times per implement). Each barbell owns its plate
   list; three bars with different diameters are three records.
+  Optional `max_plates_per_side` (1–100, absent = unlimited) is the sleeve
+  capacity: how many plates fit on one sleeve (the kettlebell's single
+  sleeve, each sleeve of each dumbbell in a pair). `achievableLoads` keeps
+  only sums some build reaches within it (the knapsack tracks the fewest
+  plates per side), and `loadingFor` falls back from an over-capacity greedy
+  build to the fewest-plates witness, returning null when even that
+  overflows — so the progression snap, the session chip, the print sheet and
+  auto-match never suggest more plates than the sleeve holds. Like
+  `location_id`, omitting it on update preserves the stored value; `null`
+  removes the limit. The editor labels it "Max plates per side" (blank = no
+  limit).
 
 Both kinds carry an optional `implement` label (`barbell | dumbbell |
 kettlebell | other`, med-v75c.1) — display-only; geometry stays in sides/pair,

@@ -239,8 +239,8 @@ function validateSharePayload(payload) {
 
 // --- Share a gym (med-8j5w.3) ---------------------------------------------
 // Wire shape (v1, names not ids): { v:1, location:{ name, equipment:[ { name,
-// kind, implement?, loads_kg (fixed) | bar_kg, sides, pair, plates (plated) }
-// ] } }. Dropped on purpose: every id, location_id, user_id, timestamp, and
+// kind, implement?, loads_kg (fixed) | bar_kg, sides, pair, plates,
+// max_plates_per_side? (plated) } ] } }. Dropped on purpose: every id, location_id, user_id, timestamp, and
 // the computed min_step_kg/max_kg (plated loads_kg too — the recipient
 // recomputes them from bar + plates).
 // ponytail: 50 items covers any real gym; raise if a real inventory hits it.
@@ -280,6 +280,7 @@ function validateLocationSharePayload(payload) {
     const input = {
       name: itemName, kind: item.kind, implement: item.implement,
       loads_kg: item.loads_kg, bar_kg: item.bar_kg, sides: item.sides, pair: item.pair, plates: item.plates,
+      max_plates_per_side: item.max_plates_per_side,
     };
     try {
       return validateEquipmentInput(input);
@@ -298,6 +299,7 @@ function shareEquipmentItem(item) {
     out.sides = item.sides;
     out.pair = !!item.pair;
     out.plates = (item.plates || []).map((p) => ({ kg: p.kg, count: p.count }));
+    if (item.max_plates_per_side != null) out.max_plates_per_side = item.max_plates_per_side;
   } else {
     out.loads_kg = item.loads_kg;
   }

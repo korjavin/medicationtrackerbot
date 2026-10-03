@@ -93,6 +93,10 @@ const EQUIPMENT_WRITE_BODY = {
         },
       },
     },
+    max_plates_per_side: {
+      type: ['integer', 'null'],
+      description: 'plated only, optional: sleeve capacity — the most plates that physically fit on ONE sleeve (the single sleeve of a plate-loaded kettlebell, each sleeve of each dumbbell in a pair), 1-100. Achievable loads (loads_kg, max_kg) and plate loading only use builds within it. Absent/null = no limit. Preserved on update when omitted; send null to remove the limit.',
+    },
     location_id: {
       type: ['integer', 'null'],
       description: 'Optional gym (workouts.locations.list id) this implement lives at; null = portable, available at every gym. Must name a live location. Preserved on update when omitted; send null to make it portable.',
@@ -454,7 +458,7 @@ export const CLOUD_EXTRA = [
     path: '/api/workout/equipment',
     risk: 'read',
     description: 'List the equipment inventory: every fixed/plated implement with its achievable loads, across all gyms (filter client-side by location_id: an item is available at a gym when its location_id is that gym, absent, or names no live location — see workouts.locations.list). Each record carries the computed loads_kg plus min_step_kg (the smallest gap between any two consecutive achievable loads — a global minimum, not necessarily the step available at the user\'s current load, so always pick the next value from loads_kg; null when the implement has fewer than two achievable loads) and max_kg, so progression can snap to achievable loads without recomputing.',
-    response_summary: 'Array of equipment records {id, user_id, name, kind, created_at, updated_at, loads_kg, min_step_kg, max_kg} (min_step_kg null when the implement has fewer than two achievable loads), plus bar_kg/sides/pair/plates on plated records, plus implement (barbell/dumbbell/kettlebell/other) when the record carries the label — plated reads always do (legacy rows derive it from sides/pair), plus location_id when the item is bound to a gym (absent = portable).',
+    response_summary: 'Array of equipment records {id, user_id, name, kind, created_at, updated_at, loads_kg, min_step_kg, max_kg} (min_step_kg null when the implement has fewer than two achievable loads), plus bar_kg/sides/pair/plates on plated records (and max_plates_per_side when the sleeve capacity is set — loads_kg/max_kg already respect it), plus implement (barbell/dumbbell/kettlebell/other) when the record carries the label — plated reads always do (legacy rows derive it from sides/pair), plus location_id when the item is bound to a gym (absent = portable).',
     params_schema: { type: 'object', properties: {} },
     // Captured from the real router (createApiRouter → /api/workout/equipment)
     // for a fixed dumbbell set; the numeric id below is illustrative (ids are
@@ -480,7 +484,7 @@ export const CLOUD_EXTRA = [
     path: '/api/workout/equipment',
     risk: 'write',
     description: 'Add an implement to the equipment inventory: fixed (loads_kg list — dumbbells, kettlebells, machine stacks, dial-adjustable dumbbells) or plated (bar_kg + sides + plates — barbells, plate-loaded kettlebells/dumbbells; each barbell owns its plate list). Both kinds accept an optional implement label (barbell/dumbbell/kettlebell/other). Returns the record with computed loads_kg, min_step_kg, max_kg.',
-    response_summary: 'The created equipment record {id, user_id, name, kind, created_at, updated_at, loads_kg, min_step_kg, max_kg} (min_step_kg null when the implement has fewer than two achievable loads), plus bar_kg/sides/pair/plates when kind is plated, plus implement when the write carried the label (plated writes always do — defaulted from sides/pair).',
+    response_summary: 'The created equipment record {id, user_id, name, kind, created_at, updated_at, loads_kg, min_step_kg, max_kg} (min_step_kg null when the implement has fewer than two achievable loads), plus bar_kg/sides/pair/plates (and max_plates_per_side when set) when kind is plated, plus implement when the write carried the label (plated writes always do — defaulted from sides/pair).',
     required: ['name', 'kind'],
     body_schema: EQUIPMENT_WRITE_BODY,
     // Captured from the real router (createApiRouter → POST
@@ -577,7 +581,7 @@ export const CLOUD_EXTRA = [
     path_params: ['id'],
     risk: 'read',
     description: 'Export a gym and the equipment bound to it as one portable v1 JSON token — names, not ids (portable gear is not included). Feed it to workouts.locations.import on any account to hand the gym to a training partner.',
-    response_summary: 'Object {v, location}. location has name and equipment [{name, kind, implement?, loads_kg (fixed) | bar_kg, sides, pair, plates [{kg, count}] (plated)}].',
+    response_summary: 'Object {v, location}. location has name and equipment [{name, kind, implement?, loads_kg (fixed) | bar_kg, sides, pair, plates [{kg, count}], max_plates_per_side? (plated)}].',
     required: ['id'],
     response_example: {
       v: 1,

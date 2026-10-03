@@ -274,6 +274,77 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
         }
     });
 
+    it('max plates per side: saves the sleeve capacity, alerts on a bad value', async () => {
+        const { window, document } = env;
+        seedOnlineList(window, []);
+        const calls = [];
+        window.apiCall = vi.fn(async (url, method, body) => {
+            calls.push([url, method, body]);
+            if (method === 'POST') return { id: 9 };
+            return null;
+        });
+        window.apiCallDirect = gymsAware(async () => []);
+        window.safeAlert = vi.fn();
+
+        document.getElementById('add-workout-equipment-btn').click();
+        document.querySelector('#workout-equipment-kind [data-kind="plated"]').click();
+        const field = document.getElementById('workout-equipment-max-plates');
+        expect(field.closest('#workout-equipment-plated-section')).not.toBeNull();
+        expect(field.value).toBe('');
+        document.getElementById('workout-equipment-name').value = 'Short sleeve';
+        document.getElementById('workout-equipment-bar').value = '20';
+        const row = document.querySelector('#workout-equipment-plates [data-plate-row]');
+        row.querySelector('[data-plate-kg]').value = '20';
+        row.querySelector('[data-plate-count]').value = '10';
+
+        field.value = '2.5';
+        await window.WorkoutEquipment.save();
+        expect(calls).toHaveLength(0);
+        expect(window.safeAlert).toHaveBeenCalledTimes(1);
+
+        field.value = '4';
+        await window.WorkoutEquipment.save();
+        expect(calls[0][2]).toEqual({
+            kind: 'plated', name: 'Short sleeve', bar_kg: 20, sides: 2, pair: false,
+            plates: [{ kg: 20, count: 10 }], max_plates_per_side: 4, implement: 'barbell'
+        });
+    });
+
+    it('max plates per side: edit prefills it, the row explains it, blanking sends null', async () => {
+        const { window, document } = env;
+        const capped = { ...PLATED_BAR, id: 11, name: 'Short sleeve', max_plates_per_side: 4, max_kg: 100 };
+        seedOnlineList(window, [capped]);
+        await window.WorkoutEquipment.load();
+        expect(rowsOf(document)[0].querySelector('.wg-equipment-row__steps').textContent)
+            .toBe('step 2.5 kg · max 100 kg · ≤4 plates/side');
+
+        const calls = [];
+        window.apiCall = vi.fn(async (url, method, body) => {
+            calls.push([url, method, body]);
+            if (method === 'PUT') return true;
+            return [structuredClone(capped)];
+        });
+
+        await window.WorkoutEquipment.openEdit(capped.id);
+        const field = document.getElementById('workout-equipment-max-plates');
+        expect(field.value).toBe('4');
+        field.value = '';
+        await window.WorkoutEquipment.save();
+        const put = calls.find((c) => c[1] === 'PUT');
+        expect(put[0]).toBe('/api/workout/equipment/11');
+        expect(put[2].max_plates_per_side).toBeNull();
+
+        // A record that never had a limit omits the key when left blank.
+        calls.length = 0;
+        seedOnlineList(window, [PLATED_BAR]);
+        await window.WorkoutEquipment.load();
+        await window.WorkoutEquipment.openEdit(PLATED_BAR.id);
+        expect(document.getElementById('workout-equipment-max-plates').value).toBe('');
+        await window.WorkoutEquipment.save();
+        const put2 = calls.find((c) => c[1] === 'PUT');
+        expect('max_plates_per_side' in put2[2]).toBe(false);
+    });
+
     it('editing a pair:true record reopens with the dumbbell Type selected', async () => {
         const { window, document } = env;
         const pairRecord = { ...PLATED_BAR, id: 7, name: 'Loadable DBs', sides: 2, pair: true };
