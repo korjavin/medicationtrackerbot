@@ -333,16 +333,26 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
         const put = calls.find((c) => c[1] === 'PUT');
         expect(put[0]).toBe('/api/workout/equipment/11');
         expect(put[2].max_plates_per_side).toBeNull();
+    });
 
-        // A record that never had a limit omits the key when left blank.
-        calls.length = 0;
+    it('max plates per side: a record that never had a limit omits the key when left blank', async () => {
+        const { window, document } = env;
         seedOnlineList(window, [PLATED_BAR]);
         await window.WorkoutEquipment.load();
+
+        const calls = [];
+        window.apiCall = vi.fn(async (url, method, body) => {
+            calls.push([url, method, body]);
+            if (method === 'PUT') return true;
+            return [structuredClone(PLATED_BAR)];
+        });
+
         await window.WorkoutEquipment.openEdit(PLATED_BAR.id);
         expect(document.getElementById('workout-equipment-max-plates').value).toBe('');
         await window.WorkoutEquipment.save();
-        const put2 = calls.find((c) => c[1] === 'PUT');
-        expect('max_plates_per_side' in put2[2]).toBe(false);
+        const put = calls.find((c) => c[1] === 'PUT');
+        expect(put[0]).toBe('/api/workout/equipment/2');
+        expect('max_plates_per_side' in put[2]).toBe(false);
     });
 
     it('editing a pair:true record reopens with the dumbbell Type selected', async () => {
