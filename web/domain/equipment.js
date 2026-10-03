@@ -7,8 +7,14 @@
 //   fixed:  { kind:'fixed', name, loads_kg:[...] } — fixed dumbbells/
 //           kettlebells, machine stacks, dial-adjustable dumbbells.
 //   plated: { kind:'plated', name, bar_kg, sides:1|2, pair:bool,
-//             plates:[{kg, count}] } — a barbell (sides:2), a plate-loaded
-//           kettlebell (sides:1), plate-loaded dumbbells (sides:2, pair:true).
+//             plates:[{kg, count}], max_plates_per_side? } — a barbell
+//           (sides:2), a plate-loaded kettlebell (sides:1), plate-loaded
+//           dumbbells (sides:2, pair:true).
+// max_plates_per_side is the optional sleeve capacity: how many plates fit on
+// ONE sleeve (the single sleeve of a sides:1 kettlebell, each sleeve of each
+// dumbbell in a pair). Absent = unlimited. achievableLoads and loadingFor both
+// honour it, so every consumer (progression snap, session chip, print sheet,
+// auto-match) sees only loads the sleeve can actually hold.
 // Each barbell owns its plate list; three bars with different sleeve diameters
 // are three records.
 // Both kinds carry an optional implement label (med-v75c.1): barbell |
@@ -49,6 +55,11 @@ const QUANTA_PER_KG = 4; // 0.25-kg quanta for the plated knapsack.
 // ponytail: absolute DP span ceiling (500 kg -> 2000 slots). Real bars never
 // reach it; without a ceiling a hostile plate count widens the DP array.
 const MAX_TOTAL_KG = 500;
+// ponytail: sleeve-capacity ceiling — far above any real sleeve, it only keeps
+// the stored value sane.
+const MAX_PLATES_PER_SIDE = 100;
+// Sentinel "unreachable" plate count for the min-plates DP (Uint16Array).
+const UNREACHABLE = 0xffff;
 
 function invalidRequest(message, code) {
   const err = new Error(message);
@@ -60,13 +71,24 @@ function uniqueSorted(nums) {
   return [...new Set(nums)].sort((a, b) => a - b);
 }
 
+// sleeveCapacity is the read-side plates-per-sleeve limit: a positive integer
+// when the record carries one, else Infinity (absent, or a vault body that
+// bypassed validation with garbage — unlimited, the pre-limit behavior).
+function sleeveCapacity(equipment) {
+  const n = Number(equipment && equipment.max_plates_per_side);
+  return Number.isInteger(n) && n >= 1 ? n : Infinity;
+}
+
 // achievableLoads returns every load (kg) the implement can be built at,
 // ascending. Fixed: the stored list, normalized. Plated: bar + every symmetric
 // plate combination — each side carries the same plates, so a plate type
 // contributes in multiples of `sides` plates per step, usable
 // floor(count / (sides * (pair ? 2 : 1))) times per implement. On a sides:2
 // bar a lone single plate contributes nothing (floor(1/2) = 0); on sides:1
-// (plate-loaded kettlebell) it counts.
+// (plate-loaded kettlebell) it counts. With max_plates_per_side set, a load
+// counts only when some combination builds it with at most that many plates
+// per sleeve: the knapsack tracks the FEWEST plates per side reaching each
+// sum, so the limit is a filter over the same pass.
 // ponytail: symmetric loading only — add an allow_uneven flag only if the
 // owner asks. The UI should surface the computed loads/step so a lone plate
 // that drops out is visible.
@@ -85,25 +107,31 @@ export function achievableLoads(equipment) {
   if (!Number.isFinite(bar) || bar <= 0) return [];
   const sides = equipment.sides === 1 ? 1 : 2;
   const divisor = sides * (equipment.pair ? 2 : 1);
+  const capacity = sleeveCapacity(equipment);
   const barQ = Math.round(bar * QUANTA_PER_KG);
   const maxSideQ = Math.max(
     0,
     Math.floor((MAX_TOTAL_KG * QUANTA_PER_KG - barQ) / sides),
   );
-  const reachable = new Uint8Array(maxSideQ + 1);
-  reachable[0] = 1;
+  // fewest[s] = fewest plates per side summing to s quanta (UNREACHABLE when
+  // none). Plate counts stay below maxSideQ (every plate is >= 1 quantum), so
+  // they never reach the sentinel.
+  const fewest = new Uint16Array(maxSideQ + 1).fill(UNREACHABLE);
+  fewest[0] = 0;
   for (const p of mergePlateRows(equipment.plates)) {
     const perSide = Math.floor(p.count / divisor);
     const q = Math.round(p.kg * QUANTA_PER_KG);
     if (!(perSide > 0) || !(q > 0)) continue;
-    // Bounded multiplicity via binary splitting: O(log perSide) 0/1 passes.
+    // Bounded multiplicity via binary splitting: O(log perSide) 0/1 passes,
+    // each bundle of `use` plates costing `use` toward the plate count.
     let remaining = perSide;
     let k = 1;
     while (remaining > 0) {
       const use = Math.min(k, remaining);
       const w = use * q;
       for (let s = maxSideQ; s >= w; s -= 1) {
-        if (reachable[s - w]) reachable[s] = 1;
+        const from = fewest[s - w];
+        if (from !== UNREACHABLE && from + use < fewest[s]) fewest[s] = from + use;
       }
       remaining -= use;
       k *= 2;
@@ -112,7 +140,7 @@ export function achievableLoads(equipment) {
   const loads = [];
   for (let s = 0; s <= maxSideQ; s += 1) {
     // The bar rides exact (never quantized); only plate sums sit on the grid.
-    if (reachable[s]) loads.push(Math.round((bar + (sides * s) / QUANTA_PER_KG) * 100) / 100);
+    if (fewest[s] !== UNREACHABLE && fewest[s] <= capacity) loads.push(Math.round((bar + (sides * s) / QUANTA_PER_KG) * 100) / 100);
   }
   return loads;
 }
@@ -124,9 +152,12 @@ export function achievableLoads(equipment) {
 // per-side grid achievableLoads uses (plate-row merge first, then
 // floor(count / (sides * (pair ? 2 : 1))) usable copies per side); greedy can
 // miss exotic inventories, so a miss falls back to a bounded-knapsack witness
-// before reporting null. The bar rides exact (achievableLoads convention) and
-// the rebuilt total must land on the requested kg, so off-grid snapping never
-// reports a near-miss as a build.
+// before reporting null. With max_plates_per_side set, a greedy build that
+// overflows the sleeve also falls back to the witness, which is the
+// fewest-plates build — still over capacity means null (the load does not fit
+// on the sleeve, matching achievableLoads). The bar rides exact
+// (achievableLoads convention) and the rebuilt total must land on the
+// requested kg, so off-grid snapping never reports a near-miss as a build.
 export function loadingFor(equipment, kg) {
   if (!equipment || equipment.kind !== 'plated') return null;
   const bar = Number(equipment.bar_kg);
@@ -160,8 +191,9 @@ export function loadingFor(equipment, kg) {
     for (let i = 0; i < use; i += 1) greedy.push(p);
     remaining -= use * p.q;
   }
-  const picked = remaining === 0 ? greedy : knapsackWitness(inv, sideQ);
-  if (!picked) return null;
+  const capacity = sleeveCapacity(equipment);
+  const picked = remaining === 0 && greedy.length <= capacity ? greedy : knapsackWitness(inv, sideQ);
+  if (!picked || picked.length > capacity) return null;
   const total = Math.round((bar + (sides * sideQ) / QUANTA_PER_KG) * 100) / 100;
   if (Math.abs(total - target) > 1e-9) return null;
   return { bar_kg: bar, per_side: picked.map((p) => p.kg).sort((a, b) => b - a) };
@@ -170,7 +202,9 @@ export function loadingFor(equipment, kg) {
 // knapsackWitness is the exact-cover fallback for loadingFor: bounded 0/1
 // knapsack over per-side quanta, one pass per usable copy (capped at what the
 // target side could ever take, so a hostile plate count cannot widen the
-// loop). Returns the plate entries building sideQ, or null.
+// loop). Keeps the fewest-plates build per sum (first found on a tie), so the
+// sleeve-capacity check sees the best case. Returns the plate entries
+// building sideQ, or null.
 function knapsackWitness(inv, sideQ) {
   const dp = new Array(sideQ + 1).fill(null);
   dp[0] = [];
@@ -178,7 +212,8 @@ function knapsackWitness(inv, sideQ) {
     const copies = Math.min(p.copies, Math.floor(sideQ / p.q));
     for (let c = 0; c < copies; c += 1) {
       for (let s = sideQ; s >= p.q; s -= 1) {
-        if (dp[s] === null && dp[s - p.q] !== null) dp[s] = [...dp[s - p.q], p];
+        const from = dp[s - p.q];
+        if (from !== null && (dp[s] === null || from.length + 1 < dp[s].length)) dp[s] = [...from, p];
       }
     }
   }
@@ -295,6 +330,17 @@ function validateLoads(loads) {
   return uniqueSorted(nums);
 }
 
+// validateMaxPlates: undefined = absent (an update preserves the stored
+// value), null = no limit (cleared), else an integer sleeve capacity.
+function validateMaxPlates(value) {
+  if (value === undefined || value === null) return value;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1 || n > MAX_PLATES_PER_SIDE) {
+    throw invalidRequest(`max_plates_per_side must be an integer from 1 to ${MAX_PLATES_PER_SIDE}, or null`);
+  }
+  return n;
+}
+
 // validateLocationId: undefined = absent (an update preserves the stored
 // value), null = portable, else a positive integer id. Existence is checked by
 // the writer (it needs the records port).
@@ -334,6 +380,8 @@ export function validateEquipmentInput(input) {
     out.sides = sides;
     out.pair = !!(input.pair);
     out.plates = validatePlates(input.plates);
+    const maxPlates = validateMaxPlates(input.max_plates_per_side);
+    if (maxPlates !== undefined) out.max_plates_per_side = maxPlates;
     out.implement = validateImplement(input.implement) || defaultPlatedImplement(sides, out.pair);
   }
   const locationId = validateLocationId(input.location_id);
@@ -375,6 +423,8 @@ export function toEquipmentResponse(record) {
     resp.sides = record.sides;
     resp.pair = !!record.pair;
     resp.plates = (record.plates || []).map((p) => ({ kg: p.kg, count: p.count }));
+    const capacity = sleeveCapacity(record);
+    if (capacity !== Infinity) resp.max_plates_per_side = capacity;
   }
   return resp;
 }
@@ -441,6 +491,7 @@ export function createEquipmentDomain({ records, now }) {
     const clean = validateEquipmentInput(input);
     await assertLiveLocation(clean.location_id);
     if (clean.location_id === null) delete clean.location_id;
+    if (clean.max_plates_per_side === null) delete clean.max_plates_per_side;
     const nowMs = now();
     const record = {
       recordId: genRecordId('equipment', nowMs),
@@ -487,12 +538,16 @@ export function createEquipmentDomain({ records, now }) {
     // A kind change must not leave the other kind's fields behind: delete
     // the disowned side's keys (never persist undefined).
     const disowned = clean.kind === 'fixed'
-      ? ['bar_kg', 'sides', 'pair', 'plates']
+      ? ['bar_kg', 'sides', 'pair', 'plates', 'max_plates_per_side']
       : ['loads_kg'];
     for (const k of disowned) delete updated[k];
     // location_id: absent preserves the stored gym (spread above), explicit
     // null clears it (portable) — never persisted as null.
     if (updated.location_id === null) delete updated.location_id;
+    // max_plates_per_side follows the same rule: absent preserves the stored
+    // sleeve capacity (an older caller must not silently lift it), explicit
+    // null removes the limit.
+    if (updated.max_plates_per_side === null) delete updated.max_plates_per_side;
     // implement is deliberately NOT stripped: omitting it preserves the stored
     // label (a stale second device or an older MCP caller must not wipe a
     // user-set type), and it survives kind changes — it lives on both kinds.

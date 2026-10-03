@@ -52,6 +52,8 @@ const WORKOUT_LOCATION_FETCH_OPTS = { tags: ['workout'], freshAfterMs: 60_000, s
 // ponytail: mirrors the domain's MAX_FIXED_LOADS ceiling (web/domain/equipment.js)
 // so the generator can never build a list the API would reject.
 const WORKOUT_EQUIPMENT_MAX_GENERATED_LOADS = 200;
+// Mirrors the domain's MAX_PLATES_PER_SIDE sleeve-capacity ceiling.
+const WORKOUT_EQUIPMENT_MAX_PLATES_PER_SIDE = 100;
 // med-v75c.1: the shared Type select values, stored as `implement` on both
 // kinds (mirrors the domain's IMPLEMENT_VALUES in web/domain/equipment.js).
 const WORKOUT_EQUIPMENT_IMPLEMENTS = ['barbell', 'dumbbell', 'kettlebell', 'other'];
@@ -266,10 +268,14 @@ function _buildWorkoutEquipmentGroup(doc, loc, items, isActive) {
 
 // The step/max line is the API's computed min_step_kg / max_kg, rendered
 // verbatim. A row with no max_kg is an uncommitted optimistic create.
+// A plated item with a sleeve capacity appends it, so a max_kg capped by the
+// sleeve (not the plate pile) is explained on the row.
 function _equipmentStepMaxText(item) {
     if (item == null || item.max_kg == null) return 'Saving…';
-    if (item.min_step_kg == null) return `max ${item.max_kg} kg`;
-    return `step ${item.min_step_kg} kg · max ${item.max_kg} kg`;
+    const cap = item.kind === 'plated' && item.max_plates_per_side != null
+        ? ` · ≤${item.max_plates_per_side} plates/side` : '';
+    if (item.min_step_kg == null) return `max ${item.max_kg} kg${cap}`;
+    return `step ${item.min_step_kg} kg · max ${item.max_kg} kg${cap}`;
 }
 
 function _isPendingEquipmentRow(item) {
@@ -478,6 +484,31 @@ function _addEquipmentPlateRow(kg, count) {
     list.appendChild(row);
 }
 
+// Sleeve capacity (max plates per side). The input remembers the stored
+// value so a blank field can tell "never limited" (key omitted) from "limit
+// removed" (explicit null — an absent key would preserve the stored limit).
+function _setEquipmentMaxPlates(value) {
+    const el = document.getElementById('workout-equipment-max-plates');
+    if (!el) return;
+    el.value = value != null ? String(value) : '';
+    el.dataset.initial = el.value;
+}
+
+// Returns the payload value: a positive integer, null (clear a stored limit),
+// undefined (blank and nothing stored — omit), or false after alerting.
+function _readEquipmentMaxPlates() {
+    const el = document.getElementById('workout-equipment-max-plates');
+    if (!el) return undefined;
+    const raw = el.value;
+    if (raw === '' || raw == null) return el.dataset.initial ? null : undefined;
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n < 1 || n > WORKOUT_EQUIPMENT_MAX_PLATES_PER_SIDE) {
+        safeAlert(`Max plates per side must be a whole number from 1 to ${WORKOUT_EQUIPMENT_MAX_PLATES_PER_SIDE} (or blank for no limit).`);
+        return false;
+    }
+    return n;
+}
+
 function _readEquipmentPlateRows() {
     const rows = Array.from(document.querySelectorAll('#workout-equipment-plates [data-plate-row]'));
     const plates = [];
@@ -553,6 +584,7 @@ function showAddWorkoutEquipmentModal() {
     document.getElementById('workout-equipment-gen-max').value = '';
     document.getElementById('workout-equipment-gen-step').value = '';
     document.getElementById('workout-equipment-bar').value = '';
+    _setEquipmentMaxPlates(null);
     _setEquipmentType('barbell');
     const plates = document.getElementById('workout-equipment-plates');
     if (plates) plates.replaceChildren();
@@ -636,6 +668,7 @@ async function showEditWorkoutEquipmentModal(id) {
     document.getElementById('workout-equipment-gen-max').value = '';
     document.getElementById('workout-equipment-gen-step').value = '';
     document.getElementById('workout-equipment-bar').value = '';
+    _setEquipmentMaxPlates(null);
     _setEquipmentType('barbell');
     const platesEl = document.getElementById('workout-equipment-plates');
     if (platesEl) platesEl.replaceChildren();
@@ -655,6 +688,7 @@ async function showEditWorkoutEquipmentModal(id) {
         document.getElementById('workout-equipment-loads').value = loads.join(', ');
     } else {
         document.getElementById('workout-equipment-bar').value = item.bar_kg != null ? String(item.bar_kg) : '';
+        _setEquipmentMaxPlates(item.max_plates_per_side);
         const rows = Array.isArray(item.plates) && item.plates.length > 0 ? item.plates : [{ kg: '', count: '' }];
         rows.forEach((p) => _addEquipmentPlateRow(p.kg, p.count));
     }
@@ -699,6 +733,8 @@ function _buildEquipmentShapePayload() {
     }
     const plates = _readEquipmentPlateRows();
     if (plates === null) return null;
+    const maxPlates = _readEquipmentMaxPlates();
+    if (maxPlates === false) return null;
     const implement = _getEquipmentType();
     const { sides, pair } = _equipmentTypeToSidesPair(implement);
     const platedPayload = {
@@ -709,6 +745,7 @@ function _buildEquipmentShapePayload() {
         pair,
         plates
     };
+    if (maxPlates !== undefined) platedPayload.max_plates_per_side = maxPlates;
     if (implement) platedPayload.implement = implement;
     return platedPayload;
 }
@@ -739,7 +776,7 @@ async function saveWorkoutEquipmentItem() {
                 if (!e || e.id !== editingId) return e;
                 const projected = { ...e, ...payload, min_step_kg: null, max_kg: null };
                 const disowned = payload.kind === 'fixed'
-                    ? ['bar_kg', 'sides', 'pair', 'plates']
+                    ? ['bar_kg', 'sides', 'pair', 'plates', 'max_plates_per_side']
                     : ['loads_kg'];
                 for (const k of disowned) delete projected[k];
                 return projected;

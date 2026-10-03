@@ -368,6 +368,9 @@ describe('cloud shim contract — gym export/import (share)', () => {
         await window.apiCall('/api/workout/equipment', 'POST', {
             name: 'Ohio bar', kind: 'plated', bar_kg: 20, sides: 2,
             plates: [{ kg: 20, count: 4 }, { kg: 10, count: 2 }, { kg: 2.5, count: 2 }, { kg: 1.25, count: 1 }],
+            // Sleeve capacity caps the loads (20+20+10+2.5 would be 4 per side),
+            // so identical loads after import prove it rode the token.
+            max_plates_per_side: 3,
             location_id: gym.id,
         });
         await window.apiCall('/api/workout/equipment', 'POST', {
@@ -380,6 +383,7 @@ describe('cloud shim contract — gym export/import (share)', () => {
 
     const loadsByName = (items) => Object.fromEntries(items.map((i) => [i.name, {
         loads_kg: i.loads_kg, min_step_kg: i.min_step_kg, max_kg: i.max_kg, implement: i.implement,
+        max_plates_per_side: i.max_plates_per_side,
     }]));
 
     it('export → import into a fresh store lands a NEW gym with identical achievable loads', async () => {
@@ -389,6 +393,7 @@ describe('cloud shim contract — gym export/import (share)', () => {
         expect(token.v).toBe(1);
         expect(token.location.name).toBe('Gym A');
         expect(token.location.equipment.map((i) => i.name).sort()).toEqual(['Hex DBs', 'Ohio bar']);
+        expect(token.location.equipment.find((i) => i.name === 'Ohio bar').max_plates_per_side).toBe(3);
         // Names, not ids: nothing account-specific rides along.
         const wire = JSON.stringify(token);
         for (const key of ['"id"', 'location_id', 'user_id', 'created_at', 'updated_at', 'max_kg', 'min_step_kg']) {

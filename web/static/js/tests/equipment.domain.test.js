@@ -347,6 +347,109 @@ describe('equipment implement label (med-v75c.1)', () => {
   });
 });
 
+describe('sleeve capacity: max_plates_per_side', () => {
+  // 20 kg bar, five 20s per side available — but the sleeve fits only four.
+  const PILE = {
+    kind: 'plated', name: 'Short sleeve', bar_kg: 20, sides: 2, pair: false,
+    plates: [{ kg: 20, count: 10 }, { kg: 10, count: 2 }, { kg: 5, count: 2 }],
+  };
+  const CAPPED = { ...PILE, max_plates_per_side: 4 };
+
+  it('drops loads needing more plates per side than the sleeve holds', () => {
+    expect(achievableLoads(PILE)).toContain(220); // 5 x 20 per side
+    const capped = achievableLoads(CAPPED);
+    expect(capped).not.toContain(220);
+    expect(capped).not.toContain(190); // 4 x 20 + 5 = 5 plates
+    expect(capped).toContain(180); // 4 x 20
+    expect(capped).toContain(160); // 3 x 20 + 10
+    expect(capped).not.toContain(170); // 3 x 20 + 10 + 5 = 5 plates
+    expect(capped[capped.length - 1]).toBe(180);
+  });
+
+  it('loadingFor refuses an over-capacity build and never returns more plates than fit', () => {
+    expect(loadingFor(PILE, 220)).toEqual({ bar_kg: 20, per_side: [20, 20, 20, 20, 20] });
+    expect(loadingFor(CAPPED, 220)).toBeNull();
+    expect(loadingFor(CAPPED, 180)).toEqual({ bar_kg: 20, per_side: [20, 20, 20, 20] });
+  });
+
+  it('an over-capacity greedy build falls back to the fewest-plates witness', () => {
+    // sides:1, target 10 kg on the sleeve: greedy takes 6 + 1 + 1 + 1 + 1
+    // (five plates), the two-plate sleeve only fits 5 + 5.
+    const kb = {
+      kind: 'plated', name: 'Loadable KB', bar_kg: 20, sides: 1, pair: false,
+      plates: [{ kg: 6, count: 1 }, { kg: 5, count: 2 }, { kg: 1, count: 4 }],
+      max_plates_per_side: 2,
+    };
+    expect(achievableLoads(kb)).toContain(30);
+    expect(loadingFor(kb, 30)).toEqual({ bar_kg: 20, per_side: [5, 5] });
+  });
+
+  it('agrees with achievableLoads under random capacities (seeded)', () => {
+    let seed = 0xbeef;
+    const rnd = () => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed / 0x7fffffff;
+    };
+    const choices = [1, 1.25, 2.5, 5, 6, 10, 15, 20, 25];
+    for (let round = 0; round < 25; round += 1) {
+      const sides = rnd() < 0.7 ? 2 : 1;
+      const pair = sides === 2 && rnd() < 0.3;
+      const plates = choices
+        .filter(() => rnd() < 0.5)
+        .map((kg) => ({ kg, count: 1 + Math.floor(rnd() * 8) }));
+      const cap = 1 + Math.floor(rnd() * 4);
+      const eq = { kind: 'plated', name: 'Rand', bar_kg: 20, sides, pair, plates, max_plates_per_side: cap };
+      const loads = new Set(achievableLoads(eq));
+      for (const kg of achievableLoads({ ...eq, max_plates_per_side: undefined })) {
+        const ld = loadingFor(eq, kg);
+        expect({ kg, got: ld !== null }).toEqual({ kg, got: loads.has(kg) });
+        if (ld) expect(ld.per_side.length).toBeLessThanOrEqual(cap);
+      }
+    }
+  });
+
+  it('a garbage capacity (vault body that bypassed validation) reads as unlimited', () => {
+    expect(achievableLoads({ ...PILE, max_plates_per_side: 'x' })).toEqual(achievableLoads(PILE));
+    expect(achievableLoads({ ...PILE, max_plates_per_side: 0 })).toEqual(achievableLoads(PILE));
+  });
+
+  it('create stores it, the response carries it and caps loads_kg / max_kg', async () => {
+    const eq = domain();
+    const created = await eq.createEquipment(CAPPED);
+    expect(created.max_plates_per_side).toBe(4);
+    expect(created.max_kg).toBe(180);
+    const uncapped = await eq.createEquipment({ ...PILE, max_plates_per_side: null });
+    expect('max_plates_per_side' in uncapped).toBe(false);
+    expect(uncapped.max_kg).toBe(250);
+  });
+
+  it('update: omitted preserves, null clears, a kind change strips it', async () => {
+    let t = 1_000_000;
+    const records = memPort();
+    const eq = createEquipmentDomain({ records, now: () => (t += 1000) });
+    const created = await eq.createEquipment(CAPPED);
+    await eq.updateEquipment(created.id, { ...PILE, name: 'Renamed' });
+    expect((await eq.getEquipment(created.id)).max_plates_per_side).toBe(4);
+    await eq.updateEquipment(created.id, { ...PILE, max_plates_per_side: 3 });
+    expect((await eq.getEquipment(created.id)).max_kg).toBe(140);
+    await eq.updateEquipment(created.id, { ...PILE, max_plates_per_side: null });
+    const [cleared] = await records.list('equipment');
+    expect('max_plates_per_side' in cleared).toBe(false);
+    await eq.updateEquipment(created.id, CAPPED);
+    await eq.updateEquipment(created.id, { kind: 'fixed', name: 'Now fixed', loads_kg: [20] });
+    const [fixed] = await records.list('equipment');
+    expect('max_plates_per_side' in fixed).toBe(false);
+  });
+
+  it('validation rejects a non-integer or out-of-range capacity', async () => {
+    const eq = domain();
+    for (const bad of [0, -1, 2.5, 101, 'four']) {
+      await expect(eq.createEquipment({ ...PILE, max_plates_per_side: bad }))
+        .rejects.toMatchObject({ code: 'invalid_request' });
+    }
+  });
+});
+
 describe('equipment vault round-trip', () => {
   const NOW = Date.parse('2026-07-08T12:00:00Z');
   const GEAR = [
