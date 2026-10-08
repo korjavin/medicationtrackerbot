@@ -4,6 +4,7 @@
 // payload into the DOM.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv, createMockResponse } from './helpers/frontend-harness.js';
+import { loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 
 describe('features/workout/history.js — split-file integration', () => {
   let env;
@@ -177,5 +178,71 @@ describe('features/workout/history.js — split-file integration', () => {
     await window.WorkoutHistory.deleteSession(0);
 
     expect(apiCallSpy).not.toHaveBeenCalled();
+  });
+});
+
+// bd med-egzd: Finish from the med-laj4 Unfinished row, served end-to-end by the
+// cloud shim + web/domain/workout.js. completed_at used to be the tidy-up
+// instant, so the row rendered a 20h+ "workout"; it is now the session's own
+// last log instant.
+describe('features/workout/history.js — late Finish of an Unfinished row (cloud shim)', () => {
+  let env;
+
+  // Session transitions best-effort POST /api/telegram/cancel-refire (med-r3dm).
+  beforeEach(() => { globalThis.fetch = vi.fn().mockResolvedValue({ ok: true }); });
+
+  afterEach(() => {
+    delete globalThis.fetch;
+    env.cleanup();
+    env = null;
+  });
+
+  it('renders a duration bounded by the session\'s own day, not the tidy-up gap', async () => {
+    const day = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    const startedAt = `${day}T10:00:00.000Z`;
+    env = loadCloudShimFrontendEnv({
+      withWorkout: true,
+      wrapApiCallDirect: true,
+      timeZone: 'UTC',
+      seedRecords: {
+        workoutgroup: [{
+          recordId: 'group-1', clientTs: 1, deleted: false, id: 1, user_id: 1, name: 'Strength',
+          is_rotating: false, days_of_week: '[]', scheduled_time: '09:00',
+          notification_advance_minutes: 0, active: true
+        }],
+        workoutvariant: [{
+          recordId: 'variant-1', clientTs: 1, deleted: false, id: 1, group_id: 1, name: 'A', rotation_order: 0
+        }],
+        workoutsession: [{
+          recordId: `session-1-${day}`, clientTs: 1, deleted: false, id: 303, user_id: 1, group_id: 1,
+          variant_id: 1, scheduled_date: `${day}T00:00:00Z`, scheduled_time: '09:00', status: 'in_progress',
+          started_at: startedAt, completed_at: null, snoozed_until: null, snooze_count: 0,
+          notification_message_id: null, notes: ''
+        }],
+        exerciselog: [{
+          recordId: 'log-5', clientTs: 1, deleted: false, id: 5, session_id: 303, exercise_id: 0,
+          exercise_name: 'Bench', sets_completed: 3, reps_completed: 8, weight_kg: 60, status: 'completed',
+          notes: '', logged_at: `${day}T10:45:00.000Z`
+        }]
+      }
+    });
+    const { window, document } = env;
+    window.loadWorkoutHistoryTab = vi.fn();
+    const container = document.getElementById('workout-history-display');
+    window._renderWorkoutHistory(container, await window.apiCall('/api/workout/sessions?limit=50'), [], 'UTC');
+
+    const row = container.querySelector('.wg-workouts-history-row');
+    expect(row.querySelector('.wg-tag--unfinished')).not.toBeNull();
+    row.click();
+    await vi.waitFor(() => expect(document.getElementById('workout-session-finish-btn')).not.toBeNull());
+    document.getElementById('workout-session-finish-btn').click();
+    await vi.waitFor(() => expect(window.WorkoutSessionsState.data).toBeNull());
+
+    const session = (await env.records.list('workoutsession')).find((s) => s.id === 303);
+    expect(session.status).toBe('completed');
+    expect(session.completed_at).toBe(`${day}T10:45:00.000Z`);
+
+    window._renderWorkoutHistory(container, await window.apiCall('/api/workout/sessions?limit=50'), [], 'UTC');
+    expect(container.querySelector('.wg-workouts-history-row__duration').textContent).toBe('45m');
   });
 });

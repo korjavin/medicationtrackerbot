@@ -1847,7 +1847,10 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       ...session,
       ...(await locationStamp(session)),
       status: 'completed',
-      completed_at: new Date(nowMs).toISOString(),
+      completed_at: await completionInstant(session, nowMs),
+      // clientTs stays the wall clock even when completed_at is backdated:
+      // this is a user write (not a derived materialization, rule 12), so it
+      // must beat stale mirrors on other devices.
       clientTs: nowMs,
     };
     // Snapshot the planned exercises + targets so later edits to the variant,
@@ -1861,6 +1864,37 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     }
     await records.put(WORKOUT_RECORD_TYPES.SESSION, updated);
     await tryAdvanceRotation(session);
+  }
+
+  // completionInstant derives completed_at for completeSession. A session
+  // finished on its own day gets now() (unchanged). A late Finish of a past-day
+  // session (the History "unfinished" affordance, or an MCP status call) is
+  // backdated to the session's day: the latest logged_at of its live logs,
+  // else started_at, else local NOON of scheduled_date (noon, not 23:59, so the
+  // UTC day gamification keys on still equals scheduled_date in any zone; it
+  // also matches gamification's own missing-completed_at fallback). Clamped to
+  // >= started_at. Known edge: an honest midnight-crossing workout (start 23:30,
+  // Finish 00:10) counts as "past day" and gets its last log instant — still
+  // within minutes of the real end.
+  async function completionInstant(session, nowMs) {
+    const sessionDay = String(session.scheduled_date || '').slice(0, 10);
+    if (!sessionDay || sessionDay >= localDateStr(nowMs, timeZone)) {
+      return new Date(nowMs).toISOString();
+    }
+    const startMs = session.started_at ? Date.parse(session.started_at) : NaN;
+    const logMs = (await activeRecords(WORKOUT_RECORD_TYPES.LOG))
+      .filter((l) => l.session_id === session.id && l.logged_at)
+      .map((l) => Date.parse(l.logged_at))
+      .filter(Number.isFinite);
+    let ms;
+    if (logMs.length) ms = Math.max(...logMs);
+    else if (Number.isFinite(startMs)) ms = startMs;
+    else {
+      const wall = Date.UTC(+sessionDay.slice(0, 4), +sessionDay.slice(5, 7) - 1, +sessionDay.slice(8, 10), 12);
+      ms = localWallToUtcMs(wall, timeZone);
+    }
+    if (Number.isFinite(startMs) && ms < startMs) ms = startMs;
+    return new Date(ms).toISOString();
   }
 
   // buildExerciseSnapshot renders a variant's plan into the session's immutable
