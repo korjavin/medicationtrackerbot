@@ -28,7 +28,8 @@ const SNAPSHOT_THRESHOLD = 500;
 const MIN_SNAPSHOT_INTERVAL_MS = 12 * 60 * 60 * 1000;
 // ...unless the tail grows past this many ops anyway: the server's account
 // quota counts retained oplog bytes too, so an unbounded cooldown could 413 a
-// heavy writer into a sync wedge that a compaction would have avoided.
+// heavy writer into a sync wedge that a compaction would have avoided. An ops
+// 413 (quota) also clears lastSnapshotAt, covering a few fat ops the count misses.
 // ponytail: op count, not bytes — switch to a byte budget if ops grow fat.
 const SNAPSHOT_FORCE_OPS = SNAPSHOT_THRESHOLD * 4;
 
@@ -1128,6 +1129,10 @@ async function flushPendingUnlocked(ctx) {
           writeError: { status: res.status, at: Date.now() },
           writeErrorStreak: streak,
           ...(streak >= WRITE_ERROR_BUDGET ? { syncWedged: true } : {}),
+          // Quota exhausted: drop the compaction cooldown so pullOnOpen's
+          // maybeSnapshot can reclaim retained oplog bytes before the streak
+          // wedges syncing (med-356i).
+          ...(res.status === 413 ? { lastSnapshotAt: null } : {}),
         });
         offline = false;
         return false;

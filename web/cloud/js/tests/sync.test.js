@@ -202,6 +202,7 @@ describe('maybeSnapshot surfaces a permanent snapshot failure instead of failing
   let ctx;
   let snapshotPosts;
   let snapshotStatus;
+  let opsPostStatus;
 
   const seedMeta = async (meta) => {
     const db = await openDb();
@@ -242,8 +243,12 @@ describe('maybeSnapshot surfaces a permanent snapshot failure instead of failing
     snapshotPosts = 0;
     snapshotStatus = 413; // account storage quota exceeded — permanent
 
-    vi.stubGlobal('fetch', vi.fn(async (url) => {
+    opsPostStatus = 200;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
       if (String(url).startsWith('/api/sync/ops')) {
+        if (init?.method === 'POST' && opsPostStatus !== 200) {
+          return new Response('account storage quota exceeded', { status: opsPostStatus });
+        }
         return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
       }
       if (String(url) === '/api/sync/snapshot') {
@@ -336,6 +341,28 @@ describe('maybeSnapshot surfaces a permanent snapshot failure instead of failing
     await seedMeta({ localLastSeq: SNAPSHOT_THRESHOLD * 7 });
     await pullOnOpen(ctx);
     expect(snapshotPosts).toBe(3);
+  });
+
+  it('a quota 413 on ops lifts the cooldown so compaction can free space', async () => {
+    snapshotStatus = 200;
+    opsPostStatus = 413;
+    await seedMeta({ localLastSeq: SNAPSHOT_THRESHOLD, lastSnapshotSeq: 0, lastSnapshotAt: Date.now() });
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(['records', 'pending'], 'readwrite');
+        tx.objectStore('records').put({ recordId: 'note-1', recordType: 'note', clientTs: 1, deleted: false, text: 'hi' });
+        tx.objectStore('pending').put({ recordId: 'note-1', recordType: 'note' });
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+
+    await pullOnOpen(ctx);
+    expect(snapshotPosts).toBe(1);
+    expect(await readMetaKey('lastSnapshotSeq')).toBe(SNAPSHOT_THRESHOLD);
   });
 });
 
