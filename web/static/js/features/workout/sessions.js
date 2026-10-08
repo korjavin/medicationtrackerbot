@@ -1304,6 +1304,13 @@ async function closeWorkoutSessionModal() {
     // unsaved edit for a retry instead of tearing the modal down and losing it.
     // Runs before state is nulled so the save can still read WorkoutSessionsState.
     if (!(await flushPendingAutosave())) return;
+    // med-laj4: closing a still-running workout that has saved sets is how a
+    // Finish gets forgotten. Nudge, never block. originalStatus tracks the
+    // last persisted status, so the Finish path's own close stays quiet.
+    const st = window.WorkoutSessionsState;
+    if (st.data && st.originalStatus === 'in_progress' && (st.logs || []).some(l => l.id > 0)) {
+        safeToast('Workout still unfinished — open it and tap Finish when done.', 'info');
+    }
     const overlay = document.getElementById('modal-overlay');
     overlay.onclick = null; // Remove click handler
     window.ModalManager.workoutSession.close();

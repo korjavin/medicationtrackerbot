@@ -6342,6 +6342,12 @@ textarea.wg-input {
     border-color: var(--wg-tag-high-border);
 }
 
+.wg-tag--unfinished {
+    background: var(--wg-tag-high-bg);
+    color: var(--wg-tag-high-fg);
+    border-color: var(--wg-tag-high-border);
+}
+
 .wg-tag--rejected {
     background: var(--wg-tag-alert-bg);
     color: var(--wg-tag-alert-fg);

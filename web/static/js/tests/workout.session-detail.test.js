@@ -291,6 +291,30 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
         expect(document.getElementById('workout-session-modal').classList.contains('hidden')).toBe(true);
     });
 
+    // med-laj4: closing a running workout with saved sets nudges (never
+    // blocks) — a forgotten Finish is otherwise silent.
+    it('nudges on close while in_progress with logged sets, without blocking', async () => {
+        const { window, document } = env;
+        await openSession(window, [logFixture()]);
+        window.safeToast = vi.fn();
+
+        await window.closeWorkoutSessionModal();
+
+        expect(window.safeToast).toHaveBeenCalledWith(expect.stringContaining('unfinished'), 'info');
+        expect(window.WorkoutSessionsState.data).toBeNull();
+        expect(document.getElementById('workout-session-modal').classList.contains('hidden')).toBe(true);
+    });
+
+    it('does not nudge on close for a completed session or one with no logged sets', async () => {
+        const { window } = env;
+        window.safeToast = vi.fn();
+        await openSession(window, [logFixture()], { status: 'completed' });
+        await window.closeWorkoutSessionModal();
+        await openSession(window, []);
+        await window.closeWorkoutSessionModal();
+        expect(window.safeToast).not.toHaveBeenCalled();
+    });
+
     it('tolerates omitted handlers without throwing on click', () => {
         const { window, document } = env;
         openStatus(window, 'in_progress');
