@@ -267,6 +267,28 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
         expect(onFinish).toHaveBeenCalledTimes(1);
     });
 
+    // bd med-mgvo: going offline used to sweep Finish to disabled, so a tap
+    // was a silent no-op and the session never completed. Cloud writes are
+    // local-first: offline, Finish must stay live and write status=completed.
+    it('Finish stays enabled offline and still completes the session', async () => {
+        const { window, document } = env;
+        window.eval(readFileSync(new URL('../sync.js', import.meta.url), 'utf8'));
+        await openSession(window, [logFixture()]);
+
+        window.SyncManager.handleOffline();
+        expect(document.getElementById('offline-banner').classList.contains('hidden')).toBe(false);
+
+        const finishBtn = document.getElementById('workout-session-finish-btn');
+        expect(finishBtn.disabled).toBe(false);
+        expect(finishBtn.hasAttribute('data-offline-disabled')).toBe(false);
+
+        finishBtn.click();
+        await vi.waitFor(() => expect(window.WorkoutSessionsState.data).toBeNull());
+        expect(window.apiCall).toHaveBeenCalledWith(
+            '/api/workout/sessions/status?id=77', 'PUT', { status: 'completed' }, expect.anything());
+        expect(document.getElementById('workout-session-modal').classList.contains('hidden')).toBe(true);
+    });
+
     it('tolerates omitted handlers without throwing on click', () => {
         const { window, document } = env;
         openStatus(window, 'in_progress');

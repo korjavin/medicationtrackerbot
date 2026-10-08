@@ -131,12 +131,6 @@ describe('Workouts → Next workout card (Round-2 Task 10)', () => {
         for (const label of labels) {
             expect(label).not.toMatch(emojiRe);
         }
-
-        // Preserves the workout-action-btn marker class for sync.js offline
-        // handler (which scans `.workout-action-btn` on connectivity change).
-        for (const btn of actions) {
-            expect(btn.classList.contains('workout-action-btn')).toBe(true);
-        }
     });
 
     it('#13a: in_progress status emits Ad hoc + View (primary) + Finish (secondary)', () => {
@@ -252,7 +246,6 @@ describe('Workouts → Next workout card (Round-2 Task 10)', () => {
         expect(actions.length).toBe(1);
         expect(actions[0].querySelector('.wg-toolbar-btn__label').textContent).toBe('Ad hoc');
         expect(actions[0].classList.contains('wg-toolbar-btn--secondary')).toBe(true);
-        expect(actions[0].classList.contains('workout-action-btn')).toBe(true);
 
         // `{ session: null }` (the shape loadNextWorkout caches for a server
         // "no next workout") takes the same path.
@@ -262,11 +255,9 @@ describe('Workouts → Next workout card (Round-2 Task 10)', () => {
         ).toBe(1);
     });
 
-    // The ad-hoc CTA lost its static id (and its entry in sync.js's
-    // `offlineUnsupported` list) when it moved into the card, so the offline
-    // treatment now has to come from the same createButton path as its
-    // siblings — including on the empty card, where it is the only button.
-    it('med-2fc: Ad hoc gets the offline-disabled treatment when SyncManager reports offline', () => {
+    // med-mgvo: workout writes are local-first, so offline never disables the
+    // card's actions (on the empty card or the scheduled one).
+    it('med-mgvo: Ad hoc stays enabled when SyncManager reports offline', () => {
         const { window, document } = env;
         const container = document.getElementById('next-workout-card');
         window.SyncManager = { isOnline: false };
@@ -275,10 +266,7 @@ describe('Workouts → Next workout card (Round-2 Task 10)', () => {
             window._renderNextWorkout(container, data);
             const adhocBtn = container.querySelector('.wg-workouts-next-card__actions > .wg-toolbar-btn');
             expect(adhocBtn.querySelector('.wg-toolbar-btn__label').textContent).toBe('Ad hoc');
-            expect(adhocBtn.classList.contains('workout-action-btn')).toBe(true);
-            expect(adhocBtn.classList.contains('offline-disabled')).toBe(true);
-            expect(adhocBtn.getAttribute('data-offline-disabled')).toBe('true');
-            expect(adhocBtn.disabled).toBe(true);
+            expect(adhocBtn.disabled).toBe(false);
         }
     });
 

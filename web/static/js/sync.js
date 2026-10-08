@@ -157,81 +157,13 @@ const SyncManager = {
         this.updateStatus();
     },
 
-    // Show/hide offline banner and disable unsupported write buttons
+    // Show/hide the offline banner. Nothing else: every cloud write is
+    // local-first (durable in IndexedDB before it resolves), so no button is
+    // ever disabled for being offline (med-mgvo — the old sweep made Finish a
+    // silent no-op).
     updateOfflineBanner(offline) {
         const banner = document.getElementById('offline-banner');
-        if (banner) {
-            if (offline) {
-                banner.classList.remove('hidden');
-            } else {
-                banner.classList.add('hidden');
-            }
-        }
-
-        // Buttons that require online (no offline write support)
-        const offlineUnsupported = [
-            'add-btn',
-            'med-modal-save-btn',
-            'add-food-inline-btn',
-            'notes-save-btn',
-            // med-2fc: the ad-hoc Start CTA is no longer a static id — it is
-            // rendered into the next-workout card as a `.workout-action-btn`
-            // and picked up by the dynamic sweep below.
-            'add-workout-group-btn',
-            'add-exercise-library-btn',
-            'workout-group-save-btn',
-            'variant-save-btn',
-            'exercise-save-btn',
-            'exercise-library-save-btn',
-            'food-modal-save-btn',
-            'food-product-save-btn',
-            'session-add-exercise-save-btn'
-        ];
-
-        for (const id of offlineUnsupported) {
-            const btn = document.getElementById(id);
-            if (!btn) continue;
-
-            if (offline) {
-                btn.classList.add('offline-disabled');
-                btn.setAttribute('data-offline-disabled', 'true');
-                btn.disabled = true;
-                // Add tooltip right after the button if not already present
-                if (!btn.nextElementSibling || !btn.nextElementSibling.classList.contains('offline-disabled-tooltip')) {
-                    const tip = document.createElement('span');
-                    tip.className = 'offline-disabled-tooltip';
-                    tip.textContent = 'Available when online';
-                    btn.insertAdjacentElement('afterend', tip);
-                }
-            } else {
-                btn.classList.remove('offline-disabled');
-                btn.removeAttribute('data-offline-disabled');
-                // Don't re-enable buttons that are mid-submit (withSubmit guard)
-                if (!btn.hasAttribute('data-submit-in-flight')) {
-                    btn.disabled = false;
-                }
-                if (btn.nextElementSibling && btn.nextElementSibling.classList.contains('offline-disabled-tooltip')) {
-                    btn.nextElementSibling.remove();
-                }
-            }
-        }
-
-        // Also disable/enable dynamically-created workout action buttons
-        const dynamicBtns = document.querySelectorAll('.workout-action-btn');
-        for (const btn of dynamicBtns) {
-            if (offline) {
-                btn.classList.add('offline-disabled');
-                btn.setAttribute('data-offline-disabled', 'true');
-                btn.disabled = true;
-            } else {
-                btn.classList.remove('offline-disabled');
-                btn.removeAttribute('data-offline-disabled');
-                // Don't re-enable buttons that are mid-submit (withSubmit guard)
-                if (!btn.hasAttribute('data-submit-in-flight')) {
-                    btn.disabled = false;
-                }
-            }
-        }
+        if (banner) banner.classList.toggle('hidden', !offline);
     },
 
     // Register callback for status updates

@@ -1271,8 +1271,6 @@ function renderSessionDetailActions(container, opts) {
 
     const onFinish = (opts && typeof opts.onFinish === 'function') ? opts.onFinish : () => {};
 
-    const offline = typeof window !== 'undefined' && window.SyncManager && window.SyncManager.isOnline === false;
-
     // "Add Exercise" is not here: it lives in the pinned modal header, which is
     // on screen at every scroll position, so a bottom copy was a second button
     // for the same job. Adding to a finished workout stays legitimate — the
@@ -1286,23 +1284,16 @@ function renderSessionDetailActions(container, opts) {
     // remains the way to change a finished session's status.
     if (window.WorkoutSessionsState?.data?.status !== 'in_progress') return;
 
-    // `.workout-action-btn` hooks this into sync.js's offline toggling sweep
-    // so the button stays disabled/enabled as connectivity changes while the
-    // modal is open. Static offline state at creation time is applied below.
+    // Never offline-gated (med-mgvo): the status write is local-first, so a
+    // tap must always persist or surface an error — never silently no-op.
     const finishBtn = document.createElement('button');
     finishBtn.type = 'button';
     finishBtn.id = 'workout-session-finish-btn';
-    finishBtn.className = 'wg-gloss wg-workouts-session-actions__btn wg-workouts-session-actions__finish workout-action-btn';
+    finishBtn.className = 'wg-gloss wg-workouts-session-actions__btn wg-workouts-session-actions__finish';
     finishBtn.textContent = 'Finish workout';
     finishBtn.addEventListener('click', () => onFinish());
 
     container.appendChild(finishBtn);
-
-    if (offline) {
-        finishBtn.classList.add('offline-disabled');
-        finishBtn.setAttribute('data-offline-disabled', 'true');
-        finishBtn.disabled = true;
-    }
 }
 
 async function closeWorkoutSessionModal() {
@@ -1595,9 +1586,7 @@ async function saveWorkoutSessionDetails(opts) {
     } finally {
         busyTargets.forEach((btn) => {
             btn.classList.remove('wg-btn-saving');
-            if (!btn.hasAttribute('data-offline-disabled')) {
-                btn.disabled = false;
-            }
+            btn.disabled = false;
         });
         if (feedbackBtn) feedbackBtn.textContent = originalText;
     }

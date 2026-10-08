@@ -86,168 +86,28 @@ describe('Offline UI indicators', () => {
     });
   });
 
-  describe('button disable states', () => {
-    it('disables unsupported offline write buttons when offline', () => {
+  // med-mgvo: cloud writes are local-first, so going offline toggles ONLY the
+  // banner — no button is disabled (the old sweep made Finish a silent no-op).
+  describe('offline never disables buttons', () => {
+    it('leaves write buttons (static ids and workout actions) enabled and untouched', () => {
       const { window, document, cleanup } = loadSyncEnv();
       try {
-        // Add test buttons to the DOM
         const container = document.createElement('div');
-        const addMedBtn = document.createElement('button');
-        addMedBtn.id = 'add-btn';
-        container.appendChild(addMedBtn);
-
-        const medSaveBtn = document.createElement('button');
-        medSaveBtn.id = 'med-modal-save-btn';
-        container.appendChild(medSaveBtn);
-
-        const foodBtn = document.createElement('button');
-        foodBtn.id = 'add-food-inline-btn';
-        container.appendChild(foodBtn);
-
-        const notesBtn = document.createElement('button');
-        notesBtn.id = 'notes-save-btn';
-        container.appendChild(notesBtn);
-
-        const groupBtn = document.createElement('button');
-        groupBtn.id = 'add-workout-group-btn';
-        container.appendChild(groupBtn);
-
+        container.innerHTML = '<button id="add-btn"></button>'
+          + '<button id="food-modal-save-btn"></button>'
+          + '<button id="session-add-exercise-save-btn"></button>'
+          + '<button id="workout-session-finish-btn"></button>';
         document.body.appendChild(container);
+        const before = container.innerHTML;
 
-        // Go offline
-        window.SyncManager.updateOfflineBanner(true);
+        window.SyncManager.handleOffline();
 
-        expect(addMedBtn.classList.contains('offline-disabled')).toBe(true);
-        expect(medSaveBtn.classList.contains('offline-disabled')).toBe(true);
-        expect(foodBtn.classList.contains('offline-disabled')).toBe(true);
-        expect(foodBtn.getAttribute('data-offline-disabled')).toBe('true');
-        expect(notesBtn.classList.contains('offline-disabled')).toBe(true);
-        expect(groupBtn.classList.contains('offline-disabled')).toBe(true);
-
-        // Tooltips should appear
-        const tips = container.querySelectorAll('.offline-disabled-tooltip');
-        expect(tips.length).toBe(5);
-        expect(tips[0].textContent).toBe('Available when online');
-      } finally {
-        cleanup();
-      }
-    });
-
-    it('re-enables buttons when coming back online', () => {
-      const { window, document, cleanup } = loadSyncEnv();
-      try {
-        const container = document.createElement('div');
-        const foodBtn = document.createElement('button');
-        foodBtn.id = 'add-food-inline-btn';
-        container.appendChild(foodBtn);
-        document.body.appendChild(container);
-
-        // Go offline
-        window.SyncManager.updateOfflineBanner(true);
-        expect(foodBtn.classList.contains('offline-disabled')).toBe(true);
-        expect(container.querySelector('.offline-disabled-tooltip')).toBeTruthy();
-
-        // Come back online
-        window.SyncManager.updateOfflineBanner(false);
-        expect(foodBtn.classList.contains('offline-disabled')).toBe(false);
-        expect(foodBtn.getAttribute('data-offline-disabled')).toBeNull();
-        expect(container.querySelector('.offline-disabled-tooltip')).toBeNull();
-      } finally {
-        cleanup();
-      }
-    });
-
-    it('does not add duplicate tooltips', () => {
-      const { window, document, cleanup } = loadSyncEnv();
-      try {
-        const container = document.createElement('div');
-        const btn = document.createElement('button');
-        btn.id = 'add-food-inline-btn';
-        container.appendChild(btn);
-        document.body.appendChild(container);
-
-        // Go offline twice
-        window.SyncManager.updateOfflineBanner(true);
-        window.SyncManager.updateOfflineBanner(true);
-
-        const tips = container.querySelectorAll('.offline-disabled-tooltip');
-        expect(tips.length).toBe(1);
-      } finally {
-        cleanup();
-      }
-    });
-
-    it('disables workout session modal buttons when offline', () => {
-      const { window, document, cleanup } = loadSyncEnv();
-      try {
-        const container = document.createElement('div');
-        const ids = [
-          'session-add-exercise-save-btn'
-        ];
-        for (const id of ids) {
-          const btn = document.createElement('button');
-          btn.id = id;
-          container.appendChild(btn);
+        expect(document.getElementById('offline-banner').classList.contains('hidden')).toBe(false);
+        for (const btn of container.querySelectorAll('button')) {
+          expect(btn.disabled).toBe(false);
         }
-        document.body.appendChild(container);
-
-        window.SyncManager.updateOfflineBanner(true);
-
-        for (const id of ids) {
-          const btn = document.getElementById(id);
-          expect(btn.classList.contains('offline-disabled')).toBe(true);
-          expect(btn.disabled).toBe(true);
-        }
-      } finally {
-        cleanup();
-      }
-    });
-
-    // med-2fc: the ad-hoc Start CTA is no longer a static id in the
-    // `offlineUnsupported` list — it is rendered into the next-workout card
-    // as a `.workout-action-btn` and swept here, alongside Start /
-    // Skip / Next Day. The rendered-button side is pinned in
-    // workout.next-card.test.js.
-    it('disables dynamically-created workout-action-btn elements when offline', () => {
-      const { window, document, cleanup } = loadSyncEnv();
-      try {
-        const container = document.createElement('div');
-        const btn = document.createElement('button');
-        btn.className = 'btn workout-action-btn';
-        container.appendChild(btn);
-        document.body.appendChild(container);
-
-        window.SyncManager.updateOfflineBanner(true);
-
-        expect(btn.classList.contains('offline-disabled')).toBe(true);
-        expect(btn.disabled).toBe(true);
-
-        window.SyncManager.updateOfflineBanner(false);
-
-        expect(btn.classList.contains('offline-disabled')).toBe(false);
-        expect(btn.disabled).toBe(false);
-      } finally {
-        cleanup();
-      }
-    });
-
-    it('does not affect BP/weight buttons (they support offline writes)', () => {
-      const { window, document, cleanup } = loadSyncEnv();
-      try {
-        const container = document.createElement('div');
-        const bpBtn = document.createElement('button');
-        bpBtn.id = 'add-bp-btn';
-        container.appendChild(bpBtn);
-
-        const weightBtn = document.createElement('button');
-        weightBtn.id = 'add-weight-btn';
-        container.appendChild(weightBtn);
-        document.body.appendChild(container);
-
-        window.SyncManager.updateOfflineBanner(true);
-
-        expect(bpBtn.classList.contains('offline-disabled')).toBe(false);
-        expect(weightBtn.classList.contains('offline-disabled')).toBe(false);
+        expect(container.innerHTML).toBe(before);
+        expect(document.querySelector('[data-offline-disabled], .offline-disabled, .offline-disabled-tooltip')).toBeNull();
       } finally {
         cleanup();
       }
