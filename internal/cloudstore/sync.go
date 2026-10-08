@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log/slog"
 	"time"
 
 	storedb "github.com/korjavin/medicationtrackerbot/internal/store/db"
@@ -164,6 +165,33 @@ func (r *Repo) CompactionFloor(ctx context.Context, accountID string) (int64, er
 // ErrSnapshotSeqAhead — the client can only compact ops the server actually
 // assigned.
 func (r *Repo) PutSnapshot(ctx context.Context, accountID string, snapshotSeq int64, nonce, ct []byte, now time.Time) error {
+	if err := r.putSnapshot(ctx, accountID, snapshotSeq, nonce, ct, now); err != nil {
+		return err
+	}
+	// Return the pages freed by the compaction DELETE (and any inbox/feedback
+	// deletes since the last one) to the OS; the DB runs auto_vacuum=INCREMENTAL
+	// (storedb.Open). Best-effort: a failure leaves free pages for next time.
+	if err := r.incrementalVacuum(ctx); err != nil {
+		slog.WarnContext(ctx, "incremental_vacuum after snapshot failed", "account_id", accountID, "err", err)
+	}
+	return nil
+}
+
+// incrementalVacuum frees the whole freelist. The pragma is a stepped
+// statement (one page per step), so the rows must be drained — a bare Exec
+// stops after the first step and frees almost nothing.
+func (r *Repo) incrementalVacuum(ctx context.Context) error {
+	rows, err := r.db.QueryContext(ctx, `PRAGMA incremental_vacuum`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+	}
+	return rows.Err()
+}
+
+func (r *Repo) putSnapshot(ctx context.Context, accountID string, snapshotSeq int64, nonce, ct []byte, now time.Time) error {
 	return r.db.WithTx(ctx, func(tx storedb.TX) error {
 		var lastSeq int64
 		err := tx.QueryRowContext(ctx, `SELECT last_seq FROM sync_state WHERE account_id = ?`, accountID).Scan(&lastSeq)

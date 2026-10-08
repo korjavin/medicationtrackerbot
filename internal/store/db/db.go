@@ -10,6 +10,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"log/slog"
 
 	_ "modernc.org/sqlite" // Pure Go SQLite driver
 )
@@ -50,9 +51,50 @@ func Open(path string) (*DB, error) {
 		return nil, fmt.Errorf("failed to set busy_timeout: %w", err)
 	}
 
+	if err := ensureIncrementalAutoVacuum(sdb); err != nil {
+		return nil, err
+	}
+
 	// Limit connection pool to 1 to avoid multiple connections racing each
 	// other for the WAL write lock in concurrent-write scenarios.
 	sdb.SetMaxOpenConns(1)
 
 	return &DB{DB: sdb}, nil
+}
+
+// ensureIncrementalAutoVacuum switches the file to auto_vacuum=INCREMENTAL so
+// churn deletes (oplog compaction, inbox acks) can hand pages back to the OS
+// via PRAGMA incremental_vacuum (see cloudstore.PutSnapshot). Changing the
+// mode on an existing file only takes effect after a full VACUUM, so a file
+// still at NONE/FULL is rewritten once here; every later open is a no-op.
+// The VACUUM holds the write lock for the rewrite (seconds for a ~100MB file)
+// and goes through the WAL, so litestream replicates it as one large burst.
+func ensureIncrementalAutoVacuum(sdb *sql.DB) error {
+	var mode int
+	if err := sdb.QueryRow("PRAGMA auto_vacuum").Scan(&mode); err != nil {
+		return fmt.Errorf("read auto_vacuum: %w", err)
+	}
+	if mode == 2 { // INCREMENTAL
+		return nil
+	}
+	pagesBefore, freeBefore := pageStats(sdb)
+	if _, err := sdb.Exec("PRAGMA auto_vacuum = INCREMENTAL"); err != nil {
+		return fmt.Errorf("set auto_vacuum: %w", err)
+	}
+	if _, err := sdb.Exec("VACUUM"); err != nil {
+		return fmt.Errorf("vacuum to enable auto_vacuum: %w", err)
+	}
+	if pagesBefore > 1 { // ponytail: brand-new files convert silently
+		pagesAfter, freeAfter := pageStats(sdb)
+		slog.Info("sqlite converted to auto_vacuum=INCREMENTAL (one-time VACUUM)",
+			"pages_before", pagesBefore, "freelist_before", freeBefore,
+			"pages_after", pagesAfter, "freelist_after", freeAfter)
+	}
+	return nil
+}
+
+func pageStats(sdb *sql.DB) (pages, free int64) {
+	_ = sdb.QueryRow("PRAGMA page_count").Scan(&pages)
+	_ = sdb.QueryRow("PRAGMA freelist_count").Scan(&free)
+	return pages, free
 }

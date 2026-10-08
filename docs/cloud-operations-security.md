@@ -120,20 +120,25 @@ of-the-log-in-the-first-place half.
 deleted:
 
 - **Free pages** in `cloud.db` may still contain the old ciphertext bytes until
-  those pages are reused by later writes or a `VACUUM`.
+  those pages are reused by later writes or truncated off the file. `cloud.db`
+  runs `auto_vacuum=INCREMENTAL` (`ensureIncrementalAutoVacuum` in
+  `internal/store/db/db.go`) and every snapshot compaction — any account's —
+  ends with `PRAGMA incremental_vacuum` (`Repo.PutSnapshot` in
+  `internal/cloudstore/sync.go`), which empties the freelist.
 - **The WAL file** (`cloud.db-wal`) may hold recently-deleted ciphertext until
   the next checkpoint folds it into the main file (and even then, as free
   pages).
-- No routine `VACUUM` or `PRAGMA secure_delete` runs. Reclaiming the bytes is
-  incidental (page reuse over time), not immediate.
+- No `PRAGMA secure_delete` runs, and account deletion does not itself vacuum.
+  Reclaiming the bytes waits for the next snapshot compaction, not immediate.
 
 This is acceptable **because the freed bytes are ciphertext**: recovering a
 free page yields wrapped-DEK envelopes and vault ciphertext, not plaintext, and
 the account's recovery verifier is deleted in the same transaction, so nothing
 that could unwrap them survives. If an operator ever needs prompt physical
 reclamation (e.g. a contractual erasure SLA), the levers are `PRAGMA
-secure_delete=ON` (write cost) or a post-deletion `VACUUM` — neither is enabled
-today, and neither is required by the current threat model.
+secure_delete=ON` (write cost) or a post-deletion `PRAGMA incremental_vacuum`
+— neither is enabled today, and neither is required by the current threat
+model.
 
 ## 3. Backups — required deployment decision
 
@@ -159,6 +164,18 @@ not by assuming — because the answer differs:
   pages).
 - **Litestream configured** → a replica of the ciphertext exists off-box, and
   §4's deletion timeline is governed by that replica's expiry.
+
+**One-time VACUUM on upgrade.** The first boot of a build with
+`ensureIncrementalAutoVacuum` (`internal/store/db/db.go`) on a pre-existing
+`cloud.db` (`auto_vacuum=NONE`) runs a full `VACUUM` inside `storedb.Open`
+(whichever opener runs first — normally `cmd/cloud` boot, before the HTTP
+listener starts): it holds the write lock for a few seconds per ~100 MB, needs
+temp space (`/tmp` in the container) about the size of the live data, and logs one Info
+line with page/freelist counts before and after. In WAL mode the rewrite goes
+through the WAL, so litestream ships it as one large burst (≈ live data, not
+the old file size) and keeps replicating normally; the replica shrinks once
+retention ages out the pre-VACUUM generation. Later boots see
+`auto_vacuum=2` and skip it.
 
 **If backups are enabled, this policy binds them:**
 
