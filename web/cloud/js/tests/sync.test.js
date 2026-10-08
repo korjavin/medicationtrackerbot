@@ -309,6 +309,29 @@ describe('maybeSnapshot surfaces a permanent snapshot failure instead of failing
     await pullOnOpen(ctx); // no backoff floor was set — retried at once
     expect(snapshotPosts).toBe(2);
   });
+
+  // med-356i — a heavy writer (Mi-Band history drain) crossed the op threshold
+  // on every flush and re-uploaded the whole vault each time. The time floor
+  // caps it at one compaction per MIN_SNAPSHOT_INTERVAL_MS.
+  it('compacts at most once per interval even when the threshold is crossed again', async () => {
+    snapshotStatus = 200;
+    await seedMeta({ localLastSeq: SNAPSHOT_THRESHOLD, lastSnapshotSeq: 0 });
+    await pullOnOpen(ctx);
+    expect(snapshotPosts).toBe(1);
+    expect(await readMetaKey('lastSnapshotAt')).toBeGreaterThan(0);
+
+    // Another 500+ ops within the interval: no second full-vault upload.
+    await seedMeta({ localLastSeq: SNAPSHOT_THRESHOLD * 3 });
+    await pullOnOpen(ctx);
+    expect(snapshotPosts).toBe(1);
+    expect(await readMetaKey('lastSnapshotSeq')).toBe(SNAPSHOT_THRESHOLD);
+
+    // Interval elapsed: the next flush compacts.
+    await seedMeta({ lastSnapshotAt: Date.now() - 13 * 60 * 60 * 1000 });
+    await pullOnOpen(ctx);
+    expect(snapshotPosts).toBe(2);
+    expect(await readMetaKey('lastSnapshotSeq')).toBe(SNAPSHOT_THRESHOLD * 3);
+  });
 });
 
 // med-d5t.10 — the voice agent, the Claude connector, the sealed Telegram inbox

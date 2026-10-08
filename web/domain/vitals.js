@@ -57,6 +57,26 @@ function utcDayString(ms) {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
+// sameBody reports whether two records carry the same content, ignoring the
+// sync envelope (recordId/clientTs/deleted) and the local store's recordType.
+// The NXK re-drain uses it to skip no-op puts: Mi-Band backups are cumulative,
+// so every upload re-applies the whole history, and a blind put per record is
+// thousands of oplog ops (a compaction per upload) plus a fresh clientTs that
+// can out-LWW a real edit from another device (med-356i).
+const ENVELOPE_KEYS = new Set(['recordId', 'clientTs', 'deleted', 'recordType']);
+function canonical(v) {
+  if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`;
+  if (v && typeof v === 'object') {
+    return `{${Object.keys(v).filter((k) => v[k] !== undefined).sort()
+      .map((k) => `${JSON.stringify(k)}:${canonical(v[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(v);
+}
+function sameBody(a, b) {
+  const strip = (r) => Object.fromEntries(Object.entries(r).filter(([k]) => !ENVELOPE_KEYS.has(k)));
+  return canonical(strip(a)) === canonical(strip(b));
+}
+
 function calcAvg(values) {
   if (values.length === 0) return null;
   const sum = values.reduce((a, b) => a + b, 0);
@@ -368,8 +388,11 @@ export function createVitalsDomain({ records, now, timeZone }) {
       if (parts.length === 0) parts.push([]);
       for (let k = 0; k < parts.length; k += 1) {
         const recordId = k === 0 ? base : `${base}#${k}`;
+        const body = { day, samples: parts[k] };
+        const prev = existing.get(recordId);
+        if (prev && sameBody(prev, body)) continue;
         await records.put(recordType, {
-          recordId, clientTs: now(), deleted: false, day, samples: parts[k],
+          recordId, clientTs: now(), deleted: false, ...body,
         });
       }
       // Tombstone overflow parts a smaller partition no longer fills, else their
@@ -419,10 +442,11 @@ export function createVitalsDomain({ records, now, timeZone }) {
           // total_minutes >). `{...base, ...s}` is COALESCE: omitempty drops
           // absent phase fields from the wire, so the spread keeps base's.
           if ((s.total_minutes || 0) < (base.total_minutes || 0)) continue;
-          await records.put(SLEEP_RECORD_TYPE, {
+          const next = {
             ...base, ...s, recordId, clientTs: now(), deleted: false,
             user_modified: base.user_modified || s.user_modified,
-          });
+          };
+          if (!sameBody(base, next)) await records.put(SLEEP_RECORD_TYPE, next);
           continue;
         }
         await records.put(SLEEP_RECORD_TYPE, {
@@ -469,7 +493,7 @@ export function createVitalsDomain({ records, now, timeZone }) {
         // a partial re-import must not zero a populated row.
         if (base && (w.source_end_ms || 0) < (base.source_end_ms || 0)) continue;
         const pick = (inc, k) => (inc ? inc : (base ? base[k] : inc));
-        await records.put(MIBAND_RECORD_TYPE, {
+        const next = {
           recordId,
           clientTs: now(),
           deleted: false,
@@ -489,7 +513,9 @@ export function createVitalsDomain({ records, now, timeZone }) {
           pause_ms: pick(w.pause_ms, 'pause_ms'),
           tz_offset: pick(w.tz_offset, 'tz_offset'),
           source: 'miband',
-        });
+        };
+        if (base && sameBody(base, next)) continue;
+        await records.put(MIBAND_RECORD_TYPE, next);
       }
     }
   }

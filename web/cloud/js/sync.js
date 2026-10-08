@@ -19,6 +19,13 @@ const OPS_PAGE_LIMIT = 200;
 // docs/plans/2026-07-03-cloud-c0c-sync-push-relay.md Task 3: snapshot once the
 // un-compacted oplog tail passes this many ops.
 const SNAPSHOT_THRESHOLD = 500;
+// ...and at most once per this interval per device (med-356i): each snapshot
+// re-uploads the whole vault and the server then deletes the oplog below it, so
+// a device that legitimately writes a lot (a Mi-Band history drain) would
+// otherwise compact on every flush. The floor bounds full-vault uploads per day
+// and keeps ~half a day of live oplog for forensics. forceSnapshot ignores it.
+// Don't raise SNAPSHOT_THRESHOLD instead — a new device pages the whole oplog.
+const MIN_SNAPSHOT_INTERVAL_MS = 12 * 60 * 60 * 1000;
 
 // flushPending drains 'pending' in successive chunks, each bounded to match the
 // server's per-request caps (sync.go maxOpsPerBatch / maxSyncOpsBodyBytes). A
@@ -146,7 +153,7 @@ async function readMeta() {
   return withDb(async (db) => {
     const tx = db.transaction('sync_meta', 'readonly');
     const store = tx.objectStore('sync_meta');
-    const [localLastSeq, lastSnapshotSeq, lastSyncedAt, integrityErrors, forceSnapshotPending, snapshotError, snapshotErrorSeq, writeError, clockSkewMs, writeErrorStreak, syncWedged] = await Promise.all([
+    const [localLastSeq, lastSnapshotSeq, lastSyncedAt, integrityErrors, forceSnapshotPending, snapshotError, snapshotErrorSeq, writeError, clockSkewMs, writeErrorStreak, syncWedged, lastSnapshotAt] = await Promise.all([
       reqToPromise(store.get('localLastSeq')),
       reqToPromise(store.get('lastSnapshotSeq')),
       reqToPromise(store.get('lastSyncedAt')),
@@ -158,6 +165,7 @@ async function readMeta() {
       reqToPromise(store.get('clockSkewMs')),
       reqToPromise(store.get('writeErrorStreak')),
       reqToPromise(store.get('syncWedged')),
+      reqToPromise(store.get('lastSnapshotAt')),
     ]);
     return {
       localLastSeq: localLastSeq ?? null,
@@ -171,6 +179,7 @@ async function readMeta() {
       snapshotErrorSeq: snapshotErrorSeq ?? null,
       writeErrorStreak: writeErrorStreak ?? 0,
       syncWedged: syncWedged ?? false,
+      lastSnapshotAt: lastSnapshotAt ?? null,
     };
   });
 }
@@ -733,7 +742,7 @@ async function snapshotAt(ctx, snapshotSeq) {
   // forced path and the threshold-gated maybeSnapshot (e.g. the store shrank, or
   // a peer re-bootstrap healed this device) — otherwise the banner sticks forever.
   // snapshotErrorSeq goes with it, so the backoff floor drops back to lastSnapshotSeq.
-  await writeMeta({ lastSnapshotSeq: snapshotSeq, snapshotError: null, snapshotErrorSeq: null });
+  await writeMeta({ lastSnapshotSeq: snapshotSeq, lastSnapshotAt: Date.now(), snapshotError: null, snapshotErrorSeq: null });
   return { ok: true, status: res.status };
 }
 
@@ -767,6 +776,9 @@ async function maybeSnapshot(ctx) {
   if (meta.syncWedged) return;
   const floor = Math.max(meta.lastSnapshotSeq, meta.snapshotErrorSeq ?? 0);
   if (meta.localLastSeq - floor < SNAPSHOT_THRESHOLD) return;
+  // A negative age (clock stepped back) counts as elapsed, never a stall.
+  const sinceLast = meta.lastSnapshotAt === null ? Infinity : Date.now() - meta.lastSnapshotAt;
+  if (sinceLast >= 0 && sinceLast < MIN_SNAPSHOT_INTERVAL_MS) return;
   const snap = await snapshotAt(ctx, meta.localLastSeq);
   if (!snap.ok && isPermanentSyncStatus(snap.status)) {
     await writeMeta({
