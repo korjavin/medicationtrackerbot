@@ -331,6 +331,11 @@ describe('maybeSnapshot surfaces a permanent snapshot failure instead of failing
     await pullOnOpen(ctx);
     expect(snapshotPosts).toBe(2);
     expect(await readMetaKey('lastSnapshotSeq')).toBe(SNAPSHOT_THRESHOLD * 3);
+
+    // Quota escape: a tail of 4x the threshold compacts inside the interval.
+    await seedMeta({ localLastSeq: SNAPSHOT_THRESHOLD * 7 });
+    await pullOnOpen(ctx);
+    expect(snapshotPosts).toBe(3);
   });
 });
 

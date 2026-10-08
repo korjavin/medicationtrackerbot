@@ -26,6 +26,11 @@ const SNAPSHOT_THRESHOLD = 500;
 // and keeps ~half a day of live oplog for forensics. forceSnapshot ignores it.
 // Don't raise SNAPSHOT_THRESHOLD instead — a new device pages the whole oplog.
 const MIN_SNAPSHOT_INTERVAL_MS = 12 * 60 * 60 * 1000;
+// ...unless the tail grows past this many ops anyway: the server's account
+// quota counts retained oplog bytes too, so an unbounded cooldown could 413 a
+// heavy writer into a sync wedge that a compaction would have avoided.
+// ponytail: op count, not bytes — switch to a byte budget if ops grow fat.
+const SNAPSHOT_FORCE_OPS = SNAPSHOT_THRESHOLD * 4;
 
 // flushPending drains 'pending' in successive chunks, each bounded to match the
 // server's per-request caps (sync.go maxOpsPerBatch / maxSyncOpsBodyBytes). A
@@ -778,7 +783,8 @@ async function maybeSnapshot(ctx) {
   if (meta.localLastSeq - floor < SNAPSHOT_THRESHOLD) return;
   // A negative age (clock stepped back) counts as elapsed, never a stall.
   const sinceLast = meta.lastSnapshotAt === null ? Infinity : Date.now() - meta.lastSnapshotAt;
-  if (sinceLast >= 0 && sinceLast < MIN_SNAPSHOT_INTERVAL_MS) return;
+  if (sinceLast >= 0 && sinceLast < MIN_SNAPSHOT_INTERVAL_MS
+    && meta.localLastSeq - floor < SNAPSHOT_FORCE_OPS) return;
   const snap = await snapshotAt(ctx, meta.localLastSeq);
   if (!snap.ok && isPermanentSyncStatus(snap.status)) {
     await writeMeta({
