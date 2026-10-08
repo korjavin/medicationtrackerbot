@@ -314,8 +314,9 @@ frame AAD.
 
 ### 7.8 Deleted rows are not erased bytes
 
-`DELETE` frees SQLite pages without zeroing them, `secure_delete` is off, and
-no routine `VACUUM` runs. The freed bytes are **ciphertext**, and the
+`DELETE` frees SQLite pages without zeroing them and `secure_delete` is off;
+free pages are truncated off the file only by the `PRAGMA incremental_vacuum`
+that follows each snapshot compaction (any account's). The freed bytes are **ciphertext**, and the
 account's recovery verifier is deleted in the same transaction, so nothing
 that could unwrap them survives. Full semantics — including backup expiry and
 third-party retention — in
