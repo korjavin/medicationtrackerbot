@@ -179,20 +179,17 @@ describe('features/weight-unit-state.js (Plan 2026-05-13, Task 2)', () => {
         }
     });
 
-    it('skips the PATCH (silent no-op) when offline', async () => {
-        // PATCH has no offline-queue fallback in sync.js, so the click must
-        // not even fire an apiCall — otherwise an "internet required" alert
-        // would surface after a useless round-trip.
+    it('still PATCHes when SyncManager reports offline (cloud writes are local-first)', async () => {
         const { window } = env;
         window.weightUnitPreference = 'kg';
         window.SyncManager = { ...(window.SyncManager || {}), isOnline: false };
-        const apiCallSpy = vi.fn();
+        const apiCallSpy = vi.fn(async () => ({ ok: true }));
         window.apiCall = apiCallSpy;
 
-        const result = await window.WeightUnitState.setPreference('lb');
-        expect(result).toBe(false);
-        expect(apiCallSpy).not.toHaveBeenCalled();
-        expect(window.weightUnitPreference).toBe('kg');
+        const result = await window.WeightUnitState.setPreference('lb', { reload: false });
+        expect(result).toBe(true);
+        expect(apiCallSpy).toHaveBeenCalledWith('/api/settings/weight-unit', 'PATCH', { unit: 'lb' });
+        expect(window.weightUnitPreference).toBe('lb');
     });
 
     it('reconcile passes the incoming unit through when no local PATCH has happened yet', () => {

@@ -128,11 +128,6 @@ window.WeightUnitState = (function () {
             _state.lastCommitted = window.weightUnitPreference === 'lb' ? 'lb' : 'kg';
         }
         if (unit === window.weightUnitPreference) return true;
-        // An offline PATCH attempt would surface a "needs internet" alert via
-        // apiCall after a useless network round-trip. Treat offline clicks as
-        // a silent no-op: the UI stays on the committed unit, mirroring the
-        // modal-submit path.
-        if (window.SyncManager && window.SyncManager.isOnline === false) return false;
 
         // Optimistically commit so a fast follow-up click compares against
         // the latest intended unit, not the still-in-flight previous value.

@@ -371,10 +371,8 @@ async function handleWeightSubmit(event) {
     // Smart unit-preference inference: if the user submitted in a different
     // unit than their saved preference, persist the new unit so the next open
     // (and other surfaces — Today tile, history) honors it. Stays best-effort:
-    // if the PATCH fails the local write still succeeded. Skip entirely when
-    // offline — the PATCH has no offline path, so it would surface a
-    // confusing "needs internet" alert immediately after the weight POST
-    // succeeded.
+    // if the PATCH fails the local write still succeeded. No offline gate:
+    // in cloud mode the PATCH is local-first (apishim) and syncs later.
     //
     // Route through window.setWeightUnitPreference (app.js) rather than issuing
     // an inline PATCH so this modal-side write shares the Settings serial queue.
@@ -385,10 +383,8 @@ async function handleWeightSubmit(event) {
     // the await window. We pass reload:false because the modal already calls
     // loadWeightLogs() (and conditionally loadToday()) after closing.
     const submittedUnit = weightModalUnit;
-    const isOffline = window.SyncManager && window.SyncManager.isOnline === false;
     if ((submittedUnit === 'kg' || submittedUnit === 'lb')
-        && submittedUnit !== getPreferredWeightUnit()
-        && !isOffline) {
+        && submittedUnit !== getPreferredWeightUnit()) {
         if (typeof window.setWeightUnitPreference === 'function') {
             await window.setWeightUnitPreference(submittedUnit, { reload: false });
         } else {
