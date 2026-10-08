@@ -202,6 +202,7 @@ describe('maybeSnapshot surfaces a permanent snapshot failure instead of failing
   let ctx;
   let snapshotPosts;
   let snapshotStatus;
+  let opsPostStatus;
 
   const seedMeta = async (meta) => {
     const db = await openDb();
@@ -242,8 +243,12 @@ describe('maybeSnapshot surfaces a permanent snapshot failure instead of failing
     snapshotPosts = 0;
     snapshotStatus = 413; // account storage quota exceeded — permanent
 
-    vi.stubGlobal('fetch', vi.fn(async (url) => {
+    opsPostStatus = 200;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
       if (String(url).startsWith('/api/sync/ops')) {
+        if (init?.method === 'POST' && opsPostStatus !== 200) {
+          return new Response('account storage quota exceeded', { status: opsPostStatus });
+        }
         return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
       }
       if (String(url) === '/api/sync/snapshot') {
@@ -308,6 +313,56 @@ describe('maybeSnapshot surfaces a permanent snapshot failure instead of failing
 
     await pullOnOpen(ctx); // no backoff floor was set — retried at once
     expect(snapshotPosts).toBe(2);
+  });
+
+  // med-356i — a heavy writer (Mi-Band history drain) crossed the op threshold
+  // on every flush and re-uploaded the whole vault each time. The time floor
+  // caps it at one compaction per MIN_SNAPSHOT_INTERVAL_MS.
+  it('compacts at most once per interval even when the threshold is crossed again', async () => {
+    snapshotStatus = 200;
+    await seedMeta({ localLastSeq: SNAPSHOT_THRESHOLD, lastSnapshotSeq: 0 });
+    await pullOnOpen(ctx);
+    expect(snapshotPosts).toBe(1);
+    expect(await readMetaKey('lastSnapshotAt')).toBeGreaterThan(0);
+
+    // Another 500+ ops within the interval: no second full-vault upload.
+    await seedMeta({ localLastSeq: SNAPSHOT_THRESHOLD * 3 });
+    await pullOnOpen(ctx);
+    expect(snapshotPosts).toBe(1);
+    expect(await readMetaKey('lastSnapshotSeq')).toBe(SNAPSHOT_THRESHOLD);
+
+    // Interval elapsed: the next flush compacts.
+    await seedMeta({ lastSnapshotAt: Date.now() - 13 * 60 * 60 * 1000 });
+    await pullOnOpen(ctx);
+    expect(snapshotPosts).toBe(2);
+    expect(await readMetaKey('lastSnapshotSeq')).toBe(SNAPSHOT_THRESHOLD * 3);
+
+    // Quota escape: a tail of 4x the threshold compacts inside the interval.
+    await seedMeta({ localLastSeq: SNAPSHOT_THRESHOLD * 7 });
+    await pullOnOpen(ctx);
+    expect(snapshotPosts).toBe(3);
+  });
+
+  it('a quota 413 on ops lifts the cooldown so compaction can free space', async () => {
+    snapshotStatus = 200;
+    opsPostStatus = 413;
+    await seedMeta({ localLastSeq: SNAPSHOT_THRESHOLD, lastSnapshotSeq: 0, lastSnapshotAt: Date.now() });
+    const db = await openDb();
+    try {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(['records', 'pending'], 'readwrite');
+        tx.objectStore('records').put({ recordId: 'note-1', recordType: 'note', clientTs: 1, deleted: false, text: 'hi' });
+        tx.objectStore('pending').put({ recordId: 'note-1', recordType: 'note' });
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+
+    await pullOnOpen(ctx);
+    expect(snapshotPosts).toBe(1);
+    expect(await readMetaKey('lastSnapshotSeq')).toBe(SNAPSHOT_THRESHOLD);
   });
 });
 

@@ -860,6 +860,30 @@ describe('inbox-apply.js — a server-parsed NXK vitals_import', () => {
         expect(await records.list('miband')).toHaveLength(1);
     });
 
+    // med-356i — Mi-Band backups are cumulative, so every upload re-drains the
+    // whole history. A put per unchanged record was thousands of no-op oplog ops
+    // (a full-vault compaction per upload) and a fresh clientTs that could beat a
+    // real edit. Only records whose body changed may be written.
+    it('re-draining an unchanged import writes nothing; a new day writes only that day', async () => {
+        const records = fakeRecords();
+        const puts = [];
+        const realPut = records.put;
+        records.put = async (type, record) => { puts.push(record.recordId); return realPut(type, record); };
+        const apply = createInboxApplier({ accountId: 'a' }, { records, now: () => DRAIN_MS });
+        await apply(vitalsEvent(), 42);
+        expect(puts.length).toBeGreaterThan(0);
+
+        puts.length = 0;
+        await apply(vitalsEvent(), 42);
+        expect(puts).toEqual([]);
+
+        // A cumulative backup that adds one HR sample on a new day.
+        const grown = vitalsEvent();
+        grown.hr.push({ date_time: '2026-01-03T08:00:00.000Z', tz_offset: 0, value: 66, type: 0 });
+        await apply(grown, 43);
+        expect(puts).toEqual(['hrsample-2026-01-03']);
+    });
+
     // med-1tj — the cross-path convergence bug. A full-vault import (vault.js
     // vaultToRecords) and a later .nxk browser migration (this vitals_import
     // path) must mint the SAME recordId for one physical night/session, or
