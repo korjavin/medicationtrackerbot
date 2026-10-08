@@ -85,7 +85,7 @@ const ALLOWLIST = [
     },
     {
         file: 'weight-unit-state.js',
-        reason: 'kg/lb preference state machine; the only network call is the Settings PATCH /api/settings/weight-unit (write, not a section-landing read), and the module short-circuits to a silent no-op when SyncManager.isOnline === false',
+        reason: 'kg/lb preference state machine; the only network call is the Settings PATCH /api/settings/weight-unit (write, not a section-landing read), which is local-first in cloud mode (no offline gate)',
     },
     {
         file: 'push-modal.js',

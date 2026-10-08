@@ -382,16 +382,11 @@ describe('Settings weight-unit segmented control (Task 7)', () => {
         expect(kgBtn.getAttribute('aria-pressed')).toBe('false');
     });
 
-    it('skips PATCH and shows no alert when clicking the toggle while offline', async () => {
-        // PATCH has no offline-queue fallback in sync.js, so an offline click
-        // would otherwise surface a "needs internet" alert via apiCall after a
-        // useless network round-trip. The Settings handler must silently no-op
-        // and leave the committed unit visible — same behaviour as the modal-
-        // submit path (features/weight.js).
+    it('PATCHes and keeps the new unit when clicking the toggle while offline', async () => {
         const { window, document } = env;
         window.weightUnitPreference = 'kg';
         window.SyncManager = { ...(window.SyncManager || {}), isOnline: false };
-        const apiCallSpy = vi.fn();
+        const apiCallSpy = vi.fn(async () => ({ ok: true }));
         window.apiCall = apiCallSpy;
         window.safeAlert = vi.fn();
 
@@ -400,9 +395,9 @@ describe('Settings weight-unit segmented control (Task 7)', () => {
         await new Promise((resolve) => setTimeout(resolve, 0));
         await new Promise((resolve) => setTimeout(resolve, 0));
 
-        expect(apiCallSpy).not.toHaveBeenCalled();
+        expect(apiCallSpy).toHaveBeenCalledWith('/api/settings/weight-unit', 'PATCH', { unit: 'lb' });
         expect(window.safeAlert).not.toHaveBeenCalled();
-        expect(window.weightUnitPreference).toBe('kg');
+        expect(window.weightUnitPreference).toBe('lb');
     });
 
     it('keeps the segmented control aligned with the reconciled unit when stale hydration is rejected', async () => {
