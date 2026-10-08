@@ -275,7 +275,9 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
         window.eval(readFileSync(new URL('../sync.js', import.meta.url), 'utf8'));
         await openSession(window, [logFixture()]);
 
+        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
         window.SyncManager.handleOffline();
+        expect(logSpy).toHaveBeenCalledWith('[Sync WARN] Network: gone offline');
         expect(document.getElementById('offline-banner').classList.contains('hidden')).toBe(false);
 
         const finishBtn = document.getElementById('workout-session-finish-btn');
