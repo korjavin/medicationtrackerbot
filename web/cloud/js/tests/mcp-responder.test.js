@@ -638,6 +638,40 @@ describe('mcp_help wire contract (generated catalog)', () => {
     expect(response.error.message).not.toContain('apishim.js');
   });
 
+  // bd med-egzd: the MCP op shares the UI's completion path, so completing a
+  // past-day session backdates completed_at to its last log, not to now.
+  it('workouts.sessions.status on a past-day session backdates completed_at', async () => {
+    const now = () => Date.parse('2026-07-06T12:00:00.000Z');
+    const records = createInMemoryRecordsPort({
+      workoutsession: [{
+        // Ad-hoc (-1/-1): no reminder stem, so no cancel-refire POST to stub.
+        recordId: 'session-adhoc-9', clientTs: 1, deleted: false, id: 9, group_id: -1, variant_id: -1,
+        scheduled_date: '2026-07-05T00:00:00Z', status: 'in_progress', started_at: '2026-07-05T10:00:00.000Z',
+      }],
+      exerciselog: [{
+        recordId: 'log-1', clientTs: 1, deleted: false, id: 1, session_id: 9, exercise_name: 'Bench',
+        status: 'completed', logged_at: '2026-07-05T10:40:00.000Z',
+      }],
+    });
+    const dispatcher = createDispatcher({ router: makeRouter(now, records), now });
+    const response = await handleRequest(dispatcher, {
+      jsonrpc: '2.0',
+      id: 12,
+      method: 'mcp_call',
+      params: {
+        op: 'workouts.sessions.status',
+        mode: 'write',
+        intent: 'finish yesterday',
+        params: { id: 9 },
+        body: { status: 'completed' },
+      },
+    });
+    expect(response.error).toBeUndefined();
+    const stored = (await records.list('workoutsession')).find((s) => s.id === 9);
+    expect(stored.status).toBe('completed');
+    expect(stored.completed_at).toBe('2026-07-05T10:40:00.000Z');
+  });
+
   // Dispatch is a lookup + an endpoint build, never a second dispatch table:
   // the router receives the substituted path, the querystring-serialized
   // params, and the body — and nothing else translates them.

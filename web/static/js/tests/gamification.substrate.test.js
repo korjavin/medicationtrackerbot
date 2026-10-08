@@ -282,6 +282,7 @@ describe('substrate parity — HabitStrength EMA', () => {
 // Go, so a read-model that mis-maps vault records → scorer inputs fails here.
 import { createGamificationDomain } from '../../../../web/domain/gamification.js';
 import { createInMemoryRecordsPort } from './helpers/cloud-shim-harness.js';
+import { createWorkoutDomain } from '../../../../web/domain/workout.js';
 
 const RM_NOW = Date.UTC(2026, 5, 15, 12, 0, 0); // Mon Jun 15 2026, noon UTC
 const RM_TODAY = '2026-06-15';
@@ -379,6 +380,33 @@ describe('substrate read models — end-to-end HP over a synthetic vault', () =>
     // reset (all-null) drops the override.
     const reset = await gam.putTargets({ targets: [{ metric_key: 'bp_systolic' }] });
     expect(reset.targets.find((m) => m.metric_key === 'bp_systolic').is_recommended).toBe(true);
+  });
+
+  // bd med-egzd: a day-old session Finished today (History's Unfinished row)
+  // is a workout on ITS day. The completion path backdates completed_at, so the
+  // workout-day key and the session's duration land on yesterday, not today.
+  it('a late Finish of yesterday\'s session credits yesterday, not today', async () => {
+    const YESTERDAY = '2026-06-14';
+    const records = createInMemoryRecordsPort({
+      workoutgroup: [{ recordId: 'group-1', deleted: false, id: 1, name: 'A', is_rotating: false, days_of_week: '[]', scheduled_time: '09:00', active: true }],
+      workoutvariant: [{ recordId: 'variant-1', deleted: false, id: 1, group_id: 1, name: 'A', rotation_order: 0 }],
+      workoutsession: [{ recordId: `session-1-${YESTERDAY}`, deleted: false, id: 7, group_id: 1, variant_id: 1, scheduled_date: `${YESTERDAY}T00:00:00Z`, status: 'in_progress', started_at: `${YESTERDAY}T10:00:00.000Z`, completed_at: null }],
+      exerciselog: [{ recordId: 'log-1', deleted: false, id: 1, session_id: 7, exercise_name: 'Bench', status: 'completed', logged_at: `${YESTERDAY}T10:45:00.000Z` }],
+    });
+    await createWorkoutDomain({ records, now: () => RM_NOW, timeZone: 'UTC' }).setSessionStatus(7, 'completed');
+
+    const gam = createGamificationDomain({ records, now: () => RM_NOW, timeZone: 'UTC' });
+    const days = (await gam.getJourney()).hp_history.map((h) => h.day_unix);
+    expect(days).toContain(Date.UTC(2026, 5, 14) / 1000);
+    const movement = (await gam.getRings()).rings.find((r) => r.ring === 'movement');
+    // Today keeps only the trailing-week activity outcome (45 min), never the
+    // workout-day floor a today-stamped completion would add.
+    const credited = createGamificationDomain({
+      records: createInMemoryRecordsPort({ workoutsession: [{ recordId: 'w', deleted: false, status: 'completed', started_at: `${RM_TODAY}T10:00:00.000Z`, completed_at: `${RM_TODAY}T10:45:00.000Z` }] }),
+      now: () => RM_NOW, timeZone: 'UTC',
+    });
+    const creditedMovement = (await credited.getRings()).rings.find((r) => r.ring === 'movement');
+    expect(movement.hp).toBe(creditedMovement.hp - cfg.floorHP);
   });
 });
 

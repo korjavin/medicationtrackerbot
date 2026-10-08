@@ -2135,3 +2135,109 @@ describe('bd med-my8f: rotation advance re-points pending future sessions', () =
         expect(monday.clientTs).toBe(0);
     });
 });
+
+// bd med-egzd — a late Finish of a past-day session (History's unfinished-row
+// affordance, or the MCP status op) books completed_at on the session's own
+// day, not on the tidy-up day. Injected clock + a UTC-8 zone so the local-noon
+// fallback is pinned to land on scheduled_date's UTC day too.
+describe('bd med-egzd: late Finish backdates completed_at to the session day', () => {
+    const TZ = 'Etc/GMT+8'; // UTC-8, no DST
+    const NOW = Date.UTC(2026, 9, 8, 18, 0); // 2026-10-08 10:00 local
+    const TODAY = '2026-10-08';
+    const YESTERDAY = '2026-10-07';
+
+    function seed({ sessions = [], logs = [] } = {}) {
+        return createInMemoryRecordsPort({
+            workoutgroup: [{
+                recordId: 'group-1', clientTs: 1, deleted: false, id: 1, user_id: 1, name: 'PPL',
+                is_rotating: true, days_of_week: EVERY_DAY, scheduled_time: '18:00',
+                notification_advance_minutes: 0, active: true
+            }],
+            workoutvariant: ['Push', 'Pull', 'Legs'].map((name, i) => ({
+                recordId: `variant-${i + 1}`, clientTs: 1, deleted: false, id: i + 1, group_id: 1, name,
+                rotation_order: i
+            })),
+            workoutrotation: [{
+                recordId: 'rotation-1', clientTs: 1, deleted: false, group_id: 1, current_variant_id: 1,
+                last_session_date: null, updated_at: null
+            }],
+            workoutsession: sessions,
+            exerciselog: logs
+        });
+    }
+
+    function session(date, extra = {}) {
+        return {
+            recordId: `session-1-${date}`, clientTs: 1, deleted: false, id: date === TODAY ? 901 : 900,
+            user_id: 1, group_id: 1, variant_id: 1, scheduled_date: `${date}T00:00:00-08:00`,
+            scheduled_time: '18:00', status: 'in_progress', started_at: null, completed_at: null,
+            snoozed_until: null, snooze_count: 0, notification_message_id: null, notes: '', ...extra
+        };
+    }
+
+    function log(id, loggedAt, deleted = false) {
+        return {
+            recordId: `log-${id}`, clientTs: 1, deleted, id, session_id: 900, exercise_id: 0,
+            exercise_name: `Ex ${id}`, sets_completed: 3, reps_completed: 8, weight_kg: 50,
+            status: 'completed', notes: '', logged_at: loggedAt
+        };
+    }
+
+    const domainOver = (records) => createWorkoutDomain({ records, now: () => NOW, timeZone: TZ });
+    const stored = async (records, id) => (await records.list('workoutsession')).find((s) => s.id === id);
+
+    it('same-day Finish keeps completed_at = now', async () => {
+        const records = seed({ sessions: [session(TODAY, { started_at: '2026-10-08T17:00:00.000Z' })] });
+        await domainOver(records).setSessionStatus(901, 'completed');
+        const s = await stored(records, 901);
+        expect(s.completed_at).toBe(new Date(NOW).toISOString());
+        expect(s.clientTs).toBe(NOW);
+    });
+
+    it('past-day Finish takes the latest live log instant; clientTs stays now', async () => {
+        const records = seed({
+            sessions: [session(YESTERDAY, { started_at: '2026-10-07T19:00:00.000Z' })],
+            logs: [
+                log(1, '2026-10-07T19:10:00.000Z'),
+                log(2, '2026-10-07T19:40:00.000Z'),
+                log(3, '2026-10-07T23:00:00.000Z', true) // tombstoned: ignored
+            ]
+        });
+        await domainOver(records).setSessionStatus(900, 'completed');
+        const s = await stored(records, 900);
+        expect(s.status).toBe('completed');
+        expect(s.completed_at).toBe('2026-10-07T19:40:00.000Z');
+        expect(s.clientTs).toBe(NOW);
+    });
+
+    it('past-day Finish with no logs falls back to started_at', async () => {
+        const records = seed({ sessions: [session(YESTERDAY, { started_at: '2026-10-07T18:30:00.000Z' })] });
+        await domainOver(records).setSessionStatus(900, 'completed');
+        expect((await stored(records, 900)).completed_at).toBe('2026-10-07T18:30:00.000Z');
+    });
+
+    it('past-day Finish with no logs and no started_at lands on local noon of scheduled_date', async () => {
+        const records = seed({ sessions: [session(YESTERDAY, { status: 'pending' })] });
+        await domainOver(records).setSessionStatus(900, 'completed');
+        const completedAt = (await stored(records, 900)).completed_at;
+        expect(completedAt).toBe('2026-10-07T20:00:00.000Z'); // 12:00 at UTC-8
+        expect(completedAt.slice(0, 10)).toBe(YESTERDAY);
+    });
+
+    it('a late Finish advances the rotation exactly once and the next card shows the advanced variant', async () => {
+        const records = seed({
+            sessions: [
+                session(YESTERDAY, { started_at: '2026-10-07T19:00:00.000Z' }),
+                session(TODAY, { status: 'pending' })
+            ]
+        });
+        const domain = domainOver(records);
+        await domain.setSessionStatus(900, 'completed');
+        await domain.setSessionStatus(900, 'completed'); // second Finish: no-op
+        expect((await domain.getRotationState(1)).current_variant_id).toBe(2);
+
+        const next = await domain.getNext();
+        expect(next.session.scheduled_date.startsWith(TODAY)).toBe(true);
+        expect(next.variant_id).toBe(2);
+    });
+});
