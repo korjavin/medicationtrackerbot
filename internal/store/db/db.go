@@ -35,6 +35,11 @@ func Open(path string) (*DB, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
+	// Limit connection pool to 1 to avoid multiple connections racing each
+	// other for the WAL write lock in concurrent-write scenarios. Set before
+	// the per-connection pragmas below so they all land on that one handle.
+	sdb.SetMaxOpenConns(1)
+
 	if err := sdb.Ping(); err != nil {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
@@ -51,13 +56,7 @@ func Open(path string) (*DB, error) {
 		return nil, fmt.Errorf("failed to set busy_timeout: %w", err)
 	}
 
-	if err := ensureIncrementalAutoVacuum(sdb); err != nil {
-		return nil, err
-	}
-
-	// Limit connection pool to 1 to avoid multiple connections racing each
-	// other for the WAL write lock in concurrent-write scenarios.
-	sdb.SetMaxOpenConns(1)
+	ensureIncrementalAutoVacuum(sdb)
 
 	return &DB{DB: sdb}, nil
 }
@@ -69,20 +68,29 @@ func Open(path string) (*DB, error) {
 // still at NONE/FULL is rewritten once here; every later open is a no-op.
 // The VACUUM holds the write lock for the rewrite (seconds for a ~100MB file)
 // and goes through the WAL, so litestream replicates it as one large burst.
-func ensureIncrementalAutoVacuum(sdb *sql.DB) error {
+//
+// Never fatal: the conversion is only a space optimisation, so a failure
+// (SQLITE_BUSY, full disk) is logged and the file stays at its old mode —
+// the on-disk header changes only when VACUUM succeeds, so the next Open
+// retries. incremental_vacuum is a no-op on a non-INCREMENTAL file.
+func ensureIncrementalAutoVacuum(sdb *sql.DB) {
 	var mode int
 	if err := sdb.QueryRow("PRAGMA auto_vacuum").Scan(&mode); err != nil {
-		return fmt.Errorf("read auto_vacuum: %w", err)
+		slog.Warn("sqlite auto_vacuum check failed; skipping conversion", "err", err)
+		return
 	}
 	if mode == 2 { // INCREMENTAL
-		return nil
+		return
 	}
 	pagesBefore, freeBefore := pageStats(sdb)
 	if _, err := sdb.Exec("PRAGMA auto_vacuum = INCREMENTAL"); err != nil {
-		return fmt.Errorf("set auto_vacuum: %w", err)
+		slog.Warn("sqlite auto_vacuum switch failed; will retry next open", "err", err)
+		return
 	}
 	if _, err := sdb.Exec("VACUUM"); err != nil {
-		return fmt.Errorf("vacuum to enable auto_vacuum: %w", err)
+		slog.Warn("sqlite one-time VACUUM failed; staying at auto_vacuum=NONE, will retry next open",
+			"err", err, "pages", pagesBefore, "freelist", freeBefore)
+		return
 	}
 	if pagesBefore > 1 { // ponytail: brand-new files convert silently
 		pagesAfter, freeAfter := pageStats(sdb)
@@ -90,7 +98,6 @@ func ensureIncrementalAutoVacuum(sdb *sql.DB) error {
 			"pages_before", pagesBefore, "freelist_before", freeBefore,
 			"pages_after", pagesAfter, "freelist_after", freeAfter)
 	}
-	return nil
 }
 
 func pageStats(sdb *sql.DB) (pages, free int64) {

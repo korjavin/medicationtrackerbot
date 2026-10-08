@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"path/filepath"
 	"testing"
@@ -86,5 +87,58 @@ func TestOpen_ConvertsLegacyFileOnce(t *testing.T) {
 	defer d.Close()
 	if got := pragmaInt(t, d, "freelist_count"); got == 0 {
 		t.Fatal("second Open reclaimed free pages — it ran VACUUM again, want a no-op")
+	}
+}
+
+// A failed conversion VACUUM (here SQLITE_BUSY: another connection holds the
+// write lock past busy_timeout) must not fail Open — the file stays at NONE
+// and the next Open converts it.
+func TestOpen_VacuumFailureIsNotFatalAndRetries(t *testing.T) {
+	if testing.Short() {
+		t.Skip("waits out the 5s busy_timeout")
+	}
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "locked.db")
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	if _, err := raw.Exec(`PRAGMA journal_mode=WAL`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`CREATE TABLE t (b BLOB)`); err != nil {
+		t.Fatal(err)
+	}
+	churn(t, raw, 50)
+	lock, err := raw.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lock.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		t.Fatal(err)
+	}
+
+	d, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open with a held write lock = %v, want success (conversion skipped)", err)
+	}
+	if got := pragmaInt(t, d, "auto_vacuum"); got != 0 {
+		t.Fatalf("auto_vacuum after failed VACUUM = %d, want 0 (unchanged)", got)
+	}
+	_ = d.Close()
+
+	if _, err := lock.ExecContext(ctx, `ROLLBACK`); err != nil {
+		t.Fatal(err)
+	}
+	_ = lock.Close()
+
+	d, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if got := pragmaInt(t, d, "auto_vacuum"); got != 2 {
+		t.Fatalf("auto_vacuum on retry = %d, want 2", got)
 	}
 }

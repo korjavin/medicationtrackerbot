@@ -175,7 +175,9 @@ line with page/freelist counts before and after. In WAL mode the rewrite goes
 through the WAL, so litestream ships it as one large burst (≈ live data, not
 the old file size) and keeps replicating normally; the replica shrinks once
 retention ages out the pre-VACUUM generation. Later boots see
-`auto_vacuum=2` and skip it.
+`auto_vacuum=2` and skip it. A failed VACUUM (lock held past the 5 s
+busy_timeout, full disk) is a Warn, not a startup failure: the file stays at
+`NONE` and the next boot retries.
 
 **If backups are enabled, this policy binds them:**
 
