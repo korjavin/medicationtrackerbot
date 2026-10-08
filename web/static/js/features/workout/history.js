@@ -109,9 +109,14 @@ function _renderWorkoutHistory(container, sessions, mibandWorkouts, userTz) {
     // Build unified list sorted by date DESC
     const items = [];
 
-    // Manual strength sessions
+    // Manual strength sessions. A past-day in_progress session is a Finish
+    // that never landed (med-laj4): the next-workout card only surfaces
+    // today's, so History shows it as "Unfinished" instead of hiding it.
+    // Today's in_progress stays out — the next-workout card owns it.
+    const todayKey = _dayKeyInTz(new Date(), userTz);
     const finalSessions = (sessions || []).filter(s =>
-        s.session.status === 'completed' || s.session.status === 'skipped'
+        s.session.status === 'completed' || s.session.status === 'skipped' ||
+        _isUnfinishedPastSession(s.session, todayKey)
     );
     finalSessions.forEach(s => {
         let ts;
@@ -157,6 +162,26 @@ function _renderWorkoutHistory(container, sessions, mibandWorkouts, userTz) {
         list.appendChild(_buildWorkoutHistoryGroup(group));
     });
     container.appendChild(list);
+}
+
+// "YYYY-MM-DD" for `date` in the user's timezone (browser local when unset
+// or unrecognised) — the same day frame as scheduled_date.
+function _dayKeyInTz(date, userTz) {
+    try {
+        return new Intl.DateTimeFormat('en-CA', {
+            timeZone: userTz || undefined,
+            year: 'numeric', month: '2-digit', day: '2-digit'
+        }).format(date);
+    } catch (_) {
+        return new Intl.DateTimeFormat('en-CA', {
+            year: 'numeric', month: '2-digit', day: '2-digit'
+        }).format(date);
+    }
+}
+
+function _isUnfinishedPastSession(session, todayKey) {
+    if (!session || session.status !== 'in_progress' || !session.scheduled_date) return false;
+    return String(session.scheduled_date).slice(0, 10) < todayKey;
 }
 
 function _groupWorkoutHistoryByDay(items, userTz) {
@@ -304,6 +329,13 @@ function _buildSessionCard(s) {
         skipped.className = 'wg-tag wg-tag--mono wg-tag--skipped wg-workouts-history-row__status';
         skipped.textContent = 'Skipped';
         meta.appendChild(skipped);
+    } else if (session.status === 'in_progress') {
+        // Only past-day in_progress rows reach here (see the History filter).
+        // Tapping the row opens the session modal, whose Finish completes it.
+        const unfinished = document.createElement('span');
+        unfinished.className = 'wg-tag wg-tag--mono wg-tag--unfinished wg-workouts-history-row__status';
+        unfinished.textContent = 'Unfinished — finish?';
+        meta.appendChild(unfinished);
     }
 
     const durationMinutes = _computeSessionDurationMinutes(session);

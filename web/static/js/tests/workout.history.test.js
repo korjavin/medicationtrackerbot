@@ -300,4 +300,64 @@ describe('Workouts history (Phase 7, Task 4)', () => {
         expect(rejected.textContent).toBe('Failed');
         expect(rejected.title).toBe('Payload rejected by server');
     });
+
+    // med-laj4: a Finish that never landed left the session in_progress, and
+    // the next day it vanished — the next-workout card only shows today's and
+    // History hid non-terminal rows. A past-day in_progress row now renders
+    // with an Unfinished badge; today's stays on the next-workout card.
+    it('shows a day-old in_progress session as Unfinished and hides today\'s', () => {
+        const { window, document } = env;
+        const container = document.getElementById('workout-history-display');
+        const yesterday = new Date(Date.now() - 86400000);
+        window._renderWorkoutHistory(container, [
+            makeSession({ session: {
+                id: 301, status: 'in_progress',
+                scheduled_date: yesterday.toISOString().slice(0, 10),
+                started_at: yesterday.toISOString(), completed_at: null, duration_minutes: undefined
+            } }),
+            makeSession({ session: {
+                id: 302, status: 'in_progress', completed_at: null, duration_minutes: undefined
+            } })
+        ], [], 'UTC');
+
+        const rows = container.querySelectorAll('.wg-workouts-history-row');
+        expect(rows.length).toBe(1);
+        expect(rows[0].dataset.sessionId).toBe('301');
+        const badge = rows[0].querySelector('.wg-tag--unfinished');
+        expect(badge).not.toBeNull();
+        expect(badge.textContent).toBe('Unfinished — finish?');
+    });
+
+    it('Finish from an Unfinished row persists status=completed', async () => {
+        const { window, document } = env;
+        const container = document.getElementById('workout-history-display');
+        const yesterday = new Date(Date.now() - 86400000);
+        const day = yesterday.toISOString().slice(0, 10);
+        window.loadWorkoutHistoryTab = vi.fn();
+        window.apiCall = vi.fn(async (endpoint) => {
+            if (endpoint.startsWith('/api/workout/sessions/details')) {
+                return {
+                    session: {
+                        id: 303, group_id: 1, variant_id: 0, status: 'in_progress',
+                        scheduled_date: day, scheduled_time: '09:00',
+                        started_at: yesterday.toISOString()
+                    },
+                    logs: [{ id: 5, exercise_id: 10, exercise_name: 'Bench', sets_completed: 3,
+                        reps_completed: 8, weight_kg: 60, notes: '', status: 'completed' }]
+                };
+            }
+            return true;
+        });
+        window._renderWorkoutHistory(container, [makeSession({ session: {
+            id: 303, status: 'in_progress', scheduled_date: day,
+            started_at: yesterday.toISOString(), completed_at: null, duration_minutes: undefined
+        } })], [], 'UTC');
+
+        container.querySelector('.wg-workouts-history-row').click();
+        await vi.waitFor(() => expect(document.getElementById('workout-session-finish-btn')).not.toBeNull());
+        document.getElementById('workout-session-finish-btn').click();
+        await vi.waitFor(() => expect(window.WorkoutSessionsState.data).toBeNull());
+        expect(window.apiCall).toHaveBeenCalledWith(
+            '/api/workout/sessions/status?id=303', 'PUT', { status: 'completed' }, expect.anything());
+    });
 });
