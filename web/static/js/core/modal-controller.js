@@ -20,10 +20,7 @@ async function withSubmit(btn, asyncFn) {
     } finally {
         if (btn) {
             btn.removeAttribute('data-submit-in-flight');
-            // Don't re-enable buttons that were disabled by offline mode
-            if (!btn.hasAttribute('data-offline-disabled')) {
-                btn.disabled = false;
-            }
+            btn.disabled = false;
         }
     }
 }

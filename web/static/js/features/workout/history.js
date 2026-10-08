@@ -349,7 +349,7 @@ function _buildSessionCard(s) {
     }));
     actions.appendChild(_buildHistoryIconBtn('delete', 'Delete session', 'trash', () => {
         deleteWorkoutSessionById(session.id);
-    }, { isWrite: true }));
+    }));
     card.appendChild(actions);
 
     card.addEventListener('click', (e) => {
@@ -393,17 +393,10 @@ function _buildHistorySyncTag(kind, label, tooltip) {
     return tag;
 }
 
-function _buildHistoryIconBtn(kind, ariaLabel, iconName, handler, opts) {
+function _buildHistoryIconBtn(kind, ariaLabel, iconName, handler) {
     const btn = document.createElement('button');
     btn.type = 'button';
-    let className = `wg-icon-btn wg-workouts-history-row__${kind}`;
-    const isWrite = !!(opts && opts.isWrite);
-    if (isWrite) {
-        // Share the sync.js offline-toggling pathway used by modal-level
-        // workout action buttons so DELETE-only controls stay disabled when
-        // offline.
-        className += ' workout-action-btn';
-    }
+    const className = `wg-icon-btn wg-workouts-history-row__${kind}`;
     btn.className = className;
     btn.setAttribute('aria-label', ariaLabel);
     const gloss = document.createElement('span');
@@ -416,11 +409,6 @@ function _buildHistoryIconBtn(kind, ariaLabel, iconName, handler, opts) {
         e.stopPropagation();
         handler();
     });
-    if (isWrite && typeof window !== 'undefined' && window.SyncManager && window.SyncManager.isOnline === false) {
-        btn.classList.add('offline-disabled');
-        btn.setAttribute('data-offline-disabled', 'true');
-        btn.disabled = true;
-    }
     return btn;
 }
 
@@ -497,7 +485,7 @@ function _buildMiBandCard(w) {
     }));
     actions.appendChild(_buildHistoryIconBtn('delete', 'Delete workout', 'trash', () => {
         deleteMiBandWorkoutById(w.id);
-    }, { isWrite: true }));
+    }));
     card.appendChild(actions);
 
     card.addEventListener('click', (e) => {

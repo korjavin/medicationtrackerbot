@@ -51,29 +51,21 @@ async function loadNextWorkout() {
 function _renderNextWorkout(container, data) {
     const session = (data && data.session) ? data.session : null;
 
-    const isOffline = window.SyncManager && !window.SyncManager.isOnline;
     // Round-2 Task 10 (defect #13a): every action button adopts the
     // shared `.wg-toolbar-btn` sizing with a primary (yellow filled) or
-    // secondary (outline/ghost) variant. No emoji prefixes. The
-    // `workout-action-btn` marker class is preserved so `sync.js`
-    // offline-disabled handler (which scans `.workout-action-btn`) keeps
-    // flipping these buttons when connectivity drops mid-session.
+    // secondary (outline/ghost) variant. No emoji prefixes. Never
+    // offline-gated: workout writes are local-first (med-mgvo).
     const createButton = (label, variant, onClick) => {
         const button = document.createElement('button');
         button.type = 'button';
         const variantClass = variant === 'primary'
             ? 'wg-toolbar-btn--primary'
             : 'wg-toolbar-btn--secondary';
-        button.className = `wg-toolbar-btn ${variantClass} workout-action-btn`;
+        button.className = `wg-toolbar-btn ${variantClass}`;
         const labelEl = document.createElement('span');
         labelEl.className = 'wg-toolbar-btn__label';
         labelEl.textContent = label;
         button.appendChild(labelEl);
-        if (isOffline) {
-            button.classList.add('offline-disabled');
-            button.setAttribute('data-offline-disabled', 'true');
-            button.disabled = true;
-        }
         button.addEventListener('click', () => {
             onClick(session ? session.id : null);
         });

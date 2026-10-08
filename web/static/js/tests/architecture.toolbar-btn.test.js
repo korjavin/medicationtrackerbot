@@ -221,7 +221,7 @@ describe('Round-2 Task 2 — shared .wg-toolbar-btn class', () => {
         const NEXT_CARD_PATH = path.join(REPO_ROOT, 'web/static/js/features/workout/next-card.js');
         const src = fs.readFileSync(NEXT_CARD_PATH, 'utf8');
         // Built through the shared createButton helper (which emits
-        // `wg-toolbar-btn wg-toolbar-btn--<variant> workout-action-btn`) with
+        // `wg-toolbar-btn wg-toolbar-btn--<variant>`) with
         // the secondary variant, and it starts an ad-hoc session.
         expect(src).toMatch(
             /createButton\(\s*'Ad hoc',\s*'secondary',\s*\(\)\s*=>\s*window\.startAdHocWorkout\(\)\s*\)/
