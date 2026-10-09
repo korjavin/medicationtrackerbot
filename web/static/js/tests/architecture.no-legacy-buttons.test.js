@@ -61,7 +61,6 @@ const ALLOWLIST = {
     'web/static/js/features/weight.js': {
         'wg-toolbar-btn': { max: 2, owner: 'med-xso6.27 (Health v2 polish)' },
     },
-    },
     'web/static/js/features/today.js': {
         'bootstrap btn': { max: 3, owner: 'med-xso6.13 (Today v2 Goal Line)' },
     },
