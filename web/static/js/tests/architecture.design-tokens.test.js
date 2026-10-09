@@ -279,14 +279,6 @@ const WANDERGEEK_TOKENS = [
     // Shared toolbar-row action button height (Round-2 defects Task 2)
     '--wg-toolbar-btn-height',
 
-    // Phone chrome tokens (added in Task 3 alongside .wg-phone, .wg-status-bar, etc.)
-    '--wg-phone-pad',
-    '--wg-phone-radius',
-    '--wg-phone-screen-radius',
-    '--wg-phone-shadow',
-    '--wg-dynamic-island-radius',
-    '--wg-status-bar-pad-bottom',
-    '--wg-status-bar-font-size',
     '--wg-radius-pill',
 
     // Tab bar shell tokens (Navigation v2, med-xso6.12 — replaced the
@@ -295,31 +287,11 @@ const WANDERGEEK_TOKENS = [
     '--wg-callbar-dock-z',
     '--wg-z-fab',
 
-    // Today screen tokens (added in Task 7 alongside .wg-next-action-card,
-    // .wg-metric-tile, .wg-fuel-card, .wg-plan-tile, .wg-streak-card).
+    // Today screen tokens.
     '--wg-today-gap',
-    '--wg-tile-pad-block',
-    '--wg-tile-pad-inline',
-    '--wg-next-action-pad-block',
-    '--wg-next-action-pad-inline',
-    '--wg-fuel-card-pad-block',
-    '--wg-fuel-card-pad-inline',
-    '--wg-section-label-gap',
-    '--wg-font-size-metric-value',
-    '--wg-font-size-fuel-value',
-    '--wg-font-size-fuel-pct',
-    '--wg-font-size-plan-value',
-    '--wg-font-size-streak-value',
-    '--wg-streak-bar-height',
     '--wg-font-size-mini',
     '--wg-font-size-caps',
-    '--wg-next-action-bg',
-    '--wg-next-action-border',
-    '--wg-next-action-icon-bg',
-    '--wg-next-action-icon-border',
-    '--wg-metric-tile-bg',
     '--wg-mini-bar-track-bg',
-    '--wg-mini-bar-track-shadow',
 
     // Shared chart theme tokens (Round-2 Task 13 / defect 16) — single
     // source of truth for every chart card's surface, grid-line stroke,
@@ -338,7 +310,6 @@ const WANDERGEEK_TOKENS = [
 
     // BP screen tokens (Phase 3, Task 1) — current-reading card, range
     // selector, chart geometry, averages, history row.
-    '--wg-bp-reading-value-size',
     '--wg-bp-chart-width',
     '--wg-bp-chart-height',
     '--wg-bp-chart-band-alpha',
@@ -348,24 +319,7 @@ const WANDERGEEK_TOKENS = [
     '--wg-bp-chart-last-point-radius',
     '--wg-bp-chart-last-stroke-width',
     '--wg-bp-average-value-size',
-    '--wg-bp-current-card-pad',
     '--wg-bp-history-row-pad',
-
-    // BP status aliases — wrap the tag triplets; classifier returns the
-    // status key (normal / highnormal / grade1 / grade2) and the renderer
-    // applies `.wg-bp-status--<key>` without duplicating tag styles.
-    '--wg-bp-status-normal-bg',
-    '--wg-bp-status-normal-fg',
-    '--wg-bp-status-normal-border',
-    '--wg-bp-status-highnormal-bg',
-    '--wg-bp-status-highnormal-fg',
-    '--wg-bp-status-highnormal-border',
-    '--wg-bp-status-grade1-bg',
-    '--wg-bp-status-grade1-fg',
-    '--wg-bp-status-grade1-border',
-    '--wg-bp-status-grade2-bg',
-    '--wg-bp-status-grade2-fg',
-    '--wg-bp-status-grade2-border',
 
     // Food screen tokens (Phase 4, Task 1) — daily macros card, macro bars,
     // sub-tab strip, edit-food modal.
@@ -435,7 +389,6 @@ const WANDERGEEK_TOKENS = [
     '--wg-weight-chart-legend-swatch-radius',
     '--wg-weight-prognosis-label-gap',
     '--wg-weight-prognosis-value-size',
-    '--wg-weight-prognosis-trend-size',
     '--wg-weight-history-row-cols',
     '--wg-weight-history-row-gap',
     '--wg-weight-history-row-pad',
@@ -475,21 +428,6 @@ const WANDERGEEK_TOKENS = [
     '--wg-bp-modal-label-size',
     '--wg-bp-modal-reading-size',
 
-    // Take-meds (medication confirm) modal tokens (Task 4b audit) — dual-line
-    // sun-eyebrow header, subtitle, check-row geometry (selected = green tag
-    // highlight), secondary Snooze + Skip row, full-width primary button.
-    '--wg-med-confirm-modal-eyebrow-size',
-    '--wg-med-confirm-modal-title-size',
-    '--wg-med-confirm-modal-subtitle-size',
-    '--wg-med-confirm-modal-row-pad-y',
-    '--wg-med-confirm-modal-row-pad-x',
-    '--wg-med-confirm-modal-row-gap',
-    '--wg-med-confirm-modal-check-size',
-    '--wg-med-confirm-modal-check-radius',
-    '--wg-med-confirm-modal-name-size',
-    '--wg-med-confirm-modal-dose-size',
-    '--wg-med-confirm-modal-action-gap',
-
     // Workouts screen tokens (Phase 7, Task 1) — sub-tab strip, today's-
     // workout card, rotation-slot tag, day-grouped history rows, session-
     // detail view with set-by-set rows, groups/exercises list rows, stat
@@ -509,10 +447,6 @@ const WANDERGEEK_TOKENS = [
     '--wg-workouts-session-set-row-gap',
     '--wg-workouts-session-set-row-size',
     '--wg-workouts-session-action-gap',
-    '--wg-workouts-groups-row-cols',
-    '--wg-workouts-groups-row-gap',
-    '--wg-workouts-groups-row-pad',
-    '--wg-workouts-groups-name-size',
     '--wg-workouts-groups-count-size',
     '--wg-workouts-exercises-row-cols',
     '--wg-workouts-exercises-row-gap',
@@ -631,10 +565,6 @@ const WANDERGEEK_TOKENS = [
     '--wg-settings-row-divider',
     '--wg-settings-title-size',
     '--wg-settings-desc-size',
-    '--wg-settings-info-grid-cols',
-    '--wg-settings-info-grid-gap',
-    '--wg-settings-info-label-size',
-    '--wg-settings-info-value-size',
     '--wg-settings-number-field-height',
     '--wg-settings-number-field-pad-x',
     '--wg-settings-number-field-label-size',
@@ -642,7 +572,6 @@ const WANDERGEEK_TOKENS = [
     '--wg-settings-number-grid-gap',
     '--wg-settings-number-field-gap',
     '--wg-settings-number-field-unit-size',
-    '--wg-settings-save-btn-min-height',
     '--wg-settings-action-row-gap',
     '--wg-settings-version-size',
     '--wg-settings-version-pad',
@@ -1100,54 +1029,6 @@ describe('Architecture – design tokens', () => {
         }
     });
 
-    it('no inline style assignments in food/log.js (except dynamic progress bar values)', () => {
-        // features/food.js was split into features/food/*.js on 2026-05-13;
-        // the legacy renderFoodTargetProgress (the only inline-style emitter
-        // in the old monolith) landed in features/food/log.js. The remaining
-        // food/*.js sub-files are guarded by the broader file-walker test
-        // below and by architecture.inline-styles.test.js.
-        const foodPath = path.join(REPO_ROOT, 'web/static/js/features/food/log.js');
-        const foodJs = fs.readFileSync(foodPath, 'utf8');
-        const lines = foodJs.split('\n');
-
-        const styleCssTextRe = /\.style\.cssText\s*=/;
-        const stylePropRe = /\.style\.\w+\s*=/;
-        // Allowlisted: dynamic progress bar width and background color
-        const widthDynamicRe = /\.style\.width\s*=\s*`/;
-        const backgroundDynamicRe = /\.style\.background\s*=/;
-
-        const violations = [];
-
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-            const lineNum = i + 1;
-
-            if (/^\s*\/\//.test(line) || /^\s*\/?\*/.test(line)) continue;
-
-            if (styleCssTextRe.test(line)) {
-                violations.push({ line: lineNum, text: line.trim() });
-                continue;
-            }
-
-            if (stylePropRe.test(line)) {
-                if (widthDynamicRe.test(line)) continue;
-                if (backgroundDynamicRe.test(line)) continue;
-                violations.push({ line: lineNum, text: line.trim() });
-            }
-        }
-
-        if (violations.length > 0) {
-            const report = violations
-                .map(v => `  L${v.line}: ${v.text}`)
-                .join('\n');
-            throw new Error(
-                `Found ${violations.length} inline style assignments in food/log.js:\n\n${report}\n\n` +
-                `Replace with CSS classes. Allowed exceptions: style.width (dynamic progress), ` +
-                `style.background (dynamic color).`
-            );
-        }
-    });
-
     it('no inline style assignments in any JS file (except allowlisted dynamic values)', () => {
         const jsDir = path.join(REPO_ROOT, 'web/static/js');
 
@@ -1225,11 +1106,8 @@ describe('Architecture – design tokens', () => {
         }
 
         const jsFiles = collectJsFiles(jsDir, '');
-        // Exclude app.js and food/log.js — they have dedicated tests above.
-        // features/food.js was split into features/food/*.js on 2026-05-13;
-        // the legacy renderFoodTargetProgress inline-styles landed in
-        // features/food/log.js, which is guarded by the dedicated test above.
-        const skipFiles = new Set(['app.js', 'features/food/log.js']);
+        // Exclude app.js — it has a dedicated test above.
+        const skipFiles = new Set(['app.js']);
 
         const allViolations = [];
 
@@ -1361,7 +1239,7 @@ describe('Architecture – design tokens', () => {
         const requiredClasses = [
             // Utility classes
             '.flex-row', '.flex-col', '.flex-center', '.flex-between',
-            '.text-center', '.text-hint', '.text-danger', '.text-success', '.text-muted',
+            '.text-center', '.text-danger', '.text-success', '.text-muted',
             '.cursor-pointer',
             '.gap-sm', '.gap-md',
             '.mb-xs', '.mb-sm', '.mb-md', '.mb-lg',
@@ -1396,18 +1274,12 @@ describe('Architecture – design tokens', () => {
             // Sync debug panel
             '.sync-debug-panel',
             // Workout components (paper-era classes still used as dual-class alongside wg-* equivalents)
-            '.workout-pending-msg',
-            '.workout-variant-card', '.workout-variant-desc',
-            '.workout-delete-btn-inline',
+            '.workout-variant-desc',
             '.exercise-log-header', '.exercise-log-delete-btn',
             // Next workout card (Round-2 Task 10, #13a: restyled to Wandergeek tokens)
             '.wg-workouts-next-card', '.wg-workouts-next-card__kicker',
             '.wg-workouts-next-card__date', '.wg-workouts-next-card__title',
             '.wg-workouts-next-card__subtitle', '.wg-workouts-next-card__actions',
-            // Edit Variant modal exercise rows (Round-2 Task 11, #14: restyled to Wandergeek tokens)
-            '.wg-workouts-exercise-row', '.wg-workouts-exercise-row__info',
-            '.wg-workouts-exercise-row__title', '.wg-workouts-exercise-row__meta',
-            '.wg-workouts-exercise-row__delete',
             // Food product link
             '.food-product-link',
             // Sync hint
@@ -1535,23 +1407,6 @@ describe('Architecture – Wandergeek tokens', () => {
         }
     });
 
-    it('BP status tokens give each classifier key a distinct underlying tag triplet', () => {
-        // The BP classifier returns four keys (normal / highnormal / grade1 /
-        // grade2); the Phase 3 alias layer must map them so Normal and
-        // High-normal do not visually collapse.
-        const css = fs.readFileSync(CSS_PATH, 'utf8');
-        const rootBlock = extractRootBlock(css);
-        const aliasRe = /--wg-bp-status-(\w+)-bg:\s*var\((--wg-tag-[\w-]+-bg)\)/g;
-        const mapping = new Map();
-        let m;
-        while ((m = aliasRe.exec(rootBlock)) !== null) {
-            mapping.set(m[1], m[2]);
-        }
-        expect(mapping.get('normal')).toBeDefined();
-        expect(mapping.get('highnormal')).toBeDefined();
-        expect(mapping.get('normal')).not.toBe(mapping.get('highnormal'));
-    });
-
     it('Task 8 typography tokens match the Anthropic mockup pixel values', () => {
         // Locks in the Task 8 pixel-parity sweep against
         // .local/design-reference/project/screens.jsx. Values come directly
@@ -1560,8 +1415,6 @@ describe('Architecture – Wandergeek tokens', () => {
         //   • macros card kcal unit: 14 px (screens.jsx:332)
         //   • macros card % of target value: 22 px (screens.jsx:339)
         //   • macros card % of target label: 10 px caps (screens.jsx:340)
-        //   • Today fuel card % value: 16 px (screens.jsx:51)
-        //   • metric tile mono value: 20 px (screens.jsx:130)
         //   • section label uppercase size: 10.5 px (.section-label in styles.css)
         //   • card padding (default): 14 px (.card in styles.css:181)
         //   • section label padding-top (default): 18 px (styles.css:191)
@@ -1576,9 +1429,6 @@ describe('Architecture – Wandergeek tokens', () => {
         expect(tokenValue('--wg-food-kcal-unit-size')).toBe('14px');
         expect(tokenValue('--wg-food-kcal-pct-size')).toBe('22px');
         expect(tokenValue('--wg-food-kcal-pct-label-size')).toBe('10px');
-        expect(tokenValue('--wg-font-size-fuel-value')).toBe('22px');
-        expect(tokenValue('--wg-font-size-fuel-pct')).toBe('16px');
-        expect(tokenValue('--wg-font-size-metric-value')).toBe('20px');
         expect(tokenValue('--wg-font-size-tag')).toBe('10.5px');
         expect(tokenValue('--wg-card-pad')).toBe('14px');
         expect(tokenValue('--wg-section-label-pad-top')).toBe('18px');

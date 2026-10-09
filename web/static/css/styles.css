@@ -27,7 +27,7 @@
  * UTILITIES:
  *   Layout:  .flex-row, .flex-col, .flex-between, .flex-center, .flex-wrap, .items-start
  *   Spacing: .mt-{size}, .mb-{size}, .p-{size}, .gap-{size}
- *   Text:    .text-center, .text-hint, .text-sm, .text-bold, .text-danger
+ *   Text:    .text-center, .text-sm, .text-bold, .text-danger
  *   Display: .hidden, .block, .inline-flex
  *   State:   .empty-state, .loading-state
  *
@@ -302,17 +302,6 @@
        as the sibling range/subtab pills. Used by .wg-toolbar-btn. */
     --wg-toolbar-btn-height: 36px;
 
-    /* Wandergeek — phone chrome (Task 3). Decorative iPhone frame on desktop. */
-    --wg-phone-pad: 12px;
-    --wg-phone-radius: 48px;
-    --wg-phone-screen-radius: 38px;
-    --wg-phone-shadow:
-        0 50px 100px -20px rgba(0, 0, 0, 0.7),
-        0 0 0 2px rgba(255, 255, 255, 0.06),
-        0 0 0 3px rgba(0, 0, 0, 0.8);
-    --wg-dynamic-island-radius: 20px;
-    --wg-status-bar-pad-bottom: 6px;
-    --wg-status-bar-font-size: 15px;
     --wg-radius-pill: 999px;
 
     /* Tab bar (Navigation v2) — kit .wg-tabbar, sized by --wg-tabbar-h below.
@@ -327,37 +316,13 @@
        content: the one-row bar plus breathing room for the last card. */
     --wg-tabbar-reserved: calc(var(--wg-tabbar-h) + 24px);
 
-    /* Wandergeek — Today screen (Task 7). Next-action, vitals grid, fuel,
-       plan, streak cards. Tokens for dimensions that fall outside the
+    /* Wandergeek — Today screen. Tokens for dimensions that fall outside the
        standard --space-*/--font-size-* ladder. */
     --wg-today-gap: 10px;
-    --wg-tile-pad-block: 10px;
-    --wg-tile-pad-inline: 11px;
-    --wg-next-action-pad-block: 10px;
-    --wg-next-action-pad-inline: 12px;
-    --wg-fuel-card-pad-block: 12px;
-    --wg-fuel-card-pad-inline: 14px;
-    /* auto-fit floors for the Today tile grids: a lone enabled pane fills the
-       row (reads intentional) instead of stranding half-width. Two+ panes share
-       the row evenly regardless of how many are enabled. */
-    --wg-today-grid-min: 132px;      /* vitals + plan tile grids */
     --wg-today-shortcut-min: 92px;   /* quick-log shortcut rows (3-up food, 2-up vitals) */
-    --wg-section-label-gap: 6px;
-    --wg-font-size-metric-value: 20px;
-    --wg-font-size-fuel-value: 22px;
-    --wg-font-size-fuel-pct: 16px;
-    --wg-font-size-plan-value: 13px;
-    --wg-font-size-streak-value: 18px;
-    --wg-streak-bar-height: 22px;
     --wg-font-size-mini: 10px;
     --wg-font-size-caps: 10px;
-    --wg-next-action-bg: linear-gradient(180deg, rgba(251, 189, 13, 0.18) 0%, rgba(251, 189, 13, 0.06) 100%);
-    --wg-next-action-border: rgba(251, 189, 13, 0.3);
-    --wg-next-action-icon-bg: rgba(251, 189, 13, 0.2);
-    --wg-next-action-icon-border: rgba(251, 189, 13, 0.4);
-    --wg-metric-tile-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(0, 0, 0, 0) 60%), var(--wg-bg-card);
     --wg-mini-bar-track-bg: rgba(0, 0, 0, 0.35);
-    --wg-mini-bar-track-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
 
     /* Wandergeek — shared chart theme (Round-2 Task 13 / defect 16).
        Single source of truth for every chart card's surface, grid-line
@@ -380,7 +345,6 @@
     /* Wandergeek — BP screen (Phase 3, Task 1). Dimensional tokens for the
        current-reading card, range selector, chart geometry, and guide-line
        strokes. Everything visual in features/bp.js reads from here. */
-    --wg-bp-reading-value-size: 44px;
     --wg-bp-chart-width: 358px;
     --wg-bp-chart-height: 200px;
     --wg-bp-chart-band-alpha: 0.18;
@@ -390,24 +354,7 @@
     --wg-bp-chart-last-point-radius: 4px;
     --wg-bp-chart-last-stroke-width: 2px;
     --wg-bp-average-value-size: 22px;
-    --wg-bp-current-card-pad: 16px;
     --wg-bp-history-row-pad: 12px;
-
-    /* BP status aliases — wrap the existing tag triplets so the BP classifier
-       can return a status key (normal / highnormal / grade1 / grade2) and the
-       renderer applies `.wg-bp-status--<key>` without duplicating tag styles. */
-    --wg-bp-status-normal-bg: var(--wg-tag-normal-bg);
-    --wg-bp-status-normal-fg: var(--wg-tag-normal-fg);
-    --wg-bp-status-normal-border: var(--wg-tag-normal-border);
-    --wg-bp-status-highnormal-bg: var(--wg-tag-high-bg);
-    --wg-bp-status-highnormal-fg: var(--wg-tag-high-fg);
-    --wg-bp-status-highnormal-border: var(--wg-tag-high-border);
-    --wg-bp-status-grade1-bg: var(--wg-tag-high-bg);
-    --wg-bp-status-grade1-fg: var(--wg-tag-high-fg);
-    --wg-bp-status-grade1-border: var(--wg-tag-high-border);
-    --wg-bp-status-grade2-bg: var(--wg-tag-alert-bg);
-    --wg-bp-status-grade2-fg: var(--wg-tag-alert-fg);
-    --wg-bp-status-grade2-border: var(--wg-tag-alert-border);
 
     /* Wandergeek — Food screen (Phase 4, Task 1). Dimensional tokens for the
        daily macros card, macro bars, sub-tab strip, day navigator, meal list,
@@ -476,7 +423,6 @@
     --wg-weight-chart-legend-swatch-radius: 1px;
     --wg-weight-prognosis-label-gap: 4px;
     --wg-weight-prognosis-value-size: 18px;
-    --wg-weight-prognosis-trend-size: 14px;
     --wg-weight-history-row-cols: 1fr auto;
     --wg-weight-history-row-gap: 10px;
     --wg-weight-history-row-pad: 12px;
@@ -511,22 +457,6 @@
     --wg-bp-modal-label-size: 10.5px;
     --wg-bp-modal-reading-size: 20px;
 
-    /* Take-meds (medication confirm) modal tokens (Task 4b audit) — dual-line
-       header with a sun eyebrow, checkbox-style med rows (selected = green
-       highlight, idle = inset dark), secondary Snooze + Skip buttons row, and
-       the full-width "Confirm selected" primary button. */
-    --wg-med-confirm-modal-eyebrow-size: 10.5px;
-    --wg-med-confirm-modal-title-size: 22px;
-    --wg-med-confirm-modal-subtitle-size: 11px;
-    --wg-med-confirm-modal-row-pad-y: 10px;
-    --wg-med-confirm-modal-row-pad-x: 12px;
-    --wg-med-confirm-modal-row-gap: 6px;
-    --wg-med-confirm-modal-check-size: 22px;
-    --wg-med-confirm-modal-check-radius: 6px;
-    --wg-med-confirm-modal-name-size: 13px;
-    --wg-med-confirm-modal-dose-size: 10.5px;
-    --wg-med-confirm-modal-action-gap: 8px;
-
     /* Wandergeek — Workouts screen (Phase 7, Task 1). Dimensional tokens for
        the sub-tab strip, today's-workout card, day-grouped history rows,
        session-detail view with set-by-set rows, groups/exercises list rows,
@@ -549,10 +479,6 @@
     --wg-workouts-session-set-row-size: 13px;
     --wg-plates-label-size: 7px;
     --wg-workouts-session-action-gap: 8px;
-    --wg-workouts-groups-row-cols: 1fr auto;
-    --wg-workouts-groups-row-gap: 10px;
-    --wg-workouts-groups-row-pad: 12px;
-    --wg-workouts-groups-name-size: 15px;
     --wg-workouts-groups-count-size: 11px;
     --wg-workouts-exercises-row-cols: 1fr auto;
     --wg-workouts-exercises-row-gap: 10px;
@@ -603,8 +529,7 @@
 
     /* Workout slot-tag aliases — wrap the shared tag triplets so the tag that
        opens a history row / session header can read PLAN (sun) or AD-HOC
-       (normal) without duplicating tag styles. Mirrors the --wg-bp-status-*
-       pattern. */
+       (normal) without duplicating tag styles. */
     --wg-workouts-slot-plan-bg: var(--wg-tag-high-bg);
     --wg-workouts-slot-plan-fg: var(--wg-tag-high-fg);
     --wg-workouts-slot-plan-border: var(--wg-tag-high-border);
@@ -703,10 +628,6 @@
     --wg-settings-row-divider: 1px solid var(--wg-border-hairline);
     --wg-settings-title-size: 14px;
     --wg-settings-desc-size: 12px;
-    --wg-settings-info-grid-cols: max-content 1fr;
-    --wg-settings-info-grid-gap: 8px;
-    --wg-settings-info-label-size: 10.5px;
-    --wg-settings-info-value-size: 13px;
     --wg-settings-number-field-height: 44px;
     --wg-settings-number-field-pad-x: 12px;
     --wg-settings-number-field-label-size: 10.5px;
@@ -714,7 +635,6 @@
     --wg-settings-number-grid-gap: 12px;
     --wg-settings-number-field-gap: 6px;
     --wg-settings-number-field-unit-size: 11px;
-    --wg-settings-save-btn-min-height: 44px;
     --wg-settings-action-row-gap: 8px;
     --wg-settings-version-size: 10px;
     --wg-settings-version-pad: 20px;
@@ -763,9 +683,8 @@
     --wg-line-dark: rgba(0, 0, 0, 0.28);
 
     /* Semantic status — every chip, tag, row state and banner reads from these
-       five families. They replace the per-surface --wg-bp-status-*,
-       --wg-meds-status-* and --wg-tag-(normal|high|alert)-* tokens as screens
-       move onto the kit. No braces in :root comments — the token guards cut
+       five families. They replace the per-surface --wg-tag-(normal|high|alert)-*
+       tokens as the remaining legacy surfaces move onto the kit. No braces in :root comments — the token guards cut
        the block at the first closing brace. */
     --wg-ok-fg: #9CE4CC;
     --wg-ok-bg: rgba(86, 172, 138, 0.18);
@@ -946,57 +865,6 @@ h3 {
     align-items: center;
 }
 
-
-.icon-action-btn {
-    min-width: 44px;
-    min-height: 44px;
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: var(--space-sm);
-    margin: 0;
-    transition: opacity 0.2s ease, background-color 0.2s ease;
-    border-radius: var(--radius-sm);
-}
-
-.icon-action-btn:hover {
-    background-color: rgba(0, 0, 0, 0.05);
-}
-
-.icon-action-btn.delete:hover {
-    background-color: rgba(255, 59, 48, 0.1);
-}
-
-.modal-action-btn {
-    min-height: 44px;
-    padding: 0 var(--space-lg);
-    border-radius: var(--radius-lg);
-    border: none;
-    background-color: var(--secondary-bg-color);
-    color: var(--text-color);
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
-    transition: background-color 0.2s ease, transform 0.1s ease;
-}
-
-.modal-action-btn:hover {
-    background-color: rgba(0, 0, 0, 0.08);
-}
-
-.modal-action-btn:active {
-    transform: scale(0.96);
-}
-
-.modal-action-btn.delete:hover {
-    background-color: rgba(255, 59, 48, 0.1);
-}
 
 /* =============================================
    Button System
@@ -1204,18 +1072,6 @@ select {
     margin-bottom: var(--space-sm);
 }
 
-.checkbox-label {
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-    font-size: var(--font-size-sm);
-}
-
-.checkbox-label input[type="checkbox"] {
-    width: auto;
-    margin: 0;
-}
-
 /* History Grouping. Rendered as `.wg-card .history-group`: the surface
    (background/padding/border/radius) comes from the zero-specificity
    :where(.wg-card) base in components.css, so this companion must not set it
@@ -1261,49 +1117,6 @@ select {
     list-style: none;
     padding: 0;
     margin: 0;
-}
-
-/* BP Modal — shell is the generic `.wg-modal` utility; `.wg-modal__title`
-   owns typography. The paper-era #bp-modal h3 rule is obsolete. */
-
-.modal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: var(--space-xl);
-}
-
-.modal-header .actions {
-    margin: 0;
-}
-
-.bp-inputs-row {
-    display: flex;
-    gap: var(--space-md);
-    margin-bottom: var(--space-md);
-}
-
-.bp-input-group {
-    flex: 1;
-}
-
-.bp-input-group label {
-    display: block;
-    font-size: var(--font-size-xs);
-    color: var(--hint-color);
-    margin-bottom: var(--space-xs);
-}
-
-.bp-input-group input {
-    width: 100%;
-    padding: var(--space-md);
-    border: 1px solid var(--hint-color);
-    border-radius: var(--radius-sm);
-    background: var(--bg-color);
-    color: var(--text-color);
-    box-sizing: border-box;
-    font-size: var(--font-size-md);
-    text-align: center;
 }
 
 /* Weight Section — Wandergeek chart card surface.
@@ -1479,12 +1292,6 @@ svg.chart-svg {
 .restock-history li {
     padding: var(--space-xs) 0;
     border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-}
-
-.hint {
-    font-size: var(--font-size-xs);
-    color: var(--hint-color);
-    margin: var(--space-xs) 0;
 }
 
 /* Weight ruler + paper-era weight-display classes removed in Phase 6 Task 6
@@ -1744,12 +1551,6 @@ svg.chart-svg {
     font-weight: var(--font-weight-bold);
 }
 
-.setting-desc {
-    margin: var(--space-xs) 0 0 0;
-    font-size: var(--font-size-sm);
-    color: var(--hint-color);
-}
-
 .period-link {
     color: var(--primary-color, #2481cc);
     cursor: pointer;
@@ -1777,38 +1578,6 @@ svg.chart-svg {
     opacity: 0;
     width: 0;
     height: 0;
-}
-
-.toggle-slider {
-    position: absolute;
-    cursor: pointer;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-color: var(--color-toggle-inactive);
-    transition: .4s;
-    border-radius: var(--radius-pill);
-}
-
-.toggle-slider:before {
-    position: absolute;
-    content: "";
-    height: 20px;
-    width: 20px;
-    left: 4px;
-    bottom: 4px;
-    background-color: white;
-    transition: .4s;
-    border-radius: 50%;
-}
-
-input:checked+.toggle-slider {
-    background-color: var(--link-color);
-}
-
-input:checked+.toggle-slider:before {
-    transform: translateX(22px);
 }
 
 /* Scanner + product sheets stack over the Add sheet / manual form
@@ -1914,14 +1683,12 @@ input:checked+.toggle-slider:before {
     border-color: var(--wg-clay-soft);
 }
 
-.autocomplete-items div.autocomplete-item:hover,
-.autocomplete-items div.autocomplete-item.autocomplete-active {
+.autocomplete-items div.autocomplete-item:hover {
     background: var(--wg-bg-card);
     color: var(--wg-fg-1);
 }
 
-.autocomplete-items div.autocomplete-item:hover .autocomplete-item-name,
-.autocomplete-items div.autocomplete-item.autocomplete-active .autocomplete-item-name {
+.autocomplete-items div.autocomplete-item:hover .autocomplete-item-name {
     color: var(--wg-fg-1);
 }
 
@@ -2131,10 +1898,6 @@ input:checked+.toggle-slider:before {
 
 .text-center {
     text-align: center;
-}
-
-.text-hint {
-    color: var(--hint-color);
 }
 
 .text-danger {
@@ -2477,96 +2240,12 @@ input:checked+.toggle-slider:before {
     opacity: 0.5;
 }
 
-/* ========== Settings Status ========== */
-
-.settings-status {
-    display: none;
-}
-
-.settings-status.visible {
-    display: block;
-}
-
 /* ========== Workout Components ========== */
-
-.workout-pending-msg {
-    color: var(--hint-color);
-    font-size: 0.9em;
-}
-
-.workout-variant-card {
-    background: var(--wg-bg-card);
-    padding: var(--space-md) var(--space-lg);
-    border-radius: var(--wg-radius-card);
-    margin-bottom: var(--space-sm);
-    border: 1px solid var(--wg-border-hairline);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: var(--space-md);
-    box-sizing: border-box;
-    font-family: var(--wg-font-ui);
-    color: var(--wg-fg-1);
-}
-
-.workout-variant-card strong {
-    font-weight: 600;
-    color: var(--wg-fg-1);
-}
 
 .workout-variant-desc {
     margin-top: 2px;
     font-size: var(--font-size-xs);
     color: var(--wg-fg-2);
-}
-
-/* Edit Variant modal exercise rows (Round-2 Task 11, #14): dark elevated-teal
-   card surface matching .wg-workouts-next-card / .wg-meds-next-intake-card so
-   the rows read against the modal stage instead of a legacy white card.
-   Text tokens flip to paper-on-dark; the trash button hover flips to a
-   light-on-dark overlay so the 44px hit target remains discoverable. */
-.wg-workouts-exercise-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-md);
-    padding: var(--space-md) var(--space-lg);
-    margin-bottom: var(--space-sm);
-    background: var(--wg-bg-card);
-    border: 1px solid var(--wg-border-hairline);
-    border-radius: var(--wg-radius-card);
-    box-sizing: border-box;
-}
-
-.wg-workouts-exercise-row__info {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    cursor: pointer;
-}
-
-.wg-workouts-exercise-row__title {
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-md);
-    font-weight: 600;
-    color: var(--wg-fg-1);
-}
-
-.wg-workouts-exercise-row__meta {
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-xs);
-    color: var(--wg-fg-2);
-}
-
-.wg-workouts-exercise-row__delete:hover {
-    background-color: rgba(255, 255, 255, 0.08);
-}
-
-.workout-delete-btn-inline {
-    position: static;
-    margin-left: var(--space-md);
 }
 
 /* Workout exercise log entry */
@@ -2600,165 +2279,6 @@ input:checked+.toggle-slider:before {
     display: flex;
     flex-direction: column;
     gap: var(--space-lg);
-}
-
-.today-greeting {
-    font-size: var(--font-size-xl);
-    font-weight: var(--font-weight-bold);
-    letter-spacing: -0.01em;
-    margin: 0;
-    color: var(--text-color);
-}
-
-.today-card-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--space-md);
-}
-
-@media (min-width: 720px) {
-    .today-card-grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-}
-
-.today-card {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: var(--space-xs);
-    padding: var(--space-md);
-    background: var(--secondary-bg-color);
-    color: var(--text-color);
-    border: 1px solid transparent;
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-sm);
-    text-align: left;
-    cursor: pointer;
-    font: inherit;
-    transition: box-shadow 0.15s ease, transform 0.15s ease;
-    min-height: 88px;
-}
-
-.today-card:hover:not(:disabled) {
-    box-shadow: var(--shadow-md);
-    transform: translateY(-1px);
-}
-
-.today-card:disabled {
-    cursor: default;
-    opacity: 0.7;
-}
-
-.today-card-warning {
-    border-color: var(--color-warning);
-}
-
-.today-card-stale {
-    border-color: var(--hint-color);
-}
-
-.today-card-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-sm);
-}
-
-.today-card-title {
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
-    color: var(--hint-color);
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-}
-
-.today-card-badge {
-    font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-bold);
-    padding: 2px var(--space-sm);
-    border-radius: var(--radius-pill);
-}
-
-.today-card-badge-warning {
-    background: var(--color-warning);
-    color: var(--bg-color);
-}
-
-.today-card-badge-stale {
-    background: var(--hint-color);
-    color: var(--bg-color);
-}
-
-.today-card-body {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.today-card-value {
-    font-size: var(--font-size-lg);
-    font-weight: var(--font-weight-bold);
-    color: var(--text-color);
-}
-
-.today-card-detail {
-    font-size: var(--font-size-sm);
-    color: var(--hint-color);
-}
-
-.today-card-empty {
-    font-size: var(--font-size-sm);
-    color: var(--hint-color);
-    margin: 0;
-}
-
-.today-card-trend {
-    display: flex;
-    align-items: center;
-    gap: var(--space-xs);
-    margin-top: var(--space-xs);
-}
-
-.today-trend-arrow {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 18px;
-    height: 18px;
-    color: var(--hint-color);
-}
-
-.today-trend-arrow svg {
-    width: 100%;
-    height: 100%;
-    display: block;
-}
-
-.today-trend-up {
-    color: var(--color-warning);
-}
-
-.today-trend-down {
-    color: var(--color-success);
-}
-
-.today-trend-flat {
-    color: var(--hint-color);
-}
-
-.today-card-trend-label {
-    font-size: var(--font-size-sm);
-    color: var(--hint-color);
-}
-
-.today-empty {
-    padding: var(--space-xl) var(--space-md);
-    text-align: center;
-    color: var(--hint-color);
-    font-size: var(--font-size-md);
-    background: var(--secondary-bg-color);
-    border-radius: var(--radius-lg);
 }
 
 /* ==========================================================================
@@ -3211,113 +2731,6 @@ input.wg-stepper__val::-webkit-inner-spin-button {
 }
 
 /* ==========================================================================
-   Wandergeek phone chrome — decorative iPhone frame (Task 3).
-   On desktop the chrome wraps the SPA in a 390×844 phone shell with status bar,
-   dynamic island, and home indicator. On mobile/PWA viewports the chrome
-   collapses (display: contents on the shell, hidden ornaments) so the app
-   fills the viewport. All values via --wg-* tokens.
-   ========================================================================== */
-
-.wg-phone {
-    width: 390px;
-    height: 844px;
-    flex-shrink: 0;
-    position: relative;
-    background: #000;
-    padding: var(--wg-phone-pad);
-    border-radius: var(--wg-phone-radius);
-    box-shadow: var(--wg-phone-shadow);
-}
-
-.wg-phone-screen {
-    position: relative;
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-    border-radius: var(--wg-phone-screen-radius);
-    background: var(--wg-bg-stage);
-    display: flex;
-    flex-direction: column;
-}
-
-.wg-phone-screen__content {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow: auto;
-    position: relative;
-}
-
-.wg-dynamic-island {
-    position: absolute;
-    top: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 110px;
-    height: 32px;
-    background: #000;
-    border-radius: var(--wg-dynamic-island-radius);
-    z-index: 1003;
-    pointer-events: none;
-}
-
-.wg-status-bar {
-    flex-shrink: 0;
-    height: 50px;
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    padding: 0 28px var(--wg-status-bar-pad-bottom);
-    font-family: -apple-system, 'SF Pro Text', system-ui, sans-serif;
-    font-size: var(--wg-status-bar-font-size);
-    font-weight: 600;
-    color: var(--wg-fg-1);
-    z-index: 10;
-    position: relative;
-}
-
-.wg-status-bar__icons {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-}
-
-.wg-home-indicator {
-    position: absolute;
-    bottom: 7px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 134px;
-    height: 5px;
-    border-radius: var(--wg-radius-pill);
-    background: rgba(255, 255, 255, 0.45);
-    z-index: 1003;
-    pointer-events: none;
-}
-
-/* Mobile / PWA: collapse the chrome and let the screen fill the viewport. */
-@media (max-width: 480px) {
-    .wg-phone {
-        width: 100%;
-        height: 100vh;
-        height: 100dvh;
-        padding: 0;
-        border-radius: 0;
-        box-shadow: none;
-        background: var(--wg-bg-stage);
-    }
-
-    .wg-phone-screen {
-        border-radius: 0;
-    }
-
-    .wg-dynamic-island,
-    .wg-status-bar,
-    .wg-home-indicator {
-        display: none;
-    }
-}
-
-/* ==========================================================================
    Navigation v2 (med-xso6.12) — the kit .wg-tabbar / .wg-appbar / .wg-pagebar
    / .wg-seg come from components.css; these rules only place them in the app
    shell. The tab bar has no positioned ancestor at runtime, so it pins to the
@@ -3413,370 +2826,6 @@ input.wg-stepper__val::-webkit-inner-spin-button {
     color: var(--wg-fg-1);
 }
 
-.wg-next-action-card {
-    display: flex;
-    align-items: center;
-    gap: var(--space-md);
-    padding: var(--wg-next-action-pad-block) var(--wg-next-action-pad-inline);
-    background: var(--wg-next-action-bg);
-    border: 1px solid var(--wg-next-action-border);
-    border-radius: var(--wg-radius-card);
-    color: inherit;
-    font: inherit;
-    text-align: left;
-    width: 100%;
-    /* WHY: the meds variant renders as a <div>, which defaults to
-       box-sizing: content-box. Without this, width: 100% + padding
-       overflows the Today stage gutter while sibling <button> cards
-       (fuel/plan tiles) pick up UA border-box and stay inside it. */
-    box-sizing: border-box;
-    cursor: pointer;
-}
-
-/* Plain surface variant: meds card at the bottom of Today drops the
-   sun-yellow banner and sits on the regular card background so the
-   "Take" gloss-sun button remains the only emphasis. */
-.wg-next-action-card--plain {
-    background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(0, 0, 0, 0) 60%),
-        var(--wg-bg-card);
-    border-color: var(--wg-border-hairline);
-}
-
-.wg-next-action-card--plain .wg-next-action-card__icon {
-    background: rgba(255, 255, 255, 0.04);
-    border-color: var(--wg-border-hairline);
-    color: var(--wg-fg-2);
-}
-
-.wg-next-action-card--plain .wg-next-action-card__kicker {
-    color: var(--wg-fg-3);
-}
-
-.wg-next-action-card__icon {
-    flex-shrink: 0;
-    width: 34px;
-    height: 34px;
-    border-radius: var(--wg-radius-gloss);
-    background: var(--wg-next-action-icon-bg);
-    border: 1px solid var(--wg-next-action-icon-border);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--wg-sun);
-}
-
-.wg-next-action-card__text {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-}
-
-.wg-next-action-card__kicker {
-    font-size: var(--wg-font-size-caps);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--wg-sun-soft);
-    font-weight: 600;
-}
-
-.wg-next-action-card__value {
-    font-family: var(--wg-font-display);
-    font-size: var(--font-size-sm);
-    color: var(--wg-fg-1);
-    margin-top: 1px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.wg-next-action-card__cta {
-    flex-shrink: 0;
-    padding: var(--space-xs) var(--space-md);
-    font-size: var(--font-size-sm);
-}
-
-.wg-section-label-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-sm);
-    padding: var(--wg-section-label-pad-top) var(--space-xs) var(--wg-section-label-gap);
-}
-
-.wg-section-label-row .wg-section-label {
-    padding: 0;
-}
-
-.wg-section-label-row__hint {
-    font-size: var(--wg-font-size-caps);
-    color: var(--wg-fg-3);
-}
-
-.wg-vitals-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(var(--wg-today-grid-min), 1fr));
-    gap: var(--space-sm);
-}
-
-.wg-metric-tile {
-    padding: var(--wg-tile-pad-block) var(--wg-tile-pad-inline);
-    text-align: left;
-    background: var(--wg-metric-tile-bg);
-    border: 1px solid var(--wg-border-hairline);
-    border-radius: var(--wg-radius-card);
-    color: inherit;
-    font: inherit;
-    cursor: pointer;
-    width: 100%;
-    box-sizing: border-box;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-}
-
-.wg-metric-tile__label {
-    font-size: var(--wg-font-size-caps);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--wg-fg-3);
-    font-weight: 600;
-}
-
-.wg-metric-tile__value {
-    font-family: var(--wg-font-display);
-    font-size: var(--wg-font-size-metric-value);
-    font-weight: 500;
-    letter-spacing: -0.02em;
-    color: var(--wg-fg-1);
-    line-height: 1;
-}
-
-.wg-metric-tile__value-muted {
-    color: var(--wg-fg-3);
-    font-weight: 500;
-}
-
-.wg-metric-tile__unit {
-    font-size: var(--wg-font-size-caps);
-    color: var(--wg-fg-3);
-    font-family: var(--wg-font-ui);
-}
-
-.wg-metric-tile__spark {
-    min-height: 22px;
-}
-
-.wg-metric-tile__status {
-    display: flex;
-    align-items: center;
-    gap: var(--space-xs);
-}
-
-.wg-fuel-card {
-    padding: var(--wg-fuel-card-pad-block) var(--wg-fuel-card-pad-inline);
-    background: var(--wg-bg-card);
-    border: 1px solid var(--wg-border-hairline);
-    border-radius: var(--wg-radius-card);
-    color: inherit;
-    font: inherit;
-    text-align: left;
-    width: 100%;
-    box-sizing: border-box;
-    cursor: pointer;
-}
-
-.wg-fuel-card__header {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: var(--space-sm);
-}
-
-.wg-fuel-card__total {
-    font-family: var(--wg-font-display);
-    font-size: var(--wg-font-size-fuel-value);
-    line-height: 1;
-    color: var(--wg-fg-1);
-}
-
-.wg-fuel-card__total-unit {
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-sm);
-    color: var(--wg-fg-3);
-    margin-left: var(--space-xs);
-}
-
-.wg-fuel-card__pct {
-    font-family: var(--wg-font-display);
-    font-size: var(--wg-font-size-fuel-pct);
-    color: var(--wg-sun);
-    line-height: 1;
-    text-align: right;
-}
-
-.wg-fuel-card__pct-label {
-    font-size: var(--wg-font-size-caps);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--wg-fg-3);
-    margin-top: 2px;
-}
-
-.wg-fuel-card__bars {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-    margin-top: var(--space-sm);
-}
-
-.wg-mini-bar {
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-}
-
-.wg-mini-bar__label {
-    width: 52px;
-    font-size: var(--font-size-xs);
-    font-weight: 600;
-    color: var(--wg-fg-2);
-}
-
-.wg-mini-bar__track {
-    flex: 1;
-    height: 6px;
-    background: var(--wg-mini-bar-track-bg);
-    border-radius: var(--wg-radius-pill);
-    box-shadow: var(--wg-mini-bar-track-shadow);
-    overflow: hidden;
-    display: block;
-}
-
-.wg-mini-bar__svg {
-    display: block;
-    width: 100%;
-    height: 100%;
-}
-
-/* .wg-mini-bar__fill is the SVG <rect> whose `width` attribute drives the
-   bar length. Colour comes from variant classes so consumers don't set
-   inline fill/stroke. */
-.wg-mini-bar__fill {
-    fill: var(--wg-sun);
-}
-.wg-mini-bar__fill--sun { fill: var(--wg-sun); }
-.wg-mini-bar__fill--mint { fill: var(--wg-mint-soft); }
-.wg-mini-bar__fill--sage { fill: var(--wg-teal-sage); }
-.wg-mini-bar__fill--sun-deep { fill: var(--wg-sun-deep); }
-
-.wg-mini-bar__value {
-    width: 44px;
-    font-family: var(--wg-font-display);
-    font-size: var(--wg-font-size-mini);
-    color: var(--wg-fg-3);
-    text-align: right;
-}
-
-.wg-plan-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(var(--wg-today-grid-min), 1fr));
-    gap: var(--space-sm);
-}
-
-.wg-plan-tile {
-    padding: var(--wg-tile-pad-block) var(--wg-tile-pad-inline);
-    background: var(--wg-bg-card);
-    border: 1px solid var(--wg-border-hairline);
-    border-radius: var(--wg-radius-card);
-    color: inherit;
-    font: inherit;
-    text-align: left;
-    width: 100%;
-    box-sizing: border-box;
-    cursor: pointer;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-}
-
-.wg-plan-tile__header {
-    display: flex;
-    align-items: center;
-    gap: var(--space-xs);
-}
-
-.wg-plan-tile__label {
-    font-size: var(--wg-font-size-caps);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--wg-fg-3);
-    font-weight: 600;
-}
-
-.wg-plan-tile__value {
-    font-family: var(--wg-font-display);
-    font-size: var(--wg-font-size-plan-value);
-    color: var(--wg-fg-1);
-    line-height: 1.1;
-}
-
-.wg-plan-tile__detail {
-    font-size: var(--font-size-xs);
-    color: var(--wg-fg-3);
-}
-
-/* Today shortcut rows — quick-log tiles that open the existing food / BP /
-   weight modals directly. Split into two rows so the food group (3 tiles)
-   and the vitals group (2 tiles) each get full-width tiles instead of being
-   crammed into a single 5-column strip. Uses the same material vocabulary
-   as `.wg-metric-tile` so the shortcuts visually belong to the Today card
-   stack. */
-.wg-today-shortcuts {
-    display: grid;
-    /* auto-fit so a row never strands a lone tile at half-width when a feature
-       is off (e.g. weight off leaves "Add BP" alone → it fills the row). Food
-       (3 tiles) and vitals (2 tiles) share the same self-balancing template. */
-    grid-template-columns: repeat(auto-fit, minmax(var(--wg-today-shortcut-min), 1fr));
-    gap: var(--space-sm);
-}
-
-.wg-shortcut-tile {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--space-xs);
-    padding: var(--wg-tile-pad-block) var(--space-xs);
-    background: var(--wg-metric-tile-bg);
-    border: 1px solid var(--wg-border-hairline);
-    border-radius: var(--wg-radius-card);
-    color: inherit;
-    font: inherit;
-    cursor: pointer;
-    width: 100%;
-    box-sizing: border-box;
-}
-
-.wg-shortcut-tile__icon {
-    width: 30px;
-    height: 30px;
-    border-radius: var(--wg-radius-gloss);
-    background: var(--wg-next-action-icon-bg);
-    border: 1px solid var(--wg-next-action-icon-border);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--wg-sun);
-}
-
-.wg-shortcut-tile__label {
-    font-size: var(--wg-font-size-caps);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--wg-fg-2);
-    font-weight: 600;
-}
 
 /* med-xso6.14 — the Today call bar (kit T2/T4/T5 .wg-callbar), the one call
    control surface. Idle: trigger + Log + Doctor brief. --live: pulse, status,
@@ -3824,103 +2873,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
 
 .wg-today-goal__adherence {
     align-self: flex-start;
-}
-
-/* Today meds card (Task 3) — header row (icon + kicker + "Take" CTA),
-   then an optional list of scheduled med names. Lives at the bottom of
-   the Today stack. */
-.wg-today-meds {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-sm);
-    align-items: stretch;
-}
-
-.wg-today-meds__head {
-    display: flex;
-    align-items: center;
-    gap: var(--space-md);
-}
-
-.wg-today-meds__list {
-    list-style: none;
-    margin: 0;
-    padding-top: var(--space-sm);
-    border-top: 1px solid var(--wg-border-hairline);
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-}
-
-.wg-today-meds__row {
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-}
-
-.wg-today-meds__dot {
-    width: 5px;
-    height: 5px;
-    border-radius: var(--wg-radius-pill);
-    background: var(--wg-sun);
-    flex-shrink: 0;
-}
-
-.wg-today-meds__name {
-    font-size: var(--font-size-sm);
-    color: var(--wg-fg-1);
-    font-weight: 500;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.wg-streak-card {
-    padding: var(--wg-tile-pad-block) var(--space-md);
-    background: var(--wg-bg-card);
-    border: 1px solid var(--wg-border-hairline);
-    border-radius: var(--wg-radius-card);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-md);
-}
-
-.wg-streak-card__value {
-    font-family: var(--wg-font-display);
-    font-size: var(--wg-font-size-streak-value);
-    color: var(--wg-sun);
-    letter-spacing: -0.02em;
-    line-height: 1;
-}
-
-.wg-streak-card__value-label {
-    color: var(--wg-fg-3);
-    font-size: var(--font-size-xs);
-    letter-spacing: 0;
-    margin-left: var(--space-xs);
-}
-
-.wg-streak-card__detail {
-    font-size: var(--wg-font-size-caps);
-    color: var(--wg-fg-3);
-    margin-top: 3px;
-}
-
-.wg-streak-bars {
-    display: flex;
-    gap: 3px;
-}
-
-.wg-streak-bar {
-    width: 5px;
-    height: var(--wg-streak-bar-height);
-    border-radius: 2px;
-    background: var(--wg-mint-soft);
-}
-
-.wg-streak-bar--hot {
-    background: var(--wg-sun);
 }
 
 /* Sparkline variants — stroke & fill colours come from a single
@@ -4172,24 +3124,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
     margin-top: var(--wg-weight-prognosis-label-gap);
 }
 
-.wg-weight-prognosis-card__trend-value {
-    font-family: var(--wg-font-mono);
-    font-size: var(--wg-weight-prognosis-trend-size);
-    letter-spacing: -0.01em;
-}
-
-.wg-weight-prognosis-card__trend-value--good {
-    color: var(--wg-mint-soft);
-}
-
-.wg-weight-prognosis-card__trend-value--bad {
-    color: var(--wg-warn-fg, #E56B4A);
-}
-
-.wg-weight-prognosis-card__trend-value--flat {
-    color: var(--wg-fg-4);
-}
-
 /* Weight goal card (Phase 6, Task 3; Round-2 Task 12 defect #15). The
    paper-era current-reading card was deleted in Round-2 Task 12 — the
    value surfaces on Today's weight tile, the chart, and the history
@@ -4247,46 +3181,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
 
 .wg-weight-goal-card__empty-text {
     margin-top: var(--space-xs);
-}
-
-/* ============================================================
-   wg-ring — SVG "closing ring" gauge (Plan 5, Task 3). An arc fills
-   clockwise from 12 o'clock as progress climbs from 0 to 1; closed
-   always renders a full ring (never a short one that still reads
-   "closed"). Radius is fixed at r=15.9155 in wg-ring.js so the
-   circumference is ≈100 user units and the dash math reads like a
-   percentage. JS sets only the neutral --ring-progress custom
-   property (0..100); CSS owns dash offset and color.
-   ============================================================ */
-.wg-ring {
-    flex-shrink: 0;
-}
-
-.wg-ring__track {
-    fill: none;
-    stroke: var(--wg-border-strong);
-    stroke-width: 3;
-}
-
-.wg-ring__progress {
-    fill: none;
-    stroke: var(--wg-sun);
-    stroke-width: 3;
-    stroke-linecap: round;
-    stroke-dashoffset: calc(100 - var(--ring-progress, 0));
-    transition: stroke-dashoffset 0.4s ease, stroke 0.3s ease;
-}
-
-.wg-ring--closed .wg-ring__progress {
-    stroke: var(--wg-mint-soft);
-}
-
-.wg-ring__check {
-    fill: none;
-    stroke: var(--wg-mint-soft);
-    stroke-width: 3;
-    stroke-linecap: round;
-    stroke-linejoin: round;
 }
 
 /* ============================================================
@@ -4400,107 +3294,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
     display: block;
     width: 100%;
     height: auto;
-}
-
-/* Today Goal Line hero (med-8tur.2): the gamification headline. Facts only —
-   the one accent is the progress fill and the CTA; the safety line stays calm
-   (fg, not alert red). */
-.wg-goal-line {
-    cursor: pointer;
-}
-
-.wg-goal-line__header {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: var(--space-xs) var(--space-sm);
-    margin-bottom: var(--space-sm);
-}
-
-.wg-goal-line__title {
-    font-family: var(--wg-font-ui);
-    font-size: var(--wg-font-size-tag);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    font-weight: 600;
-    color: var(--wg-fg-4);
-}
-
-.wg-goal-line__numbers {
-    display: inline-flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: var(--space-xs);
-}
-
-.wg-goal-line__value {
-    font-size: var(--font-size-lg);
-    color: var(--wg-fg-1);
-}
-
-.wg-goal-line__basis {
-    font-size: var(--font-size-xs);
-}
-
-.wg-goal-line__line,
-.wg-goal-line__fact,
-.wg-goal-line__safety {
-    margin: var(--space-xs) 0 0;
-    font-size: var(--font-size-sm);
-}
-
-.wg-goal-line__line {
-    color: var(--wg-fg-2);
-}
-
-.wg-goal-line__safety {
-    color: var(--wg-fg-1);
-}
-
-.wg-goal-line__facts {
-    margin-top: var(--space-sm);
-    padding-top: var(--space-xs);
-    border-top: 1px solid var(--wg-border-hairline);
-}
-
-.wg-goal-line__set {
-    display: inline-block;
-    font-size: var(--font-size-sm);
-    font-weight: 600;
-    color: var(--wg-fg-1);
-    cursor: pointer;
-}
-
-/* Medication safety net (carried over from the rings tile): invisible unless
-   the trailing PDC slips — one tappable, token-neutral line to Meds. */
-.wg-goal-line__adherence {
-    display: block;
-    margin-top: var(--space-xs);
-    font-size: var(--font-size-sm);
-    cursor: pointer;
-}
-
-.wg-goal-line__cta {
-    margin-top: var(--space-sm);
-}
-
-/* Reached goal milestone (med-8tur.5): one line until acknowledged. */
-.wg-goal-line__milestone {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-sm);
-    margin-top: var(--space-sm);
-    padding: var(--space-xs) 0;
-    border-top: 1px solid var(--wg-border-hairline);
-    border-bottom: 1px solid var(--wg-border-hairline);
-}
-
-.wg-goal-line__milestone-text {
-    font-size: var(--font-size-sm);
-    font-weight: 600;
-    color: var(--wg-fg-1);
 }
 
 /* Narrative layer (gamification redesign Phase 5) — Chapters, Traits,
@@ -5133,92 +3926,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
 .wg-bp-modal__row > .wg-bp-modal__field {
     flex: 1 1 0;
     min-width: 0;
-}
-
-/* BP screen — current-reading card, range selector, chart card (Phase 3, Task 3).
-   The current-reading card shows a 44px mono sys/dia display, a status tag via
-   --wg-bp-status-* aliases, an optional pulse sparkline, and a kicker label.
-   The range selector is a gloss-inset strip with three gloss buttons; the
-   active one picks up the sun modifier. Dimensions come entirely from tokens. */
-.wg-bp-current-card {
-    padding: var(--wg-bp-current-card-pad);
-    margin-bottom: var(--space-md);
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-sm);
-}
-
-.wg-bp-current-card__kicker {
-    padding: 0;
-}
-
-.wg-bp-current-card__value {
-    font-size: var(--wg-bp-reading-value-size);
-    line-height: 1;
-    color: var(--wg-fg-1);
-}
-
-.wg-bp-current-card__dia {
-    color: var(--wg-fg-4);
-}
-
-.wg-bp-current-card__meta {
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-    flex-wrap: wrap;
-}
-
-.wg-bp-current-card__pulse {
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-sm);
-}
-
-.wg-bp-current-card__spark {
-    display: flex;
-    align-items: center;
-    color: var(--wg-sun);
-}
-
-.wg-bp-current-card__empty {
-    font-size: var(--font-size-md);
-}
-
-.wg-bp-status {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-xs);
-    font-family: var(--wg-font-ui);
-    font-size: var(--wg-font-size-tag);
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    padding: 3px var(--space-sm);
-    border-radius: var(--radius-pill);
-    border: 1px solid transparent;
-}
-
-.wg-bp-status--normal {
-    background: var(--wg-bp-status-normal-bg);
-    color: var(--wg-bp-status-normal-fg);
-    border-color: var(--wg-bp-status-normal-border);
-}
-
-.wg-bp-status--highnormal {
-    background: var(--wg-bp-status-highnormal-bg);
-    color: var(--wg-bp-status-highnormal-fg);
-    border-color: var(--wg-bp-status-highnormal-border);
-}
-
-.wg-bp-status--grade1 {
-    background: var(--wg-bp-status-grade1-bg);
-    color: var(--wg-bp-status-grade1-fg);
-    border-color: var(--wg-bp-status-grade1-border);
-}
-
-.wg-bp-status--grade2 {
-    background: var(--wg-bp-status-grade2-bg);
-    color: var(--wg-bp-status-grade2-fg);
-    border-color: var(--wg-bp-status-grade2-border);
 }
 
 /* Round-2 Task 5 (defect 8): the BP +Log button adopted the shared
@@ -5951,12 +4658,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
     color: var(--wg-fg-4);
 }
 
-.wg-workouts-session-exercise__inputs {
-    display: flex;
-    gap: var(--space-sm);
-    align-items: center;
-}
-
 .wg-workouts-session-exercise__field {
     flex: 1;
     display: flex;
@@ -6003,8 +4704,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
    Scan / share also carry .wg-workouts-group-modal; their own rules further
    down keep them on --wg-modal-max-w-wide. */
 .wg-workouts-group-modal,
-.wg-workouts-variant-modal,
-.wg-workouts-exercise-modal,
 .wg-workouts-library-modal,
 .wg-workouts-log-set-modal,
 .wg-workouts-miband-modal,
@@ -6114,100 +4813,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
     gap: var(--space-md);
 }
 
-.wg-workouts-groups__empty {
-    color: var(--wg-fg-4);
-    text-align: center;
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-sm);
-    margin: var(--space-lg) 0;
-}
-
-.wg-workouts-groups__list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-}
-
-.wg-workouts-groups-row {
-    display: grid;
-    grid-template-columns: var(--wg-workouts-groups-row-cols);
-    column-gap: var(--wg-workouts-groups-row-gap);
-    align-items: center;
-    padding: var(--wg-workouts-groups-row-pad);
-    cursor: pointer;
-}
-
-.wg-workouts-groups-row--inactive {
-    opacity: 0.65;
-}
-
-.wg-workouts-groups-row__body {
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-}
-
-.wg-workouts-groups-row__title {
-    display: flex;
-    align-items: baseline;
-    flex-wrap: wrap;
-    gap: var(--space-xs);
-    min-width: 0;
-}
-
-.wg-workouts-groups-row__name {
-    font-family: var(--wg-font-mono);
-    font-size: var(--wg-workouts-groups-name-size);
-    color: var(--wg-fg-1);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
-}
-
-.wg-workouts-groups-row__meta {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: var(--space-sm);
-}
-
-.wg-workouts-groups-row__days,
-.wg-workouts-groups-row__time,
-.wg-workouts-groups-row__count {
-    font-family: var(--wg-font-mono);
-    font-size: var(--wg-workouts-groups-count-size);
-    color: var(--wg-fg-3);
-    letter-spacing: 0.02em;
-}
-
-.wg-workouts-groups-row__actions {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-xs);
-    flex-shrink: 0;
-}
-
-.wg-workouts-groups__add-cta {
-    width: 100%;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-sm);
-    min-height: 44px;
-    padding: var(--space-md) var(--space-lg);
-    margin-top: var(--space-md);
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-md);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
-}
-
-.wg-workouts-groups__add-cta-label {
-    letter-spacing: 0.04em;
-}
-
 /* Edit-workout-group modal (Phase 7, Task 5). Shares the generic `.wg-modal`
    shell for positioning/chrome; overlays a mono eyebrow + title header,
    `.wg-gloss--inset` input wraps for name / description / time /
@@ -6252,91 +4857,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
     display: flex;
     flex-direction: column;
     gap: var(--wg-workouts-modal-section-gap);
-}
-
-.wg-workouts-group-modal__field {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-    min-width: 0;
-    flex: 1 1 0;
-}
-
-.wg-workouts-group-modal__row {
-    display: flex;
-    gap: var(--wg-workouts-modal-row-gap);
-}
-
-.wg-workouts-group-modal__label {
-    font-size: var(--wg-workouts-modal-label-size);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--wg-fg-3);
-    font-weight: var(--font-weight-bold);
-}
-
-.wg-workouts-group-modal__input-wrap {
-    padding: var(--wg-workouts-modal-input-pad-y) var(--wg-workouts-modal-input-pad-x);
-    display: flex;
-    align-items: center;
-    min-width: 0;
-}
-
-.wg-workouts-group-modal__input {
-    width: 100%;
-    margin: 0;
-    padding: 0;
-    background: transparent;
-    border: none;
-    outline: none;
-    box-shadow: none;
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-md);
-    color: var(--wg-fg-1);
-    min-width: 0;
-}
-
-.wg-workouts-group-modal__input::placeholder {
-    color: var(--wg-fg-4);
-}
-
-.wg-workouts-group-modal__textarea {
-    resize: vertical;
-    font-family: var(--wg-font-ui);
-}
-
-.wg-workouts-group-modal__toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-sm);
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-sm);
-    color: var(--wg-fg-2);
-    cursor: pointer;
-}
-
-.wg-workouts-group-modal__toggle-label {
-    letter-spacing: 0.02em;
-}
-
-.wg-workouts-group-modal__section {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-sm);
-    margin-top: var(--space-sm);
-}
-
-.wg-workouts-group-modal__section-label {
-    padding: 0;
-}
-
-.wg-workouts-group-modal__section-add {
-    align-self: flex-start;
-    padding: var(--space-xs) var(--space-md);
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-sm);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
 }
 
 .wg-workouts-group-modal__header-actions {
@@ -6949,263 +5469,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
     border-radius: var(--wg-radius-gloss);
     cursor: pointer;
     margin-top: var(--space-xs);
-}
-
-/* Edit-exercise modal (Phase 7, Task 8). Shares the generic `.wg-modal` shell
-   for positioning/chrome; overlays a mono eyebrow + title header,
-   `.wg-gloss--inset` input wraps for name / sets / reps / weight / order,
-   and a Cancel/Save action bar (Save 2x flex per modal-button-order
-   convention). */
-.wg-workouts-exercise-modal__header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--space-md);
-    margin-bottom: var(--space-lg);
-}
-
-.wg-workouts-exercise-modal__heading {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-    min-width: 0;
-}
-
-.wg-workouts-exercise-modal__eyebrow {
-    padding: 0;
-    font-size: var(--wg-workouts-modal-eyebrow-size);
-    color: var(--wg-fg-3);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-}
-
-.wg-workouts-exercise-modal__eyebrow::before {
-    content: none;
-}
-
-.wg-workouts-exercise-modal__title {
-    font-family: var(--wg-font-mono);
-    font-size: var(--wg-workouts-modal-title-size);
-    color: var(--wg-fg-1);
-    line-height: 1.1;
-}
-
-.wg-workouts-exercise-modal__body {
-    display: flex;
-    flex-direction: column;
-    gap: var(--wg-workouts-modal-section-gap);
-}
-
-.wg-workouts-exercise-modal__field {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-    min-width: 0;
-    flex: 1 1 0;
-}
-
-.wg-workouts-exercise-modal__row {
-    display: flex;
-    gap: var(--wg-workouts-modal-row-gap);
-}
-
-/* Weight-suggestion evidence line under the weight field (med-73o):
-   "Last: 80 kg × 5 · RPE 8 · 2 RIR". Same muted secondary voice as the library
-   modal's rename hint. */
-.wg-workouts-exercise-modal__hint {
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-sm);
-    color: var(--wg-fg-3);
-    margin: 0;
-}
-
-.wg-workouts-exercise-modal__label {
-    font-size: var(--wg-workouts-modal-label-size);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--wg-fg-3);
-    font-weight: var(--font-weight-bold);
-}
-
-.wg-workouts-exercise-modal__input-wrap {
-    padding: var(--wg-workouts-modal-input-pad-y) var(--wg-workouts-modal-input-pad-x);
-    display: flex;
-    align-items: center;
-    min-width: 0;
-}
-
-.wg-workouts-exercise-modal__input {
-    width: 100%;
-    margin: 0;
-    padding: 0;
-    background: transparent;
-    border: none;
-    outline: none;
-    box-shadow: none;
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-md);
-    color: var(--wg-fg-1);
-    min-width: 0;
-}
-
-.wg-workouts-exercise-modal__input::placeholder {
-    color: var(--wg-fg-4);
-}
-
-.wg-workouts-exercise-modal__header-actions {
-    display: flex;
-    gap: var(--space-xs);
-    align-items: center;
-    flex-wrap: wrap;
-    flex-shrink: 0;
-}
-
-.wg-workouts-exercise-modal__header-btn {
-    flex: 1 1 auto;
-    min-height: 36px;
-    padding: var(--space-xs) var(--space-sm);
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-sm);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
-    white-space: nowrap;
-}
-
-.wg-workouts-exercise-modal__header-btn--save {
-    flex: 2 1 auto;
-}
-
-/* Edit-variant modal (Round-2, Task 6). Mirrors the group/exercise modal
-   shape on the generic `.wg-modal` shell so its background and chrome are
-   driven by the --wg-bg-card teal-gloss tokens, not the legacy paper-white
-   modal block. */
-.wg-workouts-variant-modal__header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--space-md);
-    margin-bottom: var(--space-lg);
-}
-
-.wg-workouts-variant-modal__heading {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-    min-width: 0;
-}
-
-.wg-workouts-variant-modal__eyebrow {
-    padding: 0;
-    font-size: var(--wg-workouts-modal-eyebrow-size);
-    color: var(--wg-fg-3);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-}
-
-.wg-workouts-variant-modal__eyebrow::before {
-    content: none;
-}
-
-.wg-workouts-variant-modal__title {
-    font-family: var(--wg-font-mono);
-    font-size: var(--wg-workouts-modal-title-size);
-    color: var(--wg-fg-1);
-    line-height: 1.1;
-}
-
-.wg-workouts-variant-modal__body {
-    display: flex;
-    flex-direction: column;
-    gap: var(--wg-workouts-modal-section-gap);
-}
-
-.wg-workouts-variant-modal__field {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-    min-width: 0;
-    flex: 1 1 0;
-}
-
-.wg-workouts-variant-modal__label {
-    font-size: var(--wg-workouts-modal-label-size);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--wg-fg-3);
-    font-weight: var(--font-weight-bold);
-}
-
-.wg-workouts-variant-modal__input-wrap {
-    padding: var(--wg-workouts-modal-input-pad-y) var(--wg-workouts-modal-input-pad-x);
-    display: flex;
-    align-items: center;
-    min-width: 0;
-}
-
-.wg-workouts-variant-modal__input {
-    width: 100%;
-    margin: 0;
-    padding: 0;
-    background: transparent;
-    border: none;
-    outline: none;
-    box-shadow: none;
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-md);
-    color: var(--wg-fg-1);
-    min-width: 0;
-}
-
-.wg-workouts-variant-modal__input::placeholder {
-    color: var(--wg-fg-4);
-}
-
-.wg-workouts-variant-modal__textarea {
-    resize: vertical;
-    font-family: var(--wg-font-ui);
-}
-
-.wg-workouts-variant-modal__section {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-sm);
-    margin-top: var(--space-sm);
-}
-
-.wg-workouts-variant-modal__section-label {
-    padding: 0;
-}
-
-.wg-workouts-variant-modal__section-add {
-    align-self: flex-start;
-    padding: var(--space-xs) var(--space-md);
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-sm);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
-}
-
-.wg-workouts-variant-modal__header-actions {
-    display: flex;
-    gap: var(--space-xs);
-    align-items: center;
-    flex-wrap: wrap;
-    flex-shrink: 0;
-}
-
-.wg-workouts-variant-modal__header-btn {
-    flex: 1 1 auto;
-    min-height: 36px;
-    padding: var(--space-xs) var(--space-sm);
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-sm);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
-    white-space: nowrap;
-}
-
-.wg-workouts-variant-modal__header-btn--save {
-    flex: 2 1 auto;
 }
 
 /* Log-set modal (Phase 7, Task 8). Shares the generic `.wg-modal` shell for
@@ -8929,13 +7192,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
     gap: var(--space-sm);
 }
 
-.wg-food-db-panel__hint {
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-sm);
-    color: var(--wg-fg-3);
-    margin: 0 0 var(--space-sm);
-}
-
 .wg-food-db-panel__search {
     margin-bottom: var(--space-sm);
 }
@@ -9307,10 +7563,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
     padding: var(--wg-settings-section-pad);
 }
 
-.wg-settings-section__eyebrow {
-    padding: 0;
-}
-
 .wg-settings-section__title {
     margin: 0;
     font-family: var(--wg-font-mono);
@@ -9330,57 +7582,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
 .wg-settings-row-list {
     display: flex;
     flex-direction: column;
-}
-
-/* Read-only info rows (Phase 9, Task 2) — used by the Timezone card. The
-   label is a short uppercase eyebrow; the value is a mono display string.
-   Layout is a max-content + 1fr grid driven by `--wg-settings-info-grid-*`
-   tokens so multiple info rows inside a `.wg-card--inset` container align
-   their label columns. */
-.wg-settings-info-row {
-    display: grid;
-    grid-template-columns: var(--wg-settings-info-grid-cols);
-    gap: var(--wg-settings-info-grid-gap);
-    align-items: baseline;
-    padding: var(--wg-settings-row-pad-y) 0;
-}
-
-.wg-settings-info-row + .wg-settings-info-row {
-    border-top: var(--wg-settings-row-divider);
-}
-
-.wg-settings-info-row__label {
-    font-family: var(--wg-font-ui);
-    font-size: var(--wg-settings-info-label-size);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--wg-fg-4);
-}
-
-.wg-settings-info-row__value {
-    font-size: var(--wg-settings-info-value-size);
-    color: var(--wg-fg-1);
-    min-width: 0;
-    overflow-wrap: anywhere;
-}
-
-/* Info-grid frame (Phase 9, Task 3). Wraps the Timezone card's info rows
-   in a `.wg-gloss--inset` panel so each value reads against the same
-   inset-glass surface used for numeric input wraps. */
-.wg-settings-info-grid {
-    padding: var(--wg-settings-row-pad-y) var(--wg-settings-section-pad);
-}
-
-/* Muted footnote below an info-grid (e.g. timezone change warning). */
-.wg-settings-info-note {
-    margin: var(--wg-settings-section-gap) 0 0 0;
-    font-family: var(--wg-font-ui);
-    font-size: var(--wg-settings-desc-size);
-    color: var(--wg-fg-3);
-}
-
-.wg-settings-info-note:empty {
-    display: none;
 }
 
 /* Utility — hide a settings-view element without inline styles. Used by
@@ -9552,26 +7753,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
     text-align: right;
 }
 
-/* Full-width primary Save button inside the Food Targets section —
-   `.wg-gloss--sun` carries the glossy gradient; this class adds the
-   full-width layout + min-height so the button matches the other
-   Wandergeek save actions. */
-.wg-settings-save-btn {
-    width: 100%;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-sm);
-    min-height: var(--wg-settings-save-btn-min-height);
-    padding: var(--space-md) var(--space-lg);
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-md);
-    border: none;
-    border-radius: var(--wg-radius-gloss);
-    color: var(--wg-fg-1);
-    cursor: pointer;
-}
-
 /* AI & integrations / Backup / Telegram pages (med-xso6.24/.26, kit S3).
    Kit display:flex rules (.wg-field, .wg-file, .wg-hstack…) beat the UA
    [hidden] rule, so any element a page ships `hidden` (the import passphrase
@@ -9668,12 +7849,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
    the modal and forces the page to scroll horizontally. Break it anywhere —
    `anywhere`, not `break-word`, because only `anywhere` also shrinks the
    element's min-content width, which is the part that stops the overflow. */
-/* Self-service account deletion (med-d5t.8). A clay accent marks the section
-   and its action as destructive; token-only, no hardcoded colors. */
-.wg-settings-action-btn--danger {
-    color: var(--wg-clay-soft);
-    border-color: var(--wg-clay-soft);
-}
 
 /* The typed confirm itself is the shared safeConfirm dialog (med-xso6.6);
    the section only carries the export status and the delete error. */

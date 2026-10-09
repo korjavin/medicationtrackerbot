@@ -50,8 +50,8 @@ const SHELL_BARE_BUTTON = /<button\b(?![^>]*\bwg-btn\b)[^>]*>/g;
 const ALLOWLIST = {
     'web/static/index.html': {
         'wg-toolbar-btn': { max: 6, owner: 'med-xso6.22 (plan share row)' },
-        'modal__header-btn': { max: 26, owner: 'med-xso6.20 (Meds editor), med-xso6.21 (session + log-set), med-xso6.22 (plan/day/exercise/library/equipment editors) — remaining non-sheet modals after med-xso6.7' },
-        'wg-settings-action-btn': { max: 8, owner: 'med-xso6.23 / med-xso6.24 / med-xso6.25 (Settings v2)' },
+        'modal__header-btn': { max: 14, owner: 'med-xso6.21 (log-set), med-xso6.22 (group/library/equipment editors) — remaining non-sheet modals after med-xso6.7' },
+        'wg-settings-action-btn': { max: 4, owner: 'med-xso6.23 / med-xso6.24 / med-xso6.25 (Settings v2)' },
     },
     'web/static/js/features/workout/next-card.js': {
         'wg-toolbar-btn': { max: 4, owner: 'med-xso6.21 (Workout v2)' },
@@ -129,9 +129,10 @@ describe('architecture: no legacy button systems (use .wg-btn)', () => {
 
     it('the retired shell and first-run button rules stay deleted', () => {
         const cloudCss = fs.readFileSync(path.join(REPO_ROOT, 'web/cloud/css/cloud.css'), 'utf8');
-        const firstrunCss = fs.readFileSync(path.join(REPO_ROOT, 'web/static/css/firstrun.css'), 'utf8');
+        // The first-run overlay rules live at the end of components.css (med-xso6.28).
+        const kitCss = fs.readFileSync(path.join(REPO_ROOT, 'web/static/css/components.css'), 'utf8');
         expect(cloudCss).not.toMatch(/\.wizard-step\s+(a\.)?button\b/);
         expect(cloudCss).not.toMatch(/\.wg-gloss\b/);
-        expect(firstrunCss).not.toMatch(/\.wg-firstrun-btn\b/);
+        expect(kitCss).not.toMatch(/\.wg-firstrun-btn\b/);
     });
 });

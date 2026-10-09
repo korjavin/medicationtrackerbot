@@ -12,8 +12,7 @@ The app **already has** an in-app, multi-step, first-run onboarding overlay. It 
   **screen registry**, exposes `window.WGFirstRun = { mount, dismiss, isActive, state, screens }`
 - `web/static/js/features/firstrun/state.js` — step tracker (`sessionStorage`, key `wg-firstrun-step`)
 - `web/static/js/features/firstrun/screens/{welcome,permissions,integrations,done}.js` — the four screens
-- `web/static/css/firstrun.css` — `.wg-firstrun-overlay` / `__panel` / `__title` / `__body`, loaded at
-  `web/static/index.html:37`
+- `web/static/css/components.css` (end of file) — `.wg-firstrun-overlay` / `__panel` / `__title` / `__body`
 - `web/static/js/features/auth-bootstrap.js:312-324` — reads top-level `needs_first_run` from
   `/api/bootstrap` and calls `WGFirstRun.mount({ needs_first_run })` on every fresh bootstrap
 
@@ -141,7 +140,7 @@ warm cache was already established by `enrollWithToken`.
 Onboarding therefore starts **after** the Emergency Kit, **inside** the real app — as the bead requires — and
 the claim wizard keeps exactly one job: get a passkey and a recovery code. No duplicated step machinery: the
 claim wizard uses `wizard-step` (defined in `web/cloud/css/cloud.css:15`, **shell-only**, not loaded by
-`web/static`), and onboarding uses `.wg-firstrun-overlay` (`web/static/css/firstrun.css`). Two different
+`web/static`), and onboarding uses `.wg-firstrun-overlay` (end of `web/static/css/components.css`). Two different
 documents, two different primitives, no sharing needed. That is the correct boundary, not an accident.
 
 ## Screen-by-screen inputs

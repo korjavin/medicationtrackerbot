@@ -146,12 +146,6 @@ describe('Wandergeek material primitives', () => {
         expect(labelBlock[0]).toMatch(/background:\s*var\(--wg-sun\)/);
     });
 
-    it('streak bars declare an explicit height so they render as visible vertical bars', () => {
-        const blocks = extractClassBlocks(css, '.wg-streak-bar');
-        expect(blocks.length).toBeGreaterThan(0);
-        expect(blocks[0]).toMatch(/height:\s*var\(--wg-streak-bar-height\)/);
-    });
-
     it('tab bar anchors to the viewport via position:fixed (it has no positioned ancestor at runtime)', () => {
         const blocks = extractClassBlocks(css, '.wg-tabbar');
         expect(blocks.some((b) => /position:\s*fixed\b/.test(b))).toBe(true);
