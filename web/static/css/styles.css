@@ -315,31 +315,17 @@
     --wg-status-bar-font-size: 15px;
     --wg-radius-pill: 999px;
 
-    /* Wandergeek — bottom nav (Task 5). Multi-row nav, one slot per section. */
-    --wg-bottom-nav-pad-top: 10px;
-    --wg-bottom-nav-pad-x: 12px;
-    --wg-bottom-nav-pad-bottom: 30px;
-    --wg-bottom-nav-inner-radius: 20px;
-    --wg-bottom-nav-inner-pad: 6px;
-    --wg-bottom-nav-gap: 4px;
-    --wg-nav-item-radius: 14px;
-    --wg-nav-item-pad-y: 8px;
-    --wg-nav-item-pad-x: 4px;
-    --wg-nav-item-gap: 3px;
-    --wg-nav-item-font-size: 9.5px;
-    --wg-nav-icon-size: 22px;
-    --wg-bottom-nav-z: 40;
-    /* Persistent call indicator sits one layer above the bottom nav so its
-       hang-up affordance is never occluded while a call is active. */
+    /* Tab bar (Navigation v2) — kit .wg-tabbar, sized by --wg-tabbar-h below.
+       Persistent call indicator sits one layer above it so its hang-up
+       affordance is never occluded while a call is active. */
     --wg-call-indicator-z: 41;
-    /* FAB sits below the fixed bottom nav (z 40) in stacking order, but
-       its vertical bottom offset (--wg-bottom-nav-reserved + --space-md)
-       keeps it geometrically above the nav so the two never overlap. */
+    /* FAB sits below the fixed tab bar (z 40) in stacking order, but its
+       vertical bottom offset (--wg-tabbar-reserved + --space-md) keeps it
+       geometrically above the bar so the two never overlap. */
     --wg-z-fab: 30;
-    /* Reserved viewport-bottom space so fixed nav never occludes page content.
-       Sized for the two-row default (8 items): 30px bottom pad + 12px inner pad +
-       two 52px rows + 4px row gap + ~12px slack ≈ 160px. */
-    --wg-bottom-nav-reserved: 160px;
+    /* Reserved viewport-bottom space so the fixed tab bar never occludes page
+       content: the one-row bar plus breathing room for the last card. */
+    --wg-tabbar-reserved: calc(var(--wg-tabbar-h) + 24px);
 
     /* Wandergeek — Today screen (Task 7). Next-action, vitals grid, fuel,
        plan, streak cards. Tokens for dimensions that fall outside the
@@ -942,7 +928,7 @@
 
     /* kit z-scale, mapped onto the app's existing stack so kit sheets,
        dialogs and toasts layer the same way mt-modal / confirm / toast do. */
-    --wg-z-tabbar: var(--wg-bottom-nav-z);
+    --wg-z-tabbar: 40;
     --wg-z-sheet: var(--z-modal);
     --wg-z-dialog: var(--z-confirm);
     --wg-z-toast: var(--z-toast);
@@ -973,9 +959,9 @@ body {
 
 #app {
     padding: var(--space-lg);
-    /* Reserves room for the fixed Wandergeek bottom nav (two-row default) plus
-       legacy FAB space so the last card is never clipped by the nav. */
-    padding-bottom: var(--wg-bottom-nav-reserved);
+    /* Reserves room for the fixed tab bar plus
+       slack so the last card is never clipped by the bar. */
+    padding-bottom: var(--wg-tabbar-reserved);
 }
 
 h1 {
@@ -3598,73 +3584,44 @@ input:checked+.toggle-slider:before {
 }
 
 /* ==========================================================================
-   Wandergeek bottom nav — canonical lateral navigation (Task 5).
-   One slot per real section (Today, BP, Food, Meds, Weight, Workouts, Health,
-   Settings). --wg-nav-cols is set on .wg-bottom-nav__inner by JS (items.length
-   drives the column count); when items > 5 the grid wraps to a second row.
+   Navigation v2 (med-xso6.12) — the kit .wg-tabbar / .wg-appbar / .wg-pagebar
+   / .wg-seg come from components.css; these rules only place them in the app
+   shell. The tab bar has no positioned ancestor at runtime, so it pins to the
+   viewport; #app reserves --wg-tabbar-reserved below the content.
    ========================================================================== */
 
-.wg-bottom-nav {
+.wg-tabbar {
     position: fixed;
     bottom: 0;
     left: 0;
     right: 0;
-    padding: var(--wg-bottom-nav-pad-top) var(--wg-bottom-nav-pad-x) var(--wg-bottom-nav-pad-bottom);
-    background: linear-gradient(180deg, rgba(15, 37, 34, 0) 0%, rgba(15, 37, 34, 0.85) 40%, rgba(15, 37, 34, 0.95) 100%);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    z-index: var(--wg-bottom-nav-z);
 }
 
-.wg-bottom-nav__inner {
-    display: grid;
-    grid-template-columns: repeat(var(--wg-nav-cols, 5), 1fr);
-    grid-auto-flow: row;
-    gap: var(--wg-bottom-nav-gap);
-    padding: var(--wg-bottom-nav-inner-pad);
-    border-radius: var(--wg-bottom-nav-inner-radius);
-    background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(0, 0, 0, 0) 60%),
-        rgba(15, 37, 34, 0.85);
-    border: 1px solid var(--wg-border-strong);
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.08),
-        0 10px 30px -8px rgba(0, 0, 0, 0.6);
+/* Views already carry the page gutter, so bars drop their own side padding. */
+.view > .wg-appbar,
+.view > .wg-pagebar {
+    padding-left: 0;
+    padding-right: 0;
+    margin-bottom: var(--space-md);
 }
 
-.wg-nav-item {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--wg-nav-item-gap);
-    padding: var(--wg-nav-item-pad-y) var(--wg-nav-item-pad-x);
-    border-radius: var(--wg-nav-item-radius);
-    background: none;
-    border: none;
-    font-family: var(--wg-font-ui);
-    font-size: var(--wg-nav-item-font-size);
-    font-weight: 600;
-    letter-spacing: 0.02em;
-    color: var(--wg-fg-4);
-    cursor: pointer;
-    transition: color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+.wg-appbar__title,
+.wg-appbar__sub {
+    margin: 0;
 }
 
-.wg-nav-item > svg {
-    width: var(--wg-nav-icon-size);
-    height: var(--wg-nav-icon-size);
-    stroke: currentColor;
-    fill: none;
+.wg-health-seg {
+    margin-bottom: var(--space-md);
 }
 
-.wg-nav-item:hover:not(.wg-nav-item--active) {
-    color: var(--wg-fg-2);
-}
-
-.wg-nav-item--active {
-    color: var(--wg-sun);
-    background: linear-gradient(180deg, rgba(251, 189, 13, 0.14) 0%, rgba(251, 189, 13, 0.05) 100%);
-    box-shadow: inset 0 0 0 1px rgba(251, 189, 13, 0.22);
+/* The kit's display:flex rules beat the UA [hidden] rule; app-nav.js hides
+   the strip / a disabled segment / the route icon with the attribute. */
+.wg-health-seg[hidden],
+.wg-health-seg .wg-seg__opt[hidden],
+.wg-appbar .wg-btn[hidden] {
+    display: none;
 }
 
 /* =============================================
@@ -3687,8 +3644,8 @@ input:checked+.toggle-slider:before {
         radial-gradient(800px 500px at 80% 110%, rgba(251, 189, 13, 0.08), transparent 60%),
         var(--wg-bg-stage);
     margin: calc(var(--space-lg) * -1);
-    margin-bottom: calc(var(--wg-bottom-nav-reserved) * -1);
-    padding: var(--space-lg) var(--space-lg) var(--wg-bottom-nav-reserved);
+    margin-bottom: calc(var(--wg-tabbar-reserved) * -1);
+    padding: var(--space-lg) var(--space-lg) var(--wg-tabbar-reserved);
     min-height: 100vh;
     box-sizing: border-box;
 }
@@ -3715,18 +3672,6 @@ input:checked+.toggle-slider:before {
     flex-direction: column;
     gap: var(--space-sm);
     color: var(--wg-fg-1);
-    /* Bleed the deep-teal stage past #app's padding so the Wandergeek
-       palette fills edge-to-edge. Without this the near-white fg tokens
-       render near-invisible on the paper-white body. */
-    background:
-        radial-gradient(1200px 600px at 50% -10%, rgba(86, 172, 138, 0.18), transparent 60%),
-        radial-gradient(800px 500px at 80% 110%, rgba(251, 189, 13, 0.08), transparent 60%),
-        var(--wg-bg-stage);
-    margin: calc(var(--space-lg) * -1);
-    margin-bottom: calc(var(--wg-bottom-nav-reserved) * -1);
-    padding: var(--space-lg) var(--space-lg) var(--wg-bottom-nav-reserved);
-    min-height: 100vh;
-    box-sizing: border-box;
 }
 
 .wg-next-action-card {
@@ -4241,15 +4186,15 @@ input:checked+.toggle-slider:before {
 
 /* Persistent call indicator — floating pill mounted at app-shell level so
    call status (connecting / in_call / error) and the hang-up affordance
-   survive tab switches. Anchored above the bottom nav via
-   --wg-bottom-nav-reserved; horizontally centered. Hidden when idle: the
+   survive tab switches. Anchored above the tab bar via
+   --wg-tabbar-reserved; horizontally centered. Hidden when idle: the
    [hidden] attribute fully removes it from layout so it never reserves
    space when no call is active. The status dot's color is driven by
    [data-state] so all visual values stay token-driven. */
 .wg-call-indicator {
     position: fixed;
     left: 50%;
-    bottom: calc(var(--wg-bottom-nav-reserved) + var(--space-sm));
+    bottom: calc(var(--wg-tabbar-reserved) + var(--space-sm));
     transform: translateX(-50%);
     z-index: var(--wg-call-indicator-z);
     box-sizing: border-box;

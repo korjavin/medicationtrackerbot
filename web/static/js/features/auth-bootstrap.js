@@ -172,7 +172,7 @@ window.AuthBootstrap = (function () {
             // (e.g. SW BOOTSTRAP_UPDATED from another device's toggle), rebuild so
             // the nav filters disabled slots rather than bouncing on tap.
             // Skipped during initial boot — the nav hasn't mounted yet there.
-            if (document.querySelector('.wg-bottom-nav') && typeof window.rebuildCanonicalBottomNav === 'function') {
+            if (document.querySelector('.wg-tabbar') && typeof window.rebuildCanonicalBottomNav === 'function') {
                 window.rebuildCanonicalBottomNav();
             }
         }

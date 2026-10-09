@@ -61,6 +61,7 @@ function getActiveHealthRange() {
 function setActiveHealthRange(range) {
     if (HEALTH_RANGE_OPTIONS.indexOf(range) === -1) return;
     try { window.localStorage.setItem(HEALTH_RANGE_STORAGE_KEY, String(range)); } catch (_) { /* ignore */ }
+    if (window.AppNav) window.AppNav.syncChrome(); // Health app-bar subtitle names the range
 }
 
 function renderHealthRangeSelector(opts) {

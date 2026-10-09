@@ -152,16 +152,19 @@ describe('Wandergeek material primitives', () => {
         expect(blocks[0]).toMatch(/height:\s*var\(--wg-streak-bar-height\)/);
     });
 
-    it('bottom nav anchors to the viewport via position:fixed (nav has no positioned ancestor at runtime)', () => {
-        const blocks = extractClassBlocks(css, '.wg-bottom-nav');
-        expect(blocks.length).toBeGreaterThan(0);
-        expect(blocks[0]).toMatch(/position:\s*fixed\b/);
+    it('tab bar anchors to the viewport via position:fixed (it has no positioned ancestor at runtime)', () => {
+        const blocks = extractClassBlocks(css, '.wg-tabbar');
+        expect(blocks.some((b) => /position:\s*fixed\b/.test(b))).toBe(true);
     });
 
-    it('#app reserves bottom space for the fixed nav via --wg-bottom-nav-reserved', () => {
+    it('#app reserves bottom space for the fixed tab bar via --wg-tabbar-reserved', () => {
         const blocks = extractClassBlocks(css, '#app');
         expect(blocks.length).toBeGreaterThan(0);
-        expect(blocks[0]).toMatch(/padding-bottom:\s*var\(--wg-bottom-nav-reserved\)/);
+        expect(blocks[0]).toMatch(/padding-bottom:\s*var\(--wg-tabbar-reserved\)/);
+    });
+
+    it('the legacy bottom-nav styles are gone', () => {
+        expect(css).not.toMatch(/\.wg-bottom-nav\b|\.wg-nav-item\b|--wg-nav-cols|--wg-bottom-nav-/);
     });
 
     it('screen stage utility pulls --wg-bg-stage so section labels render on the deep-teal substrate', () => {
