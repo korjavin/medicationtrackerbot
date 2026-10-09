@@ -174,22 +174,20 @@ describe('Workouts round-2 design parity', () => {
             expect(modal.classList.contains('wg-workouts-exercise-modal')).toBe(true);
         });
 
-        it('#miband-workout-modal uses the .wg-modal shell with the shared form-modal chrome', () => {
+        it('#miband-workout-modal is a kit sheet (.wg-modal.wg-sheet) with the shared form-modal body', () => {
             const { document } = env;
             const modal = document.getElementById('miband-workout-modal');
             expect(modal).not.toBeNull();
             expect(modal.classList.contains('wg-modal')).toBe(true);
             expect(modal.classList.contains('wg-workouts-miband-modal')).toBe(true);
+            expect(modal.classList.contains('wg-sheet')).toBe(true);
 
-            // Same eyebrow + mono-display title as the exercise-library modal
-            // it was restyled from (med-bzv).
-            const eyebrow = modal.querySelector('.wg-workouts-miband-modal__eyebrow');
+            // Kit sheet header (med-xso6.7): eyebrow + sheethead title.
+            const eyebrow = modal.querySelector('.wg-sheethead .wg-eyebrow');
             expect(eyebrow).not.toBeNull();
-            expect(eyebrow.classList.contains('wg-section-label')).toBe(true);
             expect(eyebrow.textContent).toBe('Cardio');
-            const title = modal.querySelector('.wg-workouts-miband-modal__title');
+            const title = modal.querySelector('.wg-sheethead__title');
             expect(title).not.toBeNull();
-            expect(title.classList.contains('wg-mono-display')).toBe(true);
             expect(title.id).toBe('miband-workout-modal-title');
 
             // All six numeric inputs sit in .wg-gloss--inset wraps, paired into
@@ -204,13 +202,11 @@ describe('Workouts round-2 design parity', () => {
             expect(modal.querySelector('.form-row')).toBeNull();
             expect(modal.querySelector('.modal-header')).toBeNull();
 
-            // Save pill is sun-glossed; Cancel is a plain gloss; Delete is gone.
+            // Save is the one primary .wg-btn; Cancel is ghost; Delete is gone.
             const cancel = document.getElementById('miband-workout-cancel-btn');
             const save = document.getElementById('miband-workout-save-btn');
-            expect(cancel.classList.contains('wg-gloss')).toBe(true);
-            expect(cancel.classList.contains('wg-gloss--sun')).toBe(false);
-            expect(save.classList.contains('wg-gloss')).toBe(true);
-            expect(save.classList.contains('wg-gloss--sun')).toBe(true);
+            expect(cancel.classList.contains('wg-btn--ghost')).toBe(true);
+            expect(save.classList.contains('wg-btn--primary')).toBe(true);
             expect(document.getElementById('miband-workout-delete-btn')).toBeNull();
         });
 

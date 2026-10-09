@@ -10,20 +10,11 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const INDEX_HTML = path.join(REPO_ROOT, 'web/static/index.html');
 const STYLES_CSS = path.join(REPO_ROOT, 'web/static/css/styles.css');
-const WG_SETTINGS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-settings.js');
 
 function loadIndex() {
     const html = fs.readFileSync(INDEX_HTML, 'utf8');
     const dom = new JSDOM(html, { url: 'https://example.test/' });
     return { dom, cleanup: () => dom.window.close() };
-}
-
-function loadWGSettings() {
-    const dom = new JSDOM('<!DOCTYPE html>', { url: 'https://example.test/', runScripts: 'outside-only' });
-    const { window } = dom;
-    const src = fs.readFileSync(WG_SETTINGS_JS, 'utf8');
-    window.eval(src);
-    return { window, cleanup: () => dom.window.close() };
 }
 
 describe('Settings Food Targets section (Phase 9, Task 6)', () => {
@@ -118,17 +109,13 @@ describe('Settings Food Targets section (Phase 9, Task 6)', () => {
         }
     });
 
-    it('renders the Save button as wg-gloss + wg-gloss--sun + wg-settings-save-btn (no btn-secondary)', () => {
+    it('the Targets page has no per-section Save buttons — the page bar carries the one Save (med-xso6.23)', () => {
         const { dom, cleanup } = loadIndex();
         try {
-            const btn = dom.window.document.getElementById('save-food-targets-btn');
-            expect(btn).not.toBeNull();
-            expect(btn.classList.contains('wg-gloss')).toBe(true);
-            expect(btn.classList.contains('wg-gloss--sun')).toBe(true);
-            expect(btn.classList.contains('wg-settings-save-btn')).toBe(true);
-            expect(btn.classList.contains('btn-secondary')).toBe(false);
-            expect(btn.classList.contains('btn')).toBe(false);
-            expect(btn.textContent.trim()).toBe('Save Targets');
+            const page = dom.window.document.querySelector('[data-settings-page="targets"]');
+            expect(page.querySelector('#food-target-settings')).not.toBeNull();
+            expect(page.querySelector('#gamification-targets-settings')).not.toBeNull();
+            expect(page.querySelectorAll('button').length).toBe(0);
         } finally {
             cleanup();
         }
@@ -157,101 +144,6 @@ describe('Settings Food Targets section (Phase 9, Task 6)', () => {
         expect(css).toMatch(/\.wg-settings-save-btn\s*\{/);
     });
 });
-
-describe('WGSettings.numberField factory (Phase 9, Task 6)', () => {
-    it('is exposed on window.WGSettings', () => {
-        const { window, cleanup } = loadWGSettings();
-        try {
-            expect(typeof window.WGSettings.numberField).toBe('function');
-        } finally {
-            cleanup();
-        }
-    });
-
-    it('renders a .wg-settings-number-field with label + inset wrap + numeric input', () => {
-        const { window, cleanup } = loadWGSettings();
-        try {
-            const el = window.WGSettings.numberField({
-                id: 'food-target-calories',
-                label: 'Calories',
-                unit: 'kcal',
-                placeholder: '1700',
-            });
-            expect(el.classList.contains('wg-settings-number-field')).toBe(true);
-
-            const label = el.querySelector('.wg-settings-number-field__label');
-            expect(label).not.toBeNull();
-            expect(label.textContent).toBe('Calories');
-            expect(label.getAttribute('for')).toBe('food-target-calories');
-
-            const wrap = el.querySelector('.wg-gloss--inset');
-            expect(wrap).not.toBeNull();
-            expect(wrap.classList.contains('wg-settings-number-field__wrap')).toBe(true);
-
-            const input = wrap.querySelector('input');
-            expect(input).not.toBeNull();
-            expect(input.type).toBe('number');
-            expect(input.id).toBe('food-target-calories');
-            expect(input.getAttribute('placeholder')).toBe('1700');
-            expect(input.getAttribute('min')).toBe('0');
-
-            const unit = wrap.querySelector('.wg-settings-number-field__unit');
-            expect(unit).not.toBeNull();
-            expect(unit.textContent).toBe('kcal');
-        } finally {
-            cleanup();
-        }
-    });
-
-    it('omits the label element when no label is provided', () => {
-        const { window, cleanup } = loadWGSettings();
-        try {
-            const el = window.WGSettings.numberField({ id: 'x' });
-            expect(el.querySelector('.wg-settings-number-field__label')).toBeNull();
-        } finally {
-            cleanup();
-        }
-    });
-
-    it('omits the unit tag when no unit is provided', () => {
-        const { window, cleanup } = loadWGSettings();
-        try {
-            const el = window.WGSettings.numberField({ id: 'x', label: 'Raw' });
-            expect(el.querySelector('.wg-settings-number-field__unit')).toBeNull();
-        } finally {
-            cleanup();
-        }
-    });
-
-    it('escapes text content (no HTML injection via label/unit)', () => {
-        const { window, cleanup } = loadWGSettings();
-        try {
-            const el = window.WGSettings.numberField({
-                id: 'x',
-                label: '<img src=x onerror=pwn>',
-                unit: '<script>alert(1)</script>',
-            });
-            expect(el.querySelector('.wg-settings-number-field__label img')).toBeNull();
-            expect(el.querySelector('.wg-settings-number-field__unit script')).toBeNull();
-        } finally {
-            cleanup();
-        }
-    });
-
-    it('handles no args gracefully (empty field skeleton)', () => {
-        const { window, cleanup } = loadWGSettings();
-        try {
-            const el = window.WGSettings.numberField();
-            expect(el.classList.contains('wg-settings-number-field')).toBe(true);
-            const input = el.querySelector('input[type="number"]');
-            expect(input).not.toBeNull();
-            expect(input.id).toBe('');
-        } finally {
-            cleanup();
-        }
-    });
-});
-
 describe('Food Targets round-trip through loadFoodTargets / saveFoodTargets (Phase 9, Task 6)', () => {
     let consoleErrorSpy;
 
@@ -306,37 +198,75 @@ describe('Food Targets round-trip through loadFoodTargets / saveFoodTargets (Pha
         }
     });
 
-    it('clicking the Save Targets button POSTs the input values to /api/food/settings/targets', async () => {
+    it('the Targets page Save writes Journey bands and food targets once, toasts once and closes (med-xso6.23)', async () => {
         const { window, document, cleanup } = loadFrontendEnv();
         try {
-            window.DataStore.getCached = vi.fn().mockResolvedValue(null);
-            window.DataStore.setCached = vi.fn().mockResolvedValue(undefined);
             window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
+            window.featureSettings = { food: true, gamification: true };
+            window.SettingsView.updateFeatureTabVisibility();
 
             document.getElementById('food-target-calories').value = '1900';
             document.getElementById('food-target-carbs').value = '200';
             document.getElementById('food-target-protein').value = '130';
             document.getElementById('food-target-fat').value = '70';
+            document.getElementById('gam-target-steps-low').value = '6000';
 
-            const apiCallSpy = vi.fn().mockResolvedValue({ ok: true });
+            const apiCallSpy = vi.fn(async (url, method) => {
+                if (method !== 'PUT') return { ok: true };
+                // The Journey save's optimistic tab reload re-fills the food
+                // inputs from the cached bundle mid-flight; the food POST must
+                // still carry what the user typed.
+                document.getElementById('food-target-calories').value = '1800';
+                return { enabled: true, targets: [] };
+            });
             window.apiCall = apiCallSpy;
             window.safeAlert = vi.fn();
             window.loadFoodLogs = vi.fn();
+            const optimisticSpy = vi.spyOn(window.DataStore, 'applyOptimistic');
 
-            const saveBtn = document.getElementById('save-food-targets-btn');
-            saveBtn.click();
-            await new Promise((r) => setTimeout(r, 0));
+            const page = window.SettingsView.openSettingsPage('targets');
+            expect(page.el.querySelector('#food-target-settings')).not.toBeNull();
+            const saves = page.el.querySelectorAll('.wg-pagebar .wg-btn--primary');
+            expect(saves.length).toBe(1);
+            saves[0].click();
+            await vi.waitFor(() => expect(page.el.isConnected).toBe(false));
 
-            const postCall = apiCallSpy.mock.calls.find(
-                (c) => c[0] === '/api/food/settings/targets' && c[1] === 'POST'
-            );
-            expect(postCall).toBeDefined();
-            expect(postCall[2]).toEqual({
-                calories: 1900,
-                carbs: 200,
-                protein: 130,
-                fat: 70,
-            });
+            const put = apiCallSpy.mock.calls.find((c) => c[0] === '/api/gamification/targets' && c[1] === 'PUT');
+            expect(put[2]).toEqual({ targets: [{ metric_key: 'steps', low_val: 6000 }] });
+            const post = apiCallSpy.mock.calls.find((c) => c[0] === '/api/food/settings/targets' && c[1] === 'POST');
+            expect(post[2]).toEqual({ calories: 1900, carbs: 200, protein: 130, fat: 70 });
+            expect(optimisticSpy.mock.calls.map((c) => c[0])).toEqual(['gamification', 'food_targets', 'settings_bundle']);
+            // food_targets carries no tag, so the post-save invalidateTags
+            // (which names 'food_targets') can't evict the committed row.
+            expect(optimisticSpy.mock.calls[1][2]).toEqual([]);
+            // The Settings screen renders from settings_bundle: a tab reload
+            // repaints the saved values, not the pre-save ones.
+            expect(optimisticSpy.mock.calls[2][1]({ foodTargets: { calories: 1800 }, tabOrder: ['x'] }))
+                .toEqual({ foodTargets: { calories: 1900, carbs: 200, protein: 130, fat: 70 }, tabOrder: ['x'] });
+            expect(window.safeAlert).toHaveBeenCalledTimes(1);
+            expect(window.safeAlert).toHaveBeenCalledWith('Targets saved');
+            // The page body went back to the hidden store, ids intact.
+            expect(document.querySelector('.wg-settings-pages #food-target-settings')).not.toBeNull();
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('a refused Journey band keeps the Targets page open and writes nothing', async () => {
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            window.featureSettings = { food: true, gamification: true };
+            window.SettingsView.updateFeatureTabVisibility();
+            document.getElementById('gam-target-steps-low').value = '9000';
+            document.getElementById('gam-target-steps-high').value = '100';
+            window.apiCall = vi.fn().mockResolvedValue({ ok: true });
+            window.safeAlert = vi.fn();
+
+            const page = window.SettingsView.openSettingsPage('targets');
+            expect(await window.SettingsView.saveTargets()).toBe(false);
+            expect(window.apiCall).not.toHaveBeenCalled();
+            expect(page.el.isConnected).toBe(true);
+            page.close();
         } finally {
             cleanup();
         }

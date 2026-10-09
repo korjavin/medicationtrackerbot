@@ -15,6 +15,10 @@ import { Blob } from 'node:buffer';
 const { enqueueFeedback } = vi.hoisted(() => ({ enqueueFeedback: vi.fn() }));
 vi.mock('../feedback-submit.js', () => ({ enqueueFeedback }));
 
+// The account app loads these classic scripts before feedback-ui: the modal is
+// a kit sheet (WGSheet header) on the ModalManager stack (med-xso6.7).
+import '../../../static/js/core/modal-manager.js';
+import '../../../static/js/components/wg-sheet.js';
 import { mountFeedbackLauncher } from '../feedback-ui.js';
 
 function q(sel) { return document.querySelector(sel); }
@@ -23,11 +27,12 @@ async function flush() { await new Promise((r) => setTimeout(r, 0)); }
 
 describe('feedback-ui', () => {
     beforeEach(() => {
-        // The launcher mounts into the static #settings-view container (as the
-        // first card, before the existing Sync section) — seed that shape.
+        // The launcher mounts into the static Settings home (index.html
+        // .wg-settings-home) as its last group — seed that shape.
         document.body.innerHTML =
             '<div id="settings-view">'
-            + '<section class="wg-card wg-settings-section wg-settings-sync"><h3>Sync</h3></section>'
+            + '<div class="wg-settings-home"><div class="wg-list" id="everyday"></div></div>'
+            + '<footer class="wg-settings-footer"></footer>'
             + '</div>';
         enqueueFeedback.mockReset();
         delete window.MediaCapture;
@@ -38,15 +43,18 @@ describe('feedback-ui', () => {
         document.body.innerHTML = '';
     });
 
-    it('mounts one launcher (deduped by id) as the first Settings card', async () => {
+    it('mounts one launcher row (deduped by id) as the last Settings home group', async () => {
         await mountFeedbackLauncher({});
         await mountFeedbackLauncher({});
         expect(document.querySelectorAll('#feedback-launcher').length).toBe(1);
-        expect(q('#feedback-launcher').textContent).toBe('Send feedback');
-        // Lives inside Settings, as the first section (before the Sync card).
-        const view = q('#settings-view');
-        expect(q('#feedback-settings').closest('#settings-view')).toBe(view);
-        expect(view.querySelector('.wg-settings-section')).toBe(q('#feedback-settings'));
+        const row = q('#feedback-launcher');
+        expect(row.classList.contains('wg-setting')).toBe(true);
+        expect(row.querySelector('.wg-setting__title').textContent).toBe('Send feedback');
+        expect(row.querySelector('.wg-setting__desc').textContent).toBe('Text or a screenshot');
+        // A kit .wg-list group of its own, after the existing groups.
+        const group = q('#feedback-settings');
+        expect(group.classList.contains('wg-list')).toBe(true);
+        expect(q('.wg-settings-home').lastElementChild).toBe(group);
     });
 
     it('does nothing when there is no Settings view', async () => {
@@ -217,6 +225,24 @@ describe('feedback-ui', () => {
         resolveStop();
         await flush();
 
+        expect(enqueueFeedback).not.toHaveBeenCalled();
+    });
+
+    it('renders as a kit sheet on the ModalManager stack: Cancel in the header, Send in the foot', async () => {
+        await mountFeedbackLauncher({});
+        click(q('#feedback-launcher'));
+        const modal = q('#feedback-modal');
+        expect(modal.classList.contains('wg-sheet')).toBe(true);
+        expect(q('#feedback-modal .wg-sheethead__acts [data-feedback-choice="cancel"]').className).toContain('wg-btn--ghost');
+        expect(q('#feedback-modal .wg-sheet__foot [data-feedback-choice="send"]').className).toContain('wg-btn--primary');
+        expect(window.ModalManager.isAnyOpen()).toBe(true);
+        // Single dim: the stack's #modal-overlay dims, the own backdrop is
+        // the transparent tap-catcher (rule pinned in features.trial-consent).
+        expect(q('.mt-confirm-backdrop').classList.contains('wg-sheet-backdrop')).toBe(true);
+
+        // Back / Esc route through the stack's registered closer.
+        expect(window.ModalManager.closeTopMostVisibleModal()).toBe(true);
+        expect(q('#feedback-modal')).toBeFalsy();
         expect(enqueueFeedback).not.toHaveBeenCalled();
     });
 

@@ -55,23 +55,19 @@ describe('Edit-note modal (Phase 8, Task 8)', () => {
             expect(m[0]).toMatch(/\bhidden\b/);
         });
 
-        it('renders mono header (close-X removed; Cancel dismisses), gloss-inset textarea wrap, and header-actions row', () => {
+        it('renders as a kit sheet: .wg-sheethead (eyebrow + title, Cancel/Save top-right), gloss-inset textarea wrap', () => {
             const { document } = env;
             const modal = document.getElementById('note-modal');
             expect(modal).not.toBeNull();
+            expect(modal.classList.contains('wg-sheet')).toBe(true);
 
-            const header = modal.querySelector('.wg-health-modal__header');
+            const header = modal.querySelector(':scope > .wg-sheethead');
             expect(header).not.toBeNull();
 
             const eyebrow = document.getElementById('note-modal-eyebrow');
-            expect(eyebrow).not.toBeNull();
-            expect(eyebrow.classList.contains('wg-section-label')).toBe(true);
-            expect(eyebrow.classList.contains('wg-health-modal__eyebrow')).toBe(true);
-
+            expect(eyebrow.classList.contains('wg-eyebrow')).toBe(true);
             const title = document.getElementById('note-modal-title');
-            expect(title).not.toBeNull();
-            expect(title.classList.contains('wg-mono-display')).toBe(true);
-            expect(title.classList.contains('wg-health-modal__title')).toBe(true);
+            expect(title.classList.contains('wg-sheethead__title')).toBe(true);
 
             expect(document.getElementById('note-modal-close-btn')).toBeNull();
 
@@ -80,23 +76,17 @@ describe('Edit-note modal (Phase 8, Task 8)', () => {
             expect(textarea.tagName).toBe('TEXTAREA');
             expect(textarea.parentElement.classList.contains('wg-gloss--inset')).toBe(true);
             expect(textarea.parentElement.classList.contains('wg-health-modal__input-wrap')).toBe(true);
+            expect(document.getElementById('note-form').classList.contains('wg-sheet__body')).toBe(true);
 
             const cancelBtn = document.getElementById('note-modal-cancel-btn');
             const saveBtn = document.getElementById('note-modal-save-btn');
-            expect(cancelBtn).not.toBeNull();
-            expect(saveBtn).not.toBeNull();
-            expect(cancelBtn.classList.contains('wg-gloss')).toBe(true);
-            expect(cancelBtn.classList.contains('wg-gloss--sun')).toBe(false);
-            expect(cancelBtn.classList.contains('wg-health-modal__header-btn')).toBe(true);
-            expect(saveBtn.classList.contains('wg-gloss')).toBe(true);
-            expect(saveBtn.classList.contains('wg-gloss--sun')).toBe(true);
-            expect(saveBtn.classList.contains('wg-health-modal__header-btn')).toBe(true);
-            expect(saveBtn.classList.contains('wg-health-modal__header-btn--save')).toBe(true);
+            expect(cancelBtn.classList.contains('wg-btn--ghost')).toBe(true);
+            expect(saveBtn.classList.contains('wg-btn--primary')).toBe(true);
+            expect(saveBtn.textContent.trim()).toBe('Save');
             expect(saveBtn.getAttribute('type')).toBe('submit');
             expect(saveBtn.getAttribute('form')).toBe('note-form');
 
-            const actions = modal.querySelector('.wg-health-modal__header-actions');
-            expect(actions).not.toBeNull();
+            const actions = header.querySelector('.wg-sheethead__acts');
             // Cancel and Save live inside the header so they stay visible above a focused mobile keyboard.
             expect(cancelBtn.parentElement).toBe(actions);
             expect(saveBtn.parentElement).toBe(actions);
@@ -105,22 +95,12 @@ describe('Edit-note modal (Phase 8, Task 8)', () => {
             expect(children.indexOf(cancelBtn)).toBeLessThan(children.indexOf(saveBtn));
         });
 
-        it('styles.css defines the header-actions row + header-btn sizing (Cancel/Save moved out of body footer to keep them above the mobile keyboard)', () => {
+        it('styles.css keeps the .wg-health-modal__* body rules and drops the per-modal header ones', () => {
             const css = fs.readFileSync(CSS_PATH, 'utf8');
-            expect(css).toMatch(/\.wg-health-modal__header-actions\s*\{[^}]*display:\s*flex/);
-            expect(css).toMatch(/\.wg-health-modal__header-btn\s*\{[^}]*min-height:\s*36px/);
-            expect(css).toMatch(/\.wg-health-modal__header-btn--save\s*\{[^}]*padding:/);
-        });
-
-        it('styles.css registers the .wg-health-modal__* rules', () => {
-            const css = fs.readFileSync(CSS_PATH, 'utf8');
-            expect(css).toMatch(/\.wg-health-modal__header\s*\{/);
-            expect(css).toMatch(/\.wg-health-modal__heading\s*\{/);
-            expect(css).toMatch(/\.wg-health-modal__title\s*\{/);
             expect(css).toMatch(/\.wg-health-modal__body\s*\{/);
             expect(css).toMatch(/\.wg-health-modal__input-wrap\s*\{/);
             expect(css).toMatch(/\.wg-health-modal__textarea\s*\{/);
-            expect(css).toMatch(/\.wg-health-modal__header-actions\s*\{/);
+            expect(css).not.toMatch(/\.wg-health-modal__(header|heading|eyebrow|title)/);
         });
     });
 

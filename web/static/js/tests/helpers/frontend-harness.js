@@ -16,6 +16,7 @@ const STAT_CARD_JS = path.join(REPO_ROOT, 'web/static/js/components/stat-card.js
 const ACTION_ROW_JS = path.join(REPO_ROOT, 'web/static/js/components/action-row.js');
 const WG_ICONS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-icons.js');
 const WG_PAGE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-page.js');
+const WG_SHEET_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-sheet.js');
 const WG_CHIP_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-chip.js');
 const WG_BOTTOM_NAV_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-bottom-nav.js');
 const WG_SPARKLINE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-sparkline.js');
@@ -27,7 +28,6 @@ const WG_STEPS_CHART_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-step
 const WG_VITALS_CHART_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-vitals-chart.js');
 const WG_MACRO_BAR_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-macro-bar.js');
 const WG_TOGGLE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-toggle.js');
-const WG_SETTINGS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-settings.js');
 const MODAL_MANAGER_JS = path.join(REPO_ROOT, 'web/static/js/core/modal-manager.js');
 const CORE_API_JS = path.join(REPO_ROOT, 'web/static/js/core/api.js');
 const BACKUP_CRYPTO_JS = path.join(REPO_ROOT, 'web/static/js/core/backup-crypto.js');
@@ -197,6 +197,7 @@ export function loadFrontendEnv({ withWorkout = false, withSync = false, url = '
   evalFileCached(window, ACTION_ROW_JS);
   evalFileCached(window, WG_ICONS_JS);
   evalFileCached(window, WG_PAGE_JS);
+  evalFileCached(window, WG_SHEET_JS);
   evalFileCached(window, WG_CHIP_JS);
   evalFileCached(window, WG_BOTTOM_NAV_JS);
   evalFileCached(window, WG_SPARKLINE_JS);
@@ -207,7 +208,6 @@ export function loadFrontendEnv({ withWorkout = false, withSync = false, url = '
   evalFileCached(window, WG_STEPS_CHART_JS);
   evalFileCached(window, WG_VITALS_CHART_JS);
   evalFileCached(window, WG_MACRO_BAR_JS);
-  evalFileCached(window, WG_SETTINGS_JS);
   evalFileCached(window, MODAL_MANAGER_JS);
   evalFileCached(window, CORE_API_JS);
   // Real gzip/sniff helpers for the vault import/export screen; the age crypto

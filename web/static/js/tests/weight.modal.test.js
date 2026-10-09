@@ -2,8 +2,8 @@
 //
 // Covers the rewritten `#weight-modal` shell:
 //   • markup uses `.wg-modal` + `.wg-weight-modal__*` wrappers with a dual-line
-//     mono header, gloss-inset input wraps, a kg/lb unit-toggle pill pair, and
-//     a Cancel / Save action bar where Save carries 2× flex.
+//     mono header, gloss-inset input wraps, a kg/lb unit-toggle pill pair; the
+//     header is the kit .wg-sheethead (med-xso6.7) with Cancel + Log/Save.
 //   • opening via showWeightModal() sets the title to "New weight", datetime
 //     defaults to now, unit toggle starts on kg.
 //   • editWeightLog() prefills fields and swaps the title to "Edit weight".
@@ -53,8 +53,9 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
             const modal = document.getElementById('weight-modal');
             expect(modal).not.toBeNull();
 
-            expect(modal.querySelector('.wg-weight-modal__header')).not.toBeNull();
-            expect(modal.querySelector('.wg-weight-modal__title#weight-modal-title')).not.toBeNull();
+            expect(modal.classList.contains('wg-sheet')).toBe(true);
+            expect(modal.querySelector(':scope > .wg-sheethead')).not.toBeNull();
+            expect(modal.querySelector('.wg-sheethead__title#weight-modal-title')).not.toBeNull();
             expect(modal.querySelector('#weight-modal-close-btn')).toBeNull();
 
             const unitBtns = modal.querySelectorAll('.wg-weight-modal__unit-btn');
@@ -66,18 +67,16 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
             const saveBtn = modal.querySelector('#weight-modal-save-btn');
             expect(cancelBtn).not.toBeNull();
             expect(saveBtn).not.toBeNull();
-            expect(cancelBtn.classList.contains('wg-weight-modal__header-btn')).toBe(true);
-            expect(saveBtn.classList.contains('wg-weight-modal__header-btn')).toBe(true);
-            expect(saveBtn.classList.contains('wg-weight-modal__header-btn--save')).toBe(true);
+            expect(cancelBtn.classList.contains('wg-btn--ghost')).toBe(true);
+            expect(saveBtn.classList.contains('wg-btn--primary')).toBe(true);
+            expect(saveBtn.parentElement.classList.contains('wg-sheethead__acts')).toBe(true);
             expect(saveBtn.getAttribute('type')).toBe('submit');
             expect(saveBtn.getAttribute('form')).toBe('weight-form');
         });
 
-        it('styles.css defines the header-actions row + header-btn sizing (Cancel/Save moved out of body footer to keep them above the mobile keyboard)', () => {
+        it('styles.css no longer carries the per-modal header rules (the kit .wg-sheethead replaced them)', () => {
             const css = fs.readFileSync(CSS_PATH, 'utf8');
-            expect(css).toMatch(/\.wg-weight-modal__header-actions\s*\{[^}]*display:\s*flex/);
-            expect(css).toMatch(/\.wg-weight-modal__header-btn\s*\{[^}]*min-height:\s*36px/);
-            expect(css).toMatch(/\.wg-weight-modal__header-btn--save\s*\{[^}]*padding:/);
+            expect(css).not.toMatch(/\.wg-weight-modal__(header|heading|eyebrow|title)/);
         });
 
         it('index.html does NOT declare the paper-era ruler / weight-display markup', () => {
@@ -96,6 +95,7 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
             expect(document.getElementById('weight-modal').classList.contains('hidden')).toBe(false);
             expect(document.getElementById('weight-modal-eyebrow').textContent).toBe('New entry');
             expect(document.getElementById('weight-modal-title').textContent).toBe('Weight');
+            expect(document.getElementById('weight-modal-save-btn').textContent).toBe('Log');
             expect(document.getElementById('weight-datetime').value).not.toBe('');
             expect(document.getElementById('weight-notes').value).toBe('');
             const valueInput = document.getElementById('weight-value');
@@ -146,6 +146,7 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
 
             expect(document.getElementById('weight-modal').classList.contains('hidden')).toBe(false);
             expect(document.getElementById('weight-modal-eyebrow').textContent).toBe('Edit entry');
+            expect(document.getElementById('weight-modal-save-btn').textContent).toBe('Save');
             expect(document.getElementById('weight-modal-title').textContent).toBe('Weight');
             expect(parseFloat(document.getElementById('weight-value').value)).toBeCloseTo(78.4, 2);
             expect(document.getElementById('weight-notes').value).toBe('post-run');

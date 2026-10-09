@@ -273,8 +273,8 @@ async function showInviteModal(claimUrl) {
         // The QR is a convenience; the copyable URL is the actual payload.
         console.warn('invite QR render failed', e);
     }
-    if (typeof modal.open === 'function') modal.open();
-    else modal.classList.remove('hidden');
+    // On the ModalManager stack (overlay + Back/Esc), like every sheet.
+    window.ModalManager.open('invite-modal');
 }
 
 async function mintInvite() {
@@ -505,10 +505,7 @@ function bindCloudInvite() {
     _inviteBound = true;
     document.getElementById('settings-invite-btn')?.addEventListener('click', mintInvite);
     document.getElementById('invite-close-btn')?.addEventListener('click', () => {
-        const modal = document.getElementById('invite-modal');
-        if (!modal) return;
-        if (typeof modal.close === 'function') modal.close();
-        else modal.classList.add('hidden');
+        window.ModalManager.close('invite-modal');
     });
     document.getElementById('invite-copy-btn')?.addEventListener('click', async () => {
         const url = document.getElementById('invite-claim-url')?.textContent || '';
@@ -552,6 +549,7 @@ async function loadSettings() {
     // Ungated: the first-run overlay ships in the server, cloud, and mobile
     // builds alike, so the row is not wrapped in a wg-settings-cloud-* reveal.
     bindRerunOnboarding();
+    bindSettingsPages();
     if (window.__MEDTRACKER_CLOUD__) {
         // weekly_digest now drives a cloud horizon producer (med-eas.58), so the
         // toggle is live in cloud. It only makes sense alongside gamification
@@ -696,29 +694,132 @@ async function loadSettings() {
     // internally gated on the gamification flag).
     await loadGamificationTargets();
     await loadGamificationMode();
-    // Collapse any <details> group whose sections are all hidden (e.g. a
-    // cloud-only group in bot mode) so an empty fold doesn't render.
-    hideEmptySettingsGroups();
+    // Hide any home row whose page sections are all hidden (e.g. a cloud-only
+    // page in bot mode) so it never opens onto an empty page.
+    hideEmptySettingsRows();
+    refreshSettingsSummaries();
+    refreshIntegrationsSummary();
+    await refreshDevicesSummary();
 }
 
-// Hide a collapsible settings <details> group when every .wg-settings-section
-// inside it is hidden. Per-section gating stays the source of truth; this only
-// rolls the group visibility up from it.
-function hideEmptySettingsGroups() {
-    document.querySelectorAll('.wg-settings-group').forEach((group) => {
-        const sections = group.querySelectorAll('.wg-settings-section');
-        const allHidden = sections.length > 0 && Array.from(sections).every(isSettingsSectionHidden);
-        group.classList.toggle('wg-settings-hidden', allHidden);
+// ---- Settings v2 home + pushed pages (med-xso6.23, kit S1/S2) ---------------
+// Each home row ([data-settings-open=<name>]) pushes a WGPage whose body is the
+// matching [data-settings-page=<name>] node from the hidden .wg-settings-pages
+// store. The node is MOVED (never cloned) so ids and bound listeners survive,
+// and goes back to the store when the page closes.
+function settingsPageBody(name) {
+    return document.querySelector(`.wg-settings-pages > [data-settings-page="${name}"]`);
+}
+
+function openSettingsPage(name) {
+    const store = document.querySelector('.wg-settings-pages');
+    const body = settingsPageBody(name);
+    if (!store || !body || !window.WGPage) return null; // absent, or already open
+    const row = document.querySelector(`[data-settings-open="${name}"]`);
+    const title = row?.querySelector('.wg-setting__title')?.textContent.trim() || name;
+    let page = null;
+    page = window.WGPage.push({
+        title,
+        back: body.dataset.settingsParent || 'Settings',
+        body,
+        primary: name === 'targets'
+            ? { label: 'Save', onClick: async () => { if (await saveTargets() && page) page.close(); } }
+            : undefined,
+        onClose: () => {
+            store.appendChild(body);
+            refreshSettingsSummaries();
+        },
+    });
+    return page;
+}
+
+let _settingsPagesBound = false; // module-state: bind the home/page row clicks once across repeated loadSettings() calls
+function bindSettingsPages() {
+    if (_settingsPagesBound) return;
+    _settingsPagesBound = true;
+    document.querySelectorAll('[data-settings-open]').forEach((row) => {
+        row.addEventListener('click', () => openSettingsPage(row.dataset.settingsOpen));
+    });
+}
+
+// Hide a home row when every top-level section of its page is hidden.
+// Per-section gating stays the source of truth; this only rolls it up.
+function hideEmptySettingsRows() {
+    document.querySelectorAll('.wg-settings-home [data-settings-open]').forEach((row) => {
+        const body = settingsPageBody(row.dataset.settingsOpen);
+        if (!body) return;
+        const sections = Array.from(body.children);
+        const allHidden = sections.length > 0 && sections.every(isSettingsSectionHidden);
+        row.classList.toggle('wg-settings-hidden', allHidden);
     });
 }
 
 // A section counts as hidden when any of its gating mechanisms has hidden it:
-// the wg-settings-hidden / hidden class toggles or an inline
-// style.display='none' (food-target-settings). Missing any of these leaves an
-// all-hidden group rendering as an empty fold.
+// the wg-settings-hidden / hidden class toggles or the [hidden] attribute.
 function isSettingsSectionHidden(s) {
-    return s.matches('.wg-settings-hidden, .hidden, [hidden]')
-        || s.style.display === 'none';
+    return s.matches('.wg-settings-hidden, .hidden, [hidden]');
+}
+
+function setSettingsSummary(name, text) {
+    const el = document.querySelector(`[data-settings-summary="${name}"]`);
+    if (el && typeof text === 'string') el.textContent = text;
+}
+
+function countToggles(selector) {
+    const inputs = Array.from(document.querySelectorAll(selector));
+    return { on: inputs.filter((i) => i.checked).length, total: inputs.length };
+}
+
+// Row summaries read the live controls. A summary is only visible once the
+// page above it closes, so refreshing on load, on flag/mode application and
+// on every page close keeps them right.
+function refreshSettingsSummaries() {
+    const features = countToggles('[data-settings-page="features"] .wg-toggle__input, [data-settings-page="journey-extras"] .wg-toggle__input');
+    if (features.total) setSettingsSummary('features', `${features.on} of ${features.total} on`);
+    const extras = countToggles('[data-settings-page="journey-extras"] .wg-toggle__input');
+    if (extras.total) setSettingsSummary('journey-extras', `${extras.on} of ${extras.total} on`);
+
+    const targets = [];
+    const food = document.getElementById('food-target-settings');
+    const calories = window.FoodLog && window.FoodLog.targets && window.FoodLog.targets.calories;
+    if (food && !isSettingsSectionHidden(food)) targets.push(calories ? `Food ${calories} kcal` : 'Food not set');
+    const gam = document.getElementById('gamification-targets-settings');
+    if (gam && !isSettingsSectionHidden(gam)) targets.push('Journey bands');
+    setSettingsSummary('targets', targets.join(' · '));
+
+    const parts = [];
+    const cloudNotifications = document.querySelector('.wg-settings-notifications-cloud');
+    const delivery = document.getElementById('cloud-reminder-delivery');
+    if (cloudNotifications && delivery && !isSettingsSectionHidden(cloudNotifications)) {
+        parts.push({ webpush: 'Push', telegram: 'Telegram', both: 'Push + Telegram' }[delivery.value] || 'Push');
+    }
+    const reminders = [
+        document.getElementById('bp-reminders-toggle')?.checked && 'BP',
+        document.getElementById('weight-reminders-toggle')?.checked && 'weight',
+    ].filter(Boolean);
+    parts.push(reminders.length ? reminders.join(', ') : 'No reminders');
+    setSettingsSummary('notifications', parts.join(' · '));
+
+    setSettingsSummary('units', window.weightUnitPreference === 'lb' ? 'lb' : 'kg');
+}
+
+// Read once right after SettingsIntegrations.load() refilled the fields from
+// the server — not on page close, where an unsaved edit would read as set.
+// A stored secret comes back as "***".
+function refreshIntegrationsSummary() {
+    const filled = (id) => !!document.getElementById(id)?.value.trim();
+    const set = [
+        filled('integrations-openai-api-key') && 'OpenAI',
+        (filled('integrations-food-api-key') || filled('integrations-food-url')) && 'Food DB',
+        filled('integrations-elevenlabs-api-key') && 'Voice',
+    ].filter(Boolean);
+    setSettingsSummary('integrations', set.length ? set.join(' · ') : 'AI, food database, voice, Telegram');
+}
+
+async function refreshDevicesSummary() {
+    if (!window.__MEDTRACKER_CLOUD__) return;
+    const count = await fetchDeviceCount();
+    if (typeof count === 'number') setSettingsSummary('devices', count === 1 ? '1 device' : `${count} devices`);
 }
 
 function updateFeatureToggles() {
@@ -733,6 +834,7 @@ function updateFeatureToggles() {
     document.getElementById('gamification-feature-toggle').checked = !!flags.gamification;
     document.getElementById('live-hr-feature-toggle').checked = !!flags.live_hr;
     updateWeeklyDigestVisibility(flags);
+    refreshSettingsSummaries();
 }
 
 // The weekly-digest toggle drives a gamification-summary push, so it's only
@@ -745,6 +847,10 @@ function updateWeeklyDigestVisibility(flags) {
         document.querySelector(`mt-setting-toggle[input-id="${gamificationModeToggleId(key)}"]`)
             ?.classList.toggle('wg-settings-hidden', !flags.gamification);
     }
+    // Features page: the folded Journey-extras row and the Safety group
+    // (ED-safe) share the gate, so no empty row or eyebrow lingers.
+    document.querySelectorAll('.wg-settings-journey-extras, .wg-settings-features__safety')
+        .forEach((el) => el.classList.toggle('wg-settings-hidden', !flags.gamification));
 }
 
 // ---- Journey mode switches (med-8tur.12, docs/gamification.md §0.5) ---------
@@ -761,6 +867,7 @@ function applyGamificationMode(mode) {
         const input = document.getElementById(gamificationModeToggleId(key));
         if (input && typeof mode[key] === 'boolean') input.checked = mode[key];
     }
+    refreshSettingsSummaries();
 }
 
 async function loadGamificationMode() {
@@ -792,6 +899,7 @@ async function saveGamificationMode(key, value) {
         if (handle) await handle.rollback();
         const input = document.getElementById(gamificationModeToggleId(key));
         if (input) input.checked = !value;
+        refreshSettingsSummaries();
         return;
     }
     if (handle) await handle.commit(null);
@@ -802,7 +910,7 @@ async function saveGamificationMode(key, value) {
 function updateFoodTargetsVisibility() {
     const settingsBlock = document.getElementById('food-target-settings');
     if (!settingsBlock) return;
-    settingsBlock.style.display = window.featureSettings.food ? 'flex' : 'none';
+    settingsBlock.classList.toggle('wg-settings-hidden', !window.featureSettings.food);
 }
 
 // ---- Journey (gamification) targets editor (Plan 3, Task 4) -----------------
@@ -878,7 +986,8 @@ function updateGamificationTargetsVisibility() {
 // without a re-score, so the mutator is a no-op — the value is the rollback +
 // tag-refresh lifecycle, which on failure restores the prior journey cache and on
 // success invalidates it so the next Journey load re-scores against the new bands.
-async function saveGamificationTargets() {
+// Resolves true on success; `toast: false` is the shared Targets Save (saveTargets).
+async function saveGamificationTargets({ toast = true } = {}) {
     const targets = [];
     for (const key of GAMIFICATION_TARGET_METRICS) {
         const lowEl = document.getElementById(`gam-target-${key}-low`);
@@ -893,11 +1002,11 @@ async function saveGamificationTargets() {
         // service validates the same, but catch it early for a clearer message).
         if ((low !== null && (Number.isNaN(low) || low < 0)) || (high !== null && (Number.isNaN(high) || high < 0))) {
             safeAlert(`Enter valid non-negative numbers for ${pretty}`);
-            return;
+            return false;
         }
         if (low !== null && high !== null && low > high) {
             safeAlert(`${pretty}: low must not exceed high`);
-            return;
+            return false;
         }
         if (low === null && high === null) {
             // Both blank. If this metric was a custom override, the user cleared it
@@ -926,17 +1035,36 @@ async function saveGamificationTargets() {
         if (handle) await handle.rollback();
         console.error('Failed to save journey targets:', e);
         safeToast('Failed to save targets', 'error');
-        return;
+        return false;
     }
     if (!res) {
         if (handle) await handle.rollback();
         // apiCall already surfaced the failure alert for the write; don't stack a second.
-        return;
+        return false;
     }
     if (handle) await handle.commit(null);
     applyGamificationTargets(res);
     try { await ds.invalidateTags(['gamification']); } catch (_) { /* best-effort */ }
+    if (toast) safeToast('Targets saved', 'info');
+    return true;
+}
+
+// The Targets page's one Save (kit S1, med-xso6.23): Journey bands first — their
+// validation is the only one that can refuse — then food targets, each through
+// its own optimistic write. Only the visible sections are saved. Resolves true
+// when everything visible saved, so the page can close.
+async function saveTargets() {
+    const visible = (id) => {
+        const el = document.getElementById(id);
+        return !!el && !isSettingsSectionHidden(el);
+    };
+    // Read the food inputs first: the Journey save's optimistic tab reload
+    // re-fills them from the cached bundle before saveFoodTargets would read.
+    const food = visible('food-target-settings') ? window.FoodLog.readTargetsForm() : null;
+    if (visible('gamification-targets-settings') && !(await saveGamificationTargets({ toast: false }))) return false;
+    if (food && !(await window.saveFoodTargets({ toast: false, payload: food }))) return false;
     safeToast('Targets saved', 'info');
+    return true;
 }
 
 async function toggleFeatureSetting(feature, enabled) {
@@ -991,16 +1119,19 @@ function updateFeatureTabVisibility() {
     // Gamification toggling here also gates the weekly-digest row (both-on), so
     // refresh its visibility on the toggle success path — not just on load.
     updateWeeklyDigestVisibility(window.featureSettings || {});
-    // A toggle just changed a target section's visibility; roll that back up to
-    // the parent <details> group so an all-hidden Targets fold doesn't linger
-    // (and reappears when a target is re-enabled) without a full Settings reload.
-    hideEmptySettingsGroups();
+    // A toggle just changed a target section's visibility; roll that up to the
+    // home row so an all-hidden Targets row doesn't linger (and reappears when a
+    // target is re-enabled) without a full Settings reload.
+    hideEmptySettingsRows();
+    refreshSettingsSummaries();
 }
 
 // Public surface mirror — bare names above are the live call path; this object
 // documents the module's API and satisfies the globals allowlist.
 window.SettingsView = {
     loadSettings,
+    openSettingsPage,
+    saveTargets,
     mintInvite,
     updateFeatureToggles,
     updateFoodTargetsVisibility,
