@@ -253,9 +253,9 @@ describe('renderWeightLogs (Phase 6, Task 5)', () => {
         window.renderWeightRangeSelector({ active: '30d' });
         const cta = document.getElementById('add-weight-btn');
         expect(cta).not.toBeNull();
-        // Migrated to the shared .wg-toolbar-btn .wg-toolbar-btn--primary.
-        expect(cta.classList.contains('wg-toolbar-btn')).toBe(true);
-        expect(cta.classList.contains('wg-toolbar-btn--primary')).toBe(true);
+        // Kit v2 button (med-xso6.27).
+        expect(cta.classList.contains('wg-btn')).toBe(true);
+        expect(cta.classList.contains('wg-btn--primary')).toBe(true);
         // Dead paper-era / Phase-5 one-offs must not reappear.
         expect(cta.classList.contains('wg-weight-header-row__add')).toBe(false);
         expect(cta.classList.contains('wg-gloss')).toBe(false);

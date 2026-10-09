@@ -110,85 +110,82 @@ describe('workout.js loaders and next-card behavior', () => {
     }
   });
 
-  it('showEditWorkoutGroupModal non-rotating group creates default variant and loads exercises', async () => {
+  it('opening a flat plan with no Day only reads — the "Main" Day is created on Save, not on open', async () => {
     const { window, document, cleanup } = loadFrontendEnv({ withWorkout: true });
 
     try {
-      window._renderWorkoutGroups(document.getElementById('workout-groups-list'), [
-        {
-          id: 7,
-          name: 'Strength',
-          description: '',
-          is_rotating: false,
-          days_of_week: JSON.stringify([1, 3, 5]),
-          scheduled_time: '08:30',
-          notification_advance_minutes: 15,
-          active: true
-        }
-      ]);
+      window.WorkoutEdit.cachedGroups = [{
+        id: 7,
+        name: 'Strength',
+        description: '',
+        is_rotating: false,
+        days_of_week: JSON.stringify([1, 3, 5]),
+        scheduled_time: '08:30',
+        notification_advance_minutes: 15,
+        active: true
+      }];
+      window.apiCall = vi.fn().mockResolvedValueOnce([]);
 
-      window.apiCall = vi
-        .fn()
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce({ id: 700 })
-        .mockResolvedValueOnce([]);
+      await window.openWorkoutPlanPage(7);
 
-      await window.showEditWorkoutGroupModal(7);
-
+      expect(window.apiCall).toHaveBeenCalledTimes(1);
       expect(window.apiCall).toHaveBeenCalledWith('/api/workout/variants?group_id=7');
-      expect(window.apiCall).toHaveBeenCalledWith('/api/workout/variants/create', 'POST', {
-        group_id: 7,
-        name: 'Main',
-        rotation_order: null,
-        description: ''
-      });
-      expect(window.apiCall).toHaveBeenCalledWith('/api/workout/exercises?variant_id=700');
-      expect(document.getElementById('workout-group-flat-exercises-section').style.display).toBe('block');
+      expect(document.getElementById('workout-group-flat-exercises-section').hidden).toBe(false);
+      expect(document.getElementById('workout-group-flat-exercises-list').textContent).toContain('No exercises yet');
+      expect(window.WorkoutEdit.planDraft.days).toHaveLength(1);
+      expect(window.WorkoutEdit.planDraft.days[0]).toMatchObject({ id: null, name: 'Main', implicit: true });
     } finally {
       cleanup();
     }
   });
 
-  it('loadVariantsForGroup and loadExercisesForVariant handle empty and error states', async () => {
+  it('the Plan and Day pages show empty states; a failed read opens nothing and says so', async () => {
     const { window, document, cleanup } = loadFrontendEnv({ withWorkout: true });
 
     try {
-      window.apiCall = vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([]);
-      await window.loadVariantsForGroup(9);
-      expect(document.getElementById('workout-variants-list').innerHTML).toContain('No days yet');
+      window.WorkoutEdit.cachedGroups = [{ id: 9, name: 'Split', is_rotating: true, active: true }, { id: 10, name: 'Gone', is_rotating: true }];
+      window.apiCall = vi.fn().mockResolvedValueOnce([]);
+      await window.openWorkoutPlanPage(9);
+      expect(document.getElementById('workout-variants-list').textContent).toContain('No days yet');
 
-      await window.loadExercisesForVariant(1);
-      expect(document.getElementById('workout-exercises-list').innerHTML).toContain('No exercises yet');
+      window.addWorkoutPlanDay();
+      expect(document.getElementById('workout-exercises-list').textContent).toContain('No exercises yet');
+      window.WorkoutEdit.dayTarget.page.close();
+      window.closeWorkoutPlanPage();
 
-      window.apiCall = vi.fn().mockRejectedValueOnce(new Error('variants fail')).mockRejectedValueOnce(new Error('ex fail'));
-      await window.loadVariantsForGroup(10);
-      expect(document.getElementById('workout-variants-list').innerHTML).toContain('Error loading days');
-
-      await window.loadExercisesForVariant(2);
-      expect(document.getElementById('workout-exercises-list').innerHTML).toContain('Error loading exercises');
+      const toastSpy = vi.fn();
+      window.safeToast = toastSpy;
+      window.apiCall = vi.fn().mockResolvedValueOnce(null); // offline / 5xx
+      expect(await window.openWorkoutPlanPage(10)).toBeNull();
+      expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining('Couldn\'t load'), 'error');
+      expect(window.WorkoutEdit.planDraft).toBeNull();
     } finally {
       cleanup();
     }
   });
 
-  it('bindWorkoutControls wires workout buttons and day/session selectors', () => {
+  it('bindWorkoutControls wires workout buttons and day/session selectors', async () => {
     const { window, document, cleanup } = loadFrontendEnv({ withWorkout: true });
 
     try {
-      const groupModal = document.getElementById('workout-group-modal');
-      expect(groupModal.classList.contains('hidden')).toBe(true);
+      expect(window.WorkoutEdit.planDraft).toBeNull();
 
       document.getElementById('add-workout-group-btn').click();
-      expect(groupModal.classList.contains('hidden')).toBe(false);
+      await vi.waitFor(() => expect(window.WorkoutEdit.planDraft).not.toBeNull());
 
-      const monday = document.querySelector('#workout-group-modal .wg-picks > .wg-pick[data-day="1"]');
+      const monday = document.querySelector('[data-workout-page="plan"] .wg-picks > .wg-pick[data-day="1"]');
       monday.click();
       expect(monday.getAttribute('aria-pressed')).toBe('true');
       monday.click();
       expect(monday.getAttribute('aria-pressed')).toBe('false');
 
-      document.getElementById('workout-group-cancel-btn').click();
-      expect(groupModal.classList.contains('hidden')).toBe(true);
+      // A goal seg tap writes the hidden input.
+      document.querySelector('[data-seg-for="workout-group-goal"] [data-value="strength"]').click();
+      expect(document.getElementById('workout-group-goal').value).toBe('strength');
+
+      window.safeConfirm = vi.fn(async () => true);
+      Array.from(document.querySelectorAll('mt-modal.wg-page[id^="wg-page-"] .wg-back')).pop().click();
+      await vi.waitFor(() => expect(window.WorkoutEdit.planDraft).toBeNull());
 
       const onSelectSpy = vi.spyOn(window, 'onSessionExerciseSelect').mockImplementation(() => {});
       const input = document.getElementById('session-add-exercise-name');

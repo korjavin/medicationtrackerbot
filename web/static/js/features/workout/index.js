@@ -73,6 +73,9 @@ function switchWorkoutTab(tab) {
     if (!activated) return;
 
     if (typeof setActiveWorkoutsSubTab === 'function') setActiveWorkoutsSubTab(tab);
+    // "Add plan" is the Plans screen's app-bar primary.
+    const addPlan = document.getElementById('add-workout-group-btn');
+    if (addPlan) addPlan.hidden = tab !== 'groups';
 
     if (tab === 'groups') { loadWorkoutGroups(); }
     else if (tab === 'history') { loadNextWorkout(); loadWorkoutHistoryTab(); }
@@ -109,24 +112,26 @@ function loadWorkouts() {
 
         // med-2fc: no static ad-hoc Start button any more — the next-workout
         // card renders its own `Ad hoc` action and wires it directly.
-        bindClick('add-workout-group-btn', () => showAddWorkoutGroupModal());
+        bindClick('add-workout-group-btn', () => openWorkoutPlanPage(null));
         bindClick('add-exercise-library-btn', () => showExerciseLibraryModal());
 
-        bindClick('workout-group-cancel-btn', () => closeWorkoutGroupModal());
-        bindClick('workout-group-save-btn', () => saveWorkoutGroup());
         // Sheet scan-back review (bd med-qj4.9). Guarded: scan.js loads after
-        // groups.js, and the button only exists in cloud mode rows.
+        // groups.js, and the Scan row only shows in cloud mode.
         bindClick('workout-scan-cancel-btn', () => { if (window.WorkoutScan) window.WorkoutScan.close(); });
         bindClick('workout-scan-confirm-btn', () => { if (window.WorkoutScan) window.WorkoutScan.confirm(); });
-        bindClick('add-variant-btn', () => showAddVariantModal());
-        bindClick('add-flat-exercise-btn', () => showAddExerciseModalFromGroup());
 
-        bindClick('variant-cancel-btn', () => closeVariantModal());
-        bindClick('variant-save-btn', () => saveVariant());
-        bindClick('variant-add-exercise-btn', () => showAddExerciseModal());
-
-        bindClick('exercise-cancel-btn', () => closeExerciseModal());
-        bindClick('exercise-save-btn', () => saveExercise());
+        // Plan editor pages (med-xso6.22): Plan → Day → Exercise.
+        document.querySelectorAll('.wg-workout-pages > [data-workout-page]').forEach(bindWorkoutPageControls);
+        bindClick('add-variant-btn', () => addWorkoutPlanDay());
+        bindClick('add-flat-exercise-btn', () => addWorkoutFlatExercise());
+        bindClick('workout-group-notification-row', () => chooseWorkoutNotification());
+        bindClick('workout-group-share-btn', () => shareOpenWorkoutPlan());
+        bindClick('workout-group-print-btn', () => printOpenWorkoutPlan());
+        bindClick('workout-group-scan-btn', () => scanOpenWorkoutPlan());
+        bindClick('workout-group-delete-btn', () => deleteOpenWorkoutPlan());
+        bindClick('variant-add-exercise-btn', () => addExerciseToWorkoutDay());
+        bindClick('workout-exercise-equipment-row', () => chooseWorkoutExerciseEquipment());
+        bindClick('workout-exercise-suggest-apply', () => applySuggestedWeight());
 
         const librarySearch = document.getElementById('exercise-library-search');
         if (librarySearch) {

@@ -108,29 +108,26 @@ describe('features/workout/share.js — Share icon + modal (med-uo64.2)', () => 
     env = null;
   });
 
-  it('every Plan row gets a Share button before Print that calls WorkoutShare.share with that group', () => {
+  it('a saved plan\'s page lists Share first in its tools rows; it calls WorkoutShare.share with that plan', async () => {
     const { window, document } = env;
-    const container = document.getElementById('workout-groups-list');
-    window._renderWorkoutGroups(container, [GROUP, { ...GROUP, id: 6, name: 'Full body' }]);
+    window.apiCall = vi.fn(async (url) => (url.startsWith('/api/workout/variants?') ? [] : null));
+    window.WorkoutEdit.cachedGroups = [GROUP];
+    await window.openWorkoutPlanPage(5);
 
-    const buttons = container.querySelectorAll('button[aria-label="Share plan"]');
-    expect(buttons.length).toBe(2);
+    // The Plans tab row carries no action strip any more (med-xso6.22).
+    window._renderWorkoutGroups(document.getElementById('workout-groups-list'), [GROUP]);
+    expect(document.querySelectorAll('#workout-groups-list button[aria-label="Share plan"]')).toHaveLength(0);
 
-    // Share sits before Print on the card.
-    const firstRowActions = container.querySelectorAll('.wg-workouts-groups-row__actions')[0];
-    const labels = Array.from(firstRowActions.querySelectorAll('button')).map((b) => b.getAttribute('aria-label'));
-    expect(labels[0]).toBe('Share plan');
-    expect(labels[1]).toBe('Print plan');
+    const tools = document.getElementById('workout-group-tools');
+    expect(tools.hidden).toBe(false);
+    expect(tools.querySelector('button').id).toBe('workout-group-share-btn');
 
     const shareSpy = vi.fn();
     window.WorkoutShare.share = shareSpy;
-    const openEdit = vi.fn();
-    window.showEditWorkoutGroupModal = openEdit;
-    buttons[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    document.getElementById('workout-group-share-btn').dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
 
     expect(shareSpy).toHaveBeenCalledTimes(1);
     expect(shareSpy.mock.calls[0][0].id).toBe(5);
-    expect(openEdit).not.toHaveBeenCalled();
   });
 
   it('share(group) renders the modal with name, counts, link, and QR svg', async () => {

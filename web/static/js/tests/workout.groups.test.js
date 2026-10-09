@@ -1,12 +1,10 @@
-// Wandergeek Workouts groups sub-tab (Phase 7, Task 5).
+// Wandergeek Workouts Plans sub-tab.
 //
-// Exercises the rewritten `_renderWorkoutGroups` path. Each row is a
-// `.wg-card.wg-workouts-groups-row` carrying a mono
-// group name, days + scheduled-time meta, and a trailing `.wg-icon-btn`
-// cluster (edit / delete). A full-width `.wg-gloss--sun` "Add workout
-// group" CTA replaces the paper-era FAB. The edit-group modal uses the
-// shared `.wg-modal` shell with mono eyebrow + title, gloss-inset input
-// wraps, and a Cancel/Save action bar (Save 2× flex).
+// Exercises `_renderWorkoutGroups`: one tappable kit `.wg-row` per plan
+// (name, days · time · exercise count meta, a Rotating tag, an Inactive chip)
+// with no per-row action strip — a tap opens the Plan page (med-xso6.22),
+// which carries Share / Print / Scan / Delete. "Add plan" sits in the Train
+// app bar; the tab itself keeps a single "Import plan" button.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
@@ -44,133 +42,83 @@ describe('Workouts groups (Phase 7, Task 5)', () => {
         const container = document.getElementById('workout-groups-list');
         window._renderWorkoutGroups(container, []);
 
-        expect(container.classList.contains('wg-workouts-groups')).toBe(true);
-        const empty = container.querySelector('.wg-workouts-groups__empty');
-        expect(empty).not.toBeNull();
-        expect(empty.textContent).toMatch(/No plans yet/);
+        expect(container.textContent).toMatch(/No plans yet/);
+        expect(container.querySelector('.wg-row')).toBeNull();
     });
 
-    it('renders .wg-card group rows with mono name and meta', () => {
+    it('renders one kit row per plan with name and days · time · count meta', () => {
         const { window, document } = env;
         const container = document.getElementById('workout-groups-list');
         window._renderWorkoutGroups(container, [makeGroup()]);
 
-        const row = container.querySelector('.wg-workouts-groups-row');
+        const row = container.querySelector('.wg-list > .wg-row.wg-workout-plan-row');
         expect(row).not.toBeNull();
-        expect(row.classList.contains('wg-card')).toBe(true);
-        expect(row.dataset.groupId).toBe('1');
-        expect(row.querySelector('.wg-workouts-slot-tag')).toBeNull();
-
-        const name = row.querySelector('.wg-workouts-groups-row__name');
-        expect(name).not.toBeNull();
-        expect(name.textContent).toBe('Push Day');
-
-        const days = row.querySelector('.wg-workouts-groups-row__days');
-        expect(days).not.toBeNull();
-        expect(days.textContent).toBe('Mon, Wed, Fri');
-
-        const time = row.querySelector('.wg-workouts-groups-row__time');
-        expect(time).not.toBeNull();
-        expect(time.textContent).toBe('09:00');
-
-        const count = row.querySelector('.wg-workouts-groups-row__count');
-        expect(count).not.toBeNull();
-        expect(count.textContent).toBe('6 exercises');
+        expect(row.tagName).toBe('BUTTON');
+        expect(row.querySelector('.wg-row__title').textContent).toBe('Push Day');
+        expect(row.querySelector('.wg-row__meta').textContent).toBe('Mon, Wed, Fri · 09:00 · 6 exercises');
+        expect(row.querySelector('.wg-row__chev')).not.toBeNull();
     });
 
-    it('shows a Rotating mono tag when the group is_rotating', () => {
+    it('shows a Rotating tag when the group is_rotating', () => {
         const { window, document } = env;
         const container = document.getElementById('workout-groups-list');
         window._renderWorkoutGroups(container, [makeGroup({ is_rotating: true })]);
 
-        const row = container.querySelector('.wg-workouts-groups-row');
-        expect(row.classList.contains('wg-workouts-groups-row--rotating')).toBe(true);
-        const rot = row.querySelector('.wg-workouts-groups-row__rotating');
-        expect(rot).not.toBeNull();
-        expect(rot.classList.contains('wg-tag')).toBe(true);
-        expect(rot.classList.contains('wg-tag--mono')).toBe(true);
-        expect(rot.textContent).toBe('Rotating');
+        const tag = container.querySelector('.wg-row__meta .wg-tag');
+        expect(tag).not.toBeNull();
+        expect(tag.textContent).toBe('Rotating');
     });
 
-    it('shows an Inactive mono tag + muted row when active is false', () => {
+    it('shows an Inactive chip when active is false', () => {
         const { window, document } = env;
         const container = document.getElementById('workout-groups-list');
-        window._renderWorkoutGroups(container, [makeGroup({ active: false })]);
+        window._renderWorkoutGroups(container, [makeGroup({ active: false }), makeGroup({ id: 2 })]);
 
-        const row = container.querySelector('.wg-workouts-groups-row');
-        expect(row.classList.contains('wg-workouts-groups-row--inactive')).toBe(true);
-        const tag = row.querySelector('.wg-workouts-groups-row__inactive');
-        expect(tag).not.toBeNull();
-        expect(tag.classList.contains('wg-tag--mono')).toBe(true);
-        expect(tag.textContent).toBe('Inactive');
+        const rows = container.querySelectorAll('.wg-workout-plan-row');
+        expect(rows[0].textContent).toContain('Inactive');
+        expect(rows[1].textContent).not.toContain('Inactive');
     });
 
-    it('renders an edit / delete icon-button cluster on each row', () => {
+    it('rows carry no action strip (no edit / delete / print / share buttons)', () => {
         const { window, document } = env;
         const container = document.getElementById('workout-groups-list');
         window._renderWorkoutGroups(container, [makeGroup()]);
 
-        const actions = container.querySelector('.wg-workouts-groups-row__actions');
-        expect(actions).not.toBeNull();
-
-        const editBtn = actions.querySelector('.wg-workouts-groups-row__edit');
-        const deleteBtn = actions.querySelector('.wg-workouts-groups-row__delete');
-        expect(editBtn).not.toBeNull();
-        expect(deleteBtn).not.toBeNull();
-
-        expect(editBtn.getAttribute('aria-label')).toBe('Edit plan');
-        expect(deleteBtn.getAttribute('aria-label')).toBe('Delete plan');
-
-        [editBtn, deleteBtn].forEach((btn) => {
-            expect(btn.classList.contains('wg-icon-btn')).toBe(true);
-            expect(btn.querySelector('.wg-gloss')).not.toBeNull();
-        });
+        const row = container.querySelector('.wg-workout-plan-row');
+        expect(row.querySelectorAll('button')).toHaveLength(0);
+        expect(container.querySelectorAll('button')).toHaveLength(1);
     });
 
-    it('clicking the row (not the icon cluster) opens the edit-group modal', () => {
+    it('tapping a row opens that plan\'s page', async () => {
         const { window, document } = env;
+        window.apiCall = vi.fn(async () => []);
         const container = document.getElementById('workout-groups-list');
-        const showSpy = vi.fn();
-        window.showEditWorkoutGroupModal = showSpy;
+        window._renderWorkoutGroups(container, [makeGroup({ id: 42, name: 'Legs' })]);
 
-        window._renderWorkoutGroups(container, [makeGroup({ id: 77 })]);
-        const row = container.querySelector('.wg-workouts-groups-row');
+        container.querySelector('.wg-workout-plan-row').click();
+        await vi.waitFor(() => expect(window.WorkoutEdit.planDraft).not.toBeNull());
 
-        row.click();
-        expect(showSpy).toHaveBeenCalledWith(77);
+        expect(window.WorkoutEdit.planDraft.groupId).toBe(42);
+        expect(document.getElementById('workout-group-name').value).toBe('Legs');
     });
 
-    it('clicking the edit icon opens the edit-group modal and stops row propagation', () => {
+    it('the Plan page Delete row confirms, closes the page and deletes optimistically', async () => {
         const { window, document } = env;
-        const container = document.getElementById('workout-groups-list');
-        const showSpy = vi.fn();
-        window.showEditWorkoutGroupModal = showSpy;
-
-        window._renderWorkoutGroups(container, [makeGroup({ id: 88 })]);
-        const editBtn = container.querySelector('.wg-workouts-groups-row__edit');
-        editBtn.click();
-
-        expect(showSpy).toHaveBeenCalledTimes(1);
-        expect(showSpy).toHaveBeenCalledWith(88);
-    });
-
-    it('clicking the delete icon dispatches deleteWorkoutGroup with confirm', async () => {
-        const { window, document } = env;
-        const container = document.getElementById('workout-groups-list');
-        window.safeConfirm = vi.fn(async (_msg, cb) => { await cb(true); });
-        const apiSpy = vi.fn(async () => true);
+        window.WorkoutEdit.cachedGroups = [makeGroup({ id: 99 })];
+        const apiSpy = vi.fn(async (url) => (String(url).startsWith('/api/workout/variants?') ? [] : true));
         window.apiCall = apiSpy;
+        window.safeConfirm = vi.fn(async (_msg, cb) => { if (cb) await cb(true); return true; });
         window.loadWorkoutGroups = vi.fn();
         const commit = vi.fn();
         const rollback = vi.fn();
         window.DataStore.applyOptimistic = vi.fn(async () => ({ commit, rollback }));
+        await window.openWorkoutPlanPage(99);
 
-        window._renderWorkoutGroups(container, [makeGroup({ id: 99 })]);
-        const deleteBtn = container.querySelector('.wg-workouts-groups-row__delete');
-        deleteBtn.click();
-        for (let i = 0; i < 12; i += 1) await Promise.resolve();
+        document.getElementById('workout-group-delete-btn').click();
+        await vi.waitFor(() => expect(window.loadWorkoutGroups).toHaveBeenCalled());
 
         expect(window.safeConfirm).toHaveBeenCalledTimes(1);
+        expect(window.WorkoutEdit.planDraft).toBeNull();
         expect(apiSpy).toHaveBeenCalledWith(
             '/api/workout/groups/delete?id=99', 'DELETE', null, { suppressWriteAlert: true });
         expect(apiSpy.mock.calls.some((c) => String(c[0]).includes('cancel_sessions'))).toBe(false);
@@ -178,8 +126,6 @@ describe('Workouts groups (Phase 7, Task 5)', () => {
         expect(rollback).not.toHaveBeenCalled();
         expect(window.loadWorkoutGroups).toHaveBeenCalled();
     });
-
-    // bd med-qop3: a plan with open sessions refuses the plain delete, names
     // the count in a second confirm, and retries with the flag on accept.
     it('delete on a plan with open sessions confirms twice and retries with cancel_sessions', async () => {
         const { window } = env;
@@ -268,98 +214,17 @@ describe('Workouts groups (Phase 7, Task 5)', () => {
         expect(window.loadWorkoutGroups).not.toHaveBeenCalled();
     });
 
-    it('renders a full-width Add workout group CTA in the Groups tab', () => {
-        const { document } = env;
-        const cta = document.getElementById('add-workout-group-btn');
-        expect(cta).not.toBeNull();
-        expect(cta.classList.contains('wg-gloss')).toBe(true);
-        expect(cta.classList.contains('wg-gloss--sun')).toBe(true);
-        expect(cta.classList.contains('wg-workouts-groups__add-cta')).toBe(true);
-    });
-
-    it('add-group CTA dispatches showAddWorkoutGroupModal', () => {
+    it('Add plan sits in the Train app bar (Plans tab only); the tab keeps one Import plan button', async () => {
         const { window, document } = env;
-        const showSpy = vi.fn();
-        window.showAddWorkoutGroupModal = showSpy;
-        // Rebind click because the original handler was wired at harness boot
-        // to the pre-spy function. Simulate by calling directly like the
-        // bootstrap bindClick would.
-        const cta = document.getElementById('add-workout-group-btn');
-        // We can't easily rewire the existing listener, so verify the CTA
-        // lives under the Groups sub-tab and carries the expected ID/class.
-        // The spy-based dispatch verification is covered by the bootstrap
-        // bindClick path in the base groups wiring.
-        expect(cta).not.toBeNull();
-        expect(cta.id).toBe('add-workout-group-btn');
-    });
+        const add = document.getElementById('add-workout-group-btn');
+        expect(add).not.toBeNull();
+        expect(add.classList.contains('wg-btn--primary')).toBe(true);
+        expect(document.getElementById('import-workout-plan-btn')).not.toBeNull();
+        expect(document.querySelector('.wg-workouts-groups__add-cta')).toBeNull();
 
-    describe('edit-workout-group modal shell', () => {
-        it('uses the .wg-modal + .wg-workouts-group-modal classes', () => {
-            const { document } = env;
-            const modal = document.getElementById('workout-group-modal');
-            expect(modal).not.toBeNull();
-            expect(modal.classList.contains('wg-modal')).toBe(true);
-            expect(modal.classList.contains('wg-workouts-group-modal')).toBe(true);
-        });
-
-        it('renders a mono eyebrow + title heading', () => {
-            const { document } = env;
-            const modal = document.getElementById('workout-group-modal');
-            const eyebrow = modal.querySelector('.wg-workouts-group-modal__eyebrow');
-            const title = modal.querySelector('.wg-workouts-group-modal__title');
-            expect(eyebrow).not.toBeNull();
-            expect(eyebrow.classList.contains('wg-section-label')).toBe(true);
-            expect(eyebrow.textContent).toBe('Plan');
-            expect(title).not.toBeNull();
-            expect(title.classList.contains('wg-mono-display')).toBe(true);
-            expect(title.id).toBe('workout-group-modal-title');
-        });
-
-        it('wraps the name + description inputs in .wg-gloss--inset', () => {
-            const { document } = env;
-            const nameWrap = document.querySelector('#workout-group-modal .wg-workouts-group-modal__field label[for="workout-group-name"]')
-                .parentElement.querySelector('.wg-workouts-group-modal__input-wrap');
-            expect(nameWrap).not.toBeNull();
-            expect(nameWrap.classList.contains('wg-gloss--inset')).toBe(true);
-
-            const descWrap = document.querySelector('#workout-group-modal .wg-workouts-group-modal__field label[for="workout-group-description"]')
-                .parentElement.querySelector('.wg-workouts-group-modal__input-wrap');
-            expect(descWrap).not.toBeNull();
-            expect(descWrap.classList.contains('wg-gloss--inset')).toBe(true);
-        });
-
-        it('has Cancel + Save action buttons with Save as sun-glossed inside the header', () => {
-            const { document } = env;
-            const actions = document.querySelector('#workout-group-modal .wg-workouts-group-modal__header-actions');
-            expect(actions).not.toBeNull();
-
-            const cancel = actions.querySelector('#workout-group-cancel-btn');
-            const save = actions.querySelector('#workout-group-save-btn');
-            expect(cancel).not.toBeNull();
-            expect(save).not.toBeNull();
-
-            expect(cancel.classList.contains('wg-gloss')).toBe(true);
-            expect(cancel.classList.contains('wg-workouts-group-modal__header-btn')).toBe(true);
-
-            expect(save.classList.contains('wg-gloss')).toBe(true);
-            expect(save.classList.contains('wg-gloss--sun')).toBe(true);
-            expect(save.classList.contains('wg-workouts-group-modal__header-btn')).toBe(true);
-            expect(save.classList.contains('wg-workouts-group-modal__header-btn--save')).toBe(true);
-        });
-
-        it('preserves the preexisting ID hooks used by saveWorkoutGroup / showEditWorkoutGroupModal', () => {
-            const { document } = env;
-            // These IDs are referenced directly from features/workout.js —
-            // renaming them would silently break the Save / Edit flow.
-            ['workout-group-name', 'workout-group-description', 'workout-group-rotating',
-             'workout-group-time', 'workout-group-notification', 'workout-group-active',
-             'workout-group-modal-title', 'workout-variants-section',
-             'workout-group-flat-exercises-section', 'workout-group-flat-exercises-list',
-             'workout-variants-list', 'add-variant-btn', 'add-flat-exercise-btn',
-             'workout-group-cancel-btn', 'workout-group-save-btn']
-                .forEach((id) => {
-                    expect(document.getElementById(id), `expected #${id} to exist`).not.toBeNull();
-                });
-        });
+        window.apiCall = vi.fn(async () => []);
+        add.click();
+        await vi.waitFor(() => expect(window.WorkoutEdit.planDraft).not.toBeNull());
+        expect(window.WorkoutEdit.planDraft.groupId).toBeNull();
     });
 });

@@ -551,8 +551,8 @@ async function _rollbackOptimistic(handles) {
 }
 
 async function confirmSelectedMedications() {
-    const checks = document.querySelectorAll('.med-confirm-check:checked');
-    const selectedIndices = Array.from(checks).map(c => parseInt(c.value, 10));
+    const checks = document.querySelectorAll('#med-confirm-list .med-confirm-check[aria-pressed="true"]');
+    const selectedIndices = Array.from(checks).map(c => parseInt(c.dataset.index, 10));
     const ids = window.PushModalState.getMedConfirmIds();
     const intakeIds = window.PushModalState.getMedConfirmIntakeIds();
     const selectedIds = selectedIndices.map(idx => Number(ids[idx]));
@@ -569,13 +569,20 @@ async function confirmSelectedMedications() {
         if (selectedIntakeIds.length > 0) {
             body.intake_ids = selectedIntakeIds;
         }
+        // "Time taken" row: sent only when the user picked a time; otherwise
+        // the domain stamps now.
+        const timeInput = document.getElementById('med-confirm-datetime');
+        const pickedMs = timeInput && timeInput.dataset.edited ? new Date(timeInput.value).getTime() : NaN;
+        if (Number.isFinite(pickedMs)) {
+            body.taken_at = new Date(pickedMs).toISOString();
+        }
 
         // Optimistic: flip the matched intake_log entries to TAKEN in every
         // cached `history_*` payload and clear `next_intake` so the meds
         // History list + Today's next-intake tile repaint before the POST
         // resolves. Mutator runs against each enumerated cache key so users
         // see the green check immediately instead of after the round-trip.
-        const takenAt = new Date().toISOString();
+        const takenAt = body.taken_at || new Date().toISOString();
         const handles = await _applyOptimisticHistoryFlip((log) => {
             if (!log || typeof log !== 'object') return log;
             const isSelectedIntake = selectedIntakeIds.indexOf(log.id) !== -1;
@@ -611,8 +618,8 @@ async function confirmSelectedMedications() {
 }
 
 async function skipSelectedMedications() {
-    const checks = document.querySelectorAll('.med-confirm-check:checked');
-    const selectedIndices = Array.from(checks).map(c => parseInt(c.value, 10));
+    const checks = document.querySelectorAll('#med-confirm-list .med-confirm-check[aria-pressed="true"]');
+    const selectedIndices = Array.from(checks).map(c => parseInt(c.dataset.index, 10));
 
     if (selectedIndices.length === 0) {
         closeMedicationConfirmModal();
@@ -728,13 +735,13 @@ function _describeIntakeUpdateFailures(failures) {
 }
 
 async function updateIntakeHistory() {
-    const checks = document.querySelectorAll('.med-confirm-check');
+    const checks = document.querySelectorAll('#med-confirm-list .med-confirm-check');
     const selectedIndices = [];
     const unselectedIndices = [];
 
     checks.forEach(c => {
-        const idx = parseInt(c.value, 10);
-        if (c.checked) {
+        const idx = parseInt(c.dataset.index, 10);
+        if (c.getAttribute('aria-pressed') === 'true') {
             selectedIndices.push(idx);
         } else {
             unselectedIndices.push(idx);

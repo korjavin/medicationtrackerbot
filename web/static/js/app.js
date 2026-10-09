@@ -505,6 +505,9 @@ function bindNotificationControls() {
         // and never reverted the dose.
         bindClick('med-confirm-snooze-btn', () => snoozeMedicationConfirm());
         bindClick('med-confirm-skip-btn', () => skipSelectedMedications());
+        bindClick('med-confirm-time-btn', () => openMedConfirmTimePicker());
+        const medConfirmTime = document.getElementById('med-confirm-datetime');
+        if (medConfirmTime) medConfirmTime.addEventListener('change', () => onMedConfirmTimeChange());
 
         bindClick('workout-start-now-btn', () => startWorkoutFromModal());
         bindClick('workout-start-snooze-60-btn', () => snoozeWorkout(60));

@@ -331,7 +331,8 @@ output(result)`,
   "properties": {
     "intake_ids":     {"type": "array", "items": {"type": "integer"}, "description": "Confirm these specific intakes (preferred when known)"},
     "scheduled_at":   {"type": "string", "description": "RFC3339; required when intake_ids is omitted"},
-    "medication_ids": {"type": "array", "items": {"type": "integer"}, "description": "Used together with scheduled_at to confirm by (med, time)"}
+    "medication_ids": {"type": "array", "items": {"type": "integer"}, "description": "Used together with scheduled_at to confirm by (med, time)"},
+    "taken_at":       {"type": "string", "description": "RFC3339 time the dose was actually taken; defaults to now"}
   }
 }`),
 			Description:     "Mark intakes as TAKEN. Pass intake_ids when known; otherwise pass scheduled_at + medication_ids and the handler will look up matching intakes. Decrements inventory and clears reminders.",

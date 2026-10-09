@@ -226,14 +226,15 @@ The code is the source of truth. File paths are relative to `web/`, and line num
   - **Mi Band cardio cards** [NEW]: emoji icons 🏔️🚴🚶🏃.
   - **Empty / error**: "No workout history yet" and "Error loading history".
 - **Plans** (`groups.js`):
-  - Rows: Rotating/Inactive tags.
-  - Row actions: **Share** [NEW], **Print** [NEW], **Scan filled sheet** [NEW, cloud], Edit, Delete.
-  - Bottom buttons: "+ Add plan" and **"Import plan"** [NEW].
-  - **Plan modal** `#workout-group-modal`:
-    - Fields: name, description, training goal, a "Rotate through days" toggle, "Repeats on" chips, time, notify-before, active.
-    - Contents: a list of Days, or a flat exercise list when the plan does not rotate.
-  - **Day modal** `#workout-variant-modal`.
-  - **Exercise modal** `#workout-exercise-modal`: goal cascade, weight suggestion, equipment helper.
+  - Rows: kit rows with a Rotating tag and an Inactive chip; a tap opens the Plan page (no row actions).
+  - "Add plan" sits in the Train app bar; the tab keeps **"Import plan"** [NEW].
+  - The plan editor is three nested pages (med-xso6.22). Done on a child page stages; only the Plan page's Save writes.
+  - **Plan page**:
+    - Fields: name, description, training goal seg, "Rotate through days" and "Active" toggles, "Repeats on" chips, time, a reminder value row.
+    - Contents: a list of Days (drag or Move up/down to reorder), or a flat exercise list when the plan does not rotate.
+    - Bottom rows on a saved plan: **Share** [NEW], **Print** [NEW], **Scan filled sheet** [NEW, cloud], Delete.
+  - **Day page**: name, description, exercise rows (drag to reorder, swipe to Copy/Remove).
+  - **Exercise page**: steppers for sets/reps/weight, a goal seg ("From plan" default), a weight-suggestion card with Apply, an Equipment value row, progression seg.
   - **Share modal** [NEW]: QR code, copy link, native share; links expire after 30 days.
   - **Import modal** [NEW]: paste a link or scan a QR code.
   - **Scan review modal** [NEW]: AI photo of a filled-in plan sheet.
@@ -432,7 +433,7 @@ Ordered roughly by how much a designer should care.
   - The call card always mounts, even with no voice key and no trial; it fails only after the user taps it (`static/js/features/today.js:1379`, `elevenlabs-call.js:154-170`).
   - Call controls appear twice: once in the card and again in the pill.
 - **Workout session modal** (`static/js/features/workout/sessions.js`, about 2,000 lines): a whole logging app inside a modal.
-- **Plan modal** (`static/index.html:1113`): a nested editor for Plan → Days → Exercises.
+- **Plan modal** (`static/index.html:1113`): a nested editor for Plan → Days → Exercises. Resolved in med-xso6.22: three nested WGPages.
 - **Food day-nav row**: two chevrons, a date and three primary buttons (Add/Photo/Scan).
   - The Food Log tab also shows progress twice: the macro card bars and the legacy `#food-target-progress` rows (`static/js/features/food/log.js:1020-1080`).
 - **Settings**: about 600 lines of hand-written markup, 13 feature toggles, and a Telegram wizard nested inside Integrations.

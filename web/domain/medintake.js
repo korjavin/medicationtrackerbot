@@ -442,16 +442,19 @@ export function createIntakeDomain({ records, now, timeZone }) {
   // listed meds AND reverts any other TAKEN intake at the same exact slot
   // back to PENDING (the "user unchecked a box that was already confirmed"
   // path). A slot still in the future is confirm-or-create and additive.
-  async function confirmSchedule({ scheduledAt, medicationIds = [], intakeIds = [] } = {}) {
+  // takenAt (optional, the take sheet's "Time taken") back-dates taken_at;
+  // clientTs stays now so the write still wins LWW.
+  async function confirmSchedule({ scheduledAt, medicationIds = [], intakeIds = [], takenAt } = {}) {
     const nowMs = now();
-    const nowIso = new Date(nowMs).toISOString();
+    const takenMs = takenAt ? Date.parse(takenAt) : NaN;
+    const takenIso = new Date(Number.isFinite(takenMs) ? takenMs : nowMs).toISOString();
 
     if (intakeIds.length > 0) {
       for (const id of intakeIds) {
         const intake = await getIntake(id);
         if (!intake || intake.status !== 'PENDING') continue;
         await putIntake({
-          ...intake, clientTs: nowMs, status: 'TAKEN', taken_at: nowIso,
+          ...intake, clientTs: nowMs, status: 'TAKEN', taken_at: takenIso,
         });
         await adjustInventory(intake.medication_id, -1);
       }
@@ -482,7 +485,7 @@ export function createIntakeDomain({ records, now, timeZone }) {
         && Date.parse(i.scheduled_at) === scheduledAtMs);
       if (intake && intake.status === 'PENDING') {
         await putIntake({
-          ...intake, clientTs: nowMs, status: 'TAKEN', taken_at: nowIso,
+          ...intake, clientTs: nowMs, status: 'TAKEN', taken_at: takenIso,
         });
         await adjustInventory(medId, -1);
       } else if (!intake && forecastSlots.has(medId)) {
@@ -497,7 +500,7 @@ export function createIntakeDomain({ records, now, timeZone }) {
           deleted: false,
           medication_id: medId,
           scheduled_at: new Date(scheduledAtMs).toISOString(),
-          taken_at: nowIso,
+          taken_at: takenIso,
           status: 'TAKEN',
           snoozed_until: null,
           source: forecastSlots.get(medId).source === 'tz_step' ? 'tz_step' : 'schedule',

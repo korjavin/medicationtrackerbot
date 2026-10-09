@@ -200,6 +200,8 @@
         <div id="workouts-view" class="view wg-screen-stage">
             <header class="wg-appbar">
                 <div class="wg-appbar__titles"><h1 class="wg-appbar__title">Train</h1></div>
+                <!-- Plans screen primary (med-xso6.22); shown only on the Plans sub-tab. -->
+                <button id="add-workout-group-btn" type="button" class="wg-btn wg-btn--primary wg-btn--sm" hidden><i class="wg-ico wg-ico--sm" data-icon="plus"></i>Add plan</button>
                 <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon" data-nav-to="settings" aria-label="Settings"><i class="wg-ico" data-icon="gear"></i></button>
             </header>
             <!-- Train sub-tabs: kit .wg-seg--scroll (five options; med-xso6.10). -->
@@ -232,12 +234,7 @@
                 <div id="workout-groups-list" class="wg-workouts-groups">
                     Loading plans...
                 </div>
-                <button id="add-workout-group-btn" type="button" class="wg-gloss wg-gloss--sun wg-workouts-groups__add-cta">
-                    <span class="wg-workouts-groups__add-cta-label">+ Add plan</span>
-                </button>
-                <button id="import-workout-plan-btn" type="button" class="wg-gloss wg-workouts-groups__add-cta">
-                    <span class="wg-workouts-groups__add-cta-label">Import plan</span>
-                </button>
+                <button id="import-workout-plan-btn" type="button" class="wg-btn wg-btn--ghost wg-btn--block"><i class="wg-ico wg-ico--sm" data-icon="qr"></i>Import plan</button>
             </div>
 
             <!-- Exercises Library View.
@@ -1225,99 +1222,194 @@
         </div>
     </mt-modal>
 
-    <!-- Modal for Adding/Editing Workout Group -->
-    <mt-modal id="workout-group-modal" class="hidden wg-modal wg-workouts-group-modal">
-        <div class="wg-workouts-group-modal__header">
-            <div class="wg-workouts-group-modal__heading">
-                <span class="wg-section-label wg-workouts-group-modal__eyebrow">Plan</span>
-                <span class="wg-mono-display wg-workouts-group-modal__title" id="workout-group-modal-title">Add Plan</span>
-            </div>
-            <div class="wg-workouts-group-modal__header-actions">
-                <button type="button" id="workout-group-cancel-btn"
-                    class="wg-gloss wg-workouts-group-modal__header-btn">Cancel</button>
-                <button type="button" id="workout-group-save-btn"
-                    class="wg-gloss wg-gloss--sun wg-workouts-group-modal__header-btn wg-workouts-group-modal__header-btn--save">Save</button>
-            </div>
-        </div>
-
-        <div class="wg-workouts-group-modal__body">
-            <div class="wg-workouts-group-modal__field">
-                <label for="workout-group-name" class="wg-workouts-group-modal__label">Name</label>
-                <div class="wg-gloss--inset wg-workouts-group-modal__input-wrap">
-                    <input type="text" id="workout-group-name" class="wg-workouts-group-modal__input" placeholder="Morning Cardio">
+    <!-- Plan editor pages (med-xso6.22; kit screens-workouts P1–P3). Each body
+         lives in this hidden store and moves into a pushed WGPage while open
+         (Plan → Day → Exercise), the settings.js pattern, so ids and listeners
+         survive across opens. Child pages stage into the plan draft; only the
+         Plan page's Save writes (features/workout/groups.js). -->
+    <div class="wg-workout-pages" hidden>
+        <div data-workout-page="plan" class="wg-vstack wg-workout-page">
+            <div class="wg-card wg-vstack">
+                <div class="wg-field">
+                    <label for="workout-group-name" class="wg-label">Name</label>
+                    <input type="text" id="workout-group-name" class="wg-input wg-input--text" placeholder="Morning Cardio">
                 </div>
-            </div>
-
-            <div class="wg-workouts-group-modal__field">
-                <label for="workout-group-description" class="wg-workouts-group-modal__label">Description</label>
-                <div class="wg-gloss--inset wg-workouts-group-modal__input-wrap">
-                    <textarea id="workout-group-description" class="wg-workouts-group-modal__input wg-workouts-group-modal__textarea" placeholder="Optional" rows="2"></textarea>
+                <div class="wg-field">
+                    <label for="workout-group-description" class="wg-label">Description</label>
+                    <textarea id="workout-group-description" class="wg-input wg-textarea" placeholder="Optional" rows="2"></textarea>
                 </div>
-            </div>
-
-            <div class="wg-workouts-group-modal__field">
-                <label for="workout-group-goal" class="wg-workouts-group-modal__label">Training goal</label>
-                <div class="wg-gloss--inset wg-workouts-group-modal__input-wrap">
-                    <select id="workout-group-goal" class="wg-workouts-group-modal__input">
-                        <option value="strength">Strength</option>
-                        <option value="hypertrophy">Hypertrophy</option>
-                        <option value="endurance">Endurance</option>
-                        <option value="general">General</option>
-                    </select>
-                </div>
-            </div>
-
-            <label class="wg-workouts-group-modal__toggle">
-                <input type="checkbox" id="workout-group-rotating">
-                <span class="wg-workouts-group-modal__toggle-label">Rotate through days</span>
-            </label>
-
-            <div class="wg-workouts-group-modal__field">
-                <span class="wg-workouts-group-modal__label">Repeats on</span>
-                <div class="wg-picks" data-day-picks role="group" aria-label="Repeats on"></div>
-            </div>
-
-            <div class="wg-workouts-group-modal__row">
-                <div class="wg-workouts-group-modal__field">
-                    <label for="workout-group-time" class="wg-workouts-group-modal__label">Scheduled time</label>
-                    <div class="wg-gloss--inset wg-workouts-group-modal__input-wrap">
-                        <input type="time" id="workout-group-time" class="wg-workouts-group-modal__input">
-                    </div>
-                </div>
-
-                <div class="wg-workouts-group-modal__field">
-                    <label for="workout-group-notification" class="wg-workouts-group-modal__label">Notify (min before)</label>
-                    <div class="wg-gloss--inset wg-workouts-group-modal__input-wrap">
-                        <input type="number" id="workout-group-notification" class="wg-workouts-group-modal__input" value="15" min="0" max="60">
+                <div class="wg-field">
+                    <span class="wg-label" id="workout-group-goal-label">Training goal</span>
+                    <input type="hidden" id="workout-group-goal" value="hypertrophy">
+                    <div class="wg-seg wg-seg--sm" data-seg-for="workout-group-goal" role="group" aria-labelledby="workout-group-goal-label">
+                        <button type="button" class="wg-seg__opt" data-value="strength" aria-pressed="false">Strength</button>
+                        <button type="button" class="wg-seg__opt" data-value="hypertrophy" aria-pressed="true">Muscle</button>
+                        <button type="button" class="wg-seg__opt" data-value="endurance" aria-pressed="false">Endurance</button>
+                        <button type="button" class="wg-seg__opt" data-value="general" aria-pressed="false">General</button>
                     </div>
                 </div>
             </div>
 
-            <label class="wg-workouts-group-modal__toggle">
-                <input type="checkbox" id="workout-group-active" checked>
-                <span class="wg-workouts-group-modal__toggle-label">Active</span>
-            </label>
+            <section class="wg-section">
+                <div class="wg-section__head"><span class="wg-eyebrow">Schedule</span></div>
+                <div class="wg-list">
+                    <div class="wg-setting">
+                        <span class="wg-setting__body"><span class="wg-setting__title">Rotate through days</span><span class="wg-setting__desc">A → B → C, one per session</span></span>
+                        <label class="wg-toggle"><input type="checkbox" class="wg-toggle__input" id="workout-group-rotating" aria-label="Rotate through days"></label>
+                    </div>
+                    <div class="wg-setting">
+                        <div class="wg-picks" data-day-picks role="group" aria-label="Repeats on"></div>
+                    </div>
+                    <label class="wg-setting" for="workout-group-time">
+                        <span class="wg-setting__body"><span class="wg-setting__title">Time</span></span>
+                        <input type="time" id="workout-group-time" class="wg-input wg-workout-page__time">
+                    </label>
+                    <button type="button" class="wg-setting" id="workout-group-notification-row">
+                        <span class="wg-setting__body"><span class="wg-setting__title">Reminder</span></span>
+                        <span class="wg-setting__value" id="workout-group-notification-value">15 min before</span>
+                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                    </button>
+                    <div class="wg-setting">
+                        <span class="wg-setting__body"><span class="wg-setting__title">Active</span><span class="wg-setting__desc">Off pauses its sessions and reminders</span></span>
+                        <label class="wg-toggle"><input type="checkbox" class="wg-toggle__input" id="workout-group-active" aria-label="Active" checked></label>
+                    </div>
+                </div>
+                <input type="hidden" id="workout-group-notification" value="15">
+            </section>
 
-            <!-- Variants Section (only shown when editing existing group) -->
-            <div id="workout-variants-section" class="wg-workouts-group-modal__section">
-                <span class="wg-section-label wg-workouts-group-modal__section-label">Days</span>
-                <div id="workout-variants-list" class="wg-workouts-group-modal__variants"></div>
-                <button id="add-variant-btn" type="button" class="wg-gloss wg-workouts-group-modal__section-add">
-                    + Add day
-                </button>
-            </div>
+            <section class="wg-section" id="workout-variants-section">
+                <div class="wg-section__head"><span class="wg-eyebrow" id="workout-variants-count">Days</span><span class="wg-meta">drag to reorder</span></div>
+                <div class="wg-list" id="workout-variants-list"></div>
+                <button type="button" id="add-variant-btn" class="wg-btn wg-btn--block"><i class="wg-ico wg-ico--sm" data-icon="plus"></i>Add day</button>
+            </section>
 
-            <!-- Exercises Section (for Non-Rotating groups) -->
-            <div id="workout-group-flat-exercises-section" class="wg-workouts-group-modal__section">
-                <span class="wg-section-label wg-workouts-group-modal__section-label">Exercises</span>
-                <div id="workout-group-flat-exercises-list" class="wg-workouts-group-modal__exercises"></div>
-                <button id="add-flat-exercise-btn" type="button" class="wg-gloss wg-workouts-group-modal__section-add">
-                    + Add exercise
-                </button>
+            <section class="wg-section" id="workout-group-flat-exercises-section" hidden>
+                <div class="wg-section__head"><span class="wg-eyebrow">Exercises</span></div>
+                <div class="wg-list" id="workout-group-flat-exercises-list"></div>
+                <button type="button" id="add-flat-exercise-btn" class="wg-btn wg-btn--block"><i class="wg-ico wg-ico--sm" data-icon="plus"></i>Add exercise</button>
+            </section>
+
+            <div class="wg-list" id="workout-group-tools" hidden>
+                <button type="button" class="wg-row" id="workout-group-share-btn"><span class="wg-row__lead"><i class="wg-ico" data-icon="qr"></i></span><span class="wg-row__body"><span class="wg-row__title">Share plan</span><span class="wg-row__meta">Link or QR</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+                <button type="button" class="wg-row" id="workout-group-print-btn"><span class="wg-row__lead"><i class="wg-ico" data-icon="printer"></i></span><span class="wg-row__body"><span class="wg-row__title">Print plan sheet</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+                <button type="button" class="wg-row" id="workout-group-scan-btn" hidden><span class="wg-row__lead"><i class="wg-ico" data-icon="camera"></i></span><span class="wg-row__body"><span class="wg-row__title">Scan filled sheet</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+                <button type="button" class="wg-setting wg-setting--danger" id="workout-group-delete-btn"><span class="wg-setting__body"><span class="wg-setting__title">Delete plan</span></span></button>
             </div>
         </div>
 
-    </mt-modal>
+        <div data-workout-page="day" class="wg-vstack wg-workout-page">
+            <div class="wg-field">
+                <label for="workout-variant-name" class="wg-label">Day name</label>
+                <input type="text" id="workout-variant-name" class="wg-input wg-input--text" placeholder="Day A, Push Day">
+            </div>
+            <div class="wg-field">
+                <label for="workout-variant-description" class="wg-label">Description</label>
+                <textarea id="workout-variant-description" class="wg-input wg-textarea" placeholder="Optional" rows="2"></textarea>
+            </div>
+            <section class="wg-section" id="workout-exercises-section">
+                <div class="wg-section__head"><span class="wg-eyebrow" id="workout-exercises-count">Exercises</span></div>
+                <div class="wg-list" id="workout-exercises-list"></div>
+            </section>
+            <button type="button" id="variant-add-exercise-btn" class="wg-btn wg-btn--block"><i class="wg-ico wg-ico--sm" data-icon="plus"></i>Add exercise</button>
+        </div>
+
+        <div data-workout-page="exercise" class="wg-vstack wg-workout-page">
+            <div class="wg-field">
+                <label for="workout-exercise-name" class="wg-label">Exercise</label>
+                <input type="text" id="workout-exercise-name" class="wg-input wg-input--text" placeholder="Start typing..." autocomplete="off">
+                <div id="workout-exercise-suggest" class="wg-exercise-suggest" hidden></div>
+            </div>
+
+            <div class="wg-field">
+                <span class="wg-label" id="workout-exercise-goal-label">Goal for this exercise</span>
+                <input type="hidden" id="workout-exercise-goal" value="">
+                <div class="wg-seg wg-seg--sm wg-seg--scroll" data-seg-for="workout-exercise-goal" role="group" aria-labelledby="workout-exercise-goal-label">
+                    <button type="button" class="wg-seg__opt" data-value="" aria-pressed="true">From plan</button>
+                    <button type="button" class="wg-seg__opt" data-value="strength" aria-pressed="false">Strength 3–6</button>
+                    <button type="button" class="wg-seg__opt" data-value="hypertrophy" aria-pressed="false">Muscle 8–12</button>
+                    <button type="button" class="wg-seg__opt" data-value="endurance" aria-pressed="false">Endurance 15–25</button>
+                    <button type="button" class="wg-seg__opt" data-value="general" aria-pressed="false">General</button>
+                </div>
+            </div>
+
+            <div class="wg-field">
+                <label for="workout-exercise-sets" class="wg-label">Sets</label>
+                <div class="wg-stepper">
+                    <button type="button" class="wg-stepper__btn" data-step-for="workout-exercise-sets" data-step="-1" aria-label="Fewer sets"><i class="wg-ico" data-icon="minus"></i></button>
+                    <input type="number" id="workout-exercise-sets" class="wg-stepper__val" min="1" max="10" placeholder="4" inputmode="numeric">
+                    <button type="button" class="wg-stepper__btn" data-step-for="workout-exercise-sets" data-step="1" aria-label="More sets"><i class="wg-ico" data-icon="plus"></i></button>
+                </div>
+            </div>
+            <div class="wg-fieldrow">
+                <div class="wg-field">
+                    <label for="workout-exercise-reps-min" class="wg-label">Reps · min</label>
+                    <div class="wg-stepper">
+                        <button type="button" class="wg-stepper__btn" data-step-for="workout-exercise-reps-min" data-step="-1" aria-label="Fewer reps (min)"><i class="wg-ico" data-icon="minus"></i></button>
+                        <input type="number" id="workout-exercise-reps-min" class="wg-stepper__val" min="1" max="100" placeholder="8" inputmode="numeric">
+                        <button type="button" class="wg-stepper__btn" data-step-for="workout-exercise-reps-min" data-step="1" aria-label="More reps (min)"><i class="wg-ico" data-icon="plus"></i></button>
+                    </div>
+                </div>
+                <div class="wg-field">
+                    <label for="workout-exercise-reps-max" class="wg-label">Reps · max</label>
+                    <div class="wg-stepper">
+                        <button type="button" class="wg-stepper__btn" data-step-for="workout-exercise-reps-max" data-step="-1" aria-label="Fewer reps (max)"><i class="wg-ico" data-icon="minus"></i></button>
+                        <input type="number" id="workout-exercise-reps-max" class="wg-stepper__val" min="1" max="100" placeholder="10" inputmode="numeric">
+                        <button type="button" class="wg-stepper__btn" data-step-for="workout-exercise-reps-max" data-step="1" aria-label="More reps (max)"><i class="wg-ico" data-icon="plus"></i></button>
+                    </div>
+                </div>
+            </div>
+            <div class="wg-field">
+                <label for="workout-exercise-weight" class="wg-label">Working weight · kg</label>
+                <div class="wg-stepper">
+                    <button type="button" class="wg-stepper__btn" data-step-for="workout-exercise-weight" data-step="-2.5" aria-label="Decrease weight"><i class="wg-ico" data-icon="minus"></i></button>
+                    <input type="number" id="workout-exercise-weight" class="wg-stepper__val" step="0.5" min="0" placeholder="40" inputmode="decimal">
+                    <button type="button" class="wg-stepper__btn" data-step-for="workout-exercise-weight" data-step="2.5" aria-label="Increase weight"><i class="wg-ico" data-icon="plus"></i></button>
+                </div>
+            </div>
+
+            <!-- med-73o weight suggestion from the user's own history: the card
+                 shows the suggested target + the "Last: …" evidence; Apply
+                 writes it when the field holds something else. -->
+            <div class="wg-card wg-card--accent wg-hstack" id="workout-exercise-suggest-card" hidden>
+                <i class="wg-ico wg-sun" data-icon="sparkle"></i>
+                <span class="wg-vstack wg-spacer">
+                    <span class="wg-row__title" id="workout-exercise-suggest-title">Suggested weight</span>
+                    <span class="wg-hint" id="workout-exercise-weight-hint" hidden></span>
+                </span>
+                <button type="button" class="wg-btn wg-btn--sm" id="workout-exercise-suggest-apply" hidden>Apply</button>
+            </div>
+
+            <!-- med-3gln: per-plan-row equipment override. The value row opens a
+                 chooser over the (hidden) select, which binds the row's own
+                 equipment_id; blank means "no override" and falls back to the
+                 library row's binding (shown as "from library: <name>"). -->
+            <div class="wg-list">
+                <button type="button" class="wg-setting" id="workout-exercise-equipment-row">
+                    <span class="wg-setting__body"><span class="wg-setting__title">Equipment</span><span class="wg-setting__desc" id="workout-exercise-equipment-hint" hidden></span></span>
+                    <span class="wg-setting__value" id="workout-exercise-equipment-value">None</span>
+                    <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                </button>
+            </div>
+            <select id="workout-exercise-equipment" aria-label="Equipment" hidden>
+                <option value="">None</option>
+            </select>
+            <p id="workout-exercise-equipment-scope" class="wg-hint">Equipment applies to this plan row only.</p>
+
+            <div class="wg-field">
+                <span class="wg-label" id="workout-exercise-progression-label">Progression</span>
+                <input type="hidden" id="workout-exercise-progression" value="none">
+                <div class="wg-seg wg-seg--sm" data-seg-for="workout-exercise-progression" role="group" aria-labelledby="workout-exercise-progression-label">
+                    <button type="button" class="wg-seg__opt" data-value="none" aria-pressed="true">Mirror last</button>
+                    <button type="button" class="wg-seg__opt" data-value="linear" aria-pressed="false">Linear</button>
+                    <button type="button" class="wg-seg__opt" data-value="double" aria-pressed="false">Double</button>
+                </div>
+            </div>
+            <div class="wg-field">
+                <label for="workout-exercise-progression-increment" class="wg-label">Increment · kg</label>
+                <input type="number" id="workout-exercise-progression-increment" class="wg-input" step="0.5" min="0" placeholder="2.5" inputmode="decimal">
+            </div>
+        </div>
+    </div>
 
     <!-- Scan review modal (bd med-qj4.9). Shell mirrors the workout modals;
          rows are rendered by features/workout/scan.js into #workout-scan-list. -->
@@ -1402,188 +1494,6 @@
             </div>
             <video id="workout-share-import-video" class="wg-share-import__video hidden" playsinline muted></video>
             <p id="workout-share-import-status" class="wg-scan-status"></p>
-        </div>
-    </mt-modal>
-
-    <!-- Variant modal (Round-2, Task 6). Migrated to the shared .wg-modal
-         shell so its background and chrome are driven by the --wg-bg-card
-         teal-gloss tokens rather than the legacy paper-white modal block. -->
-    <mt-modal id="workout-variant-modal" class="hidden wg-modal wg-workouts-variant-modal">
-        <div class="wg-workouts-variant-modal__header">
-            <div class="wg-workouts-variant-modal__heading">
-                <span class="wg-section-label wg-workouts-variant-modal__eyebrow">Workout day</span>
-                <span class="wg-mono-display wg-workouts-variant-modal__title" id="workout-variant-modal-title">Add Day</span>
-            </div>
-            <div class="wg-workouts-variant-modal__header-actions">
-                <button type="button" id="variant-cancel-btn"
-                    class="wg-gloss wg-workouts-variant-modal__header-btn">Cancel</button>
-                <button type="button" id="variant-save-btn"
-                    class="wg-gloss wg-gloss--sun wg-workouts-variant-modal__header-btn wg-workouts-variant-modal__header-btn--save">Save</button>
-            </div>
-        </div>
-
-        <div class="wg-workouts-variant-modal__body">
-            <div class="wg-workouts-variant-modal__field">
-                <label for="workout-variant-name" class="wg-workouts-variant-modal__label">Name</label>
-                <div class="wg-gloss--inset wg-workouts-variant-modal__input-wrap">
-                    <input type="text" id="workout-variant-name" class="wg-workouts-variant-modal__input"
-                        placeholder="Day A, Push Day">
-                </div>
-            </div>
-
-            <div class="wg-workouts-variant-modal__field">
-                <label for="workout-variant-description" class="wg-workouts-variant-modal__label">Description</label>
-                <div class="wg-gloss--inset wg-workouts-variant-modal__input-wrap">
-                    <textarea id="workout-variant-description"
-                        class="wg-workouts-variant-modal__input wg-workouts-variant-modal__textarea"
-                        placeholder="Optional" rows="2"></textarea>
-                </div>
-            </div>
-
-            <div id="workout-variant-rotation-field" class="wg-workouts-variant-modal__field">
-                <label for="workout-variant-rotation" class="wg-workouts-variant-modal__label">Rotation order</label>
-                <div class="wg-gloss--inset wg-workouts-variant-modal__input-wrap">
-                    <input type="number" id="workout-variant-rotation"
-                        class="wg-workouts-variant-modal__input"
-                        min="0" placeholder="0 = first, 1 = second, etc.">
-                </div>
-            </div>
-
-            <!-- Exercises Section (only shown when editing existing variant) -->
-            <div id="workout-exercises-section" class="wg-workouts-variant-modal__section">
-                <span class="wg-section-label wg-workouts-variant-modal__section-label">Exercises</span>
-                <div id="workout-exercises-list" class="wg-workouts-variant-modal__exercises"></div>
-                <button id="variant-add-exercise-btn" type="button" class="wg-gloss wg-workouts-variant-modal__section-add">
-                    + Add exercise
-                </button>
-            </div>
-        </div>
-    </mt-modal>
-
-    <!-- Edit-exercise modal (Phase 7, Task 8). Adds or edits a planned exercise
-         on a workout variant — mono eyebrow + title header, `.wg-gloss--inset`
-         input wraps for name / sets / reps / weight / order, and a
-         Cancel/Save action bar (Save 2x flex per modal-button-order
-         convention). -->
-    <mt-modal id="workout-exercise-modal" class="hidden wg-modal wg-workouts-exercise-modal">
-        <div class="wg-workouts-exercise-modal__header">
-            <div class="wg-workouts-exercise-modal__heading">
-                <span class="wg-section-label wg-workouts-exercise-modal__eyebrow">Workout exercise</span>
-                <span class="wg-mono-display wg-workouts-exercise-modal__title" id="workout-exercise-modal-title">Add Exercise</span>
-            </div>
-            <div class="wg-workouts-exercise-modal__header-actions">
-                <button type="button" id="exercise-cancel-btn"
-                    class="wg-gloss wg-workouts-exercise-modal__header-btn">Cancel</button>
-                <button type="button" id="exercise-save-btn"
-                    class="wg-gloss wg-gloss--sun wg-workouts-exercise-modal__header-btn wg-workouts-exercise-modal__header-btn--save">Save</button>
-            </div>
-        </div>
-
-        <div class="wg-workouts-exercise-modal__body">
-            <div class="wg-workouts-exercise-modal__field">
-                <label for="workout-exercise-name" class="wg-workouts-exercise-modal__label">Name</label>
-                <div class="wg-gloss--inset wg-workouts-exercise-modal__input-wrap">
-                    <input type="text" id="workout-exercise-name" class="wg-workouts-exercise-modal__input"
-                        placeholder="Start typing..." autocomplete="off">
-                </div>
-                <div id="workout-exercise-suggest" class="wg-exercise-suggest" hidden></div>
-            </div>
-
-            <!-- med-3gln: per-plan-row equipment override. The select binds
-                 the row's own equipment_id; blank means "no override" and
-                 falls back to the library row's binding (shown as
-                 "from library: <name>"). Saving writes the exercise row only,
-                 never the library. -->
-            <div class="wg-workouts-exercise-modal__field">
-                <label for="workout-exercise-equipment" class="wg-workouts-exercise-modal__label">Equipment</label>
-                <div class="wg-gloss--inset wg-workouts-exercise-modal__input-wrap">
-                    <!-- Options are filled from the equipment inventory on open. -->
-                    <select id="workout-exercise-equipment" class="wg-workouts-exercise-modal__input">
-                        <option value="">None</option>
-                    </select>
-                </div>
-                <p id="workout-exercise-equipment-hint" class="wg-workouts-exercise-modal__hint" hidden></p>
-                <p id="workout-exercise-equipment-scope" class="wg-workouts-exercise-modal__hint">Applies to this plan row only.</p>
-            </div>
-
-            <div class="wg-workouts-exercise-modal__row">
-                <div class="wg-workouts-exercise-modal__field">
-                    <label for="workout-exercise-sets" class="wg-workouts-exercise-modal__label">Sets</label>
-                    <div class="wg-gloss--inset wg-workouts-exercise-modal__input-wrap">
-                        <input type="number" id="workout-exercise-sets" class="wg-workouts-exercise-modal__input"
-                            min="1" max="10" placeholder="4">
-                    </div>
-                </div>
-
-                <div class="wg-workouts-exercise-modal__field">
-                    <label for="workout-exercise-weight" class="wg-workouts-exercise-modal__label">Weight (kg)</label>
-                    <div class="wg-gloss--inset wg-workouts-exercise-modal__input-wrap">
-                        <input type="number" id="workout-exercise-weight" class="wg-workouts-exercise-modal__input"
-                            step="0.5" min="0" placeholder="40">
-                    </div>
-                    <p id="workout-exercise-weight-hint" class="wg-workouts-exercise-modal__hint" hidden></p>
-                </div>
-            </div>
-
-            <div class="wg-workouts-exercise-modal__row">
-                <div class="wg-workouts-exercise-modal__field">
-                    <label for="workout-exercise-reps-min" class="wg-workouts-exercise-modal__label">Reps (min)</label>
-                    <div class="wg-gloss--inset wg-workouts-exercise-modal__input-wrap">
-                        <input type="number" id="workout-exercise-reps-min" class="wg-workouts-exercise-modal__input"
-                            min="1" max="100" placeholder="8">
-                    </div>
-                </div>
-
-                <div class="wg-workouts-exercise-modal__field">
-                    <label for="workout-exercise-reps-max" class="wg-workouts-exercise-modal__label">Reps (max)</label>
-                    <div class="wg-gloss--inset wg-workouts-exercise-modal__input-wrap">
-                        <input type="number" id="workout-exercise-reps-max" class="wg-workouts-exercise-modal__input"
-                            min="1" max="100" placeholder="10">
-                    </div>
-                </div>
-            </div>
-
-            <div class="wg-workouts-exercise-modal__field">
-                <label for="workout-exercise-goal" class="wg-workouts-exercise-modal__label">Training goal</label>
-                <div class="wg-gloss--inset wg-workouts-exercise-modal__input-wrap">
-                    <select id="workout-exercise-goal" class="wg-workouts-exercise-modal__input">
-                        <option value="">Inherit from routine</option>
-                        <option value="strength">Strength</option>
-                        <option value="hypertrophy">Hypertrophy</option>
-                        <option value="endurance">Endurance</option>
-                        <option value="general">General</option>
-                    </select>
-                </div>
-            </div>
-
-            <div class="wg-workouts-exercise-modal__row">
-                <div class="wg-workouts-exercise-modal__field">
-                    <label for="workout-exercise-progression" class="wg-workouts-exercise-modal__label">Progression</label>
-                    <div class="wg-gloss--inset wg-workouts-exercise-modal__input-wrap">
-                        <select id="workout-exercise-progression" class="wg-workouts-exercise-modal__input">
-                            <option value="none">None (mirror last)</option>
-                            <option value="linear">Linear</option>
-                            <option value="double">Double progression</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="wg-workouts-exercise-modal__field">
-                    <label for="workout-exercise-progression-increment" class="wg-workouts-exercise-modal__label">Increment (kg)</label>
-                    <div class="wg-gloss--inset wg-workouts-exercise-modal__input-wrap">
-                        <input type="number" id="workout-exercise-progression-increment" class="wg-workouts-exercise-modal__input"
-                            step="0.5" min="0" placeholder="2.5">
-                    </div>
-                </div>
-            </div>
-
-            <div class="wg-workouts-exercise-modal__field">
-                <label for="workout-exercise-order" class="wg-workouts-exercise-modal__label">Order</label>
-                <div class="wg-gloss--inset wg-workouts-exercise-modal__input-wrap">
-                    <input type="number" id="workout-exercise-order" class="wg-workouts-exercise-modal__input"
-                        min="0" placeholder="0 = first, 1 = second, etc.">
-                </div>
-            </div>
         </div>
     </mt-modal>
 
@@ -2533,39 +2443,39 @@
         </div>
     </mt-modal>
 
-    <!-- Modal for Medication Confirmation (from Push) -->
-    <mt-modal id="med-confirm-modal" class="hidden wg-modal wg-med-confirm-modal">
-        <div class="wg-med-confirm-modal__header">
-            <div class="wg-med-confirm-modal__heading">
-                <span class="wg-section-label wg-med-confirm-modal__eyebrow"
-                    id="med-confirm-eyebrow">Time for meds</span>
-                <span class="wg-mono-display wg-med-confirm-modal__title" id="med-confirm-title">Time for Meds!</span>
-                <span class="wg-med-confirm-modal__subtitle" id="med-confirm-subtitle"></span>
+    <!-- Take sheet (kit M2, med-xso6.19): confirm / edit / log_past modes,
+         opened from push, Today's Take, the Schedule bucket "Take N" and
+         History rows. features/meds.js showMedicationConfirmModal fills it;
+         the hidden datetime input is the picker the "Time taken" row opens. -->
+    <mt-modal id="med-confirm-modal" class="hidden wg-modal wg-sheet wg-med-confirm-modal">
+        <div class="wg-sheet__grab"></div>
+        <header class="wg-sheethead">
+            <div class="wg-sheethead__titles">
+                <div class="wg-eyebrow" id="med-confirm-eyebrow">Time for meds</div>
+                <div class="wg-sheethead__title" id="med-confirm-title"></div>
             </div>
-            <button type="button" id="med-confirm-dismiss-btn"
-                class="wg-icon-btn wg-med-confirm-modal__close-btn" aria-label="Close">
-                <span class="wg-gloss"></span>
-            </button>
-        </div>
-
-        <div id="med-confirm-time-edit" class="wg-med-confirm-modal__time-edit hidden">
-            <label for="med-confirm-datetime" class="wg-med-confirm-modal__label">Time taken</label>
-            <div class="wg-gloss--inset wg-med-confirm-modal__input-wrap">
-                <input type="datetime-local" id="med-confirm-datetime" class="wg-med-confirm-modal__input">
+            <div class="wg-sheethead__acts">
+                <button type="button" id="med-confirm-dismiss-btn" class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
+            </div>
+        </header>
+        <div class="wg-sheet__body wg-med-confirm-modal__body">
+            <div id="med-confirm-list" class="wg-choices"></div>
+            <div id="med-confirm-time-edit" class="wg-med-confirm-modal__time">
+                <button type="button" id="med-confirm-time-btn" class="wg-setting wg-setting--boxed">
+                    <span class="wg-row__lead"><i class="wg-ico" data-icon="clock"></i></span>
+                    <span class="wg-setting__body"><span class="wg-setting__title">Time taken</span></span>
+                    <span class="wg-setting__value" id="med-confirm-time-value">Now</span>
+                    <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                </button>
+                <input type="datetime-local" id="med-confirm-datetime" class="wg-input wg-med-confirm-modal__input"
+                    aria-label="Time taken" tabindex="-1">
             </div>
         </div>
-
-        <div id="med-confirm-list" class="wg-med-confirm-modal__list"></div>
-
-        <div class="wg-med-confirm-modal__secondary-actions">
-            <button type="button" id="med-confirm-snooze-btn"
-                class="wg-gloss wg-med-confirm-modal__secondary wg-med-confirm-modal__secondary--snooze">Snooze 10m</button>
-            <button type="button" id="med-confirm-skip-btn"
-                class="wg-gloss wg-med-confirm-modal__secondary wg-med-confirm-modal__secondary--skip">Skip</button>
+        <div class="wg-sheet__foot">
+            <button type="button" id="med-confirm-skip-btn" class="wg-btn wg-btn--ghost">Skip</button>
+            <button type="button" id="med-confirm-snooze-btn" class="wg-btn wg-btn--ghost">Snooze 10m</button>
+            <button type="button" id="med-confirm-action-btn" class="wg-btn wg-btn--primary">Take</button>
         </div>
-
-        <button type="button" id="med-confirm-action-btn"
-            class="wg-gloss wg-gloss--sun wg-med-confirm-modal__primary">Confirm selected</button>
     </mt-modal>
 
     <!-- Modal for Workout Start (from Push) -->

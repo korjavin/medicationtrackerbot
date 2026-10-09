@@ -258,6 +258,9 @@ describe('Health summary-tile row + range selector (Phase 8, Task 3)', () => {
             expect(selector).not.toBeNull();
             expect(selector.classList.contains('wg-seg')).toBe(true);
             expect(selector.querySelectorAll('button[data-range]').length).toBe(2);
+            // The range segment sits above the tiles it controls (med-xso6.27).
+            expect(content.firstElementChild).toBe(selector);
+            expect(selector.nextElementSibling.classList.contains('wg-health-summary')).toBe(true);
         });
 
         it('range change from the selector re-renders tiles with the new range', () => {

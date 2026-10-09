@@ -1090,6 +1090,10 @@ export const CATALOG = [
             "type": "integer"
           },
           "description": "Used together with scheduled_at to confirm by (med, time)"
+        },
+        "taken_at": {
+          "type": "string",
+          "description": "RFC3339 time the dose was actually taken; defaults to now"
         }
       }
     }

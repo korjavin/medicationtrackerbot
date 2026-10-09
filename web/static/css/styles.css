@@ -1139,20 +1139,6 @@ h3 {
     }
 }
 
-/* Initial state for modal sections that groups.js / variants.js swap in and out
-   with .style.display. Not `.hidden` — that rule is `!important` and the CSSOM
-   setter could never override it. Declared here rather than as a style=
-   attribute so the strict cloud CSP (style-src 'self') accepts the page. */
-#workout-variants-section,
-#workout-group-flat-exercises-section,
-#workout-variant-rotation-field,
-#workout-exercises-section {
-    display: none;
-}
-
-#workout-group-modal.hidden,
-#workout-variant-modal.hidden,
-#workout-exercise-modal.hidden,
 #exercise-library-modal.hidden,
 #miband-workout-modal.hidden,
 #workout-session-modal.hidden,
@@ -3049,6 +3035,50 @@ input:checked+.toggle-slider:before {
     background: var(--wg-bg-screen);
     color: var(--wg-fg-1);
     font-family: var(--wg-font-ui);
+}
+
+/* Plan editor pages (med-xso6.22, kit P1–P3). The kit's display rules beat
+   the UA [hidden] rule; sections / rows here are toggled with [hidden]. */
+.wg-workout-page {
+    gap: var(--space-md);
+}
+
+.wg-workout-page [hidden] {
+    display: none;
+}
+
+/* A stepper's value is a real number input (ids the editor reads). */
+input.wg-stepper__val {
+    width: 100%;
+    min-width: 0;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    outline: 0;
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+input.wg-stepper__val::-webkit-outer-spin-button,
+input.wg-stepper__val::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.wg-workout-page__time {
+    width: auto;
+    flex-shrink: 0;
+}
+
+.wg-workout-page .wg-grip {
+    touch-action: none;
+}
+
+.wg-workout-row--dragging {
+    background: var(--wg-bg-card-hi);
 }
 
 /* Sheet (med-xso6.7): an <mt-modal class="wg-modal wg-sheet"> docks to the
@@ -8412,9 +8442,16 @@ input:checked+.toggle-slider:before {
     margin: 0;
 }
 
+/* Title block left, status chip (.wg-chip, set by live-hr.js) right. */
+.wg-live-hr__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-sm);
+}
+
 .wg-live-hr__status {
-    font-size: var(--wg-health-card-stat-size);
-    color: var(--wg-fg-4);
+    flex-shrink: 0;
 }
 
 .wg-live-hr__bpm-row {
@@ -9519,195 +9556,37 @@ input:checked+.toggle-slider:before {
     padding: var(--space-xs) var(--space-md);
 }
 
-/* Take-meds (medication confirm) modal (Task 4b audit) — shares the generic
-   `.wg-modal` shell; overlays a sun-coloured eyebrow, mono title ("Time for
-   Meds"), subtitle (count / scheduled-for text), scrollable list of
-   checkbox-style rows (each row flips from dark-inset to green-highlight
-   when selected), a Snooze + Skip secondary actions row, and the full-width
-   sun "Confirm selected" primary button. Every visual value reads from a
-   `--wg-med-confirm-modal-*` or shared `--wg-*` token. */
-.wg-med-confirm-modal__header {
+/* Take sheet (kit M2, med-xso6.19): a kit .wg-sheet — the .wg-choices
+   checklist, the "Time taken" .wg-setting row and the .wg-sheet__foot
+   actions come from components.css. The datetime input under the row is
+   only the picker it opens (showPicker), never a visible control. */
+.wg-med-confirm-modal__body {
     display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
+    flex-direction: column;
     gap: var(--space-md);
-    margin-bottom: var(--space-md);
 }
 
-.wg-med-confirm-modal__heading {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-    min-width: 0;
-}
-
-.wg-med-confirm-modal__eyebrow {
-    padding: 0;
-    font-size: var(--wg-med-confirm-modal-eyebrow-size);
-    color: var(--wg-sun);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-}
-
-.wg-med-confirm-modal__eyebrow::before {
-    content: none;
-}
-
-.wg-med-confirm-modal__title {
-    font-family: var(--wg-font-mono);
-    font-size: var(--wg-med-confirm-modal-title-size);
-    color: var(--wg-fg-1);
-    line-height: 1.1;
-}
-
-.wg-med-confirm-modal__subtitle {
-    font-size: var(--wg-med-confirm-modal-subtitle-size);
-    color: var(--wg-fg-3);
-}
-
-.wg-med-confirm-modal__close-btn {
-    flex-shrink: 0;
-}
-
-.wg-med-confirm-modal__time-edit {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-    margin-bottom: var(--space-md);
-}
-
-.wg-med-confirm-modal__label {
-    font-size: var(--wg-med-confirm-modal-eyebrow-size);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--wg-fg-3);
-    font-weight: var(--font-weight-bold);
-}
-
-.wg-med-confirm-modal__input-wrap {
-    padding: var(--space-md);
-    display: flex;
-    align-items: center;
-    min-width: 0;
-}
-
-.wg-med-confirm-modal__input {
-    width: 100%;
-    margin: 0;
-    padding: 0;
-    background: transparent;
-    border: none;
-    outline: none;
-    box-shadow: none;
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-md);
-    color: var(--wg-fg-1);
-    min-width: 0;
-}
-
-.wg-med-confirm-modal__list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--wg-med-confirm-modal-row-gap);
-    margin-bottom: var(--space-md);
-}
-
-.wg-med-confirm-modal__row {
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-    padding: var(--wg-med-confirm-modal-row-pad-y) var(--wg-med-confirm-modal-row-pad-x);
-    border-radius: var(--wg-radius-gloss);
-    background: var(--wg-gloss-bg-inset);
-    border: 1px solid var(--wg-border-hairline);
-    cursor: pointer;
-    min-width: 0;
-}
-
-.wg-med-confirm-modal__row--on {
-    background: var(--wg-tag-high-bg);
-    border-color: var(--wg-tag-high-border);
-}
-
-.wg-med-confirm-modal__row-input {
-    position: absolute;
-    opacity: 0;
-    pointer-events: none;
-    width: 0;
-    height: 0;
-}
-
-.wg-med-confirm-modal__check {
-    width: var(--wg-med-confirm-modal-check-size);
-    height: var(--wg-med-confirm-modal-check-size);
-    border-radius: var(--wg-med-confirm-modal-check-radius);
-    flex-shrink: 0;
-    background: var(--wg-bg-card-inset);
-    border: 1px solid var(--wg-border-hairline);
-    box-shadow: var(--wg-gloss-shadow-inset);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.wg-med-confirm-modal__row--on .wg-med-confirm-modal__check {
-    background: var(--wg-tag-high-fg);
-    border-color: var(--wg-tag-high-border);
-    box-shadow: none;
+.wg-med-confirm-modal__time {
     position: relative;
 }
 
-.wg-med-confirm-modal__row--on .wg-med-confirm-modal__check::after {
-    content: '';
-    width: 8px;
-    height: 4px;
-    border-left: 2px solid var(--wg-ink);
-    border-bottom: 2px solid var(--wg-ink);
-    transform: rotate(-45deg) translate(1px, -1px);
-}
-
-.wg-med-confirm-modal__row-body {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-    flex: 1 1 auto;
-}
-
-.wg-med-confirm-modal__row-name {
-    font-family: var(--wg-font-ui);
-    font-size: var(--wg-med-confirm-modal-name-size);
-    color: var(--wg-fg-1);
-    font-weight: var(--font-weight-bold);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.wg-med-confirm-modal__secondary-actions {
-    display: flex;
-    gap: var(--wg-med-confirm-modal-action-gap);
-    margin-bottom: var(--wg-med-confirm-modal-action-gap);
-}
-
-.wg-med-confirm-modal__secondary {
-    flex: 1 1 0;
-    padding: var(--space-md);
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-sm);
-    border-radius: var(--wg-radius-gloss);
-}
-
-.wg-med-confirm-modal__secondary--skip {
-    color: var(--wg-tag-alert-fg);
-}
-
-.wg-med-confirm-modal__primary {
+.wg-med-confirm-modal__input {
+    position: absolute;
+    inset: 0;
     width: 100%;
-    padding: var(--space-md);
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-md);
-    border-radius: var(--wg-radius-gloss);
+    height: 100%;
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* Fallback when the browser cannot open the picker programmatically:
+   the input shows as a plain kit .wg-input under the row. */
+.wg-med-confirm-modal__input.wg-med-confirm-modal__input--shown {
+    position: static;
+    height: auto;
+    margin-top: var(--space-sm);
+    opacity: 1;
+    pointer-events: auto;
 }
 
 /* WGToggle's hidden native checkbox: it covers the kit .wg-toggle pill

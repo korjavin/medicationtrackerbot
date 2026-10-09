@@ -1,10 +1,10 @@
-// Wandergeek Workouts log-set + edit-exercise modals (Phase 7, Task 8).
+// Wandergeek Workouts log-set modal (Phase 7, Task 8).
 //
-// Exercises the rewritten log-set modal (#workout-add-exercise-to-session-modal)
-// and per-variant edit-exercise modal (#workout-exercise-modal). Both share the
-// generic `.wg-modal` shell; both use mono eyebrow + title headers,
+// Exercises the rewritten log-set modal (#workout-add-exercise-to-session-modal):
+// the generic `.wg-modal` shell, mono eyebrow + title header,
 // `.wg-gloss--inset` input wraps, and a Cancel/Save action bar (Save as
-// sun-glossed 2x flex per modal-button-order convention).
+// sun-glossed 2x flex per modal-button-order convention). The plan editor's
+// Exercise page (med-xso6.22) is covered in features.workout-exercises.test.js.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
@@ -182,159 +182,6 @@ describe('Log-set modal shell (Phase 7, Task 8)', () => {
     });
 });
 
-describe('Edit-exercise modal shell (Phase 7, Task 8)', () => {
-    let env;
-
-    beforeEach(() => {
-        env = loadFrontendEnv({ withWorkout: true });
-    });
-
-    afterEach(() => {
-        try { env.window.localStorage.clear(); } catch (_) { /* ignore */ }
-        env.cleanup();
-        env = null;
-    });
-
-    it('uses the .wg-modal + .wg-workouts-exercise-modal classes', () => {
-        const { document } = env;
-        const modal = document.getElementById('workout-exercise-modal');
-        expect(modal).not.toBeNull();
-        expect(modal.classList.contains('wg-modal')).toBe(true);
-        expect(modal.classList.contains('wg-workouts-exercise-modal')).toBe(true);
-    });
-
-    it('renders a mono eyebrow + title heading', () => {
-        const { document } = env;
-        const modal = document.getElementById('workout-exercise-modal');
-        const eyebrow = modal.querySelector('.wg-workouts-exercise-modal__eyebrow');
-        const title = modal.querySelector('.wg-workouts-exercise-modal__title');
-        expect(eyebrow).not.toBeNull();
-        expect(eyebrow.classList.contains('wg-section-label')).toBe(true);
-        expect(eyebrow.textContent).toBe('Workout exercise');
-        expect(title).not.toBeNull();
-        expect(title.classList.contains('wg-mono-display')).toBe(true);
-        expect(title.id).toBe('workout-exercise-modal-title');
-    });
-
-    it('wraps every input field in .wg-gloss--inset', () => {
-        const { document } = env;
-        const modal = document.getElementById('workout-exercise-modal');
-        const wraps = modal.querySelectorAll('.wg-workouts-exercise-modal__input-wrap');
-        expect(wraps.length).toBeGreaterThanOrEqual(5);
-        wraps.forEach((wrap) => {
-            expect(wrap.classList.contains('wg-gloss--inset')).toBe(true);
-        });
-    });
-
-    it('has Cancel + Save header-action buttons with Save as sun-glossed', () => {
-        const { document } = env;
-        const actions = document.querySelector('#workout-exercise-modal .wg-workouts-exercise-modal__header-actions');
-        expect(actions).not.toBeNull();
-
-        const cancel = actions.querySelector('#exercise-cancel-btn');
-        const save = actions.querySelector('#exercise-save-btn');
-        expect(cancel).not.toBeNull();
-        expect(save).not.toBeNull();
-
-        expect(cancel.classList.contains('wg-gloss')).toBe(true);
-        expect(cancel.classList.contains('wg-workouts-exercise-modal__header-btn')).toBe(true);
-        expect(save.classList.contains('wg-gloss')).toBe(true);
-        expect(save.classList.contains('wg-gloss--sun')).toBe(true);
-        expect(save.classList.contains('wg-workouts-exercise-modal__header-btn--save')).toBe(true);
-    });
-
-    it('preserves the preexisting ID hooks used by saveExercise / showEditExerciseModal', () => {
-        const { document } = env;
-        ['workout-exercise-name', 'workout-exercise-sets',
-         'workout-exercise-reps-min', 'workout-exercise-reps-max',
-         'workout-exercise-weight', 'workout-exercise-order',
-         'workout-exercise-modal-title', 'exercise-cancel-btn',
-         'exercise-save-btn']
-            .forEach((id) => {
-                expect(document.getElementById(id), `expected #${id} to exist`).not.toBeNull();
-            });
-    });
-
-    it('showEditExerciseModal populates the inputs from the apiCall fetch', async () => {
-        const { window, document } = env;
-        const exercises = [{
-            id: 2,
-            exercise_name: 'Overhead Press',
-            target_sets: 4,
-            target_reps_min: 6,
-            target_reps_max: 10,
-            target_weight_kg: 45,
-            order_index: 2
-        }];
-        window.apiCall = vi.fn(async () => exercises);
-
-        await window.loadExercisesForVariant(55);
-        await window.showEditExerciseModal(2);
-
-        expect(document.getElementById('workout-exercise-modal-title').textContent).toBe('Edit Exercise');
-        expect(document.getElementById('workout-exercise-name').value).toBe('Overhead Press');
-        expect(document.getElementById('workout-exercise-sets').value).toBe('4');
-        expect(document.getElementById('workout-exercise-reps-min').value).toBe('6');
-        expect(document.getElementById('workout-exercise-reps-max').value).toBe('10');
-        expect(document.getElementById('workout-exercise-weight').value).toBe('45');
-        expect(document.getElementById('workout-exercise-order').value).toBe('2');
-    });
-
-    it('saveExercise POSTs a new exercise and closes the modal', async () => {
-        const { window, document } = env;
-        const apiSpy = vi.fn(async (endpoint) => {
-            if (endpoint === '/api/workout/exercise-library') return [];
-            if (endpoint.startsWith('/api/workout/exercises?variant_id=')) return [];
-            if (endpoint === '/api/workout/exercises/create') return { id: 500 };
-            return { ok: true };
-        });
-        window.apiCall = apiSpy;
-
-        await window.loadExercisesForVariant(55);
-        await window.showAddExerciseModal();
-
-        document.getElementById('workout-exercise-name').value = 'Squat';
-        document.getElementById('workout-exercise-sets').value = '5';
-        document.getElementById('workout-exercise-reps-min').value = '5';
-        document.getElementById('workout-exercise-reps-max').value = '';
-        document.getElementById('workout-exercise-weight').value = '100';
-        document.getElementById('workout-exercise-order').value = '0';
-
-        const closeSpy = vi.fn();
-        window.closeExerciseModal = closeSpy;
-        window.loadExercisesForVariant = vi.fn();
-
-        await window.saveExercise();
-
-        expect(apiSpy).toHaveBeenCalledWith(
-            '/api/workout/exercises/create',
-            'POST',
-            expect.objectContaining({
-                variant_id: 55,
-                exercise_name: 'Squat',
-                target_sets: 5,
-                target_reps_min: 5,
-                target_reps_max: null,
-                target_weight_kg: 100,
-                order_index: 0
-            })
-        );
-        expect(closeSpy).toHaveBeenCalled();
-    });
-
-    it('closeExerciseModal calls the shared ModalManager close', () => {
-        const { window } = env;
-        const closeSpy = vi.fn();
-        window.ModalManager.workoutExercise = {
-            open: vi.fn(),
-            close: closeSpy
-        };
-
-        window.closeExerciseModal();
-        expect(closeSpy).toHaveBeenCalled();
-    });
-});
-
 describe('modal-controller history integration (Phase 7, Task 8)', () => {
     let env;
 
@@ -356,14 +203,6 @@ describe('modal-controller history integration (Phase 7, Task 8)', () => {
         expect(typeof logSetDef.fn).toBe('function');
     });
 
-    it('edit-exercise modal is registered as a top-level modal in ModalManager.getTopModalDefs', () => {
-        const { window } = env;
-        const defs = window.ModalManager.getTopModalDefs();
-        const editExDef = defs.find((d) => d.id === 'workout-exercise-modal');
-        expect(editExDef).toBeDefined();
-        expect(typeof editExDef.fn).toBe('function');
-    });
-
     it('the log-set modal sub-modal def calls closeAddExerciseToSessionModal when present', () => {
         const { window } = env;
         const closeSpy = vi.fn();
@@ -371,16 +210,6 @@ describe('modal-controller history integration (Phase 7, Task 8)', () => {
         const defs = window.ModalManager.getSubModalDefs();
         const logSetDef = defs.find((d) => d.id === 'workout-add-exercise-to-session-modal');
         logSetDef.fn();
-        expect(closeSpy).toHaveBeenCalled();
-    });
-
-    it('the edit-exercise modal top-modal def calls closeExerciseModal when present', () => {
-        const { window } = env;
-        const closeSpy = vi.fn();
-        window.closeExerciseModal = closeSpy;
-        const defs = window.ModalManager.getTopModalDefs();
-        const editExDef = defs.find((d) => d.id === 'workout-exercise-modal');
-        editExDef.fn();
         expect(closeSpy).toHaveBeenCalled();
     });
 });
