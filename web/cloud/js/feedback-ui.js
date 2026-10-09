@@ -36,19 +36,22 @@ function openFeedbackModal() {
     const backdrop = doc.createElement('div');
     backdrop.className = 'mt-confirm-backdrop';
 
+    // Kit sheet (med-xso6.7): a compose flow — Cancel in the header, Send in
+    // the keyboard-docked foot (WGSheet keeps it above the virtual keyboard).
     const modal = doc.createElement('mt-modal');
-    modal.className = 'wg-modal wg-feedback-modal';
+    modal.className = 'wg-modal wg-sheet wg-feedback-modal';
     modal.id = 'feedback-modal';
 
-    const header = doc.createElement('div');
-    header.className = 'wg-modal__header';
-    const title = doc.createElement('h3');
-    title.className = 'wg-modal__title';
-    title.textContent = 'Send feedback';
-    header.appendChild(title);
+    const grab = doc.createElement('div');
+    grab.className = 'wg-sheet__grab';
+    const { el: header, buttons: [cancelBtn] } = window.WGSheet.header({
+        eyebrow: 'Feedback',
+        title: 'Send feedback',
+        actions: [{ label: 'Cancel', attrs: { 'data-feedback-choice': 'cancel' } }],
+    });
 
     const body = doc.createElement('div');
-    body.className = 'wg-modal__body';
+    body.className = 'wg-sheet__body';
 
     const textarea = doc.createElement('textarea');
     textarea.className = 'wg-feedback-modal__textarea';
@@ -62,7 +65,7 @@ function openFeedbackModal() {
 
     const imageBtn = doc.createElement('button');
     imageBtn.type = 'button';
-    imageBtn.className = 'wg-gloss';
+    imageBtn.className = 'wg-btn wg-btn--sm';
     imageBtn.setAttribute('data-feedback-attach', 'image');
     imageBtn.textContent = 'Attach image';
     capture.appendChild(imageBtn);
@@ -71,7 +74,7 @@ function openFeedbackModal() {
     if (canRecordAudio()) {
         recordBtn = doc.createElement('button');
         recordBtn.type = 'button';
-        recordBtn.className = 'wg-gloss';
+        recordBtn.className = 'wg-btn wg-btn--sm';
         recordBtn.setAttribute('data-feedback-record', 'idle');
         recordBtn.textContent = 'Record voice';
         capture.appendChild(recordBtn);
@@ -83,24 +86,16 @@ function openFeedbackModal() {
     chip.setAttribute('data-feedback-chip', '');
     body.appendChild(chip);
 
-    const actions = doc.createElement('div');
-    actions.className = 'wg-modal__actions';
-    const cancelBtn = doc.createElement('button');
-    cancelBtn.type = 'button';
-    cancelBtn.className = 'wg-gloss';
-    cancelBtn.setAttribute('data-feedback-choice', 'cancel');
-    cancelBtn.textContent = 'Cancel';
+    const foot = doc.createElement('div');
+    foot.className = 'wg-sheet__foot';
     const sendBtn = doc.createElement('button');
     sendBtn.type = 'button';
-    sendBtn.className = 'wg-gloss wg-gloss--sun';
+    sendBtn.className = 'wg-btn wg-btn--primary';
     sendBtn.setAttribute('data-feedback-choice', 'send');
     sendBtn.textContent = 'Send';
-    actions.appendChild(cancelBtn);
-    actions.appendChild(sendBtn);
+    foot.appendChild(sendBtn);
 
-    modal.appendChild(header);
-    modal.appendChild(body);
-    modal.appendChild(actions);
+    modal.append(grab, header, body, foot);
 
     // --- capture state ---
     let imageBlob = null;
@@ -188,7 +183,8 @@ function openFeedbackModal() {
             try { audioHandle.cancel(); } catch (_) { /* ignore */ }
             audioHandle = null;
         }
-        if (typeof modal.close === 'function') { try { modal.close(); } catch (_) { /* ignore */ } }
+        window.ModalManager.close(modal.id);
+        window.ModalManager.register(modal.id, null);
         if (modal.parentNode) modal.parentNode.removeChild(modal);
         if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
         if (action === 'send') toast('Thanks — feedback sent');
@@ -244,7 +240,9 @@ function openFeedbackModal() {
 
     doc.body.appendChild(backdrop);
     doc.body.appendChild(modal);
-    if (typeof modal.open === 'function') { try { modal.open(); } catch (_) { /* ignore */ } }
+    // On the ModalManager stack so Back / Esc dismiss it like any sheet.
+    window.ModalManager.register(modal.id, () => settle('cancel'));
+    window.ModalManager.open(modal.id);
     try { textarea.focus(); } catch (_) { /* ignore */ }
 
     return modal;

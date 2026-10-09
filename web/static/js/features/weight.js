@@ -198,6 +198,9 @@ function closeWeightModal() {
 function setWeightModalEyebrow(text) {
     const el = document.getElementById('weight-modal-eyebrow');
     if (el) el.textContent = text;
+    // Kit label rule: "Log" records a new reading, "Save" commits an edit.
+    const save = document.getElementById('weight-modal-save-btn');
+    if (save) save.textContent = text === 'Edit entry' ? 'Save' : 'Log';
 }
 
 function getPreferredWeightUnit() {

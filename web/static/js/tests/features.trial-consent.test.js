@@ -121,6 +121,21 @@ describe('features/trial-consent.js — disclosure dialog + retry seam', () => {
         expect(env.window.apiCall).not.toHaveBeenCalled();
     });
 
+    it('is a kit sheet on the ModalManager stack: choice in the foot, Back dismisses without a decision', async () => {
+        const p = env.window.TrialConsent.request('ai');
+        const el = modal();
+        expect(el.classList.contains('wg-sheet')).toBe(true);
+        expect(el.querySelector('.wg-sheethead .wg-sheethead__title').textContent).toMatch(/trial AI/i);
+        expect(el.querySelector('.wg-sheet__foot [data-trial-consent-choice="allow"]').classList.contains('wg-btn--primary')).toBe(true);
+        expect(env.document.getElementById('modal-overlay').classList.contains('hidden')).toBe(false);
+
+        expect(env.window.ModalManager.closeTopMostVisibleModal()).toBe(true);
+        await expect(p).resolves.toBe(false);
+        expect(env.window.apiCall).not.toHaveBeenCalled();
+        expect(modal()).toBeNull();
+        expect(env.document.getElementById('modal-overlay').classList.contains('hidden')).toBe(true);
+    });
+
     it('Allow resolves false when the PATCH fails (grant not persisted → gate would still refuse)', async () => {
         env.window.apiCall = vi.fn(async () => null);
         const p = env.window.TrialConsent.request('ai');

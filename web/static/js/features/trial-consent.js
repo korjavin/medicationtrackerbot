@@ -68,19 +68,19 @@
             const backdrop = doc.createElement('div');
             backdrop.className = 'mt-confirm-backdrop';
 
+            // Kit sheet (med-xso6.7): a decision flow, so the choice lives in
+            // the foot and the header carries only the question.
             const modal = doc.createElement('mt-modal');
-            modal.className = 'wg-modal wg-trial-consent-modal';
+            modal.id = `trial-consent-modal-${scope}`;
+            modal.className = 'wg-modal wg-sheet wg-trial-consent-modal';
             modal.setAttribute('data-trial-consent-scope', scope);
 
-            const header = doc.createElement('div');
-            header.className = 'wg-modal__header';
-            const title = doc.createElement('h3');
-            title.className = 'wg-modal__title';
-            title.textContent = copy.title;
-            header.appendChild(title);
+            const grab = doc.createElement('div');
+            grab.className = 'wg-sheet__grab';
+            const header = window.WGSheet.header({ eyebrow: 'Trial', title: copy.title }).el;
 
             const body = doc.createElement('div');
-            body.className = 'wg-modal__body';
+            body.className = 'wg-sheet__body';
             for (const text of [copy.data, copy.transit, ALTERNATIVE]) {
                 const p = doc.createElement('p');
                 p.className = 'wg-trial-consent-modal__text';
@@ -88,24 +88,22 @@
                 body.appendChild(p);
             }
 
-            const actions = doc.createElement('div');
-            actions.className = 'wg-modal__actions';
+            const foot = doc.createElement('div');
+            foot.className = 'wg-sheet__foot';
             const denyBtn = doc.createElement('button');
             denyBtn.type = 'button';
-            denyBtn.className = 'wg-gloss';
+            denyBtn.className = 'wg-btn';
             denyBtn.setAttribute('data-trial-consent-choice', 'deny');
             denyBtn.textContent = 'Not now';
             const allowBtn = doc.createElement('button');
             allowBtn.type = 'button';
-            allowBtn.className = 'wg-gloss wg-gloss--sun';
+            allowBtn.className = 'wg-btn wg-btn--primary';
             allowBtn.setAttribute('data-trial-consent-choice', 'allow');
             allowBtn.textContent = 'Allow';
-            actions.appendChild(denyBtn);
-            actions.appendChild(allowBtn);
+            foot.appendChild(denyBtn);
+            foot.appendChild(allowBtn);
 
-            modal.appendChild(header);
-            modal.appendChild(body);
-            modal.appendChild(actions);
+            modal.append(grab, header, body, foot);
 
             let settled = false;
             // choice: true → persist grant, false → persist refusal,
@@ -114,9 +112,8 @@
                 if (settled) return;
                 settled = true;
                 doc.removeEventListener('keydown', onKeydown, true);
-                if (typeof modal.close === 'function') {
-                    try { modal.close(); } catch (_) { /* ignore */ }
-                }
+                window.ModalManager.close(modal.id);
+                window.ModalManager.register(modal.id, null);
                 if (modal.parentNode) modal.parentNode.removeChild(modal);
                 if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
                 delete _pending[scope];
@@ -143,9 +140,9 @@
 
             doc.body.appendChild(backdrop);
             doc.body.appendChild(modal);
-            if (typeof modal.open === 'function') {
-                try { modal.open(); } catch (_) { /* ignore */ }
-            }
+            // On the ModalManager stack so Back / Esc dismiss it like any sheet.
+            window.ModalManager.register(modal.id, () => settle(null));
+            window.ModalManager.open(modal.id);
             try { allowBtn.focus(); } catch (_) { /* ignore */ }
         });
 

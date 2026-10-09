@@ -1163,24 +1163,26 @@
 
     <!-- Cloud-mode invite claim link (minted by POST /api/invite). The claim
          token lives only in the URL fragment shown here — never persisted. -->
-    <mt-modal id="invite-modal" class="hidden wg-modal wg-invite-modal">
-        <div class="wg-invite-modal__header">
-            <div class="wg-invite-modal__heading">
-                <span class="wg-section-label wg-invite-modal__eyebrow">Invite</span>
-                <span class="wg-mono-display wg-invite-modal__title">Share this link</span>
+    <mt-modal id="invite-modal" class="hidden wg-modal wg-sheet wg-invite-modal">
+        <div class="wg-sheet__grab"></div>
+        <header class="wg-sheethead">
+            <div class="wg-sheethead__titles">
+                <div class="wg-eyebrow">Invite</div>
+                <div class="wg-sheethead__title">Share this link</div>
             </div>
-            <div class="wg-invite-modal__header-actions">
-                <button type="button" id="invite-close-btn"
-                    class="wg-gloss wg-invite-modal__header-btn">Close</button>
+            <div class="wg-sheethead__acts">
+                <button type="button" id="invite-close-btn" class="wg-btn wg-btn--ghost wg-btn--sm">Close</button>
             </div>
-        </div>
-        <div class="wg-invite-modal__body">
+        </header>
+        <div class="wg-sheet__body wg-invite-modal__body">
             <div id="invite-qr" class="wg-invite-modal__qr"></div>
             <div class="wg-gloss--inset wg-invite-modal__url-wrap">
                 <span id="invite-claim-url" class="wg-mono-display wg-invite-modal__url"></span>
             </div>
-            <button type="button" id="invite-copy-btn" class="wg-gloss wg-settings-action-btn">Copy link</button>
             <p class="wg-invite-modal__note">The link works once and expires — send it directly to your friend.</p>
+        </div>
+        <div class="wg-sheet__foot">
+            <button type="button" id="invite-copy-btn" class="wg-btn wg-btn--primary">Copy link</button>
         </div>
     </mt-modal>
 
@@ -1764,21 +1766,20 @@
     </mt-modal>
 
     <!-- Modal for Mi Band Workout Details -->
-    <mt-modal id="miband-workout-modal" class="hidden wg-modal wg-workouts-miband-modal">
-        <div class="wg-workouts-miband-modal__header">
-            <div class="wg-workouts-miband-modal__heading">
-                <span class="wg-section-label wg-workouts-miband-modal__eyebrow">Cardio</span>
-                <span class="wg-mono-display wg-workouts-miband-modal__title" id="miband-workout-modal-title">Edit entry</span>
+    <mt-modal id="miband-workout-modal" class="hidden wg-modal wg-sheet wg-workouts-miband-modal">
+        <div class="wg-sheet__grab"></div>
+        <header class="wg-sheethead">
+            <div class="wg-sheethead__titles">
+                <div class="wg-eyebrow">Cardio</div>
+                <div class="wg-sheethead__title" id="miband-workout-modal-title">Edit entry</div>
             </div>
-            <div class="wg-workouts-miband-modal__header-actions">
-                <button type="button" id="miband-workout-cancel-btn"
-                    class="wg-gloss wg-workouts-miband-modal__header-btn">Cancel</button>
-                <button type="button" id="miband-workout-save-btn"
-                    class="wg-gloss wg-gloss--sun wg-workouts-miband-modal__header-btn wg-workouts-miband-modal__header-btn--save">Save</button>
+            <div class="wg-sheethead__acts">
+                <button type="button" id="miband-workout-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
+                <button type="button" id="miband-workout-save-btn" class="wg-btn wg-btn--primary wg-btn--sm">Save</button>
             </div>
-        </div>
+        </header>
 
-        <div class="wg-workouts-miband-modal__body">
+        <div class="wg-sheet__body wg-workouts-miband-modal__body">
             <input type="hidden" id="miband-workout-id">
 
             <div class="wg-workouts-miband-modal__row">
@@ -2246,21 +2247,20 @@
     </mt-modal>
 
     <!-- Modal for BP Recording -->
-    <mt-modal id="bp-modal" class="hidden wg-modal wg-bp-modal">
-        <div class="wg-bp-modal__header">
-            <div class="wg-bp-modal__heading">
-                <span class="wg-section-label wg-bp-modal__eyebrow" id="bp-modal-eyebrow">New entry</span>
-                <span class="wg-mono-display wg-bp-modal__title" id="bp-modal-title">Blood pressure</span>
+    <mt-modal id="bp-modal" class="hidden wg-modal wg-sheet wg-bp-modal">
+        <div class="wg-sheet__grab"></div>
+        <header class="wg-sheethead">
+            <div class="wg-sheethead__titles">
+                <div class="wg-eyebrow" id="bp-modal-eyebrow">New entry</div>
+                <div class="wg-sheethead__title" id="bp-modal-title">Blood pressure</div>
             </div>
-            <div class="wg-bp-modal__header-actions">
-                <button type="button" id="bp-modal-cancel-btn"
-                    class="wg-gloss wg-bp-modal__header-btn">Cancel</button>
-                <button type="submit" form="bp-form" id="bp-modal-save-btn"
-                    class="wg-gloss wg-gloss--sun wg-bp-modal__header-btn wg-bp-modal__header-btn--save">Save entry</button>
+            <div class="wg-sheethead__acts">
+                <button type="button" id="bp-modal-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
+                <button type="submit" form="bp-form" id="bp-modal-save-btn" class="wg-btn wg-btn--primary wg-btn--sm">Log</button>
             </div>
-        </div>
+        </header>
 
-        <form id="bp-form" class="wg-bp-modal__body">
+        <form id="bp-form" class="wg-sheet__body wg-bp-modal__body">
             <div class="wg-bp-modal__field">
                 <label for="bp-datetime" class="wg-bp-modal__label">Date &amp; time</label>
                 <div class="wg-gloss--inset wg-bp-modal__input-wrap">
@@ -2327,21 +2327,20 @@
     </mt-modal>
 
     <!-- Modal for Weight Logging -->
-    <mt-modal id="weight-modal" class="hidden wg-modal wg-weight-modal">
-        <div class="wg-weight-modal__header">
-            <div class="wg-weight-modal__heading">
-                <span class="wg-section-label wg-weight-modal__eyebrow" id="weight-modal-eyebrow">New entry</span>
-                <span class="wg-mono-display wg-weight-modal__title" id="weight-modal-title">Weight</span>
+    <mt-modal id="weight-modal" class="hidden wg-modal wg-sheet wg-weight-modal">
+        <div class="wg-sheet__grab"></div>
+        <header class="wg-sheethead">
+            <div class="wg-sheethead__titles">
+                <div class="wg-eyebrow" id="weight-modal-eyebrow">New entry</div>
+                <div class="wg-sheethead__title" id="weight-modal-title">Weight</div>
             </div>
-            <div class="wg-weight-modal__header-actions">
-                <button type="button" id="weight-modal-cancel-btn"
-                    class="wg-gloss wg-weight-modal__header-btn">Cancel</button>
-                <button type="submit" form="weight-form" id="weight-modal-save-btn"
-                    class="wg-gloss wg-gloss--sun wg-weight-modal__header-btn wg-weight-modal__header-btn--save">Save</button>
+            <div class="wg-sheethead__acts">
+                <button type="button" id="weight-modal-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
+                <button type="submit" form="weight-form" id="weight-modal-save-btn" class="wg-btn wg-btn--primary wg-btn--sm">Log</button>
             </div>
-        </div>
+        </header>
 
-        <form id="weight-form" class="wg-weight-modal__body">
+        <form id="weight-form" class="wg-sheet__body wg-weight-modal__body">
             <div class="wg-weight-modal__field">
                 <label for="weight-datetime" class="wg-weight-modal__label">Time</label>
                 <div class="wg-gloss--inset wg-weight-modal__input-wrap">
@@ -2377,21 +2376,20 @@
     </mt-modal>
 
     <!-- Modal for Editing a Diary Note (Phase 8, Task 8) -->
-    <mt-modal id="note-modal" class="hidden wg-modal wg-health-modal">
-        <div class="wg-health-modal__header">
-            <div class="wg-health-modal__heading">
-                <span class="wg-section-label wg-health-modal__eyebrow" id="note-modal-eyebrow">Note</span>
-                <span class="wg-mono-display wg-health-modal__title" id="note-modal-title">Edit note</span>
+    <mt-modal id="note-modal" class="hidden wg-modal wg-sheet wg-health-modal">
+        <div class="wg-sheet__grab"></div>
+        <header class="wg-sheethead">
+            <div class="wg-sheethead__titles">
+                <div class="wg-eyebrow" id="note-modal-eyebrow">Note</div>
+                <div class="wg-sheethead__title" id="note-modal-title">Edit note</div>
             </div>
-            <div class="wg-health-modal__header-actions">
-                <button type="button" id="note-modal-cancel-btn"
-                    class="wg-gloss wg-health-modal__header-btn">Cancel</button>
-                <button type="submit" id="note-modal-save-btn" form="note-form"
-                    class="wg-gloss wg-gloss--sun wg-health-modal__header-btn wg-health-modal__header-btn--save">Save</button>
+            <div class="wg-sheethead__acts">
+                <button type="button" id="note-modal-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
+                <button type="submit" id="note-modal-save-btn" form="note-form" class="wg-btn wg-btn--primary wg-btn--sm">Save</button>
             </div>
-        </div>
+        </header>
 
-        <form id="note-form" class="wg-health-modal__body">
+        <form id="note-form" class="wg-sheet__body wg-health-modal__body">
             <div class="wg-health-modal__field">
                 <label for="note-modal-textarea" class="wg-health-modal__label">Body</label>
                 <div class="wg-gloss--inset wg-health-modal__input-wrap">
@@ -2404,28 +2402,22 @@
 
     <!-- Doctor brief (med-5k6t.2) — range + section picker for the printable
          appointment summary. Print / Download both build a standalone HTML
-         document in the browser; nothing is uploaded. Cancel sits left of the
-         primary action, both in the header row so a mobile keyboard cannot
-         occlude them. -->
-    <mt-modal id="brief-modal" class="hidden wg-modal wg-health-modal">
-        <div class="wg-health-modal__header">
-            <div class="wg-health-modal__heading">
-                <span class="wg-section-label wg-health-modal__eyebrow">Doctor brief</span>
-                <span class="wg-mono-display wg-health-modal__title">Appointment summary</span>
+         document in the browser; nothing is uploaded. A flow sheet: Back /
+         Cancel in the header, Download + the Print primary in the foot. -->
+    <mt-modal id="brief-modal" class="hidden wg-modal wg-sheet wg-health-modal">
+        <div class="wg-sheet__grab"></div>
+        <header class="wg-sheethead">
+            <div class="wg-sheethead__titles">
+                <div class="wg-eyebrow">Doctor brief</div>
+                <div class="wg-sheethead__title">Appointment summary</div>
             </div>
-            <div class="wg-health-modal__header-actions">
-                <button type="button" id="brief-back-btn"
-                    class="wg-gloss wg-health-modal__header-btn hidden">Back</button>
-                <button type="button" id="brief-cancel-btn"
-                    class="wg-gloss wg-health-modal__header-btn">Cancel</button>
-                <button type="button" id="brief-download-btn"
-                    class="wg-gloss wg-health-modal__header-btn">Download</button>
-                <button type="button" id="brief-print-btn"
-                    class="wg-gloss wg-gloss--sun wg-health-modal__header-btn wg-health-modal__header-btn--save">Print</button>
+            <div class="wg-sheethead__acts">
+                <button type="button" id="brief-back-btn" class="wg-btn wg-btn--ghost wg-btn--sm hidden">Back</button>
+                <button type="button" id="brief-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
             </div>
-        </div>
+        </header>
 
-        <div class="wg-health-modal__body">
+        <div class="wg-sheet__body wg-health-modal__body">
             <div class="wg-brief-modal__step" id="brief-options">
                 <div class="wg-health-modal__field">
                     <span class="wg-health-modal__label">Range</span>
@@ -2487,6 +2479,10 @@
 
             <p class="wg-brief-modal__status" id="brief-status">Everything is generated on this device.</p>
         </div>
+        <div class="wg-sheet__foot">
+            <button type="button" id="brief-download-btn" class="wg-btn">Download</button>
+            <button type="button" id="brief-print-btn" class="wg-btn wg-btn--primary">Print</button>
+        </div>
     </mt-modal>
 
     <!-- Modal for Medication Confirmation (from Push) -->
@@ -2525,29 +2521,27 @@
     </mt-modal>
 
     <!-- Modal for Workout Start (from Push) -->
-    <mt-modal id="workout-start-modal" class="hidden wg-modal wg-workouts-start-modal">
-        <div class="wg-workouts-start-modal__header">
-            <div class="wg-workouts-start-modal__heading">
-                <span class="wg-section-label wg-workouts-start-modal__eyebrow">Workout</span>
-                <span class="wg-mono-display wg-workouts-start-modal__title" id="workout-start-title">Workout Time!</span>
+    <mt-modal id="workout-start-modal" class="hidden wg-modal wg-sheet wg-workouts-start-modal">
+        <div class="wg-sheet__grab"></div>
+        <header class="wg-sheethead">
+            <div class="wg-sheethead__titles">
+                <div class="wg-eyebrow">Workout</div>
+                <div class="wg-sheethead__title" id="workout-start-title">Workout Time!</div>
             </div>
-            <div class="wg-workouts-start-modal__header-actions">
-                <button type="button" id="workout-start-dismiss-btn"
-                    class="wg-gloss wg-workouts-start-modal__header-btn">Cancel</button>
-                <button type="button" id="workout-start-now-btn"
-                    class="wg-gloss wg-gloss--sun wg-workouts-start-modal__header-btn wg-workouts-start-modal__header-btn--save">Start</button>
+            <div class="wg-sheethead__acts">
+                <button type="button" id="workout-start-dismiss-btn" class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
             </div>
-        </div>
-        <div class="wg-workouts-start-modal__body">
+        </header>
+        <div class="wg-sheet__body wg-workouts-start-modal__body">
             <p id="workout-start-subtitle" class="wg-workouts-start-modal__subtitle"></p>
             <div class="wg-workouts-start-modal__secondary-actions">
-                <button type="button" id="workout-start-snooze-60-btn"
-                    class="wg-gloss wg-workouts-start-modal__secondary-btn">Snooze 1 hour</button>
-                <button type="button" id="workout-start-snooze-120-btn"
-                    class="wg-gloss wg-workouts-start-modal__secondary-btn">Snooze 2 hours</button>
-                <button type="button" id="workout-start-skip-btn"
-                    class="wg-gloss wg-workouts-start-modal__secondary-btn wg-workouts-start-modal__secondary-btn--danger">Skip Workout</button>
+                <button type="button" id="workout-start-snooze-60-btn" class="wg-btn">Snooze 1 hour</button>
+                <button type="button" id="workout-start-snooze-120-btn" class="wg-btn">Snooze 2 hours</button>
+                <button type="button" id="workout-start-skip-btn" class="wg-btn wg-btn--danger-ghost">Skip workout</button>
             </div>
+        </div>
+        <div class="wg-sheet__foot">
+            <button type="button" id="workout-start-now-btn" class="wg-btn wg-btn--primary">Start</button>
         </div>
     </mt-modal>
 
@@ -2560,6 +2554,7 @@
     <script src="/static/js/components/action-row.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-icons.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-page.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/components/wg-sheet.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-chip.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-bottom-nav.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-sparkline.js?v=TIMESTAMP_PLACEHOLDER"></script>

@@ -15,6 +15,10 @@ import { Blob } from 'node:buffer';
 const { enqueueFeedback } = vi.hoisted(() => ({ enqueueFeedback: vi.fn() }));
 vi.mock('../feedback-submit.js', () => ({ enqueueFeedback }));
 
+// The account app loads these classic scripts before feedback-ui: the modal is
+// a kit sheet (WGSheet header) on the ModalManager stack (med-xso6.7).
+import '../../../static/js/core/modal-manager.js';
+import '../../../static/js/components/wg-sheet.js';
 import { mountFeedbackLauncher } from '../feedback-ui.js';
 
 function q(sel) { return document.querySelector(sel); }
@@ -217,6 +221,21 @@ describe('feedback-ui', () => {
         resolveStop();
         await flush();
 
+        expect(enqueueFeedback).not.toHaveBeenCalled();
+    });
+
+    it('renders as a kit sheet on the ModalManager stack: Cancel in the header, Send in the foot', async () => {
+        await mountFeedbackLauncher({});
+        click(q('#feedback-launcher'));
+        const modal = q('#feedback-modal');
+        expect(modal.classList.contains('wg-sheet')).toBe(true);
+        expect(q('#feedback-modal .wg-sheethead__acts [data-feedback-choice="cancel"]').className).toContain('wg-btn--ghost');
+        expect(q('#feedback-modal .wg-sheet__foot [data-feedback-choice="send"]').className).toContain('wg-btn--primary');
+        expect(window.ModalManager.isAnyOpen()).toBe(true);
+
+        // Back / Esc route through the stack's registered closer.
+        expect(window.ModalManager.closeTopMostVisibleModal()).toBe(true);
+        expect(q('#feedback-modal')).toBeFalsy();
         expect(enqueueFeedback).not.toHaveBeenCalled();
     });
 

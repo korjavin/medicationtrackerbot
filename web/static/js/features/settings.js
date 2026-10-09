@@ -273,8 +273,8 @@ async function showInviteModal(claimUrl) {
         // The QR is a convenience; the copyable URL is the actual payload.
         console.warn('invite QR render failed', e);
     }
-    if (typeof modal.open === 'function') modal.open();
-    else modal.classList.remove('hidden');
+    // On the ModalManager stack (overlay + Back/Esc), like every sheet.
+    window.ModalManager.open('invite-modal');
 }
 
 async function mintInvite() {
@@ -505,10 +505,7 @@ function bindCloudInvite() {
     _inviteBound = true;
     document.getElementById('settings-invite-btn')?.addEventListener('click', mintInvite);
     document.getElementById('invite-close-btn')?.addEventListener('click', () => {
-        const modal = document.getElementById('invite-modal');
-        if (!modal) return;
-        if (typeof modal.close === 'function') modal.close();
-        else modal.classList.add('hidden');
+        window.ModalManager.close('invite-modal');
     });
     document.getElementById('invite-copy-btn')?.addEventListener('click', async () => {
         const url = document.getElementById('invite-claim-url')?.textContent || '';
