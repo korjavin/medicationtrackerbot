@@ -1603,7 +1603,7 @@ describe('features/workout/sessions.js — split-file integration', () => {
   });
 
   it('autosaves a status change (no modal close)', async () => {
-    const { window } = env;
+    const { window, document } = env;
     installApiCache(window, {
       workout_next: { session: { id: 42, status: 'in_progress' } },
       workout_history: {
@@ -1613,8 +1613,8 @@ describe('features/workout/sessions.js — split-file integration', () => {
     });
     window.loadWorkoutHistoryTab = vi.fn();
     const closeSpy = vi.spyOn(window.ModalManager.workoutSession, 'close');
-    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
-    window.WorkoutSessionsState.originalStatus = 'in_progress';
+    window.WorkoutSessionsState.data = { id: 42, status: 'completed' };
+    window.WorkoutSessionsState.originalStatus = 'completed';
     window.WorkoutSessionsState.logs = [];
 
     const statusCalls = [];
@@ -1623,10 +1623,15 @@ describe('features/workout/sessions.js — split-file integration', () => {
       return [];
     });
 
+    // A finished session's overview Status row.
+    window.WorkoutSessions.renderLogs(document.getElementById('workout-session-logs'));
+    document.getElementById('workout-session-prog').click();
     vi.useFakeTimers();
     try {
-      // The overview's Status row (finished sessions) routes here.
-      window.WorkoutSessions.setStatus('skipped');
+      document.getElementById('workout-session-status-row').click();
+      await vi.advanceTimersByTimeAsync(50);
+      Array.from(document.querySelectorAll('.mt-confirm-modal__choice'))
+        .find((b) => b.textContent.includes('Skipped')).click();
       await vi.advanceTimersByTimeAsync(800);
     } finally {
       vi.useRealTimers();

@@ -134,17 +134,28 @@ function _statusLabel(status) {
 // -- Session takeover view state (med-xso6.21) --
 // Which exercise is on screen, whether the overview is open, the active set
 // row, the open RPE/type strip, the rest timer and the last-session history
-// cache. Lives on WorkoutSessionsState.ui (no module state); it survives a
-// reload of the same session (add exercise) and a minimise, and resets when
-// another session opens.
+// cache. Lives on WorkoutSessionsState.ui (no module state); the view (and
+// `targets`, below) survives a reload of the same session (add exercise) and
+// a minimise → reopen, and resets when another session opens. The rest timer
+// stops on minimise.
 const SESSION_REST_SECONDS = 90; // ponytail: one default rest; per-exercise rest has no field to read yet
 
 function _sessionUi() {
     const st = window.WorkoutSessionsState;
     if (!st.ui) {
-        st.ui = { sessionId: null, current: 0, overview: false, active: null, more: null, rest: null, tick: null, hist: {} };
+        st.ui = { sessionId: null, current: 0, overview: false, active: null, more: null, rest: null, tick: null, hist: {}, targets: {} };
     }
     return st.ui;
+}
+
+// Each autosave of an in-progress session mirrors the done-set count into the
+// live plan's target_sets (domain mirrorPatch), so a reopen would read a plan
+// that shrank mid-workout and drop the pending rows. `ui.targets` remembers
+// each exercise's row count for this session; a reopen never goes below it.
+// ponytail: in-memory only — a full page reload falls back to the (mirrored)
+// plan; persist per session if that bites.
+function _logKey(log) {
+    return log.exercise_id ? `id:${log.exercise_id}` : `name:${log.exercise_name}`;
 }
 
 function _wgIco(name, extraClass) {
@@ -331,6 +342,8 @@ function renderWorkoutSessionLogs(logsContainer) {
     const ui = _sessionUi();
     const logs = window.WorkoutSessionsState.logs;
     if (ui.current >= logs.length) ui.current = Math.max(0, logs.length - 1);
+    if (!ui.targets) ui.targets = {};
+    logs.forEach((l) => { ui.targets[_logKey(l)] = _targetSets(l); });
 
     _renderSessionProgress();
     if (ui.overview) {
@@ -461,8 +474,10 @@ function _buildSessionOverview() {
     wrap.appendChild(gym);
     if (st.data) _attachSessionGymSwitch(gym, { ...st.data });
 
+    // A finished session flips between Completed and Skipped only: re-opening
+    // it as In Progress has no Finish/clock/rest path in this view.
     const status = st.targetStatus || st.originalStatus;
-    if (st.data && status !== 'in_progress') {
+    if (st.data && st.data.status !== 'in_progress') {
         const row = document.createElement('button');
         row.type = 'button';
         row.id = 'workout-session-status-row';
@@ -478,7 +493,9 @@ function _buildSessionOverview() {
         val.textContent = _statusLabel(status);
         row.append(sb, val, _wgIco('chev-r', 'wg-row__chev'));
         row.addEventListener('click', async () => {
-            const picked = await safeChoose('', SESSION_STATUS_OPTIONS.map((o) => ({ ...o, selected: o.value === status })),
+            const picked = await safeChoose('', SESSION_STATUS_OPTIONS
+                .filter((o) => o.value !== 'in_progress')
+                .map((o) => ({ ...o, selected: o.value === status })),
                 { title: 'Workout status' });
             if (!picked || picked === status || !window.WorkoutSessionsState.data) return;
             setWorkoutSessionStatus(picked);
@@ -796,7 +813,7 @@ function _buildSessionExerciseCard(log, index) {
     return entry;
 }
 
-// _maybeAttachPRBadge appends a "PR" badge to a saved log card's header when the
+// _maybeAttachPRBadge adds a "PR" badge to a saved log card's meta row when the
 // log sets a new record for its exercise (Phase 3, epic med-qj4). Uses the shared
 // analysis resolver in exercise-detail.js so bot mode (no analysis module) skips
 // the history fetch entirely.
@@ -832,15 +849,15 @@ async function _maybeAttachPRBadge(headerRow, log) {
     badge.className = 'wg-tag wg-tag--sun wg-workouts-session-exercise__pr-badge';
     badge.textContent = 'PR';
     badge.title = 'New personal record';
-    // Sit next to the name (before the delete button anchored right).
+    // Second in the card's .wg-ex__meta tag row.
     headerRow.insertBefore(badge, headerRow.children[1] || null);
 }
 
 // _maybeAttachBodyPartChip appends a friendly body-part chip (Legs / Core /
-// Forearms …) to a card header when the exercise resolves to a catalog body_part
-// with a friendly translation (med-mj4). Mirrors _maybeAttachPRBadge: async,
-// guards mount + double-append, sits left of the delete button so it coexists
-// with the PR badge. Silent no-op when the shared catalog helper is absent.
+// Forearms …) to a card's meta row when the exercise resolves to a catalog
+// body_part with a friendly translation (med-mj4). Mirrors _maybeAttachPRBadge:
+// async, guards mount + double-append, coexists with the PR badge. Silent
+// no-op when the shared catalog helper is absent.
 async function _maybeAttachBodyPartChip(headerRow, log) {
     if (!log || !window.WorkoutExerciseCatalog) return;
 
@@ -857,15 +874,14 @@ async function _maybeAttachBodyPartChip(headerRow, log) {
     chip.className = 'wg-tag wg-workouts-session-exercise__bodypart-chip';
     chip.textContent = friendly;
     chip.title = 'Body part';
-    // Left of the delete button (anchored right), alongside the PR badge.
-    headerRow.insertBefore(chip, headerRow.querySelector('.exercise-log-delete-btn') || null);
+    headerRow.appendChild(chip);
 }
 
 // -- Plate-loading chip (med-v75c.2) --
 //
-// Each exercise card shows which plates to load for its working weight
-// (log.weight_kg, the max set weight kept in sync by
-// _syncLogScalarsFromSets): a glyph plus a text line solved by the domain
+// Each exercise card shows which plates to load for the active set row's
+// weight (_plateWeightFor; log.weight_kg once every row is done): a glyph
+// plus a text line solved by the domain
 // loadingFor over the exercise's bound equipment, with a nearest-achievable
 // fallback (nearestLoads, tie → below) and its delta when the exact kg is
 // unreachable. Fixed gear gets a text-only "nearest: N kg" one-liner when
@@ -932,7 +948,7 @@ function refreshSessionPlateGear() {
 
 // A remote write (another device, the MCP connector, a sync pull) touching
 // workout records while a session is open: re-read the session's gym stamp
-// (header) and re-resolve the chips — the active gym, a gym or the inventory
+// (overview gym switch) and re-resolve the chips — the active gym, a gym or the inventory
 // may have changed underneath. The UI's own writes are not 'cloud-write'.
 async function _onSessionRemoteWorkoutChange(event) {
     const detail = event && event.detail;
@@ -1051,11 +1067,6 @@ function _sessionPlateR2(v) {
     return Math.round(Number(v) * 100) / 100;
 }
 
-// _renderSessionPlateChip builds the chip for one card synchronously from
-// resolved gear. Returns true when a chip was mounted, false when the card
-// stays unchanged (no weight, unbound gear, exact fixed load, bare bar,
-// empty inventory). Every lookup is guarded and the domain solvers are
-// total, so a malformed response degrades to no chip, never a throw.
 // The weight to load: the active (next) set row's while sets remain, else the
 // working weight (max done set).
 function _plateWeightFor(log) {
@@ -1064,6 +1075,11 @@ function _plateWeightFor(log) {
     return Number(row >= 0 ? _setRowValues(log, row).weight_kg : log.weight_kg);
 }
 
+// _renderSessionPlateChip builds the chip for one card synchronously from
+// resolved gear. Returns true when a chip was mounted, false when the card
+// stays unchanged (no weight, unbound gear, exact fixed load, bare bar,
+// empty inventory). Every lookup is guarded and the domain solvers are
+// total, so a malformed response degrades to no chip, never a throw.
 function _renderSessionPlateChip(entry, log, gear) {
     if (!entry || !log || !gear || gear.failed) return false;
     if (entry.querySelector('.wg-workouts-session-exercise__plates')) return false;
@@ -1159,7 +1175,7 @@ async function _maybeAttachPlateChip(entry, log) {
 
 // _refreshSessionPlateChip re-solves a mounted card's chip after a weight
 // edit. The gear resolved once at session open, so the common path renders
-// synchronously and the chip tracks the mono line; before the first resolve
+// synchronously and the chip tracks _plateWeightFor; before the first resolve
 // lands it falls back to the async attach (whose guards make the overlap
 // with the card-build attach harmless).
 function _refreshSessionPlateChip(entry, log) {
@@ -1485,7 +1501,7 @@ async function showWorkoutSessionModal(sessionId) {
 
         const st = window.WorkoutSessionsState;
         // A re-open of the same session (add exercise, minimise → reopen) keeps
-        // the view (current exercise, rest timer); another session starts fresh.
+        // the view (current exercise, row counts); another session starts fresh.
         const sameSession = !!(st.ui && st.ui.sessionId === data.session.id);
         if (!sameSession) {
             _stopSessionTick();
@@ -1593,6 +1609,12 @@ async function showWorkoutSessionModal(sessionId) {
 
         // Fresh open: land on the first exercise with sets still to do.
         const ui = _sessionUi();
+        if (sameSession && ui.targets) {
+            st.logs.forEach((l) => {
+                const remembered = ui.targets[_logKey(l)] || 0;
+                if (remembered > (l._targetSets || 0)) l._targetSets = remembered;
+            });
+        }
         if (!sameSession) {
             const first = st.logs.findIndex((l) => !_logComplete(l));
             ui.current = first >= 0 ? first : 0;
@@ -1605,7 +1627,7 @@ async function showWorkoutSessionModal(sessionId) {
         window.ModalManager.workoutSession.open();
         const modal = document.getElementById('workout-session-modal');
         if (modal && window.WGIcons && typeof window.WGIcons.hydrate === 'function') window.WGIcons.hydrate(modal);
-        if (data.session.status === 'in_progress' || ui.rest) _ensureSessionTick();
+        if (data.session.status === 'in_progress') _ensureSessionTick();
 
         // Add click handler to overlay to close modal
         overlay.onclick = function (e) {
@@ -1634,15 +1656,9 @@ function updateLocalLog(index, field, value) {
     }
     // Mark as dirty so it gets saved
     logs[index]._dirty = true;
-    // Update visual state — remove dim styling
+    // A flat weight edit moves the working weight — re-solve the plate chip.
     const el = document.getElementById(`exercise-log-${index}`);
-    if (el) {
-        el.classList.remove('unsaved');
-        const hint = el.querySelector('.exercise-log-unsaved-hint');
-        if (hint) hint.remove();
-        // A flat weight edit moves the working weight — re-solve the plate chip.
-        if (field === 'weight_kg') _refreshSessionPlateChip(el, logs[index]);
-    }
+    if (el && field === 'weight_kg') _refreshSessionPlateChip(el, logs[index]);
     scheduleAutosave();
 }
 
@@ -1811,7 +1827,6 @@ function _buildFinishSummary() {
 // Footer (kit .wg-session-foot): prev / next exercise and, while the workout
 // runs, Finish.
 function renderSessionDetailActions(container, opts) {
-    container.classList.add('wg-workouts-session-actions');
     container.replaceChildren();
 
     const onFinish = (opts && typeof opts.onFinish === 'function') ? opts.onFinish : () => {};
@@ -2023,6 +2038,10 @@ async function saveWorkoutSessionDetails(opts) {
             // we restore the flags so the pending edit is retried, not lost.
             const sentSets = !!(log._setsDirty && Array.isArray(log.sets));
             const setsPayload = sentSets ? log.sets.map((s) => ({ ...s })) : null;
+            // Nothing done (a notes-only planned row, or every set un-ticked):
+            // its weight is a placeholder 0, and the domain mirrors a sent weight
+            // into the plan target — omit it so the plan keeps its weight.
+            const weightField = Number(log.sets_completed) > 0 ? parseFloat(log.weight_kg) : undefined;
             try {
                 if (log.id && log.id > 0) {
                     // Existing log — always update
@@ -2033,7 +2052,7 @@ async function saveWorkoutSessionDetails(opts) {
                         id: log.id,
                         sets_completed: Math.round(log.sets_completed),
                         reps_completed: Math.round(log.reps_completed),
-                        weight_kg: parseFloat(log.weight_kg),
+                        ...(weightField !== undefined ? { weight_kg: weightField } : {}),
                         notes: log.notes || '',
                         // Per-set array rides alongside the derived flat scalars, but
                         // only when the user actually edited the SETS (_setsDirty),
@@ -2063,7 +2082,7 @@ async function saveWorkoutSessionDetails(opts) {
                         exercise_name: log.exercise_name,
                         target_sets: Math.round(log.sets_completed),
                         target_reps_min: Math.round(log.reps_completed),
-                        target_weight_kg: parseFloat(log.weight_kg),
+                        ...(weightField !== undefined ? { target_weight_kg: weightField } : {}),
                         status: 'completed',
                         notes: log.notes || '',
                         ...(setsPayload ? { sets: setsPayload } : {})
@@ -2598,8 +2617,6 @@ window.WorkoutSessions = {
     renderHeader: renderWorkoutSessionHeader,
     setLocation: setWorkoutSessionLocation,
     refreshGear: refreshSessionPlateGear,
-    setStatus: setWorkoutSessionStatus,
-    toggleOverview: toggleWorkoutSessionOverview,
     renderLogs: renderWorkoutSessionLogs,
     renderActions: renderSessionDetailActions,
     updateLog: updateLocalLog,

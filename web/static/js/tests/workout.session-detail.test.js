@@ -232,6 +232,7 @@ describe('Workout session takeover (med-xso6.21)', () => {
         expect(w.querySelector('small').textContent).toBe('last');
         expect(r.textContent).toContain('7');
 
+        vi.useFakeTimers(); // so the autosave debounce could fire below
         w.click();
         let cells = setRows(document)[1].querySelectorAll('.wg-set__cell');
         expect(cells[0].classList.contains('wg-set__cell--ghost')).toBe(false);
@@ -243,8 +244,39 @@ describe('Workout session takeover (med-xso6.21)', () => {
         cells = setRows(document)[1].querySelectorAll('.wg-set__cell');
         expect(cells[0].firstChild.textContent).toBe('65');
         expect(cells[1].firstChild.textContent).toBe('8');
-        // Pending rows are local only — nothing was written yet.
+        // Pending rows are local only — nothing is written, even after the
+        // autosave debounce.
+        await vi.advanceTimersByTimeAsync(900);
         expect(window.apiCall).not.toHaveBeenCalledWith('/api/workout/sessions/logs/update', 'POST', expect.anything(), expect.anything());
+    });
+
+    it('un-ticking the only done set saves without a weight, so the plan keeps its target', async () => {
+        const { window, document } = env;
+        await openSession(window, [logFixture({ sets_completed: 1, sets: [
+            { set_index: 0, weight_kg: 60, reps: 8, set_type: 'normal' }
+        ] })], undefined, (endpoint) => (endpoint.includes('/logs/update') ? { ok: true } : undefined));
+
+        vi.useFakeTimers();
+        setRows(document)[0].querySelector('.wg-set__done').click();
+        await vi.advanceTimersByTimeAsync(900);
+        const call = window.apiCall.mock.calls.find((c) => c[0] === '/api/workout/sessions/logs/update');
+        expect(call).toBeDefined();
+        expect(call[2]).toMatchObject({ id: 1, sets_completed: 0, sets: [] });
+        expect('weight_kg' in call[2]).toBe(false);
+    });
+
+    it('a minimise → reopen keeps the pending rows though autosave mirrored the plan down', async () => {
+        const { window, document } = env;
+        const plan = { id: 10, exercise_name: 'Bench', target_sets: 3, target_reps_min: 8, target_weight_kg: 60 };
+        await openSession(window, [logFixture({ sets_completed: 1 })], { variant_id: 5 },
+            (endpoint) => (endpoint.startsWith('/api/workout/exercises?variant_id=') ? [{ ...plan }] : undefined));
+        expect(setRows(document).length).toBe(3);
+
+        plan.target_sets = 1; // the domain mirrored the done count into the plan
+        await window.closeWorkoutSessionModal();
+        await window.showWorkoutSessionModal(77);
+        expect(setRows(document).length).toBe(3);
+        expect(setRows(document).filter((r) => r.classList.contains('wg-set--done')).length).toBe(1);
     });
 
     it('RPE and set type sit behind the row index toggle', async () => {
@@ -360,11 +392,14 @@ describe('Workout session takeover (med-xso6.21)', () => {
 
         document.getElementById('workout-session-status-row').click();
         await vi.waitFor(() => expect(document.querySelector('.mt-confirm-modal__choice')).not.toBeNull());
-        const skipped = Array.from(document.querySelectorAll('.mt-confirm-modal__choice'))
-            .find((b) => b.textContent.includes('Skipped'));
-        skipped.click();
+        const choices = Array.from(document.querySelectorAll('.mt-confirm-modal__choice'));
+        // No way back to In Progress from a finished session (no Finish path here).
+        expect(choices.some((b) => b.textContent.includes('In Progress'))).toBe(false);
+        choices.find((b) => b.textContent.includes('Skipped')).click();
         await vi.waitFor(() => expect(window.WorkoutSessionsState.targetStatus).toBe('skipped'));
         expect(document.getElementById('workout-session-modal-status').textContent).toBe('Skipped');
+        // The row stays, so the pick can be reverted.
+        expect(document.getElementById('workout-session-status-row')).not.toBeNull();
     });
 
     // renderSessionDetailActions reads the open session's status off
