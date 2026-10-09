@@ -323,6 +323,66 @@ describe('features/workout/sessions.js — split-file integration', () => {
       return Array.from(mount.querySelectorAll('.wg-exercise-suggest__row')).map((b) => b.textContent);
     }
 
+    // med-xso6.31: closing the session with Add-exercise open left the
+    // sub-modal floating, overlay-less, over the next tab.
+    const isHidden = (document, id) => document.getElementById(id).classList.contains('hidden');
+
+    it('closing the session (×) with Add exercise open hides the sub-modal and the overlay', async () => {
+      const { window, document } = env;
+      stubSessionPicker(window);
+      window.ModalManager.workoutSession.open();
+      await window.showAddExerciseToSessionModal();
+      expect(isHidden(document, 'workout-add-exercise-to-session-modal')).toBe(false);
+
+      // The header × is bound to closeWorkoutSessionModal (workout/index.js).
+      await window.closeWorkoutSessionModal();
+
+      expect(window.WorkoutSessionsState.data).toBeNull();
+      expect(isHidden(document, 'workout-add-exercise-to-session-modal')).toBe(true);
+      expect(isHidden(document, 'workout-session-modal')).toBe(true);
+      expect(isHidden(document, 'modal-overlay')).toBe(true);
+    });
+
+    it('Finish with Add exercise open hides the sub-modal and the overlay', async () => {
+      const { window, document } = env;
+      installApiCache(window);
+      stubSessionPicker(window);
+      window.loadWorkoutHistoryTab = vi.fn();
+      window.WorkoutSessionsState.originalStatus = 'in_progress';
+      window.WorkoutSessionsState.logs = [];
+      window.renderWorkoutSessionInfo(document.getElementById('workout-session-info'), {
+        id: 77, status: 'in_progress', scheduled_date: '2026-04-22', scheduled_time: '09:00', variant_name: 'Push'
+      });
+      window.ModalManager.workoutSession.open();
+      await window.showAddExerciseToSessionModal();
+      const pickerApi = window.apiCall;
+      window.apiCall = vi.fn(async (endpoint, ...rest) => (
+        endpoint.startsWith('/api/workout/sessions/status') ? { ok: true } : pickerApi(endpoint, ...rest)
+      ));
+
+      await window.finishWorkoutSession();
+
+      await vi.waitFor(() => expect(window.WorkoutSessionsState.data).toBeNull());
+      expect(isHidden(document, 'workout-add-exercise-to-session-modal')).toBe(true);
+      expect(isHidden(document, 'modal-overlay')).toBe(true);
+    });
+
+    it('never opens the sub-modal when the session closes while the picker is loading', async () => {
+      const { window, document } = env;
+      stubSessionPicker(window);
+      const picker = deferred();
+      window.WorkoutLibrary.bindExercisePicker = vi.fn(() => picker.promise);
+      window.ModalManager.workoutSession.open();
+
+      const opening = window.showAddExerciseToSessionModal();
+      await window.closeWorkoutSessionModal();
+      picker.resolve();
+      await opening;
+
+      expect(isHidden(document, 'workout-add-exercise-to-session-modal')).toBe(true);
+      expect(isHidden(document, 'modal-overlay')).toBe(true);
+    });
+
     it('opens with NO suggestion list at all while the name field is empty', async () => {
       const { window, document } = env;
       stubSessionPicker(window);

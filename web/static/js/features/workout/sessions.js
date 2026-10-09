@@ -1313,6 +1313,10 @@ async function closeWorkoutSessionModal() {
     }
     const overlay = document.getElementById('modal-overlay');
     overlay.onclick = null; // Remove click handler
+    // med-xso6.31: every session close (Finish, ×, overlay, Back, flush) routes
+    // here; the Add-exercise sub-modal must go with it or it floats, overlay-less,
+    // over whatever tab shows next.
+    window.ModalManager.workoutAddExerciseToSession.close();
     window.ModalManager.workoutSession.close();
     window.WorkoutSessionsState.data = null;
     window.WorkoutSessionsState.originalStatus = null;
@@ -1806,6 +1810,8 @@ async function showAddExerciseToSessionModal() {
         mount: document.getElementById('session-add-exercise-suggest'),
         onPick: onSessionExercisePicked
     });
+    // The session may have closed while the picker loaded (med-xso6.31).
+    if (!window.WorkoutSessionsState.data) return;
 
     window.ModalManager.workoutAddExerciseToSession.open();
 
