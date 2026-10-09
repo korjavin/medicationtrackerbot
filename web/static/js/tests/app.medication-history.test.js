@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { clickRowAction, loadFrontendEnv } from './helpers/frontend-harness.js';
 
 function toLocalTime(date) {
   return date.toTimeString().slice(0, 5);
@@ -109,9 +109,9 @@ describe('app.js medication, history and intake flows', () => {
 
       const soonCard = Array.from(document.querySelectorAll('#med-list .med-item'))
         .find((el) => el.textContent.includes('Soon Med'));
-      soonCard.querySelector('.icon-action-btn:not(.delete)').click(); // Edit button
+      clickRowAction(soonCard, 'Edit');
       soonCard.querySelector('.btn-sm').click();
-      soonCard.querySelector('.icon-action-btn.delete').click();
+      clickRowAction(soonCard, 'Delete');
 
       expect(editSpy).toHaveBeenCalledWith(1);
       expect(logSpy).toHaveBeenCalledWith(1, 'Soon Med');

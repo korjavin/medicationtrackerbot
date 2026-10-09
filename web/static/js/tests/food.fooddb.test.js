@@ -8,7 +8,7 @@
 // `.wg-food-db-panel__empty` hint instead of the legacy `.hint` class.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { clickRowAction, loadFrontendEnv } from './helpers/frontend-harness.js';
 
 describe('Food → Food DB panel (Phase 4 follow-up, Task 5)', () => {
     let env;
@@ -142,6 +142,21 @@ describe('Food → Food DB panel (Phase 4 follow-up, Task 5)', () => {
             expect(card.querySelector('.food-db-macros')).not.toBeNull();
             expect(card.querySelector('.food-db-meta')).not.toBeNull();
         });
+
+        // Row actions: the overflow menu edits/deletes; neither autofills
+        // (a tap on the card body picks the product).
+        const editSpy = vi.spyOn(window, 'showEditFoodProductModal').mockImplementation(() => {});
+        const deleteSpy = vi.spyOn(window, 'deleteFoodProduct').mockImplementation(() => {});
+        const pickSpy = vi.spyOn(window, 'autofillFoodProduct').mockImplementation(() => {});
+        expect(cards[0].classList.contains('wg-swipe')).toBe(true);
+        clickRowAction(cards[0], 'Edit');
+        clickRowAction(cards[0], 'Delete');
+        expect(editSpy).toHaveBeenCalledTimes(1);
+        expect(deleteSpy).toHaveBeenCalledTimes(1);
+        expect(pickSpy).not.toHaveBeenCalled();
+        editSpy.mockRestore();
+        deleteSpy.mockRestore();
+        pickSpy.mockRestore();
     });
 
     it('renderFoodDBList empty-state uses .wg-food-db-panel__empty (not legacy .hint)', () => {
