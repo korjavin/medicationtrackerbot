@@ -1,0 +1,47 @@
+/* MedTracker App UI kit v2 — foundations. Wandergeek palette kept; semantic + control tokens added. */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600&display=swap');
+:root{
+/* palette (unchanged Wandergeek) */
+--wg-paper:#F4FBF7;--wg-ink:#0F5042;--wg-teal:#2D544F;--wg-sage:#56AC8A;--wg-mint:#9CE4CC;--wg-mint-mid:#8FC5BC;
+--wg-sun:#FBBD0D;--wg-sun-hi:#FFD14A;--wg-sun-deep:#E5A600;--wg-sun-soft:#FFD870;
+--wg-clay:#C6553A;--wg-clay-hi:#D8624A;--wg-clay-deep:#A8442C;--wg-clay-soft:#F3A693;
+--wg-sky:#3FA3E5;--wg-sky-soft:#9FD0F2;--wg-violet:#7A5DB8;--wg-orchid:#C983D9;--wg-leaf:#5CC47B;
+/* surfaces (dark only) */
+--wg-bg-stage:#0A1A18;--wg-bg-screen:#132D29;--wg-bg-card:#21423D;--wg-bg-card-hi:#2A4E48;--wg-bg-sheet:#24453F;
+--wg-bg-inset-a:#162F2B;--wg-bg-inset-b:#1C3934;--wg-bg-raised-a:#3C6B65;--wg-bg-raised-b:#264742;--wg-bg-float:#0E2421;
+/* text */
+--wg-fg-1:#F4FBF7;--wg-fg-2:rgba(244,251,247,.76);--wg-fg-3:rgba(244,251,247,.6);--wg-fg-4:rgba(244,251,247,.36);--wg-fg-on-sun:#1A1200;--wg-fg-on-clay:#FFFFFF;
+--wg-line:rgba(255,255,255,.07);--wg-line-strong:rgba(255,255,255,.14);--wg-line-dark:rgba(0,0,0,.28);
+/* semantic status — every chip, tag, row state and banner reads from these five */
+--wg-ok-fg:#9CE4CC;--wg-ok-bg:rgba(86,172,138,.18);--wg-ok-line:rgba(86,172,138,.38);
+--wg-warn-fg:#FFD870;--wg-warn-bg:rgba(251,189,13,.14);--wg-warn-line:rgba(251,189,13,.34);
+--wg-danger-fg:#F3A693;--wg-danger-bg:rgba(198,85,58,.2);--wg-danger-line:rgba(198,85,58,.45);
+--wg-stale-fg:rgba(244,251,247,.66);--wg-stale-bg:rgba(244,251,247,.05);--wg-stale-line:rgba(244,251,247,.24);
+--wg-pending-fg:#9FD0F2;--wg-pending-bg:rgba(63,163,229,.14);--wg-pending-line:rgba(63,163,229,.36);
+/* type */
+--wg-font-mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+--wg-font-ui:'Space Grotesk',ui-sans-serif,-apple-system,system-ui,sans-serif;
+--wg-fs-eyebrow:10.5px;--wg-fs-xs:12px;--wg-fs-sm:13px;--wg-fs-md:14px;--wg-fs-lg:16px;--wg-fs-xl:18px;--wg-fs-title:22px;--wg-fs-metric:28px;--wg-fs-hero:36px;
+--wg-track-eyebrow:.14em;
+/* space · radius · size */
+--wg-s1:4px;--wg-s2:8px;--wg-s3:12px;--wg-s4:16px;--wg-s5:20px;--wg-s6:24px;--wg-s8:32px;
+--wg-r-xs:6px;--wg-r-sm:9px;--wg-r-md:12px;--wg-r-lg:16px;--wg-r-xl:22px;--wg-r-pill:999px;
+--wg-h-sm:36px;--wg-h-md:44px;--wg-h-lg:52px;--wg-hit:44px;
+/* material */
+--wg-gloss-hi:linear-gradient(180deg,rgba(255,255,255,.16) 0%,rgba(255,255,255,0) 52%);
+--wg-raised:var(--wg-gloss-hi),linear-gradient(180deg,var(--wg-bg-raised-a) 0%,var(--wg-bg-raised-b) 100%);
+--wg-sunfill:linear-gradient(180deg,rgba(255,255,255,.34) 0%,rgba(255,255,255,0) 55%),linear-gradient(180deg,var(--wg-sun-hi) 0%,var(--wg-sun-deep) 100%);
+--wg-clayfill:linear-gradient(180deg,rgba(255,255,255,.26) 0%,rgba(255,255,255,0) 55%),linear-gradient(180deg,var(--wg-clay-hi) 0%,var(--wg-clay-deep) 100%);
+--wg-sagefill:linear-gradient(180deg,rgba(255,255,255,.26) 0%,rgba(255,255,255,0) 55%),linear-gradient(180deg,#6CC29E 0%,#3E8E6E 100%);
+--wg-inset:linear-gradient(180deg,var(--wg-bg-inset-a) 0%,var(--wg-bg-inset-b) 100%);
+--wg-sh-raised:inset 0 1px 0 rgba(255,255,255,.2),inset 0 -1px 0 rgba(0,0,0,.25),0 2px 0 rgba(0,0,0,.2),0 6px 14px -6px rgba(0,0,0,.4);
+--wg-sh-sun:inset 0 1px 0 rgba(255,255,255,.55),inset 0 -1px 0 rgba(0,0,0,.16),0 2px 0 rgba(150,100,0,.45),0 6px 16px -4px rgba(251,189,13,.38);
+--wg-sh-inset:inset 0 2px 4px rgba(0,0,0,.36),inset 0 -1px 0 rgba(255,255,255,.03);
+--wg-sh-card:inset 0 1px 0 rgba(255,255,255,.07),inset 0 -1px 0 rgba(0,0,0,.2),0 1px 0 rgba(0,0,0,.3);
+--wg-sh-float:0 18px 40px -12px rgba(0,0,0,.7),0 0 0 1px rgba(255,255,255,.06);
+--wg-focus:0 0 0 3px rgba(251,189,13,.32);
+--wg-ease:cubic-bezier(.2,.7,.2,1);--wg-dur-fast:140ms;--wg-dur:220ms;
+--wg-z-tabbar:40;--wg-z-sheet:60;--wg-z-dialog:80;--wg-z-toast:90;
+/* layout */
+--wg-tabbar-h:84px;--wg-kb-h:291px;
+}
