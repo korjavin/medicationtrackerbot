@@ -26,7 +26,8 @@ const cases = [
     {
         name: 'EditFoodModal',
         modalId: 'food-modal',
-        headerActionsClass: 'wg-food-modal__header-actions',
+        headerActionsClass: 'wg-sheethead__acts',
+        sheet: true,
         legacyActionsSelector: '#food-modal .wg-food-modal__actions',
         cancelBtnId: 'food-modal-cancel-btn',
         primaryBtnId: 'food-modal-save-btn',
@@ -236,6 +237,7 @@ describe('flow sheets put their primary in .wg-sheet__foot', () => {
         ['workout-start-modal', 'workout-start-dismiss-btn', 'workout-start-now-btn'],
         ['brief-modal', 'brief-cancel-btn', 'brief-print-btn'],
         ['invite-modal', 'invite-close-btn', 'invite-copy-btn'],
+        ['food-add-sheet', 'food-add-close-btn', 'food-add-primary-btn'],
     ])('%s: dismiss in the header, one primary in the foot', (modalId, dismissId, primaryId) => {
         const { document } = env;
         const modal = document.getElementById(modalId);

@@ -99,6 +99,9 @@ window.healthOverviewCacheKey = healthOverviewCacheKey;
 // Fetchers for every key Today reads from IndexedDB. Calling fetchFresh with
 // these tags both populates the cache and registers the key→tag mapping, so
 // future tag invalidations can evict the entry.
+// Next up's missed-dose source: GET /api/history?days=1 (the Meds badge's read).
+const TODAY_HISTORY_KEY = 'history_1_';
+
 function todayFetchSpecs(foodKey) {
     return {
         settings_bundle: {
@@ -110,6 +113,12 @@ function todayFetchSpecs(foodKey) {
             feature: 'medication',
             tags: ['history', 'medications'],
             fetch: fetchNextIntakePayload
+        },
+        // Same key family (and row shape) as Meds → History's 1-day view.
+        [TODAY_HISTORY_KEY]: {
+            feature: 'medication',
+            tags: ['history', 'medications'],
+            fetch: () => apiCall('/api/history?days=1')
         },
         bp: {
             feature: 'bp',
@@ -269,9 +278,11 @@ async function _todayReadCaches(foodKey) {
             : null;
         const hoKey = healthOverviewCacheKey();
         if (readMeta) {
-            const keys = ['settings_bundle', 'next_intake', 'medications', 'bp', 'weight', 'workout_next', hoKey, foodKey, 'gamification_goal_line'];
+            const keys = ['settings_bundle', 'next_intake', 'medications', 'bp', 'weight', 'workout_next', hoKey, foodKey, 'gamification_goal_line', TODAY_HISTORY_KEY];
             const metas = await Promise.all(keys.map(readMeta));
-            const [bundleM, nextIntakeM, medsM, bpM, weightM, workoutM, healthM, foodM, gamM] = metas;
+            const [bundleM, nextIntakeM, medsM, bpM, weightM, workoutM, healthM, foodM, gamM, historyM] = metas;
+            // Intake history (24h) — Next up's missed doses (PENDING past slots).
+            if (Array.isArray(historyM?.data)) bootstrap.intake_history = historyM.data;
             if (bundleM?.data) {
                 bootstrap.features = bundleM.data.featureSettings || bootstrap.features;
                 bootstrap.settings = { food_targets: bundleM.data.foodTargets };
@@ -335,10 +346,11 @@ async function _todayReadCaches(foodKey) {
                 trackTs(m.timestamp);
             }
         } else if (window.DataStore && typeof window.DataStore.getCached === 'function') {
-            const keys = ['settings_bundle', 'next_intake', 'medications', 'bp', 'weight', 'workout_next', hoKey, foodKey, 'gamification_goal_line'];
-            const [bundle, nextIntake, meds, bp, weight, workout, health, food, gam] = await Promise.all(
+            const keys = ['settings_bundle', 'next_intake', 'medications', 'bp', 'weight', 'workout_next', hoKey, foodKey, 'gamification_goal_line', TODAY_HISTORY_KEY];
+            const [bundle, nextIntake, meds, bp, weight, workout, health, food, gam, history] = await Promise.all(
                 keys.map((k) => window.DataStore.getCached(k).catch(() => null))
             );
+            if (Array.isArray(history)) bootstrap.intake_history = history;
             if (bundle) {
                 bootstrap.features = bundle.featureSettings || bootstrap.features;
                 bootstrap.settings = { food_targets: bundle.foodTargets };
@@ -415,7 +427,7 @@ function _todayGoalLineFromPastDay(swrCaches) {
     return gl.day !== today;
 }
 
-async function _todayRender(foodKey) {
+async function _todayRender(foodKey, settled) {
     const root = document.getElementById('today-content');
     if (!root || !window.TodayDashboard) return { rendered: false };
     const { bootstrap, swrCaches, latestCacheTimestamp, cardOrder } = await _todayReadCaches(foodKey);
@@ -432,12 +444,13 @@ async function _todayRender(foodKey) {
     });
     if (latestCacheTimestamp === null) {
         // No cached entry of any kind means bootstrap has never loaded on this
-        // device — show the first-run "connect to load your day" message rather
+        // device — renderToday shows the cold-start skeleton (T6), the offline
+        // state, or (once the refetch has settled) an error with Retry, rather
         // than a grid of empty cards. Empty but cached bootstrap (new account
-        // with no data yet) still renders the grid.
+        // with no data yet) still renders the layout with its empty states.
         state.__firstRun = true;
     }
-    window.TodayDashboard.renderToday(state, root, { now: nowMs, cardOrder });
+    window.TodayDashboard.renderToday(state, root, { now: nowMs, cardOrder, offline: !online, settled: settled === true });
     return { rendered: true, bootstrap, swrCaches, online };
 }
 
@@ -495,7 +508,9 @@ async function loadToday() {
                 ? window.WGCallAgent.getState()
                 : null;
             if (call && (call.state === 'connecting' || call.state === 'in_call')) return;
-            _todayRender(todayFoodKey(new Date())).then((rctx) => {
+            // Settled only once no refetch is in flight — a cold start keeps its
+            // skeleton until the first refetch finishes, never error + Retry.
+            _todayRender(todayFoodKey(new Date()), !_todayLoaderState.refreshInFlight).then((rctx) => {
                 // The Goal Line payload is day-relative (weighed_today, cta, BP
                 // recorded today, this week's workouts) and no tag fires at
                 // midnight — a payload fetched on an earlier local day refetches.
@@ -572,6 +587,10 @@ async function loadToday() {
             if (isFeatureDisabled(spec.feature)) return false;
             return true;
         });
+        // Intake history likewise: doses come due (and get confirmed from a
+        // reminder) with no event on this device, so Next up's missed rows
+        // refetch on every Today load.
+        if (!isFeatureDisabled('medication')) missing.push(TODAY_HISTORY_KEY);
         // Food can be written from outside this client (Telegram /food and /intake
         // commands), and bootstrap advances the change cursor without including
         // today's food log payload — so a bot write between sessions leaves a
@@ -596,7 +615,7 @@ async function loadToday() {
         _todayLoaderState.refreshInFlight = false;
     }
     if (window.AppStore && window.AppStore.get('currentTab') === 'today') {
-        await _todayRender(foodKey);
+        await _todayRender(foodKey, true);
     }
 }
 

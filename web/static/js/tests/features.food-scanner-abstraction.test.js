@@ -1,9 +1,9 @@
 // Integration tests for the Phase 2b Task 7 abstraction seam in
 // features/food/scanner.js. Pins the contract that scanner.js calls into
 // window.Barcode.scan and window.MediaCapture.pickPhoto, and that a decoded
-// rawValue still routes into the food form fields (the existing handler
-// chain — onFoodBarcodeChange + safeAlert + closeFoodScannerModal — is
-// unchanged by the refactor).
+// rawValue still routes into the manual form's fields when the scan was
+// started from it (onFoodBarcodeChange + closeFoodScannerModal); every other
+// scan goes to the Add sheet (food.add-sheet.test.js).
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
@@ -45,7 +45,9 @@ describe('features/food/scanner.js — Phase 2b abstraction seam (Task 7)', () =
         const onChangeSpy = vi.fn();
         window.onFoodBarcodeChange = onChangeSpy;
 
-        // Open the modal so closeFoodScannerModal has something to close.
+        // Scanning from the manual form (More → Scan): the decode fills its
+        // fields. Open the scanner so closeFoodScannerModal has something to close.
+        document.getElementById('food-modal').classList.remove('hidden');
         window.openFoodScannerModal();
         const modal = document.getElementById('food-scanner-modal');
         expect(modal.classList.contains('hidden')).toBe(false);
@@ -133,8 +135,9 @@ describe('features/food/scanner.js — Phase 2b abstraction seam (Task 7)', () =
         const onChangeSpy = vi.fn();
         window.onFoodBarcodeChange = onChangeSpy;
 
-        // Open + arm the loop, then call it manually (one tick) so we don't
-        // depend on the setTimeout chain.
+        // Open + arm the loop from the manual form, then call it manually
+        // (one tick) so we don't depend on the setTimeout chain.
+        document.getElementById('food-modal').classList.remove('hidden');
         window.openFoodScannerModal();
         window.FoodScanner._setRunning(true);
         await window.scanFrameLoop();

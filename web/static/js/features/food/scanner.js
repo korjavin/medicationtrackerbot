@@ -58,15 +58,19 @@ function handleDecodedValue(rawValue) {
     const { text, numeric } = sanitizeScannedValue(rawValue);
     if (!text) return false;
 
-    if (numeric) {
-        const barcodeInput = document.getElementById('food-barcode');
-        barcodeInput.value = numeric;
+    // The manual form scans into its own fields; every other scan (the Add
+    // sheet tile, Today's Scan shortcut) looks the code up in the Add sheet.
+    const form = document.getElementById('food-modal');
+    const intoForm = !!form && !form.classList.contains('hidden');
+    closeFoodScannerModal();
+    if (!intoForm) {
+        window.FoodLog.addSheet.onScan(text, numeric);
+    } else if (numeric) {
+        document.getElementById('food-barcode').value = numeric;
         onFoodBarcodeChange();
     } else {
-        const nameInput = document.getElementById('food-name');
-        nameInput.value = text;
+        document.getElementById('food-name').value = text;
     }
-    closeFoodScannerModal();
     return true;
 }
 

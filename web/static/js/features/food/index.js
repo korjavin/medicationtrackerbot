@@ -21,15 +21,6 @@
 // Load order: this file MUST be loaded last in the food sub-tree because
 // `bindFoodControls` references handlers declared in the other files.
 
-function renderFoodModalIcons() {
-    if (!window.WGIcons || typeof window.WGIcons.iconSvg !== 'function') return;
-    const scanBtn = document.getElementById('food-scan-btn');
-    if (scanBtn && !scanBtn.querySelector('svg')) {
-        const icon = window.WGIcons.iconSvg('barcode', { size: 14 });
-        scanBtn.insertBefore(icon, scanBtn.firstChild);
-    }
-}
-
 // Food sub-tab strip (med-ejq.3). Same shape as switchMedTab /
 // switchWorkoutTab: TabController owns the pane, `.active` and aria-pressed.
 function switchFoodTab(tab) {
@@ -109,8 +100,6 @@ function switchFoodTab(tab) {
         });
 
         bindClick('add-food-inline-btn', () => showAddFoodModal());
-        // ponytail: photo stays one tap away on populated days until the Add sheet (med-xso6.17) owns it.
-        bindClick('food-photo-btn', () => triggerFoodPhotoPicker());
         bindChange('food-photo-input', (e) => uploadFoodPhoto(e.target));
 
         window.TabController.bindTabGroup({
@@ -160,16 +149,20 @@ function switchFoodTab(tab) {
         bindChange('food-per-100g', () => onFoodPer100gChange());
         bindFocus('food-calories', () => onFoodCaloriesFocus());
 
-        if (typeof bindFoodParseAIToggle === 'function') {
-            bindFoodParseAIToggle();
-        }
+        document.querySelectorAll('#food-per-100g-seg .wg-seg__opt').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                setFoodPer100g(btn.dataset.per100g === 'true');
+                calculateFoodCalories(true);
+            });
+        });
+        bindClick('food-datetime-btn', () => openFoodDatetimePicker());
+        bindChange('food-datetime', () => syncFoodDatetimeLabel());
 
         bindClick('food-scanner-use-photo-btn', () => openPhotoPickerAndDecode());
         bindClick('food-scanner-close-btn', () => closeFoodScannerModal());
         bindClick('food-product-cancel-btn', () => closeFoodProductModal());
         bindClick('food-product-save-btn', () => saveFoodProduct());
 
-        renderFoodModalIcons();
     }
 
     if (document.readyState === 'loading') {

@@ -70,6 +70,15 @@ describe('app.js charts, scanner and visualization helpers', () => {
       expect(window.sanitizeScannedValue('ean: 1234567890123')).toEqual({ text: 'ean: 1234567890123', numeric: '1234567890123' });
       expect(window.sanitizeScannedValue('abc')).toEqual({ text: 'abc', numeric: '' });
 
+      // Not scanning into the manual form → the Add sheet looks the code up.
+      const onScan = vi.spyOn(window.FoodLog.addSheet, 'onScan').mockResolvedValue(undefined);
+      expect(window.handleDecodedValue('ean: 1234567890123')).toBe(true);
+      expect(onScan).toHaveBeenCalledWith('ean: 1234567890123', '1234567890123');
+      expect(barcodeChangeSpy).not.toHaveBeenCalled();
+      closeScannerSpy.mockClear();
+
+      // The manual form open → the scan fills its fields.
+      document.getElementById('food-modal').classList.remove('hidden');
       document.getElementById('food-barcode').value = '';
       expect(window.handleDecodedValue('ean: 1234567890123')).toBe(true);
       expect(document.getElementById('food-barcode').value).toBe('1234567890123');
