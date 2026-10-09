@@ -26,7 +26,7 @@
         ai: {
             title: 'Use the trial AI key?',
             data: 'Your meal descriptions and meal photos will be sent to an AI model for parsing.',
-            transit: 'This content transits the operator’s OpenAI account — the operator’s provider processes it on the operator’s key.',
+            transit: 'This content transits the operator’s AI provider account (OpenAI or Anthropic, the operator’s choice) — the operator’s provider processes it on the operator’s key.',
         },
         voice: {
             title: 'Use the trial voice agent?',
@@ -36,7 +36,7 @@
         tg: {
             title: 'Let the Telegram assistant use the trial AI?',
             data: 'Your Telegram messages AND the health data the assistant reads from your vault to answer them — blood pressure history, notes, and other records — will be sent to an AI model. The in-app story narrator shares this consent: it sends computed health summaries (weekly weight-goal progress, workout and blood-pressure stats) to the same model.',
-            transit: 'This content transits the operator’s OpenAI account — the operator’s provider processes it on the operator’s key.',
+            transit: 'This content transits the operator’s AI provider account (OpenAI or Anthropic, the operator’s choice) — the operator’s provider processes it on the operator’s key.',
         },
     };
     const ALTERNATIVE = 'Alternative: add your own key in Settings → Integrations, and this data goes only to your own provider account.';

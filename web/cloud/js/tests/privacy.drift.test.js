@@ -77,9 +77,9 @@ describe('operator-visibility page ↔ leakage table (med-d5t.9)', () => {
 
   it('names the honest exposures the bead calls out, beyond the table rows', () => {
     const text = PRIVACY_ITEMS.map((i) => `${i.title} ${i.detail}`).join(' ').toLowerCase();
-    // Trial-AI prompts go to the operator's OpenAI key.
+    // Trial-AI prompts go to the operator's AI provider (OpenAI or Anthropic).
     expect(text).toMatch(/trial ai/);
-    expect(text).toMatch(/operator's openai/);
+    expect(text).toMatch(/operator's ai provider account/);
     // Inbound Telegram content is transiently visible before sealing.
     expect(text).toMatch(/telegram delivers your messages to the bot in the clear/);
   });

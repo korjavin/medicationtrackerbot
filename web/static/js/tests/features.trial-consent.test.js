@@ -50,7 +50,7 @@ describe('features/trial-consent.js — disclosure dialog + retry seam', () => {
         return env.document.querySelector('.wg-trial-consent-modal');
     }
 
-    it('ai dialog names meal descriptions + photos, the operator’s OpenAI account, and the BYO alternative', () => {
+    it('ai dialog names meal descriptions + photos, the operator’s AI provider account, and the BYO alternative', () => {
         env.window.TrialConsent.request('ai');
         const el = modal();
         expect(el).not.toBeNull();
@@ -58,7 +58,7 @@ describe('features/trial-consent.js — disclosure dialog + retry seam', () => {
         const text = el.textContent;
         expect(text).toMatch(/meal descriptions/i);
         expect(text).toMatch(/photos/i);
-        expect(text).toMatch(/operator[’']s OpenAI account/i);
+        expect(text).toMatch(/operator[’']s AI provider account \(OpenAI or Anthropic/i);
         expect(text).toMatch(/Settings → Integrations/);
         expect(text).toMatch(/your own key/i);
         el.querySelector('[data-trial-consent-choice="deny"]').click();
@@ -70,7 +70,7 @@ describe('features/trial-consent.js — disclosure dialog + retry seam', () => {
         expect(text).toMatch(/Telegram messages/i);
         expect(text).toMatch(/blood pressure history/i);
         expect(text).toMatch(/vault/i);
-        expect(text).toMatch(/operator[’']s OpenAI account/i);
+        expect(text).toMatch(/operator[’']s AI provider account \(OpenAI or Anthropic/i);
         // The gamification narrator rides this scope (plan ➕ note) — the
         // disclosure must say so.
         expect(text).toMatch(/narrator/i);

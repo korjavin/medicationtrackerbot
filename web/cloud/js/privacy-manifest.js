@@ -244,10 +244,10 @@ export const PRIVACY_MANIFEST = [
   // ==========================================================================
   {
     id: 'trial-ai',
-    feature: 'Trial AI (operator\'s OpenAI key)',
+    feature: 'Trial AI (operator\'s AI key)',
     boundary: 'carve-out',
     data: 'The meal or activity description you typed, meal PHOTOS, and exercise NAMES you ask it to tag by muscle group, in plaintext',
-    destination: 'The operator\'s server, then the operator\'s OpenAI(-compatible) account',
+    destination: 'The operator\'s server, then the operator\'s AI provider account (OpenAI or Anthropic, the operator\'s choice)',
     operatorVisibility: 'plaintext',
     retention: 'Not stored by the app; the provider\'s own retention applies (cloud-operations-security.md §5)',
     activation: 'opt-in-consent',
@@ -259,12 +259,12 @@ export const PRIVACY_MANIFEST = [
       'web/cloud/js/aiclient.js:550',
       'web/domain/settings.js:56',
     ],
-    code: { go: ['internal/cloudserver/trial_proxy.go'], hosts: ['api.openai.com'] },
+    code: { go: ['internal/cloudserver/trial_proxy.go', 'internal/cloudserver/trial_anthropic.go'], hosts: ['api.openai.com', 'api.anthropic.com'] },
     docSignal: null,
     userCopy: {
       category: 'visible',
       title: 'Trial AI prompts, if you use the operator\'s key',
-      detail: 'If you use the shared trial AI instead of your own key, your meal descriptions, workout descriptions, photos and the exercise names you ask it to tag by muscle group pass through the operator\'s OpenAI account to be parsed. This only happens with your explicit consent — you are asked on first use, and can revoke it any time in Settings → Integrations. Add your own key there to keep them off the operator entirely.',
+      detail: 'If you use the shared trial AI instead of your own key, your meal descriptions, workout descriptions, photos and the exercise names you ask it to tag by muscle group pass through the operator\'s AI provider account (OpenAI or Anthropic, the operator\'s choice) to be parsed. This only happens with your explicit consent — you are asked on first use, and can revoke it any time in Settings → Integrations. Add your own key there to keep them off the operator entirely.',
     },
   },
   {
@@ -275,7 +275,7 @@ export const PRIVACY_MANIFEST = [
     feature: 'Trial AI assistant (Telegram free text + tool results)',
     boundary: 'carve-out',
     data: 'The Telegram message you sent, AND the vault data the assistant\'s tools read to answer it (BP history, notes, medications, …), carried back into the conversation as tool results',
-    destination: 'The operator\'s server, then the operator\'s OpenAI(-compatible) account',
+    destination: 'The operator\'s server, then the operator\'s AI provider account (OpenAI or Anthropic, the operator\'s choice)',
     operatorVisibility: 'plaintext',
     retention: 'Not stored by the app; provider retention applies',
     activation: 'opt-in-consent',
@@ -292,7 +292,7 @@ export const PRIVACY_MANIFEST = [
     userCopy: {
       category: 'visible',
       title: 'Telegram assistant answers, if you use the trial key',
-      detail: 'When the Telegram assistant answers you on the trial key, your message AND the health data it reads from your vault to answer — blood pressure history, notes, and the like — transit the operator\'s OpenAI account. This has its own consent, separate from meal parsing, asked on first use and revocable in Settings → Integrations.',
+      detail: 'When the Telegram assistant answers you on the trial key, your message AND the health data it reads from your vault to answer — blood pressure history, notes, and the like — transit the operator\'s AI provider account (OpenAI or Anthropic, the operator\'s choice). This has its own consent, separate from meal parsing, asked on first use and revocable in Settings → Integrations.',
     },
   },
   {
@@ -303,7 +303,7 @@ export const PRIVACY_MANIFEST = [
     feature: 'Journey narration summaries',
     boundary: 'carve-out',
     data: 'Already-computed summaries — the weekly recap\'s weight-goal progress (goal direction, share of the way there, trend change and distance in kg, weigh-in days, milestones reached), workouts done vs scheduled, the week\'s BP mean vs target and days measured, and the chosen next-week intention; plus workout stats, chapter and experiment state, and revealed discoveries and experiment verdicts as their card text — which for the goal probes and goal-lever trials includes a weight-trend change in kg (per week, or per weigh-in step). Never raw records, dates or body weight',
-    destination: 'Your own OpenAI(-compatible) endpoint, or — with no key of your own — the operator\'s server and the operator\'s OpenAI account',
+    destination: 'Your own OpenAI(-compatible) endpoint, or — with no key of your own — the operator\'s server and the operator\'s AI provider account (OpenAI or Anthropic, the operator\'s choice)',
     operatorVisibility: 'plaintext',
     retention: 'Not stored by the app; provider retention applies',
     activation: 'opt-in-consent',
