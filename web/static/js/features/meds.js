@@ -824,7 +824,7 @@ function renderHistory(logs) {
 // Inventory sub-tab (Phase 5, Task 6). Renders one `.wg-card` per
 // medication that tracks inventory (i.e. `med.inventory_count !== null`).
 // Each card carries the med name (mono), a large mono count, an optional
-// low-stock `.wg-tag--alert` pill, the last-refilled date (resolved via
+// low-stock warn chip, the last-refilled date (resolved via
 // the existing `/api/medications/{id}/restocks` endpoint), and a trailing
 // `.wg-gloss--sun` Refill button that toggles an inline quantity input.
 // Confirming the refill POSTs to the existing `/restock` endpoint and

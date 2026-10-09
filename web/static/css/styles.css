@@ -1642,21 +1642,6 @@ svg.chart-svg {
     margin: 0;
 }
 
-.inventory-badge {
-    display: inline-block;
-    padding: var(--space-xs) var(--space-md);
-    border-radius: var(--radius-sm);
-    font-size: var(--font-size-sm);
-    background: rgba(78, 205, 196, 0.15);
-    color: var(--color-inventory-ok);
-    margin-top: var(--space-sm);
-}
-
-.inventory-badge.low {
-    background: rgba(255, 59, 48, 0.15);
-    color: var(--color-danger);
-}
-
 .restock-row {
     display: flex;
     gap: var(--space-sm);

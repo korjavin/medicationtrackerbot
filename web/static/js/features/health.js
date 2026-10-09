@@ -735,7 +735,7 @@ async function loadMoreNotes() {
 // `.wg-section-label` header (e.g. "22.04.2026 · Tue") and a list of
 // `.wg-card` rows. Each row carries a mono timestamp eyebrow, the note body,
 // and a trailing `.wg-icon-btn` cluster (edit + delete). Offline-pending +
-// rejected states surface as `.wg-tag--mono` badges. Pagination is a
+// rejected states surface as a WGChip.sync chip. Pagination is a
 // full-width `.wg-gloss` "Load more" footer button.
 // Round-2 Task 5: module-level cache so the tag-chip filter can repaint the
 // list from memory without refetching. `renderNotes` resets it; `appendNotes`
