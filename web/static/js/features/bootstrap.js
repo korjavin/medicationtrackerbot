@@ -199,6 +199,9 @@ checkAuth().then(async authorized => {
             window.SyncManager.init();
         }
 
+        // Deletes a previous page owed (killed inside the Undo window).
+        if (typeof replayPendingDeletes === 'function') replayPendingDeletes();
+
         // Mount the tab bar once (before the first switchTab so
         // it can receive the AppKernel.onTabSwitch('today') notification).
         mountCanonicalBottomNav();

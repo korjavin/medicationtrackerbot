@@ -1172,47 +1172,62 @@ async function saveFoodTargets({ toast = true } = {}) {
     return true;
 }
 
-async function deleteFoodLog(id) {
-    await safeConfirm("Delete this entry?", async (ok) => {
-        if (!ok) return;
+// The cached day payloads a food-log delete touches: both day caches (v2 +
+// Today's per-day key) for the filtered day and today.
+function _foodLogDeleteOptimistic(id) {
+    const dateFilter = document.getElementById('food-date-filter');
+    const filterDate = dateFilter && dateFilter.value ? dateFilter.value : toISODateLocal(new Date());
+    const candidateDays = new Set([filterDate, toISODateLocal(new Date())]);
+    const mutator = (prev) => removeOptimisticFoodLog(prev, id);
+    const out = [];
+    for (const dayStr of candidateDays) {
+        const dayKey = typeof todayFoodKey === 'function'
+            ? todayFoodKey(new Date(`${dayStr}T00:00:00`))
+            : `food_${dayStr}_day`;
+        out.push({ key: `food_${dayStr}_v2`, mutator, tags: ['food'] });
+        out.push({ key: dayKey, mutator, tags: ['food'] });
+    }
+    return out;
+}
 
-        // Optimistic: drop the row from both day caches (v2 + Today's per-day
-        // key) before awaiting the DELETE so the list + Today macros tile
-        // update immediately. Rollback restores the prior snapshot on failure.
-        const dateFilter = document.getElementById('food-date-filter');
-        const filterDate = dateFilter && dateFilter.value ? dateFilter.value : toISODateLocal(new Date());
-        const candidateDays = new Set([filterDate, toISODateLocal(new Date())]);
-
-        const handles = [];
-        if (window.DataStore && typeof window.DataStore.applyOptimistic === 'function') {
-            for (const dayStr of candidateDays) {
-                const v2Key = `food_${dayStr}_v2`;
-                const dayKey = typeof todayFoodKey === 'function'
-                    ? todayFoodKey(new Date(`${dayStr}T00:00:00`))
-                    : `food_${dayStr}_day`;
-                const mutator = (prev) => removeOptimisticFoodLog(prev, id);
-                handles.push(await window.DataStore.applyOptimistic(v2Key, mutator, ['food']));
-                handles.push(await window.DataStore.applyOptimistic(dayKey, mutator, ['food']));
-            }
-        }
-
-        let res;
-        try {
-            res = await apiCall(`/api/food/log/${id}`, 'DELETE');
-        } catch (e) {
-            for (const h of handles) { try { await h.rollback(); } catch (_) { /* best-effort */ } }
-            throw e;
-        }
-
-        if (!res) {
-            for (const h of handles) { try { await h.rollback(); } catch (_) { /* best-effort */ } }
-            return;
-        }
-
-        for (const h of handles) { try { await h.commit(null); } catch (_) { /* best-effort */ } }
-        await window.DataStore.invalidateTags(['food', 'gamification']);
-        loadFoodLogs();
+// Delete a food-log row: gone at once, Undo from the toast (kit rule 3).
+function deleteFoodLog(id) {
+    return deleteWithUndo({
+        message: 'Entry deleted',
+        optimistic: _foodLogDeleteOptimistic(id),
+        remove: () => _deleteFoodLogApi(id),
+        replay: { fn: '_deleteFoodLogApi', arg: id },
     });
+}
+
+// The server delete. Optimistic: drop the row from the day caches before
+// awaiting the DELETE; rollback restores the prior snapshot on failure.
+// Resolves true on success.
+async function _deleteFoodLogApi(id) {
+    const handles = [];
+    if (window.DataStore && typeof window.DataStore.applyOptimistic === 'function') {
+        for (const o of _foodLogDeleteOptimistic(id)) {
+            handles.push(await window.DataStore.applyOptimistic(o.key, o.mutator, o.tags));
+        }
+    }
+
+    let res;
+    try {
+        res = await apiCall(`/api/food/log/${id}`, 'DELETE');
+    } catch (e) {
+        for (const h of handles) { try { await h.rollback(); } catch (_) { /* best-effort */ } }
+        throw e;
+    }
+
+    if (!res) {
+        for (const h of handles) { try { await h.rollback(); } catch (_) { /* best-effort */ } }
+        return false;
+    }
+
+    for (const h of handles) { try { await h.commit(null); } catch (_) { /* best-effort */ } }
+    await window.DataStore.invalidateTags(['food', 'gamification']);
+    loadFoodLogs();
+    return true;
 }
 
 // Filter a single log id out of a cached `{ groups }` payload and recompute

@@ -115,14 +115,57 @@ describe('Offline UI indicators', () => {
   });
 
   describe('showToast', () => {
-    it('renders a toast with the message and type class', () => {
+    it('renders a kit .wg-toast in the .wg-toasts stack, with the type modifier', () => {
       const { window, document, cleanup } = loadSyncEnv();
       try {
         window.SyncManager.showToast('hello', 'info');
-        const toast = document.querySelector('.sync-toast');
+        const toast = document.querySelector('body > .wg-toasts > .wg-toast');
         expect(toast).toBeTruthy();
-        expect(toast.textContent).toBe('hello');
-        expect(toast.classList.contains('info')).toBe(true);
+        expect(toast.querySelector('.wg-toast__text').textContent).toBe('hello');
+        expect(toast.className).toBe('wg-toast');
+
+        window.SyncManager.showToast('saved', 'success');
+        window.SyncManager.showToast('nope', 'error');
+        const toasts = document.querySelectorAll('.wg-toasts > .wg-toast');
+        expect(toasts).toHaveLength(3);
+        expect(toasts[1].classList.contains('wg-toast--ok')).toBe(true);
+        expect(toasts[2].classList.contains('wg-toast--danger')).toBe(true);
+        expect(toasts[2].getAttribute('role')).toBe('alert');
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('safeToast-style action: the button runs onClick once and dismisses the toast', () => {
+      const { window, document, cleanup } = loadSyncEnv();
+      try {
+        const onClick = vi.fn();
+        const onDismiss = vi.fn();
+        const ctl = window.SyncManager.showToast('Reading deleted', 'info', {
+          action: { label: 'Undo', onClick },
+          onDismiss,
+        });
+        const btn = ctl.root.querySelector('.wg-toast__undo');
+        expect(btn.textContent).toBe('Undo');
+        btn.click();
+        expect(onClick).toHaveBeenCalledOnce();
+        expect(onDismiss).toHaveBeenCalledOnce();
+        expect(document.querySelector('.wg-toast')).toBeNull();
+        // The empty stack container goes with its last toast.
+        expect(document.querySelector('.wg-toasts')).toBeNull();
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('auto-dismisses after duration and caps the stack at three', async () => {
+      const { window, document, cleanup } = loadSyncEnv();
+      try {
+        for (let i = 0; i < 4; i++) window.SyncManager.showToast(`t${i}`, 'info', { duration: 20 });
+        const texts = [...document.querySelectorAll('.wg-toast__text')].map((el) => el.textContent);
+        expect(texts).toEqual(['t1', 't2', 't3']);
+        await new Promise((r) => setTimeout(r, 80));
+        expect(document.querySelector('.wg-toast')).toBeNull();
       } finally {
         cleanup();
       }

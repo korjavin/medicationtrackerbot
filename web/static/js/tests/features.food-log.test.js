@@ -281,7 +281,7 @@ describe('features/food/log.js — split-file integration', () => {
             return null;
         });
 
-        const handlerDone = window.deleteFoodLog(11);
+        const handlerDone = window._deleteFoodLogApi(11);
         await apiCalled;
 
         const v2 = cache.get(v2Key);
@@ -323,7 +323,7 @@ describe('features/food/log.js — split-file integration', () => {
         const dateFilter = window.document.getElementById('food-date-filter');
         if (dateFilter) dateFilter.value = dateStr;
 
-        await window.deleteFoodLog(21);
+        await window._deleteFoodLogApi(21);
 
         // The contract: the optimistic delete must not survive POST failure.
         // applyOptimistic.rollback restores the prior snapshot then invalidates
@@ -334,6 +334,38 @@ describe('features/food/log.js — split-file integration', () => {
             expect(v2.groups[0].logs.length).toBe(1);
             expect(v2.groups[0].logs[0].id).toBe(21);
         }
+    });
+
+    it('deleteFoodLog (med-xso6.5): the row leaves at once, Undo restores it and sends no DELETE', async () => {
+        env.cleanup();
+        env = loadFrontendEnv({ withSync: true });
+        const { window, document } = env;
+        const dateStr = isoDate(new Date());
+        const v2Key = `food_${dateStr}_v2`;
+        const cache = installApiCache(window, {
+            [v2Key]: {
+                groups: [{
+                    name: 'Lunch', time: '12:00', calories: 300, carbs: 40, protein: 5, fat: 5,
+                    logs: [{ id: 31, name: 'Rice', weight: 200, calories: 300, carbs: 40, protein: 5, fat: 5 }]
+                }],
+                weekStats: null
+            }
+        });
+        window.apiCall = vi.fn(async () => true);
+        window.loadFoodLogs = vi.fn();
+        const dateFilter = document.getElementById('food-date-filter');
+        if (dateFilter) dateFilter.value = dateStr;
+
+        const ctl = window.deleteFoodLog(31);
+        await vi.waitFor(() => expect(cache.get(v2Key).groups).toHaveLength(0));
+        const undo = document.querySelector('.wg-toasts .wg-toast__undo');
+        expect(undo.textContent).toBe('Undo');
+        undo.click();
+
+        expect(await ctl.done).toBe('undone');
+        expect(cache.get(v2Key).groups[0].logs[0].id).toBe(31);
+        expect(window.apiCall.mock.calls.filter(([, m]) => m === 'DELETE')).toHaveLength(0);
+        expect(document.querySelector('.wg-toast')).toBeNull();
     });
 
 });

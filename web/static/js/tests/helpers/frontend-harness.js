@@ -48,6 +48,7 @@ const MEDS_HISTORY_JS = path.join(REPO_ROOT, 'web/static/js/features/meds-histor
 const TZ_PLAN_BANNER_JS = path.join(REPO_ROOT, 'web/static/js/features/tz-plan-banner.js');
 const TODAY_LOADER_JS = path.join(REPO_ROOT, 'web/static/js/features/today-loader.js');
 const FOOD_PHOTO_SUMMARY_JS = path.join(REPO_ROOT, 'web/static/js/features/food-photo-summary.js');
+const SYNC_JS = path.join(REPO_ROOT, 'web/static/js/sync.js');
 // features/food.js was split into per-concern sub-files under
 // features/food/ (2026-05-13). The harness loads them in dependency order:
 // products.js first (decodeFoodDisplayText / renderFoodAutocomplete shared
@@ -147,7 +148,10 @@ export function createMockResponse({ status = 200, json, text } = {}) {
   };
 }
 
-export function loadFrontendEnv({ withWorkout = false, url = 'https://example.test/' } = {}) {
+// withSync loads sync.js, i.e. the real SyncManager toast surface (safeToast
+// actions, deleteWithUndo's Undo toast, the food AI summary toast). Without it
+// safeToast falls back to safeAlert, which most suites rely on.
+export function loadFrontendEnv({ withWorkout = false, withSync = false, url = 'https://example.test/' } = {}) {
   const html = readCached(INDEX_HTML);
   const dom = new JSDOM(html, {
     url,
@@ -297,6 +301,7 @@ export function loadFrontendEnv({ withWorkout = false, url = 'https://example.te
   // not load features/today.js (window.TodayDashboard), so loadToday() here
   // early-returns from _todayRender — identical to the pre-extraction behavior.
   evalFileCached(window, TODAY_LOADER_JS);
+  if (withSync) evalFileCached(window, SYNC_JS);
   evalFileCached(window, FOOD_PHOTO_SUMMARY_JS);
   // Order matters: products.js defines decodeFoodDisplayText /
   // renderFoodAutocomplete which the other food sub-files reference; the

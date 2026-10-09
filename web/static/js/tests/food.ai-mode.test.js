@@ -33,7 +33,7 @@ describe('Food modal — "Parse with AI" mode (Plan 2026-05-17, Task 5)', () => 
     let env;
 
     beforeEach(() => {
-        env = loadFrontendEnv();
+        env = loadFrontendEnv({ withSync: true });
 
         env.window.safeAlert = vi.fn();
         env.window.loadFoodLogs = vi.fn();
@@ -151,8 +151,7 @@ describe('Food modal — "Parse with AI" mode (Plan 2026-05-17, Task 5)', () => 
 
         const card = document.querySelector('.wg-food-photo-summary');
         expect(card).not.toBeNull();
-        const rows = card.querySelectorAll('.wg-food-photo-summary__item');
-        expect(rows.length).toBe(SAMPLE_ITEMS.length);
+        expect(card.querySelector('.wg-toast__text').firstChild.textContent).toBe(`${SAMPLE_ITEMS.length} items logged`);
 
         // Cache invalidation + list refresh fired (same as photo flow).
         expect(window.DataStore.invalidateTags).toHaveBeenCalledWith(['food', 'gamification']);
@@ -178,7 +177,7 @@ describe('Food modal — "Parse with AI" mode (Plan 2026-05-17, Task 5)', () => 
         await flushPromises();
 
         const card = document.querySelector('.wg-food-photo-summary');
-        const undoBtn = card.querySelector('.wg-food-photo-summary__undo');
+        const undoBtn = card.querySelector('.wg-toast__undo');
         expect(undoBtn).not.toBeNull();
 
         window.loadFoodLogs.mockClear();
@@ -198,7 +197,7 @@ describe('Food modal — "Parse with AI" mode (Plan 2026-05-17, Task 5)', () => 
         // Card transitions to the success state.
         const stillCard = document.querySelector('.wg-food-photo-summary');
         expect(stillCard).not.toBeNull();
-        const message = stillCard.querySelector('.wg-food-photo-summary__message');
+        const message = stillCard.querySelector('.wg-toast__text');
         expect(message).not.toBeNull();
         expect(message.textContent).toBe('Removed 2 items');
 
@@ -229,17 +228,17 @@ describe('Food modal — "Parse with AI" mode (Plan 2026-05-17, Task 5)', () => 
         await flushPromises();
 
         const card = document.querySelector('.wg-food-photo-summary');
-        const undoBtn = card.querySelector('.wg-food-photo-summary__undo');
+        const undoBtn = card.querySelector('.wg-toast__undo');
 
         undoBtn.click();
         await flushPromises();
         await flushPromises();
 
-        const errorMsg = document.querySelector('.wg-food-photo-summary__message--error');
+        const errorMsg = document.querySelector('.wg-food-photo-summary.wg-toast--danger .wg-toast__text');
         expect(errorMsg).not.toBeNull();
         expect(errorMsg.textContent).toMatch(/could not undo/i);
 
-        const retry = document.querySelector('.wg-food-photo-summary__retry');
+        const retry = document.querySelector('.wg-food-photo-summary.wg-toast--danger .wg-toast__undo');
         expect(retry).not.toBeNull();
     });
 
@@ -493,7 +492,7 @@ describe('Food modal — "Parse with AI" mode (Plan 2026-05-17, Task 5)', () => 
 
         expect(parse).toHaveBeenCalledTimes(1);
         expect(window.apiCall).toHaveBeenCalledWith('/api/settings/trial-consent', 'PATCH', { ai: false });
-        expect(window.safeAlert).toHaveBeenCalledWith(expect.stringContaining('trial use needs your consent'));
+        expect(document.querySelector('.wg-toast--danger .wg-toast__text').textContent).toContain('trial use needs your consent');
         // Refusal prevents transmission: nothing was invalidated or reloaded.
         expect(window.DataStore.invalidateTags).not.toHaveBeenCalled();
         expect(window.loadFoodLogs).not.toHaveBeenCalled();

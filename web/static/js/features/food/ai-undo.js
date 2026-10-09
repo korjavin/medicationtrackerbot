@@ -4,8 +4,8 @@
 //
 // Undo handler shared by the food-photo and food-description AI flows. Issues
 // a parallel DELETE for every just-logged item, refreshes the food list +
-// Today, then transitions the summary card to a "Removed N items" success
-// state. On partial failure the card flips to its retry-able error state, and
+// Today, then swaps the summary toast for a "Removed N items" success
+// state. On partial failure the toast flips to its retry-able error state, and
 // Retry only re-attempts the items that haven't already been deleted —
 // otherwise the store's "no rows" 500 for already-deleted ids would lock the
 // user in permanent error after a single successful round.

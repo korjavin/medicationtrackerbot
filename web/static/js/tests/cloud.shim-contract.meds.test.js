@@ -166,7 +166,8 @@ describe('cloud shim contract — meds CRUD flows (features/meds.js over web/dom
         window.medications = [created];
         window.safeConfirm = vi.fn(async (_msg, cb) => { await cb(true); });
 
-        await window.deleteMed(created.id);
+        // Archive is the undoable row action: flush() closes the Undo window.
+        await (await window.deleteMed(created.id)).flush();
         let list = await window.apiCall('/api/medications?archived=true');
         expect(list).toHaveLength(1);
         expect(list[0].archived).toBe(true);

@@ -595,12 +595,26 @@ function buildBPReadingDeleteButton(reading) {
     return btn;
 }
 
-// Delete a BP reading
-async function deleteBPReading(id) {
-    const confirmMsg = 'Delete this blood pressure reading?';
+// Drop one reading from the cached `bp` payload. Keeps goalRes/statsRes
+// (the post-delete loadBPReadings refetch recomputes them).
+function _bpWithoutReading(prev, id) {
+    if (!prev || typeof prev !== 'object') return prev;
+    const numericId = parseInt(id, 10);
+    const prevReadings = Array.isArray(prev.readingsRes) ? prev.readingsRes : [];
+    return {
+        readingsRes: prevReadings.filter((r) => r && r.id !== numericId && r.id !== id),
+        goalRes: prev.goalRes || null,
+        statsRes: prev.statsRes || null
+    };
+}
 
-    await safeConfirm(confirmMsg, async (ok) => {
-        if (ok) await _deleteBPApi(id);
+// Delete a BP reading: gone at once, Undo from the toast (kit rule 3).
+function deleteBPReading(id) {
+    return deleteWithUndo({
+        message: 'Reading deleted',
+        optimistic: [{ key: 'bp', mutator: (prev) => _bpWithoutReading(prev, id), tags: ['bp'] }],
+        remove: () => _deleteBPApi(id),
+        replay: { fn: '_deleteBPApi', arg: id },
     });
 }
 
@@ -609,26 +623,16 @@ async function _deleteBPApi(id) {
     // just re-render from the cache.
     if (typeof id === 'string' && id.startsWith('local_')) {
         await loadBPReadings();
-        return;
+        return true;
     }
 
     // Optimistic: drop the reading from the cached `bp` payload before
     // awaiting the DELETE so the list + Today tile update immediately. The
     // mutator preserves `goalRes`/`statsRes` (those are recomputed by the
     // post-commit loadBPReadings refetch).
-    const numericId = parseInt(id, 10);
     let handle = null;
     if (window.DataStore && typeof window.DataStore.applyOptimistic === 'function') {
-        handle = await window.DataStore.applyOptimistic('bp', (prev) => {
-            if (!prev || typeof prev !== 'object') return prev;
-            const prevReadings = Array.isArray(prev.readingsRes) ? prev.readingsRes : [];
-            const filtered = prevReadings.filter((r) => r && r.id !== numericId && r.id !== id);
-            return {
-                readingsRes: filtered,
-                goalRes: prev.goalRes || null,
-                statsRes: prev.statsRes || null
-            };
-        }, ['bp']);
+        handle = await window.DataStore.applyOptimistic('bp', (prev) => _bpWithoutReading(prev, id), ['bp']);
     }
 
     let res;
@@ -641,7 +645,7 @@ async function _deleteBPApi(id) {
 
     if (!res) {
         if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
-        return;
+        return false;
     }
 
     if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
@@ -650,4 +654,5 @@ async function _deleteBPApi(id) {
         await window.DataStore.clearCached('bp');
     }
     await loadBPReadings();
+    return true;
 }

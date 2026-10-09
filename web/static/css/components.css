@@ -7,7 +7,10 @@
    - The kit scopes box-sizing to .wg-app, which the app does not have; the full-width roots get it below,
      and .wg-input also resets margin (styles.css `input {}` adds a margin-bottom).
    - .wg-toggle also paints from WGToggle's label + hidden checkbox (:has(> .wg-toggle__input:checked)).
-   - Hex literals the kit inlined (toggle, banners) resolve through tokens. */
+   - Hex literals the kit inlined (toggle, banners) resolve through tokens.
+   - .wg-toasts is position:fixed (the kit's is absolute inside its phone stage) and centered at 480px max;
+     .wg-toast sets its own text color and an enter animation (off under reduced motion); .wg-banners is
+     the sticky top container the app's banners live in (med-xso6.5). */
 .wg-btn,.wg-input,.wg-row,.wg-setting,.wg-choice,.wg-dialog,.wg-sheet,.wg-tile,.wg-seg,.wg-stepper,.wg-daynav,.wg-code,.wg-file,.wg-toast,.wg-tabbar,.wg-pick,.wg-menu,button.wg-card{box-sizing:border-box}
 .wg-app{position:relative;display:flex;flex-direction:column;height:100%;overflow:hidden;background:var(--wg-bg-screen);color:var(--wg-fg-1);font-family:var(--wg-font-ui);font-size:var(--wg-fs-md);-webkit-font-smoothing:antialiased}
 .wg-app *,.wg-app *::before,.wg-app *::after{box-sizing:border-box}
@@ -246,9 +249,12 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
 .wg-banner--warn{background:var(--wg-banner-warn-bg);color:var(--wg-warn-fg)}
 .wg-banner--info{background:var(--wg-banner-info-bg);color:var(--wg-pending-fg)}
 /* toast */
-.wg-toasts{position:absolute;left:12px;right:12px;bottom:calc(var(--wg-tabbar-h) + 10px);z-index:var(--wg-z-toast);display:flex;flex-direction:column;gap:8px}
+.wg-banners{position:sticky;top:0;z-index:var(--wg-z-tabbar)}
+.wg-toasts{position:fixed;left:12px;right:12px;max-width:480px;margin:0 auto;bottom:calc(var(--wg-tabbar-h) + 10px);z-index:var(--wg-z-toast);display:flex;flex-direction:column;gap:8px}
 .wg-toasts--top{top:56px;bottom:auto}
-.wg-toast{display:flex;align-items:center;gap:10px;min-height:52px;padding:8px 8px 8px 14px;border-radius:14px;background:var(--wg-bg-float);border:1px solid var(--wg-line-strong);box-shadow:var(--wg-sh-float);font:500 var(--wg-fs-sm)/1.35 var(--wg-font-ui)}
+.wg-toast{display:flex;align-items:center;gap:10px;min-height:52px;padding:8px 8px 8px 14px;border-radius:14px;background:var(--wg-bg-float);border:1px solid var(--wg-line-strong);box-shadow:var(--wg-sh-float);color:var(--wg-fg-1);font:500 var(--wg-fs-sm)/1.35 var(--wg-font-ui);animation:wg-toast-in var(--wg-dur) var(--wg-ease)}
+@keyframes wg-toast-in{from{opacity:0;transform:translateY(8px)}}
+@media (prefers-reduced-motion:reduce){.wg-toast{animation:none}}
 .wg-toast__text{flex:1;min-width:0}.wg-toast__text b{font-weight:600}.wg-toast__text small{display:block;color:var(--wg-fg-3);font-size:var(--wg-fs-xs)}
 .wg-toast--ok>.wg-ico{color:var(--wg-ok-fg)}.wg-toast--danger{border-color:var(--wg-danger-line)}.wg-toast--danger>.wg-ico{color:var(--wg-danger-fg)}
 .wg-toast__undo{height:36px;padding:0 12px;border:0;border-radius:var(--wg-r-sm);background:transparent;color:var(--wg-sun);font:600 var(--wg-fs-sm) var(--wg-font-ui);cursor:pointer}.wg-toast__undo:hover{background:rgba(251,189,13,.1)}

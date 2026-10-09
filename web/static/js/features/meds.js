@@ -1365,46 +1365,67 @@ async function deleteMed(id) {
             loadMeds();
         });
     } else {
-        const confirmMsg = "Archive this medication?";
-        await safeConfirm(confirmMsg, async (ok) => {
-            if (!ok) return;
-            const payload = {
-                name: med.name,
-                dosage: med.dosage,
-                schedule: med.schedule,
-                supplement: !!med.supplement,
-                archived: true
-            };
-
-            // Optimistic: flip archived=true on the cached row so the Schedule
-            // tab moves the med into the archived bucket before POST resolves.
-            const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
-                ? await window.DataStore.applyOptimistic('medications', (prev) => {
-                    if (!Array.isArray(prev)) return prev;
-                    return prev.map((m) => (m && m.id === id ? { ...m, archived: true, _optimistic: true } : m));
-                }, ['medications'])
-                : null;
-
-            let res;
-            try {
-                res = await apiCall(`/api/medications/${id}`, 'POST', payload);
-            } catch (e) {
-                if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
-                throw e;
-            }
-            if (res === null) {
-                if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
-                return;
-            }
-            if (res && res.warning) {
-                safeAlert(res.warning);
-            }
-            if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
-            await window.DataStore.invalidateTags(['medications', 'history', 'gamification']);
-            await window.DataStore.invalidateKey('next_intake');
-            loadMeds();
+        // Archiving is the schedule row's delete: gone at once, Undo from the
+        // toast (kit rule 3). Permanent delete above stays a dialog.
+        return deleteWithUndo({
+            message: `${med.name} archived`,
+            optimistic: [{ key: 'medications', mutator: (prev) => _medsArchived(prev, id), tags: ['medications'] }],
+            remove: () => _archiveMedApi(med),
+            replay: { fn: '_archiveMedById', arg: id },
         });
     }
+}
+
+function _medsArchived(prev, id) {
+    if (!Array.isArray(prev)) return prev;
+    return prev.map((m) => (m && m.id === id ? { ...m, archived: true, _optimistic: true } : m));
+}
+
+// Boot replay of an archive the last page never sent: the journal keeps only
+// the id, so re-read the med (name/dosage stay inside the vault).
+async function _archiveMedById(id) {
+    const list = await apiCall('/api/medications?archived=true');
+    const med = Array.isArray(list) ? list.find((m) => m && m.id === id) : null;
+    if (!med || med.archived) return true;
+    return _archiveMedApi(med);
+}
+
+// The archive POST. Resolves true on success.
+async function _archiveMedApi(med) {
+    const id = med.id;
+    const payload = {
+        name: med.name,
+        dosage: med.dosage,
+        schedule: med.schedule,
+        supplement: !!med.supplement,
+        archived: true
+    };
+
+    // Optimistic: flip archived=true on the cached row so the Schedule
+    // tab moves the med into the archived bucket before POST resolves.
+    const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+        ? await window.DataStore.applyOptimistic('medications', (prev) => _medsArchived(prev, id), ['medications'])
+        : null;
+
+    let res;
+    try {
+        res = await apiCall(`/api/medications/${id}`, 'POST', payload);
+    } catch (e) {
+        if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+        throw e;
+    }
+    if (res === null) {
+        if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+        return false;
+    }
+    if (res && res.warning) {
+        safeAlert(res.warning);
+    }
+    if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
+    await window.DataStore.invalidateTags(['medications', 'history', 'gamification']);
+    await window.DataStore.invalidateKey('next_intake');
+    loadMeds();
+    return true;
 }
 
 function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', intakeIds = []) {

@@ -1,24 +1,14 @@
-// Friendly food-photo flow — Task 3: in-app summary card component.
-//
-// Pins the contract for `showFoodPhotoSummary({ items, onUndo })`:
-//   1. Renders a card with one row per item (name, weight, kcal) and a
-//      totals row that sums kcal/carbs/protein/fat across items.
-//   2. The Undo button fires the `onUndo` callback exactly once even when
-//      clicked multiple times in quick succession.
-//   3. The Close button removes the card from the DOM and cancels the
-//      auto-dismiss timer (so it can't fire after the card is gone).
-//   4. The auto-dismiss timer removes the card after the configured delay.
+// Post-AI-log feedback (med-xso6.5): showFoodPhotoSummary renders the
+// standard kit toast, not a floating card.
+//   1. One .wg-toast.wg-toast--ok in the .wg-toasts stack: "N items logged",
+//      detail "<kcal> kcal · from photo|description[ · N failed]".
+//   2. Undo fires onUndo exactly once and the toast leaves.
+//   3. showRemoved / showError swap the toast; showError's Retry action
+//      runs the retry handler.
+//   4. Auto-dismiss after the configured delay; dismiss() is idempotent.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const REPO_ROOT = path.resolve(__dirname, '../../../..');
-const CSS_PATH = path.join(REPO_ROOT, 'web/static/css/styles.css');
 
 function flushPromises() {
     return new Promise((resolve) => setTimeout(resolve, 0));
@@ -30,213 +20,101 @@ const SAMPLE_ITEMS = [
     { id: 13, name: 'Almond milk', weight: 200, carbs: 2,  protein: 1,  fat: 2,  calories: 30  },
 ];
 
-describe('showFoodPhotoSummary (friendly food-photo flow, Task 3)', () => {
+describe('showFoodPhotoSummary — the standard toast', () => {
     let env;
 
     beforeEach(() => {
-        env = loadFrontendEnv();
+        env = loadFrontendEnv({ withSync: true });
     });
 
     afterEach(() => {
-        // Tear down any stray cards before disposing of the env so a failing
-        // test in the middle of a suite doesn't leak DOM into the next one.
-        try {
-            env.document.querySelectorAll('.wg-food-photo-summary').forEach((el) => el.remove());
-            env.window.localStorage.clear();
-        } catch (_) { /* ignore */ }
+        try { env.window.localStorage.clear(); } catch (_) { /* ignore */ }
         env.cleanup();
         env = null;
     });
+
+    const toastText = (doc) => doc.querySelector('.wg-food-photo-summary .wg-toast__text');
 
     it('exposes showFoodPhotoSummary as a global function (loaded before food.js)', () => {
         expect(typeof env.window.showFoodPhotoSummary).toBe('function');
     });
 
-    it('renders one row per item with name, weight (g), and kcal', () => {
+    it('renders one ok toast with the item count and the kcal total — no floating card', () => {
         const { document, window } = env;
         window.showFoodPhotoSummary({ items: SAMPLE_ITEMS, autoDismissMs: 0 });
 
-        const card = document.querySelector('.wg-food-photo-summary');
-        expect(card).not.toBeNull();
-        expect(card.getAttribute('role')).toBe('status');
-
-        const rows = card.querySelectorAll('.wg-food-photo-summary__item');
-        expect(rows.length).toBe(SAMPLE_ITEMS.length);
-
-        // First row sanity: name + weight + kcal cells exist with the right text.
-        const first = rows[0];
-        expect(first.querySelector('.wg-food-photo-summary__item-name').textContent).toBe('Oatmeal');
-        expect(first.querySelector('.wg-food-photo-summary__item-weight').textContent).toBe('80 g');
-        expect(first.querySelector('.wg-food-photo-summary__item-kcal').textContent).toBe('280 kcal');
-    });
-
-    it('totals row sums kcal/carbs/protein/fat across all items', () => {
-        const { document, window } = env;
-        window.showFoodPhotoSummary({ items: SAMPLE_ITEMS, autoDismissMs: 0 });
-
-        const totals = document.querySelector('.wg-food-photo-summary__totals');
-        expect(totals).not.toBeNull();
-
+        const toast = document.querySelector('.wg-toasts > .wg-toast.wg-food-photo-summary');
+        expect(toast).not.toBeNull();
+        expect(toast.classList.contains('wg-toast--ok')).toBe(true);
+        expect(toast.getAttribute('role')).toBe('status');
         // 280 + 105 + 30 = 415 kcal
-        const kcal = totals.querySelector('.wg-food-photo-summary__totals-kcal');
-        expect(kcal.textContent).toBe('415 kcal');
-
-        // C: 50+27+2=79  P: 10+1+1=12  F: 5+0+2=7
-        const macros = totals.querySelector('.wg-food-photo-summary__totals-macros');
-        expect(macros.textContent).toBe('C 79g · P 12g · F 7g');
+        expect(toastText(document).textContent).toBe('3 items logged415 kcal · from photo');
+        expect(toastText(document).querySelector('small').textContent).toBe('415 kcal · from photo');
     });
 
-    it('header text reflects the item count (singular vs plural)', () => {
+    it('singular count, description source, and the failed suffix', () => {
         const { document, window } = env;
-
         window.showFoodPhotoSummary({ items: [SAMPLE_ITEMS[0]], autoDismissMs: 0 });
-        let title = document.querySelector('.wg-food-photo-summary__title');
-        expect(title.textContent).toBe('Logged 1 item from photo');
+        expect(toastText(document).firstChild.textContent).toBe('1 item logged');
 
-        // Re-render with 3 items: stale card is replaced, not stacked.
-        window.showFoodPhotoSummary({ items: SAMPLE_ITEMS, autoDismissMs: 0 });
-        const cards = document.querySelectorAll('.wg-food-photo-summary');
-        expect(cards.length).toBe(1);
-
-        title = document.querySelector('.wg-food-photo-summary__title');
-        expect(title.textContent).toBe('Logged 3 items from photo');
+        // A second log replaces nothing it doesn't own: the first toast stays
+        // its own toast in the stack.
+        window.showFoodPhotoSummary({ items: SAMPLE_ITEMS.slice(0, 2), failed: 1, source: 'description', autoDismissMs: 0 });
+        const smalls = [...document.querySelectorAll('.wg-food-photo-summary small')].map((el) => el.textContent);
+        expect(smalls[1]).toBe('385 kcal · from description · 1 failed');
     });
 
-    it('header text uses "from description" when source=description', () => {
-        const { document, window } = env;
-
-        window.showFoodPhotoSummary({ items: SAMPLE_ITEMS, source: 'description', autoDismissMs: 0 });
-        const title = document.querySelector('.wg-food-photo-summary__title');
-        expect(title.textContent).toBe('Logged 3 items from description');
-    });
-
-    it('header text surfaces failed count when the server saved fewer items than it parsed', () => {
-        // Server returns {items: [2 saved], failed: 1}. The card title must
-        // tell the user that one parsed item silently dropped — otherwise
-        // a partial-save looks identical to a clean save.
-        const { document, window } = env;
-
-        window.showFoodPhotoSummary({
-            items: [SAMPLE_ITEMS[0], SAMPLE_ITEMS[1]],
-            failed: 1,
-            source: 'description',
-            autoDismissMs: 0,
-        });
-
-        const title = document.querySelector('.wg-food-photo-summary__title');
-        expect(title.textContent).toBe('Logged 2 items from description (1 failed)');
-    });
-
-    it('failed=0 does not append a "(0 failed)" suffix', () => {
-        const { document, window } = env;
-
-        window.showFoodPhotoSummary({
-            items: [SAMPLE_ITEMS[0]],
-            failed: 0,
-            autoDismissMs: 0,
-        });
-
-        const title = document.querySelector('.wg-food-photo-summary__title');
-        expect(title.textContent).toBe('Logged 1 item from photo');
-    });
-
-    it('Undo button fires onUndo exactly once even on rapid double-click', async () => {
+    it('Undo fires onUndo exactly once and the toast leaves', async () => {
         const { document, window } = env;
         const onUndo = vi.fn().mockResolvedValue(undefined);
         window.showFoodPhotoSummary({ items: SAMPLE_ITEMS, onUndo, autoDismissMs: 0 });
 
-        const undoBtn = document.querySelector('.wg-food-photo-summary__undo');
-        expect(undoBtn).not.toBeNull();
-
-        undoBtn.click();
+        const undoBtn = document.querySelector('.wg-food-photo-summary .wg-toast__undo');
+        expect(undoBtn.textContent).toBe('Undo');
         undoBtn.click();
         undoBtn.click();
         await flushPromises();
 
         expect(onUndo).toHaveBeenCalledTimes(1);
-        // Button is disabled after firing so it can't be reused without a fresh card.
-        expect(undoBtn.disabled).toBe(true);
-    });
-
-    it('Close button removes the card from the DOM', () => {
-        const { document, window } = env;
-        window.showFoodPhotoSummary({ items: SAMPLE_ITEMS, autoDismissMs: 0 });
-
-        const card = document.querySelector('.wg-food-photo-summary');
-        expect(card).not.toBeNull();
-
-        const closeBtn = card.querySelector('.wg-food-photo-summary__close');
-        expect(closeBtn).not.toBeNull();
-        closeBtn.click();
-
         expect(document.querySelector('.wg-food-photo-summary')).toBeNull();
     });
 
-    it('auto-dismiss timer removes the card after the configured delay', () => {
+    it('showRemoved swaps in a "Removed N items" toast', () => {
         const { document, window } = env;
-        vi.useFakeTimers();
-        try {
-            window.showFoodPhotoSummary({ items: SAMPLE_ITEMS, autoDismissMs: 500 });
-            expect(document.querySelector('.wg-food-photo-summary')).not.toBeNull();
-
-            vi.advanceTimersByTime(499);
-            expect(document.querySelector('.wg-food-photo-summary')).not.toBeNull();
-
-            vi.advanceTimersByTime(1);
-            expect(document.querySelector('.wg-food-photo-summary')).toBeNull();
-        } finally {
-            vi.useRealTimers();
-        }
+        const handle = window.showFoodPhotoSummary({ items: SAMPLE_ITEMS, autoDismissMs: 0 });
+        handle.showRemoved(3);
+        const toasts = document.querySelectorAll('.wg-food-photo-summary');
+        expect(toasts).toHaveLength(1);
+        expect(toasts[0].querySelector('.wg-toast__text').textContent).toBe('Removed 3 items');
     });
 
-    it('Close cancels the auto-dismiss timer (no double-removal/error after dismiss)', () => {
+    it('showError swaps in a danger toast whose Retry runs the handler', async () => {
         const { document, window } = env;
-        vi.useFakeTimers();
-        try {
-            const handle = window.showFoodPhotoSummary({ items: SAMPLE_ITEMS, autoDismissMs: 500 });
-            const closeBtn = document.querySelector('.wg-food-photo-summary__close');
-            closeBtn.click();
-            expect(document.querySelector('.wg-food-photo-summary')).toBeNull();
+        const handle = window.showFoodPhotoSummary({ items: SAMPLE_ITEMS, autoDismissMs: 0 });
+        const retry = vi.fn();
+        handle.showError('Could not undo all items. Tap retry to try again.', retry);
 
-            // Firing the timer after manual dismiss must not throw.
-            expect(() => vi.advanceTimersByTime(1000)).not.toThrow();
-
-            // Calling dismiss() a second time is a no-op.
-            expect(() => handle.dismiss()).not.toThrow();
-        } finally {
-            vi.useRealTimers();
-        }
+        const toast = document.querySelector('.wg-food-photo-summary');
+        expect(toast.classList.contains('wg-toast--danger')).toBe(true);
+        const btn = toast.querySelector('.wg-toast__undo');
+        expect(btn.textContent).toBe('Retry');
+        btn.click();
+        await flushPromises();
+        expect(retry).toHaveBeenCalledOnce();
     });
 
-    it('handles empty / missing items gracefully (no crash, header still rendered)', () => {
+    it('auto-dismisses after the configured delay; dismiss() is idempotent', async () => {
+        const { document, window } = env;
+        const handle = window.showFoodPhotoSummary({ items: SAMPLE_ITEMS, autoDismissMs: 20 });
+        expect(document.querySelector('.wg-food-photo-summary')).not.toBeNull();
+        await new Promise((r) => setTimeout(r, 80));
+        expect(document.querySelector('.wg-food-photo-summary')).toBeNull();
+        expect(() => { handle.dismiss(); handle.dismiss(); }).not.toThrow();
+    });
+
+    it('empty items still render a toast with 0 kcal', () => {
         const { document, window } = env;
         window.showFoodPhotoSummary({ items: [], autoDismissMs: 0 });
-
-        const card = document.querySelector('.wg-food-photo-summary');
-        expect(card).not.toBeNull();
-
-        const rows = card.querySelectorAll('.wg-food-photo-summary__item');
-        expect(rows.length).toBe(0);
-
-        const totals = card.querySelector('.wg-food-photo-summary__totals-kcal');
-        expect(totals.textContent).toBe('0 kcal');
-    });
-
-    it('CSS: .wg-food-photo-summary block exists and uses --wg-* tokens for color', () => {
-        // Defensive: the architecture rule from CLAUDE.md (no hardcoded
-        // colors / no inline styles) is enforced for the canonical Phase 4
-        // files; this test pins the new card to the same convention so the
-        // visual surface stays driven by tokens.
-        const css = fs.readFileSync(CSS_PATH, 'utf8');
-
-        const openIdx = css.indexOf('\n.wg-food-photo-summary {');
-        expect(openIdx).toBeGreaterThan(0);
-        const closeIdx = css.indexOf('\n}', openIdx);
-        expect(closeIdx).toBeGreaterThan(openIdx);
-        const block = css.slice(openIdx, closeIdx);
-
-        // Color value comes from a token, not a hex literal.
-        expect(block).toMatch(/color:\s*var\(--wg-/);
-        expect(block).not.toMatch(/#[0-9a-fA-F]{3,6}\b/);
+        expect(toastText(document).querySelector('small').textContent).toBe('0 kcal · from photo');
     });
 });
