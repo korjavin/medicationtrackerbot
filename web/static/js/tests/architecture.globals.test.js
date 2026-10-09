@@ -157,7 +157,7 @@ const ALLOWED_GLOBALS = new Set([
     // closure-private state from the original food.js (foodProductsCache,
     // foodScannerStream, currentFoodLogs, foodTargets, foodDBPage, etc.) is
     // consolidated on these namespaces via getter/setter accessors.
-    'window.FoodLog',                   // features/food/log.js — daily food log + edit modal + targets public API
+    'window.FoodLog',                   // features/food/log.js — daily food log + manual form + targets public API; features/food/add-sheet.js hangs the Add sheet off it as .addSheet
     'window.FoodProducts',              // features/food/products.js — product search + cache + autocomplete public API
     'window.FoodScanner',               // features/food/scanner.js — barcode/QR scanner modal public API
     'window.FoodPhoto',                 // features/food/photo.js — food photo capture + EXIF + undo public API

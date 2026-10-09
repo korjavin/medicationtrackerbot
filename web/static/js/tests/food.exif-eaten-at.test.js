@@ -1,7 +1,9 @@
 // food.exif-eaten-at.test.js
 //
-// Verifies the EXIF DateTimeOriginal extraction for food-photo uploads and the
-// "use photo time vs. now" decision in features/food.js#uploadFoodPhoto.
+// Verifies the EXIF DateTimeOriginal extraction for food-photo uploads and
+// that the photo's own time (EXIF, else lastModified, else now) becomes the
+// Add sheet's time — no prompt: the review's time chip shows it and the user
+// can change it before logging (med-xso6.17).
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
@@ -149,14 +151,16 @@ describe('readFoodPhotoExifDateFromBuffer', () => {
 
 describe('resolveFoodPhotoEatenAt', () => {
     let env;
-    beforeEach(() => { env = loadFrontendEnv(); });
+    let confirmCalls;
+    beforeEach(() => {
+        env = loadFrontendEnv();
+        confirmCalls = 0;
+        env.window.safeConfirm = async () => { confirmCalls++; return true; };
+    });
     afterEach(() => { env.cleanup(); env = null; });
 
     it('falls back to "now" when no EXIF date and no lastModified are present', async () => {
         env.window.readFoodPhotoExifDate = async () => null;
-        let confirmCalls = 0;
-        env.window.safeConfirm = async () => { confirmCalls++; return true; };
-
         const now = new Date('2024-06-01T12:00:00Z');
         const got = await env.window.resolveFoodPhotoEatenAt({}, now);
         expect(got.getTime()).toBe(now.getTime());
@@ -166,22 +170,7 @@ describe('resolveFoodPhotoEatenAt', () => {
     it('falls back to file.lastModified when EXIF is missing (HEIC / stripped metadata)', async () => {
         env.window.readFoodPhotoExifDate = async () => null;
         const lastModified = new Date('2024-05-30T18:00:00Z').getTime();
-        let confirmMsg = null;
-        env.window.safeConfirm = async (msg) => { confirmMsg = msg; return true; };
-
         const now = new Date('2024-06-01T12:00:00Z');
-        const got = await env.window.resolveFoodPhotoEatenAt({ lastModified }, now);
-        expect(got.getTime()).toBe(lastModified);
-        expect(confirmMsg).toMatch(/photo/i);
-    });
-
-    it('uses file.lastModified silently when within 1h of now', async () => {
-        env.window.readFoodPhotoExifDate = async () => null;
-        const now = new Date('2024-06-01T12:00:00Z');
-        const lastModified = now.getTime() - 30 * 60 * 1000;
-        let confirmCalls = 0;
-        env.window.safeConfirm = async () => { confirmCalls++; return true; };
-
         const got = await env.window.resolveFoodPhotoEatenAt({ lastModified }, now);
         expect(got.getTime()).toBe(lastModified);
         expect(confirmCalls).toBe(0);
@@ -189,115 +178,67 @@ describe('resolveFoodPhotoEatenAt', () => {
 
     it('ignores zero / nonsensical lastModified values', async () => {
         env.window.readFoodPhotoExifDate = async () => null;
-        env.window.safeConfirm = async () => true;
-
         const now = new Date('2024-06-01T12:00:00Z');
         const got = await env.window.resolveFoodPhotoEatenAt({ lastModified: 0 }, now);
         expect(got.getTime()).toBe(now.getTime());
     });
 
-    it('uses the photo time silently when within 1 hour of now', async () => {
-        const photoTime = new Date('2024-06-01T11:30:00Z');
+    it('uses the EXIF photo time over lastModified, without a prompt, however old', async () => {
+        const photoTime = new Date('2024-05-30T18:00:00Z');
         const now = new Date('2024-06-01T12:00:00Z');
         env.window.readFoodPhotoExifDate = async () => photoTime;
-        let confirmCalls = 0;
-        env.window.safeConfirm = async () => { confirmCalls++; return true; };
-
-        const got = await env.window.resolveFoodPhotoEatenAt({}, now);
+        const got = await env.window.resolveFoodPhotoEatenAt({ lastModified: now.getTime() }, now);
         expect(got.getTime()).toBe(photoTime.getTime());
         expect(confirmCalls).toBe(0);
     });
-
-    it('asks the user when photo time differs by more than 1 hour, returns photo time on yes', async () => {
-        const photoTime = new Date('2024-05-30T18:00:00Z');
-        const now = new Date('2024-06-01T12:00:00Z');
-        env.window.readFoodPhotoExifDate = async () => photoTime;
-        let confirmMsg = null;
-        env.window.safeConfirm = async (msg) => { confirmMsg = msg; return true; };
-
-        const got = await env.window.resolveFoodPhotoEatenAt({}, now);
-        expect(confirmMsg).toMatch(/photo/i);
-        expect(got.getTime()).toBe(photoTime.getTime());
-    });
-
-    it('labels the prompt buttons with the actual choice instead of Cancel/Confirm', async () => {
-        const photoTime = new Date('2024-05-30T18:00:00Z');
-        const now = new Date('2024-06-01T12:00:00Z');
-        env.window.readFoodPhotoExifDate = async () => photoTime;
-        let opts = null;
-        env.window.safeConfirm = async (_msg, _cb, o) => { opts = o; return true; };
-
-        await env.window.resolveFoodPhotoEatenAt({}, now);
-        expect(opts).toMatchObject({
-            cancelLabel: 'Use now',
-            confirmLabel: 'Use photo time',
-        });
-        expect(opts.title).toBeTruthy();
-    });
-
-    it('returns now when the user declines the photo time prompt', async () => {
-        const photoTime = new Date('2024-05-30T18:00:00Z');
-        const now = new Date('2024-06-01T12:00:00Z');
-        env.window.readFoodPhotoExifDate = async () => photoTime;
-        env.window.safeConfirm = async () => false;
-
-        const got = await env.window.resolveFoodPhotoEatenAt({}, now);
-        expect(got.getTime()).toBe(now.getTime());
-    });
 });
 
-describe('uploadFoodPhoto sends the resolved eaten_at to the AI parse', () => {
+describe('uploadFoodPhoto puts the resolved time on the Add sheet review', () => {
     let env;
     beforeEach(() => { env = loadFrontendEnv(); });
     afterEach(() => { env.cleanup(); env = null; });
 
-    async function captureUpload({ photoTime, confirmAnswer = true } = {}) {
+    async function captureUpload({ photoTime } = {}) {
         env.window.readFoodPhotoExifDate = async () => photoTime;
-        env.window.safeConfirm = async () => confirmAnswer;
         env.window.safeAlert = () => {};
-        env.window.loadFoodLogs = () => {};
-        env.window.loadToday = () => {};
-        if (env.window.DataStore) {
-            env.window.DataStore.invalidateTags = async () => {};
-            env.window.DataStore.clearCached = async () => {};
-        }
+        env.window.apiCall = async () => [];
 
-        let captured = null;
+        let parseOpts = null;
         env.window.CloudFoodAI = {
             parseMealFromPhoto: async (_file, opts) => {
-                captured = opts && opts.eatenAt;
-                return { items: [], failed: 0 };
+                parseOpts = opts;
+                return { status: 'parsed', items: [] };
             },
         };
 
         const buffer = buildJpegWithExif();
         const file = makeFakeFile(env, buffer);
         await env.window.uploadFoodPhoto({ files: [file], value: '' });
-        return captured;
+        expect(parseOpts).toMatchObject({ dryRun: true });
+        return env.window.FoodLog.addSheet.state.eatenAt;
     }
 
-    it('sends EXIF photo time when within 1h of now (no prompt)', async () => {
-        const now = Date.now();
-        const photoTime = new Date(now - 30 * 60 * 1000); // 30 min before now
+    const hhmm = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+
+    it('uses the EXIF photo time and shows it on the time chip', async () => {
+        const photoTime = new Date(Date.now() - 30 * 60 * 1000);
         const eatenAt = await captureUpload({ photoTime });
         // Realm-safe Date check (constructed inside the JSDOM window).
         expect(typeof eatenAt.toISOString).toBe('function');
         expect(eatenAt.toISOString()).toBe(photoTime.toISOString());
+        expect(env.document.getElementById('food-add-time-label').textContent).toContain(hhmm(photoTime));
     });
 
-    it('sends photo time when user accepts the prompt for an old photo', async () => {
+    it('keeps an old photo time (no prompt) — the chip shows its date', async () => {
         const photoTime = new Date('2024-01-01T08:00:00Z');
-        const eatenAt = await captureUpload({ photoTime, confirmAnswer: true });
+        let confirmCalls = 0;
+        env.window.safeConfirm = async () => { confirmCalls++; return false; };
+        const eatenAt = await captureUpload({ photoTime });
         expect(eatenAt.toISOString()).toBe(photoTime.toISOString());
-    });
-
-    it('sends "now" when user declines the prompt for an old photo', async () => {
-        const photoTime = new Date('2024-01-01T08:00:00Z');
-        const before = Date.now();
-        const eatenAt = await captureUpload({ photoTime, confirmAnswer: false });
-        const after = Date.now();
-        expect(eatenAt.getTime()).toBeGreaterThanOrEqual(before);
-        expect(eatenAt.getTime()).toBeLessThanOrEqual(after);
+        expect(confirmCalls).toBe(0);
+        const dd = String(photoTime.getDate()).padStart(2, '0');
+        const mm = String(photoTime.getMonth() + 1).padStart(2, '0');
+        expect(env.document.getElementById('food-add-time-label').textContent).toBe(`${dd}.${mm} ${hhmm(photoTime)}`);
     });
 
     it('falls back to "now" when no EXIF data is available', async () => {

@@ -1,8 +1,8 @@
 // Integration tests for the Phase 2b Task 7 abstraction seam in
 // features/food/photo.js. Pins the contract that triggerFoodPhotoPicker
 // routes through window.MediaCapture.pickPhoto, and that the picked file
-// goes into the existing uploadFoodPhotoFile() pipeline (EXIF + CloudFoodAI
-// parse + cache invalidation — all unchanged by the refactor).
+// goes into uploadFoodPhotoFile() (EXIF time → the Add sheet's dry-run
+// CloudFoodAI parse + review; nothing is logged from here).
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
@@ -48,23 +48,29 @@ describe('features/food/photo.js — Phase 2b abstraction seam (Task 7)', () => 
         expect(pickPhotoSpy).toHaveBeenCalledWith({ capture: false });
     });
 
-    it('a picked file goes through the existing CloudFoodAI parse pipeline', async () => {
+    it('a picked file goes to the Add sheet review via a dry-run CloudFoodAI parse', async () => {
         const { window } = env;
         const file = makeImageFile(env);
         window.MediaCapture = { pickPhoto: vi.fn().mockResolvedValue(file) };
+        window.apiCall = vi.fn(async () => []);
 
-        const parse = vi.fn(async () => ({ items: [{ id: 99, name: 'Salad', calories: 100, carbs: 5, protein: 4, fat: 2 }], failed: 0 }));
-        window.CloudFoodAI = { parseMealFromPhoto: parse };
+        const parse = vi.fn(async () => ({ status: 'parsed', items: [{ name: 'Salad', weight: 100, calories: 100, carbs: 5, protein: 4, fat: 2, carbs_100g: 5, protein_100g: 4, fat_100g: 2, uncertain: false }] }));
+        const logParsedItems = vi.fn();
+        window.CloudFoodAI = { parseMealFromPhoto: parse, logParsedItems };
 
         await window.triggerFoodPhotoPicker();
         await flushPromises();
+        await flushPromises();
 
-        // The picked file reached the AI parse with a resolved eaten_at.
+        // The picked file reached the AI parse as a dry run; nothing logged.
         expect(parse).toHaveBeenCalledTimes(1);
         const [sentFile, opts] = parse.mock.calls[0];
         expect(sentFile).toBe(file);
-        // Realm-safe Date check (constructed inside the JSDOM window).
-        expect(typeof opts.eatenAt.toISOString).toBe('function');
+        expect(opts).toMatchObject({ dryRun: true });
+        expect(logParsedItems).not.toHaveBeenCalled();
+        // The sheet carries the resolved eaten_at (realm-safe Date check).
+        expect(typeof window.FoodLog.addSheet.state.eatenAt.toISOString).toBe('function');
+        expect(window.document.getElementById('food-add-sheet').dataset.view).toBe('review');
     });
 
     it('cancelling the picker (pickPhoto resolves null) is a no-op — no POST fires', async () => {

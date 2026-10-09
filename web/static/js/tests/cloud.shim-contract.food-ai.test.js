@@ -1,5 +1,5 @@
 // Plan 2026-07-06 cloud-c2c, Task 6 — shim-mode contract run of the client-
-// side food-AI flows (features/food/{log,photo,ai-undo}.js's
+// side food-AI flows (features/food/{add-sheet,photo,ai-undo}.js's
 // window.__MEDTRACKER_CLOUD__ branches) against web/domain/foodai.js +
 // web/cloud/js/aiclient.js. The AI provider call never touches the shim
 // (apishim.js deliberately excludes it) — it goes straight from the browser
@@ -22,12 +22,17 @@ function flushPromises() {
     return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-// Local-date fixture — hardcoded dates rot out of the `days=1` query window
-// once the wall clock passes them (see the date-bomb gotcha in MEMORY.md).
-function todayAt(hhmm) {
-    const d = new Date();
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${hhmm}`;
+// Describe → Estimate (parse-only) → Log through the real Add sheet
+// (features/food/add-sheet.js, med-xso6.17). Parse failures surface through
+// safeToast, which falls back to safeAlert here (no SyncManager in this
+// harness). `log: false` stops at the review.
+async function describeAndLog(window, document, text, { log = true } = {}) {
+    window.showAddFoodModal({ view: 'describe' });
+    document.getElementById('food-add-describe-text').value = text;
+    await window.FoodLog.addSheet.estimate();
+    const review = window.FoodLog.addSheet.state.review;
+    if (log && review && review.length) await window.FoodLog.addSheet.commitReview();
+    await flushPromises();
 }
 
 function makeImageFile(env, name = 'meal.jpg', sizeBytes) {
@@ -70,7 +75,7 @@ async function grantTrialConsent(window, patch = { ai: true }) {
     await window.apiCall('/api/settings/trial-consent', 'PATCH', patch);
 }
 
-describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-undo}.js over web/domain/foodai.js)', () => {
+describe('cloud shim contract — food AI flows (features/food/{add-sheet,photo,ai-undo}.js over web/domain/foodai.js)', () => {
     let env;
 
     beforeEach(() => {
@@ -111,12 +116,11 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
         ]));
         vi.stubGlobal('fetch', fetchSpy);
 
-        document.getElementById('food-id').value = '';
-        document.getElementById('food-parse-ai').checked = true;
-        document.getElementById('food-datetime').value = todayAt('12:00');
-        document.getElementById('food-name').value = '200g grilled chicken with rice';
-
-        await window.saveFoodLog();
+        await describeAndLog(window, document, '200g grilled chicken with rice', { log: false });
+        // Estimate is parse-only: the review holds the items, the vault has none.
+        expect(window.FoodLog.addSheet.state.review.map((it) => it.name)).toEqual(['Grilled chicken', 'White rice']);
+        expect((await window.apiCall('/api/food/log?days=1')).flatMap((g) => g.logs)).toHaveLength(0);
+        await window.FoodLog.addSheet.commitReview();
         await flushPromises();
 
         expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -150,7 +154,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
         expect(grouped2.flatMap((g) => g.logs)).toHaveLength(0);
     });
 
-    it('photo happy path: uploadFoodPhotoFile drives CloudFoodAI.parseMealFromPhoto and logs the result', async () => {
+    it('photo happy path: uploadFoodPhotoFile parses for review (dry run), Log writes the result', async () => {
         const { window } = env;
         await setOpenAIKey(window);
 
@@ -164,6 +168,12 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
         await flushPromises();
 
         expect(fetchSpy).toHaveBeenCalledTimes(1);
+        // Parse-only: the review shows the item, nothing is logged yet.
+        expect(window.FoodLog.addSheet.state.review.map((it) => it.name)).toEqual(['Salad']);
+        expect((await window.apiCall('/api/food/log?days=1')).flatMap((g) => g.logs)).toHaveLength(0);
+
+        await window.FoodLog.addSheet.commitReview();
+        await flushPromises();
         const grouped = await window.apiCall('/api/food/log?days=1');
         const logs = grouped.flatMap((g) => g.logs);
         expect(logs.map((l) => l.name)).toEqual(['Salad']);
@@ -186,13 +196,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
             .mockResolvedValueOnce(success);
         vi.stubGlobal('fetch', fetchSpy);
 
-        document.getElementById('food-id').value = '';
-        document.getElementById('food-parse-ai').checked = true;
-        document.getElementById('food-datetime').value = todayAt('08:00');
-        document.getElementById('food-name').value = 'a bowl of oatmeal';
-
-        await window.saveFoodLog();
-        await flushPromises();
+        await describeAndLog(window, document, 'a bowl of oatmeal');
 
         expect(fetchSpy).toHaveBeenCalledTimes(2);
         const secondBody = JSON.parse(fetchSpy.mock.calls[1][1].body);
@@ -208,13 +212,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
         const fetchSpy = vi.fn();
         vi.stubGlobal('fetch', fetchSpy);
 
-        document.getElementById('food-id').value = '';
-        document.getElementById('food-parse-ai').checked = true;
-        document.getElementById('food-datetime').value = todayAt('08:00');
-        document.getElementById('food-name').value = 'two eggs';
-
-        await window.saveFoodLog();
-        await flushPromises();
+        await describeAndLog(window, document, 'two eggs');
 
         expect(fetchSpy).not.toHaveBeenCalled();
         expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/Settings.*Integrations/i));
@@ -245,13 +243,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
         ]));
         vi.stubGlobal('fetch', fetchSpy);
 
-        document.getElementById('food-id').value = '';
-        document.getElementById('food-parse-ai').checked = true;
-        document.getElementById('food-datetime').value = todayAt('09:00');
-        document.getElementById('food-name').value = 'a banana';
-
-        await window.saveFoodLog();
-        await flushPromises();
+        await describeAndLog(window, document, 'a banana');
 
         expect(fetchSpy).toHaveBeenCalledTimes(1);
         expect(fetchSpy.mock.calls[0][0]).toBe('/api/trial/openai/chat/completions');
@@ -294,13 +286,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
             async text() { return JSON.stringify({ error: 'trial_rate_limit', retry_after_seconds: 60 }); }
         }));
 
-        document.getElementById('food-id').value = '';
-        document.getElementById('food-parse-ai').checked = true;
-        document.getElementById('food-datetime').value = todayAt('09:00');
-        document.getElementById('food-name').value = 'a banana';
-
-        await window.saveFoodLog();
-        await flushPromises();
+        await describeAndLog(window, document, 'a banana');
 
         expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/trial limit/i));
     });
@@ -321,13 +307,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
             async text() { return JSON.stringify({ error: 'trial_budget_exhausted', scope: 'account', resets_at: '2026-07-11T00:00:00Z' }); }
         }));
 
-        document.getElementById('food-id').value = '';
-        document.getElementById('food-parse-ai').checked = true;
-        document.getElementById('food-datetime').value = todayAt('09:00');
-        document.getElementById('food-name').value = 'a banana';
-
-        await window.saveFoodLog();
-        await flushPromises();
+        await describeAndLog(window, document, 'a banana');
 
         const [msg] = window.safeAlert.mock.calls.at(-1);
         expect(msg).toMatch(/your AI allowance for today/i);
@@ -348,13 +328,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
             async text() { return JSON.stringify({ error: 'trial_budget_exhausted', scope: 'global' }); }
         }));
 
-        document.getElementById('food-id').value = '';
-        document.getElementById('food-parse-ai').checked = true;
-        document.getElementById('food-datetime').value = todayAt('09:00');
-        document.getElementById('food-name').value = 'a banana';
-
-        await window.saveFoodLog();
-        await flushPromises();
+        await describeAndLog(window, document, 'a banana');
 
         const [msg] = window.safeAlert.mock.calls.at(-1);
         expect(msg).toMatch(/shared AI budget for this server/i);
@@ -372,13 +346,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
             async text() { return JSON.stringify({ error: 'trial_budget_unavailable' }); }
         }));
 
-        document.getElementById('food-id').value = '';
-        document.getElementById('food-parse-ai').checked = true;
-        document.getElementById('food-datetime').value = todayAt('09:00');
-        document.getElementById('food-name').value = 'a banana';
-
-        await window.saveFoodLog();
-        await flushPromises();
+        await describeAndLog(window, document, 'a banana');
 
         expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/unavailable right now/i));
     });
@@ -395,13 +363,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
             async text() { return JSON.stringify({ error: 'trial_not_configured' }); }
         }));
 
-        document.getElementById('food-id').value = '';
-        document.getElementById('food-parse-ai').checked = true;
-        document.getElementById('food-datetime').value = todayAt('09:00');
-        document.getElementById('food-name').value = 'a banana';
-
-        await window.saveFoodLog();
-        await flushPromises();
+        await describeAndLog(window, document, 'a banana');
 
         expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/Settings.*Integrations/i));
         expect(window.safeAlert).not.toHaveBeenCalledWith(expect.stringMatching(/trial limit/i));
@@ -421,13 +383,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
             async text() { return '503 Service Unavailable'; }
         }));
 
-        document.getElementById('food-id').value = '';
-        document.getElementById('food-parse-ai').checked = true;
-        document.getElementById('food-datetime').value = todayAt('09:00');
-        document.getElementById('food-name').value = 'a banana';
-
-        await window.saveFoodLog();
-        await flushPromises();
+        await describeAndLog(window, document, 'a banana');
 
         expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/trial ai request failed/i));
         expect(window.safeAlert).not.toHaveBeenCalledWith(expect.stringMatching(/add an openai key/i));
@@ -445,13 +401,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
             async text() { return JSON.stringify({ error: 'upstream_error' }); }
         }));
 
-        document.getElementById('food-id').value = '';
-        document.getElementById('food-parse-ai').checked = true;
-        document.getElementById('food-datetime').value = todayAt('09:00');
-        document.getElementById('food-name').value = 'a banana';
-
-        await window.saveFoodLog();
-        await flushPromises();
+        await describeAndLog(window, document, 'a banana');
 
         expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/trial ai request failed/i));
         expect(window.safeAlert).not.toHaveBeenCalledWith(expect.stringContaining('upstream_error'));
@@ -484,13 +434,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
             .mockResolvedValueOnce(success);
         vi.stubGlobal('fetch', fetchSpy);
 
-        document.getElementById('food-id').value = '';
-        document.getElementById('food-parse-ai').checked = true;
-        document.getElementById('food-datetime').value = todayAt('08:00');
-        document.getElementById('food-name').value = 'a bowl of oatmeal';
-
-        await window.saveFoodLog();
-        await flushPromises();
+        await describeAndLog(window, document, 'a bowl of oatmeal');
 
         expect(fetchSpy).toHaveBeenCalledTimes(2);
         expect(fetchSpy.mock.calls[1][0]).toBe('/api/trial/openai/chat/completions');
@@ -515,13 +459,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
             async text() { return JSON.stringify({ error: 'upstream_error', upstream_status: 401 }); }
         }));
 
-        document.getElementById('food-id').value = '';
-        document.getElementById('food-parse-ai').checked = true;
-        document.getElementById('food-datetime').value = todayAt('09:00');
-        document.getElementById('food-name').value = 'a banana';
-
-        await window.saveFoodLog();
-        await flushPromises();
+        await describeAndLog(window, document, 'a banana');
 
         expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/operator/i));
         expect(window.safeAlert).not.toHaveBeenCalledWith(expect.stringContaining('upstream_error'));
@@ -539,13 +477,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
         ]));
         vi.stubGlobal('fetch', fetchSpy);
 
-        document.getElementById('food-id').value = '';
-        document.getElementById('food-parse-ai').checked = true;
-        document.getElementById('food-datetime').value = todayAt('09:00');
-        document.getElementById('food-name').value = 'a slice of toast';
-
-        await window.saveFoodLog();
-        await flushPromises();
+        await describeAndLog(window, document, 'a slice of toast');
 
         expect(fetchSpy.mock.calls[0][0]).toBe('https://api.example.test/v1/chat/completions');
     });
@@ -557,12 +489,7 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
             { name: 'Toast', weight_grams: 60, carbs_100g: 45, protein_100g: 8, fat_100g: 3 }
         ])));
 
-        document.getElementById('food-id').value = '';
-        document.getElementById('food-parse-ai').checked = true;
-        document.getElementById('food-datetime').value = todayAt('08:00');
-        document.getElementById('food-name').value = 'a slice of toast';
-        await window.saveFoodLog();
-        await flushPromises();
+        await describeAndLog(window, document, 'a slice of toast');
 
         const integrations = await window.apiCall('/api/settings/integrations', 'GET');
         expect(integrations.openai.api_key).toBe('***');
@@ -574,11 +501,9 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
     // route. No scope reading exactly `true` → no trial transmission at all;
     // skipping key setup is not consent.
     describe('trial consent gate', () => {
-        function fillAIParse(document) {
-            document.getElementById('food-id').value = '';
-            document.getElementById('food-parse-ai').checked = true;
-            document.getElementById('food-datetime').value = todayAt('09:00');
-            document.getElementById('food-name').value = 'a banana';
+        function fillAIParse(window, document) {
+            window.showAddFoodModal({ view: 'describe' });
+            document.getElementById('food-add-describe-text').value = 'a banana';
         }
 
         // Since med-yor.2 Task 4 the interactive food paths wrap the parse in
@@ -603,8 +528,8 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
             const fetchSpy = vi.fn();
             vi.stubGlobal('fetch', fetchSpy);
 
-            fillAIParse(document);
-            await runAndDecline(document, () => window.saveFoodLog());
+            fillAIParse(window, document);
+            await runAndDecline(document, () => window.FoodLog.addSheet.estimate());
 
             expect(fetchSpy).not.toHaveBeenCalled();
             expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/consent/i));
@@ -619,8 +544,8 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
             const fetchSpy = vi.fn();
             vi.stubGlobal('fetch', fetchSpy);
 
-            fillAIParse(document);
-            await runAndDecline(document, () => window.saveFoodLog());
+            fillAIParse(window, document);
+            await runAndDecline(document, () => window.FoodLog.addSheet.estimate());
 
             expect(fetchSpy).not.toHaveBeenCalled();
             expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/consent/i));
@@ -635,8 +560,8 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
             const fetchSpy = vi.fn();
             vi.stubGlobal('fetch', fetchSpy);
 
-            fillAIParse(document);
-            await runAndDecline(document, () => window.saveFoodLog());
+            fillAIParse(window, document);
+            await runAndDecline(document, () => window.FoodLog.addSheet.estimate());
 
             expect(fetchSpy).not.toHaveBeenCalled();
             expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/consent/i));
@@ -650,8 +575,8 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
             const fetchSpy = vi.fn();
             vi.stubGlobal('fetch', fetchSpy);
 
-            fillAIParse(document);
-            await runAndDecline(document, () => window.saveFoodLog());
+            fillAIParse(window, document);
+            await runAndDecline(document, () => window.FoodLog.addSheet.estimate());
 
             expect(fetchSpy).not.toHaveBeenCalled();
             expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/consent/i));
@@ -679,8 +604,8 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
             ]));
             vi.stubGlobal('fetch', fetchSpy);
 
-            fillAIParse(document);
-            const pending = window.saveFoodLog();
+            fillAIParse(window, document);
+            const pending = window.FoodLog.addSheet.estimate();
             await flushPromises();
             const allow = document.querySelector('.wg-trial-consent-modal [data-trial-consent-choice="allow"]');
             expect(allow).not.toBeNull();
@@ -754,6 +679,104 @@ describe('cloud shim contract — food AI flows (features/food/{log,photo,ai-und
             await expect(client.parseMealFromDescription('a banana'))
                 .rejects.toMatchObject({ code: 'trial_consent_required', scope: 'ai' });
             expect(fetchSpy).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    // med-xso6.17 — the review step needs a parse that saves nothing. The
+    // shim route (MCP + apiCall) and the domain both carry it.
+    describe('parse-only (dry run) mode', () => {
+        const UNSURE = [
+            { name: 'Curry', weight_grams: 300, carbs_100g: 10, protein_100g: 6, fat_100g: 7, uncertain: true },
+            { name: 'Naan', weight_grams: 90, carbs_100g: 50, protein_100g: 9, fat_100g: 5, uncertain: false },
+        ];
+
+        async function logsToday(window) {
+            return (await window.apiCall('/api/food/log?days=1')).flatMap((g) => g.logs);
+        }
+
+        it('POST /api/food/log/from-description with dry_run: true returns parsed items and writes nothing', async () => {
+            const { window } = env;
+            await setOpenAIKey(window);
+            vi.stubGlobal('fetch', vi.fn().mockResolvedValue(chatCompletionResponse(UNSURE)));
+
+            const res = await window.apiCall('/api/food/log/from-description', 'POST', { description: 'curry with naan', dry_run: true });
+
+            expect(res.status).toBe('parsed');
+            expect(res.items).toHaveLength(2);
+            expect(res.items[0]).toMatchObject({
+                name: 'Curry', weight: 300, carbs: 30, protein: 18, fat: 21,
+                carbs_100g: 10, protein_100g: 6, fat_100g: 7, uncertain: true,
+            });
+            expect(res.items[1].uncertain).toBe(false);
+            expect(res.items.every((it) => it.id === undefined)).toBe(true);
+            expect(await logsToday(window)).toHaveLength(0);
+        });
+
+        it('without dry_run the same route still logs (MCP contract unchanged)', async () => {
+            const { window } = env;
+            await setOpenAIKey(window);
+            vi.stubGlobal('fetch', vi.fn().mockResolvedValue(chatCompletionResponse(UNSURE)));
+
+            const res = await window.apiCall('/api/food/log/from-description', 'POST', { description: 'curry with naan' });
+
+            expect(res.status).toBe('created');
+            expect((await logsToday(window)).map((l) => l.name).sort()).toEqual(['Curry', 'Naan']);
+        });
+
+        it('a provider that omits `uncertain` reads as false', async () => {
+            const { window } = env;
+            await setOpenAIKey(window);
+            vi.stubGlobal('fetch', vi.fn().mockResolvedValue(chatCompletionResponse([
+                { name: 'Apple', weight_grams: 180, carbs_100g: 14, protein_100g: 0.3, fat_100g: 0.2 },
+            ])));
+
+            const res = await window.CloudFoodAI.parseMealFromDescription('an apple', { dryRun: true });
+            expect(res.items[0].uncertain).toBe(false);
+        });
+
+        it('domain: photo dry run writes nothing; logParsedItems writes the reviewed items with recomputed macros', async () => {
+            const { window } = env;
+            await setOpenAIKey(window);
+            vi.stubGlobal('fetch', vi.fn().mockResolvedValue(chatCompletionResponse(UNSURE)));
+
+            const parsed = await window.CloudFoodAI.parseMealFromPhoto(makeImageFile(env), { dryRun: true });
+            expect(parsed.status).toBe('parsed');
+            expect(await logsToday(window)).toHaveLength(0);
+
+            // The review edited the curry down to 200 g; macros follow per-100g.
+            const reviewed = [{ ...parsed.items[0], weight: 200, calories: 9999 }, parsed.items[1]];
+            const res = await window.CloudFoodAI.logParsedItems(reviewed, { eatenAt: Date.now() });
+
+            expect(res.status).toBe('created');
+            const logs = await logsToday(window);
+            expect(logs.map((l) => l.name).sort()).toEqual(['Curry', 'Naan']);
+            expect(logs.find((l) => l.name === 'Curry')).toMatchObject({
+                weight: 200, carbs: 20, protein: 12, fat: 14, calories: 4 * 20 + 4 * 12 + 9 * 14,
+            });
+            // Same as a direct parse: AI logging never touches the catalog.
+            expect(logs.every((l) => l.product_id === undefined)).toBe(true);
+            expect((await window.apiCall('/api/food/products', 'GET')).total).toBe(0);
+        });
+
+        it('Add sheet review: the uncertain item carries a warn chip, Log writes both and closes the sheet', async () => {
+            const { window, document } = env;
+            await setOpenAIKey(window);
+            vi.stubGlobal('fetch', vi.fn().mockResolvedValue(chatCompletionResponse(UNSURE)));
+
+            await describeAndLog(window, document, 'curry with naan', { log: false });
+            const rows = document.querySelectorAll('#food-add-review-list .wg-food-add__review-row');
+            expect(rows).toHaveLength(2);
+            expect(rows[0].querySelector('.wg-chip--warn')).not.toBeNull();
+            expect(rows[1].querySelector('.wg-chip--warn')).toBeNull();
+            expect(await logsToday(window)).toHaveLength(0);
+
+            document.getElementById('food-add-primary-btn').click();
+            await flushPromises();
+            await flushPromises();
+
+            // (The Undo toast needs SyncManager, absent here — food.ai-mode.test.js covers it.)
+            expect((await logsToday(window)).map((l) => l.name).sort()).toEqual(['Curry', 'Naan']);
+            expect(document.getElementById('food-add-sheet').classList.contains('hidden')).toBe(true);
         });
     });
 });
