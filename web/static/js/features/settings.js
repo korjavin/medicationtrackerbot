@@ -711,6 +711,18 @@ function settingsPageBody(name) {
     return document.querySelector(`.wg-settings-pages > [data-settings-page="${name}"]`);
 }
 
+// Pages with one Save in the page bar. Targets closes on success; AI &
+// integrations stays open (its Telegram row is one tap away) and toasts.
+function settingsPagePrimary(name, getPage) {
+    if (name === 'targets') {
+        return { label: 'Save', onClick: async () => { if (await saveTargets() && getPage()) getPage().close(); } };
+    }
+    if (name === 'integrations' && window.SettingsIntegrations) {
+        return { label: 'Save', onClick: () => window.SettingsIntegrations.save() };
+    }
+    return undefined;
+}
+
 function openSettingsPage(name) {
     const store = document.querySelector('.wg-settings-pages');
     const body = settingsPageBody(name);
@@ -722,9 +734,7 @@ function openSettingsPage(name) {
         title,
         back: body.dataset.settingsParent || 'Settings',
         body,
-        primary: name === 'targets'
-            ? { label: 'Save', onClick: async () => { if (await saveTargets() && page) page.close(); } }
-            : undefined,
+        primary: settingsPagePrimary(name, () => page),
         onClose: () => {
             store.appendChild(body);
             refreshSettingsSummaries();
@@ -801,6 +811,8 @@ function refreshSettingsSummaries() {
     setSettingsSummary('notifications', parts.join(' · '));
 
     setSettingsSummary('units', window.weightUnitPreference === 'lb' ? 'lb' : 'kg');
+    // Telegram row on the AI & integrations page (linked / unlinked since).
+    window.SettingsIntegrations?.syncTelegramRow?.();
 }
 
 // Read once right after SettingsIntegrations.load() refilled the fields from
@@ -812,6 +824,7 @@ function refreshIntegrationsSummary() {
         filled('integrations-openai-api-key') && 'OpenAI',
         (filled('integrations-food-api-key') || filled('integrations-food-url')) && 'Food DB',
         filled('integrations-elevenlabs-api-key') && 'Voice',
+        document.getElementById('telegram-settings-mount')?.dataset.tgState === 'linked' && 'Telegram',
     ].filter(Boolean);
     setSettingsSummary('integrations', set.length ? set.join(' · ') : 'AI, food database, voice, Telegram');
 }

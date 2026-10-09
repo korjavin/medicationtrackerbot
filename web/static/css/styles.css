@@ -11307,105 +11307,52 @@ input:checked+.toggle-slider:before {
     cursor: pointer;
 }
 
-/* Integrations section (local-only mode foundation, Task 3). Three
-   provider groups (OpenAI / Food / ElevenLabs) stacked inside one card.
-   Each group has a mono uppercase title and a stacked sequence of
-   label + .wg-gloss--inset input fields, identical visual rhythm to
-   the rest of the Settings screen. No hardcoded colours / spacing —
-   every value flows from a --wg-* token. */
-.wg-settings-integrations__group {
+/* AI & integrations / Backup / Telegram pages (med-xso6.24/.26, kit S3).
+   Kit display:flex rules (.wg-field, .wg-file, .wg-hstack…) beat the UA
+   [hidden] rule, so any element a page ships `hidden` (the import passphrase
+   field, trial hints, the Telegram row, the file-picker clear button) would
+   render unconditionally (med-c2b) — this guard keeps [hidden] authoritative. */
+.wg-settings-page [hidden] {
+    display: none !important;
+}
+
+.wg-settings-integrations,
+.wg-settings-importexport,
+.wg-settings-telegram {
     display: flex;
     flex-direction: column;
-    gap: var(--space-sm);
-    margin-bottom: var(--space-md);
+    gap: var(--wg-settings-section-gap);
 }
 
-.wg-settings-integrations__group-title {
-    font-size: var(--font-size-sm);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--wg-fg-2);
-    margin: 0 0 var(--space-xs) 0;
-}
-
-.wg-settings-integrations__field {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-    min-width: 0;
-}
-
-/* The [hidden] attribute is only a UA-stylesheet `display: none`, so the rule
-   above beat it: the import passphrase field ships `hidden` and importexport.js
-   reveals it only for age-encrypted archives, but it rendered unconditionally
-   (med-c2b). Same guard the weight-goal / call-indicator cards already carry. */
-.wg-settings-integrations__field[hidden] {
-    display: none;
-}
-
-.wg-settings-integrations__label {
-    font-family: var(--wg-font-mono);
-    font-size: var(--wg-settings-number-field-label-size);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--wg-fg-3);
-    font-weight: var(--font-weight-bold);
-}
-
-.wg-settings-integrations__input-wrap {
-    display: flex;
-    align-items: center;
-    min-height: var(--wg-settings-number-field-height);
-    padding: 0 var(--wg-settings-number-field-pad-x);
-    min-width: 0;
-}
-
-.wg-settings-integrations__input {
+/* Secret key field: a .wg-code shell around a bare password input, with
+   reveal + copy icon buttons. The input carries no chrome of its own. */
+.wg-secret__input {
     flex: 1 1 0;
-    width: 100%;
+    min-width: 0;
     margin: 0;
     padding: 0;
     background: transparent;
     border: none;
     outline: none;
     box-shadow: none;
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-md);
+    font: inherit;
     color: var(--wg-fg-1);
-    min-width: 0;
 }
 
-/* A file input's "Choose file" button is a native shadow-DOM control: no class
-   on the <input> can reach it, which is why the import picker stayed OS-styled
-   while everything around it was wandergeek (med-kgb). ::file-selector-button
-   is the platform's own hook for it, so it takes the .wg-gloss treatment
-   without a hidden-input + <label> proxy. */
-.wg-settings-integrations__input[type="file"] {
-    font-family: var(--wg-font-ui);
-    cursor: pointer;
-}
-
-.wg-settings-integrations__input[type="file"]::file-selector-button {
-    margin-right: var(--space-md);
-    padding: var(--space-xs) var(--space-md);
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-sm);
-    font-weight: 600;
-    color: var(--wg-fg-1);
-    border: 1px solid var(--wg-border-hairline);
-    border-radius: var(--wg-radius-gloss);
-    background: var(--wg-gloss-bg);
-    box-shadow: var(--wg-gloss-shadow);
-    transition: filter 120ms ease;
-    cursor: pointer;
-}
-
-.wg-settings-integrations__input[type="file"]::file-selector-button:hover {
-    filter: brightness(1.07);
-}
-
-.wg-settings-integrations__input::placeholder {
+.wg-secret__input::placeholder {
     color: var(--wg-fg-4);
+}
+
+.wg-tg__acts {
+    flex-wrap: wrap;
+}
+
+.wg-tg__error {
+    color: var(--wg-danger-fg);
+}
+
+.wg-health-import {
+    margin-top: var(--space-md);
 }
 
 .wg-settings-integrations__details {
@@ -11420,12 +11367,6 @@ input:checked+.toggle-slider:before {
     text-transform: uppercase;
     color: var(--wg-fg-3);
     padding: var(--space-xs) 0;
-}
-
-.wg-settings-integrations__note {
-    font-size: var(--font-size-sm);
-    color: var(--wg-fg-3);
-    margin: 0 0 var(--space-sm) 0;
 }
 
 /* Version footer (Phase 9, Task 7) — mono eyebrow + short-hash value

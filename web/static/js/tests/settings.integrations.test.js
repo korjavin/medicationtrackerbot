@@ -60,7 +60,7 @@ describe('Settings → Integrations section', () => {
         const { document } = env;
         const card = document.getElementById('settings-integrations');
         expect(card).not.toBeNull();
-        expect(card.classList.contains('wg-card')).toBe(true);
+        expect(card.closest('[data-settings-page="integrations"]')).not.toBeNull();
 
         const expectedInputs = [
             'integrations-openai-api-key',
@@ -80,8 +80,106 @@ describe('Settings → Integrations section', () => {
             expect(input, `missing input #${id}`).not.toBeNull();
         }
 
-        const saveBtn = document.getElementById('save-integrations-btn');
-        expect(saveBtn).not.toBeNull();
+        // med-xso6.24: Save is the WGPage primary, not an in-body button.
+        expect(document.getElementById('save-integrations-btn')).toBeNull();
+        // Every key field is a .wg-secret password input (masked by default).
+        for (const id of ['integrations-openai-api-key', 'integrations-openai-vision-api-key',
+            'integrations-food-api-key', 'integrations-elevenlabs-api-key']) {
+            const input = document.getElementById(id);
+            expect(input.type, id).toBe('password');
+            expect(input.closest('.wg-secret'), id).not.toBeNull();
+        }
+    });
+
+    it('the page-bar primary saves the integrations form', async () => {
+        const { window } = env;
+        const save = vi.spyOn(window.SettingsIntegrations, 'save').mockResolvedValue(undefined);
+        const page = window.SettingsView.openSettingsPage('integrations');
+        expect(page).not.toBeNull();
+        const primary = page.el.querySelectorAll('.wg-pagebar .wg-btn--primary');
+        expect(primary.length).toBe(1);
+        expect(primary[0].textContent).toBe('Save');
+        primary[0].click();
+        expect(save).toHaveBeenCalledTimes(1);
+        // Save keeps the page open (a failed save must not lose typed keys).
+        expect(page.el.isConnected).toBe(true);
+        page.close();
+    });
+
+    describe('key fields (reveal / copy)', () => {
+        function secret(document) {
+            return document.getElementById('integrations-openai-api-key').closest('.wg-secret');
+        }
+
+        it('reveal toggles the mask and its pressed state', () => {
+            const { document } = env;
+            const wrap = secret(document);
+            const input = wrap.querySelector('input');
+            const reveal = wrap.querySelector('[data-secret-reveal]');
+            reveal.click();
+            expect(input.type).toBe('text');
+            expect(reveal.getAttribute('aria-pressed')).toBe('true');
+            reveal.click();
+            expect(input.type).toBe('password');
+            expect(reveal.getAttribute('aria-pressed')).toBe('false');
+        });
+
+        it('copy puts a typed key on the clipboard and nowhere else', async () => {
+            const { window, document } = env;
+            const writeText = vi.fn(async () => {});
+            Object.defineProperty(window.navigator, 'clipboard', { configurable: true, value: { writeText } });
+            window.apiCall = vi.fn();
+            window.fetch = vi.fn();
+            const wrap = secret(document);
+            wrap.querySelector('input').value = 'sk-typed';
+            wrap.querySelector('[data-secret-copy]').click();
+            await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith('sk-typed'));
+            expect(window.apiCall).not.toHaveBeenCalled();
+            expect(window.fetch).not.toHaveBeenCalled();
+        });
+
+        it('copy refuses the saved-key mask', async () => {
+            const { window, document } = env;
+            const writeText = vi.fn(async () => {});
+            Object.defineProperty(window.navigator, 'clipboard', { configurable: true, value: { writeText } });
+            const toasts = [];
+            window.safeToast = (msg) => toasts.push(msg);
+            const wrap = secret(document);
+            wrap.querySelector('input').value = '***';
+            wrap.querySelector('[data-secret-copy]').click();
+            await new Promise((r) => setTimeout(r, 0));
+            expect(writeText).not.toHaveBeenCalled();
+            expect(toasts[0]).toMatch(/type a key/i);
+        });
+    });
+
+    describe('Telegram row', () => {
+        it('stays hidden until the module stamps an enabled state, then shows Linked', () => {
+            const { window, document } = env;
+            const row = document.getElementById('integrations-telegram-row');
+            const mount = document.getElementById('telegram-settings-mount');
+            expect(row.hidden).toBe(true);
+            mount.dataset.tgState = 'disabled';
+            window.SettingsIntegrations.syncTelegramRow();
+            expect(row.hidden).toBe(true);
+            mount.dataset.tgState = 'linked';
+            window.SettingsIntegrations.syncTelegramRow();
+            expect(row.hidden).toBe(false);
+            expect(row.querySelector('[data-settings-summary="telegram"]').textContent).toBe('Linked');
+            mount.dataset.tgState = 'none';
+            window.SettingsIntegrations.syncTelegramRow();
+            expect(row.querySelector('[data-settings-summary="telegram"]').textContent).toBe('Not linked');
+        });
+
+        it('opens the Telegram page nested under AI & integrations', () => {
+            const { window, document } = env;
+            const page = window.SettingsView.openSettingsPage('telegram');
+            expect(page).not.toBeNull();
+            expect(page.el.querySelector('#telegram-settings-mount')).not.toBeNull();
+            expect(page.el.textContent).toContain('AI & integrations');
+            page.close();
+            expect(document.querySelector('.wg-settings-pages #telegram-settings-mount')).not.toBeNull();
+        });
     });
 
     it('save toast confirms without restart wording (changes apply live)', async () => {
@@ -536,16 +634,14 @@ describe('Settings → Integrations section', () => {
             return [...document.getElementById(OPTIONS[scope]).querySelectorAll('option')].map((o) => o.value);
         }
 
-        it('wires each model input to its own datalist and Load models button', () => {
+        it('wires each model input to its own Choose button and keeps it free text', () => {
             const { document } = env;
             for (const scope of ['text', 'vision']) {
                 expect(document.getElementById(OPTIONS[scope]), `missing datalist for ${scope}`).not.toBeNull();
                 const button = document.getElementById(BUTTONS[scope]);
                 expect(button, `missing load button for ${scope}`).not.toBeNull();
-                expect(button.textContent).toBe('Load models');
+                expect(button.textContent.trim()).toBe('Choose');
             }
-            expect(document.getElementById('integrations-openai-model').getAttribute('list')).toBe(OPTIONS.text);
-            expect(document.getElementById('integrations-openai-vision-model').getAttribute('list')).toBe(OPTIONS.vision);
             // The input itself must stay a plain text field — a <select> or a
             // pattern here would turn the list into validation.
             expect(document.getElementById('integrations-openai-model').tagName).toBe('INPUT');
@@ -582,7 +678,7 @@ describe('Settings → Integrations section', () => {
             expect(calls.some((u) => u.includes('/models'))).toBe(true);
         });
 
-        it('a click populates the datalist from the shim and flips the button to Refresh', async () => {
+        it('a load populates the datalist from the shim; the next one refreshes', async () => {
             const { window, document } = env;
             const urls = [];
             window.apiCall = vi.fn(async (url) => {
@@ -594,7 +690,6 @@ describe('Settings → Integrations section', () => {
 
             expect(optionValues(document, 'text')).toEqual(['gpt-4o', 'gpt-4o-mini']);
             expect(urls[0]).toBe('/api/settings/integrations/models?scope=text');
-            expect(document.getElementById(BUTTONS.text).textContent).toBe('Refresh models');
             expect(document.getElementById(BUTTONS.text).disabled).toBe(false);
             expect(document.getElementById(NOTES.text).hidden).toBe(false);
             expect(document.getElementById(NOTES.text).textContent).toContain('2 models');
@@ -673,7 +768,7 @@ describe('Settings → Integrations section', () => {
             expect(optionValues(document, 'text')).toEqual(['fresh']);
         });
 
-        it('saving new credentials clears the stale list and resets the button', async () => {
+        it('saving new credentials clears the stale list', async () => {
             const { window, document } = env;
             window.apiCall = vi.fn(async (url, method) => {
                 if (url.includes('/models')) return { models: ['old-a'], cached: false, error: '', code: '' };
@@ -691,8 +786,40 @@ describe('Settings → Integrations section', () => {
             await window.SettingsIntegrations.save();
 
             expect(optionValues(document, 'text')).toEqual([]);
-            expect(document.getElementById(BUTTONS.text).textContent).toBe('Load models');
             expect(document.getElementById(NOTES.text).hidden).toBe(true);
+        });
+
+        // med-xso6.24: Choose opens the kit choice dialog over the loaded ids;
+        // the pick lands in the free-text input (WGSheet is not used yet).
+        it('Choose offers the loaded models and writes the pick into the input', async () => {
+            const { window, document } = env;
+            window.apiCall = vi.fn(async () => ({ models: ['gpt-4o', 'gpt-4o-mini'], cached: false, error: '', code: '' }));
+            window.safeChoose = vi.fn(async () => 'gpt-4o-mini');
+            const input = document.getElementById('integrations-openai-model');
+            input.value = 'gpt-4o';
+
+            await window.SettingsIntegrations._chooseModel('text');
+
+            const choices = window.safeChoose.mock.calls[0][1];
+            expect(choices.map((c) => c.value)).toEqual(['gpt-4o', 'gpt-4o-mini']);
+            expect(choices.find((c) => c.selected).value).toBe('gpt-4o');
+            expect(input.value).toBe('gpt-4o-mini');
+        });
+
+        it('a dismissed choice or a failed load leaves the typed model alone', async () => {
+            const { window, document } = env;
+            const input = document.getElementById('integrations-openai-model');
+            input.value = 'my-model';
+            window.apiCall = vi.fn(async () => ({ models: ['a'], cached: false, error: '', code: '' }));
+            window.safeChoose = vi.fn(async () => null);
+            await window.SettingsIntegrations._chooseModel('text');
+            expect(input.value).toBe('my-model');
+
+            window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+            window.safeChoose = vi.fn();
+            await window.SettingsIntegrations._chooseModel('text');
+            expect(window.safeChoose).not.toHaveBeenCalled();
+            expect(input.value).toBe('my-model');
         });
     });
 });

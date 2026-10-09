@@ -322,6 +322,44 @@ describe('telegram.js onboarding module', () => {
     expect(app.querySelector('#tg-open-bot')).toBeNull();
   });
 
+  // med-xso6.26 (kit S3): Settings renders kit sections with a three-step
+  // indicator and stamps the mount with its state for the Settings row; the
+  // wizard keeps its cloud.css wizard-* markup and shows no indicator.
+  it('settings mode shows the kit step indicator and stamps the state', async () => {
+    global.fetch = fetchStub({
+      '/api/telegram/status': { ok: true, json: async () => ({ enabled: true, state: 'none' }) },
+    });
+    await mountTelegram(app, {});
+    expect(app.querySelector('section').classList.contains('wg-section')).toBe(true);
+    const steps = app.querySelectorAll('.wg-steps i');
+    expect(steps.length).toBe(3);
+    expect(steps[0].className).toBe('is-now');
+    expect(app.dataset.tgState).toBe('none');
+
+    app.innerHTML = '';
+    global.fetch = fetchStub({
+      '/api/telegram/status': { ok: true, json: async () => ({ enabled: true, state: 'none' }) },
+    });
+    await mountTelegram(app, { onDone: () => {} });
+    expect(app.querySelector('section').classList.contains('wizard-step')).toBe(true);
+    expect(app.querySelector('.wg-steps')).toBeNull();
+  });
+
+  it('stamps linked with a Linked chip, and disabled when Telegram is off', async () => {
+    global.fetch = fetchStub({
+      '/api/telegram/status': { ok: true, json: async () => ({ enabled: true, state: 'linked', bot_username: 'mt_abc_bot' }) },
+      '/api/telegram/diag': { ok: true, json: async () => ({ bot_username: 'mt_abc_bot', last_error: '' }) },
+    });
+    await mountTelegram(app, {});
+    expect(app.dataset.tgState).toBe('linked');
+    expect(app.querySelector('.wg-chip--ok').textContent).toBe('Linked');
+
+    app.innerHTML = '';
+    global.fetch = fetchStub({});
+    await mountTelegram(app, {});
+    expect(app.dataset.tgState).toBe('disabled');
+  });
+
   it('surfaces a failing webhook last_error in the linked state (bd med-eas.48)', async () => {
     global.fetch = fetchStub({
       '/api/telegram/status': { ok: true, json: async () => ({ enabled: true, state: 'linked', bot_username: 'mt_abc_bot' }) },
@@ -337,7 +375,7 @@ describe('telegram.js onboarding module', () => {
       if (!el || !el.textContent.includes('502 Bad Gateway')) throw new Error('not yet');
     });
     const el = app.querySelector('#tg-webhook-health');
-    expect(el.className).toContain('wizard-error');
+    expect(el.className).toContain('wg-tg__error');
     expect(el.textContent).toContain('Webhook delivery error');
   });
 
@@ -351,7 +389,7 @@ describe('telegram.js onboarding module', () => {
       const el = app.querySelector('#tg-webhook-health');
       if (!el || !el.textContent.includes('OK')) throw new Error('not yet');
     });
-    expect(app.querySelector('#tg-webhook-health').className).not.toContain('wizard-error');
+    expect(app.querySelector('#tg-webhook-health').className).not.toContain('wg-tg__error');
   });
 
   it('flags unknown health (not OK) when diag returns getWebhookInfo_error (bd med-eas.48)', async () => {
@@ -365,7 +403,7 @@ describe('telegram.js onboarding module', () => {
       if (!el || !el.textContent.includes('Could not check webhook status')) throw new Error('not yet');
     });
     const el = app.querySelector('#tg-webhook-health');
-    expect(el.className).toContain('wizard-error');
+    expect(el.className).toContain('wg-tg__error');
     expect(el.textContent).not.toContain('OK');
   });
 
