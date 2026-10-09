@@ -753,7 +753,7 @@ async function loadFoodLogs() {
         // Tag the v2 cache row under the `food` family so `invalidateTags(['food'])`
         // (mutation refresh, change-poll) evicts it alongside `food_<date>_day`.
         // The key already matches the `food_` family prefix registered at boot.
-        const incomplete = await fetchFoodDayIncomplete(dateStr);
+        const incomplete = await fetchFoodDayIncomplete(dateStr, !!(cached && cached.incomplete === true));
         await window.DataStore.setCachedWithTags(cacheKey, { groups: groups || [], weekStats: persistedWeekStats, incomplete }, ['food']);
 
         _renderFoodData(groups || [], persistedWeekStats, window.FoodLog.macrosRange, dateStr);
@@ -1399,12 +1399,14 @@ const FOOD_NUDGE_DISMISS_KEY = 'wg-food-incomplete-nudge-dismissed';
 const FOOD_NUDGE_LOOKBACK_DAYS = 3;
 const FOOD_NUDGE_FALLBACK_KCAL = 800;
 
-async function fetchFoodDayIncomplete(dateStr) {
+// A failed or empty read keeps the cached status rather than reading as "complete".
+async function fetchFoodDayIncomplete(dateStr, fallback) {
     try {
         const days = await apiCall(`/api/food/days?date=${dateStr}&days=1`, 'GET');
-        return Array.isArray(days) && days.some((d) => d && d.date === dateStr && d.incomplete === true);
+        if (!Array.isArray(days)) return fallback;
+        return days.some((d) => d && d.date === dateStr && d.incomplete === true);
     } catch (_) {
-        return false;
+        return fallback;
     }
 }
 
@@ -1418,7 +1420,8 @@ function renderFoodDayStatus(incomplete) {
 }
 
 async function setFoodDayIncomplete(dateStr, incomplete) {
-    renderFoodDayStatus(incomplete);
+    const dateFilter = document.getElementById('food-date-filter');
+    if (dateFilter && dateFilter.value === dateStr) renderFoodDayStatus(incomplete);
     const handle = await window.DataStore.applyOptimistic(
         `food_${dateStr}_v2`, (prev) => (prev ? { ...prev, incomplete } : prev), ['food']);
     let res = null;

@@ -576,9 +576,12 @@ describe('food screen — incomplete-day toggle + nudge chip (med-0sgs.3)', () =
         expect(document.getElementById('food-incomplete-nudge-btn').textContent).toContain('Yesterday');
 
         document.getElementById('food-incomplete-nudge-btn').click();
+        // Flagging yesterday must not paint today's (displayed) day as excluded.
+        expect(document.getElementById('food-incomplete-toggle').checked).toBe(false);
         await vi.waitFor(async () => expect(await flagged(window, yesterday)).toBe(true));
         await openFood(window, document, today);
         expect(nudge(document).classList.contains('hidden')).toBe(true);
+        expect(document.getElementById('food-incomplete-toggle').checked).toBe(false);
     });
 
     it('nudges about a suspiciously low day (< 800 kcal without a target), not a full one', async () => {
