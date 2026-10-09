@@ -301,14 +301,31 @@ function syncFoodDatetimeLabel() {
     label.textContent = `${foodRelativeDay(day) || formatFoodDateSubtitle(day).slice(0, 5)} ${hm}`;
 }
 
-function openFoodDatetimePicker() {
-    const input = document.getElementById('food-datetime');
+// A time chip's hidden datetime-local input: the native picker, or — with no
+// programmatic picker — the input itself revealed as an editable field
+// (same fallback as meds.js openMedConfirmTimePicker). Shared with add-sheet.js.
+function openFoodTimeInput(input) {
     if (!input) return;
     if (typeof input.showPicker === 'function') {
-        try { input.showPicker(); return; } catch (_) { /* fall through */ }
+        try { input.showPicker(); return; } catch (_) { /* fall back below */ }
     }
+    input.classList.remove('hidden');
+    input.classList.add('wg-input');
+    input.removeAttribute('tabindex');
+    input.removeAttribute('aria-hidden');
     input.focus();
-    input.click();
+}
+
+// Re-hide a revealed time input when its form opens again.
+function resetFoodTimeInput(input) {
+    if (!input) return;
+    input.classList.add('hidden');
+    input.setAttribute('tabindex', '-1');
+    input.setAttribute('aria-hidden', 'true');
+}
+
+function openFoodDatetimePicker() {
+    openFoodTimeInput(document.getElementById('food-datetime'));
 }
 
 // Manual entry (kit F8) — the Add sheet's fallback. prefill: { name,
@@ -319,6 +336,7 @@ function showManualFoodModal(prefill) {
     document.getElementById('food-modal-title').innerText = 'Manual entry';
 
     const eatenAt = p.eatenAt instanceof Date && !Number.isNaN(p.eatenAt.getTime()) ? p.eatenAt : new Date();
+    resetFoodTimeInput(document.getElementById('food-datetime'));
     document.getElementById('food-datetime').value = formatDateTimeLocalForInput(eatenAt);
     syncFoodDatetimeLabel();
 
@@ -359,6 +377,7 @@ function editFoodLog(id) {
 
     window.ModalManager.food.open();
     document.getElementById('food-modal-title').innerText = 'Edit entry';
+    resetFoodTimeInput(document.getElementById('food-datetime'));
 
     document.getElementById('food-id').value = log.id;
     const pidEl = document.getElementById('food-log-product-id');

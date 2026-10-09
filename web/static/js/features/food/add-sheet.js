@@ -172,6 +172,7 @@
         if (text) text.value = '';
         renderResults();
         setSearchStatus('');
+        resetFoodTimeInput($('food-add-datetime'));
         window.ModalManager.foodAdd.open();
         setView(o.view || 'home');
         loadRecent();
@@ -203,11 +204,7 @@
         const input = $('food-add-datetime');
         if (!input) return;
         input.value = formatDateTimeLocalForInput(when());
-        if (typeof input.showPicker === 'function') {
-            try { input.showPicker(); return; } catch (_) { /* fall through */ }
-        }
-        input.focus();
-        input.click();
+        openFoodTimeInput(input);
     }
 
     function onTimeChange() {

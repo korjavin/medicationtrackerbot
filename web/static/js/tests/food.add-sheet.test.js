@@ -160,4 +160,21 @@ describe('Food Add sheet', () => {
         expect(sheet().classList.contains('hidden')).toBe(true);
         expect(window.FoodLog.addSheet.isOpen()).toBe(false);
     });
+
+    it('the time chip reveals its input when there is no programmatic picker, and re-hides it on the next open', async () => {
+        const { window, document } = env;
+        window.FoodLog.addSheet.open();
+        await settle();
+        const input = document.getElementById('food-add-datetime');
+        input.showPicker = undefined;
+
+        document.getElementById('food-add-time-btn').click();
+        expect(input.classList.contains('hidden')).toBe(false);
+        expect(input.value).not.toBe('');
+
+        window.FoodLog.addSheet.close();
+        window.FoodLog.addSheet.open();
+        await settle();
+        expect(input.classList.contains('hidden')).toBe(true);
+    });
 });
