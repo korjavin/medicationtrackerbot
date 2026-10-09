@@ -833,7 +833,13 @@ function renderFoodItemRow(log) {
 
     const name = document.createElement('div');
     name.className = 'wg-food-item-row__name';
-    name.textContent = log.is_meal ? `🍽 ${log.name || 'Food'}` : (log.name || 'Food');
+    if (log.is_meal) {
+        const ico = document.createElement('i');
+        ico.className = 'wg-ico wg-food-item-row__meal-ico';
+        ico.appendChild(window.WGIcons.iconSvg('food', { size: 14 }));
+        name.appendChild(ico);
+    }
+    name.appendChild(document.createTextNode(log.name || 'Food'));
     body.appendChild(name);
 
     const meta = document.createElement('div');
@@ -843,11 +849,8 @@ function renderFoodItemRow(log) {
     grams.textContent = `${Math.round(log.weight || 0)}g`;
     meta.appendChild(grams);
 
-    if (log.isRejected || log.errorMessage) {
-        meta.appendChild(buildFoodSyncTag('rejected', 'Failed', log.errorMessage));
-    } else if (log.isLocal || log.pending) {
-        meta.appendChild(buildFoodSyncTag('pending', 'Pending'));
-    }
+    const syncChip = window.WGChip.sync(log);
+    if (syncChip) meta.appendChild(syncChip);
 
     body.appendChild(meta);
     item.appendChild(body);
@@ -880,14 +883,6 @@ function renderFoodItemRow(log) {
     item.appendChild(actions);
 
     return item;
-}
-
-function buildFoodSyncTag(kind, label, tooltip) {
-    const tag = document.createElement('span');
-    tag.className = `wg-tag wg-tag--mono wg-tag--${kind} wg-food-item-row__sync`;
-    tag.textContent = label;
-    if (tooltip) tag.title = tooltip;
-    return tag;
 }
 
 function buildFoodActionButton(iconName, ariaLabel, onClick) {

@@ -268,22 +268,11 @@ function _buildMedsLogButton(med) {
 }
 
 function _buildMedsInventoryTag(med) {
-    // Renders both the OK and LOW state as a `.wg-tag--mono` pill; the
-    // low-stock variant also carries `.wg-tag--alert` so the alert color
-    // tokens apply. Label/state come from formatStock().
+    // Stock chip: formatStock() already speaks the kit states (ok/warn/danger).
     const stock = formatStock(med.inventory_count, med);
-    const isLow = stock.state !== 'ok';
-    const tag = document.createElement('span');
-    tag.className = 'wg-tag wg-tag--mono inventory-badge wg-meds-row__inventory';
-    if (isLow) {
-        tag.classList.add('wg-tag--alert');
-        tag.classList.add('low');
-        tag.textContent = stock.label;
-    } else {
-        tag.classList.add('wg-tag--normal');
-        tag.textContent = stock.label;
-    }
-    return tag;
+    const chip = window.WGChip.create({ text: stock.label, state: stock.state, small: true });
+    chip.classList.add('wg-meds-row__inventory');
+    return chip;
 }
 
 function _buildMedsRow(med, parsedSchedule) {
@@ -340,6 +329,9 @@ function _buildMedsRow(med, parsedSchedule) {
     if (med.inventory_count !== null && med.inventory_count !== undefined) {
         info.appendChild(_buildMedsInventoryTag(med));
     }
+
+    const syncChip = window.WGChip.sync(med);
+    if (syncChip) info.appendChild(syncChip);
 
     const actions = document.createElement('div');
     actions.className = 'wg-meds-row__actions med-actions';
@@ -583,9 +575,7 @@ function logMedicationPast(id, name) {
 // group-click contract), then those clusters are bucketed by local day so
 // each day can carry its own `.wg-section-label` header. Each cluster is a
 // `.wg-card` row with the med names (mono-display), the trailing ISO-local
-// time, an edit `.wg-icon-btn`, and a `.wg-tag--mono` status pill. The
-// status emoji stays in the pill label so existing tests grepping for `✅`
-// continue to pass.
+// time, an edit `.wg-icon-btn`, and a WGChip status chip (ok/pending/danger).
 
 function _buildHistoryClusters(logs) {
     const clusters = [];
@@ -634,19 +624,19 @@ function _formatHistoryRowTime(dateMs) {
 }
 
 function _buildHistoryStatusTag(status) {
-    const tag = document.createElement('span');
-    tag.className = 'wg-tag wg-tag--mono wg-meds-history__status';
-    if (status === 'TAKEN') {
-        tag.classList.add('wg-tag--normal');
-        tag.textContent = '✅ Taken';
-    } else if (status === 'PENDING') {
-        tag.classList.add('wg-tag--high');
-        tag.textContent = '⏳ Pending';
-    } else {
-        tag.classList.add('wg-tag--alert');
-        tag.textContent = `❌ ${status || 'Missed'}`;
-    }
-    return tag;
+    let chip;
+    if (status === 'TAKEN') chip = window.WGChip.create({ text: 'Taken', state: 'ok', small: true });
+    else if (status === 'PENDING') chip = window.WGChip.create({ text: 'Pending', state: 'pending', small: true });
+    else chip = window.WGChip.create({ text: _titleCaseStatus(status), state: 'danger', small: true });
+    chip.classList.add('wg-meds-history__status');
+    return chip;
+}
+
+// 'SKIPPED' → 'Skipped'; empty → 'Missed'.
+function _titleCaseStatus(status) {
+    if (!status) return 'Missed';
+    const s = String(status);
+    return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 }
 
 function _buildHistoryClusterRow(cluster, medsList) {
@@ -834,7 +824,7 @@ function renderHistory(logs) {
 // Inventory sub-tab (Phase 5, Task 6). Renders one `.wg-card` per
 // medication that tracks inventory (i.e. `med.inventory_count !== null`).
 // Each card carries the med name (mono), a large mono count, an optional
-// low-stock `.wg-tag--alert` pill, the last-refilled date (resolved via
+// low-stock warn chip, the last-refilled date (resolved via
 // the existing `/api/medications/{id}/restocks` endpoint), and a trailing
 // `.wg-gloss--sun` Refill button that toggles an inline quantity input.
 // Confirming the refill POSTs to the existing `/restock` endpoint and
@@ -915,9 +905,8 @@ function _buildInventoryCard(med) {
     countLabel.textContent = stock.state === 'danger' ? stock.label : 'left';
     countWrap.appendChild(countLabel);
     if (stock.state === 'warn') {
-        const low = document.createElement('span');
-        low.className = 'wg-tag wg-tag--mono wg-tag--alert wg-meds-inventory__low';
-        low.textContent = '⚠️ Low stock';
+        const low = window.WGChip.create({ text: 'Low stock', state: 'warn', small: true });
+        low.classList.add('wg-meds-inventory__low');
         countWrap.appendChild(low);
     }
     main.appendChild(countWrap);
@@ -1329,7 +1318,7 @@ async function saveMedication() {
         }
 
         if (res.warning) {
-            safeAlert("⚠️ " + res.warning);
+            safeAlert(res.warning);
         }
 
         if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
@@ -1408,7 +1397,7 @@ async function deleteMed(id) {
                 return;
             }
             if (res && res.warning) {
-                safeAlert("⚠️ " + res.warning);
+                safeAlert(res.warning);
             }
             if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
             await window.DataStore.invalidateTags(['medications', 'history', 'gamification']);

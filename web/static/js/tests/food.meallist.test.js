@@ -130,7 +130,7 @@ describe('Food meal-grouped item list (Phase 4, Task 5)', () => {
             .toBe('P 12 / F 6');
     });
 
-    it('offline-pending logs get a .wg-tag.wg-tag--mono.wg-tag--pending badge', () => {
+    it('offline-pending logs get the shared Pending sync chip', () => {
         const { window, document } = env;
         const groups = [
             {
@@ -160,12 +160,12 @@ describe('Food meal-grouped item list (Phase 4, Task 5)', () => {
         const row = document.querySelector('#food-list .wg-food-item-row');
         expect(row.classList.contains('wg-food-item-row--pending')).toBe(true);
 
-        const tag = row.querySelector('.wg-tag.wg-tag--mono.wg-tag--pending');
+        const tag = row.querySelector('.wg-chip.wg-chip--pending');
         expect(tag).not.toBeNull();
         expect(tag.textContent).toBe('Pending');
     });
 
-    it('rejected logs get a .wg-tag.wg-tag--mono.wg-tag--rejected badge with tooltip', () => {
+    it('rejected logs get a danger Sync failed chip with tooltip', () => {
         const { window, document } = env;
         const groups = [
             {
@@ -196,9 +196,9 @@ describe('Food meal-grouped item list (Phase 4, Task 5)', () => {
         const row = document.querySelector('#food-list .wg-food-item-row');
         expect(row.classList.contains('wg-food-item-row--rejected')).toBe(true);
 
-        const tag = row.querySelector('.wg-tag.wg-tag--mono.wg-tag--rejected');
+        const tag = row.querySelector('.wg-chip.wg-chip--danger');
         expect(tag).not.toBeNull();
-        expect(tag.textContent).toBe('Failed');
+        expect(tag.textContent).toBe('Sync failed');
         expect(tag.title).toBe('HTTP 400 — bad payload');
     });
 

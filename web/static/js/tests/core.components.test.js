@@ -15,6 +15,8 @@ function loadComponents() {
         'web/static/js/components/empty-state.js',
         'web/static/js/components/stat-card.js',
         'web/static/js/components/action-row.js',
+        'web/static/js/components/wg-icons.js',
+        'web/static/js/components/wg-chip.js',
     ]) {
         const src = fs.readFileSync(path.join(REPO_ROOT, relPath), 'utf8');
         window.eval(`${src}\n//# sourceURL=file://${path.join(REPO_ROOT, relPath)}`);
@@ -122,7 +124,9 @@ describe('createDeleteButton', () => {
             expect(btn.type).toBe('button');
             expect(btn.className).toBe('icon-action-btn delete');
             expect(btn.title).toBe('Delete');
-            expect(btn.textContent).toBe('🗑️');
+            expect(btn.getAttribute('aria-label')).toBe('Delete');
+            expect(btn.querySelector('svg').getAttribute('data-wg-icon')).toBe('trash');
+            expect(btn.textContent).toBe('');
         } finally {
             cleanup();
         }
@@ -141,14 +145,36 @@ describe('createDeleteButton', () => {
     });
 });
 
-describe('createSyncBadge', () => {
-    it('creates a span with sync-pending-badge class and "Pending" text', () => {
+describe('WGChip', () => {
+    it('create renders a state chip with plain text and an optional icon', () => {
         const { window, cleanup } = loadComponents();
         try {
-            const badge = window.createSyncBadge();
-            expect(badge.tagName).toBe('SPAN');
-            expect(badge.className).toBe('sync-pending-badge');
-            expect(badge.textContent).toBe('Pending');
+            const chip = window.WGChip.create({ text: 'Taken', state: 'ok', small: true, icon: 'check' });
+            expect(chip.tagName).toBe('SPAN');
+            expect(Array.from(chip.classList)).toEqual(['wg-chip', 'wg-chip--ok', 'wg-chip--sm']);
+            expect(chip.textContent).toBe('Taken');
+            expect(chip.querySelector('.wg-ico svg').getAttribute('data-wg-icon')).toBe('check');
+            expect(window.WGChip.create({ text: 'flat' }).className).toBe('wg-chip');
+            expect(() => window.WGChip.create({ text: 'x', state: 'alert' })).toThrow(/unknown state/);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('sync maps row sync state to one chip: rejected wins over pending, synced → null', () => {
+        const { window, cleanup } = loadComponents();
+        try {
+            for (const row of [{ isLocal: true }, { pending: true }, { _optimistic: true }]) {
+                const chip = window.WGChip.sync(row);
+                expect(chip.classList.contains('wg-chip--pending')).toBe(true);
+                expect(chip.textContent).toBe('Pending');
+            }
+            const failed = window.WGChip.sync({ isLocal: true, isRejected: true, errorMessage: 'HTTP 400' });
+            expect(failed.classList.contains('wg-chip--danger')).toBe(true);
+            expect(failed.textContent).toBe('Sync failed');
+            expect(failed.title).toBe('HTTP 400');
+            expect(window.WGChip.sync({ id: 1 })).toBeNull();
+            expect(window.WGChip.sync(null)).toBeNull();
         } finally {
             cleanup();
         }
