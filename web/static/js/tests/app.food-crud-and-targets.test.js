@@ -341,7 +341,9 @@ describe('app.js food CRUD, targets and period helpers', () => {
       window._renderFoodData(groups, { calories: 500, carbs: 50, protein: 30, fat: 15 }, 'day', '2026-03-01');
       expect(document.getElementById('food-list').innerHTML).toContain('Rice Bowl');
       expect(document.getElementById('food-list').textContent).toContain('<b>Tea</b>');
-      expect(document.getElementById('food-list').innerHTML).not.toContain('<b>');
+      // Escaped, not parsed: no <b> element. (innerHTML can't be grepped — the
+      // row's More button names the entry in its aria-label attribute.)
+      expect(document.getElementById('food-list').querySelector('b')).toBeNull();
       // Phase 4, Task 4: daily totals now render into the Wandergeek macros
       // card. The legacy #food-summary block still renders on day view but
       // only as the Select-mode entry point for the Save-as-Meal workflow.

@@ -101,7 +101,9 @@ describe('app.js medication, history and intake flows', () => {
       expect(medsHtml).toContain('wg-chip--warn');
       expect(medsHtml).toContain('Soon Med Rx');
       expect(document.getElementById('med-list').textContent).toContain('<b>As Needed</b>');
-      expect(medsHtml).not.toContain('<b>As Needed</b>');
+      // Escaped, not parsed: no <b> element (the More button's aria-label
+      // carries the raw name as an attribute value).
+      expect(document.getElementById('med-list').querySelector('b')).toBeNull();
 
       const editSpy = vi.spyOn(window, 'showEditModal').mockImplementation(() => {});
       const logSpy = vi.spyOn(window, 'logMedicationPast').mockImplementation(() => {});
