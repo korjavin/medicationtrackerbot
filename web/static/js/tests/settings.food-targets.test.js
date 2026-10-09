@@ -235,7 +235,14 @@ describe('Food Targets round-trip through loadFoodTargets / saveFoodTargets (Pha
             expect(put[2]).toEqual({ targets: [{ metric_key: 'steps', low_val: 6000 }] });
             const post = apiCallSpy.mock.calls.find((c) => c[0] === '/api/food/settings/targets' && c[1] === 'POST');
             expect(post[2]).toEqual({ calories: 1900, carbs: 200, protein: 130, fat: 70 });
-            expect(optimisticSpy.mock.calls.map((c) => c[0])).toEqual(['gamification', 'food_targets']);
+            expect(optimisticSpy.mock.calls.map((c) => c[0])).toEqual(['gamification', 'food_targets', 'settings_bundle']);
+            // food_targets carries no tag, so the post-save invalidateTags
+            // (which names 'food_targets') can't evict the committed row.
+            expect(optimisticSpy.mock.calls[1][2]).toEqual([]);
+            // The Settings screen renders from settings_bundle: a tab reload
+            // repaints the saved values, not the pre-save ones.
+            expect(optimisticSpy.mock.calls[2][1]({ foodTargets: { calories: 1800 }, tabOrder: ['x'] }))
+                .toEqual({ foodTargets: { calories: 1900, carbs: 200, protein: 130, fat: 70 }, tabOrder: ['x'] });
             expect(window.safeAlert).toHaveBeenCalledTimes(1);
             expect(window.safeAlert).toHaveBeenCalledWith('Targets saved');
             // The page body went back to the hidden store, ids intact.

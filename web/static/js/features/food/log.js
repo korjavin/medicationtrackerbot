@@ -1134,29 +1134,36 @@ function readFoodTargetsForm() {
     };
 }
 
-// Optimistic write (Critical Rule #9) on the 'food_targets' cache key; a failed
-// POST rolls it back. Resolves true on success. `toast: false` lets the Settings
-// Targets page (one Save for food + Journey bands) report once for both; it
-// passes `payload` read before the Journey save, whose optimistic tab reload
-// re-fills these inputs from the cached bundle.
+// Optimistic write (Critical Rule #9) on both keys that render food targets:
+// 'food_targets' (Food tab) and 'settings_bundle' (Settings — every optimistic
+// write reloads the current tab, and applyBundle would otherwise repaint the
+// pre-save values). A failed POST rolls both back. Resolves true on success.
+// `toast: false` lets the Settings Targets page (one Save for food + Journey
+// bands) report once for both; it passes `payload` read before the Journey
+// save, whose optimistic tab reload re-fills these inputs from the bundle.
 async function saveFoodTargets({ toast = true, payload = readFoodTargetsForm() } = {}) {
     const ds = window.DataStore;
-    let handle = null;
+    const handles = [];
+    const settle = (op) => Promise.all(handles.map((h) => h[op]()));
     try {
         if (ds && typeof ds.applyOptimistic === 'function') {
-            // No tags: the registry maps food_targets to tag null, so the
+            // No tags on food_targets: the registry maps it to tag null, so the
             // invalidateTags below must not evict the row just committed.
-            handle = await ds.applyOptimistic('food_targets', () => ({ ...payload }), []);
+            handles.push(await ds.applyOptimistic('food_targets', () => ({ ...payload }), []));
+            // settings_bundle keeps its loadSWR tags (features/settings.js).
+            handles.push(await ds.applyOptimistic('settings_bundle',
+                (prev) => (prev ? { ...prev, foodTargets: { ...payload } } : prev),
+                ['settings', 'food_targets', 'feature_settings']));
         }
         const res = await apiCall('/api/food/settings/targets', 'POST', payload);
         if (!res) {
             // apiCall already surfaced the failure; don't stack a second message.
-            if (handle) await handle.rollback();
+            await settle('rollback');
             return false;
         }
-        if (handle) await handle.commit({ ...payload });
+        await settle('commit');
     } catch (e) {
-        if (handle) await handle.rollback();
+        await settle('rollback');
         console.error('Failed to save food targets:', e);
         safeToast('Failed to save food targets', 'error');
         return false;
