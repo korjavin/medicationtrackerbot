@@ -348,6 +348,10 @@ describe('substrate read models — end-to-end HP over a synthetic vault', () =>
     expect(nourishHP(flagged)).toBe(0);
     // The breakfast does not leak into the 06-14 UTC bucket either.
     expect(flagged.lifetime_hp).toBe(0);
+    // Logging still happened: the Measurement habit counts the flagged day.
+    const measurement = (s) => s.strengths.find((h) => h.key === 'measurement').value;
+    expect(measurement(flagged)).toBeGreaterThan(0);
+    expect(measurement(flagged)).toBe(measurement(plain));
   });
 
   it('flagging a local day keeps the awards of an unflagged neighbour sharing its UTC bucket (med-0sgs)', async () => {

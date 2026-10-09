@@ -2482,11 +2482,15 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     // still landed in it, so a neighbouring real day keeps its awards.
     const foodTouchedByFlag = new Set(foodFlaggedLocalDays);
     const foodByDay = new Map();
+    // Every UTC day with a food log, flagged or not: the Measurement habit
+    // counts the act of logging, which the incomplete flag doesn't undo.
+    const foodLoggedDays = new Set();
     for (const r of foodAll) {
       if (r.deleted) continue;
       const ms = Date.parse(r.eaten_at);
       if (!Number.isFinite(ms)) continue;
       const day = msToUTCDay(ms);
+      foodLoggedDays.add(day);
       if (foodFlaggedLocalDays.has(localDayString(ms, timeZone))) {
         foodTouchedByFlag.add(day);
         continue;
@@ -2516,7 +2520,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     return {
       nowMs, bpDays, weightDays, weightLogsDesc, goalWeight,
       sleepByDay, onsetByDay, stepsByDay, workoutDays, sessions,
-      foodByDay, foodIncompleteDays, foodTargets, diaryByDay, adherenceByDay, hrDailyMin,
+      foodByDay, foodLoggedDays, foodIncompleteDays, foodTargets, diaryByDay, adherenceByDay, hrDailyMin,
       _bpReadings: bpReadings, _nextPendingDueMs: nextPendingDueMs,
     };
   }
@@ -2817,7 +2821,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     }
     const movement = { key: 'movement', label: 'Movement', value: habitStrength(movMarks, 3 / 7, cfg), frequency: 3 / 7 };
     // measurement: any bp/weight/food that day
-    const foodDays = new Set(ctx.foodByDay.keys());
+    const foodDays = ctx.foodLoggedDays;
     const meaMarks = [];
     d = start;
     while (d <= todayStr) {
