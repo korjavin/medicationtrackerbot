@@ -8,6 +8,7 @@
 // (network-mocked) food.*.test.js files keep running unshimmed.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installApiCache, loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
+import { allowConsoleNoise } from './helpers/setup.js';
 
 function localDateStr(d = new Date()) {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -370,6 +371,7 @@ describe('cloud shim contract — move a meal group to another day (med-don1)', 
     });
 
     it('an unknown id moves nothing; an unparseable eaten_at is rejected', async () => {
+        allowConsoleNoise(); // apiCall console.errors the swallowed not_found
         const { window } = env;
         const group = await seedLunchAndPhoto(window);
         const rice = group.logs.find((l) => l.name === 'Rice');
@@ -437,6 +439,7 @@ describe('cloud shim contract — move a meal group to another day (med-don1)', 
     });
 
     it('a failed move rolls back every optimistic cache', async () => {
+        allowConsoleNoise(); // apiCall console.errors the swallowed not_found
         const { window, document } = env;
         const group = await seedLunchAndPhoto(window);
         const ghost = { ...group, logs: [...group.logs, { ...group.logs[0], id: 'foodlog_ghost', eaten_at: group.logs[4].eaten_at }] };
