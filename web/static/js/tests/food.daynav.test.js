@@ -9,7 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 
 function toISODateLocal(date) {
@@ -96,6 +96,29 @@ describe('Food day navigator (kit F1)', () => {
         window.triggerFoodPhotoPicker = () => { picked += 1; };
         photo.click();
         expect(picked).toBe(1);
+    });
+
+    it('the camera icon is disabled while a photo parse is in flight (no duplicate meals)', async () => {
+        const { document, window } = env;
+        const photo = document.getElementById('food-photo-btn');
+        let release;
+        let seenDisabled = null;
+        window.safeToast = vi.fn();
+        window.safeAlert = vi.fn();
+        window.loadFoodLogs = vi.fn();
+        window.loadToday = vi.fn();
+        window.CloudFoodAI = {
+            parseMealFromPhoto: () => new Promise((resolve) => {
+                seenDisabled = photo.disabled;
+                release = () => resolve({ items: [], failed: 0 });
+            }),
+        };
+        const pending = window.uploadFoodPhotoFile(new window.File(['x'], 'meal.jpg', { type: 'image/jpeg' }));
+        await vi.waitFor(() => expect(typeof release).toBe('function'));
+        expect(seenDisabled).toBe(true);
+        release();
+        await pending;
+        expect(photo.disabled).toBe(false);
     });
 
     it('a relative day shows as a chip beside the short date', () => {
