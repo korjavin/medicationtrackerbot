@@ -1045,14 +1045,11 @@ h3 {
     display: block;
 }
 
-/* List Items */
+/* List Items. `.med-item` rides on `.wg-card`, which owns the surface
+   (see .history-group, med-xso6.35). */
 .med-item,
 .history-item {
-    background-color: var(--secondary-bg-color);
-    padding: var(--space-lg);
-    border-radius: var(--radius-md);
     margin-bottom: var(--space-md);
-    border: 1px solid rgba(0, 0, 0, 0.06);
     transition: background-color 0.15s ease;
     display: flex;
     justify-content: space-between;
@@ -1396,13 +1393,12 @@ select {
     margin: 0;
 }
 
-/* History Grouping */
+/* History Grouping. Rendered as `.wg-card .history-group`: the surface
+   (background/padding/border/radius) comes from the zero-specificity
+   :where(.wg-card) base in components.css, so this companion must not set it
+   (med-xso6.35 — it painted the light paper card over the dark kit card). */
 .history-group {
-    background-color: var(--secondary-bg-color);
-    padding: var(--space-lg);
-    border-radius: var(--radius-md);
     margin-bottom: var(--space-md);
-    border: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .history-header {
@@ -1695,14 +1691,7 @@ svg.chart-svg {
    (Wandergeek). The modal now uses `.wg-weight-modal__*` with a gloss-inset
    number input and a kg/lb unit-toggle pill pair; the old drag-ruler is gone. */
 
-/* Exercise Log Entry */
-.exercise-log-entry {
-    background: var(--secondary-bg-color);
-    padding: var(--space-md);
-    border-radius: var(--radius-md);
-    border: 1px solid rgba(0, 0, 0, 0.05);
-}
-
+/* Exercise Log Entry — surface from `.wg-card` (med-xso6.35). */
 .exercise-log-entry h4 {
     margin: 0 0 var(--space-md) 0;
     font-size: 1.1em;

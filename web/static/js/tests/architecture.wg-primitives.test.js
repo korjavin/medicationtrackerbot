@@ -228,6 +228,42 @@ describe('Wandergeek material primitives', () => {
         }
     });
 
+    it('legacy companions of .wg-card do not repaint the card surface', () => {
+        // med-xso6.35: :where(.wg-card) has zero specificity, so a bare legacy
+        // companion rule (`.history-group { background: var(--secondary-bg-color) }`)
+        // beats it and paints the light paper card in dark theme. Companions are
+        // the non-wg-* classes rendered alongside wg-card in feature JS / HTML.
+        const files = [];
+        const walk = (dir) => {
+            for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+                const p = path.join(dir, e.name);
+                if (e.isDirectory()) { if (e.name !== 'tests') walk(p); } else if (/\.(js|html)$/.test(e.name)) files.push(p);
+            }
+        };
+        walk(path.join(REPO_ROOT, 'web/static/js'));
+        files.push(path.join(REPO_ROOT, 'web/static/index.html'));
+        const companions = new Set();
+        const classAttr = /(?:className\s*=\s*|class=)['"`]([^'"`]*\bwg-card\b[^'"`]*)['"`]/g;
+        for (const f of files) {
+            for (const m of fs.readFileSync(f, 'utf8').matchAll(classAttr)) {
+                for (const c of m[1].split(/\s+/)) {
+                    if (c && !c.startsWith('wg-') && /^[\w-]+$/.test(c)) companions.add(c);
+                }
+            }
+        }
+        expect(companions.has('history-group')).toBe(true);
+        const css = fs.readFileSync(CSS_PATH, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+        const offenders = [];
+        for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+            const selectors = m[1].split(',').map((s) => s.trim());
+            if (!/(^|;)\s*(background|padding|border|box-shadow)/.test(m[2])) continue;
+            for (const c of companions) {
+                if (selectors.includes(`.${c}`)) offenders.push(`.${c}`);
+            }
+        }
+        expect(offenders).toEqual([]);
+    });
+
     it('index.html links components.css after styles.css', () => {
         const html = fs.readFileSync(path.join(REPO_ROOT, 'web/static/index.html'), 'utf8');
         const styles = html.indexOf('/static/css/styles.css');
