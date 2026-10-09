@@ -1905,6 +1905,29 @@ describe('full-vault import snapshots in a constant 2 requests, not per-record o
     expect(fetchStub.mock.calls.filter(([u, i]) => String(u) === '/api/sync/snapshot' && !i?.method)).toHaveLength(1);
   });
 
+  // bd med-eas.9 — between a peer's bump and its snapshot, this device's own
+  // compaction would publish its pre-import vault at/above the bump seq, and the
+  // server keeps the first snapshot at a seq. Hold compaction until it lands.
+  it('holds threshold compaction while a pulled import bump awaits its snapshot', async () => {
+    await replaceAllRecords([{ recordId: 'bp-1', recordType: 'bp', clientTs: 1, deleted: false, systolic: 120 }]);
+    let snapshotPosts = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u.startsWith('/api/sync/ops?')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      if (u === '/api/sync/snapshot' && init?.method === 'POST') { snapshotPosts++; return new Response('{}', { status: 200 }); }
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+
+    await seedMeta({ localLastSeq: 600, lastSnapshotSeq: 0, importBumpSeq: 590 });
+    await pullOnOpen(ctx);
+    expect(snapshotPosts).toBe(0); // held: the import's snapshot has not landed
+
+    await seedMeta({ importBumpSeq: null });
+    await pullOnOpen(ctx);
+    expect(snapshotPosts).toBe(1); // same tail, no pending import: compacts
+    vi.unstubAllGlobals();
+  });
+
   // bd med-eas.9 — a stranded import's retry posts a bump op, and that op's
   // sync-ready echo comes straight back to this tab. If a wake retried the
   // import, a snapshot that keeps failing (503) would loop bump → echo → bump.

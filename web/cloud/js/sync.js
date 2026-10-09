@@ -796,6 +796,12 @@ async function maybeSnapshot(ctx) {
   // here (the flushPending-internal callers already return before reaching it).
   // resetLocalSync clears syncWedged, so compaction resumes after recovery.
   if (meta.syncWedged) return;
+  // A peer's import bump was pulled but its snapshot hasn't landed here yet (bd
+  // med-eas.9): compacting now would publish this device's PRE-import vault at
+  // or above the bump seq, and the server keeps the first snapshot at a seq —
+  // burying the import. Hold off. ponytail: bounded by SNAPSHOT_FORCE_OPS, after
+  // which the importer is presumed gone and the oplog must not grow forever.
+  if (meta.importBumpSeq !== null && meta.localLastSeq - meta.importBumpSeq < SNAPSHOT_FORCE_OPS) return;
   const floor = Math.max(meta.lastSnapshotSeq, meta.snapshotErrorSeq ?? 0);
   if (meta.localLastSeq - floor < SNAPSHOT_THRESHOLD) return;
   // A negative age (clock stepped back) counts as elapsed, never a stall.
@@ -1242,14 +1248,19 @@ export async function reauthenticate(ctx) {
 let drainInFlight = null;
 // A drain request that landed mid-drain: run once more after the current one
 // settles. reauthenticate's .finally consumes it too, so a rerun queued while a
-// reauth-owned drain held the slot is not leaked into a later drain.
+// reauth-owned drain held the slot is not leaked into a later drain. false, or
+// 'wake' (only SSE wakes queued) / 'full' (any open/visibility/online request).
 let drainRerun = false;
 // Installed by startReconnectAutoDrain: surfaces a mid-session auth expiry.
 let onDrainAuthExpired = null;
 function drainSettled(ctx) {
-  // A rerun only catches peer data a drain may have missed — run it as a wake,
-  // so a failed import retry's own bump echo cannot chain another retry.
-  if (drainRerun) { drainRerun = false; requestDrain(ctx, { wake: true }); }
+  // A wake-only rerun stays a wake, so a failed import retry's own bump echo
+  // cannot chain another retry; a queued reconnect still gets its full retry.
+  if (drainRerun) {
+    const wake = drainRerun === 'wake';
+    drainRerun = false;
+    requestDrain(ctx, { wake });
+  }
 }
 
 // requestDrain runs the boot drain path (pullOnOpen) through the single-slot
@@ -1263,7 +1274,10 @@ export function requestDrain(ctx, { wake = false } = {}) {
   // missed it (a drain stuck on a dying fetch when connectivity returned, or a
   // peer write landing after this drain's GET) — remember it and run once more
   // after the current one settles.
-  if (drainInFlight) { drainRerun = true; return drainInFlight; }
+  if (drainInFlight) {
+    if (drainRerun !== 'full') drainRerun = wake ? 'wake' : 'full';
+    return drainInFlight;
+  }
   drainInFlight = pullOnOpen(ctx, { retryForcedSnapshot: !wake })
     .catch(() => {}) // failures already land in sync status; retried on the next event
     .finally(() => {
