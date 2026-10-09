@@ -234,18 +234,21 @@ export function createBriefDomain({
 
   async function foodSection(days) {
     const [totals, groups, targets] = await Promise.all([
-      food.stats({ days }),
+      // Flagged-incomplete days (med-0sgs) drop out of the sums and the
+      // day count alike, so a half-logged day never reads as a low-calorie one.
+      food.stats({ days, excludeIncomplete: true }),
       // days > 1 makes listGrouped group by calendar day, so one group = one
       // day with at least one log — which IS days_logged, no second fold.
       food.listGrouped({ days }),
       settings.getFoodTargets(),
     ]);
-    const daysLogged = groups.length;
+    const daysLogged = groups.filter((g) => !g.incomplete).length;
     // Averaged over days LOGGED, not calendar days: a gap in the log is a
     // missing measurement, not a zero-calorie day.
     const per = (total) => (daysLogged > 0 ? total / daysLogged : null);
     return {
       days_logged: daysLogged,
+      days_excluded: groups.length - daysLogged,
       avg_kcal: roundInt(per(totals.calories)),
       avg_protein: round1(per(totals.protein)),
       avg_carbs: round1(per(totals.carbs)),

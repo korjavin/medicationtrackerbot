@@ -356,12 +356,16 @@ export function createAnalysis({
         // +2 days of slack so a DST-skewed count never trims an edge day; the
         // per-log instant filter below re-imposes the exact [fromMs,toMs] window.
         const groups = await food.listGrouped({ date: fmtDay(toMs, timeZone), days: totalDays + 2 });
+        // Days the user flagged as incompletely tracked (med-0sgs) drop out of
+        // every total and average; excluded_days tells the agent why.
+        const excluded = await food.incompleteDays({ from: fmtDay(fromMs, timeZone), to: fmtDay(toMs, timeZone) });
         const dayMap = new Map();
         for (const g of groups) {
           for (const log of g.logs) {
             const ms = Date.parse(log.eaten_at);
             if (!inRange(ms)) continue;
             const day = fmtDay(ms, timeZone);
+            if (excluded.has(day)) continue;
             let dt = dayMap.get(day);
             if (!dt) {
               dt = {
@@ -383,6 +387,7 @@ export function createAnalysis({
             ? Math.trunc(dailyTotals.reduce((s, d) => s + d.calories, 0) / daysWithData) : 0,
           avg_daily_protein: daysWithData > 0
             ? Math.trunc(dailyTotals.reduce((s, d) => s + d.protein_g, 0) / daysWithData) : 0,
+          excluded_days: [...excluded].sort(),
         };
       });
     } else {

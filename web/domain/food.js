@@ -121,6 +121,12 @@ function isDateKey(date) {
   return !Number.isNaN(ms) && new Date(ms).toISOString().slice(0, 10) === date;
 }
 
+// isFlaggedIncomplete: one fooddaystatus row that marks its local day
+// incomplete. Shared with gamification, which reads the rows off its own port.
+export function isFlaggedIncomplete(r) {
+  return !r.deleted && r.incomplete === true && isDateKey(r.date);
+}
+
 function formatTimeLabel(ms, timeZone) {
   const p = wallParts(ms, timeZone);
   return `${pad2(p.hour)}:${pad2(p.minute)}`;
@@ -573,7 +579,7 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     }
     const out = new Set();
     for (const r of await records.list(DAY_STATUS_RECORD_TYPE)) {
-      if (r.deleted || r.incomplete !== true || !isDateKey(r.date)) continue;
+      if (!isFlaggedIncomplete(r)) continue;
       if ((from && r.date < from) || (to && r.date > to)) continue;
       out.add(r.date);
     }
