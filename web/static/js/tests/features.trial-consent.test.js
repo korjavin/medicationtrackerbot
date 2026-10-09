@@ -128,6 +128,9 @@ describe('features/trial-consent.js — disclosure dialog + retry seam', () => {
         expect(el.querySelector('.wg-sheethead .wg-sheethead__title').textContent).toMatch(/trial AI/i);
         expect(el.querySelector('.wg-sheet__foot [data-trial-consent-choice="allow"]').classList.contains('wg-btn--primary')).toBe(true);
         expect(env.document.getElementById('modal-overlay').classList.contains('hidden')).toBe(false);
+        // #modal-overlay is the one dim; the own backdrop only catches taps
+        // (transparent via .wg-sheet-backdrop, pinned in the CSS test below).
+        expect(env.document.querySelector('.mt-confirm-backdrop').classList.contains('wg-sheet-backdrop')).toBe(true);
 
         expect(env.window.ModalManager.closeTopMostVisibleModal()).toBe(true);
         await expect(p).resolves.toBe(false);
@@ -204,5 +207,10 @@ describe('features/trial-consent.js — disclosure dialog + retry seam', () => {
         const rule = css.match(/\.wg-trial-consent-modal\s*\{[^}]*\}/);
         expect(rule, '.wg-trial-consent-modal rule missing from styles.css').not.toBeNull();
         expect(rule[0]).toMatch(/z-index:\s*var\(--z-confirm\)/);
+        // The sheet also shows #modal-overlay (ModalManager stack), so its
+        // backdrop must not dim a second time.
+        const clear = css.match(/\.mt-confirm-backdrop\.wg-sheet-backdrop\s*\{[^}]*\}/);
+        expect(clear, '.mt-confirm-backdrop.wg-sheet-backdrop rule missing').not.toBeNull();
+        expect(clear[0]).toMatch(/background:\s*transparent/);
     });
 });

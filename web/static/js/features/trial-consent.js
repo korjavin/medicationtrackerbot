@@ -66,7 +66,7 @@
         const promise = new Promise((resolve) => {
             const doc = document;
             const backdrop = doc.createElement('div');
-            backdrop.className = 'mt-confirm-backdrop';
+            backdrop.className = 'mt-confirm-backdrop wg-sheet-backdrop';
 
             // Kit sheet (med-xso6.7): a decision flow, so the choice lives in
             // the foot and the header carries only the question.

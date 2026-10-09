@@ -34,7 +34,7 @@ function openFeedbackModal() {
     const doc = document;
 
     const backdrop = doc.createElement('div');
-    backdrop.className = 'mt-confirm-backdrop';
+    backdrop.className = 'mt-confirm-backdrop wg-sheet-backdrop';
 
     // Kit sheet (med-xso6.7): a compose flow — Cancel in the header, Send in
     // the keyboard-docked foot (WGSheet keeps it above the virtual keyboard).

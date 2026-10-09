@@ -3330,6 +3330,15 @@ input:checked+.toggle-slider:before {
     padding-bottom: var(--wg-kb-h);
 }
 
+/* Runtime sheets (feedback, trial consent) keep their own --z-confirm
+   backdrop for tap-to-dismiss and stacking over a parent modal, but they
+   are also on the ModalManager stack, which shows #modal-overlay (and
+   modal-history needs it shown so browser Back closes them). The overlay
+   dims; this backdrop only catches taps, so the dim is single. */
+.mt-confirm-backdrop.wg-sheet-backdrop {
+    background: transparent;
+}
+
 @keyframes wg-sheet-enter {
     from {
         opacity: 0;
