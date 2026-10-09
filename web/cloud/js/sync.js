@@ -395,6 +395,7 @@ const RECORD_TAGS = {
   weightgoal: ['weight'],
   foodlog: ['food'],
   foodproduct: ['food'],
+  fooddaystatus: ['food'],
   foodtargets: ['food', 'food_targets'],
   medication: ['medications'],
   restock: ['medications'],

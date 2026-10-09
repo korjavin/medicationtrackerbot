@@ -98,7 +98,8 @@ describe('food domain — legacy rows with an unparseable eaten_at (med-d5t.11)'
 
         // And the read must not throw on it: new Date(undefined).toISOString()
         // is a RangeError, which would take down the whole screen for one bad row.
-        await expect(f.stats({ date: today, days: 1 })).resolves.toBeDefined();
+        await expect(f.stats({ date: today, days: 1 })).resolves.toMatchObject({ calories: 0 });
+        await expect(f.stats({ date: today, days: 1, excludeIncomplete: true })).resolves.toMatchObject({ calories: 0 });
     });
 
     it('does not touch rows whose eaten_at is fine', async () => {

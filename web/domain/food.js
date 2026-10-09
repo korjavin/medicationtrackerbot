@@ -536,7 +536,8 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     for (const r of all) {
       if (r.deleted) continue;
       const ms = logInstantMs(r);
-      if (ms < start || ms >= endExclusive) continue;
+      // NaN (no usable instant) is dropped, matching listGrouped.
+      if (Number.isNaN(ms) || ms < start || ms >= endExclusive) continue;
       if (flagged && flagged.has(localDateKey(ms, timeZone))) continue;
       result.calories += r.calories;
       result.carbs += r.carbs;
