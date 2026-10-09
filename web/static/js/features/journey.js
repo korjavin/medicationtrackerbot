@@ -1010,7 +1010,12 @@
     // row (so goToCard can still find them).
     function renderMore(cards, liveNote) {
         const built = cards.filter(Boolean);
-        if (built.length === 0) return null;
+        const openPage = document.getElementById('journey-more-page');
+        if (built.length === 0) {
+            // Nothing left behind the row: an open page must not keep stale cards.
+            if (openPage) openPage.replaceChildren();
+            return null;
+        }
         const section = el('section', 'wg-list wg-journey-more');
         section.id = 'journey-more';
 
@@ -1030,7 +1035,6 @@
 
         const holder = el('div', 'wg-journey-more__cards');
         holder.hidden = true;
-        const openPage = document.getElementById('journey-more-page');
         (openPage || holder).replaceChildren(...built);
         section.append(row, holder);
         if (window.WGIcons && typeof window.WGIcons.hydrate === 'function') window.WGIcons.hydrate(section);
