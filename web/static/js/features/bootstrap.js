@@ -192,6 +192,12 @@ checkAuth().then(async authorized => {
         // it can receive the AppKernel.onTabSwitch('today') notification).
         mountCanonicalBottomNav();
 
+        // Fill markup-authored <i class="wg-ico" data-icon> placeholders.
+        // Components that inject such markup later hydrate their own subtree.
+        if (window.WGIcons && typeof window.WGIcons.hydrate === 'function') {
+            window.WGIcons.hydrate(document);
+        }
+
         // Mount the persistent call indicator at app-shell level so it
         // survives tab switches and stays visible during a voice call.
         if (window.WGCallIndicator && typeof window.WGCallIndicator.mount === 'function') {
