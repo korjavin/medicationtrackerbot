@@ -637,7 +637,7 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             await window.loadSettings();
         };
 
-        const topPage = (document) => Array.from(document.querySelectorAll('mt-modal.wg-page')).pop();
+        const topPage = (document) => Array.from(document.querySelectorAll('mt-modal.wg-page[id^="wg-page-"]')).pop();
         const topTitle = (document) => topPage(document)?.querySelector('.wg-pagebar__title').textContent;
 
         it('mounts the device list into the pushed page and refreshes the row summaries from it', async () => {
@@ -736,12 +736,12 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                 installCloudModules(window);
                 delete window.__MEDTRACKER_CLOUD__;
                 window.SettingsView.openDevicesDeeplink('connectors');
-                expect(document.querySelector('mt-modal.wg-page')).toBeNull();
+                expect(document.querySelector('mt-modal.wg-page[id^="wg-page-"]')).toBeNull();
 
                 await mountCloud(window);
                 window.SettingsView.openDevicesDeeplink('connectors');
                 await vi.waitFor(() => expect(topTitle(document)).toBe('Claude connector'));
-                expect(Array.from(document.querySelectorAll('mt-modal.wg-page')).map((p) => p.querySelector('.wg-pagebar__title').textContent))
+                expect(Array.from(document.querySelectorAll('mt-modal.wg-page[id^="wg-page-"]')).map((p) => p.querySelector('.wg-pagebar__title').textContent))
                     .toEqual(['Devices & connectors', 'Claude connector']);
             } finally {
                 delete window.__MEDTRACKER_CLOUD__;
