@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
+const EMPTY_STATE_JS = path.join(REPO_ROOT, 'web/static/js/components/empty-state.js');
+const WG_CHIP_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-chip.js');
 const TODAY_JS = path.join(REPO_ROOT, 'web/static/js/features/today.js');
 
 function loadTodayEnv() {
@@ -16,6 +18,8 @@ function loadTodayEnv() {
     runScripts: 'outside-only'
   });
   const { window } = dom;
+  window.eval(fs.readFileSync(EMPTY_STATE_JS, 'utf8'));
+  window.eval(fs.readFileSync(WG_CHIP_JS, 'utf8'));
   const src = fs.readFileSync(TODAY_JS, 'utf8');
   window.eval(`${src}\n//# sourceURL=file://${TODAY_JS}`);
   return {
@@ -31,7 +35,7 @@ describe('Today next_intake offline read', () => {
   beforeEach(() => { env = loadTodayEnv(); });
   afterEach(() => { env.cleanup(); });
 
-  it('renders cached medication name when bootstrap fetch fails (cache populated)', () => {
+  it('renders the cached dose as a Next up row when bootstrap fetch fails (cache populated)', () => {
     const now = new Date('2026-05-09T09:00:00Z');
     const fetchedAt = now.getTime() - 30 * 60 * 1000; // cached 30 min ago
     // Bootstrap.next_intake comes from api_cache.next_intake when /api/bootstrap
@@ -55,16 +59,14 @@ describe('Today next_intake offline read', () => {
     const root = env.window.document.createElement('div');
     env.render(state, root, { now });
 
-    const medsCard = root.querySelector('.wg-today-meds');
-    expect(medsCard).not.toBeNull();
-    const names = Array.from(medsCard.querySelectorAll('.wg-today-meds__name')).map((n) => n.textContent);
-    expect(names).toEqual(['Aspirin', 'Metformin']);
-    // Kicker shows the countdown when a value is present.
-    const kicker = medsCard.querySelector('.wg-next-action-card__kicker');
-    expect(kicker.textContent).toContain('Next');
+    const row = root.querySelector('[data-section="next-up"] [data-next="med"]');
+    expect(row).not.toBeNull();
+    expect(row.querySelector('.wg-row__title').textContent).toBe('2 medications');
+    // Meta carries the slot time and the names.
+    expect(row.querySelector('.wg-row__meta').textContent).toContain('Aspirin, Metformin');
   });
 
-  it('shows "No scheduled doses" when no next_intake is cached', () => {
+  it('shows the "Nothing scheduled" empty state when no next_intake is cached', () => {
     const now = new Date('2026-05-09T09:00:00Z');
     // Bootstrap landed with no next_intake (e.g. backend errored) — but we
     // know the user has at least feature enabled and is offline.
@@ -80,13 +82,13 @@ describe('Today next_intake offline read', () => {
     const root = env.window.document.createElement('div');
     env.render(state, root, { now });
 
-    const medsCard = root.querySelector('.wg-today-meds');
-    expect(medsCard).not.toBeNull();
-    const kicker = medsCard.querySelector('.wg-next-action-card__kicker');
-    expect(kicker.textContent).toBe('No scheduled doses');
+    const nextUp = root.querySelector('[data-section="next-up"]');
+    expect(nextUp).not.toBeNull();
+    expect(nextUp.querySelector('[data-next]')).toBeNull();
+    expect(nextUp.querySelector('.wg-empty__title').textContent).toBe('Nothing scheduled');
   });
 
-  it('renders the explicit empty state without throwing when no caches exist at all', () => {
+  it('renders the offline first-run state without throwing when no caches exist at all', () => {
     const now = new Date('2026-05-09T09:00:00Z');
     const bootstrap = {
       features: { medication: true, bp: false, weight: false, food: false, workout: false, health: false }
@@ -97,14 +99,12 @@ describe('Today next_intake offline read', () => {
     state.__firstRun = true;
 
     const root = env.window.document.createElement('div');
-    expect(() => env.render(state, root, { now })).not.toThrow();
+    expect(() => env.render(state, root, { now, offline: true })).not.toThrow();
 
-    // Firstrun short-circuits the render — empty placeholder appears, no meds
-    // card and no JS error in the process.
-    const empty = root.querySelector('.today-empty-firstrun');
-    expect(empty).not.toBeNull();
-    expect(empty.textContent).toBe('Connect to load your day');
-    expect(root.querySelector('.wg-today-meds')).toBeNull();
+    // First run short-circuits the render — the shared offline state, no
+    // Next up and no JS error in the process.
+    expect(root.querySelector('.wg-empty__title').textContent).toBe('No cached data yet');
+    expect(root.querySelector('[data-section="next-up"]')).toBeNull();
   });
 
   it('online path: aggregator preserves overdue + meta when cache hit reports stale', () => {

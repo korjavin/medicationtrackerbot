@@ -3858,6 +3858,21 @@ input.wg-stepper__val::-webkit-inner-spin-button {
     gap: var(--space-sm);
 }
 
+/* med-xso6.13 — Today call row (kit T1 .wg-callbar): the call card takes the
+   free width, Log and the Doctor brief icon sit beside its trigger. */
+.wg-today-callbar {
+    align-items: flex-start;
+}
+
+.wg-today-callbar > .wg-call-card {
+    flex: 1;
+    min-width: 0;
+}
+
+.wg-today-goal__adherence {
+    align-self: flex-start;
+}
+
 /* med-z8ic — when Today folds the Doctor brief row into the call card, the
    card becomes a 2-column grid: the trigger keeps the majority of the row and
    the brief rides beside it at a third of the width (well under half). The

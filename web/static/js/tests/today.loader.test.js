@@ -122,27 +122,27 @@ describe('Today loader — features/today-loader.js', () => {
             await window.loadToday();
 
             const root = env.document.getElementById('today-content');
-            const medsCard = root.querySelector('.wg-today-meds');
-            expect(medsCard).not.toBeNull();
-            const names = Array.from(medsCard.querySelectorAll('.wg-today-meds__name')).map((n) => n.textContent);
-            expect(names).toEqual(['Aspirin']);
+            const row = root.querySelector('[data-section="next-up"] [data-next="med"]');
+            expect(row).not.toBeNull();
+            expect(row.querySelector('.wg-row__title').textContent).toBe('Aspirin');
+            // A cached start renders from cache — never the cold-start skeleton.
+            expect(root.querySelector('.wg-skel')).toBeNull();
 
             // Offline short-circuits the refetch loop entirely.
             expect(window.DataStore.fetchFresh).not.toHaveBeenCalled();
             expect(window.apiCall).not.toHaveBeenCalled();
         });
 
-        it('renders the first-run placeholder (no meds card) when no cache exists at all', async () => {
+        it('renders the offline first-run state (no Next up) when no cache exists at all', async () => {
             setOnline(window, false);
             window.MedTrackerDB = makeApiCache({}); // every key misses
 
             await window.loadToday();
 
             const root = env.document.getElementById('today-content');
-            expect(root.querySelector('.today-empty-firstrun')).not.toBeNull();
-            expect(root.querySelector('.wg-today-meds')).toBeNull();
-            expect(root.querySelector('.today-empty-firstrun').textContent)
-                .toBe('Connect to load your day');
+            expect(root.querySelector('[data-section="next-up"]')).toBeNull();
+            expect(root.querySelector('.wg-skel')).toBeNull();
+            expect(root.querySelector('.wg-empty__title').textContent).toBe('No cached data yet');
         });
 
         it('cloud mode suppresses the offline banner and the "unavailable offline" kicker on a stale cache', async () => {
@@ -165,15 +165,15 @@ describe('Today loader — features/today-loader.js', () => {
 
             const root = env.document.getElementById('today-content');
             expect(root.querySelector('.today-offline-banner')).toBeNull();
-            const kicker = root.querySelector('.wg-today-meds .wg-next-action-card__kicker');
-            expect(kicker).not.toBeNull();
+            const nextUp = root.querySelector('[data-section="next-up"]');
+            expect(nextUp).not.toBeNull();
             // Normal (non-offline) copy — the vault simply has no scheduled dose.
-            expect(kicker.textContent).toBe('No scheduled doses');
+            expect(nextUp.querySelector('.wg-empty__title').textContent).toBe('Nothing scheduled');
             expect(root.textContent).not.toContain('Offline —');
             expect(root.textContent).not.toContain('unavailable offline');
         });
 
-        it('cloud mode renders the plain first-run copy when offline with no cache at all', async () => {
+        it('cloud mode renders the shared offline first-run state when offline with no cache at all', async () => {
             window.__MEDTRACKER_CLOUD__ = true;
             setOnline(window, false);
             window.MedTrackerDB = makeApiCache({}); // every key misses
@@ -181,10 +181,106 @@ describe('Today loader — features/today-loader.js', () => {
             await window.loadToday();
 
             const root = env.document.getElementById('today-content');
-            const firstRun = root.querySelector('.today-empty-firstrun');
-            expect(firstRun).not.toBeNull();
-            expect(firstRun.textContent).toBe('Connect to load your day');
+            expect(root.querySelector('.wg-empty__title').textContent).toBe('No cached data yet');
             expect(root.textContent).not.toContain('Offline —');
+        });
+    });
+
+    // Kit T6: the skeleton shows only on a cold start (no cache of any kind)
+    // while the first fetch is in flight; a refetch that still leaves nothing
+    // turns into an error with Retry instead of an endless skeleton.
+    describe('cold start (no cache, online)', () => {
+        it('paints the skeleton first, then an error with Retry once the refetch settles empty', async () => {
+            setOnline(window, true);
+            window.MedTrackerDB = makeApiCache({}); // every key misses, fetches cache nothing
+            const realRender = window.TodayDashboard.renderToday;
+            const painted = [];
+            window.TodayDashboard.renderToday = (state, root, opts) => {
+                const out = realRender(state, root, opts);
+                painted.push({
+                    skeleton: !!root.querySelector('.wg-skel'),
+                    error: !!root.querySelector('.wg-error'),
+                    settled: opts.settled,
+                    offline: opts.offline
+                });
+                return out;
+            };
+
+            await window.loadToday();
+
+            expect(painted.length).toBe(2);
+            expect(painted[0]).toEqual({ skeleton: true, error: false, settled: false, offline: false });
+            expect(painted[1]).toEqual({ skeleton: false, error: true, settled: true, offline: false });
+            const root = env.document.getElementById('today-content');
+            const retry = root.querySelector('.wg-error .wg-btn');
+            expect(retry.textContent).toBe('Retry');
+        });
+
+        it('a repaint while the first refetch is still in flight keeps the skeleton (no error flash)', async () => {
+            setOnline(window, true);
+            window.MedTrackerDB = makeApiCache({});
+            const gate = makeDeferred();
+            window.DataStore.fetchFresh = vi.fn(() => gate.promise); // first refetch never settles until released
+            let tick = null;
+            window.setInterval = (fn) => { tick = fn; return 42; };
+            const realRender = window.TodayDashboard.renderToday;
+            const painted = [];
+            let signal = null;
+            window.TodayDashboard.renderToday = (state, root, opts) => {
+                const out = realRender(state, root, opts);
+                painted.push({ skeleton: !!root.querySelector('.wg-skel'), error: !!root.querySelector('.wg-error') });
+                if (signal) signal();
+                return out;
+            };
+
+            const loading = window.loadToday();
+            await vi.waitFor(() => expect(window.DataStore.fetchFresh).toHaveBeenCalled());
+            const repainted = new Promise((resolve) => { signal = resolve; });
+            tick();
+            await repainted;
+            expect(painted[painted.length - 1]).toEqual({ skeleton: true, error: false });
+
+            signal = null;
+            gate.resolve(null);
+            await loading;
+            expect(painted[painted.length - 1]).toEqual({ skeleton: false, error: true });
+        });
+    });
+
+    // Next up's missed doses read the cached 24h intake history (history_1_,
+    // the Meds badge's GET /api/history?days=1) and refetch it on every load.
+    describe('missed doses from intake history', () => {
+        it('renders a Missed row from cached history_1_ and refetches it online', async () => {
+            setOnline(window, true);
+            const ts = Date.now() - 60 * 1000;
+            const slot = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+            window.MedTrackerDB = makeApiCache({
+                settings_bundle: {
+                    data: {
+                        featureSettings: { ...FEATURES_MED_ONLY },
+                        foodTargets: { calories: 0, carbs: 0, protein: 0, fat: 0 },
+                        tabOrder: ['today', 'meds'],
+                        weightUnitPreference: 'kg'
+                    },
+                    timestamp: ts
+                },
+                medications: { data: [{ id: 11, name: 'Aspirin' }], timestamp: ts },
+                history_1_: {
+                    data: [{ id: 'i1', medication_id: 11, scheduled_at: slot, status: 'PENDING' }],
+                    timestamp: ts
+                }
+            });
+
+            await window.loadToday();
+
+            const root = env.document.getElementById('today-content');
+            const row = root.querySelector('[data-section="next-up"] [data-next="med-missed"]');
+            expect(row).not.toBeNull();
+            expect(row.querySelector('.wg-row__title').textContent).toBe('Aspirin');
+            expect(window.DataStore.fetchFresh).toHaveBeenCalledWith('history_1_', expect.any(Function), ['history', 'medications']);
+            const spec = window.DataStore.fetchFresh.mock.calls.find((c) => c[0] === 'history_1_');
+            await spec[1]();
+            expect(window.apiCall).toHaveBeenCalledWith('/api/history?days=1');
         });
     });
 
@@ -422,7 +518,7 @@ describe('Today loader — features/today-loader.js', () => {
 
         it('refetches a Goal Line from an earlier day', async () => {
             await run('2000-01-01', null);
-            expect(env.document.querySelector('.wg-goal-line')).not.toBeNull();
+            expect(env.document.querySelector('[data-section="goal-line"]')).not.toBeNull();
             expect(goalLineFetches().length).toBe(1);
             expect(goalLineFetches()[0][2]).toEqual(['gamification', 'weight', 'workout', 'bp', 'settings', 'medications', 'history']);
         });

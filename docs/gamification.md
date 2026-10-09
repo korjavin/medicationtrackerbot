@@ -20,7 +20,7 @@
 > **Status: in implementation (epic `med-8tur`).** Built so far: the Goal Line
 > read-model + route (`getGoalLine`, med-8tur.1) and the Today hero + Journey
 > goal-context card with HP/levels/Health Score hidden (`features/today.js`
-> `renderGoalLineTile`, `features/journey.js` `renderGoalContext`, med-8tur.2). `goal.projected` (med-8tur.7) is computed by `goalLineProjection` and rendered on the Weight tab prognosis card; `projectedShift` is the week-over-week comparison (null unless both weeks carry a date). This section is the normative direction. Everything after it
+> `renderGoalCard`, `features/journey.js` `renderGoalContext`, med-8tur.2). `goal.projected` (med-8tur.7) is computed by `goalLineProjection` and rendered on the Weight tab prognosis card; `projectedShift` is the week-over-week comparison (null unless both weeks carry a date). This section is the normative direction. Everything after it
 > (§1–§17 and `docs/design/2026-07-11-gamification-redesign.md`) stays as
 > rationale and as the description of the substrate the Goal Line is built on.
 > Where they conflict, this section wins. Produced by an architect ⇄ Codex
@@ -141,6 +141,11 @@ the whole card taps through to Journey, whose top card is the same goal
 context. No HP, level, score or rings on this card; `no_goal` shows "Set a
 weight goal →" with the workout/BP facts still present. The Weight tab's goal
 card reads the same episode progress so the two screens agree.
+*Kit v2 (med-xso6.13):* on Today the card is the same marker track plus three
+numbers as Journey (start · next marker · markers passed); the workout/BP fact
+rows are dropped (Next up and the vitals strip already carry them), `no_goal`
+is a plain "Set a weight goal" card, and the `start_session` CTA moved to the
+Next up workout row — the card keeps only "Weigh in".
 *Journey (med-8tur.9):* goal-first — the order and the "More" disclosure
 (experiment / chapter / traits / keystones) live in `render()` in
 `web/static/js/features/journey.js`; reached milestones render as the goal

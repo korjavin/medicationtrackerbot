@@ -6,11 +6,15 @@ Read-only landing surface (`web/static/js/features/today.js`, `window.TodayDashb
 
 **DOM skeleton** (`#today-content` render order, via `features/today.js`):
 
-1. `.wg-today-shortcuts` — up to 5-tile row: Log food / Scan food / Photo meal / Add BP / Add weight. Most tiles open the **existing** styled modal directly (`window.showAddFoodModal` / `window.showBPRecordModal` / `window.showWeightModal`) rather than navigating to the feature screen. The "Photo meal" tile (camera icon, rendered alongside "Log food" only when the food feature is enabled) calls `window.FoodActions.triggerPhotoPicker()` to open the system file/camera picker directly — no Food-section navigation, and the upload routes into the same in-app summary card flow as the in-section Photo button (see Food Tracking). The "Scan food" tile (barcode icon, also gated on the food feature) opens the Add Food modal and immediately launches the barcode scanner overlay, collapsing the previous 3-tap scan flow into a single tap.
-2. `.wg-today-metrics` — 2-tile grid: BP tile (value + unit + status tag + sparkline, deeplinks to `bp`) and Weight tile (kg + delta tag + sparkline, deeplinks to `weight`). No SpO2 or HR tiles on Today.
-3. `.wg-fuel-card.wg-today-food` — clickable food card: mono kcal display + "% of target" + 4 `WGMacroBar` rows (Energy / Protein / Carbs / Fat).
-4. `.wg-today-wo-sleep` — 2-tile grid: Workout (name + group/time) and Sleep (duration + range).
-5. `.wg-today-meds` — plain card (no sun-yellow background banner): header row with icon tile + "Next · HH:MM · in X" label + "Take" gloss-sun button that opens `#med-confirm-modal`; divider; vertical list of upcoming meds (sun-dot + name).
+Kit v2 (med-xso6.13); `renderToday()` is the source of truth, each block carries a `data-section`:
+
+1. `callbar` — call card, **Log** (opens the `#today-log-sheet` `.wg-sheet`: food fast paths Search / Photo meal / Scan barcode / Describe, then BP / Weight / Note; disabled features drop out; each tile runs the existing opener — `showAddFoodModal`, `FoodActions.triggerPhotoPicker`, `FoodLog.openAdd` + the barcode scanner, the add-food AI mode, `showBPRecordModal`, `showWeightModal`, the Notes composer) and the cloud-only Doctor brief icon.
+2. `next-up` — missed doses first (danger lead, "Missed HH:MM"), then the next dose and the next workout by time. The first scheduled item owns the view's single `.wg-btn--primary` (Take → `showMedicationConfirmModal`, Start / Resume → `WorkoutSessions`). Empty → "Nothing scheduled" with Add medication / Create plan.
+3. `vitals` — BP (value + AHA class chip + age), Weight (value + 7d delta + age), Fuel (kcal + meter). Age signal: Pending chip for a device-saved row, "cached" offline, stale chip when old.
+4. `goal-line` — the Goal Line card (docs/gamification.md §0.3.2).
+5. `macros`, `sleep-steps` — below the fold.
+
+No cache of any kind → skeleton while the first fetch runs, the offline state when offline, error + Retry once the fetch settles empty.
 
 **Aggregation contract** — `aggregateToday(bootstrap, swrCaches, now)` is pure and synchronous; `Date.now()` is injected for testability. Returns a flat object where each field is `{ value, deeplink, status }`. Status values:
 
@@ -25,15 +29,18 @@ Read-only landing surface (`web/static/js/features/today.js`, `window.TodayDashb
 | Field | Source | Deeplink |
 |-------|--------|----------|
 | `greeting` | local hour (good morning/afternoon/evening/night) | — |
-| `nextMed` | `bootstrap.next_intake` | `meds` |
+| `nextMed` | `bootstrap.next_intake` (offline fallback: cached medications list) | `meds` |
+| `missedDoses` | `bootstrap.intake_history` — cached `GET /api/history?days=1`, PENDING past slots not snoozed ahead (the Meds badge rule), grouped per slot | `meds` |
 | `bpLatest`, `bpTrend7d` | `bootstrap.bp.readings` (7-day anchors) | `bp` |
 | `weightLatest`, `weightTrend7d` | `bootstrap.weight.logs` (7-day anchors) | `weight` |
 | `caloriesToday`, `caloriesTarget` | SWR `food_today` cache + `settings_bundle` food_targets | `food` |
 | `macrosToday`, `macrosTarget` | SWR `food_today` cache + `settings_bundle` food_targets | `food` |
 | `nextWorkout` | SWR `workout_next` cache | `workouts` |
 | `sleepLastNight` | SWR `health_overview.sleep_stats_7d` (most recent) | `health` |
+| `stepsLatest` | SWR `health_overview.step_stats_7d` (latest day with steps) | `health` |
+| `goalLine` | SWR `gamification_goal_line` | `journey` |
 
-`loadToday()` (app.js) reads these caches via `ApiCache.getWithMeta` for `settings_bundle`, `next_intake`, `bp`, `weight`, `workout_next`, `health_overview`, and today's food key (`food_YYYY-MM-DD_day`).
+`loadToday()` (`features/today-loader.js`) reads these caches via `ApiCache.getWithMeta` for `settings_bundle`, `next_intake`, `medications`, `history_1_`, `bp`, `weight`, `workout_next`, `health_overview`, `gamification_goal_line`, and today's food key (`food_YYYY-MM-DD_day`).
 
 **Data sources**: no new backend endpoints in Phase 1 — everything reads from `/api/bootstrap` and the existing SWR caches in `data-store.js`. A Phase 2 `GET /api/today` server-side aggregate is deferred.
 
