@@ -13,7 +13,7 @@ function evalWithSourceURL(window, source, scriptPath) {
 }
 
 export function loadSyncEnv() {
-  const dom = new JSDOM('<!doctype html><html><body><div id="offline-banner" class="offline-banner hidden"></div><div id="sync-status-bar"></div></body></html>', {
+  const dom = new JSDOM('<!doctype html><html><body><div id="offline-banner" class="wg-banner wg-banner--offline hidden"></div><div id="sync-status-bar"></div></body></html>', {
     url: 'https://example.test/',
     runScripts: 'outside-only',
     pretendToBeVisual: true

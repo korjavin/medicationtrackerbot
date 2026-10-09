@@ -195,7 +195,7 @@ describe('features/health.js — diary notes optimistic write conversion', () =>
             return null;
         });
 
-        const handlerDone = window.deleteNote(2);
+        const handlerDone = window._deleteNoteApi(2);
         await deleteCalled;
 
         const notes = cache.get('diary_notes');
@@ -220,7 +220,7 @@ describe('features/health.js — diary notes optimistic write conversion', () =>
         window.loadNotes = vi.fn();
         window.apiCall = vi.fn(async () => null);
 
-        await window.deleteNote(2);
+        await window._deleteNoteApi(2);
 
         const notes = cache.get('diary_notes');
         if (notes) {
@@ -248,7 +248,7 @@ describe('features/health.js — diary notes optimistic write conversion', () =>
         const apiCall = vi.fn(async () => null);
         window.apiCall = apiCall;
 
-        await window.deleteNote('local_5');
+        await window._deleteNoteApi('local_5');
 
         // Dexie purge happened, and no /api/notes/* DELETE was issued.
         expect(confirmDelete).toHaveBeenCalledWith(5);
@@ -328,5 +328,52 @@ describe('features/health.js — diary notes optimistic write conversion', () =>
             expect(notes[0].id).toBe(7);
             expect(notes[0].content).toBe('original text');
         }
+    });
+});
+
+describe('features/health.js notes — row delete undoes from the toast (med-xso6.5)', () => {
+    let env;
+
+    beforeEach(() => {
+        env = loadFrontendEnv({ withSync: true });
+    });
+
+    afterEach(() => {
+        try { env.window.localStorage.clear(); } catch (_) { /* ignore */ }
+        env.cleanup();
+        env = null;
+    });
+
+    it('deleteNote hides the note at once; Undo restores it and sends no DELETE', async () => {
+        const { window, document } = env;
+        const cache = installApiCache(window, {
+            diary_notes: [
+                { id: 1, content: 'keep', tag: null, created_at: '2026-05-16T08:00:00.000Z' },
+                { id: 2, content: 'delete me', tag: null, created_at: '2026-05-16T09:00:00.000Z' }
+            ]
+        });
+        window.apiCall = vi.fn(async (_url, method) => (method === 'DELETE' ? { ok: true } : null));
+        window.loadNotes = vi.fn();
+
+        const ctl = window.deleteNote(2);
+        await vi.waitFor(() => expect(cache.get('diary_notes').map((n) => n.id)).toEqual([1]));
+        document.querySelector('.wg-toasts .wg-toast__undo').click();
+
+        expect(await ctl.done).toBe('undone');
+        expect(cache.get('diary_notes').map((n) => n.id)).toEqual([1, 2]);
+        expect((window.apiCall.mock.calls.filter(([, m]) => m === 'DELETE'))).toHaveLength(0);
+    });
+
+    it('deleteNote runs the DELETE once the Undo window closes', async () => {
+        const { window, document } = env;
+        installApiCache(window, {
+            diary_notes: [{ id: 2, content: 'delete me', tag: null, created_at: '2026-05-16T09:00:00.000Z' }]
+        });
+        window.apiCall = vi.fn(async (_url, method) => (method === 'DELETE' ? { ok: true } : null));
+        window.loadNotes = vi.fn();
+
+        expect(await window.deleteNote(2).flush()).toBe('deleted');
+        expect(window.apiCall).toHaveBeenCalledWith('/api/notes/2', 'DELETE');
+        expect(document.querySelector('.wg-toast')).toBeNull();
     });
 });

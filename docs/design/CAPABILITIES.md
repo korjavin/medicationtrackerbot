@@ -19,9 +19,11 @@ The code is the source of truth. File paths are relative to `web/`, and line num
 - **Phone chrome** (status bar, island): the component `static/js/components/wg-phone-chrome.js` exists but nothing uses it.
 - **Screen headers**: the handoff had an `AppHeader` (title + date). The shipped app has none. Each screen opens directly on its first toolbar or sub-tab row.
 - **Banners and toasts**:
-  - **Offline banner** `#offline-banner` [NEW]: reads "Offline — showing cached data". Code: `static/js/sync.js:165`.
-  - **Auth-expired banner** [NEW]: reuses the offline banner and adds a "Re-authenticate" button. Code: `cloud/js/cloud-boot.js:311`.
-  - **SW update toast** [NEW]: reads "A new version is available. Reload / Later". It uses `.pwa-update-toast` / `.pwa-update-btn`, not `wg-*`. Code: `cloud/js/update-check.js`.
+  - Banners live in the sticky `#app-banners` strip (kit `.wg-banner`, med-xso6.5):
+  - **Offline banner** `#offline-banner` `.wg-banner--offline`: "Offline · showing saved data. New logs will sync." Code: `static/js/sync.js` `updateOfflineBanner`.
+  - **Auth-expired banner** `.wg-banner--warn` with a "Re-authenticate" button. Code: `cloud/js/cloud-boot.js` `surfaceAuthExpired`.
+  - **SW update banner** `.wg-banner--info`: "A new version is available. Later / Reload". Code: `cloud/js/update-check.js`.
+  - **Toasts**: one `.wg-toast` stack above the tab bar (`SyncManager.showToast`, `safeToast(msg, type, { action })`). Row deletes go through `deleteWithUndo` (`core/utils.js`): optimistic remove + Undo toast, the delete runs when the toast closes.
   - **Legacy sync status bar and debug panel**. Code: `static/js/sync.js`.
 - **Dialogs** [NEW]: `safeAlert`, `safeConfirm`, `safePrompt`, `safeChoose` and `safeToast`.
   - Code: `static/js/core/utils.js`, styled by `static/css/dialog.css`.
@@ -116,9 +118,8 @@ The code is the source of truth. File paths are relative to `web/`, and line num
   - **Macros card** [H]: a Daily/Weekly toggle, kcal, % of target, "avg N kcal/day · 7d", and macro bars.
   - **Target progress rows** `#food-target-progress`. These use legacy `.food-target-*` classes and duplicate the macro bars.
   - **Meal list** [H]: grouped by meal. Each row shows name (meals prefixed with 🍽), grams, kcal, P/F, sync tags, and edit/delete.
-  - **AI summary card** [NEW] (`food-photo-summary.js`): floats above the nav after an AI photo or text log.
-    - It lists the items and totals.
-    - **Undo** removes them; the card then reads "Removed N items". A Retry state handles failures.
+  - **AI log toast** (`food-photo-summary.js`): the standard toast after an AI photo or text log: "N items logged" + kcal total.
+    - **Undo** removes them; the toast then reads "Removed N items". Failures show an error toast with Retry.
     - It closes automatically after about 8 seconds and has a "×" text close button.
 - **Food DB tab** [NEW]:
   - Search, sort pills (Most Used / Recently Used / A-Z) and paginated product cards.
@@ -411,10 +412,9 @@ Ordered roughly by how much a designer should care.
     - about 15 `*-modal__header-btn` classes
     - about 10 `*-subtabs__btn` / `*-range-selector__btn` classes
   - There is no shared size or variant scale (primary / secondary / danger / icon / toolbar).
-- **Three more parallel button systems:**
+- **Two more parallel button systems:**
   - `wg-firstrun-btn` (`static/css/firstrun.css`)
   - `.wizard-step button` (`cloud/css/cloud.css:80`)
-  - `.pwa-update-btn` (`cloud/js/update-check.js`)
 - **Modal headers come in three shapes:**
   - (a) The handoff pattern: eyebrow + mono title + Cancel/Save top-right. It is cloned under about 20 different BEM prefixes, and scan/share/import modals borrow `wg-workouts-group-modal`.
   - (b) The generic `wg-modal__header` with footer actions: `core/utils.js` dialogs and feedback.

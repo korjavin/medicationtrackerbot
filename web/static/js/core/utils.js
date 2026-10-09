@@ -21,14 +21,188 @@ function safeAlert(msg, opts) {
 // safeAlert when no toast surface exists (bd med-omvw — success/info
 // messages should not pop blocking alerts). Like safeAlert it resolves
 // window.SyncManager lazily at call time, so utils.js keeps no dependency
-// on sync.js load order. type is 'info' (default) or 'error'.
-function safeToast(msg, type) {
+// on sync.js load order. type is 'info' (default), 'success' or 'error';
+// opts are SyncManager.showToast's ({ action: { label, onClick }, detail,
+// duration, … }). Returns the toast controller ({ root, dismiss }), or null
+// on the safeAlert fallback.
+function safeToast(msg, type, opts) {
     const sm = window.SyncManager;
     if (sm && typeof sm.showToast === 'function') {
-        sm.showToast(msg, type || 'info');
-        return;
+        // Plain toasts keep the 2-arg call shape callers' spies assert on.
+        return (opts === undefined ? sm.showToast(msg, type || 'info') : sm.showToast(msg, type || 'info', opts)) || null;
     }
     safeAlert(msg);
+    return null;
+}
+
+// deleteWithUndo — the one row-delete path (kit rule 3: a row delete never
+// asks first; it undoes from a toast). The row leaves the cached payloads at
+// once through DataStore.applyOptimistic; the server delete runs only when
+// the Undo window closes (or the page is being hidden, so closing the app
+// still deletes). Undo rolls the snapshots back and sends nothing.
+//   opts.message    — toast text ("Reading deleted")
+//   opts.optimistic — [{ key, mutator, tags }] applied via applyOptimistic
+//   opts.remove()   — performs the delete; resolve truthy on success. Falsy
+//                     or a throw rolls the snapshots back (the row returns).
+// One Undo window at a time: a new delete flushes the previous one first, so
+// two whole-list snapshots of one key are never both open for rollback.
+//   opts.duration   — ms the Undo window stays open (default 5000)
+//   opts.replay     — { fn, arg }: a PENDING_DELETE_REPLAY function name + the
+//                     record id. Journaled in localStorage while the delete is
+//                     owed, so a tab killed mid-window (or mid-remove) still
+//                     deletes on the next boot (replayPendingDeletes).
+// Returns { undo(), flush(), done }: flush() deletes now; done resolves
+// 'deleted' | 'undone' | 'failed'.
+function deleteWithUndo(opts) {
+    const o = opts || {};
+    if (deleteWithUndo._active) deleteWithUndo._active.flush();
+    const duration = typeof o.duration === 'number' ? o.duration : 5000;
+    const journalId = o.replay ? _pendingDeletesAdd(o.replay, duration) : null;
+    const ds = window.DataStore;
+    const optimistic = Array.isArray(o.optimistic) ? o.optimistic : [];
+    const handlesReady = (async () => {
+        const hs = [];
+        if (!ds || typeof ds.applyOptimistic !== 'function') return hs;
+        for (const x of optimistic) {
+            try { hs.push(await ds.applyOptimistic(x.key, x.mutator, x.tags || [])); }
+            catch (e) { console.error('deleteWithUndo: optimistic remove failed', e); }
+        }
+        return hs;
+    })();
+    const settle = async (method) => {
+        for (const h of await handlesReady) {
+            try { await h[method](null); } catch (_) { /* best-effort */ }
+        }
+    };
+
+    let resolveDone;
+    const done = new Promise((r) => { resolveDone = r; });
+    let running = null;
+    let toast = null;
+    let timer = null;
+    // Leaving the app closes the Undo window: delete now rather than lose it.
+    const onHide = (e) => {
+        if (e.type === 'pagehide' || document.visibilityState === 'hidden') finish(false);
+    };
+    function finish(undo) {
+        if (running) return running;
+        if (deleteWithUndo._active === ctl) deleteWithUndo._active = null;
+        clearTimeout(timer);
+        document.removeEventListener('visibilitychange', onHide);
+        window.removeEventListener('pagehide', onHide);
+        if (toast) toast.dismiss();
+        running = (async () => {
+            if (undo) {
+                _pendingDeletesDrop(journalId);
+                await settle('rollback');
+                return 'undone';
+            }
+            // The handles stay pending through remove(): DataStore skips GETs
+            // for those keys meanwhile, so a reload inside remove() can't
+            // repaint the pre-delete row. Commit's refresh then reads the truth.
+            await handlesReady;
+            let ok = false;
+            let threw = false;
+            try { ok = !!(await o.remove()); } catch (e) {
+                threw = true;
+                console.error('deleteWithUndo: delete failed', e);
+            }
+            _pendingDeletesDrop(journalId);
+            if (ok) {
+                await settle('commit');
+                return 'deleted';
+            }
+            await settle('rollback');
+            // A falsy result means apiCall already reported the failure.
+            if (threw) safeToast("Couldn't delete. It's back in the list.", 'error');
+            return 'failed';
+        })();
+        running.then(resolveDone);
+        return running;
+    }
+
+    // No toast surface (isolated shells) means no Undo; the timer still deletes.
+    const sm = window.SyncManager;
+    if (sm && typeof sm.showToast === 'function') {
+        toast = sm.showToast(o.message || 'Deleted', 'info', {
+            action: { label: 'Undo', onClick: () => finish(true) },
+            duration: 0,
+        }) || null;
+    }
+    timer = setTimeout(() => finish(false), duration);
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', onHide);
+
+    const ctl = { undo: () => finish(true), flush: () => finish(false), done };
+    deleteWithUndo._active = ctl;
+    return ctl;
+}
+
+// Close the open Undo window now and wait for its delete — for programmatic
+// reloads (update banner, SW controllerchange) that would otherwise cut it.
+// Null when no window is open, so callers stay synchronous then.
+function flushPendingDelete() {
+    const a = deleteWithUndo._active;
+    return a ? a.flush() : null;
+}
+
+// The delete journal holds only a function name and a record id — never
+// record content (localStorage is outside the vault).
+const PENDING_DELETES_KEY = 'wg-pending-deletes';
+const PENDING_DELETE_REPLAY = ['_deleteBPApi', '_deleteWeightApi', '_deleteFoodLogApi',
+    '_deleteNoteApi', '_deleteWorkoutSessionApi', '_archiveMedById'];
+
+function _pendingDeletesRead() {
+    try {
+        const v = JSON.parse(localStorage.getItem(PENDING_DELETES_KEY) || '[]');
+        return Array.isArray(v) ? v : [];
+    } catch (_) { return []; }
+}
+
+function _pendingDeletesWrite(list) {
+    try {
+        if (list.length) localStorage.setItem(PENDING_DELETES_KEY, JSON.stringify(list));
+        else localStorage.removeItem(PENDING_DELETES_KEY);
+    } catch (_) { /* storage blocked: no journal, the in-page path still runs */ }
+}
+
+// at/ttl let another tab tell a live Undo window from an abandoned one.
+function _pendingDeletesAdd(replay, ttl) {
+    const id = Date.now() + '-' + Math.random().toString(36).slice(2);
+    _pendingDeletesWrite([..._pendingDeletesRead(),
+        { id, fn: String(replay.fn), arg: replay.arg, at: Date.now(), ttl }]);
+    return id;
+}
+
+function _pendingDeletesDrop(id) {
+    if (id) _pendingDeletesWrite(_pendingDeletesRead().filter((e) => e && e.id !== id));
+}
+
+// Grace past an entry's Undo window before another tab may take it over: an
+// entry still inside window + grace may belong to a live tab (Undo pending).
+const PENDING_DELETE_GRACE_MS = 10000;
+
+// Boot: run deletes a page owed but never finished. A replay that already
+// landed is a harmless repeat (delete/archive are idempotent). Each entry
+// leaves the journal only once its delete succeeds; a failing one is retried
+// on later boots, three tries at most.
+async function replayPendingDeletes() {
+    let waiting = false;
+    for (const e of _pendingDeletesRead()) {
+        const fn = e && PENDING_DELETE_REPLAY.includes(e.fn) ? window[e.fn] : null;
+        if (typeof fn !== 'function') { _pendingDeletesDrop(e && e.id); continue; }
+        if (Date.now() - (Number(e.at) || 0) < (Number(e.ttl) || 5000) + PENDING_DELETE_GRACE_MS) {
+            waiting = true;
+            continue;
+        }
+        let ok = false;
+        try { ok = !!(await fn(e.arg)); } catch (err) { console.error('replayPendingDeletes failed', e.fn, err); }
+        const tries = (Number(e.tries) || 0) + 1;
+        if (ok || tries >= 3) _pendingDeletesDrop(e.id);
+        else _pendingDeletesWrite(_pendingDeletesRead().map((x) => (x && x.id === e.id ? { ...x, tries } : x)));
+    }
+    // Young entries: their tab finishes (or Undoes) them; if it died, take over.
+    if (waiting) setTimeout(replayPendingDeletes, PENDING_DELETE_GRACE_MS);
 }
 
 // opts (optional): { title, confirmLabel, cancelLabel, icon, destructive,

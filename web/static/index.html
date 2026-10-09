@@ -35,7 +35,9 @@
     <!-- Banners sit OUTSIDE #app so the negative top margin used by views
          like .wg-today (to bleed the teal stage past #app's padding) can't
          pull view content underneath them. -->
-    <div id="offline-banner" class="offline-banner hidden" aria-live="polite">Offline — showing cached data</div>
+    <div id="app-banners" class="wg-banners">
+        <div id="offline-banner" class="wg-banner wg-banner--offline hidden" aria-live="polite"><i class="wg-ico wg-ico--sm" data-icon="cloud-off"></i><span class="wg-banner__text">Offline · showing saved data. New logs will sync.</span></div>
+    </div>
 
     <div id="app">
         <!-- App bars (Navigation v2, med-xso6.12): every top-level view opens
