@@ -149,7 +149,7 @@ describe('app.js modal history and back behavior', () => {
     try {
       const overlay = document.getElementById('modal-overlay');
       const backSpy = vi.spyOn(window.history, 'back');
-      const titles = () => [...document.querySelectorAll('mt-modal.wg-page .wg-pagebar__title')].map((t) => t.textContent);
+      const titles = () => [...document.querySelectorAll('mt-modal.wg-page[id^="wg-page-"] .wg-pagebar__title')].map((t) => t.textContent);
 
       window.WGPage.push({ title: 'Plan', back: 'Train', primary: { label: 'Save', onClick: () => {} } });
       window.WGPage.push({ title: 'Day A', crumb: 'Plan 3', back: 'Plan', primary: { label: 'Done', onClick: () => {} } });
