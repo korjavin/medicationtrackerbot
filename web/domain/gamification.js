@@ -3648,10 +3648,13 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       next_scheduled: next ? { day: next.day, time: next.time, group_title: next.group_title } : null,
       scheduled_this_week: scheduledThisWeek,
       // Day keys for getGoalLine's week_days (stripped from its `workouts`).
-      // A pre-skipped day was declined ahead of time — planned rest, not a plan day.
+      // Scheduled = the plan's days plus a still-pending planned ad-hoc session;
+      // a pre-skipped day was declined ahead of time — planned rest, not a plan day.
       completed_days: new Set(completedThisWeek.map(dayOf)),
-      scheduled_days: new Set(groupOccurrences
-        .filter((o) => inWeek(o.dateStr) && o.status !== 'deleted' && o.status !== 'pre_skipped').map((o) => o.dateStr)),
+      scheduled_days: new Set([
+        ...groupOccurrences.filter((o) => o.status !== 'deleted' && o.status !== 'pre_skipped').map((o) => o.dateStr),
+        ...adhoc.map((a) => a.dateStr),
+      ].filter(inWeek)),
     };
   }
 

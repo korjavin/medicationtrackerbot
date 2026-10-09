@@ -89,6 +89,13 @@
         return ks.keystones.filter(isGoalMilestone);
     }
 
+    // null/undefined stay unknown — Number(null) would read as 0.
+    function num(x) {
+        if (x === null || x === undefined || x === '') return null;
+        const n = Number(x);
+        return Number.isFinite(n) ? n : null;
+    }
+
     function pct(ratio) {
         const n = Number(ratio);
         return `${(Math.max(0, Math.min(1, Number.isFinite(n) ? n : 0)) * 100).toFixed(1)}%`;
@@ -117,15 +124,17 @@
         track.style.setProperty('--p', pct(g.progress.fraction));
         if (nm && Number(nm.count) > 0) track.style.setProperty('--n', String(Number(nm.count)));
         track.appendChild(el('span', 'wg-track__fill'));
-        const span = Math.abs(Number(g.start_ref) - Number(g.target));
-        const showPin = nm && !nm.is_goal && Number.isFinite(Number(nm.weight)) && span > 0;
+        const start = num(g.start_ref);
+        const target = num(g.target);
+        const span = start !== null && target !== null ? Math.abs(start - target) : 0;
+        const showPin = !!nm && !nm.is_goal && num(nm.weight) !== null && span > 0;
         if (showPin) {
             const pin = el('span', 'wg-track__pin');
-            pin.style.setProperty('--p', pct(Math.abs(Number(g.start_ref) - Number(nm.weight)) / span));
+            pin.style.setProperty('--p', pct(Math.abs(start - num(nm.weight)) / span));
             track.appendChild(pin);
         }
         const ends = el('span', 'wg-track__ends');
-        ends.appendChild(el('span', null, Number.isFinite(Number(g.start_ref)) ? `start ${weightParts(g.start_ref).value}` : 'start'));
+        ends.appendChild(el('span', null, start !== null ? `start ${weightParts(start).value}` : 'start'));
         if (showPin) ends.appendChild(el('span', null, `next marker ${weightParts(nm.weight).value}`));
         ends.appendChild(el('span', null, 'goal'));
         return [track, ends];
@@ -149,7 +158,7 @@
         }
         const current = Number.isFinite(g.trend_weight) ? g.trend_weight
             : (g.latest_reading ? g.latest_reading.weight : null);
-        if (Number.isFinite(current) && Number.isFinite(Number(g.target))) {
+        if (Number.isFinite(current) && num(g.target) !== null) {
             const value = el('span', 'wg-hstack wg-journey-goal__value');
             const to = el('span', 'wg-stat__value wg-stat__value--hero wg-sun', weightParts(g.target).value);
             to.appendChild(el('small', null, weightParts(g.target).unit));
@@ -168,8 +177,8 @@
                 `${goalWeight(g.progress.done_kg)} of ${goalWeight(g.progress.total_kg)} ${since}`));
         }
         const stats = el('div', 'wg-grid3 wg-journey-goal__stats');
-        if ((g.status === 'ok' || g.status === 'preliminary') && Number.isFinite(Number(g.distance_to_goal))) {
-            const d = weightParts(Math.abs(Number(g.distance_to_goal)));
+        if ((g.status === 'ok' || g.status === 'preliminary') && num(g.distance_to_goal) !== null) {
+            const d = weightParts(Math.abs(num(g.distance_to_goal)));
             stats.appendChild(stat(d.value, null, `${d.unit} to go`));
         }
         const nm = g.next_milestone;
@@ -269,6 +278,8 @@
     // cadence control. Fetched through its own cachedFetch entry
     // (loadWeeklyReview). Tone rules: facts only, missing reads as unknown.
     const WEEKLY_CACHE_KEY = 'gamification_weekly';
+    // An uncommitted plan pick survives the re-render a cadence write triggers.
+    let draftPick = null; // { week, id }
     const WEEKLY_URL = '/api/gamification/weekly-review';
     const WEEK_PLAN_URL = '/api/gamification/week-plan';
 
@@ -414,23 +425,26 @@
         section.appendChild(el('p', 'wg-hint wg-journey-weekly__current', current));
 
         const currentId = plan && !plan.paused && plan.intention ? plan.intention.id : null;
-        let picked = currentId;
+        const ids = (opts.intentions || []).map((it) => it.id);
+        const draft = draftPick && draftPick.week === (wr.plan_week || '') && ids.includes(draftPick.id) ? draftPick.id : null;
+        let picked = draft || currentId;
         const commit = el('button', 'wg-btn wg-btn--primary wg-journey-weekly__commit',
             nextWeek ? 'Set next week’s plan' : 'Set this week’s plan');
         commit.type = 'button';
-        commit.disabled = true;
+        commit.disabled = !picked || picked === currentId;
 
         const choices = el('div', 'wg-choices wg-journey-weekly__choices');
         (opts.intentions || []).forEach((it) => {
             const btn = el('button', 'wg-choice');
             btn.type = 'button';
             btn.setAttribute('data-choice', it.id);
-            btn.setAttribute('aria-pressed', it.id === currentId ? 'true' : 'false');
+            btn.setAttribute('aria-pressed', it.id === picked ? 'true' : 'false');
             const label = el('span', null, it.text);
             if (it.id === currentId) label.appendChild(el('span', 'wg-choice__sub', 'Current'));
             btn.appendChild(label);
             btn.addEventListener('click', () => {
                 picked = it.id;
+                draftPick = picked === currentId ? null : { week: wr.plan_week || '', id: picked };
                 choices.querySelectorAll('.wg-choice').forEach((b) => b.setAttribute('aria-pressed', b === btn ? 'true' : 'false'));
                 commit.disabled = picked === currentId;
             });
@@ -446,13 +460,14 @@
         commit.addEventListener('click', () => {
             if (!picked || picked === currentId) return;
             commit.disabled = true;
+            draftPick = null;
             saveWeekPlan(pickBody(picked), wr.plan_scope);
         });
         const pause = el('button', 'wg-btn wg-btn--ghost wg-journey-weekly__pause', `Pause ${scope}`);
         pause.type = 'button';
         pause.setAttribute('data-choice', 'pause');
         pause.setAttribute('aria-pressed', plan && plan.paused ? 'true' : 'false');
-        pause.addEventListener('click', () => { saveWeekPlan(pickBody('pause'), wr.plan_scope); });
+        pause.addEventListener('click', () => { draftPick = null; saveWeekPlan(pickBody('pause'), wr.plan_scope); });
         const actions = el('div', 'wg-grid2 wg-journey-weekly__actions');
         actions.append(pause, commit);
         section.appendChild(actions);

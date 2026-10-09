@@ -332,6 +332,16 @@ describe('Journey render', () => {
             'Weigh-in: Mon rest, Tue hit, Wed today, Thu future, Fri future, Sat future, Sun future');
     });
 
+    it('a goal with no reading yet shows no distance — never a "0.0 kg to go"', () => {
+        env.window.Gamification.render(fullJourney({
+            goal_line: { enabled: true, goal: { status: 'preliminary', target: 78, start_ref: null, distance_to_goal: null, trend_weight: null, latest_reading: null,
+                coverage: { weigh_in_days_28d: 0 } } },
+        }));
+        const goal = env.document.getElementById('journey-goal-card');
+        expect([...goal.querySelectorAll('.wg-stat .wg-meta')].map((m) => m.textContent)).toEqual(['weigh-ins / 28d']);
+        expect(goal.textContent).not.toMatch(/to go/);
+    });
+
     it('no scorecard without week_days (older payload) or with the Goal Line off (ED-safe)', () => {
         env.window.Gamification.render(fullJourney());
         expect(env.document.getElementById('journey-week-card')).toBeNull();
@@ -602,6 +612,16 @@ describe('Journey render', () => {
         expect(env.window.offlineAwareApiCall).not.toHaveBeenCalled();
         plan.querySelector('[data-choice="stop_after_dinner"]').click();
         expect(commit.disabled).toBe(true);
+    });
+
+    it('an uncommitted pick survives the re-render a cadence write triggers', () => {
+        stubWrite(env, { ok: true, plan: null });
+        env.window.Gamification.render(journey({ weekly_review: WEEKLY }));
+        env.document.querySelector('[data-choice="weigh_before_coffee"]').click();
+        env.window.Gamification.render(journey({ weekly_review: WEEKLY }));
+        const plan = env.document.querySelector('.wg-journey-weekly__plan');
+        expect(plan.querySelector('.wg-choice[aria-pressed="true"]').getAttribute('data-choice')).toBe('weigh_before_coffee');
+        expect(plan.querySelector('.wg-btn--primary').disabled).toBe(false);
     });
 
     it('on Sunday the choice is for next week; the weigh-in control starts at the reminder\'s cadence', () => {

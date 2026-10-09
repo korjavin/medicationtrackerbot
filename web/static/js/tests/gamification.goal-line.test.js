@@ -466,6 +466,12 @@ describe('gamification Goal Line — workouts, BP, cta', () => {
       features: { weight: false, workout: true, bp: false, gamification: true },
     });
     expect(missed.week_days[0]).toEqual({ day: '2026-06-15', weigh_in: null, workout: 'miss', bp: null });
+
+    // A planned ad-hoc session still pending on a past day is scheduled, so a miss.
+    const adhoc = await domainOver({
+      workoutsession: [{ recordId: 'adhoc-9', deleted: false, group_id: -1, status: 'pending', scheduled_date: '2026-06-16T00:00:00Z', scheduled_time: '07:30' }],
+    }).gam.getGoalLine();
+    expect(adhoc.week_days.slice(0, 2).map((d) => d.workout)).toEqual(['rest', 'miss']);
   });
 
   // med-8tur.2: the Today card's day key + the medication safety net the rings
