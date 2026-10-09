@@ -142,7 +142,7 @@ describe('Settings v2 pushed pages + summaries (harness)', () => {
             await window.loadSettings();
 
             row(document, 'units').click();
-            const pushed = document.querySelector('mt-modal.wg-page');
+            const pushed = document.querySelector('mt-modal.wg-page[id^="wg-page-"]');
             expect(pushed).not.toBeNull();
             expect(pushed.querySelector('.wg-pagebar__title').textContent).toBe('Units');
             expect(pushed.querySelector('.wg-back').textContent).toContain('Settings');
@@ -151,7 +151,7 @@ describe('Settings v2 pushed pages + summaries (harness)', () => {
             expect(document.querySelectorAll('#weight-unit-segmented').length).toBe(1);
 
             pushed.querySelector('.wg-back').click();
-            expect(document.querySelector('mt-modal.wg-page')).toBeNull();
+            expect(document.querySelector('mt-modal.wg-page[id^="wg-page-"]')).toBeNull();
             expect(page(document, 'units').querySelector('#weight-unit-segmented')).not.toBeNull();
         } finally {
             cleanup();
@@ -169,14 +169,14 @@ describe('Settings v2 pushed pages + summaries (harness)', () => {
 
             row(document, 'features').click();
             document.querySelector('[data-settings-open="journey-extras"]').click();
-            const pages = document.querySelectorAll('mt-modal.wg-page');
+            const pages = document.querySelectorAll('mt-modal.wg-page[id^="wg-page-"]');
             expect(pages.length).toBe(2);
             const nested = pages[1];
             expect(nested.querySelector('.wg-back').textContent).toContain('Features');
             expect(nested.querySelector('#gam-mode-traits-toggle')).not.toBeNull();
             nested.querySelector('.wg-back').click();
             pages[0].querySelector('.wg-back').click();
-            expect(document.querySelector('mt-modal.wg-page')).toBeNull();
+            expect(document.querySelector('mt-modal.wg-page[id^="wg-page-"]')).toBeNull();
         } finally {
             cleanup();
         }

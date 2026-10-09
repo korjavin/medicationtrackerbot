@@ -157,7 +157,8 @@ function loadWorkouts() {
         bindClick('exercise-library-save-btn', () => saveExerciseLibraryItem());
 
         bindClick('workout-session-cancel-btn', () => closeWorkoutSessionModal());
-        bindClick('workout-session-header-add-btn', () => showAddExerciseToSessionModal());
+        // "+ Exercise" lives in the overview (rendered with its own handler).
+        bindClick('workout-session-prog', () => toggleWorkoutSessionOverview());
 
         bindClick('session-add-exercise-cancel-btn', () => closeAddExerciseToSessionModal());
         bindClick('session-add-exercise-save-btn', () => saveNewSessionExercise());
