@@ -46,27 +46,27 @@ const ALLOWED = new Map([
         "style.setProperty on a neutral CSS custom property (--fill-pct) — CSS class reads it via width: var(--fill-pct, 0%); no hardcoded visual value lives in JS. Line shifted by the med-ejq.2 over-target modifier (class + doc-comment lines added above).",
     ],
     [
-        'web/static/js/features/food/log.js:1084',
-        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Line shifted by the C2c Task 4 cloud/bot branch added above the from-description fetch (window.__MEDTRACKER_CLOUD__ calls window.CloudFoodAI instead of POSTing /api/food/log/from-description), then again by the review-fix product_id string-id comment, then again by the cloud-mode cachedFetch-bypass comment in loadFoodLogs, then again by the med-yor.2 Task 4 TrialConsent.retryAfterConsent wrap around the CloudFoodAI description parse, then back up by the med-a9n5.7 collapse of the bot-mode branches above it, then back up by the med-a9n5.6 removal of the SSE echo-stamp/cursor calls above it, then back up by the med-a9n5.9 removal of the wg-stale-badge mount + FoodLog.meta freshness scaffolding above it, then down by the med-0sgs.3 day-status calls in loadFoodLogs, then back up by the med-xso6.3 WGChip.sync swap in renderFoodItemRow.",
+        'web/static/js/features/food/log.js:1078',
+        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Line shifted by the C2c Task 4 cloud/bot branch added above the from-description fetch (window.__MEDTRACKER_CLOUD__ calls window.CloudFoodAI instead of POSTing /api/food/log/from-description), then again by the review-fix product_id string-id comment, then again by the cloud-mode cachedFetch-bypass comment in loadFoodLogs, then again by the med-yor.2 Task 4 TrialConsent.retryAfterConsent wrap around the CloudFoodAI description parse, then back up by the med-a9n5.7 collapse of the bot-mode branches above it, then back up by the med-a9n5.6 removal of the SSE echo-stamp/cursor calls above it, then back up by the med-a9n5.9 removal of the wg-stale-badge mount + FoodLog.meta freshness scaffolding above it, then down by the med-0sgs.3 day-status calls in loadFoodLogs, then back up by the med-xso6.3 WGChip.sync swap in renderFoodItemRow, then up again by the med-xso6.4 createErrorState swap in loadFoodLogs.",
     ],
     [
-        'web/static/js/features/food/log.js:1085',
-        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Line shifted by the C2c Task 4 cloud/bot branch added above the from-description fetch (window.__MEDTRACKER_CLOUD__ calls window.CloudFoodAI instead of POSTing /api/food/log/from-description), then again by the review-fix product_id string-id comment, then again by the cloud-mode cachedFetch-bypass comment in loadFoodLogs, then again by the med-yor.2 Task 4 TrialConsent.retryAfterConsent wrap around the CloudFoodAI description parse, then back up by the med-a9n5.7 collapse of the bot-mode branches above it, then back up by the med-a9n5.6 removal of the SSE echo-stamp/cursor calls above it, then back up by the med-a9n5.9 removal of the wg-stale-badge mount + FoodLog.meta freshness scaffolding above it, then down by the med-0sgs.3 day-status calls in loadFoodLogs, then back up by the med-xso6.3 WGChip.sync swap in renderFoodItemRow.",
+        'web/static/js/features/food/log.js:1079',
+        "legacy renderFoodTargetProgress (week/2-week aggregation view) — paper-era path not targeted by Phase 4 (daily-total rewrite); slated for a follow-up phase alongside the remaining .food-target-* CSS. Line shifted by the C2c Task 4 cloud/bot branch added above the from-description fetch (window.__MEDTRACKER_CLOUD__ calls window.CloudFoodAI instead of POSTing /api/food/log/from-description), then again by the review-fix product_id string-id comment, then again by the cloud-mode cachedFetch-bypass comment in loadFoodLogs, then again by the med-yor.2 Task 4 TrialConsent.retryAfterConsent wrap around the CloudFoodAI description parse, then back up by the med-a9n5.7 collapse of the bot-mode branches above it, then back up by the med-a9n5.6 removal of the SSE echo-stamp/cursor calls above it, then back up by the med-a9n5.9 removal of the wg-stale-badge mount + FoodLog.meta freshness scaffolding above it, then down by the med-0sgs.3 day-status calls in loadFoodLogs, then back up by the med-xso6.3 WGChip.sync swap in renderFoodItemRow, then up again by the med-xso6.4 createErrorState swap in loadFoodLogs.",
     ],
     [
-        'web/static/js/features/meds.js:83',
+        'web/static/js/features/meds.js:71',
         "pre-Phase-5 show/hide toggle for the RxNorm display row — preserved as-is during the Task 1 extraction from app.js (no-behavior-change extraction); CSS-class migration tracked separately. Line shifted after Round-2 Task 4 expanded the sub-tab comment block.",
     ],
     [
-        'web/static/js/features/meds.js:85',
+        'web/static/js/features/meds.js:73',
         "pre-Phase-5 show/hide toggle for the RxNorm display row — preserved as-is during the Task 1 extraction from app.js (no-behavior-change extraction); CSS-class migration tracked separately. Line shifted after Round-2 Task 4 expanded the sub-tab comment block.",
     ],
     [
-        'web/static/js/features/meds.js:98',
+        'web/static/js/features/meds.js:86',
         "pre-Phase-5 show/hide toggle for the restock-section modal block — preserved as-is during the Task 1 extraction from app.js; inventory-fields sibling already uses .hidden class, this row slated for the same migration. Line shifted after Round-2 Task 4 expanded the sub-tab comment block.",
     ],
     [
-        'web/static/js/features/meds.js:102',
+        'web/static/js/features/meds.js:90',
         "pre-Phase-5 show/hide toggle for the restock-section modal block — preserved as-is during the Task 1 extraction from app.js; inventory-fields sibling already uses .hidden class, this row slated for the same migration. Line shifted after Round-2 Task 4 expanded the sub-tab comment block.",
     ],
 ]);

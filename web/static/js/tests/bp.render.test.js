@@ -4,7 +4,7 @@
 //   • renderRangeSelector({ active, onChange }) — kit .wg-seg--sm strip
 //     with three 14d/30d/60d options; the active one is aria-pressed.
 //   • renderBPChart(readings, goalData) — delegates to WGBpChart.render()
-//     with the active range; empty input renders a "No data available"
+//     with the active range; empty input renders the kit .wg-empty
 //     message without calling the chart component.
 //
 // Round-2, Task 2: renderCurrentReading was removed along with the top

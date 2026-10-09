@@ -360,7 +360,7 @@ describe('Journey render', () => {
         const buttons = [...env.document.querySelectorAll('button')];
         expect(buttons.length).toBeGreaterThan(5);
         expect(env.document.querySelector('.btn, .btn-sm, .btn-primary, .btn-secondary, .btn-link')).toBeNull();
-        expect(buttons.filter((b) => !b.matches('.wg-btn, .wg-choice, .wg-row, .wg-back')).map((b) => b.outerHTML)).toEqual([]);
+        expect(buttons.filter((b) => !b.matches('.wg-btn, .wg-choice, .wg-row, .wg-back, .wg-seg__opt')).map((b) => b.outerHTML)).toEqual([]);
     });
 
     // med-8tur.10 (§0.3.6): the joint weight/BP observation — both components,
