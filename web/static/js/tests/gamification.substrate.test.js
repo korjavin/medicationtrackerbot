@@ -324,6 +324,32 @@ describe('substrate read models — end-to-end HP over a synthetic vault', () =>
     expect(s.health_score.contributors).toHaveLength(5);
   });
 
+  it('a food day flagged incomplete earns no nourishment awards, keyed on the LOCAL day (med-0sgs)', async () => {
+    // Tokyo (UTC+9): the 07:00 local breakfast on 2026-06-15 is 22:00 UTC on
+    // 06-14, so the substrate's UTC bucket is a different date than the flag.
+    const TZ = 'Asia/Tokyo';
+    const vault = (flag) => createInMemoryRecordsPort({
+      foodtargets: [{ recordId: 'foodtargets', deleted: false, calories: 2000, protein: 100 }],
+      foodlog: [
+        { recordId: 'f-breakfast', deleted: false, eaten_at: '2026-06-14T22:00:00Z', calories: 600, protein: 30 },
+        { recordId: 'f-dinner', deleted: false, eaten_at: isoAtMs(RM_NOW), calories: 600, protein: 30 },
+      ],
+      fooddaystatus: flag
+        ? [{ recordId: 'fooddaystatus:2026-06-15', deleted: false, date: '2026-06-15', incomplete: true }]
+        : [],
+    });
+    const nourishHP = (s) => (s.today_rings.find((r) => r.ring === 'nourishment') || { hp: 0 }).hp;
+
+    const plain = await createGamificationDomain({ records: vault(false), now: () => RM_NOW, timeZone: TZ }).getSummary();
+    expect(nourishHP(plain)).toBeGreaterThan(0);
+    expect(plain.lifetime_hp).toBeGreaterThan(nourishHP(plain)); // 06-14 UTC bucket scored too
+
+    const flagged = await createGamificationDomain({ records: vault(true), now: () => RM_NOW, timeZone: TZ }).getSummary();
+    expect(nourishHP(flagged)).toBe(0);
+    // The breakfast does not leak into the 06-14 UTC bucket either.
+    expect(flagged.lifetime_hp).toBe(0);
+  });
+
   it('getRings mirrors the slim Today shape', async () => {
     const { gam } = seededDomain();
     const r = await gam.getRings();

@@ -13,6 +13,7 @@
 import { dayStartMs, buildDailyWeightedStats } from './bp.js';
 import { workoutScheduleOccurrences, isoWeekKey } from './reminders.js';
 import { localWallToUtcMs } from './medschedule.js';
+import { DAY_STATUS_RECORD_TYPE, isFlaggedIncomplete } from './food.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WINDOW_DAYS = 90; // trailing window (§4.1)
@@ -1253,11 +1254,16 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       wd.workoutSessions += 1;
     }
 
-    // Food logs — latest meal hour per day (the late-dinner lever).
+    // Food logs — latest meal hour per day (the late-dinner lever). A day the
+    // user flagged incomplete (med-0sgs, keyed by the same local day string)
+    // contributes no food signal at all: not a logged day, no meal hours.
+    const foodIncomplete = await incompleteFoodDays();
     for (const r of await records.list(FOOD_LOG_RECORD_TYPE)) {
       const ms = Date.parse(r.eaten_at);
       if (!inWindow(ms)) continue;
-      const d = dayObj(localDayString(ms, timeZone));
+      const key = localDayString(ms, timeZone);
+      if (foodIncomplete.has(key)) continue;
+      const d = dayObj(key);
       if (d.lastMealMs === null || ms > d.lastMealMs) {
         d.lastMealMs = ms;
         d.lastMealHour = localHour(ms, timeZone);
@@ -2377,6 +2383,13 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     return n === 0 ? { mean: 0, ok: false } : { mean: sum / n, ok: true };
   }
 
+  // incompleteFoodDays → Set of the LOCAL 'YYYY-MM-DD' days the user flagged
+  // as incompletely tracked (food.js fooddaystatus rows).
+  async function incompleteFoodDays() {
+    const rows = await records.list(DAY_STATUS_RECORD_TYPE);
+    return new Set(rows.filter(isFlaggedIncomplete).map((r) => r.date));
+  }
+
   // buildContext reads every vault type the substrate needs ONCE and derives the
   // per-day maps + raw arrays the scorers and gauges consume.
   async function buildContext(cfg) {
@@ -2397,6 +2410,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       records.list(FOOD_LOG_RECORD_TYPE), records.list(FOODTARGETS_RECORD_TYPE),
       records.list(INTAKE_RECORD_TYPE), records.list(NOTE_RECORD_TYPE), records.list(WORKOUT_SESSION_RECORD_TYPE),
     ]);
+    const foodIncompleteDays = await incompleteFoodDays();
 
     const bpDays = new Set();
     const bpReadings = [];
@@ -2460,11 +2474,18 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       sessions.push({ instantMs, durationMin });
     }
 
+    // The incomplete flag names a LOCAL day but the substrate buckets food on
+    // UTC days. Logs from a flagged local day are dropped by their local key
+    // (so they can't leak into a neighbouring UTC bucket), and the substrate
+    // day with the same date string goes unscored for nourishment
+    // (scoreOneDay). ponytail: date-string identity, not an overlap map — the
+    // UTC day spans the flagged local day's bulk for any |offset| < 12h.
     const foodByDay = new Map();
     for (const r of foodAll) {
       if (r.deleted) continue;
       const ms = Date.parse(r.eaten_at);
       if (!Number.isFinite(ms)) continue;
+      if (foodIncompleteDays.has(localDayString(ms, timeZone))) continue;
       const day = msToUTCDay(ms);
       const cur = foodByDay.get(day) || { logged: false, calories: 0, protein: 0 };
       cur.logged = true;
@@ -2490,7 +2511,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     return {
       nowMs, bpDays, weightDays, weightLogsDesc, goalWeight,
       sleepByDay, onsetByDay, stepsByDay, workoutDays, sessions,
-      foodByDay, foodTargets, diaryByDay, adherenceByDay, hrDailyMin,
+      foodByDay, foodIncompleteDays, foodTargets, diaryByDay, adherenceByDay, hrDailyMin,
       _bpReadings: bpReadings, _nextPendingDueMs: nextPendingDueMs,
     };
   }
@@ -2552,7 +2573,12 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     awards = awards.concat(scoreBP(ctx.bpDays.has(dayStr), cfg));
     awards = awards.concat(scoreSleep(sleepInputFor(ctx, dayStr), cfg));
     awards = awards.concat(scoreMovement(movementInputFor(ctx, dayStr), cfg));
-    awards = awards.concat(scoreNourishment(nourishmentInputFor(ctx, dayStr), cfg));
+    // A flagged-incomplete food day scores no nourishment at all — no meal
+    // floor, no calorie/protein outcome (which would read a half-logged day
+    // as a miss).
+    if (!ctx.foodIncompleteDays.has(dayStr)) {
+      awards = awards.concat(scoreNourishment(nourishmentInputFor(ctx, dayStr), cfg));
+    }
     awards = awards.concat(scoreWeight(ctx.weightDays.has(dayStr), cfg));
     awards = awards.concat(scoreMind({ journaledEntries: ctx.diaryByDay.get(dayStr) || 0 }, cfg));
     if (weekEnd) awards = awards.concat(weeklyGaugeAwardsAt(ctx, dayStr, cfg));

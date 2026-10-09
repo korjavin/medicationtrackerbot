@@ -133,6 +133,29 @@ describe('analysis.fitness', () => {
     expect(resp.nutrition.avg_daily_protein).toBe(35);
   });
 
+  it('drops days flagged incomplete from totals and averages, and names them (med-0sgs)', async () => {
+    const analysis = build({
+      foodlog: [
+        foodLog('f-1', '2026-07-10T12:00:00Z', { calories: 2000, protein: 100, carbs: 200, fat: 60 }),
+        foodLog('f-2', '2026-07-11T12:00:00Z', { calories: 600, protein: 20, carbs: 60, fat: 20 }),
+        foodLog('f-3', '2026-07-12T12:00:00Z', { calories: 2200, protein: 120, carbs: 220, fat: 70 }),
+      ],
+      fooddaystatus: [
+        { recordId: 'fooddaystatus:2026-07-11', deleted: false, date: '2026-07-11', incomplete: true },
+        // Unflagged (toggled back) and out-of-range flags never exclude anything.
+        { recordId: 'fooddaystatus:2026-07-12', deleted: false, date: '2026-07-12', incomplete: false },
+        { recordId: 'fooddaystatus:2026-05-01', deleted: false, date: '2026-05-01', incomplete: true },
+      ],
+    });
+
+    const resp = await analysis.fitness({ from: '2026-07-01', to: '2026-07-17' });
+
+    expect(resp.nutrition.daily_totals.map((d) => d.date)).toEqual(['2026-07-10', '2026-07-12']);
+    expect(resp.nutrition.avg_daily_calories).toBe(2100);
+    expect(resp.nutrition.avg_daily_protein).toBe(110);
+    expect(resp.nutrition.excluded_days).toEqual(['2026-07-11']);
+  });
+
   it('reports insufficient_data with a single weight reading', async () => {
     const analysis = build({
       weight: [{ recordId: 'w-1', deleted: false, measured_at: '2026-07-05T00:00:00Z', weight: 79.5 }],
