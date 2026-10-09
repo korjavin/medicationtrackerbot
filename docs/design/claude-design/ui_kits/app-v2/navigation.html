@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>App UI kit v2 — Navigation</title>
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="components.css"><link rel="stylesheet" href="kit.css">
+<script src="icons.js"></script><script src="kit.js"></script>
+</head>
+<body>
+<nav class="kit-top"><div class="kit-top__brand">MedTracker · App UI kit v2<small>Wandergeek · mobile 390×844 · dark</small></div><a href="index.html">Overview</a><a href="foundations.html">Foundations</a><a href="components.html">Components</a><a href="screens-today.html">Today &amp; Journey</a><a href="screens-food.html">Food</a><a href="screens-meds.html">Meds</a><a href="screens-workouts.html">Workouts</a><a href="screens-settings.html">Settings</a><a href="navigation.html" aria-current="page">Navigation</a></nav>
+<main class="kit-page">
+<h1 class="kit-h1">Navigation: 8 slots → 5 tabs</h1>
+<p class="kit-lede">Proposal: <b>Today · Food · Meds · Train · Health</b>. Health holds BP, Weight and Vitals as segments, because all three are "measure, chart, history" screens with the same anatomy. Settings is a gear in every app bar, and Journey opens from the Goal Line and the route icon on Today. The bar drops from two rows to one, which gives about 60px more content on every screen, and the labels stay readable.</p>
+
+<section class="kit-group"><div class="kit-group__head"><h2 class="kit-group__title">Side by side · same content</h2><p class="kit-group__sub">The same Today content sits above each nav. The current bar uses about 140px including its inset; the proposed one uses 84px, safe area included.</p></div>
+<div class="kit-board">
+
+<figure class="kit-frame" data-screen-label="N1 Current nav"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-appbar"><div class="wg-appbar__titles"><h1 class="wg-appbar__title">Today</h1><p class="wg-appbar__sub">Fri · 09.10 · 14:49</p></div></header>
+<div class="wg-content">
+<div class="wg-callbar"><button class="wg-btn"><i class="wg-ico" data-icon="phone"></i>Call agent</button><button class="wg-btn"><i class="wg-ico" data-icon="plus"></i>Log</button></div>
+<div class="wg-list">
+<div class="wg-row"><span class="wg-row__lead wg-row__lead--danger"><i class="wg-ico" data-icon="pill"></i></span><span class="wg-row__body"><span class="wg-row__title">Allopurinol AL · 300 mg</span><span class="wg-row__meta"><span class="wg-chip wg-chip--danger wg-chip--sm">Missed 08:20</span></span></span><button class="wg-btn wg-btn--sm">Log</button></div>
+<div class="wg-row"><span class="wg-row__lead wg-row__lead--sun"><i class="wg-ico" data-icon="dumbbell"></i></span><span class="wg-row__body"><span class="wg-row__title">Plan 3 · Daily split</span><span class="wg-row__meta">16:00 · in 1h 11m</span></span><button class="wg-btn wg-btn--primary wg-btn--sm">Start</button></div>
+<div class="wg-row"><span class="wg-row__lead"><i class="wg-ico" data-icon="pill"></i></span><span class="wg-row__body"><span class="wg-row__title">3 medications</span><span class="wg-row__meta">21:30</span></span><button class="wg-btn wg-btn--sm">Take</button></div>
+</div>
+<div class="wg-grid3"><span class="wg-skel wg-skel--tile"></span><span class="wg-skel wg-skel--tile"></span><span class="wg-skel wg-skel--tile"></span></div>
+<span class="wg-skel wg-skel--card"></span>
+</div>
+<nav class="wg-tabbar wg-tabbar--legacy" data-tabbar-legacy="today"></nav>
+</div></div><figcaption class="kit-cap"><b>N1</b><span>Current · 2 × 4 tiles</span><em>Eight equal targets give no hierarchy, and Settings takes a slot it's used for maybe once a week. Journey isn't in the nav at all. Disabled features leave gaps, and the order shifts when they do.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="N2 Proposed nav"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-appbar"><div class="wg-appbar__titles"><h1 class="wg-appbar__title">Today</h1><p class="wg-appbar__sub">Fri · 09.10 · 14:49</p></div><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Journey"><i class="wg-ico" data-icon="route"></i></button><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Settings"><i class="wg-ico" data-icon="gear"></i></button></header>
+<div class="wg-content">
+<div class="wg-callbar"><button class="wg-btn"><i class="wg-ico" data-icon="phone"></i>Call agent</button><button class="wg-btn"><i class="wg-ico" data-icon="plus"></i>Log</button></div>
+<div class="wg-list">
+<div class="wg-row"><span class="wg-row__lead wg-row__lead--danger"><i class="wg-ico" data-icon="pill"></i></span><span class="wg-row__body"><span class="wg-row__title">Allopurinol AL · 300 mg</span><span class="wg-row__meta"><span class="wg-chip wg-chip--danger wg-chip--sm">Missed 08:20</span></span></span><button class="wg-btn wg-btn--sm">Log</button></div>
+<div class="wg-row"><span class="wg-row__lead wg-row__lead--sun"><i class="wg-ico" data-icon="dumbbell"></i></span><span class="wg-row__body"><span class="wg-row__title">Plan 3 · Daily split</span><span class="wg-row__meta">16:00 · in 1h 11m</span></span><button class="wg-btn wg-btn--primary wg-btn--sm">Start</button></div>
+<div class="wg-row"><span class="wg-row__lead"><i class="wg-ico" data-icon="pill"></i></span><span class="wg-row__body"><span class="wg-row__title">3 medications</span><span class="wg-row__meta">21:30</span></span><button class="wg-btn wg-btn--sm">Take</button></div>
+</div>
+<div class="wg-grid3"><span class="wg-skel wg-skel--tile"></span><span class="wg-skel wg-skel--tile"></span><span class="wg-skel wg-skel--tile"></span></div>
+<span class="wg-skel wg-skel--card"></span>
+<span class="wg-skel wg-skel--card"></span>
+</div>
+<nav class="wg-tabbar" data-tabbar="today" data-badges="meds:1"></nav>
+</div></div><figcaption class="kit-cap"><b>N2</b><span>Proposed · 5 tabs, one row</span><em>The five tabs are things you do daily. Meds carries the only badge (missed or overdue doses), and Settings plus Journey live in the app bar. The extra space shows here as one more card above the fold.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="N3 Health tab BP"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-appbar"><div class="wg-appbar__titles"><h1 class="wg-appbar__title">Health</h1><p class="wg-appbar__sub">BP · 30 days · target 130/80</p></div><button class="wg-btn wg-btn--primary wg-btn--sm"><i class="wg-ico wg-ico--sm" data-icon="plus"></i>Log</button><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Settings"><i class="wg-ico" data-icon="gear"></i></button></header>
+<div class="wg-subnav"><div class="wg-seg"><button class="wg-seg__opt" aria-pressed="true"><i class="wg-ico wg-ico--sm" data-icon="activity"></i>BP</button><button class="wg-seg__opt" aria-pressed="false"><i class="wg-ico wg-ico--sm" data-icon="scale"></i>Weight</button><button class="wg-seg__opt" aria-pressed="false"><i class="wg-ico wg-ico--sm" data-icon="health"></i>Vitals</button></div></div>
+<div class="wg-content">
+<div class="wg-seg wg-seg--sm"><button class="wg-seg__opt" aria-pressed="false">14d</button><button class="wg-seg__opt" aria-pressed="true">30d</button><button class="wg-seg__opt" aria-pressed="false">60d</button></div>
+<div class="wg-card"><svg class="kit-chart" viewBox="0 0 330 150" preserveAspectRatio="none" aria-label="BP chart, 30 days"><rect x="0" y="52" width="330" height="40" fill="rgba(86,172,138,.12)"></rect><path d="M0 40 L30 46 L60 34 L90 44 L120 38 L150 30 L180 42 L210 36 L240 28 L270 40 L300 34 L330 38" fill="none" stroke="#FBBD0D" stroke-width="1.8"></path><path d="M0 98 L30 102 L60 94 L90 100 L120 96 L150 90 L180 98 L210 95 L240 88 L270 97 L300 93 L330 96" fill="none" stroke="#9CE4CC" stroke-width="1.8"></path></svg></div>
+<div class="wg-grid3"><div class="wg-tile"><span class="wg-eyebrow">14d</span><span class="wg-stat__value wg-stat__value--md">121<span class="wg-dia">/73</span></span><span class="wg-meta">9 readings</span></div><div class="wg-tile"><span class="wg-eyebrow">30d</span><span class="wg-stat__value wg-stat__value--md">122<span class="wg-dia">/74</span></span><span class="wg-meta">21 readings</span></div><div class="wg-tile"><span class="wg-eyebrow">60d</span><span class="wg-stat__value wg-stat__value--md">120<span class="wg-dia">/73</span></span><span class="wg-meta">44 readings</span></div></div>
+<div class="wg-list">
+<button class="wg-row"><span class="wg-row__body"><span class="wg-row__title wg-row__title--mono">117/74</span><span class="wg-row__meta">Today 08:12 · pulse 68</span></span><span class="wg-chip wg-chip--ok wg-chip--sm">Normal</span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<button class="wg-row"><span class="wg-row__body"><span class="wg-row__title wg-row__title--mono">132/70</span><span class="wg-row__meta">Wed 07:58 · pulse 76</span></span><span class="wg-chip wg-chip--warn wg-chip--sm">High-normal</span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+</div>
+</div>
+<nav class="wg-tabbar" data-tabbar="health"></nav>
+</div></div><figcaption class="kit-cap"><b>N3</b><span>Health · BP segment</span><em>BP, Weight and Vitals share one shape: range above the chart, then averages, then history. The segment remembers your last choice, and "Log" logs whatever is selected. If only one of the three is enabled, the segment control hides. Rows push to an editor, so readings become editable (a current gap).</em></figcaption></figure>
+</div></section>
+
+<section class="kit-group"><div class="kit-group__head"><h2 class="kit-group__title">Reachability: every section stays reachable</h2></div>
+<div class="kit-spec kit-spec--wide"><table class="kit-table"><thead><tr><th>Section</th><th>Today (8-slot)</th><th>Proposed</th><th>Taps</th></tr></thead><tbody>
+<tr><td>Today</td><td>Tab 1</td><td>Tab 1</td><td>1</td></tr>
+<tr><td>Food</td><td>Tab 3</td><td>Tab 2 · and Log sheet on Today</td><td>1</td></tr>
+<tr><td>Meds</td><td>Tab 4</td><td>Tab 3 · badge for missed doses</td><td>1</td></tr>
+<tr><td>Workouts</td><td>Tab 6</td><td>Tab 4, named "Train" (shorter label, same thing). Session starts from Today too.</td><td>1</td></tr>
+<tr><td>BP</td><td>Tab 2</td><td>Health → BP (remembered segment)</td><td>1–2</td></tr>
+<tr><td>Weight</td><td>Tab 7</td><td>Health → Weight · Goal Line on Today</td><td>1–2</td></tr>
+<tr><td>Vitals</td><td>Tab 5</td><td>Health → Vitals</td><td>1–2</td></tr>
+<tr><td>Settings</td><td>Tab 8</td><td>Gear in every top-level app bar</td><td>1</td></tr>
+<tr><td>Journey</td><td><em>not in nav</em> · Goal Line card only</td><td>Route icon in the Today app bar, the Goal Line card, and Health → Weight goal card</td><td>1</td></tr>
+<tr><td>Devices / Connectors</td><td>Separate cloud pages</td><td>Settings → Devices &amp; connectors</td><td>2</td></tr>
+<tr><td>Doctor brief</td><td>Today tile</td><td>Today call bar icon</td><td>1</td></tr>
+</tbody></table>
+<p class="kit-spec__note"><b>Disabled features:</b> a tab disappears only when its whole feature set is off, and Health hides individual segments. Fewer than 5 tabs is fine; <code>--n</code> on <code>.wg-tabbar</code> sets the columns.</p>
+<p class="kit-spec__note"><b>Considered and rejected:</b> the audit's Today / Log / Meds / Progress / Me. "Log" mixes data types and separates capturing a reading from viewing it, so you'd log BP in one tab and read it in another. The global "+" from that option survives as the Log button on Today. A centre FAB was also rejected, because every tab already has a primary in its app bar.</p></div>
+</section>
+</main>
+</body>
+</html>

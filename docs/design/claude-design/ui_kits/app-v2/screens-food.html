@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>App UI kit v2 — Food</title>
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="components.css"><link rel="stylesheet" href="kit.css">
+<script src="icons.js"></script><script src="kit.js"></script>
+</head>
+<body>
+<nav class="kit-top"><div class="kit-top__brand">MedTracker · App UI kit v2<small>Wandergeek · mobile 390×844 · dark</small></div><a href="index.html">Overview</a><a href="foundations.html">Foundations</a><a href="components.html">Components</a><a href="screens-today.html">Today &amp; Journey</a><a href="screens-food.html" aria-current="page">Food</a><a href="screens-meds.html">Meds</a><a href="screens-workouts.html">Workouts</a><a href="screens-settings.html">Settings</a><a href="navigation.html">Navigation</a></nav>
+<main class="kit-page">
+<h1 class="kit-h1">Food</h1>
+<p class="kit-lede">The log has one primary (Add) and a day navigator that can't break. "Tracking incomplete" is now a real toggle row, and progress is shown once. Add opens a single sheet that leads with the fast paths (search, scan, photo, describe), with manual entry as the fallback. The add flow keeps its primary in a footer docked to the top of the keyboard.</p>
+
+<section class="kit-group"><div class="kit-group__head"><h2 class="kit-group__title">Log</h2><p class="kit-group__sub">Fixes from your prod shot: the "Yesterday" label overlapping ›, the bare checkbox, sun-on-sun "Daily total", Add, Photo and Scan as three primaries, and two square buttons per row.</p></div>
+<div class="kit-board">
+
+<figure class="kit-frame" data-screen-label="F1 Food log"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-appbar"><div class="wg-appbar__titles"><h1 class="wg-appbar__title">Food</h1><p class="wg-appbar__sub">794 kcal · 44% of target</p></div><button class="wg-btn wg-btn--primary wg-btn--sm"><i class="wg-ico wg-ico--sm" data-icon="plus"></i>Add</button><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Settings"><i class="wg-ico" data-icon="gear"></i></button></header>
+<div class="wg-subnav"><div class="wg-seg"><button class="wg-seg__opt" aria-pressed="true">Log</button><button class="wg-seg__opt" aria-pressed="false">Food DB</button></div></div>
+<div class="wg-content">
+<div class="wg-daynav"><button class="wg-daynav__arrow" aria-label="Previous day"><i class="wg-ico" data-icon="chev-l"></i></button><button class="wg-daynav__label"><span class="wg-chip wg-chip--sm">Yesterday</span><span class="wg-daynav__date">Thu 08.10</span></button><button class="wg-daynav__arrow" aria-label="Next day"><i class="wg-ico" data-icon="chev-r"></i></button></div>
+<div class="wg-card">
+<div class="wg-card__head"><span class="wg-hstack"><span class="wg-stat__value">794<small>kcal</small></span></span><div class="wg-seg wg-seg--sm"><button class="wg-seg__opt" aria-pressed="true">Day</button><button class="wg-seg__opt" aria-pressed="false">Week</button></div></div>
+<div class="wg-macros"><span class="wg-macros__label">Energy</span><span class="wg-meter"><span class="wg-meter__fill" style="--p:44%"></span></span><span class="wg-macros__val">794 / 1800</span><span class="wg-macros__label">Protein</span><span class="wg-meter"><span class="wg-meter__fill wg-meter__fill--mint" style="--p:53%"></span></span><span class="wg-macros__val">79 / 150 g</span><span class="wg-macros__label">Carbs</span><span class="wg-meter"><span class="wg-meter__fill wg-meter__fill--sage" style="--p:42%"></span></span><span class="wg-macros__val">70 / 165 g</span><span class="wg-macros__label">Fat</span><span class="wg-meter"><span class="wg-meter__fill wg-meter__fill--clay" style="--p:28%"></span></span><span class="wg-macros__val">22 / 80 g</span></div>
+<div class="wg-card__foot"><span class="wg-setting__body"><span class="wg-setting__title">Tracking incomplete</span><span class="wg-setting__desc">Leave this day out of averages and analysis</span></span><button class="wg-toggle" role="switch" aria-checked="false" aria-label="Tracking incomplete"></button></div>
+</div>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow wg-eyebrow--dot">Lunch · 12:42</span><span class="wg-hstack"><span class="wg-meta">794 kcal</span><button class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" aria-label="Meal options"><i class="wg-ico" data-icon="more"></i></button></span></div>
+<div class="wg-list">
+<button class="wg-row"><span class="wg-row__body"><span class="wg-row__title">toasted wholegrain bread with sunflower seeds</span><span class="wg-row__meta">80 g · P 7 · F 2</span></span><span class="wg-row__value wg-row__value--sun">178<small>kcal</small></span></button>
+<button class="wg-row"><span class="wg-row__body"><span class="wg-row__title">ham</span><span class="wg-row__meta">150 g · P 31 · F 9</span></span><span class="wg-row__value wg-row__value--sun">209<small>kcal</small></span></button>
+<button class="wg-row"><span class="wg-row__body"><span class="wg-row__title">cabbage</span><span class="wg-row__meta">120 g · P 1 · F 0<span class="wg-chip wg-chip--pending wg-chip--sm"><i class="wg-ico" data-icon="cloud-up"></i>Pending</span></span></span><span class="wg-row__value wg-row__value--sun">28<small>kcal</small></span></button>
+<button class="wg-row"><span class="wg-row__body"><span class="wg-row__title">ketchup</span><span class="wg-row__meta">20 g · P 0 · F 0</span></span><span class="wg-row__value wg-row__value--sun">20<small>kcal</small></span></button>
+</div></section>
+</div>
+<nav class="wg-tabbar" data-tabbar="food"></nav>
+</div></div><figcaption class="kit-cap"><b>F1</b><span>Log, yesterday</span><em>The arrows sit in fixed 44px cells and the relative day is a chip, so long labels can't push ›. "Tracking incomplete" is a labelled toggle that sits with the totals it affects. Tap a row to edit it, or swipe for Delete. Titles wrap, so "toasted wholegrain br…" isn't cut off. Photo and Scan move into the Add sheet.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="F2 Food log incomplete + undo"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-appbar"><div class="wg-appbar__titles"><h1 class="wg-appbar__title">Food</h1><p class="wg-appbar__sub">412 kcal · excluded</p></div><button class="wg-btn wg-btn--primary wg-btn--sm"><i class="wg-ico wg-ico--sm" data-icon="plus"></i>Add</button><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Settings"><i class="wg-ico" data-icon="gear"></i></button></header>
+<div class="wg-subnav"><div class="wg-seg"><button class="wg-seg__opt" aria-pressed="true">Log</button><button class="wg-seg__opt" aria-pressed="false">Food DB</button></div></div>
+<div class="wg-content">
+<div class="wg-daynav"><button class="wg-daynav__arrow" aria-label="Previous day"><i class="wg-ico" data-icon="chev-l"></i></button><button class="wg-daynav__label"><span class="wg-daynav__date">Wednesday · 07.10.2026</span></button><button class="wg-daynav__arrow" aria-label="Next day"><i class="wg-ico" data-icon="chev-r"></i></button></div>
+<div class="wg-card">
+<div class="wg-card__head"><span class="wg-hstack"><span class="wg-stat__value wg-dim">412<small>kcal</small></span><span class="wg-chip wg-chip--stale wg-chip--sm">Incomplete</span></span><div class="wg-seg wg-seg--sm"><button class="wg-seg__opt" aria-pressed="true">Day</button><button class="wg-seg__opt" aria-pressed="false">Week</button></div></div>
+<div class="wg-macros"><span class="wg-macros__label">Energy</span><span class="wg-meter"><span class="wg-meter__fill" style="--p:23%"></span></span><span class="wg-macros__val">412 / 1800</span><span class="wg-macros__label">Protein</span><span class="wg-meter"><span class="wg-meter__fill wg-meter__fill--mint" style="--p:19%"></span></span><span class="wg-macros__val">28 / 150 g</span></div>
+<div class="wg-card__foot"><span class="wg-setting__body"><span class="wg-setting__title">Tracking incomplete</span><span class="wg-setting__desc">This day is left out of the 7d average and analysis</span></span><button class="wg-toggle" role="switch" aria-checked="true" aria-label="Tracking incomplete"></button></div>
+</div>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow wg-eyebrow--dot">Breakfast · 08:22</span><span class="wg-meta">412 kcal</span></div>
+<div class="wg-list">
+<div class="wg-swipe wg-swipe--open"><div class="wg-swipe__acts"><button class="wg-swipe__act"><i class="wg-ico" data-icon="edit"></i>Edit</button><button class="wg-swipe__act wg-swipe__act--danger"><i class="wg-ico" data-icon="trash"></i>Delete</button></div><button class="wg-row" data-swipe-demo><span class="wg-row__body"><span class="wg-row__title">Joghurt Stracciatella</span><span class="wg-row__meta">250 g · P 9 · F 11</span></span><span class="wg-row__value wg-row__value--sun">292<small>kcal</small></span></button></div>
+<button class="wg-row"><span class="wg-row__body"><span class="wg-row__title">banana</span><span class="wg-row__meta">135 g · P 1 · F 0</span></span><span class="wg-row__value wg-row__value--sun">120<small>kcal</small></span></button>
+</div></section>
+</div>
+<nav class="wg-tabbar" data-tabbar="food"></nav>
+<div class="wg-toasts"><div class="wg-toast"><i class="wg-ico" data-icon="trash"></i><span class="wg-toast__text"><b>Removed 3 items</b><small>from photo · Lunch</small></span><button class="wg-toast__undo">Undo</button></div></div>
+</div></div><figcaption class="kit-cap"><b>F2</b><span>Incomplete day, swipe, undo</span><em>When the day is marked incomplete, the totals dim and get a stale chip. A long absolute date still fits between the arrows. Swiping a row reveals Edit and Delete, and the delete is undoable from the toast. The floating AI summary card becomes this standard toast.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="F3 Food empty day"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-appbar"><div class="wg-appbar__titles"><h1 class="wg-appbar__title">Food</h1><p class="wg-appbar__sub">Nothing logged yet</p></div><button class="wg-btn wg-btn--primary wg-btn--sm"><i class="wg-ico wg-ico--sm" data-icon="plus"></i>Add</button><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Settings"><i class="wg-ico" data-icon="gear"></i></button></header>
+<div class="wg-subnav"><div class="wg-seg"><button class="wg-seg__opt" aria-pressed="true">Log</button><button class="wg-seg__opt" aria-pressed="false">Food DB</button></div></div>
+<div class="wg-content">
+<div class="wg-daynav"><button class="wg-daynav__arrow" aria-label="Previous day"><i class="wg-ico" data-icon="chev-l"></i></button><button class="wg-daynav__label"><span class="wg-chip wg-chip--sm">Today</span><span class="wg-daynav__date">Fri 09.10</span></button><button class="wg-daynav__arrow" aria-label="Next day" disabled><i class="wg-ico" data-icon="chev-r"></i></button></div>
+<div class="wg-card wg-card--flush"><div class="wg-empty"><span class="wg-empty__icon"><i class="wg-ico wg-ico--xl" data-icon="food"></i></span><p class="wg-empty__title">No food logged today</p><p class="wg-empty__body">Snap a photo, scan a barcode or just describe the meal. Totals and macros fill in here.</p><div class="wg-empty__acts"><button class="wg-btn wg-btn--sm"><i class="wg-ico wg-ico--sm" data-icon="camera"></i>Photo</button><button class="wg-btn wg-btn--sm"><i class="wg-ico wg-ico--sm" data-icon="sparkle"></i>Describe</button></div></div></div>
+<div class="wg-card wg-card--flush"><div class="wg-empty wg-empty--inline"><span class="wg-empty__icon"><i class="wg-ico" data-icon="flag"></i></span><div class="wg-vstack"><p class="wg-row__title">No daily target set</p><p class="wg-hint">Set kcal and macro targets to see progress. <a href="#">Set targets</a></p></div></div></div>
+</div>
+<nav class="wg-tabbar" data-tabbar="food"></nav>
+</div></div><figcaption class="kit-cap"><b>F3</b><span>Empty day</span><em>This replaces "No food logs for this day." The secondary shortcuts point at the fast paths, while Add stays the single primary. The missing-target state is inline instead of showing "0%" bars.</em></figcaption></figure>
+</div></section>
+
+<section class="kit-group"><div class="kit-group__head"><h2 class="kit-group__title">Add sheet</h2><p class="kit-group__sub">There's one sheet. The search field is the default, and scan, photo and describe sit one tap away. Manual entry is the last resort. The time defaults to now and shows as a chip, because changing it is rare. The primary is always docked above the keyboard.</p></div>
+<div class="kit-board">
+
+<figure class="kit-frame" data-screen-label="F4 Add sheet"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div><div class="wg-content"></div><nav class="wg-tabbar" data-tabbar="food"></nav>
+<div class="wg-scrim wg-scrim--sheet"><div class="wg-sheet"><span class="wg-sheet__grab"></span>
+<div class="wg-sheethead"><div class="wg-sheethead__titles"><div class="wg-eyebrow">Lunch</div><div class="wg-sheethead__title">Log food</div></div><div class="wg-sheethead__acts"><button class="wg-btn wg-btn--sm"><i class="wg-ico wg-ico--sm" data-icon="clock"></i>Now 14:49</button><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button></div></div>
+<div class="wg-sheet__body">
+<div class="wg-affix"><i class="wg-ico wg-affix__lead" data-icon="search"></i><input class="wg-input wg-input--text" placeholder="Search your foods and the database"></div>
+<div class="wg-actions wg-actions--3">
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="barcode"></i></span><span class="wg-action__label">Scan</span></button>
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="camera"></i></span><span class="wg-action__label">Photo</span></button>
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="sparkle"></i></span><span class="wg-action__label">Describe</span></button>
+</div>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">Recent</span><span class="wg-meta">tap + to add as before</span></div>
+<div class="wg-list">
+<div class="wg-row"><span class="wg-row__body"><span class="wg-row__title">ham</span><span class="wg-row__meta">150 g · 209 kcal</span></span><span class="wg-row__trail"><button class="wg-btn wg-btn--icon wg-btn--sm" aria-label="Add ham 150 g"><i class="wg-ico" data-icon="plus"></i></button></span></div>
+<div class="wg-row"><span class="wg-row__body"><span class="wg-row__title">toasted wholegrain bread with sunflower seeds</span><span class="wg-row__meta">80 g · 178 kcal</span></span><span class="wg-row__trail"><button class="wg-btn wg-btn--icon wg-btn--sm" aria-label="Add bread 80 g"><i class="wg-ico" data-icon="plus"></i></button></span></div>
+<div class="wg-row"><span class="wg-row__body"><span class="wg-row__title">pierogi</span><span class="wg-row__meta">180 g · 337 kcal<span class="wg-tag">Meal</span></span></span><span class="wg-row__trail"><button class="wg-btn wg-btn--icon wg-btn--sm" aria-label="Add pierogi 180 g"><i class="wg-ico" data-icon="plus"></i></button></span></div>
+</div></section>
+<button class="wg-link"><i class="wg-ico wg-ico--sm" data-icon="edit"></i>Enter manually</button>
+</div></div></div>
+</div></div><figcaption class="kit-cap"><b>F4</b><span>Add sheet, at rest</span><em>Fast paths come first. Recent items re-log in one tap. "Parse from description" stops being a mystery checkbox and becomes the Describe tile. The time chip replaces the datetime field at the bottom.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="F5 Add search + keyboard"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div><div class="wg-content"></div>
+<div class="wg-scrim wg-scrim--sheet wg-scrim--kb"><div class="wg-sheet wg-sheet--full"><span class="wg-sheet__grab"></span>
+<div class="wg-sheethead"><div class="wg-sheethead__titles"><div class="wg-eyebrow">Lunch · now</div><div class="wg-sheethead__title">Log food</div></div><div class="wg-sheethead__acts"><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button></div></div>
+<div class="wg-sheet__body">
+<div class="wg-affix"><i class="wg-ico wg-affix__lead" data-icon="search"></i><input class="wg-input wg-input--text wg-input--focus" value="chick"></div>
+<div class="wg-list">
+<div class="wg-row wg-row--pad"><span class="wg-row__body"><span class="wg-row__title">Chicken breast, grilled</span><span class="wg-row__meta">165 kcal / 100 g<span class="wg-tag">Mine</span></span><span class="wg-picks" data-single><button class="wg-pick" aria-pressed="false">100<small>g</small></button><button class="wg-pick" aria-pressed="true">150<small>g</small></button><button class="wg-pick" aria-pressed="false">200<small>g</small></button><button class="wg-pick" aria-pressed="false">Other</button></span></span></div>
+<button class="wg-row"><span class="wg-row__body"><span class="wg-row__title">Chicken thigh, skinless</span><span class="wg-row__meta">209 kcal / 100 g · OpenFoodFacts</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+</div>
+</div>
+<div class="wg-sheet__foot"><button class="wg-btn wg-btn--primary"><i class="wg-ico wg-ico--sm" data-icon="plus"></i>Add 150 g · 248 kcal</button></div>
+</div></div>
+<div class="kit-kb"></div>
+</div></div><figcaption class="kit-cap"><b>F5</b><span>Searching, keyboard up</span><em>With the keyboard covering the bottom third, the sheet sits on top of it. Results take the remaining space, and choosing a result expands portion chips inline, so you don't need the keyboard for grams. The primary says exactly what will be logged.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="F6 Describe + keyboard"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div><div class="wg-content"></div>
+<div class="wg-scrim wg-scrim--sheet wg-scrim--kb"><div class="wg-sheet wg-sheet--full"><span class="wg-sheet__grab"></span>
+<div class="wg-sheethead"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Back</button><div class="wg-sheethead__titles"><div class="wg-eyebrow">Describe · AI</div><div class="wg-sheethead__title">Log food</div></div></div>
+<div class="wg-sheet__body">
+<textarea class="wg-input wg-textarea wg-input--focus">200 g grilled chicken, a cup of rice and some broccoli with olive oil</textarea>
+<div class="wg-picks" data-single><button class="wg-pick" aria-pressed="false">Breakfast</button><button class="wg-pick" aria-pressed="true">Lunch</button><button class="wg-pick" aria-pressed="false">Dinner</button><button class="wg-pick" aria-pressed="false">Snack</button></div>
+<p class="wg-hint">You'll review the items before anything is saved. Uses your OpenAI key.</p>
+</div>
+<div class="wg-sheet__foot"><button class="wg-btn wg-btn--primary"><i class="wg-ico wg-ico--sm" data-icon="sparkle"></i>Estimate</button></div>
+</div></div>
+<div class="kit-kb"></div>
+</div></div><figcaption class="kit-cap"><b>F6</b><span>Describe, keyboard up</span><em>Free text gets a real textarea and a meal chip that's preset from the time. Estimate never saves on its own; it always leads to the review step.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="F7 AI review"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div><div class="wg-content"></div>
+<div class="wg-scrim wg-scrim--sheet"><div class="wg-sheet wg-sheet--full"><span class="wg-sheet__grab"></span>
+<div class="wg-sheethead"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Edit</button><div class="wg-sheethead__titles"><div class="wg-eyebrow">Review · 3 items</div><div class="wg-sheethead__title">Log food</div></div></div>
+<div class="wg-sheet__body">
+<div class="wg-list">
+<button class="wg-row"><span class="wg-row__body"><span class="wg-row__title">Chicken breast, grilled</span><span class="wg-row__meta">200 g · P 62 · F 7</span></span><span class="wg-row__value wg-row__value--sun">330<small>kcal</small></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<button class="wg-row"><span class="wg-row__body"><span class="wg-row__title">White rice, cooked</span><span class="wg-row__meta">160 g · P 4 · F 0</span></span><span class="wg-row__value wg-row__value--sun">208<small>kcal</small></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<button class="wg-row"><span class="wg-row__body"><span class="wg-row__title">Broccoli with olive oil</span><span class="wg-row__meta">120 g · P 3 · F 9<span class="wg-chip wg-chip--warn wg-chip--sm">estimate</span></span></span><span class="wg-row__value wg-row__value--sun">117<small>kcal</small></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+</div>
+<div class="wg-card wg-card--tight"><div class="wg-macros"><span class="wg-macros__label">Total</span><span class="wg-meter"><span class="wg-meter__fill" style="--p:36%"></span></span><span class="wg-macros__val">655 kcal</span></div></div>
+<p class="wg-hint">Tap an item to adjust grams or replace it with a database match.</p>
+</div>
+<div class="wg-sheet__foot"><button class="wg-btn">Discard</button><button class="wg-btn wg-btn--primary">Log 3 items</button></div>
+</div></div>
+</div></div><figcaption class="kit-cap"><b>F7</b><span>Review before logging (photo or describe)</span><em>This replaces "AI logged it, then a floating card offers Undo for 8 seconds". The review happens first, and the toast with Undo still follows. Low-confidence items get a warn chip.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="F8 Manual entry"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div><div class="wg-content"></div>
+<div class="wg-scrim wg-scrim--sheet wg-scrim--kb"><div class="wg-sheet wg-sheet--full"><span class="wg-sheet__grab"></span>
+<div class="wg-sheethead"><div class="wg-sheethead__titles"><div class="wg-eyebrow">Manual entry</div><div class="wg-sheethead__title">New food</div></div><div class="wg-sheethead__acts"><button class="wg-btn wg-btn--sm">Cancel</button><button class="wg-btn wg-btn--primary wg-btn--sm">Save</button></div></div>
+<div class="wg-sheet__body">
+<div class="wg-field"><label class="wg-label">Name</label><input class="wg-input wg-input--text" value="Grandma's goulash"></div>
+<div class="wg-fieldrow"><div class="wg-field"><label class="wg-label">Amount</label><div class="wg-affix wg-affix--unit"><input class="wg-input wg-input--focus" value="350"><span class="wg-affix__unit">g</span></div></div><div class="wg-field"><label class="wg-label">Values are</label><div class="wg-seg wg-seg--sm"><button class="wg-seg__opt" aria-pressed="true">per 100 g</button><button class="wg-seg__opt" aria-pressed="false">total</button></div></div></div>
+<div class="wg-fieldrow wg-fieldrow--3"><div class="wg-field"><label class="wg-label">Carbs</label><div class="wg-affix wg-affix--unit"><input class="wg-input" value="8"><span class="wg-affix__unit">g</span></div></div><div class="wg-field"><label class="wg-label">Protein</label><div class="wg-affix wg-affix--unit"><input class="wg-input" value="11"><span class="wg-affix__unit">g</span></div></div><div class="wg-field"><label class="wg-label">Fat</label><div class="wg-affix wg-affix--unit"><input class="wg-input" value="7"><span class="wg-affix__unit">g</span></div></div></div>
+</div>
+</div></div>
+<div class="kit-kb" data-num></div>
+</div></div><figcaption class="kit-cap"><b>F8</b><span>Manual fallback (form)</span><em>Forms follow the approved header pattern, with Cancel and Save at the top right above the keyboard. "Values are per 100 g" stops being a stray checkbox and becomes a segmented choice. Barcode and product link move under a "More" row that sits below the fold.</em></figcaption></figure>
+</div></section>
+</main>
+</body>
+</html>

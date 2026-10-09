@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>App UI kit v2 — Foundations</title>
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="components.css"><link rel="stylesheet" href="kit.css">
+<script src="icons.js"></script><script src="kit.js"></script>
+</head>
+<body>
+<nav class="kit-top"><div class="kit-top__brand">MedTracker · App UI kit v2<small>Wandergeek · mobile 390×844 · dark</small></div><a href="index.html">Overview</a><a href="foundations.html" aria-current="page">Foundations</a><a href="components.html">Components</a><a href="screens-today.html">Today &amp; Journey</a><a href="screens-food.html">Food</a><a href="screens-meds.html">Meds</a><a href="screens-workouts.html">Workouts</a><a href="screens-settings.html">Settings</a><a href="navigation.html">Navigation</a></nav>
+<main class="kit-page">
+<h1 class="kit-h1">Foundations</h1>
+<p class="kit-lede">The Wandergeek tokens are kept unchanged and renamed to <code class="wg-mono">--wg-*</code>. New in v2: five semantic status families, a fixed button hierarchy, control heights, and surface levels for the dark-only shell.</p>
+
+<section class="kit-group"><div class="kit-group__head"><h2 class="kit-group__title">Colour</h2><p class="kit-group__sub">Sun is reserved for the one primary action in a view and for active navigation. Selection states use raised teal with sun text.</p></div>
+<div class="kit-specs">
+<div class="kit-spec"><div class="kit-spec__name">Palette</div><div class="kit-swatches" data-swatches="--wg-sun --wg-sun-deep --wg-sun-soft --wg-sage --wg-mint --wg-mint-mid --wg-clay --wg-clay-soft --wg-sky --wg-violet --wg-orchid --wg-leaf"></div></div>
+<div class="kit-spec"><div class="kit-spec__name">Surfaces</div><div class="kit-swatches" data-swatches="--wg-bg-stage --wg-bg-screen --wg-bg-card --wg-bg-card-hi --wg-bg-sheet --wg-bg-float --wg-bg-inset-a --wg-bg-raised-a"></div><p class="kit-spec__note">There are three levels a user can see: the screen, cards and lists, then sheets and dialogs. Floating surfaces (toasts, menus, the rest timer) use <code>--wg-bg-float</code>, which is darker than the cards so they read as layered on top.</p></div>
+<div class="kit-spec"><div class="kit-spec__name">Text</div><div class="kit-swatches" data-swatches="--wg-fg-1 --wg-fg-2 --wg-fg-3 --wg-fg-4"></div><p class="kit-spec__note"><code>fg-3</code> (60%) is the lowest level allowed for readable text, at about 4.6:1 on cards. <code>fg-4</code> is only for disabled controls, placeholders and decoration.</p></div>
+</div></section>
+
+<section class="kit-group"><div class="kit-group__head"><h2 class="kit-group__title">Status semantics</h2><p class="kit-group__sub">Every status family has fg, bg and line tokens. Chips, row states, banners, toasts and dots all read from them. No emoji.</p></div>
+<div class="kit-specs">
+<div class="kit-spec kit-spec--wide">
+<table class="kit-table"><thead><tr><th>Token</th><th>Means</th><th>Chip</th><th>Used for</th></tr></thead><tbody>
+<tr><td>ok</td><td>In range, done, connected</td><td><span class="wg-chip wg-chip--ok"><i class="wg-ico" data-icon="check"></i>Taken</span></td><td>BP Normal, dose taken, set done, device verified, 7d on plan</td></tr>
+<tr><td>warn</td><td>Needs attention soon</td><td><span class="wg-chip wg-chip--warn"><i class="wg-ico" data-icon="alert"></i>Low stock · 6</span></td><td>High-normal BP, low stock, due within 15 minutes, preliminary goal</td></tr>
+<tr><td>danger</td><td>Act now, or out of range</td><td><span class="wg-chip wg-chip--danger"><i class="wg-ico" data-icon="alert"></i>Overdue 21:30</span></td><td>Stage 1+ BP, missed or overdue dose, out of stock, sync failed, destructive actions</td></tr>
+<tr><td>stale</td><td>Old or partial data</td><td><span class="wg-chip wg-chip--stale"><i class="wg-ico" data-icon="clock"></i>2 days ago</span></td><td>Last reading older than 24h, cached while offline, day marked as incomplete tracking</td></tr>
+<tr><td>pending</td><td>Saved on this device, not yet synced</td><td><span class="wg-chip wg-chip--pending"><i class="wg-ico" data-icon="cloud-up"></i>Pending</span></td><td>Every list row that has local changes: Food, Notes, Workouts, BP, Weight, Meds</td></tr>
+</tbody></table>
+<p class="kit-spec__note">Negative stock is never shown as a negative number. Use <span class="wg-chip wg-chip--danger wg-chip--sm">Out · 17 over</span> instead of "-17 LEFT". The BP class and its staleness are two separate chips: <span class="wg-chip wg-chip--warn wg-chip--sm">High-normal</span> <span class="wg-chip wg-chip--stale wg-chip--sm">yesterday</span>.</p>
+</div></div></section>
+
+<section class="kit-group"><div class="kit-group__head"><h2 class="kit-group__title">Type</h2><p class="kit-group__sub">JetBrains Mono is for numbers, titles and data. Space Grotesk is for UI text and prose. Eyebrows are always uppercase with 0.14em tracking.</p></div>
+<div class="kit-spec"><dl class="kit-type">
+<dt>hero · 36 mono</dt><dd><span class="wg-stat__value wg-stat__value--hero">140.7</span></dd>
+<dt>metric · 28 mono</dt><dd><span class="wg-stat__value">117<span class="wg-dia">/74</span></span></dd>
+<dt>title · 22 mono</dt><dd><span class="wg-appbar__title">Today</span></dd>
+<dt>xl · 18 mono</dt><dd><span class="wg-sheethead__title">Barbell bench press</span></dd>
+<dt>lg · 16 mono</dt><dd><span class="wg-card__title">Goal line</span></dd>
+<dt>md · 14 ui</dt><dd><span class="wg-row__title">Lercanidipin-Hcl Al · 10 mg</span></dd>
+<dt>sm · 13 ui</dt><dd><span class="wg-empty__body">Logs from photos and descriptions appear here with totals you can undo.</span></dd>
+<dt>xs · 12 mono</dt><dd><span class="wg-meta">Daily · 08:20, 21:30 · Rx lercanidipine</span></dd>
+<dt>eyebrow · 10.5</dt><dd><span class="wg-eyebrow wg-eyebrow--dot">Next up · 21:30</span></dd>
+</dl></div></section>
+
+<section class="kit-group"><div class="kit-group__head"><h2 class="kit-group__title">Button hierarchy</h2><p class="kit-group__sub">Five variants and three sizes replace the roughly 57 button selectors in production. Labels are verbs: "Log" is the verb for measurements and "Add" for things you create.</p></div>
+<div class="kit-specs">
+<div class="kit-spec kit-spec--wide">
+<table class="kit-table"><thead><tr><th>Variant</th><th>Specimen</th><th>Rule</th></tr></thead><tbody>
+<tr><td>primary</td><td><div class="kit-row"><button class="wg-btn wg-btn--primary">Save</button><button class="wg-btn wg-btn--primary wg-btn--sm"><i class="wg-ico wg-ico--sm" data-icon="plus"></i>Log</button><button class="wg-btn wg-btn--primary wg-btn--lg">Finish workout</button></div></td><td>At most one per view. It's the action the screen exists for.</td></tr>
+<tr><td>secondary</td><td><div class="kit-row"><button class="wg-btn">Cancel</button><button class="wg-btn wg-btn--sm"><i class="wg-ico wg-ico--sm" data-icon="snooze"></i>Snooze 10m</button></div></td><td>Alternatives and Cancel. This is the raised teal gloss.</td></tr>
+<tr><td>ghost</td><td><div class="kit-row"><button class="wg-btn wg-btn--ghost">Skip</button><button class="wg-btn wg-btn--ghost wg-btn--sm">Show all</button></div></td><td>Tertiary actions, links inside cards, and toolbar text.</td></tr>
+<tr><td>danger</td><td><div class="kit-row"><button class="wg-btn wg-btn--danger">Delete reading</button><button class="wg-btn wg-btn--danger-ghost">Revoke</button></div></td><td>The filled variant appears only inside a confirm dialog. The outlined variant is for the entry point.</td></tr>
+<tr><td>icon</td><td><div class="kit-row"><button class="wg-btn wg-btn--icon" aria-label="More"><i class="wg-ico" data-icon="more"></i></button><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Settings"><i class="wg-ico" data-icon="gear"></i></button><button class="wg-btn wg-btn--icon wg-btn--sm" aria-label="Close"><i class="wg-ico wg-ico--sm" data-icon="x"></i></button></div></td><td>It always needs an <code>aria-label</code>. The hit area is at least 44px; the sm size is only used inside 56px rows.</td></tr>
+<tr><td>disabled</td><td><div class="kit-row"><button class="wg-btn wg-btn--primary" disabled>Confirm 0</button><button class="wg-btn" disabled>Retry</button></div></td><td>Opacity 0.42, with no gloss shadow.</td></tr>
+</tbody></table>
+<p class="kit-spec__note">Heights: <code>--wg-h-sm</code> 36, <code>--wg-h-md</code> 44, <code>--wg-h-lg</code> 52. Radii: xs 6, sm 9, md 12, lg 16, xl 22. Spacing uses an 8pt base (4, 8, 12, 16, 20, 24, 32).</p>
+</div></div></section>
+
+<section class="kit-group"><div class="kit-group__head"><h2 class="kit-group__title">Icons</h2><p class="kit-group__sub">These are original line icons on a 24px grid with a 1.8 stroke. Use them as <code class="wg-mono">&lt;i class="wg-ico" data-icon="pill"&gt;&lt;/i&gt;</code> and <code class="wg-mono">icons.js</code> inlines the sprite reference. Emoji in the app map as: ✅ → check, ⚠️ → alert, 🗑 → trash, ✏️ → edit, 🌍 → globe, and 🏔🚴🚶🏃 → activity with a tag.</p></div>
+<div class="kit-spec"><div class="kit-swatches" id="icon-grid"></div></div></section>
+</main>
+<script>
+document.querySelectorAll('[data-swatches]').forEach(function(box){box.innerHTML=box.getAttribute('data-swatches').split(' ').map(function(v){var val=getComputedStyle(document.documentElement).getPropertyValue(v).trim();return '<div class="kit-swatch"><div class="kit-swatch__chip" data-bg="'+v+'"></div><div class="kit-swatch__name">'+v.replace('--wg-','')+'</div><div class="kit-swatch__val">'+val+'</div></div>';}).join('');});
+document.querySelectorAll('[data-bg]').forEach(function(c){c.style.background='var('+c.getAttribute('data-bg')+')';});
+var g=document.getElementById('icon-grid');g.innerHTML=wgIcons.names.filter(function(n){return['sig','wifi','batt'].indexOf(n)<0;}).map(function(n){return '<div class="kit-swatch"><div class="kit-row"><i class="wg-ico wg-ico--lg" data-icon="'+n+'"></i><span class="kit-swatch__name">'+n+'</span></div></div>';}).join('');wgIcons.hydrate(g);
+</script>
+</body>
+</html>

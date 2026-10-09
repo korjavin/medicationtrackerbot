@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>App UI kit v2 — Today &amp; Journey</title>
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="components.css"><link rel="stylesheet" href="kit.css">
+<script src="icons.js"></script><script src="kit.js"></script>
+</head>
+<body>
+<nav class="kit-top"><div class="kit-top__brand">MedTracker · App UI kit v2<small>Wandergeek · mobile 390×844 · dark</small></div><a href="index.html">Overview</a><a href="foundations.html">Foundations</a><a href="components.html">Components</a><a href="screens-today.html" aria-current="page">Today &amp; Journey</a><a href="screens-food.html">Food</a><a href="screens-meds.html">Meds</a><a href="screens-workouts.html">Workouts</a><a href="screens-settings.html">Settings</a><a href="navigation.html">Navigation</a></nav>
+<main class="kit-page">
+<h1 class="kit-h1">Today &amp; Journey</h1>
+<p class="kit-lede">Today is organised around <em>now</em>. The order is: anything overdue, then what's due next (each with its one action), a compact vitals strip, and the Goal Line as a visual track. The seven quick-action tiles collapse into one Log button that opens a sheet. The call agent stays at the top as a slim bar.</p>
+
+<section class="kit-group"><div class="kit-group__head"><h2 class="kit-group__title">Today</h2><p class="kit-group__sub">Real data from shots 01 and 31. The states are taken from the test vault.</p></div>
+<div class="kit-board">
+
+<figure class="kit-frame" data-screen-label="T1 Today"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-appbar"><div class="wg-appbar__titles"><h1 class="wg-appbar__title">Today</h1><p class="wg-appbar__sub">Fri · 09.10 · 14:49</p></div><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Journey"><i class="wg-ico" data-icon="route"></i></button><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Settings"><i class="wg-ico" data-icon="gear"></i></button></header>
+<div class="wg-content">
+<div class="wg-callbar"><button class="wg-btn"><i class="wg-ico" data-icon="phone"></i>Call agent</button><button class="wg-btn"><i class="wg-ico" data-icon="plus"></i>Log</button><button class="wg-btn wg-btn--icon" aria-label="Doctor brief"><i class="wg-ico" data-icon="file"></i></button></div>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow wg-eyebrow--dot">Next up</span><span class="wg-meta">3 today</span></div>
+<div class="wg-list">
+<div class="wg-row"><span class="wg-row__lead wg-row__lead--danger"><i class="wg-ico" data-icon="pill"></i></span><span class="wg-row__body"><span class="wg-row__title">Allopurinol AL · 300 mg</span><span class="wg-row__meta"><span class="wg-chip wg-chip--danger wg-chip--sm">Missed 08:20</span></span></span><span class="wg-row__trail"><button class="wg-btn wg-btn--sm">Log</button></span></div>
+<div class="wg-row"><span class="wg-row__lead wg-row__lead--sun"><i class="wg-ico" data-icon="dumbbell"></i></span><span class="wg-row__body"><span class="wg-row__title">Plan 3 · Daily split</span><span class="wg-row__meta">16:00 · in 1h 11m · Home</span></span><span class="wg-row__trail"><button class="wg-btn wg-btn--primary wg-btn--sm"><i class="wg-ico wg-ico--sm" data-icon="play"></i>Start</button></span></div>
+<div class="wg-row"><span class="wg-row__lead"><i class="wg-ico" data-icon="pill"></i></span><span class="wg-row__body"><span class="wg-row__title">3 medications</span><span class="wg-row__meta">21:30 · Candecor, Lercanidipin, Metformin</span></span><span class="wg-row__trail"><button class="wg-btn wg-btn--sm">Take</button></span></div>
+</div></section>
+<div class="wg-grid3">
+<button class="wg-tile"><span class="wg-eyebrow">BP</span><span class="wg-stat__value wg-stat__value--md">117<span class="wg-dia">/74</span></span><svg class="wg-spark wg-spark--sun" viewBox="0 0 100 28" preserveAspectRatio="none"><path d="M0 18 L15 14 L30 20 L45 10 L60 16 L75 12 L100 15"/></svg><span class="wg-chip wg-chip--ok wg-chip--sm">Normal</span></button>
+<button class="wg-tile"><span class="wg-eyebrow">Weight</span><span class="wg-stat__value wg-stat__value--md">142.8</span><svg class="wg-spark wg-spark--mint" viewBox="0 0 100 28" preserveAspectRatio="none"><path d="M0 16 L20 12 L40 14 L60 9 L80 13 L100 11"/></svg><span class="wg-chip wg-chip--stale wg-chip--sm">2d ago</span></button>
+<button class="wg-tile"><span class="wg-eyebrow">Fuel</span><span class="wg-stat__value wg-stat__value--md">195</span><span class="wg-meter"><span class="wg-meter__fill" style="--p:11%"></span></span><span class="wg-meta">of 1800 kcal</span></button>
+</div>
+<button class="wg-card wg-vstack">
+<span class="wg-hstack"><span class="wg-eyebrow">Goal line</span><span class="wg-spacer"></span><span class="wg-chip wg-chip--warn wg-chip--sm">+1.1 kg · 7d</span></span>
+<span class="wg-hstack"><span class="wg-stat__value">140.7</span><i class="wg-ico wg-muted" data-icon="chev-r"></i><span class="wg-stat__value wg-sun">110.0<small>kg</small></span></span>
+<span class="wg-track" style="--n:24;--p:0%"><span class="wg-track__fill"></span><span class="wg-track__pin" style="--p:4%"></span></span>
+<span class="wg-track__ends"><span>start 133.4</span><span>next 132.4</span><span>0 / 24</span></span>
+<span class="wg-meta">This week · Stop eating after dinner · kept 2 days</span>
+</button>
+</div>
+<nav class="wg-tabbar" data-tabbar="today" data-badges="meds:1"></nav>
+</div></div><figcaption class="kit-cap"><b>T1</b><span>Default, with real data</span><em>The missed dose comes first, the soonest scheduled item has the single sun action, and Log replaces the 7 tiles. The Goal Line is a track with 24 markers; tap it to open Journey. BP shows its class chip and the reading's age as separate signals.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="T2 Today scrolled + live call"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-appbar"><div class="wg-appbar__titles"><h1 class="wg-appbar__title">Today</h1><p class="wg-appbar__sub">Fri · 09.10 · 14:49</p></div><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Journey"><i class="wg-ico" data-icon="route"></i></button><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Settings"><i class="wg-ico" data-icon="gear"></i></button></header>
+<div class="wg-content">
+<div class="wg-card"><div class="wg-card__head"><span class="wg-hstack"><span class="wg-stat__value wg-stat__value--md">195</span><span class="wg-meta">/ 1800 kcal</span></span><span class="wg-chip wg-chip--sm">11%</span></div>
+<div class="wg-macros"><span class="wg-macros__label">Energy</span><span class="wg-meter"><span class="wg-meter__fill" style="--p:11%"></span></span><span class="wg-macros__val">195 / 1800</span><span class="wg-macros__label">Protein</span><span class="wg-meter"><span class="wg-meter__fill wg-meter__fill--mint" style="--p:3%"></span></span><span class="wg-macros__val">4 / 150 g</span><span class="wg-macros__label">Carbs</span><span class="wg-meter"><span class="wg-meter__fill wg-meter__fill--sage" style="--p:17%"></span></span><span class="wg-macros__val">28 / 165 g</span><span class="wg-macros__label">Fat</span><span class="wg-meter"><span class="wg-meter__fill wg-meter__fill--clay" style="--p:9%"></span></span><span class="wg-macros__val">7 / 80 g</span></div></div>
+<div class="wg-grid2">
+<button class="wg-tile"><span class="wg-eyebrow">Sleep</span><span class="wg-stat__value wg-stat__value--md">6h 12m</span><span class="wg-meta">Thu night · 72 bpm</span></button>
+<button class="wg-tile"><span class="wg-eyebrow">Steps</span><span class="wg-stat__value wg-stat__value--md">3,654</span><span class="wg-chip wg-chip--stale wg-chip--sm">yesterday</span></button>
+</div>
+<div class="wg-card"><div class="wg-card__head"><span class="wg-hstack"><span class="wg-row__lead wg-row__lead--sky"><i class="wg-ico" data-icon="globe"></i></span><span class="wg-vstack"><span class="wg-card__title">Time zone change</span><span class="wg-meta">Berlin → Lisbon · −1h · step 1 of 3</span></span></span></div>
+<p class="wg-hint">Next shifted dose: Candecor at <b class="wg-mono">20:30</b> (was 21:30). Doses move in 1-hour steps over 3 days.</p>
+<div class="wg-card__foot"><button class="wg-btn wg-btn--ghost wg-btn--sm">Cancel plan</button><button class="wg-btn wg-btn--sm">See steps</button></div></div>
+<p class="wg-meta">Synced 14:48 · this device</p>
+</div>
+<div class="wg-callbar wg-callbar--live wg-callbar--dock"><span class="wg-pulse"></span><span class="wg-callbar__status">Agent is listening<small>02:41</small></span><button class="wg-btn wg-btn--icon wg-btn--sm" aria-label="Mute"><i class="wg-ico wg-ico--sm" data-icon="mic"></i></button><button class="wg-btn wg-btn--icon wg-btn--sm" aria-label="Send photo"><i class="wg-ico wg-ico--sm" data-icon="camera"></i></button><button class="wg-btn wg-btn--danger wg-btn--icon wg-btn--sm" aria-label="End call"><i class="wg-ico wg-ico--sm" data-icon="phone-off"></i></button></div>
+<nav class="wg-tabbar" data-tabbar="today" data-badges="meds:1"></nav>
+</div></div><figcaption class="kit-cap"><b>T2</b><span>Scrolled, during a live call</span><em>Fuel, sleep and steps sit below the fold. The time-zone card appears only while a plan is pending, and the globe icon replaces 🌍. The call bar docks above the tab bar while you scroll or switch tabs, so there's one control surface instead of the card plus the floating pill.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="T3 Log sheet"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-appbar"><div class="wg-appbar__titles"><h1 class="wg-appbar__title">Today</h1><p class="wg-appbar__sub">Fri · 09.10 · 14:49</p></div></header>
+<div class="wg-content"></div>
+<nav class="wg-tabbar" data-tabbar="today"></nav>
+<div class="wg-scrim wg-scrim--sheet"><div class="wg-sheet"><span class="wg-sheet__grab"></span>
+<div class="wg-sheethead"><div class="wg-sheethead__titles"><div class="wg-eyebrow">Now · 14:49</div><div class="wg-sheethead__title">Log</div></div><div class="wg-sheethead__acts"><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button></div></div>
+<div class="wg-sheet__body">
+<span class="wg-eyebrow">Food</span>
+<div class="wg-actions">
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="search"></i></span><span class="wg-action__label">Search<span class="wg-action__sub">Your foods + database</span></span></button>
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="camera"></i></span><span class="wg-action__label">Photo meal<span class="wg-action__sub">AI estimates it</span></span></button>
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="barcode"></i></span><span class="wg-action__label">Scan barcode</span></button>
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="sparkle"></i></span><span class="wg-action__label">Describe<span class="wg-action__sub">"200 g chicken, rice"</span></span></button>
+</div>
+<span class="wg-eyebrow">Measurements &amp; notes</span>
+<div class="wg-actions wg-actions--3">
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="activity"></i></span><span class="wg-action__label">BP</span></button>
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="scale"></i></span><span class="wg-action__label">Weight</span></button>
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="note"></i></span><span class="wg-action__label">Note</span></button>
+</div>
+</div></div></div>
+</div></div><figcaption class="kit-cap"><b>T3</b><span>Log sheet, opened from the Today Log button</span><em>This replaces 7 tiles and 3 rows on the first screen. The fast food paths come first, then measurements. Disabled features drop out of the grid. Doctor brief stays as an icon in the call bar.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="T4 Today first run"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-appbar"><div class="wg-appbar__titles"><h1 class="wg-appbar__title">Today</h1><p class="wg-appbar__sub">Fri · 09.10</p></div><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Settings"><i class="wg-ico" data-icon="gear"></i></button></header>
+<div class="wg-content">
+<div class="wg-callbar"><button class="wg-btn"><i class="wg-ico" data-icon="phone"></i>Set up voice agent</button><button class="wg-btn"><i class="wg-ico" data-icon="plus"></i>Log</button></div>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow wg-eyebrow--dot">Next up</span></div>
+<div class="wg-card wg-card--flush"><div class="wg-empty"><span class="wg-empty__icon"><i class="wg-ico wg-ico--xl" data-icon="calendar"></i></span><p class="wg-empty__title">Nothing scheduled</p><p class="wg-empty__body">Add a medication or a training plan and its next dose or session shows up here.</p><div class="wg-empty__acts"><button class="wg-btn wg-btn--sm"><i class="wg-ico wg-ico--sm" data-icon="pill"></i>Add medication</button><button class="wg-btn wg-btn--sm"><i class="wg-ico wg-ico--sm" data-icon="dumbbell"></i>Create plan</button></div></div></div></section>
+<div class="wg-grid3">
+<button class="wg-tile"><span class="wg-eyebrow">BP</span><span class="wg-stat__value wg-stat__value--md wg-muted">—</span><span class="wg-link">Log</span></button>
+<button class="wg-tile"><span class="wg-eyebrow">Weight</span><span class="wg-stat__value wg-stat__value--md wg-muted">—</span><span class="wg-link">Log</span></button>
+<button class="wg-tile"><span class="wg-eyebrow">Fuel</span><span class="wg-stat__value wg-stat__value--md wg-muted">0</span><span class="wg-meta">No target</span></button>
+</div>
+<div class="wg-card wg-card--accent wg-vstack"><span class="wg-eyebrow">Goal line</span><p class="wg-card__title">Set a weight goal</p><p class="wg-hint">The goal is the spine of your journey. Workouts, BP and food are the levers that move it.</p><div class="wg-card__foot"><button class="wg-btn wg-btn--primary">Set goal</button></div></div>
+</div>
+<nav class="wg-tabbar" data-tabbar="today"></nav>
+</div></div><figcaption class="kit-cap"><b>T4</b><span>First run, empty vault</span><em>The empty states name the next step. The call bar says "Set up voice agent" when no key or trial is set, instead of failing after the tap. The goal card owns the single primary.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="T5 Today offline"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<div class="wg-banner wg-banner--offline"><i class="wg-ico wg-ico--sm" data-icon="cloud-off"></i><span class="wg-banner__text">Offline · showing data from 09:12. New logs will sync.</span></div>
+<header class="wg-appbar"><div class="wg-appbar__titles"><h1 class="wg-appbar__title">Today</h1><p class="wg-appbar__sub">Fri · 09.10 · 14:49</p></div><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Settings"><i class="wg-ico" data-icon="gear"></i></button></header>
+<div class="wg-content">
+<div class="wg-callbar"><button class="wg-btn" disabled><i class="wg-ico" data-icon="phone-off"></i>Call needs a connection</button><button class="wg-btn"><i class="wg-ico" data-icon="plus"></i>Log</button></div>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow wg-eyebrow--dot">Next up</span></div>
+<div class="wg-list">
+<div class="wg-row wg-row--done"><span class="wg-row__lead wg-row__lead--ok"><i class="wg-ico" data-icon="check"></i></span><span class="wg-row__body"><span class="wg-row__title">Allopurinol AL · 300 mg</span><span class="wg-row__meta">Logged 14:40<span class="wg-chip wg-chip--pending wg-chip--sm"><i class="wg-ico" data-icon="cloud-up"></i>Pending</span></span></span></div>
+<div class="wg-row"><span class="wg-row__lead wg-row__lead--sun"><i class="wg-ico" data-icon="dumbbell"></i></span><span class="wg-row__body"><span class="wg-row__title">Full body strength</span><span class="wg-row__meta">Mon 12.10 · 09:00</span></span><span class="wg-row__trail"><button class="wg-btn wg-btn--sm">View</button></span></div>
+</div></section>
+<div class="wg-grid3">
+<button class="wg-tile"><span class="wg-eyebrow">BP</span><span class="wg-stat__value wg-stat__value--md">122<span class="wg-dia">/79</span></span><span class="wg-chip wg-chip--warn wg-chip--sm">High-normal</span></button>
+<button class="wg-tile"><span class="wg-eyebrow">Weight</span><span class="wg-stat__value wg-stat__value--md">85.8</span><span class="wg-chip wg-chip--stale wg-chip--sm">cached</span></button>
+<button class="wg-tile"><span class="wg-eyebrow">Fuel</span><span class="wg-stat__value wg-stat__value--md">442</span><span class="wg-meta">No target</span></button>
+</div>
+<div class="wg-card wg-vstack"><span class="wg-hstack"><span class="wg-eyebrow">Goal line</span><span class="wg-spacer"></span><span class="wg-chip wg-chip--stale wg-chip--sm"><i class="wg-ico" data-icon="clock"></i>cached</span></span><span class="wg-hstack"><span class="wg-stat__value">85.8</span><i class="wg-ico wg-muted" data-icon="chev-r"></i><span class="wg-stat__value wg-sun">80.0<small>kg</small></span></span><span class="wg-track" style="--n:12;--p:38%"><span class="wg-track__fill"></span></span><span class="wg-track__ends"><span>start 89.4</span><span>next 85.0</span><span>4 / 12</span></span></div>
+</div>
+<nav class="wg-tabbar" data-tabbar="today"></nav>
+<div class="wg-toasts"><div class="wg-toast wg-toast--ok"><i class="wg-ico" data-icon="check"></i><span class="wg-toast__text"><b>Allopurinol logged</b><small>Saved on this device · will sync</small></span><button class="wg-toast__undo">Undo</button></div></div>
+</div></div><figcaption class="kit-cap"><b>T5</b><span>Offline, with a log saved on the device</span><em>The banner is neutral, not alarming. Cached values get a stale chip, and the new log shows Pending until it syncs. The call is disabled and says why.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="T6 Today loading"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-appbar"><div class="wg-appbar__titles"><h1 class="wg-appbar__title">Today</h1><p class="wg-appbar__sub">Fri · 09.10</p></div><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Settings"><i class="wg-ico" data-icon="gear"></i></button></header>
+<div class="wg-content">
+<span class="wg-skel wg-skel--line"></span>
+<span class="wg-skel wg-skel--card"></span>
+<div class="wg-grid3"><span class="wg-skel wg-skel--tile"></span><span class="wg-skel wg-skel--tile"></span><span class="wg-skel wg-skel--tile"></span></div>
+<span class="wg-skel wg-skel--card"></span>
+<p class="wg-meta">Unlocking your vault…</p>
+</div>
+<nav class="wg-tabbar" data-tabbar="today"></nav>
+</div></div><figcaption class="kit-cap"><b>T6</b><span>Cold start, with no cache</span><em>Shown only on the first unlock on a device, because every later start renders from cache. The skeleton matches the real layout, so nothing jumps when data arrives.</em></figcaption></figure>
+</div></section>
+
+<section class="kit-group"><div class="kit-group__head"><h2 class="kit-group__title">Journey</h2><p class="kit-group__sub">This is a pushed page from the Goal Line card or the route icon in the Today app bar. The prose dumps become a goal track, a weekly scorecard, and the plan as selectable cards. Copy never praises speed, and ED-safe mode keeps only the missed-dose alert.</p></div>
+<div class="kit-board">
+
+<figure class="kit-frame" data-screen-label="J1 Journey"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-pagebar"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Today</button><div class="wg-pagebar__center"><div class="wg-pagebar__crumb">Week 41</div><div class="wg-pagebar__title">Journey</div></div><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="How this works"><i class="wg-ico" data-icon="info"></i></button></header>
+<div class="wg-content">
+<div class="wg-card wg-vstack"><span class="wg-eyebrow wg-eyebrow--dot">Your goal</span>
+<span class="wg-hstack"><span class="wg-stat__value wg-stat__value--hero">140.7</span><i class="wg-ico wg-muted" data-icon="chev-r"></i><span class="wg-stat__value wg-stat__value--hero wg-sun">110.0</span></span>
+<span class="wg-track" style="--n:24;--p:0%"><span class="wg-track__fill"></span><span class="wg-track__pin" style="--p:4%"></span></span>
+<span class="wg-track__ends"><span>start 133.4</span><span>next marker 132.4</span><span>goal</span></span>
+<div class="wg-grid3"><div class="wg-stat"><span class="wg-stat__value wg-stat__value--md">30.7</span><span class="wg-meta">kg to go</span></div><div class="wg-stat"><span class="wg-stat__value wg-stat__value--md">0<small>/24</small></span><span class="wg-meta">markers</span></div><div class="wg-stat"><span class="wg-stat__value wg-stat__value--md">12</span><span class="wg-meta">weigh-ins / 28d</span></div></div></div>
+<div class="wg-card wg-vstack"><div class="wg-card__head"><span class="wg-card__title">This week</span><span class="wg-meta">Mon 05 – Sun 11</span></div>
+<div class="wg-score"><span></span><span class="wg-dots"><span class="wg-dots__lbl">M</span><span class="wg-dots__lbl">T</span><span class="wg-dots__lbl">W</span><span class="wg-dots__lbl">T</span><span class="wg-dots__lbl">F</span><span class="wg-dots__lbl">S</span><span class="wg-dots__lbl">S</span></span><span></span></div>
+<div class="wg-score"><span class="wg-score__name">Weigh-in</span><span class="wg-dots"><span class="wg-dot wg-dot--hit"></span><span class="wg-dot wg-dot--hit"></span><span class="wg-dot wg-dot--miss"></span><span class="wg-dot wg-dot--hit"></span><span class="wg-dot wg-dot--hit wg-dot--today"></span><span class="wg-dot wg-dot--future"></span><span class="wg-dot wg-dot--future"></span></span><span class="wg-score__val">4/5</span></div>
+<div class="wg-score"><span class="wg-score__name">Workout</span><span class="wg-dots"><span class="wg-dot wg-dot--hit"></span><span class="wg-dot wg-dot--hit"></span><span class="wg-dot wg-dot--hit"></span><span class="wg-dot wg-dot--hit"></span><span class="wg-dot wg-dot--today"></span><span class="wg-dot wg-dot--future"></span><span class="wg-dot wg-dot--future"></span></span><span class="wg-score__val">4/5</span></div>
+<div class="wg-score"><span class="wg-score__name">BP</span><span class="wg-dots"><span class="wg-dot wg-dot--hit"></span><span class="wg-dot wg-dot--rest"></span><span class="wg-dot wg-dot--rest"></span><span class="wg-dot wg-dot--hit"></span><span class="wg-dot wg-dot--today"></span><span class="wg-dot wg-dot--future"></span><span class="wg-dot wg-dot--future"></span></span><span class="wg-score__val">2/5</span></div>
+<div class="wg-score"><span class="wg-score__name">Plan kept</span><span class="wg-dots"><span class="wg-dot wg-dot--hit"></span><span class="wg-dot wg-dot--miss"></span><span class="wg-dot wg-dot--miss"></span><span class="wg-dot wg-dot--hit"></span><span class="wg-dot wg-dot--today"></span><span class="wg-dot wg-dot--future"></span><span class="wg-dot wg-dot--future"></span></span><span class="wg-score__val">2/5</span></div>
+<div class="wg-card__foot"><span class="wg-meta">Trend +1.6 kg · BP avg 122/73</span><span class="wg-spacer"></span><span class="wg-chip wg-chip--ok wg-chip--sm">Best · Mon</span></div></div>
+<div class="wg-card wg-vstack"><span class="wg-eyebrow">Together · last 4 weeks</span><p class="wg-row__title">Weight trend rose 4.2 kg while BP held near target (119/71 → 121/71).</p><p class="wg-hint">Based on 11 of 13 weigh-in days. Changes that happen together don't prove a cause.</p></div>
+</div>
+<nav class="wg-tabbar" data-tabbar="today"></nav>
+</div></div><figcaption class="kit-cap"><b>J1</b><span>Journey · goal and weekly scorecard</span><em>"0.0 of 23.4 kg since you set the goal · next marker 132.4" becomes the track and three numbers. The weekly text becomes four rows of day dots: hit, missed, rest and future. Today has a ring.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="J2 Journey plan + more"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-pagebar"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Today</button><div class="wg-pagebar__center"><div class="wg-pagebar__crumb">Week 41</div><div class="wg-pagebar__title">Journey</div></div><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="How this works"><i class="wg-ico" data-icon="info"></i></button></header>
+<div class="wg-content">
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow wg-eyebrow--dot">Plan for next week</span><span class="wg-meta">pick one</span></div>
+<div class="wg-choices">
+<button class="wg-choice" aria-pressed="true"><span>When I log dinner, I will stop eating for the night<span class="wg-choice__sub">Current · kept 2 of 5</span></span></button>
+<button class="wg-choice" aria-pressed="false">When I finish work on training days, I will start the session</button>
+<button class="wg-choice" aria-pressed="false">When I wake, I will weigh in before coffee</button>
+<button class="wg-choice" aria-pressed="false">When I sit down to eat, I will log the meal</button>
+</div>
+<div class="wg-grid2"><button class="wg-btn wg-btn--ghost">Pause this week</button><button class="wg-btn wg-btn--primary">Use this plan</button></div></section>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">Gauges · 7 days vs target</span></div>
+<div class="wg-list">
+<div class="wg-row wg-row--pad"><span class="wg-row__body"><span class="wg-row__title">Blood pressure</span><span class="wg-meter"><span class="wg-meter__fill wg-meter__fill--sage" style="--p:72%"></span></span></span><span class="wg-row__value">122/73<small>target 130/80</small></span></div>
+<div class="wg-row wg-row--pad"><span class="wg-row__body"><span class="wg-row__title">Resting HR</span><span class="wg-meter"><span class="wg-meter__fill wg-meter__fill--sky" style="--p:58%"></span></span></span><span class="wg-row__value">68<small>band 55–70</small></span></div>
+</div></section>
+<div class="wg-list">
+<button class="wg-row"><span class="wg-row__lead"><i class="wg-ico" data-icon="flag"></i></span><span class="wg-row__body"><span class="wg-row__title">Experiments, chapters &amp; traits</span><span class="wg-row__meta">1 running · chapter 3</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<button class="wg-row"><span class="wg-row__lead wg-row__lead--sun"><i class="wg-ico" data-icon="sparkle"></i></span><span class="wg-row__body"><span class="wg-row__title">AI story</span><span class="wg-row__meta">Narrate my week · workout insight</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+</div>
+</div>
+<nav class="wg-tabbar" data-tabbar="today"></nav>
+</div></div><figcaption class="kit-cap"><b>J2</b><span>Journey · plan picker, gauges, more</span><em>The plan is a single-select list with one commit button, replacing six white Bootstrap buttons. The details block "More · experiments, chapters, traits, keystones" becomes a row that pushes to its own page.</em></figcaption></figure>
+</div></section>
+</main>
+</body>
+</html>

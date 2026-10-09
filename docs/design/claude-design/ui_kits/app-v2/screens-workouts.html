@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>App UI kit v2 — Workouts</title>
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="components.css"><link rel="stylesheet" href="kit.css">
+<script src="icons.js"></script><script src="kit.js"></script>
+</head>
+<body>
+<nav class="kit-top"><div class="kit-top__brand">MedTracker · App UI kit v2<small>Wandergeek · mobile 390×844 · dark</small></div><a href="index.html">Overview</a><a href="foundations.html">Foundations</a><a href="components.html">Components</a><a href="screens-today.html">Today &amp; Journey</a><a href="screens-food.html">Food</a><a href="screens-meds.html">Meds</a><a href="screens-workouts.html" aria-current="page">Workouts</a><a href="screens-settings.html">Settings</a><a href="navigation.html">Navigation</a></nav>
+<main class="kit-page">
+<h1 class="kit-h1">Workouts</h1>
+<p class="kit-lede">The session leaves the modal and becomes a full-screen takeover. It has its own top bar, progress, one exercise at a time, 56px set cells with last session's values ghosted in, tap-to-complete, and a rest timer. The plan editor becomes pushed pages (Plan → Day → Exercise) instead of three stacked sheets. Closing the takeover keeps the session alive, so the stale "Add exercise" modal bug can't happen.</p>
+<section class="kit-group"><div class="kit-group__head"><h2 class="kit-group__title">Session takeover</h2><p class="kit-group__sub">Tap the check to complete a set at the shown values. Tap a cell to adjust it with ± (no keyboard) or type a value. Swipe sideways or tap the progress bar to move between exercises.</p></div>
+<div class="kit-board">
+
+<figure class="kit-frame" data-screen-label="W1 Session in progress"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-session-top"><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Minimise"><i class="wg-ico" data-icon="chev-d"></i></button><div class="wg-session-top__titles"><div class="wg-session-top__clock">42:10</div><div class="wg-session-top__sub">Plan 3 · Day A · Home</div></div><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Session options"><i class="wg-ico" data-icon="more"></i></button></header>
+<div class="wg-session-prog"><span class="wg-session-prog__seg wg-session-prog__seg--done"></span><span class="wg-session-prog__seg wg-session-prog__seg--now"></span><span class="wg-session-prog__seg"></span><span class="wg-session-prog__seg"></span><span class="wg-session-prog__seg"></span></div>
+<div class="wg-content">
+<div class="wg-ex">
+<div class="wg-ex__head"><div class="wg-vstack wg-spacer"><span class="wg-eyebrow">Exercise 2 of 5</span><span class="wg-ex__name">Barbell bench press</span><span class="wg-ex__meta"><span class="wg-tag">Chest</span><span class="wg-tag">4 × 5 · 68 kg</span><span class="wg-tag wg-tag--sun">PR 72.5</span></span></div></div>
+<div class="wg-plates"><span class="wg-plates__bar"><i></i><i></i><i></i><i></i></span><span>Per side · 20 + 2.5 + 1.25 · bar 20</span></div>
+<div class="wg-sethead"><span>Set</span><span>kg</span><span>Reps</span><span>Done</span></div>
+<div class="wg-set wg-set--done"><span class="wg-set__idx wg-set__idx--warm">W</span><span class="wg-set__cell">40</span><span class="wg-set__cell">10</span><button class="wg-set__done" aria-label="Set done"><i class="wg-ico wg-ico--lg" data-icon="check"></i></button></div>
+<div class="wg-set wg-set--done"><span class="wg-set__idx">1</span><span class="wg-set__cell">68</span><span class="wg-set__cell">5</span><button class="wg-set__done" aria-label="Set done"><i class="wg-ico wg-ico--lg" data-icon="check"></i></button></div>
+<div class="wg-set wg-set--active"><span class="wg-set__idx">2</span><span class="wg-set__cell wg-set__cell--focus">70<small>last 68</small></span><span class="wg-set__cell">5<small>last 5</small></span><button class="wg-set__done" aria-label="Complete set"><i class="wg-ico wg-ico--lg" data-icon="check"></i></button><div class="wg-set__adjust"><button class="wg-btn wg-btn--sm">−2.5</button><button class="wg-btn wg-btn--sm">+2.5</button><button class="wg-btn wg-btn--sm">−1</button><button class="wg-btn wg-btn--sm">+1</button></div></div>
+<div class="wg-set"><span class="wg-set__idx">3</span><span class="wg-set__cell wg-set__cell--ghost">68<small>last</small></span><span class="wg-set__cell wg-set__cell--ghost">5<small>last</small></span><button class="wg-set__done" aria-label="Complete set"><i class="wg-ico wg-ico--lg" data-icon="check"></i></button></div>
+<div class="wg-set"><span class="wg-set__idx">4</span><span class="wg-set__cell wg-set__cell--ghost">68<small>last</small></span><span class="wg-set__cell wg-set__cell--ghost">5<small>last</small></span><button class="wg-set__done" aria-label="Complete set"><i class="wg-ico wg-ico--lg" data-icon="check"></i></button></div>
+<div class="wg-hstack"><button class="wg-btn wg-btn--ghost wg-btn--sm"><i class="wg-ico wg-ico--sm" data-icon="plus"></i>Add set</button><span class="wg-spacer"></span><button class="wg-btn wg-btn--ghost wg-btn--sm"><i class="wg-ico wg-ico--sm" data-icon="note"></i>Note</button><button class="wg-btn wg-btn--ghost wg-btn--sm">RPE</button></div>
+</div>
+</div>
+<footer class="wg-session-foot"><span class="wg-session-foot__save"><i class="wg-ico wg-ico--sm" data-icon="check"></i>Saved 14:49</span><button class="wg-btn">Next<i class="wg-ico wg-ico--sm" data-icon="chev-r"></i></button><button class="wg-btn wg-btn--primary">Finish</button></footer>
+</div></div><figcaption class="kit-cap"><b>W1</b><span>In progress</span><em>One exercise fills the screen. The ghosted "last" values replace "Not yet logged — edit to include". RPE and set type move behind small toggles, so a set row has 3 large targets instead of 4 small boxes plus "×". STATUS isn't shown as an input any more; the progress bar shows it. The plate line is readable.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="W2 Rest + overview"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-session-top"><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Minimise"><i class="wg-ico" data-icon="chev-d"></i></button><div class="wg-session-top__titles"><div class="wg-session-top__clock">44:02</div><div class="wg-session-top__sub">Overview · 11 of 20 sets</div></div><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Add exercise"><i class="wg-ico" data-icon="plus"></i></button></header>
+<div class="wg-session-prog"><span class="wg-session-prog__seg wg-session-prog__seg--done"></span><span class="wg-session-prog__seg wg-session-prog__seg--now"></span><span class="wg-session-prog__seg"></span><span class="wg-session-prog__seg"></span><span class="wg-session-prog__seg"></span></div>
+<div class="wg-content">
+<div class="wg-list">
+<button class="wg-row"><span class="wg-row__lead wg-row__lead--ok"><i class="wg-ico" data-icon="check"></i></span><span class="wg-row__body"><span class="wg-row__title">Incline dumbbell press</span><span class="wg-row__meta">3 × 10 · 22 kg · done</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<button class="wg-row"><span class="wg-row__lead wg-row__lead--sun"><i class="wg-ico" data-icon="dumbbell"></i></span><span class="wg-row__body"><span class="wg-row__title">Barbell bench press</span><span class="wg-row__meta">3 of 4 sets · 70 kg</span></span><span class="wg-chip wg-chip--warn wg-chip--sm">Now</span></button>
+<button class="wg-row"><span class="wg-row__lead"><i class="wg-ico" data-icon="dumbbell"></i></span><span class="wg-row__body"><span class="wg-row__title">Dumbbell fly</span><span class="wg-row__meta">3 × 10 · 13 kg</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<button class="wg-row"><span class="wg-row__lead"><i class="wg-ico" data-icon="dumbbell"></i></span><span class="wg-row__body"><span class="wg-row__title">Cable triceps pushdown</span><span class="wg-row__meta">3 × 12 · 25 kg</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<button class="wg-row"><span class="wg-row__lead"><i class="wg-ico" data-icon="dumbbell"></i></span><span class="wg-row__body"><span class="wg-row__title">Lateral raise</span><span class="wg-row__meta">3 × 15 · 8 kg</span></span><span class="wg-tag">Ad hoc</span></button>
+</div>
+<button class="wg-setting wg-setting--boxed"><span class="wg-row__lead"><i class="wg-ico" data-icon="box"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Gym</span></span><span class="wg-setting__value">Home</span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+</div>
+<div class="wg-callbar--dock"><div class="wg-rest"><span class="wg-rest__time">1:24</span><span class="wg-rest__body"><span class="wg-eyebrow">Rest · then set 3</span><span class="wg-meter"><span class="wg-meter__fill" style="--p:47%"></span></span></span><button class="wg-btn wg-btn--sm">+15s</button><button class="wg-btn wg-btn--ghost wg-btn--sm">Skip</button></div></div>
+<footer class="wg-session-foot"><span class="wg-session-foot__save"><i class="wg-ico wg-ico--sm" data-icon="refresh"></i>Saving…</span><button class="wg-btn wg-btn--primary">Finish</button></footer>
+</div></div><figcaption class="kit-cap"><b>W2</b><span>Overview, during rest</span><em>Tap the progress bar to see every exercise. The rest timer docks above the footer after each completed set and fires a notification while the app is minimised. "+ Exercise" and the gym switch move here, out of the cramped sticky header.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="W3 Finish confirm"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-session-top"><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Minimise"><i class="wg-ico" data-icon="chev-d"></i></button><div class="wg-session-top__titles"><div class="wg-session-top__clock">58:31</div><div class="wg-session-top__sub">Plan 3 · Day A · Home</div></div><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Session options"><i class="wg-ico" data-icon="more"></i></button></header>
+<div class="wg-session-prog"><span class="wg-session-prog__seg wg-session-prog__seg--done"></span><span class="wg-session-prog__seg wg-session-prog__seg--done"></span><span class="wg-session-prog__seg wg-session-prog__seg--done"></span><span class="wg-session-prog__seg wg-session-prog__seg--now"></span><span class="wg-session-prog__seg"></span></div>
+<div class="wg-content"></div>
+<footer class="wg-session-foot"><span class="wg-session-foot__save"><i class="wg-ico wg-ico--sm" data-icon="check"></i>Saved</span><button class="wg-btn wg-btn--primary">Finish</button></footer>
+<div class="wg-scrim"><div class="wg-dialog" role="alertdialog"><span class="wg-dialog__icon wg-dialog__icon--warn"><i class="wg-ico wg-ico--lg" data-icon="flag"></i></span><p class="wg-dialog__title">Finish workout?</p><p class="wg-dialog__body">Sets left: 6, across Cable triceps pushdown and Lateral raise. They'll be saved as skipped. You can edit the session later from History.</p><div class="wg-grid3"><div class="wg-stat"><span class="wg-stat__value wg-stat__value--md">58m</span><span class="wg-meta">time</span></div><div class="wg-stat"><span class="wg-stat__value wg-stat__value--md">14</span><span class="wg-meta">sets</span></div><div class="wg-stat"><span class="wg-stat__value wg-stat__value--md">4.1t</span><span class="wg-meta">volume</span></div></div><div class="wg-dialog__acts"><button class="wg-btn">Keep going</button><button class="wg-btn wg-btn--primary">Finish</button></div></div></div>
+</div></div><figcaption class="kit-cap"><b>W3</b><span>Finish confirm</span><em>The dialog shows what will happen to unlogged sets and a summary. It's not destructive, so the primary is sun, not clay.</em></figcaption></figure>
+</div></section>
+
+<section class="kit-group"><div class="kit-group__head"><h2 class="kit-group__title">Plan editor · pushed pages</h2><p class="kit-group__sub">Each level is a page with its own Save. The back label always names the parent. Edits on a child save into the parent's draft, and the parent's Save commits everything, so there are never three Cancel/Save headers stacked on top of each other.</p></div>
+<div class="kit-board">
+
+<figure class="kit-frame" data-screen-label="P1 Plan page"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-pagebar"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Plans</button><div class="wg-pagebar__center"><div class="wg-pagebar__crumb">Edit plan</div><div class="wg-pagebar__title">Plan 3 · Daily split</div></div><button class="wg-btn wg-btn--primary wg-btn--sm">Save</button></header>
+<div class="wg-content">
+<div class="wg-card wg-vstack">
+<div class="wg-field"><label class="wg-label">Name</label><input class="wg-input wg-input--text" value="Plan 3 · Daily split"></div>
+<div class="wg-field"><label class="wg-label">Training goal</label><div class="wg-seg"><button class="wg-seg__opt" aria-pressed="true">Strength</button><button class="wg-seg__opt" aria-pressed="false">Muscle</button><button class="wg-seg__opt" aria-pressed="false">Endurance</button></div></div>
+</div>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">Schedule</span></div><div class="wg-list">
+<div class="wg-setting"><span class="wg-setting__body"><span class="wg-setting__title">Rotate through days</span><span class="wg-setting__desc">A → B → C, one per session</span></span><button class="wg-toggle" role="switch" aria-checked="true" aria-label="Rotate through days"></button></div>
+<div class="wg-setting"><div class="wg-picks"><button class="wg-pick" aria-pressed="true">Mo</button><button class="wg-pick" aria-pressed="false">Tu</button><button class="wg-pick" aria-pressed="true">We</button><button class="wg-pick" aria-pressed="false">Th</button><button class="wg-pick" aria-pressed="true">Fr</button><button class="wg-pick" aria-pressed="false">Sa</button><button class="wg-pick" aria-pressed="false">Su</button></div></div>
+<button class="wg-setting"><span class="wg-setting__body"><span class="wg-setting__title">Time · reminder</span></span><span class="wg-setting__value">16:00 · 15 min before</span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+</div></section>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">Days · 3</span><span class="wg-meta">drag to reorder</span></div><div class="wg-list">
+<button class="wg-row"><i class="wg-ico wg-grip" data-icon="grip"></i><span class="wg-row__body"><span class="wg-row__title">Day A · Push</span><span class="wg-row__meta">5 exercises · chest, shoulders, triceps</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<button class="wg-row"><i class="wg-ico wg-grip" data-icon="grip"></i><span class="wg-row__body"><span class="wg-row__title">Day B · Pull</span><span class="wg-row__meta">5 exercises · back, biceps</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<button class="wg-row"><i class="wg-ico wg-grip" data-icon="grip"></i><span class="wg-row__body"><span class="wg-row__title">Day C · Legs</span><span class="wg-row__meta">4 exercises · quads, hinge</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<button class="wg-row wg-row--pad"><span class="wg-row__lead"><i class="wg-ico" data-icon="plus"></i></span><span class="wg-row__body"><span class="wg-row__title">Add day</span></span></button>
+</div></section>
+<div class="wg-list">
+<button class="wg-row"><span class="wg-row__lead"><i class="wg-ico" data-icon="qr"></i></span><span class="wg-row__body"><span class="wg-row__title">Share plan</span><span class="wg-row__meta">Link or QR · expires in 30 days</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<button class="wg-row"><span class="wg-row__lead"><i class="wg-ico" data-icon="file"></i></span><span class="wg-row__body"><span class="wg-row__title">Print or scan a sheet</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+</div>
+</div>
+</div></div><figcaption class="kit-cap"><b>P1</b><span>Plan page</span><em>The fields are grouped, and the days are reorderable rows that push to the Day page. Share, Print and Scan move out of each row's five-button action strip into rows at the bottom of the page.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="P2 Day page"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-pagebar"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Plan 3</button><div class="wg-pagebar__center"><div class="wg-pagebar__crumb">Plan 3 · Day A</div><div class="wg-pagebar__title">Push</div></div><button class="wg-btn wg-btn--primary wg-btn--sm">Done</button></header>
+<div class="wg-content">
+<div class="wg-field"><label class="wg-label">Day name</label><input class="wg-input wg-input--text" value="Push"></div>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">Exercises · 5</span><span class="wg-meta">≈ 55 min</span></div><div class="wg-list">
+<button class="wg-row"><i class="wg-ico wg-grip" data-icon="grip"></i><span class="wg-row__body"><span class="wg-row__title">Incline dumbbell press</span><span class="wg-row__meta">3 × 10 · 22 kg<span class="wg-tag">Chest</span></span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<button class="wg-row"><i class="wg-ico wg-grip" data-icon="grip"></i><span class="wg-row__body"><span class="wg-row__title">Barbell bench press</span><span class="wg-row__meta">4 × 5 · 68 kg<span class="wg-tag">Chest</span></span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<button class="wg-row"><i class="wg-ico wg-grip" data-icon="grip"></i><span class="wg-row__body"><span class="wg-row__title">Dumbbell fly</span><span class="wg-row__meta">3 × 10 · 13 kg<span class="wg-tag">Chest</span></span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<button class="wg-row"><i class="wg-ico wg-grip" data-icon="grip"></i><span class="wg-row__body"><span class="wg-row__title">Cable triceps pushdown</span><span class="wg-row__meta">3 × 12 · 25 kg<span class="wg-tag">Triceps</span></span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<div class="wg-swipe wg-swipe--open"><div class="wg-swipe__acts"><button class="wg-swipe__act"><i class="wg-ico" data-icon="copy"></i>Copy</button><button class="wg-swipe__act wg-swipe__act--danger"><i class="wg-ico" data-icon="trash"></i>Remove</button></div><button class="wg-row" data-swipe-demo><i class="wg-ico wg-grip" data-icon="grip"></i><span class="wg-row__body"><span class="wg-row__title">Overhead press</span><span class="wg-row__meta">3 × 8 · 40 kg<span class="wg-tag">Shoulders</span></span></span></button></div>
+</div></section>
+<button class="wg-btn wg-btn--block"><i class="wg-ico wg-ico--sm" data-icon="plus"></i>Add exercise</button>
+</div>
+</div></div><figcaption class="kit-cap"><b>P2</b><span>Day page</span><em>On a child page, the button is "Done", not "Save". It returns to the plan with the change staged. Swiping a row shows Copy and Remove, replacing the 🗑 and ✏️ action row.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="P3 Exercise page"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-pagebar"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Push</button><div class="wg-pagebar__center"><div class="wg-pagebar__crumb">Day A · exercise 2</div><div class="wg-pagebar__title">Bench press</div></div><button class="wg-btn wg-btn--primary wg-btn--sm">Done</button></header>
+<div class="wg-content">
+<button class="wg-setting wg-setting--boxed"><span class="wg-row__lead wg-row__lead--sun"><i class="wg-ico" data-icon="dumbbell"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Barbell bench press</span><span class="wg-setting__desc">Library · chest, triceps</span></span><span class="wg-setting__value">Change</span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<div class="wg-field"><label class="wg-label">Goal for this exercise</label><div class="wg-seg wg-seg--sm"><button class="wg-seg__opt" aria-pressed="false">From plan</button><button class="wg-seg__opt" aria-pressed="true">Strength 3–6</button><button class="wg-seg__opt" aria-pressed="false">Muscle 8–12</button></div></div>
+<div class="wg-fieldrow"><div class="wg-field"><label class="wg-label">Sets</label><div class="wg-stepper"><button class="wg-stepper__btn" aria-label="Fewer sets"><i class="wg-ico" data-icon="minus"></i></button><span class="wg-stepper__val">4</span><button class="wg-stepper__btn" aria-label="More sets"><i class="wg-ico" data-icon="plus"></i></button></div></div><div class="wg-field"><label class="wg-label">Reps</label><div class="wg-stepper"><button class="wg-stepper__btn" aria-label="Fewer reps"><i class="wg-ico" data-icon="minus"></i></button><span class="wg-stepper__val">5</span><button class="wg-stepper__btn" aria-label="More reps"><i class="wg-ico" data-icon="plus"></i></button></div></div></div>
+<div class="wg-field"><label class="wg-label">Working weight</label><div class="wg-stepper"><button class="wg-stepper__btn" aria-label="Decrease"><i class="wg-ico" data-icon="minus"></i></button><span class="wg-stepper__val">68<small>kg · step 2.5</small></span><button class="wg-stepper__btn" aria-label="Increase"><i class="wg-ico" data-icon="plus"></i></button></div></div>
+<div class="wg-card wg-card--accent wg-hstack"><i class="wg-ico wg-sun" data-icon="sparkle"></i><span class="wg-vstack wg-spacer"><span class="wg-row__title">Try 70 kg next time</span><span class="wg-hint">You hit 4 × 5 at 68 kg in the last 2 sessions.</span></span><button class="wg-btn wg-btn--sm">Apply</button></div>
+<div class="wg-list">
+<button class="wg-setting"><span class="wg-setting__body"><span class="wg-setting__title">Equipment</span></span><span class="wg-setting__value">Barbell · Home</span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<button class="wg-setting"><span class="wg-setting__body"><span class="wg-setting__title">Rest between sets</span></span><span class="wg-setting__value">2:00</span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<div class="wg-setting"><span class="wg-setting__body"><span class="wg-setting__title">Warm-up set</span><span class="wg-setting__desc">Adds a 60% set first</span></span><button class="wg-toggle" role="switch" aria-checked="true" aria-label="Warm-up set"></button></div>
+</div>
+</div>
+</div></div><figcaption class="kit-cap"><b>P3</b><span>Exercise page</span><em>Sets, reps and weight are steppers. The goal cascade is a segmented control that defaults to "From plan". The weight suggestion is a card you can apply, and equipment is a value row.</em></figcaption></figure>
+</div></section>
+</main>
+</body>
+</html>

@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>App UI kit v2 — Settings</title>
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="components.css"><link rel="stylesheet" href="kit.css">
+<script src="icons.js"></script><script src="kit.js"></script>
+</head>
+<body>
+<nav class="kit-top"><div class="kit-top__brand">MedTracker · App UI kit v2<small>Wandergeek · mobile 390×844 · dark</small></div><a href="index.html">Overview</a><a href="foundations.html">Foundations</a><a href="components.html">Components</a><a href="screens-today.html">Today &amp; Journey</a><a href="screens-food.html">Food</a><a href="screens-meds.html">Meds</a><a href="screens-workouts.html">Workouts</a><a href="screens-settings.html" aria-current="page">Settings</a><a href="navigation.html">Navigation</a></nav>
+<main class="kit-page">
+<h1 class="kit-h1">Settings</h1>
+<p class="kit-lede">Six collapsible groups and about 600 lines of markup become a grouped list of subpages, where each row shows its current state. Devices and Connectors move into the app shell with the same chrome, fonts and button hierarchy, so Revoke no longer looks like Back.</p>
+<section class="kit-group"><div class="kit-group__head"><h2 class="kit-group__title">Home &amp; subpages</h2></div>
+<div class="kit-board">
+
+<figure class="kit-frame" data-screen-label="S1 Settings home"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-pagebar"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Today</button><div class="wg-pagebar__center"><div class="wg-pagebar__title">Settings</div></div><span></span></header>
+<div class="wg-content">
+<button class="wg-card wg-hstack"><span class="wg-row__lead wg-row__lead--ok"><i class="wg-ico" data-icon="lock"></i></span><span class="wg-vstack wg-spacer"><span class="wg-row__title">Your vault</span><span class="wg-meta">Encrypted · 2 devices · synced 14:48</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<div class="wg-list">
+<button class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="eye"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Features</span><span class="wg-setting__desc">11 of 13 on</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<button class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="flag"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Targets</span><span class="wg-setting__desc">Food 1800 kcal · Journey bands</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<button class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="bell"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Reminders &amp; notifications</span><span class="wg-setting__desc">Push + Telegram · BP, weight</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<button class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="scale"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Units</span></span><span class="wg-setting__value">kg</span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+</div>
+<div class="wg-list">
+<button class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="bolt"></i></span><span class="wg-setting__body"><span class="wg-setting__title">AI &amp; integrations</span><span class="wg-setting__desc">OpenAI · Food DB · Voice · Telegram</span></span><span class="wg-chip wg-chip--ok wg-chip--sm">4</span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<button class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="device"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Devices &amp; connectors</span><span class="wg-setting__desc">2 devices · Claude connected</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<button class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="download"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Backup &amp; import</span><span class="wg-setting__desc">Last export 23 days ago</span></span><span class="wg-chip wg-chip--warn wg-chip--sm">Due</span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<button class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="shield"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Account &amp; privacy</span><span class="wg-setting__desc">What the operator can see · delete</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+</div>
+<div class="wg-list"><button class="wg-setting"><span class="wg-row__lead wg-row__lead--sun"><i class="wg-ico" data-icon="message"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Send feedback</span><span class="wg-setting__desc">Text, a screenshot or a voice note</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button></div>
+<p class="wg-meta">v2026.10.2 · <a href="#">Re-run onboarding</a></p>
+</div>
+</div></div><figcaption class="kit-cap"><b>S1</b><span>Settings home</span><em>This is a pushed page from the gear in any app bar. It has three groups: everyday, connected and data, and feedback. Every row summarises its state, so you rarely need to open it. Feedback drops from a card at the top to its own row, and Re-run onboarding moves to the footer.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="S2 Features"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-pagebar"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Settings</button><div class="wg-pagebar__center"><div class="wg-pagebar__title">Features</div></div><span></span></header>
+<div class="wg-content">
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">Tracking · shown in the nav</span></div><div class="wg-list">
+<div class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="activity"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Blood pressure</span></span><button class="wg-toggle" role="switch" aria-checked="true" aria-label="Blood pressure"></button></div>
+<div class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="scale"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Weight</span></span><button class="wg-toggle" role="switch" aria-checked="true" aria-label="Weight"></button></div>
+<div class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="food"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Food</span></span><button class="wg-toggle" role="switch" aria-checked="true" aria-label="Food"></button></div>
+<div class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="pill"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Medications</span></span><button class="wg-toggle" role="switch" aria-checked="true" aria-label="Medications"></button></div>
+<div class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="dumbbell"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Workouts</span></span><button class="wg-toggle" role="switch" aria-checked="true" aria-label="Workouts"></button></div>
+<div class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="health"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Vitals</span><span class="wg-setting__desc">Sleep, steps, HR from Mi Band backups</span></span><button class="wg-toggle" role="switch" aria-checked="true" aria-label="Vitals"></button></div>
+</div></section>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">Journey</span></div><div class="wg-list">
+<div class="wg-setting"><span class="wg-setting__body"><span class="wg-setting__title">Journey &amp; Goal Line</span></span><button class="wg-toggle" role="switch" aria-checked="true" aria-label="Journey"></button></div>
+<div class="wg-setting"><span class="wg-setting__body"><span class="wg-setting__title">Weekly digest</span><span class="wg-setting__desc">Sunday evening summary in Telegram</span></span><button class="wg-toggle" role="switch" aria-checked="false" aria-label="Weekly digest"></button></div>
+<div class="wg-setting"><span class="wg-setting__body"><span class="wg-setting__title">Experiments · Traits · AI story</span><span class="wg-setting__desc">2 of 3 on</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></div>
+</div></section>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">Safety</span></div><div class="wg-list">
+<div class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="shield"></i></span><span class="wg-setting__body"><span class="wg-setting__title">ED-safe mode</span><span class="wg-setting__desc">Hides calories, streaks and goal pace. Keeps dose alerts.</span></span><button class="wg-toggle" role="switch" aria-checked="false" aria-label="ED-safe mode"></button></div>
+</div></section>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">Labs</span></div><div class="wg-list">
+<div class="wg-setting"><span class="wg-setting__body"><span class="wg-setting__title">Live heart rate <span class="wg-tag">Beta</span></span><span class="wg-setting__desc">Bluetooth HR strap on the Vitals tab</span></span><button class="wg-toggle" role="switch" aria-checked="false" aria-label="Live heart rate"></button></div>
+</div></section>
+</div>
+</div></div><figcaption class="kit-cap"><b>S2</b><span>Features</span><em>The 13 "Feature: …" toggles are grouped by intent, with plain names. The Journey sub-toggles fold into one row. Turning off a Tracking feature removes it from the nav or from the Health segments.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="S3 Backup & import"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-pagebar"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Settings</button><div class="wg-pagebar__center"><div class="wg-pagebar__title">Backup &amp; import</div></div><span></span></header>
+<div class="wg-content">
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow wg-eyebrow--dot">Export</span><span class="wg-chip wg-chip--warn wg-chip--sm">23 days ago</span></div><div class="wg-card wg-vstack">
+<div class="wg-setting wg-setting--bare"><span class="wg-setting__body"><span class="wg-setting__title">Include API keys</span><span class="wg-setting__desc">Only if you set a passphrase</span></span><button class="wg-toggle" role="switch" aria-checked="false" aria-label="Include API keys"></button></div>
+<div class="wg-field"><label class="wg-label">Passphrase · optional</label><input class="wg-input wg-input--text" type="password" value="correct horse"><span class="wg-hint">Encrypts the file with age. Without it the file is plain JSON.</span></div>
+<button class="wg-btn wg-btn--primary wg-btn--block"><i class="wg-ico wg-ico--sm" data-icon="download"></i>Download backup</button>
+</div></section>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">Restore</span></div><div class="wg-card wg-vstack">
+<div class="wg-file wg-file--filled"><span class="wg-file__icon"><i class="wg-ico" data-icon="file"></i></span><span class="wg-file__body"><span class="wg-file__name">medtracker-2026-09-16.age</span><span class="wg-file__meta">1.8 MB · encrypted</span></span><button class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" aria-label="Remove file"><i class="wg-ico" data-icon="x"></i></button></div>
+<button class="wg-btn wg-btn--danger-ghost wg-btn--block">Replace my data with this backup</button>
+</div></section>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">Import</span></div><div class="wg-card wg-vstack">
+<div class="wg-file"><span class="wg-file__icon"><i class="wg-ico" data-icon="health"></i></span><span class="wg-file__body"><span class="wg-file__name">Mi Band backup</span><span class="wg-file__meta">.nxk · fills Vitals and cardio sessions</span></span><button class="wg-btn wg-btn--sm">Choose</button></div>
+<p class="wg-hint">Also available from Vitals → Import.</p>
+</div></section>
+<div class="wg-list"><button class="wg-setting wg-setting--danger"><span class="wg-row__lead wg-row__lead--danger"><i class="wg-ico" data-icon="refresh"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Reset local sync</span><span class="wg-setting__desc">Re-downloads everything from your vault</span></span></button></div>
+</div>
+</div></div><figcaption class="kit-cap"><b>S3</b><span>Backup &amp; import</span><em>Native file inputs become file pickers with empty and filled states. "Import backup (replace)" becomes an outlined destructive action that leads to a typed confirm. The Mi Band import is cross-linked from Vitals.</em></figcaption></figure>
+</div></section>
+
+<section class="kit-group"><div class="kit-group__head"><h2 class="kit-group__title">Devices &amp; connectors · inside the shell</h2><p class="kit-group__sub">These were separate cloud-shell pages with system fonts and every button in yellow. Now they're subpages with the same chrome.</p></div>
+<div class="kit-board">
+
+<figure class="kit-frame" data-screen-label="S4 Devices & connectors"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-pagebar"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Settings</button><div class="wg-pagebar__center"><div class="wg-pagebar__title">Devices &amp; connectors</div></div><span></span></header>
+<div class="wg-content">
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">Devices with a passkey</span></div><div class="wg-list">
+<div class="wg-row"><span class="wg-row__lead wg-row__lead--ok"><i class="wg-ico" data-icon="device"></i></span><span class="wg-row__body"><span class="wg-row__title">This iPhone</span><span class="wg-row__meta">added 18.07.2026<span class="wg-chip wg-chip--ok wg-chip--sm"><i class="wg-ico" data-icon="check"></i>Verified</span></span></span><span class="wg-tag">You</span></div>
+<div class="wg-row"><span class="wg-row__lead"><i class="wg-ico" data-icon="device"></i></span><span class="wg-row__body"><span class="wg-row__title">Pixel 7</span><span class="wg-row__meta">added 02.09 · last seen 3d<span class="wg-chip wg-chip--ok wg-chip--sm"><i class="wg-ico" data-icon="check"></i>Verified</span></span></span><button class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" aria-label="Device options"><i class="wg-ico" data-icon="more"></i></button></div>
+</div>
+<button class="wg-btn wg-btn--primary wg-btn--block"><i class="wg-ico wg-ico--sm" data-icon="qr"></i>Add a device</button></section>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">Connectors</span></div><div class="wg-list">
+<button class="wg-row"><span class="wg-row__lead wg-row__lead--sun"><i class="wg-ico" data-icon="plug"></i></span><span class="wg-row__body"><span class="wg-row__title">Claude connector</span><span class="wg-row__meta">remote · used 2h ago</span></span><span class="wg-chip wg-chip--ok wg-chip--sm">Connected</span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<button class="wg-row"><span class="wg-row__lead"><i class="wg-ico" data-icon="message"></i></span><span class="wg-row__body"><span class="wg-row__title">Telegram bot</span><span class="wg-row__meta">@your_bot</span></span><span class="wg-chip wg-chip--ok wg-chip--sm">Linked</span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<button class="wg-row"><span class="wg-row__lead"><i class="wg-ico" data-icon="link"></i></span><span class="wg-row__body"><span class="wg-row__title">Local pairing code</span><span class="wg-row__meta">for a desktop MCP client</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+</div></section>
+<div class="wg-list"><button class="wg-setting"><span class="wg-row__lead wg-row__lead--danger"><i class="wg-ico" data-icon="key"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Emergency Kit</span><span class="wg-setting__desc">Regenerate if you lost the printed copy</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button></div>
+<div class="wg-list"><button class="wg-setting"><span class="wg-row__lead"><i class="wg-ico" data-icon="user"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Invite a friend</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button></div>
+</div>
+</div></div><figcaption class="kit-cap"><b>S4</b><span>Devices &amp; connectors</span><em>Revoke moves behind each device's overflow, so it's no longer a yellow button next to Back. "Add a device" is the one primary. The Emergency Kit row is styled as sensitive but isn't a primary action.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="S5 Connector detail + confirm"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-pagebar"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Devices</button><div class="wg-pagebar__center"><div class="wg-pagebar__title">Claude connector</div></div><span></span></header>
+<div class="wg-content">
+<div class="wg-card wg-hstack"><span class="wg-row__lead wg-row__lead--ok"><i class="wg-ico" data-icon="plug"></i></span><span class="wg-vstack wg-spacer"><span class="wg-row__title">Connected since 12.09</span><span class="wg-meta">Last request 2h ago · 41 this week</span></span></div>
+<div class="wg-field"><label class="wg-label">Connector URL</label><div class="wg-code"><span>https://vault.example/mcp/7f3a…c91</span><button class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" aria-label="Copy URL"><i class="wg-ico" data-icon="copy"></i></button></div></div>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">Claude can</span></div><div class="wg-list">
+<div class="wg-row wg-row--pad"><span class="wg-row__body"><span class="wg-row__title">Read</span><span class="wg-row__meta">meds, BP, weight, food, workouts, notes</span></span></div>
+<div class="wg-row wg-row--pad"><span class="wg-row__body"><span class="wg-row__title">Write</span><span class="wg-row__meta">food logs, notes, ad-hoc workouts</span></span></div>
+</div></section>
+<button class="wg-btn wg-btn--danger-ghost wg-btn--block">Disconnect</button>
+</div>
+<div class="wg-scrim"><div class="wg-dialog" role="alertdialog"><span class="wg-dialog__icon"><i class="wg-ico wg-ico--lg" data-icon="plug"></i></span><p class="wg-dialog__title">Disconnect Claude?</p><p class="wg-dialog__body">Claude loses access right away. Your data stays in the vault. You can reconnect later with a new URL.</p><div class="wg-dialog__acts"><button class="wg-btn">Cancel</button><button class="wg-btn wg-btn--danger">Disconnect</button></div></div></div>
+</div></div><figcaption class="kit-cap"><b>S5</b><span>Connector detail and destructive confirm</span><em>Secrets use the code field with Copy. Scopes are spelled out. The disconnect path goes from an outlined destructive button to the dialog, then to a filled clay button. This replaces the consent window.confirm.</em></figcaption></figure>
+</div></section>
+</main>
+</body>
+</html>

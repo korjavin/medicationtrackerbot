@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>App UI kit v2 — Meds</title>
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="components.css"><link rel="stylesheet" href="kit.css">
+<script src="icons.js"></script><script src="kit.js"></script>
+</head>
+<body>
+<nav class="kit-top"><div class="kit-top__brand">MedTracker · App UI kit v2<small>Wandergeek · mobile 390×844 · dark</small></div><a href="index.html">Overview</a><a href="foundations.html">Foundations</a><a href="components.html">Components</a><a href="screens-today.html">Today &amp; Journey</a><a href="screens-food.html">Food</a><a href="screens-meds.html" aria-current="page">Meds</a><a href="screens-workouts.html">Workouts</a><a href="screens-settings.html">Settings</a><a href="navigation.html">Navigation</a></nav>
+<main class="kit-page">
+<h1 class="kit-h1">Meds</h1>
+<p class="kit-lede">Schedule rows lose the emoji, the pencil and the trash. Stock and Rx become chips. Taking meds is a flow sheet with one commit button. The 15-field editor becomes a pushed page in four sections. Drug interactions show inline as soon as the Rx match resolves, not as an alert after Save.</p>
+<section class="kit-group"><div class="kit-group__head"><h2 class="kit-group__title">Schedule, take, stock, empty</h2></div>
+<div class="kit-board">
+
+<figure class="kit-frame" data-screen-label="M1 Meds schedule"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-appbar"><div class="wg-appbar__titles"><h1 class="wg-appbar__title">Meds</h1><p class="wg-appbar__sub">5 active · next 21:30</p></div><button class="wg-btn wg-btn--primary wg-btn--sm"><i class="wg-ico wg-ico--sm" data-icon="plus"></i>Add</button><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Settings"><i class="wg-ico" data-icon="gear"></i></button></header>
+<div class="wg-subnav"><div class="wg-seg"><button class="wg-seg__opt" aria-pressed="true">Schedule</button><button class="wg-seg__opt" aria-pressed="false">Upcoming</button><button class="wg-seg__opt" aria-pressed="false">History</button><button class="wg-seg__opt" aria-pressed="false">Stock</button></div></div>
+<div class="wg-content">
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow wg-eyebrow--dot">21:30 · in 6h 41m</span><button class="wg-btn wg-btn--sm">Take 3</button></div>
+<div class="wg-list">
+<button class="wg-row"><span class="wg-row__lead"><i class="wg-ico" data-icon="pill"></i></span><span class="wg-row__body"><span class="wg-row__title">Candecor · 16 mg</span><span class="wg-row__meta">Daily · Rx candesartan<span class="wg-chip wg-chip--ok wg-chip--sm">141 left</span></span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<button class="wg-row"><span class="wg-row__lead"><i class="wg-ico" data-icon="pill"></i></span><span class="wg-row__body"><span class="wg-row__title">Lercanidipin-Hcl Al · 10 mg</span><span class="wg-row__meta">08:20, 21:30 · Rx lercanidipine<span class="wg-chip wg-chip--ok wg-chip--sm">71 left</span></span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<button class="wg-row"><span class="wg-row__lead"><i class="wg-ico" data-icon="pill"></i></span><span class="wg-row__body"><span class="wg-row__title">Metformin · 1000 mg</span><span class="wg-row__meta">08:20, 21:30<span class="wg-chip wg-chip--warn wg-chip--sm"><i class="wg-ico" data-icon="alert"></i>6 left</span></span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+</div></section>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow wg-eyebrow--danger">08:20 · missed today</span><button class="wg-btn wg-btn--ghost wg-btn--sm">Log late</button></div>
+<div class="wg-list">
+<button class="wg-row"><span class="wg-row__lead wg-row__lead--danger"><i class="wg-ico" data-icon="pill"></i></span><span class="wg-row__body"><span class="wg-row__title">Allopurinol AL · 300 mg</span><span class="wg-row__meta">Daily 08:20<span class="wg-chip wg-chip--ok wg-chip--sm">88 left</span></span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+</div></section>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">As needed</span></div>
+<div class="wg-list">
+<div class="wg-row"><span class="wg-row__lead"><i class="wg-ico" data-icon="pill"></i></span><span class="wg-row__body"><span class="wg-row__title">Ibuprofen · 400 mg</span><span class="wg-row__meta">Last 2 days ago<span class="wg-chip wg-chip--danger wg-chip--sm">Out · 17 over</span></span></span><span class="wg-row__trail"><button class="wg-btn wg-btn--sm">Log</button><button class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" aria-label="More"><i class="wg-ico" data-icon="more"></i></button></span></div>
+<div class="wg-row"><span class="wg-row__lead"><i class="wg-ico" data-icon="pill"></i></span><span class="wg-row__body"><span class="wg-row__title">Vitamin D3 · 2000 IU</span><span class="wg-row__meta"><span class="wg-tag">Supplement</span>no stock tracking</span></span><span class="wg-row__trail"><button class="wg-btn wg-btn--sm">Log</button><button class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" aria-label="More"><i class="wg-ico" data-icon="more"></i></button></span></div>
+</div></section>
+</div>
+<nav class="wg-tabbar" data-tabbar="meds" data-badges="meds:1"></nav>
+</div></div><figcaption class="kit-cap"><b>M1</b><span>Schedule</span><em>Time buckets carry the action ("Take 3", "Log late"). Scheduled rows push to the editor. As-needed rows keep a per-row Log. "-17 LEFT" becomes "Out · 17 over", and "N left ⚠️" becomes a warn chip. The date range and Rx line are folded into meta.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="M2 Take sheet"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div><div class="wg-content"></div><nav class="wg-tabbar" data-tabbar="meds"></nav>
+<div class="wg-scrim wg-scrim--sheet"><div class="wg-sheet"><span class="wg-sheet__grab"></span>
+<div class="wg-sheethead"><div class="wg-sheethead__titles"><div class="wg-eyebrow">Scheduled 21:30 · in 6h 41m</div><div class="wg-sheethead__title">Take meds</div></div><div class="wg-sheethead__acts"><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button></div></div>
+<div class="wg-sheet__body">
+<div class="wg-choices">
+<button class="wg-choice wg-choice--check" aria-pressed="true"><span>Candecor<span class="wg-choice__sub">16 mg · 1 tablet</span></span></button>
+<button class="wg-choice wg-choice--check" aria-pressed="true"><span>Lercanidipin-Hcl Al<span class="wg-choice__sub">10 mg · 1 tablet</span></span></button>
+<button class="wg-choice wg-choice--check" aria-pressed="true"><span>Metformin<span class="wg-choice__sub">1000 mg · 6 left after this</span></span><span class="wg-choice__trail wg-chip wg-chip--warn wg-chip--sm">Low</span></button>
+</div>
+<button class="wg-setting wg-setting--boxed"><span class="wg-row__lead"><i class="wg-ico" data-icon="clock"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Taken at</span></span><span class="wg-setting__value">Now · 14:49</span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+</div>
+<div class="wg-sheet__foot"><button class="wg-btn wg-btn--ghost">Skip</button><button class="wg-btn"><i class="wg-ico wg-ico--sm" data-icon="snooze"></i>10m</button><button class="wg-btn wg-btn--primary">Confirm 3</button></div>
+</div></div>
+</div></div><figcaption class="kit-cap"><b>M2</b><span>Take sheet</span><em>The eyebrow and title no longer repeat. The checklist uses the check variant of choice cards, the count is on the commit button, and "Time taken" is a row that defaults to now. Edit-intake and log-past modes reuse this sheet with "Update" or "Log" as the primary.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="M3 Meds stock"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-appbar"><div class="wg-appbar__titles"><h1 class="wg-appbar__title">Meds</h1><p class="wg-appbar__sub">2 need a refill</p></div><button class="wg-btn wg-btn--primary wg-btn--sm"><i class="wg-ico wg-ico--sm" data-icon="plus"></i>Add</button><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Settings"><i class="wg-ico" data-icon="gear"></i></button></header>
+<div class="wg-subnav"><div class="wg-seg"><button class="wg-seg__opt" aria-pressed="false">Schedule</button><button class="wg-seg__opt" aria-pressed="false">Upcoming</button><button class="wg-seg__opt" aria-pressed="false">History</button><button class="wg-seg__opt" aria-pressed="true">Stock</button></div></div>
+<div class="wg-content">
+<div class="wg-card wg-card--danger"><div class="wg-card__head"><span class="wg-vstack"><span class="wg-card__title">Ibuprofen · 400 mg</span><span class="wg-meta">Logged 17 doses beyond stock</span></span><span class="wg-chip wg-chip--danger">Out</span></div><div class="wg-hstack"><span class="wg-stat__value">0<small>doses</small></span><span class="wg-spacer"></span><button class="wg-btn wg-btn--sm"><i class="wg-ico wg-ico--sm" data-icon="box"></i>Refill</button></div></div>
+<div class="wg-card"><div class="wg-card__head"><span class="wg-vstack"><span class="wg-card__title">Metformin · 1000 mg</span><span class="wg-meta">2 a day · lasts 3 days</span></span><span class="wg-chip wg-chip--warn">Low</span></div>
+<div class="wg-vstack"><span class="wg-label">Refill · doses</span><div class="wg-picks" data-single><button class="wg-pick" aria-pressed="false">+30</button><button class="wg-pick" aria-pressed="true">+60</button><button class="wg-pick" aria-pressed="false">+98</button><button class="wg-pick" aria-pressed="false">Other</button></div></div>
+<div class="wg-card__foot"><button class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button><button class="wg-btn wg-btn--sm">Add 60 → 66</button></div></div>
+<div class="wg-list">
+<div class="wg-row wg-row--pad"><span class="wg-row__body"><span class="wg-row__title">Candecor · 16 mg</span><span class="wg-row__meta">Refilled 21.09 · lasts 141 days</span></span><span class="wg-row__value">141<small>doses</small></span></div>
+<div class="wg-row wg-row--pad"><span class="wg-row__body"><span class="wg-row__title">Allopurinol AL · 300 mg</span><span class="wg-row__meta">Refilled 05.01 · lasts 88 days</span></span><span class="wg-row__value">88<small>doses</small></span></div>
+</div>
+</div>
+<nav class="wg-tabbar" data-tabbar="meds"></nav>
+</div></div><figcaption class="kit-cap"><b>M3</b><span>Stock</span><em>Problems sort first. The inline refill uses preset chips and previews the new total in the button. "⚠️ Low stock" becomes a chip, and "lasts N days" is more useful than the refill date alone.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="M4 Meds empty"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-appbar"><div class="wg-appbar__titles"><h1 class="wg-appbar__title">Meds</h1><p class="wg-appbar__sub">No medications</p></div><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Settings"><i class="wg-ico" data-icon="gear"></i></button></header>
+<div class="wg-subnav"><div class="wg-seg"><button class="wg-seg__opt" aria-pressed="true">Schedule</button><button class="wg-seg__opt" aria-pressed="false">Upcoming</button><button class="wg-seg__opt" aria-pressed="false">History</button><button class="wg-seg__opt" aria-pressed="false">Stock</button></div></div>
+<div class="wg-content">
+<div class="wg-card wg-card--flush"><div class="wg-empty"><span class="wg-empty__icon"><i class="wg-ico wg-ico--xl" data-icon="pill"></i></span><p class="wg-empty__title">No medications yet</p><p class="wg-empty__body">Add what you take and when. You'll get reminders, a dose log for your doctor, and a warning before you run out.</p><div class="wg-empty__acts"><button class="wg-btn wg-btn--primary"><i class="wg-ico wg-ico--sm" data-icon="plus"></i>Add medication</button></div></div></div>
+</div>
+<nav class="wg-tabbar" data-tabbar="meds"></nav>
+</div></div><figcaption class="kit-cap"><b>M4</b><span>Empty schedule (previously missing)</span><em>While the list is empty, the app bar's Add hides, so the empty state's Add is the one primary. The same pattern covers an empty Upcoming list ("No doses in the next 7 days").</em></figcaption></figure>
+</div></section>
+
+<section class="kit-group"><div class="kit-group__head"><h2 class="kit-group__title">Medication editor · pushed page, 4 sections</h2><p class="kit-group__sub">Basics → Schedule → Inventory → Advanced. Save stays in the page bar. Archive and delete live at the end of Advanced, never next to Save.</p></div>
+<div class="kit-board">
+
+<figure class="kit-frame" data-screen-label="M5 Edit med basics + schedule"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-pagebar"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Meds</button><div class="wg-pagebar__center"><div class="wg-pagebar__crumb">Edit medication</div><div class="wg-pagebar__title">Candecor</div></div><button class="wg-btn wg-btn--primary wg-btn--sm">Save</button></header>
+<div class="wg-content">
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">1 · Basics</span></div><div class="wg-card wg-vstack">
+<div class="wg-fieldrow"><div class="wg-field"><label class="wg-label">Name</label><input class="wg-input wg-input--text" value="Candecor"></div><div class="wg-field"><label class="wg-label">Dose</label><div class="wg-affix wg-affix--unit"><input class="wg-input" value="16"><span class="wg-affix__unit">mg</span></div></div></div>
+<span class="wg-hstack"><span class="wg-chip wg-chip--ok"><i class="wg-ico" data-icon="check"></i>Rx · candesartan cilexetil</span></span>
+<div class="wg-card wg-card--tight wg-card--accent wg-hstack"><i class="wg-ico wg-warn" data-icon="alert"></i><span class="wg-hint">May interact with <b>Ibuprofen</b>: NSAIDs can reduce its BP effect. <a href="#">Details</a></span></div>
+</div></section>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">2 · Schedule</span></div><div class="wg-card wg-vstack">
+<div class="wg-seg"><button class="wg-seg__opt" aria-pressed="true">Daily</button><button class="wg-seg__opt" aria-pressed="false">Weekly</button><button class="wg-seg__opt" aria-pressed="false">As needed</button></div>
+<div class="wg-list"><div class="wg-row"><span class="wg-row__lead"><i class="wg-ico" data-icon="clock"></i></span><span class="wg-row__body"><span class="wg-row__title wg-row__title--mono">21:30</span></span><button class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" aria-label="Remove time"><i class="wg-ico" data-icon="x"></i></button></div></div>
+<button class="wg-link"><i class="wg-ico wg-ico--sm" data-icon="plus"></i>Add time</button>
+<div class="wg-fieldrow"><div class="wg-field"><label class="wg-label">Start</label><button class="wg-input wg-select"><span class="wg-mono">03.12.2024</span><i class="wg-ico" data-icon="calendar"></i></button></div><div class="wg-field"><label class="wg-label">End</label><button class="wg-input wg-select"><span class="wg-muted">Ongoing</span><i class="wg-ico" data-icon="calendar"></i></button></div></div>
+</div></section>
+</div>
+</div></div><figcaption class="kit-cap"><b>M5</b><span>Editor · basics and schedule</span><em>The Rx match is a chip. The interaction check shows inline as soon as the match resolves, which replaces safeAlert("⚠️ …") after Save. Times are a list with Remove, and dates open a picker sheet instead of native date inputs.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="M6 Edit med inventory + advanced"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-pagebar"><button class="wg-back"><i class="wg-ico" data-icon="chev-l"></i>Meds</button><div class="wg-pagebar__center"><div class="wg-pagebar__crumb">Edit medication</div><div class="wg-pagebar__title">Candecor</div></div><button class="wg-btn wg-btn--primary wg-btn--sm">Save</button></header>
+<div class="wg-content">
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">3 · Inventory</span></div><div class="wg-list">
+<div class="wg-setting"><span class="wg-setting__body"><span class="wg-setting__title">Track stock</span><span class="wg-setting__desc">Warns 7 days before you run out</span></span><button class="wg-toggle" role="switch" aria-checked="true" aria-label="Track stock"></button></div>
+<div class="wg-setting"><div class="wg-stepper wg-spacer"><button class="wg-stepper__btn" aria-label="Decrease"><i class="wg-ico" data-icon="minus"></i></button><span class="wg-stepper__val">141<small>doses left</small></span><button class="wg-stepper__btn" aria-label="Increase"><i class="wg-ico" data-icon="plus"></i></button></div></div>
+<button class="wg-setting"><span class="wg-setting__body"><span class="wg-setting__title">Restock history</span><span class="wg-setting__desc">+98 on 21.09 · +98 on 20.06</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+</div></section>
+<section class="wg-section"><div class="wg-section__head"><span class="wg-eyebrow">4 · Advanced</span></div><div class="wg-list">
+<button class="wg-setting"><span class="wg-setting__body"><span class="wg-setting__title">Time-zone changes</span><span class="wg-setting__desc">How doses shift when you travel</span></span><span class="wg-setting__value">Medium · 3h</span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+<div class="wg-setting"><span class="wg-setting__body"><span class="wg-setting__title">Supplement</span><span class="wg-setting__desc">Kept out of the adherence score in the doctor brief</span></span><button class="wg-toggle" role="switch" aria-checked="false" aria-label="Supplement"></button></div>
+</div></section>
+<div class="wg-vstack"><button class="wg-btn wg-btn--danger-ghost wg-btn--block"><i class="wg-ico wg-ico--sm" data-icon="archive"></i>Archive medication</button><p class="wg-hint">Archived meds keep their history. You can only delete one if it has no history.</p></div>
+</div>
+</div></div><figcaption class="kit-cap"><b>M6</b><span>Editor · inventory and advanced</span><em>Quick restock moved to the Stock tab, and here stock is a stepper. The time-zone policy select becomes a value row that opens a choice sheet. The Archived and Supplement checkboxes become a toggle and a separate destructive action.</em></figcaption></figure>
+</div></section>
+</main>
+</body>
+</html>

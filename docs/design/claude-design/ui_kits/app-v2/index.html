@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>App UI kit v2 — Overview</title>
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="components.css"><link rel="stylesheet" href="kit.css">
+<script src="icons.js"></script><script src="kit.js"></script>
+</head>
+<body>
+<nav class="kit-top"><div class="kit-top__brand">MedTracker · App UI kit v2<small>Wandergeek · mobile 390×844 · dark</small></div><a href="index.html" aria-current="page">Overview</a><a href="foundations.html">Foundations</a><a href="components.html">Components</a><a href="screens-today.html">Today &amp; Journey</a><a href="screens-food.html">Food</a><a href="screens-meds.html">Meds</a><a href="screens-workouts.html">Workouts</a><a href="screens-settings.html">Settings</a><a href="navigation.html">Navigation</a></nav>
+<main class="kit-page">
+<h1 class="kit-h1">Review: what we designed vs what the app does now</h1>
+<p class="kit-lede">The Wandergeek handoff covered 8 screens and 4 modals. The app now has roughly 40 surfaces: Journey, plan/day/exercise editors, per-set logging, equipment, Food DB, photo, scan and describe, meds inventory and timezone plans, AI integrations, and the cloud vault. Almost all of them were built screen by screen. This kit is option B from the audit: shared primitives, plus a rework of the heavy flows. It also proposes a new navigation, shown next to the current one.</p>
+<div class="kit-prose">
+<h3>Findings beyond the audit</h3>
+<ul>
+<li><strong>Yellow is overspent.</strong> Sun fills the primary CTA, the active tab, the active sub-tab, the active segment, the kcal numbers, the eyebrow dots and the Add/Photo/Scan trio, so the real next action is hard to find. Food log shows four filled-yellow controls above the fold. <em>v2 rule:</em> each view gets one sun-filled control. Selection states use raised teal with sun text.</li>
+<li><strong>Sun on sun is unreadable.</strong> The active "Daily total" pill uses sun text on a sun fill. The <code>.wg-seg--accent</code> variant now uses ink text on the sun fill, and the default segment stays teal.</li>
+<li><strong>Everything is a card of equal weight.</strong> Food rows, med rows and metric tiles all use the same card, so a screen reads as a stack of identical boxes. <em>v2:</em> three surface levels (screen, card, accent card), and grouped lists with hairline dividers instead of one card per row.</li>
+<li><strong>Two square buttons per row cost the title.</strong> A pencil and a trash button take about 30% of the row, so "toasted wholegrain br…" gets cut off. <em>v2:</em> tapping the row edits it, swiping left reveals Edit and Delete, and an overflow button is the pointer and keyboard fallback. Titles wrap to two lines.</li>
+<li><strong>Three navigation layers before any content.</strong> The 2-row nav, sub-tabs (5 on Workouts, 4 on Meds) and a toolbar all stack, and no screen has a title. <em>v2:</em> every top-level screen gets an app bar with a title and context. The nav proposal is on the <a href="navigation.html">Navigation</a> page.</li>
+<li><strong>Unstyled native controls.</strong> "Tracking incomplete" is a bare checkbox floating under the day nav. The parse-from-description checkbox, file inputs and date inputs are native too. <em>v2:</em> every control is a kit component. "Tracking incomplete" becomes a toggle row with a stale chip on the day.</li>
+<li><strong>The day navigator breaks on long labels.</strong> "Yesterday" pushes over the › button. <em>v2:</em> <code>.wg-daynav</code> uses fixed 44px arrow cells, the label truncates, and the relative day is a chip.</li>
+<li><strong>Status is spread across emoji, text and colour.</strong> Examples: "✅ Taken", "-17 LEFT", "High-normal · stale", and sync tags on only some lists. <em>v2:</em> five semantic status tokens (ok, warn, danger, stale, pending-sync) feed every chip, row state and banner.</li>
+<li><strong>The voice agent has two control surfaces.</strong> Call controls appear in the Today card and again in the floating pill. <em>v2:</em> one call bar. It's compact when idle and becomes the live control strip during a call.</li>
+</ul>
+<h3>What stays</h3>
+<ul><li>The palette, JetBrains Mono numerals, Space Grotesk UI text and the gloss material.</li><li>The BP chart and range pills, the Vitals tiles, the Upcoming meds list and the Stats balance bars.</li><li>Modal headers with Cancel/Save at the top right. You approved this on the Vitals pass, and it keeps Save above the keyboard.</li></ul>
+<h3>Action placement rule</h3>
+<ul><li><strong>Forms</strong> (edit med, BP, weight): Cancel and Save sit in the sheet header or page bar, so they're always above the keyboard.</li><li><strong>Flows and pickers</strong> (add food, take meds, finish workout): the contextual primary ("Add 150 g", "Confirm 3") sits in a footer docked to the top of the keyboard. The header has only a close button.</li><li><strong>Destructive actions</strong> always go through <code>.wg-dialog</code>, never a native confirm.</li></ul>
+<h3>Implementation constraints honoured</h3>
+<ul><li>Vanilla JS with BEM-ish <code>wg-*</code> classes on <code>--wg-*</code> tokens. Components have no inline styles.</li><li>The only exception is data-driven values, passed through one custom property (<code>--p</code> for percentages, <code>--n</code> for counts).</li><li>Icons come from one SVG sprite (<code>icons.js</code>, about 70 original line icons). The kit uses no emoji.</li><li>Hit targets are at least 44px; set rows use 56px cells.</li><li>Presentation-only CSS is in <code>kit.css</code>: phone frames, the fake keyboard and the board layout. Don't ship it.</li></ul>
+</div>
+<div class="kit-cards">
+<a class="kit-card" href="foundations.html"><b>Foundations</b><span>Tokens, status semantics, type, the button hierarchy, icons.</span></a>
+<a class="kit-card" href="components.html"><b>Components</b><span>Headers, rows, chips, segmented controls, settings rows, fields, file picker, set row, empty state, toast, dialog.</span></a>
+<a class="kit-card" href="screens-today.html"><b>Today &amp; Journey</b><span>Next up first, the Goal Line as a track, the weekly scorecard, plus empty, offline and loading states.</span></a>
+<a class="kit-card" href="screens-food.html"><b>Food</b><span>The log with the fixed day nav, and an add sheet that leads with search, scan, photo and describe.</span></a>
+<a class="kit-card" href="screens-meds.html"><b>Meds</b><span>Schedule, take sheet, and a sectioned editor as a pushed page.</span></a>
+<a class="kit-card" href="screens-workouts.html"><b>Workouts</b><span>A full-screen session takeover, and Plan, Day and Exercise as pushed pages.</span></a>
+<a class="kit-card" href="screens-settings.html"><b>Settings</b><span>The settings home, Features, Backup &amp; import, and Devices and Connectors inside the app shell.</span></a>
+<a class="kit-card" href="navigation.html"><b>Navigation</b><span>The current 8-slot nav next to the proposed 5-tab nav, with a reachability map.</span></a>
+</div>
+</main>
+</body>
+</html>
