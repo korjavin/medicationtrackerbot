@@ -156,6 +156,7 @@ button.wg-row{cursor:pointer}button.wg-row:hover{background:var(--wg-bg-card-hi)
 .wg-swipe--host.wg-swipe--open>:not(.wg-swipe__acts):not(.wg-menu){transform:translateX(-144px)}
 .wg-swipe--host.wg-swipe--one.wg-swipe--open>:not(.wg-swipe__acts):not(.wg-menu){transform:translateX(-72px)}
 .wg-swipe--host.wg-swipe--menu{overflow:visible;z-index:21}
+.wg-swipe--host.wg-swipe--menu>.wg-swipe__acts{display:none}
 .wg-swipe__more{flex-shrink:0;color:var(--wg-fg-2)}
 .wg-swipe__menu{top:calc(100% - 4px);right:8px}.wg-swipe__menu[hidden]{display:none}
 @media (prefers-reduced-motion:reduce){.wg-swipe--host>*{transition:none}}

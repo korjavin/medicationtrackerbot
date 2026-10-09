@@ -164,9 +164,10 @@
             const next = items[(at + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length];
             if (next) { e.preventDefault(); next.focus(); }
         });
-        // Tab out closes. A null relatedTarget (Safari blurs on tap without
-        // focusing the tapped button) is left to the outside-pointerdown close.
-        menu.addEventListener('focusout', (e) => {
+        // Focus leaving the row (Tab / Shift-Tab) closes. A null relatedTarget
+        // (Safari blurs on tap without focusing the tapped button) is left to
+        // the outside-pointerdown close.
+        row.addEventListener('focusout', (e) => {
             if (!menu.hidden && e.relatedTarget && !row.contains(e.relatedTarget)) close(row);
         });
 
