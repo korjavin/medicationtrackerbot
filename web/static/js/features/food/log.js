@@ -872,17 +872,14 @@ function renderFoodItemRow(log) {
 
     const actions = document.createElement('div');
     actions.className = 'wg-food-item-row__actions';
-    actions.appendChild(buildFoodActionButton('pencil', 'Edit entry', (event) => {
-        event.stopPropagation();
-        editFoodLog(log.id);
-    }));
-    actions.appendChild(buildFoodActionButton('trash', 'Delete entry', (event) => {
-        event.stopPropagation();
-        deleteFoodLog(log.id);
-    }));
     item.appendChild(actions);
 
-    return item;
+    return window.WGRowActions.attach(item, {
+        label: log.name || 'Food',
+        trail: actions,
+        onEdit: () => editFoodLog(log.id),
+        onDelete: () => deleteFoodLog(log.id),
+    });
 }
 
 function buildFoodActionButton(iconName, ariaLabel, onClick) {

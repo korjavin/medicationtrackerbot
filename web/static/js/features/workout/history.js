@@ -370,24 +370,19 @@ function _buildSessionCard(s) {
 
     const actions = document.createElement('div');
     actions.className = 'wg-workouts-history-row__actions';
-    // Pencil + trash only, matching the Plans and Exercise-library rows. A
-    // chevron here would duplicate the card-body tap below (same modal, bigger
-    // target); the pencil earns its slot by saying the modal is an editor.
-    actions.appendChild(_buildHistoryIconBtn('edit', 'Edit session', 'pencil', () => {
-        showWorkoutSessionModal(session.id);
-    }));
-    actions.appendChild(_buildHistoryIconBtn('delete', 'Delete session', 'trash', () => {
-        deleteWorkoutSessionById(session.id);
-    }));
     card.appendChild(actions);
 
     card.addEventListener('click', (e) => {
-        // Ignore clicks originating from icon-btns — they dispatch their own
-        // action and shouldn't also fall through to the detail view.
+        // The overflow button dispatches its own action.
         if (e.target.closest('.wg-workouts-history-row__actions')) return;
         showWorkoutSessionModal(session.id);
     });
-    return card;
+    return window.WGRowActions.attach(card, {
+        label: 'session',
+        trail: actions,
+        onEdit: () => showWorkoutSessionModal(session.id),
+        onDelete: () => deleteWorkoutSessionById(session.id),
+    });
 }
 
 // Delete a history session: gone at once, Undo from the toast (kit rule 3).
@@ -426,25 +421,6 @@ function _computeSessionDurationMinutes(session) {
         if (Number.isFinite(diff) && diff > 0) return Math.round(diff / 60000);
     }
     return 0;
-}
-
-function _buildHistoryIconBtn(kind, ariaLabel, iconName, handler) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    const className = `wg-icon-btn wg-workouts-history-row__${kind}`;
-    btn.className = className;
-    btn.setAttribute('aria-label', ariaLabel);
-    const gloss = document.createElement('span');
-    gloss.className = 'wg-gloss';
-    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
-        gloss.appendChild(window.WGIcons.iconSvg(iconName, { size: 16 }));
-    }
-    btn.appendChild(gloss);
-    btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        handler();
-    });
-    return btn;
 }
 
 function _buildMiBandCard(w) {
@@ -512,22 +488,18 @@ function _buildMiBandCard(w) {
 
     const actions = document.createElement('div');
     actions.className = 'wg-workouts-history-row__actions';
-    // Pencil + trash, same cluster as session / plan / exercise-library rows.
-    // The chevron that used to sit here only repeated the card-body tap below,
-    // and the row had no delete at all — deleting meant opening the modal first.
-    actions.appendChild(_buildHistoryIconBtn('edit', 'Edit workout', 'pencil', () => {
-        showMiBandWorkoutModal(w);
-    }));
-    actions.appendChild(_buildHistoryIconBtn('delete', 'Delete workout', 'trash', () => {
-        deleteMiBandWorkoutById(w.id);
-    }));
     card.appendChild(actions);
 
     card.addEventListener('click', (e) => {
         if (e.target.closest('.wg-workouts-history-row__actions')) return;
         showMiBandWorkoutModal(w);
     });
-    return card;
+    return window.WGRowActions.attach(card, {
+        label: 'workout',
+        trail: actions,
+        onEdit: () => showMiBandWorkoutModal(w),
+        onDelete: () => deleteMiBandWorkoutById(w.id),
+    });
 }
 
 window.WorkoutHistory = {

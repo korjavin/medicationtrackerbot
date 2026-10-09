@@ -3,8 +3,8 @@
 // Covers renderWeightLogs(logs): a `.wg-weight-history` list with day-group
 // headers (`.wg-section-label`), `.wg-card` rows per log (mono weight value,
 // ISO-local time), offline-pending + rejected badges as `.wg-tag--mono`
-// variants, and a trailing `.wg-icon-btn` cluster (edit + delete) that
-// reuses the existing `editWeightLog` / `deleteWeightLog` handlers. Also
+// variants, and WGRowActions row actions (tap / overflow Edit + Delete) that
+// reuse the existing `editWeightLog` / `deleteWeightLog` handlers. Also
 // verifies the full-width `.wg-weight-add-cta` CTA at the bottom of the
 // `#weight-view` and that the view opts into the shared `.wg-screen-stage`.
 
@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { clickRowAction, loadFrontendEnv } from './helpers/frontend-harness.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -118,7 +118,7 @@ describe('renderWeightLogs (Phase 6, Task 5)', () => {
         expect(document.querySelector('[data-weight-id="2"] .wg-chip')).toBeNull();
     });
 
-    it('renders trailing .wg-icon-btn edit + delete that invoke the existing handlers', () => {
+    it('row actions: overflow menu Edit / Delete and a row tap invoke the existing handlers', () => {
         const { document, window } = env;
         const deleteSpy = vi.fn();
         const editSpy = vi.fn();
@@ -129,28 +129,26 @@ describe('renderWeightLogs (Phase 6, Task 5)', () => {
             { id: 99, measured_at: midnight(0).toISOString(), weight: 82.3, notes: 'hi' }
         ]);
 
-        const editBtn = document.querySelector('#weight-list .wg-weight-history-row__edit');
-        expect(editBtn).not.toBeNull();
-        expect(editBtn.classList.contains('wg-icon-btn')).toBe(true);
-        expect(editBtn.querySelector('.wg-gloss')).not.toBeNull();
-        expect(editBtn.querySelector('svg[data-wg-icon="pencil"]')).not.toBeNull();
+        const row = document.querySelector('#weight-list .wg-weight-history-row');
+        expect(row.classList.contains('wg-swipe')).toBe(true);
+        expect(Array.from(row.querySelectorAll('.wg-swipe__act')).map((b) => b.textContent)).toEqual(['Edit', 'Delete']);
+        expect(row.querySelector('.wg-icon-btn')).toBeNull();
 
-        const delBtn = document.querySelector('#weight-list .wg-weight-history-row__delete');
-        expect(delBtn).not.toBeNull();
-        expect(delBtn.classList.contains('wg-icon-btn')).toBe(true);
-        expect(delBtn.querySelector('.wg-gloss')).not.toBeNull();
-        expect(delBtn.querySelector('svg[data-wg-icon="trash"]')).not.toBeNull();
-
-        editBtn.click();
+        clickRowAction(row, 'Edit');
         expect(editSpy).toHaveBeenCalledTimes(1);
         // The first arg is the log object; assert id + weight round-trip.
         const firstArg = editSpy.mock.calls[0][0];
         expect(firstArg.id).toBe(99);
         expect(firstArg.weight).toBe(82.3);
 
-        delBtn.click();
+        // Tapping the row body edits too (kit rule 3).
+        row.querySelector('.wg-weight-history-row__value').click();
+        expect(editSpy).toHaveBeenCalledTimes(2);
+
+        clickRowAction(row, 'Delete');
         expect(deleteSpy).toHaveBeenCalledTimes(1);
         expect(deleteSpy).toHaveBeenCalledWith('99');
+        expect(editSpy).toHaveBeenCalledTimes(2);
     });
 
     it('sorts logs within a day newest-first', () => {

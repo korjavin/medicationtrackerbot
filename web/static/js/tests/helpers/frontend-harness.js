@@ -13,7 +13,7 @@ const MESSENGER_ADAPTER_JS = path.join(REPO_ROOT, 'web/static/js/core/messenger-
 const MT_ELEMENTS_JS = path.join(REPO_ROOT, 'web/static/js/components/mt-elements.js');
 const EMPTY_STATE_JS = path.join(REPO_ROOT, 'web/static/js/components/empty-state.js');
 const STAT_CARD_JS = path.join(REPO_ROOT, 'web/static/js/components/stat-card.js');
-const ACTION_ROW_JS = path.join(REPO_ROOT, 'web/static/js/components/action-row.js');
+const WG_ROW_ACTIONS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-row-actions.js');
 const WG_ICONS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-icons.js');
 const WG_PAGE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-page.js');
 const WG_SHEET_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-sheet.js');
@@ -149,6 +149,20 @@ export function createMockResponse({ status = 200, json, text } = {}) {
   };
 }
 
+// Fire a row action through its overflow menu (WGRowActions; jsdom cannot
+// swipe): click the row's More button, then the menu item labelled `label`.
+// Returns the clicked item, or throws when the row has no such action.
+export function clickRowAction(row, label) {
+  const more = row && row.querySelector('.wg-swipe__more');
+  if (!more) throw new Error('clickRowAction: row has no overflow button');
+  more.click();
+  const item = Array.from(row.querySelectorAll('.wg-swipe__menu .wg-menu__item'))
+    .find((el) => el.textContent.trim() === label);
+  if (!item) throw new Error(`clickRowAction: no "${label}" menu item`);
+  item.click();
+  return item;
+}
+
 // withSync loads sync.js, i.e. the real SyncManager toast surface (safeToast
 // actions, deleteWithUndo's Undo toast, the food AI summary toast). Without it
 // safeToast falls back to safeAlert, which most suites rely on.
@@ -194,7 +208,7 @@ export function loadFrontendEnv({ withWorkout = false, withSync = false, url = '
   evalFileCached(window, MT_ELEMENTS_JS);
   evalFileCached(window, EMPTY_STATE_JS);
   evalFileCached(window, STAT_CARD_JS);
-  evalFileCached(window, ACTION_ROW_JS);
+  evalFileCached(window, WG_ROW_ACTIONS_JS);
   evalFileCached(window, WG_ICONS_JS);
   evalFileCached(window, WG_PAGE_JS);
   evalFileCached(window, WG_SHEET_JS);

@@ -877,8 +877,8 @@ function filterWeightLogsByRange(logs, range) {
 // Render weight logs grouped by day as Wandergeek gloss cards (Phase 6, Task 5).
 // Mirrors renderBPReadings: each group is a .wg-weight-history__group <li>
 // with a .wg-section-label header and a list of .wg-card rows. Offline +
-// rejected states surface as a WGChip.sync chip. Each row carries a
-// trailing .wg-icon-btn cluster (edit + delete).
+// rejected states surface as a WGChip.sync chip. Row actions (tap = edit,
+// swipe + overflow menu Edit/Delete) come from WGRowActions.
 function renderWeightLogs(logs, range) {
     const list = document.getElementById('weight-list');
     if (!list) return;
@@ -1005,49 +1005,19 @@ function buildWeightHistoryRow(log) {
 
     const actions = document.createElement('div');
     actions.className = 'wg-weight-history-row__actions';
-    actions.appendChild(buildWeightRowEditButton(log));
-    actions.appendChild(buildWeightRowDeleteButton(log));
     item.appendChild(actions);
 
-    return item;
-}
-
-function buildWeightRowEditButton(log) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'wg-icon-btn wg-weight-history-row__edit';
-    btn.setAttribute('aria-label', 'Edit weight');
-
-    const gloss = document.createElement('span');
-    gloss.className = 'wg-gloss';
-    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
-        gloss.appendChild(window.WGIcons.iconSvg('pencil', { size: 16 }));
-    }
-    btn.appendChild(gloss);
-
-    btn.addEventListener('click', () => {
-        if (typeof window.editWeightLog === 'function') {
-            window.editWeightLog(log);
-        }
+    return window.WGRowActions.attach(item, {
+        label: `weight ${weightSpan.textContent} ${display.label}`,
+        trail: actions,
+        tapEdits: true,
+        onEdit: () => {
+            if (typeof window.editWeightLog === 'function') {
+                window.editWeightLog(log);
+            }
+        },
+        onDelete: () => deleteWeightLog(String(log.id)),
     });
-    return btn;
-}
-
-function buildWeightRowDeleteButton(log) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'wg-icon-btn wg-weight-history-row__delete';
-    btn.setAttribute('aria-label', 'Delete weight');
-
-    const gloss = document.createElement('span');
-    gloss.className = 'wg-gloss';
-    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
-        gloss.appendChild(window.WGIcons.iconSvg('trash', { size: 16 }));
-    }
-    btn.appendChild(gloss);
-
-    btn.addEventListener('click', () => deleteWeightLog(String(log.id)));
-    return btn;
 }
 
 // Edit a weight log — prefill the edit-weight modal with the selected log's
