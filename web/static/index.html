@@ -579,7 +579,7 @@
                             <div class="wg-settings-row__desc">Where scheduled reminders are sent. Telegram needs a linked bot.</div>
                         </div>
                         <div class="wg-settings-row__control wg-settings-action-row">
-                            <select id="cloud-reminder-delivery" class="wg-btn wg-btn--sm" aria-label="Reminder delivery channel">
+                            <select id="cloud-reminder-delivery" class="wg-input wg-select" aria-label="Reminder delivery channel">
                                 <option value="webpush">Web push only</option>
                                 <option value="telegram">Telegram only</option>
                                 <option value="both">Web push and Telegram</option>
@@ -592,7 +592,7 @@
                             <div class="wg-settings-row__desc">Telegram reminders pass through the server as readable text. The default "Generic" says only that a reminder is due; opt in to "Detailed" to also send medication names.</div>
                         </div>
                         <div class="wg-settings-row__control wg-settings-action-row">
-                            <select id="cloud-reminder-verbosity" class="wg-btn wg-btn--sm" aria-label="Telegram reminder detail level">
+                            <select id="cloud-reminder-verbosity" class="wg-input wg-select" aria-label="Telegram reminder detail level">
                                 <option value="generic" selected>Generic (no names)</option>
                                 <option value="detailed">Detailed (includes names)</option>
                             </select>
