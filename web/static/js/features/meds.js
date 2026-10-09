@@ -1359,8 +1359,9 @@ async function saveMedication() {
         }
 
         // The interaction already showed inline before Save (kit M5); alert
-        // only when that check never resolved (offline, typed then saved).
-        if (res.warning && document.getElementById('med-rx-warning').classList.contains('hidden')) {
+        // unless that exact warning is on screen (a check that never resolved,
+        // or a stale one for a since-renamed med, still alerts).
+        if (res.warning && document.getElementById('med-rx-warning-text').textContent !== res.warning) {
             safeAlert(res.warning);
         }
 

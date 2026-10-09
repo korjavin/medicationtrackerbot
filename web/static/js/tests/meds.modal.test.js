@@ -258,6 +258,16 @@ describe('Medication editor page (kit M5–M6)', () => {
         document.getElementById('schedule-type').value = 'as_needed';
         await window.saveMedication();
         expect(window.safeAlert).not.toHaveBeenCalled();
+
+        // A stale inline result (renamed, saved before the new check) never
+        // swallows the warning Save returns for the medication saved.
+        window.showAddModal();
+        window.setMedRxMatch('candesartan', warning);
+        document.getElementById('med-name').value = 'Warfarin';
+        document.getElementById('schedule-type').value = 'as_needed';
+        window.apiCallDirect = vi.fn().mockResolvedValue({ id: 10, status: 'created', warning: 'Interaction between warfarin and ibuprofen: bleeding' });
+        await window.saveMedication();
+        expect(window.safeAlert).toHaveBeenCalledWith('Interaction between warfarin and ibuprofen: bleeding');
     });
 
     it('Delete is offered only for an archived, never-taken med and goes through deleteMed', async () => {
