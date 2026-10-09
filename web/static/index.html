@@ -524,9 +524,64 @@
                 <span></span>
             </header>
 
-            <details open class="wg-settings-group">
-                <summary class="wg-settings-group__summary">Preferences</summary>
+            <!-- Settings home (med-xso6.23, kit S1): grouped rows that summarise
+                 their state and push a WGPage. Each row's page body lives in
+                 .wg-settings-pages below and is moved into the pushed page while
+                 it is open (features/settings.js openSettingsPage), so every id
+                 stays in the document. A row hides when every section of its
+                 page is hidden (hideEmptySettingsRows). -->
+            <div class="wg-settings-home">
+                <div class="wg-list">
+                    <button type="button" class="wg-setting" data-settings-open="features">
+                        <span class="wg-row__lead"><i class="wg-ico" data-icon="eye"></i></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">Features</span><span class="wg-setting__desc" data-settings-summary="features"></span></span>
+                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                    </button>
+                    <button type="button" class="wg-setting" data-settings-open="targets">
+                        <span class="wg-row__lead"><i class="wg-ico" data-icon="flag"></i></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">Targets</span><span class="wg-setting__desc" data-settings-summary="targets"></span></span>
+                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                    </button>
+                    <button type="button" class="wg-setting" data-settings-open="notifications">
+                        <span class="wg-row__lead"><i class="wg-ico" data-icon="bell"></i></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">Reminders &amp; notifications</span><span class="wg-setting__desc" data-settings-summary="notifications"></span></span>
+                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                    </button>
+                    <button type="button" class="wg-setting" data-settings-open="units">
+                        <span class="wg-row__lead"><i class="wg-ico" data-icon="scale"></i></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">Units</span></span>
+                        <span class="wg-setting__value" data-settings-summary="units"></span>
+                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                    </button>
+                </div>
+                <div class="wg-list">
+                    <button type="button" class="wg-setting" data-settings-open="integrations">
+                        <span class="wg-row__lead"><i class="wg-ico" data-icon="bolt"></i></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">AI &amp; integrations</span><span class="wg-setting__desc" data-settings-summary="integrations">AI, food database, voice, Telegram</span></span>
+                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                    </button>
+                    <button type="button" class="wg-setting" data-settings-open="devices">
+                        <span class="wg-row__lead"><i class="wg-ico" data-icon="device"></i></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">Devices &amp; connectors</span><span class="wg-setting__desc" data-settings-summary="devices">Devices, Claude connector, invites</span></span>
+                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                    </button>
+                    <button type="button" class="wg-setting" data-settings-open="backup">
+                        <span class="wg-row__lead"><i class="wg-ico" data-icon="download"></i></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">Backup &amp; import</span><span class="wg-setting__desc">Download or restore all your data</span></span>
+                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                    </button>
+                    <button type="button" class="wg-setting" data-settings-open="account">
+                        <span class="wg-row__lead"><i class="wg-ico" data-icon="shield"></i></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">Account &amp; privacy</span><span class="wg-setting__desc">What the operator can see · delete</span></span>
+                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                    </button>
+                </div>
+                <!-- The feedback group (cloud only) is appended here by
+                     web/cloud/js/feedback-ui.js. -->
+            </div>
 
+            <div class="wg-settings-pages" hidden>
+            <div class="wg-settings-page" data-settings-page="notifications">
             <section class="wg-card wg-settings-section wg-settings-notifications-cloud wg-settings-hidden">
                 <h3 class="wg-settings-section__title">Notifications</h3>
                 <p class="wg-settings-section__desc">Push alerts and test notifications</p>
@@ -579,85 +634,81 @@
                 </div>
             </section>
 
-            <section class="wg-card wg-settings-section wg-settings-features">
-                <h3 class="wg-settings-section__title">Features</h3>
-                <p class="wg-settings-section__desc">Enable or disable sections</p>
-                <div class="wg-settings-row-list">
-                    <mt-setting-toggle title="Feature: Blood Pressure"
-                        description="Enable blood pressure section and commands" input-id="bp-feature-toggle">
-                    </mt-setting-toggle>
-
-                    <mt-setting-toggle title="Feature: Weight" description="Enable weight section and commands"
-                        input-id="weight-feature-toggle"></mt-setting-toggle>
-
-                    <mt-setting-toggle title="Feature: Workouts" description="Enable workouts section and commands"
-                        input-id="workout-feature-toggle"></mt-setting-toggle>
-
-                    <mt-setting-toggle title="Feature: Medications"
-                        description="Enable medications section and commands" input-id="medication-feature-toggle">
-                    </mt-setting-toggle>
-
-                    <mt-setting-toggle title="Food Intake Tracking" description="Enable food logging feature"
-                        input-id="food-intake-toggle"></mt-setting-toggle>
-
-                    <mt-setting-toggle title="Health Data"
-                        description="Enable health section to view sleep and vitals averages"
-                        input-id="health-feature-toggle"></mt-setting-toggle>
-
-                    <mt-setting-toggle title="Feature: Journey"
-                        description="Enable the Journey gamification section"
-                        input-id="gamification-feature-toggle"></mt-setting-toggle>
-
-                    <mt-setting-toggle title="Weekly Digest"
-                        description="Opt-in Sunday-evening bot summary of your week"
-                        input-id="weekly-digest-feature-toggle"></mt-setting-toggle>
-
-                    <!-- Journey mechanics + ED-safe (med-8tur.12): the gamificationmode
-                         record, shown only while gamification is on. -->
-                    <mt-setting-toggle title="Journey: Experiments"
-                        description="N-of-1 trials and the Test it button on discoveries"
-                        input-id="gam-mode-experiments-toggle"></mt-setting-toggle>
-
-                    <mt-setting-toggle title="Journey: Traits"
-                        description="Identity traits earned from steady habits"
-                        input-id="gam-mode-traits-toggle"></mt-setting-toggle>
-
-                    <mt-setting-toggle title="Journey: AI Story"
-                        description="Optional AI narration of your week"
-                        input-id="gam-mode-narration-toggle"></mt-setting-toggle>
-
-                    <mt-setting-toggle title="ED-safe mode"
-                        description="Hide the weight goal, milestones and weight numbers from Today and Journey"
-                        input-id="gam-mode-ed-safe-toggle"></mt-setting-toggle>
-
-                    <mt-setting-toggle title="Live Heart Rate (Experimental)"
-                        description="Show the experimental live-HR card on Vitals (Web Bluetooth)"
-                        input-id="live-hr-feature-toggle"></mt-setting-toggle>
-
-                    <div class="wg-settings-row">
-                        <div class="wg-settings-row__content">
-                            <div class="wg-settings-row__title wg-mono-display">Re-run onboarding</div>
-                            <div class="wg-settings-row__desc">Show the setup wizard again</div>
-                        </div>
-                        <div class="wg-settings-row__control">
-                            <button type="button" id="settings-rerun-onboarding" class="wg-gloss wg-settings-action-btn">Start</button>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <section class="wg-card wg-settings-section wg-settings-reminders">
-                <h3 class="wg-settings-section__title">Reminders</h3>
-                <p class="wg-settings-section__desc">Smart periodic reminders</p>
-                <div class="wg-settings-row-list">
-                    <mt-setting-toggle title="Blood Pressure Reminders"
-                        description="Smart reminders to measure blood pressure regularly" input-id="bp-reminders-toggle">
-                    </mt-setting-toggle>
-
-                    <mt-setting-toggle title="Weight Reminders" description="Remind me to track my weight weekly"
+            <section class="wg-section wg-settings-reminders">
+                <div class="wg-section__head"><span class="wg-eyebrow">Reminders</span></div>
+                <div class="wg-list">
+                    <mt-setting-toggle title="Blood pressure" description="Smart reminders to measure regularly"
+                        input-id="bp-reminders-toggle"></mt-setting-toggle>
+                    <mt-setting-toggle title="Weight" description="A weekly nudge to weigh in"
                         input-id="weight-reminders-toggle"></mt-setting-toggle>
                 </div>
             </section>
+            </div>
+
+            <!-- Features (kit S2): the feature flags grouped by intent. Turning a
+                 Tracking feature off rebuilds the tab bar and Health segments
+                 (toggleFeatureSetting → rebuildCanonicalBottomNav). -->
+            <div class="wg-settings-page wg-settings-features" data-settings-page="features">
+                <section class="wg-section">
+                    <div class="wg-section__head"><span class="wg-eyebrow">Tracking · shown in the nav</span></div>
+                    <div class="wg-list">
+                        <mt-setting-toggle title="Blood pressure" icon="activity" input-id="bp-feature-toggle"></mt-setting-toggle>
+                        <mt-setting-toggle title="Weight" icon="scale" input-id="weight-feature-toggle"></mt-setting-toggle>
+                        <mt-setting-toggle title="Food" icon="food" input-id="food-intake-toggle"></mt-setting-toggle>
+                        <mt-setting-toggle title="Medications" icon="pill" input-id="medication-feature-toggle"></mt-setting-toggle>
+                        <mt-setting-toggle title="Workouts" icon="dumbbell" input-id="workout-feature-toggle"></mt-setting-toggle>
+                        <mt-setting-toggle title="Vitals" icon="health" description="Sleep, steps and heart rate"
+                            input-id="health-feature-toggle"></mt-setting-toggle>
+                    </div>
+                </section>
+                <section class="wg-section">
+                    <div class="wg-section__head"><span class="wg-eyebrow">Journey</span></div>
+                    <div class="wg-list">
+                        <mt-setting-toggle title="Journey &amp; Goal Line" input-id="gamification-feature-toggle"></mt-setting-toggle>
+                        <mt-setting-toggle title="Weekly digest" description="Sunday evening summary of your week"
+                            input-id="weekly-digest-feature-toggle"></mt-setting-toggle>
+                        <!-- The Journey mechanic switches (med-8tur.12) fold into one row. -->
+                        <button type="button" class="wg-setting wg-settings-journey-extras" data-settings-open="journey-extras">
+                            <span class="wg-setting__body"><span class="wg-setting__title">Experiments · Traits · AI story</span><span class="wg-setting__desc" data-settings-summary="journey-extras"></span></span>
+                            <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                        </button>
+                    </div>
+                </section>
+                <section class="wg-section wg-settings-features__safety">
+                    <div class="wg-section__head"><span class="wg-eyebrow">Safety</span></div>
+                    <div class="wg-list">
+                        <mt-setting-toggle title="ED-safe mode" icon="shield"
+                            description="Hide the weight goal, milestones and weight numbers from Today and Journey"
+                            input-id="gam-mode-ed-safe-toggle"></mt-setting-toggle>
+                    </div>
+                </section>
+                <section class="wg-section">
+                    <div class="wg-section__head"><span class="wg-eyebrow">Labs</span></div>
+                    <div class="wg-list">
+                        <mt-setting-toggle title="Live heart rate"
+                            description="Beta · live-HR card on Vitals (Web Bluetooth)"
+                            input-id="live-hr-feature-toggle"></mt-setting-toggle>
+                    </div>
+                </section>
+            </div>
+
+            <div class="wg-settings-page" data-settings-page="journey-extras" data-settings-parent="Features">
+                <section class="wg-section">
+                    <div class="wg-list">
+                        <mt-setting-toggle title="Experiments"
+                            description="N-of-1 trials and the Test it button on discoveries"
+                            input-id="gam-mode-experiments-toggle"></mt-setting-toggle>
+                        <mt-setting-toggle title="Traits"
+                            description="Identity traits earned from steady habits"
+                            input-id="gam-mode-traits-toggle"></mt-setting-toggle>
+                        <mt-setting-toggle title="AI story"
+                            description="Optional AI narration of your week"
+                            input-id="gam-mode-narration-toggle"></mt-setting-toggle>
+                    </div>
+                </section>
+            </div>
+
+            <div class="wg-settings-page" data-settings-page="units">
 
             <section class="wg-card wg-settings-section wg-settings-units">
                 <h3 class="wg-settings-section__title">Units</h3>
@@ -681,10 +732,11 @@
                 </div>
             </section>
 
-            </details>
+            </div>
 
-            <details class="wg-settings-group">
-                <summary class="wg-settings-group__summary">Targets</summary>
+            <!-- Targets: food + Journey bands share ONE Save — the page-bar
+                 primary added by openSettingsPage (saveTargets). -->
+            <div class="wg-settings-page" data-settings-page="targets">
 
             <section id="food-target-settings" class="wg-card wg-settings-section wg-settings-food-targets">
                 <h3 class="wg-settings-section__title">Food Targets</h3>
@@ -723,8 +775,6 @@
                         </div>
                     </div>
                 </div>
-                <button id="save-food-targets-btn"
-                    class="wg-gloss wg-gloss--sun wg-settings-save-btn">Save Targets</button>
             </section>
 
             <section id="gamification-targets-settings" class="wg-card wg-settings-section wg-gam-targets hidden">
@@ -862,14 +912,13 @@
                         </div>
                     </div>
                 </div>
-                <button id="save-gamification-targets-btn"
-                    class="wg-gloss wg-gloss--sun wg-settings-save-btn">Save Targets</button>
             </section>
+            </div>
 
-            </details>
-
-            <details class="wg-settings-group">
-                <summary class="wg-settings-group__summary">Integrations</summary>
+            <!-- AI & integrations: moved unchanged; the page itself is med-xso6.26.
+                 Its PATCH semantics stay with integrations.js (an absent or
+                 emptied field can clear a saved value). -->
+            <div class="wg-settings-page" data-settings-page="integrations">
 
             <section id="settings-integrations" class="wg-card wg-settings-section wg-settings-integrations">
                 <h3 class="wg-settings-section__title">Integrations</h3>
@@ -975,10 +1024,10 @@
                 <button id="save-integrations-btn" type="button" class="wg-gloss wg-gloss--sun wg-settings-save-btn">Save Integrations</button>
             </section>
 
-            </details>
+            </div>
 
-            <details class="wg-settings-group">
-                <summary class="wg-settings-group__summary">Devices &amp; connections</summary>
+            <!-- Devices & connectors: moved unchanged; the page is med-xso6.25. -->
+            <div class="wg-settings-page" data-settings-page="devices">
 
             <section class="wg-card wg-settings-section wg-settings-cloud-devices wg-settings-hidden">
                 <h3 class="wg-settings-section__title">Devices</h3>
@@ -1031,10 +1080,10 @@
                 </div>
             </section>
 
-            </details>
+            </div>
 
-            <details class="wg-settings-group">
-                <summary class="wg-settings-group__summary">Backup &amp; data</summary>
+            <!-- Backup & import: moved unchanged; the page is med-xso6.24. -->
+            <div class="wg-settings-page" data-settings-page="backup">
 
             <section id="settings-importexport" class="wg-card wg-settings-section wg-settings-importexport">
                 <h3 class="wg-settings-section__title">Import / Export</h3>
@@ -1108,10 +1157,9 @@
                 </div>
             </section>
 
-            </details>
+            </div>
 
-            <details class="wg-settings-group">
-                <summary class="wg-settings-group__summary">Account &amp; privacy</summary>
+            <div class="wg-settings-page" data-settings-page="account">
 
             <section class="wg-card wg-settings-section wg-settings-privacy wg-settings-hidden">
                 <h3 class="wg-settings-section__title">What can the operator see?</h3>
@@ -1132,7 +1180,7 @@
                             <div class="wg-settings-row__desc">Download a copy before you delete — no one can recover it afterwards</div>
                         </div>
                         <div class="wg-settings-row__control">
-                            <button type="button" id="delete-account-export" class="wg-gloss wg-settings-action-btn">Export</button>
+                            <button type="button" id="delete-account-export" class="wg-btn wg-btn--sm">Export</button>
                         </div>
                     </div>
                     <div class="wg-settings-row">
@@ -1141,20 +1189,24 @@
                             <div class="wg-settings-row__desc">Asks you to type a phrase, then verify with your passkey</div>
                         </div>
                         <div class="wg-settings-row__control">
-                            <button type="button" id="delete-account-open" class="wg-gloss wg-settings-action-btn wg-settings-action-btn--danger">Delete…</button>
+                            <button type="button" id="delete-account-open" class="wg-btn wg-btn--danger wg-btn--sm">Delete…</button>
                         </div>
                     </div>
                 </div>
                 <p id="delete-account-export-status" class="wg-settings-danger__status" role="status"></p>
                 <p id="delete-account-error" class="wg-settings-danger__error" role="alert"></p>
             </section>
-
-            </details>
-
-            <div class="wg-settings-version">
-                <span class="wg-settings-version__label">Version</span>
-                <span class="wg-settings-version__value">VERSION_PLACEHOLDER</span>
             </div>
+            </div>
+
+            <footer class="wg-settings-footer">
+                <!-- Re-runs the first-run wizard locally (bindRerunOnboarding). -->
+                <button type="button" id="settings-rerun-onboarding" class="wg-btn wg-btn--ghost wg-btn--sm">Re-run onboarding</button>
+                <div class="wg-settings-version">
+                    <span class="wg-settings-version__label">Version</span>
+                    <span class="wg-settings-version__value">VERSION_PLACEHOLDER</span>
+                </div>
+            </footer>
         </div>
     </div>
     </div>
@@ -2570,7 +2622,6 @@
     <script src="/static/js/components/wg-steps-chart.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-vitals-chart.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-macro-bar.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="/static/js/components/wg-settings.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/core/modal-manager.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/core/api.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/core/app-kernel.js?v=TIMESTAMP_PLACEHOLDER"></script>

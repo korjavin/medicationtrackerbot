@@ -1124,7 +1124,10 @@ async function loadFoodTargets() {
     }
 }
 
-async function saveFoodTargets() {
+// Optimistic write (Critical Rule #9) on the 'food_targets' cache key; a failed
+// POST rolls it back. Resolves true on success. `toast: false` lets the Settings
+// Targets page (one Save for food + Journey bands) report once for both.
+async function saveFoodTargets({ toast = true } = {}) {
     const payload = {
         calories: parseInt(document.getElementById('food-target-calories').value, 10) || 0,
         carbs: parseInt(document.getElementById('food-target-carbs').value, 10) || 0,
@@ -1132,22 +1135,41 @@ async function saveFoodTargets() {
         fat: parseInt(document.getElementById('food-target-fat').value, 10) || 0
     };
 
+    const ds = window.DataStore;
+    let handle = null;
     try {
-        await apiCall('/api/food/settings/targets', 'POST', payload);
-        window.FoodLog.targets = payload;
+        if (ds && typeof ds.applyOptimistic === 'function') {
+            handle = await ds.applyOptimistic('food_targets', () => ({ ...payload }), ['food_targets']);
+        }
+        const res = await apiCall('/api/food/settings/targets', 'POST', payload);
+        if (!res) {
+            // apiCall already surfaced the failure; don't stack a second message.
+            if (handle) await handle.rollback();
+            return false;
+        }
+        if (handle) await handle.commit({ ...payload });
+    } catch (e) {
+        if (handle) await handle.rollback();
+        console.error('Failed to save food targets:', e);
+        safeToast('Failed to save food targets', 'error');
+        return false;
+    }
+
+    window.FoodLog.targets = payload;
+    try {
         // Nourishment scoring reads calorie/protein targets (s.food.GetTargets), so a
         // target change shifts today's HP — evict the gamification rings/journey too.
         await window.DataStore.invalidateTags(['settings', 'food_targets', 'gamification']);
-        safeToast('Food targets saved', 'info');
-        const currentTab = (window.AppStore && typeof window.AppStore.get === 'function' && window.AppStore.get('currentTab'))
-            || document.querySelector('.view.active')?.id?.replace(/-view$/, '');
-        if (currentTab === 'food') {
-            loadFoodLogs();
-        }
     } catch (e) {
-        console.error('Failed to save food targets:', e);
-        safeToast('Failed to save food targets', 'error');
+        console.warn('Failed to invalidate caches after saving food targets:', e);
     }
+    if (toast) safeToast('Food targets saved', 'info');
+    const currentTab = (window.AppStore && typeof window.AppStore.get === 'function' && window.AppStore.get('currentTab'))
+        || document.querySelector('.view.active')?.id?.replace(/-view$/, '');
+    if (currentTab === 'food') {
+        loadFoodLogs();
+    }
+    return true;
 }
 
 async function deleteFoodLog(id) {

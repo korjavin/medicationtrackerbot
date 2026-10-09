@@ -1,7 +1,7 @@
 // feedback-ui.js — cloud-mode-only "Send feedback" capture UI (bd med-dni.2).
 //
-// mountFeedbackLauncher(ctx) adds a "Feedback" card as the first section of the
-// Settings screen (post-unlock). Tapping it opens an <mt-modal> where anyone can compose
+// mountFeedbackLauncher(ctx) adds a "Send feedback" row as the last group of the
+// Settings home (post-unlock). Tapping it opens an <mt-modal> where anyone can compose
 // anonymous feedback: free text, an attached image (via the shared
 // MediaCapture.pickPhoto abstraction), and a recorded voice message (via the
 // MediaCapture.recordAudio handle added in med-dni.2 Task 1). Send assembles a
@@ -250,9 +250,10 @@ function openFeedbackModal() {
     return modal;
 }
 
-// Mount the launcher as the first card in the Settings section. Dedupe by id;
-// wait for <body> if the document is still parsing (the #settings-view
-// container is static in index.html, so it exists once the body is ready).
+// Mount the launcher as the Settings home's last group: one kit .wg-setting row
+// (med-xso6.23, kit S1). Dedupe by id; wait for <body> if the document is still
+// parsing (the #settings-view container is static in index.html, so it exists
+// once the body is ready).
 export async function mountFeedbackLauncher(ctx) {
     if (!document.body) {
         await new Promise((r) => document.addEventListener('DOMContentLoaded', r, { once: true }));
@@ -261,35 +262,41 @@ export async function mountFeedbackLauncher(ctx) {
     if (!settingsView) return null;
     if (document.getElementById(LAUNCHER_ID)) return null;
 
-    const section = document.createElement('section');
-    section.id = 'feedback-settings';
-    section.className = 'wg-card wg-settings-section wg-feedback-settings';
+    const group = document.createElement('div');
+    group.id = 'feedback-settings';
+    group.className = 'wg-list';
 
-    const title = document.createElement('h3');
-    title.className = 'wg-settings-section__title';
-    title.textContent = 'Feedback';
-    const desc = document.createElement('p');
-    desc.className = 'wg-settings-section__desc';
-    desc.textContent = 'Send a bug report or suggestion to the developer';
-
-    const rows = document.createElement('div');
-    rows.className = 'wg-settings-row-list';
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.id = LAUNCHER_ID;
-    btn.className = 'wg-gloss wg-feedback-launcher';
-    btn.textContent = 'Send feedback';
+    btn.className = 'wg-setting';
+
+    const lead = document.createElement('span');
+    lead.className = 'wg-row__lead wg-row__lead--sun';
+    const ico = document.createElement('i');
+    ico.className = 'wg-ico';
+    ico.dataset.icon = 'message';
+    lead.appendChild(ico);
+
+    const body = document.createElement('span');
+    body.className = 'wg-setting__body';
+    const title = document.createElement('span');
+    title.className = 'wg-setting__title';
+    title.textContent = 'Send feedback';
+    const desc = document.createElement('span');
+    desc.className = 'wg-setting__desc';
+    desc.textContent = canRecordAudio() ? 'Text, a screenshot or a voice note' : 'Text or a screenshot';
+    body.append(title, desc);
+
+    const chev = document.createElement('i');
+    chev.className = 'wg-ico wg-row__chev';
+    chev.dataset.icon = 'chev-r';
+
+    btn.append(lead, body, chev);
     btn.addEventListener('click', () => openFeedbackModal());
-    rows.appendChild(btn);
+    group.appendChild(btn);
 
-    section.appendChild(title);
-    section.appendChild(desc);
-    section.appendChild(rows);
-
-    // First card from the top: insert before the first existing settings
-    // section/group.
-    const firstSection = settingsView.querySelector('.wg-settings-section, .wg-settings-group');
-    if (firstSection) settingsView.insertBefore(section, firstSection);
-    else settingsView.appendChild(section);
+    (settingsView.querySelector('.wg-settings-home') || settingsView).appendChild(group);
+    if (window.WGIcons && typeof window.WGIcons.hydrate === 'function') window.WGIcons.hydrate(group);
     return btn;
 }

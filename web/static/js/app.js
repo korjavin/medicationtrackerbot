@@ -205,16 +205,8 @@ document.getElementById('live-hr-feature-toggle').addEventListener('change', asy
     await toggleFeatureSetting('live_hr', this.checked);
 });
 
-document.getElementById('save-food-targets-btn').addEventListener('click', async function () {
-    await saveFoodTargets();
-});
-
-const saveGamificationTargetsBtn = document.getElementById('save-gamification-targets-btn');
-if (saveGamificationTargetsBtn) {
-    saveGamificationTargetsBtn.addEventListener('click', async function () {
-        await saveGamificationTargets();
-    });
-}
+// Food + Journey targets share one Save: the Settings Targets page's page-bar
+// primary (features/settings.js openSettingsPage → saveTargets).
 
 // The weight-unit (kg/lb) preference state machine — the PATCH serial queue,
 // the optimistic-rollback baseline, the stale-hydration guard, and the
