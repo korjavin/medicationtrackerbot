@@ -8,6 +8,7 @@
 //   WGRowActions.attach(row, {
 //       onEdit?, onDelete?,                 // called with the triggering event
 //       extra?: [{ label, icon, onClick, danger }],   // menu-only actions
+//       swipe?: [action],  // the swipe tray instead of Edit/Delete (also list them in extra)
 //       label?,       // names the row for the More button ("More actions for …")
 //       trail?,       // element the More button goes into (default: row)
 //       tapEdits?,    // a tap on the row (outside its controls) → onEdit
@@ -78,7 +79,9 @@
         const o = opts || {};
         const edit = o.onEdit && { label: 'Edit', icon: 'pencil', onClick: o.onEdit };
         const del = o.onDelete && { label: 'Delete', icon: 'trash', onClick: o.onDelete, danger: true };
-        const swipeActs = [edit, del].filter(Boolean);
+        // opts.swipe replaces the Edit/Delete tray (e.g. a plan's Copy/Remove);
+        // those actions must also be in `extra` so the menu twin carries them.
+        const swipeActs = o.swipe || [edit, del].filter(Boolean);
         const actions = [edit, ...(o.extra || []), del].filter(Boolean);
         bindDocument();
 

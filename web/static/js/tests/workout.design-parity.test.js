@@ -158,20 +158,21 @@ describe('Workouts round-2 design parity', () => {
     });
 
     describe('modal shell migration', () => {
-        it('#workout-group-modal uses the .wg-modal shell', () => {
+        // med-xso6.22: the Plan / Day / Exercise editors are WGPage bodies in a
+        // hidden store, not modals — kit rows, segs and steppers only.
+        it('the plan editor is three WGPage bodies in a hidden store (no plan modals)', () => {
             const { document } = env;
-            const modal = document.getElementById('workout-group-modal');
-            expect(modal).not.toBeNull();
-            expect(modal.classList.contains('wg-modal')).toBe(true);
-            expect(modal.classList.contains('wg-workouts-group-modal')).toBe(true);
-        });
-
-        it('#workout-exercise-modal uses the .wg-modal shell', () => {
-            const { document } = env;
-            const modal = document.getElementById('workout-exercise-modal');
-            expect(modal).not.toBeNull();
-            expect(modal.classList.contains('wg-modal')).toBe(true);
-            expect(modal.classList.contains('wg-workouts-exercise-modal')).toBe(true);
+            for (const id of ['workout-group-modal', 'workout-variant-modal', 'workout-exercise-modal']) {
+                expect(document.getElementById(id)).toBeNull();
+            }
+            const store = document.querySelector('.wg-workout-pages');
+            expect(store.hidden).toBe(true);
+            const bodies = Array.from(store.querySelectorAll(':scope > [data-workout-page]')).map((b) => b.dataset.workoutPage);
+            expect(bodies).toEqual(['plan', 'day', 'exercise']);
+            const html = store.outerHTML;
+            expect(html).not.toMatch(/\bbtn-primary\b|\bbtn-secondary\b|\bmodal-header\b|\bform-row\b|<select(?![^>]*hidden)/);
+            expect(store.querySelectorAll('.wg-seg[data-seg-for]').length).toBeGreaterThanOrEqual(3);
+            expect(store.querySelectorAll('.wg-stepper').length).toBe(4);
         });
 
         it('#miband-workout-modal is a kit sheet (.wg-modal.wg-sheet) with the shared form-modal body', () => {
@@ -208,48 +209,6 @@ describe('Workouts round-2 design parity', () => {
             expect(cancel.classList.contains('wg-btn--ghost')).toBe(true);
             expect(save.classList.contains('wg-btn--primary')).toBe(true);
             expect(document.getElementById('miband-workout-delete-btn')).toBeNull();
-        });
-
-        it('#workout-variant-modal uses the .wg-modal shell with .wg-workouts-variant-modal variant classes', () => {
-            const { document } = env;
-            const modal = document.getElementById('workout-variant-modal');
-            expect(modal).not.toBeNull();
-            expect(modal.classList.contains('wg-modal')).toBe(true);
-            expect(modal.classList.contains('wg-workouts-variant-modal')).toBe(true);
-
-            // Eyebrow + mono-display title — matches the group/exercise
-            // modals migrated earlier in Phase 7.
-            const eyebrow = modal.querySelector('.wg-workouts-variant-modal__eyebrow');
-            const title = modal.querySelector('.wg-workouts-variant-modal__title');
-            expect(eyebrow).not.toBeNull();
-            expect(eyebrow.classList.contains('wg-section-label')).toBe(true);
-            expect(title).not.toBeNull();
-            expect(title.classList.contains('wg-mono-display')).toBe(true);
-            expect(title.id).toBe('workout-variant-modal-title');
-
-            // Name + Description inputs live inside .wg-gloss--inset wraps.
-            const wraps = modal.querySelectorAll('.wg-workouts-variant-modal__input-wrap');
-            expect(wraps.length).toBeGreaterThanOrEqual(2);
-            wraps.forEach((wrap) => {
-                expect(wrap.classList.contains('wg-gloss--inset')).toBe(true);
-            });
-
-            // Save pill is sun-glossed; Cancel is a plain gloss.
-            const cancel = document.getElementById('variant-cancel-btn');
-            const save = document.getElementById('variant-save-btn');
-            expect(cancel).not.toBeNull();
-            expect(cancel.classList.contains('wg-gloss')).toBe(true);
-            expect(cancel.classList.contains('wg-gloss--sun')).toBe(false);
-            expect(save).not.toBeNull();
-            expect(save.classList.contains('wg-gloss')).toBe(true);
-            expect(save.classList.contains('wg-gloss--sun')).toBe(true);
-
-            // Legacy paper-era classes must not linger on the variant modal.
-            const modalHtml = modal.outerHTML;
-            expect(modalHtml).not.toMatch(/\bbtn-primary\b/);
-            expect(modalHtml).not.toMatch(/\bbtn-secondary\b/);
-            expect(modalHtml).not.toMatch(/\bmodal-header\b/);
-            expect(modalHtml).not.toMatch(/\bform-row\b/);
         });
     });
 

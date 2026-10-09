@@ -1,6 +1,6 @@
 // ModalManager — central open/close registry for all modals in the app.
 // Loaded before app.js. Domain-specific close helpers (closeFoodScannerModal,
-// closeWorkoutGroupModal, etc.) are defined in app.js/workout.js and accessed
+// closeWorkoutSessionModal, etc.) are defined in app.js/workout.js and accessed
 // lazily at call time via the global scope.
 //
 // Stack (med-xso6.8): open() pushes the modal id, close() removes it, and the
@@ -139,15 +139,6 @@ const ModalManager = {
         }
     },
 
-    workoutGroup: {
-        open() {
-            ModalManager.open('workout-group-modal');
-        },
-        close() {
-            ModalManager.close('workout-group-modal');
-        }
-    },
-
     workoutScan: {
         open() {
             ModalManager.open('workout-scan-modal');
@@ -172,24 +163,6 @@ const ModalManager = {
         },
         close() {
             ModalManager.close('workout-share-import-modal');
-        }
-    },
-
-    workoutVariant: {
-        open() {
-            ModalManager.open('workout-variant-modal');
-        },
-        close() {
-            ModalManager.close('workout-variant-modal');
-        }
-    },
-
-    workoutExercise: {
-        open() {
-            ModalManager.open('workout-exercise-modal');
-        },
-        close() {
-            ModalManager.close('workout-exercise-modal');
         }
     },
 
@@ -268,12 +241,9 @@ const ModalManager = {
             { id: 'weight-modal', fn: () => ModalManager.weight.close() },
             { id: 'note-modal', fn: () => ModalManager.note.close() },
             { id: 'food-modal', fn: () => ModalManager.food.close() },
-            { id: 'workout-group-modal', fn: () => typeof closeWorkoutGroupModal === 'function' ? closeWorkoutGroupModal() : ModalManager.workoutGroup.close() },
             { id: 'workout-scan-modal', fn: () => typeof closeWorkoutScanModal === 'function' ? closeWorkoutScanModal() : ModalManager.workoutScan.close() },
             { id: 'workout-share-modal', fn: () => (window.WorkoutShare && typeof window.WorkoutShare.close === 'function') ? window.WorkoutShare.close() : ModalManager.workoutShare.close() },
             { id: 'workout-share-import-modal', fn: () => (window.WorkoutShare && typeof window.WorkoutShare.closeImport === 'function') ? window.WorkoutShare.closeImport() : ModalManager.workoutShareImport.close() },
-            { id: 'workout-variant-modal', fn: () => typeof closeVariantModal === 'function' ? closeVariantModal() : ModalManager.workoutVariant.close() },
-            { id: 'workout-exercise-modal', fn: () => typeof closeExerciseModal === 'function' ? closeExerciseModal() : ModalManager.workoutExercise.close() },
             { id: 'exercise-library-modal', fn: () => typeof closeExerciseLibraryModal === 'function' ? closeExerciseLibraryModal() : ModalManager.exerciseLibrary.close() },
             { id: 'workout-equipment-modal', fn: () => typeof closeWorkoutEquipmentModal === 'function' ? closeWorkoutEquipmentModal() : ModalManager.workoutEquipment.close() },
             { id: 'workout-session-modal', fn: () => typeof closeWorkoutSessionModal === 'function' ? closeWorkoutSessionModal() : ModalManager.workoutSession.close() },

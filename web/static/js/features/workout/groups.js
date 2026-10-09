@@ -1,27 +1,32 @@
 // ====================================
-// WORKOUT GROUPS — CRUD
+// WORKOUT PLANS — list + Plan page
 // ====================================
 //
 // Owns:
 //   - cached workout-groups list (window.WorkoutEdit.cachedGroups)
-//   - "currently editing group id" form state (closure-private,
-//     read/written via window.WorkoutEdit.editingGroupId getter/setter)
-//   - the group-create / group-edit / group-delete flows
-//
-// Cross-file coupling: variants.js + exercises.js consult
-// window.WorkoutEdit.editingGroupId / .cachedGroups to drive variant /
-// exercise modal openings without needing direct access to this file's
-// closure.
+//   - the Plans list (one tappable row per plan)
+//   - the plan editor root (med-xso6.22, kit screens-workouts P1): Plan → Day
+//     → Exercise are nested WGPages. The Day page (variants.js) and the
+//     Exercise page (exercises.js) stage their edits into the draft held here
+//     (window.WorkoutEdit.planDraft); only the Plan page's Save writes — the
+//     same routes and payloads the old three modals sent, one after another,
+//     behind one DataStore.applyOptimistic.
+//   - the shared page helpers the child pages use (value segs, steppers, row
+//     reorder, dirty-check).
 
 (function () {
-    // Closure-private "currently editing group" state. Plan Task 1 forbids
-    // module-level mutable globals in the extracted files — the equivalent of
-    // the original `let currentEditingGroupId = null` is held in this IIFE.
+    // Closure-private editor state — module-level mutable globals are
+    // forbidden in the extracted files (architecture.no-module-state).
     let _editingGroupId = null;
-    // Cached workout groups list. Hydrated by loadWorkoutGroups + the SWR
-    // onFresh path; consumed by showEditWorkoutGroupModal / showAddVariantModal
-    // / resolveVariantForExercise. Exposed via WorkoutEdit.cachedGroups.
+    // Hydrated by loadWorkoutGroups + the SWR onFresh path.
     let _cachedGroups = [];
+    // The open plan editor's draft, null while no Plan page is open:
+    //   { groupId, group, page, days: [Day], removedDays: [id], daysReordered }
+    //   Day = { id|null, name, description, rotation_order, orig, implicit,
+    //           exercises: [{ id|null, rec, payload }], removed: [id], exReordered }
+    // `rec` is the exercise as loaded, `payload` the staged edit (null = none).
+    // Group fields live in the Plan page's own inputs.
+    let _planDraft = null;
 
     window.WorkoutEdit = window.WorkoutEdit || {};
     Object.defineProperty(window.WorkoutEdit, 'editingGroupId', {
@@ -33,6 +38,12 @@
     Object.defineProperty(window.WorkoutEdit, 'cachedGroups', {
         get: () => _cachedGroups,
         set: (v) => { _cachedGroups = Array.isArray(v) ? v : []; },
+        enumerable: true,
+        configurable: true
+    });
+    Object.defineProperty(window.WorkoutEdit, 'planDraft', {
+        get: () => _planDraft,
+        set: (v) => { _planDraft = v || null; },
         enumerable: true,
         configurable: true
     });
@@ -84,20 +95,19 @@ function _renderWorkoutGroups(container, groups) {
     container.classList.add('wg-workouts-groups');
 
     if (!groups || groups.length === 0) {
-        const empty = doc.createElement('p');
-        empty.className = 'wg-workouts-groups__empty';
-        empty.textContent = 'No plans yet — tap Add to create one.';
-        container.replaceChildren(empty);
+        container.replaceChildren(createEmptyState({
+            icon: 'dumbbell',
+            title: 'No plans yet',
+            body: 'Add a plan to schedule your workouts, or import one someone shared.',
+        }));
         return;
     }
 
-    const list = doc.createElement('ul');
-    list.className = 'list-reset wg-workouts-groups__list';
-
+    const list = doc.createElement('div');
+    list.className = 'wg-list';
     groups.forEach((group) => {
         list.appendChild(_buildWorkoutGroupRow(doc, group));
     });
-
     container.replaceChildren(list);
 }
 
@@ -116,318 +126,524 @@ function _workoutGroupDaysText(group) {
         .map((d) => daysMap[d]).filter(Boolean).join(', ');
 }
 
+function _workoutIcon(doc, name, extraClass) {
+    const ico = doc.createElement('i');
+    ico.className = extraClass ? `wg-ico ${extraClass}` : 'wg-ico';
+    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+        ico.appendChild(window.WGIcons.iconSvg(name, { size: 18 }));
+    }
+    return ico;
+}
+
+// One plan = one tappable kit row; a tap opens the Plan page, where Share /
+// Print / Scan / Delete live (no per-row action strip).
 function _buildWorkoutGroupRow(doc, group) {
-    const card = doc.createElement('li');
-    card.className = 'wg-card wg-workouts-groups-row';
-    card.dataset.groupId = String(group.id || '');
-    if (group.is_rotating) card.classList.add('wg-workouts-groups-row--rotating');
-    if (!group.active) card.classList.add('wg-workouts-groups-row--inactive');
+    const row = doc.createElement('button');
+    row.type = 'button';
+    row.className = 'wg-row wg-workout-plan-row';
+    row.dataset.groupId = String(group.id || '');
 
-    const body = doc.createElement('div');
-    body.className = 'wg-workouts-groups-row__body';
-
-    const title = doc.createElement('div');
-    title.className = 'wg-workouts-groups-row__title';
-
-    const name = doc.createElement('span');
-    name.className = 'wg-workouts-groups-row__name';
-    name.textContent = group.name || 'Plan';
-    title.appendChild(name);
-
+    const body = doc.createElement('span');
+    body.className = 'wg-row__body';
+    const title = doc.createElement('span');
+    title.className = 'wg-row__title';
+    title.textContent = group.name || 'Plan';
     body.appendChild(title);
 
-    const meta = doc.createElement('div');
-    meta.className = 'wg-workouts-groups-row__meta';
-
+    const metaParts = [];
     const daysText = _workoutGroupDaysText(group);
-
-    if (daysText) {
-        const days = doc.createElement('span');
-        days.className = 'wg-workouts-groups-row__days';
-        days.textContent = daysText;
-        meta.appendChild(days);
-    }
-
-    if (group.scheduled_time) {
-        const time = doc.createElement('span');
-        time.className = 'wg-workouts-groups-row__time';
-        time.textContent = group.scheduled_time;
-        meta.appendChild(time);
-    }
-
-    if (Number.isFinite(Number(group.exercises_count))) {
-        const count = doc.createElement('span');
-        count.className = 'wg-workouts-groups-row__count';
+    if (daysText) metaParts.push(daysText);
+    if (group.scheduled_time) metaParts.push(group.scheduled_time);
+    if (Number.isFinite(Number(group.exercises_count)) && group.exercises_count !== null) {
         const n = Number(group.exercises_count);
-        count.textContent = `${n} exercise${n === 1 ? '' : 's'}`;
-        meta.appendChild(count);
+        metaParts.push(`${n} exercise${n === 1 ? '' : 's'}`);
     }
-
+    const meta = doc.createElement('span');
+    meta.className = 'wg-row__meta';
+    meta.textContent = metaParts.join(' · ');
     if (group.is_rotating) {
         const rot = doc.createElement('span');
-        rot.className = 'wg-tag wg-tag--mono wg-tag--normal wg-workouts-groups-row__rotating';
+        rot.className = 'wg-tag';
         rot.textContent = 'Rotating';
         meta.appendChild(rot);
     }
+    if (metaParts.length || group.is_rotating) body.appendChild(meta);
+    row.appendChild(body);
 
     if (!group.active) {
-        const inactive = doc.createElement('span');
-        inactive.className = 'wg-tag wg-tag--mono wg-tag--skipped wg-workouts-groups-row__inactive';
-        inactive.textContent = 'Inactive';
-        meta.appendChild(inactive);
+        row.appendChild(window.WGChip.create({ text: 'Inactive', state: 'stale', small: true }));
     }
+    row.appendChild(_workoutIcon(doc, 'chev-r', 'wg-row__chev'));
 
-    if (meta.childNodes.length > 0) body.appendChild(meta);
-
-    card.appendChild(body);
-
-    const actions = doc.createElement('div');
-    actions.className = 'wg-workouts-groups-row__actions';
-    actions.appendChild(_buildGroupsIconBtn(doc, 'share', 'Share plan', 'share', () => {
-        // Via the namespace so the share-modal handoff stays stubbable in tests.
-        window.WorkoutShare.share(group);
-    }));
-    actions.appendChild(_buildGroupsIconBtn(doc, 'print', 'Print plan', 'printer', () => {
-        // Via the namespace so the print-doc handoff stays stubbable in tests.
-        window.WorkoutGroups.print(group);
-    }));
-    // Scan-back (bd med-qj4.9) needs the browser-direct vision path
-    // (window.CloudWorkoutSheetAI); hidden when that seam is absent.
-    if (window.WorkoutScan && typeof window.WorkoutScan.scan === 'function') {
-        actions.appendChild(_buildGroupsIconBtn(doc, 'scan', 'Scan filled sheet', 'camera', () => {
-            window.WorkoutScan.scan(group);
-        }));
-    }
-    actions.appendChild(_buildGroupsIconBtn(doc, 'edit', 'Edit plan', 'pencil', () => {
-        showEditWorkoutGroupModal(group.id);
-    }));
-    actions.appendChild(_buildGroupsIconBtn(doc, 'delete', 'Delete plan', 'trash', (event) => {
-        deleteWorkoutGroup(group.id, event);
-    }));
-    card.appendChild(actions);
-
-    card.addEventListener('click', (e) => {
-        if (e.target.closest('.wg-workouts-groups-row__actions')) return;
-        showEditWorkoutGroupModal(group.id);
-    });
-
-    return card;
-}
-
-function _buildGroupsIconBtn(doc, kind, ariaLabel, iconName, handler) {
-    const btn = doc.createElement('button');
-    btn.type = 'button';
-    btn.className = `wg-icon-btn wg-workouts-groups-row__${kind}`;
-    btn.setAttribute('aria-label', ariaLabel);
-    const gloss = doc.createElement('span');
-    gloss.className = 'wg-gloss';
-    if (typeof window !== 'undefined' && window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
-        gloss.appendChild(window.WGIcons.iconSvg(iconName, { size: 16 }));
-    }
-    btn.appendChild(gloss);
-    btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        handler(e);
-    });
-    return btn;
-}
-
-function setFlatExercisesPendingSaveMessage() {
-    const container = document.getElementById('workout-group-flat-exercises-list');
-    if (!container) return;
-    const message = document.createElement('p');
-    message.className = 'workout-pending-msg';
-    message.textContent = 'Save this plan first to add exercises.';
-    container.replaceChildren(message);
+    row.addEventListener('click', () => { openWorkoutPlanPage(group.id); });
+    return row;
 }
 
 // ====================================
-// WORKOUT GROUP MODAL
+// SHARED PAGE HELPERS (Plan / Day / Exercise pages)
 // ====================================
 
-function showAddWorkoutGroupModal() {
-    window.WorkoutEdit.editingGroupId = null;
-    window.WorkoutEdit.groupForVariant = null;
-    window.WorkoutEdit.variantForExercise = null;
-    document.getElementById('workout-group-modal-title').textContent = 'Add Plan';
-    window.ModalManager.workoutGroup.open();
-
-    // Reset fields
-    document.getElementById('workout-group-name').value = '';
-    document.getElementById('workout-group-description').value = '';
-    document.getElementById('workout-group-rotating').checked = false;
-    document.getElementById('workout-group-time').value = '09:00';
-    document.getElementById('workout-group-notification').value = '15';
-    document.getElementById('workout-group-goal').value = 'hypertrophy';
-    document.getElementById('workout-group-active').checked = true;
-
-    // Clear days
-    window.MedicationUtils.setPickedDays(document.querySelector('#workout-group-modal .wg-picks'), []);
-
-    // Show/hide sections based on default "Rotating" state (unchecked)
-    document.getElementById('workout-variants-section').style.display = 'none';
-    document.getElementById('workout-group-flat-exercises-section').style.display = 'block';
-    setFlatExercisesPendingSaveMessage();
+// Value segs: a hidden input (the value the save reads, same id as the old
+// <select>) mirrored by a .wg-seg[data-seg-for=<id>] of [data-value] options.
+// A tap writes the input and fires its onchange; a programmatic write is
+// re-painted with workoutSegSync(root).
+function workoutSegSync(root) {
+    (root || document).querySelectorAll('.wg-seg[data-seg-for]').forEach((seg) => {
+        const input = document.getElementById(seg.dataset.segFor);
+        const value = input ? input.value : '';
+        seg.querySelectorAll('.wg-seg__opt').forEach((opt) => {
+            opt.setAttribute('aria-pressed', opt.dataset.value === value ? 'true' : 'false');
+        });
+    });
 }
 
-async function showEditWorkoutGroupModal(groupId) {
-    window.WorkoutEdit.editingGroupId = groupId;
-    window.WorkoutEdit.groupForVariant = groupId;
-    window.WorkoutEdit.variantForExercise = null;
-    const group = window.WorkoutEdit.cachedGroups.find(g => g.id === groupId);
-    if (!group) return;
+// Steppers: [data-step-for=<input id>][data-step=<delta>] buttons around a
+// number input. Writes fire the input's onchange (the weight's re-resolves
+// the auto equipment label).
+function _workoutStep(btn) {
+    const input = document.getElementById(btn.dataset.stepFor);
+    if (!input) return;
+    const step = parseFloat(btn.dataset.step) || 0;
+    const min = input.min !== '' ? parseFloat(input.min) : -Infinity;
+    const max = input.max !== '' ? parseFloat(input.max) : Infinity;
+    const cur = input.value !== '' ? parseFloat(input.value)
+        : (input.placeholder !== '' ? parseFloat(input.placeholder) || 0 : 0);
+    const next = Math.min(max, Math.max(min, Math.round((cur + (input.value !== '' ? step : 0)) * 100) / 100));
+    input.value = String(next);
+    if (typeof input.onchange === 'function') input.onchange();
+}
 
-    document.getElementById('workout-group-modal-title').textContent = 'Edit Plan';
-    window.ModalManager.workoutGroup.open();
-
-    // Fill fields
-    document.getElementById('workout-group-name').value = group.name;
-    document.getElementById('workout-group-description').value = group.description || '';
-    document.getElementById('workout-group-rotating').checked = group.is_rotating;
-    document.getElementById('workout-group-time').value = group.scheduled_time;
-    document.getElementById('workout-group-notification').value = group.notification_advance_minutes;
-    document.getElementById('workout-group-goal').value = group.training_goal || 'hypertrophy';
-    document.getElementById('workout-group-active').checked = group.active;
-
-    // Set days
-    const daysArray = JSON.parse(group.days_of_week || '[]');
-    window.MedicationUtils.setPickedDays(document.querySelector('#workout-group-modal .wg-picks'), daysArray);
-
-    // Show variants or flat exercises based on rotation
-    if (group.is_rotating) {
-        document.getElementById('workout-variants-section').style.display = 'block';
-        document.getElementById('workout-group-flat-exercises-section').style.display = 'none';
-        await loadVariantsForGroup(groupId);
-    } else {
-        document.getElementById('workout-variants-section').style.display = 'none';
-        document.getElementById('workout-group-flat-exercises-section').style.display = 'block';
-
-        // Fetch variants. If none exists, create a default one for non-rotating groups.
-        // Creating a variant is a workout mutation that can flip workout_next
-        // eligibility for the group, so invalidate the workout-tagged caches
-        // before continuing — even if the user cancels the modal afterwards.
-        let variants = await apiCall(`/api/workout/variants?group_id=${groupId}`);
-        if (!variants || variants.length === 0) {
-            const newVariant = await apiCall('/api/workout/variants/create', 'POST', {
-                group_id: groupId,
-                name: 'Main',
-                rotation_order: null,
-                description: ''
-            });
-            if (newVariant) {
-                await invalidateWorkoutCache();
-                variants = [newVariant];
-            } else {
-                variants = [];
-            }
-        }
-
-        if (variants.length === 0) {
-            setFlatExercisesPendingSaveMessage();
+// One delegated click handler per page body (bound once, at boot).
+function bindWorkoutPageControls(root) {
+    if (!root || root.dataset.controlsBound === 'true') return;
+    root.dataset.controlsBound = 'true';
+    root.addEventListener('click', (e) => {
+        const opt = e.target.closest('.wg-seg[data-seg-for] .wg-seg__opt');
+        if (opt) {
+            const input = document.getElementById(opt.closest('.wg-seg').dataset.segFor);
+            if (!input) return;
+            input.value = opt.dataset.value;
+            workoutSegSync(root);
+            if (typeof input.onchange === 'function') input.onchange();
             return;
         }
-
-        const defaultVariantId = variants[0].id;
-        window.WorkoutEdit.groupForVariant = groupId;
-        window.WorkoutEdit.variantForExercise = defaultVariantId;
-        await loadExercisesForVariant(defaultVariantId, 'workout-group-flat-exercises-list');
-    }
+        const stepBtn = e.target.closest('[data-step-for]');
+        if (stepBtn) _workoutStep(stepBtn);
+    });
 }
 
-function closeWorkoutGroupModal() {
-    window.ModalManager.workoutGroup.close();
-    window.WorkoutEdit.editingGroupId = null;
-    window.WorkoutEdit.groupForVariant = null;
-    window.WorkoutEdit.variantForExercise = null;
+// Form state of a page body + any draft state, for the dirty check on Back.
+function workoutFormSnapshot(root, extra) {
+    const fields = Array.from(root.querySelectorAll('input, textarea, select'))
+        .map((el) => (el.type === 'checkbox' ? el.checked : el.value));
+    const picks = root.querySelector('.wg-picks[data-day-picks]');
+    return JSON.stringify([fields, picks ? window.MedicationUtils.getPickedDays(picks) : null, extra || null]);
 }
 
-async function toggleRotatingFields() {
-    // The >1-Day off-guard below runs async (it fetches the Day count). Mark the
-    // guard in-flight so saveWorkoutGroup can refuse to save while the checkbox
-    // hasn't yet been settled — otherwise a Save click racing this fetch would
-    // post the still-false checkbox and slip past the guard (Task 4).
-    // Count in-flight handlers rather than a bool: the change event is
-    // fire-and-forget, so a rapid off/on/off can overlap handlers, and an
-    // earlier one clearing a shared bool would open the guard while a later
-    // off-check is still pending. Guard stays closed until the last one settles.
-    window.WorkoutEdit.rotatingGuardPending = (window.WorkoutEdit.rotatingGuardPending || 0) + 1;
-    try {
-        await toggleRotatingFieldsInner();
-    } finally {
-        window.WorkoutEdit.rotatingGuardPending -= 1;
-    }
+// Back on an editor page: leave at once when clean, else ask first.
+function workoutConfirmDiscard(dirty, message) {
+    if (!dirty) return true;
+    return safeConfirm(message, null, { title: 'Discard changes?', confirmLabel: 'Discard', destructive: true })
+        .then((ok) => !!ok);
 }
 
-async function toggleRotatingFieldsInner() {
-    const isRotating = document.getElementById('workout-group-rotating').checked;
-    if (isRotating) {
-        document.getElementById('workout-variants-section').style.display = 'block';
-        document.getElementById('workout-group-flat-exercises-section').style.display = 'none';
-        if (window.WorkoutEdit.editingGroupId) {
-            await loadVariantsForGroup(window.WorkoutEdit.editingGroupId);
+function workoutMoveItem(arr, from, to) {
+    if (to < 0 || to >= arr.length || from === to) return false;
+    arr.splice(to, 0, arr.splice(from, 1)[0]);
+    return true;
+}
+
+// Overflow-menu twins of the drag (keyboard / screen-reader path).
+function workoutMoveActions(index, length, onMove) {
+    const acts = [];
+    if (index > 0) acts.push({ label: 'Move up', icon: 'chev-u', onClick: () => onMove(index, index - 1) });
+    if (index < length - 1) acts.push({ label: 'Move down', icon: 'chev-d', onClick: () => onMove(index, index + 1) });
+    return acts;
+}
+
+// Pointer drag on a row's .wg-grip: the drop target is the sibling row whose
+// vertical middle the pointer ends above. Rows carry data-reorder-index.
+function bindWorkoutRowDrag(grip, row, index, onMove) {
+    grip.addEventListener('click', (e) => e.stopPropagation()); // never also opens the row
+    grip.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        e.stopPropagation(); // not a swipe either
+        if (typeof grip.setPointerCapture === 'function') {
+            try { grip.setPointerCapture(e.pointerId); } catch (_) { /* synthetic pointer */ }
         }
+        row.classList.add('wg-workout-row--dragging');
+        const end = (ev) => {
+            grip.removeEventListener('pointerup', end);
+            grip.removeEventListener('pointercancel', end);
+            row.classList.remove('wg-workout-row--dragging');
+            if (ev.type !== 'pointerup' || !row.parentElement) return;
+            const rows = Array.from(row.parentElement.querySelectorAll(':scope > [data-reorder-index]'));
+            let to = rows.findIndex((r) => {
+                const b = r.getBoundingClientRect();
+                return ev.clientY < b.top + b.height / 2;
+            });
+            if (to === -1) to = rows.length - 1;
+            else if (to > index) to -= 1;
+            if (to !== index) onMove(index, to);
+        };
+        grip.addEventListener('pointerup', end);
+        grip.addEventListener('pointercancel', end);
+    });
+}
+
+// A placeholder row inside an empty .wg-list.
+function workoutEmptyRow(text) {
+    const row = document.createElement('div');
+    row.className = 'wg-row wg-row--pad';
+    const body = document.createElement('span');
+    body.className = 'wg-row__body';
+    const meta = document.createElement('span');
+    meta.className = 'wg-row__meta';
+    meta.textContent = text;
+    body.appendChild(meta);
+    row.appendChild(body);
+    return row;
+}
+
+function _workoutPageBody(name) {
+    return document.querySelector(`.wg-workout-pages > [data-workout-page="${name}"]`);
+}
+
+// Static modals (share / scan) opened from a page sit earlier in the DOM than
+// it, so re-append them to paint on top (MTModal.connectedCallback is
+// idempotent).
+function _raiseWorkoutModal(id) {
+    const el = document.getElementById(id);
+    if (el) document.body.appendChild(el);
+}
+
+// ====================================
+// PLAN PAGE (kit P1)
+// ====================================
+
+function _planDayFromRecord(variant, exercises) {
+    const sorted = [...exercises].sort((a, b) => (a.order_index || 0) - (b.order_index || 0));
+    return {
+        id: variant.id,
+        name: variant.name || '',
+        description: variant.description || '',
+        rotation_order: variant.rotation_order == null ? null : variant.rotation_order,
+        orig: { name: variant.name || '', description: variant.description || '' },
+        implicit: false,
+        exercises: sorted.map((rec) => ({ id: rec.id, rec, payload: null })),
+        removed: [],
+        exReordered: false,
+    };
+}
+
+function newPlanDay(name, implicit) {
+    return {
+        id: null, name: name || '', description: '', rotation_order: null, orig: null,
+        implicit: !!implicit, exercises: [], removed: [], exReordered: false,
+    };
+}
+
+// Days + exercises of a saved plan, or null when a read failed (offline/5xx).
+async function _loadPlanDays(groupId) {
+    const variants = await apiCall(`/api/workout/variants?group_id=${groupId}`);
+    if (!Array.isArray(variants)) return null;
+    const days = [];
+    for (const v of variants) {
+        const exercises = await apiCall(`/api/workout/exercises?variant_id=${v.id}`);
+        if (!Array.isArray(exercises)) return null;
+        days.push(_planDayFromRecord(v, exercises));
+    }
+    return days;
+}
+
+function _planName() {
+    const input = document.getElementById('workout-group-name');
+    return (input && input.value.trim()) || 'Plan';
+}
+
+function _planRotating() {
+    const cb = document.getElementById('workout-group-rotating');
+    return !!(cb && cb.checked);
+}
+
+// The single Day a non-rotating plan edits as a flat list ("Main", created on
+// Save only once it holds exercises).
+function _flatPlanDay(draft) {
+    if (!draft.days.length) draft.days.push(newPlanDay('Main', true));
+    return draft.days[0];
+}
+
+function _syncNotificationRow() {
+    const input = document.getElementById('workout-group-notification');
+    const value = document.getElementById('workout-group-notification-value');
+    if (!input || !value) return;
+    const n = parseInt(input.value, 10) || 0;
+    value.textContent = n > 0 ? `${n} min before` : 'At start time';
+}
+
+async function chooseWorkoutNotification() {
+    const input = document.getElementById('workout-group-notification');
+    if (!input) return;
+    const cur = parseInt(input.value, 10) || 0;
+    const values = [0, 5, 10, 15, 30, 45, 60];
+    if (!values.includes(cur)) values.push(cur);
+    values.sort((a, b) => a - b);
+    const picked = await safeChoose('Remind me before the workout', values.map((v) => ({
+        value: String(v),
+        label: v > 0 ? `${v} min before` : 'At start time',
+        selected: v === cur,
+    })), { title: 'Reminder' });
+    if (picked === null || picked === undefined) return;
+    input.value = String(picked);
+    _syncNotificationRow();
+}
+
+function renderWorkoutPlanBody() {
+    const draft = window.WorkoutEdit.planDraft;
+    if (!draft) return;
+    const rotating = _planRotating();
+    const daysSection = document.getElementById('workout-variants-section');
+    const flatSection = document.getElementById('workout-group-flat-exercises-section');
+    if (daysSection) daysSection.hidden = !rotating;
+    if (flatSection) flatSection.hidden = rotating;
+    if (rotating) {
+        _renderPlanDays(draft);
     } else {
-        if (window.WorkoutEdit.editingGroupId) {
-            // Re-run the logic to fetch/create default variant and load exercises.
-            // The variant POST is a workout mutation, so invalidate the
-            // workout-tagged caches if the implicit create succeeds.
-            let variants = await apiCall(`/api/workout/variants?group_id=${window.WorkoutEdit.editingGroupId}`);
-            // A failed read (offline/5xx) returns null. Don't fall open to []:
-            // that would skip the >1-Day guard below and flatten a genuinely
-            // multi-Day plan, stranding the extra Days' exercises. Treat unknown
-            // Day count as "can't collapse" — keep rotation on and bail.
-            if (!Array.isArray(variants)) {
-                document.getElementById('workout-group-rotating').checked = true;
-                document.getElementById('workout-variants-section').style.display = 'block';
-                document.getElementById('workout-group-flat-exercises-section').style.display = 'none';
-                safeToast('Couldn\'t check this plan\'s Days — try again when back online.', 'error');
-                return;
-            }
-
-            // Guard (Task 4): a Plan with more than one Day can't switch rotation
-            // off — collapsing to a single flat list would strand the extra Days'
-            // exercises. Keep the toggle on + Days editor visible; user deletes
-            // the extras first. Zero data loss.
-            if (variants.length > 1) {
-                document.getElementById('workout-group-rotating').checked = true;
-                document.getElementById('workout-variants-section').style.display = 'block';
-                document.getElementById('workout-group-flat-exercises-section').style.display = 'none';
-                safeToast('Delete the extra Days first — a plan with more than one Day can\'t switch off "Rotate through days".', 'info');
-                return;
-            }
-
-            document.getElementById('workout-variants-section').style.display = 'none';
-            document.getElementById('workout-group-flat-exercises-section').style.display = 'block';
-            if (variants.length === 0) {
-                const newVariant = await apiCall('/api/workout/variants/create', 'POST', {
-                    group_id: window.WorkoutEdit.editingGroupId,
-                    name: 'Main',
-                    rotation_order: null,
-                    description: ''
-                });
-                if (newVariant) {
-                    await invalidateWorkoutCache();
-                    variants = [newVariant];
-                } else {
-                    setFlatExercisesPendingSaveMessage();
-                    return;
-                }
-            }
-            const defaultVariantId = variants[0].id;
-            window.WorkoutEdit.groupForVariant = window.WorkoutEdit.editingGroupId;
-            window.WorkoutEdit.variantForExercise = defaultVariantId;
-            await loadExercisesForVariant(defaultVariantId, 'workout-group-flat-exercises-list');
-        } else {
-            // New group, just show message
-            document.getElementById('workout-variants-section').style.display = 'none';
-            document.getElementById('workout-group-flat-exercises-section').style.display = 'block';
-            setFlatExercisesPendingSaveMessage();
-        }
+        renderWorkoutExerciseRows(document.getElementById('workout-group-flat-exercises-list'),
+            _flatPlanDay(draft), renderWorkoutPlanBody);
     }
+    const tools = document.getElementById('workout-group-tools');
+    if (tools) tools.hidden = draft.groupId == null;
+    const scan = document.getElementById('workout-group-scan-btn');
+    if (scan) scan.hidden = !(window.WorkoutScan && typeof window.WorkoutScan.scan === 'function');
 }
 
+function _renderPlanDays(draft) {
+    const list = document.getElementById('workout-variants-list');
+    const count = document.getElementById('workout-variants-count');
+    if (count) count.textContent = draft.days.length ? `Days · ${draft.days.length}` : 'Days';
+    if (!list) return;
+    if (!draft.days.length) {
+        list.replaceChildren(workoutEmptyRow('No days yet — add one to get started.'));
+        return;
+    }
+    const onMove = (from, to) => {
+        if (workoutMoveItem(draft.days, from, to)) {
+            draft.daysReordered = true;
+            renderWorkoutPlanBody();
+        }
+    };
+    list.replaceChildren(...draft.days.map((day, i) => buildWorkoutDayRow(day, i, draft.days.length, onMove)));
+}
 
+// Open the Plan page for a saved plan (groupId) or a new one (null). Reads the
+// plan's Days + exercises up front so the child pages edit a complete draft.
+async function openWorkoutPlanPage(groupId) {
+    const store = document.querySelector('.wg-workout-pages');
+    const body = _workoutPageBody('plan');
+    if (!store || !body || !window.WGPage) return null; // absent, or already open
+    let group = null;
+    if (groupId != null) {
+        group = (window.WorkoutEdit.cachedGroups || []).find((g) => g.id === groupId) || null;
+        if (!group) {
+            // Opened from outside the Plans tab (next-workout card).
+            const groups = await apiCall('/api/workout/groups');
+            if (Array.isArray(groups)) {
+                window.WorkoutEdit.cachedGroups = groups;
+                group = groups.find((g) => g.id === groupId) || null;
+            }
+        }
+        if (!group) {
+            safeToast('Couldn\'t open this plan — try again online.', 'error');
+            return null;
+        }
+    }
+    const days = group ? await _loadPlanDays(group.id) : [];
+    if (!days) {
+        safeToast('Couldn\'t load this plan\'s days — try again online.', 'error');
+        return null;
+    }
+    if (window.WorkoutEdit.planDraft || !_workoutPageBody('plan')) return null; // a second tap raced the reads
+
+    const g = group || {};
+    document.getElementById('workout-group-name').value = g.name || '';
+    document.getElementById('workout-group-description').value = g.description || '';
+    document.getElementById('workout-group-goal').value = g.training_goal || 'hypertrophy';
+    document.getElementById('workout-group-rotating').checked = !!g.is_rotating;
+    document.getElementById('workout-group-time').value = g.scheduled_time || '09:00';
+    document.getElementById('workout-group-notification').value =
+        g.notification_advance_minutes == null ? '15' : String(g.notification_advance_minutes);
+    document.getElementById('workout-group-active').checked = group ? !!g.active : true;
+    let picked = [];
+    try { picked = JSON.parse(g.days_of_week || '[]'); } catch (_) { picked = []; }
+    window.MedicationUtils.setPickedDays(body.querySelector('.wg-picks[data-day-picks]'), Array.isArray(picked) ? picked : []);
+    workoutSegSync(body);
+    _syncNotificationRow();
+
+    const draft = { groupId: group ? group.id : null, group, page: null, days, removedDays: [], daysReordered: false };
+    window.WorkoutEdit.planDraft = draft;
+    window.WorkoutEdit.editingGroupId = draft.groupId;
+    renderWorkoutPlanBody();
+
+    let snapshot = '';
+    const planSnapshot = () => workoutFormSnapshot(body, [draft.days, draft.removedDays]);
+    draft.page = window.WGPage.push({
+        title: group ? (g.name || 'Plan') : 'New plan',
+        crumb: group ? 'Edit plan' : 'Add plan',
+        back: 'Plans',
+        body,
+        primary: { label: 'Save', onClick: () => saveWorkoutGroup() },
+        onBack: () => workoutConfirmDiscard(planSnapshot() !== snapshot, 'Your changes to this plan haven\'t been saved.'),
+        onClose: () => {
+            store.appendChild(body);
+            if (window.WorkoutEdit.planDraft === draft) window.WorkoutEdit.planDraft = null;
+            window.WorkoutEdit.editingGroupId = null;
+        },
+    });
+    snapshot = planSnapshot();
+    return draft.page;
+}
+
+function closeWorkoutPlanPage() {
+    const draft = window.WorkoutEdit.planDraft;
+    if (draft && draft.page) draft.page.close();
+}
+
+// "Rotate through days" toggle. Turning it off collapses the plan to a flat
+// exercise list, which a plan with more than one Day can't do without
+// stranding the extra Days' exercises — keep it on and say so (zero data loss).
+function toggleRotatingFields() {
+    const draft = window.WorkoutEdit.planDraft;
+    const cb = document.getElementById('workout-group-rotating');
+    if (!draft || !cb) return;
+    if (cb.checked) {
+        // An untouched implicit "Main" day is not a real Day.
+        draft.days = draft.days.filter((d) => !(d.implicit && d.id == null && d.exercises.length === 0));
+    } else if (draft.days.length > 1) {
+        cb.checked = true;
+        safeToast('Delete the extra Days first — a plan with more than one Day can\'t switch off "Rotate through days".', 'info');
+    }
+    renderWorkoutPlanBody();
+}
+
+function addWorkoutFlatExercise() {
+    const draft = window.WorkoutEdit.planDraft;
+    if (!draft) return null;
+    return showAddExercisePage(_flatPlanDay(draft), renderWorkoutPlanBody, _planName());
+}
+
+function addWorkoutPlanDay() {
+    if (!window.WorkoutEdit.planDraft) return null;
+    return openWorkoutDayPage(null, renderWorkoutPlanBody);
+}
+
+// The exercise write for a staged payload, in the old editor's key order.
+function _planExerciseBody(variantId, staged, order) {
+    const body = {
+        variant_id: variantId,
+        exercise_name: staged.exercise_name,
+        target_sets: staged.target_sets,
+        target_reps_min: staged.target_reps_min,
+        target_reps_max: staged.target_reps_max,
+        target_weight_kg: staged.target_weight_kg,
+        order_index: order,
+    };
+    // A reorder-only write omits the optional keys: the domain keeps the
+    // stored progression rule / goal / equipment when a key is absent.
+    if ('progression_rule' in staged) body.progression_rule = staged.progression_rule;
+    if ('training_goal' in staged) body.training_goal = staged.training_goal;
+    if ('equipment_id' in staged) body.equipment_id = staged.equipment_id;
+    return body;
+}
+
+// Writes the draft in order: group, removed Days, then per Day its row and
+// exercises. Each successful write is folded back into the draft, so a retry
+// after a failure resumes instead of duplicating. Resolves false on the first
+// failed write (apiCall's null).
+async function _writePlanDraft(draft, groupPayload, active, rotating) {
+    if (draft.groupId == null) {
+        const created = await apiCall('/api/workout/groups/create', 'POST', groupPayload);
+        if (!created || created.id == null) return false;
+        draft.groupId = created.id;
+        window.WorkoutEdit.editingGroupId = created.id;
+    } else {
+        const updated = await apiCall(`/api/workout/groups/update?id=${draft.groupId}`, 'PUT', { ...groupPayload, active });
+        if (!updated) return false;
+    }
+
+    while (draft.removedDays.length) {
+        const ok = await apiCall(`/api/workout/variants/delete?id=${draft.removedDays[0]}`, 'DELETE');
+        if (!ok) return false;
+        draft.removedDays.shift();
+    }
+
+    // An untouched implicit day of a flat plan is never created.
+    const days = draft.days.filter((d) => !(d.implicit && d.id == null && d.exercises.length === 0));
+    const renumber = rotating && (draft.daysReordered || days.some((d) => d.id == null));
+    for (let i = 0; i < days.length; i++) {
+        const day = days[i];
+        let order = day.rotation_order;
+        if (rotating && renumber) order = i;
+        else if (!rotating && day.id == null) order = null;
+        const vPayload = { group_id: draft.groupId, name: day.name, rotation_order: order, description: day.description || '' };
+        if (day.id == null) {
+            const created = await apiCall('/api/workout/variants/create', 'POST', vPayload);
+            if (!created || created.id == null) return false;
+            day.id = created.id;
+        } else if (day.name !== day.orig.name || (day.description || '') !== day.orig.description || order !== day.rotation_order) {
+            const ok = await apiCall(`/api/workout/variants/update?id=${day.id}`, 'PUT', vPayload);
+            if (!ok) return false;
+        }
+        day.rotation_order = order;
+        day.orig = { name: day.name, description: day.description || '' };
+
+        while (day.removed.length) {
+            const ok = await apiCall(`/api/workout/exercises/delete?id=${day.removed[0]}`, 'DELETE');
+            if (!ok) return false;
+            day.removed.shift();
+        }
+        const renumberEx = day.exReordered || day.exercises.some((e) => e.id == null);
+        for (let j = 0; j < day.exercises.length; j++) {
+            const entry = day.exercises[j];
+            const view = { ...(entry.rec || {}), ...(entry.payload || {}) };
+            const exOrder = renumberEx ? j : (Number(view.order_index) || 0);
+            if (entry.id == null) {
+                const body = _planExerciseBody(day.id, entry.payload, exOrder);
+                const created = await apiCall('/api/workout/exercises/create', 'POST', body);
+                if (!created || created.id == null) return false;
+                entry.id = created.id;
+                entry.rec = { ...body, ...created };
+                entry.payload = null;
+            } else if (entry.payload || exOrder !== entry.rec.order_index) {
+                const body = entry.payload
+                    ? _planExerciseBody(day.id, entry.payload, exOrder)
+                    : _planExerciseBody(day.id, {
+                        exercise_name: entry.rec.exercise_name,
+                        target_sets: entry.rec.target_sets,
+                        target_reps_min: entry.rec.target_reps_min,
+                        target_reps_max: entry.rec.target_reps_max,
+                        target_weight_kg: entry.rec.target_weight_kg,
+                    }, exOrder);
+                const ok = await apiCall(`/api/workout/exercises/update?id=${entry.id}`, 'PUT', body);
+                if (!ok) return false;
+                entry.rec = { ...entry.rec, ...body };
+                entry.payload = null;
+            }
+        }
+        day.exReordered = false;
+    }
+    draft.daysReordered = false;
+    return true;
+}
+
+// The Plan page's Save — the only write in the plan editor. The group row's
+// new fields land in the workout_groups cache optimistically (CLAUDE.md rule
+// 9); the handle commits once every write landed, else rolls back and the
+// page stays open with the draft intact for a retry.
 async function saveWorkoutGroup() {
+    const draft = window.WorkoutEdit.planDraft;
+    if (!draft || draft.saving) return;
+    const body = document.querySelector('[data-workout-page="plan"]');
     const name = document.getElementById('workout-group-name').value.trim();
     const description = document.getElementById('workout-group-description').value.trim();
     const isRotating = document.getElementById('workout-group-rotating').checked;
@@ -435,14 +651,6 @@ async function saveWorkoutGroup() {
     const notification = parseInt(document.getElementById('workout-group-notification').value);
     const trainingGoal = document.getElementById('workout-group-goal').value;
     const active = document.getElementById('workout-group-active').checked;
-
-    // Don't save while the rotation off-guard (toggleRotatingFields) is still
-    // fetching the Day count — the checkbox may not reflect the guarded value
-    // yet, so posting now could slip is_rotating:false past the >1-Day guard.
-    if (window.WorkoutEdit.rotatingGuardPending > 0) {
-        safeToast('Still checking this plan\'s Days — try again in a moment.', 'info');
-        return;
-    }
 
     if (!name) {
         safeAlert('Plan name is required!');
@@ -454,7 +662,7 @@ async function saveWorkoutGroup() {
         return;
     }
 
-    const days = window.MedicationUtils.getPickedDays(document.querySelector('#workout-group-modal .wg-picks'));
+    const days = window.MedicationUtils.getPickedDays(body.querySelector('.wg-picks[data-day-picks]'));
 
     const payload = {
         name,
@@ -466,25 +674,75 @@ async function saveWorkoutGroup() {
         training_goal: trainingGoal
     };
 
-    let result;
-    if (window.WorkoutEdit.editingGroupId) {
-        // Update
-        payload.active = active;
-        result = await apiCall(`/api/workout/groups/update?id=${window.WorkoutEdit.editingGroupId}`, 'PUT', payload);
-    } else {
-        // Create
-        result = await apiCall('/api/workout/groups/create', 'POST', payload);
+    draft.saving = true;
+    if (draft.page) draft.page.setPrimaryEnabled(false);
+    const groupId = draft.groupId;
+    let handle = null;
+    let ok = false;
+    try {
+        handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+            ? await window.DataStore.applyOptimistic('workout_groups', (prev) => {
+                if (!Array.isArray(prev) || groupId == null) return prev;
+                return prev.map((g) => (g && g.id === groupId ? { ...g, ...payload, active } : g));
+            }, ['workout'])
+            : null;
+        ok = await _writePlanDraft(draft, payload, active, isRotating);
+    } catch (e) {
+        console.error('[workout] plan save failed', e);
+        ok = false;
     }
+    draft.saving = false;
+    if (draft.page) draft.page.setPrimaryEnabled(true);
+    if (!ok) {
+        try { if (handle) await handle.rollback(); } catch (_) { /* best-effort */ }
+        safeToast('Couldn\'t save the plan — your changes are still here. Try again.', 'error');
+        return;
+    }
+    try { if (handle) await handle.commit(null); } catch (_) { /* the reload below covers it */ }
+    await invalidateWorkoutCache();
+    if (draft.page) draft.page.close();
+    loadWorkoutGroups();
+}
 
-    if (result || result === true) {
-        await invalidateWorkoutCache();
-        closeWorkoutGroupModal();
-        loadWorkoutGroups();
-    }
+function _openPlanGroup() {
+    const draft = window.WorkoutEdit.planDraft;
+    if (!draft || draft.groupId == null) return null;
+    return (window.WorkoutEdit.cachedGroups || []).find((g) => g.id === draft.groupId) || draft.group;
+}
+
+// Plan page bottom rows (saved plans only). Share / Scan open static modals,
+// raised above the page first.
+function shareOpenWorkoutPlan() {
+    const group = _openPlanGroup();
+    if (!group) return;
+    _raiseWorkoutModal('workout-share-modal');
+    window.WorkoutShare.share(group);
+}
+
+function printOpenWorkoutPlan() {
+    const group = _openPlanGroup();
+    if (group) window.WorkoutGroups.print(group);
+}
+
+function scanOpenWorkoutPlan() {
+    const group = _openPlanGroup();
+    if (!group || !window.WorkoutScan || typeof window.WorkoutScan.scan !== 'function') return;
+    _raiseWorkoutModal('workout-scan-modal');
+    window.WorkoutScan.scan(group);
+}
+
+async function deleteOpenWorkoutPlan() {
+    const draft = window.WorkoutEdit.planDraft;
+    if (!draft || draft.groupId == null) return;
+    const ok = await safeConfirm('Delete this plan?', null, { title: 'Delete plan', confirmLabel: 'Delete', destructive: true });
+    if (!ok) return;
+    const groupId = draft.groupId;
+    if (draft.page) draft.page.close();
+    await _deleteWorkoutGroupApi(groupId);
 }
 
 async function deleteWorkoutGroup(groupId, event) {
-    event.stopPropagation();
+    if (event) event.stopPropagation();
 
     await safeConfirm('Delete this plan?', async (ok) => {
         if (ok) {
@@ -1105,11 +1363,19 @@ async function printWorkoutPlan(group) {
 window.WorkoutGroups = {
     load: loadWorkoutGroups,
     save: saveWorkoutGroup,
-    openAdd: showAddWorkoutGroupModal,
-    openEdit: showEditWorkoutGroupModal,
-    close: closeWorkoutGroupModal,
+    openAdd: () => openWorkoutPlanPage(null),
+    openEdit: openWorkoutPlanPage,
+    close: closeWorkoutPlanPage,
     delete: deleteWorkoutGroup,
     toggleRotating: toggleRotatingFields,
+    addDay: addWorkoutPlanDay,
+    addFlatExercise: addWorkoutFlatExercise,
+    render: renderWorkoutPlanBody,
+    share: shareOpenWorkoutPlan,
+    printOpen: printOpenWorkoutPlan,
+    scanOpen: scanOpenWorkoutPlan,
+    deleteOpen: deleteOpenWorkoutPlan,
+    chooseNotification: chooseWorkoutNotification,
     print: printWorkoutPlan,
     buildDocument: buildWorkoutPlanDocument,
     loadPrintDoc: loadWorkoutPrintDoc,
