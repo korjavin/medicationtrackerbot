@@ -181,7 +181,7 @@
 
         const iconWrap = d.createElement('span');
         iconWrap.className = 'wg-next-action-card__icon wg-tz-plan-card__icon';
-        iconWrap.textContent = '🌍';
+        iconWrap.appendChild(window.WGIcons.iconSvg('globe', { size: 18 }));
         head.appendChild(iconWrap);
 
         const text = d.createElement('span');

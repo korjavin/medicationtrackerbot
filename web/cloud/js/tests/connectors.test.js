@@ -61,7 +61,7 @@ describe('connectors.js Claude connector mode picker', () => {
 
     app.querySelector('#claude-remote-connect-button').dispatchEvent(new dom.window.Event('click'));
     const dialog = await answerDialog(dom.window.document, false);
-    expect(dialog.querySelector('.wg-modal__title').textContent).toBe('Enable the remote connector?');
+    expect(dialog.querySelector('.wg-dialog__title').textContent).toBe('Enable the remote connector?');
     await Promise.resolve();
 
     expect(connectRemote).not.toHaveBeenCalled();

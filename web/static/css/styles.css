@@ -1045,14 +1045,11 @@ h3 {
     display: block;
 }
 
-/* List Items */
+/* List Items. `.med-item` rides on `.wg-card`, which owns the surface
+   (see .history-group, med-xso6.35). */
 .med-item,
 .history-item {
-    background-color: var(--secondary-bg-color);
-    padding: var(--space-lg);
-    border-radius: var(--radius-md);
     margin-bottom: var(--space-md);
-    border: 1px solid rgba(0, 0, 0, 0.06);
     transition: background-color 0.15s ease;
     display: flex;
     justify-content: space-between;
@@ -1396,13 +1393,12 @@ select {
     margin: 0;
 }
 
-/* History Grouping */
+/* History Grouping. Rendered as `.wg-card .history-group`: the surface
+   (background/padding/border/radius) comes from the zero-specificity
+   :where(.wg-card) base in components.css, so this companion must not set it
+   (med-xso6.35 — it painted the light paper card over the dark kit card). */
 .history-group {
-    background-color: var(--secondary-bg-color);
-    padding: var(--space-lg);
-    border-radius: var(--radius-md);
     margin-bottom: var(--space-md);
-    border: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .history-header {
@@ -1642,21 +1638,6 @@ svg.chart-svg {
     margin: 0;
 }
 
-.inventory-badge {
-    display: inline-block;
-    padding: var(--space-xs) var(--space-md);
-    border-radius: var(--radius-sm);
-    font-size: var(--font-size-sm);
-    background: rgba(78, 205, 196, 0.15);
-    color: var(--color-inventory-ok);
-    margin-top: var(--space-sm);
-}
-
-.inventory-badge.low {
-    background: rgba(255, 59, 48, 0.15);
-    color: var(--color-danger);
-}
-
 .restock-row {
     display: flex;
     gap: var(--space-sm);
@@ -1695,14 +1676,7 @@ svg.chart-svg {
    (Wandergeek). The modal now uses `.wg-weight-modal__*` with a gloss-inset
    number input and a kg/lb unit-toggle pill pair; the old drag-ruler is gone. */
 
-/* Exercise Log Entry */
-.exercise-log-entry {
-    background: var(--secondary-bg-color);
-    padding: var(--space-md);
-    border-radius: var(--radius-md);
-    border: 1px solid rgba(0, 0, 0, 0.05);
-}
-
+/* Exercise Log Entry — surface from `.wg-card` (med-xso6.35). */
 .exercise-log-entry h4 {
     margin: 0 0 var(--space-md) 0;
     font-size: 1.1em;
@@ -1939,35 +1913,6 @@ svg.chart-svg {
 .pending-sync {
     border-left: 4px solid var(--color-sync-pending) !important;
     position: relative;
-}
-
-.sync-pending-badge {
-    display: inline-block;
-    padding: 2px var(--space-sm);
-    background: var(--color-status-pending-bg-start);
-    color: var(--color-status-pending-text);
-    font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-bold);
-    border-radius: var(--radius-sm);
-    margin-left: var(--space-sm);
-    vertical-align: middle;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-.sync-rejected-badge {
-    display: inline-block;
-    padding: 2px var(--space-sm);
-    background: var(--color-danger);
-    color: #fff;
-    font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-bold);
-    border-radius: var(--radius-sm);
-    margin-left: var(--space-sm);
-    vertical-align: middle;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    cursor: help;
 }
 
 /* Toast Notifications */
@@ -6360,22 +6305,10 @@ input:checked+.toggle-slider:before {
     gap: var(--space-xs);
 }
 
-.wg-tag--pending {
-    background: var(--wg-tag-high-bg);
-    color: var(--wg-tag-high-fg);
-    border-color: var(--wg-tag-high-border);
-}
-
 .wg-tag--unfinished {
     background: var(--wg-tag-high-bg);
     color: var(--wg-tag-high-fg);
     border-color: var(--wg-tag-high-border);
-}
-
-.wg-tag--rejected {
-    background: var(--wg-tag-alert-bg);
-    color: var(--wg-tag-alert-fg);
-    border-color: var(--wg-tag-alert-border);
 }
 
 /* Food macro bar (Phase 4, Task 2) — reusable row rendered by
@@ -10593,9 +10526,15 @@ input:checked+.toggle-slider:before {
     font-size: var(--wg-food-day-nav-title-size);
     cursor: pointer;
     user-select: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .wg-food-day-nav__subtitle {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     padding: 0;
     margin: 0;
     text-transform: uppercase;
@@ -10762,6 +10701,14 @@ input:checked+.toggle-slider:before {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* Meal marker icon (replaces the former emoji prefix). */
+.wg-ico.wg-food-item-row__meal-ico {
+    width: 1em;
+    height: 1em;
+    margin-right: var(--space-xs);
+    vertical-align: -0.125em;
 }
 
 .wg-food-item-row__meta {
@@ -12260,56 +12207,23 @@ input:checked+.toggle-slider:before {
     border-color: var(--wg-clay-soft);
 }
 
-.wg-danger-modal__header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-md);
-    margin-bottom: var(--space-lg);
-}
-
-.wg-danger-modal__title {
-    font-family: var(--wg-font-mono);
-    color: var(--wg-fg-1);
-}
-
-.wg-danger-modal__body {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-md);
-}
-
-.wg-danger-modal__warn {
-    margin: 0;
-    font-family: var(--wg-font-ui);
-    font-size: var(--wg-settings-desc-size);
-    color: var(--wg-fg-1);
-    border-left: 3px solid var(--wg-clay-soft);
-    padding-left: var(--space-sm);
-}
-
-.wg-danger-modal__status {
+/* The typed confirm itself is the shared safeConfirm dialog (med-xso6.6);
+   the section only carries the export status and the delete error. */
+.wg-settings-danger__status,
+.wg-settings-danger__error {
     margin: 0;
     font-family: var(--wg-font-ui);
     font-size: var(--wg-settings-desc-size);
     color: var(--wg-fg-3);
 }
 
-.wg-danger-modal__confirm {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-    font-family: var(--wg-font-ui);
-    font-size: var(--wg-settings-desc-size);
-    color: var(--wg-fg-1);
+.wg-settings-danger__error {
+    color: var(--wg-danger-fg);
 }
 
-.wg-danger-modal__error {
-    margin: 0;
-    font-family: var(--wg-font-ui);
-    font-size: var(--wg-settings-desc-size);
-    color: var(--wg-clay-soft);
-    min-height: 1em;
+.wg-settings-danger__status:empty,
+.wg-settings-danger__error:empty {
+    display: none;
 }
 
 .wg-invite-modal__header {

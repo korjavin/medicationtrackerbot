@@ -170,18 +170,14 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
 
         const lowTag = aspirinRow.querySelector('.wg-meds-row__inventory');
         expect(lowTag).not.toBeNull();
-        expect(lowTag.classList.contains('wg-tag')).toBe(true);
-        expect(lowTag.classList.contains('wg-tag--mono')).toBe(true);
-        expect(lowTag.classList.contains('wg-tag--alert')).toBe(true);
-        expect(lowTag.textContent).toContain('2');
+        expect(lowTag.classList.contains('wg-chip')).toBe(true);
+        expect(lowTag.classList.contains('wg-chip--warn')).toBe(true);
         expect(lowTag.textContent).toBe('2 left');
 
         const okTag = metforminRow.querySelector('.wg-meds-row__inventory');
         expect(okTag).not.toBeNull();
-        expect(okTag.classList.contains('wg-tag--alert')).toBe(false);
-        expect(okTag.classList.contains('wg-tag--normal')).toBe(true);
-        expect(okTag.textContent).toContain('60');
-        expect(okTag.textContent).not.toContain('⚠️');
+        expect(okTag.classList.contains('wg-chip--ok')).toBe(true);
+        expect(okTag.textContent).toBe('60 left');
     });
 
     it('renders negative and zero stock as Out labels, never a negative count', async () => {
@@ -195,8 +191,23 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         const tagOf = (n) => Array.from(document.querySelectorAll('.wg-meds-row'))
             .find((el) => el.textContent.includes(n)).querySelector('.wg-meds-row__inventory');
         expect(tagOf('Aspirin').textContent).toBe('Out \u00B7 17 over');
-        expect(tagOf('Aspirin').classList.contains('wg-tag--alert')).toBe(true);
+        expect(tagOf('Aspirin').classList.contains('wg-chip--danger')).toBe(true);
         expect(tagOf('Metformin').textContent).toBe('Out');
+        expect(tagOf('Metformin').classList.contains('wg-chip--danger')).toBe(true);
+    });
+
+    it('an optimistic (not yet committed) med row shows the shared Pending sync chip', async () => {
+        const { window, document } = env;
+        const sched = JSON.stringify({ type: 'daily', times: [toLocalTime(new Date(Date.now() + 60 * 60 * 1000))] });
+        await seedMedications(window, [
+            { id: 'local_optimistic_1', name: 'Queued', schedule: sched, archived: false, _optimistic: true },
+            { id: 2, name: 'Synced', schedule: sched, archived: false }
+        ]);
+        const rowOf = (n) => Array.from(document.querySelectorAll('.wg-meds-row')).find((el) => el.textContent.includes(n));
+        const chip = rowOf('Queued').querySelector('.wg-chip--pending');
+        expect(chip).not.toBeNull();
+        expect(chip.textContent).toBe('Pending');
+        expect(rowOf('Synced').querySelector('.wg-chip--pending')).toBeNull();
     });
 
     it('collapses as-needed and archived meds into separate section-label groups after the scheduled ones', async () => {

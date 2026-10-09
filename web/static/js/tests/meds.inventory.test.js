@@ -96,7 +96,7 @@ describe('Meds inventory sub-tab (Phase 5, Task 6)', () => {
         expect(cards[1].dataset.medId).toBe('2');
     });
 
-    it('shows the .wg-tag--alert low-stock pill when isLowOnStock(med) returns true', async () => {
+    it('shows the warn low-stock chip when isLowOnStock(med) returns true', async () => {
         const { window, document } = env;
 
         // 3 doses with a daily schedule @ 3 times/day => 1 day of stock; falls
@@ -116,8 +116,9 @@ describe('Meds inventory sub-tab (Phase 5, Task 6)', () => {
 
         const aspirinLow = aspirinCard.querySelector('.wg-meds-inventory__low');
         expect(aspirinLow).not.toBeNull();
-        expect(aspirinLow.classList.contains('wg-tag--alert')).toBe(true);
-        expect(aspirinLow.classList.contains('wg-tag--mono')).toBe(true);
+        expect(aspirinLow.classList.contains('wg-chip')).toBe(true);
+        expect(aspirinLow.classList.contains('wg-chip--warn')).toBe(true);
+        expect(aspirinLow.textContent).toBe('Low stock');
 
         const vitaminLow = vitaminCard.querySelector('.wg-meds-inventory__low');
         expect(vitaminLow).toBeNull();

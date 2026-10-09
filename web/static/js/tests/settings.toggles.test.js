@@ -775,6 +775,27 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             return mod;
         };
 
+        // Delete… opens the shared safeConfirm dialog (med-xso6.6: no bespoke
+        // modal) — destructive, typed-confirm gated on the module's phrase.
+        const openDeleteDialog = async (window, document) => {
+            document.getElementById('delete-account-open').click();
+            return vi.waitFor(() => {
+                const dialog = document.querySelector('mt-modal.mt-confirm-modal');
+                if (!dialog) throw new Error('no dialog open');
+                return dialog;
+            });
+        };
+        const typePhrase = (window, dialog, text) => {
+            const input = dialog.querySelector('.mt-confirm-modal__input');
+            input.value = text;
+            input.dispatchEvent(new window.Event('input'));
+        };
+        const confirmDelete = async (window, document) => {
+            const dialog = await openDeleteDialog(window, document);
+            typePhrase(window, dialog, 'delete my account');
+            dialog.querySelector('.mt-confirm-modal__confirm').click();
+        };
+
         it('reveals the danger section only in cloud mode', async () => {
             allowConsoleNoise();
             const { window, document, cleanup } = loadFrontendEnv();
@@ -792,26 +813,33 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             }
         });
 
-        it('keeps delete disabled until the exact phrase is typed', async () => {
+        it('opens the shared destructive dialog and keeps delete disabled until the exact phrase is typed', async () => {
             allowConsoleNoise();
             const { window, document, cleanup } = loadFrontendEnv();
             try {
-                await mountCloudWithDeleteModule(window);
-                document.getElementById('delete-account-open').click();
+                const mod = await mountCloudWithDeleteModule(window);
+                const dialog = await openDeleteDialog(window, document);
 
-                const input = document.getElementById('delete-account-confirm-input');
-                const btn = document.getElementById('delete-account-confirm');
+                const btn = dialog.querySelector('.mt-confirm-modal__confirm');
+                expect(btn.classList.contains('wg-btn--danger')).toBe(true);
                 expect(btn.disabled).toBe(true);
 
-                input.value = 'delete';
-                input.dispatchEvent(new window.Event('input'));
-                await Promise.resolve();
+                typePhrase(window, dialog, 'delete');
                 expect(btn.disabled).toBe(true);
 
-                input.value = 'Delete My Account';
-                input.dispatchEvent(new window.Event('input'));
-                await Promise.resolve();
+                typePhrase(window, dialog, 'Delete My Account');
                 expect(btn.disabled).toBe(false);
+
+                // Cancel closes just the dialog; nothing is deleted.
+                dialog.querySelector('.mt-confirm-modal__cancel').click();
+                expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
+                await Promise.resolve();
+                expect(mod.clearLocalVault).not.toHaveBeenCalled();
+                expect(mod.reauthAndDelete).not.toHaveBeenCalled();
+
+                // Reopening after a cancel starts gated again.
+                const again = await openDeleteDialog(window, document);
+                expect(again.querySelector('.mt-confirm-modal__confirm').disabled).toBe(true);
             } finally {
                 delete window.__MEDTRACKER_CLOUD__;
                 cleanup();
@@ -825,7 +853,6 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                 const mod = await mountCloudWithDeleteModule(window, {
                     exportVaultToFile: vi.fn(async () => true),
                 });
-                document.getElementById('delete-account-open').click();
                 document.getElementById('delete-account-export').click();
                 await vi.waitFor(() => expect(mod.exportVaultToFile).toHaveBeenCalled());
                 await vi.waitFor(() => {
@@ -847,7 +874,6 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                 await mountCloudWithDeleteModule(window, {
                     exportVaultToFile: vi.fn(async () => false),
                 });
-                document.getElementById('delete-account-open').click();
                 document.getElementById('delete-account-export').click();
                 await vi.waitFor(() => {
                     const text = document.getElementById('delete-account-export-status').textContent;
@@ -869,13 +895,7 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                 // now-deleted subdomain.
                 const baseDomainURL = vi.fn(() => 'https://app.example/');
                 const mod = await mountCloudWithDeleteModule(window, { baseDomainURL });
-                document.getElementById('delete-account-open').click();
-                const input = document.getElementById('delete-account-confirm-input');
-                input.value = 'delete my account';
-                input.dispatchEvent(new window.Event('input'));
-                await Promise.resolve();
-
-                document.getElementById('delete-account-confirm').click();
+                await confirmDelete(window, document);
 
                 await vi.waitFor(() => expect(mod.reauthAndDelete).toHaveBeenCalled());
                 expect(mod.clearLocalVault).toHaveBeenCalled();
@@ -894,12 +914,7 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                 const mod = await mountCloudWithDeleteModule(window, {
                     reauthAndDelete: vi.fn(async () => { throw new Error('Passkey verification was cancelled.'); }),
                 });
-                document.getElementById('delete-account-open').click();
-                const input = document.getElementById('delete-account-confirm-input');
-                input.value = 'delete my account';
-                input.dispatchEvent(new window.Event('input'));
-                await Promise.resolve();
-                document.getElementById('delete-account-confirm').click();
+                await confirmDelete(window, document);
 
                 await vi.waitFor(() => {
                     expect(document.getElementById('delete-account-error').textContent).toMatch(/cancelled/i);
@@ -910,7 +925,7 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                 expect(mod.clearLocalVault).toHaveBeenCalledTimes(1);
                 expect(window.location.href).toBe(before);
                 // The user can try again.
-                expect(document.getElementById('delete-account-confirm').disabled).toBe(false);
+                expect(document.getElementById('delete-account-open').disabled).toBe(false);
             } finally {
                 delete window.__MEDTRACKER_CLOUD__;
                 cleanup();
@@ -936,12 +951,7 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                         .mockResolvedValueOnce(undefined)
                         .mockRejectedValue(new Error('Close other open tabs of this app and try again.')),
                 });
-                document.getElementById('delete-account-open').click();
-                const input = document.getElementById('delete-account-confirm-input');
-                input.value = 'delete my account';
-                input.dispatchEvent(new window.Event('input'));
-                await Promise.resolve();
-                document.getElementById('delete-account-confirm').click();
+                await confirmDelete(window, document);
 
                 await vi.waitFor(() => {
                     const text = document.getElementById('delete-account-error').textContent;
@@ -952,7 +962,7 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                 expect(mod.reauthAndDelete).toHaveBeenCalled();
                 expect(baseDomainURL).not.toHaveBeenCalled();
                 expect(window.location.href).toBe(before);
-                expect(document.getElementById('delete-account-confirm').disabled).toBe(false);
+                expect(document.getElementById('delete-account-open').disabled).toBe(false);
             } finally {
                 delete window.__MEDTRACKER_CLOUD__;
                 cleanup();
@@ -962,8 +972,9 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
         // The advertised recovery ("close other tabs and try again") must
         // actually work: the account is already gone server-side, so the retry
         // click must NOT re-run the re-auth ceremony (it would 401 against the
-        // deleted account) — it retries only the local wipe, then navigates.
-        it('retrying after a blocked post-delete wipe skips re-auth and completes the wipe', async () => {
+        // deleted account) nor ask for the phrase again — it retries only the
+        // local wipe, then navigates.
+        it('retrying after a blocked post-delete wipe skips the dialog and re-auth and completes the wipe', async () => {
             allowConsoleNoise();
             const { window, document, cleanup } = loadFrontendEnv();
             try {
@@ -974,18 +985,14 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                     .mockRejectedValueOnce(new Error('Close other open tabs of this app and try again.'))
                     .mockResolvedValueOnce(undefined);
                 const mod = await mountCloudWithDeleteModule(window, { baseDomainURL, clearLocalVault });
-                document.getElementById('delete-account-open').click();
-                const input = document.getElementById('delete-account-confirm-input');
-                input.value = 'delete my account';
-                input.dispatchEvent(new window.Event('input'));
-                await Promise.resolve();
+                await confirmDelete(window, document);
+                const openBtn = document.getElementById('delete-account-open');
+                await vi.waitFor(() => expect(document.getElementById('delete-account-error').textContent).toMatch(/account was deleted/i));
+                await vi.waitFor(() => expect(openBtn.disabled).toBe(false));
 
-                const confirmBtn = document.getElementById('delete-account-confirm');
-                confirmBtn.click();
-                await vi.waitFor(() => expect(confirmBtn.disabled).toBe(false));
-
-                confirmBtn.click();
+                openBtn.click();
                 await vi.waitFor(() => expect(baseDomainURL).toHaveBeenCalled());
+                expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
                 expect(mod.clearLocalVault).toHaveBeenCalledTimes(3);
                 expect(mod.reauthAndDelete).toHaveBeenCalledTimes(1);
             } finally {
@@ -1008,14 +1015,8 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                     .mockRejectedValueOnce(new Error('Close other open tabs of this app and try again.'))
                     .mockResolvedValue(undefined);
                 const mod = await mountCloudWithDeleteModule(window, { baseDomainURL, clearLocalVault });
-                document.getElementById('delete-account-open').click();
-                const input = document.getElementById('delete-account-confirm-input');
-                input.value = 'delete my account';
-                input.dispatchEvent(new window.Event('input'));
-                await Promise.resolve();
+                await confirmDelete(window, document);
 
-                const confirmBtn = document.getElementById('delete-account-confirm');
-                confirmBtn.click();
                 await vi.waitFor(() => {
                     const text = document.getElementById('delete-account-error').textContent;
                     expect(text).toMatch(/close other open tabs/i);
@@ -1025,47 +1026,12 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                 expect(mod.reauthAndDelete).not.toHaveBeenCalled();
                 expect(window.location.href).toBe(before);
 
-                confirmBtn.click();
+                // The account still exists, so the retry asks for the phrase again.
+                await confirmDelete(window, document);
                 await vi.waitFor(() => expect(baseDomainURL).toHaveBeenCalled());
                 expect(mod.reauthAndDelete).toHaveBeenCalledTimes(1);
                 // Retry pre-wipe + post-delete wipe, after the first blocked one.
                 expect(mod.clearLocalVault).toHaveBeenCalledTimes(3);
-            } finally {
-                delete window.__MEDTRACKER_CLOUD__;
-                cleanup();
-            }
-        });
-
-        // med-hzy — the Cancel button must close the modal, and reopening must
-        // still work. Root cause was that opening via a raw classList toggle
-        // left the `inert` attribute (set by mt-modal.connectedCallback while
-        // `.hidden` was present), so the whole subtree stayed non-interactive
-        // and the Cancel click never reached its handler. Asserting `inert` is
-        // cleared on open is the real regression guard: it fails on the old
-        // classList-only open path (jsdom still dispatches synthetic clicks
-        // through inert, so a hidden-class-only assertion would pass either way).
-        it('the Cancel button closes the modal, and it reopens cleanly', async () => {
-            allowConsoleNoise();
-            const { window, document, cleanup } = loadFrontendEnv();
-            try {
-                await mountCloudWithDeleteModule(window);
-                const modal = document.getElementById('delete-account-modal');
-
-                document.getElementById('delete-account-open').click();
-                expect(modal.classList.contains('hidden')).toBe(false);
-                // Regression guard: an opened modal must be interactive.
-                expect(modal.hasAttribute('inert')).toBe(false);
-
-                document.getElementById('delete-account-cancel').click();
-                expect(modal.classList.contains('hidden')).toBe(true);
-                expect(modal.hasAttribute('inert')).toBe(true);
-
-                // Reopening after a cancel still works.
-                document.getElementById('delete-account-open').click();
-                expect(modal.classList.contains('hidden')).toBe(false);
-                expect(modal.hasAttribute('inert')).toBe(false);
-                // The typed-confirmation gate is untouched: delete stays disabled.
-                expect(document.getElementById('delete-account-confirm').disabled).toBe(true);
             } finally {
                 delete window.__MEDTRACKER_CLOUD__;
                 cleanup();

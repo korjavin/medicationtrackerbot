@@ -113,7 +113,7 @@ describe('Health Notes render (Phase 8, Task 7)', () => {
         expect(body.textContent).toBe('felt good after run');
     });
 
-    it('surfaces offline-pending notes with a .wg-tag--pending badge + row modifier', () => {
+    it('surfaces offline-pending notes with the shared Pending sync chip + row modifier', () => {
         const { document, window } = env;
         const list = document.getElementById('notes-list');
         window.renderNotes(list, [
@@ -126,14 +126,13 @@ describe('Health Notes render (Phase 8, Task 7)', () => {
         const row = list.querySelector('.wg-health-notes-row');
         expect(row.classList.contains('wg-health-notes-row--pending')).toBe(true);
 
-        const badge = row.querySelector('.wg-tag--pending');
+        const badge = row.querySelector('.wg-chip--pending');
         expect(badge).not.toBeNull();
-        expect(badge.classList.contains('wg-tag')).toBe(true);
-        expect(badge.classList.contains('wg-tag--mono')).toBe(true);
+        expect(badge.classList.contains('wg-chip')).toBe(true);
         expect(badge.textContent).toBe('Pending');
     });
 
-    it('surfaces rejected notes with a .wg-tag--rejected badge + errorMessage tooltip', () => {
+    it('surfaces rejected notes with a danger Sync failed chip + errorMessage tooltip', () => {
         const { document, window } = env;
         const list = document.getElementById('notes-list');
         window.renderNotes(list, [
@@ -147,13 +146,13 @@ describe('Health Notes render (Phase 8, Task 7)', () => {
         const row = list.querySelector('.wg-health-notes-row');
         expect(row.classList.contains('wg-health-notes-row--rejected')).toBe(true);
 
-        const badge = row.querySelector('.wg-tag--rejected');
+        const badge = row.querySelector('.wg-chip--danger');
         expect(badge).not.toBeNull();
-        expect(badge.textContent).toBe('Failed');
+        expect(badge.textContent).toBe('Sync failed');
         expect(badge.title).toBe('HTTP 500: Server Error');
 
         // A rejected row does NOT also render the pending badge.
-        expect(row.querySelector('.wg-tag--pending')).toBeNull();
+        expect(row.querySelector('.wg-chip--pending')).toBeNull();
     });
 
     it('renders trailing .wg-icon-btn edit + delete that invoke editNote / deleteNote', () => {

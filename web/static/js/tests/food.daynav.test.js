@@ -5,6 +5,9 @@
 // chevron buttons and date-label click handler hook into the existing
 // `shiftFoodDate` callback.
 
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 
@@ -266,4 +269,17 @@ describe('Food day-navigator (Phase 4, Task 3)', () => {
         window.shiftFoodDate(-1);
         expect(filter.value).toBe('2026-03-07');
     });
+});
+
+describe('Food day-navigator title clipping (med-xso6.33)', () => {
+    const css = fs.readFileSync(
+        path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../css/styles.css'), 'utf8');
+    for (const cls of ['title', 'subtitle']) {
+        it(`.wg-food-day-nav__${cls} clips with an ellipsis`, () => {
+            const m = css.match(new RegExp(`\\.wg-food-day-nav__${cls} \\{([^}]*)\\}`));
+            expect(m[1]).toMatch(/overflow:\s*hidden/);
+            expect(m[1]).toMatch(/text-overflow:\s*ellipsis/);
+            expect(m[1]).toMatch(/white-space:\s*nowrap/);
+        });
+    }
 });

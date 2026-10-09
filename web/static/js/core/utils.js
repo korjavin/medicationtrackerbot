@@ -31,8 +31,9 @@ function safeToast(msg, type) {
     safeAlert(msg);
 }
 
-// opts (optional): { title, confirmLabel, cancelLabel } — custom wording for
-// the in-page modal.
+// opts (optional): { title, confirmLabel, cancelLabel, icon, destructive,
+// typedConfirm } — custom wording for the in-page dialog; destructive paints
+// the confirm filled clay, typedConfirm gates it on typing that phrase.
 function safeConfirm(msg, callback, opts) {
     const invokeCallback = (ok) => {
         if (typeof callback !== 'function') return ok;
@@ -79,33 +80,54 @@ function safeForm(msg, content, opts) {
     });
 }
 
-// In-page dialog used by safeAlert / safeConfirm / safePrompt / safeChoose.
+// In-page dialog used by safeAlert / safeConfirm / safePrompt / safeChoose /
+// safeForm — the kit .wg-dialog anatomy (App UI kit v2, components.html):
+// optional __icon, __title, __body, __acts with .wg-btn actions (Cancel
+// ghost; confirm sun primary, or filled clay with opts.destructive). The
+// element stays <mt-modal class="mt-confirm-modal">: ModalManager.isDialogOpen
+// and modal-history.js key Back/Esc handling off that hook.
 // It renders non-blockingly (unlike the synchronous native dialogs) and
 // resolves via its buttons, the backdrop click, or the Escape key. Confirm
 // mode settles true/false; input and choices modes settle the value or null;
 // alert mode has one OK button in the .mt-confirm-modal__cancel slot, so
 // Back's cancel-first path (modal-manager.js) dismisses it too.
+// Shared opts: { title, icon (WGIcons name), destructive }. safeConfirm also
+// takes opts.typedConfirm: a phrase the user must type (case-insensitive)
+// before the confirm button enables.
 function _mountConfirmModal(msg, onResult, opts = {}) {
     const doc = document;
     const alertMode = opts.alert === true;
     const inputMode = opts.input === true;
     const choiceMode = Array.isArray(opts.choices);
     const contentMode = !!opts.content;
+    const typedPhrase = (!inputMode && !choiceMode && !contentMode && !alertMode && opts.typedConfirm)
+        ? String(opts.typedConfirm).trim().toLowerCase() : '';
     const backdrop = doc.createElement('div');
     backdrop.className = 'mt-confirm-backdrop';
 
     const modal = doc.createElement('mt-modal');
-    modal.className = 'wg-modal mt-confirm-modal';
+    modal.className = 'wg-dialog mt-confirm-modal';
+    modal.setAttribute('role', 'alertdialog');
+    const titleText = opts.title || (alertMode ? 'Notice' : 'Confirm');
+    modal.setAttribute('aria-label', titleText);
 
-    const header = doc.createElement('div');
-    header.className = 'wg-modal__header';
-    const title = doc.createElement('h3');
-    title.className = 'wg-modal__title';
-    title.textContent = opts.title || (alertMode ? 'Notice' : 'Confirm');
-    header.appendChild(title);
+    // The icon is decorative; the passkey shell has no WGIcons and skips it.
+    if (opts.icon && window.WGIcons) {
+        try {
+            const svg = window.WGIcons.iconSvg(opts.icon, { size: 24 });
+            const icon = doc.createElement('span');
+            icon.className = opts.destructive ? 'wg-dialog__icon' : 'wg-dialog__icon wg-dialog__icon--warn';
+            icon.appendChild(svg);
+            modal.appendChild(icon);
+        } catch (_) { /* unknown icon name: render without one */ }
+    }
+
+    const title = doc.createElement('p');
+    title.className = 'wg-dialog__title mt-confirm-modal__title';
+    title.textContent = titleText;
 
     const body = doc.createElement('div');
-    body.className = 'wg-modal__body';
+    body.className = 'wg-dialog__body mt-confirm-modal__body';
     if (!(inputMode || choiceMode || contentMode) || msg) {
         const messageEl = doc.createElement('p');
         messageEl.className = 'mt-confirm-modal__message';
@@ -114,38 +136,44 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
     }
 
     const actions = doc.createElement('div');
-    actions.className = 'wg-modal__actions';
+    actions.className = 'wg-dialog__acts';
     const cancelBtn = doc.createElement('button');
     cancelBtn.type = 'button';
     cancelBtn.className = alertMode
-        ? 'wg-gloss wg-gloss--sun mt-confirm-modal__cancel'
-        : 'wg-gloss mt-confirm-modal__cancel';
+        ? 'wg-btn wg-btn--primary mt-confirm-modal__cancel'
+        : 'wg-btn wg-btn--ghost mt-confirm-modal__cancel';
     cancelBtn.textContent = alertMode ? (opts.confirmLabel || 'OK') : (opts.cancelLabel || 'Cancel');
     actions.appendChild(cancelBtn);
     let confirmBtn = null;
     if (!choiceMode && !alertMode) {
         confirmBtn = doc.createElement('button');
         confirmBtn.type = 'button';
-        confirmBtn.className = 'wg-gloss wg-gloss--sun mt-confirm-modal__confirm';
+        confirmBtn.className = `wg-btn ${opts.destructive ? 'wg-btn--danger' : 'wg-btn--primary'} mt-confirm-modal__confirm`;
         confirmBtn.textContent = opts.confirmLabel || (inputMode ? 'Save' : 'Confirm');
+        if (typedPhrase) confirmBtn.disabled = true;
         actions.appendChild(confirmBtn);
     }
 
     let input = null;
     let errorEl = null;
-    if (inputMode) {
+    if (inputMode || typedPhrase) {
         const field = doc.createElement('label');
         field.className = 'wg-field';
-        if (opts.label) {
+        const labelText = typedPhrase ? `Type "${String(opts.typedConfirm).trim()}" to confirm` : opts.label;
+        if (labelText) {
             const labelEl = doc.createElement('span');
             labelEl.className = 'mt-confirm-modal__label';
-            labelEl.textContent = opts.label;
+            labelEl.textContent = labelText;
             field.appendChild(labelEl);
         }
         input = doc.createElement('input');
         input.type = 'text';
         input.className = 'wg-input mt-confirm-modal__input';
         input.autocomplete = 'off';
+        if (typedPhrase) {
+            input.setAttribute('autocapitalize', 'none');
+            input.spellcheck = false;
+        }
         if (opts.inputMode) input.setAttribute('inputmode', opts.inputMode);
         input.value = opts.value == null ? '' : String(opts.value);
         if (opts.placeholder) input.placeholder = opts.placeholder;
@@ -160,15 +188,12 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
     }
     if (choiceMode) {
         const list = doc.createElement('div');
-        list.className = 'mt-confirm-modal__choices';
-        list.setAttribute('role', 'listbox');
+        list.className = 'wg-choices mt-confirm-modal__choices';
         for (const choice of opts.choices) {
             const btn = doc.createElement('button');
             btn.type = 'button';
-            btn.className = 'wg-gloss mt-confirm-modal__choice';
-            btn.setAttribute('role', 'option');
-            btn.setAttribute('aria-selected', choice.selected ? 'true' : 'false');
-            if (choice.selected) btn.classList.add('mt-confirm-modal__choice--selected');
+            btn.className = 'wg-choice mt-confirm-modal__choice';
+            btn.setAttribute('aria-pressed', choice.selected ? 'true' : 'false');
             btn.disabled = !!choice.disabled;
             btn.textContent = choice.label;
             btn.addEventListener('click', () => settle(choice.value));
@@ -178,14 +203,21 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
     }
     if (contentMode) body.appendChild(opts.content);
 
-    // Input/choices dialogs keep their actions top-right so the mobile
-    // keyboard never covers them; a plain confirm keeps them below.
-    modal.appendChild(header);
-    modal.appendChild(body);
+    // Dialogs with a field or a list keep their actions top-right beside the
+    // title so the mobile keyboard never covers them (med-8j5w.5); a confirm
+    // — typed or not — keeps the kit's full-width actions row below the body,
+    // where a long destructive label ("Verify passkey & delete") still fits.
     if (inputMode || choiceMode || contentMode) {
-        actions.classList.add('mt-confirm-modal__header-actions');
-        header.appendChild(actions);
+        const head = doc.createElement('div');
+        head.className = 'mt-confirm-modal__head';
+        actions.classList.add('mt-confirm-modal__head-acts');
+        head.appendChild(title);
+        head.appendChild(actions);
+        modal.appendChild(head);
+        modal.appendChild(body);
     } else {
+        modal.appendChild(title);
+        modal.appendChild(body);
         modal.appendChild(actions);
     }
 
@@ -204,10 +236,16 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
         onResult(result);
     }
 
+    const typedMatches = () => input.value.trim().toLowerCase() === typedPhrase;
+
     function submit() {
         if (contentMode) {
             const value = typeof opts.collect === 'function' ? opts.collect() : true;
             if (value != null) settle(value);
+            return;
+        }
+        if (typedPhrase) {
+            if (typedMatches()) settle(true);
             return;
         }
         if (!inputMode) { settle(true); return; }
@@ -226,7 +264,7 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
         if (e.key === 'Escape') {
             e.preventDefault();
             settle(cancelValue);
-        } else if (e.key === 'Enter' && inputMode && e.target === input && !e.isComposing) {
+        } else if (e.key === 'Enter' && input && e.target === input && !e.isComposing) {
             e.preventDefault();
             submit();
         }
@@ -236,6 +274,7 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
         input.addEventListener('input', () => {
             errorEl.hidden = true;
             input.removeAttribute('aria-invalid');
+            if (typedPhrase) confirmBtn.disabled = !typedMatches();
         });
     }
     cancelBtn.addEventListener('click', () => settle(cancelValue));
@@ -249,7 +288,7 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
         try { modal.open(); } catch (_) { /* ignore */ }
     }
     const focusEl = input
-        || (choiceMode ? modal.querySelector('.mt-confirm-modal__choice--selected') : null)
+        || (choiceMode ? modal.querySelector('.mt-confirm-modal__choice[aria-pressed="true"]') : null)
         || confirmBtn || cancelBtn;
     try { focusEl.focus(); } catch (_) { /* ignore */ }
     if (input) { try { input.select(); } catch (_) { /* ignore */ } }

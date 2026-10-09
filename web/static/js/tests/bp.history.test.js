@@ -93,9 +93,12 @@ describe('renderBPReadings (Phase 3, Task 5)', () => {
         expect(value.querySelector('.wg-bp-reading-row__dia').textContent).toBe('/86');
 
         // 132/86 → highnormal per ISH classifier.
-        const tag = row.querySelector('.wg-bp-status');
-        expect(tag.classList.contains('wg-bp-status--highnormal')).toBe(true);
-        expect(tag.classList.contains('wg-tag')).toBe(true);
+        const tag = row.querySelector('.wg-chip[data-bp-category]');
+        expect(tag.dataset.bpCategory).toBe('highnormal');
+        expect(tag.classList.contains('wg-chip--warn')).toBe(true);
+        expect(tag.textContent).toBe('High-normal');
+        // A committed reading carries no sync chip.
+        expect(row.querySelector('.wg-chip--pending')).toBeNull();
     });
 
     it('renders a .wg-tag--mono pulse tag when pulse is present and omits it when absent', () => {
@@ -116,7 +119,7 @@ describe('renderBPReadings (Phase 3, Task 5)', () => {
         expect(present.textContent).toBe('68 bpm');
     });
 
-    it('maps status classes for each ISH category', () => {
+    it('maps each ISH category onto a chip state (Normal=ok, High-normal=warn, HTN=danger)', () => {
         const { document, window } = env;
         window.renderBPReadings([
             { id: 1, measured_at: midnight(0).toISOString(), systolic: 115, diastolic: 75, pulse: 60 },
@@ -125,19 +128,24 @@ describe('renderBPReadings (Phase 3, Task 5)', () => {
             { id: 4, measured_at: midnight(0).toISOString(), systolic: 170, diastolic: 105, pulse: 60 }
         ]);
 
-        const tags = document.querySelectorAll('#bp-list .wg-bp-status');
-        const classes = Array.from(tags).map((t) =>
-            Array.from(t.classList).find((c) => c.startsWith('wg-bp-status--'))
-        );
-        // Rows render newest-first; all four rows are "today", so order matches input
-        // reversed (delete semantic: Array.sort with identical timestamps is stable).
-        // We just care that every status class is represented.
-        expect(classes).toEqual(expect.arrayContaining([
-            'wg-bp-status--normal',
-            'wg-bp-status--highnormal',
-            'wg-bp-status--grade1',
-            'wg-bp-status--grade2'
-        ]));
+        const states = {};
+        document.querySelectorAll('#bp-list .wg-chip[data-bp-category]').forEach((t) => {
+            states[t.dataset.bpCategory] = ['ok', 'warn', 'danger'].find((s) => t.classList.contains(`wg-chip--${s}`));
+        });
+        expect(states).toEqual({ normal: 'ok', highnormal: 'warn', grade1: 'danger', grade2: 'danger' });
+    });
+
+    it('an optimistic reading renders the shared Pending sync chip; a rejected one renders danger', () => {
+        const { document, window } = env;
+        window.renderBPReadings([
+            { id: 'local_optimistic_1', measured_at: midnight(0).toISOString(), systolic: 120, diastolic: 78, _optimistic: true },
+            { id: 'local_2', measured_at: midnight(1).toISOString(), systolic: 121, diastolic: 79, isRejected: true, errorMessage: 'HTTP 400' }
+        ]);
+        const pending = document.querySelector('[data-reading-id="local_optimistic_1"] .wg-chip--pending');
+        expect(pending.textContent).toBe('Pending');
+        const failed = document.querySelector('[data-reading-id="local_2"] .wg-chip--danger:not([data-bp-category])');
+        expect(failed.textContent).toBe('Sync failed');
+        expect(failed.title).toBe('HTTP 400');
     });
 
     it('renders a .wg-icon-btn trailing delete that invokes deleteBPReading with the reading id', () => {

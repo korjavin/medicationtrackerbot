@@ -99,7 +99,7 @@ describe('workout.js session and stats flows', () => {
       await window.saveWorkoutSessionDetails();
 
       expect(safeAlertSpy).toHaveBeenCalledTimes(1);
-      expect(safeAlertSpy.mock.calls[0][0]).toContain('❌ Fake API Error for tests');
+      expect(safeAlertSpy.mock.calls[0][0]).toContain('Fake API Error for tests');
       expect(document.getElementById('workout-session-modal').classList.contains('hidden')).toBe(false); // Modal stays open
     } finally {
       cleanup();
