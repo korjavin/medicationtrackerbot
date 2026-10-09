@@ -687,6 +687,10 @@ async function pullTail(ctx) {
       // Transient failure, or a stranded import that must be pushed first: either
       // way the cursor didn't move, so looping would spin. Retry next open.
       if (!(await bootstrap(ctx))) return;
+      // The whole mirror was replaced (e.g. a peer's full-vault import), and
+      // the tail above the snapshot is usually empty — so nothing below would
+      // repaint. Every type may have changed.
+      notifyRecordsChanged(Object.keys(RECORD_TAGS), ORIGIN_EXTERNAL);
       continue;
     }
     const applied = new Set();
@@ -1186,7 +1190,12 @@ async function flushPendingUnlocked(ctx) {
 
 // Pull-on-open: bootstrap (snapshot + tail) on first run, incremental tail
 // pull otherwise, then retry any writes a previous session couldn't push.
-export async function pullOnOpen(ctx) {
+//
+// retryForcedSnapshot=false (wake-triggered drains, bd med-eas.9) skips the
+// stranded-import retry: that retry posts a bump op, whose own sync-ready echo
+// would otherwise start the next retry — an unbounded upload loop while the
+// snapshot keeps failing. Open/visibility/online/reauth drains still retry.
+export async function pullOnOpen(ctx, { retryForcedSnapshot = true } = {}) {
   await bootstrapIfNeeded(ctx);
   // A pending forced snapshot (a C2e full-vault import a prior session couldn't
   // complete offline) means the LOCAL store is authoritative and must be PUSHED
@@ -1197,7 +1206,7 @@ export async function pullOnOpen(ctx) {
   // land (offline), skip the pull entirely and retry next open — never let a
   // pull run while the import is still stranded on this device.
   if ((await readMeta()).forceSnapshotPending) {
-    await tryForceSnapshot(ctx);
+    if (retryForcedSnapshot) await tryForceSnapshot(ctx);
     if ((await readMeta()).forceSnapshotPending) return;
   }
   await pullTail(ctx);
@@ -1238,20 +1247,24 @@ let drainRerun = false;
 // Installed by startReconnectAutoDrain: surfaces a mid-session auth expiry.
 let onDrainAuthExpired = null;
 function drainSettled(ctx) {
-  if (drainRerun) { drainRerun = false; requestDrain(ctx); }
+  // A rerun only catches peer data a drain may have missed — run it as a wake,
+  // so a failed import retry's own bump echo cannot chain another retry.
+  if (drainRerun) { drainRerun = false; requestDrain(ctx, { wake: true }); }
 }
 
 // requestDrain runs the boot drain path (pullOnOpen) through the single-slot
 // in-flight guard shared by the visibility/online auto-drain, reauthenticate,
 // and the SSE sync-ready wake (bd med-eas.9): a wake never overlaps a drain,
-// and a burst of wakes mid-drain coalesces into one follow-up run.
-export function requestDrain(ctx) {
+// and a burst of wakes mid-drain coalesces into one follow-up run. Pass
+// { wake: true } from the SSE path: it pulls but never retries a stranded
+// import (see pullOnOpen).
+export function requestDrain(ctx, { wake = false } = {}) {
   // An event landing mid-drain coalesces into a run that may already have
   // missed it (a drain stuck on a dying fetch when connectivity returned, or a
   // peer write landing after this drain's GET) — remember it and run once more
   // after the current one settles.
   if (drainInFlight) { drainRerun = true; return drainInFlight; }
-  drainInFlight = pullOnOpen(ctx)
+  drainInFlight = pullOnOpen(ctx, { retryForcedSnapshot: !wake })
     .catch(() => {}) // failures already land in sync status; retried on the next event
     .finally(() => {
       drainInFlight = null;

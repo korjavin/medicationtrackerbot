@@ -502,7 +502,7 @@ window.MedTrackerCloudReady = (async function boot() {
                 // onSyncReady (bd med-eas.9): another device's write wakes this
                 // tab over the same stream; the pulled records repaint through
                 // the existing cloud-write refresh path.
-                startInboxEventStream(ctx, { apply, onApplied: afterApply, onSyncReady: () => requestDrain(ctx) });
+                startInboxEventStream(ctx, { apply, onApplied: afterApply, onSyncReady: () => requestDrain(ctx, { wake: true }) });
 
                 // Both best-effort, each with its own catch — see the ORDER note
                 // above. A failed key publish means the relay refuses inbound

@@ -290,7 +290,7 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
         'sync.js': {
           pullOnOpen: async () => {},
           startReconnectAutoDrain: () => () => {},
-          requestDrain: (c) => { syncDrains.push(c); },
+          requestDrain: (c, opts) => { syncDrains.push({ c, opts }); },
           getSyncStatus: async () => ({ authExpired: false }),
           readAllLiveRecords: async () => [],
         },
@@ -445,7 +445,8 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
     expect(boot.syncDrains).toHaveLength(0);
     boot.streamOpts().onSyncReady();
     expect(boot.syncDrains).toHaveLength(1);
-    expect(boot.syncDrains[0]).toBe(boot.streamCtx());
+    expect(boot.syncDrains[0].c).toBe(boot.streamCtx());
+    expect(boot.syncDrains[0].opts).toEqual({ wake: true }); // never retries a stranded import
     expect(boot.recomputes()).toBe(1); // a sync wake is not an inbox drain
   });
 
