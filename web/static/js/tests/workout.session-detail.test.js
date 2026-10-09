@@ -1,10 +1,10 @@
-// Wandergeek Workouts session-detail view (Phase 7, Task 4).
+// Workout session takeover (med-xso6.21, kit W1–W3).
 //
-// Covers the rebuilt session-detail pieces: the mono header + slot tag
-// rendered by `renderWorkoutSessionInfo`, the per-exercise card list
-// rendered by `renderWorkoutSessionLogs` with set-by-set mono rows, and
-// the Log set / Finish / Delete action cluster rendered by
-// `renderSessionDetailActions`.
+// Covers the full-screen session view: the top bar (clock, plan · day · date,
+// status chip), the progress segments + overview (+ Exercise, gym, status of a
+// finished session), ONE exercise at a time with .wg-set rows (done rows =
+// log.sets, pending rows = ghost values to accept), the rest timer docked
+// after a done set, the footer (prev / next / Finish) and the Finish dialog.
 
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -40,7 +40,7 @@ function logFixture(overrides) {
     };
 }
 
-describe('Workouts session detail (Phase 7, Task 4)', () => {
+describe('Workout session takeover (med-xso6.21)', () => {
     let env;
 
     beforeEach(() => {
@@ -48,111 +48,98 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
     });
 
     afterEach(() => {
+        vi.useRealTimers();
         try { env.window.localStorage.clear(); } catch (_) { /* ignore */ }
         env.cleanup();
         env = null;
     });
 
-    // The session identity moved into the PINNED modal header — the body used
-    // to repeat it above the first exercise card, which cost a screen of
-    // vertical space on a list that never fits one screen anyway.
-    it('renders the pinned header with slot tag, formatted date/weekday and status', () => {
-        const { window, document } = env;
-        window.renderWorkoutSessionHeader(sessionFixture());
-
-        const heading = document.getElementById('workout-session-modal-heading');
-        const slotTag = heading.querySelector('.wg-workouts-slot-tag');
-        expect(slotTag).not.toBeNull();
-        expect(slotTag.textContent).toBe('PPL');
-        expect(slotTag.classList.contains('wg-workouts-slot-tag--plan')).toBe(true);
-
-        const title = heading.querySelector('.wg-workouts-session-modal__title');
-        expect(title).not.toBeNull();
-        expect(title.classList.contains('wg-mono-display')).toBe(true);
-        // "22.04.2026 · Wed" (Europe-style) — assert the mono date + separator
-        // pattern without coupling to weekday locale differences across
-        // environments. Year must be present.
-        expect(title.textContent).toMatch(/\d{2}[./]\d{2}[./]\d{4}\s*·\s*\S+/);
-        expect(title.textContent).toContain('2026');
-
-        expect(heading.querySelector('.wg-workouts-session-modal__status').textContent).toBe('In Progress');
-        // …and the body no longer repeats any of it.
-        const infoContainer = document.getElementById('workout-session-info');
-        window.renderWorkoutSessionInfo(infoContainer, sessionFixture());
-        expect(infoContainer.querySelector('.wg-workouts-slot-tag')).toBeNull();
-    });
-
-    it('keeps the header status in step with the body status select', () => {
-        const { window, document } = env;
-        window.renderWorkoutSessionHeader(sessionFixture());
-        window.renderWorkoutSessionInfo(document.getElementById('workout-session-info'), sessionFixture());
-
-        const select = document.getElementById('session-status-select');
-        select.value = 'skipped';
-        select.dispatchEvent(new window.Event('change'));
-
-        expect(document.getElementById('workout-session-modal-status').textContent).toBe('Skipped');
-    });
-
-    it('surfaces the session status select inside a wg-gloss--inset wrapper', () => {
-        const { window, document } = env;
-        const infoContainer = document.getElementById('workout-session-info');
-        window.renderWorkoutSessionInfo(infoContainer, sessionFixture({ status: 'completed' }));
-
-        const statusRow = infoContainer.querySelector('.wg-workouts-session-info__status');
-        expect(statusRow).not.toBeNull();
-        expect(statusRow.classList.contains('wg-gloss--inset')).toBe(true);
-
-        const select = statusRow.querySelector('#session-status-select');
-        expect(select).not.toBeNull();
-        expect(select.value).toBe('completed');
-        const values = Array.from(select.options).map((o) => o.value);
-        expect(values).toEqual(['in_progress', 'completed', 'skipped']);
-    });
-
-    // The production code keeps the currently-open session's logs in a
-    // module-scoped `let currentSessionLogs` binding that isn't reachable
-    // from the harness window. These tests go through the public
-    // `showWorkoutSessionModal(sessionId)` entry point with a mocked
-    // apiCall so the real code path populates that binding for us.
-    async function openSession(window, logs, sessionOverrides) {
-        window.apiCall = vi.fn(async (endpoint) => {
+    // showWorkoutSessionModal is the public entry point; a mocked apiCall feeds
+    // it (and answers every write / history read with `extra(endpoint)`).
+    async function openSession(window, logs, sessionOverrides, extra) {
+        window.apiCall = vi.fn(async (endpoint, method, body) => {
             if (endpoint.startsWith('/api/workout/sessions/details')) {
                 return { session: sessionFixture(sessionOverrides), logs };
+            }
+            if (extra) {
+                const r = await extra(endpoint, method, body);
+                if (r !== undefined) return r;
             }
             return [];
         });
         await window.showWorkoutSessionModal(77);
     }
 
+    const logsEl = (document) => document.getElementById('workout-session-logs');
+    const setRows = (document) => Array.from(logsEl(document).querySelectorAll('.wg-set'));
+
+    it('renders the top bar: clock, plan · day · date line and a status chip', () => {
+        const { window, document } = env;
+        window.renderWorkoutSessionHeader(sessionFixture({ status: 'completed' }));
+
+        const heading = document.getElementById('workout-session-modal-heading');
+        expect(heading.querySelector('.wg-session-top__clock').textContent).toBe('42m');
+        const sub = heading.querySelector('.wg-session-top__sub');
+        expect(sub.textContent).toContain('PPL · Push Day · ');
+        expect(sub.textContent).toMatch(/\d{2}[./]\d{2}[./]\d{4}\s*·\s*\S+/);
+        expect(document.getElementById('workout-session-modal-status').textContent).toBe('Completed');
+        // Status is shown, never edited, in the top bar.
+        expect(document.getElementById('session-status-select')).toBeNull();
+    });
+
+    it('is a full-screen page with a minimise button and no sticky-header controls', async () => {
+        const { window, document } = env;
+        await openSession(window, [logFixture()], { status: 'completed' });
+
+        const modal = document.getElementById('workout-session-modal');
+        expect(modal.classList.contains('wg-page')).toBe(true);
+        expect(modal.querySelector('.wg-session-top')).not.toBeNull();
+        expect(modal.querySelector('.wg-session-prog')).not.toBeNull();
+        const close = document.getElementById('workout-session-cancel-btn');
+        expect(close.classList.contains('wg-btn')).toBe(true);
+        expect(close.getAttribute('aria-label')).toBe('Minimise');
+        expect(document.getElementById('workout-session-delete-btn')).toBeNull();
+        // + Exercise lives in the overview, not in the top bar.
+        expect(document.getElementById('workout-session-header-add-btn')).toBeNull();
+        expect(document.querySelector('.wg-workouts-session-modal__header')).toBeNull();
+    });
+
     it('renders an empty state when no exercise logs are present', async () => {
         const { window, document } = env;
         await openSession(window, []);
 
-        const logsContainer = document.getElementById('workout-session-logs');
-        const empty = logsContainer.querySelector('.wg-workouts-session-logs__empty');
+        const empty = logsEl(document).querySelector('.wg-workouts-session-logs__empty');
         expect(empty).not.toBeNull();
         expect(empty.textContent).toBe('No exercises logged');
+        expect(document.getElementById('workout-session-header-add-btn')).not.toBeNull();
     });
 
-    it('renders a .wg-card per exercise with the mono set-by-set row', async () => {
+    it('shows one exercise at a time with a progress segment per exercise; Next / prev move between them', async () => {
         const { window, document } = env;
         await openSession(window, [
             logFixture({ exercise_name: 'Bench', sets_completed: 4, reps_completed: 8, weight_kg: 70 }),
             logFixture({ id: 2, exercise_name: 'Overhead', sets_completed: 3, reps_completed: 10, weight_kg: 40 })
         ]);
 
-        const logsContainer = document.getElementById('workout-session-logs');
-        const cards = logsContainer.querySelectorAll('.wg-workouts-session-exercise');
-        expect(cards.length).toBe(2);
-        cards.forEach((card) => {
-            expect(card.classList.contains('wg-card')).toBe(true);
-        });
+        const cards = logsEl(document).querySelectorAll('.wg-workouts-session-exercise');
+        expect(cards.length).toBe(1);
+        expect(cards[0].classList.contains('wg-ex')).toBe(true);
+        expect(cards[0].querySelector('.wg-eyebrow').textContent).toBe('Exercise 1 of 2');
+        expect(cards[0].querySelector('.wg-ex__name').textContent).toBe('Bench');
+        expect(cards[0].querySelector('.wg-workouts-session-exercise__mono').textContent).toBe('4 × 8 · 70 kg');
+        // Both exercises are fully logged → both segments are done.
+        const segs = document.querySelectorAll('#workout-session-prog .wg-session-prog__seg');
+        expect(segs.length).toBe(2);
+        expect(segs[0].classList.contains('wg-session-prog__seg--done')).toBe(true);
 
-        const monoRows = logsContainer.querySelectorAll('.wg-workouts-session-exercise__mono');
-        expect(monoRows.length).toBe(2);
-        expect(monoRows[0].textContent).toBe('4 × 8 · 70 kg');
-        expect(monoRows[1].textContent).toBe('3 × 10 · 40 kg');
+        document.querySelector('.wg-workouts-session-actions__next').click();
+        const card = logsEl(document).querySelector('.wg-workouts-session-exercise');
+        expect(card.querySelector('.wg-ex__name').textContent).toBe('Overhead');
+        expect(card.querySelector('.wg-workouts-session-exercise__mono').textContent).toBe('3 × 10 · 40 kg');
+        expect(document.querySelector('.wg-workouts-session-actions__next').disabled).toBe(true);
+
+        document.querySelector('.wg-workouts-session-actions__prev').click();
+        expect(logsEl(document).querySelector('.wg-ex__name').textContent).toBe('Bench');
     });
 
     it('labels bodyweight sets (weight_kg = 0) as "bodyweight" in the mono row', async () => {
@@ -160,116 +147,348 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
         await openSession(window, [
             logFixture({ exercise_name: 'Pull-ups', sets_completed: 3, reps_completed: 8, weight_kg: 0 })
         ]);
-
-        const logsContainer = document.getElementById('workout-session-logs');
-        const monoRow = logsContainer.querySelector('.wg-workouts-session-exercise__mono');
-        expect(monoRow.textContent).toBe('3 × 8 · bodyweight');
+        expect(logsEl(document).querySelector('.wg-workouts-session-exercise__mono').textContent).toBe('3 × 8 · bodyweight');
     });
 
-    it('marks unsaved planned rows and removes the dim state when an input is edited', async () => {
+    it('renders done sets as 56px .wg-set rows: index, weight, reps, done check', async () => {
+        const { window, document } = env;
+        await openSession(window, [logFixture()]);
+
+        expect(logsEl(document).querySelector('.wg-sethead')).not.toBeNull();
+        const rows = setRows(document);
+        expect(rows.length).toBe(3);
+        rows.forEach((row, i) => {
+            expect(row.classList.contains('wg-set--done')).toBe(true);
+            expect(row.querySelector('.wg-set__idx').textContent).toBe(String(i + 1));
+            const cells = row.querySelectorAll('.wg-set__cell');
+            expect(cells.length).toBe(2);
+            expect(cells[0].textContent).toBe('60');
+            expect(cells[1].textContent).toBe('8');
+            expect(row.querySelector('.wg-set__done').getAttribute('aria-pressed')).toBe('true');
+        });
+        // No RPE / type inputs on the row itself.
+        expect(logsEl(document).querySelector('select, input[type="number"]')).toBeNull();
+    });
+
+    it('a planned exercise opens with its target as ghost rows; ticking one logs it (create) and starts the rest timer', async () => {
+        const { window, document } = env;
+        await openSession(window, [], { variant_id: 5, exercise_snapshot: [
+            { exercise_id: 20, exercise_name: 'Fly', target_sets: 2, target_reps_min: 12, target_weight_kg: 15 }
+        ] }, (endpoint) => (endpoint.includes('/logs/create') ? { id: 501 } : undefined));
+
+        const rows = setRows(document);
+        expect(rows.length).toBe(2);
+        expect(rows[0].classList.contains('wg-set--done')).toBe(false);
+        expect(rows[0].classList.contains('wg-set--active')).toBe(true);
+        expect(rows[0].querySelector('.wg-set__adjust')).not.toBeNull();
+        const ghost = rows[0].querySelectorAll('.wg-set__cell--ghost');
+        expect(ghost.length).toBe(2);
+        expect(ghost[0].textContent).toBe('15');
+        expect(ghost[1].textContent).toBe('12');
+        // No "Not yet logged" dim card any more.
+        expect(logsEl(document).textContent).not.toContain('Not yet logged');
+
+        vi.useFakeTimers();
+        rows[0].querySelector('.wg-set__done').click();
+        const after = setRows(document);
+        expect(after[0].classList.contains('wg-set--done')).toBe(true);
+        expect(after[1].classList.contains('wg-set--active')).toBe(true);
+
+        const rest = document.getElementById('workout-session-rest');
+        expect(rest.hidden).toBe(false);
+        expect(rest.querySelector('.wg-rest__time').textContent).toBe('1:30');
+
+        await vi.advanceTimersByTimeAsync(900);
+        expect(window.apiCall).toHaveBeenCalledWith('/api/workout/sessions/logs/create', 'POST', expect.objectContaining({
+            session_id: 77,
+            exercise_id: 20,
+            target_sets: 1,
+            target_reps_min: 12,
+            target_weight_kg: 15,
+            sets: [expect.objectContaining({ set_index: 0, weight_kg: 15, reps: 12, set_type: 'normal' })]
+        }), { suppressWriteAlert: true });
+    });
+
+    it('ghost cells show last session\'s values and a tap accepts them; ± adjusts the active row', async () => {
+        const { window, document } = env;
+        await openSession(window, [logFixture({ id: 1, sets_completed: 1, sets: [
+            { set_index: 0, weight_kg: 60, reps: 8, set_type: 'normal' }
+        ] })], { variant_id: 5, exercise_snapshot: [
+            { exercise_id: 10, exercise_name: 'Bench', target_sets: 3, target_reps_min: 8, target_weight_kg: 60 }
+        ] }, (endpoint) => {
+            if (endpoint.startsWith('/api/workout/exercises/history')) {
+                return [
+                    { date: '2026-04-22', session_id: 77, sets: [{ weight_kg: 60, reps: 8 }] },
+                    { date: '2026-04-19', session_id: 70, sets: [
+                        { weight_kg: 60, reps: 8 }, { weight_kg: 62.5, reps: 7 }, { weight_kg: 62.5, reps: 6 }] }
+                ];
+            }
+            return undefined;
+        });
+        await vi.waitFor(() => expect(setRows(document)[1].querySelector('.wg-set__cell--ghost').textContent).toContain('62.5'));
+
+        const row = setRows(document)[1];
+        const [w, r] = row.querySelectorAll('.wg-set__cell');
+        expect(w.querySelector('small').textContent).toBe('last');
+        expect(r.textContent).toContain('7');
+
+        vi.useFakeTimers(); // so the autosave debounce could fire below
+        w.click();
+        let cells = setRows(document)[1].querySelectorAll('.wg-set__cell');
+        expect(cells[0].classList.contains('wg-set__cell--ghost')).toBe(false);
+        expect(cells[1].classList.contains('wg-set__cell--ghost')).toBe(true);
+
+        const adjust = setRows(document)[1].querySelectorAll('.wg-set__adjust button');
+        adjust[1].click(); // +2.5 kg
+        adjust[3].click(); // +1 rep
+        cells = setRows(document)[1].querySelectorAll('.wg-set__cell');
+        expect(cells[0].firstChild.textContent).toBe('65');
+        expect(cells[1].firstChild.textContent).toBe('8');
+        // Pending rows are local only — nothing is written, even after the
+        // autosave debounce.
+        await vi.advanceTimersByTimeAsync(900);
+        expect(window.apiCall).not.toHaveBeenCalledWith('/api/workout/sessions/logs/update', 'POST', expect.anything(), expect.anything());
+    });
+
+    it('un-ticking the only done set saves without a weight, so the plan keeps its target', async () => {
+        const { window, document } = env;
+        await openSession(window, [logFixture({ sets_completed: 1, sets: [
+            { set_index: 0, weight_kg: 60, reps: 8, set_type: 'normal' }
+        ] })], undefined, (endpoint) => (endpoint.includes('/logs/update') ? { ok: true } : undefined));
+
+        vi.useFakeTimers();
+        setRows(document)[0].querySelector('.wg-set__done').click();
+        await vi.advanceTimersByTimeAsync(900);
+        const call = window.apiCall.mock.calls.find((c) => c[0] === '/api/workout/sessions/logs/update');
+        expect(call).toBeDefined();
+        expect(call[2]).toMatchObject({ id: 1, sets_completed: 0, sets: [] });
+        expect('weight_kg' in call[2]).toBe(false);
+    });
+
+    it('a notes-only planned exercise is created without a weight', async () => {
+        const { window, document } = env;
+        await openSession(window, [], { variant_id: 5, exercise_snapshot: [
+            { exercise_id: 20, exercise_name: 'Fly', target_sets: 2, target_reps_min: 12, target_weight_kg: 15 }
+        ] }, (endpoint) => (endpoint.includes('/logs/create') ? { id: 501 } : undefined));
+
+        vi.useFakeTimers();
+        const notes = logsEl(document).querySelector('.wg-workouts-session-exercise__field--notes input');
+        notes.value = 'shoulder twinge';
+        notes.dispatchEvent(new window.Event('change'));
+        await vi.advanceTimersByTimeAsync(900);
+        const call = window.apiCall.mock.calls.find((c) => c[0] === '/api/workout/sessions/logs/create');
+        expect(call).toBeDefined();
+        expect(call[2]).toMatchObject({ exercise_id: 20, target_sets: 0, notes: 'shoulder twinge' });
+        expect('target_weight_kg' in call[2]).toBe(false);
+    });
+
+    it('a minimise → reopen keeps the pending rows though autosave mirrored the plan down', async () => {
+        const { window, document } = env;
+        const plan = { id: 10, exercise_name: 'Bench', target_sets: 3, target_reps_min: 8, target_weight_kg: 60 };
+        await openSession(window, [logFixture({ sets_completed: 1 })], { variant_id: 5 },
+            (endpoint) => (endpoint.startsWith('/api/workout/exercises?variant_id=') ? [{ ...plan }] : undefined));
+        expect(setRows(document).length).toBe(3);
+
+        plan.target_sets = 1; // the domain mirrored the done count into the plan
+        await window.closeWorkoutSessionModal();
+        await window.showWorkoutSessionModal(77);
+        expect(setRows(document).length).toBe(3);
+        expect(setRows(document).filter((r) => r.classList.contains('wg-set--done')).length).toBe(1);
+    });
+
+    it('RPE and set type sit behind the row index toggle', async () => {
+        const { window, document } = env;
+        await openSession(window, [logFixture({ sets_completed: 1 })], undefined,
+            (endpoint) => (endpoint.includes('/logs/update') ? { ok: true } : undefined));
+
+        expect(logsEl(document).querySelector('.wg-set__more')).toBeNull();
+        setRows(document)[0].querySelector('.wg-set__idx').click();
+        const more = logsEl(document).querySelector('.wg-set__more');
+        expect(more).not.toBeNull();
+        more.querySelector('[data-set-type="warmup"]').click();
+        const idx = setRows(document)[0].querySelector('.wg-set__idx');
+        expect(idx.textContent).toBe('W');
+        expect(idx.classList.contains('wg-set__idx--warm')).toBe(true);
+        expect(window.WorkoutSessionsState.logs[0].sets[0].set_type).toBe('warmup');
+
+        logsEl(document).querySelector('.wg-set__more [aria-label="Raise RPE"]').click();
+        expect(window.WorkoutSessionsState.logs[0].sets[0].rpe).toBe(8);
+        expect(window.WorkoutSessionsState.logs[0]._setsDirty).toBe(true);
+    });
+
+    it('un-ticking a done set returns it to the pending rows', async () => {
+        const { window, document } = env;
+        await openSession(window, [logFixture({ sets_completed: 2 })]);
+
+        setRows(document)[1].querySelector('.wg-set__done').click();
+        const rows = setRows(document);
+        expect(rows.length).toBe(2);
+        expect(rows[1].classList.contains('wg-set--done')).toBe(false);
+        expect(rows[1].querySelectorAll('.wg-set__cell')[0].firstChild.textContent).toBe('60');
+        expect(window.WorkoutSessionsState.logs[0].sets.length).toBe(1);
+        expect(window.WorkoutSessionsState.logs[0].sets_completed).toBe(1);
+    });
+
+    it('the rest timer counts down, extends by 30s, can be skipped and clears itself at zero', async () => {
+        const { window, document } = env;
+        // Fake timers before the open: the session's 1s tick is created there.
+        vi.useFakeTimers();
+        await openSession(window, [logFixture({ sets_completed: 1 })]);
+
+        document.querySelector('.wg-workouts-session-exercise__add-set').click();
+        setRows(document)[1].querySelector('.wg-set__done').click();
+        const rest = document.getElementById('workout-session-rest');
+        expect(rest.querySelector('.wg-rest__time').textContent).toBe('1:30');
+
+        await vi.advanceTimersByTimeAsync(10000);
+        expect(rest.querySelector('.wg-rest__time').textContent).toBe('1:20');
+        rest.querySelector('.wg-rest__plus').click();
+        expect(rest.querySelector('.wg-rest__time').textContent).toBe('1:50');
+
+        rest.querySelector('.wg-rest__skip').click();
+        expect(rest.hidden).toBe(true);
+
+        setRows(document)[1].querySelector('.wg-set__done').click(); // undo
+        setRows(document)[1].querySelector('.wg-set__done').click(); // done again → new rest
+        expect(rest.hidden).toBe(false);
+        await vi.advanceTimersByTimeAsync(91000);
+        expect(rest.hidden).toBe(true);
+    });
+
+    it('asks the service worker for a notification when rest ends while the page is hidden', async () => {
+        const { window, document } = env;
+        const showNotification = vi.fn(async () => {});
+        Object.defineProperty(window.navigator, 'serviceWorker', {
+            configurable: true,
+            value: { ready: Promise.resolve({ showNotification }) }
+        });
+        vi.useFakeTimers();
+        await openSession(window, [logFixture({ sets_completed: 1 })]);
+        document.querySelector('.wg-workouts-session-exercise__add-set').click();
+        setRows(document)[1].querySelector('.wg-set__done').click();
+
+        Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+        await vi.advanceTimersByTimeAsync(91000);
+        expect(showNotification).toHaveBeenCalledWith('Rest over', expect.objectContaining({ tag: 'workout-rest' }));
+    });
+
+    it('a finished session does not start the rest timer', async () => {
+        const { window, document } = env;
+        await openSession(window, [logFixture({ sets_completed: 1 })], { status: 'completed' });
+        document.querySelector('.wg-workouts-session-exercise__add-set').click();
+        setRows(document)[1].querySelector('.wg-set__done').click();
+        expect(document.getElementById('workout-session-rest').hidden).toBe(true);
+    });
+
+    it('tapping the progress bar opens the overview: every exercise, + Exercise and the gym slot', async () => {
         const { window, document } = env;
         await openSession(window, [
-            logFixture({ id: 0, _dirty: false, exercise_name: 'Fly' })
+            logFixture({ exercise_name: 'Bench' }),
+            logFixture({ id: 2, exercise_name: 'Row', sets_completed: 2 })
         ]);
 
-        const logsContainer = document.getElementById('workout-session-logs');
-        const entry = logsContainer.querySelector('.wg-workouts-session-exercise');
-        expect(entry.classList.contains('unsaved')).toBe(true);
-        const hint = entry.querySelector('.wg-workouts-session-exercise__hint');
-        expect(hint).not.toBeNull();
-        expect(hint.textContent).toBe('Not yet logged — edit to include');
+        document.getElementById('workout-session-prog').click();
+        const rows = logsEl(document).querySelectorAll('.wg-session-overview__row');
+        expect(rows.length).toBe(2);
+        expect(rows[0].querySelector('.wg-row__title').textContent).toBe('Bench');
+        expect(rows[0].querySelector('.wg-row__meta').textContent).toContain('3 of 3 sets');
+        expect(rows[1].querySelector('.wg-row__meta').textContent).toContain('2 of 2 sets');
+        expect(document.getElementById('workout-session-header-add-btn')).not.toBeNull();
+        expect(document.getElementById('workout-session-gym')).not.toBeNull();
+        // A running session has no status row (Finish changes it).
+        expect(document.getElementById('workout-session-status-row')).toBeNull();
 
-        window.updateLocalLog(0, 'weight_kg', '15');
-        expect(entry.classList.contains('unsaved')).toBe(false);
-        expect(entry.querySelector('.wg-workouts-session-exercise__hint')).toBeNull();
+        rows[1].click();
+        expect(logsEl(document).querySelector('.wg-ex__name').textContent).toBe('Row');
+    });
+
+    it('a finished session changes its status from the overview', async () => {
+        const { window, document } = env;
+        await openSession(window, [logFixture()], { status: 'completed' });
+        document.getElementById('workout-session-prog').click();
+
+        document.getElementById('workout-session-status-row').click();
+        await vi.waitFor(() => expect(document.querySelector('.mt-confirm-modal__choice')).not.toBeNull());
+        const choices = Array.from(document.querySelectorAll('.mt-confirm-modal__choice'));
+        // No way back to In Progress from a finished session (no Finish path here).
+        expect(choices.some((b) => b.textContent.includes('In Progress'))).toBe(false);
+        choices.find((b) => b.textContent.includes('Skipped')).click();
+        await vi.waitFor(() => expect(window.WorkoutSessionsState.targetStatus).toBe('skipped'));
+        expect(document.getElementById('workout-session-modal-status').textContent).toBe('Skipped');
+        // The row stays, so the pick can be reverted.
+        expect(document.getElementById('workout-session-status-row')).not.toBeNull();
     });
 
     // renderSessionDetailActions reads the open session's status off
-    // WorkoutSessionsState (showWorkoutSessionModal populates it before
-    // calling), so seed it the way the modal would — bd med-4ca gates Finish
-    // on `in_progress`.
+    // WorkoutSessionsState — bd med-4ca gates Finish on `in_progress`.
     function openStatus(window, status) {
         window.WorkoutSessionsState.data = sessionFixture({ status });
     }
 
-    it('renders Finish workout alone in the action cluster (no Log set / Delete / Add)', () => {
+    it('renders Finish as the sun primary in the footer', () => {
         const { window, document } = env;
         openStatus(window, 'in_progress');
         const actionsContainer = document.getElementById('workout-session-actions');
-        const onFinish = vi.fn();
+        window.renderSessionDetailActions(actionsContainer, { onFinish: vi.fn() });
 
-        window.renderSessionDetailActions(actionsContainer, { onFinish });
-
-        expect(actionsContainer.classList.contains('wg-workouts-session-actions')).toBe(true);
-
-        const logSetBtn = actionsContainer.querySelector('.wg-workouts-session-actions__log-set');
-        const addBtn = actionsContainer.querySelector('.wg-workouts-session-actions__add');
         const finishBtn = actionsContainer.querySelector('.wg-workouts-session-actions__finish');
-        const deleteBtn = actionsContainer.querySelector('.wg-workouts-session-actions__delete');
-        expect(logSetBtn).toBeNull();
-        expect(deleteBtn).toBeNull();
-        // Add Exercise lives in the pinned header now — on screen at every
-        // scroll position, so a bottom copy was a second button for one job.
-        expect(addBtn).toBeNull();
-        expect(finishBtn).not.toBeNull();
-
-        expect(finishBtn.classList.contains('wg-gloss')).toBe(true);
-        expect(finishBtn.classList.contains('wg-gloss--sun')).toBe(false);
-        expect(finishBtn.textContent).toBe('Finish workout');
+        expect(finishBtn.classList.contains('wg-btn--primary')).toBe(true);
+        expect(finishBtn.textContent).toBe('Finish');
+        expect(actionsContainer.querySelector('.wg-workouts-session-actions__delete')).toBeNull();
     });
 
-    // bd med-4ca: a finished workout must not offer Finish. Re-completing it
-    // re-stamped completed_at and skipped a rotation variant.
-    it('omits Finish workout on a completed session', () => {
+    // bd med-4ca: a finished workout must not offer Finish.
+    it('omits Finish on a completed or skipped session', () => {
         const { window, document } = env;
+        const actionsContainer = document.getElementById('workout-session-actions');
         openStatus(window, 'completed');
-        const actionsContainer = document.getElementById('workout-session-actions');
-
         window.renderSessionDetailActions(actionsContainer, { onFinish: vi.fn() });
-
-        expect(actionsContainer.querySelector('.wg-workouts-session-actions__finish')).toBeNull();
         expect(document.getElementById('workout-session-finish-btn')).toBeNull();
-        // Logging an exercise you forgot on a finished workout stays legitimate
-        // — the header's + Exercise is never status-gated.
-        expect(document.getElementById('workout-session-header-add-btn')).not.toBeNull();
-    });
-
-    it('omits Finish workout on a skipped session', () => {
-        const { window, document } = env;
         openStatus(window, 'skipped');
-        const actionsContainer = document.getElementById('workout-session-actions');
-
         window.renderSessionDetailActions(actionsContainer, { onFinish: vi.fn() });
-
-        expect(actionsContainer.querySelector('.wg-workouts-session-actions__finish')).toBeNull();
+        expect(document.getElementById('workout-session-finish-btn')).toBeNull();
     });
 
-    it('has no Add Exercise button above the logs list or in the bottom row', async () => {
-        const { document } = env;
-        await openSession(env.window, [logFixture()]);
-
-        // The Add Exercise button now lives only in the pinned modal header —
-        // both the old logs-header and bottom-row entry points are gone.
-        expect(document.getElementById('workout-session-logs-header')).toBeNull();
-        expect(document.getElementById('workout-session-add-exercise-btn')).toBeNull();
-        expect(document.querySelector('.wg-workouts-session-actions__add')).toBeNull();
-    });
-
-    it('dispatches the Finish callback', () => {
+    it('dispatches the Finish callback and tolerates an omitted one', () => {
         const { window, document } = env;
         openStatus(window, 'in_progress');
         const actionsContainer = document.getElementById('workout-session-actions');
         const onFinish = vi.fn();
         window.renderSessionDetailActions(actionsContainer, { onFinish });
-
         actionsContainer.querySelector('.wg-workouts-session-actions__finish').click();
-
         expect(onFinish).toHaveBeenCalledTimes(1);
+
+        window.renderSessionDetailActions(actionsContainer, {});
+        expect(() => actionsContainer.querySelector('.wg-workouts-session-actions__finish').click()).not.toThrow();
     });
 
-    // bd med-mgvo: going offline used to sweep Finish to disabled, so a tap
-    // was a silent no-op and the session never completed. Cloud writes are
-    // local-first: offline, Finish must stay live and write status=completed.
+    it('Finish opens a dialog listing unlogged sets and a summary; Keep going saves nothing', async () => {
+        const { window, document } = env;
+        await openSession(window, [logFixture({ sets_completed: 2 })], { variant_id: 5, exercise_snapshot: [
+            { exercise_id: 10, exercise_name: 'Bench', target_sets: 3, target_reps_min: 8, target_weight_kg: 60 },
+            { exercise_id: 20, exercise_name: 'Fly', target_sets: 2, target_reps_min: 12, target_weight_kg: 15 }
+        ] });
+
+        document.getElementById('workout-session-finish-btn').click();
+        await vi.waitFor(() => expect(document.querySelector('.mt-confirm-modal')).not.toBeNull());
+        const dialog = document.querySelector('.mt-confirm-modal');
+        expect(dialog.classList.contains('wg-dialog')).toBe(true);
+        expect(dialog.querySelector('.mt-confirm-modal__title').textContent).toBe('Finish workout?');
+        expect(dialog.textContent).toContain('Sets left: 3, across Bench and Fly');
+        const stats = Array.from(dialog.querySelectorAll('.wg-stat__value')).map((s) => s.textContent);
+        expect(stats[1]).toBe('2');
+        expect(stats[2]).toBe('960 kg');
+        const confirm = dialog.querySelector('.mt-confirm-modal__confirm');
+        expect(confirm.classList.contains('wg-btn--primary')).toBe(true);
+        expect(confirm.textContent).toBe('Finish');
+
+        dialog.querySelector('.mt-confirm-modal__cancel').click();
+        await vi.waitFor(() => expect(document.querySelector('.mt-confirm-modal')).toBeNull());
+        expect(window.apiCall).not.toHaveBeenCalledWith('/api/workout/sessions/status?id=77', 'PUT', expect.anything(), expect.anything());
+        expect(window.WorkoutSessionsState.data).not.toBeNull();
+    });
+
+    // bd med-mgvo: offline, Finish must stay live and write status=completed.
     it('Finish stays enabled offline and still completes the session', async () => {
         const { window, document } = env;
         window.eval(readFileSync(new URL('../sync.js', import.meta.url), 'utf8'));
@@ -278,13 +497,15 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
         const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
         window.SyncManager.handleOffline();
         expect(logSpy).toHaveBeenCalledWith('[Sync WARN] Network: gone offline');
-        expect(document.getElementById('offline-banner').classList.contains('hidden')).toBe(false);
 
         const finishBtn = document.getElementById('workout-session-finish-btn');
         expect(finishBtn.disabled).toBe(false);
         expect(finishBtn.hasAttribute('data-offline-disabled')).toBe(false);
 
         finishBtn.click();
+        await vi.waitFor(() => expect(document.querySelector('.mt-confirm-modal__confirm')).not.toBeNull());
+        expect(document.querySelector('.mt-confirm-modal').textContent).toContain('All sets logged');
+        document.querySelector('.mt-confirm-modal__confirm').click();
         await vi.waitFor(() => expect(window.WorkoutSessionsState.data).toBeNull());
         expect(window.apiCall).toHaveBeenCalledWith(
             '/api/workout/sessions/status?id=77', 'PUT', { status: 'completed' }, expect.anything());
@@ -315,76 +536,18 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
         expect(window.safeToast).not.toHaveBeenCalled();
     });
 
-    it('tolerates omitted handlers without throwing on click', () => {
+    it('the exercise header carries an icon delete control', async () => {
         const { window, document } = env;
-        openStatus(window, 'in_progress');
-        const actionsContainer = document.getElementById('workout-session-actions');
-        window.renderSessionDetailActions(actionsContainer, {});
+        await openSession(window, [logFixture()]);
 
-        expect(() => {
-            actionsContainer.querySelector('.wg-workouts-session-actions__finish').click();
-        }).not.toThrow();
-    });
-
-    it('per-exercise cards carry a trailing icon-btn delete control', async () => {
-        const { window, document } = env;
-        env.window.apiCall = vi.fn(async (endpoint) => {
-            if (endpoint.startsWith('/api/workout/sessions/details')) {
-                return { session: sessionFixture(), logs: [logFixture()] };
-            }
-            return [];
-        });
-        await env.window.showWorkoutSessionModal(77);
-
-        const logsContainer = document.getElementById('workout-session-logs');
-        const card = logsContainer.querySelector('.wg-workouts-session-exercise');
-        const deleteBtn = card.querySelector('.wg-workouts-session-exercise__delete');
+        const deleteBtn = logsEl(document).querySelector('.wg-workouts-session-exercise__delete');
         expect(deleteBtn).not.toBeNull();
-        expect(deleteBtn.classList.contains('wg-icon-btn')).toBe(true);
-        expect(deleteBtn.querySelector('.wg-gloss')).not.toBeNull();
+        expect(deleteBtn.classList.contains('wg-btn--icon')).toBe(true);
+        expect(deleteBtn.querySelector('svg')).not.toBeNull();
         expect(deleteBtn.getAttribute('aria-label')).toBe('Remove exercise');
     });
 
-    // bd med-ci6 (replaces the old med-eas.71 Delete-gating pair): the header
-    // carries + Exercise and an icon Close, nothing else. Deleting a session is
-    // the History row's trash icon, and every entry point that can open a
-    // completed/skipped session is such a row — so no surface lost the
-    // capability.
-    it('renders a header with + Exercise and an icon Close — no Delete button', async () => {
-        const { window, document } = env;
-        await openSession(window, [logFixture()], { status: 'completed' });
-
-        expect(document.getElementById('workout-session-delete-btn')).toBeNull();
-        const headerBtns = document.querySelectorAll('.wg-workouts-session-modal__header-actions button');
-        expect(headerBtns.length).toBe(2);
-        expect(headerBtns[0].id).toBe('workout-session-header-add-btn');
-        expect(headerBtns[0].textContent).toBe('+ Exercise');
-
-        // Close is the compact icon button, not a full-width labelled one — the
-        // old text button ate a whole row of a modal that is already too tall.
-        const close = headerBtns[1];
-        expect(close.id).toBe('workout-session-cancel-btn');
-        expect(close.classList.contains('wg-icon-btn')).toBe(true);
-        expect(close.getAttribute('aria-label')).toBe('Close');
-        expect(close.querySelector('.wg-gloss svg')).not.toBeNull();
-    });
-
-    // The pinned header is what makes a long exercise list workable: the modal
-    // itself is the scroll container, so the strip must stay stuck to its top.
-    it('pins the header to the top of the scrolling modal', () => {
-        const css = readFileSync(new URL('../../css/styles.css', import.meta.url), 'utf8');
-        const rule = css.match(/\.wg-workouts-session-modal__header\s*\{[^}]*\}/);
-        expect(rule).not.toBeNull();
-        expect(rule[0]).toMatch(/position:\s*sticky/);
-        expect(rule[0]).toMatch(/top:/);
-        // Opaque background, or exercise cards would show through as they pass under.
-        expect(rule[0]).toMatch(/background:\s*var\(--wg-bg-card\)/);
-    });
-
-    // Friendly body-part chip (med-mj4): a card whose exercise resolves to a
-    // catalog body_part with a friendly translation gets a chip next to the name;
-    // an unmatched exercise gets none. The chip attaches fire-and-forget, so flush
-    // microtasks (as the PR-badge flow does) before asserting.
+    // Friendly body-part chip (med-mj4): fire-and-forget, so flush a tick.
     describe('friendly body-part chip', () => {
         function stubCatalog(window) {
             window.fetch = vi.fn(async (url) => {
@@ -401,11 +564,10 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
             await openSession(window, [logFixture({ exercise_name: 'Bench' })]);
             await new Promise((r) => setTimeout(r, 0));
 
-            const card = document.getElementById('workout-session-logs')
-                .querySelector('.wg-workouts-session-exercise');
-            const chip = card.querySelector('.wg-workouts-session-exercise__bodypart-chip');
+            const chip = logsEl(document).querySelector('.wg-workouts-session-exercise__bodypart-chip');
             expect(chip).not.toBeNull();
             expect(chip.textContent).toBe('Chest');
+            expect(chip.classList.contains('wg-tag')).toBe(true);
         });
 
         it('renders no chip for an exercise absent from the catalog', async () => {
@@ -413,10 +575,7 @@ describe('Workouts session detail (Phase 7, Task 4)', () => {
             stubCatalog(window);
             await openSession(window, [logFixture({ exercise_name: 'Mystery Move' })]);
             await new Promise((r) => setTimeout(r, 0));
-
-            const card = document.getElementById('workout-session-logs')
-                .querySelector('.wg-workouts-session-exercise');
-            expect(card.querySelector('.wg-workouts-session-exercise__bodypart-chip')).toBeNull();
+            expect(logsEl(document).querySelector('.wg-workouts-session-exercise__bodypart-chip')).toBeNull();
         });
     });
 });

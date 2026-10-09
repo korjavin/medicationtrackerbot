@@ -65,9 +65,12 @@ describe('workout.js session and stats flows', () => {
 
       expect(modal.classList.contains('hidden')).toBe(false);
       expect(overlay.classList.contains('hidden')).toBe(false);
-      expect(logsMarkup).toContain('Squat');
+      // Squat is fully logged, so the takeover opens on the first exercise with
+      // sets to do: the pre-filled (un-logged) Bench Press, as ghost rows.
+      expect(window.WorkoutSessionsState.logs.map((l) => l.exercise_name)).toEqual(['Squat', 'Bench Press']);
       expect(logsMarkup).toContain('Bench Press');
-      expect(logsMarkup).toContain('Not yet logged');
+      expect(logsMarkup).not.toContain('Not yet logged');
+      expect(document.querySelectorAll('#workout-session-logs .wg-set__cell--ghost').length).toBe(8);
 
       await overlay.onclick({ target: overlay });
       expect(modal.classList.contains('hidden')).toBe(true);
@@ -92,7 +95,7 @@ describe('workout.js session and stats flows', () => {
       window.safeAlert = safeAlertSpy;
 
       await window.showWorkoutSessionModal(77);
-      document.getElementById('session-status-select').value = 'completed';
+      window.WorkoutSessionsState.targetStatus = 'completed';
       window.updateLocalLog(1, 'sets_completed', '6');
       window.updateLocalLog(1, 'reps_completed', '10');
 
@@ -119,7 +122,7 @@ describe('workout.js session and stats flows', () => {
       window.loadWorkoutHistoryTab = vi.fn();
 
       await window.showWorkoutSessionModal(77);
-      document.getElementById('session-status-select').value = 'completed';
+      window.WorkoutSessionsState.targetStatus = 'completed';
       window.updateLocalLog(1, 'sets_completed', '6');
       window.updateLocalLog(1, 'reps_completed', '10');
       window.updateLocalLog(1, 'weight_kg', '65');

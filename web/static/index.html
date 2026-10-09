@@ -1877,39 +1877,27 @@
         </div>
     </mt-modal>
 
-    <!-- Modal for Workout Session Details -->
-    <mt-modal id="workout-session-modal" class="hidden wg-modal wg-workouts-session-modal">
-        <!-- Pinned header: a session's exercise list rarely fits one screen, so
-             "+ Exercise" and Close stay reachable without scrolling back up.
-             The heading (slot · date · status) is injected by
-             renderWorkoutSessionHeader; the body no longer repeats it, and the
-             old "Workout Details" title is gone — the modal is self-evident.
-             Close only besides Add: deleting a session lives on the History
-             row's trash icon (features/workout/history.js), which is the sole
-             entry point that can open a completed/skipped session anyway. -->
-        <div class="wg-workouts-session-modal__header">
-            <div class="wg-workouts-session-modal__heading" id="workout-session-modal-heading"></div>
-            <div class="wg-workouts-session-modal__header-actions">
-                <button type="button" id="workout-session-header-add-btn"
-                    class="wg-gloss wg-gloss--sun wg-workouts-session-modal__header-btn">+ Exercise</button>
-                <button type="button" id="workout-session-cancel-btn"
-                    class="wg-icon-btn wg-workouts-session-modal__close-btn" aria-label="Close">
-                    <span class="wg-gloss"></span>
-                </button>
-            </div>
+    <!-- Workout session takeover (med-xso6.21, kit W1–W3): a full-screen page on
+         the ModalManager stack. Minimise (#workout-session-cancel-btn) closes it
+         and leaves the session running. The clock / plan line, the progress
+         segments, the current exercise (or the overview with + Exercise and the
+         gym) and the footer buttons are rendered by features/workout/sessions.js. -->
+    <mt-modal id="workout-session-modal" class="hidden wg-page wg-session" aria-label="Workout session">
+        <header class="wg-session-top">
+            <button type="button" id="workout-session-cancel-btn"
+                class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Minimise"><i class="wg-ico" data-icon="chev-d"></i></button>
+            <div class="wg-session-top__titles" id="workout-session-modal-heading"></div>
+            <span id="workout-session-modal-status" class="wg-session-top__status"></span>
+        </header>
+        <button type="button" id="workout-session-prog" class="wg-session-prog" aria-label="All exercises"></button>
+        <div class="wg-content">
+            <div id="workout-session-logs"></div>
         </div>
-
-        <div class="wg-workouts-session-modal__body">
-            <div id="workout-session-info"></div>
-            <div id="workout-session-autosave-status" class="wg-workouts-session-autosave-status" role="status" aria-live="polite"></div>
-            <div id="workout-session-logs">
-                <!-- Exercise logs injected here -->
-            </div>
-
-            <div id="workout-session-actions" class="wg-workouts-session-actions">
-                <!-- Log-set / Finish / Delete action cluster injected here -->
-            </div>
-        </div>
+        <div id="workout-session-rest" class="wg-session-rest" hidden></div>
+        <footer class="wg-session-foot">
+            <span id="workout-session-autosave-status" class="wg-session-foot__save" role="status" aria-live="polite"></span>
+            <div id="workout-session-actions" class="wg-session-foot__acts"></div>
+        </footer>
     </mt-modal>
 
     <!-- Log-set modal (Phase 7, Task 8). Adds an exercise log to an in-progress

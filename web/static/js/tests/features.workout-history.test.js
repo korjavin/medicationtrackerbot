@@ -236,6 +236,8 @@ describe('features/workout/history.js — late Finish of an Unfinished row (clou
     row.click();
     await vi.waitFor(() => expect(document.getElementById('workout-session-finish-btn')).not.toBeNull());
     document.getElementById('workout-session-finish-btn').click();
+    await vi.waitFor(() => expect(document.querySelector('.mt-confirm-modal__confirm')).not.toBeNull());
+    document.querySelector('.mt-confirm-modal__confirm').click();
     await vi.waitFor(() => expect(window.WorkoutSessionsState.data).toBeNull());
 
     const session = (await env.records.list('workoutsession')).find((s) => s.id === 303);
