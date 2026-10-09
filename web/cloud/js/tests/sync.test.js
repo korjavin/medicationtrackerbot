@@ -1851,6 +1851,50 @@ describe('full-vault import snapshots in a constant 2 requests, not per-record o
     // Import recovered the device: the wedge is cleared so writes sync again.
     expect((await getSyncStatus(ctx)).wedged).toBe(false);
   });
+
+  // bd med-eas.9 — a sync-ready wake lets a peer pull the importer's bump op
+  // BEFORE the snapshot at that seq lands. Its cursor then sits at the bump, so
+  // `snapshot_seq > localLastSeq` alone would never fire and the peer would keep
+  // its pre-import vault. The remembered bump seq must still trigger the
+  // re-bootstrap once the snapshot appears.
+  it('a peer that pulled the bump before the snapshot still re-bootstraps onto the import', async () => {
+    await replaceAllRecords([{ recordId: 'note-old', recordType: 'note', clientTs: 1, deleted: false, text: 'pre-import' }]);
+    await seedMeta({ localLastSeq: 10, lastSnapshotSeq: 5 });
+    const kData = await deriveKData(ctx.dek);
+    const bumpId = '__vault_import_bump__';
+    const bump = await encryptRecord({
+      kData, accountId, recordType: 'importbump', recordId: bumpId, seq: 11,
+      plaintext: new TextEncoder().encode(JSON.stringify({ recordId: bumpId, clientTs: 2, deleted: true })),
+    });
+    const bumpOp = { seq: 11, record_type_tag: `importbump:${bumpId}`, nonce: toBase64(bump.nonce), ct: toBase64(new Uint8Array(bump.ct)) };
+    const imported = [{ recordId: 'bp-imported', recordType: 'bp', clientTs: 3, deleted: false, systolic: 118 }];
+    const snap = await encryptSnapshot({ kData, accountId, snapshotSeq: 11, plaintext: new TextEncoder().encode(JSON.stringify(imported)) });
+    const snapshotBody = JSON.stringify({ snapshot_seq: 11, nonce: toBase64(snap.nonce), ct: toBase64(new Uint8Array(snap.ct)) });
+
+    let snapshotLanded = false;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u.startsWith('/api/sync/ops?since=10')) {
+        return new Response(JSON.stringify({ ops: [bumpOp], next: false, snapshot_seq: 5 }), { status: 200 });
+      }
+      if (u.startsWith('/api/sync/ops?since=11')) {
+        return new Response(JSON.stringify({ ops: [], next: false, snapshot_seq: snapshotLanded ? 11 : 5 }), { status: 200 });
+      }
+      if (u === '/api/sync/snapshot' && !init?.method) return new Response(snapshotBody, { status: 200 });
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+
+    await pullOnOpen(ctx); // the wake that raced the importer: pulls the bump only
+    expect((await listRecords(ctx, 'note')).map((r) => r.recordId)).toEqual(['note-old']);
+
+    snapshotLanded = true;
+    await pullOnOpen(ctx); // the snapshot's own wake
+    expect((await listRecords(ctx, 'note')).map((r) => r.recordId)).toEqual([]);
+    expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-imported']);
+
+    await pullOnOpen(ctx); // the bump is consumed: no second re-bootstrap
+    expect(fetch.mock.calls.filter(([u, i]) => String(u) === '/api/sync/snapshot' && !i?.method)).toHaveLength(1);
+  });
 });
 
 // med-yor.3 — a live openDb() handle must not block account-delete's verified

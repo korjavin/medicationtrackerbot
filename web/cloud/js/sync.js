@@ -159,7 +159,7 @@ async function readMeta() {
   return withDb(async (db) => {
     const tx = db.transaction('sync_meta', 'readonly');
     const store = tx.objectStore('sync_meta');
-    const [localLastSeq, lastSnapshotSeq, lastSyncedAt, integrityErrors, forceSnapshotPending, snapshotError, snapshotErrorSeq, writeError, clockSkewMs, writeErrorStreak, syncWedged, lastSnapshotAt] = await Promise.all([
+    const [localLastSeq, lastSnapshotSeq, lastSyncedAt, integrityErrors, forceSnapshotPending, snapshotError, snapshotErrorSeq, writeError, clockSkewMs, writeErrorStreak, syncWedged, lastSnapshotAt, importBumpSeq] = await Promise.all([
       reqToPromise(store.get('localLastSeq')),
       reqToPromise(store.get('lastSnapshotSeq')),
       reqToPromise(store.get('lastSyncedAt')),
@@ -172,6 +172,7 @@ async function readMeta() {
       reqToPromise(store.get('writeErrorStreak')),
       reqToPromise(store.get('syncWedged')),
       reqToPromise(store.get('lastSnapshotAt')),
+      reqToPromise(store.get('importBumpSeq')),
     ]);
     return {
       localLastSeq: localLastSeq ?? null,
@@ -186,6 +187,7 @@ async function readMeta() {
       writeErrorStreak: writeErrorStreak ?? 0,
       syncWedged: syncWedged ?? false,
       lastSnapshotAt: lastSnapshotAt ?? null,
+      importBumpSeq: importBumpSeq ?? null,
     };
   });
 }
@@ -626,7 +628,7 @@ async function bootstrap(ctx) {
       lastSnapshotSeq = body.snapshot_seq;
     }
   }
-  await writeMeta({ localLastSeq: lastSnapshotSeq, lastSnapshotSeq });
+  await writeMeta({ localLastSeq: lastSnapshotSeq, lastSnapshotSeq, importBumpSeq: null });
   return true;
 }
 
@@ -673,7 +675,15 @@ async function pullTail(ctx) {
     // were away): ops between our cursor and body.snapshot_seq no longer exist,
     // so an incremental tail would silently skip them. Re-bootstrap from the
     // snapshot, then resume the tail above it.
-    if (typeof body.snapshot_seq === 'number' && body.snapshot_seq > meta.localLastSeq) {
+    //
+    // A peer's full-vault import posts its bump op BEFORE the snapshot at that
+    // seq (tryForceSnapshot). A pull in between (a sync-ready wake makes that
+    // likely, bd med-eas.9) moves our cursor past the bump, so the snapshot
+    // would no longer read as "ahead". importBumpSeq remembers the bump: a
+    // snapshot at/above it that we haven't loaded is the import — re-bootstrap.
+    const importLanded = meta.importBumpSeq !== null && typeof body.snapshot_seq === 'number'
+      && body.snapshot_seq >= meta.importBumpSeq && body.snapshot_seq > meta.lastSnapshotSeq;
+    if (typeof body.snapshot_seq === 'number' && (body.snapshot_seq > meta.localLastSeq || importLanded)) {
       // Transient failure, or a stranded import that must be pushed first: either
       // way the cursor didn't move, so looping would spin. Retry next open.
       if (!(await bootstrap(ctx))) return;
@@ -702,7 +712,9 @@ async function pullTail(ctx) {
         // just skip the row and advance. Genuine tamper detection lives on the
         // snapshot decrypt path (bootstrap), which has no benign-failure case.
       }
-      await writeMeta({ localLastSeq: op.seq });
+      await writeMeta(recordType === 'importbump'
+        ? { localLastSeq: op.seq, importBumpSeq: op.seq }
+        : { localLastSeq: op.seq });
     }
     await writeMeta({ lastSyncedAt: Date.now() });
     notifyRecordsChanged(applied, ORIGIN_EXTERNAL);
