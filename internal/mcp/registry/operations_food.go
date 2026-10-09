@@ -43,6 +43,47 @@ func FoodOperations() []*Operation {
 output(result)`,
 		},
 		{
+			ID:     "food.days.list",
+			Topic:  "food",
+			Method: "GET",
+			Path:   "/api/food/days",
+			Risk:   RiskRead,
+			ParamsSchema: json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "date": {"type": "string", "description": "YYYY-MM-DD anchor (last day of the window); defaults to today"},
+    "days": {"type": "integer", "minimum": 1, "maximum": 366, "description": "Window length in days (default 1)"}
+  }
+}`),
+			Description:     "List the per-day 'tracking incomplete' flag for a date window, one entry per day (unflagged days included). Flagged days are excluded from nutrition analysis. food.log.list meal groups also carry `incomplete`.",
+			ResponseSummary: "JSON array of {date (YYYY-MM-DD), incomplete (boolean)}, one per day in the window.",
+			ResponseExample: `[
+  {"date": "2026-04-28", "incomplete": true},
+  {"date": "2026-04-29", "incomplete": false}
+]`,
+			Example: `result = api.call("food.days.list", params={"date": "2026-04-29", "days": 2})
+output(result)`,
+		},
+		{
+			ID:         "food.days.set_incomplete",
+			Topic:      "food",
+			Method:     "PUT",
+			Path:       "/api/food/days/{date}",
+			PathParams: []string{"date"},
+			Risk:       RiskWrite,
+			BodySchema: json.RawMessage(`{
+  "type": "object",
+  "required": ["incomplete"],
+  "properties": {
+    "incomplete": {"type": "boolean", "description": "true = the day was not fully tracked; false = clear the flag"}
+  }
+}`),
+			Description:     "Mark a local day (YYYY-MM-DD) as incompletely tracked, or clear the mark. When the user says they didn't track, forgot to log, or only logged part of a day, set incomplete=true instead of logging guessed meals: flagged days are excluded from nutrition analysis so they don't read as a low-calorie day. Idempotent; incomplete=false un-flags.",
+			ResponseSummary: "The day's status object {date, incomplete}.",
+			Example: `api.call("food.days.set_incomplete", path_params={"date": "2026-04-28"}, body={"incomplete": True})
+output({"flagged": "2026-04-28"})`,
+		},
+		{
 			ID:     "food.stats.read",
 			Topic:  "food",
 			Method: "GET",
