@@ -174,7 +174,7 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         expect(lowTag.classList.contains('wg-tag--mono')).toBe(true);
         expect(lowTag.classList.contains('wg-tag--alert')).toBe(true);
         expect(lowTag.textContent).toContain('2');
-        expect(lowTag.textContent).toContain('⚠️');
+        expect(lowTag.textContent).toBe('2 left');
 
         const okTag = metforminRow.querySelector('.wg-meds-row__inventory');
         expect(okTag).not.toBeNull();
@@ -182,6 +182,21 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         expect(okTag.classList.contains('wg-tag--normal')).toBe(true);
         expect(okTag.textContent).toContain('60');
         expect(okTag.textContent).not.toContain('⚠️');
+    });
+
+    it('renders negative and zero stock as Out labels, never a negative count', async () => {
+        const { window, document } = env;
+        const inOneHour = new Date(Date.now() + 60 * 60 * 1000);
+        const sched = JSON.stringify({ type: 'daily', times: [toLocalTime(inOneHour)] });
+        await seedScheduleMeds(window, [
+            { id: 1, name: 'Aspirin', dosage: '75mg', schedule: sched, archived: false, inventory_count: -17 },
+            { id: 2, name: 'Metformin', dosage: '500mg', schedule: sched, archived: false, inventory_count: 0 }
+        ]);
+        const tagOf = (n) => Array.from(document.querySelectorAll('.wg-meds-row'))
+            .find((el) => el.textContent.includes(n)).querySelector('.wg-meds-row__inventory');
+        expect(tagOf('Aspirin').textContent).toBe('Out \u00B7 17 over');
+        expect(tagOf('Aspirin').classList.contains('wg-tag--alert')).toBe(true);
+        expect(tagOf('Metformin').textContent).toBe('Out');
     });
 
     it('collapses as-needed and archived meds into separate section-label groups after the scheduled ones', async () => {
