@@ -23,7 +23,7 @@ describe('app.js form submissions and push modal behavior', () => {
 
       expect(overlay.classList.contains('hidden')).toBe(false);
       expect(modal.classList.contains('hidden')).toBe(false);
-      expect(document.getElementById('med-confirm-action-btn').innerText).toBe('Confirm Selected');
+      expect(document.getElementById('med-confirm-action-btn').textContent.replace(/\s+/g, ' ').trim()).toBe('Take 2');
       expect(document.getElementById('med-confirm-snooze-btn').classList.contains('hidden')).toBe(false);
       expect(document.querySelectorAll('.med-confirm-check').length).toBe(2);
 
@@ -52,7 +52,7 @@ describe('app.js form submissions and push modal behavior', () => {
       window.showMedicationConfirmModal(['10', '20'], ['A', 'B'], '2026-02-27T10:00:00Z');
 
       const checks = document.querySelectorAll('.med-confirm-check');
-      checks[1].checked = false;
+      checks[1].setAttribute('aria-pressed', 'false');
 
       await window.confirmSelectedMedications();
 
@@ -89,7 +89,7 @@ describe('app.js form submissions and push modal behavior', () => {
       window.showMedicationConfirmModal([10, 20], ['A', 'B'], '2026-02-27T10:00:00Z', 'confirm', [100, 200]);
 
       const checks = document.querySelectorAll('.med-confirm-check');
-      checks[1].checked = false;
+      checks[1].setAttribute('aria-pressed', 'false');
 
       await window.confirmSelectedMedications();
 
@@ -126,7 +126,7 @@ describe('app.js form submissions and push modal behavior', () => {
       window.showMedicationConfirmModal([10, 20], ['A', 'B'], '2026-02-27T10:00:00Z', 'confirm', [100, 200]);
 
       const checks = document.querySelectorAll('.med-confirm-check');
-      checks[1].checked = false;
+      checks[1].setAttribute('aria-pressed', 'false');
 
       await window.skipSelectedMedications();
 

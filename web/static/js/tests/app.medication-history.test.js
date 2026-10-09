@@ -465,7 +465,7 @@ describe('app.js medication, history and intake flows', () => {
 
       // Uncheck Magnesium (index 1) → revert intake 101 to PENDING.
       const checks = document.querySelectorAll('.med-confirm-check');
-      checks[1].checked = false;
+      checks[1].setAttribute('aria-pressed', 'false');
 
       // Server reports the revert did NOT persist.
       window.apiCall = vi.fn().mockResolvedValue({
@@ -515,7 +515,7 @@ describe('app.js medication, history and intake flows', () => {
     try {
       window.showMedicationConfirmModal([1, 2], ['Aspirin', 'Magnesium'], new Date(), 'edit', [100, 101]);
       const checks = document.querySelectorAll('.med-confirm-check');
-      checks[1].checked = false;
+      checks[1].setAttribute('aria-pressed', 'false');
 
       window.apiCall = vi.fn().mockResolvedValue({ updated: 1, failed: 0, failures: [] });
 
@@ -545,7 +545,7 @@ describe('app.js medication, history and intake flows', () => {
 
       // Uncheck it → "Update" must revert that intake to PENDING.
       const checks = document.querySelectorAll('.med-confirm-check');
-      checks[0].checked = false;
+      checks[0].setAttribute('aria-pressed', 'false');
 
       const endpoints = [];
       window.apiCall = vi.fn(async (endpoint) => {
@@ -652,7 +652,7 @@ describe('app.js medication, history and intake flows', () => {
       expect(checks.length).toBe(2);
 
       // Uncheck Magnesium (index 1 → intake 101) and submit the edit.
-      checks[1].checked = false;
+      checks[1].setAttribute('aria-pressed', 'false');
       await window.updateIntakeHistory();
 
       // refreshMedsAfterMutation() already kicks loadHistory(), but await an
@@ -703,7 +703,7 @@ describe('meds-history confirm/skip flows (extracted module)', () => {
       const scheduled = new Date().toISOString();
       window.showMedicationConfirmModal([1, 2], ['Aspirin', 'Magnesium'], scheduled, 'confirm', [100, 101]);
       // Both rows are checked by default → both meds confirmed.
-      expect(document.querySelectorAll('.med-confirm-check:checked').length).toBe(2);
+      expect(document.querySelectorAll('.med-confirm-check[aria-pressed="true"]').length).toBe(2);
 
       window.apiCall = vi.fn().mockResolvedValue({ status: 'ok' });
       const safeAlertSpy = vi.spyOn(window, 'safeAlert').mockImplementation(() => {});
@@ -737,7 +737,7 @@ describe('meds-history confirm/skip flows (extracted module)', () => {
     const { window, document, cleanup } = loadFrontendEnv();
     try {
       window.showMedicationConfirmModal([1], ['Aspirin'], new Date().toISOString(), 'confirm', [100]);
-      expect(document.querySelectorAll('.med-confirm-check:checked').length).toBe(1);
+      expect(document.querySelectorAll('.med-confirm-check[aria-pressed="true"]').length).toBe(1);
 
       window.apiCall = vi.fn().mockRejectedValue(new Error('network down'));
       const safeAlertSpy = vi.spyOn(window, 'safeAlert').mockImplementation(() => {});

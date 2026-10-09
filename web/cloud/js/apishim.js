@@ -692,6 +692,7 @@ export function createApiRouter(ctx, {
           scheduledAt: body && body.scheduled_at,
           medicationIds: (body && body.medication_ids) || [],
           intakeIds: (body && body.intake_ids) || [],
+          takenAt: body && body.taken_at,
         }),
       };
       const action = intakeActions[path];

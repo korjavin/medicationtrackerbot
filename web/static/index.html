@@ -2490,39 +2490,39 @@
         </div>
     </mt-modal>
 
-    <!-- Modal for Medication Confirmation (from Push) -->
-    <mt-modal id="med-confirm-modal" class="hidden wg-modal wg-med-confirm-modal">
-        <div class="wg-med-confirm-modal__header">
-            <div class="wg-med-confirm-modal__heading">
-                <span class="wg-section-label wg-med-confirm-modal__eyebrow"
-                    id="med-confirm-eyebrow">Time for meds</span>
-                <span class="wg-mono-display wg-med-confirm-modal__title" id="med-confirm-title">Time for Meds!</span>
-                <span class="wg-med-confirm-modal__subtitle" id="med-confirm-subtitle"></span>
+    <!-- Take sheet (kit M2, med-xso6.19): confirm / edit / log_past modes,
+         opened from push, Today's Take, the Schedule bucket "Take N" and
+         History rows. features/meds.js showMedicationConfirmModal fills it;
+         the hidden datetime input is the picker the "Time taken" row opens. -->
+    <mt-modal id="med-confirm-modal" class="hidden wg-modal wg-sheet wg-med-confirm-modal">
+        <div class="wg-sheet__grab"></div>
+        <header class="wg-sheethead">
+            <div class="wg-sheethead__titles">
+                <div class="wg-eyebrow" id="med-confirm-eyebrow">Time for meds</div>
+                <div class="wg-sheethead__title" id="med-confirm-title"></div>
             </div>
-            <button type="button" id="med-confirm-dismiss-btn"
-                class="wg-icon-btn wg-med-confirm-modal__close-btn" aria-label="Close">
-                <span class="wg-gloss"></span>
-            </button>
-        </div>
-
-        <div id="med-confirm-time-edit" class="wg-med-confirm-modal__time-edit hidden">
-            <label for="med-confirm-datetime" class="wg-med-confirm-modal__label">Time taken</label>
-            <div class="wg-gloss--inset wg-med-confirm-modal__input-wrap">
-                <input type="datetime-local" id="med-confirm-datetime" class="wg-med-confirm-modal__input">
+            <div class="wg-sheethead__acts">
+                <button type="button" id="med-confirm-dismiss-btn" class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
+            </div>
+        </header>
+        <div class="wg-sheet__body wg-med-confirm-modal__body">
+            <div id="med-confirm-list" class="wg-choices"></div>
+            <div id="med-confirm-time-edit" class="wg-med-confirm-modal__time">
+                <button type="button" id="med-confirm-time-btn" class="wg-setting wg-setting--boxed">
+                    <span class="wg-row__lead"><i class="wg-ico" data-icon="clock"></i></span>
+                    <span class="wg-setting__body"><span class="wg-setting__title">Time taken</span></span>
+                    <span class="wg-setting__value" id="med-confirm-time-value">Now</span>
+                    <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                </button>
+                <input type="datetime-local" id="med-confirm-datetime" class="wg-input wg-med-confirm-modal__input"
+                    aria-label="Time taken" tabindex="-1">
             </div>
         </div>
-
-        <div id="med-confirm-list" class="wg-med-confirm-modal__list"></div>
-
-        <div class="wg-med-confirm-modal__secondary-actions">
-            <button type="button" id="med-confirm-snooze-btn"
-                class="wg-gloss wg-med-confirm-modal__secondary wg-med-confirm-modal__secondary--snooze">Snooze 10m</button>
-            <button type="button" id="med-confirm-skip-btn"
-                class="wg-gloss wg-med-confirm-modal__secondary wg-med-confirm-modal__secondary--skip">Skip</button>
+        <div class="wg-sheet__foot">
+            <button type="button" id="med-confirm-skip-btn" class="wg-btn wg-btn--ghost">Skip</button>
+            <button type="button" id="med-confirm-snooze-btn" class="wg-btn wg-btn--ghost">Snooze 10m</button>
+            <button type="button" id="med-confirm-action-btn" class="wg-btn wg-btn--primary">Take</button>
         </div>
-
-        <button type="button" id="med-confirm-action-btn"
-            class="wg-gloss wg-gloss--sun wg-med-confirm-modal__primary">Confirm selected</button>
     </mt-modal>
 
     <!-- Modal for Workout Start (from Push) -->
