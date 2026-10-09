@@ -271,7 +271,7 @@
             }
         }
 
-        hrPoints.forEach((p) => {
+        hrPoints.forEach((p, i) => {
             const outer = document.createElementNS(SVG_NS, 'circle');
             outer.setAttribute('cx', p.x.toFixed(1));
             outer.setAttribute('cy', p.y.toFixed(1));
@@ -286,7 +286,10 @@
             inner.classList.add('wg-sleep-chart__hr-dot');
             svg.appendChild(inner);
 
-            svg.appendChild(makeText(p.x, p.y - 8, 'wg-sleep-chart__hr-label', p.val));
+            // Label only the last point (BP/weight chart convention) so labels never collide.
+            if (i === hrPoints.length - 1) {
+                svg.appendChild(makeText(p.x, p.y - 8, 'wg-sleep-chart__hr-label', p.val));
+            }
         });
 
         return svg;

@@ -138,7 +138,17 @@ describe('WGSleepChart.render', () => {
         expect(line.length).toBe(1);
         expect(dots.length).toBe(5);
         expect(outerDots.length).toBe(5);
-        expect(labels.length).toBe(5);
+        expect(labels.length).toBe(1);
+    });
+
+    it('labels at most three HR points at 7 and 30 days, keeping one dot per day', () => {
+        for (const days of [7, 30]) {
+            const svg = env.api.render({ stats: makeStats({ days, withHR: true }), range: days === 7 ? '7d' : '30d' });
+            const dots = svg.querySelectorAll('circle.wg-sleep-chart__hr-dot').length;
+            const labels = svg.querySelectorAll('text.wg-sleep-chart__hr-label').length;
+            expect(dots).toBeGreaterThan(1);
+            expect(labels).toBe(1);
+        }
     });
 
     it('omits the HR line when every heart_rate_avg is zero', () => {
