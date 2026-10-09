@@ -7,6 +7,10 @@
 // API:
 //   WGIcons.paths                        — read-only map of name → inner SVG string
 //   WGIcons.iconSvg(name, { size?, stroke? }) — returns an <svg> SVGElement
+//   WGIcons.hydrate(root = document)     — fills <i class="wg-ico" data-icon="…">
+//                                           placeholders with iconSvg(); idempotent
+//   WGIcons.aliases                      — kit name → existing registry name
+//   WGIcons.emoji                        — emoji → icon name replacement list (data)
 //
 // No inline styles or color literals: consumers style strokes via CSS
 // (`currentColor` is the default), matching the no-hardcoded-hex rule.
@@ -53,6 +57,85 @@
         // bottom-nav Settings slot — there is no "More" aggregator.
         settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
         phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>',
+
+        // App UI kit v2 (docs/design/claude-design/ui_kits/app-v2/icons.js).
+        // Names the kit shares with the registry above (home, pill, trash, …)
+        // keep the existing path; only kit-only names are added here.
+        minus: '<path d="M5 12h14"/>',
+        'chev-u': '<path d="M6 14.5l6-6 6 6"/>',
+        search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.3-4.3"/>',
+        sparkle: '<path d="M11 3.5l1.8 5.2 5.2 1.8-5.2 1.8L11 17.5l-1.8-5.2L4 10.5l5.2-1.8z"/><path d="M18.5 15.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/>',
+        flag: '<path d="M5 21V4M5 4h12l-2 4 2 4H5"/>',
+        refresh: '<path d="M20 11.5a8 8 0 1 0-2.3 5.6"/><path d="M20 5v6.5h-6.5"/>',
+        'cloud-off': '<path d="M3.5 3.5l17 17"/><path d="M9 6.8A5.5 5.5 0 0 1 17 10a4 4 0 0 1 2.9 6.7M16 19H7a4.5 4.5 0 0 1-1.7-8.7"/>',
+        'cloud-up': '<path d="M7 18.5a4.5 4.5 0 0 1-.9-8.9A6 6 0 0 1 17.6 9.5 4 4 0 0 1 17 18.5"/><path d="M12 12.5v7M9 15.5l3-3 3 3"/>',
+        alert: '<path d="M12 3.5 2.5 20h19z"/><path d="M12 9.5v4.5M12 17v.1"/>',
+        info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5M12 7.8v.1"/>',
+        'phone-off': '<path d="M5 3.5h3.5l2 5-2.5 1.5c.6 1.3 1.4 2.5 2.4 3.5M15 16l1.5-2.5 5 2v3.5a2 2 0 0 1-2 2A16.5 16.5 0 0 1 3 5.5a2 2 0 0 1 2-2"/><path d="M3.5 3.5l17 17"/>',
+        file: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/>',
+        upload: '<path d="M12 16V4.5M7 9l5-5 5 5M4.5 20h15"/>',
+        download: '<path d="M12 4v11.5M7 11l5 5 5-5M4.5 20h15"/>',
+        device: '<rect x="7" y="2.5" width="10" height="19" rx="2.2"/><path d="M11 18.5h2"/>',
+        plug: '<path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4"/>',
+        key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l8.5-8.5M16.5 6.5l3 3"/>',
+        lock: '<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/>',
+        user: '<circle cx="12" cy="8" r="4"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/>',
+        timer: '<circle cx="12" cy="13" r="7.5"/><path d="M12 9.5V13l2.5 2M9.5 2.5h5"/>',
+        play: '<path d="M8 5l11 7-11 7z"/>',
+        pause: '<path d="M8.5 5.5v13M15.5 5.5v13"/>',
+        skip: '<path d="M5.5 5.5l9 6.5-9 6.5zM18.5 5.5v13"/>',
+        grip: '<circle cx="9" cy="6" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="6" r="1.3" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="9" cy="18" r="1.3" fill="currentColor" stroke="none"/><circle cx="15" cy="18" r="1.3" fill="currentColor" stroke="none"/>',
+        flame: '<path d="M12 21c3.9 0 7-2.7 7-6.5 0-3.2-2-5.3-3.5-7 .1 2-1 3.5-2.5 3.5 0-3-1.5-5.5-4-8 0 3.5-4 6-4 11 0 3.8 3.1 7 7 7z"/>',
+        mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>',
+        'mic-off': '<path d="M15 10V6a3 3 0 0 0-5.8-1M9 9v2a3 3 0 0 0 4.6 2.5M5.5 11a6.5 6.5 0 0 0 10.8 4.9M18.5 11c0 .7-.1 1.4-.3 2M12 17.5V21M3.5 3.5l17 17"/>',
+        note: '<path d="M5 4h14v11l-5 5H5z"/><path d="M14 20v-5h5M8.5 9h7M8.5 12.5h4"/>',
+        shield: '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>',
+        qr: '<rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1"/><rect x="14" y="3.5" width="6.5" height="6.5" rx="1"/><rect x="3.5" y="14" width="6.5" height="6.5" rx="1"/><path d="M14 14h3v3h-3zM20.5 14v.1M14 20.5h.1M17.5 17.5h3v3h-3z"/>',
+        link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+        copy: '<rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2"/><path d="M15.5 8.5V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v9.5a1 1 0 0 0 1 1h3.5"/>',
+        route: '<circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="6" r="2.2"/><path d="M8.2 18H15a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6.8"/>',
+        swap: '<path d="M7 4L4 7l3 3M4 7h13M17 20l3-3-3-3M20 17H7"/>',
+        archive: '<path d="M3.5 4.5h17v4h-17zM5 8.5V20h14V8.5M10 12.5h4"/>',
+        globe: '<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.5 2.6 3.5 5.3 3.5 8.5s-1 5.9-3.5 8.5M12 3.5C9.5 6.1 8.5 8.8 8.5 12s1 5.9 3.5 8.5"/>',
+        scan: '<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M7.5 12h9"/>',
+        message: '<path d="M4 5h16v11H9.5L4 20z"/>',
+        eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
+        snooze: '<circle cx="12" cy="13" r="7.5"/><path d="M9.5 10.5h5l-5 5h5M5 3.5 2.5 6M19 3.5 21.5 6"/>',
+        history: '<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6"/><path d="M3.5 4v4h4M12 7.5V12l3 2"/>',
+        box: '<path d="M3.5 7.5 12 3l8.5 4.5v9L12 21l-8.5-4.5z"/><path d="M3.5 7.5 12 12l8.5-4.5M12 12v9"/>',
+        sig: '<path d="M3 18h2.4v2.5H3zM7.7 15h2.4v5.5H7.7zM12.4 12h2.4v8.5h-2.4zM17.1 9h2.4v11.5h-2.4z" fill="currentColor" stroke="none"/>',
+        wifi: '<path d="M2.5 9.5a14 14 0 0 1 19 0M5.5 13a9.5 9.5 0 0 1 13 0M8.6 16.4a5 5 0 0 1 6.8 0"/><circle cx="12" cy="19.5" r="1.2" fill="currentColor" stroke="none"/>',
+        batt: '<rect x="2" y="7" width="18" height="10" rx="2.5"/><rect x="4" y="9" width="12.5" height="6" rx="1" fill="currentColor" stroke="none"/><path d="M22 10.5v3"/>',
+    };
+
+    // Kit names that collide with an existing registry icon resolve to the
+    // same path string (alias → existing name).
+    const ALIASES = {
+        health: 'heart',
+        gear: 'settings',
+        food: 'apple',
+        edit: 'pencil',
+        x: 'close',
+        'chev-l': 'chevronLeft',
+        'chev-r': 'chevronRight',
+        'chev-d': 'chevronDown',
+    };
+    for (const alias of Object.keys(ALIASES)) PATHS[alias] = PATHS[ALIASES[alias]];
+
+    // Emoji → icon replacement list. Data only — the primitive and screen
+    // beads consult it when they swap emoji for <i class="wg-ico">; nothing
+    // rewrites emoji at runtime.
+    const EMOJI_MAP = {
+        '🗑️': 'trash', '🗑': 'trash',
+        '✏️': 'edit', '✏': 'edit',
+        '⚠️': 'alert', '⚠': 'alert',
+        '✅': 'check',
+        '⏳': 'clock',
+        '❌': 'x',
+        '🌍': 'globe',
+        '🍽️': 'food', '🍽': 'food', '🍱': 'food',
+        '🏔️': 'route', '🏔': 'route',
+        '🚴': 'activity', '🚶': 'activity', '🏃': 'activity',
     };
 
     // Parse the icon's inner markup into SVG-namespaced children. We go via a
@@ -92,8 +175,25 @@
         return svg;
     }
 
+    // Turn markup-authored placeholders (<i class="wg-ico" data-icon="pill">)
+    // under `root` into inline SVG. Idempotent: a placeholder that already
+    // holds an <svg> is skipped. Unknown names throw, like iconSvg.
+    function hydrate(root) {
+        const scope = root || document;
+        const nodes = [];
+        if (scope.matches && scope.matches('.wg-ico[data-icon]')) nodes.push(scope);
+        nodes.push(...scope.querySelectorAll('.wg-ico[data-icon]'));
+        for (const el of nodes) {
+            if (el.querySelector('svg')) continue;
+            el.replaceChildren(iconSvg(el.getAttribute('data-icon')));
+        }
+    }
+
     window.WGIcons = {
         paths: PATHS,
+        aliases: ALIASES,
+        emoji: EMOJI_MAP,
         iconSvg,
+        hydrate,
     };
 })();
