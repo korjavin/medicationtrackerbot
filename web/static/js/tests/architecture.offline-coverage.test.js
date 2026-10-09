@@ -52,10 +52,6 @@ const ALLOWLIST = [
         reason: 'post-auth init orchestrator; the only API call is a one-shot POST /api/settings to sync timezone, not a section data read',
     },
     {
-        file: 'call-indicator.js',
-        reason: 'floating call-state pill subscribed to the wg-call-state window event — no API reads',
-    },
-    {
         file: 'deeplink-router.js',
         reason: 'pure URL → tab/deeplink routing — no API reads',
     },

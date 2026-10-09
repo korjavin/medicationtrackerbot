@@ -1,7 +1,7 @@
 // TZ Transition Plan card.
 //
-// Surfaces an in-flight timezone-change plan as a Wandergeek card on the Today
-// screen, sitting directly above the medications card. Stays absent from the
+// Surfaces an in-flight timezone-change plan as the kit T2 time-zone card on
+// the Today screen, below the sleep/steps tiles. Stays absent from the
 // DOM entirely when no plan is in flight, so users who never travel never see
 // it. Two modes, one card builder:
 //
@@ -22,8 +22,7 @@
 //                         and triggers a Today reload so the card appears
 //                         (or disappears) without a manual refresh.
 //   mountCard(root)     — synchronously appends the card from cached state.
-//                         Today's renderer calls this once per render, before
-//                         the meds card.
+//                         Today's renderer calls this once per render.
 //
 // Apply / Cancel actions hit the existing approve / reject endpoints, clear
 // the cached plan, and reload the current tab so the card re-renders itself.
@@ -155,120 +154,97 @@
         return seen.size;
     }
 
-    function addDetailLine(text, parent) {
-        const detail = document.createElement('span');
-        detail.className = 'wg-tz-plan-card__detail';
-        detail.textContent = text;
-        parent.appendChild(detail);
-        return detail;
+    function el(tag, cls, text) {
+        const node = document.createElement(tag);
+        if (cls) node.className = cls;
+        if (text !== undefined) node.textContent = text;
+        return node;
     }
 
+    function actionButton(label, cls, onClick) {
+        const b = el('button', `wg-btn wg-btn--sm ${cls}`, label);
+        b.type = 'button';
+        b.addEventListener('click', (event) => {
+            event.stopPropagation();
+            onClick();
+        });
+        return b;
+    }
+
+    // Kit T2 time-zone card: .wg-card with a globe lead, "old → new · offset",
+    // detail hints, a .wg-steps progress strip (approved plans) over the
+    // remaining-steps list, and Cancel (ghost) / Apply (primary) in the foot
+    // while the plan awaits a decision.
     function buildCard(plan, steps) {
-        const d = document;
         const isPending = actionable(plan);
         const allSteps = Array.isArray(steps) ? steps : [];
         const remaining = isPending ? allSteps : remainingSteps(allSteps);
 
-        const card = d.createElement('div');
-        // Reuse the same visual contract as the meds card. The --plain
-        // modifier drops the sun-yellow header so we can compose with the
-        // dedicated tz-plan section and not steal medication emphasis.
-        card.className = 'wg-next-action-card wg-next-action-card--plain wg-tz-plan-card';
+        const card = el('div', 'wg-card wg-tz-plan-card');
         card.setAttribute('data-section', 'tz-plan');
 
-        const head = d.createElement('div');
-        head.className = 'wg-tz-plan-card__head';
-
-        const iconWrap = d.createElement('span');
-        iconWrap.className = 'wg-next-action-card__icon wg-tz-plan-card__icon';
-        iconWrap.appendChild(window.WGIcons.iconSvg('globe', { size: 18 }));
-        head.appendChild(iconWrap);
-
-        const text = d.createElement('span');
-        text.className = 'wg-next-action-card__text';
-
-        const kicker = d.createElement('span');
-        kicker.className = 'wg-next-action-card__kicker';
-        kicker.textContent = isPending ? 'Timezone change pending' : 'Transition in progress';
-        text.appendChild(kicker);
-
-        const value = d.createElement('span');
-        value.className = 'wg-next-action-card__value wg-tz-plan-card__value';
+        const head = el('div', 'wg-card__head');
+        const hstack = el('span', 'wg-hstack');
+        const lead = el('span', 'wg-row__lead wg-row__lead--sky');
+        const globe = el('i', 'wg-ico');
+        globe.setAttribute('aria-hidden', 'true');
+        globe.appendChild(window.WGIcons.iconSvg('globe'));
+        lead.appendChild(globe);
+        hstack.appendChild(lead);
+        const titles = el('span', 'wg-vstack');
+        titles.appendChild(el('span', 'wg-card__title wg-tz-plan-card__title',
+            isPending ? 'Timezone change pending' : 'Transition in progress'));
         const offset = formatOffsetHours(plan.old_tz, plan.new_tz, plan.created_at);
-        const offsetSuffix = offset ? `  ·  ${offset}` : '';
-        value.textContent = `${plan.old_tz} → ${plan.new_tz}${offsetSuffix}`;
-        text.appendChild(value);
+        titles.appendChild(el('span', 'wg-meta wg-tz-plan-card__value',
+            `${plan.old_tz} → ${plan.new_tz}${offset ? ` · ${offset}` : ''}`));
+        hstack.appendChild(titles);
+        head.appendChild(hstack);
+        card.appendChild(head);
 
+        const detail = (text) => card.appendChild(el('p', 'wg-hint wg-tz-plan-card__detail', text));
         if (isPending) {
             const medCount = countDistinctMeds(allSteps);
             if (medCount > 0) {
-                const noun = medCount === 1 ? 'medication' : 'medications';
-                addDetailLine(`${medCount} ${noun} will shift`, text);
+                detail(`${medCount} ${medCount === 1 ? 'medication' : 'medications'} will shift`);
             }
         } else {
             const done = allSteps.length - remaining.length;
-            addDetailLine(`${done} of ${allSteps.length} steps done`, text);
+            detail(`${done} of ${allSteps.length} steps done`);
 
             const next = remaining[0];
             const nextMs = next ? stepTimeMs(next) : null;
             if (nextMs !== null) {
                 // med_name is cloud-only (web/domain/tzplan.js); the Go wire
                 // shape omits it, so the time stands alone there.
-                const medName = next.med_name ? `  ·  ${next.med_name}` : '';
-                addDetailLine(`Next shifted dose: ${formatStepTime(nextMs, plan.new_tz)}${medName}`, text);
+                const medName = next.med_name ? ` · ${next.med_name}` : '';
+                detail(`Next shifted dose: ${formatStepTime(nextMs, plan.new_tz)}${medName}`);
             }
-        }
-        head.appendChild(text);
 
-        if (isPending) {
-            const actions = d.createElement('div');
-            actions.className = 'wg-tz-plan-card__actions';
-
-            const applyBtn = d.createElement('button');
-            applyBtn.type = 'button';
-            applyBtn.className = 'wg-toolbar-btn wg-toolbar-btn--primary wg-tz-plan-card__btn';
-            applyBtn.textContent = 'Apply';
-            applyBtn.addEventListener('click', (event) => {
-                event.stopPropagation();
-                onAction(plan.id, 'approve', card);
+            const strip = el('div', 'wg-steps');
+            strip.setAttribute('aria-hidden', 'true');
+            allSteps.forEach((_, i) => {
+                strip.appendChild(el('i', i < done ? 'is-done' : (i === done ? 'is-now' : '')));
             });
-            actions.appendChild(applyBtn);
-
-            const cancelBtn = d.createElement('button');
-            cancelBtn.type = 'button';
-            cancelBtn.className = 'wg-toolbar-btn wg-tz-plan-card__btn';
-            cancelBtn.textContent = 'Cancel';
-            cancelBtn.addEventListener('click', (event) => {
-                event.stopPropagation();
-                onAction(plan.id, 'reject', card);
-            });
-            actions.appendChild(cancelBtn);
-
-            head.appendChild(actions);
+            card.appendChild(strip);
         }
-        card.appendChild(head);
 
         if (remaining.length > 0) {
-            const detailsWrap = d.createElement('details');
-            detailsWrap.className = 'wg-tz-plan-card__details';
-
-            const summary = d.createElement('summary');
-            summary.className = 'wg-tz-plan-card__details-summary';
             const stepNoun = remaining.length === 1 ? 'transition dose' : 'transition doses';
-            summary.textContent = isPending
+            card.appendChild(el('span', 'wg-eyebrow wg-tz-plan-card__steps-title', isPending
                 ? `${remaining.length} ${stepNoun} planned`
-                : `${remaining.length} ${stepNoun} left`;
-            detailsWrap.appendChild(summary);
-
-            const ul = d.createElement('ul');
-            ul.className = 'wg-tz-plan-card__details-list';
+                : `${remaining.length} ${stepNoun} left`));
+            const ul = el('ul', 'wg-tz-plan-card__steps');
             for (const s of remaining) {
-                const li = d.createElement('li');
-                li.textContent = s.note || `step ${s.step_number} at ${s.scheduled_at}`;
-                ul.appendChild(li);
+                ul.appendChild(el('li', '', s.note || `step ${s.step_number} at ${s.scheduled_at}`));
             }
-            detailsWrap.appendChild(ul);
-            card.appendChild(detailsWrap);
+            card.appendChild(ul);
+        }
+
+        if (isPending) {
+            const foot = el('div', 'wg-card__foot');
+            foot.appendChild(actionButton('Cancel', 'wg-btn--ghost', () => onAction(plan.id, 'reject', card)));
+            foot.appendChild(actionButton('Apply', 'wg-btn--primary', () => onAction(plan.id, 'approve', card)));
+            card.appendChild(foot);
         }
 
         return card;

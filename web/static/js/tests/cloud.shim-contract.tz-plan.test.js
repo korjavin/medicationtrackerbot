@@ -66,6 +66,18 @@ describe('cloud shim contract — TZ plan banner (features/tz-plan-banner.js ove
         expect(card.querySelector('.wg-tz-plan-card__value').textContent).toContain('America/New_York');
         expect(card.querySelector('.wg-tz-plan-card__value').textContent).toContain('Asia/Tokyo');
         expect(card.querySelectorAll('button')).toHaveLength(2);
+
+        // Kit T2 shape: a .wg-card with a globe lead, a plain steps list (no
+        // <details> disclosure) and Cancel ghost / Apply primary kit buttons.
+        expect(card.classList.contains('wg-card')).toBe(true);
+        expect(card.querySelector('.wg-row__lead [data-wg-icon="globe"]')).not.toBeNull();
+        expect(card.querySelector('details')).toBeNull();
+        expect(card.querySelectorAll('.wg-tz-plan-card__steps li').length).toBeGreaterThan(0);
+        const [cancel, apply] = card.querySelectorAll('.wg-card__foot > button');
+        expect(cancel.textContent).toBe('Cancel');
+        expect(cancel.className).toBe('wg-btn wg-btn--sm wg-btn--ghost');
+        expect(apply.textContent).toBe('Apply');
+        expect(apply.className).toBe('wg-btn wg-btn--sm wg-btn--primary');
     });
 
     it('Apply approves the plan and updates settings.timezone', async () => {
@@ -89,7 +101,7 @@ describe('cloud shim contract — TZ plan banner (features/tz-plan-banner.js ove
         // an empty Today — the whole point of bd med-gut.3.
         const afterApply = window.TZPlanBanner.mountCard(document.createElement('div'));
         expect(afterApply).not.toBeNull();
-        expect(afterApply.querySelector('.wg-next-action-card__kicker').textContent)
+        expect(afterApply.querySelector('.wg-tz-plan-card__title').textContent)
             .toBe('Transition in progress');
     });
 
@@ -163,7 +175,7 @@ describe('TZ plan banner — approved plan in progress (bd med-gut.3)', () => {
         const card = window.TZPlanBanner.mountCard(root);
 
         expect(card).not.toBeNull();
-        expect(card.querySelector('.wg-next-action-card__kicker').textContent).toBe('Transition in progress');
+        expect(card.querySelector('.wg-tz-plan-card__title').textContent).toBe('Transition in progress');
 
         const value = card.querySelector('.wg-tz-plan-card__value').textContent;
         expect(value).toContain('America/New_York');
@@ -178,11 +190,15 @@ describe('TZ plan banner — approved plan in progress (bd med-gut.3)', () => {
         // Read-only: no Apply/Cancel on an already-approved plan.
         expect(card.querySelectorAll('button')).toHaveLength(0);
 
+        // Progress strip: one .wg-steps tick per step, done ones then "now".
+        const ticks = [...card.querySelectorAll('.wg-steps > i')].map((i) => i.className);
+        expect(ticks).toEqual(['is-done', 'is-now', '']);
+
         // Only the two future steps are "remaining"; the past one is dropped,
         // and the rest are listed chronologically.
-        expect(card.querySelector('.wg-tz-plan-card__details-summary').textContent)
+        expect(card.querySelector('.wg-tz-plan-card__steps-title').textContent)
             .toBe('2 transition doses left');
-        const notes = [...card.querySelectorAll('.wg-tz-plan-card__details-list li')]
+        const notes = [...card.querySelectorAll('.wg-tz-plan-card__steps li')]
             .map((li) => li.textContent);
         expect(notes).toEqual([
             'Lisinopril: step 1/1 — 08:00 EST old / 22:00 JST new',

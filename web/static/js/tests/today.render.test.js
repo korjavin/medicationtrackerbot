@@ -486,7 +486,7 @@ describe('Today v2 — states (T4–T6) and offline', () => {
         env.window.WGCallAgent = {
             mountCard: vi.fn((container) => {
                 const card = env.document.createElement('section');
-                card.className = 'wg-card wg-call-card';
+                card.className = 'wg-btn wg-callbar__call';
                 card.setAttribute('data-section', 'call-agent');
                 container.appendChild(card);
                 return card;

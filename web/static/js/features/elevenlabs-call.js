@@ -1,16 +1,24 @@
-// ElevenLabs conversational agent — "Call agent" card on the Today screen.
+// ElevenLabs conversational agent — the Today call bar (kit .wg-callbar, T2/T4/T5).
 //
 // Uses the @elevenlabs/client SDK directly (loaded as ESM from our own origin,
 // vendor/elevenlabs-client.min.js) so we can drive the call from a single
 // button: idle → connecting → in_call.
 //
 // State machine:
-//   idle       — primary button reads "Call agent"; click → startCall()
-//   connecting — button disabled, status line shows "Connecting…"; bounded by
-//                CONNECT_TIMEOUT_MS, and the indicator's hang-up cancels it
-//   in_call    — primary button reads "End call"; click → endCall()
-//                status line reflects agent mode (Listening… / Speaking…)
-//   error      — primary button reads "Try again"; click → startCall()
+//   idle       — trigger reads "Call agent"; click → startCall(). With no
+//                vault key and no trial it reads "Set up voice agent" and
+//                opens Settings → AI & integrations instead; offline it is
+//                disabled and reads "Call needs a connection".
+//   connecting — the bar goes --live: status "Connecting…", End call cancels;
+//                bounded by CONNECT_TIMEOUT_MS
+//   in_call    — --live: status reflects agent mode (Listening… / Speaking…),
+//                Mute / Send photo / End call icon buttons
+//   error      — trigger reads "Try again", the message sits under the bar
+//
+// There is one control surface: the Today call bar. While a call is in flight
+// and the bar is scrolled out of view or Today is not the active tab, the bar
+// itself moves to <body> and docks above the tab bar (.wg-callbar--dock); a
+// fixed-height slot keeps its place in Today until it comes back.
 //
 // The signed URL is minted browser-direct from the vault's ElevenLabs key
 // (window.CloudElevenLabs; the key never crosses /api). The SDK handles the
@@ -471,39 +479,145 @@
         clearConnectWatchdog();
     }
 
+    // Voice readiness for the idle trigger (kit T4): true once a vault key or
+    // the operator trial is known to exist, false when neither is, null while
+    // unknown (the trigger then reads "Call agent" and a tap tries the call,
+    // which surfaces the existing set-your-key error if it was wrong).
+    let voiceReady = null;
+
+    function isOffline() {
+        return typeof navigator !== 'undefined' && navigator.onLine === false;
+    }
+
+    async function refreshReadiness() {
+        let ready = false;
+        try {
+            ready = trialVoiceAvailable()
+                || Boolean(window.CloudElevenLabs && await window.CloudElevenLabs.hasKey());
+        } catch (_) { /* unreadable key = not set up */ }
+        voiceReady = ready;
+        applyState(activeCard, activeState, activeMessage);
+    }
+
+    // "Set up voice agent": Settings → AI & integrations, scrolled to the
+    // ElevenLabs key, instead of a call that can only fail.
+    function openVoiceSetup() {
+        if (typeof window.switchTab === 'function') window.switchTab('settings');
+        const settings = window.SettingsView;
+        if (settings && typeof settings.openSettingsPage === 'function') settings.openSettingsPage('integrations');
+        const key = document.getElementById('integrations-elevenlabs-api-key');
+        if (key && typeof key.scrollIntoView === 'function') key.scrollIntoView({ block: 'center' });
+    }
+
+    function icon(name, small) {
+        const i = document.createElement('i');
+        i.className = small ? 'wg-ico wg-ico--sm' : 'wg-ico';
+        i.setAttribute('aria-hidden', 'true');
+        setIcon(i, name);
+        return i;
+    }
+
+    function setIcon(i, name) {
+        if (!i || i.getAttribute('data-icon') === name) return;
+        i.setAttribute('data-icon', name);
+        i.replaceChildren();
+        if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+            try { i.appendChild(window.WGIcons.iconSvg(name)); } catch (_) { /* ignore */ }
+        }
+    }
+
     function applyState(card, state, message) {
         if (!card) return;
         card.dataset.state = state;
-        const btn = card.querySelector('.wg-call-card__btn');
-        const label = card.querySelector('.wg-call-card__label');
-        const status = card.querySelector('.wg-call-card__status');
-        const muteBtn = card.querySelector('.wg-call-card__mute');
-        const photoBtn = card.querySelector('.wg-call-card__photo');
+        const live = state === 'connecting' || state === 'in_call';
+        card.classList.toggle('wg-callbar--live', live);
+        const btn = card.querySelector('.wg-callbar__call');
+        const label = card.querySelector('.wg-callbar__label');
+        const status = card.querySelector('.wg-callbar__status');
+        const error = card.querySelector('.wg-callbar__error');
+        const muteBtn = card.querySelector('.wg-callbar__mute');
+        const photoBtn = card.querySelector('.wg-callbar__photo');
+        const offline = !live && isOffline();
+        const setup = state === 'idle' && !offline && voiceReady === false;
         if (btn) {
-            btn.disabled = state === 'connecting';
+            btn.disabled = state === 'connecting' || offline;
+            btn.dataset.action = setup ? 'voice-setup' : 'call-agent';
+            setIcon(btn.querySelector('.wg-ico'), offline ? 'phone-off' : 'phone');
         }
         if (label) {
-            if (state === 'idle') label.textContent = 'Call agent';
+            if (offline) label.textContent = 'Call needs a connection';
+            else if (setup) label.textContent = 'Set up voice agent';
+            else if (state === 'idle') label.textContent = 'Call agent';
             else if (state === 'connecting') label.textContent = 'Connecting…';
             else if (state === 'in_call') label.textContent = 'End call';
             else if (state === 'error') label.textContent = 'Try again';
         }
         if (status) {
-            const variant = state === 'error' ? 'error' : (state === 'in_call' ? 'ready' : (state === 'connecting' ? 'connecting' : null));
-            status.classList.remove('wg-call-card__status--error', 'wg-call-card__status--ready', 'wg-call-card__status--connecting');
-            if (variant) status.classList.add(`wg-call-card__status--${variant}`);
-            status.textContent = message || '';
-            status.hidden = !message;
+            status.textContent = message || (state === 'connecting' ? 'Connecting…' : 'In call');
+        }
+        if (error) {
+            error.textContent = state === 'error' ? (message || '') : '';
+            error.hidden = !error.textContent;
         }
         if (muteBtn) {
             muteBtn.setAttribute('aria-pressed', activeMuted ? 'true' : 'false');
-            muteBtn.textContent = activeMuted ? 'Unmute' : 'Mute';
+            muteBtn.setAttribute('aria-label', activeMuted ? 'Unmute' : 'Mute');
+            setIcon(muteBtn.querySelector('.wg-ico'), activeMuted ? 'mic-off' : 'mic');
             muteBtn.disabled = state === 'connecting';
         }
         if (photoBtn) {
             photoBtn.disabled = state === 'connecting' || activeUploading;
-            photoBtn.textContent = activeUploading ? 'Sending…' : 'Send photo';
+            photoBtn.setAttribute('aria-label', activeUploading ? 'Sending…' : 'Send photo');
         }
+    }
+
+    // ---- Docking (kit T2) -------------------------------------------------
+    // While a call is in flight and the bar is out of view — scrolled past,
+    // or Today is not the active tab (its .view is display:none, so a fixed
+    // child would vanish with it) — the bar moves to <body> with --dock. A
+    // slot keeps its place in Today: it is the scroll anchor while docked and
+    // where the bar returns to.
+    let dockSlot = null;
+
+    function isDocked() {
+        return Boolean(activeCard && activeCard.classList.contains('wg-callbar--dock'));
+    }
+
+    function shouldDock() {
+        if (!callInFlight() || !activeCard || !activeCard.classList.contains('wg-callbar')) return false;
+        const anchor = isDocked() ? dockSlot : activeCard;
+        if (!anchor || !anchor.isConnected) return false;
+        const view = anchor.closest('.view');
+        if (view && !view.classList.contains('active')) return true;
+        const rect = anchor.getBoundingClientRect();
+        return rect.height > 0 && rect.bottom <= 0;
+    }
+
+    function updateDock() {
+        const bar = activeCard;
+        if (!bar) return;
+        const dock = shouldDock();
+        if (dock === isDocked()) return;
+        if (dock) {
+            dockSlot = document.createElement('div');
+            dockSlot.className = 'wg-callbar-slot';
+            dockSlot.setAttribute('aria-hidden', 'true');
+            bar.parentNode.insertBefore(dockSlot, bar);
+            document.body.appendChild(bar);
+            bar.classList.add('wg-callbar--dock');
+            return;
+        }
+        bar.classList.remove('wg-callbar--dock');
+        if (dockSlot && dockSlot.isConnected) dockSlot.replaceWith(bar);
+        else bar.remove(); // Today was rebuilt under it; the new bar is mounted there.
+        dockSlot = null;
+    }
+
+    window.addEventListener('scroll', () => { if (activeCard) updateDock(); }, { capture: true, passive: true });
+    window.addEventListener('online', () => applyState(activeCard, activeState, activeMessage));
+    window.addEventListener('offline', () => applyState(activeCard, activeState, activeMessage));
+    if (window.AppStore && typeof window.AppStore.subscribe === 'function') {
+        window.AppStore.subscribe('currentTab', () => updateDock());
     }
 
     function setState(state, message) {
@@ -514,6 +628,12 @@
             activeUploading = false;
         }
         applyState(activeCard, state, activeMessage);
+        // A call that fails while docked over another tab undocks back into
+        // Today, out of sight — say so where the user is.
+        if (state === 'error' && isDocked() && typeof window.safeToast === 'function') {
+            window.safeToast(activeMessage || 'Call error', 'error');
+        }
+        updateDock();
         try {
             window.dispatchEvent(new CustomEvent('wg-call-state', {
                 detail: {
@@ -720,67 +840,69 @@
         }
     }
 
-    function buildCard() {
-        const card = document.createElement('section');
-        card.className = 'wg-card wg-call-card';
-        card.dataset.section = 'call-agent';
-        card.dataset.state = 'idle';
+    function iconButton(cls, iconName, label, onClick) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = `wg-btn wg-btn--icon wg-btn--sm ${cls}`;
+        b.setAttribute('aria-label', label);
+        b.dataset.callLive = '';
+        b.appendChild(icon(iconName, true));
+        b.addEventListener('click', onClick);
+        return b;
+    }
+
+    // Fills the call bar (kit .wg-callbar markup): the idle trigger first so
+    // the kit's `>.wg-btn:first-child{flex:1}` gives it the free width, then
+    // the live-only pulse / status / Mute / Send photo / End call
+    // ([data-call-live]), then the error line. CSS shows one set or the other
+    // by .wg-callbar--live; the caller's own buttons (Log, Doctor brief)
+    // follow and hide while live.
+    function buildInto(bar) {
+        bar.dataset.state = 'idle';
 
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'wg-call-card__btn';
-        btn.setAttribute('data-section', 'shortcut');
-
-        const iconWrap = document.createElement('span');
-        iconWrap.className = 'wg-call-card__icon';
-        if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
-            try {
-                iconWrap.appendChild(window.WGIcons.iconSvg('phone', { size: 15 }));
-            } catch (_) { /* ignore */ }
-        }
-        btn.appendChild(iconWrap);
-
+        btn.className = 'wg-btn wg-callbar__call';
+        btn.dataset.action = 'call-agent';
+        btn.appendChild(icon('phone'));
         const label = document.createElement('span');
-        label.className = 'wg-call-card__label';
+        label.className = 'wg-callbar__label';
         label.textContent = 'Call agent';
         btn.appendChild(label);
-
         btn.addEventListener('click', () => {
-            if (card.dataset.state === 'in_call') {
-                endCall();
-            } else {
-                startCall(card);
-            }
+            if (bar.dataset.state === 'in_call') endCall();
+            else if (btn.dataset.action === 'voice-setup') openVoiceSetup();
+            else startCall(bar);
         });
-        card.appendChild(btn);
+        bar.insertBefore(btn, bar.firstChild);
+        let after = btn.nextSibling;
+        const add = (node) => { bar.insertBefore(node, after); };
 
-        const controls = document.createElement('div');
-        controls.className = 'wg-call-card__controls';
-        card.appendChild(controls);
+        const pulse = document.createElement('span');
+        pulse.className = 'wg-pulse';
+        pulse.dataset.callLive = '';
+        pulse.setAttribute('aria-hidden', 'true');
+        add(pulse);
 
-        const muteBtn = document.createElement('button');
-        muteBtn.type = 'button';
-        muteBtn.className = 'wg-call-card__mute';
+        const status = document.createElement('span');
+        status.className = 'wg-callbar__status';
+        status.dataset.callLive = '';
+        status.setAttribute('role', 'status');
+        status.setAttribute('aria-live', 'polite');
+        add(status);
+
+        const muteBtn = iconButton('wg-callbar__mute', 'mic', 'Mute', () => toggleMute());
         muteBtn.setAttribute('aria-pressed', 'false');
-        muteBtn.textContent = 'Mute';
-        muteBtn.addEventListener('click', () => {
-            toggleMute();
-        });
-        controls.appendChild(muteBtn);
+        add(muteBtn);
 
         // Photo upload POSTs browser-direct to api.elevenlabs.io with the
         // vault key (window.CloudElevenLabs.uploadFile).
-        const photoBtn = document.createElement('button');
-        photoBtn.type = 'button';
-        photoBtn.className = 'wg-call-card__photo';
-        photoBtn.textContent = 'Send photo';
-        controls.appendChild(photoBtn);
-
         const photoInput = document.createElement('input');
         photoInput.type = 'file';
         photoInput.accept = 'image/*';
         photoInput.capture = 'environment';
-        photoInput.className = 'wg-call-card__photo-input';
+        photoInput.className = 'wg-callbar__photo-input';
+        photoInput.hidden = true;
         photoInput.addEventListener('change', (event) => {
             const file = event.target && event.target.files && event.target.files[0];
             if (file) {
@@ -788,44 +910,42 @@
             }
             try { photoInput.value = ''; } catch (_) { /* ignore */ }
         });
-        controls.appendChild(photoInput);
+        add(iconButton('wg-callbar__photo', 'camera', 'Send photo', () => photoInput.click()));
+        add(photoInput);
 
-        photoBtn.addEventListener('click', () => {
-            photoInput.click();
-        });
+        const end = iconButton('wg-callbar__end', 'phone-off', 'End call', () => endCall());
+        end.classList.add('wg-btn--danger');
+        add(end);
 
-        const status = document.createElement('div');
-        status.className = 'wg-call-card__status';
-        status.setAttribute('aria-live', 'polite');
-        status.hidden = true;
-        card.appendChild(status);
-
-        return card;
+        after = null;
+        const error = document.createElement('p');
+        error.className = 'wg-hint wg-callbar__error';
+        error.setAttribute('role', 'alert');
+        error.hidden = true;
+        add(error);
     }
 
     function mountCard(container) {
         if (!container) return null;
-        const existing = container.querySelector('[data-section="call-agent"]');
-        if (existing) {
-            // Re-bind the live call state to the existing card (e.g. when the
-            // same DOM node is queried again without a re-render).
-            if (callInFlight()) {
-                activeCard = existing;
-                applyState(existing, activeState, activeMessage);
+        if (!container.querySelector('.wg-callbar__call')) {
+            // Today re-renders (sync polling, tab switch back) drop the old
+            // bar. If that one was docked it lives in <body>, outside the
+            // rebuilt subtree — retire it; the new bar re-docks below.
+            if (activeCard && activeCard !== container && isDocked()) {
+                activeCard.remove();
+                if (dockSlot) dockSlot.remove();
+                dockSlot = null;
             }
-            return existing;
+            buildInto(container);
+            refreshReadiness();
         }
-        const card = buildCard();
-        container.appendChild(card);
-        // Today re-renders during a call (sync polling, tab switch back to
-        // Today) drop the previous DOM node. Reattach the live call state to
-        // the freshly built card so the user still sees "End call" and can
-        // hang up.
-        if (callInFlight()) {
-            activeCard = card;
-            applyState(card, activeState, activeMessage);
-        }
-        return card;
+        // Live call state paints onto the newest bar, so a re-render mid-call
+        // still shows the live controls and End call.
+        activeCard = container;
+        applyState(container, activeState, activeMessage);
+        // Today attaches the row after this returns; dock once it is in.
+        Promise.resolve().then(updateDock);
+        return container;
     }
 
     window.WGCallAgent = {

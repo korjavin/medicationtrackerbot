@@ -29,7 +29,7 @@ Open `ui_kits/app-v2/index.html` in a browser; every page is static HTML.
 | Surface | Spec | Current code |
 |---------|------|--------------|
 | Navigation (5 tabs: Today · Food · Meds · Train · Health; gear → Settings) | `navigation.html` | `web/static/js/features/tab-controller.js`, `web/static/index.html` nav |
-| Today (Next up, Log sheet, Goal Line, call bar, tz card, first-run/offline/skeleton) | `screens-today.html` T1–T6 | `features/today.js`, `today-loader.js`, `elevenlabs-call.js`, `call-indicator.js`, `tz-plan-banner.js`, `brief.js` |
+| Today (Next up, Log sheet, Goal Line, call bar, tz card, first-run/offline/skeleton) | `screens-today.html` T1–T6 | `features/today.js`, `today-loader.js`, `elevenlabs-call.js`, `tz-plan-banner.js`, `brief.js` |
 | Journey (pushed page) | `screens-today.html` J1–J2 | `features/journey.js` |
 | Food log, Add sheet, Describe, AI review, manual | `screens-food.html` F1–F8 | `features/food/`, `food-photo-summary.js` |
 | Meds schedule, take sheet, stock, editor page | `screens-meds.html` M1–M6 | `features/meds.js`, `meds-history.js`, `medication-utils.js` |

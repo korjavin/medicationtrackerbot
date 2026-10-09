@@ -3,14 +3,14 @@
  *
  * ElevenLabs voice-call controller — Today screen "Call agent" card,
  * mute toggle, and photo send. Subscribes to and broadcasts the
- * `wg-call-state` window event consumed by features/call-indicator.js.
+ * `wg-call-state` window event (the Today call bar is the one call surface).
  *
  * Tests cover the new mute + photo APIs added to window.WGCallAgent
  * (toggleMute, setMute, sendPhoto) and the extended wg-call-state /
  * getState() shape ({ state, message, muted, uploading }).
  *
  * Approach: load the IIFE-style script via window.eval (mirrors the
- * pattern used by features.call-indicator.test.js). To exercise
+ * pattern used across the feature suites). To exercise
  * setMute / sendPhoto without a real SDK, we install a fake
  * activeConversation by stubbing the SDK loader and the global
  * fetchSignedURL path, then awaiting startCall().
@@ -135,7 +135,7 @@ function loadScriptWithFakeSDK(window, fakeSDKExpression) {
     window.eval(patched);
 }
 
-function createConversationEnv({ conv } = {}) {
+function createConversationEnv({ conv, setup } = {}) {
     const dom = new JSDOM('<!doctype html><html><body></body></html>', {
         url: 'https://example.test/',
         runScripts: 'outside-only',
@@ -173,6 +173,8 @@ function createConversationEnv({ conv } = {}) {
             },
         });`
     );
+    // Globals the script reads at load time (AppStore, page markup).
+    if (setup) setup(window);
     window.eval(patched);
 
     return {
@@ -1148,9 +1150,9 @@ describe('features/elevenlabs-call.js — Today card markup', () => {
             const container = document.createElement('div');
             document.body.appendChild(container);
             window.WGCallAgent.mountCard(container);
-            expect(container.querySelector('.wg-call-card__mute')).not.toBeNull();
-            expect(container.querySelector('.wg-call-card__photo')).not.toBeNull();
-            const input = container.querySelector('.wg-call-card__photo-input');
+            expect(container.querySelector('.wg-callbar__mute')).not.toBeNull();
+            expect(container.querySelector('.wg-callbar__photo')).not.toBeNull();
+            const input = container.querySelector('.wg-callbar__photo-input');
             expect(input).not.toBeNull();
             expect(input.getAttribute('type')).toBe('file');
             expect(input.getAttribute('accept')).toBe('image/*');
@@ -1182,6 +1184,219 @@ describe('features/elevenlabs-call.js — Today card markup', () => {
             }
             // Conversation methods were exercised by setMute.
             expect(conversation.setMicMuted).toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
+});
+
+describe('features/elevenlabs-call.js — Today call bar (kit T2/T4/T5)', () => {
+    async function flush(window) {
+        for (let i = 0; i < 5; i += 1) await new Promise((r) => window.setTimeout(r, 0));
+    }
+
+    // Today's markup: the call bar row inside the active Today view, plus a
+    // second view to switch to. Log stands in for Today's own row buttons.
+    function todayPage(window) {
+        window.document.body.innerHTML = '<div id="today-view" class="view active"><div id="today-content"></div></div>'
+            + '<div id="food-view" class="view"></div>';
+    }
+
+    function mountBar(window) {
+        const { document } = window;
+        const bar = document.createElement('div');
+        bar.className = 'wg-callbar wg-today-callbar';
+        window.WGCallAgent.mountCard(bar);
+        const log = document.createElement('button');
+        log.className = 'wg-btn';
+        log.setAttribute('data-action', 'open-log');
+        bar.appendChild(log);
+        document.getElementById('today-content').appendChild(bar);
+        return bar;
+    }
+
+    async function connect(window, bar) {
+        await window.WGCallAgent.startCall(bar);
+        window.__TEST_CONVERSATION_OPTS__.onConnect();
+    }
+
+    it('no vault key and no trial → "Set up voice agent" opens Settings → AI & integrations instead of calling', async () => {
+        const { window, cleanup } = createConversationEnv({ setup: todayPage });
+        try {
+            window.CloudElevenLabs.hasKey = vi.fn(async () => false);
+            window.switchTab = vi.fn();
+            window.SettingsView = { openSettingsPage: vi.fn() };
+            const bar = mountBar(window);
+            await flush(window);
+            const trigger = bar.querySelector('.wg-callbar__call');
+            expect(trigger.querySelector('.wg-callbar__label').textContent).toBe('Set up voice agent');
+            expect(trigger.disabled).toBe(false);
+            trigger.click();
+            expect(window.switchTab).toHaveBeenCalledWith('settings');
+            expect(window.SettingsView.openSettingsPage).toHaveBeenCalledWith('integrations');
+            expect(window.__TEST_START_SESSION_CALLS__).toBeUndefined();
+            expect(window.WGCallAgent.getState().state).toBe('idle');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('a configured key reads "Call agent" and a tap starts the call', async () => {
+        const { window, cleanup } = createConversationEnv({ setup: todayPage });
+        try {
+            const bar = mountBar(window);
+            await flush(window);
+            const trigger = bar.querySelector('.wg-callbar__call');
+            expect(trigger.querySelector('.wg-callbar__label').textContent).toBe('Call agent');
+            trigger.click();
+            await flush(window);
+            expect(window.__TEST_START_SESSION_CALLS__).toBe(1);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('offline → the call is disabled and says why; back online it is callable again', async () => {
+        const { window, cleanup } = createConversationEnv({ setup: todayPage });
+        try {
+            let online = false;
+            Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => online });
+            const bar = mountBar(window);
+            await flush(window);
+            const trigger = bar.querySelector('.wg-callbar__call');
+            expect(trigger.disabled).toBe(true);
+            expect(trigger.querySelector('.wg-callbar__label').textContent).toBe('Call needs a connection');
+            expect(trigger.querySelector('.wg-ico').getAttribute('data-icon')).toBe('phone-off');
+
+            online = true;
+            window.dispatchEvent(new window.Event('online'));
+            expect(trigger.disabled).toBe(false);
+            expect(trigger.querySelector('.wg-callbar__label').textContent).toBe('Call agent');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('a live call turns the bar --live with Mute / Send photo / End call; the row\'s own buttons are not live controls', async () => {
+        const { window, conversation, cleanup } = createConversationEnv({ setup: todayPage });
+        try {
+            const bar = mountBar(window);
+            await connect(window, bar);
+            expect(bar.classList.contains('wg-callbar--live')).toBe(true);
+            const live = [...bar.querySelectorAll('[data-call-live]')].map((n) => n.className);
+            expect(live).toEqual([
+                'wg-pulse',
+                'wg-callbar__status',
+                'wg-btn wg-btn--icon wg-btn--sm wg-callbar__mute',
+                'wg-btn wg-btn--icon wg-btn--sm wg-callbar__photo',
+                'wg-btn wg-btn--icon wg-btn--sm wg-callbar__end wg-btn--danger',
+            ]);
+            expect(bar.querySelector('[data-action="open-log"]').hasAttribute('data-call-live')).toBe(false);
+            expect(bar.querySelector('.wg-callbar__status').textContent).toBe('Connected');
+
+            bar.querySelector('.wg-callbar__mute').click();
+            expect(conversation.setMicMuted).toHaveBeenCalledWith(true);
+            expect(bar.querySelector('.wg-callbar__mute').getAttribute('aria-pressed')).toBe('true');
+            expect(bar.querySelector('.wg-callbar__mute .wg-ico').getAttribute('data-icon')).toBe('mic-off');
+
+            bar.querySelector('.wg-callbar__end').click();
+            await flush(window);
+            expect(conversation.endSession).toHaveBeenCalled();
+            expect(bar.classList.contains('wg-callbar--live')).toBe(false);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('docks above the tab bar on another tab (one surface), and returns to Today', async () => {
+        let onTab = null;
+        const { window, document, cleanup } = createConversationEnv({
+            setup: (w) => {
+                todayPage(w);
+                w.AppStore = { subscribe: (key, fn) => { if (key === 'currentTab') onTab = fn; } };
+            },
+        });
+        try {
+            const content = document.getElementById('today-content');
+            const bar = mountBar(window);
+            await connect(window, bar);
+            expect(bar.classList.contains('wg-callbar--dock')).toBe(false);
+
+            document.getElementById('today-view').classList.remove('active');
+            document.getElementById('food-view').classList.add('active');
+            onTab('food');
+            expect(bar.parentNode).toBe(document.body);
+            expect(bar.classList.contains('wg-callbar--dock')).toBe(true);
+            expect(content.querySelector('.wg-callbar-slot')).not.toBeNull();
+            expect(document.querySelectorAll('.wg-callbar')).toHaveLength(1);
+            expect(window.WGCallIndicator).toBeUndefined();
+
+            document.getElementById('food-view').classList.remove('active');
+            document.getElementById('today-view').classList.add('active');
+            onTab('today');
+            expect(bar.parentNode).toBe(content);
+            expect(bar.classList.contains('wg-callbar--dock')).toBe(false);
+            expect(content.querySelector('.wg-callbar-slot')).toBeNull();
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('docks once scrolled past, and ending the call puts it back in its Today slot', async () => {
+        const { window, document, cleanup } = createConversationEnv({ setup: todayPage });
+        try {
+            const content = document.getElementById('today-content');
+            const bar = mountBar(window);
+            await connect(window, bar);
+            bar.getBoundingClientRect = () => ({ top: -70, bottom: -14, height: 56 });
+            window.dispatchEvent(new window.Event('scroll'));
+            expect(bar.classList.contains('wg-callbar--dock')).toBe(true);
+            expect(bar.parentNode).toBe(document.body);
+
+            bar.querySelector('.wg-callbar__end').click();
+            await flush(window);
+            expect(bar.classList.contains('wg-callbar--dock')).toBe(false);
+            expect(bar.parentNode).toBe(content);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('an idle bar never docks', async () => {
+        const { window, document, cleanup } = createConversationEnv({ setup: todayPage });
+        try {
+            const bar = mountBar(window);
+            await flush(window);
+            document.getElementById('today-view').classList.remove('active');
+            window.dispatchEvent(new window.Event('scroll'));
+            expect(bar.classList.contains('wg-callbar--dock')).toBe(false);
+            expect(bar.parentNode).toBe(document.getElementById('today-content'));
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('a Today re-render while docked retires the old bar and docks the new one', async () => {
+        const { window, document, cleanup } = createConversationEnv({ setup: todayPage });
+        try {
+            const content = document.getElementById('today-content');
+            const first = mountBar(window);
+            await connect(window, first);
+            document.getElementById('today-view').classList.remove('active');
+            window.dispatchEvent(new window.Event('scroll'));
+            expect(first.parentNode).toBe(document.body);
+
+            // today.js rebuilds the row, mounts into it, then swaps the content.
+            const second = document.createElement('div');
+            second.className = 'wg-callbar wg-today-callbar';
+            window.WGCallAgent.mountCard(second);
+            content.replaceChildren(second);
+            await flush(window);
+            expect(first.isConnected).toBe(false);
+            expect(second.parentNode).toBe(document.body);
+            expect(second.classList.contains('wg-callbar--dock')).toBe(true);
+            expect(second.dataset.state).toBe('in_call');
+            expect(document.querySelectorAll('.wg-callbar')).toHaveLength(1);
         } finally {
             cleanup();
         }
@@ -1222,8 +1437,8 @@ describe('features/elevenlabs-call.js — mount during connecting', () => {
             document.body.appendChild(second);
             const remounted = window.WGCallAgent.mountCard(second);
             expect(remounted.dataset.state).toBe('connecting');
-            const label = remounted.querySelector('.wg-call-card__label');
-            const btn = remounted.querySelector('.wg-call-card__btn');
+            const label = remounted.querySelector('.wg-callbar__label');
+            const btn = remounted.querySelector('.wg-callbar__call');
             expect(label.textContent).toBe('Connecting…');
             expect(btn.disabled).toBe(true);
 
@@ -1235,7 +1450,7 @@ describe('features/elevenlabs-call.js — mount during connecting', () => {
             // The remounted card is the one live state now paints onto.
             window.__TEST_CONVERSATION_OPTS__.onConnect();
             expect(remounted.dataset.state).toBe('in_call');
-            expect(remounted.querySelector('.wg-call-card__label').textContent).toBe('End call');
+            expect(remounted.querySelector('.wg-callbar__label').textContent).toBe('End call');
         } finally {
             cleanup();
         }
@@ -1311,8 +1526,8 @@ describe('features/elevenlabs-call.js — connect watchdog + cancel token', () =
             const state = window.WGCallAgent.getState();
             expect(state.state).toBe('error');
             expect(state.message).toMatch(/microphone/i);
-            expect(card.querySelector('.wg-call-card__btn').disabled).toBe(false);
-            expect(card.querySelector('.wg-call-card__label').textContent).toBe('Try again');
+            expect(card.querySelector('.wg-callbar__call').disabled).toBe(false);
+            expect(card.querySelector('.wg-callbar__label').textContent).toBe('Try again');
 
             // No longer in flight: the user can try again without a reload.
             window.WGCallAgent.startCall(card);

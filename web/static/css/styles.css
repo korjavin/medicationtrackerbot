@@ -316,9 +316,9 @@
     --wg-radius-pill: 999px;
 
     /* Tab bar (Navigation v2) — kit .wg-tabbar, sized by --wg-tabbar-h below.
-       Persistent call indicator sits one layer above it so its hang-up
-       affordance is never occluded while a call is active. */
-    --wg-call-indicator-z: 41;
+       The docked Today call bar sits one layer above it so End call is
+       never occluded while a call is active. */
+    --wg-callbar-dock-z: 41;
     /* FAB sits below the fixed tab bar (z 40) in stacking order, but its
        vertical bottom offset (--wg-tabbar-reserved + --space-md) keeps it
        geometrically above the bar so the two never overlap. */
@@ -1630,78 +1630,28 @@ svg.chart-svg {
     }
 }
 
-/* TZ Transition Plan Card — Wandergeek card surfaced on Today directly above
-   the medications card when a timezone-change plan is awaiting the user's
-   decision. Composes with .wg-next-action-card.--plain for the surface and
-   icon styling, then layers card-local rules for layout, the dose-list
-   disclosure, and the side-by-side Apply/Cancel actions. The card is removed
-   from the DOM entirely when no plan is in flight. */
-.wg-tz-plan-card {
-    flex-direction: column;
-    align-items: stretch;
-    cursor: default;
-}
-
-.wg-tz-plan-card__head {
-    display: flex;
-    align-items: center;
-    gap: var(--space-md);
-    width: 100%;
-    flex-wrap: wrap;
-}
-
-.wg-tz-plan-card__icon {
-    color: var(--wg-fg-1);
-    font-size: var(--font-size-lg);
-    line-height: 1;
-}
-
-.wg-tz-plan-card__value {
-    white-space: normal;
-    overflow: visible;
-    text-overflow: clip;
-}
-
+/* TZ transition plan card (kit T2, tz-plan-banner.js) — a .wg-card; only the
+   detail spacing, the step strip and the remaining-steps list are local. */
 .wg-tz-plan-card__detail {
-    display: block;
-    margin-top: 2px;
-    font-size: var(--font-size-xs);
-    color: var(--wg-fg-3);
+    margin: var(--space-sm) 0 0;
 }
 
-.wg-tz-plan-card__actions {
-    display: flex;
-    gap: var(--space-xs);
-    flex: 0 0 auto;
-    margin-left: auto;
+.wg-tz-plan-card .wg-steps {
+    flex-wrap: wrap;
+    margin-top: var(--space-md);
 }
 
-.wg-tz-plan-card__btn {
-    min-width: 72px;
+.wg-tz-plan-card__steps-title {
+    margin-top: var(--space-md);
 }
 
-.wg-tz-plan-card__btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.wg-tz-plan-card__details {
-    margin-top: var(--space-sm);
-    font-size: var(--font-size-xs);
-    color: var(--wg-fg-2);
-}
-
-.wg-tz-plan-card__details-summary {
-    cursor: pointer;
-    user-select: none;
-    color: var(--wg-fg-3);
-}
-
-.wg-tz-plan-card__details-list {
-    margin: var(--space-xs) 0 0;
-    padding-left: var(--space-md);
+.wg-tz-plan-card__steps {
+    margin: var(--space-sm) 0 0;
+    padding-left: var(--space-lg);
     max-height: 12em;
     overflow-y: auto;
+    font: 400 var(--wg-fs-xs)/1.5 var(--wg-font-ui);
+    color: var(--wg-fg-2);
 }
 
 /* In-flight save state applied by saveWorkoutSessionDetails to every button
@@ -3828,277 +3778,52 @@ input.wg-stepper__val::-webkit-inner-spin-button {
     font-weight: 600;
 }
 
-/* Today "Call agent" card — opens an ElevenLabs convai voice call. Shares
-   the shortcut-tile look (background, border, gloss icon, uppercase caps
-   label) with the Log food / Photo meal / Add BP / Add weight tiles, but
-   spans the full row so it reads as a primary action. In-call secondary
-   controls (mute, photo) appear below the trigger only while a call is
-   live; the hidden file input is the standard camera-capable picker. */
-.wg-call-card {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-sm);
-}
-
-/* med-xso6.13 — Today call row (kit T1 .wg-callbar): the call card takes the
-   free width, Log and the Doctor brief icon sit beside its trigger. */
+/* med-xso6.14 — the Today call bar (kit T2/T4/T5 .wg-callbar), the one call
+   control surface. Idle: trigger + Log + Doctor brief. --live: pulse, status,
+   Mute / Send photo / End call ([data-call-live], elevenlabs-call.js). --dock
+   is the same node moved to <body> above the tab bar while a call is in
+   flight and Today is scrolled past or on another tab; the slot holds its
+   place in Today meanwhile. */
 .wg-today-callbar {
-    align-items: flex-start;
+    flex-wrap: wrap;
 }
 
-.wg-today-callbar > .wg-call-card {
-    flex: 1;
-    min-width: 0;
+.wg-callbar:not(.wg-callbar--live) > [data-call-live],
+.wg-callbar--live > :not([data-call-live]) {
+    display: none;
+}
+
+.wg-callbar__error {
+    flex-basis: 100%;
+    margin: 0;
+    color: var(--wg-danger-fg);
+}
+
+.wg-callbar__mute[aria-pressed="true"] {
+    color: var(--wg-danger-fg);
+    border-color: var(--wg-danger-line);
+}
+
+.wg-callbar--dock {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: var(--wg-tabbar-h);
+    max-width: 480px;
+    margin: 0 auto var(--space-sm);
+    z-index: var(--wg-callbar-dock-z);
+}
+
+.wg-callbar-slot {
+    height: var(--wg-h-md);
+}
+
+body:has(.wg-callbar--dock) .wg-toasts {
+    bottom: calc(var(--wg-tabbar-h) + 76px);
 }
 
 .wg-today-goal__adherence {
     align-self: flex-start;
-}
-
-/* med-z8ic — when Today folds the Doctor brief row into the call card, the
-   card becomes a 2-column grid: the trigger keeps the majority of the row and
-   the brief rides beside it at a third of the width (well under half). The
-   in-call controls and the status line span both columns so they still get
-   their own full-width lines underneath (today.js inserts the brief between
-   the trigger and the controls, so plain row auto-flow lands everything on
-   the right line). minmax(0, …) pins the ratio so a long label widens neither
-   track; the nested shortcut grid is collapsed to a single column so its
-   auto-fit min-width can't overflow the narrow cell. */
-.wg-call-card--with-brief {
-    display: grid;
-    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-}
-
-.wg-call-card__brief {
-    grid-template-columns: minmax(0, 1fr);
-}
-
-.wg-call-card--with-brief .wg-call-card__controls,
-.wg-call-card--with-brief .wg-call-card__status {
-    grid-column: 1 / -1;
-}
-
-.wg-call-card__btn {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-sm);
-    width: 100%;
-    padding: var(--wg-tile-pad-block) var(--space-md);
-    background: var(--wg-metric-tile-bg);
-    border: 1px solid var(--wg-border-hairline);
-    border-radius: var(--wg-radius-card);
-    color: inherit;
-    font: inherit;
-    cursor: pointer;
-    box-sizing: border-box;
-}
-
-.wg-call-card__btn[disabled] {
-    opacity: 0.6;
-    cursor: not-allowed;
-}
-
-.wg-call-card__icon {
-    width: 30px;
-    height: 30px;
-    border-radius: var(--wg-radius-gloss);
-    background: var(--wg-next-action-icon-bg);
-    border: 1px solid var(--wg-next-action-icon-border);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--wg-sun);
-    flex-shrink: 0;
-}
-
-.wg-call-card__label {
-    font-size: var(--wg-font-size-caps);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--wg-fg-2);
-    font-weight: 600;
-}
-
-.wg-call-card[data-state="in_call"] .wg-call-card__btn {
-    background: var(--color-danger);
-    border-color: var(--color-danger);
-}
-
-.wg-call-card[data-state="in_call"] .wg-call-card__label {
-    color: var(--wg-paper);
-}
-
-.wg-call-card__controls {
-    display: flex;
-    flex-direction: row;
-    flex-wrap: wrap;
-    gap: var(--space-sm);
-}
-
-.wg-call-card__status {
-    font-size: var(--font-size-sm);
-    color: var(--wg-fg-2);
-}
-
-.wg-call-card__status--error {
-    color: var(--danger-color, #ef4444);
-}
-
-.wg-call-card__status--ready {
-    color: var(--wg-fg-1);
-}
-
-.wg-call-card__status--connecting {
-    color: var(--wg-fg-2);
-}
-
-.wg-call-card__mute,
-.wg-call-card__photo {
-    flex: 1 1 0;
-    padding: var(--space-xs) var(--space-md);
-    font-size: var(--font-size-sm);
-    font-weight: 600;
-    color: var(--wg-fg-1);
-    background: var(--wg-bg-card);
-    border: 1px solid var(--wg-border-hairline);
-    border-radius: var(--wg-radius-pill);
-    cursor: pointer;
-}
-
-.wg-call-card__mute[disabled],
-.wg-call-card__photo[disabled] {
-    opacity: 0.6;
-    cursor: not-allowed;
-}
-
-.wg-call-card__mute[aria-pressed="true"] {
-    background: var(--color-danger);
-    color: var(--wg-paper);
-    border-color: var(--color-danger);
-}
-
-.wg-call-card[data-state="idle"] .wg-call-card__controls,
-.wg-call-card[data-state="error"] .wg-call-card__controls {
-    display: none;
-}
-
-.wg-call-card__photo-input {
-    display: none;
-}
-
-/* Persistent call indicator — floating pill mounted at app-shell level so
-   call status (connecting / in_call / error) and the hang-up affordance
-   survive tab switches. Anchored above the tab bar via
-   --wg-tabbar-reserved; horizontally centered. Hidden when idle: the
-   [hidden] attribute fully removes it from layout so it never reserves
-   space when no call is active. The status dot's color is driven by
-   [data-state] so all visual values stay token-driven. */
-.wg-call-indicator {
-    position: fixed;
-    left: 50%;
-    bottom: calc(var(--wg-tabbar-reserved) + var(--space-sm));
-    transform: translateX(-50%);
-    z-index: var(--wg-call-indicator-z);
-    box-sizing: border-box;
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-sm);
-    width: max-content;
-    max-width: min(360px, calc(100vw - 2 * var(--space-md)));
-    padding: var(--space-xs) var(--space-md);
-    background: var(--wg-bg-card);
-    border: 1px solid var(--wg-border-hairline);
-    border-radius: var(--wg-radius-pill);
-    box-shadow: var(--shadow-md);
-    color: var(--wg-fg-1);
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-sm);
-}
-
-.wg-call-indicator[hidden] {
-    display: none;
-}
-
-.wg-call-indicator__dot {
-    width: 10px;
-    height: 10px;
-    border-radius: var(--wg-radius-pill);
-    background: var(--wg-fg-2);
-    flex-shrink: 0;
-}
-
-.wg-call-indicator[data-state="connecting"] .wg-call-indicator__dot {
-    background: var(--wg-sun);
-}
-
-.wg-call-indicator[data-state="in_call"] .wg-call-indicator__dot {
-    background: var(--color-success);
-}
-
-.wg-call-indicator[data-state="error"] .wg-call-indicator__dot {
-    background: var(--color-danger);
-}
-
-.wg-call-indicator__text {
-    min-width: 0;
-    color: var(--wg-fg-1);
-    font-weight: 600;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.wg-call-indicator__hang-up {
-    flex-shrink: 0;
-    padding: var(--space-xs) var(--space-md);
-    font-size: var(--font-size-sm);
-    font-weight: 600;
-}
-
-.wg-call-indicator__hang-up[disabled] {
-    opacity: 0.6;
-    cursor: not-allowed;
-}
-
-/* In-call secondary controls on the floating pill: mute toggle + photo
-   sender. Order in the pill: [mute] [photo] [end call]. The pill itself
-   is hidden via the [hidden] attribute when idle, so children only need
-   the error-state guard here. The hidden file input is the standard
-   photo-picker pattern (camera-capable on mobile via capture="environment"). */
-.wg-call-indicator__mute,
-.wg-call-indicator__photo {
-    flex-shrink: 0;
-    padding: var(--space-xs) var(--space-md);
-    font-size: var(--font-size-sm);
-    font-weight: 600;
-    color: var(--wg-fg-1);
-    background: var(--wg-bg-card);
-    border: 1px solid var(--wg-border-hairline);
-    border-radius: var(--wg-radius-pill);
-    cursor: pointer;
-}
-
-.wg-call-indicator__mute[disabled],
-.wg-call-indicator__photo[disabled] {
-    opacity: 0.6;
-    cursor: not-allowed;
-}
-
-.wg-call-indicator__mute[aria-pressed="true"] {
-    background: var(--color-danger);
-    color: var(--wg-paper);
-    border-color: var(--color-danger);
-}
-
-.wg-call-indicator[data-state="error"] .wg-call-indicator__mute,
-.wg-call-indicator[data-state="error"] .wg-call-indicator__photo {
-    display: none;
-}
-
-.wg-call-indicator__photo-input {
-    display: none;
 }
 
 /* Today meds card (Task 3) — header row (icon + kicker + "Take" CTA),
