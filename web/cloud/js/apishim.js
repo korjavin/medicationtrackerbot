@@ -669,6 +669,14 @@ export function createApiRouter(ctx, {
       }
     }
     if (path === '/api/medications/next-intake' && method === 'GET') return intake.nextIntake();
+    // The med editor's Rx chip + inline interaction warning, before Save.
+    if (path === '/api/medications/rx-check' && method === 'GET') {
+      return medications.rxCheck({
+        name: params.get('name') || '',
+        rxcui: params.get('rxcui') || '',
+        excludeId: intParam(params, 'exclude_id', 0),
+      });
+    }
     // The Meds → Schedule tab's hour buckets and Upcoming list read this
     // instead of recomputing doses in the browser's own timezone (bd med-gut).
     if (path === '/api/medications/upcoming' && method === 'GET') {

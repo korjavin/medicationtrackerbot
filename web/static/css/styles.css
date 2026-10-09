@@ -449,24 +449,6 @@
     --wg-meds-next-intake-pad-y: 6px;
     --wg-meds-next-intake-pad-x: 10px;
 
-    /* Edit-medication modal tokens (Phase 5, Task 7) — dual-line header,
-       gloss-inset input wraps, schedule-pill strip, times-row layout, and
-       the Cancel / Save action bar. */
-    --wg-meds-modal-eyebrow-size: 10.5px;
-    --wg-meds-modal-title-size: 18px;
-    --wg-meds-modal-row-gap: 10px;
-    --wg-meds-modal-section-gap: 14px;
-    --wg-meds-modal-input-pad-y: 10px;
-    --wg-meds-modal-input-pad-x: 12px;
-    --wg-meds-modal-pill-gap: 4px;
-    --wg-meds-modal-pill-pad-y: 6px;
-    --wg-meds-modal-pill-pad-x: 10px;
-    --wg-meds-modal-pill-size: 12px;
-    --wg-meds-modal-label-size: 10.5px;
-    --wg-meds-modal-rx-size: 11px;
-    --wg-meds-modal-time-row-gap: 8px;
-    --wg-meds-modal-toggle-gap: 8px;
-
     /* Wandergeek — Weight screen (Phase 6, Task 1). Dimensional tokens for
        the big current-weight card, trend arrow + delta, optional goal card,
        range selector, single-series chart, and day-grouped history rows.
@@ -9315,225 +9297,57 @@ input.wg-stepper__val::-webkit-inner-spin-button {
     min-width: 0;
 }
 
-/* Edit-medication modal (Phase 5, Task 7) — shares the generic `.wg-modal`
-   shell for positioning and chrome; overlays a dual-line mono header, gloss
-   input wraps, schedule-type pill strip, times editor, inventory block,
-   toggle row, and the Cancel/Save action bar. Every visual value comes from
-   a `--wg-meds-modal-*` or shared `--wg-*` token. */
-.wg-meds-modal__header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--space-md);
-    margin-bottom: var(--space-lg);
-}
-
-.wg-meds-modal__heading {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-    min-width: 0;
-}
-
-.wg-meds-modal__eyebrow {
-    padding: 0;
-    font-size: var(--wg-meds-modal-eyebrow-size);
-    color: var(--wg-fg-3);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-}
-
-.wg-meds-modal__eyebrow::before {
-    content: none;
-}
-
-.wg-meds-modal__title {
-    font-family: var(--wg-font-mono);
-    font-size: var(--wg-meds-modal-title-size);
-    color: var(--wg-fg-1);
-    line-height: 1.1;
-}
-
-.wg-meds-modal__body {
-    display: flex;
-    flex-direction: column;
-    gap: var(--wg-meds-modal-section-gap);
-}
-
-.wg-meds-modal__row {
-    display: flex;
-    gap: var(--wg-meds-modal-row-gap);
-    align-items: flex-end;
-}
-
-.wg-meds-modal__row > .wg-meds-modal__field {
-    flex: 1 1 0;
-    min-width: 0;
-}
-
-.wg-meds-modal__field {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-    min-width: 0;
-}
-
-.wg-meds-modal__label {
-    font-size: var(--wg-meds-modal-label-size);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--wg-fg-3);
-    font-weight: var(--font-weight-bold);
-}
-
-.wg-meds-modal__input-wrap {
-    padding: var(--wg-meds-modal-input-pad-y) var(--wg-meds-modal-input-pad-x);
-    display: flex;
-    align-items: center;
-    min-width: 0;
-}
-
-.wg-meds-modal__input {
+/* Medication editor (kit M5–M6, med-xso6.20): a pushed .wg-page; sections,
+   fields, list rows, seg, picks, stepper and toggles come from components.css.
+   The time and stock inputs sit bare inside their kit row / stepper; the date
+   inputs are only the pickers their value rows open (showPicker), never a
+   visible control. */
+.wg-meds-editor__time,
+.wg-meds-editor__stock {
     width: 100%;
+    min-width: 0;
     margin: 0;
     padding: 0;
     background: transparent;
-    border: none;
+    border: 0;
     outline: none;
-    box-shadow: none;
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-md);
-    color: var(--wg-fg-1);
-    min-width: 0;
+    color: inherit;
+    font: inherit;
 }
 
-.wg-meds-modal__input::placeholder {
-    color: var(--wg-fg-4);
+.wg-meds-editor__stock {
+    text-align: center;
+    appearance: textfield;
+    -moz-appearance: textfield;
 }
 
-.wg-meds-modal__select {
-    appearance: none;
+.wg-meds-editor__stock::-webkit-inner-spin-button,
+.wg-meds-editor__stock::-webkit-outer-spin-button {
     -webkit-appearance: none;
-    cursor: pointer;
-}
-
-.wg-meds-modal__rx {
     margin: 0;
-    font-size: var(--wg-meds-modal-rx-size);
-    color: var(--wg-fg-3);
-    font-family: var(--wg-font-mono);
-    display: none;
 }
 
-.wg-meds-modal__pills {
-    display: flex;
-    gap: var(--wg-meds-modal-pill-gap);
-    padding: var(--wg-meds-modal-pill-gap);
-    align-items: stretch;
+.wg-meds-editor__date {
+    position: relative;
 }
 
-.wg-meds-modal__pill {
-    flex: 1 1 0;
-    min-width: 0;
-    padding: var(--wg-meds-modal-pill-pad-y) var(--wg-meds-modal-pill-pad-x);
-    font-family: var(--wg-font-ui);
-    font-size: var(--wg-meds-modal-pill-size);
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--wg-fg-2);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
+.wg-meds-editor__date-input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    pointer-events: none;
 }
 
-.wg-meds-modal__pill[aria-pressed="true"] {
-    color: var(--wg-ink);
+/* Fallback when the browser cannot open the picker programmatically. */
+.wg-meds-editor__date-input.wg-meds-editor__date-input--shown {
+    position: static;
+    height: auto;
+    opacity: 1;
+    pointer-events: auto;
 }
 
-.wg-meds-modal__hidden-select {
-    display: none;
-}
-
-.wg-meds-modal__times {
-    display: flex;
-    flex-direction: column;
-    gap: var(--wg-meds-modal-time-row-gap);
-}
-
-.wg-meds-modal__time-row {
-    display: flex;
-    gap: var(--wg-meds-modal-time-row-gap);
-    align-items: center;
-    margin-bottom: 0;
-}
-
-.wg-meds-modal__time-wrap {
-    flex: 1 1 auto;
-}
-
-.wg-meds-modal__remove-time {
-    flex: 0 0 auto;
-    font-size: var(--font-size-lg);
-}
-
-.wg-meds-modal__add-time {
-    align-self: flex-start;
-    padding: var(--wg-meds-modal-pill-pad-y) var(--wg-meds-modal-pill-pad-x);
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-sm);
-    border-radius: var(--wg-radius-gloss);
-}
-
-.wg-meds-modal__inventory-block {
-    gap: var(--wg-meds-modal-row-gap);
-}
-
-.wg-meds-modal__inventory {
-    display: flex;
-    flex-direction: column;
-    gap: var(--wg-meds-modal-row-gap);
-}
-
-.wg-meds-modal__inventory.hidden {
-    display: none;
-}
-
-.wg-meds-modal__restock {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-}
-
-.wg-meds-modal__restock-row {
-    display: flex;
-    gap: var(--wg-meds-modal-time-row-gap);
-    align-items: center;
-}
-
-.wg-meds-modal__restock-qty-wrap {
-    flex: 1 1 auto;
-    min-width: 0;
-}
-
-.wg-meds-modal__restock-add {
-    flex: 0 0 auto;
-    padding: var(--wg-meds-modal-pill-pad-y) var(--wg-meds-modal-pill-pad-x);
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-sm);
-    border-radius: var(--wg-radius-gloss);
-}
-
-.wg-meds-modal__restock-history {
-    font-size: var(--font-size-xs);
-    color: var(--wg-fg-3);
-}
-
-.wg-meds-modal__toggle-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--wg-meds-modal-toggle-gap);
-}
-
-.wg-meds-modal__toggle,
 .wg-brief-modal__toggle {
     display: inline-flex;
     align-items: center;
@@ -9544,31 +9358,9 @@ input.wg-stepper__val::-webkit-inner-spin-button {
     cursor: pointer;
 }
 
-.wg-meds-modal__toggle input[type="checkbox"],
 .wg-brief-modal__toggle input[type="checkbox"] {
     margin: 0;
     width: auto;
-}
-
-.wg-meds-modal__header-actions {
-    display: flex;
-    gap: var(--space-xs);
-    align-items: center;
-    flex-shrink: 0;
-}
-
-.wg-meds-modal__header-btn {
-    min-height: 36px;
-    padding: var(--space-xs) var(--space-sm);
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-sm);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
-    white-space: nowrap;
-}
-
-.wg-meds-modal__header-btn--save {
-    padding: var(--space-xs) var(--space-md);
 }
 
 /* Take sheet (kit M2, med-xso6.19): a kit .wg-sheet — the .wg-choices

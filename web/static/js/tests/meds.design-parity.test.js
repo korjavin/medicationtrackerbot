@@ -5,8 +5,8 @@
 //     duplicate of the Today next-action + History next-intake surfaces).
 //   • #meds-view carries `.wg-screen-stage` so the view sits on the teal
 //     palette rather than the paper-white body background.
-//   • #med-modal + #med-confirm-modal both carry the shared `.wg-modal`
-//     primitive (teal-gloss shell, no legacy white surface).
+//   • #med-confirm-modal carries the shared `.wg-modal` primitive; the
+//     #med-modal editor is a kit pushed page (`.wg-page`, med-xso6.20).
 //   • History is the default sub-tab on first open — stale localStorage
 //     values from the pre-round-2 persistence model don't win.
 //   • renderMeds() does not re-introduce the next-action card even after
@@ -49,12 +49,12 @@ describe('Meds design parity (Round 2, Task 4)', () => {
         expect(window.mountNextActionCard).toBeUndefined();
     });
 
-    it('#med-modal uses the shared .wg-modal teal-gloss shell', () => {
+    it('#med-modal is a kit pushed page (.wg-page), not a floating modal', () => {
         const { document } = env;
         const modal = document.getElementById('med-modal');
         expect(modal).not.toBeNull();
-        expect(modal.classList.contains('wg-modal')).toBe(true);
-        expect(modal.classList.contains('wg-meds-modal')).toBe(true);
+        expect(modal.classList.contains('wg-page')).toBe(true);
+        expect(modal.classList.contains('wg-modal')).toBe(false);
     });
 
     it('#med-confirm-modal (intake modal) uses the shared .wg-modal teal-gloss shell', () => {

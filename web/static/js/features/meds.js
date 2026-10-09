@@ -47,76 +47,10 @@ if (document.readyState === 'loading') {
     restoreMedsSubTab();
 }
 
+// Tap a medication row → its editor page (meds-history.js fillMedEditor).
 function showEditModal(id) {
-    editingMedId = id;
     const med = medications.find(m => m.id === id);
-    if (!med) return;
-
-    window.ModalManager.med.open();
-
-    if (typeof setMedModalHeader === 'function') {
-        setMedModalHeader('Edit medication', med.name || 'Medication');
-    }
-
-    // Fill inputs
-    document.getElementById('med-name').value = med.name;
-    document.getElementById('med-dosage').value = med.dosage;
-    document.getElementById('med-archived').checked = med.archived || false;
-    document.getElementById('med-supplement').checked = med.supplement || false;
-
-    // Show RxNorm
-    const rxDisplay = document.getElementById('med-rx-display');
-    if (med.normalized_name) {
-        rxDisplay.innerText = "Rx: " + med.normalized_name;
-        rxDisplay.style.display = 'block';
-    } else {
-        rxDisplay.style.display = 'none';
-    }
-
-    // Dates (ISO string to YYYY-MM-DD)
-    document.getElementById('med-start-date').value = med.start_date ? med.start_date.split('T')[0] : '';
-    document.getElementById('med-end-date').value = med.end_date ? med.end_date.split('T')[0] : '';
-
-    // Inventory tracking
-    const hasInventory = med.inventory_count !== null && med.inventory_count !== undefined;
-    document.getElementById('med-track-inventory').checked = hasInventory;
-    document.getElementById('med-inventory-count').value = hasInventory ? med.inventory_count : '';
-    if (hasInventory) {
-        document.getElementById('inventory-fields').classList.remove('hidden');
-        document.getElementById('restock-section').style.display = 'block';
-        loadRestockHistory(id);
-    } else {
-        document.getElementById('inventory-fields').classList.add('hidden');
-        document.getElementById('restock-section').style.display = 'none';
-        document.getElementById('restock-history').replaceChildren();
-    }
-
-    // Parse schedule
-    let sched;
-    try {
-        sched = JSON.parse(med.schedule);
-    } catch (e) {
-        // Legacy format
-        sched = { type: 'daily', times: [med.schedule] };
-    }
-
-    document.getElementById('schedule-type').value = sched.type;
-    toggleScheduleFields();
-
-    // Set times
-    const timeContainer = document.getElementById('time-inputs');
-    timeContainer.replaceChildren();
-    if (sched.times && sched.times.length > 0) {
-        sched.times.forEach(t => addTimeInput(t));
-    } else {
-        addTimeInput();
-    }
-
-    // Set days
-    window.MedicationUtils.setPickedDays(document.querySelector('#days-container .wg-picks'), sched.days);
-
-    // Timezone adjustment policy
-    document.getElementById('med-tz-policy').value = med.tz_shift_policy || 'flexible';
+    if (med) fillMedEditor(med);
 }
 
 // Relative-time formatter shared between the Schedule hour-header rows and
@@ -1424,7 +1358,10 @@ async function saveMedication() {
             return;
         }
 
-        if (res.warning) {
+        // The interaction already showed inline before Save (kit M5); alert
+        // unless that exact warning is on screen (a check that never resolved,
+        // or a stale one for a since-renamed med, still alerts).
+        if (res.warning && document.getElementById('med-rx-warning-text').textContent !== res.warning) {
             safeAlert(res.warning);
         }
 
@@ -1442,10 +1379,12 @@ async function deleteMed(id) {
     const med = medications.find(m => m.id === id);
     if (!med) return;
 
+    // Permanent delete (archived meds only) is a destructive dialog; resolves
+    // true once the medication is gone.
     if (med.archived) {
-        const confirmMsg = "Delete this medication permanently?";
-        await safeConfirm(confirmMsg, async (ok) => {
-            if (!ok) return;
+        const confirmMsg = "Delete this medication permanently? This can't be undone.";
+        return safeConfirm(confirmMsg, async (ok) => {
+            if (!ok) return false;
             // Optimistic: drop the medication from the cached list so the
             // Schedule row vanishes before DELETE resolves.
             const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
@@ -1464,13 +1403,14 @@ async function deleteMed(id) {
             }
             if (res === null) {
                 if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
-                return;
+                return false;
             }
             if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
             await window.DataStore.invalidateTags(['medications', 'history', 'gamification']);
             await window.DataStore.invalidateKey('next_intake');
             loadMeds();
-        });
+            return true;
+        }, { title: 'Delete medication', confirmLabel: 'Delete', destructive: true, icon: 'trash' });
     } else {
         // Archiving is the schedule row's delete: gone at once, Undo from the
         // toast (kit rule 3). Permanent delete above stays a dialog.

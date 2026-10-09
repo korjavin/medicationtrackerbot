@@ -158,7 +158,23 @@ export function createMedicationsDomain({
   async function computeWarning(rxcui) {
     if (!rxcui) return '';
     const active = await list({ archived: false });
-    const rxcuis = active.filter((m) => m.rxcui).map((m) => m.rxcui);
+    return warningFor(active.filter((m) => m.rxcui).map((m) => m.rxcui));
+  }
+
+  // rxCheck backs the editor's Rx chip + inline interaction warning: the same
+  // match and warning create/update compute after the write, answered before
+  // Save against the other active meds. A known rxcui skips the name lookup.
+  async function rxCheck({ name = '', rxcui = '', excludeId = 0 } = {}) {
+    const term = String(name || '').trim();
+    const match = rxcui ? { rxcui: String(rxcui), normalizedName: '' }
+      : term ? await searchRxNorm(term) : { rxcui: '', normalizedName: '' };
+    if (!match.rxcui) return { rxcui: '', normalized_name: '', warning: '' };
+    const others = (await list({ archived: false })).filter((m) => m.id !== excludeId && m.rxcui);
+    const warning = await warningFor([...others.map((m) => m.rxcui), match.rxcui]);
+    return { rxcui: match.rxcui, normalized_name: match.normalizedName, warning };
+  }
+
+  async function warningFor(rxcuis) {
     if (rxcuis.length <= 1) return '';
     let warnings = [];
     try {
@@ -369,6 +385,6 @@ export function createMedicationsDomain({
   }
 
   return {
-    create, update, remove, list, get, restock, listRestocks, listLowStock,
+    create, update, remove, list, get, restock, listRestocks, listLowStock, rxCheck,
   };
 }

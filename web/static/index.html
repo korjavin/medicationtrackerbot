@@ -2072,140 +2072,132 @@
             </div>
         </div>
     </mt-modal>
-    <!-- Modal for Adding/Editing Medication -->
+
     <div id="modal-overlay" class="hidden"></div>
-    <mt-modal id="med-modal" class="hidden wg-modal wg-meds-modal">
-        <div class="wg-meds-modal__header">
-            <div class="wg-meds-modal__heading">
-                <span class="wg-section-label wg-meds-modal__eyebrow" id="med-modal-eyebrow">Medication</span>
-                <span class="wg-mono-display wg-meds-modal__title" id="med-modal-title">Add Medication</span>
+    <!-- Medication editor (kit M5–M6): a pushed page on the modal stack -->
+    <mt-modal id="med-modal" class="hidden wg-page wg-meds-editor" aria-label="Medication">
+        <header class="wg-pagebar">
+            <button type="button" id="med-modal-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
+            <div class="wg-pagebar__center">
+                <div class="wg-pagebar__crumb" id="med-modal-eyebrow">Medication</div>
+                <div class="wg-pagebar__title" id="med-modal-title">New medication</div>
             </div>
-            <div class="wg-meds-modal__header-actions">
-                <button type="button" id="med-modal-cancel-btn"
-                    class="wg-gloss wg-meds-modal__header-btn">Cancel</button>
-                <button type="button" id="med-modal-save-btn"
-                    class="wg-gloss wg-gloss--sun wg-meds-modal__header-btn wg-meds-modal__header-btn--save">Save</button>
-            </div>
-        </div>
-
-        <div class="wg-meds-modal__body">
-            <div class="wg-meds-modal__row wg-meds-modal__row--identity">
-                <div class="wg-meds-modal__field wg-meds-modal__field--name">
-                    <label for="med-name" class="wg-meds-modal__label">Name</label>
-                    <div class="wg-gloss--inset wg-meds-modal__input-wrap">
-                        <input type="text" id="med-name" class="wg-meds-modal__input" placeholder="Aspirin">
-                    </div>
-                </div>
-                <div class="wg-meds-modal__field wg-meds-modal__field--dosage">
-                    <label for="med-dosage" class="wg-meds-modal__label">Dosage</label>
-                    <div class="wg-gloss--inset wg-meds-modal__input-wrap">
-                        <input type="text" id="med-dosage" class="wg-meds-modal__input" placeholder="100mg">
-                    </div>
-                </div>
-            </div>
-            <p id="med-rx-display" class="wg-meds-modal__rx"></p>
-
-            <div class="wg-meds-modal__field">
-                <span class="wg-meds-modal__label">Schedule</span>
-                <div class="wg-gloss--inset wg-meds-modal__pills" role="radiogroup" aria-label="Schedule type">
-                    <button type="button" class="wg-gloss wg-meds-modal__pill"
-                        data-schedule-type="daily" aria-pressed="false">Daily</button>
-                    <button type="button" class="wg-gloss wg-meds-modal__pill"
-                        data-schedule-type="weekly" aria-pressed="false">Weekly</button>
-                    <button type="button" class="wg-gloss wg-meds-modal__pill"
-                        data-schedule-type="as_needed" aria-pressed="false">As needed</button>
-                </div>
-                <select id="schedule-type" class="wg-meds-modal__hidden-select" aria-hidden="true" tabindex="-1">
-                    <option value="daily">Daily</option>
-                    <option value="weekly">Weekly</option>
-                    <option value="as_needed">As Needed</option>
-                </select>
-            </div>
-
-            <div id="days-container" class="wg-meds-modal__field hidden">
-                <span class="wg-meds-modal__label">Days</span>
-                <div class="wg-picks" data-day-picks role="group" aria-label="Days"></div>
-            </div>
-
-            <div id="times-container" class="wg-meds-modal__field">
-                <span class="wg-meds-modal__label">Times</span>
-                <div id="time-inputs" class="wg-meds-modal__times">
-                    <div class="time-row wg-meds-modal__time-row">
-                        <div class="wg-gloss--inset wg-meds-modal__input-wrap wg-meds-modal__time-wrap">
-                            <input type="time" class="med-time-input wg-meds-modal__input">
+            <button type="button" id="med-modal-save-btn" class="wg-btn wg-btn--primary wg-btn--sm">Save</button>
+        </header>
+        <div class="wg-content">
+            <section class="wg-section" data-med-section="basics">
+                <div class="wg-section__head"><span class="wg-eyebrow">1 · Basics</span></div>
+                <div class="wg-card wg-vstack">
+                    <div class="wg-fieldrow">
+                        <div class="wg-field">
+                            <label for="med-name" class="wg-label">Name</label>
+                            <input type="text" id="med-name" class="wg-input wg-input--text" placeholder="Aspirin" autocomplete="off">
                         </div>
-                        <button type="button" class="wg-icon-btn remove-time wg-meds-modal__remove-time"
-                            id="initial-remove-time-btn" aria-label="Remove time">×</button>
-                    </div>
-                </div>
-                <button type="button" class="wg-gloss wg-meds-modal__add-time" id="add-time-btn">+ Add time</button>
-            </div>
-
-            <div class="wg-meds-modal__row">
-                <div class="wg-meds-modal__field">
-                    <label for="med-start-date" class="wg-meds-modal__label">Start date</label>
-                    <div class="wg-gloss--inset wg-meds-modal__input-wrap">
-                        <input type="date" id="med-start-date" class="wg-meds-modal__input">
-                    </div>
-                </div>
-                <div class="wg-meds-modal__field">
-                    <label for="med-end-date" class="wg-meds-modal__label">End date</label>
-                    <div class="wg-gloss--inset wg-meds-modal__input-wrap">
-                        <input type="date" id="med-end-date" class="wg-meds-modal__input">
-                    </div>
-                </div>
-            </div>
-
-            <div class="wg-meds-modal__field wg-meds-modal__inventory-block">
-                <label class="wg-meds-modal__toggle">
-                    <input type="checkbox" id="med-track-inventory">
-                    <span>Track inventory</span>
-                </label>
-                <div id="inventory-fields" class="wg-meds-modal__inventory hidden">
-                    <div class="wg-meds-modal__field">
-                        <label for="med-inventory-count" class="wg-meds-modal__label">Current stock (doses)</label>
-                        <div class="wg-gloss--inset wg-meds-modal__input-wrap">
-                            <input type="number" id="med-inventory-count" class="wg-meds-modal__input" min="0"
-                                placeholder="30">
+                        <div class="wg-field">
+                            <label for="med-dosage" class="wg-label">Dose</label>
+                            <input type="text" id="med-dosage" class="wg-input" placeholder="100mg" autocomplete="off">
                         </div>
                     </div>
-                    <div id="restock-section" class="wg-meds-modal__restock">
-                        <span class="wg-meds-modal__label">Quick restock</span>
-                        <div class="restock-row wg-meds-modal__restock-row">
-                            <div class="wg-gloss--inset wg-meds-modal__input-wrap wg-meds-modal__restock-qty-wrap">
-                                <input type="number" id="restock-qty" class="wg-meds-modal__input" min="1"
-                                    placeholder="Qty">
+                    <span id="med-rx-display" class="wg-chip wg-chip--ok hidden"><i class="wg-ico" data-icon="check"></i><span id="med-rx-name"></span></span>
+                    <div id="med-rx-warning" class="wg-card wg-card--tight wg-card--accent wg-hstack hidden" role="status">
+                        <i class="wg-ico wg-warn" data-icon="alert"></i><span class="wg-hint" id="med-rx-warning-text"></span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="wg-section" data-med-section="schedule">
+                <div class="wg-section__head"><span class="wg-eyebrow">2 · Schedule</span></div>
+                <div class="wg-card wg-vstack">
+                    <div class="wg-seg" role="group" aria-label="Schedule type">
+                        <button type="button" class="wg-seg__opt" data-schedule-type="daily" aria-pressed="true">Daily</button>
+                        <button type="button" class="wg-seg__opt" data-schedule-type="weekly" aria-pressed="false">Weekly</button>
+                        <button type="button" class="wg-seg__opt" data-schedule-type="as_needed" aria-pressed="false">As needed</button>
+                    </div>
+                    <input type="hidden" id="schedule-type" value="daily">
+
+                    <div id="days-container" class="wg-field hidden">
+                        <span class="wg-label">Days</span>
+                        <div class="wg-picks" data-day-picks role="group" aria-label="Days"></div>
+                    </div>
+
+                    <div id="times-container" class="wg-vstack">
+                        <div id="time-inputs" class="wg-list">
+                            <div class="wg-row time-row">
+                                <span class="wg-row__lead"><i class="wg-ico" data-icon="clock"></i></span>
+                                <span class="wg-row__body"><input type="time" class="med-time-input wg-meds-editor__time" aria-label="Dose time"></span>
+                                <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm remove-time"
+                                    id="initial-remove-time-btn" aria-label="Remove time"><i class="wg-ico" data-icon="x"></i></button>
                             </div>
-                            <button type="button" class="wg-gloss wg-meds-modal__restock-add"
-                                id="restock-add-btn">+ Add</button>
                         </div>
-                        <div id="restock-history" class="restock-history wg-meds-modal__restock-history"></div>
+                        <button type="button" class="wg-link" id="add-time-btn"><i class="wg-ico wg-ico--sm" data-icon="plus"></i>Add time</button>
+                    </div>
+
+                    <div class="wg-fieldrow">
+                        <div class="wg-field wg-meds-editor__date">
+                            <span class="wg-label" id="med-start-date-label">Start</span>
+                            <button type="button" class="wg-input wg-select" id="med-start-date-btn" data-date-input="med-start-date"
+                                aria-labelledby="med-start-date-label med-start-date-value">
+                                <span id="med-start-date-value" class="wg-muted" data-empty="Not set">Not set</span><i class="wg-ico" data-icon="calendar"></i>
+                            </button>
+                            <input type="date" id="med-start-date" class="wg-input wg-meds-editor__date-input" aria-label="Start date" tabindex="-1">
+                        </div>
+                        <div class="wg-field wg-meds-editor__date">
+                            <span class="wg-label" id="med-end-date-label">End</span>
+                            <button type="button" class="wg-input wg-select" id="med-end-date-btn" data-date-input="med-end-date"
+                                aria-labelledby="med-end-date-label med-end-date-value">
+                                <span id="med-end-date-value" class="wg-muted" data-empty="Ongoing">Ongoing</span><i class="wg-ico" data-icon="calendar"></i>
+                            </button>
+                            <input type="date" id="med-end-date" class="wg-input wg-meds-editor__date-input" aria-label="End date" tabindex="-1">
+                        </div>
                     </div>
                 </div>
-            </div>
+            </section>
 
-            <div class="wg-meds-modal__toggle-row">
-                <label class="wg-meds-modal__toggle">
-                    <input type="checkbox" id="med-archived">
-                    <span>Archived</span>
-                </label>
-                <label class="wg-meds-modal__toggle">
-                    <input type="checkbox" id="med-supplement">
-                    <span>Supplement</span>
-                </label>
-            </div>
-
-            <div class="wg-meds-modal__field">
-                <label for="med-tz-policy" class="wg-meds-modal__label">Timezone adjustment policy</label>
-                <div class="wg-gloss--inset wg-meds-modal__input-wrap">
-                    <select id="med-tz-policy" class="wg-meds-modal__input wg-meds-modal__select">
-                        <option value="flexible">Flexible — switch immediately or in one step</option>
-                        <option value="medium">Medium — shift gradually, max 3h per dose</option>
-                        <option value="strict">Strict — very gradual, max 2h per step</option>
-                    </select>
+            <section class="wg-section" data-med-section="inventory">
+                <div class="wg-section__head"><span class="wg-eyebrow">3 · Inventory</span></div>
+                <div class="wg-list">
+                    <div class="wg-setting">
+                        <span class="wg-setting__body"><span class="wg-setting__title">Track stock</span><span class="wg-setting__desc">Warns before you run out</span></span>
+                        <label class="wg-toggle"><input type="checkbox" role="switch" id="med-track-inventory" class="wg-toggle__input" aria-label="Track stock"></label>
+                    </div>
+                    <div id="inventory-fields" class="wg-setting hidden">
+                        <div class="wg-stepper wg-spacer">
+                            <button type="button" class="wg-stepper__btn" id="med-inventory-dec" aria-label="Decrease"><i class="wg-ico" data-icon="minus"></i></button>
+                            <span class="wg-stepper__val"><input type="number" id="med-inventory-count" class="wg-meds-editor__stock"
+                                    inputmode="numeric" placeholder="0" aria-label="Doses left"><small>doses left</small></span>
+                            <button type="button" class="wg-stepper__btn" id="med-inventory-inc" aria-label="Increase"><i class="wg-ico" data-icon="plus"></i></button>
+                        </div>
+                    </div>
+                    <div id="restock-section" class="wg-setting hidden">
+                        <span class="wg-setting__body"><span class="wg-setting__title">Restock history</span><span class="wg-setting__desc" id="restock-history"></span></span>
+                    </div>
                 </div>
-            </div>
+            </section>
 
+            <section class="wg-section" data-med-section="advanced">
+                <div class="wg-section__head"><span class="wg-eyebrow">4 · Advanced</span></div>
+                <div class="wg-list">
+                    <button type="button" class="wg-setting" id="med-tz-policy-btn">
+                        <span class="wg-setting__body"><span class="wg-setting__title">Time-zone changes</span><span class="wg-setting__desc">How doses shift when you travel</span></span>
+                        <span class="wg-setting__value" id="med-tz-policy-value">Flexible</span>
+                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                    </button>
+                    <div class="wg-setting">
+                        <span class="wg-setting__body"><span class="wg-setting__title">Archived</span><span class="wg-setting__desc">Off the schedule; history is kept</span></span>
+                        <label class="wg-toggle"><input type="checkbox" role="switch" id="med-archived" class="wg-toggle__input" aria-label="Archived"></label>
+                    </div>
+                    <div class="wg-setting">
+                        <span class="wg-setting__body"><span class="wg-setting__title">Supplement</span></span>
+                        <label class="wg-toggle"><input type="checkbox" role="switch" id="med-supplement" class="wg-toggle__input" aria-label="Supplement"></label>
+                    </div>
+                </div>
+                <input type="hidden" id="med-tz-policy" value="flexible">
+            </section>
+
+            <div id="med-delete-block" class="wg-vstack hidden">
+                <button type="button" id="med-delete-btn" class="wg-btn wg-btn--danger-ghost wg-btn--block"><i class="wg-ico wg-ico--sm" data-icon="trash"></i>Delete medication</button>
+                <p class="wg-hint">Archived medications keep their history. Only one with no history can be deleted.</p>
+            </div>
         </div>
     </mt-modal>
 

@@ -38,8 +38,9 @@ const cases = [
     {
         name: 'MedModal',
         modalId: 'med-modal',
-        headerActionsClass: 'wg-meds-modal__header-actions',
-        legacyActionsSelector: '#med-modal .wg-meds-modal__actions',
+        // A pushed page (kit M5): Cancel / Save sit in the .wg-pagebar.
+        headerActionsClass: 'wg-pagebar',
+        legacyActionsSelector: '#med-modal .wg-meds-modal__header-actions',
         cancelBtnId: 'med-modal-cancel-btn',
         primaryBtnId: 'med-modal-save-btn',
         primaryLabel: 'Save',

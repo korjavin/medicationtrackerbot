@@ -38,40 +38,67 @@ function refreshMedsAfterMutation() {
 }
 
 
+// Time-zone policy choices for the editor's "Time-zone changes" value row.
+const MED_TZ_POLICIES = [
+    { value: 'flexible', label: 'Flexible', detail: 'switch immediately or in one step' },
+    { value: 'medium', label: 'Medium · 3h', detail: 'shift gradually, max 3h per dose' },
+    { value: 'strict', label: 'Strict · 2h', detail: 'very gradual, max 2h per step' },
+];
+
 function showAddModal() {
-    editingMedId = null;
+    fillMedEditor(null);
+}
+
+// Fill and open the medication editor page (kit M5–M6) for a new medication
+// (med = null) or an existing one. showEditModal (meds.js) routes here too.
+function fillMedEditor(med) {
+    const m = med || {};
+    editingMedId = med ? med.id : null;
     window.ModalManager.med.open();
 
-    setMedModalHeader('Medication', 'New medication');
+    setMedModalHeader(med ? 'Edit medication' : 'Medication', med ? (m.name || 'Medication') : 'New medication');
 
-    // Reset inputs
-    document.getElementById('med-name').value = '';
-    document.getElementById('med-dosage').value = '';
-    document.getElementById('med-archived').checked = false;
-    document.getElementById('med-supplement').checked = false;
-    document.getElementById('med-rx-display').style.display = 'none';
-    // showAddModal updates
-    document.getElementById('med-start-date').value = '';
-    document.getElementById('med-end-date').value = '';
+    document.getElementById('med-name').value = m.name || '';
+    document.getElementById('med-dosage').value = m.dosage || '';
+    document.getElementById('med-archived').checked = !!m.archived;
+    document.getElementById('med-supplement').checked = !!m.supplement;
+    setMedRxMatch(m.normalized_name || '', '');
 
-    // Reset inventory fields
-    document.getElementById('med-track-inventory').checked = false;
-    document.getElementById('med-inventory-count').value = '';
-    document.getElementById('inventory-fields').classList.add('hidden');
-    document.getElementById('restock-section').style.display = 'none';
-    document.getElementById('restock-history').replaceChildren();
+    setMedDate('med-start-date', m.start_date ? m.start_date.split('T')[0] : '');
+    setMedDate('med-end-date', m.end_date ? m.end_date.split('T')[0] : '');
 
-    // Default: Daily, 1 time input
-    document.getElementById('schedule-type').value = 'daily';
-    document.getElementById('med-tz-policy').value = 'flexible';
-    toggleScheduleFields();
+    const hasInventory = m.inventory_count !== null && m.inventory_count !== undefined;
+    document.getElementById('med-track-inventory').checked = hasInventory;
+    document.getElementById('med-inventory-count').value = hasInventory ? m.inventory_count : '';
+    document.getElementById('restock-history').textContent = '';
+    toggleInventoryFields();
+    if (med && hasInventory) loadRestockHistory(med.id);
+
+    let sched = { type: 'daily', times: [] };
+    if (med) {
+        try {
+            sched = JSON.parse(med.schedule);
+        } catch (e) {
+            sched = { type: 'daily', times: [med.schedule] }; // legacy format
+        }
+    }
+    setScheduleType(sched.type || 'daily');
 
     const timeContainer = document.getElementById('time-inputs');
     timeContainer.replaceChildren();
-    addTimeInput(); // One empty input
+    const times = sched.times && sched.times.length > 0 ? sched.times : [''];
+    times.forEach((t) => addTimeInput(t));
 
-    // Clear days
-    window.MedicationUtils.setPickedDays(document.querySelector('#days-container .wg-picks'), []);
+    window.MedicationUtils.setPickedDays(document.querySelector('#days-container .wg-picks'), sched.days || []);
+
+    setMedTzPolicy(m.tz_shift_policy || 'flexible');
+
+    // Permanent delete is offered only when the domain allows it: an archived
+    // med with no history. last_taken_at is the history signal the list
+    // carries; a skipped-only history still gets the domain's refusal.
+    document.getElementById('med-delete-block').classList.toggle('hidden', !(med && m.archived && !m.last_taken_at));
+
+    if (med && (m.rxcui || m.name)) checkMedRx(m.rxcui, m.normalized_name);
 }
 
 function setMedModalHeader(eyebrow, title) {
@@ -87,107 +114,128 @@ function closeModal() {
 
 function toggleScheduleFields() {
     const type = document.getElementById('schedule-type').value;
-    const daysContainer = document.getElementById('days-container');
-    const timesContainer = document.getElementById('times-container');
-
-    if (type === 'weekly') {
-        daysContainer.classList.remove('hidden');
-    } else {
-        daysContainer.classList.add('hidden');
-    }
-
-    if (type === 'as_needed') {
-        timesContainer.classList.add('hidden');
-    } else {
-        timesContainer.classList.remove('hidden');
-    }
-
+    document.getElementById('days-container').classList.toggle('hidden', type !== 'weekly');
+    document.getElementById('times-container').classList.toggle('hidden', type === 'as_needed');
     syncScheduleTypePills(type);
 }
 
 function syncScheduleTypePills(activeType) {
-    const pills = document.querySelectorAll('.wg-meds-modal__pill');
-    pills.forEach((pill) => {
-        const isActive = pill.dataset.scheduleType === activeType;
-        pill.classList.toggle('wg-gloss--sun', isActive);
-        pill.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    document.querySelectorAll('#med-modal [data-schedule-type]').forEach((opt) => {
+        opt.setAttribute('aria-pressed', opt.dataset.scheduleType === activeType ? 'true' : 'false');
     });
 }
 
 function setScheduleType(type) {
-    const select = document.getElementById('schedule-type');
-    if (!select) return;
-    if (select.value !== type) select.value = type;
+    const field = document.getElementById('schedule-type');
+    if (!field) return;
+    field.value = type;
     toggleScheduleFields();
 }
 
 function toggleInventoryFields() {
-    const trackInventory = document.getElementById('med-track-inventory').checked;
-    const inventoryFields = document.getElementById('inventory-fields');
-    const restockSection = document.getElementById('restock-section');
+    const track = document.getElementById('med-track-inventory').checked;
+    document.getElementById('inventory-fields').classList.toggle('hidden', !track);
+    // Restock history exists only for a saved medication; refills live on the Stock tab.
+    document.getElementById('restock-section').classList.toggle('hidden', !(track && editingMedId));
+}
 
-    if (trackInventory) {
-        inventoryFields.classList.remove('hidden');
-        // Only show restock section when editing existing med
-        if (editingMedId) {
-            restockSection.style.display = 'block';
-        } else {
-            restockSection.style.display = 'none';
-        }
-    } else {
-        inventoryFields.classList.add('hidden');
-    }
+// The stock stepper. It never steps below zero; a negative ("N over") count
+// only steps up.
+function stepMedInventory(delta) {
+    const input = document.getElementById('med-inventory-count');
+    const cur = parseInt(input.value, 10) || 0;
+    input.value = String(delta < 0 && cur <= 0 ? cur : cur + delta);
 }
 
 async function loadRestockHistory(medId) {
     const restocks = await apiCall(`/api/medications/${medId}/restocks`);
-    const container = document.getElementById('restock-history');
-
-    container.replaceChildren();
-
-    if (!restocks || restocks.length === 0) {
-        const empty = document.createElement('p');
-        empty.className = 'wg-hint';
-        empty.textContent = 'No restocks logged yet.';
-        container.appendChild(empty);
-        return;
-    }
-
-    const title = document.createElement('p');
-    title.className = 'wg-section-label';
-    title.textContent = 'Recent restocks';
-    container.appendChild(title);
-
-    const list = document.createElement('ul');
-    restocks.slice(0, 5).forEach((r) => {
-        const date = formatDate(r.restocked_at);
-        const item = document.createElement('li');
-        item.textContent = `+${r.quantity} on ${date}${r.note ? ` - ${r.note}` : ''}`;
-        list.appendChild(item);
-    });
-
-    container.appendChild(list);
+    const desc = document.getElementById('restock-history');
+    desc.textContent = (!restocks || restocks.length === 0)
+        ? 'No restocks logged yet.'
+        : restocks.slice(0, 3).map((r) => `+${r.quantity} on ${formatDate(r.restocked_at)}`).join(' · ');
 }
 
-async function handleRestock() {
-    if (!editingMedId) return;
+// Start/End value rows: the hidden date input is only the picker the row
+// opens (kit rule 7); the row shows its value.
+function setMedDate(inputId, value) {
+    const input = document.getElementById(inputId);
+    input.value = value || '';
+    input.classList.remove('wg-meds-editor__date-input--shown');
+    input.setAttribute('tabindex', '-1');
+    syncMedDateLabel(inputId);
+}
 
-    const qtyInput = document.getElementById('restock-qty');
-    const qty = parseInt(qtyInput.value);
+function syncMedDateLabel(inputId) {
+    const input = document.getElementById(inputId);
+    const label = document.getElementById(`${inputId}-value`);
+    label.textContent = input.value || label.dataset.empty;
+    label.classList.toggle('wg-muted', !input.value);
+    label.classList.toggle('wg-mono', !!input.value);
+}
 
-    if (!qty || qty <= 0) {
-        safeAlert("Please enter a valid quantity");
-        return;
+function openMedDatePicker(inputId) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    if (typeof input.showPicker === 'function') {
+        try { input.showPicker(); return; } catch (_) { /* fall back below */ }
     }
+    // No programmatic picker: reveal the input itself as an editable field.
+    input.classList.add('wg-meds-editor__date-input--shown');
+    input.removeAttribute('tabindex');
+    input.focus();
+}
 
-    const res = await apiCall(`/api/medications/${editingMedId}/restock`, 'POST', { quantity: qty });
-    if (res) {
-        // Update displayed count
-        document.getElementById('med-inventory-count').value = res.inventory_count;
-        qtyInput.value = '';
-        loadRestockHistory(editingMedId);
-        safeToast(`Added ${qty} units. New total: ${res.inventory_count}`, 'info');
+function setMedTzPolicy(value) {
+    const policy = MED_TZ_POLICIES.find((p) => p.value === value) || MED_TZ_POLICIES[0];
+    document.getElementById('med-tz-policy').value = policy.value;
+    document.getElementById('med-tz-policy-value').textContent = policy.label;
+}
+
+async function chooseMedTzPolicy() {
+    const current = document.getElementById('med-tz-policy').value;
+    const picked = await safeChoose('How doses shift when you travel across time zones.',
+        MED_TZ_POLICIES.map((p) => ({ value: p.value, label: `${p.label} — ${p.detail}`, selected: p.value === current })),
+        { title: 'Time-zone changes' });
+    if (picked) setMedTzPolicy(picked);
+}
+
+// Rx chip + inline interaction warning (kit M5). The check runs when the name
+// is committed and when an existing med opens, so the interaction shows
+// before Save; saveMedication's post-save alert is only the fallback for a
+// check that never resolved.
+function setMedRxMatch(normalizedName, warning) {
+    document.getElementById('med-rx-name').textContent = normalizedName ? `Rx · ${normalizedName}` : '';
+    document.getElementById('med-rx-display').classList.toggle('hidden', !normalizedName);
+    document.getElementById('med-rx-warning-text').textContent = warning || '';
+    document.getElementById('med-rx-warning').classList.toggle('hidden', !warning);
+}
+
+async function checkMedRx(rxcui, knownName) {
+    const nameInput = document.getElementById('med-name');
+    const name = nameInput.value.trim();
+    // A committed name change drops the previous drug's match up front, so a
+    // failed lookup never leaves it under the new name.
+    if (!name || !knownName) setMedRxMatch('', '');
+    if (!name) return;
+    const params = new URLSearchParams({ name });
+    if (rxcui) params.set('rxcui', rxcui);
+    if (editingMedId) params.set('exclude_id', String(editingMedId));
+    const call = window.offlineAwareApiCall || window.apiCallDirect;
+    let res;
+    try {
+        res = await call(`/api/medications/rx-check?${params}`, 'GET');
+    } catch (_) {
+        return; // offline or no lookup: no chip change, Save still works
     }
+    // A newer name supersedes this answer.
+    if (!res || nameInput.value.trim() !== name) return;
+    setMedRxMatch(res.normalized_name || knownName || '', res.warning || '');
+}
+
+// The editor's destructive footer action; deleteMed owns the dialog + write.
+async function deleteMedFromEditor() {
+    const id = editingMedId;
+    if (id && await deleteMed(id)) closeModal();
 }
 
 // Calculate if medication is low on stock considering end date
@@ -256,36 +304,45 @@ function calculateDailyUsage(med) {
     }
 }
 
+// One dose-time row in the editor's times list (kit M5): clock lead, the
+// time input, Remove.
 function addTimeInput(value = '') {
-    const container = document.getElementById('time-inputs');
-    const div = document.createElement('div');
-    div.className = 'time-row wg-meds-modal__time-row';
+    const row = document.createElement('div');
+    row.className = 'wg-row time-row';
 
-    const wrap = document.createElement('div');
-    wrap.className = 'wg-gloss--inset wg-meds-modal__input-wrap wg-meds-modal__time-wrap';
+    const lead = document.createElement('span');
+    lead.className = 'wg-row__lead';
+    const clock = document.createElement('i');
+    clock.className = 'wg-ico';
+    clock.dataset.icon = 'clock';
+    lead.appendChild(clock);
 
+    const body = document.createElement('span');
+    body.className = 'wg-row__body';
     const input = document.createElement('input');
     input.type = 'time';
-    input.className = 'med-time-input wg-meds-modal__input';
+    input.className = 'med-time-input wg-meds-editor__time';
+    input.setAttribute('aria-label', 'Dose time');
     input.value = value;
-    wrap.appendChild(input);
+    body.appendChild(input);
 
     const removeButton = document.createElement('button');
     removeButton.type = 'button';
-    removeButton.className = 'wg-icon-btn remove-time wg-meds-modal__remove-time';
+    removeButton.className = 'wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm remove-time';
     removeButton.setAttribute('aria-label', 'Remove time');
-    removeButton.textContent = '×';
-    removeButton.addEventListener('click', () => {
-        removeTime(removeButton);
-    });
+    const x = document.createElement('i');
+    x.className = 'wg-ico';
+    x.dataset.icon = 'x';
+    removeButton.appendChild(x);
+    removeButton.addEventListener('click', () => removeTime(removeButton));
 
-    div.appendChild(wrap);
-    div.appendChild(removeButton);
-    container.appendChild(div);
+    row.append(lead, body, removeButton);
+    if (window.WGIcons && typeof window.WGIcons.hydrate === 'function') window.WGIcons.hydrate(row);
+    document.getElementById('time-inputs').appendChild(row);
 }
 
 function removeTime(btn) {
-    btn.parentElement.remove();
+    btn.closest('.time-row').remove();
 }
 
 async function loadHistory() {
@@ -924,13 +981,22 @@ function snoozeMedicationConfirm() {
 window.MedsHistory = {
     refreshMedsAfterMutation,
     showAddModal,
+    fillMedEditor,
     setMedModalHeader,
     closeModal,
     toggleScheduleFields,
     setScheduleType,
     toggleInventoryFields,
+    stepMedInventory,
     loadRestockHistory,
-    handleRestock,
+    setMedDate,
+    syncMedDateLabel,
+    openMedDatePicker,
+    setMedTzPolicy,
+    chooseMedTzPolicy,
+    setMedRxMatch,
+    checkMedRx,
+    deleteMedFromEditor,
     isLowOnStock,
     formatStock,
     calculateDailyUsage,
