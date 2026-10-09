@@ -61,6 +61,7 @@ const FOOD_SCANNER_JS = path.join(REPO_ROOT, 'web/static/js/features/food/scanne
 const FOOD_AI_UNDO_JS = path.join(REPO_ROOT, 'web/static/js/features/food/ai-undo.js');
 const FOOD_PHOTO_JS = path.join(REPO_ROOT, 'web/static/js/features/food/photo.js');
 const FOOD_LOG_JS = path.join(REPO_ROOT, 'web/static/js/features/food/log.js');
+const FOOD_ADD_SHEET_JS = path.join(REPO_ROOT, 'web/static/js/features/food/add-sheet.js');
 const FOOD_DB_JS = path.join(REPO_ROOT, 'web/static/js/features/food/db.js');
 const FOOD_INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/food/index.js');
 const BP_JS = path.join(REPO_ROOT, 'web/static/js/features/bp.js');
@@ -328,6 +329,7 @@ export function loadFrontendEnv({ withWorkout = false, withSync = false, url = '
   evalFileCached(window, FOOD_AI_UNDO_JS);
   evalFileCached(window, FOOD_PHOTO_JS);
   evalFileCached(window, FOOD_LOG_JS);
+  evalFileCached(window, FOOD_ADD_SHEET_JS);
   evalFileCached(window, FOOD_DB_JS);
   evalFileCached(window, FOOD_INDEX_JS);
   evalFileCached(window, BP_JS);

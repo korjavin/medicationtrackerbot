@@ -304,7 +304,6 @@
             <header class="wg-appbar">
                 <div class="wg-appbar__titles"><h1 class="wg-appbar__title">Food</h1></div>
                 <button type="button" id="add-food-inline-btn" class="wg-btn wg-btn--primary wg-btn--sm" aria-label="Add food"><i class="wg-ico wg-ico--sm" data-icon="plus"></i>Add</button>
-                <button type="button" id="food-photo-btn" class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Log a meal photo"><i class="wg-ico" data-icon="camera"></i></button>
                 <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon" data-nav-to="settings" aria-label="Settings"><i class="wg-ico" data-icon="gear"></i></button>
             </header>
             <!-- Food sub-tab strip (med-ejq.3). Restores the outer pill strip
@@ -1860,175 +1859,219 @@
         </div>
     </mt-modal>
 
-    <!-- Modal for Adding/Editing Food -->
-    <mt-modal id="food-modal" class="hidden wg-modal wg-food-modal">
-        <div class="wg-food-modal__header">
-            <div class="wg-food-modal__heading">
-                <span class="wg-section-label wg-food-modal__eyebrow" id="food-modal-title">Log Food</span>
-                <span class="wg-mono-display wg-food-modal__title">Food</span>
+    <!-- Food Add sheet (kit F4–F7, med-xso6.17): one sheet, three panes.
+         home = search + Scan/Photo/Describe tiles + Recent; describe = the AI
+         textarea + meal picks; review = the parsed items before anything is
+         saved. The time chip is backed by the hidden datetime-local input
+         (showPicker). The foot primary says what will be logged.
+         features/food/add-sheet.js owns it. -->
+    <mt-modal id="food-add-sheet" class="hidden wg-modal wg-sheet wg-food-add" data-view="home">
+        <div class="wg-sheet__grab"></div>
+        <header class="wg-sheethead">
+            <button type="button" id="food-add-back-btn" class="wg-back hidden"><i class="wg-ico" data-icon="chev-l"></i><span id="food-add-back-label">Back</span></button>
+            <div class="wg-sheethead__titles">
+                <div class="wg-eyebrow" id="food-add-eyebrow">Log food</div>
+                <div class="wg-sheethead__title">Log food</div>
             </div>
-            <div class="wg-food-modal__header-actions">
-                <button type="button" id="food-modal-cancel-btn"
-                    class="wg-gloss wg-food-modal__header-btn">Cancel</button>
-                <button type="button" id="food-modal-save-btn"
-                    class="wg-gloss wg-gloss--sun wg-food-modal__header-btn wg-food-modal__header-btn--save">Save entry</button>
+            <div class="wg-sheethead__acts">
+                <button type="button" id="food-add-time-btn" class="wg-btn wg-btn--sm" aria-label="When did you eat this?"><i class="wg-ico wg-ico--sm" data-icon="clock"></i><span id="food-add-time-label">Now</span></button>
+                <input type="datetime-local" id="food-add-datetime" class="hidden" aria-hidden="true" tabindex="-1">
+                <button type="button" id="food-add-close-btn" class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button>
+            </div>
+        </header>
+        <div class="wg-sheet__body">
+            <div class="wg-food-add__pane" data-pane="home">
+                <div class="wg-affix">
+                    <i class="wg-ico wg-affix__lead" data-icon="search"></i>
+                    <input type="search" id="food-add-search" class="wg-input wg-input--text" placeholder="Search your foods and the database" autocomplete="off" aria-label="Search foods">
+                </div>
+                <div class="wg-actions wg-actions--3" id="food-add-tiles">
+                    <button type="button" id="food-add-scan-btn" class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="barcode"></i></span><span class="wg-action__label">Scan</span></button>
+                    <button type="button" id="food-add-photo-btn" class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="camera"></i></span><span class="wg-action__label">Photo</span></button>
+                    <button type="button" id="food-add-describe-btn" class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="sparkle"></i></span><span class="wg-action__label">Describe</span></button>
+                </div>
+                <p id="food-add-search-status" class="wg-hint hidden" aria-live="polite"></p>
+                <div id="food-add-results" class="wg-list hidden"></div>
+                <section id="food-add-recent-section" class="wg-section hidden">
+                    <div class="wg-section__head"><span class="wg-eyebrow">Recent</span><span class="wg-meta">tap + to add as before</span></div>
+                    <div id="food-add-recent" class="wg-list"></div>
+                </section>
+                <button type="button" id="food-add-manual-btn" class="wg-link"><i class="wg-ico wg-ico--sm" data-icon="edit"></i>Enter manually</button>
+            </div>
+            <div class="wg-food-add__pane hidden" data-pane="describe">
+                <label for="food-add-describe-text" class="wg-label">Describe your meal</label>
+                <textarea id="food-add-describe-text" class="wg-input wg-textarea" placeholder="200 g grilled chicken, a cup of rice and some broccoli"></textarea>
+                <div class="wg-picks" id="food-add-meal-picks" role="group" aria-label="Meal">
+                    <button type="button" class="wg-pick" data-meal="Breakfast" aria-pressed="false">Breakfast</button>
+                    <button type="button" class="wg-pick" data-meal="Lunch" aria-pressed="false">Lunch</button>
+                    <button type="button" class="wg-pick" data-meal="Dinner" aria-pressed="false">Dinner</button>
+                    <button type="button" class="wg-pick" data-meal="Snack" aria-pressed="false">Snack</button>
+                </div>
+                <p class="wg-hint">You'll review the items before anything is saved.</p>
+            </div>
+            <div class="wg-food-add__pane hidden" data-pane="review">
+                <div id="food-add-review-list" class="wg-list"></div>
+                <div class="wg-card wg-card--tight wg-food-add__total"><span class="wg-macros__label">Total</span><span id="food-add-review-total" class="wg-macros__val">0 kcal</span></div>
+                <p class="wg-hint">Tap an item to adjust its name or grams; swipe to remove it.</p>
             </div>
         </div>
+        <div class="wg-sheet__foot hidden" id="food-add-foot">
+            <button type="button" id="food-add-discard-btn" class="wg-btn hidden">Discard</button>
+            <button type="button" id="food-add-primary-btn" class="wg-btn wg-btn--primary"></button>
+        </div>
+    </mt-modal>
+
+    <!-- Manual food form (kit F8): Cancel/Save in the sheet header, "Values
+         are" as an accent segment over the hidden #food-per-100g checkbox the
+         maths reads, barcode + product link under More. The time chip is
+         backed by the hidden #food-datetime input. -->
+    <mt-modal id="food-modal" class="hidden wg-modal wg-sheet wg-food-modal">
+        <div class="wg-sheet__grab"></div>
+        <header class="wg-sheethead">
+            <div class="wg-sheethead__titles">
+                <div class="wg-eyebrow" id="food-modal-title">Manual entry</div>
+                <div class="wg-sheethead__title">Food</div>
+            </div>
+            <div class="wg-sheethead__acts">
+                <button type="button" id="food-modal-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
+                <button type="button" id="food-modal-save-btn" class="wg-btn wg-btn--primary wg-btn--sm">Save</button>
+            </div>
+        </header>
         <input type="hidden" id="food-id">
         <input type="hidden" id="food-log-product-id">
         <input type="hidden" id="food-log-is-meal">
 
-        <div class="wg-food-modal__body">
-            <label class="wg-food-modal__parse-ai">
-                <input type="checkbox" id="food-parse-ai">
-                <span>Parse my meal from a description</span>
-            </label>
+        <div class="wg-sheet__body">
+            <div class="wg-field wg-food-modal__name">
+                <label for="food-name" class="wg-label">Name</label>
+                <input type="text" id="food-name" class="wg-input wg-input--text" placeholder="e.g. wagyu kebab" autocomplete="off">
+                <p id="food-search-status" class="food-search-status hidden" aria-live="polite"></p>
+                <div id="food-autocomplete-list" class="autocomplete-items hidden"></div>
+            </div>
 
-            <!-- Weight + Barcode above name so autocomplete doesn't cover them -->
-            <div class="wg-food-modal__row wg-food-modal__row--quick wg-food-modal__manual-only">
-                <div class="wg-food-modal__field wg-food-modal__field--weight">
-                    <label for="food-weight" class="wg-food-modal__label">Weight (g)</label>
-                    <div class="wg-gloss--inset wg-food-modal__input-wrap">
-                        <input type="number" id="food-weight" class="wg-food-modal__input" placeholder="150"
-                            inputmode="numeric">
+            <div class="wg-fieldrow">
+                <div class="wg-field">
+                    <label for="food-weight" class="wg-label">Amount</label>
+                    <div class="wg-affix wg-affix--unit">
+                        <input type="number" id="food-weight" class="wg-input" placeholder="150" inputmode="numeric">
+                        <span class="wg-affix__unit">g</span>
                     </div>
                 </div>
-                <div class="wg-food-modal__field wg-food-modal__field--barcode">
-                    <label for="food-barcode" class="wg-food-modal__label">Barcode</label>
+                <div class="wg-field">
+                    <span class="wg-label" id="food-per-100g-label">Values are</span>
+                    <div class="wg-seg wg-seg--accent wg-seg--sm" id="food-per-100g-seg" role="group" aria-labelledby="food-per-100g-label">
+                        <button type="button" class="wg-seg__opt" data-per100g="true" aria-pressed="true">per 100 g</button>
+                        <button type="button" class="wg-seg__opt" data-per100g="false" aria-pressed="false">total</button>
+                    </div>
+                    <input type="checkbox" id="food-per-100g" class="hidden" checked tabindex="-1" aria-hidden="true">
+                </div>
+            </div>
+
+            <div class="wg-fieldrow wg-fieldrow--3">
+                <div class="wg-field">
+                    <label for="food-carbs" class="wg-label">Carbs</label>
+                    <div class="wg-affix wg-affix--unit"><input type="number" id="food-carbs" class="wg-input" placeholder="C" inputmode="decimal"><span class="wg-affix__unit">g</span></div>
+                </div>
+                <div class="wg-field">
+                    <label for="food-protein" class="wg-label">Protein</label>
+                    <div class="wg-affix wg-affix--unit"><input type="number" id="food-protein" class="wg-input" placeholder="P" inputmode="decimal"><span class="wg-affix__unit">g</span></div>
+                </div>
+                <div class="wg-field">
+                    <label for="food-fat" class="wg-label">Fat</label>
+                    <div class="wg-affix wg-affix--unit"><input type="number" id="food-fat" class="wg-input" placeholder="F" inputmode="decimal"><span class="wg-affix__unit">g</span></div>
+                </div>
+            </div>
+
+            <div class="wg-fieldrow">
+                <div class="wg-field">
+                    <label for="food-calories" class="wg-label">Total calories</label>
+                    <div class="wg-affix wg-affix--unit"><input type="number" id="food-calories" class="wg-input" placeholder="Kcal" inputmode="numeric"><span class="wg-affix__unit">kcal</span></div>
+                </div>
+                <div class="wg-field">
+                    <span class="wg-label">When</span>
+                    <button type="button" id="food-datetime-btn" class="wg-btn"><i class="wg-ico wg-ico--sm" data-icon="clock"></i><span id="food-datetime-label">Now</span></button>
+                    <input type="datetime-local" id="food-datetime" class="hidden" aria-hidden="true" tabindex="-1">
+                </div>
+            </div>
+
+            <details class="wg-food-modal__more" id="food-modal-more">
+                <summary class="wg-food-modal__more-head">More</summary>
+                <div class="wg-field">
+                    <label for="food-barcode" class="wg-label">Barcode</label>
                     <div class="wg-food-modal__barcode-row">
-                        <div class="wg-gloss--inset wg-food-modal__input-wrap">
-                            <input type="text" id="food-barcode" class="wg-food-modal__input"
-                                placeholder="e.g. 1234567890123">
-                        </div>
-                        <button type="button" id="food-scan-btn" class="wg-gloss wg-food-modal__scan-btn"
-                            aria-label="Scan barcode or QR" data-icon="barcode">Scan</button>
+                        <input type="text" id="food-barcode" class="wg-input" placeholder="e.g. 1234567890123" inputmode="numeric">
+                        <button type="button" id="food-scan-btn" class="wg-btn"><i class="wg-ico wg-ico--sm" data-icon="barcode"></i>Scan</button>
                     </div>
                 </div>
-            </div>
-
-            <div class="wg-food-modal__field wg-food-modal__field--name">
-                <label for="food-name" class="wg-food-modal__label wg-food-modal__label--manual">Food name</label>
-                <label for="food-name" class="wg-food-modal__label wg-food-modal__label--ai">Describe your meal</label>
-                <p id="food-search-status" class="food-search-status wg-food-modal__status hidden"
-                    aria-live="polite"></p>
-                <div class="wg-gloss--inset wg-food-modal__input-wrap wg-food-modal__name-wrap">
-                    <input type="text" id="food-name" class="wg-food-modal__input"
-                        placeholder="e.g. wagyu kebab"
-                        data-ai-placeholder="200g grilled chicken with a cup of rice"
-                        autocomplete="off">
-                    <div id="food-autocomplete-list" class="autocomplete-items hidden"></div>
-                </div>
-            </div>
-
-            <div id="food-product-link-container" class="wg-food-modal__product-link hidden"></div>
-
-            <div class="wg-food-modal__section-label wg-section-label wg-food-modal__manual-only">Macros · per 100g</div>
-            <div class="wg-food-modal__row wg-food-modal__row--macros wg-food-modal__manual-only">
-                <div class="wg-food-modal__field">
-                    <label for="food-carbs" class="wg-food-modal__label">Carbs</label>
-                    <div class="wg-gloss--inset wg-food-modal__input-wrap">
-                        <input type="number" id="food-carbs" class="wg-food-modal__input" placeholder="C"
-                            inputmode="decimal">
-                    </div>
-                </div>
-                <div class="wg-food-modal__field">
-                    <label for="food-protein" class="wg-food-modal__label">Protein</label>
-                    <div class="wg-gloss--inset wg-food-modal__input-wrap">
-                        <input type="number" id="food-protein" class="wg-food-modal__input" placeholder="P"
-                            inputmode="decimal">
-                    </div>
-                </div>
-                <div class="wg-food-modal__field">
-                    <label for="food-fat" class="wg-food-modal__label">Fat</label>
-                    <div class="wg-gloss--inset wg-food-modal__input-wrap">
-                        <input type="number" id="food-fat" class="wg-food-modal__input" placeholder="F"
-                            inputmode="decimal">
-                    </div>
-                </div>
-            </div>
-            <label class="wg-food-modal__per100g wg-food-modal__manual-only">
-                <input type="checkbox" id="food-per-100g" checked tabindex="-1">
-                <span>Values are per 100g</span>
-            </label>
-
-            <div class="wg-food-modal__field wg-food-modal__manual-only">
-                <label for="food-calories" class="wg-food-modal__label">Total calories</label>
-                <div class="wg-gloss--inset wg-food-modal__input-wrap">
-                    <input type="number" id="food-calories"
-                        class="wg-food-modal__input wg-food-modal__input--total-kcal" placeholder="Kcal"
-                        inputmode="numeric">
-                </div>
-            </div>
-
-            <div class="wg-food-modal__field">
-                <label for="food-datetime" class="wg-food-modal__label">Date &amp; time</label>
-                <div class="wg-gloss--inset wg-food-modal__input-wrap">
-                    <input type="datetime-local" id="food-datetime" class="wg-food-modal__input">
-                </div>
-            </div>
+                <div id="food-product-link-container" class="hidden"></div>
+            </details>
         </div>
-
     </mt-modal>
 
-    <mt-modal id="food-scanner-modal" class="hidden" role="dialog" aria-modal="true"
+    <mt-modal id="food-scanner-modal" class="hidden wg-modal wg-sheet wg-food-scanner" role="dialog" aria-modal="true"
         aria-labelledby="food-scanner-title">
-        <div class="modal-header">
-            <h3 id="food-scanner-title">Scan Barcode / QR</h3>
-            <div class="actions">
-                <button type="button" id="food-scanner-use-photo-btn" class="btn btn-secondary">Use Photo</button>
-                <button type="button" id="food-scanner-close-btn" class="btn btn-secondary">Close</button>
+        <div class="wg-sheet__grab"></div>
+        <header class="wg-sheethead">
+            <div class="wg-sheethead__titles">
+                <div class="wg-eyebrow">Scan</div>
+                <div class="wg-sheethead__title" id="food-scanner-title">Barcode or QR</div>
             </div>
+            <div class="wg-sheethead__acts">
+                <button type="button" id="food-scanner-use-photo-btn" class="wg-btn wg-btn--sm">Use photo</button>
+                <button type="button" id="food-scanner-close-btn" class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button>
+            </div>
+        </header>
+        <div class="wg-sheet__body">
+            <p id="food-scanner-status" class="wg-hint">Point camera at barcode or QR.</p>
+            <video id="food-scanner-video" class="food-scanner-video" autoplay muted playsinline></video>
         </div>
-        <p id="food-scanner-status" class="food-scanner-status">Point camera at barcode or QR.</p>
-        <video id="food-scanner-video" class="food-scanner-video" autoplay muted playsinline></video>
     </mt-modal>
 
-    <mt-modal id="food-product-modal" class="hidden">
-        <div class="modal-header">
-            <h3>Edit Product</h3>
-            <div class="actions">
-                <button id="food-product-cancel-btn" class="btn btn-secondary">Cancel</button>
-                <button id="food-product-save-btn" class="btn btn-primary">Save</button>
+    <mt-modal id="food-product-modal" class="hidden wg-modal wg-sheet">
+        <div class="wg-sheet__grab"></div>
+        <header class="wg-sheethead">
+            <div class="wg-sheethead__titles">
+                <div class="wg-eyebrow">Food DB</div>
+                <div class="wg-sheethead__title">Edit product</div>
             </div>
-        </div>
+            <div class="wg-sheethead__acts">
+                <button type="button" id="food-product-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
+                <button type="button" id="food-product-save-btn" class="wg-btn wg-btn--primary wg-btn--sm">Save</button>
+            </div>
+        </header>
         <input type="hidden" id="food-product-id">
         <input type="hidden" id="food-product-is-meal">
         <input type="hidden" id="food-product-total-weight">
 
-        <div class="form-row">
-            <label for="food-product-name">Name:</label>
-            <input type="text" id="food-product-name" placeholder="Product name">
-        </div>
-
-        <div class="form-row">
-            <label for="food-product-barcode">Barcode:</label>
-            <input type="text" id="food-product-barcode" placeholder="e.g. 1234567890123">
-        </div>
-
-        <div class="form-row">
-            <span class="form-label">Macros per 100g:</span>
-            <div class="bp-inputs-row">
-                <div class="bp-input-group">
-                    <label for="food-product-carbs">Carbs</label>
-                    <input type="number" id="food-product-carbs" placeholder="C" step="0.1">
+        <div class="wg-sheet__body">
+            <div class="wg-field">
+                <label for="food-product-name" class="wg-label">Name</label>
+                <input type="text" id="food-product-name" class="wg-input wg-input--text" placeholder="Product name">
+            </div>
+            <div class="wg-field">
+                <label for="food-product-barcode" class="wg-label">Barcode</label>
+                <input type="text" id="food-product-barcode" class="wg-input" placeholder="e.g. 1234567890123">
+            </div>
+            <div class="wg-fieldrow wg-fieldrow--3">
+                <div class="wg-field">
+                    <label for="food-product-carbs" class="wg-label">Carbs / 100 g</label>
+                    <input type="number" id="food-product-carbs" class="wg-input" placeholder="C" step="0.1" inputmode="decimal">
                 </div>
-                <div class="bp-input-group">
-                    <label for="food-product-protein">Protein</label>
-                    <input type="number" id="food-product-protein" placeholder="P" step="0.1">
+                <div class="wg-field">
+                    <label for="food-product-protein" class="wg-label">Protein / 100 g</label>
+                    <input type="number" id="food-product-protein" class="wg-input" placeholder="P" step="0.1" inputmode="decimal">
                 </div>
-                <div class="bp-input-group">
-                    <label for="food-product-fat">Fat</label>
-                    <input type="number" id="food-product-fat" placeholder="F" step="0.1">
+                <div class="wg-field">
+                    <label for="food-product-fat" class="wg-label">Fat / 100 g</label>
+                    <input type="number" id="food-product-fat" class="wg-input" placeholder="F" step="0.1" inputmode="decimal">
                 </div>
             </div>
-        </div>
-
-        <div class="form-row">
-            <label for="food-product-calories">Calories per 100g:</label>
-            <input type="number" id="food-product-calories" placeholder="Kcal" step="0.1">
+            <div class="wg-field">
+                <label for="food-product-calories" class="wg-label">Calories / 100 g</label>
+                <div class="wg-affix wg-affix--unit"><input type="number" id="food-product-calories" class="wg-input" placeholder="Kcal" step="0.1" inputmode="decimal"><span class="wg-affix__unit">kcal</span></div>
+            </div>
         </div>
     </mt-modal>
-
     <!-- Modal for Adding/Editing Medication -->
     <div id="modal-overlay" class="hidden"></div>
     <mt-modal id="med-modal" class="hidden wg-modal wg-meds-modal">
@@ -2534,6 +2577,7 @@
     <script src="/static/js/features/food/ai-undo.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/food/photo.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/food/log.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/features/food/add-sheet.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/food/db.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/food/index.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/features/bp.js?v=TIMESTAMP_PLACEHOLDER"></script>

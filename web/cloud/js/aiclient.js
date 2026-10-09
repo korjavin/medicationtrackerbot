@@ -374,7 +374,7 @@ const WORKOUT_SHEET_RESPONSE_FORMAT = { type: 'json_schema', json_schema: { name
 
 function fenceInstruction(systemPrompt) {
   return `${systemPrompt}
-Return only valid JSON with the shape {"items": [{"name": string, "weight_grams": number, "carbs_100g": number, "protein_100g": number, "fat_100g": number}, ...]}.
+Return only valid JSON with the shape {"items": [{"name": string, "weight_grams": number, "carbs_100g": number, "protein_100g": number, "fat_100g": number, "uncertain": boolean}, ...]}.
 Do not wrap the JSON in markdown fences or add explanations.`;
 }
 

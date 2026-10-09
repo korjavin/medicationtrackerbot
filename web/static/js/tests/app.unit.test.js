@@ -285,6 +285,7 @@ describe('app.js unit tests', () => {
       expect(ids).toContain('bp-modal');
       expect(ids).toContain('weight-modal');
       expect(ids).toContain('food-modal');
+      expect(ids).toContain('food-add-sheet');
       expect(ids).toContain('med-modal');
       defs.forEach((item) => expect(typeof item.fn).toBe('function'));
     } finally {

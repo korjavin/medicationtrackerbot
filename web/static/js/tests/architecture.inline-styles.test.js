@@ -29,6 +29,7 @@ const SCOPED_FILES = [
     'web/static/js/features/food/scanner.js',
     'web/static/js/features/food/photo.js',
     'web/static/js/features/food/db.js',
+    'web/static/js/features/food/add-sheet.js',
     'web/static/js/features/meds.js',
     'web/static/js/components/wg-macro-bar.js',
 ];

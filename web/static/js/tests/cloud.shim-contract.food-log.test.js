@@ -24,7 +24,6 @@ function fillFoodLogForm(document, {
     document.getElementById('food-id').value = id;
     document.getElementById('food-log-product-id').value = '';
     document.getElementById('food-log-is-meal').value = '';
-    document.getElementById('food-parse-ai').checked = false;
     document.getElementById('food-name').value = name;
     document.getElementById('food-barcode').value = barcode;
     document.getElementById('food-datetime').value = dateStr;
