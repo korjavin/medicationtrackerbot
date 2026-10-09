@@ -75,7 +75,7 @@ export const VAULT_MANAGED_TYPES = new Set([
   'medication', 'intake', 'restock',
   'bp', 'bpgoal',
   'weight', 'weightgoal', 'weightunitpref',
-  'foodlog', 'foodproduct',
+  'foodlog', 'foodproduct', 'fooddaystatus',
   'workoutgroup', 'workoutvariant', 'workoutexercise', 'exerciselibrary',
   'workoutrotation', 'workoutsession', 'exerciselog', 'miband', 'equipment',
   'location', 'activelocation',
@@ -265,6 +265,10 @@ export function recordsToVault(records, { now, includeSecrets = true } = {}) {
     products: sortBy(productList, (r) => productNumericId.get(r.recordId))
       .map((r) => ({ id: productNumericId.get(r.recordId), ...stripMeta(r) })),
   };
+  // Cloud-only (med-0sgs): flagged days only; an unflagged row is
+  // delete-by-absence. Omitted when empty so older exports stay byte-identical.
+  const incompleteDays = pick('fooddaystatus').filter((r) => r.incomplete === true).map((r) => r.date).sort();
+  if (incompleteDays.length > 0) food.incomplete_days = incompleteDays;
 
   // --- workouts ---
   const workoutFK = (type, keyFn) => sortBy(pick(type), keyFn).map((r) => stripMeta(r));
@@ -556,6 +560,12 @@ export function vaultToRecords(vault, { now } = {}) {
     const { is_meal, ...body } = l; // is_meal is derived from the product on read
     const productId = body.product_id != null ? `foodproduct-${body.product_id}` : null;
     push('foodlog', `foodlog-${mintNum()}`, { ...body, product_id: productId });
+  }
+  for (const date of new Set(food.incomplete_days || [])) {
+    if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      throw new Error(`Corrupt backup: food.incomplete_days has a bad date ${JSON.stringify(date)}`);
+    }
+    push('fooddaystatus', `fooddaystatus:${date}`, { date, incomplete: true });
   }
 
   // --- workouts (separate numeric body id + a distinct recordId) ---

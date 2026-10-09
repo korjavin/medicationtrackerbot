@@ -128,6 +128,8 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
       // Equipment is cloud-only inventory (med-niix.1); a real bot export
       // never carries it, so it canonicalizes away here like med_reminder_pref.
       if (d.workouts) delete d.workouts.equipment;
+      // Incomplete-day flags are cloud-only too (med-0sgs).
+      if (d.food) delete d.food.incomplete_days;
       // Gyms are cloud-only too (med-8j5w.1): the locations list, the
       // active-gym singleton and the per-session stamp.
       if (d.workouts) {
@@ -176,6 +178,10 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     // The body `id` is deterministic too (source instant), matching the merge
     // fallback in vitals.js so a re-drain keeps a stable id.
     expect(records.find((r) => r.recordType === 'miband').id).toBe(mb.source_start_ms);
+
+    // Incomplete-day flags (med-0sgs) land on the id food.js writes to.
+    expect(idsByType('fooddaystatus')).toEqual(['fooddaystatus:2026-07-06', 'fooddaystatus:2026-07-07']);
+    expect(records.filter((r) => r.recordType === 'fooddaystatus').every((r) => r.incomplete === true)).toBe(true);
 
     // Singletons land on their fixed recordIds (so the live domain modules read them).
     for (const [type, id] of [

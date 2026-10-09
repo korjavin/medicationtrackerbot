@@ -782,6 +782,14 @@ export function createApiRouter(ctx, {
       const m = /^\/api\/food\/log\/([^/]+)$/.exec(path);
       if (m) { await food.remove(m[1]); return true; }
     }
+    // Incomplete-day flag (med-0sgs): one entry per day in the window.
+    if (path === '/api/food/days' && method === 'GET') {
+      return food.dayStatuses({ date: params.get('date') || undefined, days: clampDays(params.get('days'), 1) });
+    }
+    if (method === 'PUT') {
+      const m = /^\/api\/food\/days\/([^/]+)$/.exec(path);
+      if (m) return food.setDayIncomplete(decodeURIComponent(m[1]), body && body.incomplete);
+    }
     if (path === '/api/food/stats' && method === 'GET') {
       return food.stats({ date: params.get('date') || undefined, days: positiveIntParam(params, 'days', 7) });
     }

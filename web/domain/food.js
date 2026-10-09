@@ -8,6 +8,10 @@ import { offsetMsAt, dayStartMs } from './bp.js';
 
 const LOG_RECORD_TYPE = 'foodlog';
 const PRODUCT_RECORD_TYPE = 'foodproduct';
+// One row per flagged local day (med-0sgs): `fooddaystatus:YYYY-MM-DD`, body
+// { date, incomplete }. A user toggle, so plain put + clientTs = now() (LWW
+// across devices) — not the rule-12 floor, which is for derived writes.
+export const DAY_STATUS_RECORD_TYPE = 'fooddaystatus';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -104,6 +108,17 @@ function wallParts(ms, timeZone) {
     weekday: wall.getUTCDay(),
     month: wall.getUTCMonth(),
   };
+}
+
+// Local calendar day ('YYYY-MM-DD') of an instant in `timeZone`.
+function localDateKey(ms, timeZone) {
+  return new Date(ms + offsetMsAt(ms, timeZone)).toISOString().slice(0, 10);
+}
+
+function isDateKey(date) {
+  if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+  const ms = Date.parse(`${date}T00:00:00Z`);
+  return !Number.isNaN(ms) && new Date(ms).toISOString().slice(0, 10) === date;
 }
 
 function formatTimeLabel(ms, timeZone) {
@@ -503,25 +518,79 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     for (const record of logs) {
       responses.push(toLogResponse(record, isMealFor(record, products)));
     }
-    return groupFoodLogs(responses, days > 1, timeZone);
+    const flagged = await incompleteDays();
+    return groupFoodLogs(responses, days > 1, timeZone).map((g) => ({
+      ...g,
+      incomplete: flagged.has(localDateKey(Date.parse(g.logs[0].eaten_at), timeZone)),
+    }));
   }
 
   // stats mirrors handleGetFoodStats / GetStats (repo.go:592): plain window
-  // SUM, no per-day averaging.
-  async function stats({ date, days = 7 } = {}) {
+  // SUM, no per-day averaging. The Food screen totals keep counting flagged
+  // days (the logs are real); analytics pass excludeIncomplete for clean sums.
+  async function stats({ date, days = 7, excludeIncomplete = false } = {}) {
     const { start, endExclusive } = dayWindow(date, days);
     const all = await records.list(LOG_RECORD_TYPE);
+    const flagged = excludeIncomplete ? await incompleteDays() : null;
     const result = { calories: 0, carbs: 0, protein: 0, fat: 0 };
     for (const r of all) {
       if (r.deleted) continue;
       const ms = logInstantMs(r);
-      if (ms < start || ms >= endExclusive) continue;
+      // NaN (no usable instant) is dropped, matching listGrouped.
+      if (Number.isNaN(ms) || ms < start || ms >= endExclusive) continue;
+      if (flagged && flagged.has(localDateKey(ms, timeZone))) continue;
       result.calories += r.calories;
       result.carbs += r.carbs;
       result.protein += r.protein;
       result.fat += r.fat;
     }
     return result;
+  }
+
+  // setDayIncomplete flags/unflags one local day. Unflag writes
+  // incomplete:false rather than deleting, so the latest toggle wins LWW.
+  async function setDayIncomplete(date, incomplete) {
+    if (!isDateKey(date)) throw invalidRequest('date must be YYYY-MM-DD');
+    if (typeof incomplete !== 'boolean') throw invalidRequest('incomplete must be a boolean');
+    await records.put(DAY_STATUS_RECORD_TYPE, {
+      recordId: `${DAY_STATUS_RECORD_TYPE}:${date}`,
+      clientTs: now(),
+      deleted: false,
+      date,
+      incomplete,
+    });
+    return { date, incomplete };
+  }
+
+  // incompleteDays returns the flagged local days as a Set of 'YYYY-MM-DD':
+  // all of them with no args, else within { from, to } (inclusive) or the
+  // { date, days } window listGrouped/stats use.
+  async function incompleteDays({ from, to, date, days } = {}) {
+    if (days !== undefined || date !== undefined) {
+      const w = dayWindow(date, days || 1);
+      from = localDateKey(w.start, timeZone);
+      to = localDateKey(w.endExclusive - 1, timeZone);
+    }
+    const out = new Set();
+    for (const r of await records.list(DAY_STATUS_RECORD_TYPE)) {
+      if (r.deleted || r.incomplete !== true || !isDateKey(r.date)) continue;
+      if ((from && r.date < from) || (to && r.date > to)) continue;
+      out.add(r.date);
+    }
+    return out;
+  }
+
+  // dayStatuses backs GET /api/food/days: one { date, incomplete } per local
+  // day in the window, ascending — empty days included.
+  async function dayStatuses({ date, days = 1 } = {}) {
+    const { start, endExclusive } = dayWindow(date, days);
+    const flagged = await incompleteDays({ date, days });
+    const out = [];
+    for (let ms = start; ms < endExclusive; ms = dayStartMs(ms + DAY_MS + DAY_MS / 2, timeZone)) {
+      const key = localDateKey(ms, timeZone);
+      out.push({ date: key, incomplete: flagged.has(key) });
+    }
+    return out;
   }
 
   // listProducts mirrors ListProducts (repo.go:242): is_meal filter, `q`
@@ -690,6 +759,9 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     moveLogs,
     listGrouped,
     stats,
+    setDayIncomplete,
+    incompleteDays,
+    dayStatuses,
     listProducts,
     updateProduct,
     removeProduct,
