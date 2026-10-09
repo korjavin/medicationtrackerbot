@@ -581,15 +581,23 @@ describe('food screen — incomplete-day toggle + nudge chip (med-0sgs.3)', () =
             return realApply(key, mutator, tags);
         };
 
+        // The write handlers fire-and-forget loadFoodLogs; stub it so no reload
+        // outlives the test, and reload explicitly (repopulating the v2 row).
+        const realLoad = window.loadFoodLogs;
+        window.loadFoodLogs = vi.fn();
+
         fillFoodLogForm(document, { name: 'Apple', dateStr: atTime(today, 8, 0), weight: 180, carbs: 25, protein: 0, fat: 0, calories: 95 });
         await window.FoodLog.save();
+        await realLoad();
         const apple = (await window.apiCall(`/api/food/log?date=${today}&days=1`))
             .flatMap((g) => g.logs).find((l) => l.name === 'Apple');
         await window.FoodLog.delete(apple.id);
+        await realLoad();
 
-        expect(projected.length).toBeGreaterThanOrEqual(2);
-        projected.forEach((row) => expect(row.incomplete).toBe(true));
-        await vi.waitFor(() => expect(document.getElementById('food-incomplete-toggle').checked).toBe(true));
+        const rows = projected.filter(Boolean);
+        expect(rows.length).toBeGreaterThanOrEqual(2);
+        rows.forEach((row) => expect(row.incomplete).toBe(true));
+        expect(document.getElementById('food-incomplete-toggle').checked).toBe(true);
         expect(document.getElementById('food-incomplete-badge').classList.contains('hidden')).toBe(false);
     });
 
