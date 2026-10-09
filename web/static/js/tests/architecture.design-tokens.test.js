@@ -416,23 +416,6 @@ const WANDERGEEK_TOKENS = [
     '--wg-meds-next-intake-pad-y',
     '--wg-meds-next-intake-pad-x',
 
-    // Edit-medication modal tokens (Phase 5, Task 7) — dual-line header,
-    // gloss-inset input wraps, schedule-pill strip, times layout, action bar.
-    '--wg-meds-modal-eyebrow-size',
-    '--wg-meds-modal-title-size',
-    '--wg-meds-modal-row-gap',
-    '--wg-meds-modal-section-gap',
-    '--wg-meds-modal-input-pad-y',
-    '--wg-meds-modal-input-pad-x',
-    '--wg-meds-modal-pill-gap',
-    '--wg-meds-modal-pill-pad-y',
-    '--wg-meds-modal-pill-pad-x',
-    '--wg-meds-modal-pill-size',
-    '--wg-meds-modal-label-size',
-    '--wg-meds-modal-rx-size',
-    '--wg-meds-modal-time-row-gap',
-    '--wg-meds-modal-toggle-gap',
-
     // Weight screen tokens (Phase 6, Task 1) — optional goal card +
     // progress bar, range selector, single-series chart geometry,
     // day-grouped history rows. Round-2 Task 12 (defect #15) deleted the

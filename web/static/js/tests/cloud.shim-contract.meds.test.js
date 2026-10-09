@@ -157,6 +157,35 @@ describe('cloud shim contract — meds CRUD flows (features/meds.js over web/dom
         );
     });
 
+    it('editor shows the interaction inline once the Rx match resolves (GET /api/medications/rx-check), and Save does not alert it again', async () => {
+        const { window, document } = env;
+        fillMedForm(window, document, { name: 'WarnDrug', dosage: '1mg' });
+        await window.saveMedication();
+        window.safeAlert.mockClear();
+
+        window.showAddModal();
+        const name = document.getElementById('med-name');
+        name.value = 'WarnDrug';
+        name.dispatchEvent(new window.Event('change'));
+        await vi.waitFor(() => {
+            expect(document.getElementById('med-rx-warning').classList.contains('hidden')).toBe(false);
+        });
+        expect(document.getElementById('med-rx-warning-text').textContent).toContain('Interaction between A and B');
+        expect(document.getElementById('med-rx-name').textContent).toBe('Rx · WarnDrug');
+
+        document.getElementById('med-dosage').value = '2mg';
+        document.getElementById('schedule-type').value = 'as_needed';
+        await window.saveMedication();
+        expect(window.safeAlert).not.toHaveBeenCalled();
+        expect(await window.apiCall('/api/medications')).toHaveLength(2);
+    });
+
+    it('rx-check answers no match (and no warning) for an unknown drug', async () => {
+        const { window } = env;
+        const res = await window.offlineAwareApiCall('/api/medications/rx-check?name=Plain', 'GET');
+        expect(res).toEqual({ rxcui: '', normalized_name: '', warning: '' });
+    });
+
     it('deleteMed archives a medication, then permanently deletes it once archived', async () => {
         const { window, document } = env;
         fillMedForm(window, document, { name: 'Ibuprofen', dosage: '200mg' });

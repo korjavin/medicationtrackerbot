@@ -426,12 +426,8 @@ function bindMedicationControls() {
         bindClick('med-modal-cancel-btn', () => closeModal());
         bindClick('med-modal-save-btn', () => saveMedication());
 
-        bindChange('schedule-type', () => toggleScheduleFields());
-        document.querySelectorAll('.wg-meds-modal__pill').forEach((pill) => {
-            pill.addEventListener('click', () => {
-                const type = pill.dataset.scheduleType;
-                if (type) setScheduleType(type);
-            });
+        document.querySelectorAll('#med-modal [data-schedule-type]').forEach((opt) => {
+            opt.addEventListener('click', () => setScheduleType(opt.dataset.scheduleType));
         });
 
         bindClick('initial-remove-time-btn', () => {
@@ -440,8 +436,18 @@ function bindMedicationControls() {
         });
         bindClick('add-time-btn', () => addTimeInput());
 
+        bindChange('med-name', () => checkMedRx());
+        document.querySelectorAll('#med-modal [data-date-input]').forEach((btn) => {
+            btn.addEventListener('click', () => openMedDatePicker(btn.dataset.dateInput));
+        });
+        bindChange('med-start-date', () => syncMedDateLabel('med-start-date'));
+        bindChange('med-end-date', () => syncMedDateLabel('med-end-date'));
+
         bindChange('med-track-inventory', () => toggleInventoryFields());
-        bindClick('restock-add-btn', () => handleRestock());
+        bindClick('med-inventory-dec', () => stepMedInventory(-1));
+        bindClick('med-inventory-inc', () => stepMedInventory(1));
+        bindClick('med-tz-policy-btn', () => chooseMedTzPolicy());
+        bindClick('med-delete-btn', () => deleteMedFromEditor());
     });
 }
 
