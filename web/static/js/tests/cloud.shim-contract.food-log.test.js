@@ -462,3 +462,41 @@ describe('cloud shim contract — move a meal group to another day (med-don1)', 
         expect(await logsOn(window, yesterday)).toEqual([]);
     });
 });
+
+// bd med-0sgs.1 — per-day "tracking incomplete" flag over the shim routes.
+describe('cloud shim contract — incomplete-day flag (med-0sgs.1)', () => {
+    let env;
+    const today = localDateStr();
+    const yesterday = localDateStr(new Date(Date.now() - 24 * 60 * 60 * 1000));
+
+    beforeEach(() => {
+        env = loadCloudShimFrontendEnv();
+        installApiCache(env.window);
+    });
+
+    afterEach(() => { env.cleanup(); });
+
+    it('PUT /api/food/days/{date} flags an empty day; GET lists it and listGrouped carries the flag', async () => {
+        const { window } = env;
+        await createLog(window, { name: 'Oats', eaten_at: new Date(atTime(today, 8, 0)).toISOString(), weight: 50, carbs: 30, protein: 5, fat: 3, calories: 167 });
+
+        expect(await window.apiCall(`/api/food/days/${yesterday}`, 'PUT', { incomplete: true }))
+            .toEqual({ date: yesterday, incomplete: true });
+        await window.apiCall(`/api/food/days/${today}`, 'PUT', { incomplete: true });
+
+        expect(await window.apiCall(`/api/food/days?date=${today}&days=2`)).toEqual([
+            { date: yesterday, incomplete: true },
+            { date: today, incomplete: true },
+        ]);
+        expect((await window.apiCall(`/api/food/log?date=${today}&days=1`)).map((g) => g.incomplete)).toEqual([true]);
+
+        await window.apiCall(`/api/food/days/${today}`, 'PUT', { incomplete: false });
+        expect((await window.apiCall(`/api/food/log?date=${today}&days=1`)).map((g) => g.incomplete)).toEqual([false]);
+    });
+
+    it('rejects a malformed date', async () => {
+        allowConsoleNoise(); // apiCall console.errors the rejected write
+        await expect(env.window.apiCall('/api/food/days/nope', 'PUT', { incomplete: true }))
+            .rejects.toMatchObject({ code: 'invalid_request' });
+    });
+});

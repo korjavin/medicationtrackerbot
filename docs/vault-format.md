@@ -148,7 +148,8 @@ is called out as unix-seconds or milliseconds, it is an **RFC3339 string**.
 ```json
 "food": {
   "logs": [ { log } ],
-  "products": [ { product } ]
+  "products": [ { product } ],
+  "incomplete_days": [ "YYYY-MM-DD", ... ]
 }
 ```
 
@@ -160,6 +161,9 @@ Food targets are a settings singleton — see `settings.food_targets`, not repea
 - **product** — `id` (number, FK glue), `name` (str), `barcode` (str|null), `carbs_100g`,
   `protein_100g`, `fat_100g`, `energy_kcal_100g` (num, per-100g), `usage_count` (int),
   `is_meal` (bool), `total_weight_g` (num), `created_at` (RFC3339), `last_used_at` (RFC3339).
+- **incomplete_days** (optional, cloud-only) — sorted local calendar days the user
+  flagged as "tracking incomplete" (`fooddaystatus` records, `web/domain/food.js`).
+  Omitted when none are flagged; unflagged days are dropped (delete-by-absence).
 
 ### `workouts`
 
@@ -547,6 +551,8 @@ Export → import → export (and each single hop) must be
   (med-niix.1/med-niix.5/med-3gln/med-8j5w.1). Legacy bot
   files omit them; equality holds after stripping, the way
   `med_reminder_pref` is stripped.
+- **Cloud-only food day flags** — `food.incomplete_days` (med-0sgs). Legacy bot
+  files omit it; stripped the same way.
 - **Timestamp offsets** — timestamps compare as **instants**, not as text. (Legacy
   bot import normalized every timestamp to UTC before storing it
   (`2026-07-07T12:00:00+02:00` → `2026-07-07T10:00:00Z`), because
