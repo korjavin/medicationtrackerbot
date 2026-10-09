@@ -17,156 +17,89 @@ function loadIndex() {
     return { dom, cleanup: () => dom.window.close() };
 }
 
-describe('Settings Features section (Phase 9, Task 5)', () => {
-    it('renders the Features section as a .wg-card with a mono title and description', () => {
+const featuresPage = (doc) => doc.querySelector('[data-settings-page="features"]');
+const eyebrows = (section) => section.querySelector('.wg-section__head .wg-eyebrow')?.textContent.trim();
+
+describe('Settings Features page (kit S2, med-xso6.23)', () => {
+    it('groups the feature toggles by intent: Tracking, Journey, Safety, Labs', () => {
         const { dom, cleanup } = loadIndex();
         try {
-            const settingsView = dom.window.document.getElementById('settings-view');
-            const sections = settingsView.querySelectorAll('.wg-settings-section');
-            const titles = Array.from(sections).map((c) => {
-                const t = c.querySelector('.wg-settings-section__title');
-                return t ? t.textContent.trim() : '';
-            });
-            expect(titles).toContain('Features');
-
-            const card = Array.from(sections).find((c) =>
-                c.querySelector('.wg-settings-section__title')?.textContent?.trim() === 'Features'
-            );
-            expect(card).toBeDefined();
-            expect(card.classList.contains('wg-card')).toBe(true);
-
-            const desc = card.querySelector('.wg-settings-section__desc');
-            expect(desc).not.toBeNull();
-            expect(desc.textContent.toLowerCase()).toContain('enable');
+            const doc = dom.window.document;
+            const sections = Array.from(featuresPage(doc).querySelectorAll(':scope > .wg-section'));
+            const groups = sections.map((s) => [
+                eyebrows(s),
+                Array.from(s.querySelectorAll('mt-setting-toggle')).map((t) => t.getAttribute('input-id')),
+            ]);
+            expect(groups).toEqual([
+                ['Tracking · shown in the nav', [
+                    'bp-feature-toggle', 'weight-feature-toggle', 'food-intake-toggle',
+                    'medication-feature-toggle', 'workout-feature-toggle', 'health-feature-toggle',
+                ]],
+                ['Journey', ['gamification-feature-toggle', 'weekly-digest-feature-toggle']],
+                ['Safety', ['gam-mode-ed-safe-toggle']],
+                ['Labs', ['live-hr-feature-toggle']],
+            ]);
+            for (const s of sections) expect(s.querySelector(':scope > .wg-list')).not.toBeNull();
         } finally {
             cleanup();
         }
     });
 
-    it('mounts all nine feature toggles inside the Features card', () => {
+    it('folds Experiments / Traits / AI story into one Journey row that opens their own page', () => {
         const { dom, cleanup } = loadIndex();
         try {
             const doc = dom.window.document;
-            const featuresCard = Array.from(doc.querySelectorAll('.wg-settings-section')).find(
-                (c) => c.querySelector('.wg-settings-section__title')?.textContent?.trim() === 'Features'
-            );
-            expect(featuresCard).toBeDefined();
+            const fold = featuresPage(doc).querySelector('[data-settings-open="journey-extras"]');
+            expect(fold).not.toBeNull();
+            expect(fold.classList.contains('wg-setting')).toBe(true);
+            const extras = doc.querySelector('[data-settings-page="journey-extras"]');
+            expect(Array.from(extras.querySelectorAll('mt-setting-toggle')).map((t) => t.getAttribute('input-id')))
+                .toEqual(['gam-mode-experiments-toggle', 'gam-mode-traits-toggle', 'gam-mode-narration-toggle']);
+            // 13 toggles across the two pages.
+            const all = doc.querySelectorAll('[data-settings-page="features"] mt-setting-toggle, [data-settings-page="journey-extras"] mt-setting-toggle');
+            expect(all.length).toBe(13);
+        } finally {
+            cleanup();
+        }
+    });
 
-            const expected = [
-                'bp-feature-toggle',
-                'weight-feature-toggle',
-                'workout-feature-toggle',
-                'medication-feature-toggle',
-                'food-intake-toggle',
-                'health-feature-toggle',
-                'gamification-feature-toggle',
-                'weekly-digest-feature-toggle',
-                'live-hr-feature-toggle',
-            ];
-            for (const inputId of expected) {
-                const setting = doc.querySelector(`mt-setting-toggle[input-id="${inputId}"]`);
-                expect(setting, `missing <mt-setting-toggle input-id="${inputId}">`).not.toBeNull();
-                expect(featuresCard.contains(setting)).toBe(true);
+    it('uses plain names — no "Feature:" prefixes', () => {
+        const { dom, cleanup } = loadIndex();
+        try {
+            for (const t of dom.window.document.querySelectorAll('#settings-view mt-setting-toggle')) {
+                expect(t.getAttribute('title')).not.toMatch(/^Feature:|^Journey:/);
             }
         } finally {
             cleanup();
         }
     });
 
-    it('does not mount reminder toggles inside the Features card', () => {
-        const { dom, cleanup } = loadIndex();
+    it('renders <mt-setting-toggle> as a kit .wg-setting row with an aria-labelled .wg-toggle', () => {
+        const { document, cleanup } = loadFrontendEnv();
         try {
-            const doc = dom.window.document;
-            const featuresCard = Array.from(doc.querySelectorAll('.wg-settings-section')).find(
-                (c) => c.querySelector('.wg-settings-section__title')?.textContent?.trim() === 'Features'
-            );
-            const bpReminders = doc.querySelector('mt-setting-toggle[input-id="bp-reminders-toggle"]');
-            const weightReminders = doc.querySelector('mt-setting-toggle[input-id="weight-reminders-toggle"]');
-            expect(featuresCard.contains(bpReminders)).toBe(false);
-            expect(featuresCard.contains(weightReminders)).toBe(false);
-        } finally {
-            cleanup();
-        }
-    });
-
-    it('renders feature toggles inside a .wg-settings-row-list', () => {
-        const { dom, cleanup } = loadIndex();
-        try {
-            const doc = dom.window.document;
-            const featuresCard = Array.from(doc.querySelectorAll('.wg-settings-section')).find(
-                (c) => c.querySelector('.wg-settings-section__title')?.textContent?.trim() === 'Features'
-            );
-            const list = featuresCard.querySelector('.wg-settings-row-list');
-            expect(list).not.toBeNull();
-            const toggles = list.querySelectorAll('mt-setting-toggle');
-            expect(toggles.length).toBe(13); // 9 feature flags + 4 Journey mode switches (med-8tur.12)
+            const bp = document.getElementById('bp-feature-toggle').closest('mt-setting-toggle');
+            expect(bp.classList.contains('wg-setting')).toBe(true);
+            expect(bp.querySelector('.wg-row__lead .wg-ico').dataset.icon).toBe('activity');
+            expect(bp.querySelector('.wg-setting__title').textContent).toBe('Blood pressure');
+            expect(bp.hasAttribute('title')).toBe(false); // no hover tooltip on the row
+            const input = bp.querySelector('.wg-toggle > .wg-toggle__input');
+            expect(input.getAttribute('aria-label')).toBe('Blood pressure');
         } finally {
             cleanup();
         }
     });
 });
 
-describe('Settings Reminders section (Phase 9, Task 5)', () => {
-    it('renders the Reminders section as a .wg-card with a mono title and description', () => {
-        const { dom, cleanup } = loadIndex();
-        try {
-            const settingsView = dom.window.document.getElementById('settings-view');
-            const sections = settingsView.querySelectorAll('.wg-settings-section');
-            const titles = Array.from(sections).map((c) => {
-                const t = c.querySelector('.wg-settings-section__title');
-                return t ? t.textContent.trim() : '';
-            });
-            expect(titles).toContain('Reminders');
-
-            const card = Array.from(sections).find((c) =>
-                c.querySelector('.wg-settings-section__title')?.textContent?.trim() === 'Reminders'
-            );
-            expect(card).toBeDefined();
-            expect(card.classList.contains('wg-card')).toBe(true);
-
-            const desc = card.querySelector('.wg-settings-section__desc');
-            expect(desc).not.toBeNull();
-            expect(desc.textContent.toLowerCase()).toContain('remind');
-        } finally {
-            cleanup();
-        }
-    });
-
-    it('mounts both reminder toggles inside the Reminders card', () => {
+describe('Settings Reminders section (notifications page)', () => {
+    it('mounts both reminder toggles in the Reminders section of the notifications page', () => {
         const { dom, cleanup } = loadIndex();
         try {
             const doc = dom.window.document;
-            const remindersCard = Array.from(doc.querySelectorAll('.wg-settings-section')).find(
-                (c) => c.querySelector('.wg-settings-section__title')?.textContent?.trim() === 'Reminders'
-            );
-            expect(remindersCard).toBeDefined();
-
-            const bpReminders = doc.querySelector('mt-setting-toggle[input-id="bp-reminders-toggle"]');
-            const weightReminders = doc.querySelector('mt-setting-toggle[input-id="weight-reminders-toggle"]');
-            expect(bpReminders).not.toBeNull();
-            expect(weightReminders).not.toBeNull();
-            expect(remindersCard.contains(bpReminders)).toBe(true);
-            expect(remindersCard.contains(weightReminders)).toBe(true);
-
-            const list = remindersCard.querySelector('.wg-settings-row-list');
-            expect(list).not.toBeNull();
-            expect(list.querySelectorAll('mt-setting-toggle').length).toBe(2);
-        } finally {
-            cleanup();
-        }
-    });
-
-    it('does not mount feature toggles inside the Reminders card', () => {
-        const { dom, cleanup } = loadIndex();
-        try {
-            const doc = dom.window.document;
-            const remindersCard = Array.from(doc.querySelectorAll('.wg-settings-section')).find(
-                (c) => c.querySelector('.wg-settings-section__title')?.textContent?.trim() === 'Reminders'
-            );
-            const bpFeature = doc.querySelector('mt-setting-toggle[input-id="bp-feature-toggle"]');
-            const foodFeature = doc.querySelector('mt-setting-toggle[input-id="food-intake-toggle"]');
-            expect(remindersCard.contains(bpFeature)).toBe(false);
-            expect(remindersCard.contains(foodFeature)).toBe(false);
+            const reminders = doc.querySelector('[data-settings-page="notifications"] .wg-settings-reminders');
+            expect(eyebrows(reminders)).toBe('Reminders');
+            expect(Array.from(reminders.querySelectorAll('.wg-list mt-setting-toggle')).map((t) => t.getAttribute('input-id')))
+                .toEqual(['bp-reminders-toggle', 'weight-reminders-toggle']);
+            expect(featuresPage(doc).querySelector('[input-id="bp-reminders-toggle"]')).toBeNull();
         } finally {
             cleanup();
         }
@@ -177,23 +110,7 @@ describe('Settings toggle `divider` attribute (Phase 9, Task 5)', () => {
     it('removes the `divider` attribute from all feature + reminder toggles in markup', () => {
         const { dom, cleanup } = loadIndex();
         try {
-            const doc = dom.window.document;
-            const ids = [
-                'bp-feature-toggle',
-                'weight-feature-toggle',
-                'workout-feature-toggle',
-                'medication-feature-toggle',
-                'food-intake-toggle',
-                'health-feature-toggle',
-                'gamification-feature-toggle',
-                'weekly-digest-feature-toggle',
-                'live-hr-feature-toggle',
-                'bp-reminders-toggle',
-                'weight-reminders-toggle',
-            ];
-            for (const id of ids) {
-                const el = doc.querySelector(`mt-setting-toggle[input-id="${id}"]`);
-                expect(el, `missing <mt-setting-toggle input-id="${id}">`).not.toBeNull();
+            for (const el of dom.window.document.querySelectorAll('#settings-view mt-setting-toggle')) {
                 expect(el.hasAttribute('divider')).toBe(false);
             }
         } finally {
@@ -212,7 +129,7 @@ describe('Settings toggle `divider` attribute (Phase 9, Task 5)', () => {
             document.body.appendChild(manual);
 
             expect(manual.classList.contains('setting-item-divider')).toBe(true);
-            expect(manual.classList.contains('wg-settings-row')).toBe(true);
+            expect(manual.classList.contains('wg-setting')).toBe(true);
         } finally {
             cleanup();
         }

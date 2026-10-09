@@ -27,11 +27,12 @@ async function flush() { await new Promise((r) => setTimeout(r, 0)); }
 
 describe('feedback-ui', () => {
     beforeEach(() => {
-        // The launcher mounts into the static #settings-view container (as the
-        // first card, before the existing Sync section) — seed that shape.
+        // The launcher mounts into the static Settings home (index.html
+        // .wg-settings-home) as its last group — seed that shape.
         document.body.innerHTML =
             '<div id="settings-view">'
-            + '<section class="wg-card wg-settings-section wg-settings-sync"><h3>Sync</h3></section>'
+            + '<div class="wg-settings-home"><div class="wg-list" id="everyday"></div></div>'
+            + '<footer class="wg-settings-footer"></footer>'
             + '</div>';
         enqueueFeedback.mockReset();
         delete window.MediaCapture;
@@ -42,15 +43,18 @@ describe('feedback-ui', () => {
         document.body.innerHTML = '';
     });
 
-    it('mounts one launcher (deduped by id) as the first Settings card', async () => {
+    it('mounts one launcher row (deduped by id) as the last Settings home group', async () => {
         await mountFeedbackLauncher({});
         await mountFeedbackLauncher({});
         expect(document.querySelectorAll('#feedback-launcher').length).toBe(1);
-        expect(q('#feedback-launcher').textContent).toBe('Send feedback');
-        // Lives inside Settings, as the first section (before the Sync card).
-        const view = q('#settings-view');
-        expect(q('#feedback-settings').closest('#settings-view')).toBe(view);
-        expect(view.querySelector('.wg-settings-section')).toBe(q('#feedback-settings'));
+        const row = q('#feedback-launcher');
+        expect(row.classList.contains('wg-setting')).toBe(true);
+        expect(row.querySelector('.wg-setting__title').textContent).toBe('Send feedback');
+        expect(row.querySelector('.wg-setting__desc').textContent).toBe('Text or a screenshot');
+        // A kit .wg-list group of its own, after the existing groups.
+        const group = q('#feedback-settings');
+        expect(group.classList.contains('wg-list')).toBe(true);
+        expect(q('.wg-settings-home').lastElementChild).toBe(group);
     });
 
     it('does nothing when there is no Settings view', async () => {
