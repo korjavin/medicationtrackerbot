@@ -27,7 +27,7 @@ function renderRecoverForm(app, errorText) {
       <p>Enter the Account ID and recovery code from your Emergency Kit.</p>
       <input type="text" id="recover-account-input" placeholder="Account ID" autocomplete="off">
       <input type="text" id="recover-code-input" placeholder="Recovery code" autocomplete="off">
-      <button id="recover-submit">Recover</button>
+      <button id="recover-submit" class="wg-btn wg-btn--primary">Recover</button>
     </section>`;
   // Error text may carry a browser exception message; render via textContent,
   // never interpolated into innerHTML (this page ends up holding the DEK —

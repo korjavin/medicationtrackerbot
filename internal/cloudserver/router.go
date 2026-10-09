@@ -316,6 +316,21 @@ func buildConnectSrc(hosts []string) string {
 	return b.String()
 }
 
+// baseDomainStaticAssets are the only web/static files the base domain serves:
+// the feedback reader's decrypt bundle, and the kit stylesheet + self-hosted
+// fonts every shell page links (landing, /feedback, /s/ share landing —
+// web/cloud/css/cloud.css carries tokens only, med-xso6.11). Exact paths, not
+// a /static/ prefix — the base domain has no business serving the app tree.
+var baseDomainStaticAssets = map[string]bool{
+	feedbackAgeVendorPath:                          true,
+	"/static/css/components.css":                   true,
+	"/static/css/fonts.css":                        true,
+	"/static/fonts/space-grotesk-latin.woff2":      true,
+	"/static/fonts/space-grotesk-latin-ext.woff2":  true,
+	"/static/fonts/jetbrains-mono-latin.woff2":     true,
+	"/static/fonts/jetbrains-mono-latin-ext.woff2": true,
+}
+
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	host := stripPort(r.Host)
 	// Strict connect-src 'self' by default. The app document ("/") overrides
@@ -361,7 +376,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			h.feedbackReader.ServeHTTP(w, r)
 			return
-		case feedbackAgeVendorPath:
+		}
+		if baseDomainStaticAssets[r.URL.Path] {
 			noStore(w)
 			h.app.ServeHTTP(w, r)
 			return

@@ -60,10 +60,32 @@ describe('firstrun welcome screen', () => {
             const skipAll = body.querySelector('[data-firstrun-action="skip-all"]');
             expect(getStarted).not.toBeNull();
             expect(getStarted.textContent).toBe('Get started');
-            expect(getStarted.classList.contains('wg-firstrun-btn--primary')).toBe(true);
+            expect(getStarted.classList.contains('wg-btn')).toBe(true);
+            expect(getStarted.classList.contains('wg-btn--primary')).toBe(true);
             expect(skipAll).not.toBeNull();
             expect(skipAll.textContent).toBe('Skip all');
-            expect(skipAll.classList.contains('wg-firstrun-btn--secondary')).toBe(true);
+            expect(skipAll.classList.contains('wg-btn')).toBe(true);
+            expect(skipAll.classList.contains('wg-btn--ghost')).toBe(true);
+        } finally { cleanup(); }
+    });
+
+    // med-xso6.11: the overlay shows the kit step indicator (.wg-steps), one
+    // bar per step, and it follows the flow as the user advances.
+    it('shows a step indicator that tracks the current step', () => {
+        const { window, document, cleanup } = loadFlow({
+            bootstrap: { needs_first_run: true },
+        });
+        try {
+            window.WGFirstRun.mount();
+            const steps = document.querySelector('#wg-firstrun-overlay .wg-steps');
+            expect(steps).not.toBeNull();
+            const bars = () => [...steps.querySelectorAll('i')].map((i) => i.className);
+            expect(bars()).toEqual(['is-now', '', '', '']);
+            expect(steps.getAttribute('aria-valuetext')).toBe('Step 1 of 4');
+
+            document.querySelector('[data-firstrun-action="advance"]').click();
+            expect(bars()).toEqual(['is-done', 'is-now', '', '']);
+            expect(steps.getAttribute('aria-valuenow')).toBe('2');
         } finally { cleanup(); }
     });
 

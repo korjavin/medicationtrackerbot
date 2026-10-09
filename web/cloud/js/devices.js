@@ -63,9 +63,9 @@ function renderDevices(app, ctx, onExit, devices) {
     <section class="wizard-step">
       <h1>Devices</h1>
       <ul class="device-list" id="device-list"></ul>
-      <button id="add-device-button">Add a device</button>
-      <button id="regenerate-kit-button" class="secondary">Regenerate Emergency Kit</button>
-      <button id="devices-back">Back</button>
+      <button id="add-device-button" class="wg-btn wg-btn--primary">Add a device</button>
+      <button id="regenerate-kit-button" class="wg-btn">Regenerate Emergency Kit</button>
+      <button id="devices-back" class="wg-btn">Back</button>
     </section>`;
 
   const list = app.querySelector('#device-list');
@@ -110,8 +110,8 @@ export function renderRegenerateKit(app, ctx, onDone) {
         <input type="checkbox" id="regen-ack-checkbox">
         I understand my old Emergency Kit will stop working.
       </label>
-      <button id="regen-continue" disabled>Confirm with passkey</button>
-      <button id="regen-cancel" class="secondary">Cancel</button>
+      <button id="regen-continue" class="wg-btn wg-btn--primary" disabled>Confirm with passkey</button>
+      <button id="regen-cancel" class="wg-btn">Cancel</button>
     </section>`;
 
   const checkbox = app.querySelector('#regen-ack-checkbox');
@@ -173,6 +173,7 @@ function renderDeviceRow(app, ctx, onExit, d) {
   li.appendChild(badge);
 
   const revokeButton = document.createElement('button');
+  revokeButton.className = 'wg-btn wg-btn--sm wg-btn--danger-ghost';
   revokeButton.textContent = 'Revoke';
   revokeButton.addEventListener('click', async () => {
     // Retiring a device you still control vs. a stolen one need different
@@ -216,8 +217,8 @@ function renderDeviceListError(app, ctx, onExit, errorText) {
     <section class="wizard-step">
       <h1>Devices</h1>
       <p class="wizard-error"></p>
-      <button id="devices-retry">Try again</button>
-      <button id="devices-back">Back</button>
+      <button id="devices-retry" class="wg-btn wg-btn--primary">Try again</button>
+      <button id="devices-back" class="wg-btn">Back</button>
     </section>`;
   app.querySelector('.wizard-error').textContent = errorText;
   app.querySelector('#devices-retry').addEventListener('click', () => renderDeviceList(app, ctx, onExit));

@@ -382,7 +382,7 @@ function renderInstallFirst(app, onExit) {
       <p>Install this app to your Home Screen before enabling notifications —
          iOS only delivers push to an installed app.</p>
       ${iosInstallStepsHtml('Open Med Tracker from your Home Screen and come back here.')}
-      <button id="push-back">Back</button>
+      <button id="push-back" class="wg-btn">Back</button>
     </section>`;
   app.querySelector('#push-back').addEventListener('click', onExit);
 }
@@ -393,17 +393,17 @@ function renderPushScreen(app, ctx, onExit) {
       <h1>Reminders <small>(sync demo)</small></h1>
       <p class="wizard-error" id="push-error"></p>
       <p id="push-status" class="sync-status">Checking subscription&hellip;</p>
-      <button id="push-enable">Enable notifications</button>
+      <button id="push-enable" class="wg-btn wg-btn--primary">Enable notifications</button>
       <form id="reminder-form" class="note-form" hidden>
         <input id="reminder-text" placeholder="Reminder text" autocomplete="off" />
         <input id="reminder-minutes" type="number" min="1" value="1" />
-        <button type="submit">Remind me</button>
+        <button type="submit" class="wg-btn">Remind me</button>
       </form>
       <label id="rich-toggle-row" hidden>
         <input type="checkbox" id="rich-toggle" /> Rich notifications
       </label>
       <ul id="reminder-list" class="note-list"></ul>
-      <button id="push-back">Back</button>
+      <button id="push-back" class="wg-btn">Back</button>
     </section>`;
 
   app.querySelector('#push-back').addEventListener('click', onExit);

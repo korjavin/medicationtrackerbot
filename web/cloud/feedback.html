@@ -6,6 +6,8 @@
 <meta name="robots" content="noindex, nofollow">
 <title>Web feedback · Med Tracker Cloud</title>
 <link rel="stylesheet" href="/css/cloud.css">
+<link rel="stylesheet" href="/static/css/fonts.css">
+<link rel="stylesheet" href="/static/css/components.css">
 </head>
 <!-- data-page is the auto-mount marker js/feedback-reader.js checks, so
      importing that module in a test never kicks off a fetch. -->
@@ -24,12 +26,12 @@
       <input id="fr-key" type="password" autocomplete="off" autocapitalize="off"
              autocorrect="off" spellcheck="false" placeholder="AGE-SECRET-KEY-1…"
              aria-label="age private key">
-      <button id="fr-decrypt" type="button">Decrypt</button>
+      <button id="fr-decrypt" class="wg-btn wg-btn--primary" type="button">Decrypt</button>
     </div>
     <p id="fr-error" class="wizard-error"></p>
     <!-- Shown only once something has decrypted AND painted: acking an item the
          developer has not actually read is the one thing this must not do. -->
-    <button id="fr-ack-all" class="secondary" type="button" hidden>Delete all read</button>
+    <button id="fr-ack-all" class="wg-btn wg-btn--danger-ghost" type="button" hidden>Delete all read</button>
     <ul id="fr-items" class="fr-list"></ul>
   </main>
   <script src="/js/feedback-reader.js" type="module"></script>

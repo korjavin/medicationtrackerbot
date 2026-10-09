@@ -115,7 +115,7 @@
 
         const primary = document.createElement('button');
         primary.type = 'button';
-        primary.className = 'wg-firstrun-btn wg-firstrun-btn--primary';
+        primary.className = 'wg-btn wg-btn--primary wg-btn--lg wg-btn--block';
         primary.textContent = 'Open app';
         primary.setAttribute('data-firstrun-action', 'open-app');
         primary.addEventListener('click', function () {

@@ -65,10 +65,10 @@ function seedPage() {
       <p id="fr-status" class="muted">Loading…</p>
       <div id="fr-key-row" class="note-form" hidden>
         <input id="fr-key" type="password" autocomplete="off" spellcheck="false">
-        <button id="fr-decrypt" type="button">Decrypt</button>
+        <button id="fr-decrypt" class="wg-btn wg-btn--primary" type="button">Decrypt</button>
       </div>
       <p id="fr-error" class="wizard-error"></p>
-      <button id="fr-ack-all" class="secondary" type="button" hidden>Delete all read</button>
+      <button id="fr-ack-all" class="wg-btn wg-btn--danger-ghost" type="button" hidden>Delete all read</button>
       <ul id="fr-items" class="fr-list"></ul>
     </main>`;
 }
