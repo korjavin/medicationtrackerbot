@@ -43,13 +43,14 @@ function safeToast(msg, type, opts) {
 //   opts.optimistic — [{ key, mutator, tags }] applied via applyOptimistic
 //   opts.remove()   — performs the delete; resolve truthy on success. Falsy
 //                     or a throw rolls the snapshots back (the row returns).
-// ponytail: overlapping deletes on one key restore each other's snapshots on
-// Undo; the later delete's own reload settles it. Per-row snapshots if it shows.
+// One Undo window at a time: a new delete flushes the previous one first, so
+// two whole-list snapshots of one key are never both open for rollback.
 //   opts.duration   — ms the Undo window stays open (default 5000)
 // Returns { undo(), flush(), done }: flush() deletes now; done resolves
 // 'deleted' | 'undone' | 'failed'.
 function deleteWithUndo(opts) {
     const o = opts || {};
+    if (deleteWithUndo._active) deleteWithUndo._active.flush();
     const ds = window.DataStore;
     const optimistic = Array.isArray(o.optimistic) ? o.optimistic : [];
     const handlesReady = (async () => {
@@ -78,6 +79,7 @@ function deleteWithUndo(opts) {
     };
     function finish(undo) {
         if (running) return running;
+        if (deleteWithUndo._active === ctl) deleteWithUndo._active = null;
         clearTimeout(timer);
         document.removeEventListener('visibilitychange', onHide);
         window.removeEventListener('pagehide', onHide);
@@ -122,7 +124,9 @@ function deleteWithUndo(opts) {
     document.addEventListener('visibilitychange', onHide);
     window.addEventListener('pagehide', onHide);
 
-    return { undo: () => finish(true), flush: () => finish(false), done };
+    const ctl = { undo: () => finish(true), flush: () => finish(false), done };
+    deleteWithUndo._active = ctl;
+    return ctl;
 }
 
 // opts (optional): { title, confirmLabel, cancelLabel } — custom wording for

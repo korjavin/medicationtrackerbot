@@ -401,7 +401,7 @@ function deleteWorkoutSessionById(sessionId) {
         optimistic: [{
             key: 'workout_history',
             mutator: (prev) => (prev && Array.isArray(prev.sessions)
-                ? { ...prev, sessions: prev.sessions.filter((x) => !(x && String(x.id) === String(sessionId))) }
+                ? { ...prev, sessions: prev.sessions.filter((x) => !(x && x.session && String(x.session.id) === String(sessionId))) }
                 : prev),
             tags: ['workout'],
         }],

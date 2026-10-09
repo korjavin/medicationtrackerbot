@@ -266,4 +266,30 @@ describe('features/bp.js — row delete undoes from the toast (med-xso6.5)', () 
         expect(cache.get('bp').readingsRes.map((r) => r.id)).toEqual([1, 2]);
         expect((window.apiCall.mock.calls.filter(([, m]) => m === 'DELETE'))).toHaveLength(0);
     });
+
+    it('a second delete flushes the first: one Undo window, no snapshot resurrecting the other row', async () => {
+        const { window } = env;
+        const cache = installApiCache(window, {
+            bp: {
+                readingsRes: [
+                    { id: 1, systolic: 120, diastolic: 78, measured_at: '2026-05-10T08:00:00.000Z' },
+                    { id: 2, systolic: 128, diastolic: 82, measured_at: '2026-05-12T08:00:00.000Z' }
+                ],
+                goalRes: null,
+                statsRes: null
+            }
+        });
+        window.apiCall = vi.fn(async (_url, method) => (method === 'DELETE' ? { ok: true } : null));
+        window.loadBPReadings = vi.fn();
+
+        const first = window.deleteBPReading('1');
+        await vi.waitFor(() => expect(cache.get('bp').readingsRes.map((r) => r.id)).toEqual([2]));
+        const second = window.deleteBPReading('2');
+
+        expect(await first.done).toBe('deleted');
+        second.undo();
+        expect(await second.done).toBe('undone');
+        expect(cache.get('bp').readingsRes.map((r) => r.id)).toEqual([2]);
+        expect(window.apiCall.mock.calls.filter(([, m]) => m === 'DELETE')).toHaveLength(1);
+    });
 });
