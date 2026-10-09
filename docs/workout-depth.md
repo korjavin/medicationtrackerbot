@@ -182,10 +182,11 @@ so the rule inspects real per-set reps; it falls back to `reps_completed` (max) 
 `sets` is absent. Compute lives in `propagate` (not `completeSession`) because
 `propagate` already loads the exercise and runs per-completed-log.
 
-**Editor UI.** The exercise modal (`web/static/index.html`) carries a
-`<select id="workout-exercise-progression">` + increment input, wired through the
-three touch points in `web/static/js/features/workout/exercises.js`
-(`showEditExerciseModal` set, `showAddExerciseModal` clear, `saveExercise` read).
+**Editor UI.** The Exercise page of the plan editor (`web/static/index.html`,
+`[data-workout-page="exercise"]`) carries a progression seg (hidden
+`#workout-exercise-progression` + `.wg-seg[data-seg-for]`) and an increment input,
+wired through the three touch points in `web/static/js/features/workout/exercises.js`
+(`showEditExercisePage` set, `showAddExercisePage` clear, `buildExercisePayload` read).
 
 **Dry-run preview (optional, done).** `progressionPreview` in `web/domain/workout.js`
 runs the same rule math over each exercise's latest completed log **without writing**,
@@ -231,14 +232,14 @@ cascade can't import ES modules, so it duplicates the table as
 `toExerciseResponse` (**emitted only when set** — absent means inherit from the
 routine). All in `web/domain/workout.js`, validated via `normalizeGoal`.
 
-**Selectors.** The group modal (`web/static/index.html` +
-`web/static/js/features/workout/groups.js`) carries a
-`<select id="workout-group-goal">` (Strength/Hypertrophy/Endurance/General), wired
-through `showEditGroup` populate, `saveGroup` payload, and add-modal default
-(hypertrophy). The exercise modal (`web/static/js/features/workout/exercises.js`) adds
-a `<select id="workout-exercise-goal">` with an **"Inherit from routine"** default plus
-the four goals, wired through `showEditExerciseModal` / `showAddExerciseModal` /
-`saveExercise`.
+**Selectors.** The Plan page (`web/static/index.html` +
+`web/static/js/features/workout/groups.js`) carries a goal seg over the hidden
+`#workout-group-goal` (Strength/Muscle/Endurance/General), wired through
+`openWorkoutPlanPage` populate (default hypertrophy) and the `saveWorkoutGroup`
+payload. The Exercise page (`web/static/js/features/workout/exercises.js`) adds a seg
+over `#workout-exercise-goal` with a **"From plan"** default plus the four goals,
+wired through `showEditExercisePage` / `showAddExercisePage` /
+`buildExercisePayload`.
 
 **Cascade (fill-only).** On goal-selector change — and when the exercise editor opens
 with a goal — the effective goal (the override, else the routine's goal) pre-fills the
@@ -421,12 +422,13 @@ over the library binding (`equipmentIdForExercise` in
 `web/domain/equipment.js`). Domain (`web/domain/workout.js`):
 `createLibraryItem` / `updateLibraryItem` round-trip the field,
 `toLibraryResponse` emits it only when set. Deleting equipment performs no
-cascade write; a dangling id reads as unbound (the plan-modal hint resolves
+cascade write; a dangling id reads as unbound (the plan-editor hint resolves
 it against the inventory and shows nothing). `equipment_id` is a cloud field:
 legacy files predate it, and identity comparisons strip the per-row key. The library editor
 (`#exercise-library-modal`) gets an Equipment `<select>` (None + inventory
 names, read through the equipment module's shared cachedFetch list);
-the plan-exercise modal (`#workout-exercise-modal`) gets the same select
+the plan editor's Exercise page gets the same select (chosen from its
+Equipment value row)
 through the shared fill helper (med-niix.8) — its helper text shows the
 picked gear's step/max from the API verbatim, and saving writes the library
 row (no write on no change), so the gear applies to the exercise in every plan.
@@ -513,7 +515,7 @@ with the per-implement divisor, knapsack witness fallback, null when the kg
 is not achievable, past the knapsack span ceiling, or the gear is fixed):
 the async caller (`printWorkoutPlan`) loads `/api/workout/exercise-library`
 and the inventory via `window.WorkoutEquipment.list()`, resolves each row
-through `exercise_library_id` → `equipment_id` like the plan-modal hint,
+through `exercise_library_id` → `equipment_id` like the plan-editor hint,
 imports the domain module through the namespaced `loadEquipmentDomain` seam
 (same pattern as the QR import), and hands the pure builder one option —
 `loadingByExerciseId` (`{ [exerciseId]: { bar_kg, per_side, sides } }`).

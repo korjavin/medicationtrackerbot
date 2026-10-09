@@ -25,282 +25,411 @@ describe('features/workout/groups.js — split-file integration', () => {
     env = null;
   });
 
-  it('exposes the WorkoutGroups public-API namespace + WorkoutEdit editingGroupId accessor', () => {
+  it('exposes the WorkoutGroups public-API namespace + WorkoutEdit accessors', () => {
     const { window } = env;
     expect(window.WorkoutGroups).toBeTypeOf('object');
-    expect(window.WorkoutGroups.load).toBeTypeOf('function');
-    expect(window.WorkoutGroups.save).toBeTypeOf('function');
-    expect(window.WorkoutGroups.openAdd).toBeTypeOf('function');
-    expect(window.WorkoutGroups.openEdit).toBeTypeOf('function');
-    expect(window.WorkoutGroups.close).toBeTypeOf('function');
-
+    for (const k of ['load', 'save', 'openAdd', 'openEdit', 'close', 'addDay', 'addFlatExercise', 'share', 'printOpen', 'scanOpen', 'deleteOpen']) {
+      expect(window.WorkoutGroups[k]).toBeTypeOf('function');
+    }
     expect(window.WorkoutEdit).toBeTypeOf('object');
-    expect('editingGroupId' in window.WorkoutEdit).toBe(true);
     expect(window.WorkoutEdit.editingGroupId).toBeNull();
+    expect(window.WorkoutEdit.planDraft).toBeNull();
   });
 
-  it('showAddWorkoutGroupModal clears editingGroupId and resets the form', () => {
-    const { window, document } = env;
-    // Pre-seed editing state to confirm reset.
-    window.WorkoutEdit.editingGroupId = 999;
+  // med-xso6.22 — Plan → Day → Exercise are nested WGPages. Done on a child
+  // page only stages into the plan draft; the Plan page's Save is the one
+  // write, through DataStore.applyOptimistic, with the routes and payloads the
+  // three old modals sent.
+  describe('plan editor pages (med-xso6.22)', () => {
+    const PLAN = {
+      id: 5, name: 'PPL', description: '', is_rotating: true, active: true,
+      training_goal: 'hypertrophy', days_of_week: '[1,3]', scheduled_time: '18:00',
+      notification_advance_minutes: 15,
+    };
+    const VARIANTS = [
+      { id: 21, group_id: 5, name: 'Push', rotation_order: 0, description: '' },
+      { id: 22, group_id: 5, name: 'Pull', rotation_order: 1, description: '' },
+    ];
+    const EXERCISES = [
+      { id: 1, variant_id: 21, exercise_name: 'Bench', order_index: 0, target_sets: 3, target_reps_min: 8, target_reps_max: 12, target_weight_kg: 60 },
+      { id: 2, variant_id: 21, exercise_name: 'Dips', order_index: 1, target_sets: 3, target_reps_min: 10, target_reps_max: null, target_weight_kg: null },
+      { id: 3, variant_id: 22, exercise_name: 'Row', order_index: 0, target_sets: 4, target_reps_min: 8, target_reps_max: 10, target_weight_kg: 50 },
+    ];
 
-    window.showAddWorkoutGroupModal();
+    // Stateful in-memory backend. Every non-GET call lands in `writes`;
+    // `fail(url, method)` returning true makes that write fail (apiCall null).
+    function backend(window, { groups = [], variants = [], exercises = [], fail = () => false } = {}) {
+      let nextId = 100;
+      const writes = [];
+      const db = { groups: groups.map((g) => ({ ...g })), variants: variants.map((v) => ({ ...v })), exercises: exercises.map((e) => ({ ...e })) };
+      window.apiCall = vi.fn(async (url, method = 'GET', body = null) => {
+        if (method !== 'GET') {
+          writes.push([url, method, body]);
+          if (fail(url, method)) return null;
+        }
+        if (url === '/api/workout/groups') return db.groups;
+        if (url.startsWith('/api/workout/variants?group_id=')) {
+          const gid = Number(url.split('=')[1]);
+          return db.variants.filter((v) => v.group_id === gid);
+        }
+        if (url.startsWith('/api/workout/exercises?variant_id=')) {
+          const vid = Number(url.split('=')[1]);
+          return db.exercises.filter((e) => e.variant_id === vid);
+        }
+        if (url === '/api/workout/groups/create') { const g = { id: nextId++, active: true, ...body }; db.groups.push(g); return g; }
+        if (url === '/api/workout/variants/create') { const v = { id: nextId++, ...body }; db.variants.push(v); return v; }
+        if (url === '/api/workout/exercises/create') { const e = { id: nextId++, ...body }; db.exercises.push(e); return e; }
+        if (/\/(update|delete)\?id=/.test(url)) return true;
+        return null;
+      });
+      window.apiCallDirect = vi.fn(async (url) => (url === '/api/workout/groups' ? db.groups : null));
+      window.WorkoutLibrary = { bindExercisePicker: vi.fn(async () => {}) };
+      window.safeToast = vi.fn();
+      window.safeAlert = vi.fn();
+      // The post-save list reload is fire-and-forget; its render is the
+      // Plans-list test's business.
+      window.loadWorkoutGroups = vi.fn(async () => {});
+      return writes;
+    }
 
-    expect(window.WorkoutEdit.editingGroupId).toBeNull();
-    expect(document.getElementById('workout-group-modal-title').textContent).toBe('Add Plan');
-    expect(document.getElementById('workout-group-name').value).toBe('');
-    expect(document.getElementById('workout-group-rotating').checked).toBe(false);
-  });
+    // Wraps applyOptimistic so the test sees the handle's commit/rollback.
+    function spyOptimistic(window) {
+      const handles = [];
+      const real = window.DataStore.applyOptimistic.bind(window.DataStore);
+      window.DataStore.applyOptimistic = vi.fn(async (...args) => {
+        const h = await real(...args);
+        const rec = { commit: vi.fn((...x) => h.commit(...x)), rollback: vi.fn((...x) => h.rollback(...x)) };
+        handles.push(rec);
+        return rec;
+      });
+      return handles;
+    }
 
-  // med-xso6.10: "Repeats on" is the shared MedicationUtils .wg-picks builder.
-  it('Repeats on renders .wg-picks > .wg-pick (unpicked on Add)', () => {
-    const { window, document } = env;
-    window.showAddWorkoutGroupModal();
-    expect(document.querySelector('#workout-group-modal .days-select')).toBeNull();
-    const picks = document.querySelectorAll('#workout-group-modal .wg-picks > .wg-pick');
-    expect(picks).toHaveLength(7);
-    expect(Array.from(picks).map((p) => p.dataset.day)).toEqual(['1', '2', '3', '4', '5', '6', '0']);
-    picks.forEach((p) => expect(p.getAttribute('aria-pressed')).toBe('false'));
-  });
+    const tick = () => new Promise((r) => setTimeout(r, 0));
+    const topPage = (document) => {
+      const pages = document.querySelectorAll('mt-modal.wg-page[id^="wg-page-"]');
+      return pages[pages.length - 1] || null;
+    };
+    const rowsOf = (list) => Array.from(list.querySelectorAll(':scope > .wg-row')).map((r) => r.querySelector('.wg-row__title')?.textContent);
+    const menuItem = (row, label) => Array.from(row.querySelectorAll('.wg-menu__item')).find((b) => b.textContent === label);
+    const swipeAct = (row, label) => Array.from(row.querySelectorAll('.wg-swipe__act')).find((b) => b.textContent === label);
 
-  it('saveWorkoutGroup validates required fields without calling the API', async () => {
-    const { window, document } = env;
-    const apiCallSpy = vi.fn();
-    window.apiCall = apiCallSpy;
-    window.safeAlert = vi.fn();
+    async function openSaved(window, opts = {}) {
+      const writes = backend(window, { groups: [PLAN], variants: VARIANTS, exercises: EXERCISES, ...opts });
+      window.WorkoutEdit.cachedGroups = [PLAN];
+      await window.openWorkoutPlanPage(5);
+      return writes;
+    }
 
-    window.showAddWorkoutGroupModal();
-    document.getElementById('workout-group-name').value = '';
+    function fillExercise(document, { name, sets, repsMin }) {
+      document.getElementById('workout-exercise-name').value = name;
+      document.getElementById('workout-exercise-sets').value = String(sets);
+      document.getElementById('workout-exercise-reps-min').value = String(repsMin);
+    }
 
-    await window.saveWorkoutGroup();
+    it('the Plans tab lists kit rows with no action strip; a tap opens the Plan page', async () => {
+      const { window, document } = env;
+      backend(window, { groups: [PLAN], variants: VARIANTS, exercises: EXERCISES });
+      const container = document.getElementById('workout-groups-list');
+      window._renderWorkoutGroups(container, [PLAN, { ...PLAN, id: 6, name: 'Full body', active: false, is_rotating: false }]);
 
-    expect(apiCallSpy).not.toHaveBeenCalled();
-    expect(window.safeAlert).toHaveBeenCalledTimes(1);
-  });
+      const rows = container.querySelectorAll('.wg-workout-plan-row');
+      expect(rows).toHaveLength(2);
+      expect(container.querySelectorAll('button[aria-label="Print plan"], button[aria-label="Scan filled sheet"]')).toHaveLength(0);
+      expect(rows[0].textContent).toContain('Rotating');
+      expect(rows[1].textContent).toContain('Inactive');
 
-  it('closeWorkoutGroupModal resets the cross-file editing state on WorkoutEdit', () => {
-    const { window } = env;
-    window.WorkoutEdit.editingGroupId = 42;
-    window.WorkoutEdit.groupForVariant = 42;
-    window.WorkoutEdit.variantForExercise = 7;
-
-    window.closeWorkoutGroupModal();
-
-    expect(window.WorkoutEdit.editingGroupId).toBeNull();
-    expect(window.WorkoutEdit.groupForVariant).toBeNull();
-    expect(window.WorkoutEdit.variantForExercise).toBeNull();
-  });
-
-  // med-prk.3 Task 3 — simple-default create flow. A new Plan defaults to
-  // non-rotating: no Day/Variant editor is surfaced, the auto-created "Main"
-  // variant stays a hidden implementation detail, and an exercise can be
-  // added to the flat list without any Day/Variant/Main label appearing.
-  it('simple-default plan create: no Day/Variant/Main UI, exercise adds and lists flat', async () => {
-    const { window, document } = env;
-
-    // Stateful in-memory backend so the create → edit → add-exercise journey
-    // reads back its own writes.
-    const groups = [];
-    const variants = [];
-    const exercises = [];
-    let nextId = 1;
-
-    window.apiCall = vi.fn(async (url, method = 'GET', body = null) => {
-      if (url === '/api/workout/groups/create' && method === 'POST') {
-        const g = { id: nextId++, active: true, exercises_count: 0, ...body };
-        groups.push(g);
-        return g;
-      }
-      if (url.startsWith('/api/workout/variants?group_id=')) {
-        const gid = Number(url.split('=')[1]);
-        return variants.filter((v) => v.group_id === gid);
-      }
-      if (url === '/api/workout/variants/create' && method === 'POST') {
-        const v = { id: nextId++, ...body };
-        variants.push(v);
-        return v;
-      }
-      if (url === '/api/workout/exercise-library') return [];
-      if (url.startsWith('/api/workout/exercises?variant_id=')) {
-        const vid = Number(url.split('=')[1]);
-        return exercises.filter((e) => e.variant_id === vid);
-      }
-      if (url === '/api/workout/exercises/create' && method === 'POST') {
-        const e = { id: nextId++, ...body };
-        exercises.push(e);
-        return e;
-      }
-      return null;
+      window.WorkoutEdit.cachedGroups = [PLAN];
+      rows[0].click();
+      await vi.waitFor(() => expect(window.WorkoutEdit.planDraft).not.toBeNull());
+      expect(topPage(document).querySelector('.wg-pagebar__title').textContent).toBe('PPL');
+      expect(topPage(document).querySelector('.wg-pagebar__crumb').textContent).toBe('Edit plan');
     });
-    window.apiCallDirect = vi.fn(async (url) => (url === '/api/workout/groups' ? groups : null));
 
-    // 1) The default create modal is the simple flat flow: rotation off, the
-    //    Days/variants editor hidden, the flat exercise section shown.
-    window.showAddWorkoutGroupModal();
-    expect(document.getElementById('workout-group-modal-title').textContent).toBe('Add Plan');
-    expect(document.getElementById('workout-group-rotating').checked).toBe(false);
-    expect(document.getElementById('workout-variants-section').style.display).toBe('none');
-    expect(document.getElementById('workout-group-flat-exercises-section').style.display).toBe('block');
+    it('Add plan opens a fresh Plan page: Repeats on picks, flat exercise list, no tools rows', async () => {
+      const { window, document } = env;
+      backend(window);
+      window.WorkoutEdit.editingGroupId = 999;
 
-    document.getElementById('workout-group-name').value = 'Legs';
-    document.getElementById('workout-group-time').value = '09:00';
-    await window.saveWorkoutGroup();
-    await window.loadWorkoutGroups();
+      await window.openWorkoutPlanPage(null);
 
-    // Created non-rotating; the rendered plan row carries no Variant/Main word.
-    const createCall = window.apiCall.mock.calls.find((c) => c[0] === '/api/workout/groups/create');
-    expect(createCall[2].is_rotating).toBe(false);
-    const rowText = document.getElementById('workout-groups-list').textContent;
-    expect(rowText).toContain('Legs');
-    expect(rowText).not.toMatch(/Variant|Main/);
-
-    // 2) Opening the plan keeps the Days editor hidden and silently creates the
-    //    single "Main" variant — never labeled in the flat view.
-    await window.showEditWorkoutGroupModal(groups[0].id);
-    expect(document.getElementById('workout-variants-section').style.display).toBe('none');
-    expect(document.getElementById('workout-group-flat-exercises-section').style.display).toBe('block');
-    expect(variants).toHaveLength(1);
-    expect(variants[0].name).toBe('Main');
-
-    // 3) Add an exercise through the flat picker; it lists without Day/Variant/Main.
-    await window.showAddExerciseModal();
-    document.getElementById('workout-exercise-name').value = 'Squat';
-    document.getElementById('workout-exercise-sets').value = '3';
-    document.getElementById('workout-exercise-reps-min').value = '8';
-    document.getElementById('workout-exercise-order').value = '0';
-    await window.saveExercise();
-    // saveExercise re-renders via a fire-and-forget loadExercisesForVariant;
-    // await it directly so the assertion sees the persisted row.
-    await window.loadExercisesForVariant(window.WorkoutEdit.variantForExercise, 'workout-group-flat-exercises-list');
-
-    const flatText = document.getElementById('workout-group-flat-exercises-list').textContent;
-    expect(flatText).toContain('Squat');
-    expect(flatText).not.toMatch(/Variant|Main|\bDay\b/);
-  });
-
-  // med-prk.3 Task 4 — rotation off-switch guard. Turning "Rotate through days"
-  // off is only safe when the plan has at most one Day; with more, collapsing
-  // to a flat list would strand the extra Days' exercises.
-  it('rotation off-guard: >1 Day blocks the toggle, 1 Day allows collapse', async () => {
-    const { window, document } = env;
-    let variantList = [];
-    window.apiCall = vi.fn(async (url) => {
-      if (url.startsWith('/api/workout/variants?group_id=')) return variantList;
-      if (url === '/api/workout/exercise-library') return [];
-      if (url.startsWith('/api/workout/exercises?variant_id=')) return [];
-      return null;
+      const page = topPage(document);
+      expect(page.querySelector('.wg-pagebar__title').textContent).toBe('New plan');
+      expect(page.querySelector('.wg-pagebar__crumb').textContent).toBe('Add plan');
+      expect(window.WorkoutEdit.editingGroupId).toBeNull();
+      expect(document.getElementById('workout-group-name').value).toBe('');
+      expect(document.getElementById('workout-group-rotating').checked).toBe(false);
+      expect(page.querySelector('.days-select')).toBeNull();
+      const picks = page.querySelectorAll('.wg-picks > .wg-pick');
+      expect(Array.from(picks).map((p) => p.dataset.day)).toEqual(['1', '2', '3', '4', '5', '6', '0']);
+      picks.forEach((p) => expect(p.getAttribute('aria-pressed')).toBe('false'));
+      expect(document.getElementById('workout-variants-section').hidden).toBe(true);
+      expect(document.getElementById('workout-group-flat-exercises-section').hidden).toBe(false);
+      expect(document.getElementById('workout-group-tools').hidden).toBe(true);
     });
-    window.safeAlert = vi.fn();
-    window.WorkoutEdit.editingGroupId = 5;
 
-    // Two Days: unchecking rotation must be reverted with an alert.
-    variantList = [{ id: 1, group_id: 5, name: 'A' }, { id: 2, group_id: 5, name: 'B' }];
-    document.getElementById('workout-group-rotating').checked = false;
-    await window.toggleRotatingFields();
-    expect(document.getElementById('workout-group-rotating').checked).toBe(true);
-    expect(document.getElementById('workout-variants-section').style.display).toBe('block');
-    expect(window.safeAlert).toHaveBeenCalledTimes(1);
+    it('Save validates the name with no write and keeps the page open', async () => {
+      const { window, document } = env;
+      const writes = backend(window);
+      await window.openWorkoutPlanPage(null);
+      document.getElementById('workout-group-name').value = '';
 
-    // One Day: collapse is allowed — no alert, flat section shown.
-    window.safeAlert.mockClear();
-    variantList = [{ id: 1, group_id: 5, name: 'Main' }];
-    document.getElementById('workout-group-rotating').checked = false;
-    await window.toggleRotatingFields();
-    expect(document.getElementById('workout-group-rotating').checked).toBe(false);
-    expect(document.getElementById('workout-group-flat-exercises-section').style.display).toBe('block');
-    expect(window.safeAlert).not.toHaveBeenCalled();
-  });
+      await window.saveWorkoutGroup();
 
-  // A failed Day read (offline/5xx → apiCall null) must not fall open and
-  // collapse a possibly-multi-Day plan.
-  it('rotation off-guard: failed Day read keeps rotation on and bails', async () => {
-    const { window, document } = env;
-    window.apiCall = vi.fn(async () => null); // simulate offline/5xx everywhere
-    window.safeAlert = vi.fn();
-    window.WorkoutEdit.editingGroupId = 7;
-
-    document.getElementById('workout-group-rotating').checked = false;
-    await window.toggleRotatingFields();
-
-    expect(document.getElementById('workout-group-rotating').checked).toBe(true);
-    expect(document.getElementById('workout-variants-section').style.display).toBe('block');
-    expect(window.safeAlert).toHaveBeenCalledTimes(1);
-    // Must not have attempted to create a "Main" variant.
-    expect(window.apiCall.mock.calls.some((c) => c[0] === '/api/workout/variants/create')).toBe(false);
-  });
-
-  // Race backstop for the off-guard: a Save click landing while the async Day
-  // count is still in flight must not post the still-unchecked box and slip
-  // is_rotating:false past the guard.
-  it('rotation off-guard: Save is refused while the Day-count check is pending', async () => {
-    const { window, document } = env;
-    let releaseVariants;
-    const variantsGate = new Promise((resolve) => { releaseVariants = resolve; });
-    window.apiCall = vi.fn(async (url) => {
-      if (url.startsWith('/api/workout/variants?group_id=')) return variantsGate;
-      return null;
+      expect(writes).toHaveLength(0);
+      expect(window.safeAlert).toHaveBeenCalledTimes(1);
+      expect(window.WorkoutEdit.planDraft).not.toBeNull();
     });
-    window.safeAlert = vi.fn();
-    window.WorkoutEdit.editingGroupId = 9;
-    document.getElementById('workout-group-name').value = 'Legs';
-    document.getElementById('workout-group-time').value = '08:00';
 
-    // User unchecks and the guard starts fetching (do NOT await it).
-    document.getElementById('workout-group-rotating').checked = false;
-    const togglePromise = window.toggleRotatingFields();
+    it('flat create: exercise Done stages with no write; one Save writes group → Main → exercise', async () => {
+      const { window, document } = env;
+      const writes = backend(window);
+      const handles = spyOptimistic(window);
+      await window.openWorkoutPlanPage(null);
+      document.getElementById('workout-group-name').value = 'Legs';
+      document.getElementById('workout-group-time').value = '09:00';
 
-    // A Save click during that window must bail without an update POST.
-    await window.saveWorkoutGroup();
-    expect(window.apiCall.mock.calls.some((c) => c[0].startsWith('/api/workout/groups/update'))).toBe(false);
-    expect(window.safeAlert).toHaveBeenCalledTimes(1);
+      await window.addWorkoutFlatExercise();
+      expect(topPage(document).querySelector('.wg-pagebar__title').textContent).toBe('New exercise');
+      fillExercise(document, { name: 'Squat', sets: 3, repsMin: 8 });
+      window.stageExercise();
 
-    // Guard resolves to a multi-Day plan → checkbox re-checked, no longer pending.
-    releaseVariants([{ id: 1 }, { id: 2 }]);
-    await togglePromise;
-    expect(document.getElementById('workout-group-rotating').checked).toBe(true);
-    expect(window.WorkoutEdit.rotatingGuardPending).toBe(0);
-  });
+      expect(writes).toHaveLength(0);
+      const flatText = document.getElementById('workout-group-flat-exercises-list').textContent;
+      expect(flatText).toContain('Squat');
+      expect(flatText).not.toMatch(/Variant|Main|\bDay\b/);
 
-  // Overlapping handlers: a rapid off/on/off leaves an earlier handler finishing
-  // first. A bool guard would open on that finish while the last off-check is
-  // still pending; the counter keeps it closed until every handler settles.
-  it('rotation off-guard: overlapping toggles keep the guard closed until all settle', async () => {
-    const { window, document } = env;
-    const gates = [];
-    window.apiCall = vi.fn(async (url) => {
-      if (url.startsWith('/api/workout/variants?group_id=')) {
-        return new Promise((resolve) => { gates.push(resolve); });
+      await window.saveWorkoutGroup();
+
+      expect(writes.map(([u, m]) => `${m} ${u}`)).toEqual([
+        'POST /api/workout/groups/create',
+        'POST /api/workout/variants/create',
+        'POST /api/workout/exercises/create',
+      ]);
+      expect(writes[0][2]).toEqual({
+        name: 'Legs', description: '', is_rotating: false, days_of_week: '[]',
+        scheduled_time: '09:00', notification_advance_minutes: 15, training_goal: 'hypertrophy',
+      });
+      expect(writes[1][2]).toEqual({ group_id: 100, name: 'Main', rotation_order: null, description: '' });
+      expect(writes[2][2]).toEqual({
+        variant_id: 101, exercise_name: 'Squat', target_sets: 3, target_reps_min: 8, target_reps_max: 12,
+        target_weight_kg: null, order_index: 0, progression_rule: { type: 'double', increment_kg: 2.5 }, training_goal: '',
+      });
+      expect(window.DataStore.applyOptimistic).toHaveBeenCalledWith('workout_groups', expect.any(Function), ['workout']);
+      expect(handles[0].commit).toHaveBeenCalledTimes(1);
+      expect(handles[0].rollback).not.toHaveBeenCalled();
+      expect(window.WorkoutEdit.planDraft).toBeNull();
+      expect(document.querySelectorAll('mt-modal.wg-page[id^="wg-page-"]')).toHaveLength(0);
+      // The Plans list reloads with the new plan.
+      expect(window.loadWorkoutGroups).toHaveBeenCalled();
+    });
+
+    it('rotating edit: Exercise Done then Day Done stage with no write; Save writes only what changed', async () => {
+      const { window, document } = env;
+      const writes = await openSaved(window);
+      expect(rowsOf(document.getElementById('workout-variants-list'))).toEqual(['Push', 'Pull']);
+
+      // Tap the Push row → Day page; tap Bench → Exercise page.
+      document.querySelector('#workout-variants-list .wg-workout-day-row').click();
+      expect(topPage(document).querySelector('.wg-pagebar__title').textContent).toBe('Push');
+      expect(rowsOf(document.getElementById('workout-exercises-list'))).toEqual(['Bench', 'Dips']);
+      document.querySelector('#workout-exercises-list .wg-workout-exercise-row').click();
+      await vi.waitFor(() => expect(window.WorkoutEdit.exerciseTarget?.snapshot).toBeTruthy());
+      expect(document.getElementById('workout-exercise-name').value).toBe('Bench');
+
+      document.getElementById('workout-exercise-sets').value = '5';
+      window.stageExercise();
+      document.getElementById('workout-variant-name').value = 'Push A';
+      window.stageWorkoutDay();
+
+      expect(writes).toHaveLength(0);
+      expect(rowsOf(document.getElementById('workout-variants-list'))).toEqual(['Push A', 'Pull']);
+
+      await window.saveWorkoutGroup();
+
+      expect(writes.map(([u, m]) => `${m} ${u}`)).toEqual([
+        'PUT /api/workout/groups/update?id=5',
+        'PUT /api/workout/variants/update?id=21',
+        'PUT /api/workout/exercises/update?id=1',
+      ]);
+      expect(writes[0][2]).toMatchObject({ name: 'PPL', is_rotating: true, days_of_week: '[1,3]', active: true });
+      expect(writes[1][2]).toEqual({ group_id: 5, name: 'Push A', rotation_order: 0, description: '' });
+      expect(writes[2][2]).toMatchObject({ variant_id: 21, exercise_name: 'Bench', target_sets: 5, order_index: 0 });
+    });
+
+    it('Day rows reorder by overflow Move down and by grip drag; Save renumbers rotation_order', async () => {
+      const { window, document } = env;
+      const writes = await openSaved(window);
+      const list = document.getElementById('workout-variants-list');
+
+      const first = list.querySelector('.wg-workout-day-row');
+      expect(menuItem(first, 'Move up')).toBeUndefined();
+      menuItem(first, 'Move down').click();
+      expect(rowsOf(list)).toEqual(['Pull', 'Push']);
+
+      // Drag the first row's grip past the last row (jsdom rects are all 0).
+      const grip = list.querySelector('.wg-workout-day-row .wg-grip');
+      grip.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true, clientY: 0 }));
+      grip.dispatchEvent(new window.MouseEvent('pointerup', { bubbles: true, clientY: 50 }));
+      expect(rowsOf(list)).toEqual(['Push', 'Pull']);
+      menuItem(list.querySelector('.wg-workout-day-row'), 'Move down').click();
+      expect(rowsOf(list)).toEqual(['Pull', 'Push']);
+      expect(writes).toHaveLength(0);
+
+      await window.saveWorkoutGroup();
+
+      const dayWrites = writes.filter(([u]) => u.startsWith('/api/workout/variants/update'));
+      expect(dayWrites.map(([u, , b]) => [u, b.name, b.rotation_order])).toEqual([
+        ['/api/workout/variants/update?id=22', 'Pull', 0],
+        ['/api/workout/variants/update?id=21', 'Push', 1],
+      ]);
+      expect(writes.some(([u]) => u.includes('/exercises/'))).toBe(false);
+    });
+
+    it('exercise rows swipe to Copy / Remove (staged); Save deletes, creates and renumbers', async () => {
+      const { window, document } = env;
+      const writes = await openSaved(window);
+      document.querySelector('#workout-variants-list .wg-workout-day-row').click();
+      const list = document.getElementById('workout-exercises-list');
+
+      const bench = list.querySelector('.wg-workout-exercise-row');
+      expect(Array.from(bench.querySelectorAll('.wg-swipe__act')).map((b) => b.textContent)).toEqual(['Copy', 'Remove']);
+      swipeAct(bench, 'Copy').click();
+      expect(rowsOf(list)).toEqual(['Bench', 'Bench', 'Dips']);
+      swipeAct(list.querySelectorAll('.wg-workout-exercise-row')[2], 'Remove').click();
+      expect(rowsOf(list)).toEqual(['Bench', 'Bench']);
+      window.stageWorkoutDay();
+      expect(writes).toHaveLength(0);
+
+      await window.saveWorkoutGroup();
+
+      expect(writes.map(([u, m]) => `${m} ${u}`)).toEqual([
+        'PUT /api/workout/groups/update?id=5',
+        'DELETE /api/workout/exercises/delete?id=2',
+        'POST /api/workout/exercises/create',
+      ]);
+      expect(writes[2][2]).toMatchObject({ variant_id: 21, exercise_name: 'Bench', target_sets: 3, target_weight_kg: 60, order_index: 1 });
+    });
+
+    it('rotation guard: >1 Day keeps "Rotate through days" on; 1 Day collapses to the flat list', async () => {
+      const { window, document } = env;
+      await openSaved(window);
+      const cb = document.getElementById('workout-group-rotating');
+
+      cb.checked = false;
+      window.toggleRotatingFields();
+      expect(cb.checked).toBe(true);
+      expect(window.safeToast).toHaveBeenCalledTimes(1);
+      expect(document.getElementById('workout-variants-section').hidden).toBe(false);
+
+      // Remove Pull (staged), then the switch-off is allowed.
+      window.safeConfirm = vi.fn(async () => true);
+      await window.removeWorkoutPlanDay(window.WorkoutEdit.planDraft.days[1]);
+      expect(window.WorkoutEdit.planDraft.removedDays).toEqual([22]);
+      window.safeToast.mockClear();
+      cb.checked = false;
+      window.toggleRotatingFields();
+      expect(cb.checked).toBe(false);
+      expect(window.safeToast).not.toHaveBeenCalled();
+      expect(document.getElementById('workout-group-flat-exercises-section').hidden).toBe(false);
+      expect(rowsOf(document.getElementById('workout-group-flat-exercises-list'))).toEqual(['Bench', 'Dips']);
+    });
+
+    it('a failed write rolls back, keeps the page and draft open; the retry resumes without duplicating', async () => {
+      const { window, document } = env;
+      let failDays = true;
+      const writes = backend(window, { fail: (url) => failDays && url === '/api/workout/variants/create' });
+      const handles = spyOptimistic(window);
+      await window.openWorkoutPlanPage(null);
+      document.getElementById('workout-group-name').value = 'Legs';
+      await window.addWorkoutFlatExercise();
+      fillExercise(document, { name: 'Squat', sets: 3, repsMin: 8 });
+      window.stageExercise();
+
+      await window.saveWorkoutGroup();
+
+      expect(handles[0].rollback).toHaveBeenCalledTimes(1);
+      expect(handles[0].commit).not.toHaveBeenCalled();
+      expect(window.safeToast).toHaveBeenCalledWith(expect.stringContaining('Couldn\'t save the plan'), 'error');
+      expect(window.WorkoutEdit.planDraft).not.toBeNull();
+      expect(topPage(document)).not.toBeNull();
+
+      failDays = false;
+      writes.length = 0;
+      await window.saveWorkoutGroup();
+
+      expect(writes.map(([u, m]) => `${m} ${u}`)).toEqual([
+        'PUT /api/workout/groups/update?id=100',
+        'POST /api/workout/variants/create',
+        'POST /api/workout/exercises/create',
+      ]);
+      expect(handles[1].commit).toHaveBeenCalledTimes(1);
+      expect(window.WorkoutEdit.planDraft).toBeNull();
+      expect(window.loadWorkoutGroups).toHaveBeenCalled();
+    });
+
+    it('Back with unsaved changes asks first; Keep editing stays on the page', async () => {
+      const { window, document } = env;
+      await openSaved(window);
+      window.safeConfirm = vi.fn(async () => false);
+      document.getElementById('workout-group-name').value = 'Renamed';
+
+      topPage(document).querySelector('.wg-back').click();
+      await tick();
+
+      expect(window.safeConfirm).toHaveBeenCalledTimes(1);
+      expect(window.WorkoutEdit.planDraft).not.toBeNull();
+
+      // Clean form: Back leaves at once.
+      document.getElementById('workout-group-name').value = 'PPL';
+      window.safeConfirm.mockClear();
+      topPage(document).querySelector('.wg-back').click();
+      await tick();
+      expect(window.safeConfirm).not.toHaveBeenCalled();
+      expect(window.WorkoutEdit.planDraft).toBeNull();
+    });
+
+    it('a saved plan carries Share / Print / Scan / Delete rows on its page', async () => {
+      const { window, document } = env;
+      await openSaved(window);
+      expect(document.getElementById('workout-group-tools').hidden).toBe(false);
+
+      const printSpy = vi.fn();
+      window.WorkoutGroups.print = printSpy;
+      document.getElementById('workout-group-print-btn').click();
+      expect(printSpy).toHaveBeenCalledTimes(1);
+      expect(printSpy.mock.calls[0][0].id).toBe(5);
+
+      const scanSpy = vi.fn();
+      window.WorkoutScan.scan = scanSpy;
+      window.renderWorkoutPlanBody();
+      expect(document.getElementById('workout-group-scan-btn').hidden).toBe(false);
+      document.getElementById('workout-group-scan-btn').click();
+      expect(scanSpy).toHaveBeenCalledTimes(1);
+      expect(scanSpy.mock.calls[0][0].id).toBe(5);
+
+      const shareSpy = vi.fn();
+      window.WorkoutShare.share = shareSpy;
+      document.getElementById('workout-group-share-btn').click();
+      expect(shareSpy).toHaveBeenCalledTimes(1);
+      expect(shareSpy.mock.calls[0][0].id).toBe(5);
+
+      // Without the WorkoutScan seam the Scan row is hidden.
+      const kept = window.WorkoutScan;
+      delete window.WorkoutScan;
+      try {
+        window.renderWorkoutPlanBody();
+        expect(document.getElementById('workout-group-scan-btn').hidden).toBe(true);
+      } finally {
+        window.WorkoutScan = kept;
       }
-      return null;
+
+      window.safeConfirm = vi.fn(async () => true);
+      const writes = window.apiCall.mock.calls;
+      document.getElementById('workout-group-delete-btn').click();
+      await vi.waitFor(() => expect(writes.some(([u, m]) => m === 'DELETE' && u.startsWith('/api/workout/groups/delete'))).toBe(true));
+      expect(window.WorkoutEdit.planDraft).toBeNull();
     });
-    window.safeAlert = vi.fn();
-    window.WorkoutEdit.editingGroupId = 9;
-    document.getElementById('workout-group-name').value = 'Legs';
-    document.getElementById('workout-group-time').value = '08:00';
-
-    const cb = document.getElementById('workout-group-rotating');
-    // off, on, off: three overlapping handlers, each gated on its variants fetch.
-    // Gates are pushed in call order → gates[1] is the "on" handler's fetch.
-    cb.checked = false;
-    const p1 = window.toggleRotatingFields();
-    cb.checked = true;
-    const p2 = window.toggleRotatingFields();
-    cb.checked = false;
-    const p3 = window.toggleRotatingFields();
-
-    // Let the middle "on" handler finish first (a bool guard would open here).
-    gates[1]([{ id: 1 }, { id: 2 }]);
-    await p2;
-
-    // Save must still be refused: two off-checks remain in flight.
-    await window.saveWorkoutGroup();
-    expect(window.apiCall.mock.calls.some((c) => c[0].startsWith('/api/workout/groups/update'))).toBe(false);
-
-    // Release both off-check fetches as multi-Day → box re-checked, guard clear.
-    gates[0]([{ id: 1 }, { id: 2 }]);
-    gates[2]([{ id: 1 }, { id: 2 }]);
-    await Promise.all([p1, p3]);
-    expect(window.WorkoutEdit.rotatingGuardPending).toBe(0);
   });
 });
 
@@ -366,24 +495,6 @@ describe('features/workout/groups.js — printable plan sheet (med-ac5h)', () =>
     env = null;
   });
 
-  it('every Plan row gets a Print button that does not open the Edit modal', () => {
-    const { window, document } = env;
-    const container = document.getElementById('workout-groups-list');
-    window._renderWorkoutGroups(container, [GROUP, { ...GROUP, id: 6, name: 'Full body' }]);
-
-    const buttons = container.querySelectorAll('button[aria-label="Print plan"]');
-    expect(buttons.length).toBe(2);
-
-    const printSpy = vi.fn();
-    window.WorkoutGroups.print = printSpy;
-    const openEdit = vi.fn();
-    window.showEditWorkoutGroupModal = openEdit;
-    buttons[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-
-    expect(printSpy).toHaveBeenCalledTimes(1);
-    expect(printSpy.mock.calls[0][0].id).toBe(5);
-    expect(openEdit).not.toHaveBeenCalled();
-  });
 
   it('printing a rotating plan hands print-doc.js the whole sheet in rotation order', async () => {
     const { window } = env;
@@ -559,39 +670,6 @@ describe('features/workout/groups.js — scan-back anchors (med-qj4.9)', () => {
     expect(printed[0]).not.toContain('<figure class="qr">');
   });
 
-  it('every Plan row gets a Scan button next to Print, and it does not open Edit', () => {
-    const { window, document } = env;
-    const container = document.getElementById('workout-groups-list');
-
-    window._renderWorkoutGroups(container, [GROUP]);
-    const scanButtons = container.querySelectorAll('button[aria-label="Scan filled sheet"]');
-    expect(scanButtons).toHaveLength(1);
-    expect(container.querySelectorAll('button[aria-label="Print plan"]')).toHaveLength(1);
-
-    const scanSpy = vi.fn();
-    window.WorkoutScan.scan = scanSpy;
-    const openEdit = vi.fn();
-    window.showEditWorkoutGroupModal = openEdit;
-    scanButtons[0].dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-
-    expect(scanSpy).toHaveBeenCalledTimes(1);
-    expect(scanSpy.mock.calls[0][0].id).toBe(5);
-    expect(openEdit).not.toHaveBeenCalled();
-  });
-
-  it('omits the Scan button when the WorkoutScan seam is absent', () => {
-    const { window, document } = env;
-    const container = document.getElementById('workout-groups-list');
-    const kept = window.WorkoutScan;
-    delete window.WorkoutScan;
-    try {
-      window._renderWorkoutGroups(container, [GROUP]);
-      expect(container.querySelectorAll('button[aria-label="Scan filled sheet"]')).toHaveLength(0);
-      expect(container.querySelectorAll('button[aria-label="Print plan"]')).toHaveLength(1);
-    } finally {
-      window.WorkoutScan = kept;
-    }
-  });
 });
 
 // bd med-niix.6 — printed sheet plate-loading diagrams: the builder only

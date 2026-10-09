@@ -22,80 +22,131 @@ describe('features/workout/exercises.js — split-file integration', () => {
     env = null;
   });
 
-  it('exposes the WorkoutExercises public-API namespace + WorkoutEdit accessors', () => {
+  // The Exercise page is a nested WGPage (med-xso6.22): its Done stages the
+  // payload onto the draft Day and the Plan page's Save writes it (the write
+  // itself is pinned in features.workout-groups.test.js). These helpers open
+  // the page the way the Day page does, and replay a staged payload as the
+  // row write the Plan Save sends, so the payload asserts below read the same.
+  async function openAdd(window) {
+    window.closeExercisePage();
+    return window.showAddExercisePage();
+  }
+
+  // Stands in for the Day page: the row record comes from the exercises read.
+  async function openEdit(window, id) {
+    window.closeExercisePage();
+    const rows = await window.apiCall('/api/workout/exercises?variant_id=1');
+    const rec = (rows || []).find((r) => r.id === id);
+    return window.showEditExercisePage(null, { id, rec, payload: null });
+  }
+
+  async function stageSave(window) {
+    const target = window.WorkoutEdit.exerciseTarget;
+    const id = target && target.entry ? target.entry.id : null;
+    const payload = window.stageExercise();
+    if (!payload) return null;
+    if (id) await window.apiCall(`/api/workout/exercises/update?id=${id}`, 'PUT', payload);
+    else await window.apiCall('/api/workout/exercises/create', 'POST', { variant_id: 1, ...payload });
+    return payload;
+  }
+
+  it('exposes the WorkoutExercises page API + the WorkoutEdit target accessor', () => {
     const { window } = env;
     expect(window.WorkoutExercises).toBeTypeOf('object');
-    expect(window.WorkoutExercises.load).toBeTypeOf('function');
-    expect(window.WorkoutExercises.save).toBeTypeOf('function');
-    expect(window.WorkoutExercises.openAdd).toBeTypeOf('function');
-    expect(window.WorkoutExercises.openEdit).toBeTypeOf('function');
-    expect(window.WorkoutExercises.close).toBeTypeOf('function');
-    expect(window.WorkoutExercises.delete).toBeTypeOf('function');
-
-    expect('editingExerciseId' in window.WorkoutEdit).toBe(true);
-    expect('variantForExercise' in window.WorkoutEdit).toBe(true);
-    expect('exercisesContainerId' in window.WorkoutEdit).toBe(true);
-    expect(window.WorkoutEdit.editingExerciseId).toBeNull();
-    expect(window.WorkoutEdit.variantForExercise).toBeNull();
-    expect(window.WorkoutEdit.exercisesContainerId).toBe('workout-exercises-list');
+    for (const k of ['openAdd', 'openEdit', 'close', 'done', 'buildPayload', 'renderRows', 'chooseEquipment', 'applySuggestion']) {
+      expect(window.WorkoutExercises[k]).toBeTypeOf('function');
+    }
+    expect('exerciseTarget' in window.WorkoutEdit).toBe(true);
+    expect(window.WorkoutEdit.exerciseTarget).toBeNull();
   });
 
-  it('saveExercise validates required fields without calling the API', async () => {
+  it('Done validates required fields: alert, no staging, the page stays open', async () => {
     const { window, document } = env;
-    const apiCallSpy = vi.fn();
+    const apiCallSpy = vi.fn(async () => []);
     window.apiCall = apiCallSpy;
     window.safeAlert = vi.fn();
+    window.WorkoutLibrary = { bindExercisePicker: vi.fn(async () => {}) };
+    const day = { id: 1, exercises: [], removed: [] };
+    await window.showAddExercisePage(day);
+    apiCallSpy.mockClear();
 
-    // Set variant context but leave name/sets/reps empty
-    window.WorkoutEdit.variantForExercise = 1;
     document.getElementById('workout-exercise-name').value = '';
     document.getElementById('workout-exercise-sets').value = '';
     document.getElementById('workout-exercise-reps-min').value = '';
 
-    await window.saveExercise();
+    expect(window.stageExercise()).toBeNull();
 
     expect(apiCallSpy).not.toHaveBeenCalled();
     expect(window.safeAlert).toHaveBeenCalledTimes(1);
+    expect(day.exercises).toHaveLength(0);
+    expect(window.WorkoutEdit.exerciseTarget).not.toBeNull();
   });
 
-  it('closeExerciseModal clears the closure-private editingExerciseId', () => {
-    const { window } = env;
-    window.WorkoutEdit.editingExerciseId = 77;
+  it('Done stages onto the draft Day with no network write; a re-edit merges the staged payload', async () => {
+    const { window, document } = env;
+    const apiCallSpy = vi.fn(async () => []);
+    window.apiCall = apiCallSpy;
+    window.WorkoutLibrary = { bindExercisePicker: vi.fn(async () => {}) };
+    const onStaged = vi.fn();
+    const rec = { id: 7, exercise_name: 'Bench', target_sets: 3, target_reps_min: 8, target_reps_max: 10, target_weight_kg: 40 };
+    const day = { id: 1, exercises: [{ id: 7, rec, payload: null }], removed: [] };
 
-    window.closeExerciseModal();
+    await window.showEditExercisePage(day, day.exercises[0], onStaged);
+    expect(document.getElementById('workout-exercise-name').value).toBe('Bench');
+    document.getElementById('workout-exercise-sets').value = '5';
+    window.stageExercise();
 
-    expect(window.WorkoutEdit.editingExerciseId).toBeNull();
+    const writes = apiCallSpy.mock.calls.filter(([, m]) => m && m !== 'GET');
+    expect(writes).toHaveLength(0);
+    expect(onStaged).toHaveBeenCalledTimes(1);
+    expect(window.WorkoutEdit.exerciseTarget).toBeNull();
+    expect(day.exercises[0].payload).toMatchObject({ exercise_name: 'Bench', target_sets: 5 });
+    expect(window.workoutExerciseView(day.exercises[0]).target_sets).toBe(5);
+
+    // Add pushes a new unsaved entry.
+    await window.showAddExercisePage(day, onStaged);
+    document.getElementById('workout-exercise-name').value = 'Row';
+    document.getElementById('workout-exercise-sets').value = '3';
+    document.getElementById('workout-exercise-reps-min').value = '8';
+    window.stageExercise();
+    expect(day.exercises).toHaveLength(2);
+    expect(day.exercises[1]).toMatchObject({ id: null, rec: null, payload: { exercise_name: 'Row' } });
   });
 
-  it('exercisesContainerId setter defaults to workout-exercises-list when set to falsy', () => {
-    const { window } = env;
-    window.WorkoutEdit.exercisesContainerId = 'workout-group-flat-exercises-list';
-    expect(window.WorkoutEdit.exercisesContainerId).toBe('workout-group-flat-exercises-list');
-
-    window.WorkoutEdit.exercisesContainerId = '';
-    expect(window.WorkoutEdit.exercisesContainerId).toBe('workout-exercises-list');
+  it('the Exercise page carries steppers, a From-plan goal seg, and an equipment value row', () => {
+    const { document } = env;
+    const page = document.querySelector('[data-workout-page="exercise"]');
+    for (const id of ['workout-exercise-sets', 'workout-exercise-reps-min', 'workout-exercise-reps-max', 'workout-exercise-weight']) {
+      const input = document.getElementById(id);
+      expect(input.closest('.wg-stepper')).not.toBeNull();
+      expect(page.querySelectorAll(`[data-step-for="${id}"]`)).toHaveLength(2);
+    }
+    const goalOpts = Array.from(page.querySelectorAll('[data-seg-for="workout-exercise-goal"] [data-value]'));
+    expect(goalOpts[0].dataset.value).toBe('');
+    expect(goalOpts[0].textContent).toContain('From plan');
+    expect(document.getElementById('workout-exercise-equipment-row')).not.toBeNull();
+    expect(document.getElementById('workout-exercise-suggest-card')).not.toBeNull();
+    expect(document.getElementById('workout-exercise-order')).toBeNull();
   });
-
   describe('progression-rule selector (Phase 4, med-qj4.4.1)', () => {
-    it('renders the progression select + increment input in the exercise modal', () => {
+    it('renders the progression seg + increment input on the exercise page', () => {
       const { document } = env;
-      const select = document.getElementById('workout-exercise-progression');
-      expect(select).not.toBeNull();
-      expect(select.tagName).toBe('SELECT');
-      expect(Array.from(select.options).map(o => o.value)).toEqual(['none', 'linear', 'double']);
+      const input = document.getElementById('workout-exercise-progression');
+      expect(input).not.toBeNull();
+      expect(input.type).toBe('hidden');
+      const opts = document.querySelectorAll('[data-seg-for="workout-exercise-progression"] [data-value]');
+      expect(Array.from(opts).map(o => o.dataset.value)).toEqual(['none', 'linear', 'double']);
 
       const increment = document.getElementById('workout-exercise-progression-increment');
       expect(increment).not.toBeNull();
       expect(increment.type).toBe('number');
     });
 
-    it('saveExercise includes a linear progression_rule with the increment in the payload', async () => {
+    it('Done includes a linear progression_rule with the increment in the payload', async () => {
       const { window, document } = env;
       const apiSpy = vi.fn(async () => ({ ok: true }));
       window.apiCall = apiSpy;
       window.invalidateWorkoutCache = vi.fn(async () => {});
-      window.loadExercisesForVariant = vi.fn();
-      window.WorkoutEdit.variantForExercise = 3;
 
       document.getElementById('workout-exercise-name').value = 'Squat';
       document.getElementById('workout-exercise-sets').value = '4';
@@ -103,7 +154,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
       document.getElementById('workout-exercise-progression').value = 'linear';
       document.getElementById('workout-exercise-progression-increment').value = '5';
 
-      await window.saveExercise();
+      await stageSave(window);
 
       expect(apiSpy).toHaveBeenCalledWith(
         '/api/workout/exercises/create',
@@ -114,34 +165,31 @@ describe('features/workout/exercises.js — split-file integration', () => {
       );
     });
 
-    it('saveExercise sends {type:none} when progression is None', async () => {
+    it('Done sends {type:none} when progression is None', async () => {
       const { window, document } = env;
       const apiSpy = vi.fn(async () => ({ ok: true }));
       window.apiCall = apiSpy;
       window.invalidateWorkoutCache = vi.fn(async () => {});
-      window.loadExercisesForVariant = vi.fn();
-      window.WorkoutEdit.variantForExercise = 3;
 
       document.getElementById('workout-exercise-name').value = 'Squat';
       document.getElementById('workout-exercise-sets').value = '4';
       document.getElementById('workout-exercise-reps-min').value = '8';
       document.getElementById('workout-exercise-progression').value = 'none';
 
-      await window.saveExercise();
+      await stageSave(window);
 
       expect(apiSpy.mock.calls[0][2].progression_rule).toEqual({ type: 'none' });
     });
 
-    it('showAddExerciseModal clears the increment and seeds progression from the routine goal', async () => {
+    it('Add clears the increment and seeds progression from the routine goal', async () => {
       const { window, document } = env;
-      window.WorkoutEdit.variantForExercise = 1;
       window.apiCall = vi.fn(async () => []);
       window.WorkoutLibrary = { bindExercisePicker: vi.fn(async () => {}) };
 
       document.getElementById('workout-exercise-progression').value = 'linear';
       document.getElementById('workout-exercise-progression-increment').value = '10';
 
-      await window.showAddExerciseModal();
+      await openAdd(window);
 
       // No cached routine → the cascade defaults to hypertrophy (double); the
       // stale increment is still cleared by the reset.
@@ -149,9 +197,8 @@ describe('features/workout/exercises.js — split-file integration', () => {
       expect(document.getElementById('workout-exercise-progression-increment').value).toBe('');
     });
 
-    it('showEditExerciseModal populates the selector from the exercise progression_rule', async () => {
+    it('Edit populates the selector from the exercise progression_rule', async () => {
       const { window, document } = env;
-      window.WorkoutEdit.variantForExercise = 1;
       window.apiCall = vi.fn(async () => [{
         id: 7,
         exercise_name: 'Bench',
@@ -163,7 +210,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
         progression_rule: { type: 'linear', increment_kg: 2.5 }
       }]);
 
-      await window.showEditExerciseModal(7);
+      await openEdit(window, 7);
 
       expect(document.getElementById('workout-exercise-progression').value).toBe('linear');
       expect(document.getElementById('workout-exercise-progression-increment').value).toBe('2.5');
@@ -173,25 +220,25 @@ describe('features/workout/exercises.js — split-file integration', () => {
   describe('training-goal override + cascade (med-qj4.6.1)', () => {
     function seedRoutine(goal) {
       env.window.WorkoutEdit.cachedGroups = [{ id: 5, training_goal: goal }];
-      env.window.WorkoutEdit.groupForVariant = 5;
-      env.window.WorkoutEdit.variantForExercise = 1;
+      env.window.WorkoutEdit.editingGroupId = 5;
     }
 
     it('renders the goal selector with Inherit + the four goals', () => {
       const { document } = env;
       const sel = document.getElementById('workout-exercise-goal');
       expect(sel).not.toBeNull();
-      expect(sel.tagName).toBe('SELECT');
-      expect(Array.from(sel.options).map(o => o.value)).toEqual(['', 'strength', 'hypertrophy', 'endurance', 'general']);
+      expect(sel.type).toBe('hidden');
+      const opts = document.querySelectorAll('[data-seg-for="workout-exercise-goal"] [data-value]');
+      expect(Array.from(opts).map(o => o.dataset.value)).toEqual(['', 'strength', 'hypertrophy', 'endurance', 'general']);
     });
 
-    it('showAddExerciseModal inherits the routine goal and pre-fills its defaults', async () => {
+    it('Add inherits the routine goal and pre-fills its defaults', async () => {
       const { window, document } = env;
       seedRoutine('strength');
       window.apiCall = vi.fn(async () => []);
       window.WorkoutLibrary = { bindExercisePicker: vi.fn(async () => {}) };
 
-      await window.showAddExerciseModal();
+      await openAdd(window);
 
       expect(document.getElementById('workout-exercise-goal').value).toBe('');
       expect(document.getElementById('workout-exercise-reps-min').value).toBe('3');
@@ -204,7 +251,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
       seedRoutine('strength');
       window.apiCall = vi.fn(async () => []);
       window.WorkoutLibrary = { bindExercisePicker: vi.fn(async () => {}) };
-      await window.showAddExerciseModal();
+      await openAdd(window);
 
       const sel = document.getElementById('workout-exercise-goal');
       sel.value = 'endurance';
@@ -220,7 +267,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
       seedRoutine('strength');
       window.apiCall = vi.fn(async () => []);
       window.WorkoutLibrary = { bindExercisePicker: vi.fn(async () => {}) };
-      await window.showAddExerciseModal();
+      await openAdd(window);
 
       const sel = document.getElementById('workout-exercise-goal');
       sel.value = '';
@@ -230,18 +277,18 @@ describe('features/workout/exercises.js — split-file integration', () => {
       expect(document.getElementById('workout-exercise-reps-max').value).toBe('6');
     });
 
-    it('an unsaved live goal change (group modal open) wins over stale cachedGroups', async () => {
+    it('an unsaved live goal change (Plan page open) wins over stale cachedGroups', async () => {
       const { window, document } = env;
       // Saved goal is hypertrophy; user opened the plan editor and switched the
       // goal to strength but has NOT saved yet, so cachedGroups is still stale.
       seedRoutine('hypertrophy');
-      const groupModal = document.getElementById('workout-group-modal');
-      groupModal.classList.remove('hidden');
-      document.getElementById('workout-group-goal').value = 'strength';
       window.apiCall = vi.fn(async () => []);
+      await window.openWorkoutPlanPage(5);
+      expect(window.WorkoutEdit.planDraft).not.toBeNull();
+      document.getElementById('workout-group-goal').value = 'strength';
       window.WorkoutLibrary = { bindExercisePicker: vi.fn(async () => {}) };
 
-      await window.showAddExerciseModal();
+      await openAdd(window);
 
       // Cascade seeds strength defaults (3/6, linear), not the stale hypertrophy.
       expect(document.getElementById('workout-exercise-reps-min').value).toBe('3');
@@ -249,7 +296,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
       expect(document.getElementById('workout-exercise-progression').value).toBe('linear');
     });
 
-    it('showEditExerciseModal shows the stored override without clobbering stored fields', async () => {
+    it('Edit shows the stored override without clobbering stored fields', async () => {
       const { window, document } = env;
       seedRoutine('strength');
       window.apiCall = vi.fn(async () => [{
@@ -263,7 +310,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
         training_goal: 'endurance'
       }]);
 
-      await window.showEditExerciseModal(9);
+      await openEdit(window, 9);
 
       expect(document.getElementById('workout-exercise-goal').value).toBe('endurance');
       // Stored values kept — the cascade only fires on a change, not on open.
@@ -282,7 +329,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
           ? [{ id: 4, name: 'Curl', default_reps_min: 12, default_reps_max: 15 }]
           : []
       ));
-      await window.showAddExerciseModal();
+      await openAdd(window);
 
       // Now edit an existing exercise with the user's own 5–8 rep targets.
       window.apiCall = vi.fn(async () => [{
@@ -295,7 +342,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
         progression_rule: { type: 'linear', increment_kg: 2.5 },
         training_goal: ''
       }]);
-      await window.showEditExerciseModal(9);
+      await openEdit(window, 9);
 
       // User renames to a library match — the leaked picker must NOT overwrite
       // the stored reps in Edit mode.
@@ -309,20 +356,18 @@ describe('features/workout/exercises.js — split-file integration', () => {
       expect(document.getElementById('workout-exercise-reps-max').value).toBe('8');
     });
 
-    it('saveExercise includes the training_goal override in the payload', async () => {
+    it('Done includes the training_goal override in the payload', async () => {
       const { window, document } = env;
       const apiSpy = vi.fn(async () => ({ ok: true }));
       window.apiCall = apiSpy;
       window.invalidateWorkoutCache = vi.fn(async () => {});
-      window.loadExercisesForVariant = vi.fn();
-      window.WorkoutEdit.variantForExercise = 3;
 
       document.getElementById('workout-exercise-name').value = 'Squat';
       document.getElementById('workout-exercise-sets').value = '4';
       document.getElementById('workout-exercise-reps-min').value = '8';
       document.getElementById('workout-exercise-goal').value = 'strength';
 
-      await window.saveExercise();
+      await stageSave(window);
 
       expect(apiSpy.mock.calls[0][2].training_goal).toBe('strength');
     });
@@ -352,7 +397,6 @@ describe('features/workout/exercises.js — split-file integration', () => {
           ? [{ id: 3, name: 'My custom lift', default_sets: 4, default_reps_min: 8, default_weight_kg: 60 }]
           : []
       ));
-      window.WorkoutEdit.variantForExercise = 1;
     }
 
     function rowsOf(mount) {
@@ -363,7 +407,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
       const { window, document } = env;
       stubEnv(window);
 
-      await window.showAddExerciseModal();
+      await openAdd(window);
 
       const mount = document.getElementById('workout-exercise-suggest');
       expect(mount.hidden).toBe(true);
@@ -382,7 +426,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
     it('a catalog-only pick fills the name and pre-fills nothing (no library id)', async () => {
       const { window, document } = env;
       stubEnv(window);
-      await window.showAddExerciseModal();
+      await openAdd(window);
 
       const mount = document.getElementById('workout-exercise-suggest');
       const nameInput = document.getElementById('workout-exercise-name');
@@ -400,7 +444,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
     it('a library pick fills the name and autofills sets/reps/weight', async () => {
       const { window, document } = env;
       stubEnv(window);
-      await window.showAddExerciseModal();
+      await openAdd(window);
 
       const mount = document.getElementById('workout-exercise-suggest');
       const nameInput = document.getElementById('workout-exercise-name');
@@ -417,9 +461,8 @@ describe('features/workout/exercises.js — split-file integration', () => {
     it('a free-typed brand-new name (never picked) still saves', async () => {
       const { window, document } = env;
       stubEnv(window);
-      await window.showAddExerciseModal();
+      await openAdd(window);
       window.invalidateWorkoutCache = vi.fn(async () => {});
-      window.loadExercisesForVariant = vi.fn();
 
       const nameInput = document.getElementById('workout-exercise-name');
       nameInput.value = 'Zercher squat';
@@ -427,7 +470,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
       document.getElementById('workout-exercise-sets').value = '3';
       document.getElementById('workout-exercise-reps-min').value = '8';
 
-      await window.saveExercise();
+      await stageSave(window);
 
       expect(window.apiCall).toHaveBeenCalledWith(
         '/api/workout/exercises/create',
@@ -449,7 +492,6 @@ describe('features/workout/exercises.js — split-file integration', () => {
     };
 
     function stubSuggest(window, suggestion, exercises = []) {
-      window.WorkoutEdit.variantForExercise = 1;
       window.WorkoutLibrary = { bindExercisePicker: vi.fn(async () => {}) };
       window.apiCall = vi.fn(async (url) => {
         if (String(url).startsWith('/api/workout/exercises/suggest-target')) return suggestion;
@@ -469,7 +511,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
     it('fills the empty weight field and shows the source set, RPE included', async () => {
       const { window, document } = env;
       stubSuggest(window, RATED);
-      await window.showAddExerciseModal();
+      await openAdd(window);
 
       await typeName(document, 'Squat');
 
@@ -485,7 +527,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
     it('ignores a slow response for a name the user has already changed away from', async () => {
       const { window, document } = env;
       stubSuggest(window, RATED);
-      await window.showAddExerciseModal();
+      await openAdd(window);
 
       // Squat's read resolves only after Bench's has already landed — the
       // interleave a plain `await` would let write Squat's weight into a form
@@ -523,7 +565,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
     it('leaves the field blank and shows no hint for an exercise with no history', async () => {
       const { window, document } = env;
       stubSuggest(window, null);
-      await window.showAddExerciseModal();
+      await openAdd(window);
 
       await typeName(document, 'Zercher squat');
 
@@ -535,7 +577,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
     it('never overwrites a weight the user typed, but still shows the evidence', async () => {
       const { window, document } = env;
       stubSuggest(window, RATED);
-      await window.showAddExerciseModal();
+      await openAdd(window);
       document.getElementById('workout-exercise-weight').value = '85';
 
       await typeName(document, 'Squat');
@@ -553,7 +595,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
         target_weight_kg: 102.5,
         last: { weight_kg: 100, reps: 6, effort: null, logged_at: '2026-07-30T10:00:00Z' },
       });
-      await window.showAddExerciseModal();
+      await openAdd(window);
 
       await typeName(document, 'Squat');
 
@@ -566,7 +608,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
       const { window, document } = env;
       stubSuggest(window, RATED);
 
-      await window.showAddExerciseModal();
+      await openAdd(window);
 
       expect(document.getElementById('workout-exercise-weight').value).toBe('');
       expect(hintOf(document).hidden).toBe(true);
@@ -581,7 +623,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
         target_weight_kg: 90, order_index: 0, progression_rule: { type: 'linear', increment_kg: 2.5 },
       }]);
 
-      await window.showEditExerciseModal(9);
+      await openEdit(window, 9);
 
       expect(document.getElementById('workout-exercise-weight').value).toBe('90');
       // …and the evidence still renders, so Edit explains the plan too.
@@ -591,7 +633,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
     it('re-asks after a suggestion-list pick, which assigns the name with no change event', async () => {
       const { window, document } = env;
       stubSuggest(window, RATED);
-      await window.showAddExerciseModal();
+      await openAdd(window);
 
       document.getElementById('workout-exercise-name').value = 'Squat';
       await window.onPlanExercisePicked({ name: 'Squat' }); // catalog-only row: no id
@@ -604,7 +646,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
       const { window, document } = env;
       stubSuggest(window, null);
       window.apiCall = vi.fn(async () => { throw new Error('Not found'); });
-      await window.showAddExerciseModal();
+      await openAdd(window);
 
       await typeName(document, 'Squat');
 
@@ -639,12 +681,10 @@ describe('features/workout/exercises.js — split-file integration', () => {
     // Stubs the variant-exercise read, the library list, the inventory, and
     // the exercise write endpoints; returns the apiCall traffic log.
     function stubPlan(window, { exercises, library, equipment = [OHIO_BAR, HEX_DB] } = {}) {
-      window.WorkoutEdit.variantForExercise = 1;
       window.WorkoutLibrary = { bindExercisePicker: vi.fn(async () => {}) };
       window.WorkoutEquipment.list = vi.fn(async () => equipment);
       window.loadExerciseLibrary = vi.fn(async () => {});
       window.invalidateWorkoutCache = vi.fn(async () => {});
-      window.loadExercisesForVariant = vi.fn();
       window.WorkoutGroups.loadEquipmentDomain = async () => equipmentDomain;
       const calls = [];
       window.apiCall = vi.fn(async (url, method, body) => {
@@ -671,7 +711,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
       const { window, document } = env;
       stubPlan(window, { exercises: [], library: [] });
 
-      await window.showAddExerciseModal();
+      await openAdd(window);
 
       const select = planSelectOf(document);
       expect(select).not.toBeNull();
@@ -682,17 +722,17 @@ describe('features/workout/exercises.js — split-file integration', () => {
       expect(select.disabled).toBe(false);
       expect(planHintOf(document).hidden).toBe(true);
       expect(planScopeOf(document).hidden).toBe(false);
-      expect(planScopeOf(document).textContent).toBe('Applies to this plan row only.');
+      expect(planScopeOf(document).textContent).toBe('Equipment applies to this plan row only.');
     });
 
-    it('showEditExerciseModal preselects the row override and labels blank with the inherited binding', async () => {
+    it('Edit preselects the row override and labels blank with the inherited binding', async () => {
       const { window, document } = env;
       stubPlan(window, {
         exercises: boundExercise(40, { equipment_id: 51 }),
         library: [libraryRow()],
       });
 
-      await window.showEditExerciseModal(7);
+      await openEdit(window, 7);
 
       expect(planSelectOf(document).value).toBe('51');
       expect(blankLabelOf(document)).toBe('from library: Ohio bar');
@@ -704,7 +744,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
       const { window, document } = env;
       stubPlan(window, { exercises: boundExercise(40), library: [libraryRow()] });
 
-      await window.showEditExerciseModal(7);
+      await openEdit(window, 7);
 
       expect(planSelectOf(document).value).toBe('');
       expect(blankLabelOf(document)).toBe('from library: Ohio bar');
@@ -718,7 +758,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
       delete unbound.equipment_id;
       stubPlan(window, { exercises: boundExercise(40), library: [unbound] });
 
-      await window.showEditExerciseModal(7);
+      await openEdit(window, 7);
 
       expect(planSelectOf(document).value).toBe('');
       expect(blankLabelOf(document)).toBe('None');
@@ -735,7 +775,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
         library: [unbound],
       });
 
-      await window.showEditExerciseModal(7);
+      await openEdit(window, 7);
 
       expect(planSelectOf(document).value).toBe('');
       expect(blankLabelOf(document)).toBe('None');
@@ -749,7 +789,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
       ex[0].equipment_id = 50;
       const calls = stubPlan(window, { exercises: ex, library: [] });
 
-      await window.showEditExerciseModal(7);
+      await openEdit(window, 7);
 
       const select = planSelectOf(document);
       expect(select.disabled).toBe(false);
@@ -759,7 +799,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
       expect(planScopeOf(document).hidden).toBe(false);
 
       select.value = '51';
-      await window.saveExercise();
+      await stageSave(window);
 
       const writes = exerciseWrites(calls);
       expect(writes).toHaveLength(1);
@@ -774,7 +814,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
         library: [libraryRow()],
       });
 
-      await window.showEditExerciseModal(7);
+      await openEdit(window, 7);
       expect(planHintOf(document).textContent).toBe('max 10 kg');
 
       const select = planSelectOf(document);
@@ -825,7 +865,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
         exercises: boundExercise(40, { equipment_id: 51 }),
         library: [libraryRow(), { id: 41, name: 'Curl' }],
       });
-      await window.showEditExerciseModal(7);
+      await openEdit(window, 7);
       expect(planSelectOf(document).value).toBe('51');
       expect(blankLabelOf(document)).toBe('from library: Ohio bar');
 
@@ -855,7 +895,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
         exercises: boundExercise(40, { equipment_id: 50 }),
         library: [libraryRow(), { id: 41, name: 'Curl' }],
       });
-      await window.showEditExerciseModal(7);
+      await openEdit(window, 7);
       expect(planSelectOf(document).value).toBe('50');
 
       // Pick new gear, THEN rename: the refill must keep the live pick, not
@@ -869,7 +909,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
       });
       expect(planSelectOf(document).value).toBe('51');
 
-      await window.saveExercise();
+      await stageSave(window);
 
       const writes = exerciseWrites(calls);
       expect(writes).toHaveLength(1);
@@ -880,7 +920,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
       const { window, document } = env;
       stubPlan(window, { exercises: [], library: [libraryRow()] });
 
-      await window.showAddExerciseModal();
+      await openAdd(window);
       planSelectOf(document).value = '51';
 
       await window.onPlanExercisePicked({ id: 40, name: 'Bench Press' });
@@ -897,7 +937,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
         library: [libraryRow()],
       });
 
-      await window.showEditExerciseModal(7);
+      await openEdit(window, 7);
       expect(planSelectOf(document).value).toBe('51');
 
       // The second open targets a row with no override and an unbound
@@ -908,7 +948,9 @@ describe('features/workout/exercises.js — split-file integration', () => {
         if (String(url) === '/api/workout/exercise-library') return [{ id: 41, name: 'Curl' }];
         return [];
       });
-      const pending = window.showEditExerciseModal(7);
+      window.closeExercisePage();
+      const rec = boundExercise(41)[0];
+      const pending = window.showEditExercisePage(null, { id: rec.id, rec, payload: null });
       const select = planSelectOf(document);
       expect(select.value).toBe('');
       expect(Array.from(select.options).map((o) => o.value)).toEqual(['']);
@@ -954,11 +996,11 @@ describe('features/workout/exercises.js — split-file integration', () => {
         library: [libraryRow()],
       });
 
-      await window.showEditExerciseModal(7);
+      await openEdit(window, 7);
       expect(planSelectOf(document).value).toBe('50');
 
       planSelectOf(document).value = '51';
-      await window.saveExercise();
+      await stageSave(window);
 
       const writes = exerciseWrites(calls);
       expect(writes).toHaveLength(1);
@@ -976,8 +1018,8 @@ describe('features/workout/exercises.js — split-file integration', () => {
         library: [libraryRow()],
       });
 
-      await window.showEditExerciseModal(7);
-      await window.saveExercise();
+      await openEdit(window, 7);
+      await stageSave(window);
 
       const writes = exerciseWrites(calls);
       expect(writes).toHaveLength(1);
@@ -993,9 +1035,9 @@ describe('features/workout/exercises.js — split-file integration', () => {
         library: [libraryRow()],
       });
 
-      await window.showEditExerciseModal(7);
+      await openEdit(window, 7);
       planSelectOf(document).value = '';
-      await window.saveExercise();
+      await stageSave(window);
 
       const writes = exerciseWrites(calls);
       expect(writes).toHaveLength(1);
@@ -1007,12 +1049,12 @@ describe('features/workout/exercises.js — split-file integration', () => {
       const { window, document } = env;
       const calls = stubPlan(window, { exercises: [], library: [libraryRow()] });
 
-      await window.showAddExerciseModal();
+      await openAdd(window);
       document.getElementById('workout-exercise-name').value = 'Bench Press';
       document.getElementById('workout-exercise-sets').value = '3';
       document.getElementById('workout-exercise-reps-min').value = '8';
       planSelectOf(document).value = '51';
-      await window.saveExercise();
+      await stageSave(window);
 
       let writes = exerciseWrites(calls);
       expect(writes).toHaveLength(1);
@@ -1023,12 +1065,12 @@ describe('features/workout/exercises.js — split-file integration', () => {
       // Blank on Add omits the key (nothing stored to clear — the row
       // inherits), and still never touches the library row the name
       // promotes to.
-      await window.showAddExerciseModal();
+      await openAdd(window);
       document.getElementById('workout-exercise-name').value = 'Bench Press';
       document.getElementById('workout-exercise-sets').value = '3';
       document.getElementById('workout-exercise-reps-min').value = '8';
       expect(planSelectOf(document).value).toBe('');
-      await window.saveExercise();
+      await stageSave(window);
 
       writes = exerciseWrites(calls);
       expect(writes).toHaveLength(2);
@@ -1039,12 +1081,10 @@ describe('features/workout/exercises.js — split-file integration', () => {
 
     it('a failed inventory read on open leaves the select unloaded, so save preserves the override', async () => {
       const { window, document } = env;
-      window.WorkoutEdit.variantForExercise = 1;
       window.WorkoutLibrary = { bindExercisePicker: vi.fn(async () => {}) };
       window.WorkoutEquipment.list = vi.fn(async () => { throw new Error('offline'); });
       window.loadExerciseLibrary = vi.fn(async () => {});
       window.invalidateWorkoutCache = vi.fn(async () => {});
-      window.loadExercisesForVariant = vi.fn();
       const calls = [];
       window.apiCall = vi.fn(async (url, method, body) => {
         calls.push([url, method, body]);
@@ -1056,14 +1096,14 @@ describe('features/workout/exercises.js — split-file integration', () => {
         return null;
       });
 
-      await window.showEditExerciseModal(7);
+      await openEdit(window, 7);
 
       const select = planSelectOf(document);
       expect(select.value).toBe('');
       expect(select.dataset.loaded).toBe('false');
       expect(planHintOf(document).hidden).toBe(true);
 
-      await window.saveExercise();
+      await stageSave(window);
 
       const writes = exerciseWrites(calls);
       expect(writes).toHaveLength(1);
@@ -1081,13 +1121,13 @@ describe('features/workout/exercises.js — split-file integration', () => {
         equipment: [HEX_DB],
       });
 
-      await window.showEditExerciseModal(7);
+      await openEdit(window, 7);
 
       const select = planSelectOf(document);
       expect(select.value).toBe('');
       expect(select.dataset.loaded).toBe('true');
 
-      await window.saveExercise();
+      await stageSave(window);
 
       let writes = exerciseWrites(calls);
       expect(writes).toHaveLength(1);
@@ -1096,7 +1136,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
 
       // An explicit pick of a visible option still writes.
       select.value = '51';
-      await window.saveExercise();
+      await stageSave(window);
 
       writes = exerciseWrites(calls);
       expect(writes).toHaveLength(2);
@@ -1105,12 +1145,10 @@ describe('features/workout/exercises.js — split-file integration', () => {
 
     it('a failed library read on open keeps the override usable (blank labeled None)', async () => {
       const { window, document } = env;
-      window.WorkoutEdit.variantForExercise = 1;
       window.WorkoutLibrary = { bindExercisePicker: vi.fn(async () => {}) };
       window.WorkoutEquipment.list = vi.fn(async () => [OHIO_BAR, HEX_DB]);
       window.loadExerciseLibrary = vi.fn(async () => {});
       window.invalidateWorkoutCache = vi.fn(async () => {});
-      window.loadExercisesForVariant = vi.fn();
       const calls = [];
       window.apiCall = vi.fn(async (url, method, body) => {
         calls.push([url, method, body]);
@@ -1125,7 +1163,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
         return [];
       });
 
-      await window.showEditExerciseModal(7);
+      await openEdit(window, 7);
 
       const select = planSelectOf(document);
       expect(select.value).toBe('50');
@@ -1133,7 +1171,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
       expect(blankLabelOf(document)).toBe('None');
       expect(planHintOf(document).textContent).toBe('step 2.5 kg · max 200 kg');
 
-      await window.saveExercise();
+      await stageSave(window);
 
       const writes = exerciseWrites(calls);
       expect(writes).toHaveLength(1);
@@ -1155,7 +1193,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
           exercises: unboundRow(), library: [unboundLib()], equipment: [OLY_BAR, EZ_BAR],
         });
 
-        await window.showEditExerciseModal(7);
+        await openEdit(window, 7);
 
         expect(planSelectOf(document).value).toBe('');
         expect(blankLabelOf(document)).toBe('auto: Olympic bar');
@@ -1171,7 +1209,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
         expect(writesOf(calls)).toHaveLength(0);
 
         // Blank still saves the row unbound: auto is never persisted.
-        await window.saveExercise();
+        await stageSave(window);
         const writes = exerciseWrites(calls);
         expect(writes).toHaveLength(1);
         expect(writes[0][2]).not.toHaveProperty('equipment_id');
@@ -1184,9 +1222,9 @@ describe('features/workout/exercises.js — split-file integration', () => {
           exercises: unboundRow(), library: [unboundLib()], equipment: [OLY_BAR, EZ_BAR],
         });
 
-        await window.showEditExerciseModal(7);
+        await openEdit(window, 7);
         planSelectOf(document).value = '61';
-        await window.saveExercise();
+        await stageSave(window);
 
         const writes = exerciseWrites(calls);
         expect(writes).toHaveLength(1);
@@ -1199,7 +1237,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
         stubPlan(window, {
           exercises: unboundRow({ equipment_id: 61 }), library: [unboundLib()], equipment: [OLY_BAR, EZ_BAR],
         });
-        await window.showEditExerciseModal(7);
+        await openEdit(window, 7);
         expect(planSelectOf(document).value).toBe('61');
         expect(blankLabelOf(document)).toBe('None');
 
@@ -1207,7 +1245,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
           exercises: unboundRow(), library: [libraryRow({ name: 'Barbell Bench Press', equipment_id: 61 })],
           equipment: [OLY_BAR, EZ_BAR],
         });
-        await window.showEditExerciseModal(7);
+        await openEdit(window, 7);
         expect(blankLabelOf(document)).toBe('from library: EZ bar');
       });
 
@@ -1225,7 +1263,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
             if (url === '/api/workout/locations/active') return { location_id: activeId, location: null };
             return base(url, method, body);
           });
-          await window.showEditExerciseModal(7);
+          await openEdit(window, 7);
         };
 
         await open(1); // EZ bar lives at Gym A: not honored at Home
@@ -1242,7 +1280,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
         stubPlan(window, {
           exercises: unboundRow({ equipment_id: 999 }), library: [unboundLib()], equipment: [OLY_BAR, EZ_BAR],
         });
-        await window.showEditExerciseModal(7);
+        await openEdit(window, 7);
         expect(planSelectOf(document).value).toBe('');
         expect(blankLabelOf(document)).toBe('None');
         expect(planHintOf(document).hidden).toBe(true);
@@ -1251,7 +1289,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
       it('empty inventory or a name with no implement word labels blank None', async () => {
         const { window, document } = env;
         stubPlan(window, { exercises: unboundRow(), library: [unboundLib()], equipment: [] });
-        await window.showEditExerciseModal(7);
+        await openEdit(window, 7);
         expect(blankLabelOf(document)).toBe('None');
 
         const plain = unboundLib();
@@ -1259,7 +1297,7 @@ describe('features/workout/exercises.js — split-file integration', () => {
         stubPlan(window, {
           exercises: boundExercise(40), library: [plain], equipment: [OLY_BAR, EZ_BAR],
         });
-        await window.showEditExerciseModal(7);
+        await openEdit(window, 7);
         expect(blankLabelOf(document)).toBe('None');
         expect(planHintOf(document).hidden).toBe(true);
       });

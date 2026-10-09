@@ -218,10 +218,15 @@ async function _attachNextCardGymSwitch(card, actions) {
 // NEXT WORKOUT EDIT MODAL
 // ====================================
 
+// The card's planned-exercises tap: the Plan page, then that Day's page on top
+// (a flat plan has no Day page — its exercises are on the Plan page).
 async function openNextWorkoutEditModal(variantId, groupId) {
     if (!variantId || !groupId) return;
-    window.WorkoutEdit.groupForVariant = groupId;
-    await showEditVariantModal(variantId);
+    const page = await openWorkoutPlanPage(groupId);
+    const draft = window.WorkoutEdit.planDraft;
+    if (!page || !draft || !document.getElementById('workout-group-rotating').checked) return;
+    const day = draft.days.find((d) => d.id === variantId);
+    if (day) openWorkoutDayPage(day, renderWorkoutPlanBody);
 }
 
 async function nextWorkoutVariant(sessionId) {

@@ -1148,20 +1148,6 @@ h3 {
     }
 }
 
-/* Initial state for modal sections that groups.js / variants.js swap in and out
-   with .style.display. Not `.hidden` — that rule is `!important` and the CSSOM
-   setter could never override it. Declared here rather than as a style=
-   attribute so the strict cloud CSP (style-src 'self') accepts the page. */
-#workout-variants-section,
-#workout-group-flat-exercises-section,
-#workout-variant-rotation-field,
-#workout-exercises-section {
-    display: none;
-}
-
-#workout-group-modal.hidden,
-#workout-variant-modal.hidden,
-#workout-exercise-modal.hidden,
 #exercise-library-modal.hidden,
 #miband-workout-modal.hidden,
 #workout-session-modal.hidden,
@@ -3102,6 +3088,50 @@ input:checked+.toggle-slider:before {
     background: var(--wg-bg-screen);
     color: var(--wg-fg-1);
     font-family: var(--wg-font-ui);
+}
+
+/* Plan editor pages (med-xso6.22, kit P1–P3). The kit's display rules beat
+   the UA [hidden] rule; sections / rows here are toggled with [hidden]. */
+.wg-workout-page {
+    gap: var(--space-md);
+}
+
+.wg-workout-page [hidden] {
+    display: none;
+}
+
+/* A stepper's value is a real number input (ids the editor reads). */
+input.wg-stepper__val {
+    width: 100%;
+    min-width: 0;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    outline: 0;
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+input.wg-stepper__val::-webkit-outer-spin-button,
+input.wg-stepper__val::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.wg-workout-page__time {
+    width: auto;
+    flex-shrink: 0;
+}
+
+.wg-workout-page .wg-grip {
+    touch-action: none;
+}
+
+.wg-workout-row--dragging {
+    background: var(--wg-bg-card-hi);
 }
 
 /* Sheet (med-xso6.7): an <mt-modal class="wg-modal wg-sheet"> docks to the

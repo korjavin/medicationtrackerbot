@@ -1,39 +1,21 @@
 // ====================================
-// EXERCISES — CRUD (within variants)
+// EXERCISES — Exercise page (within a Day)
 // ====================================
 //
-// Owns:
-//   - "currently editing exercise id" + "currently active variant for
-//     exercise" form state (closure-private; read/written via
-//     window.WorkoutEdit getters/setters).
-//   - "currently-loaded exercises container id" so a re-render after
-//     save targets the same list (variant modal vs. flat-exercises panel).
+// Owns the Exercise page of the plan editor (med-xso6.22, kit
+// screens-workouts P3) and the exercise rows on the Day page / a flat plan's
+// Plan page. "Done" builds the same payload the old exercise modal saved and
+// stages it on the draft Day (window.WorkoutEdit.exerciseTarget); the Plan
+// page's Save writes it (groups.js _writePlanDraft).
 
 (function () {
-    let _editingExerciseId = null;
-    let _variantForExercise = null;
-    // Container id the most recent loadExercisesForVariant() targeted. Used by
-    // the post-save / post-delete refresh so we re-render in the right slot
-    // (the variant modal's #workout-exercises-list vs. the non-rotating
-    // group modal's #workout-group-flat-exercises-list).
-    let _exercisesContainerId = 'workout-exercises-list';
+    // The open Exercise page: { day, entry (null = new), onStaged, page }.
+    let _exerciseTarget = null;
 
     window.WorkoutEdit = window.WorkoutEdit || {};
-    Object.defineProperty(window.WorkoutEdit, 'editingExerciseId', {
-        get: () => _editingExerciseId,
-        set: (v) => { _editingExerciseId = v; },
-        enumerable: true,
-        configurable: true
-    });
-    Object.defineProperty(window.WorkoutEdit, 'variantForExercise', {
-        get: () => _variantForExercise,
-        set: (v) => { _variantForExercise = v; },
-        enumerable: true,
-        configurable: true
-    });
-    Object.defineProperty(window.WorkoutEdit, 'exercisesContainerId', {
-        get: () => _exercisesContainerId,
-        set: (v) => { _exercisesContainerId = v || 'workout-exercises-list'; },
+    Object.defineProperty(window.WorkoutEdit, 'exerciseTarget', {
+        get: () => _exerciseTarget,
+        set: (v) => { _exerciseTarget = v || null; },
         enumerable: true,
         configurable: true
     });
@@ -50,28 +32,44 @@ const WORKOUT_GOAL_DEFAULTS = {
     general:     { reps_min: 8,  reps_max: 12, progression: 'none' },
 };
 
-// The routine (group) that owns the exercise being edited, used to resolve an
-// "Inherit from routine" goal to a concrete one. When the group modal is open
-// (the only path that reaches "Add exercise" mid-edit), its live
-// #workout-group-goal select is the source of truth — it reflects an unsaved
-// goal change that cachedGroups (only refreshed on save) wouldn't yet see.
-// When the modal is closed, that select still holds a stale/default value, so
-// fall back to the saved cachedGroups goal.
+// The plan's goal, used to resolve a "From plan" exercise goal to a concrete
+// one. While the Plan page is open its live #workout-group-goal is the source
+// of truth — it reflects an unsaved goal change that cachedGroups (only
+// refreshed on save) wouldn't yet see. Otherwise that input holds a stale
+// value, so fall back to the saved cachedGroups goal.
 function routineGoalForExercise() {
-    const groupModal = document.getElementById('workout-group-modal');
+    const draft = window.WorkoutEdit.planDraft;
     const liveGoal = document.getElementById('workout-group-goal');
-    if (groupModal && !groupModal.classList.contains('hidden') && liveGoal && liveGoal.value) {
-        return liveGoal.value;
-    }
-    const groupId = window.WorkoutEdit.groupForVariant || window.WorkoutEdit.editingGroupId;
+    if (draft && liveGoal && liveGoal.value) return liveGoal.value;
+    const groupId = draft ? draft.groupId : window.WorkoutEdit.editingGroupId;
     const group = (window.WorkoutEdit.cachedGroups || []).find(g => g.id === groupId);
     return (group && group.training_goal) || 'hypertrophy';
 }
 
 // Effective goal for the cascade: the per-exercise override if picked, else the
-// routine's goal ("" in the selector = inherit).
+// plan's goal ("" in the selector = From plan).
 function effectiveExerciseGoal() {
     return document.getElementById('workout-exercise-goal').value || routineGoalForExercise();
+}
+
+// The suggestion card's Apply shows only while the field holds something
+// other than the suggested target.
+function _syncSuggestApply() {
+    const card = document.getElementById('workout-exercise-suggest-card');
+    const apply = document.getElementById('workout-exercise-suggest-apply');
+    const weightEl = document.getElementById('workout-exercise-weight');
+    if (!card || !apply || !weightEl) return;
+    const kg = card.dataset.weight;
+    apply.hidden = card.hidden || kg === undefined || kg === '' || parseFloat(weightEl.value) === parseFloat(kg);
+}
+
+function applySuggestedWeight() {
+    const card = document.getElementById('workout-exercise-suggest-card');
+    const weightEl = document.getElementById('workout-exercise-weight');
+    if (!card || !weightEl || !card.dataset.weight) return;
+    weightEl.value = card.dataset.weight;
+    if (typeof weightEl.onchange === 'function') weightEl.onchange();
+    _syncSuggestApply();
 }
 
 // Weight suggestion from the user's own logged history (med-73o). The goal
@@ -84,21 +82,28 @@ function effectiveExerciseGoal() {
 //
 // Fill-only, exactly like the rep range: it writes only into an EMPTY field, so
 // a weight the user typed — and an existing exercise's stored target on Edit —
-// is never overwritten. The evidence line renders whenever there IS history,
-// filled field or not: seeing "Last: 80 kg × 5 · RPE 8 · 2 RIR" is the first
-// place in the app where a user's own effort ratings visibly do something.
-// No history, offline, or a bodyweight-only past → null → field stays blank and
-// no hint appears, i.e. exactly the behavior before this existed.
+// is never overwritten; the suggestion card's Apply is the explicit path. The
+// evidence line renders whenever there IS history, filled field or not: seeing
+// "Last: 80 kg × 5 · RPE 8 · 2 RIR" is the first place in the app where a
+// user's own effort ratings visibly do something. No history, offline, or a
+// bodyweight-only past → null → field stays blank and no card appears, i.e.
+// exactly the behavior before this existed.
 let _weightSuggestionSeq = 0; // module-state: ticket for the in-flight weight suggestion so a superseded read cannot write
 async function applyWeightSuggestion(goal) {
     const nameEl = document.getElementById('workout-exercise-name');
     const weightEl = document.getElementById('workout-exercise-weight');
     const hintEl = document.getElementById('workout-exercise-weight-hint');
+    const card = document.getElementById('workout-exercise-suggest-card');
     if (!nameEl || !weightEl) return;
     if (hintEl) {
         hintEl.textContent = '';
         hintEl.hidden = true;
     }
+    if (card) {
+        card.hidden = true;
+        delete card.dataset.weight;
+    }
+    _syncSuggestApply();
     const name = nameEl.value.trim();
     if (!name) return;
 
@@ -129,6 +134,13 @@ async function applyWeightSuggestion(goal) {
         // weight-dependent equipment auto label (med-ni2j) explicitly.
         if (typeof weightEl.onchange === 'function') weightEl.onchange();
     }
+    if (card) {
+        card.dataset.weight = String(suggestion.target_weight_kg);
+        const title = document.getElementById('workout-exercise-suggest-title');
+        if (title) title.textContent = `Try ${suggestion.target_weight_kg} kg`;
+        card.hidden = false;
+        _syncSuggestApply();
+    }
 
     const last = suggestion.last;
     if (!hintEl || !last || last.weight_kg == null) return;
@@ -149,6 +161,7 @@ function applyGoalCascade(goal) {
     document.getElementById('workout-exercise-reps-min').value = d.reps_min;
     document.getElementById('workout-exercise-reps-max').value = d.reps_max;
     document.getElementById('workout-exercise-progression').value = d.progression;
+    workoutSegSync(document.querySelector('[data-workout-page="exercise"]'));
     return applyWeightSuggestion(goal);
 }
 
@@ -170,123 +183,94 @@ function bindGoalCascade() {
     ]);
 }
 
-async function loadExercisesForVariant(variantId, containerId = 'workout-exercises-list') {
-    window.WorkoutEdit.variantForExercise = variantId;
-    window.WorkoutEdit.exercisesContainerId = containerId;
-    const container = document.getElementById(containerId);
-
-    try {
-        const exercises = await apiCall(`/api/workout/exercises?variant_id=${variantId}`);
-
-        if (!exercises || exercises.length === 0) {
-            const empty = document.createElement('p');
-            empty.className = 'workout-pending-msg';
-            empty.textContent = 'No exercises yet. Add one!';
-            container.replaceChildren(empty);
-            return;
-        }
-
-        // Sort by order
-        const sortedExercises = [...exercises].sort((a, b) => a.order_index - b.order_index);
-        container.replaceChildren();
-        sortedExercises.forEach((ex) => {
-            const repsText = ex.target_reps_max
-                ? `${ex.target_reps_min}-${ex.target_reps_max}`
-                : `${ex.target_reps_min}`;
-            const weightText = ex.target_weight_kg ? ` @ ${ex.target_weight_kg}kg` : '';
-
-            const card = document.createElement('div');
-            card.className = 'wg-workouts-exercise-row';
-
-            const info = document.createElement('div');
-            info.className = 'wg-workouts-exercise-row__info';
-            info.addEventListener('click', () => {
-                showEditExerciseModal(ex.id);
-            });
-
-            const title = document.createElement('span');
-            title.className = 'wg-workouts-exercise-row__title';
-            title.textContent = `${ex.order_index + 1}. ${ex.exercise_name}`;
-
-            const meta = document.createElement('span');
-            meta.className = 'wg-workouts-exercise-row__meta';
-            meta.textContent = `${ex.target_sets} sets × ${repsText} reps${weightText}`;
-
-            info.appendChild(title);
-            info.appendChild(meta);
-
-            card.appendChild(info);
-            container.appendChild(window.WGRowActions.attach(card, {
-                label: ex.exercise_name,
-                onEdit: () => showEditExerciseModal(ex.id),
-                onDelete: (event) => deleteExercise(ex.id, event),
-            }));
-        });
-    } catch (error) {
-        console.error('Error loading exercises:', error);
-        const message = document.createElement('p');
-        message.className = 'text-danger';
-        message.textContent = 'Error loading exercises';
-        container.replaceChildren(message);
-    }
+// The exercise as the rows and the editor see it: the loaded record with any
+// staged edit on top.
+function workoutExerciseView(entry) {
+    return { ...(entry.rec || {}), ...(entry.payload || {}) };
 }
 
-async function resolveVariantForExercise() {
-    if (window.WorkoutEdit.variantForExercise) return true;
+// A duplicate of an exercise as a new staged row (Copy).
+function _copyExercisePayload(view) {
+    const payload = {
+        exercise_name: view.exercise_name,
+        target_sets: view.target_sets,
+        target_reps_min: view.target_reps_min,
+        target_reps_max: view.target_reps_max == null ? null : view.target_reps_max,
+        target_weight_kg: view.target_weight_kg == null ? null : view.target_weight_kg,
+        progression_rule: view.progression_rule || { type: 'none' },
+        training_goal: view.training_goal || '',
+    };
+    if (view.equipment_id != null && view.equipment_id !== '') payload.equipment_id = Number(view.equipment_id);
+    return payload;
+}
 
-    const groupId = window.WorkoutEdit.groupForVariant || window.WorkoutEdit.editingGroupId;
-    if (!groupId) {
-        safeToast('Save this plan first to add exercises.', 'info');
-        return false;
+// Exercise rows of one draft Day (Day page, or a flat plan's Plan page): grip
+// (drag), a tap opens the Exercise page, swipe → Copy / Remove (staged).
+function renderWorkoutExerciseRows(container, day, rerender) {
+    if (!container || !day) return;
+    if (!day.exercises.length) {
+        container.replaceChildren(workoutEmptyRow('No exercises yet — add one.'));
+        return;
     }
+    const onMove = (from, to) => {
+        if (workoutMoveItem(day.exercises, from, to)) {
+            day.exReordered = true;
+            rerender();
+        }
+    };
+    const back = day.name || _planName();
+    container.replaceChildren(...day.exercises.map((entry, i) => {
+        const ex = workoutExerciseView(entry);
+        const repsText = ex.target_reps_max && ex.target_reps_max !== ex.target_reps_min
+            ? `${ex.target_reps_min}–${ex.target_reps_max}`
+            : `${ex.target_reps_min}`;
+        const weightText = ex.target_weight_kg ? ` · ${ex.target_weight_kg} kg` : '';
 
-    const group = window.WorkoutEdit.cachedGroups.find(g => g.id === groupId);
-    if (group && group.is_rotating) {
-        safeToast('Open a day first to add exercises.', 'info');
-        return false;
-    }
+        const row = document.createElement('div');
+        row.className = 'wg-row wg-workout-exercise-row';
+        row.dataset.reorderIndex = String(i);
+        const grip = _workoutIcon(document, 'grip', 'wg-grip');
+        grip.setAttribute('aria-hidden', 'true');
+        bindWorkoutRowDrag(grip, row, i, onMove);
+        const body = document.createElement('span');
+        body.className = 'wg-row__body';
+        const title = document.createElement('span');
+        title.className = 'wg-row__title';
+        title.textContent = ex.exercise_name || 'Exercise';
+        const meta = document.createElement('span');
+        meta.className = 'wg-row__meta';
+        meta.textContent = `${ex.target_sets} × ${repsText}${weightText}`;
+        body.append(title, meta);
+        row.append(grip, body);
 
-    try {
-        // The variant POST below is a workout mutation; invalidate the
-        // workout-tagged caches if the implicit create succeeds so a later
-        // cancel doesn't leave workout_next / workout_stats stale.
-        let variants = await apiCall(`/api/workout/variants?group_id=${groupId}`);
-        if (!variants || variants.length === 0) {
-            const createdVariant = await apiCall('/api/workout/variants/create', 'POST', {
-                group_id: groupId,
-                name: 'Main',
-                rotation_order: null,
-                description: ''
-            });
-            if (createdVariant) {
-                await invalidateWorkoutCache();
-                variants = [createdVariant];
-            } else {
-                variants = [];
+        const copy = {
+            label: 'Copy', icon: 'copy', onClick: () => {
+                day.exercises.splice(i + 1, 0, { id: null, rec: null, payload: _copyExercisePayload(ex) });
+                rerender();
             }
-        }
-
-        const variantId = variants[0]?.id;
-        if (!variantId) {
-            safeToast('Save this plan first to add exercises.', 'info');
-            return false;
-        }
-
-        window.WorkoutEdit.groupForVariant = groupId;
-        window.WorkoutEdit.variantForExercise = variantId;
-        return true;
-    } catch (error) {
-        console.error('Failed to resolve variant for exercise modal:', error);
-        safeToast('Failed to prepare exercise editor. Please try again.', 'error');
-        return false;
-    }
+        };
+        const remove = {
+            label: 'Remove', icon: 'trash', danger: true, onClick: () => {
+                day.exercises.splice(i, 1);
+                if (entry.id != null) day.removed.push(entry.id);
+                rerender();
+            }
+        };
+        return window.WGRowActions.attach(row, {
+            label: ex.exercise_name,
+            tapEdits: true,
+            onEdit: () => showEditExercisePage(day, entry, rerender, back),
+            extra: [...workoutMoveActions(i, day.exercises.length, onMove), copy, remove],
+            swipe: [copy, remove],
+        });
+    }));
 }
 
-// med-3gln: per-plan-row Equipment override for the plan-exercise modal. The
+// med-3gln: per-plan-row Equipment override for the Exercise page. The
 // select binds the row's own equipment_id (preselected when set); blank means
 // "no override" and falls back to the library row's binding, shown as the
 // blank option's label ('from library: <name>', else 'None'). Works for rows
-// with or without a library link. Saving writes the exercise row only — never
+// with or without a library link. Done stages it on the plan row (the Plan Save writes it) — never
 // the library (the library editor owns that binding). Option fill is the
 // shared _syncEquipmentSelect (library.js) — one implementation, no
 // duplicate. The helper under the select shows the effective gear's step/max
@@ -295,13 +279,13 @@ async function resolveVariantForExercise() {
 // omits the key and preserves the stored override (same rule as the library
 // editor); a failed library read only loses the inherited label.
 let _equipmentHintSeq = 0; // module-state: ticket for the in-flight plan-equipment reads so a superseded read cannot write
-// The row's stored override ('<id>' or '') at modal open, and the inherited
+// The row's stored override ('<id>' or '') at page open, and the inherited
 // library binding ({ id, name } | null) from the last fill: refills (picker
 // pick, rename) keep displaying the stored override while re-resolving the
 // inherited label, and the save compares the pick against the stored value so
 // a stale inventory can never clear it blind.
-let _planRowEquipmentId = ''; // module-state: the plan modal's stored row-equipment override from open, for refills + the save's blind-clear guard
-let _planInheritedEquipment = null; // module-state: the plan modal's inherited library binding ({ id, name }) from the last fill, for the blank label + helper
+let _planRowEquipmentId = ''; // module-state: the Exercise page's stored row-equipment override from open, for refills + the save's blind-clear guard
+let _planInheritedEquipment = null; // module-state: the Exercise page's inherited library binding ({ id, name }) from the last fill, for the blank label + helper
 // med-ni2j: with no library binding (not even a dangling one), blank means
 // "auto-match from the inventory" (domain autoEquipmentForExercise on the
 // modal's live name + target weight). Label + helper only: auto is computed
@@ -310,16 +294,16 @@ let _planAutoEligible = false; // module-state: the last fill found no library b
 let _planAutoEquipment = null; // module-state: the auto-matched inventory item for the blank label + helper
 // The selection a name-driven refill (picker pick, rename) must keep showing:
 // the live pick when the select holds a real inventory read, else the stored
-// override from modal open. Without this a refill would restore the open-time
+// override from page open. Without this a refill would restore the open-time
 // value and silently discard an unsaved pick made before the rename.
 function _currentPlanEquipmentPick() {
     const select = document.getElementById('workout-exercise-equipment');
     if (select && select.dataset.loaded === 'true') return select.value || '';
     return _planRowEquipmentId || '';
 }
-// Synchronous reset of the plan modal's Equipment select, called before the
+// Synchronous reset of the Exercise page's Equipment select, called before the
 // first await on every entry path (open Add/Edit, picker pick, rename): the
-// modal is shared, so the previous open's options/selection must not survive
+// page body is reused, so the previous open's options/selection must not survive
 // until the inventory read lands — saving inside that window would bind gear
 // the user never chose. The select is always enabled (rows with or without a
 // library link bind the same way) and owns the select's change wiring
@@ -346,13 +330,15 @@ function _resetPlanEquipmentSelect() {
         select.value = '';
         select.dataset.loaded = 'false';
         select.disabled = false;
-        select.onchange = () => { _renderPlanEquipmentHelper(select.value).catch(() => {}); };
+        select.onchange = () => { _syncPlanEquipmentRow(); _renderPlanEquipmentHelper(select.value).catch(() => {}); };
     }
+    _syncPlanEquipmentRow();
     // The target weight changes the auto pick: re-resolve the blank label +
     // helper once the select holds a real inventory read with blank picked.
     const weightEl = document.getElementById('workout-exercise-weight');
     if (weightEl) {
         weightEl.onchange = () => {
+            _syncSuggestApply();
             const s = document.getElementById('workout-exercise-equipment');
             if (!s || s.dataset.loaded !== 'true' || s.value !== '') return Promise.resolve();
             return _renderPlanEquipmentHelper('').catch(() => {});
@@ -405,6 +391,7 @@ async function _relabelPlanAutoEquipment(list, ticket) {
     if (select && select.options.length > 0 && select.options[0].value === '' && !_planInheritedEquipment) {
         select.options[0].textContent = item ? `auto: ${item.name || `Equipment ${item.id}`}` : 'None';
     }
+    _syncPlanEquipmentRow();
 }
 
 // Step/max helper text for one equipment id, resolved through the equipment
@@ -447,7 +434,7 @@ async function _renderPlanEquipmentHelper(equipmentId) {
     hintEl.hidden = false;
 }
 
-// Fill the plan modal's Equipment select: preselect the row's own override
+// Fill the Exercise page's Equipment select: preselect the row's own override
 // through the shared _syncEquipmentSelect, and label the blank option with
 // the inherited library binding ('from library: <name>', else 'None'). A null
 // library id (unknown name, or a row without a library link) labels blank as
@@ -509,6 +496,7 @@ async function _fillPlanExerciseEquipment(rowEquipmentId, libraryId, ticket = nu
         select.options[0].textContent = _planInheritedEquipment
             ? `from library: ${_planInheritedEquipment.name}` : 'None';
     }
+    _syncPlanEquipmentRow();
     // No library binding at all (a dangling one stays unbound, like the
     // domain rule): a blank pick auto-matches — label it (med-ni2j).
     // A dangling stored row override is explicit too: the save preserves it
@@ -557,32 +545,79 @@ async function _refreshPlanEquipmentForName(name) {
     await _fillPlanExerciseEquipment(live, libId, ticket);
 }
 
-async function showAddExerciseModal() {
-    const canOpen = await resolveVariantForExercise();
-    if (!canOpen) return;
+// The Equipment value row mirrors the hidden select (the data the save reads).
+function _syncPlanEquipmentRow() {
+    const select = document.getElementById('workout-exercise-equipment');
+    const value = document.getElementById('workout-exercise-equipment-value');
+    if (!select || !value) return;
+    const opt = select.options[select.selectedIndex] || select.options[0];
+    value.textContent = opt ? opt.textContent : 'None';
+}
 
-    window.WorkoutEdit.editingExerciseId = null;
-    document.getElementById('workout-exercise-modal-title').textContent = 'Add Exercise';
-    window.ModalManager.workoutExercise.open();
-    // The modal is shared: clear every field synchronously, before any await,
-    // so the previous exercise's values can never paint into the Add form
-    // while the picker/inventory reads are in flight (a Save in that window
-    // would otherwise duplicate the old row, and typing would be wiped by a
-    // late reset).
+async function chooseWorkoutExerciseEquipment() {
+    const select = document.getElementById('workout-exercise-equipment');
+    if (!select) return;
+    const picked = await safeChoose('Gear for this plan row', Array.from(select.options).map((o) => ({
+        value: o.value,
+        label: o.textContent,
+        selected: o.value === select.value,
+    })), { title: 'Equipment' });
+    if (picked === null || picked === undefined) return;
+    select.value = picked;
+    _syncPlanEquipmentRow();
+    if (typeof select.onchange === 'function') select.onchange();
+}
+
+// Push the Exercise page (body moved in from the store). Returns the target,
+// or null when the page can't open (already open, or no WGPage).
+function _pushExercisePage(target, title, back) {
+    const store = document.querySelector('.wg-workout-pages');
+    const body = _workoutPageBody('exercise');
+    if (!store || !body || !window.WGPage) return null;
+    window.WorkoutEdit.exerciseTarget = target;
+    target.page = window.WGPage.push({
+        title,
+        crumb: back,
+        back: back || 'Day',
+        body,
+        primary: { label: 'Done', onClick: () => stageExercise() },
+        onBack: () => workoutConfirmDiscard(workoutFormSnapshot(body) !== target.snapshot, 'Your changes to this exercise won\'t be kept.'),
+        onClose: () => {
+            store.appendChild(body);
+            if (window.WorkoutEdit.exerciseTarget === target) window.WorkoutEdit.exerciseTarget = null;
+        },
+    });
+    return target;
+}
+
+function _markExercisePageClean(target) {
+    const body = document.querySelector('[data-workout-page="exercise"]');
+    if (target && body) target.snapshot = workoutFormSnapshot(body);
+}
+
+// Add an exercise to a draft Day. onStaged re-renders the caller's rows.
+async function showAddExercisePage(day, onStaged, back) {
+    const target = _pushExercisePage({ day: day || null, entry: null, onStaged, page: null, snapshot: '' }, 'New exercise', back);
+    if (!target) return null;
+    // Clear every field synchronously, before any await, so the previous
+    // exercise's values can never paint into the Add form while the
+    // picker/inventory reads are in flight (a Done in that window would
+    // otherwise duplicate the old row, and typing would be wiped by a late
+    // reset).
     document.getElementById('workout-exercise-name').value = '';
     document.getElementById('workout-exercise-sets').value = '';
     document.getElementById('workout-exercise-reps-min').value = '';
     document.getElementById('workout-exercise-reps-max').value = '';
     document.getElementById('workout-exercise-weight').value = '';
-    document.getElementById('workout-exercise-order').value = '0';
     document.getElementById('workout-exercise-progression').value = 'none';
     document.getElementById('workout-exercise-progression-increment').value = '';
     document.getElementById('workout-exercise-goal').value = '';
-    // New exercise: no stored row yet, so the select starts blank (still
-    // enabled — a picked gear rides the create payload as the row override).
-    // The reset runs synchronously so no stale selection survives; the picker
-    // binds before the inventory fill so its library prefetch keeps its
-    // long-standing order ahead of it.
+    workoutSegSync(document.querySelector('[data-workout-page="exercise"]'));
+    // New exercise: no stored row yet, so the select starts blank (a picked
+    // gear rides the staged payload as the row override). The reset runs
+    // synchronously so no stale selection survives; the picker binds before
+    // the inventory fill so its library prefetch keeps its long-standing
+    // order ahead of it.
     _planRowEquipmentId = '';
     _resetPlanEquipmentSelect();
     bindGoalCascade();
@@ -595,14 +630,15 @@ async function showAddExerciseModal() {
     });
     await _fillPlanExerciseEquipment('', null);
 
-    // New exercise inherits the routine goal; seed the rep-range + progression
+    // A new exercise inherits the plan goal; seed the rep-range + progression
     // defaults for it (all still editable).
     await applyGoalCascade(routineGoalForExercise());
-
+    _markExercisePageClean(target);
+    return target;
 }
 
-// A row was tapped in the plan modal's suggestion list. Catalog-only rows carry
-// no id and no defaults, so there is nothing to pre-fill from them.
+// A row was tapped in the suggestion list. Catalog-only rows carry no id and
+// no defaults, so there is nothing to pre-fill from them.
 function onPlanExercisePicked(item) {
     // The picker assigns input.value directly, which fires no `change` event —
     // so the name-driven weight suggestion has to be re-asked here. Runs for
@@ -624,11 +660,12 @@ function onPlanExercisePicked(item) {
     // In the Add flow reps are goal-cascade-seeded on open, so a bare `!value`
     // guard would never let a picked library exercise's own saved reps through
     // — a named pick is explicit, its reps win over the seed. The picker is
-    // bound only in showAddExerciseModal but stays wired to the shared name
+    // bound only in showAddExercisePage but stays wired to the shared name
     // input into a later Edit open, where the reps fields hold the user's
     // stored targets (no seed); keep the `!value` guard there so a rename
     // doesn't clobber them.
-    const isAdd = !window.WorkoutEdit.editingExerciseId;
+    const target = window.WorkoutEdit.exerciseTarget;
+    const isAdd = !target || !target.entry;
     const repsMinEl = document.getElementById('workout-exercise-reps-min');
     const repsMaxEl = document.getElementById('workout-exercise-reps-max');
     if (item.default_reps_min && (isAdd || !repsMinEl.value))
@@ -642,45 +679,38 @@ function onPlanExercisePicked(item) {
     return suggested;
 }
 
-async function showAddExerciseModalFromGroup() {
-    // It's the same modal, we just use the default variant already set in WorkoutEdit.variantForExercise
-    await showAddExerciseModal();
-}
-
-async function showEditExerciseModal(exerciseId) {
-    window.WorkoutEdit.editingExerciseId = exerciseId;
-    // Clear synchronously, before the first await: the modal is shared, and
-    // the resolve below awaits the weight suggestion's network read first. A
-    // stale select must never survive into the fill window — saving from it
-    // would bind gear the user never chose.
+// Edit a draft Day's exercise (its loaded record with any staged edit on top).
+async function showEditExercisePage(day, entry, onStaged, back) {
+    if (!entry) return null;
+    const exercise = workoutExerciseView(entry);
+    const target = _pushExercisePage({ day: day || null, entry, onStaged, page: null, snapshot: '' },
+        exercise.exercise_name || 'Exercise', back);
+    if (!target) return null;
+    // Clear synchronously, before the first await: the page body is shared,
+    // and the weight suggestion below awaits a read first. A stale select must
+    // never survive into the fill window — staging from it would bind gear
+    // the user never chose.
     _planRowEquipmentId = '';
     _resetPlanEquipmentSelect();
 
-    const exercises = await apiCall(`/api/workout/exercises?variant_id=${window.WorkoutEdit.variantForExercise}`);
-    const exercise = exercises && exercises.find(e => e.id === exerciseId);
-    if (!exercise) return;
-
-    document.getElementById('workout-exercise-modal-title').textContent = 'Edit Exercise';
-    window.ModalManager.workoutExercise.open();
-
-    document.getElementById('workout-exercise-name').value = exercise.exercise_name;
+    document.getElementById('workout-exercise-name').value = exercise.exercise_name || '';
     document.getElementById('workout-exercise-sets').value = exercise.target_sets;
     document.getElementById('workout-exercise-reps-min').value = exercise.target_reps_min;
     document.getElementById('workout-exercise-reps-max').value = exercise.target_reps_max || '';
     document.getElementById('workout-exercise-weight').value = exercise.target_weight_kg || '';
-    document.getElementById('workout-exercise-order').value = exercise.order_index;
 
     const rule = exercise.progression_rule || { type: 'none' };
     document.getElementById('workout-exercise-progression').value = rule.type || 'none';
     document.getElementById('workout-exercise-progression-increment').value =
         rule.increment_kg != null ? rule.increment_kg : '';
 
-    // Show the stored override (blank = inherit); the stored rep-range +
+    // Show the stored override (blank = From plan); the stored rep-range +
     // progression above are kept as-is — the cascade only fires on a change.
     document.getElementById('workout-exercise-goal').value = exercise.training_goal || '';
+    workoutSegSync(document.querySelector('[data-workout-page="exercise"]'));
     bindGoalCascade();
     // Not a cascade — the stored rep-range/progression above stay as-is. This
-    // only clears any hint left over from a previous open and re-renders the
+    // only clears any card left over from a previous open and re-renders the
     // "Last: …" evidence for this exercise; the stored target above already
     // filled the weight field, so the fill-only guard leaves it alone.
     await applyWeightSuggestion(effectiveExerciseGoal());
@@ -691,14 +721,19 @@ async function showEditExerciseModal(exerciseId) {
         ? '' : String(exercise.equipment_id);
     _resetPlanEquipmentSelect();
     await _fillPlanExerciseEquipment(_planRowEquipmentId, exercise.exercise_library_id ?? null);
+    _markExercisePageClean(target);
+    return target;
 }
 
-function closeExerciseModal() {
-    window.ModalManager.workoutExercise.close();
-    window.WorkoutEdit.editingExerciseId = null;
+function closeExercisePage() {
+    const target = window.WorkoutEdit.exerciseTarget;
+    if (target && target.page) target.page.close();
 }
 
-async function saveExercise() {
+// The exercise payload from the page's fields — the old editor's save body
+// minus variant_id / order_index, which the Plan save adds per Day. null (with
+// an alert) when a required field is missing.
+function buildExercisePayload() {
     const name = document.getElementById('workout-exercise-name').value.trim();
     const sets = parseInt(document.getElementById('workout-exercise-sets').value);
     const repsMin = parseInt(document.getElementById('workout-exercise-reps-min').value);
@@ -706,11 +741,10 @@ async function saveExercise() {
     const repsMax = repsMaxRaw !== '' ? parseInt(repsMaxRaw) : null;
     const weightRaw = document.getElementById('workout-exercise-weight').value;
     const weight = weightRaw !== '' ? parseFloat(weightRaw) : null;
-    const order = parseInt(document.getElementById('workout-exercise-order').value) || 0;
 
     if (!name || !sets || !repsMin) {
         safeAlert('Exercise name, sets, and reps min are required!');
-        return;
+        return null;
     }
 
     const progressionType = document.getElementById('workout-exercise-progression').value || 'none';
@@ -719,7 +753,7 @@ async function saveExercise() {
         ? { type: 'none' }
         : { type: progressionType, increment_kg: incrementRaw !== '' ? parseFloat(incrementRaw) : 2.5 };
 
-    // Per-exercise goal override; blank ("Inherit from routine") clears it.
+    // Per-exercise goal override; blank ("From plan") clears it.
     const trainingGoal = document.getElementById('workout-exercise-goal').value;
 
     // med-3gln: the Equipment select binds the plan row's own equipment_id.
@@ -737,13 +771,11 @@ async function saveExercise() {
         ? Array.from(planEquipmentSelect.options).map((o) => o.value) : [];
 
     const payload = {
-        variant_id: window.WorkoutEdit.variantForExercise,
         exercise_name: name,
         target_sets: sets,
         target_reps_min: repsMin,
         target_reps_max: repsMax,
         target_weight_kg: weight,
-        order_index: order,
         progression_rule: progressionRule,
         training_goal: trainingGoal
     };
@@ -763,47 +795,32 @@ async function saveExercise() {
             payload.equipment_id = Number(pickedPlanEquipmentId);
         }
     }
-
-    let result;
-    if (window.WorkoutEdit.editingExerciseId) {
-        result = await apiCall(`/api/workout/exercises/update?id=${window.WorkoutEdit.editingExerciseId}`, 'PUT', payload);
-    } else {
-        result = await apiCall('/api/workout/exercises/create', 'POST', payload);
-    }
-
-    if (result || result === true) {
-        // med-3gln: the picked gear already rode the exercise payload as the
-        // row override — no second write, no library touch.
-        await invalidateWorkoutCache();
-        closeExerciseModal();
-        loadExercisesForVariant(window.WorkoutEdit.variantForExercise, window.WorkoutEdit.exercisesContainerId);
-    }
+    return payload;
 }
 
-async function deleteExercise(exerciseId, event) {
-    event.stopPropagation();
-    await safeConfirm('Delete this exercise?', async (ok) => {
-        if (ok) {
-            await _deleteExerciseApi(exerciseId);
-        }
-    });
-}
-
-async function _deleteExerciseApi(id) {
-    const result = await apiCall(`/api/workout/exercises/delete?id=${id}`, 'DELETE');
-    if (result || result === true) {
-        await invalidateWorkoutCache();
-        loadExercisesForVariant(window.WorkoutEdit.variantForExercise, window.WorkoutEdit.exercisesContainerId);
+// "Done": stage the payload on the draft Day and return to it. A re-edit
+// merges over the earlier staged edit, so a key the second pass omits (an
+// untouched equipment select) keeps the first pass's value.
+function stageExercise() {
+    const payload = buildExercisePayload();
+    if (!payload) return null;
+    const target = window.WorkoutEdit.exerciseTarget;
+    if (target && target.day) {
+        if (target.entry) target.entry.payload = { ...(target.entry.payload || {}), ...payload };
+        else target.day.exercises.push({ id: null, rec: null, payload });
     }
+    if (target && target.page) target.page.close();
+    if (target && typeof target.onStaged === 'function') target.onStaged();
+    return payload;
 }
 
 window.WorkoutExercises = {
-    load: loadExercisesForVariant,
-    save: saveExercise,
-    openAdd: showAddExerciseModal,
-    openAddFromGroup: showAddExerciseModalFromGroup,
-    openEdit: showEditExerciseModal,
-    close: closeExerciseModal,
-    delete: deleteExercise,
-    resolveVariant: resolveVariantForExercise
+    openAdd: showAddExercisePage,
+    openEdit: showEditExercisePage,
+    close: closeExercisePage,
+    done: stageExercise,
+    buildPayload: buildExercisePayload,
+    renderRows: renderWorkoutExerciseRows,
+    chooseEquipment: chooseWorkoutExerciseEquipment,
+    applySuggestion: applySuggestedWeight,
 };

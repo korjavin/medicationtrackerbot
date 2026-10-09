@@ -214,6 +214,28 @@ describe('WGRowActions', () => {
             cleanup();
         }
     });
+
+    it('opts.swipe replaces the Edit/Delete tray; the menu still lists every action', () => {
+        const { window, cleanup } = loadComponents();
+        try {
+            const { document } = window;
+            const copied = [];
+            const copy = { label: 'Copy', icon: 'copy', onClick: () => copied.push('copy') };
+            const remove = { label: 'Remove', icon: 'trash', danger: true, onClick: () => copied.push('remove') };
+            const row = document.createElement('div');
+            document.body.appendChild(row);
+            window.WGRowActions.attach(row, { onEdit: () => {}, extra: [copy, remove], swipe: [copy, remove] });
+
+            const acts = Array.from(row.querySelectorAll('.wg-swipe__act'));
+            expect(acts.map((x) => x.textContent)).toEqual(['Copy', 'Remove']);
+            expect(acts[1].classList.contains('wg-swipe__act--danger')).toBe(true);
+            expect(Array.from(row.querySelectorAll('.wg-menu__item')).map((x) => x.textContent)).toEqual(['Edit', 'Copy', 'Remove']);
+            acts[0].click();
+            expect(copied).toEqual(['copy']);
+        } finally {
+            cleanup();
+        }
+    });
 });
 
 describe('WGChip', () => {
