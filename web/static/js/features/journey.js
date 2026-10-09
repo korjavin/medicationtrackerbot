@@ -463,11 +463,18 @@
             draftPick = null;
             saveWeekPlan(pickBody(picked), wr.plan_scope);
         });
-        const pause = el('button', 'wg-btn wg-btn--ghost wg-journey-weekly__pause', `Pause ${scope}`);
+        // A paused week flips the ghost action to Resume: back to the week's own
+        // intention, else 'keep' — so a pause is undoable even with no
+        // intentions on offer (a BP-only setup).
+        const paused = !!(plan && plan.paused);
+        const resumeChoice = plan && plan.intention ? plan.intention.id : 'keep';
+        const pause = el('button', 'wg-btn wg-btn--ghost wg-journey-weekly__pause', `${paused ? 'Resume' : 'Pause'} ${scope}`);
         pause.type = 'button';
-        pause.setAttribute('data-choice', 'pause');
-        pause.setAttribute('aria-pressed', plan && plan.paused ? 'true' : 'false');
-        pause.addEventListener('click', () => { draftPick = null; saveWeekPlan(pickBody('pause'), wr.plan_scope); });
+        pause.setAttribute('data-choice', paused ? 'resume' : 'pause');
+        pause.addEventListener('click', () => {
+            draftPick = null;
+            saveWeekPlan(pickBody(paused ? resumeChoice : 'pause'), wr.plan_scope);
+        });
         const actions = el('div', 'wg-grid2 wg-journey-weekly__actions');
         actions.append(pause, commit);
         section.appendChild(actions);

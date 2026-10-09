@@ -472,6 +472,14 @@ describe('gamification Goal Line — workouts, BP, cta', () => {
       workoutsession: [{ recordId: 'adhoc-9', deleted: false, group_id: -1, status: 'pending', scheduled_date: '2026-06-16T00:00:00Z', scheduled_time: '07:30' }],
     }).gam.getGoalLine();
     expect(adhoc.week_days.slice(0, 2).map((d) => d.workout)).toEqual(['rest', 'miss']);
+    // Skipped after its reminder: still a planned day not done. A started one stays out.
+    const skipped = await domainOver({
+      workoutsession: [
+        { recordId: 'adhoc-10', deleted: false, group_id: -1, status: 'skipped', scheduled_date: '2026-06-15T00:00:00Z', scheduled_time: '07:30' },
+        { recordId: 'adhoc-11', deleted: false, group_id: -1, status: 'in_progress', scheduled_date: '2026-06-16T00:00:00Z', scheduled_time: '07:30' },
+      ],
+    }).gam.getGoalLine();
+    expect(skipped.week_days.slice(0, 2).map((d) => d.workout)).toEqual(['miss', 'rest']);
   });
 
   // med-8tur.2: the Today card's day key + the medication safety net the rings

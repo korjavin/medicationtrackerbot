@@ -614,6 +614,26 @@ describe('Journey render', () => {
         expect(commit.disabled).toBe(true);
     });
 
+    it('a paused week offers Resume — back to its intention, or keep when none is on offer', async () => {
+        const w = stubWrite(env, { ok: true, plan: null });
+        const pausedPlan = (intention) => ({ week: '2026-W26', intention, cadence: {}, paused: true });
+        env.window.Gamification.render(journey({
+            weekly_review: { ...WEEKLY, plan: pausedPlan({ id: 'stop_after_dinner', text: 'x' }) },
+        }));
+        const resume = env.document.querySelector('[data-choice="resume"]');
+        expect(resume.textContent).toBe('Resume this week');
+        resume.click();
+        await flush(); await flush();
+        expect(w.posted[0].body.choice).toBe('stop_after_dinner');
+
+        env.window.Gamification.render(journey({
+            weekly_review: { ...WEEKLY, options: { ...WEEKLY.options, intentions: [] }, plan: pausedPlan(null) },
+        }));
+        env.document.querySelector('[data-choice="resume"]').click();
+        await flush(); await flush();
+        expect(w.posted[1].body.choice).toBe('keep');
+    });
+
     it('an uncommitted pick survives the re-render a cadence write triggers', () => {
         stubWrite(env, { ok: true, plan: null });
         env.window.Gamification.render(journey({ weekly_review: WEEKLY }));
