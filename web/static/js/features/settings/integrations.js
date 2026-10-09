@@ -158,30 +158,30 @@
             if (!container) {
                 container = document.createElement('div');
                 container.id = containerId;
-                container.className = 'wg-settings-integrations__consent';
+                container.className = 'wg-vstack';
                 hint.insertAdjacentElement('afterend', container);
             }
             container.textContent = '';
             for (const [scope, labelText] of scopes) {
                 const value = _trialConsent ? _trialConsent[scope] : null;
                 const row = document.createElement('div');
-                row.className = 'wg-settings-integrations__consent-row';
+                row.className = 'wg-hstack';
                 row.setAttribute('data-trial-consent-scope', scope);
 
                 const label = document.createElement('span');
-                label.className = 'wg-settings-integrations__note';
+                label.className = 'wg-hint wg-spacer';
                 label.textContent = labelText + ': ';
                 row.appendChild(label);
 
                 const state = document.createElement('span');
-                state.className = 'wg-mono-display';
+                state.className = 'wg-meta';
                 state.setAttribute('data-trial-consent-state', String(value));
                 state.textContent = consentStateText(value);
                 row.appendChild(state);
 
                 const btn = document.createElement('button');
                 btn.type = 'button';
-                btn.className = 'wg-gloss';
+                btn.className = 'wg-btn wg-btn--sm';
                 btn.setAttribute('data-trial-consent-action', scope);
                 btn.textContent = value === true ? 'Revoke' : 'Allow';
                 btn.addEventListener('click', () => { setTrialConsentScope(scope, value !== true); });
@@ -278,13 +278,15 @@
     const MODEL_LOADERS = [
         {
             scope: 'text',
+            input: 'integrations-openai-model',
             button: 'integrations-openai-model-load',
             list: 'integrations-openai-model-options',
             note: 'integrations-openai-model-note'
         },
         {
             scope: 'vision',
-            button: 'integrations-openai-vision-model-load',
+            input: 'integrations-openai-vision-model',
+            button:'integrations-openai-vision-model-load',
             list: 'integrations-openai-vision-model-options',
             note: 'integrations-openai-vision-model-note'
         }
@@ -322,7 +324,6 @@
             const btn = document.getElementById(cfg.button);
             if (btn) {
                 btn.disabled = false;
-                btn.textContent = 'Load models';
                 delete btn.dataset.modelsLoaded;
             }
         }
@@ -346,21 +347,76 @@
             res = null;
         }
         // Superseded: leave the button to the newer call, which owns it now.
-        if (seq !== _modelSeq[cfg.scope]) return;
+        if (seq !== _modelSeq[cfg.scope]) return null;
         if (btn) btn.disabled = false;
 
         if (!res || res.error || !Array.isArray(res.models)) {
             setModelNote(cfg.note, (res && res.error) || "Couldn't load the model list — type the model id instead.");
-            return;
+            return null;
         }
         renderModelOptions(cfg.list, res.models);
-        if (btn) {
-            btn.dataset.modelsLoaded = '1';
-            btn.textContent = 'Refresh models';
-        }
+        if (btn) btn.dataset.modelsLoaded = '1';
         setModelNote(cfg.note, res.models.length
             ? res.models.length + ' models available — pick one or type your own'
             : 'Provider returned no models — type the model id instead.');
+        return res.models;
+    }
+
+    // Choose (the model value row's action): load the list, then offer it in
+    // the kit choice dialog. Picking fills the free-text input; Save writes it.
+    async function chooseModel(cfg) {
+        const models = await loadModels(cfg);
+        if (!models || !models.length || typeof safeChoose !== 'function') return;
+        const input = getInput(cfg.input);
+        if (!input) return;
+        const picked = await safeChoose('', models.map((id) => ({ value: id, label: id, selected: id === input.value })),
+            { title: cfg.scope === 'vision' ? 'Vision model' : 'Model' });
+        if (picked == null) return;
+        input.value = picked;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    // Key fields (.wg-secret): reveal toggles the password mask; Copy puts the
+    // typed key on the clipboard. A saved key is only ever the "***" mask here
+    // (the GET never returns it), so there is nothing to copy until the user
+    // types one. Nothing is logged or sent anywhere.
+    function bindSecretField(wrap) {
+        const input = wrap.querySelector('input');
+        const reveal = wrap.querySelector('[data-secret-reveal]');
+        const copy = wrap.querySelector('[data-secret-copy]');
+        if (!input || wrap.dataset.integrationsBound) return;
+        wrap.dataset.integrationsBound = '1';
+        reveal?.addEventListener('click', () => {
+            const show = input.type === 'password';
+            input.type = show ? 'text' : 'password';
+            reveal.setAttribute('aria-pressed', String(show));
+            reveal.setAttribute('aria-label', show ? 'Hide key' : 'Show key');
+        });
+        copy?.addEventListener('click', async () => {
+            const value = input.value;
+            if (!value || value === '***') {
+                if (typeof safeToast === 'function') safeToast('Saved keys stay hidden — type a key to copy it', 'info');
+                return;
+            }
+            try {
+                await navigator.clipboard.writeText(value);
+                if (typeof safeToast === 'function') safeToast('Key copied', 'info');
+            } catch (_) {
+                if (typeof safeToast === 'function') safeToast('Copy failed', 'error');
+            }
+        });
+    }
+
+    // The Telegram row on the AI & integrations page. telegram.js stamps the
+    // mount with the rendered state; no stamp or 'disabled' = Telegram is off
+    // on this server, so the row (and its page) stays hidden.
+    function syncTelegramRow() {
+        const mount = document.getElementById('telegram-settings-mount');
+        const row = document.getElementById('integrations-telegram-row');
+        const state = mount ? mount.dataset.tgState : '';
+        if (row) row.hidden = !state || state === 'disabled';
+        const desc = document.querySelector('[data-settings-summary="telegram"]');
+        if (desc) desc.textContent = state === 'linked' ? 'Linked' : 'Not linked';
     }
 
     function readDOMIntoPayload() {
@@ -407,6 +463,7 @@
                 _telegramMounted = true;
                 _telegramModuleLoader()
                     .then(({ mountTelegram }) => mountTelegram(tgMount, {}))
+                    .then(syncTelegramRow)
                     .catch((err) => {
                         _telegramMounted = false;
                         console.error('[settings] telegram module failed', err);
@@ -467,18 +524,15 @@
         }
     }
 
+    // Save is the page-bar primary (features/settings.js openSettingsPage).
     function bindControls() {
-        const btn = document.getElementById('save-integrations-btn');
-        if (btn && !btn.dataset.integrationsBound) {
-            btn.dataset.integrationsBound = '1';
-            btn.addEventListener('click', () => { saveIntegrations(); });
-        }
         for (const cfg of MODEL_LOADERS) {
             const loadBtn = document.getElementById(cfg.button);
             if (!loadBtn || loadBtn.dataset.integrationsBound) continue;
             loadBtn.dataset.integrationsBound = '1';
-            loadBtn.addEventListener('click', () => { loadModels(cfg); });
+            loadBtn.addEventListener('click', () => { chooseModel(cfg); });
         }
+        document.querySelectorAll('#settings-integrations .wg-secret').forEach(bindSecretField);
     }
 
     if (document.readyState === 'loading') {
@@ -511,6 +565,8 @@
         // Returns the in-flight promise so tests can await a click's effect
         // without racing the fire-and-forget listener.
         _loadModels: (scope) => loadModels(MODEL_LOADERS.find((c) => c.scope === scope)),
+        _chooseModel: (scope) => chooseModel(MODEL_LOADERS.find((c) => c.scope === scope)),
+        syncTelegramRow,
         _resetTelegramMounted: () => { _telegramMounted = false; },
         _setTelegramLoader: (loader) => { _telegramModuleLoader = loader; }
     };
