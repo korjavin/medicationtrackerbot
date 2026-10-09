@@ -1535,6 +1535,54 @@ async function _archiveMedApi(med) {
     return true;
 }
 
+// Take sheet (kit M2). One sheet, three modes: confirm (primary "Take N",
+// Snooze/Skip ghost actions), edit ("Update") and log_past ("Log"). Each row
+// is a .wg-choice--check toggle button; `.med-confirm-check[aria-pressed]`
+// is the selection the meds-history.js write handlers read.
+const MED_CONFIRM_PRIMARY = { confirm: 'Take', edit: 'Update', log_past: 'Log' };
+const MED_CONFIRM_EYEBROW = { confirm: 'Time for meds', edit: 'Edit intake', log_past: 'Log intake' };
+
+function _medConfirmTimeLabel(value, isNow) {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return isNow ? 'Now' : '';
+    const hm = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (isNow) return `Now · ${hm}`;
+    return `${d.toLocaleDateString([], { day: 'numeric', month: 'short' })} · ${hm}`;
+}
+
+// Live count on the primary: "Take 3"; toggling a row updates it.
+function _syncMedConfirmPrimary(mode) {
+    const actionBtn = document.getElementById('med-confirm-action-btn');
+    if (!actionBtn) return;
+    actionBtn.replaceChildren(MED_CONFIRM_PRIMARY[mode] || MED_CONFIRM_PRIMARY.confirm);
+    if (mode !== 'confirm') return;
+    const n = document.querySelectorAll('#med-confirm-list .med-confirm-check[aria-pressed="true"]').length;
+    actionBtn.append(' ', _medsEl('span', 'wg-btn__count', String(n)));
+}
+
+function _buildMedConfirmChoice(index, name, med, mode) {
+    const btn = _medsEl('button', 'wg-choice wg-choice--check med-confirm-check');
+    btn.type = 'button';
+    btn.dataset.index = String(index);
+    btn.setAttribute('aria-pressed', 'true');
+    const label = _medsEl('span', 'wg-med-confirm-modal__choice-label', name);
+    if (med && med.dosage) label.appendChild(_medsEl('span', 'wg-choice__sub', med.dosage));
+    btn.appendChild(label);
+    if (med && med.inventory_count !== null && med.inventory_count !== undefined) {
+        const stock = formatStock(med.inventory_count, med);
+        if (stock.state !== 'ok') {
+            const chip = window.WGChip.create({ text: stock.label, state: stock.state, small: true });
+            chip.classList.add('wg-choice__trail');
+            btn.appendChild(chip);
+        }
+    }
+    btn.addEventListener('click', () => {
+        btn.setAttribute('aria-pressed', btn.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
+        _syncMedConfirmPrimary(mode);
+    });
+    return btn;
+}
+
 function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', intakeIds = []) {
     window.PushModalState.openMedConfirm({
         ids,
@@ -1548,9 +1596,8 @@ function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', i
 
     const eyebrowEl = document.getElementById('med-confirm-eyebrow');
     const titleEl = document.getElementById('med-confirm-title');
-    const subtitleEl = document.getElementById('med-confirm-subtitle');
-    const timeEditEl = document.getElementById('med-confirm-time-edit');
     const timeInput = document.getElementById('med-confirm-datetime');
+    const timeValue = document.getElementById('med-confirm-time-value');
     const actionBtn = document.getElementById('med-confirm-action-btn');
     const snoozeBtn = document.getElementById('med-confirm-snooze-btn');
     const skipBtn = document.getElementById('med-confirm-skip-btn');
@@ -1561,69 +1608,57 @@ function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', i
         timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     } catch (_) { /* keep raw */ }
 
+    // The eyebrow names the action, the title names the slot (or the med
+    // being logged) — they never repeat each other.
+    eyebrowEl.textContent = MED_CONFIRM_EYEBROW[mode] || MED_CONFIRM_EYEBROW.confirm;
+    titleEl.textContent = mode === 'log_past' ? (names[0] || '') : String(timeStr || '');
+
+    // "Time taken": edit / log_past start at the given time (edit = the dose's
+    // taken_at), confirm starts at now and sends taken_at only once the user
+    // picks a different time (dataset.edited, see onMedConfirmTimeChange).
+    const timeSource = mode === 'confirm' ? new Date() : scheduledAt;
+    delete timeInput.dataset.edited;
+    try {
+        timeInput.value = formatDateTimeLocalForInput(timeSource);
+    } catch (e) {
+        console.error("Error formatting date for input", e);
+    }
+    timeValue.textContent = _medConfirmTimeLabel(timeSource, mode === 'confirm');
+
     if (mode === 'edit' || mode === 'log_past') {
-        if (eyebrowEl) eyebrowEl.textContent = mode === 'edit' ? 'Edit intake' : 'Log intake';
-        titleEl.innerText = mode === 'edit' ? "Edit Intake" : "Log Intake";
-        subtitleEl.textContent = "";
-        timeEditEl.classList.remove('hidden');
-
-        try {
-            timeInput.value = formatDateTimeLocalForInput(scheduledAt);
-        } catch (e) {
-            console.error("Error formatting date for input", e);
-        }
-
-        actionBtn.innerText = mode === 'edit' ? "Update" : "Log Intake";
         actionBtn.onclick = mode === 'edit' ? updateIntakeHistory : confirmLogPast;
         snoozeBtn.classList.add('hidden');
-        if (skipBtn) skipBtn.classList.add('hidden');
+        skipBtn.classList.add('hidden');
     } else {
-        if (eyebrowEl) eyebrowEl.textContent = 'Time for meds';
-        titleEl.innerText = "Time for Meds!";
-        timeEditEl.classList.add('hidden');
-
-        subtitleEl.textContent = "Scheduled for: " + timeStr;
-
-        actionBtn.innerText = "Confirm Selected";
         actionBtn.onclick = confirmSelectedMedications;
         // An upcoming slot with no intake yet (Schedule "Take N") can be taken
         // early, but there is nothing to snooze or skip until it materializes.
         const unmaterialized = !(intakeIds && intakeIds.length) && new Date(scheduledAt).getTime() > Date.now();
         snoozeBtn.classList.toggle('hidden', unmaterialized);
-        if (skipBtn) skipBtn.classList.toggle('hidden', unmaterialized);
+        skipBtn.classList.toggle('hidden', unmaterialized);
     }
 
+    const medById = new Map((Array.isArray(medications) ? medications : []).map((m) => [String(m.id), m]));
     const list = document.getElementById('med-confirm-list');
-    list.replaceChildren();
+    list.replaceChildren(...ids.map((id, index) => _buildMedConfirmChoice(
+        index, names[index] || ('Medication ' + id), medById.get(String(id)), mode)));
+    _syncMedConfirmPrimary(mode);
+}
 
-    ids.forEach((id, index) => {
-        const name = names[index] || ('Medication ' + id);
+// The "Time taken" value row opens the hidden datetime picker (app.js binds).
+function openMedConfirmTimePicker() {
+    const input = document.getElementById('med-confirm-datetime');
+    if (!input) return;
+    if (typeof input.showPicker === 'function') {
+        try { input.showPicker(); return; } catch (_) { /* fall back below */ }
+    }
+    input.focus();
+    input.click();
+}
 
-        const row = document.createElement('label');
-        row.className = 'wg-med-confirm-modal__row wg-med-confirm-modal__row--on';
-
-        const input = document.createElement('input');
-        input.type = 'checkbox';
-        input.value = String(index);
-        input.checked = true;
-        input.className = 'med-confirm-check wg-med-confirm-modal__row-input';
-        input.addEventListener('change', () => {
-            row.classList.toggle('wg-med-confirm-modal__row--on', input.checked);
-        });
-
-        const check = document.createElement('span');
-        check.className = 'wg-med-confirm-modal__check';
-        check.setAttribute('aria-hidden', 'true');
-
-        const body = document.createElement('span');
-        body.className = 'wg-med-confirm-modal__row-body';
-
-        const nameEl = document.createElement('span');
-        nameEl.className = 'wg-med-confirm-modal__row-name';
-        nameEl.textContent = name;
-        body.appendChild(nameEl);
-
-        row.append(input, check, body);
-        list.appendChild(row);
-    });
+function onMedConfirmTimeChange() {
+    const input = document.getElementById('med-confirm-datetime');
+    if (!input || !input.value) return;
+    input.dataset.edited = '1';
+    document.getElementById('med-confirm-time-value').textContent = _medConfirmTimeLabel(input.value, false);
 }

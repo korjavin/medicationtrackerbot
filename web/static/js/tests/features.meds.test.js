@@ -113,8 +113,8 @@ describe('features/meds.js + app.js — optimistic write conversion', () => {
 
         window.showMedicationConfirmModal([1, 2], ['Aspirin', 'Aspirin'], '2026-05-17T08:00:00.000Z', 'confirm', [101, 102]);
         const checks = document.querySelectorAll('.med-confirm-check');
-        checks[0].checked = true;   // confirm id=1 only
-        checks[1].checked = false;
+        checks[0].setAttribute('aria-pressed', 'true');   // confirm id=1 only
+        checks[1].setAttribute('aria-pressed', 'false');
 
         window.loadMeds = vi.fn();
         window.loadHistory = vi.fn();
@@ -235,8 +235,8 @@ describe('features/meds.js + app.js — optimistic write conversion', () => {
         window.showMedicationConfirmModal([7, 8], ['Med G', 'Med H'], '2026-05-17T10:00:00.000Z', 'edit', [301, 302]);
         document.getElementById('med-confirm-datetime').value = '2026-05-17T10:30';
         const checks = document.querySelectorAll('.med-confirm-check');
-        checks[0].checked = true;   // 301 → TAKEN
-        checks[1].checked = false;  // 302 → PENDING (revert)
+        checks[0].setAttribute('aria-pressed', 'true');   // 301 → TAKEN
+        checks[1].setAttribute('aria-pressed', 'false');  // 302 → PENDING (revert)
 
         window.loadMeds = vi.fn();
         window.loadHistory = vi.fn();

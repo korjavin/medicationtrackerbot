@@ -90,6 +90,23 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
         expect(meds[0].inventory_count).toBe(4);
     });
 
+    it('confirm-schedule records the take sheet\'s taken_at when given (med-xso6.19)', async () => {
+        env = loadCloudShimFrontendEnv({
+            seedRecords: {
+                medication: [seedMedication({ inventory_count: 5 })],
+                intake: [seedIntake({ recordId: 'intake-1', medication_id: 1 })]
+            }
+        });
+        const { window } = env;
+        const takenAt = new Date(Date.now() - 20 * 60 * 1000).toISOString();
+
+        await window.apiCall('/api/medications/confirm-schedule', 'POST', { intake_ids: ['intake-1'], taken_at: takenAt });
+
+        const history = await window.apiCall('/api/history?days=0');
+        expect(history[0].status).toBe('TAKEN');
+        expect(Date.parse(history[0].taken_at)).toBe(Date.parse(takenAt));
+    });
+
     it('confirm-schedule with scheduled_at tells the relay to cancel that slot re-fire (med-eas.74)', async () => {
         // A dose confirmed in the app never taps Telegram, so the shim best-effort
         // POSTs /api/telegram/cancel-refire so the relay's server-owned nag chain
