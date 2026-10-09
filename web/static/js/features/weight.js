@@ -74,7 +74,7 @@ function buildWeightInlineAddButton() {
     const btn = document.createElement('button');
     btn.id = 'add-weight-btn';
     btn.type = 'button';
-    btn.className = 'wg-toolbar-btn wg-toolbar-btn--primary';
+    btn.className = 'wg-btn wg-btn--primary wg-btn--sm';
     btn.setAttribute('aria-label', 'Log weight');
 
     if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
@@ -82,7 +82,6 @@ function buildWeightInlineAddButton() {
         if (icon) btn.appendChild(icon);
     }
     const label = document.createElement('span');
-    label.className = 'wg-toolbar-btn__label';
     label.textContent = 'Log';
     btn.appendChild(label);
 

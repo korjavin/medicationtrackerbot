@@ -549,7 +549,7 @@ describe('food screen — incomplete-day toggle + nudge chip (med-0sgs.3)', () =
         await vi.waitFor(async () => expect(await flagged(window, today)).toBe(true));
         expect(keys).toContain(`food_${today}_v2`);
         await vi.waitFor(() => expect(badge.classList.contains('hidden')).toBe(false));
-        expect(document.getElementById('food-macros-card').classList.contains('wg-food-macros-card--excluded')).toBe(true);
+        expect(document.getElementById('food-macros-card-total').classList.contains('wg-row--muted')).toBe(true);
         // A flagged day's logs stay visible.
         expect(document.querySelectorAll('#food-list .wg-food-item-row')).toHaveLength(1);
 

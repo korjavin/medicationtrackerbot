@@ -140,21 +140,36 @@ describe('Food daily macros card (Phase 4, Task 4)', () => {
         });
     });
 
-    it('missing targets fall back to "—" in header percent and bar target suffix', () => {
+    it('no targets at all render the inline "No daily target set" state instead of 0% bars (kit F3)', () => {
         const { window, document } = env;
+        const switched = [];
+        window.switchTab = (tab) => switched.push(tab);
         callRender(
             window,
             { calories: 400, carbs: 50, protein: 30, fat: 10 },
             { calories: 0, carbs: 0, protein: 0, fat: 0 }
         );
 
-        expect(document.getElementById('food-macros-card-percent-value').textContent).toBe('—');
+        expect(document.getElementById('food-macros-card-percent').classList.contains('hidden')).toBe(true);
+        expect(document.getElementById('food-macros-card-kcal').textContent).toBe('400');
 
-        const bars = document.querySelectorAll('#food-macros-card-bars .wg-macro-bar');
-        bars.forEach(bar => {
-            const target = bar.querySelector('.wg-macro-bar__value-target').textContent;
-            expect(target).toContain('/ —');
-        });
+        const bars = document.getElementById('food-macros-card-bars');
+        expect(bars.querySelectorAll('.wg-macro-bar')).toHaveLength(0);
+        const empty = bars.querySelector('.wg-empty.wg-empty--inline');
+        expect(empty.querySelector('.wg-empty__title').textContent).toBe('No daily target set');
+        empty.querySelector('.wg-btn').click();
+        expect(switched).toEqual(['settings']);
+
+        // Setting any target brings the bars back; unset ones show "—".
+        callRender(
+            window,
+            { calories: 400, carbs: 50, protein: 30, fat: 10 },
+            { calories: 2000, carbs: 0, protein: 0, fat: 0 }
+        );
+        expect(document.getElementById('food-macros-card-percent').classList.contains('hidden')).toBe(false);
+        const rows = bars.querySelectorAll('.wg-macro-bar');
+        expect(rows).toHaveLength(4);
+        expect(rows[1].querySelector('.wg-macro-bar__value-target').textContent).toContain('/ —');
     });
 
     it('tolerates a missing / null targets argument without throwing', () => {
@@ -228,10 +243,43 @@ describe('Food daily macros card (Phase 4, Task 4)', () => {
         const card = document.getElementById('food-macros-card');
         expect(card.classList.contains('hidden')).toBe(false);
         expect(document.getElementById('food-macros-card-kcal').textContent).toBe('0');
+        // Progress renders once, in the card — the legacy rows are gone.
+        expect(document.getElementById('food-target-progress')).toBeNull();
+    });
 
-        const progress = document.getElementById('food-target-progress');
-        expect(progress.classList.contains('hidden')).toBe(true);
-        expect(progress.children).toHaveLength(0);
+    it('a flagged day dims the totals and shows the "Not counted" stale chip; the week range does not', () => {
+        const { window, document } = env;
+        const total = document.getElementById('food-macros-card-total');
+        const bars = document.getElementById('food-macros-card-bars');
+        const badge = document.getElementById('food-incomplete-badge');
+        expect(badge.classList.contains('wg-chip--stale')).toBe(true);
+        expect(badge.textContent).toBe('Not counted');
+
+        window.renderFoodDayStatus(true);
+        expect(document.getElementById('food-incomplete-toggle').checked).toBe(true);
+        expect(total.classList.contains('wg-row--muted')).toBe(true);
+        expect(bars.classList.contains('wg-row--muted')).toBe(true);
+        expect(badge.classList.contains('hidden')).toBe(false);
+
+        window.FoodLog.macrosRange = 'week';
+        window.renderFoodDayStatus(true);
+        expect(total.classList.contains('wg-row--muted')).toBe(false);
+        expect(badge.classList.contains('hidden')).toBe(true);
+
+        window.FoodLog.macrosRange = 'day';
+        window.renderFoodDayStatus(false);
+        expect(document.getElementById('food-incomplete-toggle').checked).toBe(false);
+        expect(total.classList.contains('wg-row--muted')).toBe(false);
+        expect(badge.classList.contains('hidden')).toBe(true);
+    });
+
+    it('the incomplete flag is a .wg-toggle switch row in the card foot', () => {
+        const { document } = env;
+        const toggle = document.getElementById('food-incomplete-toggle');
+        expect(toggle.getAttribute('role')).toBe('switch');
+        expect(toggle.parentElement.classList.contains('wg-toggle')).toBe(true);
+        const row = toggle.closest('.wg-card__foot');
+        expect(row.querySelector('.wg-setting__title').textContent).toBe('Tracking incomplete');
     });
 
     it('_renderFoodData keeps the macros card visible with weekly totals on range=week', () => {

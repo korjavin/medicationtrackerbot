@@ -529,6 +529,7 @@ function switchMedTab(tab) {
     if (!activated) return;
 
     if (typeof setActiveMedsSubTab === 'function') setActiveMedsSubTab(tab);
+    if (typeof syncMedsAddButton === 'function') syncMedsAddButton();
 
     if (tab === 'schedule') { loadMeds(); }
     else if (tab === 'history') { loadHistory(); }

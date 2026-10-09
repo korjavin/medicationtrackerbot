@@ -126,7 +126,7 @@ describe('Food loadFoodLogs() vault-served reads', () => {
     await window.loadFoodLogs();
 
     const list = document.getElementById('food-list');
-    expect(list.textContent).toBe('No food logs for this day.');
+    expect(list.querySelector('.wg-empty__title').textContent).toMatch(/^No food logged/);
     expect(list.querySelector('.wg-food-meal-group')).toBeNull();
   });
 

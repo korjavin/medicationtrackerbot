@@ -4,7 +4,8 @@
 //
 // Owns the daily food log + the macros card + the food-targets state:
 //   - GET /api/food/log + /api/food/stats (via apiCall, vault-served)
-//   - the .wg-food-meal-group / .wg-food-item-row renderers
+//   - the day navigator label, meal list (.wg-section / .wg-row) and the
+//     empty-day state (kit F1–F3)
 //   - the food-modal lifecycle (open / edit / save / delete)
 //   - the per-100g recompute + computeFoodTotals helper
 //   - the daily/weekly macros card (renderFoodMacrosCard)
@@ -190,20 +191,20 @@ function toISODateLocal(date) {
     return `${year}-${month}-${day}`;
 }
 
-function formatFoodDateLabel(dateStr) {
+// 'Today' / 'Yesterday' / 'Tomorrow', or '' for any other day.
+function foodRelativeDay(dateStr) {
     if (!dateStr) return '';
     const date = new Date(`${dateStr}T00:00:00`);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    const diffDays = Math.round((date.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    return { '0': 'Today', '-1': 'Yesterday', '1': 'Tomorrow' }[String(diffDays)] || '';
+}
 
-    const diffTime = date.getTime() - today.getTime();
-    const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays === 0) return 'Today';
-    if (diffDays === -1) return 'Yesterday';
-    if (diffDays === 1) return 'Tomorrow';
-
-    return date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+function formatFoodDateLabel(dateStr) {
+    if (!dateStr) return '';
+    return foodRelativeDay(dateStr)
+        || new Date(`${dateStr}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
 function formatFoodDateSubtitle(dateStr) {
@@ -213,18 +214,33 @@ function formatFoodDateSubtitle(dateStr) {
     return `${parts[2]}.${parts[1]}.${parts[0]}`;
 }
 
+// Day-navigator date (kit F1/F2): a relative day sits as a chip beside the
+// short "Thu 08.10"; any other day spells out "Wednesday · 07.10.2026".
+function formatFoodDayNavDate(dateStr) {
+    const date = new Date(`${dateStr}T00:00:00`);
+    const full = formatFoodDateSubtitle(dateStr);
+    if (foodRelativeDay(dateStr)) {
+        return `${date.toLocaleDateString(undefined, { weekday: 'short' })} ${full.slice(0, 5)}`;
+    }
+    return `${date.toLocaleDateString(undefined, { weekday: 'long' })} · ${full}`;
+}
+
 function updateFoodDateNav() {
     const dateFilter = document.getElementById('food-date-filter');
-    const label = document.getElementById('food-date-label');
-    const subtitle = document.getElementById('food-date-subtitle');
+    const chip = document.getElementById('food-date-chip');
+    const text = document.getElementById('food-date-text');
     const nextBtn = document.getElementById('food-date-next-btn');
-    if (!dateFilter || !label || !nextBtn) return;
+    if (!dateFilter || !nextBtn) return;
 
     const dateStr = dateFilter.value;
     if (!dateStr) return;
 
-    label.textContent = formatFoodDateLabel(dateStr);
-    if (subtitle) subtitle.textContent = formatFoodDateSubtitle(dateStr);
+    const rel = foodRelativeDay(dateStr);
+    if (chip) {
+        chip.textContent = rel;
+        chip.classList.toggle('hidden', !rel);
+    }
+    if (text) text.textContent = formatFoodDayNavDate(dateStr);
 
     const date = new Date(`${dateStr}T00:00:00`);
     const today = new Date();
@@ -703,9 +719,6 @@ async function loadFoodLogs() {
         dateFilter.value = dateStr;
     }
 
-    const weekDisplay = document.getElementById('food-week-display');
-    if (weekDisplay) weekDisplay.classList.add('hidden');
-
     const sortButtons = document.querySelectorAll('.fooddb-sort-btn');
     sortButtons.forEach(btn => {
         const isActive = btn.dataset.sort === (window.FoodDB ? window.FoodDB.sort : 'usage');
@@ -722,8 +735,7 @@ async function loadFoodLogs() {
         _renderFoodData(cached.groups, cached.weekStats, window.FoodLog.macrosRange, dateStr);
         renderFoodDayStatus(cached.incomplete === true);
     } else {
-        const loadingStr = document.createTextNode('Loading...');
-        list.replaceChildren(loadingStr);
+        list.replaceChildren(createSkeleton('row', 3));
     }
 
     updateFoodDateNav();
@@ -764,69 +776,70 @@ async function loadFoodLogs() {
     await loadFoodIncompleteNudge();
 }
 
-// Phase 4, Task 5 — meal-grouped item list renderers. The daily log list
-// is built from `.wg-food-meal-group` containers: each group has a
-// `.wg-section-label` header (meal name + time + trailing mono kcal total)
-// followed by `.wg-card` rows per logged item.
+// Meal list (kit F1): each meal is a .wg-section — eyebrow "Lunch · 12:42",
+// the meal's kcal and a Move button in the head — over a .wg-list of .wg-row
+// items. Tap a row to edit; swipe / the overflow menu has Edit and Delete.
 function renderFoodMealGroup(group) {
     const groupEl = document.createElement('section');
-    groupEl.className = 'wg-food-meal-group';
+    groupEl.className = 'wg-section wg-food-meal-group';
 
     const header = document.createElement('div');
-    header.className = 'wg-section-label wg-food-meal-group__header';
+    header.className = 'wg-section__head';
 
     const title = document.createElement('span');
-    title.className = 'wg-food-meal-group__title';
-    const namePart = group.name || 'Meal';
-    const timePart = group.time ? ` · ${group.time}` : '';
-    title.textContent = `${namePart}${timePart}`;
+    title.className = 'wg-eyebrow wg-eyebrow--dot wg-food-meal-group__title';
+    title.textContent = `${group.name || 'Meal'}${group.time ? ` · ${group.time}` : ''}`;
     header.appendChild(title);
 
+    const trail = document.createElement('span');
+    trail.className = 'wg-hstack';
     const total = document.createElement('span');
-    total.className = 'wg-mono-display wg-food-meal-group__total';
+    total.className = 'wg-meta wg-food-meal-group__total';
     total.textContent = `${Math.round(group.calories || 0)} kcal`;
-    header.appendChild(total);
+    trail.appendChild(total);
 
     if ((group.logs || []).length) {
-        const moveBtn = buildFoodActionButton('calendar', 'Move to another day', (event) => {
+        const moveBtn = document.createElement('button');
+        moveBtn.type = 'button';
+        moveBtn.className = 'wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm wg-food-meal-group__move';
+        moveBtn.setAttribute('aria-label', 'Move to another day');
+        moveBtn.title = 'Move to another day';
+        const ico = document.createElement('i');
+        ico.className = 'wg-ico';
+        ico.appendChild(window.WGIcons.iconSvg('calendar', { size: 16 }));
+        moveBtn.appendChild(ico);
+        moveBtn.addEventListener('click', (event) => {
             event.stopPropagation();
             openFoodMoveSheet(group);
         });
-        moveBtn.classList.add('wg-food-meal-group__move');
-        header.appendChild(moveBtn);
+        trail.appendChild(moveBtn);
     }
-
+    header.appendChild(trail);
     groupEl.appendChild(header);
 
-    const rows = document.createElement('div');
-    rows.className = 'wg-food-meal-group__rows';
-    (group.logs || []).forEach(log => {
-        window.FoodLog.setLog(log.id, log);
-        rows.appendChild(renderFoodItemRow(log));
-    });
-    groupEl.appendChild(rows);
+    if ((group.logs || []).length) {
+        const rows = document.createElement('div');
+        rows.className = 'wg-list';
+        group.logs.forEach(log => {
+            window.FoodLog.setLog(log.id, log);
+            rows.appendChild(renderFoodItemRow(log));
+        });
+        groupEl.appendChild(rows);
+    }
 
     return groupEl;
 }
 
 function renderFoodItemRow(log) {
     const item = document.createElement('div');
-    item.className = 'wg-card wg-food-item-row';
+    item.className = 'wg-row wg-food-item-row';
     item.setAttribute('data-log-id', String(log.id));
-    if (log.isLocal || log.pending) {
-        item.classList.add('wg-food-item-row--pending');
-    }
-    if (log.isRejected || log.errorMessage) {
-        item.classList.add('wg-food-item-row--rejected');
-    }
 
-    item.addEventListener('click', () => editFoodLog(log.id));
+    const body = document.createElement('span');
+    body.className = 'wg-row__body';
 
-    const body = document.createElement('div');
-    body.className = 'wg-food-item-row__body';
-
-    const name = document.createElement('div');
-    name.className = 'wg-food-item-row__name';
+    const name = document.createElement('span');
+    name.className = 'wg-row__title';
     if (log.is_meal) {
         const ico = document.createElement('i');
         ico.className = 'wg-ico wg-food-item-row__meal-ico';
@@ -836,63 +849,66 @@ function renderFoodItemRow(log) {
     name.appendChild(document.createTextNode(log.name || 'Food'));
     body.appendChild(name);
 
-    const meta = document.createElement('div');
-    meta.className = 'wg-food-item-row__meta';
-    const grams = document.createElement('span');
-    grams.className = 'wg-food-item-row__grams';
-    grams.textContent = `${Math.round(log.weight || 0)}g`;
-    meta.appendChild(grams);
-
+    const meta = document.createElement('span');
+    meta.className = 'wg-row__meta';
+    const macros = document.createElement('span');
+    macros.textContent = `${Math.round(log.weight || 0)} g · P ${Math.round(log.protein || 0)} · F ${Math.round(log.fat || 0)}`;
+    meta.appendChild(macros);
     const syncChip = window.WGChip.sync(log);
     if (syncChip) meta.appendChild(syncChip);
-
     body.appendChild(meta);
     item.appendChild(body);
 
-    const stats = document.createElement('div');
-    stats.className = 'wg-food-item-row__stats';
-
     const kcal = document.createElement('span');
-    kcal.className = 'wg-mono-display wg-food-item-row__kcal';
-    kcal.textContent = `${Math.round(log.calories || 0)} kcal`;
-    stats.appendChild(kcal);
+    kcal.className = 'wg-row__value wg-row__value--sun';
+    kcal.textContent = String(Math.round(log.calories || 0));
+    const unit = document.createElement('small');
+    unit.textContent = 'kcal';
+    kcal.appendChild(unit);
+    item.appendChild(kcal);
 
-    const macros = document.createElement('span');
-    macros.className = 'wg-food-item-row__macros';
-    macros.textContent = `P ${Math.round(log.protein || 0)} / F ${Math.round(log.fat || 0)}`;
-    stats.appendChild(macros);
-
-    item.appendChild(stats);
-
-    const actions = document.createElement('div');
-    actions.className = 'wg-food-item-row__actions';
-    item.appendChild(actions);
+    const trail = document.createElement('span');
+    trail.className = 'wg-row__trail';
+    item.appendChild(trail);
 
     return window.WGRowActions.attach(item, {
         label: log.name || 'Food',
-        trail: actions,
+        trail,
+        tapEdits: true,
         onEdit: () => editFoodLog(log.id),
         onDelete: () => deleteFoodLog(log.id),
     });
 }
 
-function buildFoodActionButton(iconName, ariaLabel, onClick) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'wg-icon-btn wg-food-item-row__action';
-    btn.setAttribute('aria-label', ariaLabel);
-    btn.title = ariaLabel;
-    btn.setAttribute('data-icon', iconName);
-
-    const gloss = document.createElement('span');
-    gloss.className = 'wg-gloss';
-    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
-        gloss.appendChild(window.WGIcons.iconSvg(iconName, { size: 16 }));
-    }
-    btn.appendChild(gloss);
-
-    btn.addEventListener('click', onClick);
-    return btn;
+// Empty day (kit F3): secondary shortcuts to the fast paths; Add in the app
+// bar stays the one primary.
+function renderFoodEmptyDay(dateStr) {
+    const openAdd = () => {
+        showAddFoodModal();
+        return document.getElementById('food-name');
+    };
+    const card = document.createElement('div');
+    card.className = 'wg-card wg-card--flush';
+    card.appendChild(createEmptyState({
+        icon: 'food',
+        title: foodRelativeDay(dateStr) === 'Today' ? 'No food logged today' : 'No food logged this day',
+        body: 'Snap a photo, scan a barcode or just describe the meal. Totals and macros fill in here.',
+        actions: [
+            { label: 'Search', icon: 'search', onClick: () => { const n = openAdd(); if (n) n.focus(); } },
+            { label: 'Scan', icon: 'barcode', onClick: () => { openAdd(); openFoodScannerModal(); } },
+            { label: 'Photo', icon: 'camera', onClick: () => triggerFoodPhotoPicker() },
+            {
+                label: 'Describe',
+                icon: 'sparkle',
+                onClick: () => {
+                    const n = openAdd();
+                    setFoodParseAIMode(true);
+                    if (n) n.focus();
+                },
+            },
+        ],
+    }));
+    return card;
 }
 
 function _renderFoodData(groups, weekStats, range, dateStr) {
@@ -903,10 +919,7 @@ function _renderFoodData(groups, weekStats, range, dateStr) {
     window.FoodLog.setCurrent({});
 
     if (!groups || groups.length === 0) {
-        const empty = document.createElement('p');
-        empty.className = 'wg-hint text-center wg-food-meal-list__empty';
-        empty.textContent = 'No food logs for this day.';
-        list.appendChild(empty);
+        list.appendChild(renderFoodEmptyDay(dateStr));
     } else {
         groups.forEach(group => {
             dayCals += Number(group.calories) || 0;
@@ -916,12 +929,6 @@ function _renderFoodData(groups, weekStats, range, dateStr) {
 
             list.appendChild(renderFoodMealGroup(group));
         });
-    }
-
-    const progress = document.getElementById('food-target-progress');
-    if (progress) {
-        progress.classList.add('hidden');
-        progress.replaceChildren();
     }
 
     const isWeek = range === 'week';
@@ -980,6 +987,9 @@ function renderFoodMacrosCard(calories, carbs, protein, fat, targets, opts) {
     const kcalEl = document.getElementById('food-macros-card-kcal');
     if (kcalEl) kcalEl.textContent = String(Math.round(safeCalories));
 
+    const noTargets = !(targetCalories || targetCarbs || targetProtein || targetFat);
+    const percentBox = document.getElementById('food-macros-card-percent');
+    if (percentBox) percentBox.classList.toggle('hidden', noTargets);
     const percentEl = document.getElementById('food-macros-card-percent-value');
     if (percentEl) {
         if (targetCalories > 0) {
@@ -1004,7 +1014,18 @@ function renderFoodMacrosCard(calories, carbs, protein, fat, targets, opts) {
     const bars = document.getElementById('food-macros-card-bars');
     if (bars) {
         bars.replaceChildren();
-        if (window.WGMacroBar && typeof window.WGMacroBar.render === 'function') {
+        if (noTargets) {
+            // Kit F3: no targets → one inline line, not four 0% bars.
+            // ponytail: lands on Settings home (Targets is a row there); pushing
+            // the Targets page directly needs the Settings bundle loaded first.
+            bars.appendChild(createEmptyState({
+                icon: 'flag',
+                title: 'No daily target set',
+                body: 'Set kcal and macro targets to see progress.',
+                inline: true,
+                actions: [{ label: 'Set targets', onClick: () => switchTab('settings') }],
+            }));
+        } else if (window.WGMacroBar && typeof window.WGMacroBar.render === 'function') {
             const rows = [
                 { label: 'Energy', value: calories, target: targetCalories, unit: 'kcal', variant: 'energy' },
                 { label: 'Protein', value: protein, target: targetProtein, unit: 'g', variant: 'protein' },
@@ -1016,73 +1037,6 @@ function renderFoodMacrosCard(calories, carbs, protein, fat, targets, opts) {
     }
 
     card.classList.remove('hidden');
-}
-
-function renderFoodTargetProgress(valCals, valCarbs, valProt, valFat, period = 'day') {
-    const container = document.getElementById('food-target-progress');
-    if (!container) return;
-
-    const targets = [
-        { key: 'calories', label: 'Energy', unit: 'kcal', value: valCals, color: '#60a5fa' },
-        { key: 'protein', label: 'Protein', unit: 'g', value: valProt, color: '#4ade80' },
-        { key: 'carbs', label: 'Carbs', unit: 'g', value: valCarbs, color: '#22d3ee' },
-        { key: 'fat', label: 'Fat', unit: 'g', value: valFat, color: '#f59e0b' }
-    ];
-
-    const activeTargets = targets.filter(t => (window.FoodLog.targets[t.key] || 0) > 0);
-    if (activeTargets.length === 0) {
-        container.classList.add('hidden');
-        container.replaceChildren();
-        return;
-    }
-
-    container.classList.remove('hidden');
-    container.replaceChildren();
-    activeTargets.forEach((t) => {
-        let targetValue = window.FoodLog.targets[t.key];
-        if (period === 'week') {
-            targetValue = targetValue * 7;
-        } else if (period === '2weeks') {
-            targetValue = targetValue * 14;
-        }
-
-        let progress = Math.round((t.value / targetValue) * 100);
-        const isExcess = progress > 100;
-        const displayProgress = Math.min(100, progress);
-
-        const excessClass = isExcess ? ' excess' : '';
-        const bgColor = isExcess ? 'var(--danger-color, #ef4444)' : t.color;
-
-        const row = document.createElement('div');
-        row.className = `food-target-row${excessClass}`;
-
-        const topline = document.createElement('div');
-        topline.className = 'food-target-topline';
-
-        const name = document.createElement('span');
-        name.className = 'food-target-name';
-        name.textContent = t.label;
-
-        const values = document.createElement('span');
-        values.className = `food-target-values${isExcess ? ' excess-text' : ''}`;
-        const displayValue = (t.key === 'calories' || t.key === 'protein') ? Math.round(t.value) : Math.round(t.value * 10) / 10;
-        values.textContent = `${displayValue} / ${targetValue} ${t.unit}`;
-
-        topline.appendChild(name);
-        topline.appendChild(values);
-
-        const bar = document.createElement('div');
-        bar.className = `food-target-bar${excessClass}`;
-        const fill = document.createElement('div');
-        fill.className = `food-target-fill${excessClass}`;
-        fill.style.width = `${displayProgress}%`;
-        fill.style.background = bgColor;
-        bar.appendChild(fill);
-
-        row.appendChild(topline);
-        row.appendChild(bar);
-        container.appendChild(row);
-    });
 }
 
 async function loadFoodTargets() {
@@ -1451,10 +1405,14 @@ async function fetchFoodDayIncomplete(dateStr, fallback) {
 function renderFoodDayStatus(incomplete) {
     const toggle = document.getElementById('food-incomplete-toggle');
     if (toggle) toggle.checked = incomplete;
+    // A flagged day's totals stay visible but dimmed, with a stale chip (kit F2).
+    const excluded = incomplete && window.FoodLog.macrosRange !== 'week';
     const badge = document.getElementById('food-incomplete-badge');
-    if (badge) badge.classList.toggle('hidden', !incomplete);
-    const card = document.getElementById('food-macros-card');
-    if (card) card.classList.toggle('wg-food-macros-card--excluded', incomplete && window.FoodLog.macrosRange !== 'week');
+    if (badge) badge.classList.toggle('hidden', !excluded);
+    ['food-macros-card-total', 'food-macros-card-bars'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.classList.toggle('wg-row--muted', excluded);
+    });
 }
 
 async function setFoodDayIncomplete(dateStr, incomplete) {
