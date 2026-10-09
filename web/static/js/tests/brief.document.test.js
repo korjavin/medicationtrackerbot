@@ -423,10 +423,12 @@ describe('Doctor brief — modal + print/download', () => {
         expect(checked).toEqual(['meds', 'bp', 'weight', 'vitals', 'notes']);
     });
 
-    it('puts Cancel left of the primary action, both in the header row', () => {
-        const actions = Array.from(doc.querySelectorAll('#brief-modal .wg-health-modal__header-actions button'))
-            .map((b) => b.id);
-        expect(actions).toEqual(['brief-back-btn', 'brief-cancel-btn', 'brief-download-btn', 'brief-print-btn']);
+    it('is a flow sheet: Back/Cancel in the header, Download + the Print primary in the foot', () => {
+        const head = Array.from(doc.querySelectorAll('#brief-modal .wg-sheethead__acts button')).map((b) => b.id);
+        expect(head).toEqual(['brief-back-btn', 'brief-cancel-btn']);
+        const foot = Array.from(doc.querySelectorAll('#brief-modal .wg-sheet__foot button')).map((b) => b.id);
+        expect(foot).toEqual(['brief-download-btn', 'brief-print-btn']);
+        expect(doc.getElementById('brief-print-btn').classList.contains('wg-btn--primary')).toBe(true);
         // Back only exists for the per-note step, and that step is not open yet.
         expect(doc.getElementById('brief-back-btn').classList.contains('hidden')).toBe(true);
     });

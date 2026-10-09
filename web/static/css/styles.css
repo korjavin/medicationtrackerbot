@@ -561,8 +561,6 @@
     /* Edit-weight modal tokens (Phase 6, Task 6) — dual-line header, gloss-inset
        input wraps, kg/lb unit-toggle pill pair, and the Cancel / Save action bar
        with 2× flex on Save per modal-button-order convention. */
-    --wg-weight-modal-eyebrow-size: 10.5px;
-    --wg-weight-modal-title-size: 18px;
     --wg-weight-modal-section-gap: 14px;
     --wg-weight-modal-input-pad-y: 10px;
     --wg-weight-modal-input-pad-x: 12px;
@@ -580,8 +578,6 @@
        input wraps, 3-up Systolic/Diastolic/Pulse readings row with 20px mono
        inputs, 2-up Site/Position row, Notes textarea, and the Cancel / Save
        action bar with 2× flex on Save per modal-button-order convention. */
-    --wg-bp-modal-eyebrow-size: 10.5px;
-    --wg-bp-modal-title-size: 18px;
     --wg-bp-modal-section-gap: 14px;
     --wg-bp-modal-row-gap: 10px;
     --wg-bp-modal-input-pad-y: 10px;
@@ -684,11 +680,6 @@
        it never grows tall enough to push the form's Save button off screen. */
     --wg-exercise-suggest-max-height: 168px;
 
-    /* Invite-a-friend modal (med-5h9) — same dual-line header scale as the
-       BP / workout modals. */
-    --wg-invite-modal-eyebrow-size: 10.5px;
-    --wg-invite-modal-title-size: 18px;
-
     /* Workout slot-tag aliases — wrap the shared tag triplets so the tag that
        opens a history row / session header can read PLAN (sun) or AD-HOC
        (normal) without duplicating tag styles. Mirrors the --wg-bp-status-*
@@ -756,8 +747,6 @@
     /* Edit-note modal tokens (Phase 8, Task 1 / rewired Task 8) — mono header,
        gloss-inset textarea wrap, Cancel + Save action bar with 2× flex on
        Save per modal-button-order convention. */
-    --wg-health-modal-eyebrow-size: 10.5px;
-    --wg-health-modal-title-size: 18px;
     --wg-health-modal-row-gap: 10px;
     --wg-health-modal-section-gap: 14px;
     --wg-health-modal-input-pad-y: 10px;
@@ -3318,6 +3307,49 @@ input:checked+.toggle-slider:before {
     font-family: var(--wg-font-ui);
 }
 
+/* Sheet (med-xso6.7): an <mt-modal class="wg-modal wg-sheet"> docks to the
+   bottom edge instead of floating centred. The kit .wg-sheet / .wg-sheethead /
+   .wg-sheet__body / .wg-sheet__foot rules (components.css) own the surface and
+   layout; this only re-positions the .wg-modal shell. .wg-scrim--kb is toggled
+   by components/wg-sheet.js while a virtual keyboard covers the bottom of the
+   viewport: the padding lifts the body and foot above it. */
+.wg-modal.wg-sheet {
+    top: auto;
+    bottom: 0;
+    transform: translateX(-50%);
+    width: 100%;
+    max-height: calc(100vh - var(--space-2xl));
+    max-height: calc(100dvh - var(--space-2xl));
+    overflow: hidden;
+    padding: 0 0 env(safe-area-inset-bottom);
+    border-width: 1px 0 0;
+    animation: wg-sheet-enter 0.2s ease;
+}
+
+.wg-modal.wg-sheet.wg-scrim--kb {
+    padding-bottom: var(--wg-kb-h);
+}
+
+/* Runtime sheets (feedback, trial consent) keep their own --z-confirm
+   backdrop for tap-to-dismiss and stacking over a parent modal, but they
+   are also on the ModalManager stack, which shows #modal-overlay (and
+   modal-history needs it shown so browser Back closes them). The overlay
+   dims; this backdrop only catches taps, so the dim is single. */
+.mt-confirm-backdrop.wg-sheet-backdrop {
+    background: transparent;
+}
+
+@keyframes wg-sheet-enter {
+    from {
+        opacity: 0;
+        transform: translate(-50%, 24px);
+    }
+    to {
+        opacity: 1;
+        transform: translate(-50%, 0);
+    }
+}
+
 .wg-modal__header {
     display: flex;
     justify-content: space-between;
@@ -5424,45 +5456,9 @@ input:checked+.toggle-slider:before {
 }
 
 
-/* Edit-weight modal (Phase 6, Task 6) — shares the generic `.wg-modal` shell
-   for positioning and chrome; overlays a dual-line mono header, gloss input
-   wraps, a kg/lb unit-toggle pill pair, and a Cancel/Save action bar where
-   Save carries 2× flex per modal-button-order convention. Every visual value
-   resolves to a `--wg-weight-modal-*` or shared `--wg-*` token. */
-.wg-weight-modal__header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--space-md);
-    margin-bottom: var(--space-lg);
-}
-
-.wg-weight-modal__heading {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-    min-width: 0;
-}
-
-.wg-weight-modal__eyebrow {
-    padding: 0;
-    font-size: var(--wg-weight-modal-eyebrow-size);
-    color: var(--wg-fg-3);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-}
-
-.wg-weight-modal__eyebrow::before {
-    content: none;
-}
-
-.wg-weight-modal__title {
-    font-family: var(--wg-font-mono);
-    font-size: var(--wg-weight-modal-title-size);
-    color: var(--wg-fg-1);
-    line-height: 1.1;
-}
-
+/* Weight sheet body (Phase 6, Task 6; header is the kit .wg-sheethead since
+   med-xso6.7) — gloss input wraps and a kg/lb unit-toggle pill pair. Every
+   visual value resolves to a `--wg-weight-modal-*` or shared `--wg-*` token. */
 .wg-weight-modal__body {
     display: flex;
     flex-direction: column;
@@ -5583,67 +5579,10 @@ input:checked+.toggle-slider:before {
     color: var(--wg-ink);
 }
 
-.wg-weight-modal__header-actions {
-    display: flex;
-    gap: var(--space-xs);
-    align-items: center;
-    flex-shrink: 0;
-}
-
-.wg-weight-modal__header-btn {
-    min-height: 36px;
-    padding: var(--space-xs) var(--space-sm);
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-sm);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
-    white-space: nowrap;
-}
-
-.wg-weight-modal__header-btn--save {
-    padding: var(--space-xs) var(--space-md);
-}
-
-/* Record-BP modal (Task 4b audit) — shares the generic `.wg-modal` shell;
-   overlays the dual-line eyebrow/title header, gloss-inset input wraps, a
-   3-up Systolic/Diastolic/Pulse row with 20px mono readings, a 2-up
-   Site/Position row, Notes textarea, and the Cancel/Save action bar with a
-   2× flex on Save per the modal-button-order convention. Every visual value
-   reads from a `--wg-bp-modal-*` or shared `--wg-*` token. */
-.wg-bp-modal__header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--space-md);
-    margin-bottom: var(--space-lg);
-}
-
-.wg-bp-modal__heading {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-    min-width: 0;
-}
-
-.wg-bp-modal__eyebrow {
-    padding: 0;
-    font-size: var(--wg-bp-modal-eyebrow-size);
-    color: var(--wg-fg-3);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-}
-
-.wg-bp-modal__eyebrow::before {
-    content: none;
-}
-
-.wg-bp-modal__title {
-    font-family: var(--wg-font-mono);
-    font-size: var(--wg-bp-modal-title-size);
-    color: var(--wg-fg-1);
-    line-height: 1.1;
-}
-
+/* BP sheet body (Task 4b audit; header is the kit .wg-sheethead since
+   med-xso6.7) — gloss-inset input wraps, a 3-up Systolic/Diastolic/Pulse row
+   with 20px mono readings, a 2-up Site/Position row and Notes. Every visual
+   value reads from a `--wg-bp-modal-*` or shared `--wg-*` token. */
 .wg-bp-modal__body {
     display: flex;
     flex-direction: column;
@@ -5714,27 +5653,6 @@ input:checked+.toggle-slider:before {
 .wg-bp-modal__row > .wg-bp-modal__field {
     flex: 1 1 0;
     min-width: 0;
-}
-
-.wg-bp-modal__header-actions {
-    display: flex;
-    gap: var(--space-xs);
-    align-items: center;
-    flex-shrink: 0;
-}
-
-.wg-bp-modal__header-btn {
-    min-height: 36px;
-    padding: var(--space-xs) var(--space-sm);
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-sm);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
-    white-space: nowrap;
-}
-
-.wg-bp-modal__header-btn--save {
-    padding: var(--space-xs) var(--space-md);
 }
 
 /* BP screen — current-reading card, range selector, chart card (Phase 3, Task 3).
@@ -7027,67 +6945,11 @@ input:checked+.toggle-slider:before {
     gap: var(--space-md);
 }
 
-/* Workout-Start modal (Task 11 of header-actions refactor). The legacy
-   push-notification "Workout Time!" prompt was the last modal still using
-   the paper-era .actions block; this promotes it onto the wg-modal shell
-   and aligns the primary Cancel/Start pair to the header so they survive
-   a focused mobile keyboard. Mirrors .wg-workouts-session-modal__header*. */
+/* Workout-Start sheet (push "Workout time" prompt). Kit sheet since
+   med-xso6.7: Cancel in the .wg-sheethead, Start in .wg-sheet__foot, the
+   snooze/skip choices in the body. */
 .wg-workouts-start-modal {
     max-width: var(--wg-modal-max-w-wide);
-}
-
-.wg-workouts-start-modal__header {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-sm);
-    margin-bottom: var(--space-md);
-}
-
-.wg-workouts-start-modal__heading {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-    min-width: 0;
-}
-
-.wg-workouts-start-modal__eyebrow {
-    padding: 0;
-    font-size: var(--wg-workouts-modal-eyebrow-size);
-    color: var(--wg-fg-3);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-}
-
-.wg-workouts-start-modal__eyebrow::before {
-    content: none;
-}
-
-.wg-workouts-start-modal__title {
-    font-family: var(--wg-font-mono);
-    font-size: var(--wg-workouts-modal-title-size);
-    color: var(--wg-fg-1);
-    line-height: 1.1;
-}
-
-.wg-workouts-start-modal__header-actions {
-    display: flex;
-    gap: var(--space-xs);
-    flex-wrap: wrap;
-}
-
-.wg-workouts-start-modal__header-btn {
-    flex: 1 1 auto;
-    min-height: 36px;
-    padding: var(--space-xs) var(--space-sm);
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-sm);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
-    white-space: nowrap;
-}
-
-.wg-workouts-start-modal__header-btn--save {
-    flex: 2 1 auto;
 }
 
 .wg-workouts-start-modal__body {
@@ -7106,21 +6968,6 @@ input:checked+.toggle-slider:before {
     display: flex;
     flex-direction: column;
     gap: var(--space-sm);
-}
-
-.wg-workouts-start-modal__secondary-btn {
-    width: 100%;
-    min-height: 40px;
-    padding: var(--space-xs) var(--space-sm);
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-sm);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
-    color: var(--wg-fg-1);
-}
-
-.wg-workouts-start-modal__secondary-btn--danger {
-    color: var(--color-danger);
 }
 
 /* Workouts groups sub-tab (Phase 7, Task 5). Each group renders as a
@@ -7552,7 +7399,6 @@ input:checked+.toggle-slider:before {
    form-modal shape under three BEM prefixes. Extracting a shared
    `wg-form-modal` block is the real cleanup; out of scope here. */
 .wg-workouts-library-modal__header,
-.wg-workouts-miband-modal__header,
 .wg-equipment-modal__header {
     display: flex;
     align-items: flex-start;
@@ -7562,7 +7408,6 @@ input:checked+.toggle-slider:before {
 }
 
 .wg-workouts-library-modal__heading,
-.wg-workouts-miband-modal__heading,
 .wg-equipment-modal__heading {
     display: flex;
     flex-direction: column;
@@ -7571,7 +7416,6 @@ input:checked+.toggle-slider:before {
 }
 
 .wg-workouts-library-modal__eyebrow,
-.wg-workouts-miband-modal__eyebrow,
 .wg-equipment-modal__eyebrow {
     padding: 0;
     font-size: var(--wg-workouts-modal-eyebrow-size);
@@ -7581,13 +7425,11 @@ input:checked+.toggle-slider:before {
 }
 
 .wg-workouts-library-modal__eyebrow::before,
-.wg-workouts-miband-modal__eyebrow::before,
 .wg-equipment-modal__eyebrow::before {
     content: none;
 }
 
 .wg-workouts-library-modal__title,
-.wg-workouts-miband-modal__title,
 .wg-equipment-modal__title {
     font-family: var(--wg-font-mono);
     font-size: var(--wg-workouts-modal-title-size);
@@ -7669,7 +7511,6 @@ input:checked+.toggle-slider:before {
 }
 
 .wg-workouts-library-modal__header-actions,
-.wg-workouts-miband-modal__header-actions,
 .wg-equipment-modal__header-actions {
     display: flex;
     gap: var(--space-xs);
@@ -7679,7 +7520,6 @@ input:checked+.toggle-slider:before {
 }
 
 .wg-workouts-library-modal__header-btn,
-.wg-workouts-miband-modal__header-btn,
 .wg-equipment-modal__header-btn {
     flex: 1 1 auto;
     min-height: 36px;
@@ -7692,7 +7532,6 @@ input:checked+.toggle-slider:before {
 }
 
 .wg-workouts-library-modal__header-btn--save,
-.wg-workouts-miband-modal__header-btn--save,
 .wg-equipment-modal__header-btn--save {
     flex: 2 1 auto;
 }
@@ -9509,45 +9348,9 @@ input:checked+.toggle-slider:before {
     font-size: var(--font-size-sm);
 }
 
-/* Edit-note modal (Phase 8, Task 8). Shares the generic `.wg-modal` shell;
-   overlays a dual-line mono header with header-actions hosting the close
-   icon, Cancel, and Save buttons (kept visible above mobile keyboards), and
-   a gloss-inset textarea body. Every visual value resolves to
-   `--wg-health-modal-*` or shared `--wg-*` tokens. */
-.wg-health-modal__header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--space-md);
-    margin-bottom: var(--space-lg);
-}
-
-.wg-health-modal__heading {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-    min-width: 0;
-}
-
-.wg-health-modal__eyebrow {
-    padding: 0;
-    font-size: var(--wg-health-modal-eyebrow-size);
-    color: var(--wg-fg-3);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-}
-
-.wg-health-modal__eyebrow::before {
-    content: none;
-}
-
-.wg-health-modal__title {
-    font-family: var(--wg-font-mono);
-    font-size: var(--wg-health-modal-title-size);
-    color: var(--wg-fg-1);
-    line-height: 1.1;
-}
-
+/* Note + Doctor-brief sheet bodies (Phase 8, Task 8; header is the kit
+   .wg-sheethead since med-xso6.7) — gloss-inset fields. Every visual value
+   resolves to `--wg-health-modal-*` or shared `--wg-*` tokens. */
 .wg-health-modal__body {
     display: flex;
     flex-direction: column;
@@ -9599,30 +9402,8 @@ input:checked+.toggle-slider:before {
     min-height: 120px;
 }
 
-.wg-health-modal__header-actions {
-    display: flex;
-    gap: var(--space-xs);
-    align-items: center;
-    flex-shrink: 0;
-}
-
-.wg-health-modal__header-btn {
-    min-height: 36px;
-    padding: var(--space-xs) var(--space-sm);
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-sm);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
-    white-space: nowrap;
-}
-
-.wg-health-modal__header-btn--save {
-    padding: var(--space-xs) var(--space-md);
-}
-
-/* Doctor brief modal (med-5k6t.2). Rides `.wg-health-modal` for the shell,
-   header actions, and field layout; only the section checkbox grid and the
-   status line are its own. */
+/* Doctor brief sheet (med-5k6t.2). Rides `.wg-health-modal` for the field
+   layout; only the section checkbox grid and the status line are its own. */
 .wg-brief-modal__sections {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(var(--wg-today-shortcut-min), 1fr));
@@ -11859,53 +11640,6 @@ input:checked+.toggle-slider:before {
 .wg-settings-danger__status:empty,
 .wg-settings-danger__error:empty {
     display: none;
-}
-
-.wg-invite-modal__header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--space-md);
-    margin-bottom: var(--space-lg);
-}
-
-.wg-invite-modal__heading {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-    min-width: 0;
-}
-
-.wg-invite-modal__eyebrow {
-    padding: 0;
-    font-size: var(--wg-invite-modal-eyebrow-size);
-    color: var(--wg-fg-3);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-}
-
-.wg-invite-modal__title {
-    font-family: var(--wg-font-mono);
-    font-size: var(--wg-invite-modal-title-size);
-    color: var(--wg-fg-1);
-    line-height: 1.1;
-}
-
-.wg-invite-modal__header-actions {
-    display: flex;
-    gap: var(--space-xs);
-    align-items: center;
-    flex-shrink: 0;
-}
-
-.wg-invite-modal__header-btn {
-    min-height: 36px;
-    padding: var(--space-xs) var(--space-sm);
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-sm);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
-    white-space: nowrap;
 }
 
 .wg-invite-modal__body {
