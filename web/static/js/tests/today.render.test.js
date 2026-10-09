@@ -48,7 +48,7 @@ function baseState() {
     return {
         greeting: { value: 'Good afternoon', deeplink: null, status: 'ok' },
         nextMed: { value: null, deeplink: 'meds', status: 'missing' },
-        laterMed: { value: null, deeplink: 'meds', status: 'missing' },
+        missedDoses: { value: [], deeplink: 'meds', status: 'ok' },
         bpLatest: { value: { systolic: 122, diastolic: 79, measured_at: at(8, 0) }, deeplink: 'bp', status: 'ok' },
         bpTrend7d: { value: null, deeplink: 'bp', status: 'missing' },
         weightLatest: { value: { weight: 85.8, measured_at: at(7, 0) }, deeplink: 'weight', status: 'ok' },
@@ -72,14 +72,14 @@ function disabledState() {
     return s;
 }
 
-const MISSED = { scheduledAt: at(8, 20), names: ['Allopurinol'], ids: [3] };
+const MISSED = { scheduledAt: at(8, 20), names: ['Allopurinol'], ids: [3], intakeIds: ['i-31'] };
 const LATER = { scheduledAt: at(21, 30), names: ['Candecor', 'Lercanidipin', 'Metformin'], ids: [4, 5, 6] };
 const WORKOUT_TODAY = { id: 7, scheduled_date: '2026-04-20', scheduled_time: '16:00', group_name: 'Daily split', status: 'pending', is_today: true };
 
 function busyState() {
     const s = baseState();
-    s.nextMed = { value: MISSED, deeplink: 'meds', status: 'overdue' };
-    s.laterMed = { value: LATER, deeplink: 'meds', status: 'ok' };
+    s.missedDoses = { value: [MISSED], deeplink: 'meds', status: 'ok' };
+    s.nextMed = { value: LATER, deeplink: 'meds', status: 'ok' };
     s.nextWorkout = { value: { ...WORKOUT_TODAY }, deeplink: 'workouts', status: 'ok' };
     return s;
 }
@@ -144,8 +144,8 @@ describe('Today v2 — Next up', () => {
 
     it('a later scheduled dose sorts ahead of a later workout and takes the sun', () => {
         const s = busyState();
+        s.missedDoses = { value: [], deeplink: 'meds', status: 'ok' };
         s.nextMed = { value: { scheduledAt: at(15, 0), names: ['Aspirin'], ids: [1] }, deeplink: 'meds', status: 'ok' };
-        s.laterMed = { value: null, deeplink: 'meds', status: 'missing' };
         env.render(s, root, { now: NOW });
         expect(nextKinds(root)).toEqual(['med', 'workout']);
         expect(primaries(root).map((b) => b.getAttribute('data-action'))).toEqual(['take']);
@@ -159,8 +159,8 @@ describe('Today v2 — Next up', () => {
         root.querySelector('[data-action="take"]').click();
         root.querySelector('[data-action="start-workout"]').click();
         expect(env.window.showMedicationConfirmModal.mock.calls).toEqual([
-            [[3], ['Allopurinol'], MISSED.scheduledAt, 'confirm'],
-            [[4, 5, 6], LATER.names, LATER.scheduledAt, 'confirm']
+            [[3], ['Allopurinol'], MISSED.scheduledAt, 'confirm', ['i-31']],
+            [[4, 5, 6], LATER.names, LATER.scheduledAt, 'confirm', []]
         ]);
         expect(env.window.WorkoutSessions.start).toHaveBeenCalledWith(7);
 
@@ -210,6 +210,52 @@ describe('Today v2 — Next up', () => {
         expect(root.querySelector('[data-section="goal-line"]').classList.contains('wg-card--accent')).toBe(true);
         sun[0].click();
         expect(onDeeplink).toHaveBeenCalledWith('weight');
+    });
+
+    // Missed = intake state (PENDING past slot, not snoozed ahead) from the
+    // cached 24h history — the Meds badge's rule — never cache timing.
+    it('missed rows come from PENDING history; taken, snoozed and future intakes are not missed', () => {
+        const bootstrap = {
+            features: { medication: true, bp: false, weight: false, food: false, workout: false, health: false, gamification: false },
+            medications: [{ id: 'm1', name: 'Allopurinol' }, { id: 'm2', name: 'Candecor' }, { id: 'm3', name: 'Metformin' }],
+            next_intake: { scheduled_at: at(21, 30), medication_names: ['Metformin'], medication_ids: ['m3'] },
+            intake_history: [
+                { id: 'i1', medication_id: 'm1', scheduled_at: at(8, 20), status: 'PENDING' },
+                { id: 'i2', medication_id: 'm2', scheduled_at: at(8, 20), status: 'PENDING' },
+                { id: 'i3', medication_id: 'm1', scheduled_at: at(12, 0), status: 'TAKEN' },
+                { id: 'i4', medication_id: 'm2', scheduled_at: at(13, 0), status: 'PENDING', snoozed_until: at(14, 30) },
+                { id: 'i5', medication_id: 'm3', scheduled_at: at(21, 30), status: 'PENDING' }
+            ]
+        };
+        const state = env.aggregate(bootstrap, {}, NOW);
+        expect(state.missedDoses.value).toEqual([
+            { scheduledAt: at(8, 20), names: ['Allopurinol', 'Candecor'], ids: ['m1', 'm2'], intakeIds: ['i1', 'i2'] }
+        ]);
+        env.window.showMedicationConfirmModal = vi.fn();
+        env.render(state, root, { now: NOW });
+        expect(nextKinds(root)).toEqual(['med-missed', 'med']);
+        const missedRow = root.querySelector('[data-next="med-missed"]');
+        expect(missedRow.querySelector('.wg-row__title').textContent).toBe('2 medications');
+        missedRow.querySelector('[data-action="log-missed"]').click();
+        expect(env.window.showMedicationConfirmModal).toHaveBeenCalledWith(['m1', 'm2'], ['Allopurinol', 'Candecor'], at(8, 20), 'confirm', ['i1', 'i2']);
+    });
+
+    it('with history cached, an out-of-date next_intake behind now is dropped, not called missed', () => {
+        const bootstrap = {
+            features: { medication: true, bp: false, weight: false, food: false, workout: false, health: false, gamification: false },
+            next_intake: { scheduled_at: at(8, 20), medication_names: ['Allopurinol'], medication_ids: ['m1'] },
+            intake_history: [{ id: 'i1', medication_id: 'm1', scheduled_at: at(8, 20), status: 'TAKEN' }]
+        };
+        env.render(env.aggregate(bootstrap, {}, NOW), root, { now: NOW });
+        expect(nextKinds(root)).toEqual([]);
+        expect(root.querySelector('[data-section="next-up"] .wg-empty__title').textContent).toBe('Nothing scheduled');
+
+        // No history cached (offline cold start): the past next_intake is the
+        // only missed signal left, so it shows.
+        delete bootstrap.intake_history;
+        env.render(env.aggregate(bootstrap, {}, NOW), root, { now: NOW });
+        expect(nextKinds(root)).toEqual(['med-missed']);
+        expect(root.querySelector('.wg-chip--danger').textContent).toBe('Missed 08:20');
     });
 
     it('meds and workouts both off → no Next up section', () => {

@@ -194,19 +194,38 @@
         return cell(value, 'meds', status, meta);
     }
 
-    // With an overdue dose in nextMed, the next future slot from the cached
-    // medications list — Today's Next up shows both (missed first). Only
-    // computed behind an overdue dose: otherwise nextMed already is the next.
-    function laterMedCell(bootstrap, nowMs, nextMed, opts) {
-        if (!nextMed || nextMed.status !== 'overdue') return cell(null, 'meds', 'missing');
-        const helpers = opts || {};
-        const parseSchedule = helpers.parseMedicationSchedule
-            || (typeof window !== 'undefined' ? window.parseMedicationSchedule : null);
-        const getNext = helpers.getNextScheduledDate
-            || (typeof window !== 'undefined' ? window.getNextScheduledDate : null);
-        const later = computeFallbackFromMedications(bootstrap && bootstrap.medications, nowMs, parseSchedule, getNext);
-        if (!later) return cell(null, 'meds', 'missing');
-        return cell(later, 'meds', 'ok');
+    // Missed doses for Next up: intakes still PENDING whose slot has passed
+    // and are not snoozed into the future — the same rule as the Meds tab
+    // badge (app-nav.js countDueDoses), over the cached GET /api/history?days=1
+    // rows (bootstrap.intake_history). Intake state, not cache timing, decides
+    // what is missed. One group per slot (oldest first), names joined from the
+    // cached medications list. `missing` = no history cached yet.
+    // ponytail: 24h window like the badge — an older unresolved dose is
+    // history, not a nag.
+    function missedDosesCell(bootstrap, nowMs, enabled) {
+        if (!enabled) return cell(null, 'meds', 'disabled');
+        const rows = bootstrap && bootstrap.intake_history;
+        if (!Array.isArray(rows)) return cell(null, 'meds', 'missing');
+        const meds = Array.isArray(bootstrap.medications) ? bootstrap.medications : [];
+        const nameOf = (id) => {
+            const m = meds.find((x) => x && x.id === id);
+            return m && typeof m.name === 'string' ? m.name : null;
+        };
+        const bySlot = new Map();
+        for (const r of rows) {
+            if (!r || r.status !== 'PENDING') continue;
+            const at = Date.parse(r.scheduled_at);
+            if (!Number.isFinite(at) || at > nowMs) continue;
+            if (r.snoozed_until && Date.parse(r.snoozed_until) > nowMs) continue;
+            let g = bySlot.get(at);
+            if (!g) { g = { at, scheduledAt: r.scheduled_at, names: [], ids: [], intakeIds: [] }; bySlot.set(at, g); }
+            g.names.push(nameOf(r.medication_id) || 'Medication');
+            g.ids.push(r.medication_id);
+            g.intakeIds.push(r.id);
+        }
+        const groups = Array.from(bySlot.values()).sort((a, b) => a.at - b.at)
+            .map(({ scheduledAt, names, ids, intakeIds }) => ({ scheduledAt, names, ids, intakeIds }));
+        return cell(groups, 'meds', 'ok');
     }
 
     function bpLatestCell(bootstrap, nowMs, enabled) {
@@ -407,7 +426,7 @@
         const result = {
             greeting: cell(greetingFor(nowDate), null, 'ok'),
             nextMed,
-            laterMed: laterMedCell(bootstrap, nowMs, nextMed, opts),
+            missedDoses: missedDosesCell(bootstrap, nowMs, medEnabled),
             bpLatest: bpLatestCell(bootstrap, nowMs, bpEnabled),
             bpTrend7d: bpTrendCell(bootstrap, nowMs, bpEnabled),
             weightLatest: weightLatestCell(bootstrap, nowMs, weightEnabled && !edSafe),
@@ -497,7 +516,10 @@
     function hydrateIcons(root) {
         const W = (typeof window !== 'undefined') ? window.WGIcons : null;
         if (!W || typeof W.hydrate !== 'function') return;
-        try { W.hydrate(root); } catch (_) { /* an unknown icon name leaves the slot empty */ }
+        // An unknown icon name throws and stops hydration (later slots stay
+        // empty); caught so a bad name never breaks the render. Every name
+        // used here is in the WGIcons registry.
+        try { W.hydrate(root); } catch (_) { /* see above */ }
     }
 
     function sparklineOrNull(points, variant) {
@@ -592,14 +614,19 @@
 
     function nextUpItems(state, nowMs) {
         const items = [];
+        // Missed doses come from intake history when it is cached. Without
+        // it (offline cold start), a next_intake already past its slot is the
+        // best missed signal there is; with it, history owns past slots and an
+        // out-of-date next_intake is dropped until revalidation replaces it.
+        const missed = state && state.missedDoses;
+        const historyKnown = !!missed && missed.status === 'ok' && Array.isArray(missed.value);
+        if (historyKnown) {
+            for (const g of missed.value) items.push({ kind: 'med-missed', value: g, at: Date.parse(g.scheduledAt) });
+        }
         const med = state && state.nextMed;
-        if (med && med.value && (med.status === 'ok' || med.status === 'overdue')) {
+        if (med && med.value && (med.status === 'ok' || (med.status === 'overdue' && !historyKnown))) {
             const at = Date.parse(med.value.scheduledAt);
             items.push({ kind: med.status === 'overdue' ? 'med-missed' : 'med', value: med.value, at });
-        }
-        const later = state && state.laterMed;
-        if (later && later.status === 'ok' && later.value) {
-            items.push({ kind: 'med', value: later.value, at: Date.parse(later.value.scheduledAt) });
         }
         const wo = state && state.nextWorkout;
         if (wo && wo.status === 'ok' && wo.value) {
@@ -1290,7 +1317,7 @@
             onTakeMed: opts.onTakeMed || ((v) => {
                 const ids = Array.isArray(v && v.ids) ? v.ids : [];
                 if (ids.length && typeof win.showMedicationConfirmModal === 'function') {
-                    win.showMedicationConfirmModal(ids, v.names || [], v.scheduledAt, 'confirm');
+                    win.showMedicationConfirmModal(ids, v.names || [], v.scheduledAt, 'confirm', v.intakeIds || []);
                 } else {
                     onDeeplink('meds');
                 }

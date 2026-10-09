@@ -54,7 +54,7 @@ function presentState() {
             deeplink: 'meds',
             status: 'ok'
         },
-        laterMed: { value: null, deeplink: 'meds', status: 'missing' },
+        missedDoses: { value: null, deeplink: 'meds', status: 'missing' },
         bpLatest: {
             value: { systolic: 132, diastolic: 84, measured_at: at(8, 0) },
             deeplink: 'bp',
