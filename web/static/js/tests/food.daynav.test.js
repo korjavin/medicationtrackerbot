@@ -268,6 +268,8 @@ describe('Food day navigator (kit F1)', () => {
         expect(window.formatFoodDateSubtitle('2026-04-20')).toBe('20.04.2026');
         expect(window.formatFoodDateSubtitle('2026-12-01')).toBe('01.12.2026');
         expect(window.formatFoodDateSubtitle('')).toBe('');
+    });
+
     it('updateFoodDateNav disables next when the selected date is today or future', () => {
         const { document, window } = env;
         const filter = document.getElementById('food-date-filter');
@@ -299,7 +301,6 @@ describe('Food day navigator (kit F1)', () => {
         window.shiftFoodDate(-1);
         expect(filter.value).toBe('2026-03-07');
     });
-});
 });
 
 // med-xso6.33 / kit F2: a long absolute date can't push › — the label is the
