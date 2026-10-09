@@ -450,7 +450,9 @@ export function createApiRouter(ctx, {
       const m = /^\/api\/bp\/([^/]+)$/.exec(path);
       if (m) {
         const res = await bp.update(m[1], body);
-        // A moved measured_at can satisfy (or un-satisfy) a queued BP slot.
+        // An edit that moves a reading into today's slot satisfies it like a
+        // new one: end the relay's re-fire chain, then recompute the horizon.
+        await cancelMeasureRefire('bp', reminders.getBPStatus, res);
         scheduleReminderRecompute(ctx, { records, timeZone });
         return res;
       }
