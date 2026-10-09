@@ -153,6 +153,7 @@ describe('Meds → History next-intake pane (Round-2 Task 8)', () => {
 
         // New classes present.
         expect(fnSlice).toMatch(/['"]wg-meds-next-intake-card['"]/);
-        expect(fnSlice).toMatch(/wg-toolbar-btn wg-toolbar-btn--primary/);
+        expect(fnSlice).toMatch(/'wg-btn wg-btn--sm wg-meds-next-intake-card__cta'/);
+        expect(fnSlice).not.toMatch(/wg-toolbar-btn/);
     });
 });
