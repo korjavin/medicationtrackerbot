@@ -32,7 +32,7 @@ function loadSettingsView() {
 
 // Home row (data-settings-open) → the section selectors its page must contain.
 const ROWS = [
-    ['features', ['.wg-settings-features', '#bp-feature-toggle', '#live-hr-feature-toggle']],
+    ['features', ['.wg-settings-features', '[input-id="bp-feature-toggle"]', '[input-id="live-hr-feature-toggle"]']],
     ['targets', ['#food-target-settings', '#gamification-targets-settings']],
     ['notifications', ['.wg-settings-notifications-cloud', '.wg-settings-reminders']],
     ['units', ['.wg-settings-units']],
