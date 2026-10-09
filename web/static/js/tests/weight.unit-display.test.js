@@ -252,7 +252,7 @@ function presentWeightState(now) {
     };
 }
 
-describe('Today tile renderWeightTile honors weight unit preference', () => {
+describe('Today weight tile honors weight unit preference', () => {
     let env;
     const now = new Date('2026-04-20T09:00:00Z');
 
@@ -265,36 +265,40 @@ describe('Today tile renderWeightTile honors weight unit preference', () => {
         env = null;
     });
 
-    it('shows weight + 7d trend in kg when preference is kg', () => {
+    function weightTile(root) {
+        const tile = root.querySelector('[data-section="vitals"] [data-section="weight"]');
+        expect(tile).not.toBeNull();
+        const value = tile.querySelector('.wg-stat__value');
+        return {
+            value: value.firstChild.textContent,
+            unit: value.querySelector('small').textContent,
+            delta: Array.from(tile.querySelectorAll('.wg-meta')).map((n) => n.textContent).join(' | ')
+        };
+    }
+
+    it('shows weight + 7d delta in kg when preference is kg', () => {
         const root = env.document.getElementById('today-content');
         env.window.weightUnitPreference = 'kg';
         env.render(presentWeightState(now), root, { now });
 
-        const tile = root.querySelector('.wg-metric-tile[data-deeplink="weight"]');
-        expect(tile).not.toBeNull();
-        const value = tile.querySelector('.wg-metric-tile__value').textContent;
-        const unit = tile.querySelector('.wg-metric-tile__unit').textContent;
-        const tag = tile.querySelector('.wg-tag');
-        expect(value).toBe('80');
-        expect(unit).toMatch(/^kg/);
-        expect(tag.textContent).toMatch(/7d -0\.4/);
+        const t = weightTile(root);
+        expect(t.value).toBe('80.0');
+        expect(t.unit).toBe('kg');
+        expect(t.delta).toContain('−0.4 kg · 7d');
     });
 
-    it('shows weight + 7d trend converted to lb when preference is lb', () => {
+    it('shows weight + 7d delta converted to lb when preference is lb', () => {
         const root = env.document.getElementById('today-content');
         env.window.weightUnitPreference = 'lb';
         env.render(presentWeightState(now), root, { now });
 
-        const tile = root.querySelector('.wg-metric-tile[data-deeplink="weight"]');
-        const value = tile.querySelector('.wg-metric-tile__value').textContent;
-        const unit = tile.querySelector('.wg-metric-tile__unit').textContent;
-        const tag = tile.querySelector('.wg-tag');
+        const t = weightTile(root);
         // 80 kg ≈ 176.4 lb
-        const expected = Math.round((80 / KG_PER_LB) * 10) / 10;
-        expect(value).toBe(String(expected));
-        expect(unit).toMatch(/^lb/);
+        const expected = (Math.round((80 / KG_PER_LB) * 10) / 10).toFixed(1);
+        expect(t.value).toBe(expected);
+        expect(t.unit).toBe('lb');
         // Trend delta -0.4 kg ≈ -0.9 lb
-        const expectedDelta = Math.round((0.4 / KG_PER_LB) * 10) / 10;
-        expect(tag.textContent).toMatch(new RegExp(`7d -${expectedDelta}`));
+        const expectedDelta = (Math.round((0.4 / KG_PER_LB) * 10) / 10).toFixed(1);
+        expect(t.delta).toContain(`−${expectedDelta} lb · 7d`);
     });
 });

@@ -32,6 +32,16 @@
         return out;
     }
 
+    // The queue / rejection markers an optimistic or queued row carries
+    // (the WGChip.sync contract), so a device-saved log reads Pending on Today.
+    function syncFlags(row) {
+        const out = {};
+        for (const k of ['isLocal', 'pending', '_optimistic', 'isRejected', 'errorMessage']) {
+            if (row && row[k]) out[k] = row[k];
+        }
+        return out;
+    }
+
     function greetingFor(now) {
         const hour = now.getHours();
         if (hour < 5) return 'Good night';
@@ -184,6 +194,21 @@
         return cell(value, 'meds', status, meta);
     }
 
+    // With an overdue dose in nextMed, the next future slot from the cached
+    // medications list — Today's Next up shows both (missed first). Only
+    // computed behind an overdue dose: otherwise nextMed already is the next.
+    function laterMedCell(bootstrap, nowMs, nextMed, opts) {
+        if (!nextMed || nextMed.status !== 'overdue') return cell(null, 'meds', 'missing');
+        const helpers = opts || {};
+        const parseSchedule = helpers.parseMedicationSchedule
+            || (typeof window !== 'undefined' ? window.parseMedicationSchedule : null);
+        const getNext = helpers.getNextScheduledDate
+            || (typeof window !== 'undefined' ? window.getNextScheduledDate : null);
+        const later = computeFallbackFromMedications(bootstrap && bootstrap.medications, nowMs, parseSchedule, getNext);
+        if (!later) return cell(null, 'meds', 'missing');
+        return cell(later, 'meds', 'ok');
+    }
+
     function bpLatestCell(bootstrap, nowMs, enabled) {
         if (!enabled) return cell(null, 'bp', 'disabled');
         const readings = bootstrap && bootstrap.bp && bootstrap.bp.readings;
@@ -192,7 +217,8 @@
         const value = {
             systolic: latest.row.systolic,
             diastolic: latest.row.diastolic,
-            measured_at: latest.row.measured_at
+            measured_at: latest.row.measured_at,
+            ...syncFlags(latest.row)
         };
         const status = nowMs - latest.ms > BP_STALE_MS ? 'stale' : 'ok';
         return cell(value, 'bp', status);
@@ -221,7 +247,8 @@
         if (!latest) return cell(null, 'weight', 'missing');
         const value = {
             weight: latest.row.weight,
-            measured_at: latest.row.measured_at
+            measured_at: latest.row.measured_at,
+            ...syncFlags(latest.row)
         };
         const status = nowMs - latest.ms > WEIGHT_STALE_MS ? 'stale' : 'ok';
         return cell(value, 'weight', status);
@@ -303,6 +330,7 @@
         // response; test fixtures historically placed it inside `session`, so we accept both.
         const groupName = (data && data.group_name) || session.group_name || session.group || '';
         const value = {
+            id: session.id,
             scheduled_date: session.scheduled_date,
             scheduled_time: session.scheduled_time,
             group_name: groupName,
@@ -342,6 +370,21 @@
         return cell(value, 'health', status);
     }
 
+    // Most recent day with a non-zero step count from the health overview.
+    function stepsLatestCell(swrCaches, enabled) {
+        if (!enabled) return cell(null, 'health', 'disabled');
+        const overview = swrCaches && swrCaches.health_overview;
+        const stats = overview && overview.step_stats_7d;
+        if (!Array.isArray(stats)) return cell(null, 'health', 'missing');
+        let last = null;
+        for (const row of stats) {
+            if (!row || !row.day || !Number.isFinite(row.steps) || row.steps <= 0) continue;
+            if (!last || String(row.day) > String(last.day)) last = row;
+        }
+        if (!last) return cell(null, 'health', 'missing');
+        return cell({ steps: last.steps, day: last.day }, 'health', 'ok');
+    }
+
     function aggregateToday(bootstrap, swrCaches, now, opts) {
         const caches = swrCaches || {};
         const nowDate = now instanceof Date ? now : new Date(now || Date.now());
@@ -360,9 +403,11 @@
         const goalLinePayload = caches.gamification_goal_line;
         const edSafe = gamificationEnabled && !!(goalLinePayload && goalLinePayload.ed_safe);
 
+        const nextMed = nextMedCell(bootstrap, nowMs, medEnabled, opts);
         const result = {
             greeting: cell(greetingFor(nowDate), null, 'ok'),
-            nextMed: nextMedCell(bootstrap, nowMs, medEnabled, opts),
+            nextMed,
+            laterMed: laterMedCell(bootstrap, nowMs, nextMed, opts),
             bpLatest: bpLatestCell(bootstrap, nowMs, bpEnabled),
             bpTrend7d: bpTrendCell(bootstrap, nowMs, bpEnabled),
             weightLatest: weightLatestCell(bootstrap, nowMs, weightEnabled && !edSafe),
@@ -373,82 +418,86 @@
             macrosTarget: macrosTargetCell(bootstrap, foodEnabled),
             nextWorkout: nextWorkoutCell(caches, workoutEnabled),
             sleepLastNight: sleepLastNightCell(caches, nowMs, healthEnabled),
+            stepsLatest: stepsLatestCell(caches, healthEnabled),
             goalLine: goalLineCell(goalLinePayload, gamificationEnabled, weightEnabled)
         };
         return result;
     }
 
-    // ---- Rendering ----------------------------------------------------------
+    // ---- Rendering (kit v2, screens-today.html T1/T3–T6, med-xso6.13) ------
     //
-    // renderToday(state, root, handlers) fills `root` with the Wandergeek
-    // Today layout: sun-accent next-action card → vitals grid → fuel card
-    // with mini-bars → workout+sleep plan grid → consistency streak card.
+    // renderToday(state, root, handlers) fills `root` top to bottom:
+    //   call row (Call agent · Log · Doctor brief) → Next up list → vitals
+    //   strip (BP · Weight · Fuel) → Goal Line track → macros card →
+    //   sleep / steps tiles → tz-transition card.
     //
-    // Rules:
-    //  - No inline `style.*` assignments. Dynamic values (mini-bar widths)
-    //    ride on SVG attributes, not style.
-    //  - Every colour comes from a --wg-* token via a CSS class.
-    //  - Icons pulled from window.WGIcons; sparklines from window.WGSparkline.
+    // Kit rules: one sun-filled control (.wg-btn--primary) per view — the
+    // soonest Next-up action, else the goal card's "Set goal"; status only via
+    // WGChip states; no inline style except the --p / --n custom properties
+    // the track and meters read; icons are <i class="wg-ico" data-icon>
+    // hydrated by WGIcons once the tree is built.
     // ------------------------------------------------------------------------
 
     const DAY_IN_MS = 24 * 60 * 60 * 1000;
-    const SVG_NS = 'http://www.w3.org/2000/svg';
+    const LOG_SHEET_ID = 'today-log-sheet';
 
     function doc() {
         return (typeof document !== 'undefined') ? document : null;
     }
 
-    function fmtTimeHM(iso) {
-        if (!iso) return '';
-        const d = new Date(iso);
-        if (isNaN(d.getTime())) return '';
-        const h = String(d.getHours()).padStart(2, '0');
-        const m = String(d.getMinutes()).padStart(2, '0');
-        return `${h}:${m}`;
+    function el(tag, className, text) {
+        const node = doc().createElement(tag);
+        if (className) node.className = className;
+        if (text != null) node.textContent = text;
+        return node;
     }
 
-    function relativeDayLabel(iso, nowMs) {
-        if (!iso) return '';
-        const t = Date.parse(iso);
-        if (!Number.isFinite(t)) return '';
-        if (t > nowMs) return 'upcoming';
-        const dNow = new Date(nowMs);
-        const dThen = new Date(t);
-        const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-        const days = Math.round((startOfDay(dNow) - startOfDay(dThen)) / DAY_IN_MS);
-        if (days <= 0) return 'today';
-        if (days === 1) return 'yesterday';
-        return `${days}d ago`;
+    function ico(name, small) {
+        const i = el('i', small ? 'wg-ico wg-ico--sm' : 'wg-ico');
+        i.setAttribute('data-icon', name);
+        i.setAttribute('aria-hidden', 'true');
+        return i;
     }
 
-    function fmtDayLabel(iso) {
-        if (!iso) return '';
-        const dateOnly = String(iso).split('T')[0];
-        const parts = dateOnly.split('-').map(Number);
-        let d;
-        if (parts.length === 3 && parts.every(Number.isFinite)) {
-            d = new Date(parts[0], parts[1] - 1, parts[2]);
-        } else {
-            const t = Date.parse(iso);
-            if (!Number.isFinite(t)) return String(iso);
-            d = new Date(t);
+    // A kit button. The click never bubbles into a tappable parent card.
+    function btn(label, o) {
+        const opts = o || {};
+        let cls = 'wg-btn';
+        if (opts.primary) cls += ' wg-btn--primary';
+        if (opts.ghost) cls += ' wg-btn--ghost';
+        if (opts.iconOnly) cls += ' wg-btn--icon';
+        if (opts.sm) cls += ' wg-btn--sm';
+        const b = el('button', cls);
+        b.type = 'button';
+        if (opts.icon) b.appendChild(ico(opts.icon, opts.sm));
+        if (label) b.appendChild(doc().createTextNode(label));
+        if (opts.aria) b.setAttribute('aria-label', opts.aria);
+        if (opts.action) b.setAttribute('data-action', opts.action);
+        if (typeof opts.onClick === 'function') {
+            b.addEventListener('click', (e) => { e.stopPropagation(); opts.onClick(); });
         }
-        try {
-            return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-        } catch (_) {
-            return d.toISOString().slice(0, 10);
-        }
+        return b;
     }
 
-    function iconSvgOrNull(name, size) {
-        if (typeof window === 'undefined' || !window.WGIcons || typeof window.WGIcons.iconSvg !== 'function') {
-            return null;
-        }
-        try {
-            return window.WGIcons.iconSvg(name, { size: size || 16 });
-        } catch (_) {
-            return null;
-        }
+    function chip(text, state, icon) {
+        const W = (typeof window !== 'undefined') ? window.WGChip : null;
+        if (W && typeof W.create === 'function') return W.create({ text, state, small: true, icon });
+        return el('span', state ? `wg-chip wg-chip--sm wg-chip--${state}` : 'wg-chip wg-chip--sm', text);
+    }
+
+    function pct(ratio) {
+        const n = Number(ratio);
+        return `${(Math.max(0, Math.min(1, Number.isFinite(n) ? n : 0)) * 100).toFixed(1)}%`;
+    }
+
+    function on(c) {
+        return !!c && c.status !== 'disabled';
+    }
+
+    function hydrateIcons(root) {
+        const W = (typeof window !== 'undefined') ? window.WGIcons : null;
+        if (!W || typeof W.hydrate !== 'function') return;
+        try { W.hydrate(root); } catch (_) { /* an unknown icon name leaves the slot empty */ }
     }
 
     function sparklineOrNull(points, variant) {
@@ -458,550 +507,62 @@
         return window.WGSparkline.render({ points, variant });
     }
 
-    // Private helper used by the vitals grid. Each tile is a single <button>
-    // that fires `onClick` when tapped.
-    function renderMetricTile({ label, value, valueMuted, unit, statusTag, sparkPoints, variant, deeplink, onClick }) {
-        const d = doc();
-        const tile = d.createElement('button');
-        tile.type = 'button';
-        tile.className = 'wg-metric-tile';
-        tile.setAttribute('data-deeplink', deeplink || '');
-        tile.setAttribute('data-section', deeplink || 'metric');
+    function fmtTimeHM(iso) {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return '';
+        return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    }
 
-        const labelEl = d.createElement('span');
-        labelEl.className = 'wg-metric-tile__label';
-        labelEl.textContent = label;
-        tile.appendChild(labelEl);
+    function startOfLocalDay(ms) {
+        const d = new Date(ms);
+        return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    }
 
-        const valueEl = d.createElement('span');
-        valueEl.className = 'wg-metric-tile__value';
-        valueEl.textContent = value != null ? String(value) : '—';
-        if (valueMuted != null && valueMuted !== '') {
-            const muted = d.createElement('span');
-            muted.className = 'wg-metric-tile__value-muted';
-            muted.textContent = valueMuted;
-            valueEl.appendChild(muted);
+    // 'YYYY-MM-DD' (or an ISO stamp) → local-midnight ms; NaN when unparseable.
+    function localDayMs(day) {
+        const parts = String(day || '').split('T')[0].split('-').map(Number);
+        if (parts.length === 3 && parts.every(Number.isFinite)) {
+            return new Date(parts[0], parts[1] - 1, parts[2]).getTime();
         }
-        tile.appendChild(valueEl);
+        const t = Date.parse(day);
+        return Number.isFinite(t) ? startOfLocalDay(t) : NaN;
+    }
 
-        const unitEl = d.createElement('span');
-        unitEl.className = 'wg-metric-tile__unit';
-        unitEl.textContent = unit || '';
-        tile.appendChild(unitEl);
+    function daysAgo(ms, nowMs) {
+        return Math.round((startOfLocalDay(nowMs) - startOfLocalDay(ms)) / DAY_IN_MS);
+    }
 
-        const sparkSlot = d.createElement('span');
-        sparkSlot.className = 'wg-metric-tile__spark';
-        const sparkSvg = Array.isArray(sparkPoints) && sparkPoints.length > 0
-            ? sparklineOrNull(sparkPoints, variant)
-            : null;
-        if (sparkSvg) sparkSlot.appendChild(sparkSvg);
-        tile.appendChild(sparkSlot);
+    function ageLabel(ms, nowMs) {
+        if (!Number.isFinite(ms)) return '';
+        const days = daysAgo(ms, nowMs);
+        if (days <= 0) return 'today';
+        if (days === 1) return 'yesterday';
+        return `${days}d ago`;
+    }
 
-        const statusSlot = d.createElement('span');
-        statusSlot.className = 'wg-metric-tile__status';
-        if (statusTag instanceof Node) {
-            statusSlot.appendChild(statusTag);
-        } else if (typeof statusTag === 'string' && statusTag.length > 0) {
-            const tag = d.createElement('span');
-            tag.className = 'wg-tag wg-tag--normal';
-            tag.textContent = statusTag;
-            statusSlot.appendChild(tag);
+    // "today" / "tomorrow" / "Wed" for a timestamp, relative to now.
+    function dayWord(ms, nowMs) {
+        const days = -daysAgo(ms, nowMs);
+        if (days === 0) return 'today';
+        if (days === 1) return 'tomorrow';
+        if (days === -1) return 'yesterday';
+        try {
+            return new Date(ms).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+        } catch (_) {
+            return new Date(ms).toISOString().slice(0, 10);
         }
-        tile.appendChild(statusSlot);
-
-        if (typeof onClick === 'function') {
-            tile.addEventListener('click', onClick);
-        }
-        return tile;
     }
 
-    // Private helper for the fuel card's mini-bar stack. Uses an SVG <rect>
-    // whose `width` attribute encodes the percentage (not an inline style),
-    // so the [style] attribute stays off the DOM.
-    function renderMiniBar({ label, pct, variant }) {
-        const d = doc();
-        const row = d.createElement('div');
-        row.className = 'wg-mini-bar';
-
-        const labelEl = d.createElement('span');
-        labelEl.className = 'wg-mini-bar__label';
-        labelEl.textContent = label;
-        row.appendChild(labelEl);
-
-        const track = d.createElement('span');
-        track.className = 'wg-mini-bar__track';
-        const svg = d.createElementNS(SVG_NS, 'svg');
-        svg.setAttribute('viewBox', '0 0 100 6');
-        svg.setAttribute('preserveAspectRatio', 'none');
-        svg.setAttribute('aria-hidden', 'true');
-        svg.classList.add('wg-mini-bar__svg');
-
-        const clamped = Math.max(0, Math.min(100, Number.isFinite(pct) ? pct : 0));
-        const rect = d.createElementNS(SVG_NS, 'rect');
-        rect.setAttribute('x', '0');
-        rect.setAttribute('y', '0');
-        rect.setAttribute('width', String(clamped.toFixed(2)));
-        rect.setAttribute('height', '6');
-        rect.classList.add('wg-mini-bar__fill');
-        if (variant) rect.classList.add(`wg-mini-bar__fill--${variant}`);
-        svg.appendChild(rect);
-        track.appendChild(svg);
-        row.appendChild(track);
-
-        const valueEl = d.createElement('span');
-        valueEl.className = 'wg-mini-bar__value';
-        valueEl.textContent = `${Math.round(clamped)}%`;
-        row.appendChild(valueEl);
-
-        return row;
-    }
-
-    function statusTag(kind, text) {
-        const span = doc().createElement('span');
-        span.className = `wg-tag wg-tag--${kind}`;
-        span.textContent = text;
-        return span;
-    }
-
-    function bpStatusTag(systolic, diastolic) {
-        if (!Number.isFinite(systolic) || !Number.isFinite(diastolic)) return null;
-        if (systolic >= 140 || diastolic >= 90) return statusTag('alert', 'High');
-        if (systolic >= 130 || diastolic >= 85) return statusTag('high', 'Stage 1');
-        if (systolic >= 120 || diastolic >= 80) return statusTag('high', 'High-normal');
-        return statusTag('normal', 'Normal');
-    }
-
-    function fmtCountdown(scheduledAt, nowMs) {
-        const at = Date.parse(scheduledAt);
-        if (!Number.isFinite(at)) return '';
-        const diff = at - nowMs;
-        if (diff <= 0) return '';
+    function fmtCountdown(atMs, nowMs) {
+        const diff = atMs - nowMs;
+        if (!Number.isFinite(diff) || diff <= 0) return '';
         const mins = Math.round(diff / 60000);
         if (mins < 60) return `in ${mins}m`;
         const h = Math.floor(mins / 60);
         const m = mins % 60;
         return m === 0 ? `in ${h}h` : `in ${h}h ${String(m).padStart(2, '0')}m`;
     }
-
-    // Meds card rendered at the bottom of Today. Wraps the meds summary + a
-    // list of scheduled med names. Kept under the `.wg-next-action-card`
-    // class so existing deep-link handlers keep working; the surrounding
-    // `.wg-today-meds` modifier swaps out the sun-yellow banner background
-    // for the plain card surface mandated by the mockup.
-    function renderTodayMedsCard(cell, onDeeplink, nowMs) {
-        if (!cell || cell.status === 'disabled') return null;
-        const d = doc();
-        const card = d.createElement('div');
-        card.className = 'wg-today-meds wg-next-action-card wg-next-action-card--plain';
-        card.setAttribute('data-deeplink', cell.deeplink || 'meds');
-        card.setAttribute('data-section', 'next-action');
-
-        const head = d.createElement('div');
-        head.className = 'wg-today-meds__head';
-
-        const iconWrap = d.createElement('span');
-        iconWrap.className = 'wg-next-action-card__icon';
-        const icon = iconSvgOrNull('pill', 17);
-        if (icon) iconWrap.appendChild(icon);
-        head.appendChild(iconWrap);
-
-        const text = d.createElement('span');
-        text.className = 'wg-next-action-card__text';
-        const kicker = d.createElement('span');
-        kicker.className = 'wg-next-action-card__kicker';
-        const value = d.createElement('span');
-        value.className = 'wg-next-action-card__value';
-
-        const names = (cell.value && Array.isArray(cell.value.names)) ? cell.value.names : [];
-
-        if (cell.status === 'missing' || !cell.value) {
-            kicker.textContent = 'No scheduled doses';
-            value.textContent = `${names.length} medication${names.length === 1 ? '' : 's'}`;
-        } else {
-            const v = cell.value;
-            const when = fmtTimeHM(v.scheduledAt);
-            const prefix = cell.status === 'overdue' ? 'Overdue' : 'Next';
-            const countdown = cell.status === 'overdue' ? '' : fmtCountdown(v.scheduledAt, nowMs);
-            const parts = [prefix];
-            if (when) parts.push(when);
-            if (countdown) parts.push(countdown);
-            kicker.textContent = parts.join(' · ');
-            value.textContent = `${names.length} medication${names.length === 1 ? '' : 's'}`;
-        }
-        text.appendChild(kicker);
-        text.appendChild(value);
-        head.appendChild(text);
-
-        const cta = d.createElement('button');
-        cta.type = 'button';
-        cta.className = 'wg-next-action-card__cta wg-gloss wg-gloss--sun';
-        if (cell.status === 'overdue') {
-            cta.textContent = 'Take now';
-        } else if (cell.status === 'missing' || !cell.value) {
-            cta.textContent = 'Plan';
-        } else {
-            cta.textContent = 'Take';
-        }
-        cta.addEventListener('click', (event) => {
-            event.stopPropagation();
-            const v = cell.value;
-            const canConfirm = v && Array.isArray(v.ids) && v.ids.length > 0
-                && (cell.status === 'ok' || cell.status === 'overdue');
-            const win = (typeof window !== 'undefined') ? window : null;
-            if (canConfirm && win && typeof win.showMedicationConfirmModal === 'function') {
-                win.showMedicationConfirmModal(v.ids, v.names || [], v.scheduledAt, 'confirm');
-                return;
-            }
-            if (typeof onDeeplink === 'function') onDeeplink(cell.deeplink || 'meds');
-        });
-        head.appendChild(cta);
-        card.appendChild(head);
-
-        if (names.length > 0) {
-            const list = d.createElement('ul');
-            list.className = 'wg-today-meds__list';
-            for (const name of names) {
-                const row = d.createElement('li');
-                row.className = 'wg-today-meds__row';
-                const dot = d.createElement('span');
-                dot.className = 'wg-today-meds__dot';
-                const label = d.createElement('span');
-                label.className = 'wg-today-meds__name';
-                label.textContent = name;
-                row.appendChild(dot);
-                row.appendChild(label);
-                list.appendChild(row);
-            }
-            card.appendChild(list);
-        }
-
-        card.addEventListener('click', () => {
-            if (typeof onDeeplink === 'function') onDeeplink(cell.deeplink || 'meds');
-        });
-        return card;
-    }
-
-    function renderShortcutTile(iconName, label, onClick) {
-        const d = doc();
-        const btn = d.createElement('button');
-        btn.type = 'button';
-        btn.className = 'wg-shortcut-tile';
-        btn.setAttribute('data-section', 'shortcut');
-
-        const iconWrap = d.createElement('span');
-        iconWrap.className = 'wg-shortcut-tile__icon';
-        const icon = iconSvgOrNull(iconName, 15);
-        if (icon) iconWrap.appendChild(icon);
-        btn.appendChild(iconWrap);
-
-        const labelEl = d.createElement('span');
-        labelEl.className = 'wg-shortcut-tile__label';
-        labelEl.textContent = label;
-        btn.appendChild(labelEl);
-
-        if (typeof onClick === 'function') {
-            btn.addEventListener('click', onClick);
-        }
-        return btn;
-    }
-
-    function renderShortcutRow(state, handlers) {
-        const d = doc();
-        const rows = [];
-
-        const foodRow = d.createElement('div');
-        foodRow.className = 'wg-today-shortcuts wg-today-shortcuts--food';
-        foodRow.setAttribute('data-section', 'shortcuts-food');
-        const foodCell = state && state.caloriesTarget;
-        if (foodCell && foodCell.status !== 'disabled') {
-            foodRow.appendChild(renderShortcutTile('apple', 'Log food', () => {
-                if (typeof handlers.onLogFood === 'function') handlers.onLogFood();
-            }));
-            foodRow.appendChild(renderShortcutTile('barcode', 'Scan food', () => {
-                if (typeof handlers.onScanFood === 'function') handlers.onScanFood();
-            }));
-            foodRow.appendChild(renderShortcutTile('camera', 'Photo meal', () => {
-                if (typeof handlers.onPhotoMeal === 'function') handlers.onPhotoMeal();
-            }));
-            rows.push(foodRow);
-        }
-
-        const vitalsRow = d.createElement('div');
-        vitalsRow.className = 'wg-today-shortcuts wg-today-shortcuts--vitals';
-        vitalsRow.setAttribute('data-section', 'shortcuts-vitals');
-        let vitalsAdded = 0;
-        const bpCell = state && state.bpLatest;
-        if (bpCell && bpCell.status !== 'disabled') {
-            vitalsRow.appendChild(renderShortcutTile('heart', 'Add BP', () => {
-                if (typeof handlers.onAddBp === 'function') handlers.onAddBp();
-            }));
-            vitalsAdded += 1;
-        }
-        const weightCell = state && state.weightLatest;
-        if (weightCell && weightCell.status !== 'disabled') {
-            vitalsRow.appendChild(renderShortcutTile('scale', 'Add weight', () => {
-                if (typeof handlers.onAddWeight === 'function') handlers.onAddWeight();
-            }));
-            vitalsAdded += 1;
-        }
-        if (vitalsAdded > 0) rows.push(vitalsRow);
-
-        // Doctor brief (med-5k6t.2) — its own row because it is a document
-        // action, not a quick-log; renderToday folds that row into the Call
-        // agent card's row when the call card is present (med-z8ic), so the
-        // two share one line instead of stacking. Shown whenever anything at
-        // all is tracked
-        // (a meds-only vault still goes to appointments, and it has no BP or
-        // food quick-log row to ride on); suppressed in the every-feature-off
-        // state, where there is nothing to brief and Today shows its empty
-        // placeholder instead, and wherever the caller supplies no handler
-        // (bot mode — see renderToday's cloud gate).
-        const medsCell = state && state.nextMed;
-        if (typeof handlers.onDoctorBrief === 'function'
-            && (rows.length > 0 || (medsCell && medsCell.status !== 'disabled'))) {
-            const briefRow = d.createElement('div');
-            briefRow.className = 'wg-today-shortcuts wg-today-shortcuts--brief';
-            briefRow.setAttribute('data-section', 'shortcuts-brief');
-            briefRow.appendChild(renderShortcutTile('chart', 'Doctor brief', () => {
-                if (typeof handlers.onDoctorBrief === 'function') handlers.onDoctorBrief();
-            }));
-            rows.push(briefRow);
-        }
-
-        return rows.length > 0 ? rows : null;
-    }
-
-    function renderBpTile(latest, trend, onDeeplink, nowMs) {
-        if (!latest || latest.status === 'disabled') return null;
-        let value = '—';
-        let muted = '';
-        let unit = 'mmHg';
-        let tag = null;
-        let points = null;
-        if (latest.status === 'missing' || !latest.value) {
-            unit = 'Log a reading';
-        } else {
-            const v = latest.value;
-            value = String(v.systolic);
-            muted = `/${v.diastolic}`;
-            unit = `mmHg · ${relativeDayLabel(v.measured_at, nowMs) || 'today'}`;
-            tag = bpStatusTag(v.systolic, v.diastolic);
-            if (trend && trend.status === 'ok' && trend.value && Array.isArray(trend.value.systolicPoints)) {
-                points = trend.value.systolicPoints;
-            }
-        }
-        if (latest.status === 'stale' && tag) tag.textContent = `${tag.textContent} · stale`;
-        return renderMetricTile({
-            label: 'Blood pressure',
-            value,
-            valueMuted: muted,
-            unit,
-            statusTag: tag,
-            sparkPoints: points,
-            variant: 'sun',
-            deeplink: latest.deeplink || 'bp',
-            onClick: () => { if (typeof onDeeplink === 'function') onDeeplink(latest.deeplink || 'bp'); },
-        });
-    }
-
-    function renderWeightTile(latest, trend, onDeeplink, nowMs) {
-        if (!latest || latest.status === 'disabled') return null;
-        const preferredUnit = (typeof window !== 'undefined' && window.weightUnitPreference === 'lb') ? 'lb' : 'kg';
-        const fmt = (typeof formatWeight === 'function')
-            ? formatWeight
-            : (kg, u) => ({ value: Number(kg), label: u });
-        let value = '—';
-        let unit = preferredUnit;
-        let tag = null;
-        let points = null;
-        if (latest.status === 'missing' || !latest.value) {
-            unit = 'Log your weight';
-        } else {
-            const v = latest.value;
-            const display = fmt(v.weight, preferredUnit);
-            value = String(display.value);
-            unit = `${display.label} · ${relativeDayLabel(v.measured_at, nowMs) || 'today'}`;
-            if (trend && trend.status === 'ok' && trend.value) {
-                const deltaDisplay = fmt(Math.abs(trend.value.delta), preferredUnit);
-                const signedDelta = trend.value.delta > 0
-                    ? `+${deltaDisplay.value}`
-                    : (trend.value.delta < 0 ? `-${deltaDisplay.value}` : `${deltaDisplay.value}`);
-                const label = trend.value.direction === 'flat'
-                    ? '7d flat'
-                    : `7d ${signedDelta}`;
-                tag = statusTag('normal', label);
-                if (Array.isArray(trend.value.points)) points = trend.value.points;
-            }
-        }
-        if (latest.status === 'stale') {
-            if (tag) {
-                tag.textContent = `${tag.textContent} · stale`;
-            } else {
-                tag = statusTag('high', 'Stale');
-            }
-        }
-        return renderMetricTile({
-            label: 'Weight',
-            value,
-            unit,
-            statusTag: tag,
-            sparkPoints: points,
-            variant: 'mint-soft',
-            deeplink: latest.deeplink || 'weight',
-            onClick: () => { if (typeof onDeeplink === 'function') onDeeplink(latest.deeplink || 'weight'); },
-        });
-    }
-
-    function renderFuelCard(today, target, macrosToday, macrosTarget, onDeeplink) {
-        if (!today || today.status === 'disabled') return null;
-        const d = doc();
-        const card = d.createElement('button');
-        card.type = 'button';
-        card.className = 'wg-fuel-card wg-today-food';
-        card.setAttribute('data-deeplink', today.deeplink || 'food');
-        card.setAttribute('data-section', 'fuel');
-
-        const header = d.createElement('div');
-        header.className = 'wg-fuel-card__header';
-
-        const leftCol = d.createElement('div');
-        const total = d.createElement('div');
-        total.className = 'wg-fuel-card__total';
-        const current = Number.isFinite(today.value) ? today.value : 0;
-        total.textContent = String(current);
-        const unit = d.createElement('span');
-        unit.className = 'wg-fuel-card__total-unit';
-        const targetValue = (target && target.status === 'ok' && Number.isFinite(target.value))
-            ? target.value
-            : null;
-        unit.textContent = targetValue ? `/ ${targetValue} kcal` : 'kcal';
-        total.appendChild(unit);
-        leftCol.appendChild(total);
-
-        const rightCol = d.createElement('div');
-        const pct = d.createElement('div');
-        pct.className = 'wg-fuel-card__pct';
-        const pctValue = targetValue ? Math.round((current / targetValue) * 100) : 0;
-        pct.textContent = targetValue ? `${pctValue}%` : '—';
-        rightCol.appendChild(pct);
-        const pctLabel = d.createElement('div');
-        pctLabel.className = 'wg-fuel-card__pct-label';
-        pctLabel.textContent = targetValue ? 'of target' : 'No target set';
-        rightCol.appendChild(pctLabel);
-
-        header.appendChild(leftCol);
-        header.appendChild(rightCol);
-        card.appendChild(header);
-
-        const macros = (macrosToday && macrosToday.value) || { protein: 0, carbs: 0, fat: 0 };
-        const targets = (macrosTarget && macrosTarget.value) || {};
-
-        const pctOf = (v, t) => {
-            if (!Number.isFinite(v) || !Number.isFinite(t) || t <= 0) return 0;
-            return Math.max(0, Math.min(100, (v / t) * 100));
-        };
-
-        const bars = d.createElement('div');
-        bars.className = 'wg-fuel-card__bars';
-        bars.appendChild(renderMiniBar({ label: 'Energy', pct: pctValue, variant: 'sun' }));
-        bars.appendChild(renderMiniBar({ label: 'Protein', pct: pctOf(macros.protein, targets.protein), variant: 'mint' }));
-        bars.appendChild(renderMiniBar({ label: 'Carbs', pct: pctOf(macros.carbs, targets.carbs), variant: 'sage' }));
-        bars.appendChild(renderMiniBar({ label: 'Fat', pct: pctOf(macros.fat, targets.fat), variant: 'sun-deep' }));
-        card.appendChild(bars);
-
-        card.addEventListener('click', () => {
-            if (typeof onDeeplink === 'function') onDeeplink(today.deeplink || 'food');
-        });
-        return card;
-    }
-
-    function renderPlanTile({ iconName, label, value, detail, deeplink, onDeeplink }) {
-        const d = doc();
-        const tile = d.createElement('button');
-        tile.type = 'button';
-        tile.className = 'wg-plan-tile';
-        tile.setAttribute('data-deeplink', deeplink || '');
-        tile.setAttribute('data-section', label.toLowerCase());
-
-        const head = d.createElement('div');
-        head.className = 'wg-plan-tile__header';
-        const icon = iconSvgOrNull(iconName, 14);
-        if (icon) head.appendChild(icon);
-        const labelEl = d.createElement('span');
-        labelEl.className = 'wg-plan-tile__label';
-        labelEl.textContent = label;
-        head.appendChild(labelEl);
-        tile.appendChild(head);
-
-        const valueEl = d.createElement('div');
-        valueEl.className = 'wg-plan-tile__value';
-        valueEl.textContent = value || '—';
-        tile.appendChild(valueEl);
-
-        const detailEl = d.createElement('div');
-        detailEl.className = 'wg-plan-tile__detail';
-        detailEl.textContent = detail || '';
-        tile.appendChild(detailEl);
-
-        if (typeof onDeeplink === 'function') {
-            tile.addEventListener('click', () => onDeeplink(deeplink));
-        }
-        return tile;
-    }
-
-    function renderWorkoutTile(cell, onDeeplink) {
-        if (!cell || cell.status === 'disabled') return null;
-        let value = 'Not scheduled';
-        let detail = '';
-        if (cell.status === 'ok' && cell.value) {
-            const v = cell.value;
-            value = v.group_name || 'Workout';
-            const when = v.is_today ? 'today' : fmtDayLabel(v.scheduled_date);
-            const time = v.scheduled_time ? ` · ${v.scheduled_time}` : '';
-            detail = `${when}${time}`.trim();
-        }
-        return renderPlanTile({
-            iconName: 'dumbbell',
-            label: 'Workout',
-            value,
-            detail,
-            deeplink: cell.deeplink || 'workouts',
-            onDeeplink,
-        });
-    }
-
-    function renderSleepTile(cell, onDeeplink) {
-        if (!cell || cell.status === 'disabled') return null;
-        let value = '—';
-        let detail = 'No sleep data';
-        if ((cell.status === 'ok' || cell.status === 'stale') && cell.value) {
-            const v = cell.value;
-            const totalM = Math.round(v.hours * 60);
-            const h = Math.floor(totalM / 60);
-            const m = totalM % 60;
-            value = `${h}h ${String(m).padStart(2, '0')}m`;
-            const day = v.day || '';
-            detail = cell.status === 'stale'
-                ? (day ? `${day} · stale` : 'stale')
-                : day;
-        }
-        return renderPlanTile({
-            iconName: 'moon',
-            label: 'Sleep',
-            value,
-            detail,
-            deeplink: cell.deeplink || 'health',
-            onDeeplink,
-        });
-    }
-
-    // ---- Goal Line hero (docs/gamification.md §0.3.2) ------------------------
-    //
-    // Replaces the rings tile + mounted forecast as the gamification headline.
-    // Reads the GET /api/gamification/goal-line payload as-is (kg; converted
-    // here). Facts only: no pace grade, no projected date, no HP / level /
-    // Health Score / rings. The whole card taps through to Journey; the one CTA
-    // (or none) lands in its owning form and stops propagation.
 
     function weightFmt(kg) {
         const unit = (typeof window !== 'undefined' && window.weightUnitPreference === 'lb') ? 'lb' : 'kg';
@@ -1022,25 +583,344 @@
         return `${sign}${f.text} ${f.unit}`;
     }
 
-    function localDayKey(ms) {
-        const d = new Date(ms);
-        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    // ---- Next up ------------------------------------------------------------
+    //
+    // Missed dose first (danger lead, "Missed HH:MM", plain Log), then the
+    // scheduled items by time. The first actionable one carries the single sun
+    // action (meds → Take, today's workout → Start / Resume); the rest stay
+    // plain. Every action reuses the existing flow — no new write path.
+
+    function nextUpItems(state, nowMs) {
+        const items = [];
+        const med = state && state.nextMed;
+        if (med && med.value && (med.status === 'ok' || med.status === 'overdue')) {
+            const at = Date.parse(med.value.scheduledAt);
+            items.push({ kind: med.status === 'overdue' ? 'med-missed' : 'med', value: med.value, at });
+        }
+        const later = state && state.laterMed;
+        if (later && later.status === 'ok' && later.value) {
+            items.push({ kind: 'med', value: later.value, at: Date.parse(later.value.scheduledAt) });
+        }
+        const wo = state && state.nextWorkout;
+        if (wo && wo.status === 'ok' && wo.value) {
+            const v = wo.value;
+            const dayMs = v.is_today ? startOfLocalDay(nowMs) : localDayMs(v.scheduled_date);
+            const hm = /^(\d{1,2}):(\d{2})/.exec(v.scheduled_time || '');
+            let at = Number.isFinite(dayMs) ? dayMs : Infinity;
+            if (hm && Number.isFinite(dayMs)) at = dayMs + (Number(hm[1]) * 60 + Number(hm[2])) * 60000;
+            // A session due today with no set time is due now.
+            if (v.is_today && !hm) at = nowMs;
+            items.push({ kind: 'workout', value: v, at });
+        }
+        items.sort((a, b) => {
+            if ((a.kind === 'med-missed') !== (b.kind === 'med-missed')) return a.kind === 'med-missed' ? -1 : 1;
+            return (Number.isFinite(a.at) ? a.at : Infinity) - (Number.isFinite(b.at) ? b.at : Infinity);
+        });
+        return items;
     }
 
-    // "today 18:00" / "tomorrow 18:00" / "Wed 18:00" for a local 'YYYY-MM-DD'.
-    function nextSessionLabel(next, nowMs) {
-        if (!next || !next.day) return null;
-        const today = localDayKey(nowMs);
-        const tomorrow = localDayKey(new Date(nowMs).setDate(new Date(nowMs).getDate() + 1));
-        let day;
-        if (next.day === today) day = 'today';
-        else if (next.day === tomorrow) day = 'tomorrow';
-        else {
-            const [y, m, dd] = next.day.split('-').map(Number);
-            day = new Date(y, m - 1, dd).toLocaleDateString(undefined, { weekday: 'short' });
-        }
-        return next.time ? `${day} ${next.time}` : day;
+    function workoutAction(v) {
+        if (!v.is_today || v.id == null) return 'view';
+        if (v.status === 'in_progress') return 'resume';
+        if (!v.status || v.status === 'pending' || v.status === 'scheduled') return 'start';
+        return 'view';
     }
+
+    function medNames(v) {
+        return Array.isArray(v.names) ? v.names.filter(Boolean) : [];
+    }
+
+    function renderNextUpRow(item, primary, h, nowMs) {
+        const row = el('div', 'wg-row');
+        row.setAttribute('data-next', item.kind);
+        const lead = el('span', 'wg-row__lead');
+        if (item.kind === 'med-missed') lead.classList.add('wg-row__lead--danger');
+        else if (primary) lead.classList.add('wg-row__lead--sun');
+        const body = el('span', 'wg-row__body');
+        const meta = el('span', 'wg-row__meta');
+        const trail = el('span', 'wg-row__trail');
+        let action = null;
+
+        if (item.kind === 'med' || item.kind === 'med-missed') {
+            const v = item.value;
+            const names = medNames(v);
+            lead.appendChild(ico('pill'));
+            body.appendChild(el('span', 'wg-row__title',
+                names.length === 1 ? names[0] : `${names.length} medications`));
+            const when = fmtTimeHM(v.scheduledAt);
+            if (item.kind === 'med-missed') {
+                meta.appendChild(chip(when ? `Missed ${when}` : 'Missed', 'danger'));
+                if (names.length > 1) meta.appendChild(doc().createTextNode(` ${names.join(', ')}`));
+            } else {
+                const parts = [];
+                const day = Number.isFinite(item.at) ? dayWord(item.at, nowMs) : '';
+                if (day && day !== 'today') parts.push(day);
+                if (when) parts.push(when);
+                const countdown = Number.isFinite(item.at) && day === 'today' ? fmtCountdown(item.at, nowMs) : '';
+                if (countdown) parts.push(countdown);
+                if (names.length > 1) parts.push(names.join(', '));
+                meta.textContent = parts.join(' · ');
+            }
+            const label = item.kind === 'med-missed' ? 'Log' : 'Take';
+            action = btn(label, {
+                sm: true, primary, action: item.kind === 'med-missed' ? 'log-missed' : 'take',
+                onClick: () => h.onTakeMed(v),
+            });
+        } else {
+            const v = item.value;
+            lead.appendChild(ico('dumbbell'));
+            body.appendChild(el('span', 'wg-row__title', v.group_name || 'Workout'));
+            const parts = [];
+            if (v.is_today) parts.push('today');
+            else if (Number.isFinite(item.at)) parts.push(dayWord(item.at, nowMs));
+            if (v.scheduled_time) parts.push(v.scheduled_time);
+            if (v.is_today && v.scheduled_time && Number.isFinite(item.at)) {
+                const c = fmtCountdown(item.at, nowMs);
+                if (c) parts.push(c);
+            }
+            if (v.status === 'pre_skipped') parts.push('skipped');
+            if (v.status === 'in_progress') parts.push('in progress');
+            meta.textContent = parts.join(' · ');
+            const kind = workoutAction(v);
+            if (kind === 'start') {
+                action = btn('Start', { sm: true, primary, icon: 'play', action: 'start-workout', onClick: () => h.onStartWorkout(v.id) });
+            } else if (kind === 'resume') {
+                action = btn('Resume', { sm: true, primary, icon: 'play', action: 'resume-workout', onClick: () => h.onResumeWorkout(v.id) });
+            } else {
+                action = btn('View', { sm: true, action: 'view-workout', onClick: () => h.onDeeplink('workouts') });
+            }
+        }
+        body.appendChild(meta);
+        trail.appendChild(action);
+        row.append(lead, body, trail);
+        return row;
+    }
+
+    // Returns { node, hasPrimary }.
+    function renderNextUp(state, h, nowMs) {
+        const medsOn = on(state && state.nextMed);
+        const workoutsOn = on(state && state.nextWorkout);
+        if (!medsOn && !workoutsOn) return { node: null, hasPrimary: false };
+        const section = el('section', 'wg-section wg-today-next');
+        section.setAttribute('data-section', 'next-up');
+        const head = el('div', 'wg-section__head');
+        head.appendChild(el('span', 'wg-eyebrow wg-eyebrow--dot', 'Next up'));
+        section.appendChild(head);
+
+        const items = nextUpItems(state, nowMs);
+        if (items.length === 0) {
+            const actions = [];
+            if (medsOn) actions.push({ label: 'Add medication', icon: 'pill', onClick: h.onAddMedication });
+            if (workoutsOn) actions.push({ label: 'Create plan', icon: 'dumbbell', onClick: h.onCreatePlan });
+            const card = el('div', 'wg-card wg-card--flush');
+            card.appendChild(typeof createEmptyState === 'function'
+                ? createEmptyState({
+                    icon: 'calendar',
+                    title: 'Nothing scheduled',
+                    body: 'Add a medication or a training plan and its next dose or session shows up here.',
+                    actions,
+                })
+                : el('p', 'wg-hint', 'Nothing scheduled'));
+            section.appendChild(card);
+            return { node: section, hasPrimary: false };
+        }
+
+        const todayEnd = startOfLocalDay(nowMs) + DAY_IN_MS;
+        const todayCount = items.filter((it) => Number.isFinite(it.at) && it.at < todayEnd).length;
+        if (todayCount > 0) head.appendChild(el('span', 'wg-meta', `${todayCount} today`));
+
+        const primaryIdx = items.findIndex((it) => it.kind === 'med'
+            || (it.kind === 'workout' && workoutAction(it.value) !== 'view'));
+        const list = el('div', 'wg-list');
+        items.forEach((it, i) => list.appendChild(renderNextUpRow(it, i === primaryIdx, h, nowMs)));
+        section.appendChild(list);
+        return { node: section, hasPrimary: primaryIdx !== -1 };
+    }
+
+    // ---- Vitals strip -------------------------------------------------------
+
+    function bpClassChip(sys, dia) {
+        if (!Number.isFinite(sys) || !Number.isFinite(dia)) return null;
+        if (sys >= 140 || dia >= 90) return chip('High', 'danger');
+        if (sys >= 130 || dia >= 85) return chip('Stage 1', 'warn');
+        if (sys >= 120 || dia >= 80) return chip('High-normal', 'warn');
+        return chip('Normal', 'ok');
+    }
+
+    // The reading's age as its own signal: a device-saved log still queued
+    // reads Pending; offline, every cached value reads "cached"; an old
+    // reading gets a stale chip; otherwise a quiet meta label.
+    function ageSignal(cellIn, v, nowMs, offline) {
+        const W = (typeof window !== 'undefined') ? window.WGChip : null;
+        const syncChip = W && typeof W.sync === 'function' ? W.sync(v) : null;
+        if (syncChip) return syncChip;
+        const ms = Date.parse(v.measured_at);
+        const age = ageLabel(ms, nowMs);
+        if (offline) return chip('cached', 'stale');
+        if (cellIn.status === 'stale') return chip(age || 'stale', 'stale');
+        return el('span', 'wg-meta', age);
+    }
+
+    function vitalsTile(section, label, onTap) {
+        const tile = el('button', 'wg-tile');
+        tile.type = 'button';
+        tile.setAttribute('data-section', section);
+        tile.appendChild(el('span', 'wg-eyebrow', label));
+        tile.addEventListener('click', onTap);
+        return tile;
+    }
+
+    function missingValue(tile, onLog) {
+        tile.appendChild(el('span', 'wg-stat__value wg-stat__value--md wg-muted', '—'));
+        const link = el('span', 'wg-link', 'Log');
+        link.setAttribute('data-action', 'log');
+        link.addEventListener('click', (e) => { e.stopPropagation(); onLog(); });
+        tile.appendChild(link);
+    }
+
+    function renderBpTile(latest, trend, h, nowMs, offline) {
+        if (!on(latest)) return null;
+        const tile = vitalsTile('bp', 'BP', () => h.onDeeplink(latest.deeplink || 'bp'));
+        if (latest.status === 'missing' || !latest.value) {
+            missingValue(tile, h.onAddBp);
+            return tile;
+        }
+        const v = latest.value;
+        const value = el('span', 'wg-stat__value wg-stat__value--md', String(v.systolic));
+        value.appendChild(el('span', 'wg-dia', `/${v.diastolic}`));
+        tile.appendChild(value);
+        const points = trend && trend.status === 'ok' && trend.value ? trend.value.systolicPoints : null;
+        const spark = Array.isArray(points) && points.length ? sparklineOrNull(points, 'sun') : null;
+        if (spark) tile.appendChild(spark);
+        const cls = bpClassChip(v.systolic, v.diastolic);
+        if (cls) tile.appendChild(cls);
+        tile.appendChild(ageSignal(latest, v, nowMs, offline));
+        return tile;
+    }
+
+    function renderWeightTile(latest, trend, h, nowMs, offline) {
+        if (!on(latest)) return null;
+        const tile = vitalsTile('weight', 'Weight', () => h.onDeeplink(latest.deeplink || 'weight'));
+        if (latest.status === 'missing' || !latest.value) {
+            missingValue(tile, h.onAddWeight);
+            return tile;
+        }
+        const v = latest.value;
+        const f = weightFmt(v.weight);
+        const value = el('span', 'wg-stat__value wg-stat__value--md', f.text);
+        value.appendChild(el('small', null, f.unit));
+        tile.appendChild(value);
+        const tv = trend && trend.status === 'ok' ? trend.value : null;
+        const spark = tv && Array.isArray(tv.points) && tv.points.length ? sparklineOrNull(tv.points, 'mint') : null;
+        if (spark) tile.appendChild(spark);
+        if (tv && Number.isFinite(tv.delta)) {
+            tile.appendChild(el('span', 'wg-meta', tv.direction === 'flat' ? 'flat · 7d' : `${signedWeightText(tv.delta)} · 7d`));
+        }
+        tile.appendChild(ageSignal(latest, v, nowMs, offline));
+        return tile;
+    }
+
+    function renderFuelTile(today, target, h) {
+        if (!on(today)) return null;
+        const tile = vitalsTile('fuel', 'Fuel', () => h.onDeeplink(today.deeplink || 'food'));
+        const kcal = Number.isFinite(today.value) ? today.value : 0;
+        const t = target && target.status === 'ok' && Number.isFinite(target.value) ? target.value : null;
+        tile.appendChild(el('span', kcal > 0
+            ? 'wg-stat__value wg-stat__value--md'
+            : 'wg-stat__value wg-stat__value--md wg-muted', String(kcal)));
+        if (t) {
+            const meter = el('span', 'wg-meter');
+            const fill = el('span', 'wg-meter__fill');
+            fill.style.setProperty('--p', pct(kcal / t));
+            meter.appendChild(fill);
+            tile.appendChild(meter);
+        }
+        tile.appendChild(el('span', 'wg-meta', t ? `of ${t} kcal` : 'No target'));
+        return tile;
+    }
+
+    // ---- Below the fold: macros, sleep, steps -------------------------------
+
+    function renderMacrosCard(state, h) {
+        const today = state && state.caloriesToday;
+        if (!on(today)) return null;
+        const target = state.caloriesTarget;
+        const t = target && target.status === 'ok' && Number.isFinite(target.value) ? target.value : null;
+        const kcal = Number.isFinite(today.value) ? today.value : 0;
+        if (!t && kcal <= 0) return null; // the Fuel tile already says "No target"
+        const macros = (state.macrosToday && state.macrosToday.value) || { protein: 0, carbs: 0, fat: 0 };
+        const targets = (state.macrosTarget && state.macrosTarget.status === 'ok' && state.macrosTarget.value) || {};
+        const card = el('button', 'wg-card wg-today-macros');
+        card.type = 'button';
+        card.setAttribute('data-section', 'macros');
+        const head = el('div', 'wg-card__head');
+        const left = el('span', 'wg-hstack');
+        left.appendChild(el('span', 'wg-stat__value wg-stat__value--md', String(kcal)));
+        left.appendChild(el('span', 'wg-meta', t ? `/ ${t} kcal` : 'kcal'));
+        head.appendChild(left);
+        if (t) head.appendChild(chip(`${Math.round((kcal / t) * 100)}%`));
+        card.appendChild(head);
+        const grid = el('div', 'wg-macros');
+        const line = (label, val, tgt, unit, variant) => {
+            grid.appendChild(el('span', 'wg-macros__label', label));
+            const meter = el('span', 'wg-meter');
+            const fill = el('span', variant ? `wg-meter__fill wg-meter__fill--${variant}` : 'wg-meter__fill');
+            fill.style.setProperty('--p', Number.isFinite(tgt) && tgt > 0 ? pct(val / tgt) : '0%');
+            meter.appendChild(fill);
+            grid.appendChild(meter);
+            grid.appendChild(el('span', 'wg-macros__val',
+                Number.isFinite(tgt) && tgt > 0 ? `${val} / ${tgt}${unit}` : `${val}${unit}`));
+        };
+        line('Energy', kcal, t, '', null);
+        line('Protein', macros.protein || 0, targets.protein, ' g', 'mint');
+        line('Carbs', macros.carbs || 0, targets.carbs, ' g', 'sage');
+        line('Fat', macros.fat || 0, targets.fat, ' g', 'clay');
+        card.appendChild(grid);
+        card.addEventListener('click', () => h.onDeeplink(today.deeplink || 'food'));
+        return card;
+    }
+
+    function renderSleepTile(c, h, nowMs, offline) {
+        if (!on(c)) return null;
+        const tile = vitalsTile('sleep', 'Sleep', () => h.onDeeplink(c.deeplink || 'health'));
+        if (!c.value) {
+            tile.appendChild(el('span', 'wg-stat__value wg-stat__value--md wg-muted', '—'));
+            tile.appendChild(el('span', 'wg-meta', 'No sleep data'));
+            return tile;
+        }
+        const totalM = Math.round(c.value.hours * 60);
+        tile.appendChild(el('span', 'wg-stat__value wg-stat__value--md',
+            `${Math.floor(totalM / 60)}h ${String(totalM % 60).padStart(2, '0')}m`));
+        const label = ageLabel(localDayMs(c.value.day), nowMs);
+        if (offline) tile.appendChild(chip('cached', 'stale'));
+        else if (c.status === 'stale') tile.appendChild(chip(label || 'stale', 'stale'));
+        else if (label) tile.appendChild(el('span', 'wg-meta', label));
+        return tile;
+    }
+
+    function renderStepsTile(c, h, nowMs, offline) {
+        if (!on(c)) return null;
+        const tile = vitalsTile('steps', 'Steps', () => h.onDeeplink(c.deeplink || 'health'));
+        if (!c.value) {
+            tile.appendChild(el('span', 'wg-stat__value wg-stat__value--md wg-muted', '—'));
+            tile.appendChild(el('span', 'wg-meta', 'No step data'));
+            return tile;
+        }
+        tile.appendChild(el('span', 'wg-stat__value wg-stat__value--md', Number(c.value.steps).toLocaleString('en-US')));
+        const age = ageLabel(localDayMs(c.value.day), nowMs);
+        if (offline) tile.appendChild(chip('cached', 'stale'));
+        else if (age && age !== 'today') tile.appendChild(chip(age, 'stale'));
+        else tile.appendChild(el('span', 'wg-meta', 'today'));
+        return tile;
+    }
+
+    // ---- Goal Line (docs/gamification.md §0.3.2) ----------------------------
+    //
+    // The gamification headline, as a kit track: current → target, a marker
+    // track (--n markers, --p progress, a pin on the next marker) and three
+    // numbers — the same anatomy as the Journey goal card (journey.js
+    // goalTrack). Facts only: no pace grade, no projected date, no HP / level /
+    // rings. The card taps through to Journey; inline actions stop propagation.
 
     function goalLineCell(payload, enabled, weightEnabled) {
         if (!enabled) return cell(null, 'journey', 'disabled');
@@ -1057,142 +937,20 @@
         return c;
     }
 
-    function goalLineEl(tag, className, text) {
-        const node = doc().createElement(tag);
-        node.className = className;
-        if (text != null) node.textContent = text;
-        return node;
+    function goalAdherenceNudge(aa, h) {
+        if (!aa || !aa.active) return null;
+        const n = Number(aa.missed_doses) || 0;
+        const link = el('button', 'wg-link wg-today-goal__adherence',
+            `${n} missed dose${n === 1 ? '' : 's'} recently — worth a look`);
+        link.type = 'button';
+        link.setAttribute('data-section', 'meds');
+        link.setAttribute('data-action', 'meds');
+        link.addEventListener('click', (e) => { e.stopPropagation(); h.onDeeplink('meds'); });
+        return link;
     }
 
-    // Tappable inline action that does not also fire the card's Journey tap.
-    function goalLineAction(node, action, go) {
-        node.setAttribute('data-action', action);
-        const run = (e) => { if (e) e.stopPropagation(); go(); };
-        node.addEventListener('click', run);
-        if (node.tagName !== 'BUTTON') { // a real <button> already maps Enter/Space to click
-            node.setAttribute('role', 'button');
-            node.setAttribute('tabindex', '0');
-            node.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); run(e); } });
-        }
-        return node;
-    }
-
-    // The weight part: headline numbers + the state body (progress, 7 days,
-    // safety line, or the no_goal / preliminary / reached copy).
-    function goalLineWeightRows(card, g, onDeeplink, weightOn) {
-        const header = goalLineEl('div', 'wg-goal-line__header');
-        header.appendChild(goalLineEl('span', 'wg-goal-line__title', 'Goal line'));
-        const hasGoal = g.status !== 'no_goal';
-        const current = Number.isFinite(g.trend_weight) ? g.trend_weight
-            : (g.latest_reading && Number.isFinite(g.latest_reading.weight) ? g.latest_reading.weight : null);
-        if (hasGoal && current !== null && Number.isFinite(g.target)) {
-            const nums = goalLineEl('span', 'wg-goal-line__numbers');
-            nums.appendChild(goalLineEl('span', 'wg-mono-display wg-goal-line__value',
-                `${weightFmt(current).text} → ${weightText(g.target)}`));
-            const cov = g.coverage || {};
-            nums.appendChild(goalLineEl('span', 'wg-goal-line__basis wg-muted',
-                Number.isFinite(g.trend_weight)
-                    ? `trend · ${cov.weigh_in_days_28d || 0} weigh-ins/28d`
-                    : 'latest reading'));
-            header.appendChild(nums);
-        }
-        card.appendChild(header);
-
-        if (!hasGoal) {
-            // Weight tab off → switchTab('weight') bounces to Today; no dead link.
-            if (!weightOn) return;
-            const set = goalLineEl('div', 'wg-goal-line__set', 'Set a weight goal →');
-            goalLineAction(set, 'set-goal', () => { if (typeof onDeeplink === 'function') onDeeplink('weight'); });
-            card.appendChild(set);
-            return;
-        }
-
-        if (g.status === 'preliminary') {
-            const cov = g.coverage || {};
-            const needed = Math.max(1, (Number(cov.min_weigh_in_days) || 0) - (Number(cov.weigh_in_days_28d) || 0));
-            const text = g.latest_reading && Number.isFinite(g.latest_reading.weight)
-                ? `Latest ${weightText(g.latest_reading.weight)} · trend forms after ${needed} more weigh-in${needed === 1 ? '' : 's'}`
-                : 'Log a weigh-in to start your goal line';
-            card.appendChild(goalLineEl('p', 'wg-goal-line__line', text));
-            return;
-        }
-
-        if (g.status === 'at_goal' || g.status === 'maintaining') {
-            card.appendChild(goalLineEl('p', 'wg-goal-line__line',
-                g.status === 'maintaining'
-                    ? `Maintaining your goal — trend holding at ${weightText(g.target)}`
-                    : `At your goal — trend has reached ${weightText(g.target)}`));
-        } else {
-            // goal.progress is the episode progress the Weight tab card renders
-            // too (getGoalLine) — never recomputed here, so the screens agree.
-            const p = g.progress;
-            if (p) {
-                // Same bar classes + sun fill as the Journey goal card (styles.css).
-                const track = goalLineEl('div', 'wg-gloss--inset wg-journey-bar__track wg-goal-line__track');
-                const fill = goalLineEl('div', 'wg-journey-bar__fill wg-journey-bar__fill--sun wg-goal-line__fill');
-                const ratio = Math.max(0, Math.min(1, Number(p.fraction) || 0));
-                // Neutral custom property, same convention as wg-ring.js --ring-progress.
-                fill.style.setProperty('--fill-pct', `${(ratio * 100).toFixed(1)}%`);
-                track.appendChild(fill);
-                card.appendChild(track);
-                const since = g.start_ref_source === 'trend_at_set' ? 'since you set the goal' : 'since your first reading';
-                const marker = g.next_milestone && Number.isFinite(g.next_milestone.weight) && !g.next_milestone.is_goal
-                    ? ` · next marker ${weightText(g.next_milestone.weight)}`
-                    : '';
-                card.appendChild(goalLineEl('p', 'wg-goal-line__line',
-                    `${weightFmt(p.done_kg).text} of ${weightText(p.total_kg)} ${since}${marker}`));
-            }
-        }
-
-        if (Number.isFinite(g.change_7d)) {
-            card.appendChild(goalLineEl('p', 'wg-goal-line__line wg-muted', `7 days: ${signedWeightText(g.change_7d)}`));
-        }
-        // The only pace judgment on the card: a calm safety line, never praise.
-        if (g.too_fast) {
-            card.appendChild(goalLineEl('p', 'wg-goal-line__safety',
-                'Faster than 1% a week — worth checking with your doctor.'));
-        }
-    }
-
-    function goalLineFactRows(card, v, nowMs) {
-        const facts = goalLineEl('div', 'wg-goal-line__facts');
-        const w = v.workouts;
-        if (w && w.feature_on) {
-            const done = Number(w.completed_this_week) || 0;
-            let text = Number.isFinite(w.scheduled_this_week)
-                ? `Workouts: ${done} of ${w.scheduled_this_week} done this week`
-                : `Workouts: ${done} done this week`;
-            const next = nextSessionLabel(w.next_scheduled, nowMs);
-            if (next) text += ` · next ${next}`;
-            const row = goalLineEl('p', 'wg-goal-line__fact wg-muted', text);
-            row.setAttribute('data-fact', 'workouts');
-            facts.appendChild(row);
-        }
-        const bp = v.bp;
-        if (bp && bp.feature_on) {
-            const days = Number(bp.days_this_week) || 0;
-            let text = bp.recorded_today
-                ? 'BP: recorded today'
-                : `BP: ${days} day${days === 1 ? '' : 's'} this week`;
-            if (bp.mean_7d) {
-                text += ` · 7d avg ${Math.round(bp.mean_7d.systolic)}/${Math.round(bp.mean_7d.diastolic)}`;
-                if (bp.target && (Number.isFinite(bp.target.systolic) || Number.isFinite(bp.target.diastolic))) {
-                    const t = (x) => (Number.isFinite(x) ? String(x) : '—');
-                    text += ` vs ${t(bp.target.systolic)}/${t(bp.target.diastolic)}`;
-                }
-            }
-            const row = goalLineEl('p', 'wg-goal-line__fact wg-muted', text);
-            row.setAttribute('data-fact', 'bp');
-            facts.appendChild(row);
-        }
-        if (facts.childNodes.length) card.appendChild(facts);
-    }
-
-    // The week's chosen plan (med-8tur.4, picked in the Journey weekly review):
-    // the intention + cadence contract under the rows, or "paused" — the domain
-    // has already dropped the week's change / too-fast line for a paused week.
-    function goalLinePlanRow(card, plan) {
-        if (!plan) return;
+    function goalPlanLine(plan) {
+        if (!plan) return null;
         let text = null;
         if (plan.paused) text = 'Paused this week';
         else {
@@ -1201,81 +959,156 @@
             if (plan.intention && plan.intention.text) parts.push(plan.intention.text);
             if (c.weigh_in === 'daily') parts.push('weigh-in daily');
             if (Number.isInteger(c.bp_days) && c.bp_days > 0) parts.push(`BP ${c.bp_days} day${c.bp_days === 1 ? '' : 's'}`);
-            if (parts.length) text = `This week: ${parts.join(' · ')}`;
+            if (parts.length) text = `This week · ${parts.join(' · ')}`;
         }
-        if (!text) return;
-        const row = goalLineEl('p', 'wg-goal-line__fact wg-muted', text);
-        row.setAttribute('data-fact', 'plan');
-        card.appendChild(row);
+        if (!text) return null;
+        const line = el('span', 'wg-meta', text);
+        line.setAttribute('data-fact', 'plan');
+        return line;
     }
 
-    function goalLineAdherenceNudge(aa, h) {
-        if (!aa || !aa.active) return null;
-        const n = Number(aa.missed_doses) || 0;
-        const nudge = goalLineEl('div', 'wg-goal-line__adherence wg-muted',
-            `${n} missed dose${n === 1 ? '' : 's'} recently — worth a look`);
-        nudge.setAttribute('data-section', 'meds');
-        goalLineAction(nudge, 'meds', () => { if (typeof h.onDeeplink === 'function') h.onDeeplink('meds'); });
-        return nudge;
+    function goalTrack(g) {
+        const nm = g.next_milestone;
+        const track = el('span', 'wg-track');
+        track.style.setProperty('--p', pct(g.progress.fraction));
+        if (nm && Number(nm.count) > 0) track.style.setProperty('--n', String(Number(nm.count)));
+        track.appendChild(el('span', 'wg-track__fill'));
+        const start = Number.isFinite(g.start_ref) ? g.start_ref : null;
+        const span = start !== null && Number.isFinite(g.target) ? Math.abs(start - g.target) : 0;
+        const showPin = !!nm && !nm.is_goal && Number.isFinite(nm.weight) && span > 0;
+        if (showPin) {
+            const pin = el('span', 'wg-track__pin');
+            pin.style.setProperty('--p', pct(Math.abs(start - nm.weight) / span));
+            track.appendChild(pin);
+        }
+        const ends = el('span', 'wg-track__ends');
+        ends.appendChild(el('span', null, start !== null ? `start ${weightFmt(start).text}` : 'start'));
+        if (showPin) ends.appendChild(el('span', null, `next ${weightFmt(nm.weight).text}`));
+        ends.appendChild(el('span', null, nm && Number(nm.count) > 0
+            ? `${Math.max(0, (Number(nm.ordinal) || 1) - 1)} / ${Number(nm.count)}`
+            : 'goal'));
+        return [track, ends];
     }
 
-    function renderGoalLineTile(cell, handlers) {
-        if (!cell || cell.status === 'disabled' || cell.status === 'missing' || !cell.value) return null;
-        const h = handlers || {};
-        const v = cell.value;
+    // Returns { node, primary } — primary is true when the card carries the
+    // view's sun control ("Set goal", only when Next up has none).
+    function renderGoalCard(c, h, allowPrimary, offline) {
+        if (!c || c.status === 'disabled' || c.status === 'missing' || !c.value) return { node: null, primary: false };
+        const v = c.value;
         if (v.ed_safe) {
             // ED-safe: just the medication alert, in a plain card — no goal,
             // no weight, no tap-through to Journey.
-            const alertCard = goalLineEl('div', 'wg-card');
+            const alertCard = el('div', 'wg-card');
             alertCard.setAttribute('data-section', 'adherence-alert');
-            alertCard.appendChild(goalLineAdherenceNudge(v.adherence_alert, h));
-            return alertCard;
+            alertCard.appendChild(goalAdherenceNudge(v.adherence_alert, h));
+            return { node: alertCard, primary: false };
         }
-        const card = goalLineEl('div', 'wg-card wg-goal-line');
-        card.setAttribute('data-deeplink', cell.deeplink || 'journey');
-        card.setAttribute('data-section', 'goal-line');
-        card.setAttribute('data-status', v.goal.status);
+        const g = v.goal;
 
-        goalLineWeightRows(card, v.goal, h.onDeeplink, cell.weightOn !== false);
+        if (g.status === 'no_goal') {
+            // Weight tab off → switchTab('weight') bounces to Today; no dead link.
+            if (c.weightOn === false) return { node: null, primary: false };
+            const card = el('div', 'wg-card wg-card--accent wg-vstack wg-today-goal');
+            card.setAttribute('data-section', 'goal-line');
+            card.setAttribute('data-status', g.status);
+            card.appendChild(el('span', 'wg-eyebrow', 'Goal line'));
+            card.appendChild(el('p', 'wg-card__title', 'Set a weight goal'));
+            card.appendChild(el('p', 'wg-hint', 'The goal is the spine of your journey. Workouts, BP and food are the levers that move it.'));
+            const foot = el('div', 'wg-card__foot');
+            foot.appendChild(btn('Set goal', { primary: allowPrimary, action: 'set-goal', onClick: () => h.onDeeplink('weight') }));
+            card.appendChild(foot);
+            const nudge = goalAdherenceNudge(v.adherence_alert, h);
+            if (nudge) card.appendChild(nudge);
+            return { node: card, primary: allowPrimary };
+        }
+
+        const card = el('div', 'wg-card wg-vstack wg-today-goal');
+        card.setAttribute('data-section', 'goal-line');
+        card.setAttribute('data-deeplink', c.deeplink || 'journey');
+        card.setAttribute('data-status', g.status);
+        card.setAttribute('role', 'button');
+        card.setAttribute('tabindex', '0');
+        card.setAttribute('aria-label', 'Goal line — open Journey');
+        const go = () => h.onDeeplink(c.deeplink || 'journey');
+        card.addEventListener('click', go);
+        card.addEventListener('keydown', (e) => {
+            if (e.target === card && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); go(); }
+        });
+
+        const head = el('span', 'wg-hstack');
+        head.appendChild(el('span', 'wg-eyebrow', 'Goal line'));
+        head.appendChild(el('span', 'wg-spacer'));
+        if (offline) head.appendChild(chip('cached', 'stale', 'clock'));
+        else if (Number.isFinite(g.change_7d)) {
+            // Moving away from the target this week → warn; otherwise neutral.
+            // Never praise: toward the goal is just the number.
+            const away = Number.isFinite(g.direction) && g.direction !== 0 && g.change_7d * g.direction < -0.05
+                && g.status !== 'at_goal' && g.status !== 'maintaining';
+            head.appendChild(chip(`${signedWeightText(g.change_7d)} · 7d`, away ? 'warn' : undefined));
+        }
+        card.appendChild(head);
+
+        const current = Number.isFinite(g.trend_weight) ? g.trend_weight
+            : (g.latest_reading && Number.isFinite(g.latest_reading.weight) ? g.latest_reading.weight : null);
+        if (current !== null && Number.isFinite(g.target)) {
+            const nums = el('span', 'wg-hstack');
+            nums.appendChild(el('span', 'wg-stat__value', weightFmt(current).text));
+            const chev = ico('chev-r');
+            chev.classList.add('wg-muted');
+            nums.appendChild(chev);
+            const tf = weightFmt(g.target);
+            const target = el('span', 'wg-stat__value wg-sun', tf.text);
+            target.appendChild(el('small', null, tf.unit));
+            nums.appendChild(target);
+            card.appendChild(nums);
+        }
+
+        if (g.status === 'preliminary') {
+            const cov = g.coverage || {};
+            const needed = Math.max(1, (Number(cov.min_weigh_in_days) || 0) - (Number(cov.weigh_in_days_28d) || 0));
+            card.appendChild(el('p', 'wg-hint', g.latest_reading && Number.isFinite(g.latest_reading.weight)
+                ? `Latest ${weightText(g.latest_reading.weight)} · trend forms after ${needed} more weigh-in${needed === 1 ? '' : 's'}`
+                : 'Log a weigh-in to start your goal line'));
+        } else if (g.status === 'at_goal' || g.status === 'maintaining') {
+            card.appendChild(el('p', 'wg-hint', g.status === 'maintaining'
+                ? `Maintaining your goal — trend holding at ${weightText(g.target)}`
+                : `At your goal — trend has reached ${weightText(g.target)}`));
+        } else if (g.progress) {
+            // goal.progress is the episode progress the Weight tab and Journey
+            // render too — never recomputed here, so the screens agree.
+            goalTrack(g).forEach((n) => card.appendChild(n));
+        }
+
+        // The only pace judgment on the card: a calm safety line, never praise.
+        if (g.too_fast) {
+            card.appendChild(el('p', 'wg-hint', 'Faster than 1% a week — worth checking with your doctor.'));
+        }
 
         // A reached milestone (med-8tur.5): shown once, until acknowledged.
         const ms = v.milestone;
         if (ms && ms.id && typeof h.onAckMilestone === 'function') {
-            const row = goalLineEl('div', 'wg-goal-line__milestone');
+            const row = el('span', 'wg-hstack');
             row.setAttribute('data-milestone-id', ms.id);
-            row.appendChild(goalLineEl('span', 'wg-goal-line__milestone-text', ms.title || 'Goal milestone reached'));
-            const ack = goalLineAction(goalLineEl('button', 'btn btn-sm btn-secondary', 'Got it'),
-                'ack-milestone', () => h.onAckMilestone(ms.id));
-            ack.type = 'button';
-            row.appendChild(ack);
+            row.appendChild(el('span', 'wg-meta', ms.title || 'Goal milestone reached'));
+            row.appendChild(el('span', 'wg-spacer'));
+            row.appendChild(btn('Got it', { sm: true, action: 'ack-milestone', onClick: () => h.onAckMilestone(ms.id) }));
             card.appendChild(row);
         }
-        goalLineFactRows(card, v, h.nowMs);
-        goalLinePlanRow(card, v.plan);
 
-        // Medication safety net (carried over from the rings tile): invisible
-        // unless the trailing PDC has actually slipped; one line to Meds.
-        const nudge = goalLineAdherenceNudge(v.adherence_alert, h);
+        const plan = goalPlanLine(v.plan);
+        if (plan) card.appendChild(plan);
+
+        // Medication safety net: invisible unless the trailing PDC has slipped.
+        const nudge = goalAdherenceNudge(v.adherence_alert, h);
         if (nudge) card.appendChild(nudge);
 
-        let cta = null;
+        // Weigh in stays a plain button; the session CTA moved to Next up.
         if (v.cta === 'weigh_in' && typeof h.onAddWeight === 'function') {
-            cta = goalLineAction(goalLineEl('button', 'btn btn-sm btn-primary wg-goal-line__cta', 'Weigh in'),
-                'weigh-in', h.onAddWeight);
-        } else if (v.cta === 'start_session') {
-            // The session itself starts from the Workouts tab's next-session card.
-            cta = goalLineAction(goalLineEl('button', 'btn btn-sm btn-primary wg-goal-line__cta', 'Start today’s session'),
-                'start-session', () => { if (typeof h.onDeeplink === 'function') h.onDeeplink('workouts'); });
+            const foot = el('div', 'wg-card__foot');
+            foot.appendChild(btn('Weigh in', { sm: true, icon: 'scale', action: 'weigh-in', onClick: h.onAddWeight }));
+            card.appendChild(foot);
         }
-        if (cta) {
-            cta.type = 'button';
-            card.appendChild(cta);
-        }
-
-        card.addEventListener('click', () => {
-            if (typeof h.onDeeplink === 'function') h.onDeeplink(cell.deeplink || 'journey');
-        });
-        return card;
+        return { node: card, primary: false };
     }
 
     // Default milestone ack (med-8tur.5): optimistic `milestone: null` on the
@@ -1298,6 +1131,97 @@
         } catch (_) { /* best-effort */ }
     }
 
+    // ---- Log sheet (T3) -----------------------------------------------------
+    //
+    // The Today "Log" button opens a kit bottom sheet of .wg-action tiles:
+    // food fast paths first, then measurements & notes. Disabled features
+    // drop out. Each tile closes the sheet and runs the same opener the old
+    // shortcut tiles ran. The sheet is a dynamic <mt-modal> on <body>, opened
+    // through ModalManager so Back / Esc close it.
+
+    function logSheetGroups(state, h) {
+        const food = on(state && state.caloriesToday) ? [
+            { id: 'food-search', icon: 'search', label: 'Search', sub: 'Your foods + database', run: h.onLogFood },
+            { id: 'food-photo', icon: 'camera', label: 'Photo meal', sub: 'AI estimates it', run: h.onPhotoMeal },
+            { id: 'food-scan', icon: 'barcode', label: 'Scan barcode', run: h.onScanFood },
+            { id: 'food-describe', icon: 'sparkle', label: 'Describe', sub: '"200 g chicken, rice"', run: h.onDescribeFood },
+        ] : [];
+        const measure = [];
+        if (on(state && state.bpLatest)) measure.push({ id: 'bp', icon: 'activity', label: 'BP', run: h.onAddBp });
+        if (on(state && state.weightLatest)) measure.push({ id: 'weight', icon: 'scale', label: 'Weight', run: h.onAddWeight });
+        if (on(state && state.sleepLastNight)) measure.push({ id: 'note', icon: 'note', label: 'Note', run: h.onAddNote });
+        return { food, measure };
+    }
+
+    function closeLogSheet() {
+        const mm = typeof window !== 'undefined' ? window.ModalManager : null;
+        if (mm && typeof mm.close === 'function') { mm.close(LOG_SHEET_ID); return; }
+        const sheet = doc().getElementById(LOG_SHEET_ID);
+        if (sheet) sheet.classList.add('hidden');
+    }
+
+    function openLogSheet(groups, nowMs) {
+        const d = doc();
+        let sheet = d.getElementById(LOG_SHEET_ID);
+        if (!sheet) {
+            sheet = d.createElement('mt-modal');
+            sheet.id = LOG_SHEET_ID;
+            sheet.className = 'hidden wg-modal wg-sheet wg-today-log-sheet';
+            sheet.setAttribute('aria-label', 'Log');
+            d.body.appendChild(sheet);
+        }
+        sheet.replaceChildren();
+        sheet.appendChild(el('div', 'wg-sheet__grab'));
+        const head = el('header', 'wg-sheethead');
+        const titles = el('div', 'wg-sheethead__titles');
+        titles.appendChild(el('div', 'wg-eyebrow', `Now · ${fmtTimeHM(new Date(nowMs).toISOString())}`));
+        titles.appendChild(el('div', 'wg-sheethead__title', 'Log'));
+        const acts = el('div', 'wg-sheethead__acts');
+        acts.appendChild(btn(null, { ghost: true, iconOnly: true, icon: 'x', aria: 'Close', action: 'close', onClick: closeLogSheet }));
+        head.append(titles, acts);
+        sheet.appendChild(head);
+
+        const body = el('div', 'wg-sheet__body');
+        const group = (title, tiles, cls) => {
+            if (!tiles.length) return;
+            body.appendChild(el('span', 'wg-eyebrow', title));
+            const grid = el('div', cls);
+            for (const t of tiles) {
+                const tile = el('button', 'wg-action');
+                tile.type = 'button';
+                tile.setAttribute('data-log', t.id);
+                const iconWrap = el('span', 'wg-action__icon');
+                iconWrap.appendChild(ico(t.icon));
+                const label = el('span', 'wg-action__label', t.label);
+                if (t.sub) label.appendChild(el('span', 'wg-action__sub', t.sub));
+                tile.append(iconWrap, label);
+                tile.addEventListener('click', () => {
+                    closeLogSheet();
+                    if (typeof t.run === 'function') t.run();
+                });
+                grid.appendChild(tile);
+            }
+            body.appendChild(grid);
+        };
+        group('Food', groups.food, 'wg-actions');
+        group('Measurements & notes', groups.measure, 'wg-actions wg-actions--3');
+        sheet.appendChild(body);
+        hydrateIcons(sheet);
+
+        const mm = typeof window !== 'undefined' ? window.ModalManager : null;
+        if (mm && typeof mm.open === 'function') {
+            if (typeof mm.register === 'function') mm.register(LOG_SHEET_ID, closeLogSheet);
+            mm.open(LOG_SHEET_ID);
+        } else if (typeof sheet.open === 'function') {
+            sheet.open();
+        } else {
+            sheet.classList.remove('hidden');
+        }
+        return sheet;
+    }
+
+    // ---- Default openers ----------------------------------------------------
+
     function briefOpenerOrNull() {
         if (typeof window === 'undefined') return null;
         const brief = window.DoctorBrief;
@@ -1318,163 +1242,211 @@
         };
     }
 
+    function resolveHandlers(opts) {
+        const win = (typeof window !== 'undefined') ? window : {};
+        const onDeeplink = opts.onDeeplink || ((target) => {
+            if (target && typeof win.switchTab === 'function') win.switchTab(target);
+        });
+        const onLogFood = opts.onLogFood || defaultHandler('showAddFoodModal', 'food');
+        return {
+            onDeeplink,
+            onLogFood,
+            onAddBp: opts.onAddBp || defaultHandler('showBPRecordModal', 'bp'),
+            onAddWeight: opts.onAddWeight || defaultHandler('showWeightModal', 'weight'),
+            onPhotoMeal: opts.onPhotoMeal || (() => {
+                if (win.FoodActions && typeof win.FoodActions.triggerPhotoPicker === 'function') {
+                    win.FoodActions.triggerPhotoPicker();
+                }
+            }),
+            onScanFood: opts.onScanFood || (() => {
+                if (win.FoodLog && typeof win.FoodLog.openAdd === 'function') win.FoodLog.openAdd();
+                if (win.FoodScanner && typeof win.FoodScanner.openFoodScannerModal === 'function') {
+                    win.FoodScanner.openFoodScannerModal();
+                } else if (win.ModalManager && win.ModalManager.foodScanner
+                    && typeof win.ModalManager.foodScanner.open === 'function') {
+                    win.ModalManager.foodScanner.open();
+                }
+            }),
+            // The add-food modal in its AI "describe your meal" mode.
+            onDescribeFood: opts.onDescribeFood || (() => {
+                onLogFood();
+                if (typeof win.setFoodParseAIMode === 'function') win.setFoodParseAIMode(true);
+                const name = doc().getElementById('food-name');
+                if (name && typeof name.focus === 'function') name.focus();
+            }),
+            // There is no new-note modal: the Notes sub-tab composer is the
+            // one create path.
+            onAddNote: opts.onAddNote || (() => {
+                onDeeplink('health');
+                const tab = doc().querySelector('.health-tab[data-tab="notes"]');
+                if (tab) tab.click();
+                const ta = doc().getElementById('notes-textarea');
+                if (ta && typeof ta.focus === 'function') ta.focus();
+            }),
+            // Cloud-only: GET /api/brief is answered by web/cloud/js/apishim.js
+            // and the print helper is served from the cloud shell. No handler →
+            // no button rather than one that can only fail.
+            onDoctorBrief: opts.onDoctorBrief || briefOpenerOrNull(),
+            onTakeMed: opts.onTakeMed || ((v) => {
+                const ids = Array.isArray(v && v.ids) ? v.ids : [];
+                if (ids.length && typeof win.showMedicationConfirmModal === 'function') {
+                    win.showMedicationConfirmModal(ids, v.names || [], v.scheduledAt, 'confirm');
+                } else {
+                    onDeeplink('meds');
+                }
+            }),
+            onStartWorkout: opts.onStartWorkout || ((id) => {
+                if (win.WorkoutSessions && typeof win.WorkoutSessions.start === 'function') win.WorkoutSessions.start(id);
+                else onDeeplink('workouts');
+            }),
+            onResumeWorkout: opts.onResumeWorkout || ((id) => {
+                if (win.WorkoutSessions && typeof win.WorkoutSessions.open === 'function') win.WorkoutSessions.open(id);
+                else onDeeplink('workouts');
+            }),
+            onAddMedication: opts.onAddMedication || (() => {
+                onDeeplink('meds');
+                const add = doc().getElementById('add-btn');
+                if (add) add.click();
+            }),
+            onCreatePlan: opts.onCreatePlan || (() => {
+                onDeeplink('workouts');
+                if (win.WorkoutGroups && typeof win.WorkoutGroups.openAdd === 'function') win.WorkoutGroups.openAdd();
+            }),
+            onRetry: opts.onRetry || (() => {
+                if (typeof win.loadToday === 'function') win.loadToday();
+                else if (win.TodayLoader && typeof win.TodayLoader.loadToday === 'function') win.TodayLoader.loadToday();
+            }),
+            onAckMilestone: opts.onAckMilestone || ackMilestoneDefault,
+        };
+    }
+
+    // ---- States (T4–T6) -----------------------------------------------------
+
+    // No cache of any kind on this device yet. Offline → the shared offline
+    // state; a finished fetch that still left nothing → error + Retry;
+    // otherwise (first unlock, fetch in flight) a skeleton shaped like T1.
+    function renderFirstRun(root, opts, h) {
+        if (opts.offline) {
+            root.appendChild(createOfflineEmptyState());
+            return;
+        }
+        if (opts.settled) {
+            root.appendChild(createErrorState('Couldn’t load your day.', h.onRetry));
+            return;
+        }
+        const stack = el('div', 'wg-vstack wg-today-skeleton');
+        stack.setAttribute('data-section', 'skeleton');
+        stack.setAttribute('aria-busy', 'true');
+        stack.appendChild(createSkeleton('line', 1));
+        stack.appendChild(createSkeleton('card', 1));
+        const tiles = createSkeleton('tile', 3);
+        tiles.classList.add('wg-grid3');
+        stack.appendChild(tiles);
+        stack.appendChild(createSkeleton('card', 1));
+        stack.appendChild(el('span', 'wg-meta', 'Loading your day…'));
+        root.appendChild(stack);
+    }
+
     function renderToday(state, root, handlers) {
         const d = doc();
         if (!d || !root) return;
         const opts = handlers || {};
-        const onDeeplink = opts.onDeeplink || ((target) => {
-            if (target && typeof window !== 'undefined' && typeof window.switchTab === 'function') {
-                window.switchTab(target);
-            }
-        });
+        const h = resolveHandlers(opts);
         const nowMs = (opts.now instanceof Date) ? opts.now.getTime() : (opts.now || Date.now());
-
-        const onLogFood = opts.onLogFood || defaultHandler('showAddFoodModal', 'food');
-        const onAddBp = opts.onAddBp || defaultHandler('showBPRecordModal', 'bp');
-        const onAddWeight = opts.onAddWeight || defaultHandler('showWeightModal', 'weight');
-        const onPhotoMeal = opts.onPhotoMeal || (() => {
-            if (typeof window !== 'undefined'
-                && window.FoodActions
-                && typeof window.FoodActions.triggerPhotoPicker === 'function') {
-                window.FoodActions.triggerPhotoPicker();
-            }
-        });
-        // Cloud-only: GET /api/brief is answered by web/cloud/js/apishim.js and
-        // the print helper is served from the cloud shell, so bot mode has
-        // neither. No handler → renderShortcutRow omits the tile entirely
-        // rather than offering a button that can only fail.
-        const onDoctorBrief = opts.onDoctorBrief || briefOpenerOrNull();
-        const onScanFood = opts.onScanFood || (() => {
-            if (typeof window === 'undefined') return;
-            if (window.FoodLog && typeof window.FoodLog.openAdd === 'function') {
-                window.FoodLog.openAdd();
-            }
-            if (window.FoodScanner && typeof window.FoodScanner.openFoodScannerModal === 'function') {
-                window.FoodScanner.openFoodScannerModal();
-            } else if (window.ModalManager
-                && window.ModalManager.foodScanner
-                && typeof window.ModalManager.foodScanner.open === 'function') {
-                window.ModalManager.foodScanner.open();
-            }
-        });
+        const offline = opts.offline === true;
 
         root.innerHTML = '';
         root.classList.add('wg-today');
         root.classList.add('today-root');
 
         if (state && state.__firstRun) {
-            const empty = d.createElement('div');
-            empty.className = 'today-empty today-empty-firstrun';
-            empty.textContent = 'Connect to load your day';
-            root.appendChild(empty);
+            renderFirstRun(root, opts, h);
+            hydrateIcons(root);
             return root;
         }
 
-        let rendered = 0;
-
-        // Call agent + Shortcuts are pinned to the very top of Today (us0.4) so
-        // they're the first thing visible in every state (features on/off,
-        // cached/offline).
-        let callCard = null;
+        // Call row: Call agent · Log · Doctor brief. The call card is mounted
+        // into the row; mountCard() dedupes within its container and
+        // reattaches live call state to a freshly built card, so a re-render
+        // mid-call keeps "End call".
+        const groups = logSheetGroups(state, h);
+        const anyLog = groups.food.length + groups.measure.length > 0;
+        const anyFeature = anyLog || on(state && state.nextMed) || on(state && state.nextWorkout);
+        const callRow = el('div', 'wg-callbar wg-today-callbar');
+        callRow.setAttribute('data-section', 'callbar');
         if (typeof window !== 'undefined' && window.WGCallAgent && typeof window.WGCallAgent.mountCard === 'function') {
-            callCard = window.WGCallAgent.mountCard(root);
-            rendered += 1;
+            window.WGCallAgent.mountCard(callRow);
+        }
+        if (anyLog) {
+            callRow.appendChild(btn('Log', {
+                icon: 'plus', action: 'open-log',
+                onClick: () => openLogSheet(logSheetGroups(state, h), Date.now()),
+            }));
+        }
+        if (typeof h.onDoctorBrief === 'function' && anyFeature) {
+            callRow.appendChild(btn(null, {
+                iconOnly: true, icon: 'file', aria: 'Doctor brief', action: 'doctor-brief',
+                onClick: () => h.onDoctorBrief(),
+            }));
+        }
+        if (callRow.childNodes.length) {
+            root.appendChild(callRow);
         }
 
-        const shortcutRows = renderShortcutRow(state, {
-            onLogFood, onScanFood, onPhotoMeal, onAddBp, onAddWeight, onDoctorBrief
-        });
-        if (shortcutRows) {
-            shortcutRows.forEach((r) => {
-                // med-z8ic: Doctor brief rides the Call agent row as its
-                // narrower sibling (2fr / 1fr, see .wg-call-card--with-brief)
-                // instead of burning a whole row on one tile. It goes *inside*
-                // the call card rather than into a shared wrapper on purpose:
-                // mountCard() dedupes on `root.querySelector('[data-section=
-                // "call-agent"]')` and reattaches live-call state to whatever
-                // it finds, so the container it is handed must stay `root`.
-                // Whichever of the two is absent, the survivor fills the row.
-                if (callCard && r.getAttribute('data-section') === 'shortcuts-brief'
-                    && !callCard.querySelector('[data-section="shortcuts-brief"]')) {
-                    r.classList.add('wg-call-card__brief');
-                    callCard.classList.add('wg-call-card--with-brief');
-                    // Insert right after the trigger (before the in-call
-                    // controls) so DOM order matches the visual order the
-                    // grid produces: trigger + brief on line 1, controls and
-                    // status on their own full-width lines below.
-                    callCard.insertBefore(r, callCard.querySelector('.wg-call-card__controls'));
-                    return;
-                }
-                root.appendChild(r);
-            });
-            rendered += shortcutRows.length;
+        const next = renderNextUp(state, h, nowMs);
+        if (next.node) { root.appendChild(next.node); }
+
+        const vitals = [
+            renderBpTile(state && state.bpLatest, state && state.bpTrend7d, h, nowMs, offline),
+            renderWeightTile(state && state.weightLatest, state && state.weightTrend7d, h, nowMs, offline),
+            renderFuelTile(state && state.caloriesToday, state && state.caloriesTarget, h),
+        ].filter(Boolean);
+        if (vitals.length) {
+            const strip = el('div', vitals.length === 3 ? 'wg-grid3' : 'wg-grid2');
+            strip.setAttribute('data-section', 'vitals');
+            vitals.forEach((t) => strip.appendChild(t));
+            root.appendChild(strip);
         }
 
-        const bpTile = renderBpTile(state && state.bpLatest, state && state.bpTrend7d, onDeeplink, nowMs);
-        const weightTile = renderWeightTile(state && state.weightLatest, state && state.weightTrend7d, onDeeplink, nowMs);
-        if (bpTile || weightTile) {
-            const grid = d.createElement('div');
-            grid.className = 'wg-vitals-grid wg-today-metrics';
-            if (bpTile) grid.appendChild(bpTile);
-            if (weightTile) grid.appendChild(weightTile);
+        const goal = renderGoalCard(state && state.goalLine, h, !next.hasPrimary, offline);
+        if (goal.node) { root.appendChild(goal.node); }
+
+        const macros = renderMacrosCard(state, h);
+        if (macros) { root.appendChild(macros); }
+
+        const fold = [
+            renderSleepTile(state && state.sleepLastNight, h, nowMs, offline),
+            renderStepsTile(state && state.stepsLatest, h, nowMs, offline),
+        ].filter(Boolean);
+        if (fold.length) {
+            const grid = el('div', 'wg-grid2');
+            grid.setAttribute('data-section', 'sleep-steps');
+            fold.forEach((t) => grid.appendChild(t));
             root.appendChild(grid);
-            rendered += 1;
         }
 
-        // Goal Line hero (med-8tur.2) — the gamification headline, directly
-        // above the food card. It replaced the rings tile and the Tomorrow
-        // Forecast mounted inside it; neither renders on Today any more.
-        const onAckMilestone = opts.onAckMilestone || ackMilestoneDefault;
-        const goalLineTile = renderGoalLineTile(state && state.goalLine, { onDeeplink, onAddWeight, onAckMilestone, nowMs });
-        if (goalLineTile) {
-            root.appendChild(goalLineTile);
-            rendered += 1;
-        }
-
-        const fuelCard = renderFuelCard(
-            state && state.caloriesToday,
-            state && state.caloriesTarget,
-            state && state.macrosToday,
-            state && state.macrosTarget,
-            onDeeplink
-        );
-        if (fuelCard) {
-            root.appendChild(fuelCard);
-            rendered += 1;
-        }
-
-        const workoutTile = renderWorkoutTile(state && state.nextWorkout, onDeeplink);
-        const sleepTile = renderSleepTile(state && state.sleepLastNight, onDeeplink);
-        if (workoutTile || sleepTile) {
-            const planGrid = d.createElement('div');
-            planGrid.className = 'wg-plan-grid wg-today-wo-sleep';
-            if (workoutTile) planGrid.appendChild(workoutTile);
-            if (sleepTile) planGrid.appendChild(sleepTile);
-            root.appendChild(planGrid);
-            rendered += 1;
-        }
-
-        // TZ-transition plan card sits directly above the medications card
-        // because the doses listed inside the plan are a temporary override of
-        // the meds schedule — keeping the two adjacent makes the relationship
-        // legible. The module silently mounts nothing when no plan is in
-        // flight, so users who never travel never see anything here.
+        // TZ-transition plan card (med-xso6.14 owns its look). Mounts nothing
+        // when no plan is in flight.
         if (typeof window !== 'undefined' && window.TZPlanBanner
             && typeof window.TZPlanBanner.mountCard === 'function') {
-            const tzCard = window.TZPlanBanner.mountCard(root);
-            if (tzCard) { rendered += 1; }
+            window.TZPlanBanner.mountCard(root);
         }
 
-        const medsCard = renderTodayMedsCard(state && state.nextMed, onDeeplink, nowMs);
-        if (medsCard) { root.appendChild(medsCard); rendered += 1; }
-
-        if (rendered === 0) {
-            const empty = d.createElement('div');
-            empty.className = 'today-empty today-empty-disabled';
-            empty.textContent = 'All features are off — enable one in Settings';
+        // Nothing tracked (only the call card, if any) → every feature is off.
+        if (!anyFeature && !goal.node) {
+            const empty = typeof createEmptyState === 'function'
+                ? createEmptyState({
+                    icon: 'gear',
+                    title: 'All features are off',
+                    body: 'Turn one on in Settings.',
+                    actions: [{ label: 'Open Settings', icon: 'gear', onClick: () => h.onDeeplink('settings') }],
+                })
+                : el('p', 'wg-hint', 'All features are off');
+            empty.setAttribute('data-section', 'all-off');
             root.appendChild(empty);
         }
 
+        hydrateIcons(root);
         return root;
     }
 

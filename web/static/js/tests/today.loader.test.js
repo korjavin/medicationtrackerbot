@@ -122,27 +122,27 @@ describe('Today loader — features/today-loader.js', () => {
             await window.loadToday();
 
             const root = env.document.getElementById('today-content');
-            const medsCard = root.querySelector('.wg-today-meds');
-            expect(medsCard).not.toBeNull();
-            const names = Array.from(medsCard.querySelectorAll('.wg-today-meds__name')).map((n) => n.textContent);
-            expect(names).toEqual(['Aspirin']);
+            const row = root.querySelector('[data-section="next-up"] [data-next="med"]');
+            expect(row).not.toBeNull();
+            expect(row.querySelector('.wg-row__title').textContent).toBe('Aspirin');
+            // A cached start renders from cache — never the cold-start skeleton.
+            expect(root.querySelector('.wg-skel')).toBeNull();
 
             // Offline short-circuits the refetch loop entirely.
             expect(window.DataStore.fetchFresh).not.toHaveBeenCalled();
             expect(window.apiCall).not.toHaveBeenCalled();
         });
 
-        it('renders the first-run placeholder (no meds card) when no cache exists at all', async () => {
+        it('renders the offline first-run state (no Next up) when no cache exists at all', async () => {
             setOnline(window, false);
             window.MedTrackerDB = makeApiCache({}); // every key misses
 
             await window.loadToday();
 
             const root = env.document.getElementById('today-content');
-            expect(root.querySelector('.today-empty-firstrun')).not.toBeNull();
-            expect(root.querySelector('.wg-today-meds')).toBeNull();
-            expect(root.querySelector('.today-empty-firstrun').textContent)
-                .toBe('Connect to load your day');
+            expect(root.querySelector('[data-section="next-up"]')).toBeNull();
+            expect(root.querySelector('.wg-skel')).toBeNull();
+            expect(root.querySelector('.wg-empty__title').textContent).toBe('No cached data yet');
         });
 
         it('cloud mode suppresses the offline banner and the "unavailable offline" kicker on a stale cache', async () => {
@@ -165,15 +165,15 @@ describe('Today loader — features/today-loader.js', () => {
 
             const root = env.document.getElementById('today-content');
             expect(root.querySelector('.today-offline-banner')).toBeNull();
-            const kicker = root.querySelector('.wg-today-meds .wg-next-action-card__kicker');
-            expect(kicker).not.toBeNull();
+            const nextUp = root.querySelector('[data-section="next-up"]');
+            expect(nextUp).not.toBeNull();
             // Normal (non-offline) copy — the vault simply has no scheduled dose.
-            expect(kicker.textContent).toBe('No scheduled doses');
+            expect(nextUp.querySelector('.wg-empty__title').textContent).toBe('Nothing scheduled');
             expect(root.textContent).not.toContain('Offline —');
             expect(root.textContent).not.toContain('unavailable offline');
         });
 
-        it('cloud mode renders the plain first-run copy when offline with no cache at all', async () => {
+        it('cloud mode renders the shared offline first-run state when offline with no cache at all', async () => {
             window.__MEDTRACKER_CLOUD__ = true;
             setOnline(window, false);
             window.MedTrackerDB = makeApiCache({}); // every key misses
@@ -181,10 +181,39 @@ describe('Today loader — features/today-loader.js', () => {
             await window.loadToday();
 
             const root = env.document.getElementById('today-content');
-            const firstRun = root.querySelector('.today-empty-firstrun');
-            expect(firstRun).not.toBeNull();
-            expect(firstRun.textContent).toBe('Connect to load your day');
+            expect(root.querySelector('.wg-empty__title').textContent).toBe('No cached data yet');
             expect(root.textContent).not.toContain('Offline —');
+        });
+    });
+
+    // Kit T6: the skeleton shows only on a cold start (no cache of any kind)
+    // while the first fetch is in flight; a refetch that still leaves nothing
+    // turns into an error with Retry instead of an endless skeleton.
+    describe('cold start (no cache, online)', () => {
+        it('paints the skeleton first, then an error with Retry once the refetch settles empty', async () => {
+            setOnline(window, true);
+            window.MedTrackerDB = makeApiCache({}); // every key misses, fetches cache nothing
+            const realRender = window.TodayDashboard.renderToday;
+            const painted = [];
+            window.TodayDashboard.renderToday = (state, root, opts) => {
+                const out = realRender(state, root, opts);
+                painted.push({
+                    skeleton: !!root.querySelector('.wg-skel'),
+                    error: !!root.querySelector('.wg-error'),
+                    settled: opts.settled,
+                    offline: opts.offline
+                });
+                return out;
+            };
+
+            await window.loadToday();
+
+            expect(painted.length).toBe(2);
+            expect(painted[0]).toEqual({ skeleton: true, error: false, settled: false, offline: false });
+            expect(painted[1]).toEqual({ skeleton: false, error: true, settled: true, offline: false });
+            const root = env.document.getElementById('today-content');
+            const retry = root.querySelector('.wg-error .wg-btn');
+            expect(retry.textContent).toBe('Retry');
         });
     });
 
@@ -422,7 +451,7 @@ describe('Today loader — features/today-loader.js', () => {
 
         it('refetches a Goal Line from an earlier day', async () => {
             await run('2000-01-01', null);
-            expect(env.document.querySelector('.wg-goal-line')).not.toBeNull();
+            expect(env.document.querySelector('[data-section="goal-line"]')).not.toBeNull();
             expect(goalLineFetches().length).toBe(1);
             expect(goalLineFetches()[0][2]).toEqual(['gamification', 'weight', 'workout', 'bp', 'settings', 'medications', 'history']);
         });
