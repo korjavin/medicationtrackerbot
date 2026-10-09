@@ -10581,9 +10581,15 @@ input:checked+.toggle-slider:before {
     font-size: var(--wg-food-day-nav-title-size);
     cursor: pointer;
     user-select: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .wg-food-day-nav__subtitle {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     padding: 0;
     margin: 0;
     text-transform: uppercase;
