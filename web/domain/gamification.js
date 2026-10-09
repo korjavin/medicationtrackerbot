@@ -2410,7 +2410,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       records.list(FOOD_LOG_RECORD_TYPE), records.list(FOODTARGETS_RECORD_TYPE),
       records.list(INTAKE_RECORD_TYPE), records.list(NOTE_RECORD_TYPE), records.list(WORKOUT_SESSION_RECORD_TYPE),
     ]);
-    const foodIncompleteDays = await incompleteFoodDays();
+    const foodFlaggedLocalDays = await incompleteFoodDays();
 
     const bpDays = new Set();
     const bpReadings = [];
@@ -2476,23 +2476,28 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
 
     // The incomplete flag names a LOCAL day but the substrate buckets food on
     // UTC days. Logs from a flagged local day are dropped by their local key
-    // (so they can't leak into a neighbouring UTC bucket), and the substrate
-    // day with the same date string goes unscored for nourishment
-    // (scoreOneDay). ponytail: date-string identity, not an overlap map — the
-    // UTC day spans the flagged local day's bulk for any |offset| < 12h.
+    // (so they can't leak into a neighbouring UTC bucket). A UTC day touched
+    // by a flagged local day (same date string, or it held a dropped log)
+    // goes unscored for nourishment (scoreOneDay) — unless an unflagged log
+    // still landed in it, so a neighbouring real day keeps its awards.
+    const foodTouchedByFlag = new Set(foodFlaggedLocalDays);
     const foodByDay = new Map();
     for (const r of foodAll) {
       if (r.deleted) continue;
       const ms = Date.parse(r.eaten_at);
       if (!Number.isFinite(ms)) continue;
-      if (foodIncompleteDays.has(localDayString(ms, timeZone))) continue;
       const day = msToUTCDay(ms);
+      if (foodFlaggedLocalDays.has(localDayString(ms, timeZone))) {
+        foodTouchedByFlag.add(day);
+        continue;
+      }
       const cur = foodByDay.get(day) || { logged: false, calories: 0, protein: 0 };
       cur.logged = true;
       cur.calories += r.calories || 0;
       cur.protein += r.protein || 0;
       foodByDay.set(day, cur);
     }
+    const foodIncompleteDays = new Set([...foodTouchedByFlag].filter((d) => !foodByDay.has(d)));
     const ftRec = foodTargetsAll.find((r) => r.recordId === 'foodtargets' && !r.deleted);
     const foodTargets = { calories: (ftRec && ftRec.calories) || 0, protein: (ftRec && ftRec.protein) || 0 };
 

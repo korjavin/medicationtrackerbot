@@ -350,6 +350,21 @@ describe('substrate read models — end-to-end HP over a synthetic vault', () =>
     expect(flagged.lifetime_hp).toBe(0);
   });
 
+  it('flagging a local day keeps the awards of an unflagged neighbour sharing its UTC bucket (med-0sgs)', async () => {
+    // Tokyo: flagged 06-14's lunch (03:00 UTC) and real 06-15's breakfast
+    // (22:00 UTC) both bucket to UTC 06-14; the breakfast must still score.
+    const records = createInMemoryRecordsPort({
+      foodtargets: [{ recordId: 'foodtargets', deleted: false, calories: 2000, protein: 100 }],
+      foodlog: [
+        { recordId: 'f-lunch', deleted: false, eaten_at: '2026-06-14T03:00:00Z', calories: 600, protein: 30 },
+        { recordId: 'f-breakfast', deleted: false, eaten_at: '2026-06-14T22:00:00Z', calories: 600, protein: 30 },
+      ],
+      fooddaystatus: [{ recordId: 'fooddaystatus:2026-06-14', deleted: false, date: '2026-06-14', incomplete: true }],
+    });
+    const s = await createGamificationDomain({ records, now: () => RM_NOW, timeZone: 'Asia/Tokyo' }).getSummary();
+    expect(s.lifetime_hp).toBeGreaterThan(0);
+  });
+
   it('getRings mirrors the slim Today shape', async () => {
     const { gam } = seededDomain();
     const r = await gam.getRings();
