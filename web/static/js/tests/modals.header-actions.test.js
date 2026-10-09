@@ -1,7 +1,9 @@
-// Each wg-* modal's Cancel + primary button (Save or Start) must live
-// inside the modal's `.wg-<modal>__header-actions` row so they stay
-// visible above a focused mobile keyboard, with no legacy body footer
-// row and with the documented button IDs still resolving.
+// Each form modal's Cancel + primary button (Save / Log) must live in the
+// header — `.wg-<modal>__header-actions`, or the kit `.wg-sheethead__acts` for
+// modals converted to sheets (med-xso6.7) — so they stay visible above a
+// focused mobile keyboard, with no legacy body footer row and with the
+// documented button IDs still resolving. Flow sheets (workout start, brief,
+// invite) put their primary in the keyboard-docked `.wg-sheet__foot`.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
@@ -10,11 +12,12 @@ const cases = [
     {
         name: 'BPModal',
         modalId: 'bp-modal',
-        headerActionsClass: 'wg-bp-modal__header-actions',
+        headerActionsClass: 'wg-sheethead__acts',
+        sheet: true,
         legacyActionsSelector: '#bp-modal .wg-bp-modal__actions',
         cancelBtnId: 'bp-modal-cancel-btn',
         primaryBtnId: 'bp-modal-save-btn',
-        primaryLabel: 'Save',
+        primaryLabel: 'Log',
         formAttr: 'bp-form',
         legacyFormSelector: '#bp-modal button[form="bp-form"]',
         closeBtnId: 'bp-modal-close-btn',
@@ -45,7 +48,8 @@ const cases = [
     {
         name: 'NoteModal',
         modalId: 'note-modal',
-        headerActionsClass: 'wg-health-modal__header-actions',
+        headerActionsClass: 'wg-sheethead__acts',
+        sheet: true,
         legacyActionsSelector: '#note-modal .wg-health-modal__actions',
         cancelBtnId: 'note-modal-cancel-btn',
         primaryBtnId: 'note-modal-save-btn',
@@ -58,11 +62,12 @@ const cases = [
     {
         name: 'WeightModal',
         modalId: 'weight-modal',
-        headerActionsClass: 'wg-weight-modal__header-actions',
+        headerActionsClass: 'wg-sheethead__acts',
+        sheet: true,
         legacyActionsSelector: '#weight-modal .wg-weight-modal__actions',
         cancelBtnId: 'weight-modal-cancel-btn',
         primaryBtnId: 'weight-modal-save-btn',
-        primaryLabel: 'Save',
+        primaryLabel: 'Log',
         formAttr: 'weight-form',
         formAttrType: 'submit',
         closeBtnId: 'weight-modal-close-btn',
@@ -102,7 +107,8 @@ const cases = [
     {
         name: 'WorkoutMiBandModal',
         modalId: 'miband-workout-modal',
-        headerActionsClass: 'wg-workouts-miband-modal__header-actions',
+        headerActionsClass: 'wg-sheethead__acts',
+        sheet: true,
         // The legacy `.modal-header > .actions` block this modal used to carry.
         legacyActionsSelector: '#miband-workout-modal .actions',
         cancelBtnId: 'miband-workout-cancel-btn',
@@ -138,27 +144,6 @@ const cases = [
         primaryLabel: 'Save',
         closeBtnId: 'workout-variant-close-btn',
         closeBtnSelector: '#workout-variant-modal .wg-workouts-variant-modal__close-btn',
-    },
-    {
-        name: 'WorkoutStartModal',
-        modalId: 'workout-start-modal',
-        headerActionsClass: 'wg-workouts-start-modal__header-actions',
-        legacyActionsSelector: '#workout-start-modal .actions',
-        cancelBtnId: 'workout-start-dismiss-btn',
-        primaryBtnId: 'workout-start-now-btn',
-        primaryLabel: 'Start',
-        extraResolvedIds: [
-            'workout-start-snooze-60-btn',
-            'workout-start-snooze-120-btn',
-            'workout-start-skip-btn',
-        ],
-        bodySelector: '#workout-start-modal .wg-workouts-start-modal__body',
-        bodyBtnIds: [
-            'workout-start-snooze-60-btn',
-            'workout-start-snooze-120-btn',
-            'workout-start-skip-btn',
-        ],
-        wgShellClasses: ['wg-modal', 'wg-workouts-start-modal'],
     },
 ];
 
@@ -252,6 +237,81 @@ describe.each(cases)('$name header-actions', (row) => {
         const modal = document.getElementById(row.modalId);
         for (const cls of row.wgShellClasses) {
             expect(modal.classList.contains(cls)).toBe(true);
+        }
+    });
+
+    it.skipIf(!row.sheet)('renders as a kit sheet: .wg-sheet > .wg-sheethead, Cancel ghost + primary .wg-btn, no per-modal header-btn class', () => {
+        const { document } = env;
+        const modal = document.getElementById(row.modalId);
+        expect(modal.classList.contains('wg-modal')).toBe(true);
+        expect(modal.classList.contains('wg-sheet')).toBe(true);
+        const head = modal.querySelector(':scope > .wg-sheethead');
+        expect(head).not.toBeNull();
+        expect(head.querySelector('.wg-sheethead__titles .wg-eyebrow')).not.toBeNull();
+        expect(head.querySelector('.wg-sheethead__titles .wg-sheethead__title')).not.toBeNull();
+        const cancelBtn = document.getElementById(row.cancelBtnId);
+        const primaryBtn = document.getElementById(row.primaryBtnId);
+        expect(cancelBtn.className).toBe('wg-btn wg-btn--ghost wg-btn--sm');
+        expect(primaryBtn.className).toBe('wg-btn wg-btn--primary wg-btn--sm');
+        expect(primaryBtn.textContent.trim()).toBe(row.primaryLabel);
+        expect(modal.querySelector('[class*="__header-btn"], [class*="__header-actions"]')).toBeNull();
+    });
+});
+
+describe('flow sheets put their primary in .wg-sheet__foot', () => {
+    let env;
+    beforeEach(() => { env = loadFrontendEnv(); });
+    afterEach(() => { env.cleanup(); env = null; });
+
+    it.each([
+        ['workout-start-modal', 'workout-start-dismiss-btn', 'workout-start-now-btn'],
+        ['brief-modal', 'brief-cancel-btn', 'brief-print-btn'],
+        ['invite-modal', 'invite-close-btn', 'invite-copy-btn'],
+    ])('%s: dismiss in the header, one primary in the foot', (modalId, dismissId, primaryId) => {
+        const { document } = env;
+        const modal = document.getElementById(modalId);
+        expect(modal.classList.contains('wg-sheet')).toBe(true);
+        expect(document.getElementById(dismissId).parentElement.classList.contains('wg-sheethead__acts')).toBe(true);
+        const foot = modal.querySelector(':scope > .wg-sheet__foot');
+        expect(foot.contains(document.getElementById(primaryId))).toBe(true);
+        expect(modal.querySelectorAll('.wg-btn--primary').length).toBe(1);
+        expect(document.getElementById(primaryId).classList.contains('wg-btn--primary')).toBe(true);
+    });
+
+    it('docks an open sheet\'s foot above a virtual keyboard (mocked visualViewport)', () => {
+        const { window, document } = env;
+        window.ModalManager.open('workout-start-modal');
+        const sheet = document.getElementById('workout-start-modal');
+        expect(sheet.querySelector(':scope > .wg-sheet__foot')).not.toBeNull();
+
+        // A 300px keyboard: the visual viewport is 300px shorter than the layout one.
+        Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true, writable: true });
+        Object.defineProperty(window, 'visualViewport', {
+            value: { height: 500, offsetTop: 0, scale: 1 }, configurable: true, writable: true,
+        });
+        window.WGSheet.dock();
+        expect(sheet.classList.contains('wg-scrim--kb')).toBe(true);
+        expect(sheet.style.getPropertyValue('--wg-kb-h')).toBe('300px');
+        // Closed sheets are left alone.
+        expect(document.getElementById('bp-modal').classList.contains('wg-scrim--kb')).toBe(false);
+
+        // Pinch-zoom shrinks the visual viewport too — not a keyboard.
+        window.visualViewport = { height: 500, offsetTop: 0, scale: 2 };
+        window.WGSheet.dock();
+        expect(sheet.classList.contains('wg-scrim--kb')).toBe(false);
+
+        // Keyboard dismissed: undocked, the measured length is cleared.
+        window.visualViewport = { height: 800, offsetTop: 0, scale: 1 };
+        window.WGSheet.dock();
+        expect(sheet.classList.contains('wg-scrim--kb')).toBe(false);
+        expect(sheet.style.getPropertyValue('--wg-kb-h')).toBe('');
+    });
+
+    it('workout start keeps snooze / skip in the body', () => {
+        const { document } = env;
+        const body = document.querySelector('#workout-start-modal .wg-sheet__body');
+        for (const id of ['workout-start-snooze-60-btn', 'workout-start-snooze-120-btn', 'workout-start-skip-btn']) {
+            expect(body.contains(document.getElementById(id))).toBe(true);
         }
     });
 });
