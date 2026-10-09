@@ -64,9 +64,6 @@ const ALLOWLIST = {
     'web/static/js/features/food-photo-summary.js': {
         'wg-toolbar-btn': { max: 4, owner: 'med-xso6.5 (toast replaces the food AI summary card)' },
     },
-    'web/static/js/features/journey.js': {
-        'bootstrap btn': { max: 8, owner: 'med-xso6.15 (Journey v2)' },
-    },
     'web/static/js/features/today.js': {
         'bootstrap btn': { max: 3, owner: 'med-xso6.13 (Today v2 Goal Line)' },
     },
