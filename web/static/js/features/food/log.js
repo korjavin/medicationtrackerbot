@@ -1467,25 +1467,21 @@ async function findFoodNudgeDay() {
     yesterday.setDate(today.getDate() - 1);
     const yStr = toISODateLocal(yesterday);
     const statuses = await apiCall(`/api/food/days?date=${yStr}&days=${FOOD_NUDGE_LOOKBACK_DAYS}`, 'GET');
-    const groups = await apiCall(`/api/food/log?date=${yStr}&days=${FOOD_NUDGE_LOOKBACK_DAYS}`, 'GET');
-    if (!Array.isArray(statuses) || !Array.isArray(groups)) return null;
+    if (!Array.isArray(statuses)) return null;
 
-    const kcalByDay = new Map();
-    for (const g of groups) {
-        for (const log of (g && g.logs) || []) {
-            const day = toISODateLocal(new Date(log.eaten_at));
-            kcalByDay.set(day, (kcalByDay.get(day) || 0) + (Number(log.calories) || 0));
-        }
-    }
     const target = Number(window.FoodLog.targets && window.FoodLog.targets.calories) || 0;
     const threshold = target > 0 ? target * 0.4 : FOOD_NUDGE_FALLBACK_KCAL;
     const dismissed = new Set(readFoodNudgeDismissed());
     const candidates = statuses
-        .filter((s) => s && typeof s.date === 'string')
+        .filter((s) => s && typeof s.date === 'string' && s.incomplete !== true && !dismissed.has(s.date))
         .sort((a, b) => (a.date < b.date ? 1 : -1));
-    const hit = candidates.find((s) => s.incomplete !== true && !dismissed.has(s.date)
-        && (kcalByDay.get(s.date) || 0) < threshold);
-    return hit ? hit.date : null;
+    for (const s of candidates) {
+        // Per-day stats bucket by the account timezone, same as the statuses.
+        const stats = await apiCall(`/api/food/stats?date=${s.date}&days=1`, 'GET');
+        if (!stats) return null;
+        if ((Number(stats.calories) || 0) < threshold) return s.date;
+    }
+    return null;
 }
 
 async function loadFoodIncompleteNudge() {
