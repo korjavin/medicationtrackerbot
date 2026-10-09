@@ -279,6 +279,7 @@ const SyncManager = {
             btn.className = 'wg-toast__undo';
             btn.textContent = a.label;
             btn.addEventListener('click', () => {
+                if (gone) return; // one action per toast, even on a double tap
                 dismiss();
                 if (typeof a.onClick === 'function') a.onClick();
             });

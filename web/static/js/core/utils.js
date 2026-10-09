@@ -28,7 +28,8 @@ function safeAlert(msg, opts) {
 function safeToast(msg, type, opts) {
     const sm = window.SyncManager;
     if (sm && typeof sm.showToast === 'function') {
-        return sm.showToast(msg, type || 'info', opts) || null;
+        // Plain toasts keep the 2-arg call shape callers' spies assert on.
+        return (opts === undefined ? sm.showToast(msg, type || 'info') : sm.showToast(msg, type || 'info', opts)) || null;
     }
     safeAlert(msg);
     return null;

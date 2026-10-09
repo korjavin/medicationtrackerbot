@@ -16,8 +16,15 @@ function fpsTotalKcal(items) {
     return Math.round(kcal);
 }
 
+// No toast surface (isolated shells): the summary is skipped, only an error
+// still interrupts via safeAlert.
 function fpsToast(message, type, opts) {
-    return safeToast(message, type, { className: 'wg-food-photo-summary', ...opts });
+    const sm = window.SyncManager;
+    if (sm && typeof sm.showToast === 'function') {
+        return sm.showToast(message, type, { className: 'wg-food-photo-summary', ...opts }) || null;
+    }
+    if (type === 'error') safeAlert(message);
+    return null;
 }
 
 /**

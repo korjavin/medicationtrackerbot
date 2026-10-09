@@ -492,7 +492,7 @@ describe('Food modal — "Parse with AI" mode (Plan 2026-05-17, Task 5)', () => 
 
         expect(parse).toHaveBeenCalledTimes(1);
         expect(window.apiCall).toHaveBeenCalledWith('/api/settings/trial-consent', 'PATCH', { ai: false });
-        expect(window.safeAlert).toHaveBeenCalledWith(expect.stringContaining('trial use needs your consent'));
+        expect(document.querySelector('.wg-toast--danger .wg-toast__text').textContent).toContain('trial use needs your consent');
         // Refusal prevents transmission: nothing was invalidated or reloaded.
         expect(window.DataStore.invalidateTags).not.toHaveBeenCalled();
         expect(window.loadFoodLogs).not.toHaveBeenCalled();
