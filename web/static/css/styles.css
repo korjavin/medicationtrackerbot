@@ -4794,6 +4794,7 @@ input:checked+.toggle-slider:before {
    and the macro bar).
    ============================================================ */
 #journey-content > .wg-card,
+#journey-content > .wg-section,
 #journey-content > .wg-journey-more {
     margin-bottom: var(--space-md);
 }
@@ -4804,7 +4805,7 @@ input:checked+.toggle-slider:before {
     display: contents;
 }
 
-/* Shared progress bar (health-score contributors, atlas, chapter, trial). */
+/* Shared progress bar (chapter, trial). */
 .wg-journey-bar__track {
     position: relative;
     height: 10px;
@@ -4824,26 +4825,18 @@ input:checked+.toggle-slider:before {
     background: var(--wg-sun);
 }
 
-/* Journey goal-context card (med-8tur.2): the Goal Line, leading the screen. */
-.wg-journey-goal__value {
-    margin: 0 0 var(--space-sm);
-    font-size: var(--font-size-lg);
-    color: var(--wg-fg-1);
-}
-
+/* Journey goal-context card (med-8tur.2; kit J1 track + numbers in
+   med-xso6.15 — .wg-track / .wg-stat / .wg-grid3 from components.css). */
 .wg-journey-goal__line {
-    margin: var(--space-xs) 0 0;
-    font-size: var(--font-size-sm);
+    margin: 0;
 }
 
 .wg-journey-goal__timeline-label {
-    margin-top: var(--space-md);
+    margin-top: var(--space-sm);
 }
 
-/* "Your week" card (gamification-12 §Task3): a native <details>/<summary>
-   collapsible, second in the feed after the Atlas. Every line is wg-muted
-   regardless of direction — no red styling for a down week (tone rules). */
-.wg-journey-weekly__summary,
+/* "Last week" card + the plan pick (med-8tur.4; kit J2 .wg-choices with one
+   commit in med-xso6.15). Facts only — no red styling for a down week. */
 .wg-journey-chapter__summary {
     cursor: pointer;
     user-select: none;
@@ -4853,50 +4846,25 @@ input:checked+.toggle-slider:before {
     display: flex;
     flex-direction: column;
     gap: var(--space-xs);
-    margin-top: var(--space-sm);
 }
 
 .wg-journey-weekly__line,
-.wg-journey-weekly__current {
-    font-size: var(--font-size-sm);
+.wg-journey-weekly__current,
+.wg-journey-weekly__empty,
+.wg-journey-weekly__body {
     margin: 0;
 }
 
-.wg-journey-weekly__empty,
-.wg-journey-weekly__body {
-    margin-top: var(--space-sm);
-}
-
-/* Next-week choice (med-8tur.4): intention buttons + a compact cadence row.
-   The pressed choice reads through aria-pressed, never a color judgment. */
 .wg-journey-weekly__plan {
-    margin-top: var(--space-md);
+    margin-top: var(--space-sm);
     padding-top: var(--space-sm);
     border-top: 1px solid var(--wg-border-hairline);
-}
-
-.wg-journey-weekly__choices {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-    margin-top: var(--space-sm);
-}
-
-.wg-journey-weekly__choice {
-    text-align: left;
-    white-space: normal;
-}
-
-.wg-journey-weekly__choice[aria-pressed="true"] {
-    border-color: var(--wg-fg-1);
-    font-weight: 600;
 }
 
 .wg-journey-weekly__cadence {
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-md);
-    margin-top: var(--space-sm);
     font-size: var(--font-size-sm);
 }
 
@@ -4906,34 +4874,17 @@ input:checked+.toggle-slider:before {
     gap: var(--space-xs);
 }
 
-/* Gauges panel (gamification-11 §Task4): weight/BP/resting-HR trends.
-   Token-neutral throughout — no variant classes tint a row by "good"/"bad"
-   state; a slowing trend reads the same visual weight as an on-pace one. */
-.wg-journey-gauges__list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-md);
-}
-
-.wg-journey-gauge__label {
-    display: block;
-    font-size: var(--font-size-sm);
-    color: var(--wg-fg-2);
-    margin-bottom: var(--space-xs);
-}
-
-.wg-journey-gauge__chart {
-    margin: 0 0 var(--space-xs);
+/* Gauges (gamification-11 §Task4; kit J2 .wg-list rows + .wg-meter in
+   med-xso6.15). Token-neutral throughout — no variant tints a row by
+   "good"/"bad" state; a slowing trend reads the same as an on-pace one. */
+.wg-journey-gauges__empty {
+    margin: 0;
 }
 
 .wg-journey-gauge__chart .wg-sparkline {
+    display: block;
     width: 100%;
     height: auto;
-}
-
-.wg-journey-gauge__caption {
-    font-size: var(--font-size-sm);
-    margin: 0;
 }
 
 /* Today Goal Line hero (med-8tur.2): the gamification headline. Facts only —

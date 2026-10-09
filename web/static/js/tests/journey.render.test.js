@@ -122,9 +122,18 @@ describe('Journey render', () => {
         }));
         const cards = [...env.document.querySelectorAll('#journey-content > .wg-card')];
         expect(cards[0].id).toBe('journey-goal-card');
-        expect(cards[0].querySelector('.wg-journey-goal__value').textContent).toBe('82.4 kg → 78.0 kg');
-        expect(cards[0].textContent).toContain('4.4 kg to go · next marker 82.0 kg');
-        expect(cards[0].querySelector('.wg-journey-bar__fill').style.getPropertyValue('--fill-pct')).toBe('45.0%');
+        // Kit J1: current → target as hero numbers, then the marker track.
+        expect([...cards[0].querySelectorAll('.wg-journey-goal__value .wg-stat__value')].map((v) => v.textContent))
+            .toEqual(['82.4', '78.0kg']);
+        const track = cards[0].querySelector('.wg-track');
+        expect(track.style.getPropertyValue('--p')).toBe('45.0%');
+        expect(track.style.getPropertyValue('--n')).toBe('8');
+        expect(track.querySelector('.wg-track__fill')).not.toBeNull();
+        // The pin sits on the next marker: (86 − 82) / (86 − 78).
+        expect(track.querySelector('.wg-track__pin').style.getPropertyValue('--p')).toBe('50.0%');
+        expect([...cards[0].querySelectorAll('.wg-track__ends > span')].map((e) => e.textContent))
+            .toEqual(['start 86.0', 'next marker 82.0', 'goal']);
+        expect(cards[0].querySelector('.wg-journey-bar__fill')).toBeNull();
     });
 
     it('no goal-context card for no_goal when the Weight feature is off (no dead link)', () => {
@@ -147,6 +156,7 @@ describe('Journey render', () => {
         });
         const cards = [...env.document.querySelectorAll('#journey-content > .wg-card')];
         expect(cards[0].id).toBe('journey-goal-card');
+        expect(cards[0].querySelector('button').className).toBe('wg-btn');
         cards[0].querySelector('button').click();
         expect(switchTab).toHaveBeenCalledWith('weight');
     });
@@ -288,6 +298,71 @@ describe('Journey render', () => {
         expect(meta()).toBe('chapter in progress');
     });
 
+    // med-xso6.15 (kit J1): the live week as day dots per lever, from
+    // goal_line.week_days; today wears a ring, a feature-off lever has no row.
+    const WEEK_DAYS = [
+        { day: '2026-06-15', weigh_in: 'rest', workout: 'hit', bp: null },
+        { day: '2026-06-16', weigh_in: 'hit', workout: 'miss', bp: null },
+        { day: '2026-06-17', weigh_in: 'future', workout: 'hit', bp: null },
+        { day: '2026-06-18', weigh_in: 'future', workout: 'future', bp: null },
+        { day: '2026-06-19', weigh_in: 'future', workout: 'future', bp: null },
+        { day: '2026-06-20', weigh_in: 'future', workout: 'future', bp: null },
+        { day: '2026-06-21', weigh_in: 'future', workout: 'future', bp: null },
+    ];
+
+    it('the This week scorecard renders hit/miss/rest/future dots with a ring on today, after the goal', () => {
+        env.window.Gamification.render(fullJourney({
+            goal_line: { ...fullJourney().goal_line, day: '2026-06-17', week_days: WEEK_DAYS },
+        }));
+        const { document } = env;
+        expect(topLevelOrder(document).slice(0, 3)).toEqual(['wg-journey-goal', 'wg-journey-week', 'wg-journey-weekly']);
+        const card = document.getElementById('journey-week-card');
+        expect(card.querySelector('.wg-card__head .wg-meta').textContent).toBe('Mon 15 – Sun 21');
+        const rows = [...card.querySelectorAll('.wg-score[data-lever]')];
+        // BP is null all week (feature off) → no row.
+        expect(rows.map((r) => r.querySelector('.wg-score__name').textContent)).toEqual(['Weigh-in', 'Workout']);
+        const dots = (r) => [...r.querySelectorAll('.wg-dot')].map((d) => d.className);
+        expect(dots(rows[0])).toEqual([
+            'wg-dot wg-dot--rest', 'wg-dot wg-dot--hit', 'wg-dot wg-dot--today',
+            'wg-dot wg-dot--future', 'wg-dot wg-dot--future', 'wg-dot wg-dot--future', 'wg-dot wg-dot--future',
+        ]);
+        expect(dots(rows[1]).slice(0, 3)).toEqual(['wg-dot wg-dot--hit', 'wg-dot wg-dot--miss', 'wg-dot wg-dot--hit wg-dot--today']);
+        expect(rows.map((r) => r.querySelector('.wg-score__val').textContent)).toEqual(['1', '2']);
+        expect(rows[0].querySelector('.wg-dots').getAttribute('aria-label')).toBe(
+            'Weigh-in: Mon rest, Tue hit, Wed today, Thu future, Fri future, Sat future, Sun future');
+    });
+
+    it('a goal with no reading yet shows no distance — never a "0.0 kg to go"', () => {
+        env.window.Gamification.render(fullJourney({
+            goal_line: { enabled: true, goal: { status: 'preliminary', target: 78, start_ref: null, distance_to_goal: null, trend_weight: null, latest_reading: null,
+                coverage: { weigh_in_days_28d: 0 } } },
+        }));
+        const goal = env.document.getElementById('journey-goal-card');
+        expect([...goal.querySelectorAll('.wg-stat .wg-meta')].map((m) => m.textContent)).toEqual(['weigh-ins / 28d']);
+        expect(goal.textContent).not.toMatch(/to go/);
+    });
+
+    it('no scorecard without week_days (older payload) or with the Goal Line off (ED-safe)', () => {
+        env.window.Gamification.render(fullJourney());
+        expect(env.document.getElementById('journey-week-card')).toBeNull();
+        env.window.Gamification.render(fullJourney({ goal_line: { enabled: false, ed_safe: true, week_days: WEEK_DAYS } }));
+        expect(env.document.getElementById('journey-week-card')).toBeNull();
+    });
+
+    it('renders no Bootstrap buttons anywhere — every action is a .wg-btn or a kit choice/row', () => {
+        env.window.Gamification.render(fullJourney({
+            weekly_review: WEEKLY,
+            atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }] },
+            experiments: { enabled: true, can_start: true, templates: [{ id: 'tpl', from_probe: 'p' }],
+                verdict: { id: 'v', title: 'V', verdict: 'effect', text: 't' } },
+        }));
+        env.document.querySelector('.wg-journey-more__row').click();
+        const buttons = [...env.document.querySelectorAll('button')];
+        expect(buttons.length).toBeGreaterThan(5);
+        expect(env.document.querySelector('.btn, .btn-sm, .btn-primary, .btn-secondary, .btn-link')).toBeNull();
+        expect(buttons.filter((b) => !b.matches('.wg-btn, .wg-choice, .wg-row, .wg-back')).map((b) => b.outerHTML)).toEqual([]);
+    });
+
     // med-8tur.10 (§0.3.6): the joint weight/BP observation — both components,
     // coverage, the frozen target and the no-cause line, favorable or not.
     it('goal detail: the joint weight/BP line renders for favorable AND unfavorable periods', () => {
@@ -316,7 +391,7 @@ describe('Journey render', () => {
         expect(jointLines()[1]).toMatch(/don’t identify a cause/);
 
         env.window.Gamification.render(fullJourney({ goal_line: goalLine(null) }));
-        expect(env.document.getElementById('journey-goal-card').textContent).not.toMatch(/TOGETHER|identify a cause/);
+        expect(env.document.getElementById('journey-goal-card').textContent).not.toMatch(/Together|identify a cause/);
     });
 
     it('goal detail: progress, markers, coverage and the milestone timeline (moved out of Keystones)', () => {
@@ -324,12 +399,11 @@ describe('Journey render', () => {
         const { document } = env;
         const goal = document.getElementById('journey-goal-card');
         const lines = [...goal.querySelectorAll('.wg-journey-goal__line')].map((l) => l.textContent);
-        expect(lines).toEqual([
-            '4.4 kg to go · next marker 82.0 kg',
-            '3.6 kg of 8.0 kg since you set the goal',
-            'Markers: 3 of 8 passed',
-            'trend · 12 weigh-in days in the last 28',
-        ]);
+        expect(lines).toEqual(['3.6 kg of 8.0 kg since you set the goal']);
+        // The three numbers (kit J1): distance, markers passed, weigh-in coverage.
+        const stats = [...goal.querySelectorAll('.wg-journey-goal__stats .wg-stat')];
+        expect(stats.map((st) => st.querySelector('.wg-stat__value').textContent)).toEqual(['4.4', '3/8', '12']);
+        expect(stats.map((st) => st.querySelector('.wg-meta').textContent)).toEqual(['kg to go', 'markers', 'weigh-ins / 28d']);
         expect([...goal.querySelectorAll('.wg-journey-keystone__title')].map((t) => t.textContent))
             .toEqual(['Weight goal milestone 1 of 8']);
         // Shown once: the Keystones card keeps only the non-goal entries.
@@ -456,7 +530,7 @@ describe('Journey render', () => {
         env.window.Gamification.render(journey({ weekly_review: WEEKLY }));
         const card = env.document.querySelector('.wg-journey-weekly');
         expect(card).not.toBeNull();
-        expect(card.querySelector('.wg-journey-weekly__summary').textContent).toBe('YOUR WEEK');
+        expect(card.querySelector('.wg-journey-weekly__label').textContent).toBe('Last week');
 
         const lines = Array.from(card.querySelectorAll('.wg-journey-weekly__line')).map((n) => n.textContent);
         expect(lines).toEqual([
@@ -501,13 +575,73 @@ describe('Journey render', () => {
         }));
         const plan = env.document.querySelector('.wg-journey-weekly__plan');
         expect(plan.getAttribute('data-plan-week')).toBe('2026-W26');
-        const choices = Array.from(plan.querySelectorAll('[data-choice]'));
-        expect(choices.map((b) => b.getAttribute('data-choice'))).toEqual(['weigh_before_coffee', 'stop_after_dinner', 'keep', 'pause']);
+        // Kit J2: a single-select .wg-choices list, the current pick pressed.
+        const choices = Array.from(plan.querySelectorAll('.wg-choices > .wg-choice'));
+        expect(choices.map((b) => b.getAttribute('data-choice'))).toEqual(['weigh_before_coffee', 'stop_after_dinner']);
         expect(choices.filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.getAttribute('data-choice'))).toEqual(['stop_after_dinner']);
+        expect(choices[1].querySelector('.wg-choice__sub').textContent).toBe('Current');
         expect(plan.querySelector('.wg-journey-weekly__current').textContent).toBe('When I log dinner, I will stop eating for the night');
+        // ONE primary commit (disabled until a different pick) + the ghost Pause.
+        const primaries = plan.querySelectorAll('.wg-btn--primary');
+        expect(primaries).toHaveLength(1);
+        expect(primaries[0].textContent).toBe('Set this week’s plan');
+        expect(primaries[0].disabled).toBe(true);
+        expect(plan.querySelector('[data-choice="pause"]').className).toContain('wg-btn--ghost');
+        expect(plan.querySelector('[data-choice="keep"]')).toBeNull();
+        expect(plan.querySelector('.btn')).toBeNull();
         expect(plan.querySelector('select[data-cadence="weigh_in"]').value).toBe('daily');
         expect(plan.querySelector('select[data-cadence="bp_days"]').value).toBe('3');
-        expect(plan.querySelector('.wg-section-label').textContent).toBe('THIS WEEK');
+        expect(plan.querySelector('.wg-journey-weekly__scope').textContent).toBe('Plan for this week');
+    });
+
+    it('selecting a choice moves the single selection and enables the commit; re-picking the current one disables it', () => {
+        stubWrite(env, { ok: true, plan: null });
+        env.window.Gamification.render(journey({
+            weekly_review: {
+                ...WEEKLY,
+                plan: { week: '2026-W26', intention: { id: 'stop_after_dinner', text: 'x' }, cadence: {}, paused: false },
+            },
+        }));
+        const plan = env.document.querySelector('.wg-journey-weekly__plan');
+        const commit = plan.querySelector('.wg-btn--primary');
+        plan.querySelector('[data-choice="weigh_before_coffee"]').click();
+        expect([...plan.querySelectorAll('.wg-choice[aria-pressed="true"]')].map((b) => b.getAttribute('data-choice')))
+            .toEqual(['weigh_before_coffee']);
+        expect(commit.disabled).toBe(false);
+        // Selecting alone never writes — the commit does.
+        expect(env.window.offlineAwareApiCall).not.toHaveBeenCalled();
+        plan.querySelector('[data-choice="stop_after_dinner"]').click();
+        expect(commit.disabled).toBe(true);
+    });
+
+    it('a paused week offers Resume — back to its intention, or keep when none is on offer', async () => {
+        const w = stubWrite(env, { ok: true, plan: null });
+        const pausedPlan = (intention) => ({ week: '2026-W26', intention, cadence: {}, paused: true });
+        env.window.Gamification.render(journey({
+            weekly_review: { ...WEEKLY, plan: pausedPlan({ id: 'stop_after_dinner', text: 'x' }) },
+        }));
+        const resume = env.document.querySelector('[data-choice="resume"]');
+        expect(resume.textContent).toBe('Resume this week');
+        resume.click();
+        await flush(); await flush();
+        expect(w.posted[0].body.choice).toBe('stop_after_dinner');
+
+        env.window.Gamification.render(journey({
+            weekly_review: { ...WEEKLY, options: { ...WEEKLY.options, intentions: [] }, plan: pausedPlan(null) },
+        }));
+        env.document.querySelector('[data-choice="resume"]').click();
+        await flush(); await flush();
+        expect(w.posted[1].body.choice).toBe('keep');
+    });
+
+    it('an uncommitted pick survives the re-render a cadence write triggers', () => {
+        stubWrite(env, { ok: true, plan: null });
+        env.window.Gamification.render(journey({ weekly_review: WEEKLY }));
+        env.document.querySelector('[data-choice="weigh_before_coffee"]').click();
+        env.window.Gamification.render(journey({ weekly_review: WEEKLY }));
+        const plan = env.document.querySelector('.wg-journey-weekly__plan');
+        expect(plan.querySelector('.wg-choice[aria-pressed="true"]').getAttribute('data-choice')).toBe('weigh_before_coffee');
+        expect(plan.querySelector('.wg-btn--primary').disabled).toBe(false);
     });
 
     it('on Sunday the choice is for next week; the weigh-in control starts at the reminder\'s cadence', () => {
@@ -515,7 +649,8 @@ describe('Journey render', () => {
             weekly_review: { ...WEEKLY, plan_scope: 'next_week', options: { ...WEEKLY.options, weigh_in_current: 'daily' } },
         }));
         const plan = env.document.querySelector('.wg-journey-weekly__plan');
-        expect(plan.querySelector('.wg-section-label').textContent).toBe('NEXT WEEK');
+        expect(plan.querySelector('.wg-journey-weekly__scope').textContent).toBe('Plan for next week');
+        expect(plan.querySelector('.wg-btn--primary').textContent).toBe('Set next week’s plan');
         expect(plan.querySelector('.wg-journey-weekly__current').textContent).toBe('No pick yet — choose one for next week.');
         expect(plan.querySelector('[data-choice="pause"]').textContent).toBe('Pause next week');
         expect(plan.querySelector('select[data-cadence="weigh_in"]').value).toBe('daily');
@@ -563,6 +698,9 @@ describe('Journey render', () => {
         const plan = env.document.querySelector('.wg-journey-weekly__plan');
         plan.querySelector('select[data-cadence="weigh_in"]').value = 'daily';
         plan.querySelector('[data-choice="weigh_before_coffee"]').click();
+        await flush();
+        expect(w.posted).toEqual([]);
+        plan.querySelector('.wg-btn--primary').click();
         await flush(); await flush();
 
         expect(env.window.DataStore.applyOptimistic).toHaveBeenCalledWith('gamification_weekly', expect.any(Function), ['gamification']);
@@ -726,6 +864,12 @@ describe('Journey render', () => {
         expect(rows[2].querySelector('.wg-journey-gauge__label').textContent).toBe('Resting heart rate');
         expect(rows[2].querySelector('.wg-journey-gauge__caption').textContent).toBe('62 avg · 3 below your baseline');
 
+        // Kit J2: list rows; a .wg-meter only where a real share exists (BP in range, 30d).
+        expect(card.querySelector('.wg-list.wg-journey-gauges__list')).not.toBeNull();
+        expect([...rows].map((r) => r.classList.contains('wg-row'))).toEqual([true, true, true]);
+        expect(rows[0].querySelector('.wg-meter')).toBeNull();
+        expect(rows[1].querySelector('.wg-meter__fill').style.getPropertyValue('--p')).toBe('82.0%');
+        expect(rows[2].querySelector('.wg-meter')).toBeNull();
     });
 
     it('Gauges card renders each gauge\'s insufficient_data honestly instead of a distorted number', () => {
@@ -1052,6 +1196,7 @@ describe('Journey render', () => {
         const labels = [...card.querySelectorAll('button')].map((b) => b.textContent);
         expect(labels).toContain('Narrate my week');
         expect(labels).toContain('Workout insight');
+        expect([...card.querySelectorAll('button')].every((b) => b.classList.contains('wg-btn') && b.classList.contains('wg-btn--ghost'))).toBe(true);
     });
 
     it('shows the chapter/experiment buttons only when their deterministic data exists', () => {
