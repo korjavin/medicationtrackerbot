@@ -123,6 +123,20 @@ describe('Meds inventory sub-tab (Phase 5, Task 6)', () => {
         expect(vitaminLow).toBeNull();
     });
 
+    it('renders negative stock as 0 with an "Out \u00B7 N over" label and zero as "Out"', async () => {
+        const { window, document } = env;
+        const sched = JSON.stringify({ type: 'daily', times: ['08:00'] });
+        await seedMedications(window, [
+            { id: 1, name: 'Aspirin', dosage: '100mg', schedule: sched, archived: false, inventory_count: -17 },
+            { id: 2, name: 'Metformin', dosage: '500mg', schedule: sched, archived: false, inventory_count: 0 }
+        ]);
+        window.renderInventory();
+        const card = (id) => Array.from(document.querySelectorAll('.wg-meds-inventory__card')).find((c) => c.dataset.medId === id);
+        expect(card('1').querySelector('.wg-meds-inventory__count').textContent).toBe('0');
+        expect(card('1').querySelector('.wg-meds-inventory__count-label').textContent).toBe('Out \u00B7 17 over');
+        expect(card('2').querySelector('.wg-meds-inventory__count-label').textContent).toBe('Out');
+    });
+
     it('resolves the last-refilled row from /restocks and renders a formatted date', async () => {
         const { window, document } = env;
 

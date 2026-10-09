@@ -270,18 +270,18 @@ function _buildMedsLogButton(med) {
 function _buildMedsInventoryTag(med) {
     // Renders both the OK and LOW state as a `.wg-tag--mono` pill; the
     // low-stock variant also carries `.wg-tag--alert` so the alert color
-    // tokens apply. The emoji `⚠️` is kept inside the label because
-    // existing tests grep for it to confirm low-stock rendering.
-    const isLow = isLowOnStock(med);
+    // tokens apply. Label/state come from formatStock().
+    const stock = formatStock(med.inventory_count, med);
+    const isLow = stock.state !== 'ok';
     const tag = document.createElement('span');
     tag.className = 'wg-tag wg-tag--mono inventory-badge wg-meds-row__inventory';
     if (isLow) {
         tag.classList.add('wg-tag--alert');
         tag.classList.add('low');
-        tag.textContent = `${med.inventory_count} left ⚠️`;
+        tag.textContent = stock.label;
     } else {
         tag.classList.add('wg-tag--normal');
-        tag.textContent = `${med.inventory_count} left`;
+        tag.textContent = stock.label;
     }
     return tag;
 }
@@ -907,13 +907,14 @@ function _buildInventoryCard(med) {
     countWrap.className = 'wg-meds-inventory__count-wrap';
     const count = document.createElement('span');
     count.className = 'wg-meds-inventory__count wg-mono-display';
-    count.textContent = String(med.inventory_count);
+    const stock = formatStock(med.inventory_count, med);
+    count.textContent = String(Math.max(0, med.inventory_count));
     countWrap.appendChild(count);
     const countLabel = document.createElement('span');
     countLabel.className = 'wg-meds-inventory__count-label';
-    countLabel.textContent = 'left';
+    countLabel.textContent = stock.state === 'danger' ? stock.label : 'left';
     countWrap.appendChild(countLabel);
-    if (isLowOnStock(med)) {
+    if (stock.state === 'warn') {
         const low = document.createElement('span');
         low.className = 'wg-tag wg-tag--mono wg-tag--alert wg-meds-inventory__low';
         low.textContent = '⚠️ Low stock';

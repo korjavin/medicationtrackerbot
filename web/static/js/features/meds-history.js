@@ -225,6 +225,15 @@ function isLowOnStock(med) {
     return daysOfStock < 7;
 }
 
+// Single source of stock wording/state for every renderer.
+// Negative stock (more taken than recorded) reads "Out · N over".
+function formatStock(count, med) {
+    if (count < 0) return { label: `Out \u00B7 ${-count} over`, state: 'danger' };
+    if (count === 0) return { label: 'Out', state: 'danger' };
+    if (med && isLowOnStock(med)) return { label: `${count} left`, state: 'warn' };
+    return { label: `${count} left`, state: 'ok' };
+}
+
 // Calculate how many doses per day based on schedule
 function calculateDailyUsage(med) {
     try {
@@ -923,6 +932,7 @@ window.MedsHistory = {
     loadRestockHistory,
     handleRestock,
     isLowOnStock,
+    formatStock,
     calculateDailyUsage,
     addTimeInput,
     removeTime,

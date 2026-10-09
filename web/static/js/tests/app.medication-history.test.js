@@ -98,7 +98,7 @@ describe('app.js medication, history and intake flows', () => {
       expect(medsHtml).toContain('Weekly');
       expect(medsHtml).toContain('As Needed');
       expect(medsHtml).toContain('archived');
-      expect(medsHtml).toContain('⚠️');
+      expect(medsHtml).toContain('wg-tag--alert');
       expect(medsHtml).toContain('Soon Med Rx');
       expect(document.getElementById('med-list').textContent).toContain('<b>As Needed</b>');
       expect(medsHtml).not.toContain('<b>As Needed</b>');
