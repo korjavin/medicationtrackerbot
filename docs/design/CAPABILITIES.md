@@ -16,7 +16,7 @@ The code is the source of truth. File paths are relative to `web/`, and line num
   - Disabled features are removed from the nav. There is no "More" slot.
   - Code: `static/js/components/wg-bottom-nav.js`.
 - **Journey** [NEW] is a full screen that is *not* in the nav. It opens only from the Today Goal Line card.
-- **Phone chrome** (status bar, island): the component `static/js/components/wg-phone-chrome.js` exists but nothing uses it.
+- **Phone chrome** (status bar, island): not shipped; the unused component was deleted (med-xso6.28).
 - **Screen headers**: the handoff had an `AppHeader` (title + date). The shipped app has none. Each screen opens directly on its first toolbar or sub-tab row.
 - **Banners and toasts**:
   - Banners live in the sticky `#app-banners` strip (kit `.wg-banner`, med-xso6.5):
@@ -360,7 +360,7 @@ The shipped screen has six collapsible groups, with a Feedback card above them:
 
 ## 11. Out-of-nav surfaces
 
-- **First-run onboarding** [NEW] (`static/js/features/firstrun/`, `static/css/firstrun.css`, fully built on tokens):
+- **First-run onboarding** [NEW] (`static/js/features/firstrun/`, the `.wg-firstrun-*` rules at the end of `static/css/components.css`, fully built on tokens):
   - Full-screen overlay with 4 steps:
     1. Welcome (Get started / Skip all)
     2. "What do you want to track?" (6 toggles)
@@ -490,12 +490,7 @@ Ordered roughly by how much a designer should care.
 - **First-run wizard** has no progress indicator.
 
 ### F. Dead or orphaned design components
-These are loaded but have no consumers. Each should be adopted or deleted:
-- `static/js/components/wg-settings.js`
-- `static/js/components/wg-toggle.js`
-- `static/js/components/stat-card.js`
-- `static/js/components/wg-phone-chrome.js`
-- the sync badges in `action-row.js`
+Resolved by the UI kit v2 rollout (epic med-xso6): `wg-toggle.js` was adopted (it renders the Settings `<mt-setting-toggle>` pill); `wg-settings.js` and `action-row.js` (with its sync badges) were deleted by earlier beads; `stat-card.js`, `wg-phone-chrome.js` and the consumer-less `wg-ring.js` were deleted in med-xso6.28.
 
 The handoff's `AppHeader` (title + date) was never adopted, so no screen has a title.
 

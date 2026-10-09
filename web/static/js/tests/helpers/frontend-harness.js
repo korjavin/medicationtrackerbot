@@ -12,7 +12,6 @@ const UTILS_JS = path.join(REPO_ROOT, 'web/static/js/core/utils.js');
 const MESSENGER_ADAPTER_JS = path.join(REPO_ROOT, 'web/static/js/core/messenger-adapter.js');
 const MT_ELEMENTS_JS = path.join(REPO_ROOT, 'web/static/js/components/mt-elements.js');
 const EMPTY_STATE_JS = path.join(REPO_ROOT, 'web/static/js/components/empty-state.js');
-const STAT_CARD_JS = path.join(REPO_ROOT, 'web/static/js/components/stat-card.js');
 const WG_ROW_ACTIONS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-row-actions.js');
 const WG_ICONS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-icons.js');
 const WG_PAGE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-page.js');
@@ -208,7 +207,6 @@ export function loadFrontendEnv({ withWorkout = false, withSync = false, url = '
   evalFileCached(window, WG_TOGGLE_JS);
   evalFileCached(window, MT_ELEMENTS_JS);
   evalFileCached(window, EMPTY_STATE_JS);
-  evalFileCached(window, STAT_CARD_JS);
   evalFileCached(window, WG_ROW_ACTIONS_JS);
   evalFileCached(window, WG_ICONS_JS);
   evalFileCached(window, WG_PAGE_JS);

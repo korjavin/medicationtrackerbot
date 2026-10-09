@@ -133,7 +133,7 @@ describe('Settings Food Targets section (Phase 9, Task 6)', () => {
         }
     });
 
-    it('defines .wg-settings-number-grid, .wg-settings-number-field, and .wg-settings-save-btn in styles.css', () => {
+    it('defines .wg-settings-number-grid and .wg-settings-number-field in styles.css', () => {
         const css = fs.readFileSync(STYLES_CSS, 'utf8');
         expect(css).toMatch(/\.wg-settings-number-grid\s*\{/);
         expect(css).toMatch(/\.wg-settings-number-field\s*\{/);
@@ -141,7 +141,6 @@ describe('Settings Food Targets section (Phase 9, Task 6)', () => {
         expect(css).toMatch(/\.wg-settings-number-field__wrap\s*\{/);
         expect(css).toMatch(/\.wg-settings-number-field__input\s*\{/);
         expect(css).toMatch(/\.wg-settings-number-field__unit\s*\{/);
-        expect(css).toMatch(/\.wg-settings-save-btn\s*\{/);
     });
 });
 describe('Food Targets round-trip through loadFoodTargets / saveFoodTargets (Phase 9, Task 6)', () => {

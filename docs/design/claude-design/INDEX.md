@@ -8,11 +8,11 @@ Open `ui_kits/app-v2/index.html` in a browser; every page is static HTML.
 
 ## What ships vs what doesn't
 
-| File | Ship? |
-|------|-------|
-| `tokens.css`, `components.css`, `icons.js` | Yes — the `wg-*` kit. Port into `web/static/css` / `web/static/js` under existing token/architecture guards. |
-| `kit.css`, `kit.js` | No — board/phone-frame presentation only. `kit.js` also shows the tab-bar markup v2 expects. |
-| `*.html` | Spec only. Screen ids (T1, F4, M2, W1, P1, S4…) are referenced by beads. |
+| File | Ship? | Shipped in |
+|------|-------|------------|
+| `tokens.css`, `components.css`, `icons.js` | Yes — the `wg-*` kit. Port into `web/static/css` / `web/static/js` under existing token/architecture guards. | `tokens.css` → the first `:root` of `web/static/css/styles.css`; `components.css` → `web/static/css/components.css` (port deltas in its header); `icons.js` → `web/static/js/components/wg-icons.js` (epic med-xso6) |
+| `kit.css`, `kit.js` | No — board/phone-frame presentation only. `kit.js` also shows the tab-bar markup v2 expects. | — (tab bar: `web/static/js/components/wg-bottom-nav.js`) |
+| `*.html` | Spec only. Screen ids (T1, F4, M2, W1, P1, S4…) are referenced by beads. | — (screens: see the table below) |
 
 ## Kit rules (from `ui_kits/app-v2/README.md`)
 
@@ -28,7 +28,7 @@ Open `ui_kits/app-v2/index.html` in a browser; every page is static HTML.
 
 | Surface | Spec | Current code |
 |---------|------|--------------|
-| Navigation (5 tabs: Today · Food · Meds · Train · Health; gear → Settings) | `navigation.html` | `web/static/js/features/tab-controller.js`, `web/static/index.html` nav |
+| Navigation (5 tabs: Today · Food · Meds · Train · Health; gear → Settings) | `navigation.html` | `web/static/js/components/wg-bottom-nav.js`, `features/app-nav.js`, `features/tab-controller.js`, `web/static/index.html` app bars |
 | Today (Next up, Log sheet, Goal Line, call bar, tz card, first-run/offline/skeleton) | `screens-today.html` T1–T6 | `features/today.js`, `today-loader.js`, `elevenlabs-call.js`, `tz-plan-banner.js`, `brief.js` |
 | Journey (pushed page) | `screens-today.html` J1–J2 | `features/journey.js` |
 | Food log, Add sheet, Describe, AI review, manual | `screens-food.html` F1–F8 | `features/food/`, `food-photo-summary.js` |
@@ -36,4 +36,4 @@ Open `ui_kits/app-v2/index.html` in a browser; every page is static HTML.
 | Workout session takeover, Plan/Day/Exercise pages | `screens-workouts.html` W1–W3, P1–P3 | `features/workout/` |
 | Settings home, Features, Backup, Devices & connectors | `screens-settings.html` S1–S5 | `features/settings.js`, `features/settings/`, cloud shell pages in `web/cloud/` |
 | Health (BP / Weight / Vitals segments; section id `health` stays) | `navigation.html` | `features/bp.js`, `weight.js`, `health.js`, `live-hr.js` |
-| Primitives (buttons, chips, rows, sheets, dialog, toast, empty, skeleton) | `foundations.html`, `components.html` | `web/static/js/components/`, `web/static/css/styles.css`, `dialog.css`, `core/utils.js` safe* dialogs |
+| Primitives (buttons, chips, rows, sheets, dialog, toast, empty, skeleton) | `foundations.html`, `components.html` | `web/static/js/components/`, `web/static/css/components.css`, `styles.css`, `dialog.css`, `core/utils.js` safe* dialogs |

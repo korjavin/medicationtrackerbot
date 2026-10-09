@@ -13,7 +13,6 @@ function loadComponents() {
     const { window } = dom;
     for (const relPath of [
         'web/static/js/components/empty-state.js',
-        'web/static/js/components/stat-card.js',
         'web/static/js/components/wg-row-actions.js',
         'web/static/js/components/wg-icons.js',
         'web/static/js/components/wg-chip.js',
@@ -98,62 +97,6 @@ describe('createEmptyState / createOfflineEmptyState / createErrorState / create
             expect(el.getAttribute('aria-busy')).toBe('true');
             const blocks = el.querySelectorAll('.wg-skel.wg-skel--card');
             expect(blocks.length).toBe(2);
-        } finally {
-            cleanup();
-        }
-    });
-});
-
-describe('createStatItem', () => {
-    it('creates div with label and value spans using default classes', () => {
-        const { window, cleanup } = loadComponents();
-        try {
-            const item = window.createStatItem('Trend', '80.0 kg');
-            expect(item.tagName).toBe('DIV');
-            expect(item.className).toBe('stat-item');
-            const spans = item.querySelectorAll('span');
-            expect(spans[0].className).toBe('stat-label');
-            expect(spans[0].textContent).toBe('Trend');
-            expect(spans[1].className).toBe('stat-value');
-            expect(spans[1].textContent).toBe('80.0 kg');
-        } finally {
-            cleanup();
-        }
-    });
-
-    it('uses custom class names for BP avg item', () => {
-        const { window, cleanup } = loadComponents();
-        try {
-            const item = window.createStatItem('14d (14d)', '120/80', {
-                className: 'bp-avg-item',
-                labelClass: 'bp-avg-label',
-                valueClass: 'bp-avg-value',
-            });
-            expect(item.className).toBe('bp-avg-item');
-            expect(item.querySelector('.bp-avg-label').textContent).toBe('14d (14d)');
-            expect(item.querySelector('.bp-avg-value').textContent).toBe('120/80');
-        } finally {
-            cleanup();
-        }
-    });
-
-    it('inserts separator text node between label and value', () => {
-        const { window, cleanup } = loadComponents();
-        try {
-            const item = window.createStatItem('Rate:', '+0.5 kg/week', { separator: ' ' });
-            // Should have 3 child nodes: span, text, span
-            expect(item.childNodes.length).toBe(3);
-            expect(item.childNodes[1].textContent).toBe(' ');
-        } finally {
-            cleanup();
-        }
-    });
-
-    it('omits separator when not provided', () => {
-        const { window, cleanup } = loadComponents();
-        try {
-            const item = window.createStatItem('Goal', '75 kg');
-            expect(item.childNodes.length).toBe(2);
         } finally {
             cleanup();
         }
