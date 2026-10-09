@@ -3532,6 +3532,21 @@ input:checked+.toggle-slider:before {
     animation: modal-enter 0.2s ease;
 }
 
+/* Pushed page (WGPage, med-xso6.8): a full-viewport layer on the modal stack,
+   kit page bar on top, the body scrolls. Later pages sit above earlier ones by
+   DOM order (same z-index). */
+.wg-page {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-modal);
+    display: flex;
+    flex-direction: column;
+    padding: calc(env(safe-area-inset-top) + var(--space-sm)) 0 env(safe-area-inset-bottom);
+    background: var(--wg-bg-screen);
+    color: var(--wg-fg-1);
+    font-family: var(--wg-font-ui);
+}
+
 .wg-modal__header {
     display: flex;
     justify-content: space-between;
@@ -5026,17 +5041,14 @@ input:checked+.toggle-slider:before {
    and the macro bar).
    ============================================================ */
 #journey-content > .wg-card,
-#journey-content > .wg-journey-more,
-.wg-journey-more > .wg-card {
+#journey-content > .wg-journey-more {
     margin-bottom: var(--space-md);
 }
 
-/* med-8tur.9: experiment / chapter / traits / keystones folded behind one
-   native disclosure below the goal, week, discoveries and gauges. */
-.wg-journey-more__summary {
-    cursor: pointer;
-    user-select: none;
-    margin-bottom: var(--space-sm);
+/* med-xso6.8: experiment / chapter / traits / keystones on the pushed "More"
+   page; its cards flow straight into the page's .wg-content column. */
+.wg-journey-more__page {
+    display: contents;
 }
 
 /* Shared progress bar (health-score contributors, atlas, chapter, trial). */

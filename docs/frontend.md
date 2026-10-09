@@ -209,6 +209,13 @@ in `web/static/css/dialog.css`, linked after `components.css` by both
 history entry (`modal-history.js`), so Back cancels just the dialog
 (`ModalManager.closeTopMostVisibleModal`).
 
+**Modal stack.** `ModalManager.open/close` keep an ordered stack; Back, Esc and
+popstate all close the most recently opened modal through its registered close
+function (`ModalManager.register(id, fn)`), and `#modal-overlay` hides only when
+nothing on the stack is still visible. Nested editors use pushed pages
+(`components/wg-page.js`, `WGPage.push`) on the same stack instead of
+modal-on-modal. Full-document flows (`/devices`, `/connectors`) stay out of it.
+
 **Guard** — `web/static/js/tests/architecture.no-native-dialogs.test.js` scans
 `web/static/js` and `web/cloud/js` (tests/vendor excluded) for bare or
 `window.`-prefixed `alert(` / `confirm(` / `prompt(` on code lines. No allowlist.

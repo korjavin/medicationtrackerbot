@@ -639,6 +639,10 @@ ${body}
         const modal = doc.getElementById('brief-modal');
         if (!modal || modal.dataset.briefBound === 'true') return;
         modal.dataset.briefBound = 'true';
+        // Esc / Back close through the same path as Cancel (med-xso6.34).
+        if (window.ModalManager && typeof window.ModalManager.register === 'function') {
+            window.ModalManager.register('brief-modal', close);
+        }
 
         const group = doc.getElementById('brief-range');
         if (group) {

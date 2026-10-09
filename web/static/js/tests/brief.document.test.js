@@ -438,6 +438,20 @@ describe('Doctor brief — modal + print/download', () => {
         expect(requested).toEqual([]);
     });
 
+    // med-xso6.34 (owner report): Esc used to leave the Doctor brief open.
+    it('Esc closes the modal, and Back after a reopen works too', () => {
+        const esc = () => doc.body.dispatchEvent(new env.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        env.window.DoctorBrief.open();
+        esc();
+        expect(doc.getElementById('brief-modal').classList.contains('hidden')).toBe(true);
+        expect(doc.getElementById('modal-overlay').classList.contains('hidden')).toBe(true);
+
+        env.window.DoctorBrief.open();
+        expect(env.window.ModalManager.closeTopMostVisibleModal()).toBe(true);
+        expect(doc.getElementById('brief-modal').classList.contains('hidden')).toBe(true);
+        expect(requested).toEqual([]);
+    });
+
     it('passes the picked range and section selection through to GET /api/brief', async () => {
         env.window.DoctorBrief.open();
         doc.querySelector('#brief-range [data-days="30"]')
