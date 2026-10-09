@@ -265,6 +265,23 @@ describe('Workout session takeover (med-xso6.21)', () => {
         expect('weight_kg' in call[2]).toBe(false);
     });
 
+    it('a notes-only planned exercise is created without a weight', async () => {
+        const { window, document } = env;
+        await openSession(window, [], { variant_id: 5, exercise_snapshot: [
+            { exercise_id: 20, exercise_name: 'Fly', target_sets: 2, target_reps_min: 12, target_weight_kg: 15 }
+        ] }, (endpoint) => (endpoint.includes('/logs/create') ? { id: 501 } : undefined));
+
+        vi.useFakeTimers();
+        const notes = logsEl(document).querySelector('.wg-workouts-session-exercise__field--notes input');
+        notes.value = 'shoulder twinge';
+        notes.dispatchEvent(new window.Event('change'));
+        await vi.advanceTimersByTimeAsync(900);
+        const call = window.apiCall.mock.calls.find((c) => c[0] === '/api/workout/sessions/logs/create');
+        expect(call).toBeDefined();
+        expect(call[2]).toMatchObject({ exercise_id: 20, target_sets: 0, notes: 'shoulder twinge' });
+        expect('target_weight_kg' in call[2]).toBe(false);
+    });
+
     it('a minimise → reopen keeps the pending rows though autosave mirrored the plan down', async () => {
         const { window, document } = env;
         const plan = { id: 10, exercise_name: 'Bench', target_sets: 3, target_reps_min: 8, target_weight_kg: 60 };

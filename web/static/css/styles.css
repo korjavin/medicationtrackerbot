@@ -6881,7 +6881,7 @@ input:checked+.toggle-slider:before {
    push-notification "Workout Time!" prompt was the last modal still using
    the paper-era .actions block; this promotes it onto the wg-modal shell
    and aligns the primary Cancel/Start pair to the header so they survive
-   a focused mobile keyboard. Mirrors .wg-workouts-session-modal__header*. */
+   a focused mobile keyboard. */
 .wg-workouts-start-modal {
     max-width: var(--wg-modal-max-w-wide);
 }
