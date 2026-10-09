@@ -446,6 +446,15 @@ export function createApiRouter(ctx, {
       const m = /^\/api\/bp\/([^/]+)$/.exec(path);
       if (m) { await bp.remove(m[1]); return true; }
     }
+    if (method === 'PUT') {
+      const m = /^\/api\/bp\/([^/]+)$/.exec(path);
+      if (m) {
+        const res = await bp.update(m[1], body);
+        // A moved measured_at can satisfy (or un-satisfy) a queued BP slot.
+        scheduleReminderRecompute(ctx, { records, timeZone });
+        return res;
+      }
+    }
     if (path === '/api/bp/goal' && method === 'GET') return bp.getGoal();
     if (path === '/api/bp/stats' && method === 'GET') return bp.getStats();
 

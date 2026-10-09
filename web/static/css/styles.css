@@ -8537,9 +8537,16 @@ input:checked+.toggle-slider:before {
     margin: 0;
 }
 
+/* Title block left, status chip (.wg-chip, set by live-hr.js) right. */
+.wg-live-hr__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-sm);
+}
+
 .wg-live-hr__status {
-    font-size: var(--wg-health-card-stat-size);
-    color: var(--wg-fg-4);
+    flex-shrink: 0;
 }
 
 .wg-live-hr__bpm-row {

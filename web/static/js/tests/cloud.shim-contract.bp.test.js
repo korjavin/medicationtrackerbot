@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { calculateBPCategory } from '../../../domain/bp.js';
 import { computeReminderHorizon } from '../../../domain/reminders.js';
 import { loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
+import { allowConsoleNoise } from './helpers/setup.js';
 
 // Same ApiCache/BPStore stand-in the network-mocked BP suite uses, so
 // DataStore.loadSWR / applyOptimistic have somewhere to read/write.
@@ -206,6 +207,52 @@ describe('cloud shim contract — BP flows (features/bp.js over web/domain/bp.js
             await env.window.apiCall('/api/bp', 'POST', reading());
             expect(cancelCallbacks()).toEqual([]);
         });
+    });
+
+    it('tap a row → prefilled sheet in edit mode; Save PUTs the same reading and the row repaints (med-xso6.27)', async () => {
+        const { window, document } = env;
+        await submitBPReading(window, document, { daysAgo: 0, systolic: 118, diastolic: 76, pulse: '64', notes: 'before' });
+        const id = cache.get('bp').readingsRes[0].id;
+
+        const row = document.querySelector(`#bp-list [data-reading-id="${id}"]`);
+        expect(row).not.toBeNull();
+        row.querySelector('.wg-bp-reading-row__value').click();
+
+        expect(document.getElementById('bp-form').dataset.editingId).toBe(String(id));
+        expect(document.getElementById('bp-modal-eyebrow').textContent).toBe('Edit entry');
+        expect(document.getElementById('bp-modal-save-btn').textContent).toBe('Save');
+        expect(document.getElementById('bp-systolic').value).toBe('118');
+        expect(document.getElementById('bp-diastolic').value).toBe('76');
+        expect(document.getElementById('bp-pulse').value).toBe('64');
+        expect(document.getElementById('bp-notes').value).toBe('before');
+
+        const optimisticSpy = vi.spyOn(window.DataStore, 'applyOptimistic');
+        document.getElementById('bp-systolic').value = '150';
+        document.getElementById('bp-diastolic').value = '95';
+        await window.handleBPSubmit({ preventDefault() {} });
+        expect(optimisticSpy).toHaveBeenCalledWith('bp', expect.any(Function), ['bp']);
+
+        // Same record, new values, category recomputed — no second reading.
+        const listRes = await window.apiCall('/api/bp?days=60');
+        expect(listRes).toHaveLength(1);
+        expect(listRes[0].id).toBe(id);
+        expect(listRes[0].systolic).toBe(150);
+        expect(listRes[0].category).toBe(calculateBPCategory(150, 95));
+        expect(listRes[0].notes).toBe('before');
+
+        const repainted = document.querySelector(`#bp-list [data-reading-id="${id}"] .wg-bp-reading-row__sys`);
+        expect(repainted.textContent).toBe('150');
+
+        // The next open from +Log is back in add mode.
+        window.showBPRecordModal();
+        expect(document.getElementById('bp-form').dataset.editingId).toBeUndefined();
+        expect(document.getElementById('bp-modal-save-btn').textContent).toBe('Log');
+    });
+
+    it('PUT /api/bp/{id} on an unknown id writes nothing (not_found)', async () => {
+        allowConsoleNoise(); // apiCall console.errors the swallowed not_found
+        expect(await env.window.apiCall('/api/bp/bp_missing', 'PUT', { systolic: 120, diastolic: 80 })).toBeNull();
+        expect(await env.window.apiCall('/api/bp?days=60')).toHaveLength(0);
     });
 
     it('_deleteBPApi removes the reading from the shim-backed store', async () => {

@@ -369,16 +369,16 @@ function renderHealthOverviewContent(content, data) {
 
     const activeRange = getActiveHealthRange();
 
-    content.appendChild(renderHealthSummaryTiles(data, activeRange));
-
-    const rangeSelector = renderHealthRangeSelector({
+    // Range first, then the tiles it controls (navigation.html N3).
+    content.appendChild(renderHealthRangeSelector({
         active: activeRange,
         onChange: (r) => {
             setActiveHealthRange(r);
             renderHealthOverviewContent(content, data);
         }
-    });
-    content.appendChild(rangeSelector);
+    }));
+
+    content.appendChild(renderHealthSummaryTiles(data, activeRange));
 
     content.appendChild(renderSleepCard(data, activeRange));
     content.appendChild(renderStepsCard(data, activeRange));
