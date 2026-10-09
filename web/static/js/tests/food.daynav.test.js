@@ -85,6 +85,19 @@ describe('Food day navigator (kit F1)', () => {
         expect(opened).toBe(1);
     });
 
+    it('a ghost camera icon in the app bar keeps photo logging reachable on populated days', () => {
+        const { document, window } = env;
+        const photo = document.getElementById('food-photo-btn');
+        expect(photo.closest('.wg-appbar')).not.toBeNull();
+        expect(photo.classList.contains('wg-btn--ghost')).toBe(true);
+        expect(photo.querySelector('.wg-ico[data-icon="camera"]')).not.toBeNull();
+
+        let picked = 0;
+        window.triggerFoodPhotoPicker = () => { picked += 1; };
+        photo.click();
+        expect(picked).toBe(1);
+    });
+
     it('a relative day shows as a chip beside the short date', () => {
         const { document, window } = env;
         const filter = document.getElementById('food-date-filter');

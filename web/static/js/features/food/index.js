@@ -109,6 +109,8 @@ function switchFoodTab(tab) {
         });
 
         bindClick('add-food-inline-btn', () => showAddFoodModal());
+        // ponytail: photo stays one tap away on populated days until the Add sheet (med-xso6.17) owns it.
+        bindClick('food-photo-btn', () => triggerFoodPhotoPicker());
         bindChange('food-photo-input', (e) => uploadFoodPhoto(e.target));
 
         window.TabController.bindTabGroup({
