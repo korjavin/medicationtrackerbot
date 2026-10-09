@@ -220,6 +220,39 @@ describe('Meds Stock sub-tab (kit v2 M3)', () => {
         expect(cardOf(document, '1').querySelector('.wg-meds-stock__count').firstChild.textContent).toBe('47');
     });
 
+    it('while the restock POST is in flight the card shows the new count and the confirm stays disabled', async () => {
+        const { window, document } = env;
+        await seedMedications(window, [
+            { id: 1, name: 'Allopurinol', schedule: DAILY, archived: false, inventory_count: 17 }
+        ]);
+        vi.spyOn(window.DataStore, 'applyOptimistic').mockResolvedValue({ commit: vi.fn(async () => {}), rollback: vi.fn(async () => {}) });
+        let release;
+        const posts = [];
+        window.apiCall = vi.fn((endpoint, method, body) => {
+            if (method !== 'POST') return Promise.resolve([]);
+            posts.push(body);
+            return new Promise((r) => { release = () => r({ inventory_count: 47 }); });
+        });
+        window.renderInventory();
+
+        const card = cardOf(document, '1');
+        card.querySelector('.wg-meds-stock__refill-btn').click();
+        const confirm = card.querySelector('.wg-meds-stock__confirm');
+        confirm.click();
+        await flushMicrotasks();
+
+        expect(cardOf(document, '1')).toBe(card);
+        expect(card.querySelector('.wg-meds-stock__count').firstChild.textContent).toBe('47');
+        expect(confirm.disabled).toBe(true);
+        confirm.click();
+        await flushMicrotasks();
+        expect(posts.length).toBe(1);
+
+        release();
+        await flushMicrotasks();
+        expect(cardOf(document, '1').querySelector('.wg-meds-stock__refill').hidden).toBe(true);
+    });
+
     it('a failed restock rolls the optimistic count back', async () => {
         const { window, document } = env;
         await seedMedications(window, [

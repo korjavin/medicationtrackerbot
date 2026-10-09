@@ -32,6 +32,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // like a materialized dose, so the id prefix is what distinguishes them.
 const MANUAL_ID_PREFIX = 'intake-manual-';
 const UPCOMING_FORECAST_DAYS = 7;
+// confirmSchedule may create a just-due slot that is not materialized yet.
+const CONFIRM_DUE_GRACE_MS = 10 * 60 * 1000;
 // A dose taken more than this long after its slot is "delayed". Owner decision
 // (bd med-29gh.2): 60 minutes, from their own "avg delay ~ 1h" framing — the
 // default snooze is 10 minutes, so anything under an hour is routine. Named so
@@ -458,13 +460,15 @@ export function createIntakeDomain({ records, now, timeZone }) {
 
     const scheduledAtMs = Date.parse(scheduledAt);
     // Real upcoming slots (same forecast as upcomingDoses), keyed med:instant —
-    // only these may be created below, never an arbitrary instant.
+    // only these may be created below, never an arbitrary instant. The grace
+    // covers a slot that came due while the take sheet was open but has not
+    // been materialized yet (the shim materializes on a 60s cadence).
     const forecastSlots = new Map();
-    if (Number.isFinite(scheduledAtMs) && scheduledAtMs > nowMs) {
+    if (Number.isFinite(scheduledAtMs) && scheduledAtMs > nowMs - CONFIRM_DUE_GRACE_MS) {
       const targets = forecastDosesWithTzPlan({
         medications: (await loadMeds()).map(toMedScheduleShape),
         timeZone,
-        now: nowMs,
+        now: Math.min(nowMs, scheduledAtMs - 1),
         days: UPCOMING_FORECAST_DAYS,
         tzPlan: await loadActiveTzPlan(),
       });

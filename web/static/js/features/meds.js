@@ -937,7 +937,9 @@ function _stockRank(med) {
 }
 
 // Optimistic restock: bump the cached + in-memory count, POST the existing
-// route, then commit (keeping the server's count) or roll back.
+// route, then commit (keeping the server's count) or roll back. The card is
+// only repainted in place while the POST is in flight, so withSubmit's
+// disabled button keeps guarding against a second (non-idempotent) restock.
 async function _refillMed(med, qty, btn) {
     const id = med.id;
     const before = med.inventory_count;
@@ -949,7 +951,8 @@ async function _refillMed(med, qty, btn) {
             ? await window.DataStore.applyOptimistic('medications', (prev) => setCount(prev, before + qty), ['medications'])
             : null;
         medications = setCount(medications, before + qty);
-        renderInventory();
+        const countEl = btn.closest('.wg-meds-stock__card')?.querySelector('.wg-meds-stock__count');
+        if (countEl && countEl.firstChild) countEl.firstChild.textContent = String(Math.max(0, before + qty));
 
         let res = null;
         try {
@@ -964,10 +967,10 @@ async function _refillMed(med, qty, btn) {
         if (typeof res.inventory_count === 'number' && res.inventory_count !== before + qty) {
             medications = setCount(medications, res.inventory_count);
             if (handle) { try { await handle.commit(medications); } catch (_) { /* best-effort */ } }
-            renderInventory();
         } else if (handle) {
             try { await handle.commit(null); } catch (_) { /* best-effort */ }
         }
+        renderInventory();
     });
 }
 
@@ -1006,7 +1009,7 @@ function _buildRefillPanel(med, onCancel) {
     let qty = MEDS_REFILL_PRESETS[0];
     const paint = () => {
         const valid = Number.isInteger(qty) && qty > 0;
-        confirm.disabled = !valid;
+        confirm.disabled = !valid || confirm.hasAttribute('data-submit-in-flight');
         confirm.textContent = valid ? `Add ${qty} → ${med.inventory_count + qty}` : 'Add';
     };
     const choose = (pick, value) => {
