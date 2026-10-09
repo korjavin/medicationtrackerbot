@@ -951,11 +951,8 @@ function buildNoteRow(note) {
         : '';
     meta.appendChild(time);
 
-    if (note.isRejected) {
-        meta.appendChild(buildNotesSyncTag('rejected', 'Failed', note.errorMessage));
-    } else if (note.isLocal) {
-        meta.appendChild(buildNotesSyncTag('pending', 'Pending'));
-    }
+    const syncChip = window.WGChip.sync(note);
+    if (syncChip) meta.appendChild(syncChip);
 
     body.appendChild(meta);
 
@@ -973,14 +970,6 @@ function buildNoteRow(note) {
     item.appendChild(actions);
 
     return item;
-}
-
-function buildNotesSyncTag(kind, label, tooltip) {
-    const tag = document.createElement('span');
-    tag.className = `wg-tag wg-tag--mono wg-tag--${kind} wg-health-notes-row__sync`;
-    tag.textContent = label;
-    if (tooltip) tag.title = tooltip;
-    return tag;
 }
 
 function buildNoteRowEditButton(note) {

@@ -260,7 +260,7 @@ describe('Workouts history (Phase 7, Task 4)', () => {
         expect(window.loadWorkoutHistoryTab).toHaveBeenCalled();
     });
 
-    it('surfaces an offline-pending tag as .wg-tag--mono on rows with isLocal=true', () => {
+    it('surfaces the shared Pending sync chip on rows with isLocal=true', () => {
         const { window, document } = env;
         const container = document.getElementById('workout-history-display');
         window._renderWorkoutHistory(
@@ -272,11 +272,9 @@ describe('Workouts history (Phase 7, Task 4)', () => {
 
         const row = container.querySelector('.wg-workouts-history-row');
         expect(row.classList.contains('wg-workouts-history-row--pending')).toBe(true);
-        const pending = row.querySelector('.wg-workouts-history-row__sync');
+        const pending = row.querySelector('.wg-chip--pending');
         expect(pending).not.toBeNull();
-        expect(pending.classList.contains('wg-tag')).toBe(true);
-        expect(pending.classList.contains('wg-tag--mono')).toBe(true);
-        expect(pending.classList.contains('wg-tag--pending')).toBe(true);
+        expect(pending.classList.contains('wg-chip')).toBe(true);
         expect(pending.textContent).toBe('Pending');
     });
 
@@ -295,9 +293,9 @@ describe('Workouts history (Phase 7, Task 4)', () => {
 
         const row = container.querySelector('.wg-workouts-history-row');
         expect(row.classList.contains('wg-workouts-history-row--rejected')).toBe(true);
-        const rejected = row.querySelector('.wg-workouts-history-row__sync');
-        expect(rejected.classList.contains('wg-tag--rejected')).toBe(true);
-        expect(rejected.textContent).toBe('Failed');
+        const rejected = row.querySelector('.wg-chip--danger');
+        expect(rejected).not.toBeNull();
+        expect(rejected.textContent).toBe('Sync failed');
         expect(rejected.title).toBe('Payload rejected by server');
     });
 

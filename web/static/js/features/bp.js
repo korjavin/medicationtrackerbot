@@ -11,13 +11,14 @@ const BP_RANGE_DEFAULT = 14;
 // Get BP category based on ISH 2020 guidelines (for users < 65 years)
 function getBPCategory(sys, dia) {
     // Grade 2 Hypertension: ≥160 and/or ≥100
-    if (sys >= 160 || dia >= 100) return { label: 'Grade 2 HTN', class: 'grade2' };
+    // `state` is the kit chip state (WGChip): Normal=ok, High-normal=warn, HTN=danger.
+    if (sys >= 160 || dia >= 100) return { label: 'Grade 2 HTN', class: 'grade2', state: 'danger' };
     // Grade 1 Hypertension: 140-159 and/or 90-99
-    if (sys >= 140 || dia >= 90) return { label: 'Grade 1 HTN', class: 'grade1' };
+    if (sys >= 140 || dia >= 90) return { label: 'Grade 1 HTN', class: 'grade1', state: 'danger' };
     // High-normal: 130-139 and/or 85-89
-    if (sys >= 130 || dia >= 85) return { label: 'High-normal', class: 'highnormal' };
+    if (sys >= 130 || dia >= 85) return { label: 'High-normal', class: 'highnormal', state: 'warn' };
     // Normal: <130 and <85
-    return { label: 'Normal', class: 'normal' };
+    return { label: 'Normal', class: 'normal', state: 'ok' };
 }
 
 function getActiveBPRange() {
@@ -435,7 +436,7 @@ function buildBPAverageCard(period, stat) {
 }
 
 // Render BP readings grouped by date as Wandergeek gloss cards.
-// Preserves offline-pending and rejected states via .wg-tag--mono variants;
+// Status and offline-pending/rejected sync state render as WGChip chips;
 // delete action is a .wg-icon-btn trailing cluster that reuses the existing
 // deleteBPReading handler.
 function renderBPReadings(readings) {
@@ -558,10 +559,12 @@ function buildBPReadingRow(reading) {
     }
 
     const category = getBPCategory(reading.systolic, reading.diastolic);
-    const statusTag = document.createElement('span');
-    statusTag.className = `wg-tag wg-bp-status wg-bp-status--${category.class}`;
-    statusTag.textContent = category.label;
-    meta.appendChild(statusTag);
+    const statusChip = window.WGChip.create({ text: category.label, state: category.state, small: true });
+    statusChip.dataset.bpCategory = category.class;
+    meta.appendChild(statusChip);
+
+    const syncChip = window.WGChip.sync(reading);
+    if (syncChip) meta.appendChild(syncChip);
 
     body.appendChild(meta);
     item.appendChild(body);

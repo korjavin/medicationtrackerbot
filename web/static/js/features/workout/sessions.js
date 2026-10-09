@@ -1592,7 +1592,7 @@ async function saveWorkoutSessionDetails(opts) {
         // Autosave failures surface inline (Task 4) and keep the modal + local
         // edits intact; only the explicit Finish path pops a blocking alert.
         if (fromAutosave) setAutosaveStatus('error', message);
-        else safeToast('❌ ' + message, 'error');
+        else safeToast(message, 'error');
         return false; // save failed — close path keeps the modal open
     } finally {
         busyTargets.forEach((btn) => {
@@ -1752,7 +1752,7 @@ async function preSkipWorkoutSession(sessionId) {
         } catch (error) {
             if (handle) await handle.rollback();
             console.error('Error pre-skipping workout:', error);
-            safeToast('❌ Failed to mark workout as skipped. Please try again.', 'error');
+            safeToast('Failed to mark workout as skipped. Please try again.', 'error');
         }
     });
 }
@@ -1779,7 +1779,7 @@ async function cancelPreSkipWorkoutSession(sessionId) {
     } catch (error) {
         if (handle) await handle.rollback();
         console.error('Error cancelling pre-skip:', error);
-        safeToast('❌ Failed to cancel skip. Please try again.', 'error');
+        safeToast('Failed to cancel skip. Please try again.', 'error');
     }
 }
 

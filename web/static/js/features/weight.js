@@ -873,7 +873,7 @@ function filterWeightLogsByRange(logs, range) {
 // Render weight logs grouped by day as Wandergeek gloss cards (Phase 6, Task 5).
 // Mirrors renderBPReadings: each group is a .wg-weight-history__group <li>
 // with a .wg-section-label header and a list of .wg-card rows. Offline +
-// rejected states surface as .wg-tag--mono variants. Each row carries a
+// rejected states surface as a WGChip.sync chip. Each row carries a
 // trailing .wg-icon-btn cluster (edit + delete).
 function renderWeightLogs(logs, range) {
     const list = document.getElementById('weight-list');
@@ -992,6 +992,9 @@ function buildWeightHistoryRow(log) {
         time.textContent = timeStr;
         meta.appendChild(time);
     }
+
+    const syncChip = window.WGChip.sync(log);
+    if (syncChip) meta.appendChild(syncChip);
 
     body.appendChild(meta);
     item.appendChild(body);

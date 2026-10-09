@@ -373,7 +373,7 @@ function renderFoodAutocomplete(products, showLoadMore = false, loadMoreCallback
 
         let metaText = '';
         if (p.is_meal) {
-            nameSpan.textContent = `🍱 ${displayName}`;
+            nameSpan.textContent = displayName;
             metaText = 'Meal';
         } else {
             nameSpan.textContent = displayName;

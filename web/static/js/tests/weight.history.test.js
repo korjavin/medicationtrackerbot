@@ -106,6 +106,18 @@ describe('renderWeightLogs (Phase 6, Task 5)', () => {
         expect(time.textContent.length).toBeGreaterThan(0);
     });
 
+    it('an optimistic log renders the shared Pending sync chip; a committed one renders none', () => {
+        const { document, window } = env;
+        window.renderWeightLogs([
+            { id: 'local_optimistic_1', measured_at: midnight(0).toISOString(), weight: 70.1, _optimistic: true },
+            { id: 2, measured_at: midnight(1).toISOString(), weight: 70.4 }
+        ]);
+        const chip = document.querySelector('[data-weight-id="local_optimistic_1"] .wg-chip--pending');
+        expect(chip).not.toBeNull();
+        expect(chip.textContent).toBe('Pending');
+        expect(document.querySelector('[data-weight-id="2"] .wg-chip')).toBeNull();
+    });
+
     it('renders trailing .wg-icon-btn edit + delete that invoke the existing handlers', () => {
         const { document, window } = env;
         const deleteSpy = vi.fn();

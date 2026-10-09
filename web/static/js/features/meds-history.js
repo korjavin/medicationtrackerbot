@@ -433,7 +433,7 @@ async function triggerNextIntake() {
         await window.DataStore.invalidateTags(['history', 'medications', 'gamification']);
         await window.DataStore.invalidateKey('next_intake');
         const medNamesStr = res.medication_names ? res.medication_names.join(', ') : `${res.medication_count} medication(s)`;
-        safeToast(`✅ Confirmed: ${medNamesStr}\n\nScheduled for: ${formatDate(res.scheduled_at)}\nTaken at: ${formatDate(res.taken_at)}`, 'info');
+        safeToast(`Confirmed: ${medNamesStr}\n\nScheduled for: ${formatDate(res.scheduled_at)}\nTaken at: ${formatDate(res.taken_at)}`, 'info');
         await loadHistory();
     }
 }

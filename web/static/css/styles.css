@@ -1941,35 +1941,6 @@ svg.chart-svg {
     position: relative;
 }
 
-.sync-pending-badge {
-    display: inline-block;
-    padding: 2px var(--space-sm);
-    background: var(--color-status-pending-bg-start);
-    color: var(--color-status-pending-text);
-    font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-bold);
-    border-radius: var(--radius-sm);
-    margin-left: var(--space-sm);
-    vertical-align: middle;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-.sync-rejected-badge {
-    display: inline-block;
-    padding: 2px var(--space-sm);
-    background: var(--color-danger);
-    color: #fff;
-    font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-bold);
-    border-radius: var(--radius-sm);
-    margin-left: var(--space-sm);
-    vertical-align: middle;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    cursor: help;
-}
-
 /* Toast Notifications */
 .sync-toast {
     position: fixed;
@@ -6348,22 +6319,10 @@ input:checked+.toggle-slider:before {
     gap: var(--space-xs);
 }
 
-.wg-tag--pending {
-    background: var(--wg-tag-high-bg);
-    color: var(--wg-tag-high-fg);
-    border-color: var(--wg-tag-high-border);
-}
-
 .wg-tag--unfinished {
     background: var(--wg-tag-high-bg);
     color: var(--wg-tag-high-fg);
     border-color: var(--wg-tag-high-border);
-}
-
-.wg-tag--rejected {
-    background: var(--wg-tag-alert-bg);
-    color: var(--wg-tag-alert-fg);
-    border-color: var(--wg-tag-alert-border);
 }
 
 /* Food macro bar (Phase 4, Task 2) — reusable row rendered by
@@ -10750,6 +10709,14 @@ input:checked+.toggle-slider:before {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* Meal marker icon (replaces the former emoji prefix). */
+.wg-ico.wg-food-item-row__meal-ico {
+    width: 1em;
+    height: 1em;
+    margin-right: var(--space-xs);
+    vertical-align: -0.125em;
 }
 
 .wg-food-item-row__meta {
