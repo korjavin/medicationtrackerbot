@@ -122,10 +122,10 @@ describe('Today next-intake meds fallback', () => {
         const root = env.document.createElement('div');
         env.render(state, root, { now });
 
-        const medsCard = root.querySelector('.wg-today-meds');
-        expect(medsCard).not.toBeNull();
-        const names = Array.from(medsCard.querySelectorAll('.wg-today-meds__name')).map((n) => n.textContent);
-        expect(names).toEqual(['Aspirin']);
+        const row = root.querySelector('[data-section="next-up"] [data-next="med"]');
+        expect(row).not.toBeNull();
+        expect(row.querySelector('.wg-row__title').textContent).toBe('Aspirin');
+        expect(row.querySelector('[data-action="take"]')).not.toBeNull();
     });
 
     it('groups multiple meds scheduled at the same slot (server next_intake parity)', () => {
@@ -212,10 +212,10 @@ describe('Today next-intake meds fallback', () => {
         const root = env.document.createElement('div');
         env.render(state, root, { now });
 
-        const medsCard = root.querySelector('.wg-today-meds');
-        expect(medsCard).not.toBeNull();
-        const kicker = medsCard.querySelector('.wg-next-action-card__kicker');
-        expect(kicker.textContent).toBe('No scheduled doses');
+        const nextUp = root.querySelector('[data-section="next-up"]');
+        expect(nextUp).not.toBeNull();
+        expect(nextUp.querySelector('[data-next]')).toBeNull();
+        expect(nextUp.querySelector('.wg-empty__title').textContent).toBe('Nothing scheduled');
     });
 
     it('returns missing when medications list is present but every entry has no computable next dose', () => {
