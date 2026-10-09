@@ -313,6 +313,8 @@
         <div id="food-view" class="view wg-screen-stage">
             <header class="wg-appbar">
                 <div class="wg-appbar__titles"><h1 class="wg-appbar__title">Food</h1></div>
+                <button type="button" id="add-food-inline-btn" class="wg-btn wg-btn--primary wg-btn--sm" aria-label="Add food"><i class="wg-ico wg-ico--sm" data-icon="plus"></i>Add</button>
+                <button type="button" id="food-photo-btn" class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Log a meal photo"><i class="wg-ico" data-icon="camera"></i></button>
                 <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon" data-nav-to="settings" aria-label="Settings"><i class="wg-ico" data-icon="gear"></i></button>
             </header>
             <!-- Food sub-tab strip (med-ejq.3). Restores the outer pill strip
@@ -328,42 +330,24 @@
             <input type="file" id="food-photo-input" accept="image/*" class="hidden" aria-hidden="true">
 
             <div id="food-log-tab" class="food-tab-content active">
-            <!-- Day navigator + inline +Add (Phase 5, Task 4). Chevron buttons
-                 bracket the mono-display date title; trailing sun-gloss pill
-                 opens the food modal directly. -->
-            <div class="wg-food-day-nav wg-food-day-nav--with-action food-date-nav">
-                <button id="food-date-prev-btn" class="wg-gloss wg-icon-btn wg-food-day-nav__icon-btn"
-                    type="button" aria-label="Previous day"></button>
-                <div class="wg-food-day-nav__center">
-                    <input type="date" id="food-date-filter" class="wg-food-day-nav__input" aria-label="Select date">
-                    <div id="food-date-label" class="wg-mono-display wg-food-day-nav__title" role="button" tabindex="0"></div>
-                    <div id="food-date-subtitle" class="wg-section-label wg-food-day-nav__subtitle"></div>
-                    <div id="food-week-display" class="wg-food-day-nav__week hidden"></div>
-                </div>
-                <button id="food-date-next-btn" class="wg-gloss wg-icon-btn wg-food-day-nav__icon-btn" type="button" aria-label="Next day"></button>
-                <button id="add-food-inline-btn" class="wg-toolbar-btn wg-toolbar-btn--primary" type="button" aria-label="Add food">
-                    <span class="wg-toolbar-btn__label">Add</span>
+            <!-- Day navigator (kit F1, med-xso6.16): arrows in fixed 44px
+                 cells, the relative day as a chip beside the date. The
+                 hidden <input type="date"> is the picker the label opens
+                 via showPicker(); log.js updateFoodDateNav fills the label. -->
+            <div class="wg-daynav wg-food-daynav">
+                <button id="food-date-prev-btn" class="wg-daynav__arrow" type="button" aria-label="Previous day"><i class="wg-ico" data-icon="chev-l"></i></button>
+                <button id="food-date-label" class="wg-daynav__label" type="button" aria-label="Pick a date">
+                    <span id="food-date-chip" class="wg-chip wg-chip--sm hidden"></span>
+                    <span id="food-date-text" class="wg-daynav__date"></span>
                 </button>
-                <button id="add-food-photo-btn" class="wg-toolbar-btn wg-toolbar-btn--primary" type="button" aria-label="Log food from photo or gallery" title="Log food from photo or gallery">
-                    <span class="wg-toolbar-btn__label">Photo</span>
-                </button>
-                <button id="scan-food-inline-btn" class="wg-toolbar-btn wg-toolbar-btn--primary" type="button" aria-label="Scan food barcode" title="Scan food barcode">
-                    <span class="wg-toolbar-btn__label">Scan</span>
-                </button>
+                <button id="food-date-next-btn" class="wg-daynav__arrow" type="button" aria-label="Next day"><i class="wg-ico" data-icon="chev-r"></i></button>
+                <input type="date" id="food-date-filter" class="wg-food-daynav__input" aria-label="Select date" tabindex="-1">
             </div>
-                <!-- Incomplete-day flag (med-0sgs.3). The nudge chip offers to
-                     flag a recent near-empty day; the toggle flags the selected
-                     day so analytics skip it. Both populated by log.js. -->
+                <!-- Incomplete-day nudge (med-0sgs.3): offers to flag a recent
+                     near-empty day. Populated by log.js. -->
                 <div id="food-incomplete-nudge" class="wg-food-incomplete-nudge hidden">
                     <button id="food-incomplete-nudge-btn" type="button" class="wg-gloss wg-food-incomplete-nudge__chip"></button>
                     <button id="food-incomplete-nudge-dismiss" type="button" class="wg-icon-btn wg-food-incomplete-nudge__dismiss" aria-label="Dismiss" title="Dismiss">&times;</button>
-                </div>
-                <div class="wg-food-day-status">
-                    <label class="wg-food-day-status__toggle">
-                        <input type="checkbox" id="food-incomplete-toggle">
-                        <span>Tracking incomplete — exclude this day from analysis</span>
-                    </label>
-                    <span id="food-incomplete-badge" class="wg-tag wg-tag--mono wg-tag--mono--muted hidden">Not counted</span>
                 </div>
                 <!-- Stale-data chip (Task 5 of local-first read resilience).
                      Populated by _renderFoodData() from the lastFoodLogsMeta
@@ -384,9 +368,12 @@
                                 <button type="button" class="wg-seg__opt" data-range="day" aria-pressed="true">Daily total</button>
                                 <button type="button" class="wg-seg__opt" data-range="week" aria-pressed="false">Weekly total</button>
                             </div>
-                            <div class="wg-food-macros-card__total">
-                                <span id="food-macros-card-kcal" class="wg-mono-display wg-food-macros-card__kcal">0</span>
-                                <span class="wg-food-macros-card__unit">kcal</span>
+                            <div class="wg-hstack">
+                                <div id="food-macros-card-total" class="wg-food-macros-card__total">
+                                    <span id="food-macros-card-kcal" class="wg-mono-display wg-food-macros-card__kcal">0</span>
+                                    <span class="wg-food-macros-card__unit">kcal</span>
+                                </div>
+                                <span id="food-incomplete-badge" class="wg-chip wg-chip--stale wg-chip--sm hidden">Not counted</span>
                             </div>
                             <div id="food-macros-card-avg" class="wg-food-macros-card__avg hidden"></div>
                         </div>
@@ -396,11 +383,15 @@
                         </div>
                     </div>
                     <div id="food-macros-card-bars" class="wg-food-macros-card__bars"></div>
+                    <!-- Incomplete-day flag (med-0sgs.3) as a toggle row with the
+                         totals it affects; log.js setFoodDayIncomplete. -->
+                    <div class="wg-card__foot wg-food-incomplete">
+                        <span class="wg-setting__body"><span class="wg-setting__title">Tracking incomplete</span><span class="wg-setting__desc">Leave this day out of averages and analysis</span></span>
+                        <label class="wg-toggle"><input type="checkbox" role="switch" id="food-incomplete-toggle" class="wg-toggle__input" aria-label="Tracking incomplete"></label>
+                    </div>
                 </div>
 
-                <div id="food-target-progress" class="food-target-progress hidden"></div>
-
-                <div id="food-list"></div>
+                <div id="food-list" class="wg-food-meals"></div>
             </div>
 
             <div id="food-fooddb-tab" class="food-tab-content">

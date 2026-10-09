@@ -368,7 +368,7 @@ const WANDERGEEK_TOKENS = [
     '--wg-bp-status-grade2-border',
 
     // Food screen tokens (Phase 4, Task 1) — daily macros card, macro bars,
-    // sub-tab strip, day navigator, meal list, edit-food modal.
+    // sub-tab strip, edit-food modal.
     '--wg-food-kcal-display-size',
     '--wg-food-kcal-unit-size',
     '--wg-food-kcal-pct-size',
@@ -376,10 +376,6 @@ const WANDERGEEK_TOKENS = [
     '--wg-food-macro-bar-height',
     '--wg-food-macro-row-cols',
     '--wg-food-macro-row-gap',
-    '--wg-food-day-nav-icon-size',
-    '--wg-food-day-nav-title-size',
-    '--wg-food-meal-header-gap',
-    '--wg-food-item-row-pad',
     '--wg-food-total-kcal-input',
 
     // Edit-food modal tokens (Phase 4, Task 6) — eyebrow size + mono title

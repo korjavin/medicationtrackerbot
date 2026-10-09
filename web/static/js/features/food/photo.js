@@ -227,13 +227,11 @@ async function uploadFoodPhotoFile(file) {
 
     const eatenAt = await resolveFoodPhotoEatenAt(file);
 
-    const photoBtn = document.getElementById('add-food-photo-btn');
-    const originalLabel = photoBtn ? photoBtn.querySelector('.wg-toolbar-btn__label') : null;
-    const restoreLabel = originalLabel ? originalLabel.textContent : 'Photo';
+    // The app-bar camera icon is the in-flight guard: disabled while the
+    // parse runs so a second pick can't duplicate the meal.
+    const photoBtn = document.getElementById('food-photo-btn');
 
     await withSubmit(photoBtn, async () => {
-        if (originalLabel) originalLabel.textContent = 'Analyzing…';
-
         try {
             let items, failed;
             // The photo never leaves the device via /api — it goes straight
@@ -296,8 +294,6 @@ async function uploadFoodPhotoFile(file) {
         } catch (e) {
             console.error('Food photo upload failed:', e);
             safeToast('Failed to log food from photo: ' + (e.message || e), 'error');
-        } finally {
-            if (originalLabel) originalLabel.textContent = restoreLabel;
         }
     });
 }
