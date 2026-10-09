@@ -292,7 +292,7 @@ const WANDERGEEK_TOKENS = [
     // Tab bar shell tokens (Navigation v2, med-xso6.12 — replaced the
     // --wg-bottom-nav-* / --wg-nav-item-* set with the kit .wg-tabbar).
     '--wg-tabbar-reserved',
-    '--wg-call-indicator-z',
+    '--wg-callbar-dock-z',
     '--wg-z-fab',
 
     // Today screen tokens (added in Task 7 alongside .wg-next-action-card,

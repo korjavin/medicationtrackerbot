@@ -54,9 +54,6 @@ const ALLOWLIST = {
         'modal__header-btn': { max: 30, owner: 'med-xso6.17 (Food modal), med-xso6.20 (Meds editor), med-xso6.21 (session + log-set), med-xso6.22 (plan/day/exercise/library/equipment editors) — remaining non-sheet modals after med-xso6.7' },
         'wg-settings-action-btn': { max: 8, owner: 'med-xso6.23 / med-xso6.24 / med-xso6.25 (Settings v2)' },
     },
-    'web/static/js/features/tz-plan-banner.js': {
-        'wg-toolbar-btn': { max: 3, owner: 'med-xso6.14 (tz plan card restyle)' },
-    },
     'web/static/js/features/workout/next-card.js': {
         'wg-toolbar-btn': { max: 4, owner: 'med-xso6.21 (Workout v2)' },
     },

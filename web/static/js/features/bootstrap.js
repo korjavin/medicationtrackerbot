@@ -213,12 +213,6 @@ checkAuth().then(async authorized => {
             try { window.WGIcons.hydrate(document); } catch (e) { console.error('WGIcons.hydrate failed', e); }
         }
 
-        // Mount the persistent call indicator at app-shell level so it
-        // survives tab switches and stays visible during a voice call.
-        if (window.WGCallIndicator && typeof window.WGCallIndicator.mount === 'function') {
-            window.WGCallIndicator.mount(document.body);
-        }
-
         // Restore the last section the user was on (Today by default; deep links below override)
         switchTab(readSavedActiveTab());
 

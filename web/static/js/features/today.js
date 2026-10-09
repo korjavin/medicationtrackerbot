@@ -1401,10 +1401,11 @@
             return root;
         }
 
-        // Call row: Call agent · Log · Doctor brief. The call card is mounted
-        // into the row; mountCard() dedupes within its container and
-        // reattaches live call state to a freshly built card, so a re-render
-        // mid-call keeps "End call".
+        // Call bar (kit .wg-callbar): Call agent · Log · Doctor brief.
+        // mountCard() fills the row with the call trigger and its live
+        // controls and repaints live call state onto the fresh row, so a
+        // re-render mid-call keeps End call; mid-call it docks the row above
+        // the tab bar (Log and Doctor brief hide while live).
         const groups = logSheetGroups(state, h);
         const anyLog = groups.food.length + groups.measure.length > 0;
         const anyFeature = anyLog || on(state && state.nextMed) || on(state && state.nextWorkout);
@@ -1461,14 +1462,14 @@
             root.appendChild(grid);
         }
 
-        // TZ-transition plan card (med-xso6.14 owns its look). Mounts nothing
+        // TZ-transition plan card (kit T2 tz card). Mounts nothing
         // when no plan is in flight.
         if (typeof window !== 'undefined' && window.TZPlanBanner
             && typeof window.TZPlanBanner.mountCard === 'function') {
             window.TZPlanBanner.mountCard(root);
         }
 
-        // Nothing tracked (only the call card, if any) → every feature is off.
+        // Nothing tracked (only the call bar, if any) → every feature is off.
         if (!anyFeature && !goal.node) {
             const empty = typeof createEmptyState === 'function'
                 ? createEmptyState({
