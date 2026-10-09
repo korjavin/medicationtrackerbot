@@ -124,6 +124,7 @@ function calculateFoodCalories(force = false) {
 }
 
 function onFoodPer100gChange() {
+    syncFoodPer100gSeg();
     calculateFoodCalories(true);
 }
 
@@ -264,35 +265,84 @@ function shiftFoodDate(deltaDays) {
     updateFoodDateNav();
 }
 
-function showAddFoodModal() {
-    window.ModalManager.food.open();
-    document.getElementById('food-modal-title').innerText = 'New entry';
+// Add (app bar, Today, empty-day shortcuts) opens the Add sheet (kit F4,
+// features/food/add-sheet.js); opts: { view: 'describe', focusSearch, eatenAt }.
+function showAddFoodModal(opts) {
+    window.FoodLog.addSheet.open(opts);
+}
 
-    document.getElementById('food-datetime').value = formatDateTimeLocalForInput();
+// Values-are segment (kit F8) over the hidden #food-per-100g checkbox the
+// maths reads.
+function setFoodPer100g(on) {
+    const box = document.getElementById('food-per-100g');
+    if (box) box.checked = !!on;
+    syncFoodPer100gSeg();
+}
+
+function syncFoodPer100gSeg() {
+    const box = document.getElementById('food-per-100g');
+    document.querySelectorAll('#food-per-100g-seg .wg-seg__opt').forEach((btn) => {
+        btn.setAttribute('aria-pressed', String(btn.dataset.per100g === String(!!(box && box.checked))));
+    });
+}
+
+// The When chip over the hidden #food-datetime input.
+function syncFoodDatetimeLabel() {
+    const input = document.getElementById('food-datetime');
+    const label = document.getElementById('food-datetime-label');
+    if (!input || !label) return;
+    const d = input.value ? new Date(input.value) : null;
+    if (!d || Number.isNaN(d.getTime())) {
+        label.textContent = 'Pick a time';
+        return;
+    }
+    const day = toISODateLocal(d);
+    const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    label.textContent = `${foodRelativeDay(day) || formatFoodDateSubtitle(day).slice(0, 5)} ${hm}`;
+}
+
+function openFoodDatetimePicker() {
+    const input = document.getElementById('food-datetime');
+    if (!input) return;
+    if (typeof input.showPicker === 'function') {
+        try { input.showPicker(); return; } catch (_) { /* fall through */ }
+    }
+    input.focus();
+    input.click();
+}
+
+// Manual entry (kit F8) — the Add sheet's fallback. prefill: { name,
+// barcode, eatenAt } carried over from the sheet (search text, scanned code).
+function showManualFoodModal(prefill) {
+    const p = prefill || {};
+    window.ModalManager.food.open();
+    document.getElementById('food-modal-title').innerText = 'Manual entry';
+
+    const eatenAt = p.eatenAt instanceof Date && !Number.isNaN(p.eatenAt.getTime()) ? p.eatenAt : new Date();
+    document.getElementById('food-datetime').value = formatDateTimeLocalForInput(eatenAt);
+    syncFoodDatetimeLabel();
 
     document.getElementById('food-id').value = '';
     const pidEl = document.getElementById('food-log-product-id');
     if (pidEl) pidEl.value = '';
     const isMealEl = document.getElementById('food-log-is-meal');
     if (isMealEl) isMealEl.value = '';
-
     const linkContainer = document.getElementById('food-product-link-container');
     if (linkContainer) {
-        linkContainer.innerHTML = '';
+        linkContainer.replaceChildren();
         linkContainer.classList.add('hidden');
     }
 
-    document.getElementById('food-name').value = '';
-    document.getElementById('food-barcode').value = '';
+    document.getElementById('food-name').value = p.name || '';
+    document.getElementById('food-barcode').value = p.barcode || '';
     document.getElementById('food-weight').value = '';
     document.getElementById('food-carbs').value = '';
     document.getElementById('food-protein').value = '';
     document.getElementById('food-fat').value = '';
     document.getElementById('food-calories').value = '';
-    document.getElementById('food-per-100g').checked = true;
-    setFoodParseAIMode(false);
-    const aiCheckboxAdd = document.getElementById('food-parse-ai');
-    if (aiCheckboxAdd) aiCheckboxAdd.disabled = false;
+    setFoodPer100g(true);
+    const more = document.getElementById('food-modal-more');
+    if (more) more.open = !!p.barcode;
     document.getElementById('food-weight').focus();
 
     const cache = window.FoodProducts && window.FoodProducts.cache;
@@ -309,11 +359,6 @@ function editFoodLog(id) {
 
     window.ModalManager.food.open();
     document.getElementById('food-modal-title').innerText = 'Edit entry';
-    // Edits always run through the manual path — the AI parse endpoint
-    // only creates new rows, so AI mode would be a dead-end for edits.
-    setFoodParseAIMode(false);
-    const aiCheckbox = document.getElementById('food-parse-ai');
-    if (aiCheckbox) aiCheckbox.disabled = true;
 
     document.getElementById('food-id').value = log.id;
     const pidEl = document.getElementById('food-log-product-id');
@@ -325,13 +370,13 @@ function editFoodLog(id) {
     document.getElementById('food-weight').value = log.weight || '';
 
     if (log.weight > 0) {
-        document.getElementById('food-per-100g').checked = true;
+        setFoodPer100g(true);
         document.getElementById('food-carbs').value = +((log.carbs / log.weight) * 100).toFixed(1);
         document.getElementById('food-protein').value = +((log.protein / log.weight) * 100).toFixed(1);
         document.getElementById('food-fat').value = +((log.fat / log.weight) * 100).toFixed(1);
         calculateFoodCalories();
     } else {
-        document.getElementById('food-per-100g').checked = false;
+        setFoodPer100g(false);
         document.getElementById('food-carbs').value = log.carbs || '';
         document.getElementById('food-protein').value = log.protein || '';
         document.getElementById('food-fat').value = log.fat || '';
@@ -341,13 +386,14 @@ function editFoodLog(id) {
     if (log.eaten_at) {
         document.getElementById('food-datetime').value = formatDateTimeLocalForInput(log.eaten_at);
     }
+    syncFoodDatetimeLabel();
 
     const linkContainer = document.getElementById('food-product-link-container');
     if (log.product_id) {
         const link = document.createElement('a');
         link.href = '#';
-        link.className = 'food-product-link';
-        link.textContent = '→ View in Products';
+        link.className = 'wg-link food-product-link';
+        link.textContent = 'View in Food DB';
         const productId = log.product_id;
         link.addEventListener('click', (event) => {
             event.preventDefault();
@@ -359,6 +405,8 @@ function editFoodLog(id) {
         linkContainer.replaceChildren();
         linkContainer.classList.add('hidden');
     }
+    const more = document.getElementById('food-modal-more');
+    if (more) more.open = !!(log.barcode || log.product_id);
 
     document.getElementById('food-weight').focus();
 }
@@ -369,13 +417,6 @@ function closeFoodModal() {
 
 async function saveFoodLog() {
     const id = document.getElementById('food-id').value;
-    const aiCheckbox = document.getElementById('food-parse-ai');
-    // AI mode only creates new rows, so it's only valid for "add" — never for
-    // edits. Editing an existing row falls through to the manual update path
-    // regardless of checkbox state.
-    if (!id && aiCheckbox && aiCheckbox.checked) {
-        return saveFoodLogFromDescription();
-    }
 
     const name = document.getElementById('food-name').value;
     const dateStr = document.getElementById('food-datetime').value;
@@ -386,7 +427,7 @@ async function saveFoodLog() {
     }
     const totals = computeFoodTotals();
     if (totals.per100g && totals.weight <= 0) {
-        safeAlert("Please enter weight for per 100g mode, or uncheck it.");
+        safeAlert("Please enter the amount in grams, or switch Values are to total.");
         return;
     }
 
@@ -412,85 +453,89 @@ async function saveFoodLog() {
         payload.product_id = /^\d+$/.test(pidEl.value) ? parseInt(pidEl.value, 10) : pidEl.value;
     }
 
-    const isUpdate = !!id;
-
     const btn = document.getElementById('food-modal-save-btn');
     await withSubmit(btn, async () => {
-        // Optimistic projection on the day caches so the row + Today's
-        // macros tile update before the network round-trip resolves. The
-        // log's eaten_at decides which day caches are affected; we keep
-        // both `food_<date>_v2` (loadFoodLogs's cache) and `food_<date>_day`
-        // (Today's per-day key) in sync because they share the same shape.
-        const localDay = toISODateLocal(new Date(dateStr));
-        const v2Key = `food_${localDay}_v2`;
-        const dayKey = typeof todayFoodKey === 'function'
-            ? todayFoodKey(new Date(dateStr))
-            : `food_${localDay}_day`;
-        // Bot-mode log ids are numeric (server JSON numbers); cloud-mode ids are
-        // string recordIds (`foodlog_…`). Keep numeric strings as numbers so the
-        // `l.id === editingId` match in buildOptimisticFoodCache still hits the
-        // number-typed cache rows, but leave string ids intact — parseInt on a
-        // recordId yields NaN, which never matches and duplicates the edited row.
-        const editingId = isUpdate ? (/^\d+$/.test(id) ? parseInt(id, 10) : id) : null;
-        const localId = `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        const optimisticLog = {
-            id: editingId || localId,
-            name: payload.name,
-            barcode: payload.barcode,
-            weight: payload.weight,
-            carbs: payload.carbs,
-            protein: payload.protein,
-            fat: payload.fat,
-            calories: payload.calories,
-            eaten_at: payload.eaten_at,
-            product_id: payload.product_id || null,
-            isLocal: !isUpdate,
-            pending: true
-        };
-
-        const handles = [];
-        if (window.DataStore && typeof window.DataStore.applyOptimistic === 'function') {
-            const v2Mutator = (prev) => buildOptimisticFoodCache(prev, optimisticLog, editingId, { includeWeekStats: true });
-            const dayMutator = (prev) => buildOptimisticFoodCache(prev, optimisticLog, editingId, { includeWeekStats: false });
-            handles.push(await window.DataStore.applyOptimistic(v2Key, v2Mutator, ['food']));
-            handles.push(await window.DataStore.applyOptimistic(dayKey, dayMutator, ['food']));
-        }
-
-        let res;
-        try {
-            if (isUpdate) {
-                res = await apiCall(`/api/food/log/${id}`, 'PUT', payload);
-            } else {
-                res = await apiCall('/api/food/log', 'POST', payload);
-            }
-        } catch (e) {
-            for (const h of handles) { try { await h.rollback(); } catch (_) { /* best-effort */ } }
-            throw e;
-        }
-
-        if (!res) {
-            for (const h of handles) { try { await h.rollback(); } catch (_) { /* best-effort */ } }
-            return;
-        }
-
-        // POST succeeded — invalidate the `food` tag so the next read fetches
-        // authoritative server data layered on top of the optimistic state.
-        // Use invalidateTags rather than handle.commit because the server
-        // returns only `{ status, id }` for creates, not the full payload.
-        for (const h of handles) {
-            try { await h.commit(null); } catch (_) { /* best-effort */ }
-        }
-        await window.DataStore.invalidateTags(['food', 'gamification']);
-        if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
-            await window.DataStore.clearCached(todayFoodKey(new Date()));
-        }
-        closeFoodModal();
-        loadFoodLogs();
-        if (window.AppStore && window.AppStore.get('currentTab') === 'today'
-            && typeof window.loadToday === 'function') {
-            window.loadToday();
-        }
+        const res = await writeFoodLog(payload, id);
+        if (res) closeFoodModal();
     });
+}
+
+// writeFoodLog — the one food-log write (manual Save, the Add sheet's search
+// pick and Recent re-log): optimistic rows on both day caches keyed by the
+// log's eaten_at (`food_<date>_v2` for loadFoodLogs, `food_<date>_day` for
+// Today), then the POST (or PUT when `id` is set); commit + refresh on
+// success, rollback on failure. Resolves the API result, null when apiCall
+// already reported a failure; rethrows network errors after the rollback.
+async function writeFoodLog(payload, id) {
+    const isUpdate = !!id;
+    const eatenAt = new Date(payload.eaten_at);
+    const localDay = toISODateLocal(eatenAt);
+    const v2Key = `food_${localDay}_v2`;
+    const dayKey = typeof todayFoodKey === 'function'
+        ? todayFoodKey(eatenAt)
+        : `food_${localDay}_day`;
+    // Bot-mode log ids are numeric (server JSON numbers); cloud-mode ids are
+    // string recordIds (`foodlog_…`). Keep numeric strings as numbers so the
+    // `l.id === editingId` match in buildOptimisticFoodCache still hits the
+    // number-typed cache rows, but leave string ids intact — parseInt on a
+    // recordId yields NaN, which never matches and duplicates the edited row.
+    const editingId = isUpdate ? (/^\d+$/.test(id) ? parseInt(id, 10) : id) : null;
+    const localId = `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const optimisticLog = {
+        id: editingId || localId,
+        name: payload.name,
+        barcode: payload.barcode,
+        weight: payload.weight,
+        carbs: payload.carbs,
+        protein: payload.protein,
+        fat: payload.fat,
+        calories: payload.calories,
+        eaten_at: payload.eaten_at,
+        product_id: payload.product_id || null,
+        isLocal: !isUpdate,
+        pending: true
+    };
+
+    const handles = [];
+    if (window.DataStore && typeof window.DataStore.applyOptimistic === 'function') {
+        const v2Mutator = (prev) => buildOptimisticFoodCache(prev, optimisticLog, editingId, { includeWeekStats: true });
+        const dayMutator = (prev) => buildOptimisticFoodCache(prev, optimisticLog, editingId, { includeWeekStats: false });
+        handles.push(await window.DataStore.applyOptimistic(v2Key, v2Mutator, ['food']));
+        handles.push(await window.DataStore.applyOptimistic(dayKey, dayMutator, ['food']));
+    }
+
+    let res;
+    try {
+        if (isUpdate) {
+            res = await apiCall(`/api/food/log/${id}`, 'PUT', payload);
+        } else {
+            res = await apiCall('/api/food/log', 'POST', payload);
+        }
+    } catch (e) {
+        for (const h of handles) { try { await h.rollback(); } catch (_) { /* best-effort */ } }
+        throw e;
+    }
+
+    if (!res) {
+        for (const h of handles) { try { await h.rollback(); } catch (_) { /* best-effort */ } }
+        return null;
+    }
+
+    // The write answers with the log, not the day payload: commit the
+    // optimistic rows, then invalidate `food` so the next read is authoritative.
+    for (const h of handles) {
+        try { await h.commit(null); } catch (_) { /* best-effort */ }
+    }
+    await window.DataStore.invalidateTags(['food', 'gamification']);
+    if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
+        await window.DataStore.clearCached(todayFoodKey(new Date()));
+    }
+    loadFoodLogs();
+    if (window.AppStore && window.AppStore.get('currentTab') === 'today'
+        && typeof window.loadToday === 'function') {
+        window.loadToday();
+    }
+    return res;
 }
 
 // buildOptimisticFoodCache produces the post-mutation `{ groups, weekStats? }`
@@ -562,141 +607,6 @@ function recomputeFoodGroupTotals(group) {
     group.carbs = carbs;
     group.protein = protein;
     group.fat = fat;
-}
-
-// AI-mode toggle (Plan 2026-05-17, Task 4). The checkbox at the top of the
-// food modal swaps the body into "describe your meal" mode: macros / weight /
-// barcode / per-100g / calories fields are CSS-hidden via the
-// `wg-food-modal--ai-mode` class on the modal root, the food-name label
-// reads "Describe your meal", and Save parses via the browser-direct AI
-// path (window.CloudFoodAI) instead of /api/food/log. The shared
-// autocomplete handler short-circuits when the modal is in AI mode so a
-// long meal description doesn't hit the product search.
-function setFoodParseAIMode(on) {
-    const modal = document.getElementById('food-modal');
-    const checkbox = document.getElementById('food-parse-ai');
-    if (!modal) return;
-    const enabled = !!on;
-    modal.classList.toggle('wg-food-modal--ai-mode', enabled);
-    if (checkbox) checkbox.checked = enabled;
-
-    const nameInput = document.getElementById('food-name');
-    if (nameInput && nameInput.dataset.aiPlaceholder !== undefined) {
-        if (!nameInput.dataset.manualPlaceholder) {
-            nameInput.dataset.manualPlaceholder = nameInput.placeholder || '';
-        }
-        nameInput.placeholder = enabled
-            ? nameInput.dataset.aiPlaceholder
-            : nameInput.dataset.manualPlaceholder;
-    }
-
-    if (enabled) {
-        // A pending name- or barcode-search debounce scheduled before the
-        // toggle would still fire ~800ms later and either render stale
-        // autocomplete suggestions or autofill the form (barcode path calls
-        // autofillFoodProduct, which sets #food-log-product-id). Cancel any
-        // in-flight search so the AI mode entry is clean.
-        if (typeof cancelInFlightFoodSearch === 'function') {
-            cancelInFlightFoodSearch();
-        }
-        ['food-weight', 'food-barcode', 'food-carbs', 'food-protein', 'food-fat', 'food-calories'].forEach((id) => {
-            const el = document.getElementById(id);
-            if (el) el.value = '';
-        });
-        // A prior autocomplete selection may have left product_id/is_meal set
-        // and the link chip visible. AI mode discards that linkage entirely —
-        // the resulting logs are free-form parsed items, not bound to the
-        // previously selected product. Without this clear, a user who picks
-        // a product, toggles AI on, edits the description, then toggles back
-        // off would silently submit the stale product_id with the new name.
-        const pidEl = document.getElementById('food-log-product-id');
-        if (pidEl) pidEl.value = '';
-        const isMealEl = document.getElementById('food-log-is-meal');
-        if (isMealEl) isMealEl.value = '';
-        const linkContainer = document.getElementById('food-product-link-container');
-        if (linkContainer) {
-            linkContainer.replaceChildren();
-            linkContainer.classList.add('hidden');
-        }
-        const list = document.getElementById('food-autocomplete-list');
-        if (list) list.classList.add('hidden');
-        const status = document.getElementById('food-search-status');
-        if (status) {
-            status.classList.add('hidden');
-            status.textContent = '';
-        }
-    }
-}
-
-function bindFoodParseAIToggle() {
-    const checkbox = document.getElementById('food-parse-ai');
-    if (!checkbox || checkbox.dataset.bound === '1') return;
-    checkbox.addEventListener('change', () => {
-        setFoodParseAIMode(checkbox.checked);
-    });
-    checkbox.dataset.bound = '1';
-}
-
-async function saveFoodLogFromDescription() {
-    const description = (document.getElementById('food-name').value || '').trim();
-    const dateStr = document.getElementById('food-datetime').value;
-
-    if (!description) {
-        safeAlert('Please describe your meal.');
-        return;
-    }
-    if (!dateStr) {
-        safeAlert('Please enter date.');
-        return;
-    }
-
-    const eatenAt = new Date(dateStr);
-
-    const btn = document.getElementById('food-modal-save-btn');
-    await withSubmit(btn, async () => {
-        let items, failed;
-        // The description never leaves the device via /api — it goes
-        // straight from the browser to the user's own AI provider
-        // (web/domain/foodai.js + web/cloud/js/aiclient.js).
-        // Trial path may refuse with trial_consent_required; the
-        // TrialConsent seam shows the disclosure dialog and reruns the
-        // parse once on Allow (bd med-yor.2 Task 4).
-        const parseDescription = () => window.CloudFoodAI.parseMealFromDescription(description, { eatenAt });
-        let result;
-        try {
-            result = (window.TrialConsent && typeof window.TrialConsent.retryAfterConsent === 'function')
-                ? await window.TrialConsent.retryAfterConsent(parseDescription)
-                : await parseDescription();
-        } catch (e) {
-            console.error('Food AI parse failed:', e);
-            safeToast('Failed to parse meal: ' + (e && e.message ? e.message : e), 'error');
-            return;
-        }
-        items = Array.isArray(result.items) ? result.items : [];
-        failed = Math.max(0, Math.trunc(Number(result.failed) || 0));
-
-        await window.DataStore.invalidateTags(['food', 'gamification']);
-        if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
-            await window.DataStore.clearCached(todayFoodKey(new Date()));
-        }
-        closeFoodModal();
-        loadFoodLogs();
-        if (typeof loadToday === 'function') loadToday();
-
-        if (items.length && typeof showFoodPhotoSummary === 'function'
-            && typeof undoFoodAIItems === 'function') {
-            let summaryHandle;
-            summaryHandle = showFoodPhotoSummary({
-                items,
-                failed,
-                source: 'description',
-                onUndo: () => undoFoodAIItems(items, summaryHandle),
-            });
-        } else if (items.length) {
-            const suffix = failed > 0 ? ` (${failed} failed)` : '';
-            safeToast(`Logged ${items.length} item${items.length === 1 ? '' : 's'}${suffix}.`, 'info');
-        }
-    });
 }
 
 function setFoodStatsPeriod(period) {
@@ -883,10 +793,6 @@ function renderFoodItemRow(log) {
 // Empty day (kit F3): secondary shortcuts to the fast paths; Add in the app
 // bar stays the one primary.
 function renderFoodEmptyDay(dateStr) {
-    const openAdd = () => {
-        showAddFoodModal();
-        return document.getElementById('food-name');
-    };
     const card = document.createElement('div');
     card.className = 'wg-card wg-card--flush';
     card.appendChild(createEmptyState({
@@ -894,18 +800,10 @@ function renderFoodEmptyDay(dateStr) {
         title: foodRelativeDay(dateStr) === 'Today' ? 'No food logged today' : 'No food logged this day',
         body: 'Snap a photo, scan a barcode or just describe the meal. Totals and macros fill in here.',
         actions: [
-            { label: 'Search', icon: 'search', onClick: () => { const n = openAdd(); if (n) n.focus(); } },
-            { label: 'Scan', icon: 'barcode', onClick: () => { openAdd(); openFoodScannerModal(); } },
+            { label: 'Search', icon: 'search', onClick: () => showAddFoodModal({ focusSearch: true }) },
+            { label: 'Scan', icon: 'barcode', onClick: () => { showAddFoodModal(); window.ModalManager.foodScanner.open(); } },
             { label: 'Photo', icon: 'camera', onClick: () => triggerFoodPhotoPicker() },
-            {
-                label: 'Describe',
-                icon: 'sparkle',
-                onClick: () => {
-                    const n = openAdd();
-                    setFoodParseAIMode(true);
-                    if (n) n.focus();
-                },
-            },
+            { label: 'Describe', icon: 'sparkle', onClick: () => showAddFoodModal({ view: 'describe' }) },
         ],
     }));
     return card;
@@ -1516,6 +1414,8 @@ window.FoodLog.openMove = openFoodMoveSheet;
 window.FoodLog.save = saveFoodLog;
 window.FoodLog.delete = deleteFoodLog;
 window.FoodLog.openAdd = showAddFoodModal;
+window.FoodLog.openManual = showManualFoodModal;
+window.FoodLog.write = writeFoodLog;
 window.FoodLog.openEdit = editFoodLog;
 window.FoodLog.close = closeFoodModal;
 window.FoodLog.computeTotals = computeFoodTotals;

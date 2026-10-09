@@ -112,6 +112,19 @@ const ModalManager = {
         }
     },
 
+    // Food Add sheet (features/food/add-sheet.js owns its state).
+    foodAdd: {
+        open() {
+            ModalManager.open('food-add-sheet');
+        },
+        close() {
+            if (typeof closeFoodScannerModal === 'function') {
+                closeFoodScannerModal();
+            }
+            ModalManager.close('food-add-sheet');
+        }
+    },
+
     med: {
         open() {
             ModalManager.open('med-modal');
@@ -268,6 +281,7 @@ const ModalManager = {
             { id: 'weight-modal', fn: () => ModalManager.weight.close() },
             { id: 'note-modal', fn: () => ModalManager.note.close() },
             { id: 'food-modal', fn: () => ModalManager.food.close() },
+            { id: 'food-add-sheet', fn: () => (window.FoodLog && window.FoodLog.addSheet) ? window.FoodLog.addSheet.close() : ModalManager.foodAdd.close() },
             { id: 'workout-group-modal', fn: () => typeof closeWorkoutGroupModal === 'function' ? closeWorkoutGroupModal() : ModalManager.workoutGroup.close() },
             { id: 'workout-scan-modal', fn: () => typeof closeWorkoutScanModal === 'function' ? closeWorkoutScanModal() : ModalManager.workoutScan.close() },
             { id: 'workout-share-modal', fn: () => (window.WorkoutShare && typeof window.WorkoutShare.close === 'function') ? window.WorkoutShare.close() : ModalManager.workoutShare.close() },
