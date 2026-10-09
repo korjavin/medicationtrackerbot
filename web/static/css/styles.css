@@ -9310,7 +9310,7 @@ input.wg-stepper__val::-webkit-inner-spin-button {
     gap: var(--space-sm);
 }
 
-.wg-food-modal__barcode-row > .wg-input {
+.wg-food-modal__barcode-row > input {
     flex: 1;
     min-width: 0;
 }

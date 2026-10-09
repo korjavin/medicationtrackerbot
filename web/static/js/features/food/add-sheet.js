@@ -67,6 +67,12 @@
         return 'Snack';
     }
 
+    // Duck-typed: a Date from another realm (an iframe, the test harness)
+    // fails instanceof.
+    function validDate(d) {
+        return !!d && typeof d.getTime === 'function' && !Number.isNaN(d.getTime()) ? new Date(d.getTime()) : null;
+    }
+
     function when() {
         return st.eatenAt || new Date();
     }
@@ -159,7 +165,7 @@
 
     function open(opts) {
         const o = opts || {};
-        st.eatenAt = o.eatenAt instanceof Date && !Number.isNaN(o.eatenAt.getTime()) ? o.eatenAt : null;
+        st.eatenAt = validDate(o.eatenAt);
         st.picked = null;
         st.results = [];
         st.remoteSearched = false;
@@ -572,7 +578,7 @@
 
     function startPhotoReview(file, eatenAt) {
         if (!isOpen()) open({ eatenAt });
-        else if (eatenAt instanceof Date) st.eatenAt = eatenAt;
+        else if (validDate(eatenAt)) st.eatenAt = validDate(eatenAt);
         return runReview('photo',
             () => window.CloudFoodAI.parseMealFromPhoto(file, { dryRun: true }),
             () => { st.review = null; setView('home'); });

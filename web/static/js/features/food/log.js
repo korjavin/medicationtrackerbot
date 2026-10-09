@@ -335,7 +335,9 @@ function showManualFoodModal(prefill) {
     window.ModalManager.food.open();
     document.getElementById('food-modal-title').innerText = 'Manual entry';
 
-    const eatenAt = p.eatenAt instanceof Date && !Number.isNaN(p.eatenAt.getTime()) ? p.eatenAt : new Date();
+    // Duck-typed so a Date from another realm still counts.
+    const given = p.eatenAt && typeof p.eatenAt.getTime === 'function' ? new Date(p.eatenAt.getTime()) : null;
+    const eatenAt = given && !Number.isNaN(given.getTime()) ? given : new Date();
     resetFoodTimeInput(document.getElementById('food-datetime'));
     document.getElementById('food-datetime').value = formatDateTimeLocalForInput(eatenAt);
     syncFoodDatetimeLabel();
