@@ -512,7 +512,7 @@ function buildOptimisticFoodCache(prev, log, editingId, opts = {}) {
         groups.push(makeOptimisticFoodGroup(log));
     }
 
-    const next = { groups };
+    const next = prev && prev.incomplete === true ? { groups, incomplete: true } : { groups };
     if (opts.includeWeekStats) {
         next.weekStats = prev && prev.weekStats != null ? prev.weekStats : null;
     }
@@ -1216,7 +1216,7 @@ function removeOptimisticFoodLog(prev, logId) {
         recomputeFoodGroupTotals(next);
         groups.push(next);
     }
-    const out = { groups };
+    const out = prev.incomplete === true ? { groups, incomplete: true } : { groups };
     if (Object.prototype.hasOwnProperty.call(prev, 'weekStats')) {
         out.weekStats = prev.weekStats;
     }
@@ -1347,6 +1347,7 @@ async function moveFoodLogs(groupLogs, ids, eatenAt) {
         group.logs = moved.slice();
         recomputeFoodGroupTotals(group);
         const out = { groups: [...((next && next.groups) || []), group] };
+        if (next && next.incomplete === true) out.incomplete = true; // med-0sgs.3: keep the day flag
         if (includeWeekStats || (next && Object.prototype.hasOwnProperty.call(next, 'weekStats'))) {
             out.weekStats = next && next.weekStats != null ? next.weekStats : null;
         }

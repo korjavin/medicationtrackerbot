@@ -564,6 +564,35 @@ describe('food screen — incomplete-day toggle + nudge chip (med-0sgs.3)', () =
         await vi.waitFor(() => expect(badge.classList.contains('hidden')).toBe(true));
     });
 
+    it('adding and deleting a log on a flagged day keeps the flag in the optimistic cache and on screen', async () => {
+        const { window, document } = env;
+        window.safeAlert = vi.fn();
+        window.safeConfirm = async (_msg, cb) => { if (cb) await cb(true); return true; };
+        const video = document.getElementById('food-scanner-video');
+        if (video) { video.pause = vi.fn(); video.srcObject = null; }
+        await logOn(window, today, 1500);
+        await openFood(window, document, today);
+        await window.FoodLog.setDayIncomplete(today, true);
+
+        const projected = [];
+        const realApply = window.DataStore.applyOptimistic.bind(window.DataStore);
+        window.DataStore.applyOptimistic = async (key, mutator, tags) => {
+            if (key === `food_${today}_v2`) projected.push(mutator(await window.DataStore.getCached(key)));
+            return realApply(key, mutator, tags);
+        };
+
+        fillFoodLogForm(document, { name: 'Apple', dateStr: atTime(today, 8, 0), weight: 180, carbs: 25, protein: 0, fat: 0, calories: 95 });
+        await window.FoodLog.save();
+        const apple = (await window.apiCall(`/api/food/log?date=${today}&days=1`))
+            .flatMap((g) => g.logs).find((l) => l.name === 'Apple');
+        await window.FoodLog.delete(apple.id);
+
+        expect(projected.length).toBeGreaterThanOrEqual(2);
+        projected.forEach((row) => expect(row.incomplete).toBe(true));
+        await vi.waitFor(() => expect(document.getElementById('food-incomplete-toggle').checked).toBe(true));
+        expect(document.getElementById('food-incomplete-badge').classList.contains('hidden')).toBe(false);
+    });
+
     it('nudges about an empty yesterday; one tap flags it and the chip goes away', async () => {
         const { window, document } = env;
         await logOn(window, today, 500);
