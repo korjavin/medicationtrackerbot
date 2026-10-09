@@ -57,7 +57,7 @@ async function renderTransferScreen(app, ctx, onExit, { slotId, qrUrl, fallback,
         <dt>Expires in</dt><dd id="transfer-countdown"></dd>
       </dl>
       <p class="wizard-error" id="transfer-error"></p>
-      <button id="transfer-cancel">Cancel</button>
+      <button id="transfer-cancel" class="wg-btn">Cancel</button>
     </section>`;
   // Server-controlled slot id rides in this code — set via textContent, never
   // innerHTML (this page holds the DEK; XSS here reads it).
@@ -140,7 +140,7 @@ async function renderTransferComplete(app, ctx, onExit) {
       <h1>Device added</h1>
       <p id="transfer-complete-detail">Your new device has been enrolled and can now open your vault.</p>
       <p>If you did not expect this, remove it from your device list now.</p>
-      <button id="transfer-done">Back to devices</button>
+      <button id="transfer-done" class="wg-btn wg-btn--primary">Back to devices</button>
     </section>`;
   app.querySelector('#transfer-done').addEventListener('click', onExit);
 
@@ -164,8 +164,8 @@ function renderExpired(app, ctx, onExit) {
       <h1>Transfer code expired</h1>
       <p>That code is no longer valid. Generate a new one if you still want
          to add a device.</p>
-      <button id="transfer-retry">Generate new code</button>
-      <button id="transfer-back">Back</button>
+      <button id="transfer-retry" class="wg-btn wg-btn--primary">Generate new code</button>
+      <button id="transfer-back" class="wg-btn">Back</button>
     </section>`;
   app.querySelector('#transfer-retry').addEventListener('click', () => renderAddDevice(app, ctx, onExit));
   app.querySelector('#transfer-back').addEventListener('click', onExit);
@@ -176,8 +176,8 @@ function renderAddDeviceError(app, ctx, onExit, errorText) {
     <section class="wizard-step">
       <h1>Add a device</h1>
       <p class="wizard-error"></p>
-      <button id="transfer-retry">Try again</button>
-      <button id="transfer-back">Back</button>
+      <button id="transfer-retry" class="wg-btn wg-btn--primary">Try again</button>
+      <button id="transfer-back" class="wg-btn">Back</button>
     </section>`;
   app.querySelector('.wizard-error').textContent = errorText;
   app.querySelector('#transfer-retry').addEventListener('click', () => renderAddDevice(app, ctx, onExit));

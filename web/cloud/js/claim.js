@@ -64,7 +64,7 @@ function renderClaimForm(app, errorText) {
       <p>Type the fallback code shown on your other device (used when this
          device can't scan the QR code).</p>
       <input type="text" id="claim-code-input" placeholder="slot_id.code" autocomplete="off">
-      <button id="claim-code-submit">Continue</button>
+      <button id="claim-code-submit" class="wg-btn wg-btn--primary">Continue</button>
     </section>`;
   // Error text may carry a browser exception message; render via textContent,
   // never interpolated into innerHTML (this page ends up holding the DEK —
@@ -222,8 +222,8 @@ function renderLocalOnlyConsent(app, ctx) {
           <input type="checkbox" id="local-only-ack-checkbox">
           I understand this passkey cannot recover my vault by itself.
         </label>
-        <button id="local-only-continue" disabled>Continue without PRF</button>
-        <button id="local-only-cancel" class="secondary">Back</button>
+        <button id="local-only-continue" class="wg-btn wg-btn--primary" disabled>Continue without PRF</button>
+        <button id="local-only-cancel" class="wg-btn">Back</button>
       </section>`;
     app.querySelector('#local-only-warning').textContent = LOCAL_ONLY_WARNING_COPY;
     const checkbox = app.querySelector('#local-only-ack-checkbox');

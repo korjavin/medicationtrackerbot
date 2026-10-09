@@ -81,9 +81,10 @@ describe('telegram.js onboarding module', () => {
     const onDone = vi.fn();
     await mountTelegram(app, { onDone });
 
-    expect(app.querySelector('#tg-accept')).not.toBeNull();
+    expect(app.querySelector('#tg-accept').className).toBe('wg-btn wg-btn--primary');
     const skip = app.querySelector('#tg-skip');
     expect(skip).not.toBeNull();
+    expect(skip.className).toBe('wg-btn wg-btn--ghost');
 
     skip.dispatchEvent(new dom.window.Event('click'));
     await vi.waitFor(() => {

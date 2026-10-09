@@ -24,7 +24,7 @@ const BYO_DETAILS_HTML = `
              rel="noopener">@BotFather</a> and paste its token:</p>
           <input id="tg-byo-token" type="text" autocomplete="off" class="wg-settings-integrations__input"
                  placeholder="123456:ABC-DEF..." />
-          <button id="tg-byo-submit" class="wg-gloss wg-settings-action-btn">Link this bot</button>
+          <button id="tg-byo-submit" class="wg-btn">Link this bot</button>
         </details>`;
 
 // Cap mirrors TG_PREFS_MAX_CHARS in web/domain/settings.js (the vault
@@ -44,7 +44,7 @@ const TG_PREFS_SECTION_HTML = `
         <textarea id="tg-prefs-note" class="wg-input wg-textarea" maxlength="${TG_PREFS_MAX_CHARS}"
                   placeholder="No glossary yet — the assistant fills this in as you chat."></textarea>
         <div class="wizard-actions wg-settings-row__control">
-          <button id="tg-prefs-save" class="wg-gloss wg-settings-action-btn">Save glossary</button>
+          <button id="tg-prefs-save" class="wg-btn wg-btn--primary">Save glossary</button>
         </div>
         <p id="tg-prefs-result" class="muted wg-settings-section__desc"></p>`;
 
@@ -212,8 +212,8 @@ export async function mountTelegram(container, opts = {}) {
            encrypted at rest. Only the reminder text you choose to send, and the
            messages you type to the bot, cross this channel.</p>
         <div class="wizard-actions">
-          <button id="tg-accept">Set up my bot</button>
-          <button id="tg-skip" class="secondary">Skip</button>
+          <button id="tg-accept" class="wg-btn wg-btn--primary">Set up my bot</button>
+          <button id="tg-skip" class="wg-btn wg-btn--ghost">Skip</button>
         </div>${BYO_DETAILS_HTML}
       </section>`;
 
@@ -265,11 +265,11 @@ export async function mountTelegram(container, opts = {}) {
         <p>Tap below to open Telegram. It pre-fills a new bot named
            <strong>Med Tracker</strong> — <em>keep the suggested bot username</em>
            (<code id="tg-suggested"></code>) so we can link it automatically.</p>
-        <a id="tg-deep-link" class="button wg-gloss wg-gloss--sun wg-settings-action-btn" target="_blank" rel="noopener">Open Telegram to create the bot</a>
+        <a id="tg-deep-link" class="wg-btn wg-btn--primary" target="_blank" rel="noopener">Open Telegram to create the bot</a>
         <p class="muted wg-settings-section__desc">Waiting for the bot to be created…</p>
         <p class="muted wg-settings-section__desc">Didn't finish linking automatically? Paste the bot's
            token below, or start over — no need to wait.</p>${BYO_DETAILS_HTML}
-        <button id="tg-reset" class="secondary wg-gloss wg-settings-action-btn">Start over</button>
+        <button id="tg-reset" class="wg-btn wg-btn--ghost">Start over</button>
       </section>`;
     container.querySelector('#tg-suggested').textContent = suggested || '';
     if (deepLink) container.querySelector('#tg-deep-link').href = deepLink;
@@ -325,7 +325,7 @@ export async function mountTelegram(container, opts = {}) {
         <${h} class="wg-settings-section__title">Open your bot</${h}>
         <p>Your bot is ready. Open it and tap <strong>Start</strong> to connect
            it to your account.</p>
-        <a id="tg-bot-link" class="button wg-gloss wg-gloss--sun wg-settings-action-btn" target="_blank" rel="noopener noreferrer"></a>
+        <a id="tg-bot-link" class="wg-btn wg-btn--primary" target="_blank" rel="noopener noreferrer"></a>
         <p class="muted wg-settings-section__desc">Waiting for you to tap Start…</p>
       </section>`;
     const link = container.querySelector('#tg-bot-link');
@@ -341,14 +341,14 @@ export async function mountTelegram(container, opts = {}) {
         <${h} class="wg-settings-section__title">Telegram connected</${h}>
         <p>Your bot <code id="tg-bot-username"></code> is linked. Send yourself
            a test notification to confirm it works.</p>
-        <a id="tg-open-bot" class="button wg-gloss wg-gloss--sun wg-settings-action-btn" target="_blank" rel="noopener noreferrer">Open your bot in Telegram</a>
+        <a id="tg-open-bot" class="wg-btn" target="_blank" rel="noopener noreferrer">Open your bot in Telegram</a>
         <div class="wizard-actions wg-settings-row__control">
-          <button id="tg-test" class="wg-gloss wg-settings-action-btn">Send test notification</button>
-          <button id="tg-unlink" class="secondary wg-gloss wg-settings-action-btn">Unlink</button>
+          <button id="tg-test" class="wg-btn">Send test notification</button>
+          <button id="tg-unlink" class="wg-btn wg-btn--danger-ghost">Unlink</button>
         </div>
         <p id="tg-test-result" class="muted wg-settings-section__desc"></p>
         <p id="tg-webhook-health" class="muted wg-settings-section__desc" aria-live="polite"></p>
-        ${inWizard ? '<button id="tg-continue" class="wg-gloss wg-gloss--sun wg-settings-save-btn">Continue</button>' : TG_PREFS_SECTION_HTML}
+        ${inWizard ? '<button id="tg-continue" class="wg-btn wg-btn--primary">Continue</button>' : TG_PREFS_SECTION_HTML}
       </section>`;
     container.querySelector('#tg-bot-username').textContent = `@${status.bot_username}`;
 

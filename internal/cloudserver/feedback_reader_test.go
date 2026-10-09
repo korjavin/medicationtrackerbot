@@ -515,6 +515,33 @@ func TestFeedbackReaderPage_ServedOnBaseDomain(t *testing.T) {
 	}
 }
 
+// TestBaseDomain_ServesKitAssetsOnly: the base-domain shell pages link the kit
+// stylesheet and the self-hosted fonts from /static/ (med-xso6.11), so exactly
+// those paths resolve there — the rest of the app tree stays 404.
+func TestBaseDomain_ServesKitAssetsOnly(t *testing.T) {
+	app := testAppFS()
+	for p := range baseDomainStaticAssets {
+		app[strings.TrimPrefix(p, "/static/")] = &fstest.MapFile{Data: []byte(p)}
+	}
+	h := New("localhost", setupStore(t), testFS(), app, testDomainFS(), nil, "", false, false)
+
+	get := func(path string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodGet, path, nil)
+		r.Host = "localhost"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, r)
+		return rec
+	}
+	for _, p := range []string{"/static/css/components.css", "/static/css/fonts.css", "/static/fonts/space-grotesk-latin.woff2"} {
+		if rec := get(p); rec.Code != http.StatusOK || rec.Body.String() != p {
+			t.Errorf("GET %s = %d %q, want 200 with the asset", p, rec.Code, rec.Body.String())
+		}
+	}
+	if rec := get("/static/js/app.js"); rec.Code != http.StatusNotFound {
+		t.Errorf("GET /static/js/app.js on the base domain = %d, want 404", rec.Code)
+	}
+}
+
 // TestFeedbackReaderPage_CSPAllowsBlobMediaOnly: decrypted screenshots and voice
 // memos live only in page memory, so they render from blob: URLs — img-src and
 // media-src must allow that, and nothing a script can execute through may.

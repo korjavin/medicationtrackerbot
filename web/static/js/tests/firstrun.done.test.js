@@ -65,7 +65,8 @@ describe('firstrun done screen', () => {
             const openApp = body.querySelector('[data-firstrun-action="open-app"]');
             expect(openApp).not.toBeNull();
             expect(openApp.textContent).toBe('Open app');
-            expect(openApp.classList.contains('wg-firstrun-btn--primary')).toBe(true);
+            expect(openApp.classList.contains('wg-btn')).toBe(true);
+            expect(openApp.classList.contains('wg-btn--primary')).toBe(true);
 
             // No secondary button on the terminal screen — there is no
             // "back" path and no separate skip; the user only has one

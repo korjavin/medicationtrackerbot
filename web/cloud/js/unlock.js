@@ -54,8 +54,8 @@ function renderLocked(app, errorText) {
     <section class="wizard-step">
       <h1>Med Tracker</h1>
       <p>Unlock this device with your passkey to open your vault.</p>
-      ${carriesSharePlan ? '<p>This link carries a shared workout plan or gym. To add it to your own account, open your app and use Workouts → Plans → Import plan (or Equipment → Import), then paste this link.</p><button id="share-plan-copy-button" type="button">Copy link</button>' : ''}
-      <button id="unlock-button">Unlock with passkey</button>
+      ${carriesSharePlan ? '<p>This link carries a shared workout plan or gym. To add it to your own account, open your app and use Workouts → Plans → Import plan (or Equipment → Import), then paste this link.</p><button id="share-plan-copy-button" class="wg-btn" type="button">Copy link</button>' : ''}
+      <button id="unlock-button" class="wg-btn wg-btn--primary">Unlock with passkey</button>
       <p><a href="/recover">Recover with your Emergency Kit</a></p>
     </section>`;
   // Error text may carry a browser exception message; render via textContent,
@@ -242,10 +242,10 @@ function renderUnlocked(app, ctx) {
       <h1>Vault unlocked</h1>
       <p>Account <code id="account-id"></code></p>
       <p id="sync-status" class="sync-status">Syncing&hellip;</p>
-      <button id="reminders-button">Reminders</button>
-      <button id="devices-button">Devices</button>
-      <button id="connectors-button">Connectors</button>
-      <button id="lock-button">Lock</button>
+      <button id="reminders-button" class="wg-btn">Reminders</button>
+      <button id="devices-button" class="wg-btn">Devices</button>
+      <button id="connectors-button" class="wg-btn">Connectors</button>
+      <button id="lock-button" class="wg-btn">Lock</button>
     </section>`;
   // Server-controlled value — set via textContent, never innerHTML (E2EE
   // threat model treats the server as hostile; XSS here reads the DEK).
@@ -262,6 +262,7 @@ function renderUnlocked(app, ctx) {
           if (!status.authExpired || app.querySelector('#reauth-button')) return;
           const btn = document.createElement('button');
           btn.id = 'reauth-button';
+          btn.className = 'wg-btn wg-btn--primary';
           btn.textContent = 'Re-authenticate';
           btn.addEventListener('click', () => {
             btn.disabled = true;

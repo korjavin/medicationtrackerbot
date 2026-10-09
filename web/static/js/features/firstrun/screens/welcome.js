@@ -24,7 +24,7 @@
 
         const primary = document.createElement('button');
         primary.type = 'button';
-        primary.className = 'wg-firstrun-btn wg-firstrun-btn--primary';
+        primary.className = 'wg-btn wg-btn--primary wg-btn--lg wg-btn--block';
         primary.textContent = 'Get started';
         primary.setAttribute('data-firstrun-action', 'advance');
         primary.addEventListener('click', function () {
@@ -33,7 +33,7 @@
 
         const secondary = document.createElement('button');
         secondary.type = 'button';
-        secondary.className = 'wg-firstrun-btn wg-firstrun-btn--secondary';
+        secondary.className = 'wg-btn wg-btn--ghost wg-btn--lg wg-btn--block';
         secondary.textContent = 'Skip all';
         secondary.setAttribute('data-firstrun-action', 'skip-all');
         secondary.addEventListener('click', function () {
