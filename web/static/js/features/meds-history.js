@@ -213,7 +213,10 @@ function setMedRxMatch(normalizedName, warning) {
 async function checkMedRx(rxcui, knownName) {
     const nameInput = document.getElementById('med-name');
     const name = nameInput.value.trim();
-    if (!name) { setMedRxMatch('', ''); return; }
+    // A committed name change drops the previous drug's match up front, so a
+    // failed lookup never leaves it under the new name.
+    if (!name || !knownName) setMedRxMatch('', '');
+    if (!name) return;
     const params = new URLSearchParams({ name });
     if (rxcui) params.set('rxcui', rxcui);
     if (editingMedId) params.set('exclude_id', String(editingMedId));
