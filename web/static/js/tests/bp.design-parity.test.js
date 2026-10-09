@@ -72,9 +72,7 @@ describe('BP round-2 design parity', () => {
         it('renderRangeSelector with no active prop marks the 14d pill as active', () => {
             const { document, window } = env;
             window.renderRangeSelector({ onChange: () => {} });
-            const active = document.querySelector(
-                '#bp-range-selector .wg-bp-range-selector__track .wg-gloss--sun'
-            );
+            const active = document.querySelector('#bp-range-selector .wg-seg__opt[aria-pressed="true"]');
             expect(active).not.toBeNull();
             expect(active.getAttribute('data-range')).toBe('14');
         });

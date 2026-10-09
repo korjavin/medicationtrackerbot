@@ -249,11 +249,11 @@ describe('renderWeightLogs (Phase 6, Task 5)', () => {
         expect(cta.classList.contains('wg-gloss--sun')).toBe(false);
         expect(cta.classList.contains('wg-weight-add-cta')).toBe(false);
 
-        // The CTA lives inside the .wg-weight-range-selector (BP-style
-        // outer row: gloss-inset track + trailing primary-toolbar button).
+        // The CTA lives inside the .wg-range-row (BP-style outer row:
+        // .wg-seg--sm range strip + trailing primary-toolbar button).
         // The Phase-5 .wg-weight-header-row + #weight-current-card Latest
         // pane were deleted in Round-2 Task 12 (defect #15).
-        const rangeRow = document.querySelector('#weight-view .wg-weight-range-selector');
+        const rangeRow = document.querySelector('#weight-view .wg-range-row');
         expect(rangeRow).not.toBeNull();
         expect(rangeRow.contains(cta)).toBe(true);
         expect(document.querySelector('#weight-view .wg-weight-header-row')).toBeNull();

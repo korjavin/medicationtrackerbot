@@ -607,8 +607,6 @@ ${body}
         Array.from(group.querySelectorAll('[data-days]')).forEach((b) => {
             const on = b === btn;
             b.setAttribute('aria-pressed', on ? 'true' : 'false');
-            b.classList.toggle('wg-settings-segmented__btn--active', on);
-            b.classList.toggle('wg-gloss--sun', on);
         });
     }
 

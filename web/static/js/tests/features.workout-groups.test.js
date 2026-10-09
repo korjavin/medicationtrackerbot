@@ -52,6 +52,17 @@ describe('features/workout/groups.js — split-file integration', () => {
     expect(document.getElementById('workout-group-rotating').checked).toBe(false);
   });
 
+  // med-xso6.10: "Repeats on" is the shared MedicationUtils .wg-picks builder.
+  it('Repeats on renders .wg-picks > .wg-pick (unpicked on Add)', () => {
+    const { window, document } = env;
+    window.showAddWorkoutGroupModal();
+    expect(document.querySelector('#workout-group-modal .days-select')).toBeNull();
+    const picks = document.querySelectorAll('#workout-group-modal .wg-picks > .wg-pick');
+    expect(picks).toHaveLength(7);
+    expect(Array.from(picks).map((p) => p.dataset.day)).toEqual(['1', '2', '3', '4', '5', '6', '0']);
+    picks.forEach((p) => expect(p.getAttribute('aria-pressed')).toBe('false'));
+  });
+
   it('saveWorkoutGroup validates required fields without calling the API', async () => {
     const { window, document } = env;
     const apiCallSpy = vi.fn();

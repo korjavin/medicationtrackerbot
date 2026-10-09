@@ -272,16 +272,17 @@ function renderRangeSelector(opts) {
     const onChange = typeof options.onChange === 'function' ? options.onChange : null;
 
     container.replaceChildren();
-    container.className = 'wg-bp-range-selector';
+    container.className = 'wg-range-row';
 
     const track = document.createElement('div');
-    track.className = 'wg-gloss--inset wg-bp-range-selector__track';
+    track.className = 'wg-seg wg-seg--sm';
+    track.setAttribute('role', 'group');
+    track.setAttribute('aria-label', 'Range');
 
     BP_RANGE_OPTIONS.forEach((days) => {
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'wg-gloss wg-bp-range-selector__btn';
-        if (days === active) btn.classList.add('wg-gloss--sun', 'wg-bp-range-selector__btn--active');
+        btn.className = 'wg-seg__opt';
         btn.setAttribute('data-range', String(days));
         btn.setAttribute('aria-pressed', days === active ? 'true' : 'false');
         btn.textContent = `${days}d`;

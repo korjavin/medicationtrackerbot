@@ -94,10 +94,8 @@ function setFoodMacrosRange(range) {
 function syncFoodMacrosToggleActiveClass() {
     const container = document.getElementById('food-macros-toggle');
     if (!container) return;
-    container.querySelectorAll('.wg-food-macros-card__toggle-btn').forEach((btn) => {
-        const isActive = btn.dataset.range === window.FoodLog.macrosRange;
-        btn.classList.toggle('wg-food-macros-card__toggle-btn--active', isActive);
-        btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    container.querySelectorAll('.wg-seg__opt').forEach((btn) => {
+        btn.setAttribute('aria-pressed', btn.dataset.range === window.FoodLog.macrosRange ? 'true' : 'false');
     });
 }
 
@@ -712,7 +710,6 @@ async function loadFoodLogs() {
     sortButtons.forEach(btn => {
         const isActive = btn.dataset.sort === (window.FoodDB ? window.FoodDB.sort : 'usage');
         btn.classList.toggle('active', isActive);
-        btn.classList.toggle('wg-gloss--sun', isActive);
         btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
     });
 

@@ -1,7 +1,7 @@
 // Wandergeek Workouts sub-tab strip (Phase 7, Task 2).
 //
 // Asserts the rewritten sub-tab strip uses the Wandergeek primitives —
-// `.wg-gloss--inset` container, `.wg-gloss--sun` active pill — persists the
+// kit `.wg-seg` strip, `.wg-seg__opt[aria-pressed]` selection (med-xso6.10) — persists the
 // active sub-tab via the `mt-workouts-subtab` localStorage key, defaults to
 // `history`, and that clicking a sub-tab routes through switchWorkoutTab()
 // to toggle the active-state classes.
@@ -31,11 +31,12 @@ describe('Workouts sub-tab strip (Phase 7, Task 2)', () => {
         env = null;
     });
 
-    it('renders the strip as a .wg-gloss--inset container with five .workout-tab buttons', () => {
+    it('renders the strip as a kit .wg-seg strip with five .workout-tab buttons', () => {
         const { document } = env;
-        const strip = document.querySelector('.wg-workouts-subtabs');
+        const strip = document.querySelector('#workouts-subtabs');
         expect(strip).not.toBeNull();
-        expect(strip.classList.contains('wg-gloss--inset')).toBe(true);
+        expect(strip.classList.contains('wg-seg')).toBe(true);
+        expect(strip.classList.contains('wg-seg--scroll')).toBe(true);
 
         const buttons = strip.querySelectorAll('.workout-tab');
         expect(buttons.length).toBe(5);
@@ -43,43 +44,34 @@ describe('Workouts sub-tab strip (Phase 7, Task 2)', () => {
         expect(tabs).toEqual(['history', 'groups', 'exercises', 'stats', 'equipment']);
 
         buttons.forEach((btn) => {
-            expect(btn.classList.contains('wg-gloss')).toBe(true);
-            expect(btn.classList.contains('wg-workouts-subtabs__btn')).toBe(true);
+            expect(btn.classList.contains('wg-seg__opt')).toBe(true);
         });
     });
 
-    it('defaults to the "history" sub-tab with .wg-gloss--sun active pill', () => {
+    it('defaults to the "history" sub-tab with an aria-pressed selection', () => {
         const { document } = env;
-        const buttons = document.querySelectorAll('.wg-workouts-subtabs .workout-tab');
+        const buttons = document.querySelectorAll('#workouts-subtabs .workout-tab');
         const historyBtn = Array.from(buttons).find((b) => b.dataset.tab === 'history');
         const groupsBtn = Array.from(buttons).find((b) => b.dataset.tab === 'groups');
         const exercisesBtn = Array.from(buttons).find((b) => b.dataset.tab === 'exercises');
         const statsBtn = Array.from(buttons).find((b) => b.dataset.tab === 'stats');
 
-        expect(historyBtn.classList.contains('wg-gloss--sun')).toBe(true);
-        expect(historyBtn.classList.contains('wg-workouts-subtabs__btn--active')).toBe(true);
         expect(historyBtn.getAttribute('aria-pressed')).toBe('true');
 
-        expect(groupsBtn.classList.contains('wg-gloss--sun')).toBe(false);
         expect(groupsBtn.getAttribute('aria-pressed')).toBe('false');
-        expect(exercisesBtn.classList.contains('wg-gloss--sun')).toBe(false);
         expect(exercisesBtn.getAttribute('aria-pressed')).toBe('false');
-        expect(statsBtn.classList.contains('wg-gloss--sun')).toBe(false);
         expect(statsBtn.getAttribute('aria-pressed')).toBe('false');
     });
 
-    it('switchWorkoutTab toggles .wg-gloss--sun across the strip without inline style', () => {
+    it('switchWorkoutTab moves aria-pressed across the strip without inline style', () => {
         const { document, window } = env;
         window.switchWorkoutTab('groups');
 
-        const buttons = document.querySelectorAll('.wg-workouts-subtabs .workout-tab');
+        const buttons = document.querySelectorAll('#workouts-subtabs .workout-tab');
         const historyBtn = Array.from(buttons).find((b) => b.dataset.tab === 'history');
         const groupsBtn = Array.from(buttons).find((b) => b.dataset.tab === 'groups');
 
-        expect(historyBtn.classList.contains('wg-gloss--sun')).toBe(false);
         expect(historyBtn.getAttribute('aria-pressed')).toBe('false');
-        expect(groupsBtn.classList.contains('wg-gloss--sun')).toBe(true);
-        expect(groupsBtn.classList.contains('wg-workouts-subtabs__btn--active')).toBe(true);
         expect(groupsBtn.getAttribute('aria-pressed')).toBe('true');
 
         // No inline style was used to express the active state.
@@ -100,7 +92,6 @@ describe('Workouts sub-tab strip (Phase 7, Task 2)', () => {
         expect(historyContent.classList.contains('active')).toBe(false);
 
         const exercisesBtn = document.querySelector('.workout-tab[data-tab="exercises"]');
-        expect(exercisesBtn.classList.contains('wg-gloss--sun')).toBe(true);
         expect(exercisesBtn.getAttribute('aria-pressed')).toBe('true');
     });
 
@@ -150,10 +141,9 @@ describe('Workouts sub-tab strip (Phase 7, Task 2)', () => {
         window.setActiveWorkoutsSubTab('exercises');
         window.restoreWorkoutsSubTab();
 
-        const buttons = document.querySelectorAll('.wg-workouts-subtabs .workout-tab');
+        const buttons = document.querySelectorAll('#workouts-subtabs .workout-tab');
         const exercisesBtn = Array.from(buttons).find((b) => b.dataset.tab === 'exercises');
-        expect(exercisesBtn.classList.contains('wg-gloss--sun')).toBe(true);
-        expect(exercisesBtn.classList.contains('wg-workouts-subtabs__btn--active')).toBe(true);
+        expect(exercisesBtn.getAttribute('aria-pressed')).toBe('true');
     });
 
     it('switchWorkoutTab activates the equipment panel and persists it', () => {
@@ -168,7 +158,6 @@ describe('Workouts sub-tab strip (Phase 7, Task 2)', () => {
         expect(historyContent.classList.contains('active')).toBe(false);
 
         const equipmentBtn = document.querySelector('.workout-tab[data-tab="equipment"]');
-        expect(equipmentBtn.classList.contains('wg-gloss--sun')).toBe(true);
         expect(equipmentBtn.getAttribute('aria-pressed')).toBe('true');
         expect(window.localStorage.getItem('mt-workouts-subtab')).toBe('equipment');
     });
@@ -182,7 +171,6 @@ describe('Workouts sub-tab strip (Phase 7, Task 2)', () => {
         expect(groupsContent.classList.contains('active')).toBe(true);
 
         const groupsBtn = document.querySelector('.workout-tab[data-tab="groups"]');
-        expect(groupsBtn.classList.contains('wg-gloss--sun')).toBe(true);
         expect(groupsBtn.getAttribute('aria-pressed')).toBe('true');
     });
 });

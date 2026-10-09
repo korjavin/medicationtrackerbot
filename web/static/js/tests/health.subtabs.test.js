@@ -1,7 +1,7 @@
 // Wandergeek Health sub-tab strip (Phase 8, Task 2).
 //
 // Asserts the rewritten sub-tab strip uses the Wandergeek primitives —
-// `.wg-gloss--inset` container, `.wg-gloss--sun` active pill — persists the
+// kit `.wg-seg` strip, `.wg-seg__opt[aria-pressed]` selection (med-xso6.10) — persists the
 // active sub-tab via the `mt-health-subtab` localStorage key, defaults to
 // `overview`, and that clicking a sub-tab routes through switchHealthTab()
 // to toggle the active-state classes.
@@ -27,11 +27,11 @@ describe('Health sub-tab strip (Phase 8, Task 2)', () => {
         env = null;
     });
 
-    it('renders the strip as a .wg-gloss--inset container with two .health-tab buttons', () => {
+    it('renders the strip as a kit .wg-seg strip with two .health-tab buttons', () => {
         const { document } = env;
-        const strip = document.querySelector('.wg-health-subtabs');
+        const strip = document.querySelector('#health-subtabs');
         expect(strip).not.toBeNull();
-        expect(strip.classList.contains('wg-gloss--inset')).toBe(true);
+        expect(strip.classList.contains('wg-seg')).toBe(true);
 
         const buttons = strip.querySelectorAll('.health-tab');
         expect(buttons.length).toBe(2);
@@ -39,37 +39,30 @@ describe('Health sub-tab strip (Phase 8, Task 2)', () => {
         expect(tabs).toEqual(['overview', 'notes']);
 
         buttons.forEach((btn) => {
-            expect(btn.classList.contains('wg-gloss')).toBe(true);
-            expect(btn.classList.contains('wg-health-subtabs__btn')).toBe(true);
+            expect(btn.classList.contains('wg-seg__opt')).toBe(true);
         });
     });
 
-    it('defaults to the "overview" sub-tab with .wg-gloss--sun active pill', () => {
+    it('defaults to the "overview" sub-tab with an aria-pressed selection', () => {
         const { document } = env;
-        const buttons = document.querySelectorAll('.wg-health-subtabs .health-tab');
+        const buttons = document.querySelectorAll('#health-subtabs .health-tab');
         const overviewBtn = Array.from(buttons).find((b) => b.dataset.tab === 'overview');
         const notesBtn = Array.from(buttons).find((b) => b.dataset.tab === 'notes');
 
-        expect(overviewBtn.classList.contains('wg-gloss--sun')).toBe(true);
-        expect(overviewBtn.classList.contains('wg-health-subtabs__btn--active')).toBe(true);
         expect(overviewBtn.getAttribute('aria-pressed')).toBe('true');
 
-        expect(notesBtn.classList.contains('wg-gloss--sun')).toBe(false);
         expect(notesBtn.getAttribute('aria-pressed')).toBe('false');
     });
 
-    it('switchHealthTab toggles .wg-gloss--sun across the strip without inline style', () => {
+    it('switchHealthTab moves aria-pressed across the strip without inline style', () => {
         const { document, window } = env;
         window.switchHealthTab('notes');
 
-        const buttons = document.querySelectorAll('.wg-health-subtabs .health-tab');
+        const buttons = document.querySelectorAll('#health-subtabs .health-tab');
         const overviewBtn = Array.from(buttons).find((b) => b.dataset.tab === 'overview');
         const notesBtn = Array.from(buttons).find((b) => b.dataset.tab === 'notes');
 
-        expect(overviewBtn.classList.contains('wg-gloss--sun')).toBe(false);
         expect(overviewBtn.getAttribute('aria-pressed')).toBe('false');
-        expect(notesBtn.classList.contains('wg-gloss--sun')).toBe(true);
-        expect(notesBtn.classList.contains('wg-health-subtabs__btn--active')).toBe(true);
         expect(notesBtn.getAttribute('aria-pressed')).toBe('true');
 
         // No inline style was used to express the active state.
@@ -90,7 +83,6 @@ describe('Health sub-tab strip (Phase 8, Task 2)', () => {
         expect(overviewContent.classList.contains('active')).toBe(false);
 
         const notesBtn = document.querySelector('.health-tab[data-tab="notes"]');
-        expect(notesBtn.classList.contains('wg-gloss--sun')).toBe(true);
         expect(notesBtn.getAttribute('aria-pressed')).toBe('true');
     });
 
@@ -131,9 +123,8 @@ describe('Health sub-tab strip (Phase 8, Task 2)', () => {
         window.setActiveHealthSubTab('notes');
         window.restoreHealthSubTab();
 
-        const buttons = document.querySelectorAll('.wg-health-subtabs .health-tab');
+        const buttons = document.querySelectorAll('#health-subtabs .health-tab');
         const notesBtn = Array.from(buttons).find((b) => b.dataset.tab === 'notes');
-        expect(notesBtn.classList.contains('wg-gloss--sun')).toBe(true);
-        expect(notesBtn.classList.contains('wg-health-subtabs__btn--active')).toBe(true);
+        expect(notesBtn.getAttribute('aria-pressed')).toBe('true');
     });
 });

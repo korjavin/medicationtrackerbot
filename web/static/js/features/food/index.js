@@ -58,19 +58,7 @@ function renderFoodInlineAddIcon() {
 }
 
 // Food sub-tab strip (med-ejq.3). Same shape as switchMedTab /
-// switchWorkoutTab: TabController owns the pane + `.active` toggling, and a
-// sibling sync paints the gloss pills, mirroring syncMedsSubTabActiveClass.
-function syncFoodSubTabActiveClass(activeTab) {
-    const container = document.querySelector('.wg-food-subtabs');
-    if (!container) return;
-    container.querySelectorAll('.food-tab').forEach((btn) => {
-        const isActive = btn.dataset.tab === activeTab;
-        btn.classList.toggle('wg-gloss--sun', isActive);
-        btn.classList.toggle('wg-food-subtabs__btn--active', isActive);
-        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
-    });
-}
-
+// switchWorkoutTab: TabController owns the pane, `.active` and aria-pressed.
 function switchFoodTab(tab) {
     const activated = window.TabController.activateTabGroup(tab, {
         buttonSelector: '.food-tab',
@@ -79,7 +67,6 @@ function switchFoodTab(tab) {
     });
     if (!activated) return;
 
-    syncFoodSubTabActiveClass(tab);
     if (tab === 'fooddb' && typeof loadFoodDB === 'function') loadFoodDB();
 }
 
@@ -123,11 +110,9 @@ function switchFoodTab(tab) {
                 const target = e.currentTarget;
                 sortBtns.forEach(b => {
                     b.classList.remove('active');
-                    b.classList.remove('wg-gloss--sun');
                     b.setAttribute('aria-pressed', 'false');
                 });
                 target.classList.add('active');
-                target.classList.add('wg-gloss--sun');
                 target.setAttribute('aria-pressed', 'true');
                 window.FoodDB.sort = target.dataset.sort;
                 window.FoodDB.page = 0;
@@ -170,7 +155,7 @@ function switchFoodTab(tab) {
 
         const macrosToggle = document.getElementById('food-macros-toggle');
         if (macrosToggle) {
-            macrosToggle.querySelectorAll('.wg-food-macros-card__toggle-btn').forEach((btn) => {
+            macrosToggle.querySelectorAll('.wg-seg__opt').forEach((btn) => {
                 btn.addEventListener('click', () => setFoodMacrosRange(btn.dataset.range));
             });
         }

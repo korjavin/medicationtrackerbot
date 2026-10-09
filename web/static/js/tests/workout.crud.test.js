@@ -52,8 +52,8 @@ describe('workout.js CRUD flows', () => {
       document.getElementById('workout-group-description').value = 'Cardio';
       document.getElementById('workout-group-time').value = '08:30';
       document.getElementById('workout-group-notification').value = '20';
-      document.querySelector('#workout-group-modal .days-select span[data-day="1"]').classList.add('selected');
-      document.querySelector('#workout-group-modal .days-select span[data-day="3"]').classList.add('selected');
+      document.querySelector('#workout-group-modal .wg-pick[data-day="1"]').click();
+      document.querySelector('#workout-group-modal .wg-pick[data-day="3"]').click();
 
       await window.saveWorkoutGroup();
 

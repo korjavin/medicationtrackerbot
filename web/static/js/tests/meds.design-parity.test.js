@@ -73,9 +73,9 @@ describe('Meds design parity (Round 2, Task 4)', () => {
         const historyBtn = document.querySelector('.med-tab[data-tab="history"]');
         const scheduleBtn = document.querySelector('.med-tab[data-tab="schedule"]');
         const inventoryBtn = document.querySelector('.med-tab[data-tab="inventory"]');
-        expect(historyBtn.classList.contains('wg-meds-subtabs__btn--active')).toBe(true);
-        expect(scheduleBtn.classList.contains('wg-meds-subtabs__btn--active')).toBe(false);
-        expect(inventoryBtn.classList.contains('wg-meds-subtabs__btn--active')).toBe(false);
+        expect(historyBtn.getAttribute('aria-pressed')).toBe('true');
+        expect(scheduleBtn.getAttribute('aria-pressed')).toBe('false');
+        expect(inventoryBtn.getAttribute('aria-pressed')).toBe('false');
     });
 
     it('stale legacy localStorage sub-tab values do not override the history default', () => {

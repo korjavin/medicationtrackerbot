@@ -1,9 +1,9 @@
 // Wandergeek Food → Food DB sub-tab panel (Phase 4 follow-up, Task 5).
 //
 // Asserts the Food DB sub-tab shell uses the Wandergeek primitives —
-// `.wg-food-db-panel` wrapper, `.wg-input` search, `.wg-gloss--inset`
-// sort strip with `.wg-gloss` pills (active pill also wearing
-// `.wg-gloss--sun`), and `.wg-card .wg-food-db-card` product rows. Also
+// `.wg-food-db-panel` wrapper, `.wg-input` search, a kit `.wg-seg--sm`
+// sort strip (selection = aria-pressed, med-xso6.10), and
+// `.wg-card .wg-food-db-card` product rows. Also
 // asserts that loading / empty / error states render the token-driven
 // `.wg-food-db-panel__empty` hint instead of the legacy `.hint` class.
 
@@ -46,19 +46,18 @@ describe('Food → Food DB panel (Phase 4 follow-up, Task 5)', () => {
         expect(search.getAttribute('style')).toBeNull();
     });
 
-    it('sort strip is a .wg-gloss--inset container with three .wg-gloss pills', () => {
+    it('sort strip is a kit .wg-seg--sm with three options', () => {
         const { document } = env;
         const strip = document.querySelector('#food-fooddb-tab .fooddb-sort-controls');
         expect(strip).not.toBeNull();
-        expect(strip.classList.contains('wg-gloss--inset')).toBe(true);
-        expect(strip.classList.contains('wg-food-db-panel__sort')).toBe(true);
+        expect(strip.classList.contains('wg-seg')).toBe(true);
+        expect(strip.classList.contains('wg-seg--sm')).toBe(true);
         expect(strip.getAttribute('style')).toBeNull();
 
         const pills = strip.querySelectorAll('.fooddb-sort-btn');
         expect(pills).toHaveLength(3);
         pills.forEach((btn) => {
-            expect(btn.classList.contains('wg-gloss')).toBe(true);
-            expect(btn.classList.contains('wg-food-db-panel__sort-btn')).toBe(true);
+            expect(btn.classList.contains('wg-seg__opt')).toBe(true);
             // No legacy paper-era button classes.
             expect(btn.classList.contains('btn')).toBe(false);
             expect(btn.classList.contains('btn-secondary')).toBe(false);
@@ -66,23 +65,21 @@ describe('Food → Food DB panel (Phase 4 follow-up, Task 5)', () => {
         });
     });
 
-    it('default active sort pill wears .wg-gloss--sun + aria-pressed=true', () => {
+    it('default active sort option is aria-pressed=true', () => {
         const { document } = env;
         const pills = document.querySelectorAll('#food-fooddb-tab .fooddb-sort-btn');
         const active = Array.from(pills).find((b) => b.classList.contains('active'));
         expect(active).not.toBeUndefined();
         expect(active.dataset.sort).toBe('usage');
-        expect(active.classList.contains('wg-gloss--sun')).toBe(true);
         expect(active.getAttribute('aria-pressed')).toBe('true');
 
         const inactive = Array.from(pills).filter((b) => !b.classList.contains('active'));
         inactive.forEach((btn) => {
-            expect(btn.classList.contains('wg-gloss--sun')).toBe(false);
             expect(btn.getAttribute('aria-pressed')).toBe('false');
         });
     });
 
-    it('clicking a sort pill moves .wg-gloss--sun + aria-pressed to it', () => {
+    it('clicking a sort option moves aria-pressed to it', () => {
         const { window, document } = env;
         // loadFoodDB reaches for apiCall / DataStore; stub to no-op so the
         // click handler can complete without network I/O.
@@ -95,7 +92,6 @@ describe('Food → Food DB panel (Phase 4 follow-up, Task 5)', () => {
         pills.forEach((btn) => {
             const isActive = btn.dataset.sort === 'name';
             expect(btn.classList.contains('active')).toBe(isActive);
-            expect(btn.classList.contains('wg-gloss--sun')).toBe(isActive);
             expect(btn.getAttribute('aria-pressed')).toBe(isActive ? 'true' : 'false');
         });
     });

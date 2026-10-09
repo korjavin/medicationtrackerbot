@@ -128,8 +128,8 @@ describe('Food day-navigator (Phase 4, Task 3)', () => {
         const { document } = env;
         const toggle = document.getElementById('food-macros-toggle');
         expect(toggle).not.toBeNull();
-        expect(toggle.classList.contains('wg-gloss--inset')).toBe(true);
-        const btns = toggle.querySelectorAll('.wg-food-macros-card__toggle-btn');
+        expect(toggle.classList.contains('wg-seg')).toBe(true);
+        const btns = toggle.querySelectorAll('.wg-seg__opt');
         expect(btns).toHaveLength(2);
         expect(btns[0].dataset.range).toBe('day');
         expect(btns[1].dataset.range).toBe('week');
@@ -145,7 +145,7 @@ describe('Food day-navigator (Phase 4, Task 3)', () => {
         expect(document.getElementById('food-meals-tab')).toBeNull();
         expect(document.getElementById('food-save-meal-modal')).toBeNull();
 
-        const strip = document.querySelector('.wg-food-subtabs');
+        const strip = document.querySelector('#food-subtabs.wg-seg');
         expect(strip).not.toBeNull();
         const pills = strip.querySelectorAll('.food-tab');
         expect([...pills].map((b) => b.dataset.tab)).toEqual(['log', 'fooddb']);
@@ -162,14 +162,13 @@ describe('Food day-navigator (Phase 4, Task 3)', () => {
         pills[1].click();
         expect(dbPane.classList.contains('active')).toBe(true);
         expect(logPane.classList.contains('active')).toBe(false);
-        expect(pills[1].classList.contains('wg-food-subtabs__btn--active')).toBe(true);
         expect(pills[1].getAttribute('aria-pressed')).toBe('true');
         expect(loads).toBe(1);
 
         pills[0].click();
         expect(logPane.classList.contains('active')).toBe(true);
         expect(dbPane.classList.contains('active')).toBe(false);
-        expect(pills[0].classList.contains('wg-gloss--sun')).toBe(true);
+        expect(pills[0].getAttribute('aria-pressed')).toBe('true');
         expect(pills[1].getAttribute('aria-pressed')).toBe('false');
     });
 

@@ -2,8 +2,8 @@
 //
 // Asserts the rewritten stats layout:
 //   • `.wg-workouts-stats` container
-//   • `.wg-gloss--inset` range selector with 7d / 30d / 90d / All pills
-//     — active state via `.wg-gloss--sun`, persisted to the
+//   • kit `.wg-seg` range selector with 7d / 30d / 90d / All options
+//     — selection via aria-pressed, persisted to the
 //     `mt-workouts-stats-range` localStorage key
 //   • `.wg-workouts-stats__calendar` day grid replaces the sessions-per-week
 //     line in the Consistency view (med-zte); `.wg-workouts-stats__chart-panel`
@@ -82,39 +82,37 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
         expect(root).not.toBeNull();
     });
 
-    it('renders the range selector as a .wg-gloss--inset strip with four pills', () => {
+    it('renders the range selector as a kit .wg-seg--sm strip with four options', () => {
         const { document, window } = env;
         const container = document.getElementById('workout-stats-display');
         window._renderWorkoutStats(container, populatedStats());
 
         const strip = container.querySelector('.wg-workouts-stats__range');
         expect(strip).not.toBeNull();
-        expect(strip.classList.contains('wg-gloss--inset')).toBe(true);
+        expect(strip.classList.contains('wg-seg')).toBe(true);
 
-        const buttons = strip.querySelectorAll('.wg-workouts-stats__range-btn');
+        const buttons = strip.querySelectorAll('.wg-workouts-stats__range .wg-seg__opt');
         expect(buttons.length).toBe(4);
         const ranges = Array.from(buttons).map((b) => b.dataset.range);
         expect(ranges).toEqual(['7d', '30d', '90d', 'all']);
 
         buttons.forEach((btn) => {
-            expect(btn.classList.contains('wg-gloss')).toBe(true);
+            expect(btn.classList.contains('wg-seg__opt')).toBe(true);
         });
     });
 
-    it('defaults to the "all" range with sun active pill', () => {
+    it('defaults to the "all" range with an aria-pressed selection', () => {
         const { document, window } = env;
         const container = document.getElementById('workout-stats-display');
         window.localStorage.removeItem('mt-workouts-stats-range');
         window._renderWorkoutStats(container, populatedStats());
 
-        const buttons = container.querySelectorAll('.wg-workouts-stats__range-btn');
+        const buttons = container.querySelectorAll('.wg-workouts-stats__range .wg-seg__opt');
         const allBtn = Array.from(buttons).find((b) => b.dataset.range === 'all');
-        expect(allBtn.classList.contains('wg-gloss--sun')).toBe(true);
         expect(allBtn.getAttribute('aria-pressed')).toBe('true');
 
         const otherBtns = Array.from(buttons).filter((b) => b.dataset.range !== 'all');
         otherBtns.forEach((btn) => {
-            expect(btn.classList.contains('wg-gloss--sun')).toBe(false);
             expect(btn.getAttribute('aria-pressed')).toBe('false');
         });
     });
@@ -125,8 +123,8 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
         window.localStorage.setItem('mt-workouts-stats-range', '30d');
         window._renderWorkoutStats(container, populatedStats());
 
-        const buttons = container.querySelectorAll('.wg-workouts-stats__range-btn');
-        const activeBtn = Array.from(buttons).find((b) => b.classList.contains('wg-gloss--sun'));
+        const buttons = container.querySelectorAll('.wg-workouts-stats__range .wg-seg__opt');
+        const activeBtn = Array.from(buttons).find((b) => b.getAttribute('aria-pressed') === 'true');
         expect(activeBtn).not.toBeNull();
         expect(activeBtn.dataset.range).toBe('30d');
     });
@@ -140,15 +138,15 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
         window.loadWorkoutStatsTab = () => { reloads++; return Promise.resolve(); };
         window._renderWorkoutStats(container, populatedStats({ weeks: 12 }));
 
-        const buttons = container.querySelectorAll('.wg-workouts-stats__range-btn');
+        const buttons = container.querySelectorAll('.wg-workouts-stats__range .wg-seg__opt');
         const sevenBtn = Array.from(buttons).find((b) => b.dataset.range === '7d');
         sevenBtn.click();
 
         expect(window.localStorage.getItem('mt-workouts-stats-range')).toBe('7d');
         // Active class should have moved.
-        expect(sevenBtn.classList.contains('wg-gloss--sun')).toBe(true);
+        expect(sevenBtn.getAttribute('aria-pressed')).toBe('true');
         const allBtn = Array.from(buttons).find((b) => b.dataset.range === 'all');
-        expect(allBtn.classList.contains('wg-gloss--sun')).toBe(false);
+        expect(allBtn.getAttribute('aria-pressed')).toBe('false');
 
         // The calendar reflects the new range, and 7d spans at most two week
         // columns (today's week plus whatever spilled into the previous one).
@@ -550,7 +548,7 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
         }
 
         function pills(container) {
-            return Array.from(container.querySelectorAll('.wg-workouts-stats__view-btn'));
+            return Array.from(container.querySelectorAll('.wg-workouts-stats__view .wg-seg__opt'));
         }
 
         function clickView(container, view) {
@@ -576,7 +574,7 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
 
             const strip = container.querySelector('.wg-workouts-stats__view');
             expect(strip).not.toBeNull();
-            expect(strip.classList.contains('wg-gloss--inset')).toBe(true);
+            expect(strip.classList.contains('wg-seg')).toBe(true);
             expect(pills(container).map((b) => b.dataset.view)).toEqual(['consistency', 'load', 'balance']);
 
             // The view strip precedes the range strip in the DOM.
@@ -584,7 +582,7 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
             expect(root.children[0].classList.contains('wg-workouts-stats__view')).toBe(true);
             expect(root.children[1].classList.contains('wg-workouts-stats__range')).toBe(true);
 
-            const active = pills(container).find((b) => b.classList.contains('wg-gloss--sun'));
+            const active = pills(container).find((b) => b.getAttribute('aria-pressed') === 'true');
             expect(active.dataset.view).toBe('consistency');
             expect(active.getAttribute('aria-pressed')).toBe('true');
             // Consistency is today's screen: the Streak tile is still first.
@@ -618,7 +616,7 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
             expect(window.getActiveWorkoutsStatsView()).toBe('load');
 
             window._renderWorkoutStats(container, loadStats());
-            const active = pills(container).find((b) => b.classList.contains('wg-gloss--sun'));
+            const active = pills(container).find((b) => b.getAttribute('aria-pressed') === 'true');
             expect(active.dataset.view).toBe('load');
         });
 

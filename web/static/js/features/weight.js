@@ -29,9 +29,8 @@ function setActiveWeightRange(range) {
 
 // Range selector row. Round-2 Task 12 (defect #15): the top "Latest" pane was
 // deleted and `#add-weight-btn` moved inline next to the 7d/30d/90d/All pills
-// — mirrors BP's buildBPInlineAddButton pattern. The outer container is a
-// plain flex row; the inset gloss wraps only the range-pill track so the
-// trailing primary-toolbar button sits on the stage.
+// — mirrors BP's buildBPInlineAddButton pattern. `.wg-range-row` holds the
+// kit .wg-seg--sm range strip plus the trailing primary-toolbar button.
 function renderWeightRangeSelector(opts) {
     const container = document.getElementById('weight-range-selector');
     if (!container) return;
@@ -42,16 +41,17 @@ function renderWeightRangeSelector(opts) {
     const onChange = typeof options.onChange === 'function' ? options.onChange : null;
 
     container.replaceChildren();
-    container.className = 'wg-weight-range-selector';
+    container.className = 'wg-range-row';
 
     const track = document.createElement('div');
-    track.className = 'wg-gloss--inset wg-weight-range-selector__track';
+    track.className = 'wg-seg wg-seg--sm';
+    track.setAttribute('role', 'group');
+    track.setAttribute('aria-label', 'Range');
 
     WEIGHT_RANGE_OPTIONS.forEach((range) => {
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'wg-gloss wg-weight-range-selector__btn';
-        if (range === active) btn.classList.add('wg-gloss--sun', 'wg-weight-range-selector__btn--active');
+        btn.className = 'wg-seg__opt';
         btn.setAttribute('data-range', range);
         btn.setAttribute('aria-pressed', range === active ? 'true' : 'false');
         btn.textContent = range === 'all' ? 'All' : range;

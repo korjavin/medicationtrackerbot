@@ -21,20 +21,8 @@ function setActiveHealthSubTab(tab) {
     try { window.localStorage.setItem(HEALTH_SUBTAB_STORAGE_KEY, tab); } catch (_) { /* ignore */ }
 }
 
-function syncHealthSubTabActiveClass(activeTab) {
-    const container = document.querySelector('.wg-health-subtabs');
-    if (!container) return;
-    const buttons = container.querySelectorAll('.health-tab');
-    buttons.forEach((btn) => {
-        const isActive = btn.dataset.tab === activeTab;
-        btn.classList.toggle('wg-gloss--sun', isActive);
-        btn.classList.toggle('wg-health-subtabs__btn--active', isActive);
-        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
-    });
-}
-
 function restoreHealthSubTab() {
-    syncHealthSubTabActiveClass(getActiveHealthSubTab());
+    window.TabController.syncPressed('.health-tab', getActiveHealthSubTab());
 }
 
 if (document.readyState === 'loading') {
@@ -73,13 +61,14 @@ function renderHealthRangeSelector(opts) {
 
     const container = document.createElement('div');
     container.id = 'health-range-selector';
-    container.className = 'wg-gloss--inset wg-health-range-selector';
+    container.className = 'wg-seg wg-seg--sm wg-subnav';
+    container.setAttribute('role', 'group');
+    container.setAttribute('aria-label', 'Range');
 
     HEALTH_RANGE_OPTIONS.forEach((range) => {
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'wg-gloss wg-health-range-selector__btn';
-        if (range === active) btn.classList.add('wg-gloss--sun', 'wg-health-range-selector__btn--active');
+        btn.className = 'wg-seg__opt';
         btn.setAttribute('data-range', range);
         btn.setAttribute('aria-pressed', range === active ? 'true' : 'false');
         btn.textContent = range;

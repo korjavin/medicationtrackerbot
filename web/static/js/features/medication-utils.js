@@ -11,6 +11,7 @@
 //   - MedicationUtils.getNextScheduledDate(schedule, now?)
 //   - MedicationUtils.getMedicationScheduleText(med, schedule)
 //   - MedicationUtils.getLastTakenTimeMs(medication)
+//   - MedicationUtils.renderDayPicks / setPickedDays / getPickedDays(container)
 //
 // Backwards-compat: the four functions remain available as bare
 // window.parseMedicationSchedule / window.getNextScheduledDate /
@@ -105,11 +106,54 @@ window.MedicationUtils = (function () {
         return medication.last_taken_at ? new Date(medication.last_taken_at).getTime() : 0;
     }
 
+    // Weekday picker (kit .wg-picks > .wg-pick[aria-pressed]) — the one
+    // builder behind the Med editor "Days" and the Plan editor "Repeats on"
+    // rows (med-xso6.10). Markup ships an empty `.wg-picks[data-day-picks]`;
+    // the buttons are built on first touch. data-day is the JS weekday
+    // (0 = Sun), which is what both schedules persist.
+    const WEEKDAY_PICKS = [[1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri'], [6, 'Sat'], [0, 'Sun']];
+
+    function renderDayPicks(container) {
+        if (!container || container.querySelector('.wg-pick')) return container;
+        WEEKDAY_PICKS.forEach(([day, label]) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'wg-pick';
+            btn.dataset.day = String(day);
+            btn.setAttribute('aria-pressed', 'false');
+            btn.textContent = label;
+            btn.addEventListener('click', () => {
+                btn.setAttribute('aria-pressed', btn.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
+            });
+            container.appendChild(btn);
+        });
+        return container;
+    }
+
+    function setPickedDays(container, days) {
+        const picked = (days || []).map(Number);
+        if (!renderDayPicks(container)) return;
+        container.querySelectorAll('.wg-pick').forEach((btn) => {
+            btn.setAttribute('aria-pressed', picked.includes(Number(btn.dataset.day)) ? 'true' : 'false');
+        });
+    }
+
+    function getPickedDays(container) {
+        if (!renderDayPicks(container)) return [];
+        return Array.from(container.querySelectorAll('.wg-pick[aria-pressed="true"]'))
+            .map((btn) => parseInt(btn.dataset.day, 10));
+    }
+
+    document.querySelectorAll('.wg-picks[data-day-picks]').forEach(renderDayPicks);
+
     return {
         parseMedicationSchedule,
         getNextScheduledDate,
         getMedicationScheduleText,
         getLastTakenTimeMs,
+        renderDayPicks,
+        setPickedDays,
+        getPickedDays,
     };
 })();
 

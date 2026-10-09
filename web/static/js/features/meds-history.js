@@ -71,7 +71,7 @@ function showAddModal() {
     addTimeInput(); // One empty input
 
     // Clear days
-    document.querySelectorAll('#days-container .days-select span').forEach(s => s.classList.remove('selected'));
+    window.MedicationUtils.setPickedDays(document.querySelector('#days-container .wg-picks'), []);
 }
 
 function setMedModalHeader(eyebrow, title) {
@@ -119,10 +119,6 @@ function setScheduleType(type) {
     if (!select) return;
     if (select.value !== type) select.value = type;
     toggleScheduleFields();
-}
-
-function toggleDay(el) {
-    el.classList.toggle('selected');
 }
 
 function toggleInventoryFields() {
@@ -927,7 +923,6 @@ window.MedsHistory = {
     closeModal,
     toggleScheduleFields,
     setScheduleType,
-    toggleDay,
     toggleInventoryFields,
     loadRestockHistory,
     handleRestock,

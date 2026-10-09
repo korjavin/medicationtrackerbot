@@ -122,7 +122,6 @@ function setExerciseLibrarySource(source) {
     document.querySelectorAll('#exercise-library-source [data-source]').forEach((btn) => {
         const active = btn.dataset.source === _librarySource;
         btn.setAttribute('aria-pressed', active ? 'true' : 'false');
-        btn.classList.toggle('wg-gloss--sun', active);
     });
     return _repaintExerciseLibrary();
 }

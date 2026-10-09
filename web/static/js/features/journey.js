@@ -349,7 +349,7 @@
             next.paused = false;
         }
         // A weigh-in pick IS the reminder's cadence: weigh_in_current follows
-        // it, so the select repaints to it and later edits never revert it.
+        // it, so the segment repaints to it and later edits never revert it.
         const weighIn = body.cadence && body.cadence.weigh_in;
         const options = weighIn ? { ...(prev.options || {}), weigh_in_current: weighIn } : prev.options;
         return { ...prev, plan: next, options };
@@ -389,25 +389,36 @@
         return res;
     }
 
-    function cadenceSelect(label, key, options, value) {
-        const wrap = el('label', 'wg-journey-weekly__cadence-field');
+    // Kit .wg-seg--sm (no native <select>, med-xso6.10). A tap on a new
+    // option moves aria-pressed and fires onPick; the pressed option's
+    // data-value is what readCadence sends.
+    function cadenceSeg(label, key, options, value, onPick) {
+        const wrap = el('div', 'wg-journey-weekly__cadence-field');
         wrap.appendChild(el('span', 'wg-muted', label));
-        const select = el('select', 'wg-input wg-select');
-        select.setAttribute('data-cadence', key);
+        const seg = el('div', 'wg-seg wg-seg--sm wg-seg--scroll');
+        seg.setAttribute('role', 'group');
+        seg.setAttribute('aria-label', label);
+        seg.setAttribute('data-cadence', key);
         options.forEach(([v, text]) => {
-            const opt = el('option', null, text);
-            opt.value = v;
-            if (v === value) opt.selected = true;
-            select.appendChild(opt);
+            const opt = el('button', 'wg-seg__opt', text);
+            opt.type = 'button';
+            opt.setAttribute('data-value', v);
+            opt.setAttribute('aria-pressed', v === value ? 'true' : 'false');
+            opt.addEventListener('click', () => {
+                if (opt.getAttribute('aria-pressed') === 'true') return;
+                seg.querySelectorAll('.wg-seg__opt').forEach((b) => b.setAttribute('aria-pressed', b === opt ? 'true' : 'false'));
+                onPick();
+            });
+            seg.appendChild(opt);
         });
-        wrap.appendChild(select);
+        wrap.appendChild(seg);
         return wrap;
     }
 
     // Kit J2: the plan is a single-select .wg-choices list with ONE commit.
     // Tapping a choice only selects it; "Set … plan" writes it (through
     // saveWeekPlan → DataStore.applyOptimistic). Pause is the ghost action
-    // beside it. The cadence selects keep writing on change.
+    // beside it. The cadence segments keep writing on tap.
     function renderWeekPlan(wr) {
         const opts = wr.options || {};
         const plan = wr.plan;
@@ -452,7 +463,7 @@
         });
         section.appendChild(choices);
 
-        // weigh_in goes out only from its own select (it sets the reminder).
+        // weigh_in goes out only from its own segment (it sets the reminder).
         const pickBody = (choice) => {
             const { weigh_in: _w, ...cadence } = readCadence(section);
             return { choice, cadence };
@@ -481,31 +492,29 @@
 
         const cad = (plan && plan.cadence) || {};
         const cadence = el('div', 'wg-journey-weekly__cadence');
+        // A cadence change alone keeps the week's pick (no `choice`).
+        const onCadence = () => { saveWeekPlan({ cadence: readCadence(section) }, wr.plan_scope); };
         if (Array.isArray(opts.weigh_in) && opts.weigh_in.length) {
-            cadence.appendChild(cadenceSelect('Weigh-in', 'weigh_in',
-                opts.weigh_in.map((v) => [v, v === 'daily' ? 'Daily' : 'Weekly']), opts.weigh_in_current || cad.weigh_in || 'weekly'));
+            cadence.appendChild(cadenceSeg('Weigh-in', 'weigh_in',
+                opts.weigh_in.map((v) => [v, v === 'daily' ? 'Daily' : 'Weekly']), opts.weigh_in_current || cad.weigh_in || 'weekly', onCadence));
         }
         const bpMax = Number(opts.bp_days_max) || 0;
         if (bpMax > 0) {
-            const days = [['', '—']];
-            for (let d = 1; d <= bpMax; d++) days.push([String(d), `${d} day${d === 1 ? '' : 's'}`]);
-            cadence.appendChild(cadenceSelect('BP', 'bp_days', days,
-                Number.isInteger(cad.bp_days) && cad.bp_days > 0 ? String(cad.bp_days) : ''));
+            const days = [['', 'Off']];
+            for (let d = 1; d <= bpMax; d++) days.push([String(d), String(d)]);
+            cadence.appendChild(cadenceSeg('BP days', 'bp_days', days,
+                Number.isInteger(cad.bp_days) && cad.bp_days > 0 ? String(cad.bp_days) : '', onCadence));
         }
-        // A cadence change alone keeps the week's pick (no `choice`).
-        cadence.querySelectorAll('select').forEach((sel) => {
-            sel.addEventListener('change', () => { saveWeekPlan({ cadence: readCadence(section) }, wr.plan_scope); });
-        });
         if (cadence.childNodes.length) section.appendChild(cadence);
         return section;
     }
 
     function readCadence(section) {
         const out = {};
-        const w = section.querySelector('select[data-cadence="weigh_in"]');
-        if (w) out.weigh_in = w.value;
-        const b = section.querySelector('select[data-cadence="bp_days"]');
-        if (b) out.bp_days = b.value === '' ? null : Number(b.value);
+        const w = section.querySelector('[data-cadence="weigh_in"] [aria-pressed="true"]');
+        if (w) out.weigh_in = w.dataset.value;
+        const b = section.querySelector('[data-cadence="bp_days"] [aria-pressed="true"]');
+        if (b) out.bp_days = b.dataset.value === '' ? null : Number(b.dataset.value);
         return out;
     }
 

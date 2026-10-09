@@ -181,11 +181,11 @@ describe('workout.js loaders and next-card behavior', () => {
       document.getElementById('add-workout-group-btn').click();
       expect(groupModal.classList.contains('hidden')).toBe(false);
 
-      const monday = document.querySelector('#workout-group-modal .days-select span[data-day="1"]');
+      const monday = document.querySelector('#workout-group-modal .wg-picks > .wg-pick[data-day="1"]');
       monday.click();
-      expect(monday.classList.contains('selected')).toBe(true);
+      expect(monday.getAttribute('aria-pressed')).toBe('true');
       monday.click();
-      expect(monday.classList.contains('selected')).toBe(false);
+      expect(monday.getAttribute('aria-pressed')).toBe('false');
 
       document.getElementById('workout-group-cancel-btn').click();
       expect(groupModal.classList.contains('hidden')).toBe(true);

@@ -589,8 +589,10 @@ describe('Journey render', () => {
         expect(plan.querySelector('[data-choice="pause"]').className).toContain('wg-btn--ghost');
         expect(plan.querySelector('[data-choice="keep"]')).toBeNull();
         expect(plan.querySelector('.btn')).toBeNull();
-        expect(plan.querySelector('select[data-cadence="weigh_in"]').value).toBe('daily');
-        expect(plan.querySelector('select[data-cadence="bp_days"]').value).toBe('3');
+        // med-xso6.10: cadence controls are kit .wg-seg strips, not <select>s.
+        expect(plan.querySelector('select')).toBeNull();
+        expect(plan.querySelector('.wg-seg[data-cadence="weigh_in"] .wg-seg__opt[aria-pressed="true"]').dataset.value).toBe('daily');
+        expect(plan.querySelector('.wg-seg[data-cadence="bp_days"] .wg-seg__opt[aria-pressed="true"]').dataset.value).toBe('3');
         expect(plan.querySelector('.wg-journey-weekly__scope').textContent).toBe('Plan for this week');
     });
 
@@ -653,7 +655,7 @@ describe('Journey render', () => {
         expect(plan.querySelector('.wg-btn--primary').textContent).toBe('Set next week’s plan');
         expect(plan.querySelector('.wg-journey-weekly__current').textContent).toBe('No pick yet — choose one for next week.');
         expect(plan.querySelector('[data-choice="pause"]').textContent).toBe('Pause next week');
-        expect(plan.querySelector('select[data-cadence="weigh_in"]').value).toBe('daily');
+        expect(plan.querySelector('[data-cadence="weigh_in"] [aria-pressed="true"]').dataset.value).toBe('daily');
     });
 
     // The cached Today Goal Line the pick may patch (med-8tur.4 send-back).
@@ -696,7 +698,6 @@ describe('Journey render', () => {
         const w = stubWrite(env, { ok: true, plan: serverPlan });
         env.window.Gamification.render(journey({ weekly_review: WEEKLY }));
         const plan = env.document.querySelector('.wg-journey-weekly__plan');
-        plan.querySelector('select[data-cadence="weigh_in"]').value = 'daily';
         plan.querySelector('[data-choice="weigh_before_coffee"]').click();
         await flush();
         expect(w.posted).toEqual([]);
@@ -725,9 +726,7 @@ describe('Journey render', () => {
     it('a cadence change alone keeps the pick (no choice in the body)', async () => {
         const w = stubWrite(env, { ok: true, plan: { week: '2026-W26', intention: null, cadence: { weigh_in: 'weekly', bp_days: 2 }, paused: false } });
         env.window.Gamification.render(journey({ weekly_review: WEEKLY }));
-        const sel = env.document.querySelector('select[data-cadence="bp_days"]');
-        sel.value = '2';
-        sel.dispatchEvent(new env.window.Event('change'));
+        env.document.querySelector('[data-cadence="bp_days"] [data-value="2"]').click();
         await flush(); await flush();
         expect(w.posted[0].body).toEqual({ cadence: { weigh_in: 'weekly', bp_days: 2 } });
     });
@@ -739,19 +738,15 @@ describe('Journey render', () => {
         const serverPlan = { week: '2026-W26', intention: null, cadence: { weigh_in: 'daily', bp_days: null }, paused: false };
         const w = stubWrite(env, { ok: true, plan: serverPlan });
         env.window.Gamification.render(journey({ weekly_review: WEEKLY }));
-        const sel = env.document.querySelector('select[data-cadence="weigh_in"]');
-        sel.value = 'daily';
-        sel.dispatchEvent(new env.window.Event('change'));
+        env.document.querySelector('[data-cadence="weigh_in"] [data-value="daily"]').click();
         await flush(); await flush();
         expect(w.projected().options.weigh_in_current).toBe('daily');
         const committed = w.handle.commit.mock.calls[0][0];
         expect(committed.options.weigh_in_current).toBe('daily');
 
         env.window.Gamification.render(journey({ weekly_review: committed }));
-        expect(env.document.querySelector('select[data-cadence="weigh_in"]').value).toBe('daily');
-        const bp = env.document.querySelector('select[data-cadence="bp_days"]');
-        bp.value = '2';
-        bp.dispatchEvent(new env.window.Event('change'));
+        expect(env.document.querySelector('[data-cadence="weigh_in"] [aria-pressed="true"]').dataset.value).toBe('daily');
+        env.document.querySelector('[data-cadence="bp_days"] [data-value="2"]').click();
         await flush(); await flush();
         expect(w.posted[1].body.cadence.weigh_in).toBe('daily');
     });

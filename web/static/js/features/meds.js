@@ -32,20 +32,8 @@ function setActiveMedsSubTab(tab) {
 
 try { window.localStorage.removeItem(MEDS_SUBTAB_STORAGE_KEY); } catch (_) { /* ignore */ }
 
-function syncMedsSubTabActiveClass(activeTab) {
-    const container = document.querySelector('.wg-meds-subtabs');
-    if (!container) return;
-    const buttons = container.querySelectorAll('.med-tab');
-    buttons.forEach((btn) => {
-        const isActive = btn.dataset.tab === activeTab;
-        btn.classList.toggle('wg-gloss--sun', isActive);
-        btn.classList.toggle('wg-meds-subtabs__btn--active', isActive);
-        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
-    });
-}
-
 function restoreMedsSubTab() {
-    syncMedsSubTabActiveClass(getActiveMedsSubTab());
+    window.TabController.syncPressed('.med-tab', getActiveMedsSubTab());
 }
 
 // On boot, sync the pill-strip active classes to the stored sub-tab so the
@@ -125,13 +113,7 @@ function showEditModal(id) {
     }
 
     // Set days
-    document.querySelectorAll('#days-container .days-select span').forEach(s => s.classList.remove('selected'));
-    if (sched.days) {
-        sched.days.forEach(d => {
-            const span = document.querySelector(`#days-container .days-select span[data-day="${d}"]`);
-            if (span) span.classList.add('selected');
-        });
-    }
+    window.MedicationUtils.setPickedDays(document.querySelector('#days-container .wg-picks'), sched.days);
 
     // Timezone adjustment policy
     document.getElementById('med-tz-policy').value = med.tz_shift_policy || 'flexible';
@@ -1232,8 +1214,7 @@ async function saveMedication() {
     }
 
     if (type === 'weekly') {
-        const days = Array.from(document.querySelectorAll('.days-select span.selected'))
-            .map(s => parseInt(s.dataset.day, 10));
+        const days = window.MedicationUtils.getPickedDays(document.querySelector('#days-container .wg-picks'));
 
         if (days.length === 0) {
             safeAlert("Select at least one day!");

@@ -389,7 +389,6 @@ function switchHealthTab(tab) {
     });
     if (!activated) return;
 
-    if (typeof syncHealthSubTabActiveClass === 'function') syncHealthSubTabActiveClass(tab);
     if (typeof setActiveHealthSubTab === 'function') setActiveHealthSubTab(tab);
 
     if (tab === 'overview') { loadHealthOverview(); }
@@ -433,9 +432,6 @@ function bindMedicationControls() {
                 const type = pill.dataset.scheduleType;
                 if (type) setScheduleType(type);
             });
-        });
-        document.querySelectorAll('#days-container .days-select span').forEach((day) => {
-            day.addEventListener('click', () => toggleDay(day));
         });
 
         bindClick('initial-remove-time-btn', () => {
@@ -532,7 +528,6 @@ function switchMedTab(tab) {
     });
     if (!activated) return;
 
-    if (typeof syncMedsSubTabActiveClass === 'function') syncMedsSubTabActiveClass(tab);
     if (typeof setActiveMedsSubTab === 'function') setActiveMedsSubTab(tab);
 
     if (tab === 'schedule') { loadMeds(); }

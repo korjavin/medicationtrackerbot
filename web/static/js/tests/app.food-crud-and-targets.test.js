@@ -266,7 +266,7 @@ describe('app.js food CRUD, targets and period helpers', () => {
       expect(window.loadFoodLogs).toHaveBeenCalled();
       const toggle = document.getElementById('food-macros-toggle');
       const weekBtn = toggle.querySelector('[data-range="week"]');
-      expect(weekBtn.classList.contains('wg-food-macros-card__toggle-btn--active')).toBe(true);
+      expect(weekBtn.getAttribute('aria-pressed')).toBe('true');
 
       const dateFilter = document.getElementById('food-date-filter');
       dateFilter.value = '2026-03-01';

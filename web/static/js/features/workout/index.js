@@ -54,20 +54,8 @@ function setActiveWorkoutsSubTab(tab) {
     try { window.localStorage.setItem(WORKOUTS_SUBTAB_STORAGE_KEY, tab); } catch (_) { /* ignore */ }
 }
 
-function syncWorkoutsSubTabActiveClass(activeTab) {
-    const container = document.querySelector('.wg-workouts-subtabs');
-    if (!container) return;
-    const buttons = container.querySelectorAll('.workout-tab');
-    buttons.forEach((btn) => {
-        const isActive = btn.dataset.tab === activeTab;
-        btn.classList.toggle('wg-gloss--sun', isActive);
-        btn.classList.toggle('wg-workouts-subtabs__btn--active', isActive);
-        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
-    });
-}
-
 function restoreWorkoutsSubTab() {
-    syncWorkoutsSubTabActiveClass(getActiveWorkoutsSubTab());
+    window.TabController.syncPressed('.workout-tab', getActiveWorkoutsSubTab());
 }
 
 if (document.readyState === 'loading') {
@@ -84,7 +72,6 @@ function switchWorkoutTab(tab) {
     });
     if (!activated) return;
 
-    if (typeof syncWorkoutsSubTabActiveClass === 'function') syncWorkoutsSubTabActiveClass(tab);
     if (typeof setActiveWorkoutsSubTab === 'function') setActiveWorkoutsSubTab(tab);
 
     if (tab === 'groups') { loadWorkoutGroups(); }
@@ -171,12 +158,6 @@ function loadWorkouts() {
                 toggleRotatingFields();
             });
         }
-
-        document.querySelectorAll('#workout-group-modal .days-select span').forEach((day) => {
-            day.addEventListener('click', () => {
-                toggleWorkoutDay(day);
-            });
-        });
 
         const sessionExerciseName = document.getElementById('session-add-exercise-name');
         if (sessionExerciseName) {

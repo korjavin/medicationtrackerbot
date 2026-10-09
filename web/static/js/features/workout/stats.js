@@ -839,30 +839,22 @@ async function loadWorkoutStatsTab() {
     });
 }
 
-// Build one `.wg-gloss--inset` segmented strip. Active pill = `.wg-gloss--sun`
-// + aria-pressed; `onPick` fires after the active class has moved.
+// Build one kit `.wg-seg` strip (range = `--sm`). Selection = aria-pressed;
+// `onPick` fires after it has moved.
 function _buildSegmentedStrip({ block, options, labels, active, onPick }) {
     const strip = document.createElement('div');
-    strip.className = `wg-gloss--inset wg-workouts-stats__${block}`;
-    strip.setAttribute('role', 'tablist');
+    strip.className = `wg-seg wg-workouts-stats__${block}${block === 'range' ? ' wg-seg--sm' : ''}`;
+    strip.setAttribute('role', 'group');
     const buttons = new Map();
     options.forEach((value) => {
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = `wg-gloss wg-workouts-stats__${block}-btn`;
+        btn.className = 'wg-seg__opt';
         btn.dataset[block] = value;
         btn.textContent = labels[value];
-        const isActive = value === active;
-        btn.classList.toggle('wg-gloss--sun', isActive);
-        btn.classList.toggle(`wg-workouts-stats__${block}-btn--active`, isActive);
-        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        btn.setAttribute('aria-pressed', value === active ? 'true' : 'false');
         btn.addEventListener('click', () => {
-            buttons.forEach((b, key) => {
-                const on = key === value;
-                b.classList.toggle('wg-gloss--sun', on);
-                b.classList.toggle(`wg-workouts-stats__${block}-btn--active`, on);
-                b.setAttribute('aria-pressed', on ? 'true' : 'false');
-            });
+            buttons.forEach((b, key) => b.setAttribute('aria-pressed', key === value ? 'true' : 'false'));
             onPick(value);
         });
         buttons.set(value, btn);
