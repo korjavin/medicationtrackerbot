@@ -78,7 +78,8 @@ const cases = [
     {
         name: 'WorkoutLibraryModal',
         modalId: 'exercise-library-modal',
-        headerActionsClass: 'wg-workouts-library-modal__header-actions',
+        headerActionsClass: 'wg-sheethead__acts',
+        sheet: true,
         legacyActionsSelector: '#exercise-library-modal .wg-workouts-library-modal__actions',
         cancelBtnId: 'exercise-library-cancel-btn',
         primaryBtnId: 'exercise-library-save-btn',
@@ -108,7 +109,8 @@ const cases = [
     {
         name: 'WorkoutLogSetModal',
         modalId: 'workout-add-exercise-to-session-modal',
-        headerActionsClass: 'wg-workouts-log-set-modal__header-actions',
+        headerActionsClass: 'wg-sheethead__acts',
+        sheet: true,
         legacyActionsSelector: '#workout-add-exercise-to-session-modal .wg-workouts-log-set-modal__actions',
         cancelBtnId: 'session-add-exercise-cancel-btn',
         primaryBtnId: 'session-add-exercise-save-btn',

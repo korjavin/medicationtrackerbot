@@ -184,7 +184,7 @@
                  inline inside the range-toolbar row next to 7d/30d/90d/All
                  (rendered by renderWeightRangeSelector, matching BP's
                  buildBPInlineAddButton pattern) using the shared
-                 `.wg-toolbar-btn .wg-toolbar-btn--primary` sizing. -->
+                 kit `.wg-btn` sizing. -->
             <!-- Stale-data chip (Task 6 of local-first read resilience).
                  Mounted by loadWeightLogs() from the api_cache 'weight'
                  timestamp; hidden until the chip has data to display. -->
@@ -560,7 +560,7 @@
                             <div class="wg-settings-row__desc">Browser notifications for medications</div>
                         </div>
                         <div class="wg-settings-row__control wg-settings-action-row">
-                            <button id="cloud-push-toggle" class="wg-gloss wg-settings-action-btn">Enable</button>
+                            <button id="cloud-push-toggle" class="wg-btn wg-btn--sm">Enable</button>
                         </div>
                     </div>
                     <div id="cloud-push-status" class="wg-settings-webpush-status wg-settings-hidden"></div>
@@ -570,7 +570,7 @@
                             <div class="wg-settings-row__desc">Send a test push to this device</div>
                         </div>
                         <div class="wg-settings-row__control wg-settings-action-row">
-                            <button id="cloud-push-test-btn" class="wg-gloss wg-settings-action-btn">Send test push</button>
+                            <button id="cloud-push-test-btn" class="wg-btn wg-btn--sm">Send test push</button>
                         </div>
                     </div>
                     <div class="wg-settings-row">
@@ -579,7 +579,7 @@
                             <div class="wg-settings-row__desc">Where scheduled reminders are sent. Telegram needs a linked bot.</div>
                         </div>
                         <div class="wg-settings-row__control wg-settings-action-row">
-                            <select id="cloud-reminder-delivery" class="wg-gloss wg-settings-action-btn" aria-label="Reminder delivery channel">
+                            <select id="cloud-reminder-delivery" class="wg-input wg-select" aria-label="Reminder delivery channel">
                                 <option value="webpush">Web push only</option>
                                 <option value="telegram">Telegram only</option>
                                 <option value="both">Web push and Telegram</option>
@@ -592,7 +592,7 @@
                             <div class="wg-settings-row__desc">Telegram reminders pass through the server as readable text. The default "Generic" says only that a reminder is due; opt in to "Detailed" to also send medication names.</div>
                         </div>
                         <div class="wg-settings-row__control wg-settings-action-row">
-                            <select id="cloud-reminder-verbosity" class="wg-gloss wg-settings-action-btn" aria-label="Telegram reminder detail level">
+                            <select id="cloud-reminder-verbosity" class="wg-input wg-select" aria-label="Telegram reminder detail level">
                                 <option value="generic" selected>Generic (no names)</option>
                                 <option value="detailed">Detailed (includes names)</option>
                             </select>
@@ -1412,21 +1412,22 @@
 
     <!-- Scan review modal (bd med-qj4.9). Shell mirrors the workout modals;
          rows are rendered by features/workout/scan.js into #workout-scan-list. -->
-    <mt-modal id="workout-scan-modal" class="hidden wg-modal wg-workouts-group-modal wg-workouts-scan-modal">
-        <div class="wg-workouts-group-modal__header">
-            <div class="wg-workouts-group-modal__heading">
-                <span class="wg-section-label wg-workouts-group-modal__eyebrow">Scan</span>
-                <span class="wg-mono-display wg-workouts-group-modal__title" id="workout-scan-modal-title">Scan sheet</span>
+    <mt-modal id="workout-scan-modal" class="hidden wg-modal wg-sheet wg-workouts-group-modal wg-workouts-scan-modal">
+        <div class="wg-sheet__grab"></div>
+        <header class="wg-sheethead">
+            <div class="wg-sheethead__titles">
+                <div class="wg-eyebrow">Scan</div>
+                <div class="wg-sheethead__title" id="workout-scan-modal-title">Scan sheet</div>
             </div>
-            <div class="wg-workouts-group-modal__header-actions">
+            <div class="wg-sheethead__acts">
                 <button type="button" id="workout-scan-cancel-btn"
-                    class="wg-gloss wg-workouts-group-modal__header-btn">Cancel</button>
+                    class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
                 <button type="button" id="workout-scan-confirm-btn"
-                    class="wg-gloss wg-gloss--sun wg-workouts-group-modal__header-btn wg-workouts-group-modal__header-btn--save">Log workout</button>
+                    class="wg-btn wg-btn--primary wg-btn--sm">Log workout</button>
             </div>
-        </div>
+        </header>
 
-        <div class="wg-workouts-group-modal__body">
+        <div class="wg-sheet__body wg-workouts-group-modal__body">
             <p id="workout-scan-status" class="wg-scan-status"></p>
             <div id="workout-scan-list"></div>
             <p id="workout-scan-skipped" class="wg-scan-skipped hidden"></p>
@@ -1435,19 +1436,20 @@
 
     <!-- Share modal (bd med-uo64.2). Shell mirrors the scan modal; the QR,
          link, and buttons are filled by features/workout/share.js. -->
-    <mt-modal id="workout-share-modal" class="hidden wg-modal wg-workouts-group-modal wg-workouts-share-modal">
-        <div class="wg-workouts-group-modal__header">
-            <div class="wg-workouts-group-modal__heading">
-                <span class="wg-section-label wg-workouts-group-modal__eyebrow">Share</span>
-                <span class="wg-mono-display wg-workouts-group-modal__title" id="workout-share-title">Share plan</span>
+    <mt-modal id="workout-share-modal" class="hidden wg-modal wg-sheet wg-workouts-group-modal wg-workouts-share-modal">
+        <div class="wg-sheet__grab"></div>
+        <header class="wg-sheethead">
+            <div class="wg-sheethead__titles">
+                <div class="wg-eyebrow">Share</div>
+                <div class="wg-sheethead__title" id="workout-share-title">Share plan</div>
             </div>
-            <div class="wg-workouts-group-modal__header-actions">
+            <div class="wg-sheethead__acts">
                 <button type="button" id="workout-share-cancel-btn"
-                    class="wg-gloss wg-workouts-group-modal__header-btn">Close</button>
+                    class="wg-btn wg-btn--ghost wg-btn--sm">Close</button>
             </div>
-        </div>
+        </header>
 
-        <div class="wg-workouts-group-modal__body">
+        <div class="wg-sheet__body wg-workouts-group-modal__body">
             <p id="workout-share-counts" class="wg-share-counts"></p>
             <div id="workout-share-qr" class="wg-share-qr"></div>
             <p id="workout-share-qr-note" class="wg-share-note hidden"></p>
@@ -1456,30 +1458,31 @@
                     <input type="text" id="workout-share-link" class="wg-share-linkrow__input" readonly>
                 </div>
                 <button type="button" id="workout-share-copy-btn"
-                    class="wg-gloss wg-toolbar-btn wg-toolbar-btn--primary wg-share-linkrow__copy">Copy link</button>
+                    class="wg-btn wg-btn--primary wg-share-linkrow__copy">Copy link</button>
             </div>
             <p id="workout-share-short-note" class="wg-share-note hidden"></p>
             <button type="button" id="workout-share-native-btn"
-                class="wg-gloss wg-toolbar-btn wg-toolbar-btn--secondary wg-share-native hidden">Share&hellip;</button>
+                class="wg-btn wg-btn--block hidden">Share&hellip;</button>
             <p id="workout-share-foot" class="wg-share-foot">The plan travels inside this link &mdash; nothing is sent to a server. Anyone with the link can import it.</p>
         </div>
     </mt-modal>
 
     <!-- Import modal (bd med-uo64.3). Paste field + live QR scan funnel into
          WorkoutShare.receive; filled by features/workout/share.js. -->
-    <mt-modal id="workout-share-import-modal" class="hidden wg-modal wg-workouts-group-modal wg-workouts-share-modal">
-        <div class="wg-workouts-group-modal__header">
-            <div class="wg-workouts-group-modal__heading">
-                <span class="wg-section-label wg-workouts-group-modal__eyebrow">Import</span>
-                <span class="wg-mono-display wg-workouts-group-modal__title" id="workout-share-import-title">Import plan or gym</span>
+    <mt-modal id="workout-share-import-modal" class="hidden wg-modal wg-sheet wg-workouts-group-modal wg-workouts-share-modal">
+        <div class="wg-sheet__grab"></div>
+        <header class="wg-sheethead">
+            <div class="wg-sheethead__titles">
+                <div class="wg-eyebrow">Import</div>
+                <div class="wg-sheethead__title" id="workout-share-import-title">Import plan or gym</div>
             </div>
-            <div class="wg-workouts-group-modal__header-actions">
+            <div class="wg-sheethead__acts">
                 <button type="button" id="workout-share-import-cancel-btn"
-                    class="wg-gloss wg-workouts-group-modal__header-btn">Cancel</button>
+                    class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
             </div>
-        </div>
+        </header>
 
-        <div class="wg-workouts-group-modal__body">
+        <div class="wg-sheet__body wg-workouts-group-modal__body">
             <p class="wg-share-foot">Paste a plan or gym link or code, or scan its QR.</p>
             <div class="wg-gloss--inset wg-share-import__input-wrap">
                 <input type="text" id="workout-share-import-input" class="wg-share-import__input"
@@ -1497,21 +1500,22 @@
     </mt-modal>
 
     <!-- Modal for Exercise Library -->
-    <mt-modal id="exercise-library-modal" class="hidden wg-modal wg-workouts-library-modal">
-        <div class="wg-workouts-library-modal__header">
-            <div class="wg-workouts-library-modal__heading">
-                <span class="wg-section-label wg-workouts-library-modal__eyebrow">Exercise library</span>
-                <span class="wg-mono-display wg-workouts-library-modal__title" id="exercise-library-modal-title">Add Exercise</span>
+    <mt-modal id="exercise-library-modal" class="hidden wg-modal wg-sheet wg-workouts-library-modal">
+        <div class="wg-sheet__grab"></div>
+        <header class="wg-sheethead">
+            <div class="wg-sheethead__titles">
+                <div class="wg-eyebrow">Exercise library</div>
+                <div class="wg-sheethead__title" id="exercise-library-modal-title">Add Exercise</div>
             </div>
-            <div class="wg-workouts-library-modal__header-actions">
+            <div class="wg-sheethead__acts">
                 <button type="button" id="exercise-library-cancel-btn"
-                    class="wg-gloss wg-workouts-library-modal__header-btn">Cancel</button>
+                    class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
                 <button type="button" id="exercise-library-save-btn"
-                    class="wg-gloss wg-gloss--sun wg-workouts-library-modal__header-btn wg-workouts-library-modal__header-btn--save">Save</button>
+                    class="wg-btn wg-btn--primary wg-btn--sm">Save</button>
             </div>
-        </div>
+        </header>
 
-        <div class="wg-workouts-library-modal__body">
+        <div class="wg-sheet__body wg-workouts-library-modal__body">
             <div class="wg-workouts-library-modal__field">
                 <label for="exercise-library-name" class="wg-workouts-library-modal__label">Name</label>
                 <div class="wg-gloss--inset wg-workouts-library-modal__input-wrap">
@@ -1589,21 +1593,22 @@
          kinds); fixed gets a comma-separated loads field with a min/max/step
          generator; plated gets bar kg and kg x count plate rows. No link to
          exercises (binding is med-niix.5). -->
-    <mt-modal id="workout-equipment-modal" class="hidden wg-modal wg-equipment-modal">
-        <div class="wg-equipment-modal__header">
-            <div class="wg-equipment-modal__heading">
-                <span class="wg-section-label wg-equipment-modal__eyebrow">Equipment</span>
-                <span class="wg-mono-display wg-equipment-modal__title" id="workout-equipment-modal-title">Add Equipment</span>
+    <mt-modal id="workout-equipment-modal" class="hidden wg-modal wg-sheet wg-equipment-modal">
+        <div class="wg-sheet__grab"></div>
+        <header class="wg-sheethead">
+            <div class="wg-sheethead__titles">
+                <div class="wg-eyebrow">Equipment</div>
+                <div class="wg-sheethead__title" id="workout-equipment-modal-title">Add Equipment</div>
             </div>
-            <div class="wg-equipment-modal__header-actions">
+            <div class="wg-sheethead__acts">
                 <button type="button" id="workout-equipment-cancel-btn"
-                    class="wg-gloss wg-equipment-modal__header-btn">Cancel</button>
+                    class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
                 <button type="button" id="workout-equipment-save-btn"
-                    class="wg-gloss wg-gloss--sun wg-equipment-modal__header-btn wg-equipment-modal__header-btn--save">Save</button>
+                    class="wg-btn wg-btn--primary wg-btn--sm">Save</button>
             </div>
-        </div>
+        </header>
 
-        <div class="wg-equipment-modal__body">
+        <div class="wg-sheet__body wg-equipment-modal__body">
             <div class="wg-equipment-modal__field">
                 <label for="workout-equipment-name" class="wg-equipment-modal__label">Name</label>
                 <div class="wg-gloss--inset wg-equipment-modal__input-wrap">
@@ -1797,21 +1802,22 @@
          workout session — mono eyebrow + title header, `.wg-gloss--inset` input
          wraps for name / sets / reps / weight / notes, and a Cancel/Save action
          bar (Save 2x flex per modal-button-order convention). -->
-    <mt-modal id="workout-add-exercise-to-session-modal" class="hidden wg-modal wg-workouts-log-set-modal">
-        <div class="wg-workouts-log-set-modal__header">
-            <div class="wg-workouts-log-set-modal__heading">
-                <span class="wg-section-label wg-workouts-log-set-modal__eyebrow">Log set</span>
-                <span class="wg-mono-display wg-workouts-log-set-modal__title" id="workout-add-exercise-to-session-title">Add exercise</span>
+    <mt-modal id="workout-add-exercise-to-session-modal" class="hidden wg-modal wg-sheet wg-workouts-log-set-modal">
+        <div class="wg-sheet__grab"></div>
+        <header class="wg-sheethead">
+            <div class="wg-sheethead__titles">
+                <div class="wg-eyebrow">Log set</div>
+                <div class="wg-sheethead__title" id="workout-add-exercise-to-session-title">Add exercise</div>
             </div>
-            <div class="wg-workouts-log-set-modal__header-actions">
+            <div class="wg-sheethead__acts">
                 <button type="button" id="session-add-exercise-cancel-btn"
-                    class="wg-gloss wg-workouts-log-set-modal__header-btn">Cancel</button>
+                    class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
                 <button type="button" id="session-add-exercise-save-btn"
-                    class="wg-gloss wg-gloss--sun wg-workouts-log-set-modal__header-btn wg-workouts-log-set-modal__header-btn--save">Save</button>
+                    class="wg-btn wg-btn--primary wg-btn--sm">Save</button>
             </div>
-        </div>
+        </header>
 
-        <div class="wg-workouts-log-set-modal__body">
+        <div class="wg-sheet__body wg-workouts-log-set-modal__body">
             <div class="wg-workouts-log-set-modal__field">
                 <label for="session-add-exercise-name" class="wg-workouts-log-set-modal__label">Exercise</label>
                 <div class="wg-gloss--inset wg-workouts-log-set-modal__input-wrap">

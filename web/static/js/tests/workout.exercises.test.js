@@ -243,16 +243,14 @@ describe('Workouts exercises library (Phase 7, Task 6)', () => {
             expect(modal.classList.contains('wg-workouts-library-modal')).toBe(true);
         });
 
-        it('renders a mono eyebrow + title heading', () => {
+        it('renders the kit sheet header: eyebrow + title', () => {
             const { document } = env;
             const modal = document.getElementById('exercise-library-modal');
-            const eyebrow = modal.querySelector('.wg-workouts-library-modal__eyebrow');
-            const title = modal.querySelector('.wg-workouts-library-modal__title');
+            const eyebrow = modal.querySelector('.wg-sheethead .wg-eyebrow');
+            const title = modal.querySelector('.wg-sheethead .wg-sheethead__title');
             expect(eyebrow).not.toBeNull();
-            expect(eyebrow.classList.contains('wg-section-label')).toBe(true);
             expect(eyebrow.textContent).toBe('Exercise library');
             expect(title).not.toBeNull();
-            expect(title.classList.contains('wg-mono-display')).toBe(true);
             expect(title.id).toBe('exercise-library-modal-title');
         });
 
@@ -269,9 +267,9 @@ describe('Workouts exercises library (Phase 7, Task 6)', () => {
             expect(notesWrap.classList.contains('wg-gloss--inset')).toBe(true);
         });
 
-        it('has Cancel + Save header-action buttons with Save as sun-glossed', () => {
+        it('has Cancel (ghost) + Save (primary) kit buttons in the sheet header', () => {
             const { document } = env;
-            const actions = document.querySelector('#exercise-library-modal .wg-workouts-library-modal__header-actions');
+            const actions = document.querySelector('#exercise-library-modal .wg-sheethead__acts');
             expect(actions).not.toBeNull();
 
             const cancel = actions.querySelector('#exercise-library-cancel-btn');
@@ -279,12 +277,8 @@ describe('Workouts exercises library (Phase 7, Task 6)', () => {
             expect(cancel).not.toBeNull();
             expect(save).not.toBeNull();
 
-            expect(cancel.classList.contains('wg-gloss')).toBe(true);
-            expect(cancel.classList.contains('wg-workouts-library-modal__header-btn')).toBe(true);
-
-            expect(save.classList.contains('wg-gloss')).toBe(true);
-            expect(save.classList.contains('wg-gloss--sun')).toBe(true);
-            expect(save.classList.contains('wg-workouts-library-modal__header-btn--save')).toBe(true);
+            expect(cancel.className).toBe('wg-btn wg-btn--ghost wg-btn--sm');
+            expect(save.className).toBe('wg-btn wg-btn--primary wg-btn--sm');
         });
 
         it('preserves the preexisting ID hooks used by saveExerciseLibraryItem / showEditExerciseLibraryModal', () => {

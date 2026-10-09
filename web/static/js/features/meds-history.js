@@ -434,7 +434,7 @@ async function renderNextIntakeTrigger() {
 
         // Round-2 Task 8 (#11b): restyled to match the Today "Next up" card —
         // elevated-teal surface + muted-uppercase kicker + display-numeric
-        // countdown + secondary meta line + shared toolbar-btn primary CTA.
+        // countdown + secondary meta line + kit .wg-btn CTA.
         const card = document.createElement('div');
         card.className = 'wg-meds-next-intake-card';
 
