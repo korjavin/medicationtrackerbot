@@ -12,7 +12,7 @@
 // no longer mounts a second CTA after the last group.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { clickRowAction, loadFrontendEnv } from './helpers/frontend-harness.js';
 import { allowConsoleNoise } from './helpers/setup.js';
 
 const FIXTURE = [
@@ -202,7 +202,7 @@ describe('Food meal-grouped item list (Phase 4, Task 5)', () => {
         expect(tag.title).toBe('HTTP 400 — bad payload');
     });
 
-    it('edit-icon click invokes editFoodLog without bubbling to the row handler', () => {
+    it('overflow menu Edit invokes editFoodLog once, without bubbling to the row handler', () => {
         const { window, document } = env;
         window._renderFoodData(FIXTURE, null, 'day', '2026-04-20');
 
@@ -210,30 +210,28 @@ describe('Food meal-grouped item list (Phase 4, Task 5)', () => {
         const row = document.querySelector(
             '#food-list .wg-food-item-row[data-log-id="1"]'
         );
-        const editBtn = row.querySelector(
-            '.wg-food-item-row__actions .wg-icon-btn[data-icon="pencil"]'
-        );
-        expect(editBtn).not.toBeNull();
-        editBtn.click();
+        expect(row.classList.contains('wg-swipe')).toBe(true);
+        expect(row.querySelector('.wg-food-item-row__actions .wg-swipe__more')).not.toBeNull();
+        clickRowAction(row, 'Edit');
+        expect(editSpy).toHaveBeenCalledTimes(1);
         expect(editSpy).toHaveBeenCalledWith(1);
         editSpy.mockRestore();
     });
 
-    it('delete-icon click invokes deleteFoodLog without bubbling to the row handler', () => {
+    it('overflow menu Delete invokes deleteFoodLog without bubbling to the row handler', () => {
         const { window, document } = env;
         window._renderFoodData(FIXTURE, null, 'day', '2026-04-20');
 
         const deleteSpy = vi.spyOn(window, 'deleteFoodLog').mockImplementation(() => {});
+        const editSpy = vi.spyOn(window, 'editFoodLog').mockImplementation(() => {});
         const row = document.querySelector(
             '#food-list .wg-food-item-row[data-log-id="3"]'
         );
-        const delBtn = row.querySelector(
-            '.wg-food-item-row__actions .wg-icon-btn[data-icon="trash"]'
-        );
-        expect(delBtn).not.toBeNull();
-        delBtn.click();
+        clickRowAction(row, 'Delete');
         expect(deleteSpy).toHaveBeenCalledWith(3);
+        expect(editSpy).not.toHaveBeenCalled();
         deleteSpy.mockRestore();
+        editSpy.mockRestore();
     });
 
     it('row click (outside actions) still opens the edit flow', () => {

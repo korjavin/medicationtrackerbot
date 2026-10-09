@@ -8,7 +8,7 @@
 // rejected badges surface as `.wg-tag--mono` variants.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { clickRowAction, loadFrontendEnv } from './helpers/frontend-harness.js';
 
 function makeSession(overrides) {
     const { session: sessionOverrides, ...rest } = overrides || {};
@@ -124,35 +124,23 @@ describe('Workouts history (Phase 7, Task 4)', () => {
         expect(volume.textContent).toMatch(/kg/);
     });
 
-    it('renders an edit / delete icon-button cluster on each row, with no redundant view chevron', () => {
+    it('renders each row as a swipe host with an overflow menu (Edit / Delete), no icon cluster or view chevron', () => {
         const { window, document } = env;
         const container = document.getElementById('workout-history-display');
         window._renderWorkoutHistory(container, [makeSession({ session: { id: 42 } })], [], 'UTC');
 
-        const actions = container.querySelector('.wg-workouts-history-row__actions');
+        const row = container.querySelector('.wg-workouts-history-row');
+        expect(row.classList.contains('wg-swipe')).toBe(true);
+        const actions = row.querySelector('.wg-workouts-history-row__actions');
         expect(actions).not.toBeNull();
-
-        const editBtn = actions.querySelector('.wg-workouts-history-row__edit');
-        const deleteBtn = actions.querySelector('.wg-workouts-history-row__delete');
-        expect(editBtn).not.toBeNull();
-        expect(deleteBtn).not.toBeNull();
-
-        // The chevron duplicated the card-body tap, so the row carries exactly
-        // two icons — same as the Plans and Exercise-library rows.
         expect(actions.querySelector('.wg-workouts-history-row__view')).toBeNull();
-        expect(actions.querySelectorAll('button').length).toBe(2);
-
-        expect(editBtn.getAttribute('aria-label')).toBe('Edit session');
-        expect(deleteBtn.getAttribute('aria-label')).toBe('Delete session');
-
-        // Both render as .wg-icon-btn with a .wg-gloss inner.
-        [editBtn, deleteBtn].forEach((btn) => {
-            expect(btn.classList.contains('wg-icon-btn')).toBe(true);
-            expect(btn.querySelector('.wg-gloss')).not.toBeNull();
-        });
+        expect(actions.querySelectorAll('button').length).toBe(1);
+        expect(actions.querySelector('.wg-swipe__more').getAttribute('aria-label')).toBe('More actions for session');
+        expect(Array.from(row.querySelectorAll('.wg-swipe__menu .wg-menu__item')).map((b) => b.textContent)).toEqual(['Edit', 'Delete']);
+        expect(row.querySelector('.wg-icon-btn')).toBeNull();
     });
 
-    it('gives Mi Band cardio rows the same pencil + trash cluster as session rows', () => {
+    it('gives Mi Band cardio rows the same overflow Edit / Delete as session rows', () => {
         const { window, document } = env;
         const container = document.getElementById('workout-history-display');
         const showSpy = vi.fn();
@@ -170,26 +158,17 @@ describe('Workouts history (Phase 7, Task 4)', () => {
         };
         window._renderWorkoutHistory(container, [], [miband], 'UTC');
 
-        // Cardio used to be the only list row with a lone chevron that merely
-        // repeated the card-body tap, and with no delete affordance at all.
         const row = container.querySelector('.wg-workouts-history-row--miband');
         expect(row).not.toBeNull();
         expect(row.querySelector('.wg-workouts-history-row__view')).toBeNull();
+        expect(row.querySelector('.wg-swipe__more').getAttribute('aria-label')).toBe('More actions for workout');
 
-        const actions = row.querySelector('.wg-workouts-history-row__actions');
-        expect(actions.querySelectorAll('button').length).toBe(2);
-
-        const editBtn = actions.querySelector('.wg-workouts-history-row__edit');
-        const deleteBtn = actions.querySelector('.wg-workouts-history-row__delete');
-        expect(editBtn.getAttribute('aria-label')).toBe('Edit workout');
-        expect(deleteBtn.getAttribute('aria-label')).toBe('Delete workout');
-
-        editBtn.click();
+        clickRowAction(row, 'Edit');
         expect(showSpy).toHaveBeenCalledTimes(1);
         expect(showSpy).toHaveBeenCalledWith(miband);
 
-        // Trash deletes straight from the list — no modal open first.
-        deleteBtn.click();
+        // Delete straight from the list — no modal open first.
+        clickRowAction(row, 'Delete');
         expect(deleteSpy).toHaveBeenCalledWith(7);
         expect(showSpy).toHaveBeenCalledTimes(1);
     });
@@ -226,22 +205,23 @@ describe('Workouts history (Phase 7, Task 4)', () => {
         expect(showSpy).toHaveBeenCalledWith(77);
     });
 
-    it('clicking the edit icon opens the session modal once and stops row propagation', () => {
+    it('menu Edit opens the session modal once and stops row propagation', () => {
         const { window, document } = env;
         const container = document.getElementById('workout-history-display');
         const showSpy = vi.fn();
         window.showWorkoutSessionModal = showSpy;
 
         window._renderWorkoutHistory(container, [makeSession({ session: { id: 88 } })], [], 'UTC');
-        const editBtn = container.querySelector('.wg-workouts-history-row__edit');
-        editBtn.click();
-        // Once, not twice: the icon's stopPropagation keeps the card-body
-        // handler from firing the same modal a second time.
+        // Opening the menu does not fall through to the card-body handler either.
+        container.querySelector('.wg-swipe__more').click();
+        expect(showSpy).not.toHaveBeenCalled();
+        container.querySelector('.wg-swipe__more').click();
+        clickRowAction(container.querySelector('.wg-workouts-history-row'), 'Edit');
         expect(showSpy).toHaveBeenCalledTimes(1);
         expect(showSpy).toHaveBeenCalledWith(88);
     });
 
-    it('clicking the delete icon shows an Undo toast; the DELETE runs only when the Undo window closes (med-xso6.5)', async () => {
+    it('menu Delete shows an Undo toast; the DELETE runs only when the Undo window closes (med-xso6.5)', async () => {
         env.cleanup();
         env = loadFrontendEnv({ withWorkout: true, withSync: true });
         const { window, document } = env;
@@ -252,7 +232,7 @@ describe('Workouts history (Phase 7, Task 4)', () => {
         window.loadWorkoutHistoryTab = vi.fn();
 
         window._renderWorkoutHistory(container, [makeSession({ session: { id: 99 } })], [], 'UTC');
-        container.querySelector('.wg-workouts-history-row__delete').click();
+        clickRowAction(container.querySelector('.wg-workouts-history-row'), 'Delete');
 
         const undo = document.querySelector('.wg-toasts .wg-toast__undo');
         expect(undo.textContent).toBe('Undo');
@@ -360,6 +340,8 @@ describe('Workouts history (Phase 7, Task 4)', () => {
         container.querySelector('.wg-workouts-history-row').click();
         await vi.waitFor(() => expect(document.getElementById('workout-session-finish-btn')).not.toBeNull());
         document.getElementById('workout-session-finish-btn').click();
+        await vi.waitFor(() => expect(document.querySelector('.mt-confirm-modal__confirm')).not.toBeNull());
+        document.querySelector('.mt-confirm-modal__confirm').click();
         await vi.waitFor(() => expect(window.WorkoutSessionsState.data).toBeNull());
         expect(window.apiCall).toHaveBeenCalledWith(
             '/api/workout/sessions/status?id=303', 'PUT', { status: 'completed' }, expect.anything());

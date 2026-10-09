@@ -281,7 +281,7 @@ describe('Wandergeek material primitives', () => {
         expect(blocks[0]).toMatch(/color:\s*var\(--wg-fg-3\)/);
     });
 
-    it('#bp-modal markup uses the wg-modal shell + wg-bp-modal eyebrow/title/inset utilities', () => {
+    it('#bp-modal markup uses the wg-modal shell as a kit sheet + wg-bp-modal inset utilities', () => {
         const html = fs.readFileSync(
             path.join(REPO_ROOT, 'web/static/index.html'),
             'utf8'
@@ -289,13 +289,14 @@ describe('Wandergeek material primitives', () => {
         // Shell wears .wg-modal + the .wg-bp-modal variant class.
         expect(html).toMatch(/<mt-modal[^>]*id="bp-modal"[^>]*class="[^"]*\bwg-modal\b/);
         expect(html).toMatch(/<mt-modal[^>]*id="bp-modal"[^>]*class="[^"]*\bwg-bp-modal\b/);
-        // Eyebrow is the runtime-toggleable section-label; title is the mono display.
-        expect(html).toMatch(/class="[^"]*\bwg-section-label\b[^"]*\bwg-bp-modal__eyebrow\b[^"]*"\s+id="bp-modal-eyebrow"/);
-        expect(html).toMatch(/class="[^"]*\bwg-mono-display\b[^"]*\bwg-bp-modal__title\b[^"]*"\s+id="bp-modal-title"/);
-        // Cancel is a plain gloss; Save is sun gloss. Form= attr must survive
-        // so handleBPSubmit's querySelector keeps working.
-        expect(html).toMatch(/id="bp-modal-cancel-btn"[^>]*class="[^"]*\bwg-gloss\b/);
-        expect(html).toMatch(/form="bp-form"[^>]*class="[^"]*\bwg-gloss--sun\b/);
+        expect(html).toMatch(/<mt-modal[^>]*id="bp-modal"[^>]*class="[^"]*\bwg-sheet\b/);
+        // Kit sheet header (med-xso6.7): eyebrow + sheethead title.
+        expect(html).toMatch(/class="wg-eyebrow" id="bp-modal-eyebrow"/);
+        expect(html).toMatch(/class="wg-sheethead__title" id="bp-modal-title"/);
+        // Cancel is a ghost .wg-btn; Log is the one primary. Form= attr must
+        // survive so handleBPSubmit's querySelector keeps working.
+        expect(html).toMatch(/id="bp-modal-cancel-btn"[^>]*class="[^"]*\bwg-btn--ghost\b/);
+        expect(html).toMatch(/form="bp-form"[^>]*class="[^"]*\bwg-btn--primary\b/);
         // Fields carry .wg-bp-modal__input inside .wg-gloss--inset wraps.
         expect(html).toMatch(/id="bp-systolic"[^>]*class="[^"]*\bwg-bp-modal__input\b/);
         expect(html).toMatch(/id="bp-site"[^>]*class="[^"]*\bwg-bp-modal__input\b/);

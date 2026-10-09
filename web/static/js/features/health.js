@@ -735,7 +735,8 @@ async function loadMoreNotes() {
 // Day-grouped notes render (Phase 8, Task 7). Each day is a `<li>` with a
 // `.wg-section-label` header (e.g. "22.04.2026 · Tue") and a list of
 // `.wg-card` rows. Each row carries a mono timestamp eyebrow, the note body,
-// and a trailing `.wg-icon-btn` cluster (edit + delete). Offline-pending +
+// and row actions from WGRowActions (tap = edit, swipe + overflow menu
+// Edit/Delete). Offline-pending +
 // rejected states surface as a WGChip.sync chip. Pagination is a
 // full-width `.wg-gloss` "Load more" footer button.
 // Round-2 Task 5: module-level cache so the tag-chip filter can repaint the
@@ -966,49 +967,19 @@ function buildNoteRow(note) {
 
     const actions = document.createElement('div');
     actions.className = 'wg-health-notes-row__actions';
-    actions.appendChild(buildNoteRowEditButton(note));
-    actions.appendChild(buildNoteRowDeleteButton(note));
     item.appendChild(actions);
 
-    return item;
-}
-
-function buildNoteRowEditButton(note) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'wg-icon-btn wg-health-notes-row__edit';
-    btn.setAttribute('aria-label', 'Edit note');
-
-    const gloss = document.createElement('span');
-    gloss.className = 'wg-gloss';
-    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
-        gloss.appendChild(window.WGIcons.iconSvg('pencil', { size: 16 }));
-    }
-    btn.appendChild(gloss);
-
-    btn.addEventListener('click', () => {
-        if (typeof window.editNote === 'function') {
-            window.editNote(note);
-        }
+    return window.WGRowActions.attach(item, {
+        label: 'note',
+        trail: actions,
+        tapEdits: true,
+        onEdit: () => {
+            if (typeof window.editNote === 'function') {
+                window.editNote(note);
+            }
+        },
+        onDelete: () => deleteNote(note.id),
     });
-    return btn;
-}
-
-function buildNoteRowDeleteButton(note) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'wg-icon-btn wg-health-notes-row__delete';
-    btn.setAttribute('aria-label', 'Delete note');
-
-    const gloss = document.createElement('span');
-    gloss.className = 'wg-gloss';
-    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
-        gloss.appendChild(window.WGIcons.iconSvg('trash', { size: 16 }));
-    }
-    btn.appendChild(gloss);
-
-    btn.addEventListener('click', () => deleteNote(note.id));
-    return btn;
 }
 
 function buildNotesLoadMore() {

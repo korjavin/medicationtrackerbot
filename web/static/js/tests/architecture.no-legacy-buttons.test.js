@@ -51,8 +51,8 @@ const ALLOWLIST = {
     'web/static/index.html': {
         'bootstrap btn': { max: 4, owner: 'med-xso6.17 (Food F4–F8: scanner + product modals)' },
         'wg-toolbar-btn': { max: 15, owner: 'med-xso6.16 (Food add/photo/scan), med-xso6.18 (Meds Add), med-xso6.22 (plan share row)' },
-        'modal__header-btn': { max: 51, owner: 'med-xso6.7 (sheet header)' },
-        'wg-settings-action-btn': { max: 9, owner: 'med-xso6.23 / med-xso6.24 / med-xso6.25 (Settings v2)' },
+        'modal__header-btn': { max: 30, owner: 'med-xso6.17 (Food modal), med-xso6.20 (Meds editor), med-xso6.21 (session + log-set), med-xso6.22 (plan/day/exercise/library/equipment editors) — remaining non-sheet modals after med-xso6.7' },
+        'wg-settings-action-btn': { max: 8, owner: 'med-xso6.23 / med-xso6.24 / med-xso6.25 (Settings v2)' },
     },
     'web/static/js/features/bp.js': {
         'wg-toolbar-btn': { max: 4, owner: 'med-xso6.27 (Health v2 polish)' },

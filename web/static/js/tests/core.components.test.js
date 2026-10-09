@@ -14,7 +14,7 @@ function loadComponents() {
     for (const relPath of [
         'web/static/js/components/empty-state.js',
         'web/static/js/components/stat-card.js',
-        'web/static/js/components/action-row.js',
+        'web/static/js/components/wg-row-actions.js',
         'web/static/js/components/wg-icons.js',
         'web/static/js/components/wg-chip.js',
     ]) {
@@ -115,30 +115,56 @@ describe('createStatItem', () => {
     });
 });
 
-describe('createDeleteButton', () => {
-    it('creates a button with correct type, class, title, and text', () => {
+describe('WGRowActions', () => {
+    it('swipeIntent: horizontal travel past 40px opens (left) or closes (right); vertical or short travel is no intent', () => {
         const { window, cleanup } = loadComponents();
         try {
-            const btn = window.createDeleteButton(() => {});
-            expect(btn.tagName).toBe('BUTTON');
-            expect(btn.type).toBe('button');
-            expect(btn.className).toBe('icon-action-btn delete');
-            expect(btn.title).toBe('Delete');
-            expect(btn.getAttribute('aria-label')).toBe('Delete');
-            expect(btn.querySelector('svg').getAttribute('data-wg-icon')).toBe('trash');
-            expect(btn.textContent).toBe('');
+            const { swipeIntent } = window.WGRowActions;
+            expect(swipeIntent(-60, 5)).toBe('open');
+            expect(swipeIntent(60, -5)).toBe('close');
+            expect(swipeIntent(-39, 0)).toBeNull();
+            expect(swipeIntent(-60, 70)).toBeNull(); // a scroll, not a swipe
+            expect(swipeIntent(-50, 50)).toBeNull();
         } finally {
             cleanup();
         }
     });
 
-    it('calls the onDelete handler on click', () => {
+    it('a touch swipe opens the row (one at a time) and swallows the click that follows; a tap closes it', () => {
         const { window, cleanup } = loadComponents();
         try {
-            let called = false;
-            const btn = window.createDeleteButton(() => { called = true; });
-            btn.click();
-            expect(called).toBe(true);
+            const { document } = window;
+            const make = () => {
+                const row = document.createElement('div');
+                document.body.appendChild(row);
+                return window.WGRowActions.attach(row, { onEdit: () => {}, onDelete: () => {} });
+            };
+            const a = make();
+            const b = make();
+            let rowClicks = 0;
+            a.addEventListener('click', () => { rowClicks += 1; });
+            const swipe = (row, dx) => {
+                row.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true, clientX: 200, clientY: 10 }));
+                row.dispatchEvent(new window.MouseEvent('pointerup', { bubbles: true, clientX: 200 + dx, clientY: 12 }));
+                row.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+            };
+
+            expect(Array.from(a.querySelectorAll('.wg-swipe__act')).map((x) => x.textContent)).toEqual(['Edit', 'Delete']);
+            expect(a.querySelector('.wg-swipe__acts').getAttribute('aria-hidden')).toBe('true');
+
+            swipe(a, -80);
+            expect(a.classList.contains('wg-swipe--open')).toBe(true);
+            expect(rowClicks).toBe(0);
+
+            swipe(b, -80);
+            expect(b.classList.contains('wg-swipe--open')).toBe(true);
+            expect(a.classList.contains('wg-swipe--open')).toBe(false);
+
+            swipe(b, 0); // a tap on an open row closes it, without acting
+            expect(b.classList.contains('wg-swipe--open')).toBe(false);
+
+            swipe(a, 0); // a tap on a closed row is an ordinary click
+            expect(rowClicks).toBe(1);
         } finally {
             cleanup();
         }

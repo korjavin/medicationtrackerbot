@@ -520,8 +520,6 @@ const WANDERGEEK_TOKENS = [
     // Edit-weight modal tokens (Phase 6, Task 6) — dual-line header, gloss
     // input wraps, kg/lb unit-toggle pill pair, Cancel/Save action bar with
     // 2× flex on Save per modal-button-order convention.
-    '--wg-weight-modal-eyebrow-size',
-    '--wg-weight-modal-title-size',
     '--wg-weight-modal-section-gap',
     '--wg-weight-modal-input-pad-y',
     '--wg-weight-modal-input-pad-x',
@@ -539,8 +537,6 @@ const WANDERGEEK_TOKENS = [
     // input wraps, 3-up Systolic / Diastolic / Pulse reading row with 20px
     // mono inputs, 2-up Site / Position row, Notes textarea, and the Cancel
     // / Save action bar with 2× flex on Save.
-    '--wg-bp-modal-eyebrow-size',
-    '--wg-bp-modal-title-size',
     '--wg-bp-modal-section-gap',
     '--wg-bp-modal-row-gap',
     '--wg-bp-modal-input-pad-y',
@@ -676,8 +672,6 @@ const WANDERGEEK_TOKENS = [
     // Edit-note modal tokens (Phase 8, Task 1 / rewired Task 8) — mono
     // header, gloss-inset textarea wrap, Cancel + Save bar with 2× flex
     // on Save per modal-button-order convention.
-    '--wg-health-modal-eyebrow-size',
-    '--wg-health-modal-title-size',
     '--wg-health-modal-row-gap',
     '--wg-health-modal-section-gap',
     '--wg-health-modal-input-pad-y',
@@ -1575,7 +1569,11 @@ describe('Architecture – Wandergeek tokens', () => {
         // per-file, per-token basis. Visual tokens (colors, gradients,
         // shadows, spacing) must stay CSS-only. (The tab bar's column count
         // is the kit's un-prefixed `--n`, so it needs no entry here.)
-        const ALLOWED_JS_TOKEN_REFS = {};
+        const ALLOWED_JS_TOKEN_REFS = {
+            // med-xso6.7: the measured virtual-keyboard height (a length, not
+            // a visual value) the kit's .wg-scrim--kb reads to dock the sheet foot.
+            'web/static/js/components/wg-sheet.js': new Set(['--wg-kb-h']),
+        };
 
         const jsDir = path.join(REPO_ROOT, 'web/static/js');
         const offenders = [];
