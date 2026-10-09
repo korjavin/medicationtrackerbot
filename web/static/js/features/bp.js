@@ -39,7 +39,7 @@ function setActiveBPRange(days) {
 // Show BP recording modal
 function showBPRecordModal() {
     window.ModalManager.bp.open();
-    setBPModalEyebrow('New entry');
+    setBPModalMode(null);
 
     // Set default datetime to now
     document.getElementById('bp-datetime').value = formatDateTimeLocalForInput();
@@ -56,9 +56,34 @@ function showBPRecordModal() {
     document.getElementById('bp-systolic').focus();
 }
 
-function setBPModalEyebrow(text) {
-    const el = document.getElementById('bp-modal-eyebrow');
-    if (el) el.textContent = text;
+// The sheet is one form for add and edit: the reading being edited rides on
+// the form's data-editing-id (no module state), and the header says which.
+function setBPModalMode(editingId) {
+    const form = document.getElementById('bp-form');
+    if (form) {
+        if (editingId) form.dataset.editingId = editingId;
+        else delete form.dataset.editingId;
+    }
+    const eyebrow = document.getElementById('bp-modal-eyebrow');
+    if (eyebrow) eyebrow.textContent = editingId ? 'Edit entry' : 'New entry';
+    const save = document.getElementById('bp-modal-save-btn');
+    if (save) save.textContent = editingId ? 'Save' : 'Log';
+}
+
+// Tap a history row → the BP sheet, prefilled, in edit mode (med-xso6.27).
+function editBPReading(reading) {
+    if (!reading || reading.id == null) return;
+    // A row still mid-write has no stored id yet — nothing to update.
+    if (String(reading.id).startsWith('local_')) return;
+    showBPRecordModal();
+    setBPModalMode(String(reading.id));
+    document.getElementById('bp-datetime').value = formatDateTimeLocalForInput(new Date(reading.measured_at));
+    document.getElementById('bp-systolic').value = String(reading.systolic);
+    document.getElementById('bp-diastolic').value = String(reading.diastolic);
+    document.getElementById('bp-pulse').value = reading.pulse != null ? String(reading.pulse) : '';
+    document.getElementById('bp-notes').value = reading.notes || '';
+    document.getElementById('bp-site').value = reading.site || 'right_arm';
+    document.getElementById('bp-position').value = reading.position || 'seated';
 }
 
 // Close BP modal
@@ -79,6 +104,8 @@ async function handleBPSubmit(event) {
     const site = document.getElementById('bp-site').value;
     const position = document.getElementById('bp-position').value;
     const notes = document.getElementById('bp-notes').value;
+    const form = document.getElementById('bp-form');
+    const editingId = (form && form.dataset.editingId) || null;
 
     if (!datetime || !Number.isFinite(systolic) || !Number.isFinite(diastolic)) {
         safeAlert('Please fill in all required fields with valid numbers');
@@ -109,7 +136,7 @@ async function handleBPSubmit(event) {
         // readings array changes locally — goal + stats are reconciled by
         // the post-commit loadBPReadings() refetch.
         const optimisticReading = {
-            id: `local_optimistic_${Date.now()}`,
+            id: editingId || `local_optimistic_${Date.now()}`,
             measured_at: payload.measured_at,
             systolic: payload.systolic,
             diastolic: payload.diastolic,
@@ -125,7 +152,10 @@ async function handleBPSubmit(event) {
                 const base = prev && typeof prev === 'object' ? prev : {};
                 const prevReadings = Array.isArray(base.readingsRes) ? base.readingsRes : [];
                 return {
-                    readingsRes: [optimisticReading, ...prevReadings],
+                    // Edit replaces the row in place; add prepends.
+                    readingsRes: editingId
+                        ? prevReadings.map((r) => (r && String(r.id) === editingId ? { ...r, ...optimisticReading } : r))
+                        : [optimisticReading, ...prevReadings],
                     goalRes: base.goalRes || null,
                     statsRes: base.statsRes || null
                 };
@@ -134,7 +164,9 @@ async function handleBPSubmit(event) {
 
         let res;
         try {
-            res = await apiCall('/api/bp', 'POST', payload);
+            res = editingId
+                ? await apiCall(`/api/bp/${encodeURIComponent(editingId)}`, 'PUT', payload)
+                : await apiCall('/api/bp', 'POST', payload);
         } catch (e) {
             if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
             throw e;
@@ -298,16 +330,14 @@ function renderRangeSelector(opts) {
 }
 
 // Build the inline +Log button that sits at the end of the range-selector
-// row (Phase 5, Task 5). Round-2 Task 5 (defect #8): migrated to the shared
-// `.wg-toolbar-btn .wg-toolbar-btn--primary` so the pill matches the
-// 14/30/60d range-toggle height. Kept as `#add-bp-btn` so offline-ui's
+// row (Phase 5, Task 5); kit v2 `.wg-btn--primary.wg-btn--sm` (med-xso6.27). Kept as `#add-bp-btn` so offline-ui's
 // disabled-state sweep still finds it, and so existing tests / bindings
 // keep working.
 function buildBPInlineAddButton() {
     const btn = document.createElement('button');
     btn.id = 'add-bp-btn';
     btn.type = 'button';
-    btn.className = 'wg-toolbar-btn wg-toolbar-btn--primary';
+    btn.className = 'wg-btn wg-btn--primary wg-btn--sm';
     btn.setAttribute('aria-label', 'Log blood pressure');
 
     if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
@@ -315,7 +345,6 @@ function buildBPInlineAddButton() {
         if (icon) btn.appendChild(icon);
     }
     const label = document.createElement('span');
-    label.className = 'wg-toolbar-btn__label';
     label.textContent = 'Log';
     btn.appendChild(label);
 
@@ -587,6 +616,8 @@ function buildBPReadingRow(reading) {
     return window.WGRowActions.attach(item, {
         label: `reading ${reading.systolic}/${reading.diastolic}`,
         trail: actions,
+        tapEdits: true,
+        onEdit: () => editBPReading(reading),
         onDelete: () => deleteBPReading(String(reading.id)),
     });
 }

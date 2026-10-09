@@ -171,10 +171,12 @@ describe('renderBPReadings (Phase 3, Task 5)', () => {
         expect(failed.title).toBe('HTTP 400');
     });
 
-    it('row actions: swipe host + overflow menu Delete invokes deleteBPReading with the reading id', () => {
+    it('row actions: Edit / Delete and a row tap invoke editBPReading / deleteBPReading (med-xso6.27)', () => {
         const { document, window } = env;
         const deleteSpy = vi.fn();
+        const editSpy = vi.fn();
         window.deleteBPReading = deleteSpy;
+        window.editBPReading = editSpy;
 
         window.renderBPReadings([
             { id: 99, measured_at: midnight(0).toISOString(), systolic: 122, diastolic: 80, pulse: 70 }
@@ -182,9 +184,15 @@ describe('renderBPReadings (Phase 3, Task 5)', () => {
 
         const row = document.querySelector('#bp-list .wg-bp-reading-row');
         expect(row.classList.contains('wg-swipe')).toBe(true);
-        // BP readings have no editor: the swipe tray and the menu offer Delete only.
-        expect(Array.from(row.querySelectorAll('.wg-swipe__act')).map((b) => b.textContent)).toEqual(['Delete']);
+        expect(Array.from(row.querySelectorAll('.wg-swipe__act')).map((b) => b.textContent)).toEqual(['Edit', 'Delete']);
         expect(row.querySelector('.wg-icon-btn')).toBeNull();
+
+        clickRowAction(row, 'Edit');
+        expect(editSpy).toHaveBeenCalledTimes(1);
+        expect(editSpy.mock.calls[0][0].id).toBe(99);
+        // Tapping the row body edits too (kit rule 3).
+        row.querySelector('.wg-bp-reading-row__value').click();
+        expect(editSpy).toHaveBeenCalledTimes(2);
 
         clickRowAction(row, 'Delete');
         expect(deleteSpy).toHaveBeenCalledTimes(1);

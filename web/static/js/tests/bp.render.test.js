@@ -181,18 +181,16 @@ describe('BP screen render helpers (Phase 3, Task 3)', () => {
             expect(document.getElementById('add-bp-btn')).toBeNull();
         });
 
-        it('renderRangeSelector injects a shared-toolbar-btn pill with id="add-bp-btn" as the row\'s trailing child', () => {
+        it('renderRangeSelector injects a kit .wg-btn pill with id="add-bp-btn" as the row\'s trailing child', () => {
             const { document, window } = env;
             window.renderRangeSelector({ active: 60, onChange: () => {} });
 
             const btn = document.getElementById('add-bp-btn');
             expect(btn).not.toBeNull();
-            // Round-2 Task 5 (defect #8): adopted the shared toolbar-btn class
-            // so the pill matches the 14/30/60d range-toggle height. The old
-            // per-section `.wg-gloss--sun` / `.wg-bp-range-selector__add`
-            // one-off is gone (size/padding now flow from --wg-toolbar-btn-*).
-            expect(btn.classList.contains('wg-toolbar-btn')).toBe(true);
-            expect(btn.classList.contains('wg-toolbar-btn--primary')).toBe(true);
+            // Kit v2 button (med-xso6.27); the legacy toolbar-btn is gone.
+            expect(btn.classList.contains('wg-btn')).toBe(true);
+            expect(btn.classList.contains('wg-btn--primary')).toBe(true);
+            expect(btn.classList.contains('wg-toolbar-btn')).toBe(false);
             expect(btn.classList.contains('wg-bp-range-selector__add')).toBe(false);
             expect(btn.classList.contains('wg-gloss')).toBe(false);
             expect(btn.classList.contains('wg-fab')).toBe(false);
@@ -203,7 +201,7 @@ describe('BP screen render helpers (Phase 3, Task 3)', () => {
             // The +Log pill is the last child of the row (after the range strip).
             expect(row.lastElementChild).toBe(btn);
 
-            const label = btn.querySelector('.wg-toolbar-btn__label');
+            const label = btn.querySelector('span');
             expect(label).not.toBeNull();
             expect(label.textContent.trim()).toBe('Log');
         });

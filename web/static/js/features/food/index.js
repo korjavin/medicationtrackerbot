@@ -4,10 +4,11 @@
 //
 // Thin orchestrator for the Food section. Owns:
 //   - top-level controls binding (#bindFoodControls — date-nav buttons,
-//     toolbar +Add buttons, macros toggle, modal Cancel/Save, scanner +
+//     app-bar Add, macros toggle, modal Cancel/Save, scanner +
 //     product modal buttons, FoodDB search/sort/pagination, food-modal
 //     inputs)
-//   - icon hydration for the day-nav / modal / inline-add buttons
+//   - icon hydration for the food modal's scan button (markup icons are
+//     <i data-icon> placeholders hydrated at boot)
 //   - the Daily / Weekly macros toggle (setFoodMacrosRange)
 //   - the Log / Food DB sub-tab strip (switchFoodTab)
 //
@@ -20,40 +21,12 @@
 // Load order: this file MUST be loaded last in the food sub-tree because
 // `bindFoodControls` references handlers declared in the other files.
 
-function renderFoodDayNavIcons() {
-    const prev = document.getElementById('food-date-prev-btn');
-    const next = document.getElementById('food-date-next-btn');
-    if (!window.WGIcons || typeof window.WGIcons.iconSvg !== 'function') return;
-    if (prev && !prev.querySelector('svg')) {
-        prev.replaceChildren(window.WGIcons.iconSvg('chevronLeft'));
-    }
-    if (next && !next.querySelector('svg')) {
-        next.replaceChildren(window.WGIcons.iconSvg('chevronRight'));
-    }
-}
-
 function renderFoodModalIcons() {
     if (!window.WGIcons || typeof window.WGIcons.iconSvg !== 'function') return;
     const scanBtn = document.getElementById('food-scan-btn');
     if (scanBtn && !scanBtn.querySelector('svg')) {
         const icon = window.WGIcons.iconSvg('barcode', { size: 14 });
         scanBtn.insertBefore(icon, scanBtn.firstChild);
-    }
-}
-
-function renderFoodInlineAddIcon() {
-    if (!window.WGIcons || typeof window.WGIcons.iconSvg !== 'function') return;
-    const btn = document.getElementById('add-food-inline-btn');
-    if (btn && !btn.querySelector('svg')) {
-        btn.insertBefore(window.WGIcons.iconSvg('plus', { size: 14 }), btn.firstChild);
-    }
-    const photoBtn = document.getElementById('add-food-photo-btn');
-    if (photoBtn && !photoBtn.querySelector('svg')) {
-        photoBtn.insertBefore(window.WGIcons.iconSvg('camera', { size: 14 }), photoBtn.firstChild);
-    }
-    const scanBtn = document.getElementById('scan-food-inline-btn');
-    if (scanBtn && !scanBtn.querySelector('svg')) {
-        scanBtn.insertBefore(window.WGIcons.iconSvg('barcode', { size: 14 }), scanBtn.firstChild);
     }
 }
 
@@ -136,15 +109,8 @@ function switchFoodTab(tab) {
         });
 
         bindClick('add-food-inline-btn', () => showAddFoodModal());
-        bindClick('add-food-photo-btn', () => triggerFoodPhotoPicker());
-        bindClick('scan-food-inline-btn', () => {
-            if (typeof showAddFoodModal === 'function') {
-                showAddFoodModal();
-            }
-            if (typeof openFoodScannerModal === 'function') {
-                openFoodScannerModal();
-            }
-        });
+        // ponytail: photo stays one tap away on populated days until the Add sheet (med-xso6.17) owns it.
+        bindClick('food-photo-btn', () => triggerFoodPhotoPicker());
         bindChange('food-photo-input', (e) => uploadFoodPhoto(e.target));
 
         window.TabController.bindTabGroup({
@@ -203,9 +169,7 @@ function switchFoodTab(tab) {
         bindClick('food-product-cancel-btn', () => closeFoodProductModal());
         bindClick('food-product-save-btn', () => saveFoodProduct());
 
-        renderFoodDayNavIcons();
         renderFoodModalIcons();
-        renderFoodInlineAddIcon();
     }
 
     if (document.readyState === 'loading') {

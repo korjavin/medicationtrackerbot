@@ -212,6 +212,36 @@ export function createBPDomain({ records, now, timeZone }) {
     return limited.map(toResponse);
   }
 
+  // update rewrites a reading in place (same recordId, fresh clientTs so it
+  // wins LWW). Fields the input omits keep their stored value; the category is
+  // recomputed from the new numbers unless the caller pins one.
+  async function update(id, input) {
+    const all = await records.list(RECORD_TYPE);
+    const existing = all.find((r) => !r.deleted && r.recordId === id);
+    if (!existing) {
+      const err = new Error('reading not found');
+      err.code = 'not_found';
+      throw err;
+    }
+    const merged = { ...existing, ...input };
+    const record = {
+      ...existing,
+      clientTs: now(),
+      measured_at: toISOString(merged.measured_at),
+      systolic: merged.systolic,
+      diastolic: merged.diastolic,
+      pulse: merged.pulse ?? null,
+      site: merged.site || '',
+      position: merged.position || '',
+      category: resolveCategory({ ...merged, category: input.category || '' }),
+      ignore_calc: !!merged.ignore_calc,
+      notes: merged.notes || '',
+      tag: merged.tag || '',
+    };
+    await records.put(RECORD_TYPE, record);
+    return toResponse(record);
+  }
+
   async function remove(id) {
     const all = await records.list(RECORD_TYPE);
     if (!all.some((r) => r.recordId === id)) {
@@ -241,5 +271,5 @@ export function createBPDomain({ records, now, timeZone }) {
     return buildDailyWeightedStats(all, now(), timeZone);
   }
 
-  return { create, list, remove, getGoal, setGoal, getStats };
+  return { create, list, update, remove, getGoal, setGoal, getStats };
 }

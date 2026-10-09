@@ -117,7 +117,7 @@ describe('Meds cold-start offline resilience (Task 3)', () => {
         await window.loadMeds();
 
         const list = document.getElementById('med-list');
-        const headers = list.querySelectorAll('.wg-section-label');
+        const headers = list.querySelectorAll('.wg-meds-bucket__label');
         expect(headers.length).toBeGreaterThanOrEqual(2);
         expect(headers[0].textContent.trim()).toMatch(/^\d{2}:\d{2} · in /);
 

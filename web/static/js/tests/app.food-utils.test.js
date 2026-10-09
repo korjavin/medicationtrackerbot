@@ -265,31 +265,44 @@ describe('app.js food helpers', () => {
       // Setup DOM. The app creates the HTML before `loadFrontendEnv` but we overwrite it
       document.body.innerHTML = `
         <input id="food-date-filter" />
-        <span id="food-date-label"></span>
+        <span id="food-date-chip" class="hidden"></span>
+        <span id="food-date-text"></span>
         <button id="food-date-next-btn"></button>
       `;
 
       const filter = document.getElementById('food-date-filter');
-      const label = document.getElementById('food-date-label');
+      const chip = document.getElementById('food-date-chip');
+      const text = document.getElementById('food-date-text');
       const nextBtn = document.getElementById('food-date-next-btn');
 
       const today = new Date();
       const yesterday = new Date(today);
       yesterday.setDate(today.getDate() - 1);
+      const older = new Date(today);
+      older.setDate(today.getDate() - 5);
 
-      // Test "Today"
+      // Test "Today": relative chip + short date
       filter.value = window.toISODateLocal(today);
       window.updateFoodDateNav();
 
-      expect(label.textContent).toBe('Today');
+      expect(chip.textContent).toBe('Today');
+      expect(chip.classList.contains('hidden')).toBe(false);
+      expect(text.textContent).toMatch(/^\S+ \d{2}\.\d{2}$/);
       expect(nextBtn.disabled).toBe(true);
 
       // Test "Yesterday"
       filter.value = window.toISODateLocal(yesterday);
       window.updateFoodDateNav();
 
-      expect(label.textContent).toBe('Yesterday');
+      expect(chip.textContent).toBe('Yesterday');
       expect(nextBtn.disabled).toBe(false);
+
+      // Older day: no chip, full date
+      filter.value = window.toISODateLocal(older);
+      window.updateFoodDateNav();
+
+      expect(chip.classList.contains('hidden')).toBe(true);
+      expect(text.textContent).toMatch(/ · \d{2}\.\d{2}\.\d{4}$/);
 
     } finally {
       cleanup();

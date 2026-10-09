@@ -446,6 +446,17 @@ export function createApiRouter(ctx, {
       const m = /^\/api\/bp\/([^/]+)$/.exec(path);
       if (m) { await bp.remove(m[1]); return true; }
     }
+    if (method === 'PUT') {
+      const m = /^\/api\/bp\/([^/]+)$/.exec(path);
+      if (m) {
+        const res = await bp.update(m[1], body);
+        // An edit that moves a reading into today's slot satisfies it like a
+        // new one: end the relay's re-fire chain, then recompute the horizon.
+        await cancelMeasureRefire('bp', reminders.getBPStatus, res);
+        scheduleReminderRecompute(ctx, { records, timeZone });
+        return res;
+      }
+    }
     if (path === '/api/bp/goal' && method === 'GET') return bp.getGoal();
     if (path === '/api/bp/stats' && method === 'GET') return bp.getStats();
 

@@ -1,15 +1,11 @@
-// Wandergeek Food meal-grouped item list (Phase 4, Task 5; Round-2 Task 3).
+// Food meal list (kit F1–F3, med-xso6.16).
 //
-// Asserts that the daily-log render path renders each meal as a
-// `.wg-food-meal-group` with a `.wg-section-label` header + trailing mono
-// kcal total, each item as a `.wg-card` row carrying name/grams/kcal/P-F,
-// preserves offline-pending + rejected badge states as `.wg-tag--mono`
-// variants, and wires the edit/delete icon buttons to the existing handlers.
-//
-// Round-2 Task 3 removed the trailing `.wg-food-cta-dock`; the only Add
-// affordance is `#add-food-inline-btn` in the day-nav header, matching
-// `.local/design-reference/project/screens.jsx` FoodScreen. The meal list
-// no longer mounts a second CTA after the last group.
+// Each meal renders as a kit `.wg-section` (eyebrow "Meal · time" + kcal in
+// the head) over a `.wg-list` of `.wg-row` items: title wraps, meta is
+// "grams · P · F" plus the shared sync chip, kcal is the row value. Tap a row
+// to edit; swipe / the overflow menu has Edit and Delete. An empty day is a
+// `.wg-empty` with the fast-path shortcuts; Add in the app bar is the only
+// primary and the list never mounts a second CTA.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clickRowAction, loadFrontendEnv } from './helpers/frontend-harness.js';
@@ -81,15 +77,16 @@ describe('Food meal-grouped item list (Phase 4, Task 5)', () => {
         env = null;
     });
 
-    it('renders one .wg-food-meal-group per meal with a .wg-section-label header', () => {
+    it('renders one .wg-section per meal with an eyebrow head over a .wg-list', () => {
         const { window, document } = env;
         window._renderFoodData(FIXTURE, null, 'day', '2026-04-20');
 
-        const groups = document.querySelectorAll('#food-list .wg-food-meal-group');
+        const groups = document.querySelectorAll('#food-list .wg-section.wg-food-meal-group');
         expect(groups).toHaveLength(2);
+        groups.forEach(g => expect(g.querySelector(':scope > .wg-list')).not.toBeNull());
 
         const headers = Array.from(groups).map(g =>
-            g.querySelector('.wg-section-label.wg-food-meal-group__header')
+            g.querySelector(':scope > .wg-section__head')
         );
         headers.forEach(h => expect(h).not.toBeNull());
 
@@ -99,35 +96,43 @@ describe('Food meal-grouped item list (Phase 4, Task 5)', () => {
             .toBe('Snack · 11:30');
     });
 
-    it('trailing mono kcal total shows rounded group calories', () => {
+    it('the section head shows the rounded meal kcal', () => {
         const { window, document } = env;
         window._renderFoodData(FIXTURE, null, 'day', '2026-04-20');
 
         const totals = document.querySelectorAll(
             '#food-list .wg-food-meal-group__total'
         );
-        expect(totals[0].classList.contains('wg-mono-display')).toBe(true);
+        expect(totals[0].classList.contains('wg-meta')).toBe(true);
         expect(totals[0].textContent).toBe('420 kcal');
         expect(totals[1].textContent).toBe('180 kcal');
     });
 
-    it('each logged item renders as a .wg-card .wg-food-item-row with name + grams + kcal + macros', () => {
+    it('each logged item renders as a .wg-row: title, "grams · P · F" meta, kcal value', () => {
         const { window, document } = env;
         window._renderFoodData(FIXTURE, null, 'day', '2026-04-20');
 
-        const rows = document.querySelectorAll('#food-list .wg-food-item-row');
+        const rows = document.querySelectorAll('#food-list .wg-row.wg-food-item-row');
         expect(rows).toHaveLength(3);
-        rows.forEach(row => expect(row.classList.contains('wg-card')).toBe(true));
 
         const first = rows[0];
         expect(first.getAttribute('data-log-id')).toBe('1');
-        expect(first.querySelector('.wg-food-item-row__name').textContent).toBe('Oatmeal');
-        expect(first.querySelector('.wg-food-item-row__grams').textContent).toBe('200g');
-        const kcal = first.querySelector('.wg-food-item-row__kcal');
-        expect(kcal.classList.contains('wg-mono-display')).toBe(true);
-        expect(kcal.textContent).toBe('320 kcal');
-        expect(first.querySelector('.wg-food-item-row__macros').textContent)
-            .toBe('P 12 / F 6');
+        expect(first.querySelector('.wg-row__title').textContent).toBe('Oatmeal');
+        expect(first.querySelector('.wg-row__meta').textContent).toBe('200 g · P 12 · F 6');
+        const kcal = first.querySelector('.wg-row__value.wg-row__value--sun');
+        expect(kcal.firstChild.textContent).toBe('320');
+        expect(kcal.querySelector('small').textContent).toBe('kcal');
+        // No emoji meal prefix; is_meal rows get the kit food icon instead.
+        expect(first.querySelector('.wg-food-item-row__meal-ico')).toBeNull();
+    });
+
+    it('a saved-meal row carries the food icon before its title', () => {
+        const { window, document } = env;
+        const groups = [{ ...FIXTURE[0], logs: [{ ...FIXTURE[0].logs[0], is_meal: true }] }];
+        window._renderFoodData(groups, null, 'day', '2026-04-20');
+        const title = document.querySelector('#food-list .wg-row__title');
+        expect(title.querySelector('.wg-ico svg')).not.toBeNull();
+        expect(title.textContent).toBe('Oatmeal');
     });
 
     it('offline-pending logs get the shared Pending sync chip', () => {
@@ -158,7 +163,6 @@ describe('Food meal-grouped item list (Phase 4, Task 5)', () => {
         window._renderFoodData(groups, null, 'day', '2026-04-20');
 
         const row = document.querySelector('#food-list .wg-food-item-row');
-        expect(row.classList.contains('wg-food-item-row--pending')).toBe(true);
 
         const tag = row.querySelector('.wg-chip.wg-chip--pending');
         expect(tag).not.toBeNull();
@@ -194,7 +198,6 @@ describe('Food meal-grouped item list (Phase 4, Task 5)', () => {
         window._renderFoodData(groups, null, 'day', '2026-04-20');
 
         const row = document.querySelector('#food-list .wg-food-item-row');
-        expect(row.classList.contains('wg-food-item-row--rejected')).toBe(true);
 
         const tag = row.querySelector('.wg-chip.wg-chip--danger');
         expect(tag).not.toBeNull();
@@ -211,7 +214,7 @@ describe('Food meal-grouped item list (Phase 4, Task 5)', () => {
             '#food-list .wg-food-item-row[data-log-id="1"]'
         );
         expect(row.classList.contains('wg-swipe')).toBe(true);
-        expect(row.querySelector('.wg-food-item-row__actions .wg-swipe__more')).not.toBeNull();
+        expect(row.querySelector('.wg-row__trail .wg-swipe__more')).not.toBeNull();
         clickRowAction(row, 'Edit');
         expect(editSpy).toHaveBeenCalledTimes(1);
         expect(editSpy).toHaveBeenCalledWith(1);
@@ -247,9 +250,9 @@ describe('Food meal-grouped item list (Phase 4, Task 5)', () => {
         editSpy.mockRestore();
     });
 
-    it('no sticky Add-food CTA dock is rendered — only the header inline button remains', () => {
+    it('no sticky Add-food CTA dock is rendered — only the app-bar Add remains', () => {
         // Round-2 Task 3: the bottom CTA was removed; Add-food affordance
-        // is the `#add-food-inline-btn` inline pill in the day-nav.
+        // is `#add-food-inline-btn` in the Food app bar.
         const { window, document } = env;
         window._renderFoodData(FIXTURE, null, 'day', '2026-04-20');
 
@@ -273,15 +276,48 @@ describe('Food meal-grouped item list (Phase 4, Task 5)', () => {
         openSpy.mockRestore();
     });
 
-    it('empty-state renders the hint paragraph without remounting a bottom CTA', () => {
+    it('an empty day renders .wg-empty with Search / Scan / Photo / Describe secondary shortcuts', () => {
         const { window, document } = env;
         window._renderFoodData([], null, 'day', '2026-04-20');
 
         const list = document.getElementById('food-list');
-        expect(list.querySelector('.wg-food-meal-list__empty').textContent)
-            .toContain('No food logs');
+        const empty = list.querySelector('.wg-card .wg-empty');
+        expect(empty).not.toBeNull();
+        expect(empty.querySelector('.wg-empty__title').textContent).toBe('No food logged this day');
+        const acts = Array.from(empty.querySelectorAll('.wg-empty__acts .wg-btn'));
+        expect(acts.map((b) => b.textContent.trim())).toEqual(['Search', 'Scan', 'Photo', 'Describe']);
+        acts.forEach((b) => expect(b.classList.contains('wg-btn--primary')).toBe(false));
         expect(document.querySelector('.wg-food-add-cta')).toBeNull();
         expect(document.getElementById('food-add-cta-dock')).toBeNull();
+    });
+
+    it("today's empty state says so", () => {
+        const { window, document } = env;
+        const d = new Date();
+        const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        window._renderFoodData([], null, 'day', today);
+        expect(document.querySelector('#food-list .wg-empty__title').textContent).toBe('No food logged today');
+    });
+
+    it('the empty-day shortcuts open the matching fast path', () => {
+        const { window, document } = env;
+        const calls = [];
+        window.showAddFoodModal = () => calls.push('add');
+        window.openFoodScannerModal = () => calls.push('scan');
+        window.triggerFoodPhotoPicker = () => calls.push('photo');
+        window.setFoodParseAIMode = (on) => calls.push(`ai:${on}`);
+        window._renderFoodData([], null, 'day', '2026-04-20');
+
+        const click = (label) => Array.from(document.querySelectorAll('#food-list .wg-empty__acts .wg-btn'))
+            .find((b) => b.textContent.trim() === label).click();
+        click('Search');
+        expect(calls).toEqual(['add']);
+        click('Scan');
+        expect(calls).toEqual(['add', 'add', 'scan']);
+        click('Photo');
+        expect(calls.at(-1)).toBe('photo');
+        click('Describe');
+        expect(calls.slice(-2)).toEqual(['add', 'ai:true']);
     });
 
     it('weekly macros render does not introduce a bottom CTA', () => {
@@ -355,7 +391,7 @@ describe('Food meal-grouped item list (Phase 4, Task 5)', () => {
         }];
         window._renderFoodData(groups, null, 'day', '2026-04-20');
 
-        const header = document.querySelector('#food-list .wg-food-meal-group__header');
+        const header = document.querySelector('#food-list .wg-food-meal-group .wg-section__head');
         expect(header).not.toBeNull();
         expect(header.textContent).toContain('Meal');
     });

@@ -32,6 +32,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // like a materialized dose, so the id prefix is what distinguishes them.
 const MANUAL_ID_PREFIX = 'intake-manual-';
 const UPCOMING_FORECAST_DAYS = 7;
+// confirmSchedule may create a just-due slot that is not materialized yet.
+const CONFIRM_DUE_GRACE_MS = 10 * 60 * 1000;
 // A dose taken more than this long after its slot is "delayed". Owner decision
 // (bd med-29gh.2): 60 minutes, from their own "avg delay ~ 1h" framing — the
 // default snooze is 10 minutes, so anything under an hour is routine. Named so
@@ -439,7 +441,7 @@ export function createIntakeDomain({ records, now, timeZone }) {
   // confirm-by-id); otherwise scheduled_at + medication_ids confirms the
   // listed meds AND reverts any other TAKEN intake at the same exact slot
   // back to PENDING (the "user unchecked a box that was already confirmed"
-  // path).
+  // path). A slot still in the future is confirm-or-create and additive.
   async function confirmSchedule({ scheduledAt, medicationIds = [], intakeIds = [] } = {}) {
     const nowMs = now();
     const nowIso = new Date(nowMs).toISOString();
@@ -457,6 +459,23 @@ export function createIntakeDomain({ records, now, timeZone }) {
     }
 
     const scheduledAtMs = Date.parse(scheduledAt);
+    // Real upcoming slots (same forecast as upcomingDoses), keyed med:instant —
+    // only these may be created below, never an arbitrary instant. The grace
+    // covers a slot that came due while the take sheet was open but has not
+    // been materialized yet (the shim materializes on a 60s cadence).
+    const forecastSlots = new Map();
+    if (Number.isFinite(scheduledAtMs) && scheduledAtMs > nowMs - CONFIRM_DUE_GRACE_MS) {
+      const targets = forecastDosesWithTzPlan({
+        medications: (await loadMeds()).map(toMedScheduleShape),
+        timeZone,
+        now: Math.min(nowMs, scheduledAtMs - 1),
+        days: UPCOMING_FORECAST_DAYS,
+        tzPlan: await loadActiveTzPlan(),
+      });
+      for (const t of targets) {
+        if (t.scheduledAtMs === scheduledAtMs) forecastSlots.set(t.medicationId, t);
+      }
+    }
     for (const medId of medicationIds) {
       const intakes = await loadIntakes();
       const intake = intakes.find((i) => i.medication_id === medId
@@ -466,8 +485,31 @@ export function createIntakeDomain({ records, now, timeZone }) {
           ...intake, clientTs: nowMs, status: 'TAKEN', taken_at: nowIso,
         });
         await adjustInventory(medId, -1);
+      } else if (!intake && forecastSlots.has(medId)) {
+        // A future slot is not materialized yet (doses materialize once due):
+        // confirm-or-create, exactly as triggerNextIntake does, so taking an
+        // upcoming dose early is not a silent no-op (Meds → Schedule "Take N",
+        // Today's Take). Same deterministic slot id, so the later floored
+        // materialization of this slot loses to this real write.
+        await putIntake({
+          recordId: slotId(medId, scheduledAtMs),
+          clientTs: nowMs,
+          deleted: false,
+          medication_id: medId,
+          scheduled_at: new Date(scheduledAtMs).toISOString(),
+          taken_at: nowIso,
+          status: 'TAKEN',
+          snoozed_until: null,
+          source: forecastSlots.get(medId).source === 'tz_step' ? 'tz_step' : 'schedule',
+        });
+        await adjustInventory(medId, -1);
       }
     }
+
+    // Taking an upcoming slot early is additive: a med already taken early
+    // drops out of the forecast, so it is absent from the next bucket's ids
+    // without having been "unchecked" — never revert it.
+    if (scheduledAtMs > nowMs) return { status: 'confirmed' };
 
     const medSet = new Set(medicationIds);
     const intakesAfter = await loadIntakes();
