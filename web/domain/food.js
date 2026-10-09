@@ -426,6 +426,34 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     await records.del(LOG_RECORD_TYPE, id);
   }
 
+  // moveLogs re-dates existing rows without touching anything else (med-don1).
+  // Not update() per row: update() is a full replacement (a partial body zeroes
+  // macros) and re-runs upsertProductByName. Validates everything before the
+  // first write so a bad id moves nothing.
+  async function moveLogs(ids, eatenAt) {
+    const uniqueIds = [...new Set(Array.isArray(ids) ? ids : [])];
+    if (!uniqueIds.length) throw invalidRequest('no log IDs provided');
+    const iso = resolveEatenAt(eatenAt, null);
+    if (!iso) throw invalidRequest('eaten_at must be a valid timestamp');
+    const all = await records.list(LOG_RECORD_TYPE);
+    const byId = new Map(all.filter((r) => !r.deleted).map((r) => [r.recordId, r]));
+    const missingIdx = uniqueIds.findIndex((id) => !byId.has(id));
+    if (missingIdx !== -1) {
+      const missing = uniqueIds[missingIdx];
+      const err = new Error(`food log not found: ${missing}`);
+      err.code = 'not_found';
+      throw err;
+    }
+    const products = await productsIndex();
+    const out = [];
+    for (const id of uniqueIds) {
+      const record = { ...byId.get(id), eaten_at: iso, clientTs: now() };
+      await records.put(LOG_RECORD_TYPE, record);
+      out.push(toLogResponse(record, isMealFor(record, products)));
+    }
+    return out;
+  }
+
   // dayWindow resolves [start, endExclusive) for `days` calendar days ending
   // on `date`'s local day, mirroring ListLogs/GetStats's DST-safe midnight
   // math (repo.go:509/595). `date` may be a ms epoch, Date, or "YYYY-MM-DD"
@@ -659,6 +687,7 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     create,
     update,
     remove,
+    moveLogs,
     listGrouped,
     stats,
     listProducts,

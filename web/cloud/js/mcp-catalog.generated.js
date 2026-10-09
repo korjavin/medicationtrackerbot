@@ -149,6 +149,40 @@ export const CATALOG = [
     "response_example": "[\n  {\n    \"name\": \"Breakfast\",\n    \"time\": \"08:00\",\n    \"calories\": 415,\n    \"carbs\": 40,\n    \"protein\": 39,\n    \"fat\": 9,\n    \"logs\": [\n      {\"id\": 901, \"eaten_at\": \"2026-04-29T08:00:00Z\", \"weight\": 200, \"carbs\": 40, \"protein\": 8, \"fat\": 5, \"calories\": 250, \"name\": \"oatmeal\", \"product_id\": 12, \"is_meal\": false},\n      {\"id\": 902, \"eaten_at\": \"2026-04-29T08:05:00Z\", \"weight\": 150, \"carbs\": 0, \"protein\": 31, \"fat\": 4, \"calories\": 165, \"name\": \"chicken breast\", \"product_id\": 7, \"is_meal\": false}\n    ]\n  }\n]"
   },
   {
+    "id": "food.log.move",
+    "topic": "food",
+    "method": "POST",
+    "path": "/api/food/log/move",
+    "risk": "write",
+    "description": "Re-date existing food log entries to one new eaten_at (e.g. a meal photo uploaded late that landed on today but was eaten yesterday). Only eaten_at changes: name, weight, macros and product_id are kept exactly and no product is upserted — prefer this over food.log.update when only the time is wrong. All ids must exist or nothing moves.",
+    "response_summary": "Array of the moved FoodLog objects.",
+    "required": [
+      "ids",
+      "eaten_at"
+    ],
+    "body_schema": {
+      "type": "object",
+      "required": [
+        "ids",
+        "eaten_at"
+      ],
+      "properties": {
+        "ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "Food log ids to move (from food.log.list)"
+        },
+        "eaten_at": {
+          "type": "string",
+          "description": "ISO8601 timestamp (RFC3339 preferred) every listed log is re-dated to"
+        }
+      }
+    }
+  },
+  {
     "id": "food.log.update",
     "topic": "food",
     "method": "PUT",

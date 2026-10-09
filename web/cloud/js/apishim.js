@@ -762,6 +762,9 @@ export function createApiRouter(ctx, {
     if (path === '/api/food/products/search' && method === 'GET') {
       return food.search(params.get('q'), { remote: params.get('remote') === 'true' });
     }
+    if (path === '/api/food/log/move' && method === 'POST') {
+      return food.moveLogs((body && body.ids) || [], body && body.eaten_at);
+    }
     if (path === '/api/food/log') {
       if (method === 'POST') return food.create(body);
       if (method === 'GET') {

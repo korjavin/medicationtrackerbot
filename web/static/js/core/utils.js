@@ -69,6 +69,16 @@ function safeChoose(msg, choices, opts) {
     });
 }
 
+// safeForm — the confirm modal shell around caller-built content (a DOM node).
+// Confirm calls opts.collect(); a null/undefined return keeps the dialog open,
+// anything else settles as the resolved value. Cancel resolves null.
+// opts: { title, confirmLabel, cancelLabel, collect }.
+function safeForm(msg, content, opts) {
+    return new Promise((resolve) => {
+        _mountConfirmModal(msg, resolve, { ...(opts || {}), content });
+    });
+}
+
 // In-page dialog used by safeAlert / safeConfirm / safePrompt / safeChoose.
 // It renders non-blockingly (unlike the synchronous native dialogs) and
 // resolves via its buttons, the backdrop click, or the Escape key. Confirm
@@ -80,6 +90,7 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
     const alertMode = opts.alert === true;
     const inputMode = opts.input === true;
     const choiceMode = Array.isArray(opts.choices);
+    const contentMode = !!opts.content;
     const backdrop = doc.createElement('div');
     backdrop.className = 'mt-confirm-backdrop';
 
@@ -95,7 +106,7 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
 
     const body = doc.createElement('div');
     body.className = 'wg-modal__body';
-    if (!(inputMode || choiceMode) || msg) {
+    if (!(inputMode || choiceMode || contentMode) || msg) {
         const messageEl = doc.createElement('p');
         messageEl.className = 'mt-confirm-modal__message';
         messageEl.textContent = String(msg ?? '');
@@ -165,19 +176,20 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
         }
         body.appendChild(list);
     }
+    if (contentMode) body.appendChild(opts.content);
 
     // Input/choices dialogs keep their actions top-right so the mobile
     // keyboard never covers them; a plain confirm keeps them below.
     modal.appendChild(header);
     modal.appendChild(body);
-    if (inputMode || choiceMode) {
+    if (inputMode || choiceMode || contentMode) {
         actions.classList.add('mt-confirm-modal__header-actions');
         header.appendChild(actions);
     } else {
         modal.appendChild(actions);
     }
 
-    const cancelValue = alertMode ? undefined : (inputMode || choiceMode ? null : false);
+    const cancelValue = alertMode ? undefined : (inputMode || choiceMode || contentMode ? null : false);
 
     let resolved = false;
     function settle(result) {
@@ -193,6 +205,11 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
     }
 
     function submit() {
+        if (contentMode) {
+            const value = typeof opts.collect === 'function' ? opts.collect() : true;
+            if (value != null) settle(value);
+            return;
+        }
         if (!inputMode) { settle(true); return; }
         const value = input.value.trim();
         if (!value) {

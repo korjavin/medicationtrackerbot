@@ -8,6 +8,7 @@
 // (network-mocked) food.*.test.js files keep running unshimmed.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installApiCache, loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
+import { allowConsoleNoise } from './helpers/setup.js';
 
 function localDateStr(d = new Date()) {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -314,5 +315,150 @@ describe('cloud shim contract — food log eaten_at guard (med-d5t.11)', () => {
 
         const after = (await todaysLogs(window)).find((l) => l.name === 'Snack');
         expect(after.eaten_at).toBe(explicit);
+    });
+});
+
+// bd med-don1 — move a meal group's rows (a late-uploaded photo stamped "now")
+// to another day: POST /api/food/log/move -> food.moveLogs, driven from the
+// meal-group header sheet (FoodLog.openMove).
+describe('cloud shim contract — move a meal group to another day (med-don1)', () => {
+    let env;
+    const today = localDateStr();
+    const yesterday = localDateStr(new Date(Date.now() - 24 * 60 * 60 * 1000));
+
+    beforeEach(() => {
+        env = loadCloudShimFrontendEnv();
+        installApiCache(env.window);
+        env.window.loadFoodLogs = vi.fn();
+        env.window.loadToday = vi.fn();
+        env.window.safeAlert = vi.fn();
+        env.window.safeToast = vi.fn();
+    });
+
+    afterEach(() => { env.cleanup(); });
+
+    const logsOn = async (window, day) =>
+        (await window.apiCall(`/api/food/log?date=${day}&days=1`)).flatMap((g) => g.logs);
+
+    // 2 real lunch rows at 12:40 + 3 photo rows sharing one stamp at 13:05.
+    async function seedLunchAndPhoto(window) {
+        const lunch = new Date(atTime(today, 12, 40)).toISOString();
+        const photo = new Date(atTime(today, 13, 5)).toISOString();
+        await createLog(window, { name: 'Soup', eaten_at: lunch, weight: 300, carbs: 20, protein: 10, fat: 5, calories: 165 });
+        await createLog(window, { name: 'Bread', eaten_at: lunch, weight: 50, carbs: 25, protein: 4, fat: 1, calories: 125 });
+        await createLog(window, { name: 'Rice', eaten_at: photo, weight: 200, carbs: 56, protein: 5, fat: 1, calories: 260 });
+        await createLog(window, { name: 'Chicken', eaten_at: photo, weight: 150, carbs: 0, protein: 40, fat: 6, calories: 220 });
+        await createLog(window, { name: 'Salad', eaten_at: photo, weight: 120, carbs: 6, protein: 2, fat: 8, calories: 100 });
+        const groups = await window.apiCall(`/api/food/log?date=${today}&days=1`);
+        expect(groups).toHaveLength(1);
+        return groups[0];
+    }
+
+    it('moveLogs re-dates only eaten_at: macros, name and product_id kept, no product upsert', async () => {
+        const { window } = env;
+        const group = await seedLunchAndPhoto(window);
+        const rice = group.logs.find((l) => l.name === 'Rice');
+        const productsBefore = await window.apiCall('/api/food/products');
+        const target = new Date(atTime(yesterday, 13, 5)).toISOString();
+
+        const res = await window.apiCall('/api/food/log/move', 'POST', { ids: [rice.id], eaten_at: target });
+
+        expect(res).toHaveLength(1);
+        const moved = (await logsOn(window, yesterday)).find((l) => l.id === rice.id);
+        expect(moved).toEqual({ ...rice, eaten_at: target });
+        expect(await window.apiCall('/api/food/products')).toEqual(productsBefore);
+        expect((await logsOn(window, today)).map((l) => l.name).sort()).toEqual(['Bread', 'Chicken', 'Salad', 'Soup']);
+    });
+
+    it('an unknown id moves nothing; an unparseable eaten_at is rejected', async () => {
+        allowConsoleNoise(); // apiCall console.errors the swallowed not_found
+        const { window } = env;
+        const group = await seedLunchAndPhoto(window);
+        const rice = group.logs.find((l) => l.name === 'Rice');
+        const target = new Date(atTime(yesterday, 13, 5)).toISOString();
+
+        expect(await window.apiCall('/api/food/log/move', 'POST', { ids: [rice.id, 'foodlog_nope'], eaten_at: target })).toBeNull();
+        await expect(window.apiCall('/api/food/log/move', 'POST', { ids: [rice.id], eaten_at: 'nonsense' }))
+            .rejects.toMatchObject({ code: 'invalid_request' });
+        expect(await logsOn(window, yesterday)).toEqual([]);
+    });
+
+    it('the sheet pre-checks only the newest batch and moves it to yesterday as one group', async () => {
+        const { window, document } = env;
+        const group = await seedLunchAndPhoto(window);
+        const optimistic = [];
+        const realApply = window.DataStore.applyOptimistic.bind(window.DataStore);
+        window.DataStore.applyOptimistic = async (key, mutator, tags) => {
+            optimistic.push({ key, mutator });
+            return realApply(key, mutator, tags);
+        };
+
+        const done = window.FoodLog.openMove(group);
+        const boxes = [...document.querySelectorAll('.wg-food-move__box')];
+        const checkedNames = boxes.filter((b) => b.checked)
+            .map((b) => group.logs.find((l) => String(l.id) === b.value).name).sort();
+        expect(checkedNames).toEqual(['Chicken', 'Rice', 'Salad']);
+        expect(document.querySelector('.wg-food-move__time').value).toBe('13:05');
+
+        document.querySelector('.wg-food-move__chip[data-days-ago="1"]').click();
+        expect(document.querySelector('.wg-food-move__date').value).toBe(yesterday);
+        document.querySelector('.mt-confirm-modal__confirm').click();
+        await done;
+
+        const moved = await window.apiCall(`/api/food/log?date=${yesterday}&days=1`);
+        expect(moved).toHaveLength(1);
+        expect(moved[0].logs.map((l) => l.name).sort()).toEqual(['Chicken', 'Rice', 'Salad']);
+        expect(moved[0].calories).toBe(260 + 220 + 100);
+        expect((await logsOn(window, today)).map((l) => l.name).sort()).toEqual(['Bread', 'Soup']);
+        expect(window.safeToast).toHaveBeenCalledWith('Moved 3 items to Yesterday');
+
+        // Optimistic projection touched both days' v2 caches.
+        const keys = optimistic.map((o) => o.key);
+        expect(keys).toEqual(expect.arrayContaining([`food_${today}_v2`, `food_${yesterday}_v2`]));
+        const todayNext = optimistic.find((o) => o.key === `food_${today}_v2`).mutator({ groups: [group], weekStats: null });
+        expect(todayNext.groups.flatMap((g) => g.logs).map((l) => l.name).sort()).toEqual(['Bread', 'Soup']);
+        const yNext = optimistic.find((o) => o.key === `food_${yesterday}_v2`).mutator(null);
+        expect(yNext.groups).toHaveLength(1);
+        expect(yNext.groups[0].calories).toBe(580);
+    });
+
+    it('Move is disabled with nothing checked; select-all toggles every row', async () => {
+        const { window, document } = env;
+        const group = await seedLunchAndPhoto(window);
+
+        const done = window.FoodLog.openMove(group);
+        const all = document.querySelector('.wg-food-move__all-box');
+        const move = document.querySelector('.mt-confirm-modal__confirm');
+        all.click();
+        expect([...document.querySelectorAll('.wg-food-move__box')].every((b) => b.checked)).toBe(true);
+        all.click();
+        expect(move.disabled).toBe(true);
+        document.querySelector('.mt-confirm-modal__cancel').click();
+        expect(await done).toBeNull();
+        expect(await logsOn(window, yesterday)).toEqual([]);
+    });
+
+    it('a failed move rolls back every optimistic cache', async () => {
+        allowConsoleNoise(); // apiCall console.errors the swallowed not_found
+        const { window, document } = env;
+        const group = await seedLunchAndPhoto(window);
+        const ghost = { ...group, logs: [...group.logs, { ...group.logs[0], id: 'foodlog_ghost', eaten_at: group.logs[4].eaten_at }] };
+        const rollbacks = [];
+        const realApply = window.DataStore.applyOptimistic.bind(window.DataStore);
+        window.DataStore.applyOptimistic = async (key, mutator, tags) => {
+            const h = await realApply(key, mutator, tags);
+            const rb = vi.fn(() => h.rollback());
+            rollbacks.push(rb);
+            return { ...h, rollback: rb };
+        };
+
+        const done = window.FoodLog.openMove(ghost);
+        document.querySelector('.wg-food-move__chip[data-days-ago="1"]').click();
+        document.querySelector('.mt-confirm-modal__confirm').click();
+        expect(await done).toBeNull();
+
+        expect(rollbacks.length).toBeGreaterThan(0);
+        rollbacks.forEach((rb) => expect(rb).toHaveBeenCalled());
+        expect(await logsOn(window, yesterday)).toEqual([]);
     });
 });
