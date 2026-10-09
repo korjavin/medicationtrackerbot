@@ -188,7 +188,7 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         const { window, document } = env;
         const inOneHour = new Date(Date.now() + 60 * 60 * 1000);
         const sched = JSON.stringify({ type: 'daily', times: [toLocalTime(inOneHour)] });
-        await seedScheduleMeds(window, [
+        await seedMedications(window, [
             { id: 1, name: 'Aspirin', dosage: '75mg', schedule: sched, archived: false, inventory_count: -17 },
             { id: 2, name: 'Metformin', dosage: '500mg', schedule: sched, archived: false, inventory_count: 0 }
         ]);
