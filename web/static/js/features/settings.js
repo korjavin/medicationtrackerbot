@@ -1061,8 +1061,11 @@ async function saveTargets() {
         const el = document.getElementById(id);
         return !!el && !isSettingsSectionHidden(el);
     };
+    // Read the food inputs first: the Journey save's optimistic tab reload
+    // re-fills them from the cached bundle before saveFoodTargets would read.
+    const food = visible('food-target-settings') ? window.FoodLog.readTargetsForm() : null;
     if (visible('gamification-targets-settings') && !(await saveGamificationTargets({ toast: false }))) return false;
-    if (visible('food-target-settings') && !(await window.saveFoodTargets({ toast: false }))) return false;
+    if (food && !(await window.saveFoodTargets({ toast: false, payload: food }))) return false;
     safeToast('Targets saved', 'info');
     return true;
 }

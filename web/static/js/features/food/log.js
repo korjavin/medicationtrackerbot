@@ -1124,22 +1124,29 @@ async function loadFoodTargets() {
     }
 }
 
+function readFoodTargetsForm() {
+    const num = (id) => parseInt(document.getElementById(id).value, 10) || 0;
+    return {
+        calories: num('food-target-calories'),
+        carbs: num('food-target-carbs'),
+        protein: num('food-target-protein'),
+        fat: num('food-target-fat'),
+    };
+}
+
 // Optimistic write (Critical Rule #9) on the 'food_targets' cache key; a failed
 // POST rolls it back. Resolves true on success. `toast: false` lets the Settings
-// Targets page (one Save for food + Journey bands) report once for both.
-async function saveFoodTargets({ toast = true } = {}) {
-    const payload = {
-        calories: parseInt(document.getElementById('food-target-calories').value, 10) || 0,
-        carbs: parseInt(document.getElementById('food-target-carbs').value, 10) || 0,
-        protein: parseInt(document.getElementById('food-target-protein').value, 10) || 0,
-        fat: parseInt(document.getElementById('food-target-fat').value, 10) || 0
-    };
-
+// Targets page (one Save for food + Journey bands) report once for both; it
+// passes `payload` read before the Journey save, whose optimistic tab reload
+// re-fills these inputs from the cached bundle.
+async function saveFoodTargets({ toast = true, payload = readFoodTargetsForm() } = {}) {
     const ds = window.DataStore;
     let handle = null;
     try {
         if (ds && typeof ds.applyOptimistic === 'function') {
-            handle = await ds.applyOptimistic('food_targets', () => ({ ...payload }), ['food_targets']);
+            // No tags: the registry maps food_targets to tag null, so the
+            // invalidateTags below must not evict the row just committed.
+            handle = await ds.applyOptimistic('food_targets', () => ({ ...payload }), []);
         }
         const res = await apiCall('/api/food/settings/targets', 'POST', payload);
         if (!res) {
@@ -1557,6 +1564,7 @@ window.FoodLog.openEdit = editFoodLog;
 window.FoodLog.close = closeFoodModal;
 window.FoodLog.computeTotals = computeFoodTotals;
 window.FoodLog.calculate = calculateFoodCalories;
+window.FoodLog.readTargetsForm = readFoodTargetsForm;
 
 // Back-compat: maintain the legacy `window.loadFoodLogs` / `window.loadFoodTargets`
 // / `window.saveFoodTargets` names because the architecture.globals allowlist

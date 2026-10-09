@@ -211,7 +211,14 @@ describe('Food Targets round-trip through loadFoodTargets / saveFoodTargets (Pha
             document.getElementById('food-target-fat').value = '70';
             document.getElementById('gam-target-steps-low').value = '6000';
 
-            const apiCallSpy = vi.fn(async (url, method) => (method === 'PUT' ? { enabled: true, targets: [] } : { ok: true }));
+            const apiCallSpy = vi.fn(async (url, method) => {
+                if (method !== 'PUT') return { ok: true };
+                // The Journey save's optimistic tab reload re-fills the food
+                // inputs from the cached bundle mid-flight; the food POST must
+                // still carry what the user typed.
+                document.getElementById('food-target-calories').value = '1800';
+                return { enabled: true, targets: [] };
+            });
             window.apiCall = apiCallSpy;
             window.safeAlert = vi.fn();
             window.loadFoodLogs = vi.fn();
