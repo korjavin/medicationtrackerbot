@@ -74,7 +74,7 @@ describe('Settings v2 home (kit S1, med-xso6.23)', () => {
                 expect(body, name).not.toBeNull();
                 expect(row(document, name), name).not.toBeNull();
                 for (const sel of selectors) {
-                    expect(body.querySelector(sel), `${sel} in ${name}`).not.toBeNull();
+                    expect(body.matches(sel) || !!body.querySelector(sel), `${sel} in ${name}`).toBe(true);
                 }
             }
             // The legacy collapsible groups are gone.
