@@ -114,6 +114,17 @@ describe('Today render — Task 3 canonical structure', () => {
         expect(root.querySelector('.wg-streak-card')).toBeNull();
     });
 
+    it('next-action text stacks kicker and value (not run together inline)', () => {
+        const root = env.document.getElementById('today-content');
+        env.render(presentState(now), root, { now });
+        const text = root.querySelector('.wg-next-action-card__text');
+        if (text) expect(text.children.length).toBe(2);
+        const css = fs.readFileSync(path.join(REPO_ROOT, 'web/static/css/styles.css'), 'utf8');
+        const rule = css.match(/\.wg-next-action-card__text\s*\{([^}]*)\}/)[1];
+        expect(rule).toMatch(/display:\s*flex/);
+        expect(rule).toMatch(/flex-direction:\s*column/);
+    });
+
     it('routes each metric tile through handleDeepLinks to the right section', () => {
         const root = env.document.getElementById('today-content');
         const onDeeplink = vi.fn();
