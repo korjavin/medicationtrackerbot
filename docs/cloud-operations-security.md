@@ -251,7 +251,7 @@ two competing inventories.
 
 | Subprocessor | Feature | Exactly the data slice it sees | Activation |
 |---|---|---|---|
-| **Trial OpenAI (operator key)** | Food AI parse, chat | The specific prompt text and/or food **photo** the user submits for that request. Routed through the operator's trial key. | Only when the user uses the operator-provided trial AI and has not supplied their own key. |
+| **Trial AI (operator key; OpenAI or Anthropic Claude API, operator's choice)** | Food AI parse, chat | The specific prompt text and/or food **photo** the user submits for that request. Routed through the operator's trial key. | Only when the user uses the operator-provided trial AI and has not supplied their own key. |
 | **ElevenLabs** | Voice | The **audio / transcript** for that voice interaction. | Only when the user invokes voice. |
 | **Telegram** | Reminders, chat interface | The **reminder / chat text** delivered to or from the user's Telegram. | Only if the user links Telegram (optional). |
 | **RxNav (via blind proxy)** | Drug interaction / lookup | The **drug-name query** for that lookup. Reaches RxNav through the server's blind `/api/rxnav/*` proxy; the app never logs it (§1.1), but RxNav receives the query to answer it. | Only when a medication lookup / interaction check runs. |
