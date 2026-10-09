@@ -437,8 +437,9 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     if (!iso) throw invalidRequest('eaten_at must be a valid timestamp');
     const all = await records.list(LOG_RECORD_TYPE);
     const byId = new Map(all.filter((r) => !r.deleted).map((r) => [r.recordId, r]));
-    const missing = uniqueIds.find((id) => !byId.has(id));
-    if (missing) {
+    const missingIdx = uniqueIds.findIndex((id) => !byId.has(id));
+    if (missingIdx !== -1) {
+      const missing = uniqueIds[missingIdx];
       const err = new Error(`food log not found: ${missing}`);
       err.code = 'not_found';
       throw err;
