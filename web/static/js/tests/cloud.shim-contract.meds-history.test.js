@@ -192,6 +192,37 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
         }
     });
 
+    it('taking an upcoming shared slot one med at a time is additive (never reverts the earlier one)', async () => {
+        const schedule = JSON.stringify({ type: 'daily', times: ['00:00', '06:00', '12:00', '18:00'] });
+        env = loadCloudShimFrontendEnv({
+            seedRecords: {
+                medication: [
+                    seedMedication({ recordId: 1, inventory_count: 5, schedule }),
+                    seedMedication({ recordId: 2, name: 'Aspirin', inventory_count: 5, schedule })
+                ]
+            }
+        });
+        const { window } = env;
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+        try {
+            const upcoming = await window.apiCall('/api/medications/upcoming?days=1');
+            const slot = upcoming.find((d) => Date.parse(d.scheduled_at) > Date.now() + 60 * 1000).scheduled_at;
+
+            await window.apiCall('/api/medications/confirm-schedule', 'POST', { scheduled_at: slot, medication_ids: [1] });
+            // Med 1 left the forecast, so the bucket now offers only med 2.
+            await window.apiCall('/api/medications/confirm-schedule', 'POST', { scheduled_at: slot, medication_ids: [2] });
+
+            const meds = await window.apiCall('/api/medications');
+            const count = (id) => meds.find((m) => String(m.id) === String(id)).inventory_count;
+            expect(count(1)).toBe(4);
+            expect(count(2)).toBe(4);
+            const after = await window.apiCall('/api/medications/upcoming?days=1');
+            expect(after.some((d) => d.scheduled_at === slot)).toBe(false);
+        } finally {
+            delete globalThis.fetch;
+        }
+    });
+
     it('confirm-schedule by intake_id only (no scheduled_at) sends no cancel-refire POST', async () => {
         env = loadCloudShimFrontendEnv({
             seedRecords: {

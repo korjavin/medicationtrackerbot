@@ -1583,8 +1583,11 @@ function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', i
 
         actionBtn.innerText = "Confirm Selected";
         actionBtn.onclick = confirmSelectedMedications;
-        snoozeBtn.classList.remove('hidden');
-        if (skipBtn) skipBtn.classList.remove('hidden');
+        // An upcoming slot with no intake yet (Schedule "Take N") can be taken
+        // early, but there is nothing to snooze or skip until it materializes.
+        const unmaterialized = !(intakeIds && intakeIds.length) && new Date(scheduledAt).getTime() > Date.now();
+        snoozeBtn.classList.toggle('hidden', unmaterialized);
+        if (skipBtn) skipBtn.classList.toggle('hidden', unmaterialized);
     }
 
     const list = document.getElementById('med-confirm-list');

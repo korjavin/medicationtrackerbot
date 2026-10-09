@@ -439,7 +439,7 @@ export function createIntakeDomain({ records, now, timeZone }) {
   // confirm-by-id); otherwise scheduled_at + medication_ids confirms the
   // listed meds AND reverts any other TAKEN intake at the same exact slot
   // back to PENDING (the "user unchecked a box that was already confirmed"
-  // path).
+  // path). A slot still in the future is confirm-or-create and additive.
   async function confirmSchedule({ scheduledAt, medicationIds = [], intakeIds = [] } = {}) {
     const nowMs = now();
     const nowIso = new Date(nowMs).toISOString();
@@ -501,6 +501,11 @@ export function createIntakeDomain({ records, now, timeZone }) {
         await adjustInventory(medId, -1);
       }
     }
+
+    // Taking an upcoming slot early is additive: a med already taken early
+    // drops out of the forecast, so it is absent from the next bucket's ids
+    // without having been "unchecked" — never revert it.
+    if (scheduledAtMs > nowMs) return { status: 'confirmed' };
 
     const medSet = new Set(medicationIds);
     const intakesAfter = await loadIntakes();

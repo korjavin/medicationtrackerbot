@@ -149,6 +149,18 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         expect(mode).toBe('confirm');
     });
 
+    it('the take sheet for an upcoming, unmaterialized slot hides Snooze and Skip', () => {
+        const { window, document } = env;
+        const future = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+        window.showMedicationConfirmModal([1], ['Allopurinol'], future, 'confirm', []);
+        expect(document.getElementById('med-confirm-snooze-btn').classList.contains('hidden')).toBe(true);
+        expect(document.getElementById('med-confirm-skip-btn').classList.contains('hidden')).toBe(true);
+
+        window.showMedicationConfirmModal([1], ['Allopurinol'], new Date(Date.now() - 60000).toISOString(), 'confirm', []);
+        expect(document.getElementById('med-confirm-snooze-btn').classList.contains('hidden')).toBe(false);
+        expect(document.getElementById('med-confirm-skip-btn').classList.contains('hidden')).toBe(false);
+    });
+
     it('a due PENDING intake renders a "missed" bucket first whose "Log late" confirms that intake', async () => {
         const { window, document } = env;
         const missedAt = new Date(Date.now() - 2 * 60 * 1000);
