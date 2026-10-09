@@ -21,20 +21,8 @@ function setActiveHealthSubTab(tab) {
     try { window.localStorage.setItem(HEALTH_SUBTAB_STORAGE_KEY, tab); } catch (_) { /* ignore */ }
 }
 
-function syncHealthSubTabActiveClass(activeTab) {
-    const container = document.querySelector('.wg-health-subtabs');
-    if (!container) return;
-    const buttons = container.querySelectorAll('.health-tab');
-    buttons.forEach((btn) => {
-        const isActive = btn.dataset.tab === activeTab;
-        btn.classList.toggle('wg-gloss--sun', isActive);
-        btn.classList.toggle('wg-health-subtabs__btn--active', isActive);
-        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
-    });
-}
-
 function restoreHealthSubTab() {
-    syncHealthSubTabActiveClass(getActiveHealthSubTab());
+    window.TabController.syncPressed('.health-tab', getActiveHealthSubTab());
 }
 
 if (document.readyState === 'loading') {
@@ -73,13 +61,14 @@ function renderHealthRangeSelector(opts) {
 
     const container = document.createElement('div');
     container.id = 'health-range-selector';
-    container.className = 'wg-gloss--inset wg-health-range-selector';
+    container.className = 'wg-seg wg-seg--sm wg-subnav';
+    container.setAttribute('role', 'group');
+    container.setAttribute('aria-label', 'Range');
 
     HEALTH_RANGE_OPTIONS.forEach((range) => {
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'wg-gloss wg-health-range-selector__btn';
-        if (range === active) btn.classList.add('wg-gloss--sun', 'wg-health-range-selector__btn--active');
+        btn.className = 'wg-seg__opt';
         btn.setAttribute('data-range', range);
         btn.setAttribute('aria-pressed', range === active ? 'true' : 'false');
         btn.textContent = range;
@@ -405,18 +394,23 @@ function renderHealthOverviewContent(content, data) {
 }
 
 function renderHealthOverviewError(content) {
-    const errP = document.createElement('p');
-    errP.className = 'text-hint';
-    errP.textContent = 'No cached data \u2014 will load when online';
-    content.replaceChildren(errP);
+    content.replaceChildren(createOfflineEmptyState());
     content.classList.remove('hidden');
+}
+
+// Loading indicator for the overview / notes panes: a kit skeleton while
+// shown, toggled with [hidden] (no class on these elements sets display).
+function setHealthLoading(el, on, kind) {
+    if (!el) return;
+    if (on) el.replaceChildren(createSkeleton(kind, 3));
+    el.hidden = !on;
 }
 
 async function loadHealthOverview() {
     const content = document.getElementById('health-overview-content');
     const loading = document.getElementById('health-overview-loading');
     if (!content || !loading) return;
-    loading.style.display = 'block';
+    setHealthLoading(loading, true, 'card');
 
     if (window.DataStore) {
         const hoKey = window.healthOverviewCacheKey();
@@ -435,11 +429,11 @@ async function loadHealthOverview() {
             onCached: async (cached) => {
                 if (!cached) return;
                 renderHealthOverviewContent(content, cached);
-                loading.style.display = 'none';
+                setHealthLoading(loading, false);
                 content.classList.remove('hidden');
             },
             onFresh: async (fresh, cached) => {
-                loading.style.display = 'none';
+                setHealthLoading(loading, false);
                 if (!fresh) {
                     if (!cached) renderHealthOverviewError(content);
                     return;
@@ -449,12 +443,12 @@ async function loadHealthOverview() {
             },
             onError: async (e, cached) => {
                 console.error('Failed to load health overview:', e);
-                loading.style.display = 'none';
+                setHealthLoading(loading, false);
                 if (!cached) renderHealthOverviewError(content);
             }
         });
     } else {
-        loading.style.display = 'none';
+        setHealthLoading(loading, false);
         renderHealthOverviewError(content);
     }
 }
@@ -491,7 +485,7 @@ async function loadNotes() {
     // the cache) cannot repaint the list after a newer loadNotes() has started.
     const myGeneration = _notesGeneration;
 
-    if (loading) loading.style.display = 'block';
+    setHealthLoading(loading, true, 'row');
 
     await window.DataStore.loadSWR({
         key: 'diary_notes',
@@ -502,10 +496,10 @@ async function loadNotes() {
             if (!cached) return;
             renderNotes(list, cached);
             if (cached.length > 0) _notesCursor = cached[cached.length - 1].id;
-            if (loading) loading.style.display = 'none';
+            setHealthLoading(loading, false);
         },
         onFresh: async (fresh, cached) => {
-            if (loading) loading.style.display = 'none';
+            setHealthLoading(loading, false);
             // Discard the result if a newer loadNotes() call has already taken
             // over (e.g. the user added/deleted a note while this fetch was in
             // flight and the post-write refresh incremented _notesGeneration).
@@ -515,13 +509,13 @@ async function loadNotes() {
                 // branch fires both on transient failures (cached covers it)
                 // and on a cold-start-offline with no Dexie row. The explicit
                 // empty card matches the onError fallback below so the list
-                // never looks frozen on "Loading notes..." after a failed
+                // never sits on the loading skeleton after a failed
                 // first-paint fetch.
                 if (!cached) {
                     const listEl = document.getElementById('notes-list');
                     if (listEl) {
                         listEl.replaceChildren();
-                        listEl.appendChild(buildNotesEmptyCard('No cached data — will load when online'));
+                        listEl.appendChild(createOfflineEmptyState({ tag: 'li' }));
                     }
                 }
                 return;
@@ -541,12 +535,12 @@ async function loadNotes() {
         },
         onError: async (e, cached) => {
             console.error('Failed to load notes:', e);
-            if (loading) loading.style.display = 'none';
+            setHealthLoading(loading, false);
             if (!cached) {
                 const list = document.getElementById('notes-list');
                 if (list) {
                     list.replaceChildren();
-                    list.appendChild(buildNotesEmptyCard('No cached data \u2014 will load when online'));
+                    list.appendChild(createOfflineEmptyState({ tag: 'li' }));
                 }
             }
         }
@@ -774,10 +768,9 @@ function paintNotes(list) {
     list.replaceChildren();
     const visible = filterNotesByActiveTag(_notesAll);
     if (!visible || visible.length === 0) {
-        const msg = _notesFilterTag
-            ? `No notes tagged ${_notesFilterTag}`
-            : 'No notes yet \u2014 write your first one.';
-        list.appendChild(buildNotesEmptyCard(msg));
+        list.appendChild(buildNotesEmptyCard(_notesFilterTag
+            ? { icon: 'search', title: `No notes tagged ${_notesFilterTag}`, actions: [{ label: 'Show all notes', onClick: () => setNotesFilterTag(null) }] }
+            : { icon: 'note', title: 'No notes yet', body: 'Write your first one above: how you slept, felt, or anything worth telling your doctor.' }));
     } else {
         paintNotesGroups(list, visible);
     }
@@ -994,13 +987,9 @@ function buildNotesLoadMore() {
     return li;
 }
 
-function buildNotesEmptyCard(message) {
-    const li = document.createElement('li');
-    li.className = 'wg-card wg-health-notes__empty';
-    const text = document.createElement('span');
-    text.className = 'wg-health-notes__empty-msg';
-    text.textContent = message;
-    li.appendChild(text);
+function buildNotesEmptyCard(opts) {
+    const li = createEmptyState({ ...opts, tag: 'li', inline: true });
+    li.classList.add('wg-card', 'wg-health-notes__empty');
     return li;
 }
 

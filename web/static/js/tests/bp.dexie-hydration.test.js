@@ -137,7 +137,7 @@ describe('BP cold-start Dexie hydration (Task 1)', () => {
         const list = document.getElementById('bp-list');
         // History list should contain at least the one cached row, not the
         // "No cached data" empty state.
-        const empty = list.querySelector('.empty-state-msg');
+        const empty = list.querySelector('.wg-empty');
         expect(empty).toBeNull();
         const rows = list.querySelectorAll('li');
         expect(rows.length).toBeGreaterThanOrEqual(1);
@@ -163,7 +163,7 @@ describe('BP cold-start Dexie hydration (Task 1)', () => {
         await window.loadBPReadings();
 
         const list = document.getElementById('bp-list');
-        const empty = list.querySelector('.empty-state-msg');
+        const empty = list.querySelector('.wg-empty');
         expect(empty).not.toBeNull();
         expect(empty.textContent).toContain('No cached data');
     });

@@ -139,7 +139,7 @@ describe('Weight cold-start Dexie hydration (Task 2)', () => {
         const list = document.getElementById('weight-list');
         // History list should contain at least one cached row, not the
         // "No cached data" empty state.
-        const empty = list.querySelector('.empty-state-msg');
+        const empty = list.querySelector('.wg-empty');
         expect(empty).toBeNull();
         const rows = list.querySelectorAll('li.wg-weight-history-row');
         expect(rows.length).toBeGreaterThanOrEqual(1);
@@ -191,7 +191,7 @@ describe('Weight cold-start Dexie hydration (Task 2)', () => {
         await window.loadWeightLogs();
 
         const list = document.getElementById('weight-list');
-        const empty = list.querySelector('.empty-state-msg');
+        const empty = list.querySelector('.wg-empty');
         expect(empty).not.toBeNull();
         expect(empty.textContent).toContain('No cached data');
     });

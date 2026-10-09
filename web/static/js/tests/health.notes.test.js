@@ -625,6 +625,44 @@ describe('Vitals → Notes — Round-2 Task 9 (#12a + #12b)', () => {
         // chain completes — previously blocked by the SW ConstraintError that
         // Task 1 resolved. Guard here so a future regression in the onFresh /
         // onError completion path is caught by the suite.
-        expect(loading.style.display).toBe('none');
+        expect(loading.hidden).toBe(true);
+    });
+});
+
+// med-xso6.4: the notes pane loads behind a kit skeleton toggled by [hidden]
+// (no inline style writes), and an empty tag-filtered view offers a way back.
+describe('Vitals → Notes — loading skeleton + empty states (med-xso6.4)', () => {
+    let env;
+    beforeEach(() => { env = loadFrontendEnv(); });
+    afterEach(() => { env.cleanup(); env = null; });
+
+    it('loadNotes shows a .wg-skel stack while loading and hides it via [hidden] after', async () => {
+        const { window, document } = env;
+        const loading = document.getElementById('notes-loading');
+        expect(loading.hidden).toBe(true);
+        let seenWhileLoading = null;
+        window.DataStore.loadSWR = vi.fn(async (options) => {
+            seenWhileLoading = { hidden: loading.hidden, skel: loading.querySelectorAll('.wg-skel').length };
+            await options.onFresh([], null);
+        });
+        await window.loadNotes();
+        expect(seenWhileLoading).toEqual({ hidden: false, skel: 3 });
+        expect(loading.hidden).toBe(true);
+        expect(loading.getAttribute('style')).toBeNull();
+    });
+
+    it('a tag filter with no matches renders a .wg-empty whose action clears the filter', () => {
+        const { window, document } = env;
+        const list = document.getElementById('notes-list');
+        window.renderNotes(list, [{ id: 1, created_at: midnight(0).toISOString(), content: 'x', tag: 'SLEEP' }]);
+        list.querySelector('.wg-health-notes-row__tag').click();
+        window.renderNotes(list, []);
+
+        const empty = list.querySelector('.wg-health-notes__empty.wg-empty');
+        expect(empty.textContent).toContain('No notes tagged SLEEP');
+        empty.querySelector('.wg-empty__acts button').click();
+        const cleared = list.querySelector('.wg-health-notes__empty');
+        expect(cleared.textContent).toContain('No notes yet');
+        expect(cleared.querySelector('.wg-empty__acts')).toBeNull();
     });
 });

@@ -287,7 +287,7 @@ describe('Health cold-start Dexie hydration (Task 4)', () => {
         const list = document.getElementById('notes-list');
         expect(list.textContent).toContain('No cached data');
         const loading = document.getElementById('notes-loading');
-        expect(loading.style.display).toBe('none');
+        expect(loading.hidden).toBe(true);
     });
 
     it('loadHealthOverview shows "No cached data" empty state when Dexie is empty and offline', async () => {

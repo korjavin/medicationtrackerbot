@@ -60,24 +60,13 @@
                 <div class="wg-appbar__titles"><h1 class="wg-appbar__title">Meds</h1></div>
                 <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon" data-nav-to="settings" aria-label="Settings"><i class="wg-ico" data-icon="gear"></i></button>
             </header>
-            <!-- Med Sub-tabs (Phase 5, Task 5 rework; round-2 Task 4 added
-                 `wg-screen-stage` so the view sits directly on the teal
-                 palette; round-2 Task 7 removed the global #add-btn from this
-                 row and re-homed it at the top of the Schedule subtab list).
-                 Outer container is a plain flex row holding the inset pill
-                 track (History / Schedule / Upcoming / Inventory — default
-                 "history" matches the mockup; Upcoming was promoted out of
-                 the Schedule list into its own pill in bd med-4oxj).
-                 Dual-classed `.med-tabs` +
-                 `.wg-meds-subtabs` so legacy selectors in existing tests
-                 keep working. -->
-            <div class="wg-meds-subtabs-row" id="med-subtabs">
-                <div class="wg-gloss--inset wg-meds-subtabs med-tabs">
-                    <button class="wg-gloss wg-meds-subtabs__btn wg-gloss--sun wg-meds-subtabs__btn--active med-tab active" data-tab="history" aria-pressed="true">History</button>
-                    <button class="wg-gloss wg-meds-subtabs__btn med-tab" data-tab="schedule" aria-pressed="false">Schedule</button>
-                    <button class="wg-gloss wg-meds-subtabs__btn med-tab" data-tab="upcoming" aria-pressed="false">Upcoming</button>
-                    <button class="wg-gloss wg-meds-subtabs__btn med-tab" data-tab="inventory" aria-pressed="false">Inventory</button>
-                </div>
+            <!-- Meds sub-tabs: kit .wg-seg (med-xso6.10); `.med-tabs`/`.med-tab`
+                 are the TabController hooks, aria-pressed is the selection. -->
+            <div class="wg-seg wg-subnav med-tabs" id="med-subtabs" role="group" aria-label="Meds view">
+                <button type="button" class="wg-seg__opt med-tab active" data-tab="history" aria-pressed="true">History</button>
+                <button type="button" class="wg-seg__opt med-tab" data-tab="schedule" aria-pressed="false">Schedule</button>
+                <button type="button" class="wg-seg__opt med-tab" data-tab="upcoming" aria-pressed="false">Upcoming</button>
+                <button type="button" class="wg-seg__opt med-tab" data-tab="inventory" aria-pressed="false">Inventory</button>
             </div>
 
             <div id="med-schedule-tab" class="med-tab-content">
@@ -220,22 +209,13 @@
                 <div class="wg-appbar__titles"><h1 class="wg-appbar__title">Train</h1></div>
                 <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon" data-nav-to="settings" aria-label="Settings"><i class="wg-ico" data-icon="gear"></i></button>
             </header>
-            <!-- Workout Tabs (Phase 7 / Phase 5 Task 5 rework). The
-                 `.wg-workouts-subtabs-row` wraps only the inset 4-pill track
-                 (History / Plans / Exercises / Stats). The ad-hoc Start CTA
-                 used to trail the pills here (later: its own History-pane
-                 header strip), but med-2fc folded it into the next-workout
-                 card's action row as the leftmost `Ad hoc` button — see
-                 `_renderNextWorkout` in js/features/workout/next-card.js. No
-                 markup for it lives in this document. -->
-            <div class="wg-workouts-subtabs-row" id="workouts-subtabs">
-                <div class="wg-gloss--inset wg-workouts-subtabs workout-tabs">
-                    <button class="wg-gloss wg-workouts-subtabs__btn wg-gloss--sun wg-workouts-subtabs__btn--active workout-tab active" data-tab="history" aria-pressed="true">History</button>
-                    <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="groups" aria-pressed="false">Plans</button>
-                    <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="exercises" aria-pressed="false">Exercises</button>
-                    <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="stats" aria-pressed="false">Stats</button>
-                    <button class="wg-gloss wg-workouts-subtabs__btn workout-tab" data-tab="equipment" aria-pressed="false">Equipment</button>
-                </div>
+            <!-- Train sub-tabs: kit .wg-seg--scroll (five options; med-xso6.10). -->
+            <div class="wg-seg wg-subnav wg-seg--scroll workout-tabs" id="workouts-subtabs" role="group" aria-label="Train view">
+                <button type="button" class="wg-seg__opt workout-tab active" data-tab="history" aria-pressed="true">History</button>
+                <button type="button" class="wg-seg__opt workout-tab" data-tab="groups" aria-pressed="false">Plans</button>
+                <button type="button" class="wg-seg__opt workout-tab" data-tab="exercises" aria-pressed="false">Exercises</button>
+                <button type="button" class="wg-seg__opt workout-tab" data-tab="stats" aria-pressed="false">Stats</button>
+                <button type="button" class="wg-seg__opt workout-tab" data-tab="equipment" aria-pressed="false">Equipment</button>
             </div>
 
             <!-- History View -->
@@ -284,12 +264,10 @@
                 <div class="wg-workouts-exercises-controls">
                     <input type="text" id="exercise-library-search" class="wg-input wg-workouts-exercises-controls__search"
                         placeholder="Search exercises..." autocomplete="off">
-                    <div class="wg-gloss--inset wg-settings-segmented wg-workouts-exercises-controls__source"
+                    <div class="wg-seg wg-seg--sm wg-workouts-exercises-controls__source"
                         id="exercise-library-source" role="group" aria-label="Exercise source">
-                        <button type="button" class="wg-gloss wg-gloss--sun wg-settings-segmented__btn"
-                            data-source="mine" aria-pressed="true">Mine</button>
-                        <button type="button" class="wg-gloss wg-settings-segmented__btn"
-                            data-source="all" aria-pressed="false">All</button>
+                        <button type="button" class="wg-seg__opt" data-source="mine" aria-pressed="true">Mine</button>
+                        <button type="button" class="wg-seg__opt" data-source="all" aria-pressed="false">All</button>
                     </div>
                 </div>
                 <div id="exercise-library-list" class="wg-workouts-exercises">
@@ -342,9 +320,9 @@
                  the old Meals-bearing set, matching the meds + workouts
                  sub-tab pattern. The day navigator lives inside the Log pane
                  so it does not hover over a date-less product list. -->
-            <div class="wg-gloss--inset wg-food-subtabs food-tabs" id="food-subtabs">
-                <button class="wg-gloss wg-food-subtabs__btn wg-gloss--sun wg-food-subtabs__btn--active food-tab active" data-tab="log" aria-pressed="true">Log</button>
-                <button class="wg-gloss wg-food-subtabs__btn food-tab" data-tab="fooddb" aria-pressed="false">Food DB</button>
+            <div class="wg-seg wg-subnav food-tabs" id="food-subtabs" role="group" aria-label="Food view">
+                <button type="button" class="wg-seg__opt food-tab active" data-tab="log" aria-pressed="true">Log</button>
+                <button type="button" class="wg-seg__opt food-tab" data-tab="fooddb" aria-pressed="false">Food DB</button>
             </div>
 
             <input type="file" id="food-photo-input" accept="image/*" class="hidden" aria-hidden="true">
@@ -402,9 +380,9 @@
                 <div id="food-macros-card" class="wg-card wg-food-macros-card hidden">
                     <div class="wg-food-macros-card__header">
                         <div class="wg-food-macros-card__header-left">
-                            <div class="wg-gloss--inset wg-food-macros-card__toggle" id="food-macros-toggle" role="tablist" aria-label="Macros range">
-                                <button type="button" class="wg-food-macros-card__toggle-btn wg-food-macros-card__toggle-btn--active" data-range="day" role="tab" aria-selected="true">Daily total</button>
-                                <button type="button" class="wg-food-macros-card__toggle-btn" data-range="week" role="tab" aria-selected="false">Weekly total</button>
+                            <div class="wg-seg wg-seg--sm" id="food-macros-toggle" role="group" aria-label="Macros range">
+                                <button type="button" class="wg-seg__opt" data-range="day" aria-pressed="true">Daily total</button>
+                                <button type="button" class="wg-seg__opt" data-range="week" aria-pressed="false">Weekly total</button>
                             </div>
                             <div class="wg-food-macros-card__total">
                                 <span id="food-macros-card-kcal" class="wg-mono-display wg-food-macros-card__kcal">0</span>
@@ -428,10 +406,10 @@
             <div id="food-fooddb-tab" class="food-tab-content">
                 <section class="wg-food-db-panel">
                     <input type="text" id="fooddb-search" class="wg-input wg-food-db-panel__search" placeholder="Search products...">
-                    <div class="wg-gloss--inset wg-food-db-panel__sort fooddb-sort-controls">
-                        <button class="wg-gloss wg-food-db-panel__sort-btn wg-gloss--sun fooddb-sort-btn active" data-sort="usage" aria-pressed="true">Most Used</button>
-                        <button class="wg-gloss wg-food-db-panel__sort-btn fooddb-sort-btn" data-sort="last_used" aria-pressed="false">Recently Used</button>
-                        <button class="wg-gloss wg-food-db-panel__sort-btn fooddb-sort-btn" data-sort="name" aria-pressed="false">A-Z</button>
+                    <div class="wg-seg wg-seg--sm wg-subnav fooddb-sort-controls" role="group" aria-label="Sort products">
+                        <button type="button" class="wg-seg__opt fooddb-sort-btn active" data-sort="usage" aria-pressed="true">Most Used</button>
+                        <button type="button" class="wg-seg__opt fooddb-sort-btn" data-sort="last_used" aria-pressed="false">Recently Used</button>
+                        <button type="button" class="wg-seg__opt fooddb-sort-btn" data-sort="name" aria-pressed="false">A-Z</button>
                     </div>
                     <div id="fooddb-list" class="wg-food-db-panel__list">
                         <!-- Products injected here -->
@@ -457,16 +435,16 @@
                 <button type="button" class="wg-seg__opt" data-health-seg="weight" aria-pressed="false">Weight</button>
                 <button type="button" class="wg-seg__opt" data-health-seg="health" aria-pressed="true">Vitals</button>
             </div>
-            <div class="wg-gloss--inset wg-health-subtabs health-tabs" id="health-subtabs">
-                <button class="wg-gloss wg-health-subtabs__btn wg-gloss--sun wg-health-subtabs__btn--active health-tab active" data-tab="overview" aria-pressed="true">Overview</button>
-                <button class="wg-gloss wg-health-subtabs__btn health-tab" data-tab="notes" aria-pressed="false">Notes</button>
+            <div class="wg-seg wg-subnav health-tabs" id="health-subtabs" role="group" aria-label="Vitals view">
+                <button type="button" class="wg-seg__opt health-tab active" data-tab="overview" aria-pressed="true">Overview</button>
+                <button type="button" class="wg-seg__opt health-tab" data-tab="notes" aria-pressed="false">Notes</button>
             </div>
 
             <div id="health-overview-tab" class="health-tab-content active">
                 <!-- Stale-data chip (Task 6 of local-first read resilience).
                      Mounted by loadHealthOverview() from the active overview
                      api_cache key; hidden until populated. -->
-                <div id="health-overview-loading">Loading metrics...</div>
+                <div id="health-overview-loading" hidden></div>
                 <div id="health-overview-content" class="hidden">
                     <!-- Injected dynamically via app.js -->
                 </div>
@@ -506,7 +484,7 @@
                     <!-- Stale-data chip (Task 6 of local-first read resilience).
                          Mounted by loadNotes() from the api_cache 'diary_notes'
                          timestamp; hidden until populated. -->
-                    <div id="notes-loading" class="wg-health-notes__loading">Loading notes...</div>
+                    <div id="notes-loading" class="wg-health-notes__loading" hidden></div>
                     <ul id="notes-list" class="wg-health-notes__list list-reset"></ul>
                 </div>
             </div>
@@ -1313,17 +1291,7 @@
 
             <div class="wg-workouts-group-modal__field">
                 <span class="wg-workouts-group-modal__label">Repeats on</span>
-                <div class="wg-gloss--inset wg-workouts-group-modal__input-wrap wg-workouts-group-modal__days-wrap">
-                    <div class="days-select wg-workouts-group-modal__days">
-                        <span data-day="1">Mon</span>
-                        <span data-day="2">Tue</span>
-                        <span data-day="3">Wed</span>
-                        <span data-day="4">Thu</span>
-                        <span data-day="5">Fri</span>
-                        <span data-day="6">Sat</span>
-                        <span data-day="0">Sun</span>
-                    </div>
-                </div>
+                <div class="wg-picks" data-day-picks role="group" aria-label="Repeats on"></div>
             </div>
 
             <div class="wg-workouts-group-modal__row">
@@ -2219,15 +2187,7 @@
 
             <div id="days-container" class="wg-meds-modal__field hidden">
                 <span class="wg-meds-modal__label">Days</span>
-                <div class="days-select wg-meds-modal__days">
-                    <span data-day="1">Mon</span>
-                    <span data-day="2">Tue</span>
-                    <span data-day="3">Wed</span>
-                    <span data-day="4">Thu</span>
-                    <span data-day="5">Fri</span>
-                    <span data-day="6">Sat</span>
-                    <span data-day="0">Sun</span>
-                </div>
+                <div class="wg-picks" data-day-picks role="group" aria-label="Days"></div>
             </div>
 
             <div id="times-container" class="wg-meds-modal__field">
@@ -2487,15 +2447,10 @@
             <div class="wg-brief-modal__step" id="brief-options">
                 <div class="wg-health-modal__field">
                     <span class="wg-health-modal__label">Range</span>
-                    <div class="wg-gloss--inset wg-settings-segmented" role="radiogroup" aria-label="Brief range"
-                        id="brief-range">
-                        <button type="button" class="wg-gloss wg-settings-segmented__btn"
-                            data-days="30" aria-pressed="false">30 days</button>
-                        <button type="button"
-                            class="wg-gloss wg-gloss--sun wg-settings-segmented__btn wg-settings-segmented__btn--active"
-                            data-days="90" aria-pressed="true">90 days</button>
-                        <button type="button" class="wg-gloss wg-settings-segmented__btn"
-                            data-days="180" aria-pressed="false">180 days</button>
+                    <div class="wg-seg" role="group" aria-label="Brief range" id="brief-range">
+                        <button type="button" class="wg-seg__opt" data-days="30" aria-pressed="false">30 days</button>
+                        <button type="button" class="wg-seg__opt" data-days="90" aria-pressed="true">90 days</button>
+                        <button type="button" class="wg-seg__opt" data-days="180" aria-pressed="false">180 days</button>
                     </div>
                 </div>
 

@@ -1,10 +1,10 @@
 // Wandergeek BP screen render tests (Phase 3, Task 3; Round-2, Task 2).
 //
 // Covers the BP screen render helpers that survived the round-2 parity pass:
-//   • renderRangeSelector({ active, onChange }) — .wg-gloss--inset strip
-//     with three 14d/30d/60d buttons; active button gets .wg-gloss--sun.
+//   • renderRangeSelector({ active, onChange }) — kit .wg-seg--sm strip
+//     with three 14d/30d/60d options; the active one is aria-pressed.
 //   • renderBPChart(readings, goalData) — delegates to WGBpChart.render()
-//     with the active range; empty input renders a "No data available"
+//     with the active range; empty input renders the kit .wg-empty
 //     message without calling the chart component.
 //
 // Round-2, Task 2: renderCurrentReading was removed along with the top
@@ -53,12 +53,12 @@ describe('BP screen render helpers (Phase 3, Task 3)', () => {
             window.renderRangeSelector({ active: 30, onChange: () => {} });
 
             const container = document.getElementById('bp-range-selector');
-            expect(container.classList.contains('wg-bp-range-selector')).toBe(true);
-            // Phase 5, Task 5: the inset track is an inner child of the row
-            // so the trailing +Log pill can sit on the stage, not in the trough.
-            const track = container.querySelector('.wg-bp-range-selector__track');
+            expect(container.classList.contains('wg-range-row')).toBe(true);
+            // The kit .wg-seg--sm strip is an inner child of the row so the
+            // trailing +Log pill sits beside it (med-xso6.10).
+            const track = container.querySelector('.wg-seg.wg-seg--sm');
             expect(track).not.toBeNull();
-            expect(track.classList.contains('wg-gloss--inset')).toBe(true);
+            track.querySelectorAll('button').forEach((b) => expect(b.classList.contains('wg-seg__opt')).toBe(true));
 
             const btns = track.querySelectorAll('button[data-range]');
             expect(btns.length).toBe(3);
@@ -66,29 +66,20 @@ describe('BP screen render helpers (Phase 3, Task 3)', () => {
             expect(Array.from(btns).map((b) => b.textContent)).toEqual(['14d', '30d', '60d']);
         });
 
-        it('marks exactly one range button as active via .wg-gloss--sun and aria-pressed', () => {
+        it('marks exactly one range option as selected via aria-pressed', () => {
             const { document, window } = env;
             window.renderRangeSelector({ active: 30, onChange: () => {} });
 
-            // Scope to the inset track; the trailing #add-bp-btn pill also
-            // carries `.wg-gloss--sun` by design (Phase 5, Task 5).
-            const active = document.querySelectorAll('#bp-range-selector .wg-bp-range-selector__track .wg-gloss--sun');
+            const active = document.querySelectorAll('#bp-range-selector .wg-seg__opt[aria-pressed="true"]');
             expect(active.length).toBe(1);
             expect(active[0].getAttribute('data-range')).toBe('30');
-            expect(active[0].getAttribute('aria-pressed')).toBe('true');
-
-            const inactive = document.querySelectorAll(
-                '#bp-range-selector .wg-bp-range-selector__track button:not(.wg-gloss--sun)'
-            );
-            inactive.forEach((b) => expect(b.getAttribute('aria-pressed')).toBe('false'));
+            expect(document.querySelectorAll('#bp-range-selector .wg-seg__opt[aria-pressed="false"]').length).toBe(2);
         });
 
         it('falls back to the default (14d) range when active is invalid', () => {
             const { document, window } = env;
             window.renderRangeSelector({ active: 999, onChange: () => {} });
-            const active = document.querySelector(
-                '#bp-range-selector .wg-bp-range-selector__track .wg-gloss--sun'
-            );
+            const active = document.querySelector('#bp-range-selector .wg-seg__opt[aria-pressed="true"]');
             expect(active.getAttribute('data-range')).toBe('14');
         });
 
@@ -151,12 +142,12 @@ describe('BP screen render helpers (Phase 3, Task 3)', () => {
             }
         });
 
-        it('renders a "No data available" message for empty readings without invoking WGBpChart', () => {
+        it('renders the kit empty state for empty readings without invoking WGBpChart', () => {
             const { document, window } = env;
             const renderSpy = vi.spyOn(window.WGBpChart, 'render');
             window.renderBPChart([], {});
             expect(renderSpy).not.toHaveBeenCalled();
-            expect(document.querySelector('#bpChart .no-data-msg')).not.toBeNull();
+            expect(document.querySelector('#bpChart .wg-empty')).not.toBeNull();
         });
     });
 
@@ -209,7 +200,7 @@ describe('BP screen render helpers (Phase 3, Task 3)', () => {
             expect(btn.classList.contains('btn-fab')).toBe(false);
 
             const row = document.getElementById('bp-range-selector');
-            // The +Log pill is the last child of the row (after the inset track).
+            // The +Log pill is the last child of the row (after the range strip).
             expect(row.lastElementChild).toBe(btn);
 
             const label = btn.querySelector('.wg-toolbar-btn__label');

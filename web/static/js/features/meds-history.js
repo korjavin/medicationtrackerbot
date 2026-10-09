@@ -71,7 +71,7 @@ function showAddModal() {
     addTimeInput(); // One empty input
 
     // Clear days
-    document.querySelectorAll('#days-container .days-select span').forEach(s => s.classList.remove('selected'));
+    window.MedicationUtils.setPickedDays(document.querySelector('#days-container .wg-picks'), []);
 }
 
 function setMedModalHeader(eyebrow, title) {
@@ -121,10 +121,6 @@ function setScheduleType(type) {
     toggleScheduleFields();
 }
 
-function toggleDay(el) {
-    el.classList.toggle('selected');
-}
-
 function toggleInventoryFields() {
     const trackInventory = document.getElementById('med-track-inventory').checked;
     const inventoryFields = document.getElementById('inventory-fields');
@@ -151,15 +147,15 @@ async function loadRestockHistory(medId) {
 
     if (!restocks || restocks.length === 0) {
         const empty = document.createElement('p');
-        empty.className = 'hint';
-        empty.textContent = 'No restock history';
+        empty.className = 'wg-hint';
+        empty.textContent = 'No restocks logged yet.';
         container.appendChild(empty);
         return;
     }
 
     const title = document.createElement('p');
-    title.className = 'hint';
-    title.textContent = 'Recent restocks:';
+    title.className = 'wg-section-label';
+    title.textContent = 'Recent restocks';
     container.appendChild(title);
 
     const list = document.createElement('ul');
@@ -927,7 +923,6 @@ window.MedsHistory = {
     closeModal,
     toggleScheduleFields,
     setScheduleType,
-    toggleDay,
     toggleInventoryFields,
     loadRestockHistory,
     handleRestock,

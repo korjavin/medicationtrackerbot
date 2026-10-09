@@ -339,8 +339,6 @@ const WANDERGEEK_TOKENS = [
     // BP screen tokens (Phase 3, Task 1) — current-reading card, range
     // selector, chart geometry, averages, history row.
     '--wg-bp-reading-value-size',
-    '--wg-bp-range-selector-height',
-    '--wg-bp-range-selector-pad',
     '--wg-bp-chart-width',
     '--wg-bp-chart-height',
     '--wg-bp-chart-band-alpha',
@@ -378,9 +376,6 @@ const WANDERGEEK_TOKENS = [
     '--wg-food-macro-bar-height',
     '--wg-food-macro-row-cols',
     '--wg-food-macro-row-gap',
-    '--wg-food-subtab-pad-y',
-    '--wg-food-subtab-pad-x',
-    '--wg-food-subtab-gap',
     '--wg-food-day-nav-icon-size',
     '--wg-food-day-nav-title-size',
     '--wg-food-meal-header-gap',
@@ -415,9 +410,6 @@ const WANDERGEEK_TOKENS = [
     '--wg-meds-name-size',
     '--wg-meds-dosage-size',
     '--wg-meds-inventory-count-size',
-    '--wg-meds-subtab-pad-y',
-    '--wg-meds-subtab-pad-x',
-    '--wg-meds-subtab-gap',
 
     // Meds inventory status aliases (Phase 5, Task 1) — wrap the existing
     // --wg-tag-* triplets so the inventory classifier (ok / low / out) can
@@ -470,7 +462,6 @@ const WANDERGEEK_TOKENS = [
     '--wg-meds-modal-pill-size',
     '--wg-meds-modal-label-size',
     '--wg-meds-modal-rx-size',
-    '--wg-meds-modal-day-size',
     '--wg-meds-modal-time-row-gap',
     '--wg-meds-modal-toggle-gap',
 
@@ -482,8 +473,6 @@ const WANDERGEEK_TOKENS = [
     '--wg-weight-goal-value-size',
     '--wg-weight-goal-bar-height',
     '--wg-weight-goal-delta-size',
-    '--wg-weight-range-selector-height',
-    '--wg-weight-range-selector-pad',
     '--wg-weight-chart-width',
     '--wg-weight-chart-height',
     '--wg-weight-chart-line-stroke-width',
@@ -563,9 +552,6 @@ const WANDERGEEK_TOKENS = [
     // workout card, rotation-slot tag, day-grouped history rows, session-
     // detail view with set-by-set rows, groups/exercises list rows, stat
     // tiles + chart geometry.
-    '--wg-workouts-subtab-pad-y',
-    '--wg-workouts-subtab-pad-x',
-    '--wg-workouts-subtab-gap',
     '--wg-workouts-slot-tag-pad-y',
     '--wg-workouts-slot-tag-pad-x',
     '--wg-workouts-slot-tag-size',
@@ -594,8 +580,6 @@ const WANDERGEEK_TOKENS = [
     '--wg-workouts-stats-tile-gap',
     '--wg-workouts-stats-tile-value-size',
     '--wg-workouts-stats-tile-label-size',
-    '--wg-workouts-stats-range-height',
-    '--wg-workouts-stats-range-pad',
     '--wg-workouts-chart-width',
     '--wg-workouts-chart-height',
     '--wg-workouts-chart-line-stroke-width',
@@ -626,16 +610,11 @@ const WANDERGEEK_TOKENS = [
     // Health screen tokens (Phase 8, Task 1) — sub-tab strip, summary tile
     // row, range selector, sleep / steps / vitals card shells + chart
     // geometry, notes row + compose-wrap + edit modal.
-    '--wg-health-subtab-pad-y',
-    '--wg-health-subtab-pad-x',
-    '--wg-health-subtab-gap',
     '--wg-health-summary-tile-pad',
     '--wg-health-summary-tile-gap',
     '--wg-health-summary-tile-value-size',
     '--wg-health-summary-tile-label-size',
     '--wg-health-summary-tile-trend-size',
-    '--wg-health-range-selector-height',
-    '--wg-health-range-selector-pad',
     '--wg-health-chart-width',
     '--wg-health-chart-height',
     '--wg-health-chart-tall-height',
@@ -1450,7 +1429,7 @@ describe('Architecture – design tokens', () => {
             '.status-success', '.status-error', '.status-muted',
             // Medication
             '.med-supplement-badge', '.med-normalized-name',
-            '.med-action-icons', '.med-empty-text',
+            '.med-action-icons',
             // Next intake (Round-2 Task 8, #11b: restyled to Wandergeek tokens)
             '.wg-meds-next-intake-card', '.wg-meds-next-intake-card__kicker',
             '.wg-meds-next-intake-card__time', '.wg-meds-next-intake-card__meta',
@@ -1471,7 +1450,7 @@ describe('Architecture – design tokens', () => {
             '.flex-1', '.flex-wrap', '.text-xs', '.text-sm', '.text-error',
             '.mt-lg', '.mt-xl',
             // Empty/error state
-            '.empty-state-msg', '.no-data-msg',
+            '.wg-skel-stack',
             // Sync debug panel
             '.sync-debug-panel',
             // Workout components (paper-era classes still used as dual-class alongside wg-* equivalents)

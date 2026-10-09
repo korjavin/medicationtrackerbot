@@ -213,7 +213,7 @@ describe('app.js medication, history and intake flows', () => {
       await window.loadHistory();
 
       // List should be empty
-      expect(list.innerHTML).toContain('No history yet.');
+      expect(list.innerHTML).toContain('No doses logged yet');
       expect(list.innerHTML).not.toContain('Aspirin');
 
       // Test empty array as well
@@ -226,7 +226,7 @@ describe('app.js medication, history and intake flows', () => {
         await options.onFresh([]);
       });
       await window.loadHistory();
-      expect(list.innerHTML).toContain('No history yet.');
+      expect(list.innerHTML).toContain('No doses logged yet');
     } finally {
       cleanup();
     }

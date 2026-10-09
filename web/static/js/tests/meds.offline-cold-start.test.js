@@ -143,7 +143,7 @@ describe('Meds cold-start offline resilience (Task 3)', () => {
         await window.loadMeds();
 
         const list = document.getElementById('med-list');
-        const empty = list.querySelector('.empty-state-msg');
+        const empty = list.querySelector('.wg-empty');
         expect(empty).not.toBeNull();
         expect(empty.textContent).toContain('No cached data');
     });
@@ -168,7 +168,7 @@ describe('Meds cold-start offline resilience (Task 3)', () => {
         await window.loadMeds();
 
         const list = document.getElementById('med-list');
-        const empty = list.querySelector('.empty-state-msg');
+        const empty = list.querySelector('.wg-empty');
         expect(empty).not.toBeNull();
         expect(empty.textContent).toContain('No cached data');
     });
@@ -250,6 +250,6 @@ describe('Meds cold-start offline resilience (Task 3)', () => {
         expect(rowNames).toEqual(expect.arrayContaining(['StaleMed', 'NewlyAddedMed']));
 
         // No empty-state element is present.
-        expect(list.querySelector('.empty-state-msg')).toBeNull();
+        expect(list.querySelector('.wg-empty')).toBeNull();
     });
 });

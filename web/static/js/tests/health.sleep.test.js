@@ -171,7 +171,7 @@ describe('Health sleep card (Phase 8, Task 4)', () => {
         const card = content.querySelector('.wg-sleep-card');
         expect(card).not.toBeNull();
         // Order: summary tiles → range selector → sleep card.
-        const selector = content.querySelector('.wg-health-range-selector');
+        const selector = content.querySelector('#health-range-selector');
         expect(selector).not.toBeNull();
         const selectorIdx = Array.from(content.children).indexOf(selector);
         const cardIdx = Array.from(content.children).indexOf(card);

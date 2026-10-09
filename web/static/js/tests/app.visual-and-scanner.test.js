@@ -153,7 +153,7 @@ describe('app.js charts, scanner and visualization helpers', () => {
       setElementSize(vitals, 360, 220);
 
       window.renderBPChart([], {});
-      expect(bpChart.textContent).toContain('No data available');
+      expect(bpChart.textContent).toContain('No readings in this range');
 
       const readings = [
         { id: 1, measured_at: isoDaysAgo(2), systolic: 118, diastolic: 76, pulse: 60 },
@@ -347,7 +347,7 @@ describe('app.js charts, scanner and visualization helpers', () => {
       const htmlBeforeFresh = document.getElementById('health-overview-content').innerHTML;
       expect(htmlBeforeFresh).toContain('Sleep');
       expect(htmlBeforeFresh).toContain('9,200 steps (7d avg)');
-      expect(document.getElementById('health-overview-loading').style.display).toBe('none');
+      expect(document.getElementById('health-overview-loading').hidden).toBe(true);
 
       resolveFresh();
       await loadPromise;

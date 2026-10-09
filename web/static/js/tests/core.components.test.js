@@ -24,35 +24,80 @@ function loadComponents() {
     return { window, cleanup: () => dom.window.close() };
 }
 
-describe('createEmptyState', () => {
-    it('creates a <li> by default with centered style and message', () => {
+describe('createEmptyState / createOfflineEmptyState / createErrorState / createSkeleton', () => {
+    it('renders the kit .wg-empty anatomy: icon, title, body, actions', () => {
         const { window, cleanup } = loadComponents();
         try {
-            const el = window.createEmptyState('No data');
+            let clicked = 0;
+            const el = window.createEmptyState({
+                icon: 'heart', title: 'No readings yet', body: 'Log your first reading.',
+                actions: [{ label: 'Log reading', icon: 'plus', onClick: () => { clicked++; } }],
+            });
+            expect(el.tagName).toBe('DIV');
+            expect(el.className).toBe('wg-empty');
+            expect(el.querySelector('.wg-empty__icon svg')).not.toBeNull();
+            expect(el.querySelector('.wg-empty__title').textContent).toBe('No readings yet');
+            expect(el.querySelector('.wg-empty__body').textContent).toBe('Log your first reading.');
+            const btn = el.querySelector('.wg-empty__acts > button.wg-btn');
+            // Plain .wg-btn by default: the view's toolbar owns the one sun primary.
+            expect(btn.classList.contains('wg-btn--primary')).toBe(false);
+            expect(btn.textContent).toBe('Log reading');
+            btn.click();
+            expect(clicked).toBe(1);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('inline + tag: .wg-empty--inline <li>, no body/actions when omitted', () => {
+        const { window, cleanup } = loadComponents();
+        try {
+            const el = window.createEmptyState({ title: 'Nothing', inline: true, tag: 'li' });
             expect(el.tagName).toBe('LI');
-            expect(el.textContent).toBe('No data');
-            expect(el.className).toContain('empty-state-msg');
+            expect(el.classList.contains('wg-empty--inline')).toBe(true);
+            expect(el.querySelector('.wg-empty__icon')).toBeNull();
+            expect(el.querySelector('.wg-empty__body')).toBeNull();
+            expect(el.querySelector('.wg-empty__acts')).toBeNull();
+            expect(el.textContent).toBe('Nothing');
         } finally {
             cleanup();
         }
     });
 
-    it('supports custom tag', () => {
+    it('offline cold-start state is one shared wording', () => {
         const { window, cleanup } = loadComponents();
         try {
-            const el = window.createEmptyState('Empty', { tag: 'p' });
-            expect(el.tagName).toBe('P');
-            expect(el.textContent).toBe('Empty');
+            const el = window.createOfflineEmptyState({ tag: 'li' });
+            expect(el.tagName).toBe('LI');
+            expect(el.classList.contains('wg-empty')).toBe(true);
+            expect(el.textContent).toContain('No cached data');
         } finally {
             cleanup();
         }
     });
 
-    it('applies optional className', () => {
+    it('createErrorState renders .wg-error with an optional Retry', () => {
         const { window, cleanup } = loadComponents();
         try {
-            const el = window.createEmptyState('Nothing', { className: 'my-class' });
-            expect(el.classList.contains('my-class')).toBe(true);
+            expect(window.createErrorState('Boom').querySelector('button')).toBeNull();
+            let retried = 0;
+            const el = window.createErrorState('Failed to load', () => { retried++; });
+            expect(el.className).toBe('wg-error');
+            expect(el.getAttribute('role')).toBe('alert');
+            el.querySelector('button').click();
+            expect(retried).toBe(1);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('createSkeleton renders count .wg-skel--<kind> blocks in an aria-busy stack', () => {
+        const { window, cleanup } = loadComponents();
+        try {
+            const el = window.createSkeleton('card', 2);
+            expect(el.getAttribute('aria-busy')).toBe('true');
+            const blocks = el.querySelectorAll('.wg-skel.wg-skel--card');
+            expect(blocks.length).toBe(2);
         } finally {
             cleanup();
         }

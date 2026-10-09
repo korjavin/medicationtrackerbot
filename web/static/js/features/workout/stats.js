@@ -499,7 +499,7 @@ function _buildAutoTagButton(names) {
 
 function _buildHint(text) {
     const p = document.createElement('p');
-    p.className = 'text-center text-hint wg-workouts-stats__empty';
+    p.className = 'wg-hint wg-workouts-stats__empty';
     p.textContent = text;
     return p;
 }
@@ -830,39 +830,28 @@ async function loadWorkoutStatsTab() {
         onError: async (error, cached) => {
             console.error('Error loading stats:', error);
             if (!cached) {
-                const message = document.createElement('p');
-                message.className = 'text-hint';
-                message.textContent = 'No cached data — will load when online';
-                container.replaceChildren(message);
+                container.replaceChildren(createOfflineEmptyState());
             }
         }
     });
 }
 
-// Build one `.wg-gloss--inset` segmented strip. Active pill = `.wg-gloss--sun`
-// + aria-pressed; `onPick` fires after the active class has moved.
+// Build one kit `.wg-seg` strip (range = `--sm`). Selection = aria-pressed;
+// `onPick` fires after it has moved.
 function _buildSegmentedStrip({ block, options, labels, active, onPick }) {
     const strip = document.createElement('div');
-    strip.className = `wg-gloss--inset wg-workouts-stats__${block}`;
-    strip.setAttribute('role', 'tablist');
+    strip.className = `wg-seg wg-workouts-stats__${block}${block === 'range' ? ' wg-seg--sm' : ''}`;
+    strip.setAttribute('role', 'group');
     const buttons = new Map();
     options.forEach((value) => {
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = `wg-gloss wg-workouts-stats__${block}-btn`;
+        btn.className = 'wg-seg__opt';
         btn.dataset[block] = value;
         btn.textContent = labels[value];
-        const isActive = value === active;
-        btn.classList.toggle('wg-gloss--sun', isActive);
-        btn.classList.toggle(`wg-workouts-stats__${block}-btn--active`, isActive);
-        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        btn.setAttribute('aria-pressed', value === active ? 'true' : 'false');
         btn.addEventListener('click', () => {
-            buttons.forEach((b, key) => {
-                const on = key === value;
-                b.classList.toggle('wg-gloss--sun', on);
-                b.classList.toggle(`wg-workouts-stats__${block}-btn--active`, on);
-                b.setAttribute('aria-pressed', on ? 'true' : 'false');
-            });
+            buttons.forEach((b, key) => b.setAttribute('aria-pressed', key === value ? 'true' : 'false'));
             onPick(value);
         });
         buttons.set(value, btn);
@@ -873,10 +862,11 @@ function _buildSegmentedStrip({ block, options, labels, active, onPick }) {
 
 function _renderWorkoutStats(container, stats) {
     if (!stats) {
-        const empty = document.createElement('p');
-        empty.className = 'text-center text-hint wg-workouts-stats__empty';
-        empty.textContent = 'No statistics available yet';
-        container.replaceChildren(empty);
+        container.replaceChildren(createEmptyState({
+            icon: 'chart',
+            title: 'No statistics available yet',
+            body: 'Finish a workout and your volume, top exercises and records show up here.',
+        }));
         return;
     }
 

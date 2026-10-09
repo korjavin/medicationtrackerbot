@@ -1,11 +1,11 @@
 // Wandergeek Food → Food DB sub-tab panel (Phase 4 follow-up, Task 5).
 //
 // Asserts the Food DB sub-tab shell uses the Wandergeek primitives —
-// `.wg-food-db-panel` wrapper, `.wg-input` search, `.wg-gloss--inset`
-// sort strip with `.wg-gloss` pills (active pill also wearing
-// `.wg-gloss--sun`), and `.wg-card .wg-food-db-card` product rows. Also
-// asserts that loading / empty / error states render the token-driven
-// `.wg-food-db-panel__empty` hint instead of the legacy `.hint` class.
+// `.wg-food-db-panel` wrapper, `.wg-input` search, a kit `.wg-seg--sm`
+// sort strip (selection = aria-pressed, med-xso6.10), and
+// `.wg-card .wg-food-db-card` product rows. Also
+// asserts that loading / empty / error states render the kit
+// .wg-skel / .wg-empty / .wg-error states (med-xso6.4).
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clickRowAction, loadFrontendEnv } from './helpers/frontend-harness.js';
@@ -46,19 +46,18 @@ describe('Food → Food DB panel (Phase 4 follow-up, Task 5)', () => {
         expect(search.getAttribute('style')).toBeNull();
     });
 
-    it('sort strip is a .wg-gloss--inset container with three .wg-gloss pills', () => {
+    it('sort strip is a kit .wg-seg--sm with three options', () => {
         const { document } = env;
         const strip = document.querySelector('#food-fooddb-tab .fooddb-sort-controls');
         expect(strip).not.toBeNull();
-        expect(strip.classList.contains('wg-gloss--inset')).toBe(true);
-        expect(strip.classList.contains('wg-food-db-panel__sort')).toBe(true);
+        expect(strip.classList.contains('wg-seg')).toBe(true);
+        expect(strip.classList.contains('wg-seg--sm')).toBe(true);
         expect(strip.getAttribute('style')).toBeNull();
 
         const pills = strip.querySelectorAll('.fooddb-sort-btn');
         expect(pills).toHaveLength(3);
         pills.forEach((btn) => {
-            expect(btn.classList.contains('wg-gloss')).toBe(true);
-            expect(btn.classList.contains('wg-food-db-panel__sort-btn')).toBe(true);
+            expect(btn.classList.contains('wg-seg__opt')).toBe(true);
             // No legacy paper-era button classes.
             expect(btn.classList.contains('btn')).toBe(false);
             expect(btn.classList.contains('btn-secondary')).toBe(false);
@@ -66,23 +65,21 @@ describe('Food → Food DB panel (Phase 4 follow-up, Task 5)', () => {
         });
     });
 
-    it('default active sort pill wears .wg-gloss--sun + aria-pressed=true', () => {
+    it('default active sort option is aria-pressed=true', () => {
         const { document } = env;
         const pills = document.querySelectorAll('#food-fooddb-tab .fooddb-sort-btn');
         const active = Array.from(pills).find((b) => b.classList.contains('active'));
         expect(active).not.toBeUndefined();
         expect(active.dataset.sort).toBe('usage');
-        expect(active.classList.contains('wg-gloss--sun')).toBe(true);
         expect(active.getAttribute('aria-pressed')).toBe('true');
 
         const inactive = Array.from(pills).filter((b) => !b.classList.contains('active'));
         inactive.forEach((btn) => {
-            expect(btn.classList.contains('wg-gloss--sun')).toBe(false);
             expect(btn.getAttribute('aria-pressed')).toBe('false');
         });
     });
 
-    it('clicking a sort pill moves .wg-gloss--sun + aria-pressed to it', () => {
+    it('clicking a sort option moves aria-pressed to it', () => {
         const { window, document } = env;
         // loadFoodDB reaches for apiCall / DataStore; stub to no-op so the
         // click handler can complete without network I/O.
@@ -95,7 +92,6 @@ describe('Food → Food DB panel (Phase 4 follow-up, Task 5)', () => {
         pills.forEach((btn) => {
             const isActive = btn.dataset.sort === 'name';
             expect(btn.classList.contains('active')).toBe(isActive);
-            expect(btn.classList.contains('wg-gloss--sun')).toBe(isActive);
             expect(btn.getAttribute('aria-pressed')).toBe(isActive ? 'true' : 'false');
         });
     });
@@ -159,16 +155,47 @@ describe('Food → Food DB panel (Phase 4 follow-up, Task 5)', () => {
         pickSpy.mockRestore();
     });
 
-    it('renderFoodDBList empty-state uses .wg-food-db-panel__empty (not legacy .hint)', () => {
+    it('renderFoodDBList empty-state is the kit .wg-empty (not legacy .hint)', () => {
         const { window, document } = env;
         window.renderFoodDBList([], 0);
 
         const list = document.getElementById('fooddb-list');
-        const empty = list.querySelector('.wg-food-db-panel__empty');
+        const empty = list.querySelector('.wg-empty');
         expect(empty).not.toBeNull();
-        expect(empty.textContent).toContain('No products found');
+        expect(empty.querySelector('.wg-empty__title').textContent).toBe('No products found');
         // No paper-era .hint fallback in the list.
         expect(list.querySelector('.hint')).toBeNull();
+    });
+
+    it('loadFoodDB shows a .wg-skel stack while loading, then .wg-error + Retry on failure', async () => {
+        const { window, document } = env;
+        const list = document.getElementById('fooddb-list');
+        let skelWhileLoading = 0;
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        window.apiCall = vi.fn(async () => {
+            skelWhileLoading = list.querySelectorAll('.wg-skel').length;
+            throw new Error('boom');
+        });
+        await window.loadFoodDB();
+        expect(skelWhileLoading).toBeGreaterThan(0);
+        const err = list.querySelector('.wg-error');
+        expect(err).not.toBeNull();
+        expect(err.textContent).toContain('Failed to load products');
+
+        window.apiCall = vi.fn(async () => ({ products: [], total: 0 }));
+        err.querySelector('button').click();
+        await new Promise((r) => setTimeout(r, 0));
+        expect(window.apiCall).toHaveBeenCalled();
+        expect(list.querySelector('.wg-empty')).not.toBeNull();
+    });
+
+    it('loadFoodDB offline (apiCall → null) replaces the skeleton with the offline empty state', async () => {
+        const { window, document } = env;
+        window.apiCall = vi.fn(async () => null);
+        await window.loadFoodDB();
+        const list = document.getElementById('fooddb-list');
+        expect(list.querySelector('.wg-skel')).toBeNull();
+        expect(list.textContent).toContain('No cached data');
     });
 
     it('pagination dock uses .wg-food-db-panel__pagination + .wg-gloss page buttons', () => {

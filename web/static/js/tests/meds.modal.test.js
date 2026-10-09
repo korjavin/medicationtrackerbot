@@ -282,7 +282,12 @@ describe('EditMedicationModal (Phase 5, Task 7)', () => {
         // Switch to weekly via the pill — exercises the click-to-save path.
         document.querySelector('.wg-meds-modal__pill[data-schedule-type="weekly"]').click();
         document.querySelector('.med-time-input').value = '08:00';
-        document.querySelector('.days-select span[data-day="1"]').classList.add('selected');
+        // med-xso6.10: the Days row is the shared .wg-picks weekday builder.
+        expect(document.querySelector('.days-select')).toBeNull();
+        const picks = document.querySelectorAll('#days-container .wg-picks > .wg-pick');
+        expect(Array.from(picks).map((p) => p.dataset.day)).toEqual(['1', '2', '3', '4', '5', '6', '0']);
+        picks[0].click();
+        expect(picks[0].getAttribute('aria-pressed')).toBe('true');
 
         window.apiCallDirect = vi.fn().mockResolvedValue({});
         window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);

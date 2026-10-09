@@ -68,10 +68,7 @@ async function loadWorkoutGroups() {
         onError: async (error, cached) => {
             console.error('Error loading workout groups:', error);
             if (!cached) {
-                const message = document.createElement('p');
-                message.className = 'text-hint';
-                message.textContent = 'No cached data — will load when online';
-                container.replaceChildren(message);
+                container.replaceChildren(createOfflineEmptyState());
             }
         }
     });
@@ -265,7 +262,7 @@ function showAddWorkoutGroupModal() {
     document.getElementById('workout-group-active').checked = true;
 
     // Clear days
-    document.querySelectorAll('#workout-group-modal .days-select span').forEach(s => s.classList.remove('selected'));
+    window.MedicationUtils.setPickedDays(document.querySelector('#workout-group-modal .wg-picks'), []);
 
     // Show/hide sections based on default "Rotating" state (unchecked)
     document.getElementById('workout-variants-section').style.display = 'none';
@@ -294,14 +291,7 @@ async function showEditWorkoutGroupModal(groupId) {
 
     // Set days
     const daysArray = JSON.parse(group.days_of_week || '[]');
-    document.querySelectorAll('#workout-group-modal .days-select span').forEach(s => {
-        const day = parseInt(s.dataset.day);
-        if (daysArray.includes(day)) {
-            s.classList.add('selected');
-        } else {
-            s.classList.remove('selected');
-        }
-    });
+    window.MedicationUtils.setPickedDays(document.querySelector('#workout-group-modal .wg-picks'), daysArray);
 
     // Show variants or flat exercises based on rotation
     if (group.is_rotating) {
@@ -436,9 +426,6 @@ async function toggleRotatingFieldsInner() {
     }
 }
 
-function toggleWorkoutDay(el) {
-    el.classList.toggle('selected');
-}
 
 async function saveWorkoutGroup() {
     const name = document.getElementById('workout-group-name').value.trim();
@@ -467,9 +454,7 @@ async function saveWorkoutGroup() {
         return;
     }
 
-    const days = Array.from(document.querySelectorAll('#workout-group-modal .days-select span.selected'))
-        .map(s => parseInt(s.dataset.day));
-
+    const days = window.MedicationUtils.getPickedDays(document.querySelector('#workout-group-modal .wg-picks'));
 
     const payload = {
         name,
@@ -1125,7 +1110,6 @@ window.WorkoutGroups = {
     close: closeWorkoutGroupModal,
     delete: deleteWorkoutGroup,
     toggleRotating: toggleRotatingFields,
-    toggleDay: toggleWorkoutDay,
     print: printWorkoutPlan,
     buildDocument: buildWorkoutPlanDocument,
     loadPrintDoc: loadWorkoutPrintDoc,

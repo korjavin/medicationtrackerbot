@@ -133,7 +133,7 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
 
     it('renders the fifth sub-tab button with the equipment panel', () => {
         const { document } = env;
-        const buttons = document.querySelectorAll('.wg-workouts-subtabs .workout-tab');
+        const buttons = document.querySelectorAll('#workouts-subtabs .workout-tab');
         expect(buttons.length).toBe(5);
         const equipmentBtn = document.querySelector('.workout-tab[data-tab="equipment"]');
         expect(equipmentBtn).not.toBeNull();
@@ -815,24 +815,19 @@ describe('features/workout/equipment.js — inventory list + editor (med-niix.3)
         expect(rowsOf(document)).toHaveLength(0);
     });
 
-    it('five sub-tab pills carry no inline style and the strip has the no-scroll compaction rule', () => {
+    it('five sub-tab options carry no inline style and the strip is the kit scrolling segment', () => {
         const { document } = env;
-        const buttons = document.querySelectorAll('.wg-workouts-subtabs .workout-tab');
+        const strip = document.getElementById('workouts-subtabs');
+        // med-xso6.10: five options exceed a phone-width track, so the strip
+        // is .wg-seg--scroll (options keep their width and the strip scrolls)
+        // rather than a per-section shrink rule.
+        expect(strip.classList.contains('wg-seg')).toBe(true);
+        expect(strip.classList.contains('wg-seg--scroll')).toBe(true);
+        const buttons = strip.querySelectorAll('.workout-tab');
         expect(buttons.length).toBe(5);
         buttons.forEach((btn) => {
             expect(btn.getAttribute('style')).toBeNull();
         });
-        // jsdom has no layout engine, so phone-width fit is pinned at the
-        // stylesheet level: the .wg-workouts-subtabs__btn rule itself must
-        // carry flex-1 (share the track), min-width: 0 (shrink below content
-        // instead of pushing the strip into a horizontal scroll) and the
-        // compact mono size.
-        const css = fs.readFileSync(CSS_PATH, 'utf8');
-        const match = css.match(/\.wg-workouts-subtabs__btn\s*\{([^}]+)\}/);
-        expect(match).not.toBeNull();
-        expect(match[1]).toContain('flex: 1;');
-        expect(match[1]).toContain('min-width: 0;');
-        expect(match[1]).toContain('font-size: var(--font-size-xs);');
     });
 });
 

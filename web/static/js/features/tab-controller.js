@@ -13,8 +13,9 @@
 //     wires a delegated click handler on `container`, using the existing
 //     `dataset.tabBound` guard so reentrant calls are idempotent.
 //   - activateTabGroup(tab, { buttonSelector?, contentSelector,
-//     contentIdFromTab, ariaCurrent? }) toggles the active class on the
-//     button strip (if present) and the content panes; returns `false` when
+//     contentIdFromTab, ariaCurrent? }) toggles the active class (and the
+//     kit's aria-pressed selection) on the button strip (if present) and the
+//     content panes; returns `false` when
 //     the target content node is missing so the caller can keep the previous
 //     active state instead of blanking the page.
 //   - bindOnce(scope, fn) calls `fn()` the first time per `scope` key; the
@@ -47,6 +48,7 @@ window.TabController = (function () {
                 el.classList.remove('active');
                 if (ariaCurrent) el.removeAttribute('aria-current');
             });
+            syncPressed(buttonSelector, tab);
         }
         document.querySelectorAll(contentSelector).forEach((el) => el.classList.remove('active'));
         if (tabButton) {
@@ -55,6 +57,16 @@ window.TabController = (function () {
         }
         tabContent.classList.add('active');
         return true;
+    }
+
+    // syncPressed(buttonSelector, tab) paints a .wg-seg strip: the option whose
+    // data-tab matches gets aria-pressed="true" (the kit's selected state),
+    // every other one "false". activateTabGroup calls it; the per-section
+    // restore*SubTab boot hooks call it directly before any pane activates.
+    function syncPressed(buttonSelector, tab) {
+        document.querySelectorAll(buttonSelector).forEach((el) => {
+            el.setAttribute('aria-pressed', el.dataset.tab === tab ? 'true' : 'false');
+        });
     }
 
     function bindTabGroup(options) {
@@ -93,6 +105,7 @@ window.TabController = (function () {
 
     return {
         activateTabGroup,
+        syncPressed,
         bindTabGroup,
         bindOnce,
         isBound,

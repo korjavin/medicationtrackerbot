@@ -122,7 +122,7 @@ describe('app.js log-past -> history reflects new intake', () => {
 
       // The history DOM must now contain the newly logged intake.
       const list = document.getElementById('history-list');
-      expect(list.textContent).not.toContain('No history yet.');
+      expect(list.textContent).not.toContain('No doses logged yet');
       expect(list.textContent).toContain('Vitamin D');
       expect(list.querySelectorAll('.history-group').length).toBeGreaterThan(0);
 

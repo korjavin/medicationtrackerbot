@@ -451,6 +451,24 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         const rows = list.querySelectorAll('.wg-meds-row');
         expect(rows.length).toBe(1);
     });
+
+    it('zero medications renders the kit empty state whose action opens Add (med-xso6.4)', async () => {
+        const { window, document } = env;
+        await seedMedications(window, []);
+        window.renderMeds();
+
+        const list = document.getElementById('med-list');
+        const empty = list.querySelector('.wg-empty');
+        expect(empty).not.toBeNull();
+        expect(empty.querySelector('.wg-empty__title').textContent).toBe('No medications yet');
+        expect(list.querySelectorAll('.wg-meds-row').length).toBe(0);
+
+        const addBtn = document.getElementById('add-btn');
+        const spy = vi.fn();
+        addBtn.addEventListener('click', spy);
+        empty.querySelector('.wg-empty__acts button').click();
+        expect(spy).toHaveBeenCalledTimes(1);
+    });
 });
 
 // bd med-gut.2 — read-only "Upcoming" forecast: the next 7 days of doses
@@ -569,9 +587,10 @@ describe('Meds Upcoming sub-tab — forecast (bd med-gut.2, bd med-4oxj)', () =>
 
         const wrap = document.querySelector('#med-upcoming-list .wg-meds-upcoming');
         expect(wrap).not.toBeNull();
-        const empty = wrap.querySelector('.wg-meds-upcoming__empty');
+        const empty = wrap.querySelector('.wg-empty');
         expect(empty).not.toBeNull();
-        expect(empty.textContent).toBe('No scheduled doses in the next 7 days.');
+        expect(empty.querySelector('.wg-empty__title').textContent).toBe('Nothing scheduled');
+        expect(empty.querySelector('.wg-empty__body').textContent).toContain('next 7 days');
         expect(wrap.querySelectorAll('.wg-meds-upcoming__row').length).toBe(0);
     });
 

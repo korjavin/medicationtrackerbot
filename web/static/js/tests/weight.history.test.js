@@ -52,6 +52,21 @@ describe('renderWeightLogs (Phase 6, Task 5)', () => {
         expect(list.querySelectorAll('.wg-weight-history__group').length).toBe(0);
     });
 
+    it('empty history renders the kit empty state; out-of-range logs get the range wording (med-xso6.4)', () => {
+        const { document, window } = env;
+        window.renderWeightLogs([]);
+        const list = document.getElementById('weight-list');
+        let empty = list.querySelector('li.wg-empty');
+        expect(empty.querySelector('.wg-empty__title').textContent).toBe('No weigh-ins yet');
+        expect(empty.querySelector('.wg-empty__acts button').textContent).toBe('Log weight');
+
+        const old = new Date(Date.now() - 200 * 86400000).toISOString();
+        window.renderWeightLogs([{ id: 1, measured_at: old, weight: 80 }], '7d');
+        empty = list.querySelector('li.wg-empty');
+        expect(empty.querySelector('.wg-empty__title').textContent).toBe('No weigh-ins in this range');
+        expect(empty.querySelector('.wg-empty__acts')).toBeNull();
+    });
+
     it('groups logs into Today / Yesterday / older day buckets in descending order', () => {
         const { document, window } = env;
         const twoDaysAgo = midnight(2);
@@ -247,11 +262,11 @@ describe('renderWeightLogs (Phase 6, Task 5)', () => {
         expect(cta.classList.contains('wg-gloss--sun')).toBe(false);
         expect(cta.classList.contains('wg-weight-add-cta')).toBe(false);
 
-        // The CTA lives inside the .wg-weight-range-selector (BP-style
-        // outer row: gloss-inset track + trailing primary-toolbar button).
+        // The CTA lives inside the .wg-range-row (BP-style outer row:
+        // .wg-seg--sm range strip + trailing primary-toolbar button).
         // The Phase-5 .wg-weight-header-row + #weight-current-card Latest
         // pane were deleted in Round-2 Task 12 (defect #15).
-        const rangeRow = document.querySelector('#weight-view .wg-weight-range-selector');
+        const rangeRow = document.querySelector('#weight-view .wg-range-row');
         expect(rangeRow).not.toBeNull();
         expect(rangeRow.contains(cta)).toBe(true);
         expect(document.querySelector('#weight-view .wg-weight-header-row')).toBeNull();

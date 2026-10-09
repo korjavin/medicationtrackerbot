@@ -219,12 +219,12 @@ async function loadBPReadings() {
                 renderedSomething = true;
             } else if (list) {
                 renderedSomething = true;
-                list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
+                list.replaceChildren(createOfflineEmptyState({ tag: 'li' }));
             }
         }
     });
     if (!renderedSomething && list) {
-        list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
+        list.replaceChildren(createOfflineEmptyState({ tag: 'li' }));
     }
 }
 
@@ -249,7 +249,7 @@ async function _renderBPData(readingsRes, goalRes, statsRes) {
     });
 
     if (allReadings.length === 0 && readingsRes === null) {
-        list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
+        list.replaceChildren(createOfflineEmptyState({ tag: 'li' }));
         return;
     }
 
@@ -261,7 +261,7 @@ async function _renderBPData(readingsRes, goalRes, statsRes) {
     renderBPAverages(statsRes || {});
 
     const filteredReadings = filterReadingsByRange(allReadings, activeRange);
-    renderBPReadings(filteredReadings);
+    renderBPReadings(filteredReadings, allReadings.length);
 }
 
 function renderRangeSelector(opts) {
@@ -272,16 +272,17 @@ function renderRangeSelector(opts) {
     const onChange = typeof options.onChange === 'function' ? options.onChange : null;
 
     container.replaceChildren();
-    container.className = 'wg-bp-range-selector';
+    container.className = 'wg-range-row';
 
     const track = document.createElement('div');
-    track.className = 'wg-gloss--inset wg-bp-range-selector__track';
+    track.className = 'wg-seg wg-seg--sm';
+    track.setAttribute('role', 'group');
+    track.setAttribute('aria-label', 'Range');
 
     BP_RANGE_OPTIONS.forEach((days) => {
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'wg-gloss wg-bp-range-selector__btn';
-        if (days === active) btn.classList.add('wg-gloss--sun', 'wg-bp-range-selector__btn--active');
+        btn.className = 'wg-seg__opt';
         btn.setAttribute('data-range', String(days));
         btn.setAttribute('aria-pressed', days === active ? 'true' : 'false');
         btn.textContent = `${days}d`;
@@ -344,18 +345,16 @@ function renderBPChart(readings, goalData) {
     const filtered = filterReadingsByRange(readings, activeRange);
 
     if (!filtered || filtered.length === 0) {
-        const noDataSpan = document.createElement('span');
-        noDataSpan.className = 'no-data-msg';
-        noDataSpan.textContent = 'No data available';
-        container.appendChild(noDataSpan);
+        container.appendChild(createEmptyState({
+            icon: 'chart', inline: true,
+            title: 'No readings in this range',
+            body: 'Pick a longer range or log a reading.',
+        }));
         return;
     }
 
     if (!window.WGBpChart || typeof window.WGBpChart.render !== 'function') {
-        const noDataSpan = document.createElement('span');
-        noDataSpan.className = 'no-data-msg';
-        noDataSpan.textContent = 'Chart unavailable';
-        container.appendChild(noDataSpan);
+        container.appendChild(createErrorState('Chart unavailable'));
         return;
     }
 
@@ -440,13 +439,24 @@ function buildBPAverageCard(period, stat) {
 // Status and offline-pending/rejected sync state render as WGChip chips;
 // row actions (swipe + overflow menu, WGRowActions) reuse the existing
 // deleteBPReading handler.
-function renderBPReadings(readings) {
+function renderBPReadings(readings, totalCount = 0) {
     const list = document.getElementById('bp-list');
     if (!list) return;
     list.replaceChildren();
     list.className = 'wg-bp-history';
 
     if (!readings || readings.length === 0) {
+        // totalCount > 0: readings exist, just none inside the active range.
+        list.appendChild(createEmptyState(totalCount > 0 ? {
+            tag: 'li', icon: 'history',
+            title: 'No readings in this range',
+            body: 'Pick a longer range to see older readings.',
+        } : {
+            tag: 'li', icon: 'heart',
+            title: 'No readings yet',
+            body: 'Log your first blood pressure reading. Averages appear after 3 days.',
+            actions: [{ label: 'Log reading', icon: 'plus', onClick: () => document.getElementById('add-bp-btn')?.click() }],
+        }));
         return;
     }
 

@@ -57,18 +57,12 @@ async function loadExerciseLibrary() {
                 renderedSomething = true;
             } else if (container) {
                 renderedSomething = true;
-                const message = document.createElement('p');
-                message.className = 'text-hint';
-                message.textContent = 'No cached data — will load when online';
-                container.replaceChildren(message);
+                container.replaceChildren(createOfflineEmptyState());
             }
         }
     });
     if (!renderedSomething && container) {
-        const message = document.createElement('p');
-        message.className = 'text-hint';
-        message.textContent = 'No cached data — will load when online';
-        container.replaceChildren(message);
+        container.replaceChildren(createOfflineEmptyState());
     }
 }
 
@@ -122,7 +116,6 @@ function setExerciseLibrarySource(source) {
     document.querySelectorAll('#exercise-library-source [data-source]').forEach((btn) => {
         const active = btn.dataset.source === _librarySource;
         btn.setAttribute('aria-pressed', active ? 'true' : 'false');
-        btn.classList.toggle('wg-gloss--sun', active);
     });
     return _repaintExerciseLibrary();
 }
@@ -154,7 +147,7 @@ function _renderExerciseLibrary(container, items) {
     const children = [list];
     if (items.length > EXERCISE_LIBRARY_ROW_CAP) {
         const hint = doc.createElement('p');
-        hint.className = 'text-hint wg-workouts-exercises__cap-hint';
+        hint.className = 'wg-hint wg-workouts-exercises__cap-hint';
         hint.textContent = `Showing ${EXERCISE_LIBRARY_ROW_CAP} of ${items.length} — type to narrow.`;
         children.push(hint);
     }

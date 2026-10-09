@@ -274,7 +274,7 @@
             }
         } else {
             const unavailable = document.createElement('p');
-            unavailable.className = 'text-hint wg-workouts-exercise-detail__unavailable';
+            unavailable.className = 'wg-hint wg-workouts-exercise-detail__unavailable';
             unavailable.textContent = 'Analysis unavailable';
             root.appendChild(unavailable);
         }

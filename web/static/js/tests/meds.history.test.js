@@ -213,12 +213,12 @@ describe('features/meds.js renderHistory (Phase 5, Task 5)', () => {
       window.renderHistory([]);
       const list = document.getElementById('history-list');
       expect(list.classList.contains('wg-meds-history')).toBe(true);
-      const empty = list.querySelector('.wg-meds-history__empty');
+      const empty = list.querySelector('.wg-empty');
       expect(empty).not.toBeNull();
-      expect(empty.textContent).toBe('No history yet.');
+      expect(empty.querySelector('.wg-empty__title').textContent).toBe('No doses logged yet');
 
       window.renderHistory(null);
-      const empty2 = list.querySelector('.wg-meds-history__empty');
+      const empty2 = list.querySelector('.wg-empty');
       expect(empty2).not.toBeNull();
     } finally {
       cleanup();

@@ -10,8 +10,8 @@
 //       sleep:        toward 8h = sun, away = alert
 //       hr:           active in [50,90] = sun, out = alert
 //   • Empty-tile fallback: missing/zero value → "—" placeholder, no trend.
-//   • renderHealthRangeSelector renders .wg-gloss--inset + two pills
-//     (7d / 30d); exactly one carries .wg-gloss--sun; click invokes onChange.
+//   • renderHealthRangeSelector renders a kit .wg-seg--sm with two options
+//     (7d / 30d); exactly one is aria-pressed; click invokes onChange.
 //   • Range persists via mt-health-range, default 7d.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -70,11 +70,12 @@ describe('Health summary-tile row + range selector (Phase 8, Task 3)', () => {
     });
 
     describe('renderHealthRangeSelector', () => {
-        it('renders .wg-gloss--inset with two 7d/30d pills', () => {
+        it('renders a .wg-seg--sm with two 7d/30d options', () => {
             const { window } = env;
             const el = window.renderHealthRangeSelector({ active: '7d', onChange: () => {} });
-            expect(el.classList.contains('wg-gloss--inset')).toBe(true);
-            expect(el.classList.contains('wg-health-range-selector')).toBe(true);
+            expect(el.id).toBe('health-range-selector');
+            expect(el.classList.contains('wg-seg')).toBe(true);
+            expect(el.classList.contains('wg-seg--sm')).toBe(true);
 
             const btns = el.querySelectorAll('button[data-range]');
             expect(btns.length).toBe(2);
@@ -82,22 +83,19 @@ describe('Health summary-tile row + range selector (Phase 8, Task 3)', () => {
             expect(Array.from(btns).map((b) => b.textContent)).toEqual(['7d', '30d']);
         });
 
-        it('marks exactly one button as active via .wg-gloss--sun and aria-pressed', () => {
+        it('marks exactly one option as selected via aria-pressed', () => {
             const { window } = env;
             const el = window.renderHealthRangeSelector({ active: '30d', onChange: () => {} });
-            const active = el.querySelectorAll('.wg-gloss--sun');
+            const active = el.querySelectorAll('.wg-seg__opt[aria-pressed="true"]');
             expect(active.length).toBe(1);
             expect(active[0].getAttribute('data-range')).toBe('30d');
-            expect(active[0].getAttribute('aria-pressed')).toBe('true');
-
-            const inactive = el.querySelectorAll('button:not(.wg-gloss--sun)');
-            inactive.forEach((b) => expect(b.getAttribute('aria-pressed')).toBe('false'));
+            expect(el.querySelectorAll('.wg-seg__opt[aria-pressed="false"]').length).toBe(1);
         });
 
         it("falls back to '7d' default when active is invalid", () => {
             const { window } = env;
             const el = window.renderHealthRangeSelector({ active: 'bogus', onChange: () => {} });
-            const active = el.querySelector('.wg-gloss--sun');
+            const active = el.querySelector('[aria-pressed="true"]');
             expect(active.getAttribute('data-range')).toBe('7d');
         });
 
@@ -250,15 +248,15 @@ describe('Health summary-tile row + range selector (Phase 8, Task 3)', () => {
     });
 
     describe('range selector wired into renderHealthOverviewContent', () => {
-        it('mounts a .wg-health-summary grid + a .wg-health-range-selector in the content', () => {
+        it('mounts a .wg-health-summary grid + the #health-range-selector strip in the content', () => {
             const { document, window } = env;
             const content = document.getElementById('health-overview-content');
             window.renderHealthOverviewContent(content, makeData());
 
             expect(content.querySelector('.wg-health-summary')).not.toBeNull();
-            const selector = content.querySelector('.wg-health-range-selector');
+            const selector = content.querySelector('#health-range-selector');
             expect(selector).not.toBeNull();
-            expect(selector.classList.contains('wg-gloss--inset')).toBe(true);
+            expect(selector.classList.contains('wg-seg')).toBe(true);
             expect(selector.querySelectorAll('button[data-range]').length).toBe(2);
         });
 
@@ -271,7 +269,7 @@ describe('Health summary-tile row + range selector (Phase 8, Task 3)', () => {
             let summary = content.querySelector('.wg-health-summary');
             expect(summary.getAttribute('data-range')).toBe('7d');
 
-            const btn30 = content.querySelector('.wg-health-range-selector button[data-range="30d"]');
+            const btn30 = content.querySelector('#health-range-selector button[data-range="30d"]');
             btn30.click();
 
             expect(window.localStorage.getItem('mt-health-range')).toBe('30d');

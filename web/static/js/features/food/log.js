@@ -94,10 +94,8 @@ function setFoodMacrosRange(range) {
 function syncFoodMacrosToggleActiveClass() {
     const container = document.getElementById('food-macros-toggle');
     if (!container) return;
-    container.querySelectorAll('.wg-food-macros-card__toggle-btn').forEach((btn) => {
-        const isActive = btn.dataset.range === window.FoodLog.macrosRange;
-        btn.classList.toggle('wg-food-macros-card__toggle-btn--active', isActive);
-        btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    container.querySelectorAll('.wg-seg__opt').forEach((btn) => {
+        btn.setAttribute('aria-pressed', btn.dataset.range === window.FoodLog.macrosRange ? 'true' : 'false');
     });
 }
 
@@ -712,7 +710,6 @@ async function loadFoodLogs() {
     sortButtons.forEach(btn => {
         const isActive = btn.dataset.sort === (window.FoodDB ? window.FoodDB.sort : 'usage');
         btn.classList.toggle('active', isActive);
-        btn.classList.toggle('wg-gloss--sun', isActive);
         btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
     });
 
@@ -761,10 +758,7 @@ async function loadFoodLogs() {
     } catch (e) {
         console.error(e);
         if (!cached) {
-            const errP = document.createElement('p');
-            errP.className = 'error';
-            errP.textContent = 'Failed to load food logs.';
-            list.replaceChildren(errP);
+            list.replaceChildren(createErrorState('Failed to load food logs.', () => loadFoodLogs()));
         }
     }
     await loadFoodIncompleteNudge();
@@ -910,7 +904,7 @@ function _renderFoodData(groups, weekStats, range, dateStr) {
 
     if (!groups || groups.length === 0) {
         const empty = document.createElement('p');
-        empty.className = 'hint text-center wg-food-meal-list__empty';
+        empty.className = 'wg-hint text-center wg-food-meal-list__empty';
         empty.textContent = 'No food logs for this day.';
         list.appendChild(empty);
     } else {

@@ -3,10 +3,10 @@
 //
 // Covers the range-selector render helper and its persistence:
 //   • renderWeightRangeSelector({ active, onChange }) — flex row holding
-//     a .wg-gloss--inset .wg-weight-range-selector__track with four
-//     7d/30d/90d/All buttons AND a trailing shared .wg-toolbar-btn
-//     .wg-toolbar-btn--primary #add-weight-btn (mirrors BP's
-//     buildBPInlineAddButton). Active button gets .wg-gloss--sun.
+//     a kit .wg-seg--sm strip with four 7d/30d/90d/All options AND a
+//     trailing shared .wg-toolbar-btn .wg-toolbar-btn--primary
+//     #add-weight-btn (mirrors BP's buildBPInlineAddButton). The active
+//     option is aria-pressed (med-xso6.10).
 //   • getActiveWeightRange / setActiveWeightRange — mt-weight-range
 //     localStorage key, default '30d'.
 //   • renderWeightChart — delegates to WGWeightChart with the active range
@@ -76,19 +76,16 @@ describe('Weight range selector + chart panel (Phase 6, Task 4)', () => {
     });
 
     describe('renderWeightRangeSelector', () => {
-        it('renders four 7d/30d/90d/All buttons inside a .wg-gloss--inset track', () => {
+        it('renders four 7d/30d/90d/All options inside a .wg-seg--sm strip', () => {
             const { document, window } = env;
             window.renderWeightRangeSelector({ active: '30d', onChange: () => {} });
 
             const container = document.getElementById('weight-range-selector');
-            expect(container.classList.contains('wg-weight-range-selector')).toBe(true);
-            // Round-2 Task 12 (defect #15): inset moved off the outer row
-            // onto an inner `__track` wrapper so the trailing +Log button
-            // sits on the stage (matches .wg-bp-range-selector).
-            expect(container.classList.contains('wg-gloss--inset')).toBe(false);
-            const track = container.querySelector('.wg-weight-range-selector__track');
+            expect(container.classList.contains('wg-range-row')).toBe(true);
+            // The strip is an inner child of the row so the trailing +Log
+            // button sits beside it (same .wg-range-row as BP).
+            const track = container.querySelector('.wg-seg.wg-seg--sm');
             expect(track).not.toBeNull();
-            expect(track.classList.contains('wg-gloss--inset')).toBe(true);
 
             const btns = track.querySelectorAll('button[data-range]');
             expect(btns.length).toBe(4);
@@ -115,10 +112,10 @@ describe('Weight range selector + chart panel (Phase 6, Task 4)', () => {
             expect(cta.getAttribute('type')).toBe('button');
 
             // Button lives inside the outer selector row, NOT inside the
-            // inset track (so it sits on the stage next to the track).
+            // range strip (so it sits beside the strip).
             const container = document.getElementById('weight-range-selector');
             expect(container.contains(cta)).toBe(true);
-            const track = container.querySelector('.wg-weight-range-selector__track');
+            const track = container.querySelector('.wg-seg');
             expect(track.contains(cta)).toBe(false);
 
             // Clicking dispatches to window.showWeightModal (mirrors BP's
@@ -129,27 +126,20 @@ describe('Weight range selector + chart panel (Phase 6, Task 4)', () => {
             expect(spy).toHaveBeenCalledTimes(1);
         });
 
-        it('marks exactly one button as active via .wg-gloss--sun and aria-pressed', () => {
+        it('marks exactly one option as selected via aria-pressed', () => {
             const { document, window } = env;
             window.renderWeightRangeSelector({ active: '30d', onChange: () => {} });
 
-            const active = document.querySelectorAll('#weight-range-selector .wg-gloss--sun');
+            const active = document.querySelectorAll('#weight-range-selector .wg-seg__opt[aria-pressed="true"]');
             expect(active.length).toBe(1);
             expect(active[0].getAttribute('data-range')).toBe('30d');
-            expect(active[0].getAttribute('aria-pressed')).toBe('true');
-
-            // Round-2 Task 12 (defect #15): the trailing #add-weight-btn
-            // is also a button inside #weight-range-selector but it's
-            // not a range pill (no data-range / aria-pressed). Scope the
-            // "other pills" query to the inset track to exclude it.
-            const inactive = document.querySelectorAll('#weight-range-selector .wg-weight-range-selector__track button:not(.wg-gloss--sun)');
-            inactive.forEach((b) => expect(b.getAttribute('aria-pressed')).toBe('false'));
+            expect(document.querySelectorAll('#weight-range-selector .wg-seg__opt[aria-pressed="false"]').length).toBe(3);
         });
 
         it("falls back to the default ('30d') range when active is invalid", () => {
             const { document, window } = env;
             window.renderWeightRangeSelector({ active: 'bogus', onChange: () => {} });
-            const active = document.querySelector('#weight-range-selector .wg-gloss--sun');
+            const active = document.querySelector('#weight-range-selector .wg-seg__opt[aria-pressed="true"]');
             expect(active.getAttribute('data-range')).toBe('30d');
         });
 
@@ -179,7 +169,7 @@ describe('Weight range selector + chart panel (Phase 6, Task 4)', () => {
             window.renderWeightRangeSelector({ active: 'all', onChange: () => {} });
             const btnAll = document.querySelector('#weight-range-selector button[data-range="all"]');
             expect(btnAll.textContent).toBe('All');
-            expect(btnAll.classList.contains('wg-gloss--sun')).toBe(true);
+            expect(btnAll.getAttribute('aria-pressed')).toBe('true');
         });
     });
 
