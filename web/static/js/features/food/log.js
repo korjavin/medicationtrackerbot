@@ -758,10 +758,7 @@ async function loadFoodLogs() {
     } catch (e) {
         console.error(e);
         if (!cached) {
-            const errP = document.createElement('p');
-            errP.className = 'error';
-            errP.textContent = 'Failed to load food logs.';
-            list.replaceChildren(errP);
+            list.replaceChildren(createErrorState('Failed to load food logs.', () => loadFoodLogs()));
         }
     }
     await loadFoodIncompleteNudge();
@@ -910,7 +907,7 @@ function _renderFoodData(groups, weekStats, range, dateStr) {
 
     if (!groups || groups.length === 0) {
         const empty = document.createElement('p');
-        empty.className = 'hint text-center wg-food-meal-list__empty';
+        empty.className = 'wg-hint text-center wg-food-meal-list__empty';
         empty.textContent = 'No food logs for this day.';
         list.appendChild(empty);
     } else {

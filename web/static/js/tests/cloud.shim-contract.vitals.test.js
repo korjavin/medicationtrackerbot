@@ -25,7 +25,7 @@ describe('cloud shim contract — vitals overview (features/health.js over web/d
 
         await expect(window.loadHealthOverview()).resolves.not.toThrow();
 
-        expect(document.getElementById('health-overview-loading').style.display).toBe('none');
+        expect(document.getElementById('health-overview-loading').hidden).toBe(true);
         expect(document.getElementById('health-overview-content').classList.contains('hidden')).toBe(false);
         expect(consoleError).not.toHaveBeenCalled();
     });

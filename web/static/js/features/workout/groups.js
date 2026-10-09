@@ -68,10 +68,7 @@ async function loadWorkoutGroups() {
         onError: async (error, cached) => {
             console.error('Error loading workout groups:', error);
             if (!cached) {
-                const message = document.createElement('p');
-                message.className = 'text-hint';
-                message.textContent = 'No cached data — will load when online';
-                container.replaceChildren(message);
+                container.replaceChildren(createOfflineEmptyState());
             }
         }
     });

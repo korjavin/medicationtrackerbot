@@ -95,7 +95,7 @@ function renderScanReview() {
 
     if (byExercise.size === 0) {
         const empty = doc.createElement('p');
-        empty.className = 'text-hint';
+        empty.className = 'wg-hint';
         empty.textContent = 'No readable sets — edit by hand in the session, or retake the photo.';
         list.appendChild(empty);
     }

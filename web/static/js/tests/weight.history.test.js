@@ -52,6 +52,21 @@ describe('renderWeightLogs (Phase 6, Task 5)', () => {
         expect(list.querySelectorAll('.wg-weight-history__group').length).toBe(0);
     });
 
+    it('empty history renders the kit empty state; out-of-range logs get the range wording (med-xso6.4)', () => {
+        const { document, window } = env;
+        window.renderWeightLogs([]);
+        const list = document.getElementById('weight-list');
+        let empty = list.querySelector('li.wg-empty');
+        expect(empty.querySelector('.wg-empty__title').textContent).toBe('No weigh-ins yet');
+        expect(empty.querySelector('.wg-empty__acts button').textContent).toBe('Log weight');
+
+        const old = new Date(Date.now() - 200 * 86400000).toISOString();
+        window.renderWeightLogs([{ id: 1, measured_at: old, weight: 80 }], '7d');
+        empty = list.querySelector('li.wg-empty');
+        expect(empty.querySelector('.wg-empty__title').textContent).toBe('No weigh-ins in this range');
+        expect(empty.querySelector('.wg-empty__acts')).toBeNull();
+    });
+
     it('groups logs into Today / Yesterday / older day buckets in descending order', () => {
         const { document, window } = env;
         const twoDaysAgo = midnight(2);

@@ -498,7 +498,7 @@ describe('Workouts Stats sub-tab (Phase 7, Task 7)', () => {
         const container = document.getElementById('workout-stats-display');
         window._renderWorkoutStats(container, null);
 
-        const empty = container.querySelector('.wg-workouts-stats__empty');
+        const empty = container.querySelector('.wg-empty');
         expect(empty).not.toBeNull();
         expect(empty.textContent).toMatch(/no statistics available yet/i);
     });

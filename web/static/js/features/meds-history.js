@@ -147,15 +147,15 @@ async function loadRestockHistory(medId) {
 
     if (!restocks || restocks.length === 0) {
         const empty = document.createElement('p');
-        empty.className = 'hint';
-        empty.textContent = 'No restock history';
+        empty.className = 'wg-hint';
+        empty.textContent = 'No restocks logged yet.';
         container.appendChild(empty);
         return;
     }
 
     const title = document.createElement('p');
-    title.className = 'hint';
-    title.textContent = 'Recent restocks:';
+    title.className = 'wg-section-label';
+    title.textContent = 'Recent restocks';
     container.appendChild(title);
 
     const list = document.createElement('ul');

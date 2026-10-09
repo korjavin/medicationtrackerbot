@@ -339,6 +339,16 @@ function renderMeds() {
     const asNeeded = [];
     const archived = [];
 
+    if (medications.length === 0) {
+        list.appendChild(createEmptyState({
+            icon: 'pill',
+            title: 'No medications yet',
+            body: 'Add what you take and when. You\'ll get reminders, a dose log for your doctor, and a warning before you run out.',
+            actions: [{ label: 'Add medication', icon: 'plus', onClick: () => document.getElementById('add-btn')?.click() }],
+        }));
+        return;
+    }
+
     const nextDoses = _nextDoseByMedId();
 
     medications.forEach((med) => {
@@ -515,10 +525,12 @@ function renderUpcomingDoses() {
     // The forecast answered with nothing — say so, so an empty window is
     // distinguishable from the block not being there at all (bd med-jr1e).
     if (doses.length === 0) {
-        const empty = document.createElement('p');
-        empty.className = 'wg-meds-upcoming__empty';
-        empty.textContent = `No scheduled doses in the next ${MEDS_UPCOMING_DAYS} days.`;
-        wrap.appendChild(empty);
+        wrap.appendChild(createEmptyState({
+            icon: 'calendar',
+            title: 'Nothing scheduled',
+            body: `No doses in the next ${MEDS_UPCOMING_DAYS} days. Add a medication with a schedule and its next dose shows up here.`,
+            actions: [{ label: 'Add medication', icon: 'plus', onClick: () => document.getElementById('add-btn')?.click() }],
+        }));
         list.appendChild(wrap);
         return;
     }
@@ -751,10 +763,11 @@ function renderHistory(logs) {
     list.classList.add('wg-meds-history');
 
     if (!logs || logs.length === 0) {
-        const empty = document.createElement('p');
-        empty.className = 'wg-meds-history__empty med-empty-text';
-        empty.textContent = 'No history yet.';
-        list.appendChild(empty);
+        list.appendChild(createEmptyState({
+            icon: 'history',
+            title: 'No doses logged yet',
+            body: 'Doses you take or skip show up here, ready for your doctor.',
+        }));
         return;
     }
 
@@ -990,10 +1003,11 @@ function renderInventory() {
         .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
     if (tracked.length === 0) {
-        const empty = document.createElement('p');
-        empty.className = 'wg-meds-inventory__empty';
-        empty.textContent = 'No medications track inventory — enable tracking in the edit modal.';
-        list.appendChild(empty);
+        list.appendChild(createEmptyState({
+            icon: 'box',
+            title: 'No inventory tracked',
+            body: 'Turn on inventory tracking when you edit a medication to get a warning before you run out.',
+        }));
         return;
     }
 
@@ -1037,7 +1051,7 @@ async function loadInventory() {
 function renderMedsEmptyState() {
     const list = document.getElementById('med-list');
     if (!list) return;
-    list.replaceChildren(createEmptyState('No cached data — will load when online', { tag: 'div' }));
+    list.replaceChildren(createOfflineEmptyState());
 }
 
 // Logic

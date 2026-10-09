@@ -1411,14 +1411,6 @@ select {
     text-align: center;
 }
 
-#bp-list:empty::before {
-    content: 'No blood pressure readings yet.';
-    display: block;
-    text-align: center;
-    color: var(--hint-color);
-    padding: 40px var(--space-xl);
-}
-
 /* Weight Section — Wandergeek chart card surface.
    Shares the same teal card background / hairline border as #bpChart so the
    weight screen matches the rest of the stage instead of showing through the
@@ -2514,11 +2506,6 @@ input:checked+.toggle-slider:before {
     gap: var(--space-sm);
 }
 
-.med-empty-text {
-    text-align: center;
-    color: var(--hint-color);
-}
-
 /* ========== Next Intake Card (Meds, History) ==========
    Round-2 Task 8, defect 11b: restyled from the legacy purple-gradient
    plus translucent-pill look to Wandergeek tokens. Card surface matches
@@ -2693,17 +2680,14 @@ input:checked+.toggle-slider:before {
     margin-top: var(--space-xl);
 }
 
-/* ========== Empty/Error State (shared) ========== */
+/* ========== Empty/Error/Loading State (shared) ==========
+   The states themselves are the kit .wg-empty / .wg-error / .wg-skel
+   (components.css), built by components/empty-state.js. */
 
-.empty-state-msg {
-    text-align: center;
-    color: var(--hint-color);
-    padding: var(--space-xl);
-}
-
-.no-data-msg {
-    color: var(--hint-color);
-    font-size: var(--font-size-sm);
+.wg-skel-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
 }
 
 /* ========== Sync Debug Panel ========== */
@@ -3642,15 +3626,6 @@ input:checked+.toggle-slider:before {
     padding: var(--space-lg) var(--space-lg) var(--wg-tabbar-reserved);
     min-height: 100vh;
     box-sizing: border-box;
-}
-
-/* Empty-state copy over the dark stage: #bp-list:empty::before and
-   .empty-state-msg both default to var(--hint-color) (mid-grey), which
-   drops to poor contrast on --wg-bg-stage. Restore a near-white muted
-   fg so the "No readings yet" / "No cached data" strings stay legible. */
-.wg-screen-stage #bp-list:empty::before,
-.wg-screen-stage .empty-state-msg {
-    color: var(--wg-fg-3);
 }
 
 /* =============================================
@@ -8956,13 +8931,8 @@ input:checked+.toggle-slider:before {
 }
 
 .wg-health-notes__loading {
-    /* Initial state. Toggled at runtime via .style.display (health.js), so this
-       must not be `.hidden` — that rule is `!important` and would win. */
-    display: none;
-    color: var(--wg-fg-4);
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-sm);
-    text-align: center;
+    /* Holds a createSkeleton() stack; shown/hidden via [hidden] (health.js),
+       so this rule must never set display. */
     padding: var(--space-md) 0;
 }
 
@@ -9071,15 +9041,9 @@ input:checked+.toggle-slider:before {
     cursor: pointer;
 }
 
-.wg-health-notes__empty {
-    text-align: center;
-    color: var(--wg-fg-4);
-    padding: var(--space-lg);
-}
-
-.wg-health-notes__empty-msg {
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-sm);
+.wg-card.wg-health-notes__empty {
+    /* The .wg-empty--inline inside owns the padding. */
+    padding: 0;
 }
 
 /* Note + Doctor-brief sheet bodies (Phase 8, Task 8; header is the kit
@@ -9434,16 +9398,6 @@ input:checked+.toggle-slider:before {
     gap: var(--space-md);
 }
 
-/* Shared with `.wg-meds-upcoming__empty` — same muted centered mono line. */
-.wg-meds-history__empty,
-.wg-meds-upcoming__empty {
-    color: var(--wg-fg-4);
-    text-align: center;
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-sm);
-    margin: var(--space-lg) 0;
-}
-
 .wg-meds-history__day {
     display: flex;
     flex-direction: column;
@@ -9525,14 +9479,6 @@ input:checked+.toggle-slider:before {
     display: flex;
     flex-direction: column;
     gap: var(--space-sm);
-}
-
-.wg-meds-inventory__empty {
-    color: var(--wg-fg-4);
-    text-align: center;
-    font-family: var(--wg-font-mono);
-    font-size: var(--font-size-sm);
-    margin: var(--space-lg) 0;
 }
 
 .wg-meds-inventory__card {
@@ -9982,19 +9928,6 @@ input:checked+.toggle-slider:before {
     display: flex;
     flex-direction: column;
     gap: var(--space-sm);
-}
-
-.wg-food-db-panel__empty {
-    padding: var(--space-lg) 0;
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-sm);
-    color: var(--wg-fg-3);
-    text-align: center;
-    margin: 0;
-}
-
-.wg-food-db-panel__empty--error {
-    color: var(--wg-tag-alert-fg);
 }
 
 .wg-food-db-panel__pagination {

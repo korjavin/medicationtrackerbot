@@ -142,12 +142,12 @@ describe('BP screen render helpers (Phase 3, Task 3)', () => {
             }
         });
 
-        it('renders a "No data available" message for empty readings without invoking WGBpChart', () => {
+        it('renders the kit empty state for empty readings without invoking WGBpChart', () => {
             const { document, window } = env;
             const renderSpy = vi.spyOn(window.WGBpChart, 'render');
             window.renderBPChart([], {});
             expect(renderSpy).not.toHaveBeenCalled();
-            expect(document.querySelector('#bpChart .no-data-msg')).not.toBeNull();
+            expect(document.querySelector('#bpChart .wg-empty')).not.toBeNull();
         });
     });
 

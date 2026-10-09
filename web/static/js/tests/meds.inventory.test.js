@@ -55,9 +55,9 @@ describe('Meds inventory sub-tab (Phase 5, Task 6)', () => {
 
         const list = document.getElementById('med-inventory-list');
         expect(list.classList.contains('wg-meds-inventory')).toBe(true);
-        const empty = list.querySelector('.wg-meds-inventory__empty');
+        const empty = list.querySelector('.wg-empty');
         expect(empty).not.toBeNull();
-        expect(empty.textContent).toMatch(/no medications track inventory/i);
+        expect(empty.textContent).toMatch(/no inventory tracked/i);
         expect(list.querySelector('.wg-meds-inventory__card')).toBeNull();
     });
 

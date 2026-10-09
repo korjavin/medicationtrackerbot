@@ -1429,7 +1429,7 @@ describe('Architecture – design tokens', () => {
             '.status-success', '.status-error', '.status-muted',
             // Medication
             '.med-supplement-badge', '.med-normalized-name',
-            '.med-action-icons', '.med-empty-text',
+            '.med-action-icons',
             // Next intake (Round-2 Task 8, #11b: restyled to Wandergeek tokens)
             '.wg-meds-next-intake-card', '.wg-meds-next-intake-card__kicker',
             '.wg-meds-next-intake-card__time', '.wg-meds-next-intake-card__meta',
@@ -1450,7 +1450,7 @@ describe('Architecture – design tokens', () => {
             '.flex-1', '.flex-wrap', '.text-xs', '.text-sm', '.text-error',
             '.mt-lg', '.mt-xl',
             // Empty/error state
-            '.empty-state-msg', '.no-data-msg',
+            '.wg-skel-stack',
             // Sync debug panel
             '.sync-debug-panel',
             // Workout components (paper-era classes still used as dual-class alongside wg-* equivalents)

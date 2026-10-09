@@ -676,10 +676,7 @@ function renderWeightChart(logs, goalData) {
     if (current) container.appendChild(current);
 
     if (!window.WGWeightChart || typeof window.WGWeightChart.render !== 'function') {
-        const noDataSpan = document.createElement('span');
-        noDataSpan.className = 'no-data-msg';
-        noDataSpan.textContent = 'Chart unavailable';
-        container.appendChild(noDataSpan);
+        container.appendChild(createErrorState('Chart unavailable'));
         return;
     }
 
@@ -802,12 +799,12 @@ async function loadWeightLogs() {
                 renderedSomething = true;
             } else if (list) {
                 renderedSomething = true;
-                list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
+                list.replaceChildren(createOfflineEmptyState({ tag: 'li' }));
             }
         }
     });
     if (!renderedSomething && list) {
-        list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
+        list.replaceChildren(createOfflineEmptyState({ tag: 'li' }));
     }
 }
 
@@ -844,7 +841,7 @@ async function _renderWeightData(logsRes, goalRes, lineRes) {
     renderWeightPrognosisCard(lineRes);
 
     if (allLogs.length === 0 && logsRes === null) {
-        list.replaceChildren(createEmptyState('No cached data \u2014 will load when online'));
+        list.replaceChildren(createOfflineEmptyState({ tag: 'li' }));
         return;
     }
 
@@ -887,6 +884,17 @@ function renderWeightLogs(logs, range) {
 
     const filtered = filterWeightLogsByRange(logs || [], range);
     if (filtered.length === 0) {
+        // Logs outside the active range → point at the range, not at logging.
+        list.appendChild(createEmptyState((logs || []).length > 0 ? {
+            tag: 'li', icon: 'history',
+            title: 'No weigh-ins in this range',
+            body: 'Pick a longer range to see older entries.',
+        } : {
+            tag: 'li', icon: 'scale',
+            title: 'No weigh-ins yet',
+            body: 'Log your first weight. Your trend line appears after a few weigh-ins.',
+            actions: [{ label: 'Log weight', icon: 'plus', onClick: () => document.getElementById('add-weight-btn')?.click() }],
+        }));
         return;
     }
 

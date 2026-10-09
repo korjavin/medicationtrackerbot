@@ -140,7 +140,10 @@ describe('Food loadFoodLogs() vault-served reads', () => {
     await window.loadFoodLogs();
 
     const list = document.getElementById('food-list');
-    expect(list.textContent).toBe('Failed to load food logs.');
+    const err = list.querySelector('.wg-error');
+    expect(err).not.toBeNull();
+    expect(err.textContent).toContain('Failed to load food logs.');
+    expect(err.querySelector('button').textContent).toBe('Retry');
   });
 });
 

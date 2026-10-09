@@ -46,7 +46,7 @@
 
 async function loadFoodDB() {
     const list = document.getElementById('fooddb-list');
-    list.innerHTML = '<p class="wg-food-db-panel__empty">Loading products...</p>';
+    list.replaceChildren(createSkeleton('row', 4));
 
     const limit = 20;
     const offset = window.FoodDB.page * limit;
@@ -63,7 +63,11 @@ async function loadFoodDB() {
         }
 
         const resp = await apiCall(`/api/food/products?${queryParams.toString()}`, 'GET');
-        if (!resp) return;
+        // apiCall resolves null offline / on 5xx — don't leave the skeleton up.
+        if (!resp) {
+            list.replaceChildren(createOfflineEmptyState());
+            return;
+        }
 
         window.FoodDB.total = resp.total || 0;
 
@@ -77,7 +81,7 @@ async function loadFoodDB() {
         renderFoodDBList(resp.products || [], window.FoodDB.total);
     } catch (e) {
         console.error('Failed to load food db products', e);
-        list.innerHTML = '<p class="wg-food-db-panel__empty wg-food-db-panel__empty--error">Failed to load products</p>';
+        list.replaceChildren(createErrorState('Failed to load products', () => loadFoodDB()));
     }
 }
 
@@ -91,7 +95,15 @@ function renderFoodDBList(products, total) {
     list.innerHTML = '';
 
     if (products.length === 0) {
-        list.innerHTML = '<p class="wg-food-db-panel__empty">No products found.</p>';
+        list.appendChild(createEmptyState(window.FoodDB.query ? {
+            icon: 'search',
+            title: 'No products found',
+            body: 'Try a shorter name, or scan the barcode to add it.',
+        } : {
+            icon: 'food',
+            title: 'No products found',
+            body: 'Foods you log or scan are saved here for one-tap reuse.',
+        }));
         pagination.classList.toggle('hidden', total <= 0);
         pageInfo.textContent = `Showing 0 of ${total}`;
         prevBtn.disabled = window.FoodDB.page === 0;

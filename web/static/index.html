@@ -444,7 +444,7 @@
                 <!-- Stale-data chip (Task 6 of local-first read resilience).
                      Mounted by loadHealthOverview() from the active overview
                      api_cache key; hidden until populated. -->
-                <div id="health-overview-loading">Loading metrics...</div>
+                <div id="health-overview-loading" hidden></div>
                 <div id="health-overview-content" class="hidden">
                     <!-- Injected dynamically via app.js -->
                 </div>
@@ -475,7 +475,7 @@
                     <!-- Stale-data chip (Task 6 of local-first read resilience).
                          Mounted by loadNotes() from the api_cache 'diary_notes'
                          timestamp; hidden until populated. -->
-                    <div id="notes-loading" class="wg-health-notes__loading">Loading notes...</div>
+                    <div id="notes-loading" class="wg-health-notes__loading" hidden></div>
                     <ul id="notes-list" class="wg-health-notes__list list-reset"></ul>
                 </div>
             </div>

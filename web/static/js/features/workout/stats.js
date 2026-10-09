@@ -499,7 +499,7 @@ function _buildAutoTagButton(names) {
 
 function _buildHint(text) {
     const p = document.createElement('p');
-    p.className = 'text-center text-hint wg-workouts-stats__empty';
+    p.className = 'wg-hint wg-workouts-stats__empty';
     p.textContent = text;
     return p;
 }
@@ -830,10 +830,7 @@ async function loadWorkoutStatsTab() {
         onError: async (error, cached) => {
             console.error('Error loading stats:', error);
             if (!cached) {
-                const message = document.createElement('p');
-                message.className = 'text-hint';
-                message.textContent = 'No cached data — will load when online';
-                container.replaceChildren(message);
+                container.replaceChildren(createOfflineEmptyState());
             }
         }
     });
@@ -865,10 +862,11 @@ function _buildSegmentedStrip({ block, options, labels, active, onPick }) {
 
 function _renderWorkoutStats(container, stats) {
     if (!stats) {
-        const empty = document.createElement('p');
-        empty.className = 'text-center text-hint wg-workouts-stats__empty';
-        empty.textContent = 'No statistics available yet';
-        container.replaceChildren(empty);
+        container.replaceChildren(createEmptyState({
+            icon: 'chart',
+            title: 'No statistics available yet',
+            body: 'Finish a workout and your volume, top exercises and records show up here.',
+        }));
         return;
     }
 

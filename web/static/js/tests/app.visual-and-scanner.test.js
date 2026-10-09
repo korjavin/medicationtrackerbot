@@ -347,7 +347,7 @@ describe('app.js charts, scanner and visualization helpers', () => {
       const htmlBeforeFresh = document.getElementById('health-overview-content').innerHTML;
       expect(htmlBeforeFresh).toContain('Sleep');
       expect(htmlBeforeFresh).toContain('9,200 steps (7d avg)');
-      expect(document.getElementById('health-overview-loading').style.display).toBe('none');
+      expect(document.getElementById('health-overview-loading').hidden).toBe(true);
 
       resolveFresh();
       await loadPromise;

@@ -45,7 +45,30 @@ describe('renderBPReadings (Phase 3, Task 5)', () => {
         window.renderBPReadings([]);
         const list = document.getElementById('bp-list');
         expect(list.classList.contains('wg-bp-history')).toBe(true);
-        expect(list.children.length).toBe(0);
+        expect(list.querySelectorAll('.wg-bp-history__group').length).toBe(0);
+    });
+
+    it('no readings at all → kit empty state naming the next step; its action opens the +Log flow (med-xso6.4)', () => {
+        const { document, window } = env;
+        window.renderBPReadings([]);
+        const empty = document.querySelector('#bp-list > li.wg-empty');
+        expect(empty).not.toBeNull();
+        expect(empty.querySelector('.wg-empty__title').textContent).toBe('No readings yet');
+        const addBtn = document.createElement('button');
+        addBtn.id = 'add-bp-btn';
+        const spy = vi.fn();
+        addBtn.addEventListener('click', spy);
+        document.body.appendChild(addBtn);
+        empty.querySelector('.wg-empty__acts button').click();
+        expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it('readings exist but none in range → range empty state without a Log action (med-xso6.4)', () => {
+        const { document, window } = env;
+        window.renderBPReadings([], 5);
+        const empty = document.querySelector('#bp-list .wg-empty');
+        expect(empty.querySelector('.wg-empty__title').textContent).toBe('No readings in this range');
+        expect(empty.querySelector('.wg-empty__acts')).toBeNull();
     });
 
     it('groups readings into Today / Yesterday / older day buckets in descending order', () => {
