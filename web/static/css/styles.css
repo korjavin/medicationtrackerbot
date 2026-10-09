@@ -7295,6 +7295,72 @@ input:checked+.toggle-slider:before {
     gap: var(--space-md);
 }
 
+/* Workout session takeover (med-xso6.21, kit W1–W3). The kit classes
+   (.wg-session-top/-prog/-foot, .wg-ex, .wg-set, .wg-rest, .wg-plates) live in
+   components.css; these rules only adapt our elements to them. */
+.wg-session [hidden] {
+    display: none;
+}
+
+.wg-session .wg-workouts-session-exercise {
+    padding: 0;
+}
+
+.wg-session-prog {
+    width: 100%;
+    margin: 0;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+}
+
+.wg-session-top__status {
+    flex-shrink: 0;
+}
+
+.wg-set__idx,
+.wg-set__cell {
+    padding: 0;
+}
+
+.wg-set__idx {
+    height: 56px;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+}
+
+.wg-set__more {
+    grid-column: 1 / -1;
+    align-items: center;
+}
+
+.wg-set__rpe {
+    font-family: var(--wg-font-mono);
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-2);
+}
+
+.wg-session-rest {
+    margin: 0 var(--space-md) var(--space-sm);
+    flex-shrink: 0;
+}
+
+.wg-session-foot__acts {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.wg-session-foot__save.is-error {
+    color: var(--wg-danger-fg);
+}
+
+.wg-session-overview__row {
+    width: 100%;
+    text-align: left;
+}
+
 /* Workout-Start modal (Task 11 of header-actions refactor). The legacy
    push-notification "Workout Time!" prompt was the last modal still using
    the paper-era .actions block; this promotes it onto the wg-modal shell
