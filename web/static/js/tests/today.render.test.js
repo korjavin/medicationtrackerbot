@@ -356,11 +356,10 @@ describe('Today v2 — Log sheet', () => {
         expect(env.document.querySelectorAll('#today-log-sheet').length).toBe(1);
     });
 
-    it('default openers: the food modal, its scanner and photo picker, AI describe, BP / weight forms, the notes composer', () => {
+    it('default openers: the food Add sheet, its scanner and photo picker, AI describe, BP / weight forms, the notes composer', () => {
         const w = env.window;
         w.showAddFoodModal = vi.fn();
-        w.setFoodParseAIMode = vi.fn();
-        w.FoodLog = { openAdd: vi.fn() };
+        w.FoodLog = { openAdd: vi.fn(), addSheet: { openDescribe: vi.fn() } };
         w.FoodScanner = { openFoodScannerModal: vi.fn() };
         w.FoodActions = { triggerPhotoPicker: vi.fn() };
         w.showBPRecordModal = vi.fn();
@@ -382,8 +381,8 @@ describe('Today v2 — Log sheet', () => {
         tap('food-photo');
         expect(w.FoodActions.triggerPhotoPicker).toHaveBeenCalledTimes(1);
         tap('food-describe');
-        expect(w.showAddFoodModal).toHaveBeenCalledTimes(2);
-        expect(w.setFoodParseAIMode).toHaveBeenCalledWith(true);
+        expect(w.FoodLog.addSheet.openDescribe).toHaveBeenCalledTimes(1);
+        expect(w.showAddFoodModal).toHaveBeenCalledTimes(1);
         tap('bp');
         expect(w.showBPRecordModal).toHaveBeenCalledTimes(1);
         tap('weight');

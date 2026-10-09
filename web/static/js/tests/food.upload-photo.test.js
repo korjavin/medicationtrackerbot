@@ -1,16 +1,14 @@
-// Friendly food-photo flow — Task 4: wiring the summary card + Undo into
-// the photo upload path.
+// Photo flow (kit F6, med-xso6.17): a picked photo is parsed (dry run)
+// into the Add sheet's review pane; nothing is logged until Log is pressed.
+// Then the logged toast carries Undo.
 //
-// Pins three behaviours:
-//
-//   1. A successful CloudFoodAI.parseMealFromPhoto no longer triggers a
-//      browser alert. Instead, the in-app `showFoodPhotoSummary` card
-//      renders with one row per parsed item.
-//   2. Clicking Undo issues a DELETE for every item (one apiCall per id,
-//      in parallel) and then swaps the card content to a "Removed N items"
-//      success message.
-//   3. If any DELETE fails, the card swaps to the error state with a
-//      Retry button instead of the success message.
+// Pins:
+//   1. upload → review pane lists the parsed items, no write yet; Log writes
+//      them through CloudFoodAI.logParsedItems and shows the toast (no alert).
+//   2. Clicking Undo issues a DELETE for every item and swaps the toast to
+//      "Removed N items".
+//   3. A partial Undo failure leaves the danger toast with Retry, and Retry
+//      only re-attempts the failed items.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
@@ -35,12 +33,41 @@ function attachFile(input, file) {
     });
 }
 
+// What the dry-run parse returns (web/domain/foodai.js previewParsedMeal).
+const SAMPLE_PREVIEW = [
+    { name: 'Oatmeal', weight: 80,  carbs: 50, protein: 10, fat: 5, calories: 280, carbs_100g: 62, protein_100g: 12, fat_100g: 6, uncertain: false },
+    { name: 'Banana',  weight: 120, carbs: 27, protein: 1,  fat: 0, calories: 105, carbs_100g: 22, protein_100g: 1, fat_100g: 0, uncertain: true },
+];
+
+// What logParsedItems returns once saved.
 const SAMPLE_ITEMS = [
     { id: 11, name: 'Oatmeal', weight: 80,  carbs: 50, protein: 10, fat: 5, calories: 280 },
     { id: 12, name: 'Banana',  weight: 120, carbs: 27, protein: 1,  fat: 0, calories: 105 },
 ];
 
-describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
+function makeCloudFoodAI() {
+    return {
+        parseMealFromPhoto: vi.fn(async () => ({ status: 'parsed', items: SAMPLE_PREVIEW.map((it) => ({ ...it })) })),
+        logParsedItems: vi.fn(async () => ({ items: SAMPLE_ITEMS, failed: 0 })),
+    };
+}
+
+async function settle() {
+    for (let i = 0; i < 6; i++) await flushPromises();
+}
+
+// Pick a photo, wait for the review pane, press Log.
+async function uploadAndLog(env) {
+    const { document, window } = env;
+    const input = document.getElementById('food-photo-input');
+    attachFile(input, makeFakeImageFile(env));
+    await window.uploadFoodPhoto(input);
+    await settle();
+    document.getElementById('food-add-primary-btn').click();
+    await settle();
+}
+
+describe('uploadFoodPhoto → review → Log + Undo (kit F6)', () => {
     let env;
 
     beforeEach(() => {
@@ -64,51 +91,91 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
         env = null;
     });
 
-    it('successful upload renders the summary card and does not trigger a browser alert', async () => {
+    it('upload shows the review pane and logs nothing until Log is pressed', async () => {
         const { document, window } = env;
 
         const alertSpy = vi.fn();
         window.safeAlert = alertSpy;
-
-        const parse = vi.fn(async () => ({ items: SAMPLE_ITEMS, failed: 0 }));
-        window.CloudFoodAI = { parseMealFromPhoto: parse };
+        const ai = makeCloudFoodAI();
+        window.CloudFoodAI = ai;
+        const apiSpy = vi.fn(async () => []);
+        window.apiCall = apiSpy;
 
         const input = document.getElementById('food-photo-input');
         attachFile(input, makeFakeImageFile(env));
-
         await window.uploadFoodPhoto(input);
-        await flushPromises();
+        await settle();
 
+        // Parsed as a dry run; the review pane is up with one row per item.
+        expect(ai.parseMealFromPhoto).toHaveBeenCalledTimes(1);
+        expect(ai.parseMealFromPhoto.mock.calls[0][1]).toMatchObject({ dryRun: true });
+        const sheet = document.getElementById('food-add-sheet');
+        expect(sheet.classList.contains('hidden')).toBe(false);
+        expect(sheet.dataset.view).toBe('review');
+        const rows = document.querySelectorAll('#food-add-review-list .wg-food-add__review-row');
+        expect(rows).toHaveLength(2);
+        expect(rows[0].textContent).toContain('Oatmeal');
+        // The uncertain row carries the warn chip; the sure one does not.
+        expect(rows[0].textContent).not.toContain('estimate');
+        expect(rows[1].textContent).toContain('estimate');
+        expect(document.getElementById('food-add-primary-btn').textContent).toBe('Log 2 items');
+
+        // Nothing written yet: no save, no write call, no toast.
+        expect(ai.logParsedItems).not.toHaveBeenCalled();
+        expect(apiSpy.mock.calls.filter(([, m]) => m && m !== 'GET')).toEqual([]);
+        expect(document.querySelector('.wg-food-photo-summary')).toBeNull();
+
+        document.getElementById('food-add-primary-btn').click();
+        await settle();
+
+        expect(ai.logParsedItems).toHaveBeenCalledTimes(1);
+        const [items, opts] = ai.logParsedItems.mock.calls[0];
+        expect(items.map((it) => it.name)).toEqual(['Oatmeal', 'Banana']);
+        expect(typeof opts.eatenAt).toBe('number');
+        expect(sheet.classList.contains('hidden')).toBe(true);
         expect(alertSpy).not.toHaveBeenCalled();
-        expect(parse).toHaveBeenCalledTimes(1);
-        // Realm-safe Date check (constructed inside the JSDOM window).
-        expect(typeof parse.mock.calls[0][1].eatenAt.toISOString).toBe('function');
 
         const card = document.querySelector('.wg-food-photo-summary');
         expect(card).not.toBeNull();
-
         // The standard toast (med-xso6.5): item count + kcal total.
         expect(card.classList.contains('wg-toast')).toBe(true);
         expect(card.querySelector('.wg-toast__text').firstChild.textContent).toBe('2 items logged');
         expect(card.querySelector('.wg-toast__text small').textContent).toBe('385 kcal · from photo');
     });
 
-    it('clicking Undo issues a DELETE for every item and swaps card to "Removed N items"', async () => {
+    it('Discard closes the review without logging anything', async () => {
         const { document, window } = env;
-
-        const parse = vi.fn(async () => ({ items: SAMPLE_ITEMS, failed: 0 }));
-        window.CloudFoodAI = { parseMealFromPhoto: parse };
-        const apiSpy = vi.fn(async () => ({ status: 'deleted' }));
-        window.apiCall = apiSpy;
+        const ai = makeCloudFoodAI();
+        window.CloudFoodAI = ai;
+        window.apiCall = vi.fn(async () => []);
 
         const input = document.getElementById('food-photo-input');
         attachFile(input, makeFakeImageFile(env));
         await window.uploadFoodPhoto(input);
-        await flushPromises();
+        await settle();
 
-        // One AI parse so far; no DELETEs yet.
-        expect(parse).toHaveBeenCalledTimes(1);
-        expect(apiSpy).not.toHaveBeenCalled();
+        document.getElementById('food-add-discard-btn').click();
+        await settle();
+
+        expect(document.getElementById('food-add-sheet').classList.contains('hidden')).toBe(true);
+        expect(ai.logParsedItems).not.toHaveBeenCalled();
+        expect(document.querySelector('.wg-food-photo-summary')).toBeNull();
+    });
+
+    it('clicking Undo issues a DELETE for every item and swaps card to "Removed N items"', async () => {
+        const { document, window } = env;
+
+        const ai = makeCloudFoodAI();
+        window.CloudFoodAI = ai;
+        const apiSpy = vi.fn(async (url, method) => (method === 'DELETE' ? { status: 'deleted' } : []));
+        window.apiCall = apiSpy;
+
+        await uploadAndLog(env);
+
+        // One AI parse + one save so far; no DELETEs yet.
+        expect(ai.parseMealFromPhoto).toHaveBeenCalledTimes(1);
+        expect(ai.logParsedItems).toHaveBeenCalledTimes(1);
+        expect(apiSpy.mock.calls.filter(([, m]) => m === 'DELETE')).toEqual([]);
 
         const card = document.querySelector('.wg-food-photo-summary');
         const undoBtn = card.querySelector('.wg-toast__undo');
@@ -151,7 +218,7 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
         const { document, window } = env;
 
         let firstDeleteRound = true;
-        window.CloudFoodAI = { parseMealFromPhoto: vi.fn(async () => ({ items: SAMPLE_ITEMS, failed: 0 })) };
+        window.CloudFoodAI = makeCloudFoodAI();
         // First DELETE round: id 12 fails, id 11 succeeds.
         // Second DELETE round (Retry): only id 12 should be re-attempted,
         // and it should now succeed. If the retry path naively re-issues
@@ -161,14 +228,11 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
             if (method === 'DELETE' && firstDeleteRound && url === '/api/food/log/12') {
                 return Promise.resolve(null);
             }
-            return Promise.resolve({ status: 'deleted' });
+            return Promise.resolve(method === 'DELETE' ? { status: 'deleted' } : []);
         });
         window.apiCall = apiSpy;
 
-        const input = document.getElementById('food-photo-input');
-        attachFile(input, makeFakeImageFile(env));
-        await window.uploadFoodPhoto(input);
-        await flushPromises();
+        await uploadAndLog(env);
 
         const card = document.querySelector('.wg-food-photo-summary');
         const undoBtn = card.querySelector('.wg-toast__undo');
@@ -206,20 +270,17 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
     it('partial Undo failure puts the card into the error state with a Retry button', async () => {
         const { document, window } = env;
 
-        window.CloudFoodAI = { parseMealFromPhoto: vi.fn(async () => ({ items: SAMPLE_ITEMS, failed: 0 })) };
+        window.CloudFoodAI = makeCloudFoodAI();
         // First DELETE fails; second succeeds — partial failure must
         // surface as the error state, not a half-success.
         window.apiCall = vi.fn().mockImplementation((url, method) => {
             if (method === 'DELETE' && url === '/api/food/log/11') {
                 return Promise.resolve(null);
             }
-            return Promise.resolve({ status: 'deleted' });
+            return Promise.resolve(method === 'DELETE' ? { status: 'deleted' } : []);
         });
 
-        const input = document.getElementById('food-photo-input');
-        attachFile(input, makeFakeImageFile(env));
-        await window.uploadFoodPhoto(input);
-        await flushPromises();
+        await uploadAndLog(env);
 
         const card = document.querySelector('.wg-food-photo-summary');
         const undoBtn = card.querySelector('.wg-toast__undo');

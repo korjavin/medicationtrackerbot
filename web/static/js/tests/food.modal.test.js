@@ -1,11 +1,11 @@
-// Wandergeek EditFoodModal (Phase 4, Task 6).
+// Manual food form (kit F8, med-xso6.17) — the Add sheet's "Enter manually"
+// fallback and the edit form for a logged entry.
 //
-// Asserts the rewritten edit-food modal uses the Wandergeek shell —
-// `.wg-modal` + `.wg-food-modal` shell, dual-line eyebrow + mono "Food"
-// title, top-right close icon, gloss-inset input wraps, three-column macros
-// row, larger mono total-calories input, bottom Cancel + Save action bar —
-// while preserving every existing handler (open/save/cancel/per-100g
-// recompute, barcode autocomplete, modal-controller history integration).
+// A kit sheet: .wg-sheethead with Cancel/Save, "Values are" as a
+// .wg-seg--accent over the hidden #food-per-100g checkbox the maths reads,
+// the When chip over the hidden #food-datetime input, barcode + product link
+// under More. Every existing handler (save/cancel/per-100g recompute,
+// autocomplete, modal history) still binds by id.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
@@ -14,7 +14,7 @@ function flushPromises() {
     return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-describe('EditFoodModal (Phase 4, Task 6)', () => {
+describe('Manual food form (kit F8)', () => {
     let env;
 
     let realRenderFoodAutocomplete;
@@ -26,8 +26,7 @@ describe('EditFoodModal (Phase 4, Task 6)', () => {
         env.window.renderFoodAutocomplete = vi.fn();
 
         // JSDOM does not implement HTMLMediaElement.prototype.pause; the
-        // food-modal close path tears down the scanner video element, so
-        // stub pause() and clear srcObject up front to keep close() quiet.
+        // food-modal close path tears down the scanner video element.
         const video = env.document.getElementById('food-scanner-video');
         if (video) {
             video.pause = vi.fn();
@@ -41,158 +40,78 @@ describe('EditFoodModal (Phase 4, Task 6)', () => {
         env = null;
     });
 
-    it('shell uses the shared .wg-modal primitive plus the .wg-food-modal class', () => {
+    it('is a kit sheet: .wg-sheethead with Cancel/Save, no AI checkbox, no legacy food-modal parts', () => {
         const { document } = env;
         const modal = document.getElementById('food-modal');
-        expect(modal).not.toBeNull();
         expect(modal.classList.contains('wg-modal')).toBe(true);
-        expect(modal.classList.contains('wg-food-modal')).toBe(true);
+        expect(modal.classList.contains('wg-sheet')).toBe(true);
+        const acts = modal.querySelector(':scope > .wg-sheethead .wg-sheethead__acts');
+        expect(acts.contains(document.getElementById('food-modal-cancel-btn'))).toBe(true);
+        expect(acts.contains(document.getElementById('food-modal-save-btn'))).toBe(true);
+        expect(document.getElementById('food-parse-ai')).toBeNull();
+        expect(modal.querySelector('[class*="wg-food-modal__header"], .btn, .wg-gloss')).toBeNull();
     });
 
-    it('header renders eyebrow + mono title (close-X removed; Cancel dismisses)', () => {
+    it('"Values are" is an accent segment over the hidden per-100g checkbox and recomputes calories', () => {
         const { document } = env;
-        const header = document.querySelector('#food-modal .wg-food-modal__header');
-        expect(header).not.toBeNull();
+        const seg = document.getElementById('food-per-100g-seg');
+        expect(seg.classList.contains('wg-seg')).toBe(true);
+        expect(seg.classList.contains('wg-seg--accent')).toBe(true);
+        const box = document.getElementById('food-per-100g');
+        expect(box.classList.contains('hidden')).toBe(true);
+        expect(box.checked).toBe(true);
 
-        const eyebrow = document.getElementById('food-modal-title');
-        expect(eyebrow).not.toBeNull();
-        expect(eyebrow.classList.contains('wg-section-label')).toBe(true);
-        expect(eyebrow.classList.contains('wg-food-modal__eyebrow')).toBe(true);
-        expect(eyebrow.textContent.trim()).toBe('Log Food');
+        document.getElementById('food-weight').value = '200';
+        document.getElementById('food-carbs').value = '50';
+        document.getElementById('food-protein').value = '0';
+        document.getElementById('food-fat').value = '0';
 
-        const title = document.querySelector('#food-modal .wg-food-modal__title');
-        expect(title).not.toBeNull();
-        expect(title.classList.contains('wg-mono-display')).toBe(true);
-        expect(title.textContent.trim()).toBe('Food');
+        seg.querySelector('[data-per100g="false"]').click();
+        expect(box.checked).toBe(false);
+        expect(seg.querySelector('[data-per100g="false"]').getAttribute('aria-pressed')).toBe('true');
+        expect(seg.querySelector('[data-per100g="true"]').getAttribute('aria-pressed')).toBe('false');
+        // Totals: 50 g carbs * 4.
+        expect(document.getElementById('food-calories').value).toBe('200');
 
-        expect(document.getElementById('food-modal-close-btn')).toBeNull();
+        seg.querySelector('[data-per100g="true"]').click();
+        expect(box.checked).toBe(true);
+        // Per 100 g of a 200 g portion: 50 * 2 * 4.
+        expect(document.getElementById('food-calories').value).toBe('400');
     });
 
-    it('Weight + Barcode row uses gloss-inset input wraps and a gloss Scan button', () => {
-        const { document } = env;
-        const row = document.querySelector('#food-modal .wg-food-modal__row--quick');
-        expect(row).not.toBeNull();
-
-        const weightWrap = document.getElementById('food-weight').parentElement;
-        expect(weightWrap.classList.contains('wg-gloss--inset')).toBe(true);
-        expect(weightWrap.classList.contains('wg-food-modal__input-wrap')).toBe(true);
-
-        const barcodeWrap = document.getElementById('food-barcode').parentElement;
-        expect(barcodeWrap.classList.contains('wg-gloss--inset')).toBe(true);
-
-        const scanBtn = document.getElementById('food-scan-btn');
-        expect(scanBtn).not.toBeNull();
-        expect(scanBtn.classList.contains('wg-gloss')).toBe(true);
-        expect(scanBtn.classList.contains('wg-food-modal__scan-btn')).toBe(true);
-        expect(scanBtn.textContent).toContain('Scan');
-    });
-
-    it('Food name input is wrapped in a gloss-inset wrap with autocomplete container', () => {
-        const { document } = env;
-        const nameInput = document.getElementById('food-name');
-        expect(nameInput).not.toBeNull();
-        const wrap = nameInput.parentElement;
-        expect(wrap.classList.contains('wg-gloss--inset')).toBe(true);
-        expect(wrap.classList.contains('wg-food-modal__name-wrap')).toBe(true);
-
-        const autocomplete = document.getElementById('food-autocomplete-list');
-        expect(autocomplete).not.toBeNull();
-        expect(autocomplete.parentElement).toBe(wrap);
-    });
-
-    it('Macros · per 100g section header + three gloss-inset macro inputs', () => {
-        const { document } = env;
-        const sectionLabel = document.querySelector('#food-modal .wg-food-modal__section-label');
-        expect(sectionLabel).not.toBeNull();
-        expect(sectionLabel.classList.contains('wg-section-label')).toBe(true);
-        expect(sectionLabel.textContent.trim()).toBe('Macros · per 100g');
-
-        const macrosRow = document.querySelector('#food-modal .wg-food-modal__row--macros');
-        expect(macrosRow).not.toBeNull();
-
-        ['food-carbs', 'food-protein', 'food-fat'].forEach(id => {
-            const input = document.getElementById(id);
-            expect(input).not.toBeNull();
-            expect(input.parentElement.classList.contains('wg-gloss--inset')).toBe(true);
-        });
-    });
-
-    it('Total calories input is gloss-inset and carries the larger mono token class', () => {
-        const { document } = env;
-        const calories = document.getElementById('food-calories');
-        expect(calories).not.toBeNull();
-        expect(calories.classList.contains('wg-food-modal__input--total-kcal')).toBe(true);
-        expect(calories.parentElement.classList.contains('wg-gloss--inset')).toBe(true);
-    });
-
-    it('Date & time input is wrapped in a gloss-inset wrap', () => {
-        const { document } = env;
-        const dt = document.getElementById('food-datetime');
-        expect(dt).not.toBeNull();
-        expect(dt.type).toBe('datetime-local');
-        expect(dt.parentElement.classList.contains('wg-gloss--inset')).toBe(true);
-    });
-
-    it('header action row carries Cancel (.wg-gloss) and Save (.wg-gloss--sun)', () => {
-        const { document } = env;
-        const actions = document.querySelector('#food-modal .wg-food-modal__header-actions');
-        expect(actions).not.toBeNull();
-        // Body footer action row no longer exists.
-        expect(document.querySelector('#food-modal .wg-food-modal__actions')).toBeNull();
-
-        const cancelBtn = document.getElementById('food-modal-cancel-btn');
-        const saveBtn = document.getElementById('food-modal-save-btn');
-        expect(cancelBtn.parentElement).toBe(actions);
-        expect(saveBtn.parentElement).toBe(actions);
-
-        expect(cancelBtn.classList.contains('wg-gloss')).toBe(true);
-        expect(cancelBtn.classList.contains('wg-gloss--sun')).toBe(false);
-        expect(saveBtn.classList.contains('wg-gloss')).toBe(true);
-        expect(saveBtn.classList.contains('wg-gloss--sun')).toBe(true);
-        expect(saveBtn.textContent).toContain('Save entry');
-
-        // Cancel comes before Save (left/right convention).
-        const cancelIdx = Array.from(actions.children).indexOf(cancelBtn);
-        const saveIdx = Array.from(actions.children).indexOf(saveBtn);
-        expect(cancelIdx).toBeGreaterThan(-1);
-        expect(saveIdx).toBeGreaterThan(cancelIdx);
-    });
-
-    it('per-100g checkbox stays checked by default and is wrapped in a label', () => {
-        const { document } = env;
-        const cb = document.getElementById('food-per-100g');
-        expect(cb).not.toBeNull();
-        expect(cb.checked).toBe(true);
-        expect(cb.parentElement.classList.contains('wg-food-modal__per100g')).toBe(true);
-    });
-
-    it('renderFoodModalIcons populates the scan icon exactly once', () => {
+    it('openManual resets the form and carries the Add sheet prefill (name, barcode under More, time chip)', async () => {
         const { document, window } = env;
-        // bindFoodControls already ran during harness load; icons should be in.
-        const scanSvg = document.querySelector('#food-scan-btn svg');
-        expect(scanSvg).not.toBeNull();
-
-        // Re-running should be idempotent (no duplicate svgs).
-        if (typeof window.renderFoodModalIcons === 'function') {
-            window.renderFoodModalIcons();
-            expect(document.querySelectorAll('#food-scan-btn svg')).toHaveLength(1);
-        }
-    });
-
-    it('showAddFoodModal opens the modal, sets eyebrow text, and resets inputs', async () => {
-        const { document, window } = env;
-        window.showAddFoodModal();
+        document.getElementById('food-weight').value = '999';
+        const eatenAt = new Date();
+        eatenAt.setHours(8, 5, 0, 0);
+        window.FoodLog.openManual({ name: 'Kefir', barcode: '4600000000001', eatenAt });
         await flushPromises();
 
         expect(document.getElementById('food-modal').classList.contains('hidden')).toBe(false);
-        expect(document.getElementById('food-modal-title').innerText).toBe('New entry');
-        expect(document.getElementById('food-name').value).toBe('');
+        expect(document.getElementById('food-modal-title').innerText).toBe('Manual entry');
+        expect(document.getElementById('food-name').value).toBe('Kefir');
+        expect(document.getElementById('food-barcode').value).toBe('4600000000001');
         expect(document.getElementById('food-weight').value).toBe('');
         expect(document.getElementById('food-per-100g').checked).toBe(true);
+        expect(document.getElementById('food-modal-more').open).toBe(true);
+        expect(document.getElementById('food-datetime-label').textContent).toContain('08:05');
         expect(window.initFoodProductsCache).toHaveBeenCalled();
     });
 
-    it('editFoodLog hydrates inputs from a stored log and recomputes per-100g totals', () => {
+    it('More stays closed without a barcode; the When chip follows the hidden input', () => {
+        const { document, window } = env;
+        window.FoodLog.openManual();
+        expect(document.getElementById('food-modal-more').open).toBe(false);
+
+        const input = document.getElementById('food-datetime');
+        const d = new Date();
+        d.setHours(13, 45, 0, 0);
+        input.value = window.formatDateTimeLocalForInput(d);
+        input.dispatchEvent(new window.Event('change'));
+        expect(document.getElementById('food-datetime-label').textContent).toContain('13:45');
+    });
+
+    it('editFoodLog hydrates inputs from a stored log and recomputes per-100g values', () => {
         const { document, window } = env;
         window.FoodLog.setCurrent({
             42: {
@@ -214,32 +133,34 @@ describe('EditFoodModal (Phase 4, Task 6)', () => {
         expect(document.getElementById('food-id').value).toBe('42');
         expect(document.getElementById('food-name').value).toBe('Oatmeal');
         expect(document.getElementById('food-barcode').value).toBe('123');
+        expect(document.getElementById('food-modal-more').open).toBe(true);
         expect(document.getElementById('food-weight').value).toBe('200');
         expect(document.getElementById('food-per-100g').checked).toBe(true);
+        expect(document.querySelector('#food-per-100g-seg [data-per100g="true"]').getAttribute('aria-pressed')).toBe('true');
         // 50g carbs / 200g * 100 = 25g per 100g
         expect(document.getElementById('food-carbs').value).toBe('25');
         expect(document.getElementById('food-protein').value).toBe('6');
         expect(document.getElementById('food-fat').value).toBe('3');
     });
 
-    it('cancel button (header) routes through closeFoodModal', () => {
+    it('Cancel routes through closeFoodModal', () => {
         const { document, window } = env;
-        window.showAddFoodModal();
+        window.FoodLog.openManual();
         expect(document.getElementById('food-modal').classList.contains('hidden')).toBe(false);
 
         document.getElementById('food-modal-cancel-btn').click();
         expect(document.getElementById('food-modal').classList.contains('hidden')).toBe(true);
     });
 
-    it('save button POSTs a new log when food-id is empty', async () => {
+    it('Save POSTs a new log when food-id is empty and closes the sheet', async () => {
         const { document, window } = env;
         window.safeAlert = vi.fn();
-        window.showAddFoodModal();
+        window.FoodLog.openManual();
 
         document.getElementById('food-datetime').value = '2026-04-20T12:00';
         document.getElementById('food-name').value = 'Apple';
         document.getElementById('food-weight').value = '180';
-        document.getElementById('food-per-100g').checked = false;
+        document.querySelector('#food-per-100g-seg [data-per100g="false"]').click();
         document.getElementById('food-carbs').value = '25';
         document.getElementById('food-protein').value = '0';
         document.getElementById('food-fat').value = '0';
@@ -256,17 +177,20 @@ describe('EditFoodModal (Phase 4, Task 6)', () => {
         expect(apiSpy).toHaveBeenCalledWith(
             '/api/food/log',
             'POST',
-            expect.objectContaining({ name: 'Apple', weight: 180, calories: 95 })
+            expect.objectContaining({ name: 'Apple', weight: 180, calories: 95, per_100g: false })
         );
+        expect(apiSpy.mock.calls.filter(([, m]) => m === 'POST')).toHaveLength(1);
+        expect(document.getElementById('food-modal').classList.contains('hidden')).toBe(true);
     });
 
-    describe('food-autocomplete-list (Phase 4 follow-up)', () => {
-        it('container exists with the .autocomplete-items class inside the name wrap', () => {
+    describe('food-autocomplete-list', () => {
+        it('container exists with the .autocomplete-items class inside the name field', () => {
             const { document } = env;
             const list = document.getElementById('food-autocomplete-list');
             expect(list).not.toBeNull();
             expect(list.classList.contains('autocomplete-items')).toBe(true);
-            expect(list.parentElement.classList.contains('wg-food-modal__name-wrap')).toBe(true);
+            expect(list.parentElement.classList.contains('wg-food-modal__name')).toBe(true);
+            expect(list.parentElement.contains(document.getElementById('food-name'))).toBe(true);
         });
 
         it('renders items with .autocomplete-item-name and .autocomplete-item-meta spans', () => {
@@ -288,12 +212,10 @@ describe('EditFoodModal (Phase 4, Task 6)', () => {
                 expect(item.querySelector('.autocomplete-item-name').getAttribute('style')).toBeNull();
             });
 
-            // Meta span is present for barcoded products and meals, absent for plain rows.
             expect(items[0].querySelector('.autocomplete-item-meta').textContent).toContain('1234567');
             expect(items[1].querySelector('.autocomplete-item-meta').textContent).toContain('Meal');
             expect(items[2].querySelector('.autocomplete-item-meta')).toBeNull();
 
-            // Dropdown becomes visible once items are rendered.
             expect(list.classList.contains('hidden')).toBe(false);
         });
 
@@ -308,15 +230,12 @@ describe('EditFoodModal (Phase 4, Task 6)', () => {
         });
     });
 
-    it('Telegram BackButton handler still pops the modal (modal-controller history wiring)', () => {
+    it('Back (closeTopMostVisibleModal) pops the sheet (modal history wiring)', () => {
         const { document, window } = env;
-        window.showAddFoodModal();
+        window.FoodLog.openManual();
         expect(document.getElementById('food-modal').classList.contains('hidden')).toBe(false);
         expect(document.getElementById('modal-overlay').classList.contains('hidden')).toBe(false);
 
-        // Simulate the Telegram BackButton click (the handler set up by the
-        // back-button.js feature module). modal-history.js listens to overlay
-        // class changes; AppBackButton.refresh delegates to closeTopMostVisibleModal.
         window.ModalManager.closeTopMostVisibleModal();
         expect(document.getElementById('food-modal').classList.contains('hidden')).toBe(true);
     });

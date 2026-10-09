@@ -1,13 +1,12 @@
 // ====================================
-// FOOD PHOTO — capture, AI summary
+// FOOD PHOTO — capture + photo time
 // ====================================
 //
-// Owns the "+ Photo" flow on the Food screen:
+// Owns the Photo entry (Add sheet tile, empty-day shortcut, Today tile):
 //   - window.MediaCapture.pickPhoto() opens the device photo picker
 //   - EXIF + lastModified parsing to pick the right eaten_at timestamp
-//   - browser-direct AI parse (window.CloudFoodAI) + cache invalidation
-//   - the friendly summary card handoff (food-photo-summary.js owns the
-//     UI; this file owns the network + cache-invalidation side)
+//   - hands the file to the Add sheet's review (add-sheet.js), which parses,
+//     shows the items, and logs them on the user's say-so
 //
 // Per-item undo (DELETE /api/food/log/:id) is shared with the food-description
 // AI flow and lives in ai-undo.js (function `undoFoodAIItems`).
@@ -188,23 +187,12 @@ function readFoodPhotoLastModifiedDate(file) {
     return dt;
 }
 
+// The photo's own time (EXIF, else lastModified) when it has one; the Add
+// sheet's time chip shows it and the user can change it before logging.
 async function resolveFoodPhotoEatenAt(file, now = new Date()) {
-    const photoTime = (await readFoodPhotoExifDate(file))
-        || readFoodPhotoLastModifiedDate(file);
-    if (!photoTime) return now;
-    const diffMs = Math.abs(photoTime.getTime() - now.getTime());
-    if (diffMs <= 60 * 60 * 1000) return photoTime;
-    const photoLabel = photoTime.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
-    const usePhoto = await safeConfirm(
-        `This photo was taken on ${photoLabel}.`,
-        null,
-        {
-            title: 'When did you eat this?',
-            cancelLabel: 'Use now',
-            confirmLabel: 'Use photo time',
-        }
-    );
-    return usePhoto ? photoTime : now;
+    return (await readFoodPhotoExifDate(file))
+        || readFoodPhotoLastModifiedDate(file)
+        || now;
 }
 
 async function uploadFoodPhoto(input) {
@@ -226,134 +214,9 @@ async function uploadFoodPhotoFile(file) {
     }
 
     const eatenAt = await resolveFoodPhotoEatenAt(file);
-
-    // The app-bar camera icon is the in-flight guard: disabled while the
-    // parse runs so a second pick can't duplicate the meal.
-    const photoBtn = document.getElementById('food-photo-btn');
-
-    await withSubmit(photoBtn, async () => {
-        try {
-            let items, failed;
-            // The photo never leaves the device via /api — it goes straight
-            // from the browser to the user's own AI provider
-            // (web/domain/foodai.js + web/cloud/js/aiclient.js).
-            // Trial path may refuse with trial_consent_required; the
-            // TrialConsent seam shows the disclosure dialog and reruns
-            // the parse once on Allow (bd med-yor.2 Task 4).
-            const parsePhoto = () => window.CloudFoodAI.parseMealFromPhoto(file, { eatenAt });
-            let result;
-            try {
-                result = (window.TrialConsent && typeof window.TrialConsent.retryAfterConsent === 'function')
-                    ? await window.TrialConsent.retryAfterConsent(parsePhoto)
-                    : await parsePhoto();
-            } catch (aiErr) {
-                throw aiErr;
-            }
-            items = Array.isArray(result.items) ? result.items : [];
-            failed = Math.max(0, Math.trunc(Number(result.failed) || 0));
-
-            // Optimistic projection: append the server-returned items into the
-            // day's cached payload before triggering the re-renders. This keeps
-            // the macros card + list in sync without waiting on a refetch round
-            // trip; the subsequent invalidateTags + reloads reconcile against
-            // authoritative server-grouped data.
-            if (items.length && window.DataStore && typeof window.DataStore.applyOptimistic === 'function') {
-                const localDay = toISODateLocalForPhoto(eatenAt);
-                const v2Key = `food_${localDay}_v2`;
-                const dayKey = typeof todayFoodKey === 'function'
-                    ? todayFoodKey(eatenAt)
-                    : `food_${localDay}_day`;
-                const appendMutator = (prev) => appendPhotoItemsToFoodCache(prev, items);
-                const handles = [
-                    await window.DataStore.applyOptimistic(v2Key, appendMutator, ['food']),
-                    await window.DataStore.applyOptimistic(dayKey, appendMutator, ['food'])
-                ];
-                for (const h of handles) { try { await h.commit(null); } catch (_) { /* best-effort */ } }
-            }
-
-            await window.DataStore.invalidateTags(['food', 'gamification']);
-            if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
-                await window.DataStore.clearCached(todayFoodKey(new Date()));
-            }
-            loadFoodLogs();
-            if (typeof loadToday === 'function') loadToday();
-
-            if (typeof showFoodPhotoSummary === 'function' && items.length) {
-                let summaryHandle;
-                summaryHandle = showFoodPhotoSummary({
-                    items,
-                    failed,
-                    onUndo: () => undoFoodAIItems(items, summaryHandle),
-                });
-            } else {
-                const suffix = failed > 0 ? ` (${failed} failed)` : '';
-                safeToast(items.length
-                    ? `Logged ${items.length} item${items.length === 1 ? '' : 's'}${suffix}.`
-                    : 'Photo logged.', 'info');
-            }
-        } catch (e) {
-            console.error('Food photo upload failed:', e);
-            safeToast('Failed to log food from photo: ' + (e.message || e), 'error');
-        }
-    });
-}
-
-// toISODateLocalForPhoto mirrors features/food/log.js's toISODateLocal but is
-// duplicated here to keep photo.js callable without a hard dependency on
-// log.js load order. Returns YYYY-MM-DD in the user's local timezone.
-function toISODateLocalForPhoto(d) {
-    const date = d instanceof Date ? d : new Date(d);
-    if (Number.isNaN(date.getTime())) {
-        const now = new Date();
-        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    }
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-}
-
-// appendPhotoItemsToFoodCache returns the post-mutation `{ groups, weekStats? }`
-// payload after appending server-returned photo log items as a fresh single-row
-// group. The renderer + Today aggregator only consume `groups[*].{calories,
-// carbs, protein, fat, logs}`; we don't try to merge into an existing group.
-function appendPhotoItemsToFoodCache(prev, items) {
-    if (!Array.isArray(items) || items.length === 0) return prev;
-    const groups = Array.isArray(prev?.groups) ? prev.groups.map((g) => ({
-        ...g,
-        logs: Array.isArray(g.logs) ? g.logs.slice() : []
-    })) : [];
-
-    const newGroup = {
-        name: items[0]?.name || 'Snack',
-        time: '',
-        logs: items.map((it) => ({
-            id: it.id,
-            name: it.name || '',
-            weight: it.weight || 0,
-            carbs: it.carbs || 0,
-            protein: it.protein || 0,
-            fat: it.fat || 0,
-            calories: it.calories || 0,
-            eaten_at: it.eaten_at || null,
-            product_id: it.product_id || null
-        }))
-    };
-    let cals = 0, carbs = 0, protein = 0, fat = 0;
-    for (const l of newGroup.logs) {
-        if (Number.isFinite(l.calories)) cals += l.calories;
-        if (Number.isFinite(l.carbs)) carbs += l.carbs;
-        if (Number.isFinite(l.protein)) protein += l.protein;
-        if (Number.isFinite(l.fat)) fat += l.fat;
-    }
-    newGroup.calories = cals;
-    newGroup.carbs = carbs;
-    newGroup.protein = protein;
-    newGroup.fat = fat;
-    groups.push(newGroup);
-
-    const out = { groups };
-    if (prev && Object.prototype.hasOwnProperty.call(prev, 'weekStats')) {
-        out.weekStats = prev.weekStats;
-    }
-    return out;
+    // Never logs directly: the Add sheet parses (dry run) and shows the items
+    // for review; its Log commits them (kit F6).
+    await window.FoodLog.addSheet.startPhotoReview(file, eatenAt);
 }
 
 window.FoodPhoto = window.FoodPhoto || {};

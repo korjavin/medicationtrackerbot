@@ -171,7 +171,11 @@ const ALLOWLIST = [
     },
     {
         file: 'food/photo.js',
-        reason: 'food photo capture entry point — image encoding + upload coordinator with food-photo-summary.js, no API reads',
+        reason: 'food photo capture entry point — picks the file and reads its EXIF time, then hands it to the Add sheet; no API reads',
+    },
+    {
+        file: 'food/add-sheet.js',
+        reason: 'Food Add sheet (med-xso6.17); its one read is the Recent list GET /api/food/log behind an explicit Add press, served from the local vault by the cloud shim (same as log.js); search goes through window.CloudFoodSearch like products.js',
     },
     {
         file: 'food/scanner.js',

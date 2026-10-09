@@ -1303,12 +1303,11 @@
                     win.ModalManager.foodScanner.open();
                 }
             }),
-            // The add-food modal in its AI "describe your meal" mode.
+            // The food Add sheet's Describe view (features/food/add-sheet.js).
             onDescribeFood: opts.onDescribeFood || (() => {
-                onLogFood();
-                if (typeof win.setFoodParseAIMode === 'function') win.setFoodParseAIMode(true);
-                const name = doc().getElementById('food-name');
-                if (name && typeof name.focus === 'function') name.focus();
+                const addSheet = win.FoodLog && win.FoodLog.addSheet;
+                if (addSheet && typeof addSheet.openDescribe === 'function') addSheet.openDescribe();
+                else onLogFood();
             }),
             // There is no new-note modal: the Notes sub-tab composer is the
             // one create path.

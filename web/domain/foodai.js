@@ -8,7 +8,8 @@
 
 import { calculateMacros } from './food.js';
 
-// Copied verbatim from internal/ai/openai.go's MealSystemPrompt.
+// Started as internal/ai/openai.go's MealSystemPrompt; the `uncertain` rule
+// (med-xso6.17) feeds the review step's warn chip.
 export const MealSystemPrompt = `You are a nutrition expert. Parse a free-text meal description and split it into an ordered list of atomic food items.
 
 Rules:
@@ -18,9 +19,10 @@ Rules:
 - Do not over-split composed dishes that the user named as a single unit. A sandwich stays one item ("ham and cheese sandwich"); do not break it into bread + cheese + ham. Soup or stew stays one item.
 - For each item return: name, weight_grams (estimated total eaten), and macronutrients PER 100 GRAMS (carbs_100g, protein_100g, fat_100g).
 - Preserve the order the user mentioned the items in.
+- Set uncertain to true when you had to guess what the food is or how much was eaten (hidden ingredients, no quantity given, an unclear photo); otherwise false.
 - If the text describes no food, return an empty items array.`;
 
-// Copied verbatim from internal/ai/openai.go's MealPhotoSystemPrompt.
+// Started as internal/ai/openai.go's MealPhotoSystemPrompt.
 export const MealPhotoSystemPrompt = MealSystemPrompt + `
 
 You are looking at a single photograph of a meal. Identify each visible food
@@ -29,7 +31,9 @@ report typical macronutrients per 100 grams for that food. If multiple distinct
 foods share a plate, list each as its own item. If the photo shows no
 food, return an empty items array.`;
 
-// Copied verbatim (JSON-Schema shape) from internal/ai/openai.go's mealSchema.
+// Started as internal/ai/openai.go's mealSchema (JSON-Schema shape), plus
+// `uncertain`. Strict mode needs every property required; a provider on the
+// unconstrained fallback may still omit it, which reads as false.
 export const mealSchema = {
   type: 'object',
   properties: {
@@ -43,8 +47,9 @@ export const mealSchema = {
           carbs_100g: { type: 'number' },
           protein_100g: { type: 'number' },
           fat_100g: { type: 'number' },
+          uncertain: { type: 'boolean' },
         },
-        required: ['name', 'weight_grams', 'carbs_100g', 'protein_100g', 'fat_100g'],
+        required: ['name', 'weight_grams', 'carbs_100g', 'protein_100g', 'fat_100g', 'uncertain'],
         additionalProperties: false,
       },
     },
@@ -90,6 +95,23 @@ export function convertParsedMeal(parsed) {
   });
 }
 
+// previewParsedMeal is the parse-only (dry run) shape the review step edits:
+// convertParsedMeal's totals plus the per-100g values (so a gram change can
+// recompute) and the model's `uncertain` flag. Same validation, nothing saved.
+export function previewParsedMeal(parsed) {
+  const totals = convertParsedMeal(parsed);
+  return totals.map((t, i) => {
+    const item = parsed.items[i];
+    return {
+      ...t,
+      carbs_100g: item.carbs_100g || 0,
+      protein_100g: item.protein_100g || 0,
+      fat_100g: item.fat_100g || 0,
+      uncertain: item.uncertain === true,
+    };
+  });
+}
+
 // createFoodAIDomain builds the food-AI API over the injected ports:
 //   aiClient    — { parseMealFromDescription(text), parseMealFromImage(file, caption) },
 //                 both resolving to a ParsedMeal ({items:[...]}); throws with
@@ -124,23 +146,41 @@ export function createFoodAIDomain({ aiClient, foodDomain, now }) {
     return { status: 'created', items: saved, failed };
   }
 
-  async function parseMealFromDescription(description, { eatenAt, recordIdFor } = {}) {
+  async function parseMealFromDescription(description, { eatenAt, recordIdFor, dryRun = false } = {}) {
     const trimmed = (description || '').trim();
     if (!trimmed) throw invalid('Description is required');
     if (new TextEncoder().encode(trimmed).length > MAX_DESCRIPTION_BYTES) {
       throw invalid(`Description too long (max ${MAX_DESCRIPTION_BYTES} bytes)`);
     }
     const parsed = await aiClient.parseMealFromDescription(trimmed);
+    if (dryRun) return { status: 'parsed', items: previewParsedMeal(parsed) };
     return saveParsedItems(parsed, eatenAt ?? now(), recordIdFor);
   }
 
   // caption — what the user wrote alongside the photo (a Telegram caption).
   // Passed to the model as a hint, never as a substitute for the image: it is
   // what makes "300g" beat guessing the portion from pixels.
-  async function parseMealFromPhoto(file, { eatenAt, recordIdFor, caption } = {}) {
+  async function parseMealFromPhoto(file, { eatenAt, recordIdFor, caption, dryRun = false } = {}) {
     const parsed = await aiClient.parseMealFromImage(file, (caption || '').trim());
+    if (dryRun) return { status: 'parsed', items: previewParsedMeal(parsed) };
     return saveParsedItems(parsed, eatenAt ?? now(), recordIdFor);
   }
 
-  return { parseMealFromDescription, parseMealFromPhoto };
+  // logParsedItems commits a reviewed dry-run list ({name, weight, *_100g})
+  // through the same write path as a direct parse: re-validated, macros
+  // recomputed from per-100g, no product upsert.
+  async function logParsedItems(items, { eatenAt } = {}) {
+    const parsed = {
+      items: (Array.isArray(items) ? items : []).map((it) => ({
+        name: it && it.name,
+        weight_grams: Number(it && it.weight),
+        carbs_100g: Number(it && it.carbs_100g) || 0,
+        protein_100g: Number(it && it.protein_100g) || 0,
+        fat_100g: Number(it && it.fat_100g) || 0,
+      })),
+    };
+    return saveParsedItems(parsed, eatenAt ?? now());
+  }
+
+  return { parseMealFromDescription, parseMealFromPhoto, logParsedItems };
 }

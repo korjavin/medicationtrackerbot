@@ -763,10 +763,13 @@ export function createApiRouter(ctx, {
     // CloudFoodSearch below); the two routes here exist for MCP, and they call
     // the very same domain instances, so neither the meal description nor the
     // search term ever crosses the relay (med-csu.3).
+    // dry_run: true is the parse-only mode (med-xso6.17) — {status:'parsed',
+    // items} with per-100g values and an `uncertain` flag, nothing saved.
     if (path === '/api/food/log/from-description' && method === 'POST') {
       const eatenAt = Date.parse((body && body.eaten_at) || '');
       return foodAI.parseMealFromDescription(body && body.description, {
         eatenAt: Number.isNaN(eatenAt) ? undefined : eatenAt,
+        dryRun: !!(body && body.dry_run === true),
       });
     }
     // Bot mode streams NDJSON here and ignores the catalog's `limit`; the shim

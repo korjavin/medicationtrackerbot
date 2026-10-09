@@ -30,7 +30,7 @@ describe('app.js food CRUD, targets and period helpers', () => {
       document.getElementById('food-weight').value = '';
       document.getElementById('food-per-100g').checked = true;
       await window.saveFoodLog();
-      expect(window.safeAlert).toHaveBeenCalledWith('Please enter weight for per 100g mode, or uncheck it.');
+      expect(window.safeAlert).toHaveBeenCalledWith('Please enter the amount in grams, or switch Values are to total.');
 
       document.getElementById('food-name').value = 'Oats';
       document.getElementById('food-barcode').value = '123';
@@ -260,11 +260,12 @@ describe('app.js food CRUD, targets and period helpers', () => {
       window.initFoodProductsCache = vi.fn().mockResolvedValue(undefined);
       window.renderFoodAutocomplete = vi.fn();
 
-      window.showAddFoodModal();
+      window.FoodLog.openManual();
       await flushPromises();
       expect(document.getElementById('food-modal').classList.contains('hidden')).toBe(false);
-      expect(document.getElementById('food-modal-title').innerText).toBe('New entry');
+      expect(document.getElementById('food-modal-title').innerText).toBe('Manual entry');
       expect(document.getElementById('food-per-100g').checked).toBe(true);
+      expect(document.querySelector('#food-per-100g-seg [data-per100g="true"]').getAttribute('aria-pressed')).toBe('true');
       expect(window.initFoodProductsCache).toHaveBeenCalled();
 
       window._renderFoodData([], null, 'day', '2026-03-01');
@@ -325,6 +326,7 @@ describe('app.js food CRUD, targets and period helpers', () => {
 
       window.editFoodLog(2);
       expect(document.getElementById('food-per-100g').checked).toBe(false);
+      expect(document.querySelector('#food-per-100g-seg [data-per100g="false"]').getAttribute('aria-pressed')).toBe('true');
       expect(document.getElementById('food-calories').value).toBe('5');
 
       window.editFoodLog(99999);

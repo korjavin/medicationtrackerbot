@@ -85,40 +85,12 @@ describe('Food day navigator (kit F1)', () => {
         expect(opened).toBe(1);
     });
 
-    it('a ghost camera icon in the app bar keeps photo logging reachable on populated days', () => {
-        const { document, window } = env;
-        const photo = document.getElementById('food-photo-btn');
-        expect(photo.closest('.wg-appbar')).not.toBeNull();
-        expect(photo.classList.contains('wg-btn--ghost')).toBe(true);
-        expect(photo.querySelector('.wg-ico[data-icon="camera"]')).not.toBeNull();
-
-        let picked = 0;
-        window.triggerFoodPhotoPicker = () => { picked += 1; };
-        photo.click();
-        expect(picked).toBe(1);
-    });
-
-    it('the camera icon is disabled while a photo parse is in flight (no duplicate meals)', async () => {
-        const { document, window } = env;
-        const photo = document.getElementById('food-photo-btn');
-        let release;
-        let seenDisabled = null;
-        window.safeToast = vi.fn();
-        window.safeAlert = vi.fn();
-        window.loadFoodLogs = vi.fn();
-        window.loadToday = vi.fn();
-        window.CloudFoodAI = {
-            parseMealFromPhoto: () => new Promise((resolve) => {
-                seenDisabled = photo.disabled;
-                release = () => resolve({ items: [], failed: 0 });
-            }),
-        };
-        const pending = window.uploadFoodPhotoFile(new window.File(['x'], 'meal.jpg', { type: 'image/jpeg' }));
-        await vi.waitFor(() => expect(typeof release).toBe('function'));
-        expect(seenDisabled).toBe(true);
-        release();
-        await pending;
-        expect(photo.disabled).toBe(false);
+    it('the app bar has no camera icon: Photo lives in the Add sheet (kit F4)', () => {
+        const { document } = env;
+        expect(document.getElementById('food-photo-btn')).toBeNull();
+        const bar = document.getElementById('add-food-inline-btn').closest('.wg-appbar');
+        expect(bar.querySelector('.wg-ico[data-icon="camera"]')).toBeNull();
+        expect(document.querySelector('#food-add-sheet #food-add-photo-btn')).not.toBeNull();
     });
 
     it('a relative day shows as a chip beside the short date', () => {

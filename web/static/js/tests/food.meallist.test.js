@@ -299,25 +299,39 @@ describe('Food meal-grouped item list (Phase 4, Task 5)', () => {
         expect(document.querySelector('#food-list .wg-empty__title').textContent).toBe('No food logged today');
     });
 
-    it('the empty-day shortcuts open the matching fast path', () => {
+    it('the empty-day shortcuts route into the Add sheet (kit F4)', () => {
         const { window, document } = env;
-        const calls = [];
-        window.showAddFoodModal = () => calls.push('add');
-        window.openFoodScannerModal = () => calls.push('scan');
-        window.triggerFoodPhotoPicker = () => calls.push('photo');
-        window.setFoodParseAIMode = (on) => calls.push(`ai:${on}`);
+        window.apiCall = vi.fn(async () => []);
+        const scanSpy = vi.spyOn(window.ModalManager.foodScanner, 'open').mockImplementation(() => {});
+        let picked = 0;
+        window.triggerFoodPhotoPicker = () => { picked += 1; };
         window._renderFoodData([], null, 'day', '2026-04-20');
 
+        const sheet = document.getElementById('food-add-sheet');
         const click = (label) => Array.from(document.querySelectorAll('#food-list .wg-empty__acts .wg-btn'))
             .find((b) => b.textContent.trim() === label).click();
+        const reset = () => window.FoodLog.addSheet.close();
+
         click('Search');
-        expect(calls).toEqual(['add']);
+        expect(sheet.classList.contains('hidden')).toBe(false);
+        expect(sheet.dataset.view).toBe('home');
+        expect(document.activeElement).toBe(document.getElementById('food-add-search'));
+        reset();
+
         click('Scan');
-        expect(calls).toEqual(['add', 'add', 'scan']);
+        expect(sheet.classList.contains('hidden')).toBe(false);
+        expect(scanSpy).toHaveBeenCalledTimes(1);
+        reset();
+
         click('Photo');
-        expect(calls.at(-1)).toBe('photo');
+        expect(picked).toBe(1);
+        expect(sheet.classList.contains('hidden')).toBe(true);
+
         click('Describe');
-        expect(calls.slice(-2)).toEqual(['add', 'ai:true']);
+        expect(sheet.classList.contains('hidden')).toBe(false);
+        expect(sheet.dataset.view).toBe('describe');
+        expect(document.activeElement).toBe(document.getElementById('food-add-describe-text'));
+        scanSpy.mockRestore();
     });
 
     it('weekly macros render does not introduce a bottom CTA', () => {

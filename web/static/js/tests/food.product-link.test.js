@@ -55,11 +55,13 @@ describe('editFoodLog product-link wiring (CSP-safe)', () => {
 
         const container = env.document.getElementById('food-product-link-container');
         expect(container.classList.contains('hidden')).toBe(false);
+        // The link lives under More, which opens for a linked entry.
+        expect(env.document.getElementById('food-modal-more').open).toBe(true);
 
         const link = container.querySelector('a.food-product-link');
         expect(link).not.toBeNull();
         expect(link.getAttribute('href')).toBe('#');
-        expect(link.textContent).toBe('→ View in Products');
+        expect(link.textContent).toBe('View in Food DB');
 
         // Regression guard: the inline onclick attribute must NOT be set,
         // since the deployed CSP would silently drop it.
@@ -74,7 +76,7 @@ describe('editFoodLog product-link wiring (CSP-safe)', () => {
 
         const link = env.document.querySelector('#food-product-link-container a.food-product-link');
         expect(link).not.toBeNull();
-        expect(link.textContent).toBe('→ View in Products');
+        expect(link.textContent).toBe('View in Food DB');
         expect(link.hasAttribute('onclick')).toBe(false);
     });
 
