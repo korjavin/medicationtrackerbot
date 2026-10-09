@@ -60,13 +60,6 @@ describe('WGIcons — kit v2 registry', () => {
             expect(window.WGIcons.iconSvg(alias).innerHTML).toBe(window.WGIcons.iconSvg(target).innerHTML);
         }
     });
-
-    it('emoji map points only at registered icons', () => {
-        const { window } = loadEnv();
-        for (const name of Object.values(window.WGIcons.emoji)) {
-            expect(window.WGIcons.paths[name], name).toBeTruthy();
-        }
-    });
 });
 
 describe('WGIcons.hydrate', () => {

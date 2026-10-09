@@ -11,7 +11,7 @@ import { vi } from 'vitest';
 // modal-manager + modal-history ride along exactly as signup.html loads them,
 // so Back over a dialog cancels just the dialog (bd med-kj0w).
 const STATIC_JS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../static/js');
-export const SHELL_DIALOG_SCRIPTS = ['core/utils.js', 'core/modal-manager.js', 'features/modal-history.js'];
+export const SHELL_DIALOG_SCRIPTS = ['core/utils.js', 'components/wg-icons.js', 'core/modal-manager.js', 'features/modal-history.js'];
 const SRCS = SHELL_DIALOG_SCRIPTS.map((f) => fs.readFileSync(path.join(STATIC_JS, f), 'utf8'));
 
 export function installDialogs(window) {

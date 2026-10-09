@@ -10,7 +10,6 @@
 //   WGIcons.hydrate(root = document)     — fills <i class="wg-ico" data-icon="…">
 //                                           placeholders with iconSvg(); idempotent
 //   WGIcons.aliases                      — kit name → existing registry name
-//   WGIcons.emoji                        — emoji → icon name replacement list (data)
 //
 // No inline styles or color literals: consumers style strokes via CSS
 // (`currentColor` is the default), matching the no-hardcoded-hex rule.
@@ -122,22 +121,6 @@
     };
     for (const alias of Object.keys(ALIASES)) PATHS[alias] = PATHS[ALIASES[alias]];
 
-    // Emoji → icon replacement list. Data only — the primitive and screen
-    // beads consult it when they swap emoji for <i class="wg-ico">; nothing
-    // rewrites emoji at runtime.
-    const EMOJI_MAP = {
-        '🗑️': 'trash', '🗑': 'trash',
-        '✏️': 'edit', '✏': 'edit',
-        '⚠️': 'alert', '⚠': 'alert',
-        '✅': 'check',
-        '⏳': 'clock',
-        '❌': 'x',
-        '🌍': 'globe',
-        '🍽️': 'food', '🍽': 'food', '🍱': 'food',
-        '🏔️': 'route', '🏔': 'route',
-        '🚴': 'activity', '🚶': 'activity', '🏃': 'activity',
-    };
-
     // Parse the icon's inner markup into SVG-namespaced children. We go via a
     // wrapper <svg> so DOMParser treats descendants as SVG regardless of how
     // the host builds the icon (jsdom's innerHTML setter on SVGElement can
@@ -192,7 +175,6 @@
     window.WGIcons = {
         paths: PATHS,
         aliases: ALIASES,
-        emoji: EMOJI_MAP,
         iconSvg,
         hydrate,
     };

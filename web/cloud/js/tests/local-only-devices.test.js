@@ -70,11 +70,11 @@ describe('local-only device list (devices.js)', () => {
     buttons[1].click();
     // The app's styled in-page dialog, never a native confirm() (med-v83g).
     const local = await answerDialog(dom.window.document, false);
-    expect(local.querySelector('.wg-modal__title').textContent).toContain('local-only');
+    expect(local.querySelector('.wg-dialog__title').textContent).toContain('local-only');
     expect(local.querySelector('.mt-confirm-modal__message').textContent).toContain('lost or stolen');
     expect(rows[1].querySelector('.device-local-only')).not.toBeNull();
     buttons[0].click();
     const revoke = await answerDialog(dom.window.document, false);
-    expect(revoke.querySelector('.wg-modal__title').textContent).toContain('Revoke this device');
+    expect(revoke.querySelector('.wg-dialog__title').textContent).toContain('Revoke this device');
   });
 });

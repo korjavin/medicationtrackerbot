@@ -735,7 +735,7 @@ async function loadMoreNotes() {
 // `.wg-section-label` header (e.g. "22.04.2026 · Tue") and a list of
 // `.wg-card` rows. Each row carries a mono timestamp eyebrow, the note body,
 // and a trailing `.wg-icon-btn` cluster (edit + delete). Offline-pending +
-// rejected states surface as `.wg-tag--mono` badges. Pagination is a
+// rejected states surface as a WGChip.sync chip. Pagination is a
 // full-width `.wg-gloss` "Load more" footer button.
 // Round-2 Task 5: module-level cache so the tag-chip filter can repaint the
 // list from memory without refetching. `renderNotes` resets it; `appendNotes`
@@ -951,11 +951,8 @@ function buildNoteRow(note) {
         : '';
     meta.appendChild(time);
 
-    if (note.isRejected) {
-        meta.appendChild(buildNotesSyncTag('rejected', 'Failed', note.errorMessage));
-    } else if (note.isLocal) {
-        meta.appendChild(buildNotesSyncTag('pending', 'Pending'));
-    }
+    const syncChip = window.WGChip.sync(note);
+    if (syncChip) meta.appendChild(syncChip);
 
     body.appendChild(meta);
 
@@ -973,14 +970,6 @@ function buildNoteRow(note) {
     item.appendChild(actions);
 
     return item;
-}
-
-function buildNotesSyncTag(kind, label, tooltip) {
-    const tag = document.createElement('span');
-    tag.className = `wg-tag wg-tag--mono wg-tag--${kind} wg-health-notes-row__sync`;
-    tag.textContent = label;
-    if (tooltip) tag.title = tooltip;
-    return tag;
 }
 
 function buildNoteRowEditButton(note) {

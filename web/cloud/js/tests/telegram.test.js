@@ -300,7 +300,7 @@ describe('telegram.js onboarding module', () => {
 
     app.querySelector('#tg-unlink').dispatchEvent(new dom.window.Event('click'));
     const declined = await answerDialog(dom.window.document, false);
-    expect(declined.querySelector('.wg-modal__title').textContent).toBe('Unlink your Telegram bot?');
+    expect(declined.querySelector('.wg-dialog__title').textContent).toBe('Unlink your Telegram bot?');
     await Promise.resolve();
     expect(fetch).not.toHaveBeenCalledWith('/api/telegram', { method: 'DELETE' });
 

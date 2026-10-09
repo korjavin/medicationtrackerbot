@@ -1638,21 +1638,6 @@ svg.chart-svg {
     margin: 0;
 }
 
-.inventory-badge {
-    display: inline-block;
-    padding: var(--space-xs) var(--space-md);
-    border-radius: var(--radius-sm);
-    font-size: var(--font-size-sm);
-    background: rgba(78, 205, 196, 0.15);
-    color: var(--color-inventory-ok);
-    margin-top: var(--space-sm);
-}
-
-.inventory-badge.low {
-    background: rgba(255, 59, 48, 0.15);
-    color: var(--color-danger);
-}
-
 .restock-row {
     display: flex;
     gap: var(--space-sm);
@@ -1917,35 +1902,6 @@ svg.chart-svg {
 .pending-sync {
     border-left: 4px solid var(--color-sync-pending) !important;
     position: relative;
-}
-
-.sync-pending-badge {
-    display: inline-block;
-    padding: 2px var(--space-sm);
-    background: var(--color-status-pending-bg-start);
-    color: var(--color-status-pending-text);
-    font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-bold);
-    border-radius: var(--radius-sm);
-    margin-left: var(--space-sm);
-    vertical-align: middle;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-.sync-rejected-badge {
-    display: inline-block;
-    padding: 2px var(--space-sm);
-    background: var(--color-danger);
-    color: #fff;
-    font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-bold);
-    border-radius: var(--radius-sm);
-    margin-left: var(--space-sm);
-    vertical-align: middle;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    cursor: help;
 }
 
 .data-refresh-banner {
@@ -3359,6 +3315,21 @@ input:checked+.toggle-slider:before {
         inset 0 -1px 0 rgba(0, 0, 0, 0.2),
         0 1px 0 rgba(0, 0, 0, 0.3);
     animation: modal-enter 0.2s ease;
+}
+
+/* Pushed page (WGPage, med-xso6.8): a full-viewport layer on the modal stack,
+   kit page bar on top, the body scrolls. Later pages sit above earlier ones by
+   DOM order (same z-index). */
+.wg-page {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-modal);
+    display: flex;
+    flex-direction: column;
+    padding: calc(env(safe-area-inset-top) + var(--space-sm)) 0 env(safe-area-inset-bottom);
+    background: var(--wg-bg-screen);
+    color: var(--wg-fg-1);
+    font-family: var(--wg-font-ui);
 }
 
 .wg-modal__header {
@@ -4855,17 +4826,14 @@ input:checked+.toggle-slider:before {
    and the macro bar).
    ============================================================ */
 #journey-content > .wg-card,
-#journey-content > .wg-journey-more,
-.wg-journey-more > .wg-card {
+#journey-content > .wg-journey-more {
     margin-bottom: var(--space-md);
 }
 
-/* med-8tur.9: experiment / chapter / traits / keystones folded behind one
-   native disclosure below the goal, week, discoveries and gauges. */
-.wg-journey-more__summary {
-    cursor: pointer;
-    user-select: none;
-    margin-bottom: var(--space-sm);
+/* med-xso6.8: experiment / chapter / traits / keystones on the pushed "More"
+   page; its cards flow straight into the page's .wg-content column. */
+.wg-journey-more__page {
+    display: contents;
 }
 
 /* Shared progress bar (health-score contributors, atlas, chapter, trial). */
@@ -6122,22 +6090,10 @@ input:checked+.toggle-slider:before {
     gap: var(--space-xs);
 }
 
-.wg-tag--pending {
-    background: var(--wg-tag-high-bg);
-    color: var(--wg-tag-high-fg);
-    border-color: var(--wg-tag-high-border);
-}
-
 .wg-tag--unfinished {
     background: var(--wg-tag-high-bg);
     color: var(--wg-tag-high-fg);
     border-color: var(--wg-tag-high-border);
-}
-
-.wg-tag--rejected {
-    background: var(--wg-tag-alert-bg);
-    color: var(--wg-tag-alert-fg);
-    border-color: var(--wg-tag-alert-border);
 }
 
 /* Food macro bar (Phase 4, Task 2) — reusable row rendered by
@@ -10532,6 +10488,14 @@ input:checked+.toggle-slider:before {
     white-space: nowrap;
 }
 
+/* Meal marker icon (replaces the former emoji prefix). */
+.wg-ico.wg-food-item-row__meal-ico {
+    width: 1em;
+    height: 1em;
+    margin-right: var(--space-xs);
+    vertical-align: -0.125em;
+}
+
 .wg-food-item-row__meta {
     display: flex;
     flex-wrap: wrap;
@@ -12028,56 +11992,23 @@ input:checked+.toggle-slider:before {
     border-color: var(--wg-clay-soft);
 }
 
-.wg-danger-modal__header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-md);
-    margin-bottom: var(--space-lg);
-}
-
-.wg-danger-modal__title {
-    font-family: var(--wg-font-mono);
-    color: var(--wg-fg-1);
-}
-
-.wg-danger-modal__body {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-md);
-}
-
-.wg-danger-modal__warn {
-    margin: 0;
-    font-family: var(--wg-font-ui);
-    font-size: var(--wg-settings-desc-size);
-    color: var(--wg-fg-1);
-    border-left: 3px solid var(--wg-clay-soft);
-    padding-left: var(--space-sm);
-}
-
-.wg-danger-modal__status {
+/* The typed confirm itself is the shared safeConfirm dialog (med-xso6.6);
+   the section only carries the export status and the delete error. */
+.wg-settings-danger__status,
+.wg-settings-danger__error {
     margin: 0;
     font-family: var(--wg-font-ui);
     font-size: var(--wg-settings-desc-size);
     color: var(--wg-fg-3);
 }
 
-.wg-danger-modal__confirm {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-    font-family: var(--wg-font-ui);
-    font-size: var(--wg-settings-desc-size);
-    color: var(--wg-fg-1);
+.wg-settings-danger__error {
+    color: var(--wg-danger-fg);
 }
 
-.wg-danger-modal__error {
-    margin: 0;
-    font-family: var(--wg-font-ui);
-    font-size: var(--wg-settings-desc-size);
-    color: var(--wg-clay-soft);
-    min-height: 1em;
+.wg-settings-danger__status:empty,
+.wg-settings-danger__error:empty {
+    display: none;
 }
 
 .wg-invite-modal__header {

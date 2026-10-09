@@ -1,94 +1,23 @@
-// Shared action element factories: delete button and sync-pending badge.
-// No dependencies.
+// Shared row action button factories (edit / delete). Icons come from
+// WGIcons at call time; sync state chips live in components/wg-chip.js.
 
-/**
- * Create a standard delete button (🗑️) for list items.
- *
- * @param {function} onDelete - Called when the button is clicked.
- * @returns {HTMLButtonElement}
- */
+function _actionRowButton(className, title, iconName, onClick) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = className;
+    btn.title = title;
+    btn.setAttribute('aria-label', title);
+    btn.appendChild(window.WGIcons.iconSvg(iconName, { size: 16 }));
+    btn.addEventListener('click', onClick);
+    return btn;
+}
+
+/** Standard delete button (trash icon) for list items. */
 function createDeleteButton(onDelete) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'icon-action-btn delete';
-    btn.title = 'Delete';
-    btn.textContent = '🗑️';
-    btn.addEventListener('click', onDelete);
-    return btn;
+    return _actionRowButton('icon-action-btn delete', 'Delete', 'trash', onDelete);
 }
 
-/**
- * Create a standard edit button (✏️) for list items.
- *
- * @param {function} onClick - Called when the button is clicked.
- * @returns {HTMLButtonElement}
- */
+/** Standard edit button (pencil icon) for list items. */
 function createEditButton(onClick) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'icon-action-btn';
-    btn.title = 'Edit';
-    btn.textContent = '✏️';
-    btn.addEventListener('click', onClick);
-    return btn;
-}
-
-/**
- * Create a modal-styled delete button (🗑️) for use inside modals.
- *
- * @param {function} onClick - Called when the button is clicked.
- * @returns {HTMLButtonElement}
- */
-function createModalDeleteButton(onClick) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'modal-action-btn delete';
-    btn.title = 'Delete';
-    btn.textContent = '🗑️';
-    btn.addEventListener('click', onClick);
-    return btn;
-}
-
-/**
- * Create a modal-styled edit button (✏️) for use inside modals.
- *
- * @param {function} onClick - Called when the button is clicked.
- * @returns {HTMLButtonElement}
- */
-function createModalEditButton(onClick) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'modal-action-btn';
-    btn.title = 'Edit';
-    btn.textContent = '✏️';
-    btn.addEventListener('click', onClick);
-    return btn;
-}
-
-/**
- * Create a "Pending" sync badge shown on locally-queued items.
- *
- * @returns {HTMLSpanElement}
- */
-function createSyncBadge() {
-    const badge = document.createElement('span');
-    badge.className = 'sync-pending-badge';
-    badge.textContent = 'Pending';
-    return badge;
-}
-
-/**
- * Create a "Failed" sync badge shown on permanently rejected items.
- *
- * @param {string} [errorMessage] - Optional error details shown as tooltip
- * @returns {HTMLSpanElement}
- */
-function createSyncRejectedBadge(errorMessage) {
-    const badge = document.createElement('span');
-    badge.className = 'sync-rejected-badge';
-    badge.textContent = 'Failed';
-    if (errorMessage) {
-        badge.title = errorMessage;
-    }
-    return badge;
+    return _actionRowButton('icon-action-btn', 'Edit', 'pencil', onClick);
 }

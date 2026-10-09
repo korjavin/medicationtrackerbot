@@ -762,10 +762,9 @@
     // rendered this pass — every caller's destination is conditional on its
     // own payload having loaded.
     function goToCard(id) {
+        // A card waiting behind the "More" row opens its page before the scroll.
+        if (document.querySelector(`#journey-more .wg-journey-more__cards > #${id}`)) openMorePage();
         const target = document.getElementById(id);
-        // A card folded behind the "More" disclosure opens before the scroll.
-        const fold = target && target.closest('details.wg-journey-more');
-        if (fold) fold.open = true;
         if (target && typeof target.scrollIntoView === 'function') {
             target.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
@@ -1003,20 +1002,71 @@
         return card;
     }
 
-    // Experiment / chapter / traits / keystones fold behind one native
-    // disclosure (med-8tur.9): Atlas machinery, not the goal. It opens by
-    // itself while a trial (or its verdict) or a chapter is live — the thing
-    // the user came for.
-    function renderMore(cards, open) {
-        const live = cards.filter(Boolean);
-        if (live.length === 0) return null;
-        const details = el('details', 'wg-journey-more');
-        details.id = 'journey-more';
-        details.open = open;
-        details.appendChild(el('summary', 'wg-journey-more__summary wg-section-label',
-            'MORE · EXPERIMENTS, CHAPTERS, TRAITS, KEYSTONES'));
-        live.forEach((c) => details.appendChild(c));
-        return details;
+    // Experiment / chapter / traits / keystones (med-8tur.9): Atlas machinery,
+    // not the goal. They live on their own pushed page behind one "More" row
+    // (kit J2, med-xso6.8); the row's meta line says when a trial or chapter
+    // is live. Cards are rebuilt every render: while the page is open they
+    // refresh in place there, otherwise they wait in a hidden holder on the
+    // row (so goToCard can still find them).
+    function renderMore(cards, liveNote) {
+        const built = cards.filter(Boolean);
+        const openPage = document.getElementById('journey-more-page');
+        if (built.length === 0) {
+            // Nothing left behind the row: an open page must not keep stale cards.
+            if (openPage) openPage.replaceChildren();
+            return null;
+        }
+        const section = el('section', 'wg-list wg-journey-more');
+        section.id = 'journey-more';
+
+        const row = el('button', 'wg-row wg-journey-more__row');
+        row.type = 'button';
+        const lead = el('span', 'wg-row__lead');
+        const flag = el('i', 'wg-ico');
+        flag.dataset.icon = 'flag';
+        lead.appendChild(flag);
+        const body = el('span', 'wg-row__body');
+        body.appendChild(el('span', 'wg-row__title', 'More'));
+        body.appendChild(el('span', 'wg-row__meta', liveNote || 'Experiments, chapters, traits, keystones'));
+        const chev = el('i', 'wg-ico wg-row__chev');
+        chev.dataset.icon = 'chev-r';
+        row.append(lead, body, chev);
+        row.addEventListener('click', openMorePage);
+
+        const holder = el('div', 'wg-journey-more__cards');
+        holder.hidden = true;
+        (openPage || holder).replaceChildren(...built);
+        section.append(row, holder);
+        if (window.WGIcons && typeof window.WGIcons.hydrate === 'function') window.WGIcons.hydrate(section);
+        return section;
+    }
+
+    function openMorePage() {
+        if (document.getElementById('journey-more-page')) return;
+        const holder = document.querySelector('#journey-more .wg-journey-more__cards');
+        if (!holder || !window.WGPage) return;
+        const body = el('div', 'wg-journey-more__page');
+        body.id = 'journey-more-page';
+        body.append(...holder.childNodes);
+        window.WGPage.push({
+            title: 'More',
+            crumb: 'Experiments · chapters · traits · keystones',
+            back: 'Journey',
+            body,
+            onClose: () => {
+                const h = document.querySelector('#journey-more .wg-journey-more__cards');
+                if (h) h.replaceChildren(...body.childNodes);
+            },
+        });
+    }
+
+    function moreLiveNote(j) {
+        const parts = [];
+        const exp = j && j.experiments;
+        if (exp && exp.active) parts.push('1 trial running');
+        else if (exp && exp.verdict) parts.push('trial verdict ready');
+        if (j && j.chapter && j.chapter.active) parts.push('chapter in progress');
+        return parts.join(' · ');
     }
 
     function render(journey) {
@@ -1044,14 +1094,13 @@
             const builtIds = new Set([goalCard, atlasCard, traitsCard, experimentCard, chapterCard, keystonesCard]
                 .filter(Boolean).map((c) => c.id));
             const whatsNewCard = renderWhatsNew(journey, builtIds, timelineShown);
-            const chapterLive = !!(journey.chapter && journey.chapter.active);
             cards = [
                 goalCard,
                 substrate ? renderWeeklyReview(journey) : null,
                 whatsNewCard,
                 atlasCard,
                 substrate ? renderGauges(journey) : null,
-                renderMore([experimentCard, chapterCard, traitsCard, keystonesCard], !!experimentCard || chapterLive),
+                renderMore([experimentCard, chapterCard, traitsCard, keystonesCard], moreLiveNote(journey)),
                 renderNarrator(journey),
             ].filter(Boolean);
         }

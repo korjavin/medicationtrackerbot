@@ -103,17 +103,16 @@ describe('features/meds.js renderHistory (Phase 5, Task 5)', () => {
       expect(time).not.toBeNull();
       expect(time.textContent).toBe('14:35');
 
-      const tag = row.querySelector('.wg-meds-history__status.wg-tag--mono');
+      const tag = row.querySelector('.wg-meds-history__status.wg-chip');
       expect(tag).not.toBeNull();
-      expect(tag.classList.contains('wg-tag--normal')).toBe(true);
-      expect(tag.textContent).toContain('✅');
-      expect(tag.textContent).toContain('Taken');
+      expect(tag.classList.contains('wg-chip--ok')).toBe(true);
+      expect(tag.textContent).toBe('Taken');
     } finally {
       cleanup();
     }
   });
 
-  it('renders PENDING and MISSED statuses as distinct .wg-tag--mono variants', async () => {
+  it('renders PENDING and MISSED statuses as pending / danger chips with plain text', async () => {
     const { window, document, cleanup } = loadFrontendEnv();
     try {
       await seedMedications(window, [
@@ -133,17 +132,16 @@ describe('features/meds.js renderHistory (Phase 5, Task 5)', () => {
       expect(tags.length).toBe(2);
 
       const pendingTag = Array.from(tags).find((t) => t.textContent.includes('Pending'));
-      const missedTag = Array.from(tags).find((t) => t.textContent.includes('MISSED'));
+      const missedTag = Array.from(tags).find((t) => t.textContent.includes('Missed'));
 
       expect(pendingTag).toBeDefined();
-      expect(pendingTag.classList.contains('wg-tag--mono')).toBe(true);
-      expect(pendingTag.classList.contains('wg-tag--high')).toBe(true);
-      expect(pendingTag.textContent).toContain('⏳');
+      expect(pendingTag.classList.contains('wg-chip')).toBe(true);
+      expect(pendingTag.classList.contains('wg-chip--pending')).toBe(true);
+      expect(pendingTag.textContent).toBe('Pending');
 
       expect(missedTag).toBeDefined();
-      expect(missedTag.classList.contains('wg-tag--mono')).toBe(true);
-      expect(missedTag.classList.contains('wg-tag--alert')).toBe(true);
-      expect(missedTag.textContent).toContain('❌');
+      expect(missedTag.classList.contains('wg-chip--danger')).toBe(true);
+      expect(missedTag.textContent).toBe('Missed');
     } finally {
       cleanup();
     }

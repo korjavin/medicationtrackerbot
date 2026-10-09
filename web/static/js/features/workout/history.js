@@ -6,12 +6,12 @@
 // entries grouped by local day. Pulls timezone from the cached settings
 // bundle so skipped-session sort timestamps match the backend.
 
-// Maps Mi Band activity_name → display label + icon
+// Maps Mi Band activity_name → display label
 const MIBAND_ACTIVITY_META = {
-    'nordic_walking': { label: 'Nordic Walking', icon: '🏔️' },
-    'cycling': { label: 'Cycling', icon: '🚴' },
-    'walking': { label: 'Walking', icon: '🚶' },
-    'running': { label: 'Running', icon: '🏃' },
+    'nordic_walking': { label: 'Nordic Walking' },
+    'cycling': { label: 'Cycling' },
+    'walking': { label: 'Walking' },
+    'running': { label: 'Running' },
 };
 
 async function loadWorkoutHistoryTab() {
@@ -362,11 +362,8 @@ function _buildSessionCard(s) {
         meta.appendChild(gym);
     }
 
-    if (s.isRejected) {
-        meta.appendChild(_buildHistorySyncTag('rejected', 'Failed', s.errorMessage));
-    } else if (s.isLocal) {
-        meta.appendChild(_buildHistorySyncTag('pending', 'Pending'));
-    }
+    const syncChip = window.WGChip.sync(s);
+    if (syncChip) meta.appendChild(syncChip);
 
     body.appendChild(meta);
     card.appendChild(body);
@@ -427,14 +424,6 @@ function _computeSessionDurationMinutes(session) {
     return 0;
 }
 
-function _buildHistorySyncTag(kind, label, tooltip) {
-    const tag = document.createElement('span');
-    tag.className = `wg-tag wg-tag--mono wg-tag--${kind} wg-workouts-history-row__sync`;
-    tag.textContent = label;
-    if (tooltip) tag.title = tooltip;
-    return tag;
-}
-
 function _buildHistoryIconBtn(kind, ariaLabel, iconName, handler) {
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -455,7 +444,7 @@ function _buildHistoryIconBtn(kind, ariaLabel, iconName, handler) {
 }
 
 function _buildMiBandCard(w) {
-    const meta = MIBAND_ACTIVITY_META[w.activity_name] || { label: w.activity_name || 'Activity', icon: '🏅' };
+    const meta = MIBAND_ACTIVITY_META[w.activity_name] || { label: w.activity_name || 'Activity' };
     const startDate = new Date(w.start_time);
     const timeStr = startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const distKm = w.distance_m >= 1000

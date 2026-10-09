@@ -51,7 +51,7 @@ describe('safeConfirm — in-page modal', () => {
         });
 
         const modal = document.querySelector('mt-modal.mt-confirm-modal');
-        expect(modal.querySelector('.wg-modal__title').textContent).toBe('When did you eat this?');
+        expect(modal.querySelector('.wg-dialog__title').textContent).toBe('When did you eat this?');
         expect(modal.querySelector('.mt-confirm-modal__cancel').textContent).toBe('Use now');
         expect(modal.querySelector('.mt-confirm-modal__confirm').textContent).toBe('Use photo time');
 
@@ -113,6 +113,68 @@ describe('safeConfirm — in-page modal', () => {
         const result = await promise;
         expect(callback).toHaveBeenCalledWith(true);
         expect(result).toBe('yes');
+    });
+
+    // med-xso6.6 — kit .wg-dialog anatomy: Cancel ghost, confirm sun primary
+    // by default, filled clay with opts.destructive, optional icon.
+    it('renders the kit dialog: ghost Cancel + sun primary confirm by default', async () => {
+        const { window, document } = env;
+        const promise = window.safeConfirm('Finish the workout?', null, { title: 'Finish?' });
+        const modal = document.querySelector('mt-modal.mt-confirm-modal');
+        expect(modal.classList.contains('wg-dialog')).toBe(true);
+        expect(modal.getAttribute('role')).toBe('alertdialog');
+        expect(modal.querySelector('.wg-dialog__title').textContent).toBe('Finish?');
+        expect(modal.querySelector('.wg-dialog__body .mt-confirm-modal__message').textContent).toBe('Finish the workout?');
+        const cancel = modal.querySelector('.wg-dialog__acts .mt-confirm-modal__cancel');
+        const confirm = modal.querySelector('.wg-dialog__acts .mt-confirm-modal__confirm');
+        expect(cancel.className).toContain('wg-btn wg-btn--ghost');
+        expect(confirm.className).toContain('wg-btn wg-btn--primary');
+        expect(confirm.classList.contains('wg-btn--danger')).toBe(false);
+        expect(modal.querySelector('.wg-dialog__icon')).toBeNull();
+        cancel.click();
+        await expect(promise).resolves.toBe(false);
+    });
+
+    it('destructive: true paints the confirm filled clay and shows the danger icon', async () => {
+        const { window, document } = env;
+        const promise = window.safeConfirm('122/79 at 08:12 today.', null, {
+            title: 'Delete this reading?', confirmLabel: 'Delete', destructive: true, icon: 'trash',
+        });
+        const modal = document.querySelector('mt-modal.mt-confirm-modal');
+        const confirm = modal.querySelector('.mt-confirm-modal__confirm');
+        expect(confirm.classList.contains('wg-btn--danger')).toBe(true);
+        expect(confirm.classList.contains('wg-btn--primary')).toBe(false);
+        const icon = modal.querySelector('.wg-dialog__icon');
+        expect(icon).not.toBeNull();
+        expect(icon.classList.contains('wg-dialog__icon--warn')).toBe(false);
+        expect(icon.querySelector('svg[data-wg-icon="trash"]')).not.toBeNull();
+        confirm.click();
+        await expect(promise).resolves.toBe(true);
+    });
+
+    it('typedConfirm enables the confirm only once the phrase matches (case-insensitive)', async () => {
+        const { window, document } = env;
+        const promise = window.safeConfirm('This cannot be undone.', null, {
+            title: 'Replace everything?', destructive: true, typedConfirm: 'replace',
+        });
+        const modal = document.querySelector('mt-modal.mt-confirm-modal');
+        const input = modal.querySelector('.mt-confirm-modal__input');
+        const confirm = modal.querySelector('.mt-confirm-modal__confirm');
+        expect(modal.querySelector('.mt-confirm-modal__label').textContent).toContain('replace');
+        expect(confirm.disabled).toBe(true);
+
+        // Enter on a wrong phrase does not settle.
+        input.value = 'repl';
+        input.dispatchEvent(new window.Event('input'));
+        expect(confirm.disabled).toBe(true);
+        input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        expect(document.querySelector('mt-modal.mt-confirm-modal')).not.toBeNull();
+
+        input.value = '  Replace ';
+        input.dispatchEvent(new window.Event('input'));
+        expect(confirm.disabled).toBe(false);
+        confirm.click();
+        await expect(promise).resolves.toBe(true);
     });
 });
 

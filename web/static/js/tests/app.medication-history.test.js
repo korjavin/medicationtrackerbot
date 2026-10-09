@@ -98,7 +98,7 @@ describe('app.js medication, history and intake flows', () => {
       expect(medsHtml).toContain('Weekly');
       expect(medsHtml).toContain('As Needed');
       expect(medsHtml).toContain('archived');
-      expect(medsHtml).toContain('wg-tag--alert');
+      expect(medsHtml).toContain('wg-chip--warn');
       expect(medsHtml).toContain('Soon Med Rx');
       expect(document.getElementById('med-list').textContent).toContain('<b>As Needed</b>');
       expect(medsHtml).not.toContain('<b>As Needed</b>');
@@ -292,7 +292,7 @@ describe('app.js medication, history and intake flows', () => {
       const list = document.getElementById('history-list');
       expect(list.innerHTML).toContain('Aspirin');
       expect(list.innerHTML).toContain('Magnesium');
-      expect(list.innerHTML).toContain('✅');
+      expect(list.querySelector('.wg-chip--ok').textContent).toBe('Taken');
       expect(list.textContent).toContain('<b>Magnesium</b>');
       expect(list.innerHTML).not.toContain('<b>');
 
@@ -664,12 +664,12 @@ describe('app.js medication, history and intake flows', () => {
       // Aspirin stays Taken; only Magnesium reverted to Pending.
       expect(takenRow).toBeTruthy();
       expect(takenRow.textContent).toContain('Aspirin');
-      expect(takenRow.textContent).toContain('✅ Taken');
+      expect(takenRow.querySelector('.wg-chip--ok').textContent).toBe('Taken');
       expect(takenRow.textContent).not.toContain('Magnesium');
 
       expect(pendingRow).toBeTruthy();
       expect(pendingRow.textContent).toContain('Magnesium');
-      expect(pendingRow.textContent).toContain('⏳ Pending');
+      expect(pendingRow.querySelector('.wg-chip--pending').textContent).toBe('Pending');
       expect(pendingRow.textContent).not.toContain('Aspirin');
     } finally {
       cleanup();
