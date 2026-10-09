@@ -1,73 +1,79 @@
-// Wandergeek bottom nav — canonical lateral navigation.
-// One slot per real section (Today, BP, Food, Meds, Vitals, Workouts, Weight,
-// Settings). No "More" aggregator; every section is a first-class destination.
-// Wraps into two rows when item count exceeds what fits comfortably in one
-// row (5 per row at the 390px phone width).
+// Wandergeek tab bar — canonical lateral navigation (App UI kit v2, N2).
+// Five tabs in one row: Today · Food · Meds · Train · Health. Spec:
+// docs/design/claude-design/ui_kits/app-v2/navigation.html.
+//
+// Tab ids are nav ids, not section ids. Most tabs map 1:1 onto a section
+// (today/food/meds/workouts — "Train" is only the label); the Health tab
+// ('health-group') owns the bp / weight / health(Vitals) sections, so it
+// highlights for any of them. Settings and Journey are not tabs: they open
+// from the app-bar gear / Today route icon (features/app-nav.js).
 //
 // API:
-//   WGBottomNav.mount(rootEl, { items, active, onChange }) → { root, setActive, destroy }
-//   - items:   Array<{ id, label, icon }> — icon name is looked up in WGIcons
-//   - active:  id of the initially-active slot (optional)
-//   - onChange(id): called on click with the slot's id
-//   WGBottomNav.DEFAULT_ITEMS — the canonical slot ordering (8 sections);
-//                               consumers may filter it by feature flags before
-//                               passing. Gamification ("Journey") is NOT a nav
-//                               slot — it is reached from the Today dashboard
-//                               rings tile (deeplink → switchTab('journey')).
+//   WGBottomNav.mount(rootEl, { items, active, onChange }) → controller
+//     items:    Array<{ id, label, icon, sections? }> — icon looked up in WGIcons
+//     active:   section id (or tab id) to highlight initially
+//     onChange: called with the tapped tab's id ('health-group' for Health)
+//     controller: { root, setActive(sectionOrId), getActive(), setBadge(id, n), destroy() }
+//   WGBottomNav.DEFAULT_ITEMS — canonical tab order; consumers filter it by
+//                               feature flags before mounting.
+//   WGBottomNav.itemFor(items, sectionOrId) — the tab that owns a section.
+//   WGBottomNav.setBadge(id, n) — badge count on a tab (0/blank clears); the
+//                                 count survives a re-mount.
 //
-// Styling: all visuals come from CSS classes on `.wg-bottom-nav` and
-// `.wg-nav-item`. The one exception is `--wg-nav-cols` which is set via
-// `style.setProperty` on `.wg-bottom-nav__inner` because column count is
-// a structural variable (depends on items.length), not a visual constant.
-// Allowlisted in architecture.no-inline-styles.test.js (when that test lands).
+// Styling: kit .wg-tabbar / .wg-tab / .wg-tab__badge (components.css). The
+// one inline value is `--n` (column count), a structural variable the kit
+// reserves for exactly this (kit README rule 5).
 
 (function () {
-    // Canonical order per the design mockup (CLAUDE.md rule 6):
-    //   row 1: today / bp / food / meds
-    //   row 2: health("Vitals") / workouts / weight / settings
-    // The 'health' id is kept as the internal slug for route + storage
-    // stability; only the user-facing label is "Vitals".
-    // Gamification ("Journey") is intentionally NOT a nav slot — it is reached
-    // from the Today dashboard rings tile (deeplink → switchTab('journey')).
     const DEFAULT_ITEMS = Object.freeze([
         { id: 'today', label: 'Today', icon: 'home' },
-        { id: 'bp', label: 'BP', icon: 'activity' },
-        { id: 'food', label: 'Food', icon: 'apple' },
+        { id: 'food', label: 'Food', icon: 'food' },
         { id: 'meds', label: 'Meds', icon: 'pill' },
-        { id: 'health', label: 'Vitals', icon: 'heart' },
-        { id: 'workouts', label: 'Workouts', icon: 'dumbbell' },
-        { id: 'weight', label: 'Weight', icon: 'scale' },
-        { id: 'settings', label: 'Settings', icon: 'settings' },
+        { id: 'workouts', label: 'Train', icon: 'dumbbell' },
+        { id: 'health-group', label: 'Health', icon: 'health', sections: Object.freeze(['bp', 'weight', 'health']) },
     ]);
 
-    // Layout rule: ≤5 items → one row; 6–10 items → two rows; >10 is out of
-    // scope (returns null to surface misuse in tests). The default 8 slots
-    // lay out as two rows of 4.
-    function colsFor(count) {
-        if (count <= 0) return null;
-        if (count <= 5) return count;
-        if (count <= 10) return Math.ceil(count / 2);
-        return null;
+    // Badge counts by tab id, kept across re-mounts (feature toggles rebuild
+    // the bar). Closure-private.
+    const badges = new Map();
+    const mounted = new Set();
+
+    function itemFor(items, id) {
+        if (!id) return null;
+        return items.find((it) => it.id === id)
+            || items.find((it) => Array.isArray(it.sections) && it.sections.indexOf(id) !== -1)
+            || null;
     }
 
-    function buildItemButton(item) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'wg-nav-item';
-        btn.dataset.navId = item.id;
-        btn.setAttribute('aria-label', item.label);
+    function paintBadge(btn, n) {
+        let el = btn.querySelector('.wg-tab__badge');
+        if (!n) {
+            if (el) el.remove();
+            return;
+        }
+        if (!el) {
+            el = document.createElement('span');
+            el.className = 'wg-tab__badge';
+            btn.appendChild(el);
+        }
+        el.textContent = n > 99 ? '99+' : String(n);
+    }
 
+    function buildTab(item) {
         if (!window.WGIcons || typeof window.WGIcons.iconSvg !== 'function') {
             throw new Error('WGBottomNav.mount: WGIcons must be loaded before wg-bottom-nav.js');
         }
-        const svg = window.WGIcons.iconSvg(item.icon, { size: 22, stroke: 1.8 });
-        btn.appendChild(svg);
-
-        const label = document.createElement('span');
-        label.className = 'wg-nav-item__label';
-        label.textContent = item.label;
-        btn.appendChild(label);
-
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'wg-tab';
+        btn.dataset.navId = item.id;
+        const ico = document.createElement('i');
+        ico.className = 'wg-ico';
+        ico.dataset.icon = item.icon;
+        ico.appendChild(window.WGIcons.iconSvg(item.icon));
+        btn.appendChild(ico);
+        btn.appendChild(document.createTextNode(item.label));
+        paintBadge(btn, badges.get(item.id));
         return btn;
     }
 
@@ -79,70 +85,73 @@
         const items = Array.isArray(options.items) && options.items.length > 0
             ? options.items
             : DEFAULT_ITEMS.slice();
-        const cols = colsFor(items.length);
-        if (cols === null) {
-            throw new RangeError(`WGBottomNav.mount: unsupported items.length=${items.length} (must be 1–10)`);
-        }
 
         const nav = document.createElement('nav');
-        nav.className = 'wg-bottom-nav';
+        nav.className = 'wg-tabbar';
         nav.setAttribute('aria-label', 'Primary');
-
-        const inner = document.createElement('div');
-        inner.className = 'wg-bottom-nav__inner';
-        // --wg-nav-cols is a structural variable, not a visual value; allowlisted.
-        inner.style.setProperty('--wg-nav-cols', String(cols));
-        nav.appendChild(inner);
+        // --n is the kit's structural column-count variable, not a visual value.
+        nav.style.setProperty('--n', String(items.length));
 
         const buttonsById = new Map();
         for (const item of items) {
-            const btn = buildItemButton(item);
+            const btn = buildTab(item);
             buttonsById.set(item.id, btn);
-            inner.appendChild(btn);
+            nav.appendChild(btn);
         }
 
-        let activeId = options.active || null;
-        function setActive(id) {
-            activeId = id;
+        let activeId = null;
+        function setActive(sectionOrId) {
+            const item = itemFor(items, sectionOrId);
+            activeId = item ? item.id : null;
             for (const [btnId, btn] of buttonsById) {
-                const isActive = btnId === id;
-                btn.classList.toggle('wg-nav-item--active', isActive);
-                if (isActive) {
-                    btn.setAttribute('aria-current', 'page');
-                } else {
-                    btn.removeAttribute('aria-current');
-                }
+                if (btnId === activeId) btn.setAttribute('aria-current', 'page');
+                else btn.removeAttribute('aria-current');
             }
         }
-        if (activeId) setActive(activeId);
+        if (options.active) setActive(options.active);
 
         const onChange = typeof options.onChange === 'function' ? options.onChange : null;
         function handleClick(event) {
-            const btn = event.target.closest('.wg-nav-item');
-            if (!btn || !inner.contains(btn)) return;
+            const btn = event.target.closest('.wg-tab');
+            if (!btn || !nav.contains(btn)) return;
             const id = btn.dataset.navId;
             if (!id) return;
             setActive(id);
             if (onChange) onChange(id);
         }
-        inner.addEventListener('click', handleClick);
+        nav.addEventListener('click', handleClick);
 
         rootEl.appendChild(nav);
 
-        return {
+        const ctrl = {
             root: nav,
             setActive,
             getActive: () => activeId,
+            setBadge(id, n) {
+                const btn = buttonsById.get(id);
+                if (btn) paintBadge(btn, n);
+            },
             destroy() {
-                inner.removeEventListener('click', handleClick);
+                nav.removeEventListener('click', handleClick);
+                mounted.delete(ctrl);
                 if (nav.parentNode) nav.parentNode.removeChild(nav);
             },
         };
+        mounted.add(ctrl);
+        return ctrl;
+    }
+
+    function setBadge(id, n) {
+        const count = Number(n) > 0 ? Math.floor(Number(n)) : 0;
+        if (count) badges.set(id, count);
+        else badges.delete(id);
+        for (const ctrl of mounted) ctrl.setBadge(id, count);
     }
 
     window.WGBottomNav = {
         mount: mountBottomNav,
         DEFAULT_ITEMS,
-        _colsFor: colsFor,
+        itemFor,
+        setBadge,
     };
 })();

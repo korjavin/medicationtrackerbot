@@ -11,7 +11,7 @@
 // when the user has disabled the section. Default-on when flags haven't
 // loaded yet (matches switchTab behaviour).
 function isDeepLinkFeatureEnabled(tab) {
-    const tabToFeature = { bp: 'bp', weight: 'weight', workouts: 'workout' };
+    const tabToFeature = { bp: 'bp', weight: 'weight', health: 'health', workouts: 'workout' };
     const feature = tabToFeature[tab];
     if (!feature) return true;
     if (!window.featureSettingsLoaded) return true;
@@ -76,9 +76,10 @@ function handleDeepLinks() {
     if (!action && tab) {
         // Bare ?tab=<section> (no action): plain section deep-link, e.g. the
         // Telegram reminder "Open" URL button (?tab=workouts|bp|weight). Only
-        // switch to a whitelisted, stable bottom-nav id; ignore unknown tabs so
+        // switch to a whitelisted, stable section id (bp/weight/health land on
+        // the Health tab with that segment active); ignore unknown tabs so
         // activateTabGroup can't blank the page.
-        const allowedTabs = ['workouts', 'bp', 'weight'];
+        const allowedTabs = ['workouts', 'bp', 'weight', 'health'];
         if (allowedTabs.includes(tab)) {
             if (!isDeepLinkFeatureEnabled(tab)) {
                 switchTab('today');

@@ -2,7 +2,8 @@
 // Single back handler for the whole app:
 //   - If a modal is open → close the topmost modal (modal-history's MutationObserver
 //     handles the history.back() + visibility reconciliation via refresh()).
-//   - Otherwise → switch back to Today from the current section view.
+//   - Otherwise → a page (Settings / Journey) returns to the tab it was opened
+//     from (features/app-nav.js backTarget); any other section returns to Today.
 //
 // modal-history.js drives show() when a modal opens; after a modal closes it calls
 // AppBackButton.refresh() so the button re-appears on non-Today sections.
@@ -53,7 +54,9 @@
                 return;
             }
             if (typeof window.switchTab === 'function') {
-                window.switchTab('today');
+                // Pages (Settings / Journey) return to the tab they were
+                // opened from (AppStore 'previousTab'); sections to Today.
+                window.switchTab(window.AppNav ? window.AppNav.backTarget(currentTab()) : 'today');
             }
         });
 

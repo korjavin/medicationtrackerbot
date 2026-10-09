@@ -39,6 +39,7 @@ const CACHE_KEYS_JS = path.join(REPO_ROOT, 'web/static/js/core/cache-keys.js');
 const DATA_STORE_JS = path.join(REPO_ROOT, 'web/static/js/data-store.js');
 const TAB_CONTROLLER_JS = path.join(REPO_ROOT, 'web/static/js/features/tab-controller.js');
 const APP_JS = path.join(REPO_ROOT, 'web/static/js/app.js');
+const APP_NAV_JS = path.join(REPO_ROOT, 'web/static/js/features/app-nav.js');
 const WEIGHT_UNIT_STATE_JS = path.join(REPO_ROOT, 'web/static/js/features/weight-unit-state.js');
 const AUTH_BOOTSTRAP_JS = path.join(REPO_ROOT, 'web/static/js/features/auth-bootstrap.js');
 const PUSH_MODAL_JS = path.join(REPO_ROOT, 'web/static/js/features/push-modal.js');
@@ -243,6 +244,9 @@ export function loadFrontendEnv({ withWorkout = false, url = 'https://example.te
 
   const appSource = disableAutoBootstrap(readCached(APP_JS));
   evalWithSourceURL(window, appSource, APP_JS);
+  // app-nav.js: nav chrome around the tab bar (Health segments, app-bar
+  // actions, previousTab, Meds badge). Production loads it right after app.js.
+  evalFileCached(window, APP_NAV_JS);
 
   // weight-unit-state.js owns the kg/lb preference state machine extracted
   // from app.js (Plan 2026-05-13, Task 2). Loaded immediately after app.js so

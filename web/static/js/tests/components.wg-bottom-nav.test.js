@@ -1,3 +1,6 @@
+// WGBottomNav — the 5-tab kit .wg-tabbar (Navigation v2, bd med-xso6.12).
+// Pure-unit by necessity: the component has no integration entry point of its
+// own; how bootstrap/app-nav drive it is covered in app.navigation.test.js.
 import { describe, it, expect, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -9,7 +12,6 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const ICONS_PATH = path.join(REPO_ROOT, 'web/static/js/components/wg-icons.js');
 const NAV_PATH = path.join(REPO_ROOT, 'web/static/js/components/wg-bottom-nav.js');
-const CSS_PATH = path.join(REPO_ROOT, 'web/static/css/styles.css');
 
 function loadEnv() {
     const dom = new JSDOM('<!DOCTYPE html><body><div id="app"></div></body>', {
@@ -21,341 +23,134 @@ function loadEnv() {
     return { window: dom.window, document: dom.window.document, cleanup: () => dom.window.close() };
 }
 
-describe('WGBottomNav — component', () => {
-    it('exposes window.WGBottomNav with mount + DEFAULT_ITEMS', () => {
+describe('WGBottomNav — tab bar component', () => {
+    it('DEFAULT_ITEMS is the five-tab order Today · Food · Meds · Train · Health', () => {
         const { window, cleanup } = loadEnv();
         try {
-            expect(window.WGBottomNav).toBeDefined();
-            expect(typeof window.WGBottomNav.mount).toBe('function');
-            expect(Array.isArray(window.WGBottomNav.DEFAULT_ITEMS)).toBe(true);
-            // 8 sections. Gamification ("Journey") is reached from the Today
-            // dashboard rings tile, not from a nav slot.
-            expect(window.WGBottomNav.DEFAULT_ITEMS.length).toBe(8);
-            // Verify the canonical ordering: Today first, Settings last.
-            expect(window.WGBottomNav.DEFAULT_ITEMS[0].id).toBe('today');
-            expect(window.WGBottomNav.DEFAULT_ITEMS[7].id).toBe('settings');
+            const items = window.WGBottomNav.DEFAULT_ITEMS;
+            expect(items.map((i) => i.id)).toEqual(['today', 'food', 'meds', 'workouts', 'health-group']);
+            expect(items.map((i) => i.label)).toEqual(['Today', 'Food', 'Meds', 'Train', 'Health']);
+            // Settings and Journey are not tabs (gear / route icon in the app bars).
+            expect(items.map((i) => i.id)).not.toContain('settings');
+            expect(items.map((i) => i.id)).not.toContain('journey');
+            // Health owns the three stable section ids.
+            expect(Array.from(items[4].sections)).toEqual(['bp', 'weight', 'health']);
+            for (const item of items) {
+                expect(() => window.WGIcons.iconSvg(item.icon)).not.toThrow();
+            }
         } finally { cleanup(); }
     });
 
-    it('DEFAULT_ITEMS has one slot per real section with a distinct icon (no "more")', () => {
-        const { window, cleanup } = loadEnv();
-        try {
-            const ids = window.WGBottomNav.DEFAULT_ITEMS.map(i => i.id).sort();
-            expect(ids).toEqual(['bp', 'food', 'health', 'meds', 'settings', 'today', 'weight', 'workouts']);
-            const icons = window.WGBottomNav.DEFAULT_ITEMS.map(i => i.icon);
-            expect(new Set(icons).size).toBe(icons.length);
-            expect(icons).not.toContain('more');
-        } finally { cleanup(); }
-    });
-
-    it('DEFAULT_ITEMS canonical order matches the design mockup (row 1 / row 2)', () => {
-        const { window, cleanup } = loadEnv();
-        try {
-            const order = window.WGBottomNav.DEFAULT_ITEMS.map(i => i.id);
-            // row 1: today / bp / food / meds
-            // row 2: health("Vitals") / workouts / weight / settings
-            expect(order).toEqual([
-                'today', 'bp', 'food', 'meds',
-                'health', 'workouts', 'weight', 'settings',
-            ]);
-            const labels = window.WGBottomNav.DEFAULT_ITEMS.map(i => i.label);
-            expect(labels).toEqual([
-                'Today', 'BP', 'Food', 'Meds',
-                'Vitals', 'Workouts', 'Weight', 'Settings',
-            ]);
-        } finally { cleanup(); }
-    });
-
-    it('BP is the second slot (post-Today) with the "activity" icon — Phase 3 contract', () => {
-        const { window, cleanup } = loadEnv();
-        try {
-            const bpSlot = window.WGBottomNav.DEFAULT_ITEMS[1];
-            expect(bpSlot.id).toBe('bp');
-            expect(bpSlot.icon).toBe('activity');
-            expect(bpSlot.label).toBe('BP');
-        } finally { cleanup(); }
-    });
-
-    it('Food is the third slot with the "apple" icon — Phase 4 contract', () => {
-        const { window, cleanup } = loadEnv();
-        try {
-            const foodSlot = window.WGBottomNav.DEFAULT_ITEMS[2];
-            expect(foodSlot.id).toBe('food');
-            expect(foodSlot.icon).toBe('apple');
-            expect(foodSlot.label).toBe('Food');
-        } finally { cleanup(); }
-    });
-
-    it('Meds is the fourth slot with the "pill" icon — Phase 5 contract', () => {
-        const { window, cleanup } = loadEnv();
-        try {
-            const medsSlot = window.WGBottomNav.DEFAULT_ITEMS[3];
-            expect(medsSlot.id).toBe('meds');
-            expect(medsSlot.icon).toBe('pill');
-            expect(medsSlot.label).toBe('Meds');
-        } finally { cleanup(); }
-    });
-
-    it('Vitals is the fifth slot (first of row 2) with the "heart" icon and internal id "health"', () => {
-        const { window, cleanup } = loadEnv();
-        try {
-            const vitalsSlot = window.WGBottomNav.DEFAULT_ITEMS[4];
-            // Internal id stays 'health' for route + storage stability; only the label changed.
-            expect(vitalsSlot.id).toBe('health');
-            expect(vitalsSlot.icon).toBe('heart');
-            expect(vitalsSlot.label).toBe('Vitals');
-        } finally { cleanup(); }
-    });
-
-    it('Workouts is the sixth slot with the "dumbbell" icon', () => {
-        const { window, cleanup } = loadEnv();
-        try {
-            const workoutsSlot = window.WGBottomNav.DEFAULT_ITEMS[5];
-            expect(workoutsSlot.id).toBe('workouts');
-            expect(workoutsSlot.icon).toBe('dumbbell');
-            expect(workoutsSlot.label).toBe('Workouts');
-        } finally { cleanup(); }
-    });
-
-    it('Weight is the seventh slot with the "scale" icon', () => {
-        const { window, cleanup } = loadEnv();
-        try {
-            const weightSlot = window.WGBottomNav.DEFAULT_ITEMS[6];
-            expect(weightSlot.id).toBe('weight');
-            expect(weightSlot.icon).toBe('scale');
-            expect(weightSlot.label).toBe('Weight');
-        } finally { cleanup(); }
-    });
-
-    it('Journey is NOT a nav slot — gamification is reached from the Today rings tile', () => {
-        const { window, cleanup } = loadEnv();
-        try {
-            const ids = window.WGBottomNav.DEFAULT_ITEMS.map(i => i.id);
-            expect(ids).not.toContain('journey');
-        } finally { cleanup(); }
-    });
-
-    it('Settings is the eighth (final) slot with the "settings" icon', () => {
-        const { window, cleanup } = loadEnv();
-        try {
-            const settingsSlot = window.WGBottomNav.DEFAULT_ITEMS[7];
-            expect(settingsSlot.id).toBe('settings');
-            expect(settingsSlot.icon).toBe('settings');
-            expect(settingsSlot.label).toBe('Settings');
-        } finally { cleanup(); }
-    });
-
-    it('mount() with 5 items lays out a single row (cols=5)', () => {
-        const { window, document, cleanup } = loadEnv();
-        try {
-            const items = window.WGBottomNav.DEFAULT_ITEMS.slice(0, 5);
-            window.WGBottomNav.mount(document.getElementById('app'), { items });
-            const inner = document.querySelector('.wg-bottom-nav__inner');
-            expect(inner).not.toBeNull();
-            expect(inner.style.getPropertyValue('--wg-nav-cols')).toBe('5');
-            expect(inner.children.length).toBe(5);
-        } finally { cleanup(); }
-    });
-
-    it('mount() with the full 8 default items lays out two rows of 4 cols', () => {
+    it('mount() renders the kit markup: nav.wg-tabbar of button.wg-tab with an .wg-ico icon, --n = tab count', () => {
         const { window, document, cleanup } = loadEnv();
         try {
             window.WGBottomNav.mount(document.getElementById('app'));
-            const inner = document.querySelector('.wg-bottom-nav__inner');
-            expect(inner.style.getPropertyValue('--wg-nav-cols')).toBe('4');
-            expect(inner.children.length).toBe(8);
+            const nav = document.querySelector('nav.wg-tabbar');
+            expect(nav).not.toBeNull();
+            expect(nav.getAttribute('aria-label')).toBe('Primary');
+            const tabs = nav.querySelectorAll(':scope > button.wg-tab');
+            expect(tabs.length).toBe(5);
+            for (const tab of tabs) {
+                expect(tab.querySelector('i.wg-ico > svg')).not.toBeNull();
+            }
+            expect(tabs[3].textContent).toBe('Train');
+            // The only inline value is the kit's structural column count.
+            expect(nav.getAttribute('style').replace(/\s/g, '')).toMatch(/^--n:5;?$/);
+            expect(document.querySelector('.wg-bottom-nav, .wg-nav-item')).toBeNull();
         } finally { cleanup(); }
     });
 
-    it('mount() with 6 items lays out two rows of 3 cols (Math.ceil(6/2))', () => {
+    it('--n follows a feature-filtered item list', () => {
         const { window, document, cleanup } = loadEnv();
         try {
-            const items = window.WGBottomNav.DEFAULT_ITEMS.slice(0, 6);
+            const items = window.WGBottomNav.DEFAULT_ITEMS.filter((i) => i.id !== 'food' && i.id !== 'meds');
             window.WGBottomNav.mount(document.getElementById('app'), { items });
-            const inner = document.querySelector('.wg-bottom-nav__inner');
-            expect(inner.style.getPropertyValue('--wg-nav-cols')).toBe('3');
+            const nav = document.querySelector('.wg-tabbar');
+            expect(nav.querySelectorAll('.wg-tab').length).toBe(3);
+            expect(nav.getAttribute('style').replace(/\s/g, '')).toMatch(/^--n:3;?$/);
         } finally { cleanup(); }
     });
 
-    it('mount() throws on >10 items (out of plan scope)', () => {
+    it('setActive maps a section onto its tab: bp / weight / health all light Health', () => {
         const { window, document, cleanup } = loadEnv();
         try {
-            const items = [
-                ...window.WGBottomNav.DEFAULT_ITEMS,
-                { id: 'extra1', label: 'Extra1', icon: 'bell' },
-                { id: 'extra2', label: 'Extra2', icon: 'chart' },
-                { id: 'extra3', label: 'Extra3', icon: 'star' },
-            ];
-            expect(items.length).toBe(11);
-            expect(() =>
-                window.WGBottomNav.mount(document.getElementById('app'), { items })
-            ).toThrow(/items\.length=11/);
+            const nav = window.WGBottomNav.mount(document.getElementById('app'), { active: 'today' });
+            const current = () => Array.from(document.querySelectorAll('.wg-tab[aria-current="page"]'))
+                .map((b) => b.dataset.navId);
+            expect(current()).toEqual(['today']);
+            for (const section of ['bp', 'weight', 'health']) {
+                nav.setActive(section);
+                expect(current()).toEqual(['health-group']);
+                expect(nav.getActive()).toBe('health-group');
+            }
+            nav.setActive('workouts');
+            expect(current()).toEqual(['workouts']);
+            nav.setActive('settings'); // not a tab: nothing lit
+            expect(current()).toEqual([]);
         } finally { cleanup(); }
     });
 
-    it('mount() throws TypeError-equivalent on non-Element rootEl', () => {
-        const { window, cleanup } = loadEnv();
-        try {
-            expect(() => window.WGBottomNav.mount(null)).toThrow(/must be an Element/);
-            expect(() => window.WGBottomNav.mount('not-an-element')).toThrow(/must be an Element/);
-        } finally { cleanup(); }
-    });
-
-    it('clicking a slot fires onChange with the slot id and marks it active', () => {
-        const { window, document, cleanup } = loadEnv();
-        try {
-            const onChange = vi.fn();
-            window.WGBottomNav.mount(document.getElementById('app'), { active: 'today', onChange });
-
-            const bpBtn = document.querySelector('.wg-nav-item[data-nav-id="bp"]');
-            expect(bpBtn).not.toBeNull();
-            bpBtn.click();
-
-            expect(onChange).toHaveBeenCalledWith('bp');
-            const actives = document.querySelectorAll('.wg-nav-item--active');
-            expect(actives.length).toBe(1);
-            expect(actives[0].dataset.navId).toBe('bp');
-        } finally { cleanup(); }
-    });
-
-    it('clicking on the icon inside a slot still routes to onChange', () => {
+    it('a tap fires onChange with the tab id and lights the tab', () => {
         const { window, document, cleanup } = loadEnv();
         try {
             const onChange = vi.fn();
             window.WGBottomNav.mount(document.getElementById('app'), { onChange });
-
-            const foodBtn = document.querySelector('.wg-nav-item[data-nav-id="food"]');
-            const svg = foodBtn.querySelector('svg');
-            svg.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-
-            expect(onChange).toHaveBeenCalledWith('food');
+            document.querySelector('[data-nav-id="health-group"] svg').dispatchEvent(
+                new window.MouseEvent('click', { bubbles: true })
+            );
+            expect(onChange).toHaveBeenCalledWith('health-group');
+            expect(document.querySelector('[data-nav-id="health-group"]').getAttribute('aria-current')).toBe('page');
         } finally { cleanup(); }
     });
 
-    it('setActive(id) updates the active class and aria-current', () => {
+    it('setBadge paints .wg-tab__badge, clears on 0, and survives a re-mount', () => {
         const { window, document, cleanup } = loadEnv();
         try {
-            const ctrl = window.WGBottomNav.mount(document.getElementById('app'), { active: 'today' });
-
-            ctrl.setActive('weight');
-            const weightBtn = document.querySelector('.wg-nav-item[data-nav-id="weight"]');
-            expect(weightBtn.classList.contains('wg-nav-item--active')).toBe(true);
-            expect(weightBtn.getAttribute('aria-current')).toBe('page');
-
-            const todayBtn = document.querySelector('.wg-nav-item[data-nav-id="today"]');
-            expect(todayBtn.classList.contains('wg-nav-item--active')).toBe(false);
-            expect(todayBtn.getAttribute('aria-current')).toBeNull();
-
-            expect(ctrl.getActive()).toBe('weight');
+            const app = document.getElementById('app');
+            const nav = window.WGBottomNav.mount(app);
+            const badge = () => document.querySelector('[data-nav-id="meds"] .wg-tab__badge');
+            window.WGBottomNav.setBadge('meds', 2);
+            expect(badge().textContent).toBe('2');
+            nav.destroy();
+            window.WGBottomNav.mount(app);
+            expect(badge().textContent).toBe('2');
+            window.WGBottomNav.setBadge('meds', 0);
+            expect(badge()).toBeNull();
         } finally { cleanup(); }
     });
 
-    it('destroy() removes the nav and stops firing onChange', () => {
+    it('destroy() removes the bar and stops firing onChange', () => {
         const { window, document, cleanup } = loadEnv();
         try {
             const onChange = vi.fn();
-            const ctrl = window.WGBottomNav.mount(document.getElementById('app'), { onChange });
-
-            const btn = document.querySelector('.wg-nav-item[data-nav-id="bp"]');
-            ctrl.destroy();
-            expect(document.querySelector('.wg-bottom-nav')).toBeNull();
-            btn.click();
+            const nav = window.WGBottomNav.mount(document.getElementById('app'), { onChange });
+            const tab = document.querySelector('.wg-tab');
+            nav.destroy();
+            expect(document.querySelector('.wg-tabbar')).toBeNull();
+            tab.click();
             expect(onChange).not.toHaveBeenCalled();
         } finally { cleanup(); }
     });
 
-    it('each slot renders an SVG icon from the WGIcons registry', () => {
-        const { window, document, cleanup } = loadEnv();
+    it('mount() rejects a non-Element root and a missing WGIcons', () => {
+        const { window, cleanup } = loadEnv();
         try {
-            window.WGBottomNav.mount(document.getElementById('app'));
-            const items = document.querySelectorAll('.wg-nav-item');
-            expect(items.length).toBe(8);
-            for (const item of items) {
-                const svg = item.querySelector('svg');
-                expect(svg, `missing svg for ${item.dataset.navId}`).not.toBeNull();
-                expect(svg.getAttribute('viewBox')).toBe('0 0 24 24');
-                // data-wg-icon matches the item's icon key.
-                const expected = window.WGBottomNav.DEFAULT_ITEMS.find(i => i.id === item.dataset.navId).icon;
-                expect(svg.getAttribute('data-wg-icon')).toBe(expected);
-            }
+            expect(() => window.WGBottomNav.mount(null)).toThrow(/rootEl must be an Element/);
         } finally { cleanup(); }
-    });
-
-    it('mount() throws if WGIcons is missing', () => {
-        const dom = new JSDOM('<!DOCTYPE html><body><div id="app"></div></body>', {
-            url: 'https://example.test/',
-            runScripts: 'outside-only',
-        });
+        const dom = new JSDOM('<!DOCTYPE html><body><div id="app"></div></body>', { runScripts: 'outside-only' });
         dom.window.eval(fs.readFileSync(NAV_PATH, 'utf8'));
         try {
-            expect(() =>
-                dom.window.WGBottomNav.mount(dom.window.document.getElementById('app'))
-            ).toThrow(/WGIcons must be loaded/);
-        } finally {
-            dom.window.close();
-        }
-    });
-
-    it('does not use any inline styles except --wg-nav-cols on .wg-bottom-nav__inner (structural variable)', () => {
-        const { window, document, cleanup } = loadEnv();
-        try {
-            window.WGBottomNav.mount(document.getElementById('app'));
-            const all = document.querySelectorAll('.wg-bottom-nav, .wg-bottom-nav *');
-            for (const el of all) {
-                if (el.namespaceURI === 'http://www.w3.org/2000/svg') continue;
-                const inline = el.getAttribute('style');
-                if (inline === null || inline === '') continue;
-                if (el.classList.contains('wg-bottom-nav__inner')) {
-                    // Only the --wg-nav-cols custom property is allowed on this element.
-                    expect(inline.replace(/\s/g, '')).toMatch(/^--wg-nav-cols:\d+;?$/);
-                } else {
-                    throw new Error(`unexpected inline style on .${el.className}: ${inline}`);
-                }
-            }
-        } finally { cleanup(); }
-    });
-});
-
-describe('WGBottomNav — CSS contract', () => {
-    const css = fs.readFileSync(CSS_PATH, 'utf8');
-
-    it.each([
-        '.wg-bottom-nav',
-        '.wg-bottom-nav__inner',
-        '.wg-nav-item',
-        '.wg-nav-item--active',
-    ])('defines %s in styles.css', (selector) => {
-        const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const re = new RegExp(`(^|[\\s,{}>+~])${escaped}\\s*[,{]`, 'm');
-        expect(re.test(css)).toBe(true);
-    });
-
-    it('.wg-bottom-nav__inner uses repeat(var(--wg-nav-cols, …)) for dynamic column count', () => {
-        const block = css.match(/\.wg-bottom-nav__inner\s*\{([^}]+)\}/);
-        expect(block).not.toBeNull();
-        expect(block[1]).toMatch(/grid-template-columns:\s*repeat\(var\(--wg-nav-cols/);
-    });
-
-    it('.wg-nav-item--active uses the sun accent color token', () => {
-        const block = css.match(/\.wg-nav-item--active\s*\{([^}]+)\}/);
-        expect(block).not.toBeNull();
-        expect(block[1]).toMatch(/color:\s*var\(--wg-sun\)/);
+            expect(() => dom.window.WGBottomNav.mount(dom.window.document.getElementById('app')))
+                .toThrow(/WGIcons must be loaded/);
+        } finally { dom.window.close(); }
     });
 });
 
 describe('WGIcons — registry', () => {
-    it('exposes an iconSvg() function and a paths map', () => {
+    it('contains every icon the tab bar and app bars use', () => {
         const { window, cleanup } = loadEnv();
         try {
-            expect(typeof window.WGIcons.iconSvg).toBe('function');
-            expect(window.WGIcons.paths).toBeDefined();
-        } finally { cleanup(); }
-    });
-
-    it('contains every icon name used by the default bottom-nav items', () => {
-        const { window, cleanup } = loadEnv();
-        try {
-            const needed = ['home', 'activity', 'apple', 'pill', 'scale', 'dumbbell', 'heart', 'bolt', 'settings'];
+            const needed = ['home', 'food', 'pill', 'dumbbell', 'health', 'gear', 'route', 'chev-l'];
             for (const name of needed) {
                 expect(window.WGIcons.paths[name], `missing icon "${name}"`).toBeDefined();
             }

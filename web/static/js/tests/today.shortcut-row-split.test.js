@@ -140,7 +140,7 @@ describe('Today shortcut rows — food + vitals split', () => {
     });
 
     // med-5k6t.2 — the Doctor brief entry point. A normal Today element, not a
-    // bottom-nav slot and not a section-header banner (CLAUDE.md rule 6).
+    // tab and not a section-header banner (CLAUDE.md rule 6).
     describe('Doctor brief shortcut', () => {
         const brief = () => ({ now, onDoctorBrief: () => {} });
 

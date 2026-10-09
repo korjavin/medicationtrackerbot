@@ -1,9 +1,9 @@
 /**
  * bootstrap.js dynamic tab-order behavior.
  *
- * After the Wandergeek bottom-nav rework the canonical lateral nav is the
- * fixed-order `.wg-bottom-nav`; `tab_order` no longer selects the initial
- * view — it only controls Today card order. This file guards that:
+ * The canonical lateral nav is the fixed-order `.wg-tabbar`; `tab_order`
+ * no longer selects the initial view — it only controls Today card order.
+ * This file guards that:
  *
  *   - A saved `tab_order` never overrides 'today' as the initial view.
  *   - A pre-Today `tab_order` does not redirect bootstrap to a section view
