@@ -4040,6 +4040,8 @@ input:checked+.toggle-slider:before {
 .wg-next-action-card__text {
     flex: 1;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
 }
 
 .wg-next-action-card__kicker {
