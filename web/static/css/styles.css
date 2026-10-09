@@ -1651,21 +1651,21 @@ svg.chart-svg {
 /* TZ transition plan card (kit T2, tz-plan-banner.js) — a .wg-card; only the
    detail spacing, the step strip and the remaining-steps list are local. */
 .wg-tz-plan-card__detail {
-    margin: 6px 0 0;
+    margin: var(--space-sm) 0 0;
 }
 
 .wg-tz-plan-card .wg-steps {
     flex-wrap: wrap;
-    margin-top: 10px;
+    margin-top: var(--space-md);
 }
 
 .wg-tz-plan-card__steps-title {
-    margin-top: 12px;
+    margin-top: var(--space-md);
 }
 
 .wg-tz-plan-card__steps {
-    margin: 6px 0 0;
-    padding-left: 18px;
+    margin: var(--space-sm) 0 0;
+    padding-left: var(--space-lg);
     max-height: 12em;
     overflow-y: auto;
     font: 400 var(--wg-fs-xs)/1.5 var(--wg-font-ui);
@@ -3828,7 +3828,7 @@ input.wg-stepper__val::-webkit-inner-spin-button {
     right: 12px;
     bottom: var(--wg-tabbar-h);
     max-width: 480px;
-    margin: 0 auto 8px;
+    margin: 0 auto var(--space-sm);
     z-index: var(--wg-callbar-dock-z);
 }
 
