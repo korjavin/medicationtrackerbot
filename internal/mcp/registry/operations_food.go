@@ -256,6 +256,28 @@ output({"updated": 42})`,
 output({"deleted": 42})`,
 		},
 		{
+			ID:     "food.log.move",
+			Topic:  "food",
+			Method: "POST",
+			Path:   "/api/food/log/move",
+			Risk:   RiskWrite,
+			BodySchema: json.RawMessage(`{
+  "type": "object",
+  "required": ["ids", "eaten_at"],
+  "properties": {
+    "ids":      {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "Food log ids to move (from food.log.list)"},
+    "eaten_at": {"type": "string", "description": "ISO8601 timestamp (RFC3339 preferred) every listed log is re-dated to"}
+  }
+}`),
+			Description:     "Re-date existing food log entries to one new eaten_at (e.g. a meal photo uploaded late that landed on today but was eaten yesterday). Only eaten_at changes: name, weight, macros and product_id are kept exactly and no product is upserted — prefer this over food.log.update when only the time is wrong. All ids must exist or nothing moves.",
+			ResponseSummary: "Array of the moved FoodLog objects.",
+			Example: `result = api.call(
+    "food.log.move",
+    body={"ids": ["foodlog_1", "foodlog_2"], "eaten_at": "2026-04-28T13:05:00Z"},
+)
+output({"moved": len(result)})`,
+		},
+		{
 			ID:         "food.products.update",
 			Topic:      "food",
 			Method:     "PUT",

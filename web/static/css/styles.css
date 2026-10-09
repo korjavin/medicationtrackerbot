@@ -10629,6 +10629,48 @@ textarea.wg-input {
     letter-spacing: 0;
 }
 
+/* med-don1: "move to another day" sheet body (rendered inside safeForm). */
+.wg-food-move {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.wg-food-move__items {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.wg-food-move__all,
+.wg-food-move__item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-2);
+    min-height: 44px;
+}
+
+.wg-food-move__days {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-xs);
+}
+
+.wg-food-move__chip {
+    min-height: 44px;
+    padding: var(--space-xs) var(--space-md);
+    font-size: var(--font-size-sm);
+}
+
+.wg-food-move__date {
+    flex: 1;
+    min-width: 0;
+}
+
 .wg-food-meal-group__rows {
     display: flex;
     flex-direction: column;

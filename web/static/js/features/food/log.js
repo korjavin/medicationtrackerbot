@@ -789,6 +789,15 @@ function renderFoodMealGroup(group) {
     total.textContent = `${Math.round(group.calories || 0)} kcal`;
     header.appendChild(total);
 
+    if ((group.logs || []).length) {
+        const moveBtn = buildFoodActionButton('calendar', 'Move to another day', (event) => {
+            event.stopPropagation();
+            openFoodMoveSheet(group);
+        });
+        moveBtn.classList.add('wg-food-meal-group__move');
+        header.appendChild(moveBtn);
+    }
+
     groupEl.appendChild(header);
 
     const rows = document.createElement('div');
@@ -1210,7 +1219,177 @@ function removeOptimisticFoodLog(prev, logId) {
     return out;
 }
 
+// med-don1 — move a meal group's rows (e.g. a late-uploaded photo, all stamped
+// "now") to another day. Pre-checks only the newest batch: one photo shares one
+// identical eaten_at, so a real meal logged nearby starts unchecked.
+function foodLocalTimeHHMM(when) {
+    const d = new Date(when);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function openFoodMoveSheet(group) {
+    const logs = (group.logs || []).filter((l) => l && l.id != null);
+    if (!logs.length) return Promise.resolve(null);
+    const newestMs = Math.max(...logs.map((l) => Date.parse(l.eaten_at) || 0));
+    const daysAgo = (n) => {
+        const d = new Date();
+        d.setDate(d.getDate() - n);
+        return toISODateLocal(d);
+    };
+
+    const content = document.createElement('div');
+    content.className = 'wg-food-move';
+
+    const allLabel = document.createElement('label');
+    allLabel.className = 'wg-food-move__all';
+    const allBox = document.createElement('input');
+    allBox.type = 'checkbox';
+    allBox.className = 'wg-food-move__all-box';
+    allLabel.append(allBox, ' Select all');
+    content.appendChild(allLabel);
+
+    const list = document.createElement('div');
+    list.className = 'wg-food-move__items';
+    const boxes = logs.map((log) => {
+        const row = document.createElement('label');
+        row.className = 'wg-food-move__item';
+        const box = document.createElement('input');
+        box.type = 'checkbox';
+        box.className = 'wg-food-move__box';
+        box.value = String(log.id);
+        box.checked = (Date.parse(log.eaten_at) || 0) === newestMs;
+        const text = document.createElement('span');
+        text.textContent = `${foodLocalTimeHHMM(log.eaten_at)} · ${log.name || 'Food'} · ${Math.round(log.weight || 0)}g · ${Math.round(log.calories || 0)} kcal`;
+        row.append(box, text);
+        list.appendChild(row);
+        return box;
+    });
+    content.appendChild(list);
+
+    const chips = document.createElement('div');
+    chips.className = 'wg-food-move__days';
+    const dateInput = document.createElement('input');
+    dateInput.type = 'date';
+    dateInput.className = 'wg-input wg-food-move__date';
+    dateInput.value = daysAgo(1);
+    const chipBtns = [[1, 'Yesterday'], [2, '2 days ago']].map(([n, label]) => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'wg-gloss wg-food-move__chip';
+        chip.dataset.daysAgo = String(n);
+        chip.textContent = label;
+        chip.addEventListener('click', () => { dateInput.value = daysAgo(n); syncChips(); });
+        chips.appendChild(chip);
+        return chip;
+    });
+    const syncChips = () => chipBtns.forEach((c) => {
+        c.classList.toggle('wg-gloss--sun', dateInput.value === daysAgo(Number(c.dataset.daysAgo)));
+    });
+    dateInput.addEventListener('input', syncChips);
+    dateInput.addEventListener('change', syncChips);
+    chips.appendChild(dateInput);
+    content.appendChild(chips);
+
+    const timeInput = document.createElement('input');
+    timeInput.type = 'time';
+    timeInput.className = 'wg-input wg-food-move__time';
+    timeInput.value = foodLocalTimeHHMM(newestMs);
+    content.appendChild(timeInput);
+
+    const checkedIds = () => boxes.filter((b) => b.checked).map((b) => b.value);
+    let moveBtn = null;
+    const syncState = () => {
+        allBox.checked = boxes.every((b) => b.checked);
+        if (moveBtn) moveBtn.disabled = checkedIds().length === 0;
+    };
+    allBox.addEventListener('change', () => {
+        boxes.forEach((b) => { b.checked = allBox.checked; });
+        syncState();
+    });
+    boxes.forEach((b) => b.addEventListener('change', syncState));
+
+    const result = safeForm('', content, {
+        title: 'Move to another day',
+        confirmLabel: 'Move',
+        collect: () => {
+            const ids = checkedIds();
+            if (!ids.length || !dateInput.value || !timeInput.value) return null;
+            const target = new Date(`${dateInput.value}T${timeInput.value}`);
+            if (Number.isNaN(target.getTime())) return null;
+            return { ids, eatenAt: target.toISOString() };
+        }
+    });
+    const modal = content.closest('.mt-confirm-modal');
+    moveBtn = modal ? modal.querySelector('.mt-confirm-modal__confirm') : null;
+    syncChips();
+    syncState();
+
+    return result.then((choice) => (choice ? moveFoodLogs(logs, choice.ids, choice.eatenAt) : null));
+}
+
+async function moveFoodLogs(groupLogs, ids, eatenAt) {
+    const idSet = new Set(ids.map(String));
+    const sources = groupLogs.filter((l) => idSet.has(String(l.id)));
+    const moved = sources.map((l) => ({ ...l, eaten_at: eatenAt, pending: true }));
+    const targetDay = toISODateLocal(new Date(eatenAt));
+    const days = new Set(sources.map((l) => toISODateLocal(new Date(l.eaten_at))));
+    days.add(targetDay);
+
+    const mutatorFor = (day, includeWeekStats) => (prev) => {
+        let next = prev;
+        for (const l of moved) next = removeOptimisticFoodLog(next, l.id);
+        if (day !== targetDay) return next;
+        const group = makeOptimisticFoodGroup(moved[0]);
+        group.logs = moved.slice();
+        recomputeFoodGroupTotals(group);
+        const out = { groups: [...((next && next.groups) || []), group] };
+        if (includeWeekStats || (next && Object.prototype.hasOwnProperty.call(next, 'weekStats'))) {
+            out.weekStats = next && next.weekStats != null ? next.weekStats : null;
+        }
+        return out;
+    };
+
+    const handles = [];
+    if (window.DataStore && typeof window.DataStore.applyOptimistic === 'function') {
+        for (const day of days) {
+            const dayKey = typeof todayFoodKey === 'function'
+                ? todayFoodKey(new Date(`${day}T00:00:00`))
+                : `food_${day}_day`;
+            handles.push(await window.DataStore.applyOptimistic(`food_${day}_v2`, mutatorFor(day, true), ['food']));
+            handles.push(await window.DataStore.applyOptimistic(dayKey, mutatorFor(day, false), ['food']));
+        }
+    }
+    const rollback = async () => {
+        for (const h of handles) { try { await h.rollback(); } catch (_) { /* best-effort */ } }
+    };
+
+    let res;
+    try {
+        res = await apiCall('/api/food/log/move', 'POST', { ids, eaten_at: eatenAt });
+    } catch (e) {
+        await rollback();
+        safeToast(`Failed to move: ${e.message}`, 'error');
+        return null;
+    }
+    if (!res) {
+        // apiCall already surfaced the error.
+        await rollback();
+        return null;
+    }
+
+    for (const h of handles) { try { await h.commit(null); } catch (_) { /* best-effort */ } }
+    await window.DataStore.invalidateTags(['food', 'gamification']);
+    safeToast(`Moved ${ids.length} item${ids.length === 1 ? '' : 's'} to ${formatFoodDateLabel(targetDay)}`);
+    loadFoodLogs();
+    if (window.AppStore && window.AppStore.get('currentTab') === 'today'
+        && typeof window.loadToday === 'function') {
+        window.loadToday();
+    }
+    return res;
+}
+
 window.FoodLog.load = loadFoodLogs;
+window.FoodLog.openMove = openFoodMoveSheet;
 window.FoodLog.save = saveFoodLog;
 window.FoodLog.delete = deleteFoodLog;
 window.FoodLog.openAdd = showAddFoodModal;
