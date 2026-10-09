@@ -1174,6 +1174,7 @@ function deleteFoodLog(id) {
         message: 'Entry deleted',
         optimistic: _foodLogDeleteOptimistic(id),
         remove: () => _deleteFoodLogApi(id),
+        replay: { fn: '_deleteFoodLogApi', arg: id },
     });
 }
 

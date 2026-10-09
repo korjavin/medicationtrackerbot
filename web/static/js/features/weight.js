@@ -1100,6 +1100,7 @@ function deleteWeightLog(id) {
         message: 'Weight deleted',
         optimistic: [{ key: 'weight', mutator: (prev) => _weightWithoutLog(prev, id), tags: ['weight'] }],
         remove: () => _deleteWeightApi(id),
+        replay: { fn: '_deleteWeightApi', arg: id },
     });
 }
 

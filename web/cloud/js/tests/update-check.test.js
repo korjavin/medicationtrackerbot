@@ -228,6 +228,23 @@ describe('showUpdateBanner', () => {
         expect(win.location.reload).not.toHaveBeenCalled();
     });
 
+    it('an open Undo window is flushed and its delete awaited before SKIP_WAITING (med-xso6.5)', async () => {
+        const { doc, win } = setup();
+        let finishDelete;
+        win.flushPendingDelete = vi.fn(() => new Promise((r) => { finishDelete = r; }));
+        const registration = { waiting: { postMessage: vi.fn() } };
+        showUpdateBanner({ doc, win, registration });
+
+        doc.getElementById('cloud-update-reload').click();
+        expect(win.flushPendingDelete).toHaveBeenCalledOnce();
+        await flush();
+        expect(registration.waiting.postMessage).not.toHaveBeenCalled(); // delete still in flight
+
+        finishDelete('deleted');
+        await flush();
+        expect(registration.waiting.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+    });
+
     it('with no waiting SW, Reload reloads directly (build-ID fallback path)', () => {
         const { doc, win } = setup();
         showUpdateBanner({ doc, win });

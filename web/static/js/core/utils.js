@@ -47,11 +47,16 @@ function safeToast(msg, type, opts) {
 // One Undo window at a time: a new delete flushes the previous one first, so
 // two whole-list snapshots of one key are never both open for rollback.
 //   opts.duration   — ms the Undo window stays open (default 5000)
+//   opts.replay     — { fn, arg }: a PENDING_DELETE_REPLAY function name + the
+//                     record id. Journaled in localStorage while the delete is
+//                     owed, so a tab killed mid-window (or mid-remove) still
+//                     deletes on the next boot (replayPendingDeletes).
 // Returns { undo(), flush(), done }: flush() deletes now; done resolves
 // 'deleted' | 'undone' | 'failed'.
 function deleteWithUndo(opts) {
     const o = opts || {};
     if (deleteWithUndo._active) deleteWithUndo._active.flush();
+    const journalId = o.replay ? _pendingDeletesAdd(o.replay) : null;
     const ds = window.DataStore;
     const optimistic = Array.isArray(o.optimistic) ? o.optimistic : [];
     const handlesReady = (async () => {
@@ -87,6 +92,7 @@ function deleteWithUndo(opts) {
         if (toast) toast.dismiss();
         running = (async () => {
             if (undo) {
+                _pendingDeletesDrop(journalId);
                 await settle('rollback');
                 return 'undone';
             }
@@ -100,6 +106,7 @@ function deleteWithUndo(opts) {
                 threw = true;
                 console.error('deleteWithUndo: delete failed', e);
             }
+            _pendingDeletesDrop(journalId);
             if (ok) {
                 await settle('commit');
                 return 'deleted';
@@ -128,6 +135,56 @@ function deleteWithUndo(opts) {
     const ctl = { undo: () => finish(true), flush: () => finish(false), done };
     deleteWithUndo._active = ctl;
     return ctl;
+}
+
+// Close the open Undo window now and wait for its delete — for programmatic
+// reloads (update banner, SW controllerchange) that would otherwise cut it.
+// Null when no window is open, so callers stay synchronous then.
+function flushPendingDelete() {
+    const a = deleteWithUndo._active;
+    return a ? a.flush() : null;
+}
+
+// The delete journal holds only a function name and a record id — never
+// record content (localStorage is outside the vault).
+const PENDING_DELETES_KEY = 'wg-pending-deletes';
+const PENDING_DELETE_REPLAY = ['_deleteBPApi', '_deleteWeightApi', '_deleteFoodLogApi',
+    '_deleteNoteApi', '_deleteWorkoutSessionApi', '_archiveMedById'];
+
+function _pendingDeletesRead() {
+    try {
+        const v = JSON.parse(localStorage.getItem(PENDING_DELETES_KEY) || '[]');
+        return Array.isArray(v) ? v : [];
+    } catch (_) { return []; }
+}
+
+function _pendingDeletesWrite(list) {
+    try {
+        if (list.length) localStorage.setItem(PENDING_DELETES_KEY, JSON.stringify(list));
+        else localStorage.removeItem(PENDING_DELETES_KEY);
+    } catch (_) { /* storage blocked: no journal, the in-page path still runs */ }
+}
+
+function _pendingDeletesAdd(replay) {
+    const id = Date.now() + '-' + Math.random().toString(36).slice(2);
+    _pendingDeletesWrite([..._pendingDeletesRead(), { id, fn: String(replay.fn), arg: replay.arg }]);
+    return id;
+}
+
+function _pendingDeletesDrop(id) {
+    if (id) _pendingDeletesWrite(_pendingDeletesRead().filter((e) => e && e.id !== id));
+}
+
+// Boot: run deletes a previous page owed but never finished. A replay that
+// already landed is a harmless repeat (delete/archive are idempotent).
+async function replayPendingDeletes() {
+    const owed = _pendingDeletesRead();
+    _pendingDeletesWrite([]);
+    for (const e of owed) {
+        const fn = e && PENDING_DELETE_REPLAY.includes(e.fn) ? window[e.fn] : null;
+        if (typeof fn !== 'function') continue;
+        try { await fn(e.arg); } catch (err) { console.error('replayPendingDeletes failed', e.fn, err); }
+    }
 }
 
 // opts (optional): { title, confirmLabel, cancelLabel, icon, destructive,

@@ -59,7 +59,8 @@ if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('controllerchange', () => {
         if (!hadController || reloading) return;
         reloading = true;
-        location.reload();
+        // Another tab's Reload can land here mid-Undo-window: send the delete first.
+        Promise.resolve(window.flushPendingDelete?.()).catch(() => {}).finally(() => location.reload());
     });
 }
 

@@ -85,6 +85,11 @@ export function renderUpdateBanner(doc, onReload, onDismiss) {
 // the dance. Only when update() finds NO new worker (the SW is already current,
 // only the page JS is stale) is a plain reload correct.
 async function activateAndReload(registration, win) {
+    // An open Undo window owes a delete; send it before the page goes away.
+    const owed = win.flushPendingDelete?.();
+    if (owed) {
+        try { await owed; } catch { /* the boot replay still has it */ }
+    }
     if (!registration) {
         win.location.reload();
         return;

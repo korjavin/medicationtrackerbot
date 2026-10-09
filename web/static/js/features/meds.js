@@ -1371,6 +1371,7 @@ async function deleteMed(id) {
             message: `${med.name} archived`,
             optimistic: [{ key: 'medications', mutator: (prev) => _medsArchived(prev, id), tags: ['medications'] }],
             remove: () => _archiveMedApi(med),
+            replay: { fn: '_archiveMedById', arg: id },
         });
     }
 }
@@ -1378,6 +1379,15 @@ async function deleteMed(id) {
 function _medsArchived(prev, id) {
     if (!Array.isArray(prev)) return prev;
     return prev.map((m) => (m && m.id === id ? { ...m, archived: true, _optimistic: true } : m));
+}
+
+// Boot replay of an archive the last page never sent: the journal keeps only
+// the id, so re-read the med (name/dosage stay inside the vault).
+async function _archiveMedById(id) {
+    const list = await apiCall('/api/medications?archived=true');
+    const med = Array.isArray(list) ? list.find((m) => m && m.id === id) : null;
+    if (!med || med.archived) return true;
+    return _archiveMedApi(med);
 }
 
 // The archive POST. Resolves true on success.

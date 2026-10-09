@@ -1097,6 +1097,7 @@ function deleteNote(id) {
         message: 'Note deleted',
         optimistic: [{ key: 'diary_notes', mutator: (prev) => _notesWithout(prev, id), tags: ['notes', 'health-notes'] }],
         remove: () => _deleteNoteApi(id),
+        replay: { fn: '_deleteNoteApi', arg: id },
     });
 }
 

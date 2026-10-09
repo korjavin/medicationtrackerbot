@@ -613,6 +613,7 @@ function deleteBPReading(id) {
         message: 'Reading deleted',
         optimistic: [{ key: 'bp', mutator: (prev) => _bpWithoutReading(prev, id), tags: ['bp'] }],
         remove: () => _deleteBPApi(id),
+        replay: { fn: '_deleteBPApi', arg: id },
     });
 }
 

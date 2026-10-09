@@ -267,6 +267,32 @@ describe('features/bp.js — row delete undoes from the toast (med-xso6.5)', () 
         expect((window.apiCall.mock.calls.filter(([, m]) => m === 'DELETE'))).toHaveLength(0);
     });
 
+    it('journals the owed delete (fn + id only) while the window is open; boot replay sends it', async () => {
+        const { window } = env;
+        installApiCache(window, {
+            bp: { readingsRes: [{ id: 1, systolic: 120, diastolic: 78, measured_at: '2026-05-10T08:00:00.000Z' }], goalRes: null, statsRes: null }
+        });
+        window.apiCall = vi.fn(async (_url, method) => (method === 'DELETE' ? { ok: true } : null));
+        window.loadBPReadings = vi.fn();
+        const journal = () => JSON.parse(window.localStorage.getItem('wg-pending-deletes') || '[]');
+
+        const ctl = window.deleteBPReading('1');
+        expect(journal().map(({ fn, arg }) => [fn, arg])).toEqual([['_deleteBPApi', '1']]);
+        ctl.undo();
+        await ctl.done;
+        expect(journal()).toEqual([]);
+
+        // A page killed inside the window leaves the entry; the next boot sends it.
+        // Unknown function names are never called.
+        window.localStorage.setItem('wg-pending-deletes', JSON.stringify([
+            { id: 'a', fn: '_deleteBPApi', arg: '1' },
+            { id: 'b', fn: 'alert', arg: 'x' },
+        ]));
+        await window.replayPendingDeletes();
+        expect(journal()).toEqual([]);
+        expect(window.apiCall.mock.calls.filter(([, m]) => m === 'DELETE')).toHaveLength(1);
+    });
+
     it('a second delete flushes the first: one Undo window, no snapshot resurrecting the other row', async () => {
         const { window } = env;
         const cache = installApiCache(window, {

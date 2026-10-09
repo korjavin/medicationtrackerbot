@@ -402,14 +402,18 @@ function deleteWorkoutSessionById(sessionId) {
                 : prev),
             tags: ['workout'],
         }],
-        remove: async () => {
-            const result = await apiCall(`/api/workout/sessions/delete?id=${sessionId}`, 'DELETE');
-            if (!result) return false;
-            await invalidateWorkoutCache();
-            loadWorkoutHistoryTab();
-            return true;
-        },
+        remove: () => _deleteWorkoutSessionApi(sessionId),
+        replay: { fn: '_deleteWorkoutSessionApi', arg: sessionId },
     });
+}
+
+// The session DELETE. Resolves true on success.
+async function _deleteWorkoutSessionApi(sessionId) {
+    const result = await apiCall(`/api/workout/sessions/delete?id=${sessionId}`, 'DELETE');
+    if (!result) return false;
+    await invalidateWorkoutCache();
+    loadWorkoutHistoryTab();
+    return true;
 }
 
 function _computeSessionDurationMinutes(session) {
