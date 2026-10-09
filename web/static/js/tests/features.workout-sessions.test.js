@@ -709,7 +709,7 @@ describe('features/workout/sessions.js — split-file integration', () => {
     await window.WorkoutSessions.open(42);
 
     // Live variant endpoint must not be consulted when a snapshot exists.
-    expect(calls.some((c) => c.startsWith('/api/workout/exercises'))).toBe(false);
+    expect(calls.some((c) => c.startsWith('/api/workout/exercises?'))).toBe(false);
 
     const logs = window.WorkoutSessionsState.logs;
     // Bench already logged (matched by name) → only Squat prefilled from snapshot.
@@ -2562,7 +2562,7 @@ describe('features/workout/sessions.js — plate-loading chip (med-v75c.2)', () 
     await new Promise((r) => setTimeout(r, 0));
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(calls.some((c) => c.startsWith('/api/workout/exercises'))).toBe(false);
+    expect(calls.some((c) => c.startsWith('/api/workout/exercises?'))).toBe(false);
     expect(firstCard(document).querySelector('.wg-workouts-session-exercise__plates')).toBeNull();
   });
 

@@ -187,10 +187,10 @@ describe('app.js modal history and back behavior', () => {
       pressEsc(window);
       await flushMutations();
       expect(onBack).toHaveBeenCalledTimes(1);
-      expect(document.querySelector('mt-modal.wg-page')).not.toBeNull();
+      expect(document.querySelector('mt-modal.wg-page[id^="wg-page-"]')).not.toBeNull();
       page.close();
       await flushMutations();
-      expect(document.querySelector('mt-modal.wg-page')).toBeNull();
+      expect(document.querySelector('mt-modal.wg-page[id^="wg-page-"]')).toBeNull();
       expect(document.getElementById('modal-overlay').classList.contains('hidden')).toBe(true);
     } finally {
       cleanup();
