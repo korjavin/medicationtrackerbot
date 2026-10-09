@@ -128,7 +128,7 @@ describe('cloud shim contract — food log flows (features/food/log.js over web/
         expect(updated).toMatchObject({ weight: 200, carbs: 30, protein: 1, calories: 124 });
 
         window.safeConfirm = vi.fn(async (_msg, cb) => { await cb(true); });
-        await window.deleteFoodLog(created.id);
+        await window.deleteFoodLog(created.id).flush();
 
         const groupedAfterDelete = await window.apiCall(`/api/food/log?date=${today}&days=1`);
         const stillThere = groupedAfterDelete.flatMap((g) => g.logs).find((l) => l.id === created.id);

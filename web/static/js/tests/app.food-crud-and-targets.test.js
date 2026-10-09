@@ -234,7 +234,7 @@ describe('app.js food CRUD, targets and period helpers', () => {
     }
   });
 
-  it('deleteFoodLog, setFoodStatsPeriod and shiftFoodDate handle confirm, errors and period stepping', async () => {
+  it('deleteFoodLog, setFoodStatsPeriod and shiftFoodDate handle undo, errors and period stepping', async () => {
     const { window, document, cleanup } = loadFrontendEnv();
 
     try {
@@ -242,20 +242,23 @@ describe('app.js food CRUD, targets and period helpers', () => {
       window.loadFoodLogs = vi.fn();
       window.safeAlert = vi.fn();
 
-      const confirmFalseSpy = vi.spyOn(window, 'safeConfirm').mockImplementation(async (_msg, cb) => { if (cb) await cb(false); return false; });
-      await window.deleteFoodLog(5);
+      // Row deletes never confirm (med-xso6.5): the DELETE waits for the
+      // Undo window, and Undo sends nothing.
+      const confirmSpy = vi.spyOn(window, 'safeConfirm');
+      const undone = window.deleteFoodLog(5);
       expect(window.apiCall).not.toHaveBeenCalled();
-      confirmFalseSpy.mockRestore();
+      expect(await undone.undo()).toBe('undone');
+      expect(window.apiCall).not.toHaveBeenCalled();
+      expect(confirmSpy).not.toHaveBeenCalled();
 
-      vi.spyOn(window, 'safeConfirm').mockImplementation(async (_msg, cb) => { if (cb) await cb(true); return true; });
-      await window.deleteFoodLog(6);
+      expect(await window.deleteFoodLog(6).flush()).toBe('deleted');
       expect(window.apiCall).toHaveBeenCalledWith('/api/food/log/6', 'DELETE');
       expect(window.loadFoodLogs).toHaveBeenCalled();
 
       // apiCall returns null (error handled internally by apiCall) → loadFoodLogs not called
       window.apiCall = vi.fn().mockResolvedValue(null);
       window.loadFoodLogs = vi.fn();
-      await window.deleteFoodLog(7);
+      expect(await window.deleteFoodLog(7).flush()).toBe('failed');
       expect(window.loadFoodLogs).not.toHaveBeenCalled();
 
       window.loadFoodLogs = vi.fn();

@@ -228,3 +228,42 @@ describe('features/bp.js — optimistic write conversion', () => {
         }
     });
 });
+
+describe('features/bp.js — row delete undoes from the toast (med-xso6.5)', () => {
+    let env;
+
+    beforeEach(() => {
+        env = loadFrontendEnv({ withSync: true });
+    });
+
+    afterEach(() => {
+        try { env.window.localStorage.clear(); } catch (_) { /* ignore */ }
+        env.cleanup();
+        env = null;
+    });
+
+    it('deleteBPReading hides the reading at once; Undo restores it and sends no DELETE', async () => {
+        const { window, document } = env;
+        const cache = installApiCache(window, {
+            bp: {
+                readingsRes: [
+                    { id: 1, systolic: 120, diastolic: 78, measured_at: '2026-05-10T08:00:00.000Z' },
+                    { id: 2, systolic: 128, diastolic: 82, measured_at: '2026-05-12T08:00:00.000Z' }
+                ],
+                goalRes: null,
+                statsRes: null
+            }
+        });
+        window.apiCall = vi.fn(async (_url, method) => (method === 'DELETE' ? { ok: true } : null));
+        window.loadBPReadings = vi.fn();
+
+        const ctl = window.deleteBPReading('1');
+        await vi.waitFor(() => expect(cache.get('bp').readingsRes.map((r) => r.id)).toEqual([2]));
+        expect(document.querySelector('.wg-toasts .wg-toast__text').textContent).toBe('Reading deleted');
+        document.querySelector('.wg-toasts .wg-toast__undo').click();
+
+        expect(await ctl.done).toBe('undone');
+        expect(cache.get('bp').readingsRes.map((r) => r.id)).toEqual([1, 2]);
+        expect((window.apiCall.mock.calls.filter(([, m]) => m === 'DELETE'))).toHaveLength(0);
+    });
+});

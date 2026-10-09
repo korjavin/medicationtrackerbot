@@ -1078,11 +1078,25 @@ function editWeightLog(log) {
     }
 }
 
-async function deleteWeightLog(id) {
-    const confirmMsg = 'Delete this weight log?';
+// Drop one log from the cached `weight` payload. Keeps goalRes/lineRes
+// (the post-delete loadWeightLogs refetch recomputes them).
+function _weightWithoutLog(prev, id) {
+    if (!prev || typeof prev !== 'object') return prev;
+    const numericId = parseInt(id, 10);
+    const prevLogs = Array.isArray(prev.logsRes) ? prev.logsRes : [];
+    return {
+        logsRes: prevLogs.filter((l) => l && l.id !== numericId && l.id !== id),
+        goalRes: prev.goalRes || null,
+        lineRes: prev.lineRes || null
+    };
+}
 
-    await safeConfirm(confirmMsg, async (ok) => {
-        if (ok) await _deleteWeightApi(id);
+// Delete a weight log: gone at once, Undo from the toast (kit rule 3).
+function deleteWeightLog(id) {
+    return deleteWithUndo({
+        message: 'Weight deleted',
+        optimistic: [{ key: 'weight', mutator: (prev) => _weightWithoutLog(prev, id), tags: ['weight'] }],
+        remove: () => _deleteWeightApi(id),
     });
 }
 
@@ -1091,26 +1105,16 @@ async function _deleteWeightApi(id) {
     // just re-render from the cache.
     if (typeof id === 'string' && id.startsWith('local_')) {
         loadWeightLogs();
-        return;
+        return true;
     }
 
     // Optimistic: filter the log out of the cached `weight` payload before
     // awaiting the DELETE so the list + Today tile update immediately. The
     // mutator preserves `goalRes` and `lineRes` (recomputed by the post-commit loadWeightLogs
     // refetch).
-    const numericId = parseInt(id, 10);
     let handle = null;
     if (window.DataStore && typeof window.DataStore.applyOptimistic === 'function') {
-        handle = await window.DataStore.applyOptimistic('weight', (prev) => {
-            if (!prev || typeof prev !== 'object') return prev;
-            const prevLogs = Array.isArray(prev.logsRes) ? prev.logsRes : [];
-            const filtered = prevLogs.filter((l) => l && l.id !== numericId && l.id !== id);
-            return {
-                logsRes: filtered,
-                goalRes: prev.goalRes || null,
-                lineRes: prev.lineRes || null
-            };
-        }, ['weight']);
+        handle = await window.DataStore.applyOptimistic('weight', (prev) => _weightWithoutLog(prev, id), ['weight']);
     }
 
     let res;
@@ -1123,7 +1127,7 @@ async function _deleteWeightApi(id) {
 
     if (!res) {
         if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
-        return;
+        return false;
     }
 
     if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
@@ -1132,4 +1136,5 @@ async function _deleteWeightApi(id) {
         await window.DataStore.clearCached('weight');
     }
     loadWeightLogs();
+    return true;
 }

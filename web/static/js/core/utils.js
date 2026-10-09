@@ -21,14 +21,108 @@ function safeAlert(msg, opts) {
 // safeAlert when no toast surface exists (bd med-omvw — success/info
 // messages should not pop blocking alerts). Like safeAlert it resolves
 // window.SyncManager lazily at call time, so utils.js keeps no dependency
-// on sync.js load order. type is 'info' (default) or 'error'.
-function safeToast(msg, type) {
+// on sync.js load order. type is 'info' (default), 'success' or 'error';
+// opts are SyncManager.showToast's ({ action: { label, onClick }, detail,
+// duration, … }). Returns the toast controller ({ root, dismiss }), or null
+// on the safeAlert fallback.
+function safeToast(msg, type, opts) {
     const sm = window.SyncManager;
     if (sm && typeof sm.showToast === 'function') {
-        sm.showToast(msg, type || 'info');
-        return;
+        return sm.showToast(msg, type || 'info', opts) || null;
     }
     safeAlert(msg);
+    return null;
+}
+
+// deleteWithUndo — the one row-delete path (kit rule 3: a row delete never
+// asks first; it undoes from a toast). The row leaves the cached payloads at
+// once through DataStore.applyOptimistic; the server delete runs only when
+// the Undo window closes (or the page is being hidden, so closing the app
+// still deletes). Undo rolls the snapshots back and sends nothing.
+//   opts.message    — toast text ("Reading deleted")
+//   opts.optimistic — [{ key, mutator, tags }] applied via applyOptimistic
+//   opts.remove()   — performs the delete; resolve truthy on success. Falsy
+//                     or a throw rolls the snapshots back (the row returns).
+// ponytail: overlapping deletes on one key restore each other's snapshots on
+// Undo; the later delete's own reload settles it. Per-row snapshots if it shows.
+//   opts.duration   — ms the Undo window stays open (default 5000)
+// Returns { undo(), flush(), done }: flush() deletes now; done resolves
+// 'deleted' | 'undone' | 'failed'.
+function deleteWithUndo(opts) {
+    const o = opts || {};
+    const ds = window.DataStore;
+    const optimistic = Array.isArray(o.optimistic) ? o.optimistic : [];
+    const handlesReady = (async () => {
+        const hs = [];
+        if (!ds || typeof ds.applyOptimistic !== 'function') return hs;
+        for (const x of optimistic) {
+            try { hs.push(await ds.applyOptimistic(x.key, x.mutator, x.tags || [])); }
+            catch (e) { console.error('deleteWithUndo: optimistic remove failed', e); }
+        }
+        return hs;
+    })();
+    const settle = async (method) => {
+        for (const h of await handlesReady) {
+            try { await h[method](null); } catch (_) { /* best-effort */ }
+        }
+    };
+
+    let resolveDone;
+    const done = new Promise((r) => { resolveDone = r; });
+    let running = null;
+    let toast = null;
+    let timer = null;
+    // Leaving the app closes the Undo window: delete now rather than lose it.
+    const onHide = (e) => {
+        if (e.type === 'pagehide' || document.visibilityState === 'hidden') finish(false);
+    };
+    function finish(undo) {
+        if (running) return running;
+        clearTimeout(timer);
+        document.removeEventListener('visibilitychange', onHide);
+        window.removeEventListener('pagehide', onHide);
+        if (toast) toast.dismiss();
+        running = (async () => {
+            if (undo) {
+                await settle('rollback');
+                return 'undone';
+            }
+            // The handles stay pending through remove(): DataStore skips GETs
+            // for those keys meanwhile, so a reload inside remove() can't
+            // repaint the pre-delete row. Commit's refresh then reads the truth.
+            await handlesReady;
+            let ok = false;
+            let threw = false;
+            try { ok = !!(await o.remove()); } catch (e) {
+                threw = true;
+                console.error('deleteWithUndo: delete failed', e);
+            }
+            if (ok) {
+                await settle('commit');
+                return 'deleted';
+            }
+            await settle('rollback');
+            // A falsy result means apiCall already reported the failure.
+            if (threw) safeToast("Couldn't delete. It's back in the list.", 'error');
+            return 'failed';
+        })();
+        running.then(resolveDone);
+        return running;
+    }
+
+    // No toast surface (isolated shells) means no Undo; the timer still deletes.
+    const sm = window.SyncManager;
+    if (sm && typeof sm.showToast === 'function') {
+        toast = sm.showToast(o.message || 'Deleted', 'info', {
+            action: { label: 'Undo', onClick: () => finish(true) },
+            duration: 0,
+        }) || null;
+    }
+    timer = setTimeout(() => finish(false), typeof o.duration === 'number' ? o.duration : 5000);
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', onHide);
+
+    return { undo: () => finish(true), flush: () => finish(false), done };
 }
 
 // opts (optional): { title, confirmLabel, cancelLabel } — custom wording for

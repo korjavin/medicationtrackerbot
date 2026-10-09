@@ -393,15 +393,25 @@ function _buildSessionCard(s) {
     return card;
 }
 
-async function deleteWorkoutSessionById(sessionId) {
-    if (!sessionId) return;
-    await safeConfirm('Delete this workout session?', async (ok) => {
-        if (!ok) return;
-        const result = await apiCall(`/api/workout/sessions/delete?id=${sessionId}`, 'DELETE');
-        if (result || result === true) {
+// Delete a history session: gone at once, Undo from the toast (kit rule 3).
+function deleteWorkoutSessionById(sessionId) {
+    if (!sessionId) return null;
+    return deleteWithUndo({
+        message: 'Workout deleted',
+        optimistic: [{
+            key: 'workout_history',
+            mutator: (prev) => (prev && Array.isArray(prev.sessions)
+                ? { ...prev, sessions: prev.sessions.filter((x) => !(x && String(x.id) === String(sessionId))) }
+                : prev),
+            tags: ['workout'],
+        }],
+        remove: async () => {
+            const result = await apiCall(`/api/workout/sessions/delete?id=${sessionId}`, 'DELETE');
+            if (!result) return false;
             await invalidateWorkoutCache();
             loadWorkoutHistoryTab();
-        }
+            return true;
+        },
     });
 }
 

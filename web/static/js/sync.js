@@ -221,25 +221,81 @@ const SyncManager = {
         statusBar.classList.remove('wg-settings-hidden');
     },
 
-    // Show toast notification
-    showToast(message, type = 'info') {
+    // The one toast surface (kit .wg-toast, med-xso6.5). Toasts stack in a
+    // single .wg-toasts container docked above the tab bar. type: 'info'
+    // (default) | 'success' | 'error'. opts (optional):
+    //   detail    — second line (<small>)
+    //   action    — { label, onClick } button (e.g. Undo); clicking dismisses
+    //   actions   — several of those (e.g. Undo + Retry)
+    //   duration  — ms before auto-dismiss; 0 keeps it up. Default 3s, 5s with an action
+    //   onDismiss — called once when the toast leaves (timeout, action, dismiss())
+    //   className — extra class on the toast root (a JS hook for callers)
+    // Returns { root, dismiss }.
+    showToast(message, type = 'info', opts = {}) {
+        const o = opts || {};
+        let stack = document.querySelector('body > .wg-toasts');
+        if (!stack) {
+            stack = document.createElement('div');
+            stack.className = 'wg-toasts';
+            stack.setAttribute('aria-live', 'polite');
+            document.body.appendChild(stack);
+        }
+
+        const mod = { success: 'ok', error: 'danger' }[type];
         const toast = document.createElement('div');
-        toast.className = `sync-toast ${type}`;
-        toast.textContent = message;
+        toast.className = 'wg-toast' + (mod ? ` wg-toast--${mod}` : '') + (o.className ? ` ${o.className}` : '');
+        toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
+        if (mod && window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
+            const ico = document.createElement('i');
+            ico.className = 'wg-ico';
+            ico.appendChild(window.WGIcons.iconSvg(mod === 'ok' ? 'check' : 'alert'));
+            toast.appendChild(ico);
+        }
+        const text = document.createElement('span');
+        text.className = 'wg-toast__text';
+        text.textContent = message;
+        if (o.detail) {
+            const small = document.createElement('small');
+            small.textContent = o.detail;
+            text.appendChild(small);
+        }
+        toast.appendChild(text);
 
-        // Remove existing toasts
-        document.querySelectorAll('.sync-toast').forEach(t => t.remove());
+        let timer = null;
+        let gone = false;
+        const dismiss = () => {
+            if (gone) return;
+            gone = true;
+            clearTimeout(timer);
+            toast.remove();
+            if (!stack.children.length) stack.remove();
+            if (typeof o.onDismiss === 'function') o.onDismiss();
+        };
 
-        document.body.appendChild(toast);
+        const actions = o.actions || (o.action ? [o.action] : []);
+        for (const a of actions) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'wg-toast__undo';
+            btn.textContent = a.label;
+            btn.addEventListener('click', () => {
+                dismiss();
+                if (typeof a.onClick === 'function') a.onClick();
+            });
+            toast.appendChild(btn);
+        }
 
-        // Trigger animation
-        setTimeout(() => toast.classList.add('show'), 10);
+        stack.appendChild(toast);
+        // ponytail: cap the stack at 3; the oldest goes first (its onDismiss still fires).
+        while (stack.children.length > 3) {
+            const oldest = stack.firstElementChild;
+            if (oldest && oldest._wgDismiss) oldest._wgDismiss(); else if (oldest) oldest.remove();
+        }
+        toast._wgDismiss = dismiss;
 
-        // Remove after 3 seconds
-        setTimeout(() => {
-            toast.classList.remove('show');
-            setTimeout(() => toast.remove(), 300);
-        }, 3000);
+        const duration = typeof o.duration === 'number' ? o.duration : (actions.length ? 5000 : 3000);
+        if (duration > 0) timer = setTimeout(dismiss, duration);
+        return { root: toast, dismiss };
     }
 };
 

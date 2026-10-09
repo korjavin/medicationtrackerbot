@@ -545,7 +545,8 @@ describe('features/meds.js + app.js — optimistic write conversion', () => {
             return null;
         });
 
-        const handlerDone = window.deleteMed(5);
+        // Archive is undoable (med-xso6.5): flush() closes the Undo window now.
+        const handlerDone = window.deleteMed(5).then((ctl) => ctl.flush());
         await postCalled;
 
         const meds = cache.get('medications');
@@ -606,11 +607,48 @@ describe('features/meds.js + app.js — optimistic write conversion', () => {
         window.safeAlert = vi.fn();
         window.apiCall = vi.fn(async () => null);
 
-        await window.deleteMed(5);
+        await window.deleteMed(5).then((ctl) => ctl.flush());
 
         const meds = cache.get('medications');
         if (meds) {
             expect(meds[0].archived).toBe(false);
         }
+    });
+});
+
+describe('features/meds.js — row delete undoes from the toast (med-xso6.5)', () => {
+    let env;
+
+    beforeEach(() => {
+        env = loadFrontendEnv({ withSync: true });
+    });
+
+    afterEach(() => {
+        try { env.window.localStorage.clear(); } catch (_) { /* ignore */ }
+        env.cleanup();
+        env = null;
+    });
+
+    it('deleteMed (archive) moves the med at once; Undo restores it and sends no POST', async () => {
+        const { window, document } = env;
+        const cache = installApiCache(window, {
+            medications: [
+                { id: 5, name: 'Med', dosage: '5mg', schedule: '{"type":"as_needed"}', archived: false, supplement: false }
+            ]
+        });
+        window.medications = [...cache.get('medications')];
+        window.safeConfirm = vi.fn();
+        window.loadMeds = vi.fn();
+        window.apiCall = vi.fn(async (_url, method) => (method === 'POST' ? { ok: true } : null));
+
+        const ctl = await window.deleteMed(5);
+        await vi.waitFor(() => expect(cache.get('medications')[0].archived).toBe(true));
+        expect(document.querySelector('.wg-toasts .wg-toast__text').textContent).toBe('Med archived');
+        document.querySelector('.wg-toasts .wg-toast__undo').click();
+
+        expect(await ctl.done).toBe('undone');
+        expect(cache.get('medications')[0].archived).toBe(false);
+        expect(window.apiCall.mock.calls.filter(([, m]) => m === 'POST')).toHaveLength(0);
+        expect(window.safeConfirm).not.toHaveBeenCalled();
     });
 });
