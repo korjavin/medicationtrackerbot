@@ -448,6 +448,15 @@
                 <div id="health-overview-content" class="hidden">
                     <!-- Injected dynamically via app.js -->
                 </div>
+                <!-- Cross-link to Settings → Backup & import (med-xso6.24);
+                     health.js bindMiBandImportRow. -->
+                <div class="wg-list wg-health-import">
+                    <button type="button" class="wg-row" id="health-import-miband">
+                        <span class="wg-row__lead"><i class="wg-ico" data-icon="download"></i></span>
+                        <span class="wg-row__body"><span class="wg-row__title">Import Mi Band backup</span><span class="wg-row__meta">.nxk · Settings → Backup &amp; import</span></span>
+                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                    </button>
+                </div>
             </div>
 
             <div id="health-notes-tab" class="health-tab-content">
@@ -895,115 +904,138 @@
             </section>
             </div>
 
-            <!-- AI & integrations: moved unchanged; the page itself is med-xso6.26.
-                 Its PATCH semantics stay with integrations.js (an absent or
-                 emptied field can clear a saved value). -->
+            <!-- AI & integrations (med-xso6.26, kit S1 connected group): one
+                 .wg-section per provider and one page-bar Save
+                 (features/settings.js openSettingsPage → SettingsIntegrations.save).
+                 Every FIELD_IDS input in integrations.js must stay in the DOM:
+                 the PATCH reads them all, and an absent input sends '' (= clear). -->
             <div class="wg-settings-page" data-settings-page="integrations">
 
-            <section id="settings-integrations" class="wg-card wg-settings-section wg-settings-integrations">
-                <h3 class="wg-settings-section__title">Integrations</h3>
-                <p class="wg-settings-section__desc">Provider credentials for AI, food database, and voice agent. Stored locally; existing keys appear as <span class="wg-mono-display">***</span> and stay unchanged unless you re-enter them. Empty a field to clear a saved value.</p>
+            <section id="settings-integrations" class="wg-settings-integrations">
+                <p class="wg-hint">Stored in your vault. Saved keys show as <span class="wg-mono-display">***</span> and stay unchanged unless you re-enter them. Empty a field to clear a saved value.</p>
 
-                <div class="wg-settings-integrations__group">
-                    <h4 class="wg-settings-integrations__group-title wg-mono-display">OpenAI</h4>
-                    <div class="wg-settings-integrations__field">
-                        <label for="integrations-openai-api-key" class="wg-settings-integrations__label">API Key</label>
-                        <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
-                            <input type="password" id="integrations-openai-api-key" class="wg-settings-integrations__input" autocomplete="off" placeholder="sk-...">
+                <section class="wg-section">
+                    <div class="wg-section__head"><span class="wg-eyebrow">OpenAI</span></div>
+                    <div class="wg-card wg-vstack">
+                        <div class="wg-field">
+                            <label for="integrations-openai-api-key" class="wg-label">API key</label>
+                            <div class="wg-code wg-secret">
+                                <input type="password" id="integrations-openai-api-key" class="wg-secret__input" autocomplete="off" placeholder="sk-...">
+                                <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" data-secret-reveal aria-label="Show key" aria-pressed="false"><i class="wg-ico" data-icon="eye"></i></button>
+                                <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" data-secret-copy aria-label="Copy key"><i class="wg-ico" data-icon="copy"></i></button>
+                            </div>
+                            <p id="integrations-openai-trial-hint" class="wg-hint" hidden>Trial key active (rate-limited). Add your own key to remove limits.</p>
                         </div>
-                        <p id="integrations-openai-trial-hint" class="wg-settings-integrations__note" hidden>Trial key active (rate-limited). Add your own key to remove limits.</p>
-                    </div>
-                    <div class="wg-settings-integrations__field">
-                        <label for="integrations-openai-url" class="wg-settings-integrations__label">API URL</label>
-                        <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
-                            <input type="text" id="integrations-openai-url" class="wg-settings-integrations__input" placeholder="https://api.openai.com/v1">
+                        <div class="wg-field">
+                            <label for="integrations-openai-url" class="wg-label">API URL</label>
+                            <input type="text" id="integrations-openai-url" class="wg-input" placeholder="https://api.openai.com/v1">
                         </div>
-                    </div>
-                    <div class="wg-settings-integrations__field">
-                        <label for="integrations-openai-model" class="wg-settings-integrations__label">Model</label>
-                        <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
-                            <input type="text" id="integrations-openai-model" class="wg-settings-integrations__input" placeholder="gpt-6-luna" list="integrations-openai-model-options" autocomplete="off">
+                        <div class="wg-field">
+                            <label for="integrations-openai-model" class="wg-label">Model</label>
+                            <!-- Free text: any model id is accepted. Choose opens a
+                                 choice list fetched on demand from the SAVED provider
+                                 (bd med-byom) — never on load or keystroke. The
+                                 datalist only stores that list; no input points at it,
+                                 so no native dropdown shows. -->
+                            <div class="wg-hstack">
+                                <input type="text" id="integrations-openai-model" class="wg-input" placeholder="gpt-6-luna" autocomplete="off">
+                                <button type="button" id="integrations-openai-model-load" class="wg-btn wg-btn--sm">Choose</button>
+                            </div>
+                            <datalist id="integrations-openai-model-options"></datalist>
+                            <p id="integrations-openai-model-note" class="wg-hint" hidden></p>
                         </div>
-                        <!-- Native <datalist>: the field stays a plain text input that
-                             accepts anything; the list is only a dropdown of suggestions
-                             the browser renders for free. Populated on demand by the
-                             button below (bd med-byom) — never on load, never on keystroke. -->
-                        <datalist id="integrations-openai-model-options"></datalist>
-                        <button type="button" id="integrations-openai-model-load" class="wg-gloss">Load models</button>
-                        <p id="integrations-openai-model-note" class="wg-settings-integrations__note" hidden></p>
+                        <details class="wg-settings-integrations__details">
+                            <summary class="wg-settings-integrations__summary">Vision overrides (optional)</summary>
+                            <div class="wg-vstack">
+                                <div class="wg-field">
+                                    <label for="integrations-openai-vision-api-key" class="wg-label">Vision API key</label>
+                                    <div class="wg-code wg-secret">
+                                        <input type="password" id="integrations-openai-vision-api-key" class="wg-secret__input" autocomplete="off">
+                                        <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" data-secret-reveal aria-label="Show key" aria-pressed="false"><i class="wg-ico" data-icon="eye"></i></button>
+                                        <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" data-secret-copy aria-label="Copy key"><i class="wg-ico" data-icon="copy"></i></button>
+                                    </div>
+                                </div>
+                                <div class="wg-field">
+                                    <label for="integrations-openai-vision-url" class="wg-label">Vision URL</label>
+                                    <input type="text" id="integrations-openai-vision-url" class="wg-input">
+                                </div>
+                                <div class="wg-field">
+                                    <label for="integrations-openai-vision-model" class="wg-label">Vision model</label>
+                                    <!-- Independent list: the vision overrides can point at a
+                                         different provider, so its choices come from its own
+                                         /models call (falling back to the text creds the same
+                                         way the AI client does). -->
+                                    <div class="wg-hstack">
+                                        <input type="text" id="integrations-openai-vision-model" class="wg-input" autocomplete="off">
+                                        <button type="button" id="integrations-openai-vision-model-load" class="wg-btn wg-btn--sm">Choose</button>
+                                    </div>
+                                    <datalist id="integrations-openai-vision-model-options"></datalist>
+                                    <p id="integrations-openai-vision-model-note" class="wg-hint" hidden></p>
+                                </div>
+                            </div>
+                        </details>
                     </div>
-                    <details class="wg-settings-integrations__details">
-                        <summary class="wg-settings-integrations__summary">Vision overrides (optional)</summary>
-                        <div class="wg-settings-integrations__field">
-                            <label for="integrations-openai-vision-api-key" class="wg-settings-integrations__label">Vision API Key</label>
-                            <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
-                                <input type="password" id="integrations-openai-vision-api-key" class="wg-settings-integrations__input" autocomplete="off">
+                </section>
+
+                <section class="wg-section">
+                    <div class="wg-section__head"><span class="wg-eyebrow">Food database</span></div>
+                    <div class="wg-card wg-vstack">
+                        <p class="wg-hint">Used for barcode scanning and food info. Leave it empty to use our default database; your own server must speak the FastFoodDB API.</p>
+                        <a href="https://github.com/korjavin/fastfooddb" target="_blank" rel="noopener noreferrer" class="wg-link">About the FastFoodDB API<i class="wg-ico wg-ico--sm" data-icon="chev-r"></i></a>
+                        <div class="wg-field">
+                            <label for="integrations-food-api-key" class="wg-label">API key</label>
+                            <div class="wg-code wg-secret">
+                                <input type="password" id="integrations-food-api-key" class="wg-secret__input" autocomplete="off">
+                                <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" data-secret-reveal aria-label="Show key" aria-pressed="false"><i class="wg-ico" data-icon="eye"></i></button>
+                                <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" data-secret-copy aria-label="Copy key"><i class="wg-ico" data-icon="copy"></i></button>
                             </div>
                         </div>
-                        <div class="wg-settings-integrations__field">
-                            <label for="integrations-openai-vision-url" class="wg-settings-integrations__label">Vision URL</label>
-                            <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
-                                <input type="text" id="integrations-openai-vision-url" class="wg-settings-integrations__input">
+                        <div class="wg-field">
+                            <label for="integrations-food-url" class="wg-label">API URL</label>
+                            <input type="text" id="integrations-food-url" class="wg-input" placeholder="https://food.example.com">
+                            <p class="wg-hint">Full base URL of your food database server. Leave empty to use the default.</p>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="wg-section">
+                    <div class="wg-section__head"><span class="wg-eyebrow">ElevenLabs voice agent</span></div>
+                    <div class="wg-card wg-vstack">
+                        <div class="wg-field">
+                            <label for="integrations-elevenlabs-api-key" class="wg-label">API key</label>
+                            <div class="wg-code wg-secret">
+                                <input type="password" id="integrations-elevenlabs-api-key" class="wg-secret__input" autocomplete="off">
+                                <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" data-secret-reveal aria-label="Show key" aria-pressed="false"><i class="wg-ico" data-icon="eye"></i></button>
+                                <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" data-secret-copy aria-label="Copy key"><i class="wg-ico" data-icon="copy"></i></button>
                             </div>
+                            <p id="integrations-elevenlabs-trial-hint" class="wg-hint" hidden>Trial key active (rate-limited). Add your own key to remove limits.</p>
+                            <p class="wg-hint">Add your key — we set up the voice agent for you.</p>
                         </div>
-                        <div class="wg-settings-integrations__field">
-                            <label for="integrations-openai-vision-model" class="wg-settings-integrations__label">Vision Model</label>
-                            <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
-                                <input type="text" id="integrations-openai-vision-model" class="wg-settings-integrations__input" list="integrations-openai-vision-model-options" autocomplete="off">
-                            </div>
-                            <!-- Independent list: the vision overrides can point at a
-                                 different provider entirely, so its suggestions come from
-                                 its own /models call (falling back to the text creds the
-                                 same way the AI client does). -->
-                            <datalist id="integrations-openai-vision-model-options"></datalist>
-                            <button type="button" id="integrations-openai-vision-model-load" class="wg-gloss">Load models</button>
-                            <p id="integrations-openai-vision-model-note" class="wg-settings-integrations__note" hidden></p>
+                        <div class="wg-field">
+                            <label for="integrations-elevenlabs-agent-id" class="wg-label">Agent ID · optional</label>
+                            <input type="text" id="integrations-elevenlabs-agent-id" class="wg-input">
+                            <p class="wg-hint">Leave blank and the app creates the agent for you.</p>
                         </div>
-                    </details>
+                    </div>
+                </section>
+
+                <!-- Telegram is its own page. The row shows once telegram.js has
+                     rendered (Telegram enabled) — integrations.js syncTelegramRow. -->
+                <div id="integrations-telegram-row" class="wg-list" hidden>
+                    <button type="button" class="wg-setting" data-settings-open="telegram">
+                        <span class="wg-row__lead"><i class="wg-ico" data-icon="message"></i></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">Telegram</span><span class="wg-setting__desc" data-settings-summary="telegram"></span></span>
+                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                    </button>
                 </div>
-
-                <div class="wg-settings-integrations__group">
-                    <h4 class="wg-settings-integrations__group-title wg-mono-display">Food Database</h4>
-                    <p class="wg-settings-integrations__note">Used for barcode scanning and food info. If empty, we provide our own default database. API must match FastFoodDB format (<a href="https://github.com/korjavin/fastfooddb" target="_blank" rel="noopener noreferrer" class="wg-link">more info</a>).</p>
-                    <div class="wg-settings-integrations__field">
-                        <label for="integrations-food-api-key" class="wg-settings-integrations__label">API Key</label>
-                        <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
-                            <input type="password" id="integrations-food-api-key" class="wg-settings-integrations__input" autocomplete="off">
-                        </div>
-                    </div>
-                    <div class="wg-settings-integrations__field">
-                        <label for="integrations-food-url" class="wg-settings-integrations__label">API URL</label>
-                        <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
-                            <input type="text" id="integrations-food-url" class="wg-settings-integrations__input" placeholder="https://food.example.com">
-                        </div>
-                        <p class="wg-settings-integrations__note">Full base URL of your food database server. Leave empty to use the default.</p>
-                    </div>
-                </div>
-
-                <div class="wg-settings-integrations__group">
-                    <h4 class="wg-settings-integrations__group-title wg-mono-display">ElevenLabs Voice Agent</h4>
-                    <div class="wg-settings-integrations__field">
-                        <label for="integrations-elevenlabs-api-key" class="wg-settings-integrations__label">API Key</label>
-                        <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
-                            <input type="password" id="integrations-elevenlabs-api-key" class="wg-settings-integrations__input" autocomplete="off">
-                        </div>
-                        <p id="integrations-elevenlabs-trial-hint" class="wg-settings-integrations__note" hidden>Trial key active (rate-limited). Add your own key to remove limits.</p>
-                        <p class="wg-settings-integrations__note">Add your key — we set up the voice agent for you.</p>
-                    </div>
-                    <div class="wg-settings-integrations__field">
-                        <label for="integrations-elevenlabs-agent-id" class="wg-settings-integrations__label">Agent ID (optional)</label>
-                        <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
-                            <input type="text" id="integrations-elevenlabs-agent-id" class="wg-settings-integrations__input">
-                        </div>
-                        <p class="wg-settings-integrations__note">Leave blank and the app creates the agent for you.</p>
-                    </div>
-                </div>
-
-                <div id="telegram-settings-mount"></div>
-
-                <button id="save-integrations-btn" type="button" class="wg-gloss wg-gloss--sun wg-settings-save-btn">Save Integrations</button>
             </section>
 
+            </div>
+
+            <div class="wg-settings-page" data-settings-page="telegram" data-settings-parent="AI &amp; integrations">
+                <section class="wg-settings-telegram">
+                    <div id="telegram-settings-mount"></div>
+                </section>
             </div>
 
             <!-- Devices & connectors: moved unchanged; the page is med-xso6.25. -->
@@ -1062,79 +1094,80 @@
 
             </div>
 
-            <!-- Backup & import: moved unchanged; the page is med-xso6.24. -->
+            <!-- Backup & import (med-xso6.24, kit S3). File inputs stay in the
+                 DOM but hidden; a .wg-file picker shows their empty/filled state
+                 (importexport.js bindFilePicker). Replace and Reset go through the
+                 kit dialog (typed confirm for Replace). -->
             <div class="wg-settings-page" data-settings-page="backup">
 
-            <section id="settings-importexport" class="wg-card wg-settings-section wg-settings-importexport">
-                <h3 class="wg-settings-section__title">Import / Export</h3>
-                <p class="wg-settings-section__desc">Download all your data as one file, or restore from a backup. Importing replaces everything currently stored.</p>
-
-                <div class="wg-settings-integrations__group">
-                    <h4 class="wg-settings-integrations__group-title wg-mono-display">Export</h4>
-                    <div class="wg-settings-integrations__field">
-                        <label class="checkbox-label" for="importexport-include-secrets">
-                            <input type="checkbox" id="importexport-include-secrets" checked>
-                            Include API keys and external provider settings
-                        </label>
-                        <p class="wg-settings-integrations__note">The backup will contain secrets — encrypt it with a passphrase, or uncheck to leave them out.</p>
-                    </div>
-                    <div class="wg-settings-integrations__field">
-                        <label for="importexport-export-passphrase" class="wg-settings-integrations__label">Passphrase (optional)</label>
-                        <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
-                            <input type="password" id="importexport-export-passphrase" class="wg-settings-integrations__input" autocomplete="off" placeholder="Encrypt the backup">
+            <section id="settings-importexport" class="wg-settings-importexport">
+                <section class="wg-section">
+                    <div class="wg-section__head"><span class="wg-eyebrow">Export</span></div>
+                    <div class="wg-card wg-vstack">
+                        <div class="wg-setting wg-setting--bare">
+                            <span class="wg-setting__body"><span class="wg-setting__title">Include API keys</span><span class="wg-setting__desc">Provider keys and access tokens. Set a passphrase if this is on.</span></span>
+                            <label class="wg-toggle"><input type="checkbox" class="wg-toggle__input" id="importexport-include-secrets" aria-label="Include API keys" checked></label>
                         </div>
-                        <p id="importexport-passphrase-nudge" class="wg-settings-integrations__note" hidden>The backup contains your provider API keys — consider a passphrase.</p>
-                    </div>
-                    <button id="importexport-export-btn" type="button" class="wg-gloss wg-gloss--sun wg-settings-save-btn">Download backup</button>
-                </div>
-
-                <div class="wg-settings-integrations__group">
-                    <h4 class="wg-settings-integrations__group-title wg-mono-display">Import</h4>
-                    <div class="wg-settings-integrations__field">
-                        <label for="importexport-import-file" class="wg-settings-integrations__label">Backup file (.json.gz, .json.gz.age, .json, .age)</label>
-                        <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
-                            <!-- Import sniffs magic bytes, not the extension; this list only shapes the OS
-                                 file picker. .gz first: that is what export writes now. -->
-                            <input type="file" id="importexport-import-file" class="wg-settings-integrations__input" accept=".gz,.age,.json,application/gzip,application/json">
+                        <div class="wg-field">
+                            <label for="importexport-export-passphrase" class="wg-label">Passphrase · optional</label>
+                            <input type="password" id="importexport-export-passphrase" class="wg-input" autocomplete="off" placeholder="Encrypt the backup">
+                            <p class="wg-hint">Encrypts the file with age. Without it the file is plain JSON.</p>
+                            <p id="importexport-passphrase-nudge" class="wg-hint" hidden>The backup contains your provider API keys — consider a passphrase.</p>
                         </div>
+                        <button id="importexport-export-btn" type="button" class="wg-btn wg-btn--primary wg-btn--block"><i class="wg-ico wg-ico--sm" data-icon="download"></i>Download backup</button>
                     </div>
-                    <div id="importexport-import-passphrase-field" class="wg-settings-integrations__field" hidden>
-                        <label for="importexport-import-passphrase" class="wg-settings-integrations__label">Passphrase</label>
-                        <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
-                            <input type="password" id="importexport-import-passphrase" class="wg-settings-integrations__input" autocomplete="off" placeholder="Decrypt the backup">
-                        </div>
-                    </div>
-                    <button id="importexport-import-btn" type="button" class="wg-gloss wg-settings-save-btn">Import backup (replace)</button>
-                    <p id="importexport-import-progress" class="wg-settings-integrations__note" role="status" aria-live="polite" hidden></p>
-                </div>
+                </section>
 
-                <!-- Mi Band .nxk ingestion — cloud only. The server parses the backup and
-                     seals the vitals to the account inbox; revealed by importexport.js when
-                     window.__MEDTRACKER_CLOUD__. -->
-                <div id="importexport-nxk-group" class="wg-settings-integrations__group" hidden>
-                    <h4 class="wg-settings-integrations__group-title wg-mono-display">Mi Band import</h4>
-                    <div class="wg-settings-integrations__field">
-                        <label for="importexport-nxk-file" class="wg-settings-integrations__label">Mi Band backup (.nxk)</label>
-                        <div class="wg-gloss--inset wg-settings-integrations__input-wrap">
-                            <input type="file" id="importexport-nxk-file" class="wg-settings-integrations__input" accept=".nxk,.sqlite">
+                <section class="wg-section">
+                    <div class="wg-section__head"><span class="wg-eyebrow">Restore</span></div>
+                    <div class="wg-card wg-vstack">
+                        <!-- Import sniffs magic bytes, not the extension; accept only
+                             shapes the OS file picker. .gz first: export writes it. -->
+                        <input type="file" id="importexport-import-file" accept=".gz,.age,.json,application/gzip,application/json" hidden>
+                        <div class="wg-file" data-file-input="importexport-import-file" data-empty-name="Choose a backup file" data-empty-meta=".json.gz or .age from Download backup">
+                            <span class="wg-file__icon"><i class="wg-ico" data-icon="file"></i></span>
+                            <span class="wg-file__body"><span class="wg-file__name">Choose a backup file</span><span class="wg-file__meta">.json.gz or .age from Download backup</span></span>
+                            <button type="button" class="wg-btn wg-btn--sm" data-file-choose>Choose</button>
+                            <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" data-file-clear aria-label="Remove file" hidden><i class="wg-ico" data-icon="x"></i></button>
                         </div>
-                        <p class="wg-settings-integrations__note">Sleep, heart rate, SpO2, stress, day stats and workouts are imported. Location tracks are never uploaded.</p>
+                        <div id="importexport-import-passphrase-field" class="wg-field" hidden>
+                            <label for="importexport-import-passphrase" class="wg-label">Passphrase</label>
+                            <input type="password" id="importexport-import-passphrase" class="wg-input" autocomplete="off" placeholder="Decrypt the backup">
+                        </div>
+                        <button id="importexport-import-btn" type="button" class="wg-btn wg-btn--danger-ghost wg-btn--block">Replace my data with this backup</button>
+                        <p id="importexport-import-progress" class="wg-hint" role="status" aria-live="polite" hidden></p>
                     </div>
-                    <button id="importexport-nxk-btn" type="button" class="wg-gloss wg-settings-save-btn">Import Mi Band data</button>
-                </div>
+                </section>
 
-                <!-- Reset local sync — cloud only. Rebuilds this device from the
-                     server's compacted snapshot; the escape hatch when sync wedges
-                     after a failed import. Revealed by importexport.js when
-                     window.__MEDTRACKER_CLOUD__. -->
-                <div id="importexport-reset-sync-group" class="wg-settings-integrations__group" hidden>
-                    <h4 class="wg-settings-integrations__group-title wg-mono-display">Reset local sync</h4>
-                    <div class="wg-settings-integrations__field">
-                        <p class="wg-settings-integrations__note">Rebuild this device from the server — discards unsynced local changes; use if sync is stuck after a failed import.</p>
+                <!-- Mi Band .nxk ingestion: the server parses the backup and seals
+                     the vitals to the account inbox. Also reachable from Vitals. -->
+                <section id="importexport-nxk-group" class="wg-section">
+                    <div class="wg-section__head"><span class="wg-eyebrow">Import</span></div>
+                    <div class="wg-card wg-vstack">
+                        <input type="file" id="importexport-nxk-file" accept=".nxk,.sqlite" hidden>
+                        <div class="wg-file" data-file-input="importexport-nxk-file" data-empty-name="Mi Band backup" data-empty-meta=".nxk · fills Vitals and cardio sessions">
+                            <span class="wg-file__icon"><i class="wg-ico" data-icon="health"></i></span>
+                            <span class="wg-file__body"><span class="wg-file__name">Mi Band backup</span><span class="wg-file__meta">.nxk · fills Vitals and cardio sessions</span></span>
+                            <button type="button" class="wg-btn wg-btn--sm" data-file-choose>Choose</button>
+                            <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" data-file-clear aria-label="Remove file" hidden><i class="wg-ico" data-icon="x"></i></button>
+                        </div>
+                        <p class="wg-hint">Sleep, heart rate, SpO2, stress, day stats and workouts are imported. Location tracks are never uploaded.</p>
+                        <button id="importexport-nxk-btn" type="button" class="wg-btn wg-btn--block">Import Mi Band data</button>
                     </div>
-                    <p id="importexport-inbox-unopenable-note" class="wg-settings-integrations__note" role="status" hidden></p>
-                    <button id="importexport-reset-sync-btn" type="button" class="wg-gloss wg-settings-save-btn">Reset local sync</button>
-                </div>
+                </section>
+
+                <!-- Reset local sync: rebuilds this device from the server's
+                     compacted snapshot; the escape hatch when sync wedges after a
+                     failed import. -->
+                <section id="importexport-reset-sync-group" class="wg-section">
+                    <div class="wg-list">
+                        <button id="importexport-reset-sync-btn" type="button" class="wg-setting wg-setting--danger">
+                            <span class="wg-row__lead wg-row__lead--danger"><i class="wg-ico" data-icon="refresh"></i></span>
+                            <span class="wg-setting__body"><span class="wg-setting__title">Reset local sync</span><span class="wg-setting__desc">Re-downloads everything from your vault. Use it if sync is stuck after a failed import.</span></span>
+                        </button>
+                    </div>
+                    <p id="importexport-inbox-unopenable-note" class="wg-hint" role="status" hidden></p>
+                </section>
             </section>
 
             </div>
@@ -1852,39 +1885,27 @@
         </div>
     </mt-modal>
 
-    <!-- Modal for Workout Session Details -->
-    <mt-modal id="workout-session-modal" class="hidden wg-modal wg-workouts-session-modal">
-        <!-- Pinned header: a session's exercise list rarely fits one screen, so
-             "+ Exercise" and Close stay reachable without scrolling back up.
-             The heading (slot · date · status) is injected by
-             renderWorkoutSessionHeader; the body no longer repeats it, and the
-             old "Workout Details" title is gone — the modal is self-evident.
-             Close only besides Add: deleting a session lives on the History
-             row's trash icon (features/workout/history.js), which is the sole
-             entry point that can open a completed/skipped session anyway. -->
-        <div class="wg-workouts-session-modal__header">
-            <div class="wg-workouts-session-modal__heading" id="workout-session-modal-heading"></div>
-            <div class="wg-workouts-session-modal__header-actions">
-                <button type="button" id="workout-session-header-add-btn"
-                    class="wg-gloss wg-gloss--sun wg-workouts-session-modal__header-btn">+ Exercise</button>
-                <button type="button" id="workout-session-cancel-btn"
-                    class="wg-icon-btn wg-workouts-session-modal__close-btn" aria-label="Close">
-                    <span class="wg-gloss"></span>
-                </button>
-            </div>
+    <!-- Workout session takeover (med-xso6.21, kit W1–W3): a full-screen page on
+         the ModalManager stack. Minimise (#workout-session-cancel-btn) closes it
+         and leaves the session running. The clock / plan line, the progress
+         segments, the current exercise (or the overview with + Exercise and the
+         gym) and the footer buttons are rendered by features/workout/sessions.js. -->
+    <mt-modal id="workout-session-modal" class="hidden wg-page wg-session" aria-label="Workout session">
+        <header class="wg-session-top">
+            <button type="button" id="workout-session-cancel-btn"
+                class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Minimise"><i class="wg-ico" data-icon="chev-d"></i></button>
+            <div class="wg-session-top__titles" id="workout-session-modal-heading"></div>
+            <span id="workout-session-modal-status" class="wg-session-top__status"></span>
+        </header>
+        <button type="button" id="workout-session-prog" class="wg-session-prog" aria-label="All exercises"></button>
+        <div class="wg-content">
+            <div id="workout-session-logs"></div>
         </div>
-
-        <div class="wg-workouts-session-modal__body">
-            <div id="workout-session-info"></div>
-            <div id="workout-session-autosave-status" class="wg-workouts-session-autosave-status" role="status" aria-live="polite"></div>
-            <div id="workout-session-logs">
-                <!-- Exercise logs injected here -->
-            </div>
-
-            <div id="workout-session-actions" class="wg-workouts-session-actions">
-                <!-- Log-set / Finish / Delete action cluster injected here -->
-            </div>
-        </div>
+        <div id="workout-session-rest" class="wg-session-rest" hidden></div>
+        <footer class="wg-session-foot">
+            <span id="workout-session-autosave-status" class="wg-session-foot__save" role="status" aria-live="polite"></span>
+            <div id="workout-session-actions" class="wg-session-foot__acts"></div>
+        </footer>
     </mt-modal>
 
     <!-- Log-set modal (Phase 7, Task 8). Adds an exercise log to an in-progress
@@ -2558,7 +2579,7 @@
     <script src="/static/js/components/mt-elements.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/empty-state.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/stat-card.js?v=TIMESTAMP_PLACEHOLDER"></script>
-    <script src="/static/js/components/action-row.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/components/wg-row-actions.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-icons.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-page.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-sheet.js?v=TIMESTAMP_PLACEHOLDER"></script>

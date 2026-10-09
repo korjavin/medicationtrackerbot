@@ -215,14 +215,12 @@ async function loadExercisesForVariant(variantId, containerId = 'workout-exercis
             info.appendChild(title);
             info.appendChild(meta);
 
-            const deleteBtn = createDeleteButton((event) => {
-                deleteExercise(ex.id, event);
-            });
-            deleteBtn.classList.add('workout-delete-btn-inline', 'wg-workouts-exercise-row__delete');
-
             card.appendChild(info);
-            card.appendChild(deleteBtn);
-            container.appendChild(card);
+            container.appendChild(window.WGRowActions.attach(card, {
+                label: ex.exercise_name,
+                onEdit: () => showEditExerciseModal(ex.id),
+                onDelete: (event) => deleteExercise(ex.id, event),
+            }));
         });
     } catch (error) {
         console.error('Error loading exercises:', error);

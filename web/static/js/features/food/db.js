@@ -144,17 +144,6 @@ function renderFoodDBList(products, total) {
         const actions = document.createElement('div');
         actions.className = 'food-db-actions';
 
-        const editBtn = createEditButton((e) => {
-            e.stopPropagation();
-            showEditFoodProductModal(p);
-        });
-        actions.appendChild(editBtn);
-
-        const delBtn = createDeleteButton((e) => {
-            e.stopPropagation();
-            deleteFoodProduct(p.id, decodeFoodDisplayText(p.name));
-        });
-        actions.appendChild(delBtn);
         topRow.appendChild(actions);
 
         card.appendChild(topRow);
@@ -181,7 +170,12 @@ function renderFoodDBList(products, total) {
         }
 
         card.appendChild(meta);
-        list.appendChild(card);
+        list.appendChild(window.WGRowActions.attach(card, {
+            label: decodeFoodDisplayText(p.name),
+            trail: actions,
+            onEdit: () => showEditFoodProductModal(p),
+            onDelete: () => deleteFoodProduct(p.id, decodeFoodDisplayText(p.name)),
+        }));
     });
 
     const limit = 20;

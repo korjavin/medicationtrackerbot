@@ -4,11 +4,11 @@
 // their next dose under `.wg-section-label` headers (mono "HH:MM · in Xh Ym"),
 // as-needed and archived meds collapse into separate section-label groups
 // below the scheduled ones, and each row is a `.wg-card wg-meds-row` with
-// dual-classed legacy selectors (`.med-item`, `.icon-action-btn`, `.btn-sm`)
-// so the existing UI tests still pass.
+// dual-classed legacy selectors (`.med-item`, `.btn-sm`) and row actions behind
+// the WGRowActions overflow menu.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { clickRowAction, loadFrontendEnv } from './helpers/frontend-harness.js';
 
 function toLocalTime(date) {
     const hh = String(date.getHours()).padStart(2, '0');
@@ -287,12 +287,13 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         logBtn.click();
         expect(logSpy).toHaveBeenCalledWith(42, 'Soon Med');
 
-        const editBtn = row.querySelector('.icon-action-btn:not(.delete)');
-        editBtn.click();
+        // Edit / Delete live behind the row's overflow menu (swipe on touch).
+        expect(row.classList.contains('wg-swipe')).toBe(true);
+        expect(row.querySelector('.icon-action-btn')).toBeNull();
+        clickRowAction(row, 'Edit');
         expect(editSpy).toHaveBeenCalledWith(42);
 
-        const deleteBtn = row.querySelector('.icon-action-btn.delete');
-        deleteBtn.click();
+        clickRowAction(row, 'Delete');
         expect(deleteSpy).toHaveBeenCalledWith(42);
 
         // Clicking the info area also opens the edit modal.

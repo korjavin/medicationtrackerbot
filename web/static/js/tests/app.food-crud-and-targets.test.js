@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { clickRowAction, loadFrontendEnv } from './helpers/frontend-harness.js';
 
 function flushPromises() {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -341,7 +341,9 @@ describe('app.js food CRUD, targets and period helpers', () => {
       window._renderFoodData(groups, { calories: 500, carbs: 50, protein: 30, fat: 15 }, 'day', '2026-03-01');
       expect(document.getElementById('food-list').innerHTML).toContain('Rice Bowl');
       expect(document.getElementById('food-list').textContent).toContain('<b>Tea</b>');
-      expect(document.getElementById('food-list').innerHTML).not.toContain('<b>');
+      // Escaped, not parsed: no <b> element. (innerHTML can't be grepped — the
+      // row's More button names the entry in its aria-label attribute.)
+      expect(document.getElementById('food-list').querySelector('b')).toBeNull();
       // Phase 4, Task 4: daily totals now render into the Wandergeek macros
       // card. The legacy #food-summary block still renders on day view but
       // only as the Select-mode entry point for the Save-as-Meal workflow.
@@ -434,8 +436,7 @@ describe('app.js food CRUD, targets and period helpers', () => {
       const products = [{ id: 456, name: 'Burger', carbs_100g: 20, protein_100g: 15, fat_100g: 10, energy_kcal_100g: 250 }];
       window.renderFoodDBList(products, 1);
 
-      const delBtn = Array.from(document.querySelectorAll('button')).find(b => b.classList.contains('icon-action-btn') && b.classList.contains('delete'));
-      delBtn.click();
+      clickRowAction(document.querySelector('#fooddb-list .wg-food-db-card'), 'Delete');
       // The click handler returns immediately while safeConfirm awaits; flush
       // a microtask so the synchronous stub has resolved before we assert.
       await Promise.resolve();

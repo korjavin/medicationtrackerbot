@@ -280,4 +280,17 @@ describe('Health summary-tile row + range selector (Phase 8, Task 3)', () => {
             expect(spo2Val.textContent).toBe('96 %');
         });
     });
+
+    // med-xso6.24: Vitals carries a door to the Mi Band import, which lives on
+    // the Settings → Backup & import page.
+    it('the Mi Band import row opens Settings → Backup & import', () => {
+        const { window, document } = env;
+        window.switchTab = vi.fn();
+        const row = document.getElementById('health-import-miband');
+        expect(row.closest('#health-overview-tab')).not.toBeNull();
+        row.click();
+        expect(window.switchTab).toHaveBeenCalledWith('settings');
+        expect(document.querySelector('.wg-settings-pages #importexport-nxk-btn')).toBeNull();
+        expect(document.getElementById('importexport-nxk-btn')).not.toBeNull();
+    });
 });

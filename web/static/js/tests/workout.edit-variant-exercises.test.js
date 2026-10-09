@@ -3,9 +3,8 @@
 // Pins:
 //   • #14: `loadExercisesForVariant` emits the new Wandergeek markup —
 //     `.wg-workouts-exercise-row` surface + `__info` / `__title` / `__meta`
-//     spans, with the trash button carrying the new `__delete` scoped
-//     hover class alongside the existing `.workout-delete-btn-inline`
-//     position reset.
+//     spans; Edit / Delete sit behind the row's WGRowActions overflow menu
+//     (swipe on touch), not an inline trash button.
 //   • Surface parity: the row uses the same elevated-teal-card recipe
 //     (`var(--wg-bg-card)` + `1px solid var(--wg-border-hairline)` +
 //     `var(--wg-radius-card)`) as `.wg-workouts-next-card` and
@@ -23,7 +22,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { clickRowAction, loadFrontendEnv } from './helpers/frontend-harness.js';
 import { allowConsoleNoise } from './helpers/setup.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -100,13 +99,18 @@ describe('Workouts → Edit Variant exercise rows (Round-2 Task 11)', () => {
         const secondMeta = second.querySelector('.wg-workouts-exercise-row__meta');
         expect(secondMeta.textContent).toBe('2 sets × 10 reps');
 
-        // Delete button keeps the shared icon-action base + legacy position
-        // reset, plus the new scoped hover class for dark-surface contrast.
-        const del = first.querySelector('.wg-workouts-exercise-row__delete');
-        expect(del).not.toBeNull();
-        expect(del.classList.contains('icon-action-btn')).toBe(true);
-        expect(del.classList.contains('delete')).toBe(true);
-        expect(del.classList.contains('workout-delete-btn-inline')).toBe(true);
+        // Row actions: overflow menu Edit / Delete reach the existing handlers.
+        expect(first.classList.contains('wg-swipe')).toBe(true);
+        expect(first.querySelector('.icon-action-btn')).toBeNull();
+        const editSpy = vi.spyOn(window, 'showEditExerciseModal').mockImplementation(() => {});
+        const deleteSpy = vi.spyOn(window, 'deleteExercise').mockImplementation(() => {});
+        clickRowAction(first, 'Edit');
+        clickRowAction(first, 'Delete');
+        expect(editSpy).toHaveBeenCalledTimes(1);
+        expect(deleteSpy).toHaveBeenCalledTimes(1);
+        expect(deleteSpy.mock.calls[0][1]).toBeTruthy(); // the triggering event
+        editSpy.mockRestore();
+        deleteSpy.mockRestore();
     });
 
     it('#14: structural .wg-workouts-exercise-row* CSS uses tokens only (no gradient, no hex colors)', () => {
@@ -170,6 +174,6 @@ describe('Workouts → Edit Variant exercise rows (Round-2 Task 11)', () => {
         expect(fnSlice).toMatch(/['"]wg-workouts-exercise-row__info['"]/);
         expect(fnSlice).toMatch(/['"]wg-workouts-exercise-row__title['"]/);
         expect(fnSlice).toMatch(/['"]wg-workouts-exercise-row__meta['"]/);
-        expect(fnSlice).toMatch(/wg-workouts-exercise-row__delete/);
+        expect(fnSlice).toMatch(/WGRowActions\.attach\(/);
     });
 });

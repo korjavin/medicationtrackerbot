@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { clickRowAction, loadFrontendEnv } from './helpers/frontend-harness.js';
 
 // Phase 5 Task 5 — Meds history sub-tab coverage. The old paper-era
 // `history-group` / `history-header` / `history-items` / `history-subitem`
@@ -142,6 +142,32 @@ describe('features/meds.js renderHistory (Phase 5, Task 5)', () => {
       expect(missedTag).toBeDefined();
       expect(missedTag.classList.contains('wg-chip--danger')).toBe(true);
       expect(missedTag.textContent).toBe('Missed');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('a future PENDING row offers Delete from its overflow menu (deleteFutureIntakes), without opening the row', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      await seedMedications(window, [{ id: 1, name: 'Aspirin' }]);
+      const future = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      const past = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      window.renderHistory([
+        { id: 5, medication_id: 1, status: 'PENDING', scheduled_at: future },
+        { id: 6, medication_id: 1, status: 'MISSED', scheduled_at: past }
+      ]);
+
+      const rows = Array.from(document.querySelectorAll('.wg-meds-history__row'));
+      const pendingRow = rows.find((r) => r.dataset.status === 'PENDING');
+      const missedRow = rows.find((r) => r.dataset.status === 'MISSED');
+      expect(missedRow.querySelector('.wg-swipe__more')).toBeNull();
+
+      const deleteSpy = vi.spyOn(window, 'deleteFutureIntakes').mockImplementation(() => {});
+      const openSpy = vi.spyOn(window, 'showMedicationConfirmModal').mockImplementation(() => {});
+      clickRowAction(pendingRow, 'Delete');
+      expect(deleteSpy).toHaveBeenCalledWith([5]);
+      expect(openSpy).not.toHaveBeenCalled();
     } finally {
       cleanup();
     }

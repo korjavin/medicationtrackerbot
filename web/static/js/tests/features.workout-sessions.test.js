@@ -174,9 +174,12 @@ describe('features/workout/sessions.js — split-file integration', () => {
     expect(logsBeforeResolve.length).toBe(2);
     expect(logsBeforeResolve[1].exercise_name).toBe('Squat');
     expect(logsBeforeResolve[1]._optimistic).toBe(true);
+    // The takeover jumps to the exercise just added (one exercise on screen).
     const cards = document.getElementById('workout-session-logs')
       .querySelectorAll('.wg-workouts-session-exercise');
-    expect(cards.length).toBe(2);
+    expect(cards.length).toBe(1);
+    expect(cards[0].querySelector('.wg-ex__name').textContent).toBe('Squat');
+    expect(document.querySelectorAll('#workout-session-prog .wg-session-prog__seg').length).toBe(2);
 
     pending.resolve({ id: 999 });
     await handlerDone;
@@ -350,9 +353,6 @@ describe('features/workout/sessions.js — split-file integration', () => {
       window.loadWorkoutHistoryTab = vi.fn();
       window.WorkoutSessionsState.originalStatus = 'in_progress';
       window.WorkoutSessionsState.logs = [];
-      window.renderWorkoutSessionInfo(document.getElementById('workout-session-info'), {
-        id: 77, status: 'in_progress', scheduled_date: '2026-04-22', scheduled_time: '09:00', variant_name: 'Push'
-      });
       window.ModalManager.workoutSession.open();
       await window.showAddExerciseToSessionModal();
       const pickerApi = window.apiCall;
@@ -360,7 +360,10 @@ describe('features/workout/sessions.js — split-file integration', () => {
         endpoint.startsWith('/api/workout/sessions/status') ? { ok: true } : pickerApi(endpoint, ...rest)
       ));
 
-      await window.finishWorkoutSession();
+      const finishing = window.finishWorkoutSession();
+      await vi.waitFor(() => expect(document.querySelector('.mt-confirm-modal__confirm')).not.toBeNull());
+      document.querySelector('.mt-confirm-modal__confirm').click();
+      await finishing;
 
       await vi.waitFor(() => expect(window.WorkoutSessionsState.data).toBeNull());
       expect(isHidden(document, 'workout-add-exercise-to-session-modal')).toBe(true);
@@ -654,9 +657,7 @@ describe('features/workout/sessions.js — split-file integration', () => {
     await window.deleteExerciseLog(0);
 
     expect(window.WorkoutSessionsState.logs.map((l) => l.exercise_name)).toEqual(['Bench', 'Overhead']);
-    const cards = document.getElementById('workout-session-logs')
-      .querySelectorAll('.wg-workouts-session-exercise');
-    expect(cards.length).toBe(2);
+    expect(document.querySelectorAll('#workout-session-prog .wg-session-prog__seg').length).toBe(2);
   });
 
   it('deleteExerciseLog on an ad-hoc session still splices locally with no network call', async () => {
@@ -708,14 +709,17 @@ describe('features/workout/sessions.js — split-file integration', () => {
     await window.WorkoutSessions.open(42);
 
     // Live variant endpoint must not be consulted when a snapshot exists.
-    expect(calls.some((c) => c.startsWith('/api/workout/exercises'))).toBe(false);
+    expect(calls.some((c) => c.startsWith('/api/workout/exercises?'))).toBe(false);
 
     const logs = window.WorkoutSessionsState.logs;
     // Bench already logged (matched by name) → only Squat prefilled from snapshot.
     const squat = logs.find((l) => l.exercise_name === 'Squat');
     expect(squat).toBeTruthy();
-    expect(squat.sets_completed).toBe(3);
-    expect(squat.weight_kg).toBe(100);
+    // Zero done sets; the plan target becomes the pending (ghost) rows.
+    expect(squat.sets_completed).toBe(0);
+    expect(squat.sets).toEqual([]);
+    expect(squat._targetSets).toBe(3);
+    expect(squat._target).toEqual({ reps: 8, weight_kg: 100 });
     expect(squat._dirty).toBe(false);
     // Snapshot rows carry their exercise_id so editing them can save.
     expect(squat.exercise_id).toBe(2);
@@ -753,7 +757,7 @@ describe('features/workout/sessions.js — split-file integration', () => {
     expect(benches.length).toBe(2);
     const unlogged = benches.find((l) => l.exercise_id === 2);
     expect(unlogged).toBeTruthy();
-    expect(unlogged.reps_completed).toBe(12);
+    expect(unlogged._target.reps).toBe(12);
     expect(unlogged._dirty).toBe(false);
   });
 
@@ -761,8 +765,8 @@ describe('features/workout/sessions.js — split-file integration', () => {
   // session must save. Snapshot rows used to mint exercise_id 0, which
   // logs/create rejects ("SessionID and ExerciseID are required"), bricking the
   // whole save. The row must post the snapshot's real exercise_id.
-  it('editing an un-logged snapshot row saves a logs/create with the real exercise_id', async () => {
-    const { window } = env;
+  it('ticking a set on an un-logged snapshot row saves a logs/create with the real exercise_id', async () => {
+    const { window, document } = env;
     installApiCache(window);
     window.ModalManager.workoutSession.open = vi.fn();
 
@@ -790,12 +794,41 @@ describe('features/workout/sessions.js — split-file integration', () => {
 
     const squatIndex = window.WorkoutSessionsState.logs.findIndex((l) => l.exercise_name === 'Squat');
     expect(squatIndex).toBeGreaterThanOrEqual(0);
-    // User edits the prefilled (un-logged) row → marks it dirty so it saves.
-    window.WorkoutSessions.updateLog(squatIndex, 'reps_completed', '6');
+    // The un-logged row is on screen with ghost targets; ticking its first set
+    // marks it dirty so it saves.
+    document.querySelector('#workout-session-logs .wg-set .wg-set__done').click();
     await window.WorkoutSessions.save();
 
     expect(createdLogPayload).not.toBeNull();
     expect(createdLogPayload.exercise_id).toBe(2);
+    expect(createdLogPayload.target_sets).toBe(1);
+    expect(createdLogPayload.sets).toEqual([{ set_index: 0, weight_kg: 100, reps: 8, set_type: 'normal' }]);
+  });
+
+  it('an un-logged planned row that was never ticked (or un-ticked again) is not created', async () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.ModalManager.workoutSession.open = vi.fn();
+    window.loadWorkoutHistoryTab = vi.fn();
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (endpoint.startsWith('/api/workout/sessions/details')) {
+        return {
+          session: { id: 42, status: 'completed', variant_id: 7, exercise_snapshot: [
+            { exercise_id: 2, exercise_name: 'Squat', target_sets: 3, target_reps_min: 8, target_weight_kg: 100 }
+          ] },
+          logs: []
+        };
+      }
+      return [];
+    });
+    await window.WorkoutSessions.open(42);
+
+    document.querySelector('#workout-session-logs .wg-set .wg-set__done').click(); // tick
+    document.querySelector('#workout-session-logs .wg-set .wg-set__done').click(); // un-tick
+    await window.WorkoutSessions.save({ fromAutosave: true });
+
+    expect(window.apiCall).not.toHaveBeenCalledWith('/api/workout/sessions/logs/create', 'POST', expect.anything(), expect.anything());
+    expect(window.WorkoutSessionsState.logs[0]._dirty).toBe(false);
   });
 
   it('showWorkoutSessionModal falls back to the live variant when the session has no snapshot', async () => {
@@ -844,10 +877,8 @@ describe('features/workout/sessions.js — split-file integration', () => {
     window.WorkoutSessionsState.logs = [];
 
     // Seed the status select the production code reads from.
-    window.renderWorkoutSessionInfo(document.getElementById('workout-session-info'), {
-      id: 42, status: 'in_progress', scheduled_date: '2026-04-22', scheduled_time: '09:00', variant_name: 'Push'
-    });
-    document.getElementById('session-status-select').value = 'completed';
+    // Finish / the overview's Status row set the status the save persists.
+    window.WorkoutSessionsState.targetStatus = 'completed';
 
     // Use the apiCall invocation as the timing fence: by the time the POST
     // fires, the optimistic cache writes have all settled. Yielding fixed
@@ -888,10 +919,6 @@ describe('features/workout/sessions.js — split-file integration', () => {
     window.WorkoutSessionsState.originalStatus = 'in_progress';
     window.WorkoutSessionsState.logs = [];
 
-    window.renderWorkoutSessionInfo(document.getElementById('workout-session-info'), {
-      id: 42, status: 'in_progress', scheduled_date: '2026-04-22', scheduled_time: '09:00', variant_name: 'Push'
-    });
-
     let apiCallSignal;
     const apiCalled = new Promise((r) => { apiCallSignal = r; });
     const pending = deferred();
@@ -904,6 +931,9 @@ describe('features/workout/sessions.js — split-file integration', () => {
     });
 
     const handlerDone = window.finishWorkoutSession();
+    // Finish asks first (kit dialog, sun primary).
+    await vi.waitFor(() => expect(document.querySelector('.mt-confirm-modal__confirm')).not.toBeNull());
+    document.querySelector('.mt-confirm-modal__confirm').click();
     await apiCalled;
 
     // finishWorkoutSession flips status to 'completed' and routes through
@@ -1359,10 +1389,8 @@ describe('features/workout/sessions.js — split-file integration', () => {
     window.WorkoutSessionsState.originalStatus = 'in_progress';
     window.WorkoutSessionsState.logs = [];
 
-    window.renderWorkoutSessionInfo(document.getElementById('workout-session-info'), {
-      id: 42, status: 'in_progress', scheduled_date: '2026-04-22', scheduled_time: '09:00', variant_name: 'Push'
-    });
-    document.getElementById('session-status-select').value = 'completed';
+    // Finish / the overview's Status row set the status the save persists.
+    window.WorkoutSessionsState.targetStatus = 'completed';
 
     // apiCall returns null on offline/5xx — same path the production code
     // hits without throwing.
@@ -1406,10 +1434,8 @@ describe('features/workout/sessions.js — split-file integration', () => {
       { id: 8, exercise_name: 'Row', sets_completed: 3, reps_completed: 8, weight_kg: 40, notes: '' }
     ];
 
-    window.renderWorkoutSessionInfo(document.getElementById('workout-session-info'), {
-      id: 42, status: 'in_progress', scheduled_date: '2026-04-22', scheduled_time: '09:00', variant_name: 'Push'
-    });
-    document.getElementById('session-status-select').value = 'completed';
+    // Finish / the overview's Status row set the status the save persists.
+    window.WorkoutSessionsState.targetStatus = 'completed';
 
     // Logs are saved BEFORE the terminal status flip (so progression can run
     // while the session is still active). The first log update succeeds, the
@@ -1451,10 +1477,8 @@ describe('features/workout/sessions.js — split-file integration', () => {
       { id: 7, exercise_name: 'Bench', sets_completed: 3, reps_completed: 12, weight_kg: 60, notes: '' }
     ];
 
-    window.renderWorkoutSessionInfo(document.getElementById('workout-session-info'), {
-      id: 42, status: 'in_progress', scheduled_date: '2026-04-22', scheduled_time: '09:00', variant_name: 'Push'
-    });
-    document.getElementById('session-status-select').value = 'completed';
+    // Finish / the overview's Status row set the status the save persists.
+    window.WorkoutSessionsState.targetStatus = 'completed';
 
     const order = [];
     window.apiCall = vi.fn(async (endpoint) => {
@@ -1486,10 +1510,7 @@ describe('features/workout/sessions.js — split-file integration', () => {
       { id: 7, exercise_name: 'Bench', sets_completed: 3, reps_completed: 12, weight_kg: 60, notes: '' }
     ];
 
-    window.renderWorkoutSessionInfo(document.getElementById('workout-session-info'), {
-      id: 42, status: 'in_progress', scheduled_date: '2026-04-22', scheduled_time: '09:00', variant_name: 'Push'
-    });
-    document.getElementById('session-status-select').value = 'skipped';
+    window.WorkoutSessionsState.targetStatus = 'skipped';
 
     const order = [];
     window.apiCall = vi.fn(async (endpoint) => {
@@ -1524,9 +1545,6 @@ describe('features/workout/sessions.js — split-file integration', () => {
     window.WorkoutSessionsState.logs = [
       { id: 7, exercise_id: 1, exercise_name: 'Bench', sets_completed: 2, reps_completed: 8, weight_kg: 60, notes: '' }
     ];
-    window.renderWorkoutSessionInfo(document.getElementById('workout-session-info'), {
-      id: 42, status: 'in_progress', scheduled_date: '2026-04-22', scheduled_time: '09:00', variant_name: 'Push'
-    });
     window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
 
     const updateCalls = [];
@@ -1584,7 +1602,7 @@ describe('features/workout/sessions.js — split-file integration', () => {
     expect(notesSeen).toBe('felt strong');
   });
 
-  it('autosaves when the status select changes (no modal close)', async () => {
+  it('autosaves a status change (no modal close)', async () => {
     const { window, document } = env;
     installApiCache(window, {
       workout_next: { session: { id: 42, status: 'in_progress' } },
@@ -1595,13 +1613,9 @@ describe('features/workout/sessions.js — split-file integration', () => {
     });
     window.loadWorkoutHistoryTab = vi.fn();
     const closeSpy = vi.spyOn(window.ModalManager.workoutSession, 'close');
-    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
-    window.WorkoutSessionsState.originalStatus = 'in_progress';
+    window.WorkoutSessionsState.data = { id: 42, status: 'completed' };
+    window.WorkoutSessionsState.originalStatus = 'completed';
     window.WorkoutSessionsState.logs = [];
-
-    window.renderWorkoutSessionInfo(document.getElementById('workout-session-info'), {
-      id: 42, status: 'in_progress', scheduled_date: '2026-04-22', scheduled_time: '09:00', variant_name: 'Push'
-    });
 
     const statusCalls = [];
     window.apiCall = vi.fn(async (endpoint, method, payload) => {
@@ -1609,12 +1623,15 @@ describe('features/workout/sessions.js — split-file integration', () => {
       return [];
     });
 
-    const select = document.getElementById('session-status-select');
-    select.value = 'skipped';
-
+    // A finished session's overview Status row.
+    window.WorkoutSessions.renderLogs(document.getElementById('workout-session-logs'));
+    document.getElementById('workout-session-prog').click();
     vi.useFakeTimers();
     try {
-      select.dispatchEvent(new window.Event('change'));
+      document.getElementById('workout-session-status-row').click();
+      await vi.advanceTimersByTimeAsync(50);
+      Array.from(document.querySelectorAll('.mt-confirm-modal__choice'))
+        .find((b) => b.textContent.includes('Skipped')).click();
       await vi.advanceTimersByTimeAsync(800);
     } finally {
       vi.useRealTimers();
@@ -1783,13 +1800,13 @@ describe('features/workout/sessions.js — split-file integration', () => {
   // the labelled one spanned the header and pushed the exercise list down.
   // ===========================================================================
 
-  it('has no Save button and an icon-only Close in the session modal header', () => {
+  it('has no Save button and an icon-only Minimise in the session top bar', () => {
     const { document } = env;
     expect(document.getElementById('workout-session-save-btn')).toBeNull();
     const closeBtn = document.getElementById('workout-session-cancel-btn');
     expect(closeBtn).not.toBeNull();
-    expect(closeBtn.getAttribute('aria-label')).toBe('Close');
-    expect(closeBtn.classList.contains('wg-icon-btn')).toBe(true);
+    expect(closeBtn.getAttribute('aria-label')).toBe('Minimise');
+    expect(closeBtn.classList.contains('wg-btn--icon')).toBe(true);
   });
 
   it('closing with a pending debounced edit flushes it before dismissing (edit not dropped)', async () => {
@@ -1898,7 +1915,7 @@ describe('features/workout/sessions.js — split-file integration', () => {
   // consumers are unaffected.
   // ===========================================================================
 
-  it('renders one per-set row per synthesized set and supports add/remove', () => {
+  it('renders one done .wg-set row per synthesized set; Add set adds a pending row; un-tick removes a done set', () => {
     const { window, document } = env;
     installApiCache(window);
     window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
@@ -1908,24 +1925,29 @@ describe('features/workout/sessions.js — split-file integration', () => {
     const container = document.getElementById('workout-session-logs');
     window.renderWorkoutSessionLogs(container);
 
-    // Existing flat-scalar log synthesizes sets_completed rows.
-    let rows = container.querySelectorAll('.wg-workouts-session-exercise__set-row');
+    // Existing flat-scalar log synthesizes sets_completed done rows.
+    let rows = container.querySelectorAll('.wg-set');
     expect(rows.length).toBe(2);
+    expect(container.querySelectorAll('.wg-set--done').length).toBe(2);
 
-    window.addLocalSet(0);
-    rows = container.querySelectorAll('.wg-workouts-session-exercise__set-row');
+    // Add set = one more PENDING row; nothing to save until it is ticked.
+    container.querySelector('.wg-workouts-session-exercise__add-set').click();
+    rows = container.querySelectorAll('.wg-set');
     expect(rows.length).toBe(3);
-    expect(window.WorkoutSessionsState.logs[0].sets.length).toBe(3);
-    expect(window.WorkoutSessionsState.logs[0]._dirty).toBe(true);
-
-    window.removeLocalSet(0, 0);
-    rows = container.querySelectorAll('.wg-workouts-session-exercise__set-row');
-    expect(rows.length).toBe(2);
+    expect(rows[2].classList.contains('wg-set--done')).toBe(false);
     expect(window.WorkoutSessionsState.logs[0].sets.length).toBe(2);
-    // Guard: the last remaining row can't be removed (card must stay editable).
-    window.removeLocalSet(0, 0);
-    window.removeLocalSet(0, 0);
+    expect(window.WorkoutSessionsState.logs[0]._dirty).toBeFalsy();
+
+    // Un-ticking a done set removes it from the saved sets (it goes back to pending).
+    rows[0].querySelector('.wg-set__done').click();
     expect(window.WorkoutSessionsState.logs[0].sets.length).toBe(1);
+    expect(window.WorkoutSessionsState.logs[0]._setsDirty).toBe(true);
+    expect(container.querySelectorAll('.wg-set').length).toBe(3);
+
+    // The 20-set ceiling (save validator) disables Add set.
+    window.WorkoutSessionsState.logs[0]._targetSets = 20;
+    window.renderWorkoutSessionLogs(container);
+    expect(container.querySelector('.wg-workouts-session-exercise__add-set').disabled).toBe(true);
   });
 
   it('updateLocalSet captures set_type + rpe and re-derives the flat scalars', () => {
@@ -1933,10 +1955,9 @@ describe('features/workout/sessions.js — split-file integration', () => {
     installApiCache(window);
     window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
     window.WorkoutSessionsState.logs = [
-      { id: 5, exercise_id: 1, exercise_name: 'Bench', sets_completed: 1, reps_completed: 5, weight_kg: 40 }
+      { id: 5, exercise_id: 1, exercise_name: 'Bench', sets_completed: 2, reps_completed: 5, weight_kg: 40 }
     ];
     window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
-    window.addLocalSet(0); // now 2 sets
 
     window.updateLocalSet(0, 0, 'set_type', 'warmup');
     window.updateLocalSet(0, 0, 'weight_kg', '20');
@@ -1972,18 +1993,14 @@ describe('features/workout/sessions.js — split-file integration', () => {
     window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
     window.WorkoutSessionsState.originalStatus = 'in_progress';
     window.WorkoutSessionsState.logs = [
-      { id: 7, exercise_id: 1, exercise_name: 'Bench', sets_completed: 1, reps_completed: 5, weight_kg: 40, notes: '' }
+      { id: 7, exercise_id: 1, exercise_name: 'Bench', sets_completed: 2, reps_completed: 5, weight_kg: 40, notes: '' }
     ];
-    window.renderWorkoutSessionInfo(document.getElementById('workout-session-info'), {
-      id: 42, status: 'in_progress', scheduled_date: '2026-04-22', scheduled_time: '09:00', variant_name: 'Push'
-    });
     window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
 
-    // Turn set 0 into a warm-up and add a heavier working set with an RPE.
+    // Turn set 0 into a warm-up and make set 1 a heavier working set with an RPE.
     window.updateLocalSet(0, 0, 'set_type', 'warmup');
     window.updateLocalSet(0, 0, 'weight_kg', '20');
     window.updateLocalSet(0, 0, 'reps', '10');
-    window.addLocalSet(0);
     window.updateLocalSet(0, 1, 'weight_kg', '60');
     window.updateLocalSet(0, 1, 'reps', '8');
     window.updateLocalSet(0, 1, 'rpe', '9');
@@ -2017,9 +2034,6 @@ describe('features/workout/sessions.js — split-file integration', () => {
     window.WorkoutSessionsState.logs = [
       { id: 7, exercise_id: 1, exercise_name: 'Bench', sets_completed: 3, reps_completed: 8, weight_kg: 60, notes: '' }
     ];
-    window.renderWorkoutSessionInfo(document.getElementById('workout-session-info'), {
-      id: 42, status: 'in_progress', scheduled_date: '2026-04-22', scheduled_time: '09:00', variant_name: 'Push'
-    });
     // Render materializes log.sets via _ensureLogSets — but the user never edits.
     window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
 
@@ -2048,9 +2062,6 @@ describe('features/workout/sessions.js — split-file integration', () => {
     window.WorkoutSessionsState.logs = [
       { id: 7, exercise_id: 1, exercise_name: 'Bench', sets_completed: 3, reps_completed: 8, weight_kg: 60, notes: '' }
     ];
-    window.renderWorkoutSessionInfo(document.getElementById('workout-session-info'), {
-      id: 42, status: 'in_progress', scheduled_date: '2026-04-22', scheduled_time: '09:00', variant_name: 'Push'
-    });
     // Render materializes log.sets via _ensureLogSets; the user edits ONLY notes.
     window.renderWorkoutSessionLogs(document.getElementById('workout-session-logs'));
     window.updateLocalLog(0, 'notes', 'felt heavy today');
@@ -2493,13 +2504,20 @@ describe('features/workout/sessions.js — plate-loading chip (med-v75c.2)', () 
     await new Promise((r) => setTimeout(r, 0));
     await new Promise((r) => setTimeout(r, 0));
 
-    const cards = document.getElementById('workout-session-logs')
-      .querySelectorAll('.wg-workouts-session-exercise');
-    expect(cards.length).toBe(2);
-    cards.forEach((card) => {
-      expect(card.querySelector('.wg-workouts-session-exercise__plates')).toBeNull();
-    });
-    expect(cards[0].querySelector('.wg-workouts-session-exercise__mono').textContent).toBe('3 × 5 · 72 kg');
+    // One exercise on screen at a time: check both via Next.
+    const cardAt = () => {
+      const cards = document.getElementById('workout-session-logs')
+        .querySelectorAll('.wg-workouts-session-exercise');
+      expect(cards.length).toBe(1);
+      return cards[0];
+    };
+    const first = cardAt();
+    expect(first.querySelector('.wg-workouts-session-exercise__plates')).toBeNull();
+    expect(first.querySelector('.wg-workouts-session-exercise__mono').textContent).toBe('3 × 5 · 72 kg');
+    document.querySelector('.wg-workouts-session-actions__next').click();
+    const second = cardAt();
+    expect(second.querySelector('.wg-ex__name').textContent).toBe('Bench press (2)');
+    expect(second.querySelector('.wg-workouts-session-exercise__plates')).toBeNull();
   });
 
   it('editing a set weight re-solves the chip', async () => {
@@ -2544,7 +2562,7 @@ describe('features/workout/sessions.js — plate-loading chip (med-v75c.2)', () 
     await new Promise((r) => setTimeout(r, 0));
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(calls.some((c) => c.startsWith('/api/workout/exercises'))).toBe(false);
+    expect(calls.some((c) => c.startsWith('/api/workout/exercises?'))).toBe(false);
     expect(firstCard(document).querySelector('.wg-workouts-session-exercise__plates')).toBeNull();
   });
 
@@ -2664,24 +2682,34 @@ describe('features/workout/sessions.js — session gym (med-8j5w.2)', () => {
     for (let i = 0; i < 6; i += 1) await new Promise((r) => setTimeout(r, 0));
   }
 
+  function overviewOpen(document) {
+    return document.getElementById('workout-session-prog').getAttribute('aria-expanded') === 'true';
+  }
+
+  // Plate chips live on the exercise card, so close the overview first.
   function autoLabel(document) {
+    if (overviewOpen(document)) document.getElementById('workout-session-prog').click();
     const chip = document.getElementById('workout-session-logs')
       .querySelector('.wg-workouts-session-exercise__plates');
     const auto = chip && chip.querySelector('.wg-plates__auto');
     return auto ? auto.textContent : null;
   }
 
-  function gymChip(document) {
-    return document.querySelector('#workout-session-modal-heading .wg-workouts-gym-switch');
+  // The gym switch moved from the old sticky header into the overview
+  // (tap the progress bar); it attaches asynchronously.
+  async function gymChip(document) {
+    if (!overviewOpen(document)) document.getElementById('workout-session-prog').click();
+    await drain();
+    return document.querySelector('#workout-session-gym .wg-workouts-gym-switch');
   }
 
-  function gymLabel(document) {
-    return gymChip(document).querySelector('.wg-workouts-gym-switch__name').textContent;
+  async function gymLabel(document) {
+    return (await gymChip(document)).querySelector('.wg-workouts-gym-switch__name').textContent;
   }
 
-  // Opens the header chip's in-page picker and taps the option named `label`.
-  function pickGym(document, label) {
-    gymChip(document).click();
+  // Opens the overview's gym picker and taps the option named `label`.
+  async function pickGym(document, label) {
+    (await gymChip(document)).click();
     const option = Array.from(document.querySelectorAll('.mt-confirm-modal__choice'))
       .find((o) => o.textContent === label);
     option.click();
@@ -2705,23 +2733,23 @@ describe('features/workout/sessions.js — session gym (med-8j5w.2)', () => {
     env = null;
   });
 
-  it('no gyms: no header gym control, chips as before', async () => {
+  it('no gyms: no overview gym control, chips as before', async () => {
     const { window, document } = env;
     await openGymSession(window, { locations: [], activeId: null, session: session() });
-    expect(gymChip(document)).toBeNull();
+    expect(await gymChip(document)).toBeNull();
     expect(autoLabel(document)).toBe('auto: Short bar');
   });
 
-  it('the header shows the stamped gym; switching it PUTs and re-renders the chips at the new gym', async () => {
+  it('the overview shows the stamped gym; switching it PUTs and re-renders the chips at the new gym', async () => {
     const { window, document } = env;
     const world = { locations: [GYM_A, HOME], activeId: HOME.id, session: session({ location_id: HOME.id, location_name: 'Home' }) };
     await openGymSession(window, world);
 
-    expect(gymChip(document)).not.toBeNull();
-    expect(gymLabel(document)).toBe('Home');
+    expect(await gymChip(document)).not.toBeNull();
+    expect(await gymLabel(document)).toBe('Home');
     expect(autoLabel(document)).toBe('auto: Short bar');
 
-    pickGym(document, 'Gym A');
+    await pickGym(document, 'Gym A');
     await drain();
 
     expect(window.apiCall).toHaveBeenCalledWith('/api/workout/sessions/location?id=77', 'PUT',
@@ -2737,14 +2765,14 @@ describe('features/workout/sessions.js — session gym (med-8j5w.2)', () => {
     const sessionModal = document.getElementById('workout-session-modal');
     expect(sessionModal.classList.contains('hidden')).toBe(false);
 
-    gymChip(document).click();
+    (await gymChip(document)).click();
     expect(document.querySelector('mt-modal.mt-confirm-modal')).not.toBeNull();
     expect(window.ModalManager.closeTopMostVisibleModal()).toBe(true);
     await drain();
 
     expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
     expect(sessionModal.classList.contains('hidden')).toBe(false);
-    expect(gymLabel(document)).toBe('Home');
+    expect(await gymLabel(document)).toBe('Home');
     expect(window.apiCall).not.toHaveBeenCalledWith('/api/workout/sessions/location?id=77', 'PUT',
       expect.anything(), expect.anything());
   });
@@ -2773,7 +2801,7 @@ describe('features/workout/sessions.js — session gym (med-8j5w.2)', () => {
     await drain();
 
     await vi.waitFor(() => expect(autoLabel(document)).toBe('auto: Short bar'));
-    expect(gymLabel(document)).toBe('Gym A (deleted)');
+    expect(await gymLabel(document)).toBe('Gym A (deleted)');
   });
 
   it('our own (non-remote) workout writes do not rebuild the chips', async () => {

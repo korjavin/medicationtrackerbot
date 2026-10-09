@@ -2,15 +2,15 @@
 //
 // Covers renderBPReadings(readings): a `.wg-bp-history` list with day-group
 // headers (`.wg-section-label`), `.wg-card` rows per reading (mono sys/dia
-// values, status tag, optional pulse tag), and a trailing `.wg-icon-btn`
-// delete that reuses the existing `deleteBPReading` handler. Offline-pending
+// values, status tag, optional pulse tag), and WGRowActions swipe + overflow
+// menu Delete that reuses the existing `deleteBPReading` handler. Offline-pending
 // and rejected states surface as `.wg-tag--mono` variants.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { clickRowAction, loadFrontendEnv } from './helpers/frontend-harness.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -171,7 +171,7 @@ describe('renderBPReadings (Phase 3, Task 5)', () => {
         expect(failed.title).toBe('HTTP 400');
     });
 
-    it('renders a .wg-icon-btn trailing delete that invokes deleteBPReading with the reading id', () => {
+    it('row actions: swipe host + overflow menu Delete invokes deleteBPReading with the reading id', () => {
         const { document, window } = env;
         const deleteSpy = vi.fn();
         window.deleteBPReading = deleteSpy;
@@ -180,15 +180,41 @@ describe('renderBPReadings (Phase 3, Task 5)', () => {
             { id: 99, measured_at: midnight(0).toISOString(), systolic: 122, diastolic: 80, pulse: 70 }
         ]);
 
-        const btn = document.querySelector('#bp-list .wg-bp-reading-row__delete');
-        expect(btn).not.toBeNull();
-        expect(btn.classList.contains('wg-icon-btn')).toBe(true);
-        expect(btn.querySelector('.wg-gloss')).not.toBeNull();
-        expect(btn.querySelector('svg[data-wg-icon="trash"]')).not.toBeNull();
+        const row = document.querySelector('#bp-list .wg-bp-reading-row');
+        expect(row.classList.contains('wg-swipe')).toBe(true);
+        // BP readings have no editor: the swipe tray and the menu offer Delete only.
+        expect(Array.from(row.querySelectorAll('.wg-swipe__act')).map((b) => b.textContent)).toEqual(['Delete']);
+        expect(row.querySelector('.wg-icon-btn')).toBeNull();
 
-        btn.click();
+        clickRowAction(row, 'Delete');
         expect(deleteSpy).toHaveBeenCalledTimes(1);
         expect(deleteSpy).toHaveBeenCalledWith('99');
+        expect(row.querySelector('.wg-swipe__menu').hidden).toBe(true);
+    });
+
+    it('row overflow menu is keyboard-operable: Enter opens it focused, Esc closes it back to the button', () => {
+        const { document, window } = env;
+        window.renderBPReadings([
+            { id: 7, measured_at: midnight(0).toISOString(), systolic: 120, diastolic: 80 }
+        ]);
+        const row = document.querySelector('#bp-list .wg-bp-reading-row');
+        const more = row.querySelector('.wg-swipe__more');
+        const menu = row.querySelector('.wg-swipe__menu');
+        expect(more.tagName).toBe('BUTTON');
+        expect(more.getAttribute('aria-haspopup')).toBe('menu');
+        expect(menu.getAttribute('role')).toBe('menu');
+        expect(menu.hidden).toBe(true);
+
+        more.focus();
+        more.click(); // Enter on a <button> activates it
+        expect(menu.hidden).toBe(false);
+        expect(more.getAttribute('aria-expanded')).toBe('true');
+        expect(document.activeElement.getAttribute('role')).toBe('menuitem');
+
+        document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        expect(menu.hidden).toBe(true);
+        expect(more.getAttribute('aria-expanded')).toBe('false');
+        expect(document.activeElement).toBe(more);
     });
 
     it('sorts readings within a day newest-first', () => {

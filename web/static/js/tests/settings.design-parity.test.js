@@ -29,6 +29,10 @@ describe('Settings design parity — round 2 (Task 7: external-link rows)', () =
                 if (!title) continue;
                 expect(title.textContent.trim()).not.toMatch(/^https?:\/\//);
             }
+            // Kit rows/links (Settings v2): a link names its target, never the URL.
+            for (const el of settingsView.querySelectorAll('.wg-setting__title, .wg-link, .wg-label')) {
+                expect(el.textContent.trim()).not.toMatch(/^https?:\/\//);
+            }
         } finally {
             cleanup();
         }

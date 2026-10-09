@@ -3,7 +3,7 @@
 // Covers renderNotes / appendNotes: a `.wg-health-notes__list` ul with
 // day-group headers (`.wg-section-label`), `.wg-card` rows per note (mono
 // timestamp + body), offline-pending + rejected badges as `.wg-tag--mono`
-// variants, trailing `.wg-icon-btn` cluster (edit + delete) wiring through
+// variants, WGRowActions row actions (tap / overflow Edit + Delete) wiring through
 // `editNote(note)` / `deleteNote(id)`, the full-width `.wg-gloss` "Load more"
 // pagination footer at exactly NOTES_PAGE_SIZE rows, and the empty-state
 // `.wg-card` placeholder. Also pins the new compose markup
@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { clickRowAction, loadFrontendEnv } from './helpers/frontend-harness.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -155,7 +155,7 @@ describe('Health Notes render (Phase 8, Task 7)', () => {
         expect(row.querySelector('.wg-chip--pending')).toBeNull();
     });
 
-    it('renders trailing .wg-icon-btn edit + delete that invoke editNote / deleteNote', () => {
+    it('row actions: overflow menu Edit / Delete invoke editNote / deleteNote; a tag tap does not edit', () => {
         const { document, window } = env;
         const editSpy = vi.fn();
         const deleteSpy = vi.fn();
@@ -164,28 +164,28 @@ describe('Health Notes render (Phase 8, Task 7)', () => {
 
         const list = document.getElementById('notes-list');
         window.renderNotes(list, [
-            { id: 99, created_at: midnight(0).toISOString(), content: 'hi' }
+            { id: 99, created_at: midnight(0).toISOString(), content: 'hi', tag: 'SLEEP' }
         ]);
 
-        const editBtn = list.querySelector('.wg-health-notes-row__edit');
-        expect(editBtn).not.toBeNull();
-        expect(editBtn.classList.contains('wg-icon-btn')).toBe(true);
-        expect(editBtn.querySelector('.wg-gloss')).not.toBeNull();
-        expect(editBtn.querySelector('svg[data-wg-icon="pencil"]')).not.toBeNull();
+        const row = list.querySelector('.wg-health-notes-row');
+        expect(row.classList.contains('wg-swipe')).toBe(true);
+        expect(row.querySelector('.wg-icon-btn')).toBeNull();
 
-        const delBtn = list.querySelector('.wg-health-notes-row__delete');
-        expect(delBtn).not.toBeNull();
-        expect(delBtn.classList.contains('wg-icon-btn')).toBe(true);
-        expect(delBtn.querySelector('.wg-gloss')).not.toBeNull();
-        expect(delBtn.querySelector('svg[data-wg-icon="trash"]')).not.toBeNull();
-
-        editBtn.click();
+        clickRowAction(row, 'Edit');
         expect(editSpy).toHaveBeenCalledTimes(1);
         const firstArg = editSpy.mock.calls[0][0];
         expect(firstArg.id).toBe(99);
         expect(firstArg.content).toBe('hi');
 
-        delBtn.click();
+        // The tag chip is the list filter, not an edit target.
+        const tag = row.querySelector('.wg-health-notes-row__tag');
+        expect(tag).not.toBeNull();
+        tag.click();
+        expect(editSpy).toHaveBeenCalledTimes(1);
+        row.querySelector('.wg-health-notes-row__content').click();
+        expect(editSpy).toHaveBeenCalledTimes(2);
+
+        clickRowAction(list.querySelector('.wg-health-notes-row'), 'Delete');
         expect(deleteSpy).toHaveBeenCalledTimes(1);
         expect(deleteSpy).toHaveBeenCalledWith(99);
     });

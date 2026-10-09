@@ -437,7 +437,7 @@ function buildBPAverageCard(period, stat) {
 
 // Render BP readings grouped by date as Wandergeek gloss cards.
 // Status and offline-pending/rejected sync state render as WGChip chips;
-// delete action is a .wg-icon-btn trailing cluster that reuses the existing
+// row actions (swipe + overflow menu, WGRowActions) reuse the existing
 // deleteBPReading handler.
 function renderBPReadings(readings, totalCount = 0) {
     const list = document.getElementById('bp-list');
@@ -582,27 +582,13 @@ function buildBPReadingRow(reading) {
 
     const actions = document.createElement('div');
     actions.className = 'wg-bp-reading-row__actions';
-    actions.appendChild(buildBPReadingDeleteButton(reading));
     item.appendChild(actions);
 
-    return item;
-}
-
-function buildBPReadingDeleteButton(reading) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'wg-icon-btn wg-bp-reading-row__delete';
-    btn.setAttribute('aria-label', 'Delete reading');
-
-    const gloss = document.createElement('span');
-    gloss.className = 'wg-gloss';
-    if (window.WGIcons && typeof window.WGIcons.iconSvg === 'function') {
-        gloss.appendChild(window.WGIcons.iconSvg('trash', { size: 16 }));
-    }
-    btn.appendChild(gloss);
-
-    btn.addEventListener('click', () => deleteBPReading(String(reading.id)));
-    return btn;
+    return window.WGRowActions.attach(item, {
+        label: `reading ${reading.systolic}/${reading.diastolic}`,
+        trail: actions,
+        onDelete: () => deleteBPReading(String(reading.id)),
+    });
 }
 
 // Drop one reading from the cached `bp` payload. Keeps goalRes/statsRes

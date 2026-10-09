@@ -319,15 +319,14 @@ function _buildMedsRow(med, parsedSchedule) {
     actions.className = 'wg-meds-row__actions med-actions';
     actions.appendChild(_buildMedsLogButton(med));
 
-    const actionIcons = document.createElement('div');
-    actionIcons.className = 'wg-meds-row__action-icons med-action-icons';
-    actionIcons.appendChild(createEditButton(() => showEditModal(med.id)));
-    actionIcons.appendChild(createDeleteButton(() => deleteMed(med.id)));
-    actions.appendChild(actionIcons);
-
     row.appendChild(info);
     row.appendChild(actions);
-    return row;
+    return window.WGRowActions.attach(row, {
+        label: med.name,
+        trail: actions,
+        onEdit: () => showEditModal(med.id),
+        onDelete: () => deleteMed(med.id),
+    });
 }
 
 function renderMeds() {
@@ -696,13 +695,12 @@ function _buildHistoryClusterRow(cluster, medsList) {
             .map((i) => i.id)
             .filter((id) => id !== undefined && id !== null);
         if (intakeIds.length > 0) {
-            const delBtn = createDeleteButton((event) => {
-                event.stopPropagation();
-                deleteFutureIntakes(intakeIds);
+            row.appendChild(actions);
+            return window.WGRowActions.attach(row, {
+                label: 'future intake',
+                trail: actions,
+                onDelete: () => deleteFutureIntakes(intakeIds),
             });
-            delBtn.title = 'Delete future intake';
-            delBtn.setAttribute('aria-label', 'Delete future intake');
-            actions.appendChild(delBtn);
         }
     }
 

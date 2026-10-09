@@ -131,8 +131,60 @@ describe('Settings → Import/Export section', () => {
             const { readFile } = await import('node:fs/promises');
             const css = await readFile(
                 new URL('../../css/styles.css', import.meta.url), 'utf8');
-            expect(css).toMatch(/\.wg-settings-integrations__field\[hidden\]\s*\{[^}]*display:\s*none/);
+            expect(css).toMatch(/\.wg-settings-page \[hidden\]\s*\{[^}]*display:\s*none\s*!important/);
+            expect(env.document.getElementById('importexport-import-passphrase-field').closest('.wg-settings-page')).not.toBeNull();
         });
+    });
+
+    // med-xso6.24 (kit S3): the native file input is hidden behind a kit
+    // .wg-file picker whose Choose button opens it and whose row shows the file.
+    describe('restore file picker', () => {
+        function picker() {
+            return env.document.querySelector('#settings-importexport .wg-file[data-file-input="importexport-import-file"]');
+        }
+
+        it('hides the native input and shows the empty picker', () => {
+            const input = env.document.getElementById('importexport-import-file');
+            expect(input.hidden).toBe(true);
+            const p = picker();
+            expect(p).not.toBeNull();
+            expect(p.classList.contains('wg-file--filled')).toBe(false);
+            expect(p.querySelector('[data-file-clear]').hidden).toBe(true);
+            expect(p.querySelector('[data-file-choose]').hidden).toBe(false);
+        });
+
+        it('Choose opens the native input', () => {
+            const input = env.document.getElementById('importexport-import-file');
+            const click = vi.spyOn(input, 'click').mockImplementation(() => {});
+            picker().querySelector('[data-file-choose]').click();
+            expect(click).toHaveBeenCalledTimes(1);
+        });
+
+        it('fills with the file name on pick and clears back to empty', async () => {
+            const input = env.document.getElementById('importexport-import-file');
+            setFile(env.window, input, 'vault.json.gz', JSON.stringify(SAMPLE_VAULT));
+            input.dispatchEvent(new env.window.Event('change'));
+            const p = picker();
+            await vi.waitFor(() => expect(p.classList.contains('wg-file--filled')).toBe(true));
+            expect(p.textContent).toContain('vault.json.gz');
+            expect(p.querySelector('[data-file-clear]').hidden).toBe(false);
+
+            Object.defineProperty(input, 'files', { configurable: true, value: [] });
+            p.querySelector('[data-file-clear]').click();
+            await vi.waitFor(() => expect(p.classList.contains('wg-file--filled')).toBe(false));
+            expect(p.textContent).toContain('Choose a backup file');
+        });
+    });
+
+    // med-xso6.24: replacing the vault is the one irreversible action here —
+    // it goes through the kit's typed-confirm dialog, destructive styling.
+    it('import asks for a typed, destructive confirm', async () => {
+        const { window, document } = env;
+        window.CloudVault = { exportAll: vi.fn(), importAll: vi.fn(async () => {}) };
+        setFile(window, document.getElementById('importexport-import-file'), 'backup.json', JSON.stringify(SAMPLE_VAULT));
+        await window.SettingsImportExport.import();
+        const opts = window.safeConfirm.mock.calls[0][2];
+        expect(opts).toMatchObject({ destructive: true, typedConfirm: 'replace my data' });
     });
 
     it('export passes includeSecrets:false through to CloudVault', async () => {
