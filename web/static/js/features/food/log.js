@@ -1121,30 +1121,66 @@ async function loadFoodTargets() {
     }
 }
 
-async function saveFoodTargets() {
-    const payload = {
-        calories: parseInt(document.getElementById('food-target-calories').value, 10) || 0,
-        carbs: parseInt(document.getElementById('food-target-carbs').value, 10) || 0,
-        protein: parseInt(document.getElementById('food-target-protein').value, 10) || 0,
-        fat: parseInt(document.getElementById('food-target-fat').value, 10) || 0
+function readFoodTargetsForm() {
+    const num = (id) => parseInt(document.getElementById(id).value, 10) || 0;
+    return {
+        calories: num('food-target-calories'),
+        carbs: num('food-target-carbs'),
+        protein: num('food-target-protein'),
+        fat: num('food-target-fat'),
     };
+}
 
+// Optimistic write (Critical Rule #9) on both keys that render food targets:
+// 'food_targets' (Food tab) and 'settings_bundle' (Settings — every optimistic
+// write reloads the current tab, and applyBundle would otherwise repaint the
+// pre-save values). A failed POST rolls both back. Resolves true on success.
+// `toast: false` lets the Settings Targets page (one Save for food + Journey
+// bands) report once for both; it passes `payload` read before the Journey
+// save, whose optimistic tab reload re-fills these inputs from the bundle.
+async function saveFoodTargets({ toast = true, payload = readFoodTargetsForm() } = {}) {
+    const ds = window.DataStore;
+    const handles = [];
+    const settle = (op) => Promise.all(handles.map((h) => h[op]()));
     try {
-        await apiCall('/api/food/settings/targets', 'POST', payload);
-        window.FoodLog.targets = payload;
+        if (ds && typeof ds.applyOptimistic === 'function') {
+            // No tags on food_targets: the registry maps it to tag null, so the
+            // invalidateTags below must not evict the row just committed.
+            handles.push(await ds.applyOptimistic('food_targets', () => ({ ...payload }), []));
+            // settings_bundle keeps its loadSWR tags (features/settings.js).
+            handles.push(await ds.applyOptimistic('settings_bundle',
+                (prev) => (prev ? { ...prev, foodTargets: { ...payload } } : prev),
+                ['settings', 'food_targets', 'feature_settings']));
+        }
+        const res = await apiCall('/api/food/settings/targets', 'POST', payload);
+        if (!res) {
+            // apiCall already surfaced the failure; don't stack a second message.
+            await settle('rollback');
+            return false;
+        }
+        await settle('commit');
+    } catch (e) {
+        await settle('rollback');
+        console.error('Failed to save food targets:', e);
+        safeToast('Failed to save food targets', 'error');
+        return false;
+    }
+
+    window.FoodLog.targets = payload;
+    try {
         // Nourishment scoring reads calorie/protein targets (s.food.GetTargets), so a
         // target change shifts today's HP — evict the gamification rings/journey too.
         await window.DataStore.invalidateTags(['settings', 'food_targets', 'gamification']);
-        safeToast('Food targets saved', 'info');
-        const currentTab = (window.AppStore && typeof window.AppStore.get === 'function' && window.AppStore.get('currentTab'))
-            || document.querySelector('.view.active')?.id?.replace(/-view$/, '');
-        if (currentTab === 'food') {
-            loadFoodLogs();
-        }
     } catch (e) {
-        console.error('Failed to save food targets:', e);
-        safeToast('Failed to save food targets', 'error');
+        console.warn('Failed to invalidate caches after saving food targets:', e);
     }
+    if (toast) safeToast('Food targets saved', 'info');
+    const currentTab = (window.AppStore && typeof window.AppStore.get === 'function' && window.AppStore.get('currentTab'))
+        || document.querySelector('.view.active')?.id?.replace(/-view$/, '');
+    if (currentTab === 'food') {
+        loadFoodLogs();
+    }
+    return true;
 }
 
 // The cached day payloads a food-log delete touches: both day caches (v2 +
@@ -1532,6 +1568,7 @@ window.FoodLog.openEdit = editFoodLog;
 window.FoodLog.close = closeFoodModal;
 window.FoodLog.computeTotals = computeFoodTotals;
 window.FoodLog.calculate = calculateFoodCalories;
+window.FoodLog.readTargetsForm = readFoodTargetsForm;
 
 // Back-compat: maintain the legacy `window.loadFoodLogs` / `window.loadFoodTargets`
 // / `window.saveFoodTargets` names because the architecture.globals allowlist

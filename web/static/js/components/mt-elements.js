@@ -36,16 +36,10 @@ class MTSettingToggle extends HTMLElement {
         if (this.dataset.initialized === 'true') return;
         this.dataset.initialized = 'true';
 
-        // `.wg-settings-row` is the sole layout class; the legacy
-        // `.setting-item` class was dropped because its residual visual
-        // styles (background, border, border-radius, margin-bottom) and
-        // the higher-specificity `.setting-item h3` rule bled through the
-        // new row styling, making each row render as a nested old card.
-        // The `divider` attribute contract stays stable (its visual
-        // effect was already removed in Phase 9 Task 5 once section
-        // cards provided the grouping); the class is retained purely so
-        // the backwards-compat assertion still passes.
-        this.classList.add('wg-settings-row');
+        // Kit .wg-setting row (med-xso6.23; components.html "Setting row"):
+        // optional lead icon, title + description, trailing .wg-toggle. The
+        // `divider` attribute keeps its legacy .setting-item-divider class.
+        this.classList.add('wg-setting');
         if (this.hasAttribute('divider')) {
             this.classList.add('setting-item-divider');
         }
@@ -53,30 +47,42 @@ class MTSettingToggle extends HTMLElement {
         const titleText = this.getAttribute('title') || '';
         const descriptionText = this.getAttribute('description') || '';
         const inputId = this.getAttribute('input-id') || '';
+        const iconName = this.getAttribute('icon') || '';
+        // The title attribute would otherwise show as a hover tooltip on the row.
+        this.removeAttribute('title');
+        this.dataset.title = titleText;
 
-        const content = document.createElement('div');
-        content.className = 'wg-settings-row__content';
-        const title = document.createElement('h3');
-        title.className = 'wg-settings-row__title';
-        title.textContent = titleText;
-        content.appendChild(title);
-
-        if (descriptionText) {
-            const description = document.createElement('p');
-            description.className = 'setting-desc wg-settings-row__desc';
-            description.textContent = descriptionText;
-            content.appendChild(description);
+        const parts = [];
+        if (iconName) {
+            const lead = document.createElement('span');
+            lead.className = 'wg-row__lead';
+            const ico = document.createElement('i');
+            ico.className = 'wg-ico';
+            ico.dataset.icon = iconName;
+            lead.appendChild(ico);
+            parts.push(lead);
         }
 
-        const control = document.createElement('div');
-        control.className = 'wg-settings-row__control';
+        const body = document.createElement('span');
+        body.className = 'wg-setting__body';
+        const title = document.createElement('span');
+        title.className = 'wg-setting__title';
+        title.textContent = titleText;
+        body.appendChild(title);
+        if (descriptionText) {
+            const description = document.createElement('span');
+            description.className = 'wg-setting__desc';
+            description.textContent = descriptionText;
+            body.appendChild(description);
+        }
+        parts.push(body);
 
         // Delegate the visual pill + knob to WGToggle if available; fall
         // back to inline markup for test environments that haven't loaded
         // the component script.
         let toggleEl;
         if (window.WGToggle && typeof window.WGToggle.render === 'function') {
-            toggleEl = window.WGToggle.render({ id: inputId });
+            toggleEl = window.WGToggle.render({ id: inputId, ariaLabel: titleText });
         } else {
             toggleEl = document.createElement('label');
             toggleEl.className = 'wg-toggle';
@@ -84,11 +90,12 @@ class MTSettingToggle extends HTMLElement {
             input.type = 'checkbox';
             input.className = 'wg-toggle__input';
             if (inputId) input.id = inputId;
+            if (titleText) input.setAttribute('aria-label', titleText);
             toggleEl.appendChild(input);
         }
-        control.appendChild(toggleEl);
+        parts.push(toggleEl);
 
-        this.replaceChildren(content, control);
+        this.replaceChildren(...parts);
     }
 }
 
