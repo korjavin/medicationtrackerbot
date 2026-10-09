@@ -51,21 +51,17 @@ async function loadNextWorkout() {
 function _renderNextWorkout(container, data) {
     const session = (data && data.session) ? data.session : null;
 
-    // Round-2 Task 10 (defect #13a): every action button adopts the
-    // shared `.wg-toolbar-btn` sizing with a primary (yellow filled) or
-    // secondary (outline/ghost) variant. No emoji prefixes. Never
-    // offline-gated: workout writes are local-first (med-mgvo).
+    // Kit `.wg-btn--sm` buttons (med-xso6.36): the one primary action is
+    // `.wg-btn--primary`, the rest are the neutral raised `.wg-btn`. No
+    // emoji prefixes. Never offline-gated: workout writes are local-first
+    // (med-mgvo).
     const createButton = (label, variant, onClick) => {
         const button = document.createElement('button');
         button.type = 'button';
-        const variantClass = variant === 'primary'
-            ? 'wg-toolbar-btn--primary'
-            : 'wg-toolbar-btn--secondary';
-        button.className = `wg-toolbar-btn ${variantClass}`;
-        const labelEl = document.createElement('span');
-        labelEl.className = 'wg-toolbar-btn__label';
-        labelEl.textContent = label;
-        button.appendChild(labelEl);
+        button.className = variant === 'primary'
+            ? 'wg-btn wg-btn--primary wg-btn--sm'
+            : 'wg-btn wg-btn--sm';
+        button.textContent = label;
         button.addEventListener('click', () => {
             onClick(session ? session.id : null);
         });

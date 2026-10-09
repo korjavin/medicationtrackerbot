@@ -30,16 +30,14 @@ describe('Log-set modal shell (Phase 7, Task 8)', () => {
         expect(modal.classList.contains('wg-workouts-log-set-modal')).toBe(true);
     });
 
-    it('renders a mono eyebrow + title heading', () => {
+    it('renders the kit sheet header: eyebrow + title', () => {
         const { document } = env;
         const modal = document.getElementById('workout-add-exercise-to-session-modal');
-        const eyebrow = modal.querySelector('.wg-workouts-log-set-modal__eyebrow');
-        const title = modal.querySelector('.wg-workouts-log-set-modal__title');
+        const eyebrow = modal.querySelector('.wg-sheethead .wg-eyebrow');
+        const title = modal.querySelector('.wg-sheethead .wg-sheethead__title');
         expect(eyebrow).not.toBeNull();
-        expect(eyebrow.classList.contains('wg-section-label')).toBe(true);
         expect(eyebrow.textContent).toBe('Log set');
         expect(title).not.toBeNull();
-        expect(title.classList.contains('wg-mono-display')).toBe(true);
         expect(title.id).toBe('workout-add-exercise-to-session-title');
     });
 
@@ -53,9 +51,9 @@ describe('Log-set modal shell (Phase 7, Task 8)', () => {
         });
     });
 
-    it('has Cancel + Save header-action buttons with Save as sun-glossed', () => {
+    it('has Cancel (ghost) + Save (primary) kit buttons in the sheet header', () => {
         const { document } = env;
-        const actions = document.querySelector('#workout-add-exercise-to-session-modal .wg-workouts-log-set-modal__header-actions');
+        const actions = document.querySelector('#workout-add-exercise-to-session-modal .wg-sheethead__acts');
         expect(actions).not.toBeNull();
 
         const cancel = actions.querySelector('#session-add-exercise-cancel-btn');
@@ -63,11 +61,8 @@ describe('Log-set modal shell (Phase 7, Task 8)', () => {
         expect(cancel).not.toBeNull();
         expect(save).not.toBeNull();
 
-        expect(cancel.classList.contains('wg-gloss')).toBe(true);
-        expect(cancel.classList.contains('wg-workouts-log-set-modal__header-btn')).toBe(true);
-        expect(save.classList.contains('wg-gloss')).toBe(true);
-        expect(save.classList.contains('wg-gloss--sun')).toBe(true);
-        expect(save.classList.contains('wg-workouts-log-set-modal__header-btn--save')).toBe(true);
+        expect(cancel.className).toBe('wg-btn wg-btn--ghost wg-btn--sm');
+        expect(save.className).toBe('wg-btn wg-btn--primary wg-btn--sm');
     });
 
     it('preserves the preexisting ID hooks used by saveNewSessionExercise + onSessionExerciseSelect', () => {

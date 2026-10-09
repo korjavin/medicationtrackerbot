@@ -296,11 +296,6 @@
     --wg-icon-btn-size: 44px;
     --wg-font-size-tag: 10.5px;
     --wg-section-label-pad-top: 18px;
-    /* Shared toolbar-row action button height (Round-2 defects Task 2).
-       Matches the 14d / 30d / 60d range pill min-height so the primary
-       action button (+Log, Add, Start) aligns on the same visual baseline
-       as the sibling range/subtab pills. Used by .wg-toolbar-btn. */
-    --wg-toolbar-btn-height: 36px;
 
     --wg-radius-pill: 999px;
 
@@ -513,11 +508,8 @@
     --wg-workouts-calendar-radius: 2px;
 
     /* Log-set / edit-exercise / edit-group / edit-library modal tokens
-       (Phase 7, Task 8) — mono header, gloss-inset input wraps for name /
-       reps / weight / duration, Cancel + Save bar with 2× flex on Save per
-       modal-button-order convention. */
-    --wg-workouts-modal-eyebrow-size: 10.5px;
-    --wg-workouts-modal-title-size: 18px;
+       (Phase 7, Task 8) — gloss-inset input wraps for name /
+       reps / weight / duration. */
     --wg-workouts-modal-row-gap: 10px;
     --wg-workouts-modal-section-gap: 14px;
     --wg-workouts-modal-input-pad-y: 10px;
@@ -1335,11 +1327,9 @@ svg.chart-svg {
    teal on the stage, hairline border, --wg-radius-card. The kicker label
    uses the muted-uppercase small caption; the title is display typeface;
    the subtitle is secondary UI text. Primary action (Start /
-   View / Cancel Skip) is .wg-toolbar-btn.wg-toolbar-btn--primary —
-   yellow filled, matching every other primary CTA across the app.
-   Secondary actions (Ad hoc / Skip / Finish / Next Day) use the
-   shared outline variant .wg-toolbar-btn--secondary added in the same
-   task; med-2fc added the leftmost Ad hoc, which is the screen's
+   View / Cancel Skip) is the kit .wg-btn--primary; secondary actions
+   (Ad hoc / Skip / Finish / Next Day) are plain .wg-btn (med-xso6.36).
+   med-2fc added the leftmost Ad hoc, which is the screen's
    only ad-hoc entry point and the sole content of the card when nothing
    is scheduled. No gradients, no accent stripe, no emoji. */
 
@@ -1409,10 +1399,10 @@ svg.chart-svg {
     gap: var(--space-sm);
 }
 
-.wg-workouts-next-card__actions > .wg-toolbar-btn {
+.wg-workouts-next-card__actions > .wg-btn {
     flex: 1 1 auto;
     min-width: 0;
-    padding: var(--space-xs) var(--space-sm);
+    padding: 0 var(--space-sm);
 }
 
 /* ==================== Sync Status Styles ==================== */
@@ -2008,7 +1998,7 @@ svg.chart-svg {
    border, --wg-radius-card); kicker label is muted-uppercase small
    caption; the countdown uses the display-numeric typeface; meta line
    carries the medication names and `at DD.MM., HH:MM`. The Take Now
-   CTA reuses .wg-toolbar-btn.wg-toolbar-btn--primary so its size
+   CTA is a kit .wg-btn--sm so its size
    matches the other primary actions across the app — color is the
    only emphasis. */
 
@@ -2352,76 +2342,6 @@ svg.chart-svg {
     min-height: 44px;
     padding: var(--space-md) var(--space-xl);
     font-size: var(--font-size-md);
-}
-
-/* Shared toolbar-row action button (Round-2 defects Task 2). Unifies the
-   "primary action pill sitting next to a range/subtab track" pattern on BP
-   (+Log), Weight (+Log), Meds (Add), Workouts (Start) and Food (Add). The
-   per-section one-off classes (.wg-bp-range-selector__add, .wg-meds-subtabs-
-   row__add, .wg-workouts-subtabs-row__add, .wg-food-day-nav__add,
-   .wg-weight-header-row__add) that once repeated the same size/padding/radius
-   recipe have been deleted as each per-section task migrated to this shared
-   class (defects 8, 9, 10, 13b, 15).
-   Size+shape only — color is provided by .wg-gloss / .wg-gloss--sun or the
-   --primary modifier below. `align-self: center` defeats the
-   `align-items: stretch` inflation that made the add button visually
-   taller than the adjacent pills (defects 8, 10, 13b, 15). */
-.wg-toolbar-btn {
-    flex-shrink: 0;
-    align-self: center;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-xs);
-    min-height: var(--wg-toolbar-btn-height);
-    padding: var(--space-xs) var(--space-md);
-    font-family: var(--wg-font-ui);
-    font-weight: var(--font-weight-bold);
-    font-size: var(--font-size-sm);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
-}
-
-/* Primary variant — yellow filled gloss, matching .wg-gloss--sun. Color
-   only; never changes size. Apply to the canonical "add/log/start" action
-   in a toolbar row. */
-.wg-toolbar-btn--primary {
-    color: var(--wg-ink);
-    background: var(--wg-gloss-bg-sun);
-    border: 1px solid rgba(0, 0, 0, 0.18);
-    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.25);
-    box-shadow: var(--wg-gloss-shadow-sun);
-    transition: filter 120ms ease, transform 120ms ease;
-}
-
-.wg-toolbar-btn--primary:active {
-    transform: translateY(1px);
-    filter: brightness(0.95);
-}
-
-.wg-toolbar-btn--primary:hover {
-    filter: brightness(1.07);
-}
-
-/* Secondary variant — outline/ghost on the teal stage. Introduced in
-   Round-2 Task 10 (defect 13a) for the Workouts "Next workout" card's
-   Skip / Stop / Next Variant actions. Matches the --primary variant's
-   size (base class owns all sizing) — color only. */
-.wg-toolbar-btn--secondary {
-    color: var(--wg-fg-1);
-    background: transparent;
-    border: 1px solid var(--wg-border-hairline);
-    box-shadow: none;
-    transition: filter 120ms ease, transform 120ms ease, background-color 120ms ease;
-}
-
-.wg-toolbar-btn--secondary:active {
-    transform: translateY(1px);
-    filter: brightness(0.95);
-}
-
-.wg-toolbar-btn--secondary:hover {
-    border-color: var(--wg-border-strong);
 }
 
 .wg-icon-btn {
@@ -3928,14 +3848,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
     min-width: 0;
 }
 
-/* Round-2 Task 5 (defect 8): the BP +Log button adopted the shared
-   .wg-toolbar-btn .wg-toolbar-btn--primary (see ~line 3295). The per-section
-   .wg-bp-range-selector__add / __add-label rules were removed — the label
-   below the icon now uses the shared .wg-toolbar-btn__label. */
-.wg-toolbar-btn__label {
-    letter-spacing: 0.02em;
-}
-
 .wg-bp-chart-card {
     padding: var(--wg-chart-card-pad);
     margin-bottom: var(--space-md);
@@ -4813,73 +4725,12 @@ body:has(.wg-callbar--dock) .wg-toasts {
     gap: var(--space-md);
 }
 
-/* Edit-workout-group modal (Phase 7, Task 5). Shares the generic `.wg-modal`
-   shell for positioning/chrome; overlays a mono eyebrow + title header,
-   `.wg-gloss--inset` input wraps for name / description / time /
-   notification, a .wg-picks weekday row, toggle checkboxes, variant +
-   exercise sub-sections, and a Cancel/Save action bar (Save 2× flex per
-   modal-button-order convention). */
-.wg-workouts-group-modal__header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--space-md);
-    margin-bottom: var(--space-lg);
-}
-
-.wg-workouts-group-modal__heading {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-    min-width: 0;
-}
-
-.wg-workouts-group-modal__eyebrow {
-    padding: 0;
-    font-size: var(--wg-workouts-modal-eyebrow-size);
-    color: var(--wg-fg-3);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-}
-
-.wg-workouts-group-modal__eyebrow::before {
-    content: none;
-}
-
-.wg-workouts-group-modal__title {
-    font-family: var(--wg-font-mono);
-    font-size: var(--wg-workouts-modal-title-size);
-    color: var(--wg-fg-1);
-    line-height: 1.1;
-}
-
+/* Scan / share / import sheet body (kit .wg-sheet + .wg-sheethead since
+   med-xso6.36). */
 .wg-workouts-group-modal__body {
     display: flex;
     flex-direction: column;
     gap: var(--wg-workouts-modal-section-gap);
-}
-
-.wg-workouts-group-modal__header-actions {
-    display: flex;
-    gap: var(--space-xs);
-    align-items: center;
-    flex-wrap: wrap;
-    flex-shrink: 0;
-}
-
-.wg-workouts-group-modal__header-btn {
-    flex: 1 1 auto;
-    min-height: 36px;
-    padding: var(--space-xs) var(--space-sm);
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-sm);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
-    white-space: nowrap;
-}
-
-.wg-workouts-group-modal__header-btn--save {
-    flex: 2 1 auto;
 }
 
 /* Workouts exercises sub-tab (Phase 7, Task 6). Each exercise renders as
@@ -5032,11 +4883,9 @@ body:has(.wg-callbar--dock) .wg-toasts {
     text-align: center;
 }
 
-/* Edit-library-exercise modal (Phase 7, Task 6). Shares the generic `.wg-modal`
-   shell for positioning/chrome; overlays a mono eyebrow + title header,
-   `.wg-gloss--inset` input wraps for name / sets / reps / weight / notes,
-   and a Cancel/Save action bar (Save 2× flex per modal-button-order
-   convention).
+/* Edit-library-exercise / equipment sheet body (Phase 7, Task 6; header is
+   the kit .wg-sheethead since med-xso6.36): `.wg-gloss--inset` input wraps
+   for name / sets / reps / weight / notes.
 
    The Mi-Band/Cardio modal (med-bzv) is the same form shape, so it rides these
    rules as a second selector rather than a copied declaration block — only the
@@ -5045,45 +4894,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
    ponytail: three modals (library, log-set, miband) now render one identical
    form-modal shape under three BEM prefixes. Extracting a shared
    `wg-form-modal` block is the real cleanup; out of scope here. */
-.wg-workouts-library-modal__header,
-.wg-equipment-modal__header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--space-md);
-    margin-bottom: var(--space-lg);
-}
-
-.wg-workouts-library-modal__heading,
-.wg-equipment-modal__heading {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-    min-width: 0;
-}
-
-.wg-workouts-library-modal__eyebrow,
-.wg-equipment-modal__eyebrow {
-    padding: 0;
-    font-size: var(--wg-workouts-modal-eyebrow-size);
-    color: var(--wg-fg-3);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-}
-
-.wg-workouts-library-modal__eyebrow::before,
-.wg-equipment-modal__eyebrow::before {
-    content: none;
-}
-
-.wg-workouts-library-modal__title,
-.wg-equipment-modal__title {
-    font-family: var(--wg-font-mono);
-    font-size: var(--wg-workouts-modal-title-size);
-    color: var(--wg-fg-1);
-    line-height: 1.1;
-}
-
 .wg-workouts-library-modal__body,
 .wg-workouts-miband-modal__body,
 .wg-equipment-modal__body {
@@ -5155,32 +4965,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
 .wg-workouts-miband-modal__input::placeholder,
 .wg-equipment-modal__input::placeholder {
     color: var(--wg-fg-4);
-}
-
-.wg-workouts-library-modal__header-actions,
-.wg-equipment-modal__header-actions {
-    display: flex;
-    gap: var(--space-xs);
-    align-items: center;
-    flex-wrap: wrap;
-    flex-shrink: 0;
-}
-
-.wg-workouts-library-modal__header-btn,
-.wg-equipment-modal__header-btn {
-    flex: 1 1 auto;
-    min-height: 36px;
-    padding: var(--space-xs) var(--space-sm);
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-sm);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
-    white-space: nowrap;
-}
-
-.wg-workouts-library-modal__header-btn--save,
-.wg-equipment-modal__header-btn--save {
-    flex: 2 1 auto;
 }
 
 /* Equipment inventory list (med-niix.3). Same card-row shape as the exercise
@@ -5471,45 +5255,9 @@ body:has(.wg-callbar--dock) .wg-toasts {
     margin-top: var(--space-xs);
 }
 
-/* Log-set modal (Phase 7, Task 8). Shares the generic `.wg-modal` shell for
-   positioning/chrome; overlays a mono "Log set" eyebrow + dynamic-title
-   header ("Log set \u00b7 Bench"), `.wg-gloss--inset` input wraps for
-   name / sets / reps / weight / notes, and a Cancel/Save action bar
-   (Save 2x flex per modal-button-order convention). */
-.wg-workouts-log-set-modal__header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--space-md);
-    margin-bottom: var(--space-lg);
-}
-
-.wg-workouts-log-set-modal__heading {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-    min-width: 0;
-}
-
-.wg-workouts-log-set-modal__eyebrow {
-    padding: 0;
-    font-size: var(--wg-workouts-modal-eyebrow-size);
-    color: var(--wg-fg-3);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-}
-
-.wg-workouts-log-set-modal__eyebrow::before {
-    content: none;
-}
-
-.wg-workouts-log-set-modal__title {
-    font-family: var(--wg-font-mono);
-    font-size: var(--wg-workouts-modal-title-size);
-    color: var(--wg-fg-1);
-    line-height: 1.1;
-}
-
+/* Log-set sheet body (Phase 7, Task 8; header is the kit .wg-sheethead since
+   med-xso6.36): `.wg-gloss--inset` input wraps for name / sets / reps /
+   weight / notes. */
 .wg-workouts-log-set-modal__body {
     display: flex;
     flex-direction: column;
@@ -5629,29 +5377,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
 .wg-exercise-suggest__row:focus-visible {
     outline: 2px solid var(--wg-toggle-border-focus);
     outline-offset: -2px;
-}
-
-.wg-workouts-log-set-modal__header-actions {
-    display: flex;
-    gap: var(--space-xs);
-    align-items: center;
-    flex-wrap: wrap;
-    flex-shrink: 0;
-}
-
-.wg-workouts-log-set-modal__header-btn {
-    flex: 1 1 auto;
-    min-height: 36px;
-    padding: var(--space-xs) var(--space-sm);
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-sm);
-    border-radius: var(--wg-radius-gloss);
-    cursor: pointer;
-    white-space: nowrap;
-}
-
-.wg-workouts-log-set-modal__header-btn--save {
-    flex: 2 1 auto;
 }
 
 /* Workouts stats sub-tab (Phase 7, Task 7). Kit .wg-seg view + range strips
@@ -7655,15 +7380,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
     justify-content: flex-end;
 }
 
-.wg-settings-action-btn {
-    font-family: var(--wg-font-mono);
-    font-size: var(--wg-settings-desc-size);
-    padding: var(--space-xs) var(--space-md);
-    border: none;
-    color: var(--wg-fg-1);
-    cursor: pointer;
-}
-
 /* Food Targets number-field grid (Phase 9, Task 6). A 2×2 grid of
    number fields for calories / carbs / protein / fat. Each field is a
    stacked mono uppercase label + a `.wg-gloss--inset` input wrap with a
@@ -7980,8 +7696,8 @@ body:has(.wg-callbar--dock) .wg-toasts {
     display: none;
 }
 
-/* Plan share modal (bd med-uo64.2). Reuses the modal shell + toolbar
-   recipes; QR / link / note are layout only, all visual values are
+/* Plan share sheet (bd med-uo64.2). Reuses the kit sheet + .wg-btn;
+   QR / link / note are layout only, all visual values are
    --wg-* tokens. */
 .wg-workouts-share-modal {
     max-width: var(--wg-modal-max-w-wide);
@@ -8038,10 +7754,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
 
 .wg-share-linkrow__copy {
     flex: 0 0 auto;
-}
-
-.wg-share-native {
-    width: 100%;
 }
 
 /* Plan import modal (bd med-uo64.3). Layout only — same recipes as the share

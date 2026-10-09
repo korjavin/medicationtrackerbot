@@ -4,8 +4,8 @@
 //   • #13a: `_renderNextWorkout` emits the new Wandergeek markup —
 //     `.wg-workouts-next-card` surface + kicker/date/title/subtitle
 //     tokens + an actions row where primary actions carry
-//     `.wg-toolbar-btn.wg-toolbar-btn--primary` and secondary actions
-//     carry `.wg-toolbar-btn.wg-toolbar-btn--secondary`.
+//     the kit `.wg-btn.wg-btn--primary` and secondary actions are plain
+//     `.wg-btn` (med-xso6.36).
 //   • No emoji prefixes on action labels (dumbbell / bell / calendar /
 //     rewind arrows / stop sign were all stripped).
 //   • CSS contract: the restyled pane uses tokens only — no
@@ -109,20 +109,16 @@ describe('Workouts → Next workout card (Round-2 Task 10)', () => {
         const container = document.getElementById('next-workout-card');
         window._renderNextWorkout(container, baseData());
 
-        const actions = container.querySelectorAll('.wg-workouts-next-card__actions > .wg-toolbar-btn');
+        const actions = container.querySelectorAll('.wg-workouts-next-card__actions > .wg-btn');
         expect(actions.length).toBe(4);
 
         const [adhocBtn, startBtn, skipBtn, variantBtn] = actions;
-        expect(adhocBtn.classList.contains('wg-toolbar-btn--secondary')).toBe(true);
-        expect(startBtn.classList.contains('wg-toolbar-btn--primary')).toBe(true);
-        expect(skipBtn.classList.contains('wg-toolbar-btn--secondary')).toBe(true);
-        expect(variantBtn.classList.contains('wg-toolbar-btn--secondary')).toBe(true);
+        expect(adhocBtn.classList.contains('wg-btn--primary')).toBe(false);
+        expect(startBtn.classList.contains('wg-btn--primary')).toBe(true);
+        expect(skipBtn.classList.contains('wg-btn--primary')).toBe(false);
+        expect(variantBtn.classList.contains('wg-btn--primary')).toBe(false);
 
-        const labels = [adhocBtn, startBtn, skipBtn, variantBtn].map((btn) => {
-            const span = btn.querySelector('.wg-toolbar-btn__label');
-            expect(span).not.toBeNull();
-            return span.textContent;
-        });
+        const labels = [adhocBtn, startBtn, skipBtn, variantBtn].map((btn) => btn.textContent);
         expect(labels).toEqual(['Ad hoc', 'Start', 'Skip', 'Next Day']);
 
         // No emoji prefix escaped into any rendered label.
@@ -143,15 +139,15 @@ describe('Workouts → Next workout card (Round-2 Task 10)', () => {
             }
         }));
 
-        const actions = container.querySelectorAll('.wg-workouts-next-card__actions > .wg-toolbar-btn');
+        const actions = container.querySelectorAll('.wg-workouts-next-card__actions > .wg-btn');
         expect(actions.length).toBe(3);
 
-        const labels = Array.from(actions).map((btn) => btn.querySelector('.wg-toolbar-btn__label').textContent);
+        const labels = Array.from(actions).map((btn) => btn.textContent);
         expect(labels).toEqual(['Ad hoc', 'View', 'Finish']);
 
-        expect(actions[0].classList.contains('wg-toolbar-btn--secondary')).toBe(true);
-        expect(actions[1].classList.contains('wg-toolbar-btn--primary')).toBe(true);
-        expect(actions[2].classList.contains('wg-toolbar-btn--secondary')).toBe(true);
+        expect(actions[0].classList.contains('wg-btn--primary')).toBe(false);
+        expect(actions[1].classList.contains('wg-btn--primary')).toBe(true);
+        expect(actions[2].classList.contains('wg-btn--primary')).toBe(false);
 
         // Kicker text reflects the in-progress status.
         expect(container.querySelector('.wg-workouts-next-card__kicker').textContent).toBe('In Progress');
@@ -181,7 +177,7 @@ describe('Workouts → Next workout card (Round-2 Task 10)', () => {
 
         // [0] is the med-2fc Ad hoc action, [1] View, [2] Finish.
         const finishBtn = container.querySelectorAll(
-            '.wg-workouts-next-card__actions > .wg-toolbar-btn'
+            '.wg-workouts-next-card__actions > .wg-btn'
         )[2];
         finishBtn.click();
         // Drain the microtask queue (safeConfirm → apiCall chain).
@@ -203,13 +199,13 @@ describe('Workouts → Next workout card (Round-2 Task 10)', () => {
             is_rotating: true
         }));
 
-        const actions = container.querySelectorAll('.wg-workouts-next-card__actions > .wg-toolbar-btn');
-        const labels = Array.from(actions).map((btn) => btn.querySelector('.wg-toolbar-btn__label').textContent);
+        const actions = container.querySelectorAll('.wg-workouts-next-card__actions > .wg-btn');
+        const labels = Array.from(actions).map((btn) => btn.textContent);
         expect(labels).toEqual(['Ad hoc', 'Cancel Skip', 'Next Day']);
 
-        expect(actions[0].classList.contains('wg-toolbar-btn--secondary')).toBe(true);
-        expect(actions[1].classList.contains('wg-toolbar-btn--primary')).toBe(true);
-        expect(actions[2].classList.contains('wg-toolbar-btn--secondary')).toBe(true);
+        expect(actions[0].classList.contains('wg-btn--primary')).toBe(false);
+        expect(actions[1].classList.contains('wg-btn--primary')).toBe(true);
+        expect(actions[2].classList.contains('wg-btn--primary')).toBe(false);
 
         expect(container.querySelector('.wg-workouts-next-card__kicker').textContent).toBe('To Be Skipped');
     });
@@ -221,8 +217,8 @@ describe('Workouts → Next workout card (Round-2 Task 10)', () => {
             is_rotating: false
         }));
         const labels = Array.from(
-            container.querySelectorAll('.wg-workouts-next-card__actions > .wg-toolbar-btn')
-        ).map((btn) => btn.querySelector('.wg-toolbar-btn__label').textContent);
+            container.querySelectorAll('.wg-workouts-next-card__actions > .wg-btn')
+        ).map((btn) => btn.textContent);
         expect(labels).toEqual(['Ad hoc', 'Start', 'Skip']);
     });
 
@@ -242,16 +238,16 @@ describe('Workouts → Next workout card (Round-2 Task 10)', () => {
         expect(card.querySelector('.wg-workouts-next-card__subtitle')).toBeNull();
         expect(card.querySelector('.wg-workouts-next-card__info')).toBeNull();
 
-        const actions = card.querySelectorAll('.wg-workouts-next-card__actions > .wg-toolbar-btn');
+        const actions = card.querySelectorAll('.wg-workouts-next-card__actions > .wg-btn');
         expect(actions.length).toBe(1);
-        expect(actions[0].querySelector('.wg-toolbar-btn__label').textContent).toBe('Ad hoc');
-        expect(actions[0].classList.contains('wg-toolbar-btn--secondary')).toBe(true);
+        expect(actions[0].textContent).toBe('Ad hoc');
+        expect(actions[0].classList.contains('wg-btn--primary')).toBe(false);
 
         // `{ session: null }` (the shape loadNextWorkout caches for a server
         // "no next workout") takes the same path.
         window._renderNextWorkout(container, { session: null });
         expect(
-            container.querySelectorAll('.wg-workouts-next-card__actions > .wg-toolbar-btn').length
+            container.querySelectorAll('.wg-workouts-next-card__actions > .wg-btn').length
         ).toBe(1);
     });
 
@@ -264,8 +260,8 @@ describe('Workouts → Next workout card (Round-2 Task 10)', () => {
 
         for (const data of [null, baseData()]) {
             window._renderNextWorkout(container, data);
-            const adhocBtn = container.querySelector('.wg-workouts-next-card__actions > .wg-toolbar-btn');
-            expect(adhocBtn.querySelector('.wg-toolbar-btn__label').textContent).toBe('Ad hoc');
+            const adhocBtn = container.querySelector('.wg-workouts-next-card__actions > .wg-btn');
+            expect(adhocBtn.textContent).toBe('Ad hoc');
             expect(adhocBtn.disabled).toBe(false);
         }
     });
@@ -277,12 +273,12 @@ describe('Workouts → Next workout card (Round-2 Task 10)', () => {
         window.startAdHocWorkout = adhocSpy;
 
         window._renderNextWorkout(container, null);
-        container.querySelector('.wg-workouts-next-card__actions > .wg-toolbar-btn').click();
+        container.querySelector('.wg-workouts-next-card__actions > .wg-btn').click();
         expect(adhocSpy).toHaveBeenCalledTimes(1);
         expect(adhocSpy).toHaveBeenLastCalledWith();
 
         window._renderNextWorkout(container, baseData());
-        container.querySelector('.wg-workouts-next-card__actions > .wg-toolbar-btn').click();
+        container.querySelector('.wg-workouts-next-card__actions > .wg-btn').click();
         expect(adhocSpy).toHaveBeenCalledTimes(2);
         expect(adhocSpy).toHaveBeenLastCalledWith();
     });
@@ -303,7 +299,7 @@ describe('Workouts → Next workout card (Round-2 Task 10)', () => {
         };
         const actionsRule = extractRule('\n.wg-workouts-next-card__actions {');
         expect(actionsRule).toMatch(/flex-wrap\s*:\s*nowrap/);
-        const btnRule = extractRule('\n.wg-workouts-next-card__actions > .wg-toolbar-btn {');
+        const btnRule = extractRule('\n.wg-workouts-next-card__actions > .wg-btn {');
         expect(btnRule).toMatch(/min-width\s*:\s*0/);
     });
 
@@ -370,7 +366,6 @@ describe('Workouts → Next workout card (Round-2 Task 10)', () => {
 
         // New classes present.
         expect(fnSlice).toMatch(/['"]wg-workouts-next-card['"]/);
-        expect(fnSlice).toMatch(/wg-toolbar-btn--primary/);
-        expect(fnSlice).toMatch(/wg-toolbar-btn--secondary/);
+        expect(fnSlice).toMatch(/wg-btn--primary/);
     });
 });

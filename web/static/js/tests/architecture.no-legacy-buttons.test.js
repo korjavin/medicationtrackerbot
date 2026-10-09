@@ -19,8 +19,8 @@
  * web/cloud/js (tests/ and vendor/ excluded) and counts every occurrence,
  * comments included.
  *
- * ALLOWLIST is today's debt, per file and pattern, each with the bead that
- * removes it. It only shrinks:
+ * ALLOWLIST is debt, per file and pattern, each with the bead that removes
+ * it. It is empty since med-xso6.36 and only shrinks:
  *   - a file/pattern that is not listed, or whose count grows past `max`,
  *     fails — use `.wg-btn` instead;
  *   - a listed entry whose count reached zero fails too — delete the entry
@@ -47,16 +47,7 @@ const PATTERNS = {
 // Shell-only: a <button …> literal with no wg-btn class.
 const SHELL_BARE_BUTTON = /<button\b(?![^>]*\bwg-btn\b)[^>]*>/g;
 
-const ALLOWLIST = {
-    'web/static/index.html': {
-        'wg-toolbar-btn': { max: 6, owner: 'med-xso6.22 (plan share row)' },
-        'modal__header-btn': { max: 14, owner: 'med-xso6.21 (log-set), med-xso6.22 (group/library/equipment editors) — remaining non-sheet modals after med-xso6.7' },
-        'wg-settings-action-btn': { max: 4, owner: 'med-xso6.23 / med-xso6.24 / med-xso6.25 (Settings v2)' },
-    },
-    'web/static/js/features/workout/next-card.js': {
-        'wg-toolbar-btn': { max: 4, owner: 'med-xso6.21 (Workout v2)' },
-    },
-};
+const ALLOWLIST = {};
 
 function collectJs(dir, out = []) {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -134,5 +125,8 @@ describe('architecture: no legacy button systems (use .wg-btn)', () => {
         expect(cloudCss).not.toMatch(/\.wizard-step\s+(a\.)?button\b/);
         expect(cloudCss).not.toMatch(/\.wg-gloss\b/);
         expect(kitCss).not.toMatch(/\.wg-firstrun-btn\b/);
+        // med-xso6.36: the last legacy app-button rules went with their markup.
+        const appCss = fs.readFileSync(path.join(REPO_ROOT, 'web/static/css/styles.css'), 'utf8');
+        expect(appCss).not.toMatch(/\.wg-toolbar-btn\b|-modal__header-btn\b|\.wg-settings-action-btn\b/);
     });
 });

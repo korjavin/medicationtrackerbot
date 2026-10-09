@@ -276,8 +276,6 @@ const WANDERGEEK_TOKENS = [
     '--wg-icon-btn-size',
     '--wg-font-size-tag',
     '--wg-section-label-pad-top',
-    // Shared toolbar-row action button height (Round-2 defects Task 2)
-    '--wg-toolbar-btn-height',
 
     '--wg-radius-pill',
 
@@ -466,8 +464,6 @@ const WANDERGEEK_TOKENS = [
     // Workouts modal tokens (Phase 7, Task 1) — log-set / edit-exercise /
     // edit-group / edit-library modals share the same mono header, gloss
     // inset input wraps, label sizes, and Cancel/Save action bar.
-    '--wg-workouts-modal-eyebrow-size',
-    '--wg-workouts-modal-title-size',
     '--wg-workouts-modal-row-gap',
     '--wg-workouts-modal-section-gap',
     '--wg-workouts-modal-input-pad-y',

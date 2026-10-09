@@ -107,17 +107,17 @@ describe('Workouts round-2 design parity', () => {
             });
 
             const actions = container.querySelectorAll(
-                '.wg-workouts-next-card__actions > .wg-toolbar-btn'
+                '.wg-workouts-next-card__actions > .wg-btn'
             );
             const labels = Array.from(actions).map(
-                (btn) => btn.querySelector('.wg-toolbar-btn__label').textContent
+                (btn) => btn.textContent
             );
             expect(labels).toEqual(['Ad hoc', 'Start', 'Skip']);
 
             // Ad-hoc is the secondary variant so the scheduled start stays the
             // visual primary.
-            expect(actions[0].classList.contains('wg-toolbar-btn--secondary')).toBe(true);
-            expect(actions[1].classList.contains('wg-toolbar-btn--primary')).toBe(true);
+            expect(actions[0].classList.contains('wg-btn--primary')).toBe(false);
+            expect(actions[1].classList.contains('wg-btn--primary')).toBe(true);
         });
     });
 
