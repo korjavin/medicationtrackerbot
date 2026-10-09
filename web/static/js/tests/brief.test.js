@@ -600,11 +600,32 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
 
         expect(food).toEqual({
             days_logged: 2,
+            days_excluded: 0,
             avg_kcal: 500,
             avg_protein: 40,
             avg_carbs: 50,
             avg_fat: 15,
             targets: { calories: 0, carbs: 0, protein: 0, fat: 0 }
+        });
+    });
+
+    it('leaves a day flagged incomplete out of the food averages and days_logged (med-0sgs)', async () => {
+        const vault = fullVault();
+        // f-2 (600 kcal) sits on 2026-08-19; flagged, only f-1's 400 kcal day counts.
+        vault.fooddaystatus = [
+            { recordId: 'fooddaystatus:2026-08-19', deleted: false, date: '2026-08-19', incomplete: true }
+        ];
+        const call = routerWith(vault);
+
+        const { food } = await call('/api/brief?days=30&sections=food', 'GET');
+
+        expect(food).toMatchObject({
+            days_logged: 1,
+            days_excluded: 1,
+            avg_kcal: 400,
+            avg_protein: 30,
+            avg_carbs: 40,
+            avg_fat: 10
         });
     });
 

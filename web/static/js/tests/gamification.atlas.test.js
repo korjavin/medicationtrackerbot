@@ -364,6 +364,27 @@ describe('gamification Discovery Atlas — goal-relevant weekly probes', () => {
     }
   });
 
+  it('a food day flagged incomplete does not count as a food-logged day (med-0sgs)', async () => {
+    const byOffset = new Map();
+    let w = 90;
+    for (let offset = 110; offset >= 0; offset--) {
+      w += Math.floor((offset + 6) / 7) % 2 === 1 ? -0.3 : 0.3;
+      byOffset.set(offset, w);
+    }
+    const vault = weeklyVault((offset) => byOffset.get(offset));
+    // Flag one weekday per active week: 4 counted days < the 5-day arm.
+    vault.fooddaystatus = vault.foodlog
+      .filter((r) => new Date(r.eaten_at).getUTCDay() === 3)
+      .map((r) => {
+        const date = r.eaten_at.slice(0, 10);
+        return { recordId: `fooddaystatus:${date}`, deleted: false, date, incomplete: true };
+      });
+    const { gam } = domainOver(vault);
+    const atlas = await gam.getAtlas({ whatsNew: false });
+    expect(cardById(atlas, 'workout_weeks_vs_trend_velocity').state).toBe('revealed');
+    expect(cardById(atlas, 'food_logged_weeks_vs_trend_velocity').state).not.toBe('revealed');
+  });
+
   it('reports a flat trend as a no_effect finding, not a blank', async () => {
     const { gam } = domainOver(weeklyVault(() => 80));
     const atlas = await gam.getAtlas({ whatsNew: false });

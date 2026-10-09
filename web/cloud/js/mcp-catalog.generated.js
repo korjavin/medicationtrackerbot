@@ -4,6 +4,59 @@
 
 export const CATALOG = [
   {
+    "id": "food.days.list",
+    "topic": "food",
+    "method": "GET",
+    "path": "/api/food/days",
+    "risk": "read",
+    "description": "List the per-day 'tracking incomplete' flag for a date window, one entry per day (unflagged days included). Flagged days are excluded from nutrition analysis. food.log.list meal groups also carry `incomplete`.",
+    "response_summary": "JSON array of {date (YYYY-MM-DD), incomplete (boolean)}, one per day in the window.",
+    "params_schema": {
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string",
+          "description": "YYYY-MM-DD anchor (last day of the window); defaults to today"
+        },
+        "days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 366,
+          "description": "Window length in days (default 1)"
+        }
+      }
+    },
+    "response_example": "[\n  {\"date\": \"2026-04-28\", \"incomplete\": true},\n  {\"date\": \"2026-04-29\", \"incomplete\": false}\n]"
+  },
+  {
+    "id": "food.days.set_incomplete",
+    "topic": "food",
+    "method": "PUT",
+    "path": "/api/food/days/{date}",
+    "path_params": [
+      "date"
+    ],
+    "risk": "write",
+    "description": "Mark a local day (YYYY-MM-DD) as incompletely tracked, or clear the mark. When the user says they didn't track, forgot to log, or only logged part of a day, set incomplete=true instead of logging guessed meals: flagged days are excluded from nutrition analysis so they don't read as a low-calorie day. Idempotent; incomplete=false un-flags.",
+    "response_summary": "The day's status object {date, incomplete}.",
+    "required": [
+      "date",
+      "incomplete"
+    ],
+    "body_schema": {
+      "type": "object",
+      "required": [
+        "incomplete"
+      ],
+      "properties": {
+        "incomplete": {
+          "type": "boolean",
+          "description": "true = the day was not fully tracked; false = clear the flag"
+        }
+      }
+    }
+  },
+  {
     "id": "food.log.create",
     "topic": "food",
     "method": "POST",

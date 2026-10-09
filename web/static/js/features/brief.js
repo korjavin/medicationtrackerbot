@@ -269,7 +269,7 @@ ${statRow('Pulse', bp.pulse, 'bpm')}
 <tr><th>Fat</th><td class="num">${esc(fmtNum(f.avg_fat))} g${target('fat')}</td></tr>
 </tbody>
 </table>
-<p class="stat">Averaged over ${esc(String(f.days_logged))} logged day${f.days_logged === 1 ? '' : 's'}.</p>`);
+<p class="stat">Averaged over ${esc(String(f.days_logged))} logged day${f.days_logged === 1 ? '' : 's'}${f.days_excluded ? `; ${esc(String(f.days_excluded))} incompletely tracked day${f.days_excluded === 1 ? '' : 's'} left out` : ''}.</p>`);
     }
 
     // bd med-29gh.4. Exercise NAMES and session counts only, never a weight or
