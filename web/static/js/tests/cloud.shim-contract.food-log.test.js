@@ -500,3 +500,152 @@ describe('cloud shim contract — incomplete-day flag (med-0sgs.1)', () => {
             .rejects.toMatchObject({ code: 'invalid_request' });
     });
 });
+
+// bd med-0sgs.3 — Food screen UI for the flag: day toggle, badge, nudge chip.
+describe('food screen — incomplete-day toggle + nudge chip (med-0sgs.3)', () => {
+    let env;
+    const daysAgo = (n) => localDateStr(new Date(Date.now() - n * 24 * 60 * 60 * 1000));
+    const today = daysAgo(0);
+    const yesterday = daysAgo(1);
+
+    beforeEach(() => {
+        env = loadCloudShimFrontendEnv();
+        installApiCache(env.window);
+        env.window.loadToday = vi.fn();
+        try { env.window.localStorage.clear(); } catch (_) { /* ignore */ }
+    });
+
+    afterEach(() => { env.cleanup(); });
+
+    const logOn = (window, day, calories) => createLog(window, {
+        name: 'Meal', eaten_at: new Date(atTime(day, 12, 0)).toISOString(), weight: 100, carbs: 10, protein: 10, fat: 10, calories,
+    });
+    const nudge = (document) => document.getElementById('food-incomplete-nudge');
+    const flagged = async (window, day) =>
+        (await window.apiCall(`/api/food/days?date=${day}&days=1`))[0].incomplete;
+    const openFood = async (window, document, day) => {
+        document.getElementById('food-date-filter').value = day;
+        await window.loadFoodLogs();
+    };
+
+    it('the toggle flags the selected day optimistically, shows the badge, and survives a reload', async () => {
+        const { window, document } = env;
+        await logOn(window, yesterday, 2000);
+        await logOn(window, today, 1500);
+        await openFood(window, document, today);
+
+        const toggle = document.getElementById('food-incomplete-toggle');
+        const badge = document.getElementById('food-incomplete-badge');
+        expect(toggle.checked).toBe(false);
+        expect(badge.classList.contains('hidden')).toBe(true);
+
+        const keys = [];
+        const realApply = window.DataStore.applyOptimistic.bind(window.DataStore);
+        window.DataStore.applyOptimistic = async (key, mutator, tags) => {
+            keys.push(key);
+            return realApply(key, mutator, tags);
+        };
+        toggle.click();
+        await vi.waitFor(async () => expect(await flagged(window, today)).toBe(true));
+        expect(keys).toContain(`food_${today}_v2`);
+        await vi.waitFor(() => expect(badge.classList.contains('hidden')).toBe(false));
+        expect(document.getElementById('food-macros-card').classList.contains('wg-food-macros-card--excluded')).toBe(true);
+        // A flagged day's logs stay visible.
+        expect(document.querySelectorAll('#food-list .wg-food-item-row')).toHaveLength(1);
+
+        // Reload: the flag comes back from the vault, not the in-memory DOM.
+        toggle.checked = false;
+        await window.DataStore.invalidateTags(['food']);
+        await openFood(window, document, today);
+        expect(toggle.checked).toBe(true);
+
+        toggle.click();
+        await vi.waitFor(async () => expect(await flagged(window, today)).toBe(false));
+        await vi.waitFor(() => expect(badge.classList.contains('hidden')).toBe(true));
+    });
+
+    it('adding and deleting a log on a flagged day keeps the flag in the optimistic cache and on screen', async () => {
+        const { window, document } = env;
+        window.safeAlert = vi.fn();
+        window.safeConfirm = async (_msg, cb) => { if (cb) await cb(true); return true; };
+        const video = document.getElementById('food-scanner-video');
+        if (video) { video.pause = vi.fn(); video.srcObject = null; }
+        await logOn(window, today, 1500);
+        await openFood(window, document, today);
+        await window.FoodLog.setDayIncomplete(today, true);
+
+        const projected = [];
+        const realApply = window.DataStore.applyOptimistic.bind(window.DataStore);
+        window.DataStore.applyOptimistic = async (key, mutator, tags) => {
+            if (key === `food_${today}_v2`) projected.push(mutator(await window.DataStore.getCached(key)));
+            return realApply(key, mutator, tags);
+        };
+
+        // The write handlers fire-and-forget loadFoodLogs; stub it so no reload
+        // outlives the test, and reload explicitly (repopulating the v2 row).
+        const realLoad = window.loadFoodLogs;
+        window.loadFoodLogs = vi.fn();
+
+        fillFoodLogForm(document, { name: 'Apple', dateStr: atTime(today, 8, 0), weight: 180, carbs: 25, protein: 0, fat: 0, calories: 95 });
+        await window.FoodLog.save();
+        await realLoad();
+        const apple = (await window.apiCall(`/api/food/log?date=${today}&days=1`))
+            .flatMap((g) => g.logs).find((l) => l.name === 'Apple');
+        await window.FoodLog.delete(apple.id);
+        await realLoad();
+
+        const rows = projected.filter(Boolean);
+        expect(rows.length).toBeGreaterThanOrEqual(2);
+        rows.forEach((row) => expect(row.incomplete).toBe(true));
+        expect(document.getElementById('food-incomplete-toggle').checked).toBe(true);
+        expect(document.getElementById('food-incomplete-badge').classList.contains('hidden')).toBe(false);
+    });
+
+    it('nudges about an empty yesterday; one tap flags it and the chip goes away', async () => {
+        const { window, document } = env;
+        await logOn(window, today, 500);
+        await logOn(window, daysAgo(2), 2000);
+        await logOn(window, daysAgo(3), 2000);
+        await openFood(window, document, today);
+
+        expect(nudge(document).classList.contains('hidden')).toBe(false);
+        expect(nudge(document).dataset.date).toBe(yesterday);
+        expect(document.getElementById('food-incomplete-nudge-btn').textContent).toContain('Yesterday');
+
+        document.getElementById('food-incomplete-nudge-btn').click();
+        // Flagging yesterday must not paint today's (displayed) day as excluded.
+        expect(document.getElementById('food-incomplete-toggle').checked).toBe(false);
+        await vi.waitFor(async () => expect(await flagged(window, yesterday)).toBe(true));
+        await openFood(window, document, today);
+        expect(nudge(document).classList.contains('hidden')).toBe(true);
+        expect(document.getElementById('food-incomplete-toggle').checked).toBe(false);
+    });
+
+    it('nudges about a suspiciously low day (< 800 kcal without a target), not a full one', async () => {
+        const { window, document } = env;
+        await logOn(window, yesterday, 600);
+        await logOn(window, daysAgo(2), 2000);
+        await logOn(window, daysAgo(3), 2000);
+        await openFood(window, document, today);
+        expect(nudge(document).classList.contains('hidden')).toBe(false);
+        expect(nudge(document).dataset.date).toBe(yesterday);
+
+        await logOn(window, yesterday, 900);
+        await openFood(window, document, today);
+        expect(nudge(document).classList.contains('hidden')).toBe(true);
+    });
+
+    it('dismiss hides the chip for that date only and flags nothing', async () => {
+        const { window, document } = env;
+        await logOn(window, daysAgo(2), 2000);
+        await logOn(window, daysAgo(3), 2000);
+        await openFood(window, document, today);
+        expect(nudge(document).dataset.date).toBe(yesterday);
+
+        document.getElementById('food-incomplete-nudge-dismiss').click();
+        expect(nudge(document).classList.contains('hidden')).toBe(true);
+        await openFood(window, document, today);
+        expect(nudge(document).classList.contains('hidden')).toBe(true);
+        expect(await flagged(window, yesterday)).toBe(false);
+    });
+});

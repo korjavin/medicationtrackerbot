@@ -189,6 +189,12 @@ function switchFoodTab(tab) {
             }
         });
         bindChange('food-date-filter', () => loadFoodLogs());
+        bindChange('food-incomplete-toggle', (e) => {
+            const dateFilter = document.getElementById('food-date-filter');
+            if (dateFilter && dateFilter.value) setFoodDayIncomplete(dateFilter.value, e.target.checked);
+        });
+        bindClick('food-incomplete-nudge-btn', () => onFoodNudgeFlag());
+        bindClick('food-incomplete-nudge-dismiss', () => onFoodNudgeDismiss());
 
         bindClick('food-modal-cancel-btn', () => closeFoodModal());
         bindClick('food-modal-save-btn', () => saveFoodLog());

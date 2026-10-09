@@ -327,6 +327,20 @@
                     <span class="wg-toolbar-btn__label">Scan</span>
                 </button>
             </div>
+                <!-- Incomplete-day flag (med-0sgs.3). The nudge chip offers to
+                     flag a recent near-empty day; the toggle flags the selected
+                     day so analytics skip it. Both populated by log.js. -->
+                <div id="food-incomplete-nudge" class="wg-food-incomplete-nudge hidden">
+                    <button id="food-incomplete-nudge-btn" type="button" class="wg-gloss wg-food-incomplete-nudge__chip"></button>
+                    <button id="food-incomplete-nudge-dismiss" type="button" class="wg-icon-btn wg-food-incomplete-nudge__dismiss" aria-label="Dismiss" title="Dismiss">&times;</button>
+                </div>
+                <div class="wg-food-day-status">
+                    <label class="wg-food-day-status__toggle">
+                        <input type="checkbox" id="food-incomplete-toggle">
+                        <span>Tracking incomplete — exclude this day from analysis</span>
+                    </label>
+                    <span id="food-incomplete-badge" class="wg-tag wg-tag--mono wg-tag--mono--muted hidden">Not counted</span>
+                </div>
                 <!-- Stale-data chip (Task 5 of local-first read resilience).
                      Populated by _renderFoodData() from the lastFoodLogsMeta
                      captured on every cachedFetch read; hidden by default so
