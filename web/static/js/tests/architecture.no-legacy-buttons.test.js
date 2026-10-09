@@ -53,7 +53,6 @@ const ALLOWLIST = {
         'wg-toolbar-btn': { max: 15, owner: 'med-xso6.16 (Food add/photo/scan), med-xso6.18 (Meds Add), med-xso6.22 (plan share row)' },
         'modal__header-btn': { max: 51, owner: 'med-xso6.7 (sheet header)' },
         'wg-settings-action-btn': { max: 9, owner: 'med-xso6.23 / med-xso6.24 / med-xso6.25 (Settings v2)' },
-        'wg-settings-save-btn': { max: 5, owner: 'med-xso6.23 / med-xso6.24 (Settings v2)' },
     },
     'web/static/js/features/bp.js': {
         'wg-toolbar-btn': { max: 4, owner: 'med-xso6.27 (Health v2 polish)' },

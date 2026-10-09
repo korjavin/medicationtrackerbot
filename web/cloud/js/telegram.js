@@ -22,7 +22,7 @@ const BYO_DETAILS_HTML = `
           <summary>Advanced: use your own bot token</summary>
           <p>Create a bot with <a href="https://t.me/BotFather" target="_blank"
              rel="noopener">@BotFather</a> and paste its token:</p>
-          <input id="tg-byo-token" type="text" autocomplete="off" class="wg-settings-integrations__input"
+          <input id="tg-byo-token" type="text" autocomplete="off" class="wg-input"
                  placeholder="123456:ABC-DEF..." />
           <button id="tg-byo-submit" class="wg-btn">Link this bot</button>
         </details>`;
@@ -43,7 +43,7 @@ const TG_PREFS_SECTION_HTML = `
            note.</p>
         <textarea id="tg-prefs-note" class="wg-input wg-textarea" maxlength="${TG_PREFS_MAX_CHARS}"
                   placeholder="No glossary yet — the assistant fills this in as you chat."></textarea>
-        <div class="wizard-actions wg-settings-row__control">
+        <div class="wg-hstack wg-tg__acts">
           <button id="tg-prefs-save" class="wg-btn wg-btn--primary">Save glossary</button>
         </div>
         <p id="tg-prefs-result" class="muted wg-settings-section__desc"></p>`;
@@ -99,6 +99,16 @@ export async function mountTelegram(container, opts = {}) {
   // Settings it is one block under the page's own <h1>, alongside <h2>
   // siblings like "Claude connector".
   const h = inWizard ? 'h1' : 'h2';
+  // The signup wizard is a cloud-shell page styled by cloud.css (wizard-*);
+  // Settings is an app page in the UI kit (med-xso6.26): kit sections, a
+  // .wg-steps indicator over the three setup steps, and a linked summary.
+  const C = inWizard
+    ? { step: 'wizard-step', acts: 'wizard-actions', err: 'wizard-error' }
+    : { step: 'wg-section wg-tg', acts: 'wg-hstack wg-tg__acts', err: 'wg-hint wg-tg__error' };
+  const steps = (n) => (inWizard ? '' : `<div class="wg-steps" role="img" aria-label="Step ${n} of 3">${
+    [1, 2, 3].map((i) => `<i class="${i < n ? 'is-done' : i === n ? 'is-now' : ''}"></i>`).join('')}</div>`);
+  // Settings reads this stamp for its Telegram row (integrations.js).
+  const stamp = (state) => { container.dataset.tgState = state; };
   let timer = null;
 
   const stopPolling = () => {
@@ -142,6 +152,7 @@ export async function mountTelegram(container, opts = {}) {
   function render(status) {
     if (!status.enabled) {
       stopPolling();
+      stamp('disabled');
       if (inWizard) onDone();
       else container.replaceChildren();
       return;
@@ -171,7 +182,7 @@ export async function mountTelegram(container, opts = {}) {
 
   function showError(err) {
     const p = document.createElement('p');
-    p.className = 'wizard-error';
+    p.className = C.err;
     p.textContent = err.message || String(err);
     const section = container.querySelector('section');
     (section || container).appendChild(p);
@@ -181,9 +192,10 @@ export async function mountTelegram(container, opts = {}) {
 
   function renderConsent() {
     stopPolling();
+    stamp('none');
     container.innerHTML = `
-      <section class="wizard-step">
-        <${h} class="wg-settings-section__title">Chat with your tracker on Telegram</${h}>
+      <section class="${C.step}">
+        <${h} class="wg-settings-section__title">Chat with your tracker on Telegram</${h}>${steps(1)}
         <p>Optional. You can link a personal Telegram bot and use it as a full
            chat interface — text it to log food, blood pressure, weight,
            medications, workouts and notes, ask about your own data, and
@@ -211,7 +223,7 @@ export async function mountTelegram(container, opts = {}) {
         <p>Everything else — your medications, readings, notes — stays
            encrypted at rest. Only the reminder text you choose to send, and the
            messages you type to the bot, cross this channel.</p>
-        <div class="wizard-actions">
+        <div class="${C.acts}">
           <button id="tg-accept" class="wg-btn wg-btn--primary">Set up my bot</button>
           <button id="tg-skip" class="wg-btn wg-btn--ghost">Skip</button>
         </div>${BYO_DETAILS_HTML}
@@ -259,9 +271,10 @@ export async function mountTelegram(container, opts = {}) {
   // (status carries deep_link while pending), so the "Open Telegram" button
   // stays put until Telegram reports the bot created.
   function renderCreateBot(deepLink, suggested) {
+    stamp('pending');
     container.innerHTML = `
-      <section class="wizard-step">
-        <${h} class="wg-settings-section__title">Create your bot</${h}>
+      <section class="${C.step}">
+        <${h} class="wg-settings-section__title">Create your bot</${h}>${steps(2)}
         <p>Tap below to open Telegram. It pre-fills a new bot named
            <strong>Med Tracker</strong> — <em>keep the suggested bot username</em>
            (<code id="tg-suggested"></code>) so we can link it automatically.</p>
@@ -320,9 +333,10 @@ export async function mountTelegram(container, opts = {}) {
   // --- Post-provision states --------------------------------------------
 
   function renderOpenBot(status) {
+    stamp('bot_created');
     container.innerHTML = `
-      <section class="wizard-step">
-        <${h} class="wg-settings-section__title">Open your bot</${h}>
+      <section class="${C.step}">
+        <${h} class="wg-settings-section__title">Open your bot</${h}>${steps(3)}
         <p>Your bot is ready. Open it and tap <strong>Start</strong> to connect
            it to your account.</p>
         <a id="tg-bot-link" class="wg-btn wg-btn--primary" target="_blank" rel="noopener noreferrer"></a>
@@ -336,14 +350,15 @@ export async function mountTelegram(container, opts = {}) {
 
   function renderLinked(status) {
     stopPolling();
+    stamp('linked');
     container.innerHTML = `
-      <section class="wizard-step">
-        <${h} class="wg-settings-section__title">Telegram connected</${h}>
+      <section class="${C.step}">
+        <${h} class="wg-settings-section__title">Telegram connected</${h}>${inWizard ? '' : '<span class="wg-chip wg-chip--ok wg-chip--sm">Linked</span>'}
         <p>Your bot <code id="tg-bot-username"></code> is linked. Send yourself
            a test notification to confirm it works.</p>
-        <a id="tg-open-bot" class="wg-btn" target="_blank" rel="noopener noreferrer">Open your bot in Telegram</a>
-        <div class="wizard-actions wg-settings-row__control">
-          <button id="tg-test" class="wg-btn">Send test notification</button>
+        <a id="tg-open-bot" class="wg-btn wg-btn--ghost" target="_blank" rel="noopener noreferrer">Open your bot in Telegram</a>
+        <div class="${C.acts}">
+          <button id="tg-test" class="wg-btn wg-btn--ghost">Send test notification</button>
           <button id="tg-unlink" class="wg-btn wg-btn--danger-ghost">Unlink</button>
         </div>
         <p id="tg-test-result" class="muted wg-settings-section__desc"></p>
@@ -371,15 +386,15 @@ export async function mountTelegram(container, opts = {}) {
       if (!el) return;
       if (!d) return;
       if (d.last_error) {
-        el.className = 'wizard-error';
+        el.className = C.err;
         const ts = d.webhook_info && d.webhook_info.last_error_date;
         const when = ts ? ` (${new Date(ts * 1000).toLocaleString()})` : '';
-        el.textContent = `⚠ Webhook delivery error: ${d.last_error}${when}`;
+        el.textContent = `Webhook delivery error: ${d.last_error}${when}`;
       } else if (d.getWebhookInfo_error) {
         // Diag reached the server but Telegram's getWebhookInfo call failed —
         // health is unknown, not OK. Surface it rather than a false all-clear.
-        el.className = 'wizard-error';
-        el.textContent = `⚠ Could not check webhook status: ${d.getWebhookInfo_error}`;
+        el.className = C.err;
+        el.textContent = `Could not check webhook status: ${d.getWebhookInfo_error}`;
       } else {
         el.textContent = 'Webhook delivery OK.';
       }
@@ -467,6 +482,7 @@ export async function mountTelegram(container, opts = {}) {
   try {
     render(await getStatus());
   } catch (e) {
+    stamp('error'); // keep the Settings row reachable so the error is visible
     showError(e);
   }
 }

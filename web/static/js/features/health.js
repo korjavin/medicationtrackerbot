@@ -1270,11 +1270,30 @@ function bindEditNoteModalControls() {
     }
 }
 
+// Vitals → "Import Mi Band backup" opens Settings → Backup & import, the same
+// page the gear reaches (med-xso6.24); Back returns to Settings, then Vitals.
+function openMiBandImport() {
+    if (typeof switchTab === 'function') switchTab('settings');
+    if (window.SettingsView && typeof window.SettingsView.openSettingsPage === 'function') {
+        window.SettingsView.openSettingsPage('backup');
+    }
+}
+
+function bindMiBandImportRow() {
+    const row = document.getElementById('health-import-miband');
+    if (row && !row._wgBound) {
+        row._wgBound = true;
+        row.addEventListener('click', openMiBandImport);
+    }
+}
+
 // Called from dynamically-built edit buttons in notes rows
 window.editNote = editNote;
 
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', bindEditNoteModalControls, { once: true });
+    document.addEventListener('DOMContentLoaded', bindMiBandImportRow, { once: true });
 } else {
     bindEditNoteModalControls();
+    bindMiBandImportRow();
 }

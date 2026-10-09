@@ -24,6 +24,9 @@
     // so no navigation nag lingers.
     let importInFlight = false;
 
+    // The phrase the typed confirm asks for before a replace-import.
+    const REPLACE_PHRASE = 'replace my data';
+
     function beforeUnloadGuard(e) {
         // Native "Leave site?" confirmation — both forms are needed across browsers.
         e.preventDefault();
@@ -143,6 +146,38 @@
         } catch (_) {
             field.hidden = true;
         }
+        const meta = document.querySelector('[data-file-input="importexport-import-file"] .wg-file__meta');
+        if (meta && !field.hidden) meta.textContent = `${formatFileSize(file.size)} · encrypted`;
+    }
+
+    function formatFileSize(bytes) {
+        if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+        return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+    }
+
+    // .wg-file picker (kit S3) over a hidden <input type="file">: Choose opens
+    // the OS picker, the filled state shows name + size, × clears the pick.
+    // The input stays the source of truth — import reads input.files.
+    function paintFilePicker(picker, input) {
+        const file = input.files && input.files[0];
+        picker.classList.toggle('wg-file--filled', !!file);
+        picker.querySelector('.wg-file__name').textContent = file ? file.name : picker.dataset.emptyName;
+        picker.querySelector('.wg-file__meta').textContent = file ? formatFileSize(file.size) : picker.dataset.emptyMeta;
+        picker.querySelector('[data-file-choose]').hidden = !!file;
+        picker.querySelector('[data-file-clear]').hidden = !file;
+    }
+
+    function bindFilePicker(picker) {
+        const input = el(picker.dataset.fileInput);
+        if (!input || picker.dataset.bound) return;
+        picker.dataset.bound = '1';
+        picker.querySelector('[data-file-choose]').addEventListener('click', () => input.click());
+        picker.querySelector('[data-file-clear]').addEventListener('click', () => {
+            input.value = '';
+            input.dispatchEvent(new Event('change'));
+        });
+        // Paint first so onFileChange's "encrypted" meta lands on top of it.
+        input.addEventListener('change', () => paintFilePicker(picker, input));
     }
 
     async function doImport() {
@@ -195,8 +230,12 @@
             return;
         }
 
+        // Typed confirm (kit S3): the confirm button stays disabled until the
+        // phrase matches, so a stray tap can't wipe the vault.
         const confirmed = await safeConfirm(
-            'Import replaces ALL your current data with this backup. This cannot be undone. Continue?'
+            'Everything stored now is replaced by this backup, on every device. This cannot be undone.',
+            null,
+            { title: 'Replace all your data?', confirmLabel: 'Replace my data', destructive: true, typedConfirm: REPLACE_PHRASE }
         );
         if (!confirmed) { importInFlight = false; return; }
 
@@ -275,7 +314,9 @@
         // setImportBusy(true) which keeps it set.
         importInFlight = true;
         const confirmed = await safeConfirm(
-            'Reset local sync rebuilds this device from the server and discards any unsynced local changes. Continue?'
+            'This device is rebuilt from the server. Changes not yet synced from it are discarded.',
+            null,
+            { title: 'Reset local sync?', confirmLabel: 'Reset', destructive: true }
         );
         if (!confirmed) { importInFlight = false; return; }
         setImportBusy(true, 'Resetting local sync… keep this page open until it finishes.');
@@ -323,18 +364,14 @@
     }
 
     function bindControls() {
-        // The .nxk endpoint lives on cmd/cloud; the control is always visible.
-        const nxkGroup = el('importexport-nxk-group');
-        if (nxkGroup) nxkGroup.hidden = false;
+        document.querySelectorAll('#settings-importexport [data-file-input]').forEach(bindFilePicker);
+
         const nxkBtn = el('importexport-nxk-btn');
         if (nxkBtn && !nxkBtn.dataset.bound) {
             nxkBtn.dataset.bound = '1';
             nxkBtn.addEventListener('click', () => { doNxkImport(); });
         }
 
-        // Reset local sync rebuilds the device from the server; always visible.
-        const resetGroup = el('importexport-reset-sync-group');
-        if (resetGroup) resetGroup.hidden = false;
         refreshUnopenableNote();
         const resetBtn = el('importexport-reset-sync-btn');
         if (resetBtn && !resetBtn.dataset.bound) {
