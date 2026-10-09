@@ -7,7 +7,9 @@ The two decisions that used to lead this file — *Why SSE is primary* and
 *Source attribution via `X-Client-ID`* — moved to
 [archive/sse-change-stream.md](archive/sse-change-stream.md). That mechanism
 (`/api/changes/stream`, the `ChangeBroker` fan-out) died with the Go-server
-code that implemented it; **there is no change stream at all.**
+code that implemented it. Cloud mode has no record change stream; its only
+server→client stream is the content-free inbox SSE (`GET /api/inbox/events`,
+bd med-j0tc — see [cloud-mode.md](cloud-mode.md)).
 
 ## Why only three endpoints support offline writes
 
