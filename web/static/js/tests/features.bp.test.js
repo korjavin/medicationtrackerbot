@@ -293,7 +293,7 @@ describe('features/bp.js — row delete undoes from the toast (med-xso6.5)', () 
         expect(window.apiCall.mock.calls.filter(([, m]) => m === 'DELETE')).toHaveLength(1);
     });
 
-    it('replay leaves a live tab's open Undo window alone, and keeps a failed delete for a later boot', async () => {
+    it("replay leaves a live tab's open Undo window alone, and keeps a failed delete for a later boot", async () => {
         const { window } = env;
         installApiCache(window, { bp: { readingsRes: [], goalRes: null, statsRes: null } });
         window.loadBPReadings = vi.fn();
