@@ -133,14 +133,12 @@ function _formatNextActionRelative(diffMs) {
     return `in ${minutes}m`;
 }
 
-// Schedule sub-tab render (Phase 5, Task 4). Scheduled meds group by
-// hour-of-day under `.wg-section-label` headers, then fall back to
-// As-needed and Archived buckets rendered as separate sections. Each
-// row is a `.wg-card` with the med name (mono), dosage, schedule
-// summary, optional inventory tag, and a trailing icon cluster
-// (Log / Edit / Delete). Existing `.med-item` / `.icon-action-btn` /
-// `.btn-sm` classes are preserved on the new nodes so legacy tests
-// that walk the row with those selectors still pass.
+// Schedule sub-tab render (kit v2 M1, med-xso6.18). Doses group into
+// `.wg-section` buckets: missed doses (still PENDING past their slot) first,
+// then one bucket per upcoming dose slot, then Scheduled (no next dose),
+// As needed and Archived. A bucket head carries its action — "Log late" /
+// "Take N" — and its rows are kit `.wg-row`s: tap edits, swipe / overflow
+// for Edit / Delete, as-needed rows keep a per-row Log.
 
 function _formatHourHeader(timeLabel, date, now) {
     const rel = _formatNextActionRelative(date.getTime() - now.getTime());
@@ -151,10 +149,10 @@ function _pad2(n) {
     return String(n).padStart(2, '0');
 }
 
-function _hourKey(date) {
-    // Calendar-day + hour-of-day key so doses that fall on the next
-    // day's 08:00 do not collapse into today's 08:00 group.
-    return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}-${date.getHours()}`;
+// Calendar-day + wall-clock slot key: one bucket per dose instant, so a
+// bucket's "Take N" confirms exactly one scheduled_at.
+function _slotKey(date) {
+    return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}-${_pad2(date.getHours())}:${_pad2(date.getMinutes())}`;
 }
 
 // Plan-aware dose forecast for the Schedule tab (bd med-gut.1/med-gut.2).
@@ -164,22 +162,27 @@ function _hourKey(date) {
 // the buckets. Kept in module state because renderMeds() is synchronous and is
 // called from four places inside loadMeds().
 const MEDS_UPCOMING_DAYS = 7;
-let _medsUpcomingState = { doses: [], available: false }; // module-state: plan-aware upcoming doses shared by the Schedule hour buckets and the Upcoming list
+let _medsUpcomingState = { doses: [], available: false, due: [] }; // module-state: plan-aware upcoming doses + due (missed) intakes shared by the Schedule buckets and the Upcoming list
 
 async function loadUpcomingDoses() {
-    try {
-        const res = await apiCall(`/api/medications/upcoming?days=${MEDS_UPCOMING_DAYS}`);
-        // `available` separates "the forecast answered, and this med simply has
-        // no upcoming dose" from "there is no forecast to consult" — only the
-        // latter may fall back to the device-local computation.
-        _medsUpcomingState.available = Array.isArray(res);
-        _medsUpcomingState.doses = Array.isArray(res) ? res : [];
-    } catch (_) {
-        // Offline / route unavailable — renderMeds falls back to the naive
-        // device-local next dose so the buckets still paint something.
-        _medsUpcomingState.available = false;
-        _medsUpcomingState.doses = [];
-    }
+    const read = (path) => Promise.resolve().then(() => apiCall(path)).catch(() => null);
+    const [res, history] = await Promise.all([
+        read(`/api/medications/upcoming?days=${MEDS_UPCOMING_DAYS}`),
+        // Missed + overdue doses: the same 24h window the Meds tab badge
+        // counts (features/app-nav.js countDueDoses).
+        read('/api/history?days=1'),
+    ]);
+    // `available` separates "the forecast answered, and this med simply has
+    // no upcoming dose" from "there is no forecast to consult" (offline /
+    // route unavailable) — only the latter may fall back to the device-local
+    // computation.
+    _medsUpcomingState.available = Array.isArray(res);
+    _medsUpcomingState.doses = Array.isArray(res) ? res : [];
+    const nowMs = Date.now();
+    _medsUpcomingState.due = (Array.isArray(history) ? history : []).filter((r) => r
+        && r.status === 'PENDING'
+        && Date.parse(r.scheduled_at) <= nowMs
+        && !(r.snoozed_until && Date.parse(r.snoozed_until) > nowMs));
     return _medsUpcomingState.doses;
 }
 
@@ -194,7 +197,7 @@ function _nextDoseByMedId() {
     return byMed;
 }
 
-// Resolves a med's next dose to {at, hourKey, timeLabel}, or null when it has
+// Resolves a med's next dose to {at, key, timeLabel}, or null when it has
 // none. Falls back to the device-local computation only when the forecast is
 // unavailable (offline cold start, or the legacy bot server, which has no such
 // route) — never when the forecast answered.
@@ -205,7 +208,7 @@ function _resolveNextDose(med, schedule, nextDoses, now) {
         if (!Number.isNaN(at.getTime())) {
             return {
                 at,
-                hourKey: `${dose.local_date}-${String(dose.local_time).slice(0, 2)}`,
+                key: `${dose.local_date}-${dose.local_time}`,
                 timeLabel: String(dose.local_time)
             };
         }
@@ -220,29 +223,53 @@ function _resolveNextDose(med, schedule, nextDoses, now) {
     if (!at) return null;
     return {
         at,
-        hourKey: _hourKey(at),
+        key: _slotKey(at),
         timeLabel: `${_pad2(at.getHours())}:${_pad2(at.getMinutes())}`
     };
 }
 
-function _buildMedsSectionLabel(text) {
-    const el = document.createElement('div');
-    el.className = 'wg-section-label wg-meds-section-label';
-    const span = document.createElement('span');
-    span.textContent = text;
-    el.appendChild(span);
+function _medsEl(tag, className, text) {
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    if (text !== undefined) el.textContent = text;
     return el;
 }
 
+function _medsIcon(name, extraClass) {
+    const ico = _medsEl('i', extraClass ? `wg-ico ${extraClass}` : 'wg-ico');
+    ico.appendChild(window.WGIcons.iconSvg(name));
+    return ico;
+}
+
+// One schedule bucket: `.wg-section` with an eyebrow head, an optional head
+// action and a `.wg-list` of rows. tone: 'dot' (upcoming) | 'danger' (missed).
+function _buildMedsBucket(label, { tone, action, rows }) {
+    const section = _medsEl('section', 'wg-section wg-meds-bucket');
+    const head = _medsEl('div', 'wg-section__head');
+    head.appendChild(_medsEl('span', `wg-eyebrow${tone ? ` wg-eyebrow--${tone}` : ''} wg-meds-bucket__label`, label));
+    if (action) {
+        const btn = _medsEl('button', `wg-btn wg-btn--sm${action.ghost ? ' wg-btn--ghost' : ''} wg-meds-bucket__action`, action.label);
+        btn.type = 'button';
+        btn.addEventListener('click', action.onClick);
+        head.appendChild(btn);
+    }
+    section.appendChild(head);
+    const list = _medsEl('div', 'wg-list');
+    rows.forEach((row) => list.appendChild(row));
+    section.appendChild(list);
+    return section;
+}
+
+// Opens the take sheet for one dose slot, preselecting the bucket's meds.
+// Missed rows carry their intake ids (confirm by id); upcoming slots confirm
+// by scheduled_at (web/domain/medintake.js confirmSchedule).
+function _openBucketTake(meds, scheduledAt, intakeIds) {
+    showMedicationConfirmModal(meds.map((m) => m.id), meds.map((m) => m.name), scheduledAt, 'confirm', intakeIds || []);
+}
+
 function _buildMedsLogButton(med) {
-    // `.btn-sm` is kept on the Log button so the existing UI tests that
-    // click `.btn-sm` on a row still find it (see
-    // tests/app.medication-history.test.js). Visually it reads as a
-    // mono-label `.wg-gloss` pill alongside the icon cluster.
-    const btn = document.createElement('button');
+    const btn = _medsEl('button', 'wg-btn wg-btn--sm wg-meds-row__log-btn', 'Log');
     btn.type = 'button';
-    btn.className = 'btn-sm wg-gloss wg-meds-row__log-btn';
-    btn.textContent = 'Log';
     btn.addEventListener('click', () => {
         logMedicationPast(med.id, med.name);
     });
@@ -257,75 +284,67 @@ function _buildMedsInventoryTag(med) {
     return chip;
 }
 
-function _buildMedsRow(med, parsedSchedule) {
-    const row = document.createElement('div');
-    row.className = 'wg-card wg-meds-row med-item';
+// A schedule row (kit .wg-row): title "Name · dose", meta = schedule · dates ·
+// Rx plus status chips. Tap edits; swipe / overflow reveals Edit and Delete.
+// As-needed rows keep a per-row Log; scheduled rows log off-schedule doses
+// from the overflow menu (their bucket head owns Take / Log late).
+// opts.missed paints the lead in the danger tone.
+function _buildMedsRow(med, parsedSchedule, opts = {}) {
+    const row = _medsEl('div', 'wg-row wg-meds-row med-item');
     row.dataset.medId = String(med.id);
-    if (med.archived) row.classList.add('archived');
+    if (med.archived) row.classList.add('archived', 'wg-row--muted');
 
-    const info = document.createElement('div');
-    info.className = 'wg-meds-row__info med-info cursor-pointer';
-    info.addEventListener('click', () => showEditModal(med.id));
+    const lead = _medsEl('span', opts.missed ? 'wg-row__lead wg-row__lead--danger' : 'wg-row__lead');
+    lead.appendChild(_medsIcon('pill'));
+    row.appendChild(lead);
 
-    const titleRow = document.createElement('div');
-    titleRow.className = 'wg-meds-row__title';
-    const name = document.createElement('span');
-    name.className = 'wg-meds-row__name wg-mono-display';
-    name.textContent = med.name;
-    titleRow.appendChild(name);
-    if (med.dosage) {
-        const dosage = document.createElement('span');
-        dosage.className = 'wg-meds-row__dosage';
-        dosage.textContent = med.dosage;
-        titleRow.appendChild(dosage);
-    }
-    if (med.supplement) {
-        const supplementBadge = document.createElement('span');
-        supplementBadge.className = 'wg-tag wg-tag--mono wg-meds-row__supplement med-supplement-badge';
-        supplementBadge.textContent = 'Supplement';
-        titleRow.appendChild(supplementBadge);
-    }
-    info.appendChild(titleRow);
+    const body = _medsEl('span', 'wg-row__body wg-meds-row__info');
+    const title = _medsEl('span', 'wg-row__title wg-meds-row__title');
+    title.appendChild(_medsEl('span', 'wg-meds-row__name', med.name));
+    if (med.dosage) title.appendChild(document.createTextNode(` · ${med.dosage}`));
+    body.appendChild(title);
 
-    const scheduleLine = document.createElement('div');
-    scheduleLine.className = 'wg-meds-row__schedule';
-    scheduleLine.textContent = window.MedicationUtils.getMedicationScheduleText(med, parsedSchedule);
-    info.appendChild(scheduleLine);
-
-    if (med.normalized_name) {
-        const normalized = document.createElement('div');
-        normalized.className = 'wg-meds-row__rx med-normalized-name';
-        normalized.textContent = `Rx: ${med.normalized_name}`;
-        info.appendChild(normalized);
-    }
-
+    const meta = _medsEl('span', 'wg-row__meta wg-meds-row__meta');
+    meta.appendChild(_medsEl('span', 'wg-meds-row__schedule',
+        window.MedicationUtils.getMedicationScheduleText(med, parsedSchedule)));
     if (med.start_date || med.end_date) {
         const start = med.start_date ? formatDate(med.start_date).split(' ')[0] : 'N/A';
         const end = med.end_date ? formatDate(med.end_date).split(' ')[0] : 'N/A';
-        const dates = document.createElement('div');
-        dates.className = 'wg-meds-row__dates';
-        dates.textContent = `${start} – ${end}`;
-        info.appendChild(dates);
+        meta.appendChild(_medsEl('span', 'wg-meds-row__dates', `${start} – ${end}`));
     }
-
+    if (med.normalized_name) {
+        meta.appendChild(_medsEl('span', 'wg-meds-row__rx', `Rx ${med.normalized_name}`));
+    }
     if (med.inventory_count !== null && med.inventory_count !== undefined) {
-        info.appendChild(_buildMedsInventoryTag(med));
+        meta.appendChild(_buildMedsInventoryTag(med));
     }
-
+    if (med.supplement) {
+        meta.appendChild(_medsEl('span', 'wg-tag wg-meds-row__supplement', 'Supplement'));
+    }
+    if (med.archived) {
+        const archivedChip = window.WGChip.create({ text: 'Archived', state: 'stale', small: true });
+        archivedChip.classList.add('wg-meds-row__archived');
+        meta.appendChild(archivedChip);
+    }
     const syncChip = window.WGChip.sync(med);
-    if (syncChip) info.appendChild(syncChip);
+    if (syncChip) meta.appendChild(syncChip);
+    body.appendChild(meta);
+    row.appendChild(body);
 
-    const actions = document.createElement('div');
-    actions.className = 'wg-meds-row__actions med-actions';
-    actions.appendChild(_buildMedsLogButton(med));
+    const trail = _medsEl('span', 'wg-row__trail wg-meds-row__actions');
+    const asNeeded = (parsedSchedule && parsedSchedule.type) === 'as_needed';
+    if (asNeeded && !med.archived) trail.appendChild(_buildMedsLogButton(med));
+    row.appendChild(trail);
 
-    row.appendChild(info);
-    row.appendChild(actions);
     return window.WGRowActions.attach(row, {
         label: med.name,
-        trail: actions,
+        trail,
+        tapEdits: true,
         onEdit: () => showEditModal(med.id),
         onDelete: () => deleteMed(med.id),
+        extra: asNeeded || med.archived
+            ? []
+            : [{ label: 'Log a dose', icon: 'plus', onClick: () => logMedicationPast(med.id, med.name) }],
     });
 }
 
@@ -343,12 +362,34 @@ function renderMeds() {
             icon: 'pill',
             title: 'No medications yet',
             body: 'Add what you take and when. You\'ll get reminders, a dose log for your doctor, and a warning before you run out.',
-            actions: [{ label: 'Add medication', icon: 'plus', onClick: () => document.getElementById('add-btn')?.click() }],
+            actions: [{ label: 'Add medication', icon: 'plus', variant: 'primary', onClick: () => showAddModal() }],
         }));
+        syncMedsAddButton();
         return;
     }
 
     const nextDoses = _nextDoseByMedId();
+
+    // Missed buckets: due PENDING intakes grouped by their exact slot. A med
+    // with a missed dose shows there, not again under its next dose.
+    const medById = new Map(medications.map((m) => [String(m.id), m]));
+    const missedBuckets = new Map(); // scheduled_at -> { at, entries, intakeIds }
+    (_medsUpcomingState.due || []).forEach((intake) => {
+        const med = medById.get(String(intake.medication_id));
+        const at = new Date(intake.scheduled_at);
+        if (!med || med.archived || Number.isNaN(at.getTime())) return;
+        const schedule = window.MedicationUtils.parseMedicationSchedule(med.schedule);
+        if ((schedule?.type || 'daily') === 'as_needed') return;
+        if (!missedBuckets.has(intake.scheduled_at)) {
+            missedBuckets.set(intake.scheduled_at, { at, entries: [], intakeIds: [] });
+        }
+        const bucket = missedBuckets.get(intake.scheduled_at);
+        if (bucket.entries.some((e) => e.med === med)) return;
+        bucket.entries.push({ med, schedule });
+        if (intake.id !== undefined && intake.id !== null) bucket.intakeIds.push(intake.id);
+    });
+    const missedMedIds = new Set();
+    missedBuckets.forEach((b) => b.entries.forEach((e) => missedMedIds.add(e.med)));
 
     medications.forEach((med) => {
         const schedule = window.MedicationUtils.parseMedicationSchedule(med.schedule);
@@ -364,20 +405,22 @@ function renderMeds() {
             return;
         }
 
+        if (missedMedIds.has(med)) return;
+
         const resolved = _resolveNextDose(med, schedule, nextDoses, now);
         scheduledEntries.push({
             med,
             schedule,
             next: resolved ? resolved.at : null,
-            hourKey: resolved ? resolved.hourKey : null,
+            key: resolved ? resolved.key : null,
             timeLabel: resolved ? resolved.timeLabel : null
         });
     });
 
-    // Bucket scheduled entries by hour of next dose. Entries with no
+    // Bucket scheduled entries by their next dose slot. Entries with no
     // computable next dose fall into a generic "Scheduled" bucket at
     // the end of the scheduled section.
-    const hourBuckets = new Map(); // key -> { earliest, timeLabel, entries }
+    const slotBuckets = new Map(); // key -> { at, timeLabel, entries }
     const scheduledNoNext = [];
 
     scheduledEntries.forEach((entry) => {
@@ -385,58 +428,64 @@ function renderMeds() {
             scheduledNoNext.push(entry);
             return;
         }
-        if (!hourBuckets.has(entry.hourKey)) {
-            hourBuckets.set(entry.hourKey, {
-                earliest: entry.next,
-                timeLabel: entry.timeLabel,
-                entries: []
-            });
+        if (!slotBuckets.has(entry.key)) {
+            slotBuckets.set(entry.key, { at: entry.next, timeLabel: entry.timeLabel, entries: [] });
         }
-        const bucket = hourBuckets.get(entry.hourKey);
-        if (entry.next < bucket.earliest) {
-            bucket.earliest = entry.next;
-            bucket.timeLabel = entry.timeLabel;
-        }
-        bucket.entries.push(entry);
+        slotBuckets.get(entry.key).entries.push(entry);
     });
 
-    const sortedBuckets = Array.from(hourBuckets.values())
-        .sort((a, b) => a.earliest - b.earliest);
-
     const sortByTaken = (a, b) => window.MedicationUtils.getLastTakenTimeMs(b.med) - window.MedicationUtils.getLastTakenTimeMs(a.med);
+    const rowsOf = (entries, opts) => entries.map(({ med, schedule }) => _buildMedsRow(med, schedule, opts));
 
-    sortedBuckets.forEach((bucket) => {
-        bucket.entries.sort((a, b) => (a.next || 0) - (b.next || 0));
-        const headerText = _formatHourHeader(bucket.timeLabel, bucket.earliest, now);
-        list.appendChild(_buildMedsSectionLabel(headerText));
-        bucket.entries.forEach(({ med, schedule }) => {
-            list.appendChild(_buildMedsRow(med, schedule));
-        });
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    Array.from(missedBuckets.values()).sort((a, b) => a.at - b.at).forEach((bucket) => {
+        const day = bucket.at.getTime() >= todayStart ? 'today' : 'yesterday';
+        const label = `${_pad2(bucket.at.getHours())}:${_pad2(bucket.at.getMinutes())} · missed ${day}`;
+        list.appendChild(_buildMedsBucket(label, {
+            tone: 'danger',
+            action: {
+                label: 'Log late',
+                ghost: true,
+                onClick: () => _openBucketTake(bucket.entries.map((e) => e.med), bucket.at.toISOString(), bucket.intakeIds),
+            },
+            rows: rowsOf(bucket.entries, { missed: true }),
+        }));
+    });
+
+    Array.from(slotBuckets.values()).sort((a, b) => a.at - b.at).forEach((bucket) => {
+        const meds = bucket.entries.map((e) => e.med);
+        list.appendChild(_buildMedsBucket(_formatHourHeader(bucket.timeLabel, bucket.at, now), {
+            tone: 'dot',
+            action: { label: `Take ${meds.length}`, onClick: () => _openBucketTake(meds, bucket.at.toISOString()) },
+            rows: rowsOf(bucket.entries),
+        }));
     });
 
     if (scheduledNoNext.length > 0) {
         scheduledNoNext.sort(sortByTaken);
-        list.appendChild(_buildMedsSectionLabel('Scheduled'));
-        scheduledNoNext.forEach(({ med, schedule }) => {
-            list.appendChild(_buildMedsRow(med, schedule));
-        });
+        list.appendChild(_buildMedsBucket('Scheduled', { rows: rowsOf(scheduledNoNext) }));
     }
 
     if (asNeeded.length > 0) {
         asNeeded.sort(sortByTaken);
-        list.appendChild(_buildMedsSectionLabel('As needed'));
-        asNeeded.forEach(({ med, schedule }) => {
-            list.appendChild(_buildMedsRow(med, schedule));
-        });
+        list.appendChild(_buildMedsBucket('As needed', { rows: rowsOf(asNeeded) }));
     }
 
     if (archived.length > 0) {
         archived.sort(sortByTaken);
-        list.appendChild(_buildMedsSectionLabel('Archived'));
-        archived.forEach(({ med, schedule }) => {
-            list.appendChild(_buildMedsRow(med, schedule));
-        });
+        list.appendChild(_buildMedsBucket('Archived', { rows: rowsOf(archived) }));
     }
+    syncMedsAddButton();
+}
+
+// M4: while the visible Meds pane shows an empty state with its own Add, the
+// app-bar Add hides so that Add is the one primary on screen. Called after
+// every pane render and on sub-tab switch (app.js switchMedTab).
+function syncMedsAddButton() {
+    const btn = document.getElementById('add-btn');
+    if (!btn) return;
+    const pane = document.querySelector('#meds-view .med-tab-content.active');
+    btn.hidden = !!(pane && pane.querySelector('.wg-empty .wg-btn--primary'));
 }
 
 // "Upcoming" forecast (bd med-gut.2): the next 7 days of doses grouped by day
@@ -514,7 +563,7 @@ function renderUpcomingDoses() {
     // No forecast to show (offline cold start / legacy server): the naive
     // device-local fallback is driving the Schedule hour buckets, so "nothing
     // upcoming" would be a claim this renderer cannot make. Stay silent.
-    if (!_medsUpcomingState.available) return;
+    if (!_medsUpcomingState.available) { syncMedsAddButton(); return; }
 
     // No section label: the "Upcoming" sub-tab pill above already names the
     // pane, and repeating it inside is noise (bd med-4oxj).
@@ -528,9 +577,10 @@ function renderUpcomingDoses() {
             icon: 'calendar',
             title: 'Nothing scheduled',
             body: `No doses in the next ${MEDS_UPCOMING_DAYS} days. Add a medication with a schedule and its next dose shows up here.`,
-            actions: [{ label: 'Add medication', icon: 'plus', onClick: () => document.getElementById('add-btn')?.click() }],
+            actions: [{ label: 'Add medication', icon: 'plus', variant: 'primary', onClick: () => showAddModal() }],
         }));
         list.appendChild(wrap);
+        syncMedsAddButton();
         return;
     }
 
@@ -547,6 +597,7 @@ function renderUpcomingDoses() {
     });
 
     list.appendChild(wrap);
+    syncMedsAddButton();
 }
 
 // Upcoming sub-tab loader (switchMedTab dispatch). The forecast rows already
@@ -814,15 +865,13 @@ function renderHistory(logs) {
     });
 }
 
-// Inventory sub-tab (Phase 5, Task 6). Renders one `.wg-card` per
-// medication that tracks inventory (i.e. `med.inventory_count !== null`).
-// Each card carries the med name (mono), a large mono count, an optional
-// low-stock warn chip, the last-refilled date (resolved via
-// the existing `/api/medications/{id}/restocks` endpoint), and a trailing
-// `.wg-gloss--sun` Refill button that toggles an inline quantity input.
-// Confirming the refill POSTs to the existing `/restock` endpoint and
-// re-renders with the updated count. A muted placeholder renders when
-// no meds track inventory.
+// Stock sub-tab (kit v2 M3, med-xso6.18; tab id stays `inventory`). One
+// `.wg-card` per medication that tracks inventory, out/low first. Each card
+// shows the remaining doses, "N a day · lasts N days", the last refill
+// (`/api/medications/{id}/restocks`), and a Refill button that opens preset
+// `.wg-pick` chips (+30/+60/+90/Other stepper) with the primary previewing the
+// new total ("Add 30 → 47"). Confirming writes through
+// DataStore.applyOptimistic, then POSTs the existing `/restock` route.
 
 function _formatRestockedDate(iso) {
     if (!iso) return null;
@@ -864,127 +913,185 @@ async function _fetchLastRefilledAt(medId) {
     return promise;
 }
 
-function _buildInventoryCard(med) {
-    const card = document.createElement('div');
-    card.className = 'wg-card wg-meds-inventory__card';
-    card.dataset.medId = String(med.id);
+const MEDS_REFILL_PRESETS = [30, 60, 90];
 
-    const main = document.createElement('div');
-    main.className = 'wg-meds-inventory__main';
+// "2 a day" for whole daily counts, else per week ("3 a week").
+function _formatDailyUsage(daily) {
+    if (daily >= 1 && Number.isInteger(daily)) return `${daily} a day`;
+    return `${Math.max(1, Math.round(daily * 7))} a week`;
+}
 
-    const title = document.createElement('div');
-    title.className = 'wg-meds-inventory__title';
-    const name = document.createElement('span');
-    name.className = 'wg-meds-inventory__name wg-mono-display';
-    name.textContent = med.name;
-    title.appendChild(name);
-    if (med.dosage) {
-        const dosage = document.createElement('span');
-        dosage.className = 'wg-meds-inventory__dosage';
-        dosage.textContent = med.dosage;
-        title.appendChild(dosage);
-    }
-    main.appendChild(title);
+function _stockMeta(med) {
+    const count = med.inventory_count;
+    if (count < 0) return `Logged ${-count} doses beyond stock`;
+    const daily = calculateDailyUsage(med);
+    if (!daily) return 'As needed';
+    const days = Math.floor(count / daily);
+    return `${_formatDailyUsage(daily)} · lasts ${days} day${days === 1 ? '' : 's'}`;
+}
 
-    const countWrap = document.createElement('div');
-    countWrap.className = 'wg-meds-inventory__count-wrap';
-    const count = document.createElement('span');
-    count.className = 'wg-meds-inventory__count wg-mono-display';
-    const stock = formatStock(med.inventory_count, med);
-    count.textContent = String(Math.max(0, med.inventory_count));
-    countWrap.appendChild(count);
-    const countLabel = document.createElement('span');
-    countLabel.className = 'wg-meds-inventory__count-label';
-    countLabel.textContent = stock.state === 'danger' ? stock.label : 'left';
-    countWrap.appendChild(countLabel);
-    if (stock.state === 'warn') {
-        const low = window.WGChip.create({ text: 'Low stock', state: 'warn', small: true });
-        low.classList.add('wg-meds-inventory__low');
-        countWrap.appendChild(low);
-    }
-    main.appendChild(countWrap);
+// out (danger) → low (warn) → ok.
+function _stockRank(med) {
+    const state = formatStock(med.inventory_count, med).state;
+    return state === 'danger' ? 0 : state === 'warn' ? 1 : 2;
+}
 
-    const refilled = document.createElement('div');
-    refilled.className = 'wg-meds-inventory__refilled';
-    refilled.textContent = 'Last refilled: —';
-    main.appendChild(refilled);
+// Optimistic restock: bump the cached + in-memory count, POST the existing
+// route, then commit (keeping the server's count) or roll back.
+async function _refillMed(med, qty, btn) {
+    const id = med.id;
+    const before = med.inventory_count;
+    const setCount = (list, count) => (Array.isArray(list)
+        ? list.map((m) => (m && m.id === id ? { ...m, inventory_count: count } : m))
+        : list);
+    await withSubmit(btn, async () => {
+        const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+            ? await window.DataStore.applyOptimistic('medications', (prev) => setCount(prev, before + qty), ['medications'])
+            : null;
+        medications = setCount(medications, before + qty);
+        renderInventory();
 
-    card.appendChild(main);
-
-    const actions = document.createElement('div');
-    actions.className = 'wg-meds-inventory__actions';
-    const refillBtn = document.createElement('button');
-    refillBtn.type = 'button';
-    refillBtn.className = 'wg-gloss wg-gloss--sun wg-meds-inventory__refill-btn';
-    refillBtn.textContent = 'Refill';
-    actions.appendChild(refillBtn);
-    card.appendChild(actions);
-
-    const form = document.createElement('div');
-    form.className = 'wg-meds-inventory__refill-form';
-    form.hidden = true;
-
-    const inputWrap = document.createElement('label');
-    inputWrap.className = 'wg-gloss--inset wg-meds-inventory__refill-input-wrap';
-    const inputLabel = document.createElement('span');
-    inputLabel.className = 'wg-meds-inventory__refill-input-label';
-    inputLabel.textContent = 'Add';
-    inputWrap.appendChild(inputLabel);
-    const input = document.createElement('input');
-    input.type = 'number';
-    input.min = '1';
-    input.placeholder = '30';
-    input.className = 'wg-meds-inventory__refill-input';
-    inputWrap.appendChild(input);
-    form.appendChild(inputWrap);
-
-    const confirmBtn = document.createElement('button');
-    confirmBtn.type = 'button';
-    confirmBtn.className = 'wg-gloss wg-gloss--sun wg-meds-inventory__refill-confirm';
-    confirmBtn.textContent = 'Confirm';
-    form.appendChild(confirmBtn);
-
-    const cancelBtn = document.createElement('button');
-    cancelBtn.type = 'button';
-    cancelBtn.className = 'wg-gloss wg-meds-inventory__refill-cancel';
-    cancelBtn.textContent = 'Cancel';
-    form.appendChild(cancelBtn);
-
-    card.appendChild(form);
-
-    refillBtn.addEventListener('click', () => {
-        form.hidden = false;
-        refillBtn.hidden = true;
-        try { input.focus(); } catch (_) { /* jsdom */ }
-    });
-
-    cancelBtn.addEventListener('click', () => {
-        form.hidden = true;
-        refillBtn.hidden = false;
-        input.value = '';
-    });
-
-    confirmBtn.addEventListener('click', () => {
-        const qty = parseInt(input.value, 10);
-        if (!qty || qty <= 0) {
-            safeAlert('Please enter a valid quantity');
+        let res = null;
+        try {
+            res = await apiCall(`/api/medications/${id}/restock`, 'POST', { quantity: qty });
+        } catch (_) { res = null; }
+        if (!res) {
+            if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+            medications = setCount(medications, before);
+            renderInventory();
             return;
         }
-        // withSubmit disables the button for the duration of the request so a
-        // rapid second tap can't fire a duplicate /restock POST (which would
-        // double-increment inventory).
-        withSubmit(confirmBtn, async () => {
-            const res = await apiCall(`/api/medications/${med.id}/restock`, 'POST', { quantity: qty });
-            if (!res) return;
-            // Update local medications list so the next render reflects the
-            // new count without waiting for a full SWR refresh.
-            if (typeof res.inventory_count === 'number') {
-                const m = medications.find((x) => x.id === med.id);
-                if (m) m.inventory_count = res.inventory_count;
-            }
-            await window.DataStore.invalidateTags(['medications']);
+        if (typeof res.inventory_count === 'number' && res.inventory_count !== before + qty) {
+            medications = setCount(medications, res.inventory_count);
+            if (handle) { try { await handle.commit(medications); } catch (_) { /* best-effort */ } }
             renderInventory();
-        });
+        } else if (handle) {
+            try { await handle.commit(null); } catch (_) { /* best-effort */ }
+        }
+    });
+}
+
+// The inline refill panel: preset picks + an "Other" stepper; the primary
+// previews the resulting total.
+function _buildRefillPanel(med, onCancel) {
+    const panel = _medsEl('div', 'wg-vstack wg-meds-stock__refill');
+    panel.hidden = true;
+    panel.appendChild(_medsEl('span', 'wg-label', 'Refill · doses'));
+
+    const picks = _medsEl('div', 'wg-picks');
+    const stepper = _medsEl('div', 'wg-stepper wg-meds-stock__stepper');
+    stepper.hidden = true;
+    const minus = _medsEl('button', 'wg-stepper__btn');
+    minus.type = 'button';
+    minus.setAttribute('aria-label', 'Decrease');
+    minus.appendChild(_medsIcon('minus'));
+    const input = _medsEl('input', 'wg-stepper__val wg-meds-stock__qty');
+    input.type = 'number';
+    input.min = '1';
+    input.inputMode = 'numeric';
+    input.setAttribute('aria-label', 'Doses to add');
+    const plus = _medsEl('button', 'wg-stepper__btn');
+    plus.type = 'button';
+    plus.setAttribute('aria-label', 'Increase');
+    plus.appendChild(_medsIcon('plus'));
+    stepper.append(minus, input, plus);
+
+    const foot = _medsEl('div', 'wg-card__foot');
+    const cancel = _medsEl('button', 'wg-btn wg-btn--ghost wg-btn--sm wg-meds-stock__cancel', 'Cancel');
+    cancel.type = 'button';
+    const confirm = _medsEl('button', 'wg-btn wg-btn--sm wg-meds-stock__confirm');
+    confirm.type = 'button';
+    foot.append(cancel, confirm);
+
+    let qty = MEDS_REFILL_PRESETS[0];
+    const paint = () => {
+        const valid = Number.isInteger(qty) && qty > 0;
+        confirm.disabled = !valid;
+        confirm.textContent = valid ? `Add ${qty} → ${med.inventory_count + qty}` : 'Add';
+    };
+    const choose = (pick, value) => {
+        picks.querySelectorAll('.wg-pick').forEach((p) => p.setAttribute('aria-pressed', p === pick ? 'true' : 'false'));
+        stepper.hidden = value !== null;
+        if (value === null) {
+            input.value = String(qty);
+            try { input.focus(); } catch (_) { /* jsdom */ }
+        } else {
+            qty = value;
+        }
+        paint();
+    };
+    [...MEDS_REFILL_PRESETS, null].forEach((value, i) => {
+        const pick = _medsEl('button', 'wg-pick', value === null ? 'Other' : `+${value}`);
+        pick.type = 'button';
+        pick.dataset.qty = value === null ? 'other' : String(value);
+        pick.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
+        pick.addEventListener('click', () => choose(pick, value));
+        picks.appendChild(pick);
+    });
+    const step = (delta) => {
+        qty = Math.max(1, (parseInt(input.value, 10) || 0) + delta);
+        input.value = String(qty);
+        paint();
+    };
+    minus.addEventListener('click', () => step(-1));
+    plus.addEventListener('click', () => step(1));
+    input.addEventListener('input', () => {
+        qty = parseInt(input.value, 10);
+        paint();
+    });
+    cancel.addEventListener('click', onCancel);
+    confirm.addEventListener('click', () => {
+        if (Number.isInteger(qty) && qty > 0) _refillMed(med, qty, confirm);
+    });
+
+    panel.append(picks, stepper, foot);
+    paint();
+    return panel;
+}
+
+function _buildInventoryCard(med) {
+    const stock = formatStock(med.inventory_count, med);
+    const card = _medsEl('div', 'wg-card wg-meds-stock__card');
+    if (stock.state === 'danger') card.classList.add('wg-card--danger');
+    card.dataset.medId = String(med.id);
+    card.dataset.stock = stock.state;
+
+    const head = _medsEl('div', 'wg-card__head');
+    const titles = _medsEl('span', 'wg-vstack');
+    titles.appendChild(_medsEl('span', 'wg-card__title wg-meds-stock__name',
+        med.dosage ? `${med.name} · ${med.dosage}` : med.name));
+    titles.appendChild(_medsEl('span', 'wg-meta wg-meds-stock__meta', _stockMeta(med)));
+    const refilled = _medsEl('span', 'wg-meta wg-meds-stock__refilled');
+    refilled.hidden = true;
+    titles.appendChild(refilled);
+    head.appendChild(titles);
+    if (stock.state !== 'ok') {
+        const chip = window.WGChip.create({ text: stock.state === 'danger' ? 'Out' : 'Low', state: stock.state });
+        chip.classList.add('wg-meds-stock__chip');
+        head.appendChild(chip);
+    }
+    card.appendChild(head);
+
+    const row = _medsEl('div', 'wg-hstack');
+    const count = _medsEl('span', 'wg-stat__value wg-meds-stock__count', String(Math.max(0, med.inventory_count)));
+    count.appendChild(_medsEl('small', '', 'doses'));
+    row.appendChild(count);
+    row.appendChild(_medsEl('span', 'wg-spacer'));
+    const refillBtn = _medsEl('button', 'wg-btn wg-btn--sm wg-meds-stock__refill-btn');
+    refillBtn.type = 'button';
+    refillBtn.appendChild(_medsIcon('box', 'wg-ico--sm'));
+    refillBtn.appendChild(document.createTextNode('Refill'));
+    row.appendChild(refillBtn);
+    card.appendChild(row);
+
+    const panel = _buildRefillPanel(med, () => {
+        panel.hidden = true;
+        refillBtn.hidden = false;
+    });
+    card.appendChild(panel);
+    refillBtn.addEventListener('click', () => {
+        panel.hidden = false;
+        refillBtn.hidden = true;
     });
 
     return card;
@@ -994,11 +1101,11 @@ function renderInventory() {
     const list = document.getElementById('med-inventory-list');
     if (!list) return;
     list.replaceChildren();
-    list.classList.add('wg-meds-inventory');
+    list.classList.add('wg-meds-stock');
 
     const tracked = (Array.isArray(medications) ? medications : [])
         .filter((m) => m && m.inventory_count !== null && m.inventory_count !== undefined)
-        .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        .sort((a, b) => _stockRank(a) - _stockRank(b) || (a.name || '').localeCompare(b.name || ''));
 
     if (tracked.length === 0) {
         list.appendChild(createEmptyState({
@@ -1006,24 +1113,27 @@ function renderInventory() {
             title: 'No inventory tracked',
             body: 'Turn on inventory tracking when you edit a medication to get a warning before you run out.',
         }));
+        syncMedsAddButton();
         return;
     }
 
     tracked.forEach((med) => {
         const card = _buildInventoryCard(med);
         list.appendChild(card);
-        // Kick off the last-refilled fetch; fill the row in-place when it
+        // Kick off the last-refilled fetch; fill the line in-place when it
         // resolves so the rest of the card paints immediately. If the card
         // has been detached (e.g. another render supplanted it), drop the
         // update — its querySelector would silently target a stale node.
         _fetchLastRefilledAt(med.id).then((iso) => {
             if (!card.isConnected) return;
-            const row = card.querySelector('.wg-meds-inventory__refilled');
-            if (!row) return;
+            const line = card.querySelector('.wg-meds-stock__refilled');
             const formatted = _formatRestockedDate(iso);
-            row.textContent = formatted ? `Last refilled: ${formatted}` : 'Last refilled: —';
+            if (!line || !formatted) return;
+            line.textContent = `Last refilled ${formatted}`;
+            line.hidden = false;
         });
     });
+    syncMedsAddButton();
 }
 
 async function loadInventory() {
@@ -1050,6 +1160,7 @@ function renderMedsEmptyState() {
     const list = document.getElementById('med-list');
     if (!list) return;
     list.replaceChildren(createOfflineEmptyState());
+    syncMedsAddButton();
 }
 
 // Logic

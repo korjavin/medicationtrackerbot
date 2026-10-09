@@ -457,6 +457,21 @@ export function createIntakeDomain({ records, now, timeZone }) {
     }
 
     const scheduledAtMs = Date.parse(scheduledAt);
+    // Real upcoming slots (same forecast as upcomingDoses), keyed med:instant —
+    // only these may be created below, never an arbitrary instant.
+    const forecastSlots = new Map();
+    if (Number.isFinite(scheduledAtMs) && scheduledAtMs > nowMs) {
+      const targets = forecastDosesWithTzPlan({
+        medications: (await loadMeds()).map(toMedScheduleShape),
+        timeZone,
+        now: nowMs,
+        days: UPCOMING_FORECAST_DAYS,
+        tzPlan: await loadActiveTzPlan(),
+      });
+      for (const t of targets) {
+        if (t.scheduledAtMs === scheduledAtMs) forecastSlots.set(t.medicationId, t);
+      }
+    }
     for (const medId of medicationIds) {
       const intakes = await loadIntakes();
       const intake = intakes.find((i) => i.medication_id === medId
@@ -464,6 +479,24 @@ export function createIntakeDomain({ records, now, timeZone }) {
       if (intake && intake.status === 'PENDING') {
         await putIntake({
           ...intake, clientTs: nowMs, status: 'TAKEN', taken_at: nowIso,
+        });
+        await adjustInventory(medId, -1);
+      } else if (!intake && forecastSlots.has(medId)) {
+        // A future slot is not materialized yet (doses materialize once due):
+        // confirm-or-create, exactly as triggerNextIntake does, so taking an
+        // upcoming dose early is not a silent no-op (Meds → Schedule "Take N",
+        // Today's Take). Same deterministic slot id, so the later floored
+        // materialization of this slot loses to this real write.
+        await putIntake({
+          recordId: slotId(medId, scheduledAtMs),
+          clientTs: nowMs,
+          deleted: false,
+          medication_id: medId,
+          scheduled_at: new Date(scheduledAtMs).toISOString(),
+          taken_at: nowIso,
+          status: 'TAKEN',
+          snoozed_until: null,
+          source: forecastSlots.get(medId).source === 'tz_step' ? 'tz_step' : 'schedule',
         });
         await adjustInventory(medId, -1);
       }

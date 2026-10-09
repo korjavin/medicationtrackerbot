@@ -91,12 +91,13 @@ describe('Meds → History next-intake pane (Round-2 Task 8)', () => {
             expect(kicker.textContent).toBe('Next scheduled intake');
             expect(meta.textContent).toContain('Aspirin, Vitamin D at ');
 
-            const cta = card.querySelector('button.wg-toolbar-btn.wg-toolbar-btn--primary');
+            // Kit .wg-btn, not primary: the app-bar Add owns the one sun
+            // control on the Meds view (med-xso6.18).
+            const cta = card.querySelector('button.wg-btn.wg-meds-next-intake-card__cta');
             expect(cta).not.toBeNull();
-            expect(cta.classList.contains('wg-meds-next-intake-card__cta')).toBe(true);
-            const label = cta.querySelector('.wg-toolbar-btn__label');
-            expect(label).not.toBeNull();
-            expect(label.textContent).toBe('Take Now');
+            expect(cta.classList.contains('wg-toolbar-btn')).toBe(false);
+            expect(cta.classList.contains('wg-btn--primary')).toBe(false);
+            expect(cta.textContent).toBe('Take Now');
         } finally {
             cleanup();
         }

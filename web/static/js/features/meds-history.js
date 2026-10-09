@@ -405,11 +405,9 @@ async function renderNextIntakeTrigger() {
 
         const action = document.createElement('button');
         action.type = 'button';
-        action.className = 'wg-toolbar-btn wg-toolbar-btn--primary wg-meds-next-intake-card__cta';
-        const actionLabel = document.createElement('span');
-        actionLabel.className = 'wg-toolbar-btn__label';
-        actionLabel.textContent = 'Take Now';
-        action.appendChild(actionLabel);
+        // Plain .wg-btn: the app-bar Add is the view's one primary.
+        action.className = 'wg-btn wg-btn--sm wg-meds-next-intake-card__cta';
+        action.textContent = 'Take Now';
         action.addEventListener('click', () => {
             triggerNextIntake();
         });

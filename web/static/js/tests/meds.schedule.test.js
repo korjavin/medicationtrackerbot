@@ -1,11 +1,11 @@
-// Wandergeek Meds schedule sub-tab (Phase 5, Task 4).
+// Meds schedule sub-tab (kit v2 M1, med-xso6.18; Phase 5 Task 4 before it).
 //
-// Exercises the rewritten renderMeds(): scheduled entries group by hour of
-// their next dose under `.wg-section-label` headers (mono "HH:MM · in Xh Ym"),
-// as-needed and archived meds collapse into separate section-label groups
-// below the scheduled ones, and each row is a `.wg-card wg-meds-row` with
-// dual-classed legacy selectors (`.med-item`, `.btn-sm`) and row actions behind
-// the WGRowActions overflow menu.
+// Exercises renderMeds(): scheduled entries group by their next dose slot into
+// `.wg-meds-bucket` sections ("HH:MM · in Xh Ym" eyebrow + a "Take N" head
+// action), missed doses get "HH:MM · missed today" buckets with "Log late",
+// as-needed and archived meds collapse into their own buckets below, and each
+// row is a kit `.wg-row.wg-meds-row` (tap edits; Edit/Delete behind the
+// WGRowActions overflow menu; as-needed rows keep a per-row Log).
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clickRowAction, loadFrontendEnv } from './helpers/frontend-harness.js';
@@ -74,16 +74,13 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         env = null;
     });
 
-    it('groups scheduled meds by hour of next dose under `.wg-section-label` headers', async () => {
+    it('groups scheduled meds by next dose slot into `.wg-meds-bucket` sections with a "Take N" action', async () => {
         const { window, document } = env;
         const now = new Date();
-        // Two meds in the same hour bucket (~+1h) and a third in a later bucket (~+4h).
-        // Anchor minutes to :05 so `alsoInOneHour` (+12min → :17) never spills
-        // into the next hour regardless of the wall-clock minute when the
-        // test runs.
+        // Two meds share one dose instant (~+1h) and a third is later (~+4h).
         const inOneHour = new Date(now.getTime() + 60 * 60 * 1000);
         inOneHour.setMinutes(5, 0, 0);
-        const alsoInOneHour = new Date(inOneHour.getTime() + 12 * 60 * 1000); // same hour
+        const alsoInOneHour = inOneHour; // same slot
         const fourHoursOut = new Date(inOneHour.getTime() + 3 * 60 * 60 * 1000);
 
         await seedMedications(window, [
@@ -111,7 +108,7 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         ]);
 
         const list = document.getElementById('med-list');
-        const sections = list.querySelectorAll('.wg-section-label');
+        const sections = list.querySelectorAll('.wg-meds-bucket__label');
         expect(sections.length).toBeGreaterThanOrEqual(2);
 
         // First section header matches HH:MM · in ...
@@ -121,22 +118,76 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         const rows = list.querySelectorAll('.wg-meds-row');
         expect(rows.length).toBe(3);
         rows.forEach((row) => {
-            expect(row.classList.contains('wg-card')).toBe(true);
+            expect(row.classList.contains('wg-row')).toBe(true);
             expect(row.classList.contains('med-item')).toBe(true);
         });
 
-        // Both +1h meds cluster under the first hour header (before the
-        // second header appears).
-        const firstHeaderEl = sections[0];
-        const secondHeaderEl = sections[1];
-        const clustered = [];
-        let node = firstHeaderEl.nextElementSibling;
-        while (node && node !== secondHeaderEl) {
-            if (node.classList.contains('wg-meds-row')) clustered.push(node);
-            node = node.nextElementSibling;
-        }
-        const names = clustered.map((el) => el.querySelector('.wg-meds-row__name').textContent);
-        expect(names).toEqual(expect.arrayContaining(['Allopurinol', 'Bisoprolol']));
+        // Both +1h meds cluster in the first bucket; its head action takes both.
+        const buckets = list.querySelectorAll('.wg-meds-bucket');
+        expect(buckets.length).toBeGreaterThanOrEqual(2);
+        const names = Array.from(buckets[0].querySelectorAll('.wg-meds-row__name')).map((el) => el.textContent);
+        expect(names).toEqual(['Allopurinol', 'Bisoprolol']);
+        expect(buckets[0].querySelector('.wg-meds-bucket__action').textContent).toBe('Take 2');
+        expect(buckets[1].querySelector('.wg-meds-bucket__action').textContent).toBe('Take 1');
+    });
+
+    it('"Take N" opens the confirm modal for the bucket\'s meds at the slot instant', async () => {
+        const { window, document } = env;
+        const slot = new Date(Date.now() + 60 * 60 * 1000);
+        slot.setMinutes(5, 0, 0);
+        const spy = vi.fn();
+        window.showMedicationConfirmModal = spy;
+        await seedMedications(window, [
+            { id: 1, name: 'Allopurinol', dosage: '100mg', schedule: JSON.stringify({ type: 'daily', times: [toLocalTime(slot)] }), archived: false },
+            { id: 2, name: 'Bisoprolol', dosage: '5mg', schedule: JSON.stringify({ type: 'daily', times: [toLocalTime(slot)] }), archived: false }
+        ]);
+        document.querySelector('#med-list .wg-meds-bucket__action').click();
+        expect(spy).toHaveBeenCalledTimes(1);
+        const [ids, , scheduledAt, mode] = spy.mock.calls[0];
+        expect(ids).toEqual([1, 2]);
+        expect(new Date(scheduledAt).getTime()).toBe(slot.getTime());
+        expect(mode).toBe('confirm');
+    });
+
+    it('a due PENDING intake renders a "missed" bucket first whose "Log late" confirms that intake', async () => {
+        const { window, document } = env;
+        const missedAt = new Date(Date.now() - 2 * 60 * 1000);
+        missedAt.setSeconds(0, 0);
+        const later = new Date(Date.now() + 60 * 60 * 1000);
+        const spy = vi.fn();
+        window.showMedicationConfirmModal = spy;
+        const meds = [
+            { id: 7, name: 'Losartan', dosage: '50mg', schedule: JSON.stringify({ type: 'daily', times: [toLocalTime(missedAt)] }), archived: false },
+            { id: 8, name: 'Metformin', dosage: '500mg', schedule: JSON.stringify({ type: 'daily', times: [toLocalTime(later)] }), archived: false }
+        ];
+        window.DataStore.loadSWR = vi.fn(async (options) => { await options.onFresh(meds); });
+        window.apiCall = vi.fn(async (endpoint) => {
+            if (typeof endpoint === 'string' && endpoint.startsWith('/api/history')) {
+                return [{ id: 'intake-7-x', medication_id: 7, scheduled_at: missedAt.toISOString(), status: 'PENDING', snoozed_until: null }];
+            }
+            if (typeof endpoint === 'string' && endpoint.startsWith('/api/medications/upcoming')) return null;
+            return [];
+        });
+        await window.loadMeds();
+
+        const buckets = document.querySelectorAll('#med-list .wg-meds-bucket');
+        const first = buckets[0];
+        expect(first.querySelector('.wg-meds-bucket__label').textContent).toMatch(/^\d{2}:\d{2} · missed (today|yesterday)$/);
+        expect(first.querySelector('.wg-eyebrow--danger')).not.toBeNull();
+        expect(first.querySelector('.wg-row__lead--danger')).not.toBeNull();
+        expect(Array.from(first.querySelectorAll('.wg-meds-row__name')).map((el) => el.textContent)).toEqual(['Losartan']);
+        // The missed med is not repeated under an upcoming bucket.
+        expect(document.querySelectorAll('#med-list .wg-meds-row[data-med-id="7"]').length).toBe(1);
+
+        const action = first.querySelector('.wg-meds-bucket__action');
+        expect(action.textContent).toBe('Log late');
+        action.click();
+        expect(spy).toHaveBeenCalledTimes(1);
+        const [ids, , scheduledAt, mode, intakeIds] = spy.mock.calls[0];
+        expect(ids).toEqual([7]);
+        expect(scheduledAt).toBe(missedAt.toISOString());
+        expect(mode).toBe('confirm');
+        expect(intakeIds).toEqual(['intake-7-x']);
     });
 
     it('renders the inventory tag in both normal and low-stock states', async () => {
@@ -240,7 +291,7 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         ]);
 
         const list = document.getElementById('med-list');
-        const headers = Array.from(list.querySelectorAll('.wg-section-label'))
+        const headers = Array.from(list.querySelectorAll('.wg-meds-bucket__label'))
             .map((h) => h.textContent.trim());
         expect(headers.length).toBe(3);
         expect(headers[0]).toMatch(/^\d{2}:\d{2} · in /);
@@ -257,82 +308,60 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         expect(prnRow.querySelector('.wg-meds-row__schedule').textContent).toBe('As Needed');
     });
 
-    it('Log / Edit / Delete buttons dispatch to the shared handlers with the med id', async () => {
+    it('row tap edits; Edit / Delete / "Log a dose" live in the overflow; as-needed rows keep a Log button', async () => {
         const { window, document } = env;
-        const now = new Date();
-        const inOneHour = new Date(now.getTime() + 60 * 60 * 1000);
+        const inOneHour = new Date(Date.now() + 60 * 60 * 1000);
 
         await seedMedications(window, [
-            {
-                id: 42,
-                name: 'Soon Med',
-                dosage: '10mg',
-                schedule: JSON.stringify({ type: 'daily', times: [toLocalTime(inOneHour)] }),
-                archived: false
-            }
+            { id: 42, name: 'Soon Med', dosage: '10mg', schedule: JSON.stringify({ type: 'daily', times: [toLocalTime(inOneHour)] }), archived: false },
+            { id: 43, name: 'PRN Med', dosage: '1 tab', schedule: JSON.stringify({ type: 'as_needed' }), archived: false }
         ]);
 
         const editSpy = vi.spyOn(window, 'showEditModal').mockImplementation(() => {});
         const logSpy = vi.spyOn(window, 'logMedicationPast').mockImplementation(() => {});
         const deleteSpy = vi.spyOn(window, 'deleteMed').mockImplementation(() => {});
 
-        const row = document.querySelector('.wg-meds-row');
+        const row = document.querySelector('.wg-meds-row[data-med-id="42"]');
         expect(row).not.toBeNull();
-
-        // Log button — carries `.btn-sm` for legacy selectors + the new
-        // `.wg-meds-row__log-btn` hook.
-        const logBtn = row.querySelector('.wg-meds-row__log-btn');
-        expect(logBtn).not.toBeNull();
-        expect(logBtn.classList.contains('btn-sm')).toBe(true);
-        logBtn.click();
-        expect(logSpy).toHaveBeenCalledWith(42, 'Soon Med');
-
-        // Edit / Delete live behind the row's overflow menu (swipe on touch).
         expect(row.classList.contains('wg-swipe')).toBe(true);
+        // Scheduled rows: the bucket head owns Take; no per-row Log button.
+        expect(row.querySelector('.wg-meds-row__log-btn')).toBeNull();
         expect(row.querySelector('.icon-action-btn')).toBeNull();
+
+        clickRowAction(row, 'Log a dose');
+        expect(logSpy).toHaveBeenCalledWith(42, 'Soon Med');
         clickRowAction(row, 'Edit');
         expect(editSpy).toHaveBeenCalledWith(42);
-
         clickRowAction(row, 'Delete');
         expect(deleteSpy).toHaveBeenCalledWith(42);
 
-        // Clicking the info area also opens the edit modal.
         editSpy.mockClear();
         row.querySelector('.wg-meds-row__info').click();
         expect(editSpy).toHaveBeenCalledWith(42);
+
+        const prnLog = document.querySelector('.wg-meds-row[data-med-id="43"] .wg-meds-row__log-btn');
+        expect(prnLog).not.toBeNull();
+        expect(prnLog.classList.contains('wg-btn')).toBe(true);
+        logSpy.mockClear();
+        editSpy.mockClear();
+        prnLog.click();
+        expect(logSpy).toHaveBeenCalledWith(43, 'PRN Med');
+        expect(editSpy).not.toHaveBeenCalled();
     });
 
-    it('Add medication CTA uses the shared toolbar-btn classes and lives in the Schedule header (round-2 Task 7)', () => {
+    it('Add medication is the kit primary in the Meds app bar, not inside a sub-tab pane', () => {
         const { document } = env;
         const btn = document.getElementById('add-btn');
         expect(btn).not.toBeNull();
-        // Round-2 Task 7 (defect #10): migrated to the shared toolbar-btn
-        // classes and re-homed under the Schedule subtab, so History and
-        // Inventory no longer surface an Add control.
-        expect(btn.classList.contains('wg-toolbar-btn')).toBe(true);
-        expect(btn.classList.contains('wg-toolbar-btn--primary')).toBe(true);
-        // Dead one-offs must not coexist with the shared class.
-        expect(btn.classList.contains('wg-gloss')).toBe(false);
-        expect(btn.classList.contains('wg-gloss--sun')).toBe(false);
-        expect(btn.classList.contains('wg-meds-subtabs-row__add')).toBe(false);
-        expect(btn.classList.contains('wg-meds-add-cta')).toBe(false);
-        expect(btn.classList.contains('wg-fab')).toBe(false);
-        expect(btn.classList.contains('btn-fab')).toBe(false);
-        // The Add pill is now scoped to the Schedule subtab — it must sit
-        // inside #med-schedule-tab and NOT inside the subtabs row above.
-        const row = document.getElementById('med-subtabs');
-        expect(row.contains(btn)).toBe(false);
-        const scheduleTab = document.getElementById('med-schedule-tab');
-        expect(scheduleTab.contains(btn)).toBe(true);
-        // It lives in a dedicated header wrapper above the med-list.
-        const header = scheduleTab.querySelector('.wg-meds-schedule-header');
-        expect(header).not.toBeNull();
-        expect(header.contains(btn)).toBe(true);
-
-        const label = btn.querySelector('.wg-toolbar-btn__label');
-        expect(label).not.toBeNull();
-        expect(label.textContent.trim()).toBe('Add');
+        expect(btn.classList.contains('wg-btn')).toBe(true);
+        expect(btn.classList.contains('wg-btn--primary')).toBe(true);
+        expect(btn.classList.contains('wg-toolbar-btn')).toBe(false);
+        expect(document.querySelector('#meds-view .wg-appbar').contains(btn)).toBe(true);
+        expect(document.getElementById('med-schedule-tab').contains(btn)).toBe(false);
+        expect(document.querySelector('.wg-meds-schedule-header')).toBeNull();
+        expect(btn.textContent.trim()).toBe('Add');
     });
+
 
     // bd med-gut.1 — the Schedule tab used to bucket by a naive device-local
     // next-dose (medication-utils.getNextScheduledDate), which ignored the
@@ -367,7 +396,7 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         ]);
 
         const list = document.getElementById('med-list');
-        const headers = Array.from(list.querySelectorAll('.wg-section-label'))
+        const headers = Array.from(list.querySelectorAll('.wg-meds-bucket__label'))
             .map((h) => h.textContent.trim());
         // Bucket header carries the forecast's tracked-timezone clock time,
         // never the 08:00 written on the medication.
@@ -394,7 +423,7 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         ], []);
 
         const list = document.getElementById('med-list');
-        const headers = Array.from(list.querySelectorAll('.wg-section-label'))
+        const headers = Array.from(list.querySelectorAll('.wg-meds-bucket__label'))
             .map((h) => h.textContent.trim());
         // The forecast lives in its own sub-tab now (bd med-4oxj), so the
         // Schedule list carries the no-time group and nothing else.
@@ -419,7 +448,7 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         ]);
 
         const list = document.getElementById('med-list');
-        const headers = Array.from(list.querySelectorAll('.wg-section-label'))
+        const headers = Array.from(list.querySelectorAll('.wg-meds-bucket__label'))
             .map((h) => h.textContent.trim());
         expect(headers).toEqual([expect.stringMatching(/^08:00 · in /)]);
         expect(headers).not.toContain('Scheduled');
@@ -446,7 +475,7 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         window.renderMeds();
 
         const list = document.getElementById('med-list');
-        const headers = list.querySelectorAll('.wg-section-label');
+        const headers = list.querySelectorAll('.wg-meds-bucket__label');
         expect(headers.length).toBe(1);
         const rows = list.querySelectorAll('.wg-meds-row');
         expect(rows.length).toBe(1);
@@ -463,11 +492,31 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         expect(empty.querySelector('.wg-empty__title').textContent).toBe('No medications yet');
         expect(list.querySelectorAll('.wg-meds-row').length).toBe(0);
 
-        const addBtn = document.getElementById('add-btn');
-        const spy = vi.fn();
-        addBtn.addEventListener('click', spy);
-        empty.querySelector('.wg-empty__acts button').click();
+        const action = empty.querySelector('.wg-empty__acts button');
+        expect(action.classList.contains('wg-btn--primary')).toBe(true);
+        const spy = vi.spyOn(window, 'showAddModal').mockImplementation(() => {});
+        action.click();
         expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it('hides the app-bar Add while the visible pane\'s empty state carries its own Add (M4)', async () => {
+        const { window, document } = env;
+        await seedMedications(window, []);
+        const addBtn = document.getElementById('add-btn');
+        window.switchMedTab('schedule');
+        window.renderMeds();
+        expect(addBtn.hidden).toBe(true);
+
+        // Another pane without an empty-state Add shows it again.
+        window.switchMedTab('history');
+        expect(addBtn.hidden).toBe(false);
+
+        // Once there is a med, Schedule keeps the app-bar Add.
+        const sched = JSON.stringify({ type: 'daily', times: ['08:00'] });
+        await seedMedications(window, [{ id: 1, name: 'Aspirin', schedule: sched, archived: false }]);
+        window.switchMedTab('schedule');
+        window.renderMeds();
+        expect(addBtn.hidden).toBe(false);
     });
 });
 
@@ -535,7 +584,7 @@ describe('Meds Upcoming sub-tab — forecast (bd med-gut.2, bd med-4oxj)', () =>
         const wrap = document.querySelector('#med-upcoming-list .wg-meds-upcoming');
         expect(wrap).not.toBeNull();
         // The pill above names the pane — no duplicated section label inside.
-        expect(wrap.querySelector('.wg-section-label')).toBeNull();
+        expect(wrap.querySelector('.wg-meds-bucket__label')).toBeNull();
 
         const dayLabels = Array.from(wrap.querySelectorAll('.wg-meds-upcoming__day'))
             .map((el) => el.textContent.trim());
@@ -592,6 +641,9 @@ describe('Meds Upcoming sub-tab — forecast (bd med-gut.2, bd med-4oxj)', () =>
         expect(empty.querySelector('.wg-empty__title').textContent).toBe('Nothing scheduled');
         expect(empty.querySelector('.wg-empty__body').textContent).toContain('next 7 days');
         expect(wrap.querySelectorAll('.wg-meds-upcoming__row').length).toBe(0);
+        // M4: the empty state's Add is the one primary on screen.
+        expect(empty.querySelector('.wg-btn--primary')).not.toBeNull();
+        expect(document.getElementById('add-btn').hidden).toBe(true);
     });
 
     // bd med-4oxj: the forecast used to render inside the Schedule list
@@ -614,7 +666,7 @@ describe('Meds Upcoming sub-tab — forecast (bd med-gut.2, bd med-4oxj)', () =>
             })
         ]);
 
-        const labels = Array.from(document.querySelectorAll('#med-list .wg-section-label'))
+        const labels = Array.from(document.querySelectorAll('#med-list .wg-meds-bucket__label'))
             .map((el) => el.textContent.trim());
         expect(labels[0]).toMatch(/^\d{2}:\d{2} · in /);
         expect(labels[1]).toBe('As needed');
