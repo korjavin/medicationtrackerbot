@@ -10671,6 +10671,41 @@ textarea.wg-input {
     min-width: 0;
 }
 
+/* med-0sgs.3: incomplete-day toggle + nudge chip above the macros card. */
+.wg-food-day-status,
+.wg-food-incomplete-nudge {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-md);
+}
+
+.wg-food-day-status__toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    min-height: 44px;
+    font-family: var(--wg-font-ui);
+    font-size: var(--font-size-sm);
+    color: var(--wg-fg-3);
+}
+
+.wg-food-incomplete-nudge__chip {
+    min-height: 44px;
+    padding: var(--space-xs) var(--space-md);
+    font-size: var(--font-size-sm);
+}
+
+/* A flagged day's totals stay visible but read as excluded. */
+.wg-food-macros-card--excluded {
+    opacity: 0.6;
+}
+
+.wg-food-macros-card--excluded .wg-food-macros-card__kcal {
+    text-decoration: line-through;
+}
+
 .wg-food-meal-group__rows {
     display: flex;
     flex-direction: column;

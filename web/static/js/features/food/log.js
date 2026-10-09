@@ -723,6 +723,7 @@ async function loadFoodLogs() {
     const cached = await window.DataStore.getCached(cacheKey);
     if (cached) {
         _renderFoodData(cached.groups, cached.weekStats, window.FoodLog.macrosRange, dateStr);
+        renderFoodDayStatus(cached.incomplete === true);
     } else {
         const loadingStr = document.createTextNode('Loading...');
         list.replaceChildren(loadingStr);
@@ -752,9 +753,11 @@ async function loadFoodLogs() {
         // Tag the v2 cache row under the `food` family so `invalidateTags(['food'])`
         // (mutation refresh, change-poll) evicts it alongside `food_<date>_day`.
         // The key already matches the `food_` family prefix registered at boot.
-        await window.DataStore.setCachedWithTags(cacheKey, { groups: groups || [], weekStats: persistedWeekStats }, ['food']);
+        const incomplete = await fetchFoodDayIncomplete(dateStr);
+        await window.DataStore.setCachedWithTags(cacheKey, { groups: groups || [], weekStats: persistedWeekStats, incomplete }, ['food']);
 
         _renderFoodData(groups || [], persistedWeekStats, window.FoodLog.macrosRange, dateStr);
+        renderFoodDayStatus(incomplete);
     } catch (e) {
         console.error(e);
         if (!cached) {
@@ -764,6 +767,7 @@ async function loadFoodLogs() {
             list.replaceChildren(errP);
         }
     }
+    await loadFoodIncompleteNudge();
 }
 
 // Phase 4, Task 5 — meal-grouped item list renderers. The daily log list
@@ -1388,6 +1392,130 @@ async function moveFoodLogs(groupLogs, ids, eatenAt) {
     return res;
 }
 
+// med-0sgs.3 — per-day "tracking incomplete" flag (record + routes: med-0sgs.1).
+// The toggle flags the selected day; the nudge chip offers to flag a recent
+// near-empty day. Flagged days keep their logs; analytics skip them.
+const FOOD_NUDGE_DISMISS_KEY = 'wg-food-incomplete-nudge-dismissed';
+const FOOD_NUDGE_LOOKBACK_DAYS = 3;
+const FOOD_NUDGE_FALLBACK_KCAL = 800;
+
+async function fetchFoodDayIncomplete(dateStr) {
+    try {
+        const days = await apiCall(`/api/food/days?date=${dateStr}&days=1`, 'GET');
+        return Array.isArray(days) && days.some((d) => d && d.date === dateStr && d.incomplete === true);
+    } catch (_) {
+        return false;
+    }
+}
+
+function renderFoodDayStatus(incomplete) {
+    const toggle = document.getElementById('food-incomplete-toggle');
+    if (toggle) toggle.checked = incomplete;
+    const badge = document.getElementById('food-incomplete-badge');
+    if (badge) badge.classList.toggle('hidden', !incomplete);
+    const card = document.getElementById('food-macros-card');
+    if (card) card.classList.toggle('wg-food-macros-card--excluded', incomplete && window.FoodLog.macrosRange !== 'week');
+}
+
+async function setFoodDayIncomplete(dateStr, incomplete) {
+    renderFoodDayStatus(incomplete);
+    const handle = await window.DataStore.applyOptimistic(
+        `food_${dateStr}_v2`, (prev) => (prev ? { ...prev, incomplete } : prev), ['food']);
+    let res = null;
+    try {
+        res = await apiCall(`/api/food/days/${dateStr}`, 'PUT', { incomplete });
+    } catch (_) {
+        res = null; // apiCall already alerted
+    }
+    if (!res) {
+        await handle.rollback();
+        await loadFoodLogs();
+        return null;
+    }
+    await handle.commit(null);
+    await window.DataStore.invalidateTags(['food', 'gamification']);
+    await loadFoodLogs();
+    return res;
+}
+
+function readFoodNudgeDismissed() {
+    try {
+        const parsed = JSON.parse(window.localStorage.getItem(FOOD_NUDGE_DISMISS_KEY) || '[]');
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (_) {
+        return [];
+    }
+}
+
+function dismissFoodNudge(dateStr) {
+    // ponytail: per-viewer convenience only; keep the last 10 dates.
+    const next = readFoodNudgeDismissed().filter((d) => d !== dateStr).concat(dateStr).slice(-10);
+    try { window.localStorage.setItem(FOOD_NUDGE_DISMISS_KEY, JSON.stringify(next)); } catch (_) { /* best-effort */ }
+    const nudge = document.getElementById('food-incomplete-nudge');
+    if (nudge) nudge.classList.add('hidden');
+}
+
+// The most recent of the last 3 days (today excluded) that is unflagged,
+// undismissed, and empty or under 40% of the calorie target (800 kcal with
+// no target). Null when none qualifies or the reads fail.
+async function findFoodNudgeDay() {
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    const yStr = toISODateLocal(yesterday);
+    const statuses = await apiCall(`/api/food/days?date=${yStr}&days=${FOOD_NUDGE_LOOKBACK_DAYS}`, 'GET');
+    const groups = await apiCall(`/api/food/log?date=${yStr}&days=${FOOD_NUDGE_LOOKBACK_DAYS}`, 'GET');
+    if (!Array.isArray(statuses) || !Array.isArray(groups)) return null;
+
+    const kcalByDay = new Map();
+    for (const g of groups) {
+        for (const log of (g && g.logs) || []) {
+            const day = toISODateLocal(new Date(log.eaten_at));
+            kcalByDay.set(day, (kcalByDay.get(day) || 0) + (Number(log.calories) || 0));
+        }
+    }
+    const target = Number(window.FoodLog.targets && window.FoodLog.targets.calories) || 0;
+    const threshold = target > 0 ? target * 0.4 : FOOD_NUDGE_FALLBACK_KCAL;
+    const dismissed = new Set(readFoodNudgeDismissed());
+    const candidates = statuses
+        .filter((s) => s && typeof s.date === 'string')
+        .sort((a, b) => (a.date < b.date ? 1 : -1));
+    const hit = candidates.find((s) => s.incomplete !== true && !dismissed.has(s.date)
+        && (kcalByDay.get(s.date) || 0) < threshold);
+    return hit ? hit.date : null;
+}
+
+async function loadFoodIncompleteNudge() {
+    const nudge = document.getElementById('food-incomplete-nudge');
+    const chip = document.getElementById('food-incomplete-nudge-btn');
+    if (!nudge || !chip) return;
+    let dateStr = null;
+    try {
+        dateStr = await findFoodNudgeDay();
+    } catch (_) {
+        dateStr = null;
+    }
+    nudge.classList.toggle('hidden', !dateStr);
+    if (!dateStr) return;
+    nudge.dataset.date = dateStr;
+    chip.textContent = `Was ${formatFoodDateLabel(dateStr)} (${formatFoodDateSubtitle(dateStr)}) logged incompletely? Tap to exclude it`;
+}
+
+// Click handlers bound once by index.js; the nudge carries its date.
+function onFoodNudgeFlag() {
+    const nudge = document.getElementById('food-incomplete-nudge');
+    const dateStr = nudge && nudge.dataset.date;
+    if (!dateStr) return null;
+    nudge.classList.add('hidden');
+    return setFoodDayIncomplete(dateStr, true);
+}
+
+function onFoodNudgeDismiss() {
+    const nudge = document.getElementById('food-incomplete-nudge');
+    if (nudge && nudge.dataset.date) dismissFoodNudge(nudge.dataset.date);
+}
+
+window.FoodLog.setDayIncomplete = setFoodDayIncomplete;
 window.FoodLog.load = loadFoodLogs;
 window.FoodLog.openMove = openFoodMoveSheet;
 window.FoodLog.save = saveFoodLog;
