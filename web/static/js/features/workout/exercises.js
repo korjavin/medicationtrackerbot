@@ -266,11 +266,11 @@ function renderWorkoutExerciseRows(container, day, rerender) {
     }));
 }
 
-// med-3gln: per-plan-row Equipment override for the plan-exercise modal. The
+// med-3gln: per-plan-row Equipment override for the Exercise page. The
 // select binds the row's own equipment_id (preselected when set); blank means
 // "no override" and falls back to the library row's binding, shown as the
 // blank option's label ('from library: <name>', else 'None'). Works for rows
-// with or without a library link. Saving writes the exercise row only — never
+// with or without a library link. Done stages it on the plan row (the Plan Save writes it) — never
 // the library (the library editor owns that binding). Option fill is the
 // shared _syncEquipmentSelect (library.js) — one implementation, no
 // duplicate. The helper under the select shows the effective gear's step/max
@@ -279,13 +279,13 @@ function renderWorkoutExerciseRows(container, day, rerender) {
 // omits the key and preserves the stored override (same rule as the library
 // editor); a failed library read only loses the inherited label.
 let _equipmentHintSeq = 0; // module-state: ticket for the in-flight plan-equipment reads so a superseded read cannot write
-// The row's stored override ('<id>' or '') at modal open, and the inherited
+// The row's stored override ('<id>' or '') at page open, and the inherited
 // library binding ({ id, name } | null) from the last fill: refills (picker
 // pick, rename) keep displaying the stored override while re-resolving the
 // inherited label, and the save compares the pick against the stored value so
 // a stale inventory can never clear it blind.
-let _planRowEquipmentId = ''; // module-state: the plan modal's stored row-equipment override from open, for refills + the save's blind-clear guard
-let _planInheritedEquipment = null; // module-state: the plan modal's inherited library binding ({ id, name }) from the last fill, for the blank label + helper
+let _planRowEquipmentId = ''; // module-state: the Exercise page's stored row-equipment override from open, for refills + the save's blind-clear guard
+let _planInheritedEquipment = null; // module-state: the Exercise page's inherited library binding ({ id, name }) from the last fill, for the blank label + helper
 // med-ni2j: with no library binding (not even a dangling one), blank means
 // "auto-match from the inventory" (domain autoEquipmentForExercise on the
 // modal's live name + target weight). Label + helper only: auto is computed
@@ -294,16 +294,16 @@ let _planAutoEligible = false; // module-state: the last fill found no library b
 let _planAutoEquipment = null; // module-state: the auto-matched inventory item for the blank label + helper
 // The selection a name-driven refill (picker pick, rename) must keep showing:
 // the live pick when the select holds a real inventory read, else the stored
-// override from modal open. Without this a refill would restore the open-time
+// override from page open. Without this a refill would restore the open-time
 // value and silently discard an unsaved pick made before the rename.
 function _currentPlanEquipmentPick() {
     const select = document.getElementById('workout-exercise-equipment');
     if (select && select.dataset.loaded === 'true') return select.value || '';
     return _planRowEquipmentId || '';
 }
-// Synchronous reset of the plan modal's Equipment select, called before the
+// Synchronous reset of the Exercise page's Equipment select, called before the
 // first await on every entry path (open Add/Edit, picker pick, rename): the
-// modal is shared, so the previous open's options/selection must not survive
+// page body is reused, so the previous open's options/selection must not survive
 // until the inventory read lands — saving inside that window would bind gear
 // the user never chose. The select is always enabled (rows with or without a
 // library link bind the same way) and owns the select's change wiring
@@ -434,7 +434,7 @@ async function _renderPlanEquipmentHelper(equipmentId) {
     hintEl.hidden = false;
 }
 
-// Fill the plan modal's Equipment select: preselect the row's own override
+// Fill the Exercise page's Equipment select: preselect the row's own override
 // through the shared _syncEquipmentSelect, and label the blank option with
 // the inherited library binding ('from library: <name>', else 'None'). A null
 // library id (unknown name, or a row without a library link) labels blank as

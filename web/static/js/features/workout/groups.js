@@ -580,6 +580,7 @@ async function _writePlanDraft(draft, groupPayload, active, rotating) {
     // An untouched implicit day of a flat plan is never created.
     const days = draft.days.filter((d) => !(d.implicit && d.id == null && d.exercises.length === 0));
     const renumber = rotating && (draft.daysReordered || days.some((d) => d.id == null));
+    if (renumber) draft.daysReordered = true; // survive a partial failure: the retry must still renumber
     for (let i = 0; i < days.length; i++) {
         const day = days[i];
         let order = day.rotation_order;
@@ -603,6 +604,7 @@ async function _writePlanDraft(draft, groupPayload, active, rotating) {
             day.removed.shift();
         }
         const renumberEx = day.exReordered || day.exercises.some((e) => e.id == null);
+        if (renumberEx) day.exReordered = true;
         for (let j = 0; j < day.exercises.length; j++) {
             const entry = day.exercises[j];
             const view = { ...(entry.rec || {}), ...(entry.payload || {}) };
