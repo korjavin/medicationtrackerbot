@@ -159,7 +159,7 @@ describe('Health design parity — Round 2 (Task 5)', () => {
         // Make the DELETE call succeed.
         window.apiCall = vi.fn(async () => ({ ok: true }));
 
-        await window.deleteNote(42);
+        await window.deleteNote(42).flush();
 
         expect(window.apiCall).toHaveBeenCalledWith('/api/notes/42', 'DELETE');
         expect(invalidateSpy).toHaveBeenCalledTimes(1);

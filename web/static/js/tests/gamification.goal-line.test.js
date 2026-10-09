@@ -429,6 +429,59 @@ describe('gamification Goal Line — workouts, BP, cta', () => {
     expect(noWeight.cta).toBe('start_session'); // weigh_in skipped; today's 18:00 plan session is next
   });
 
+  // med-xso6.15: the Journey scorecard's per-day facts over the live week.
+  it('week_days: Mon–Sun hit/miss/rest/future — a miss only against the plan or a daily weigh-in', async () => {
+    const seed = (cadence) => ({
+      workoutgroup: [GROUP], workoutvariant: [VARIANT],
+      workoutsession: [
+        // Mon done; Fri pre-skipped (declined ahead = rest); Wed (today) open.
+        { recordId: 'session-7-2026-06-15', deleted: false, group_id: 7, status: 'completed', scheduled_date: '2026-06-15T00:00:00Z' },
+        { recordId: 'session-7-2026-06-19', deleted: false, group_id: 7, status: 'pre_skipped', scheduled_date: '2026-06-19T00:00:00Z' },
+      ],
+      weight: [weightRec(1, 80)], // Tue
+      bp: [bpRec(0, 120, 80)], // Wed (today)
+      weightreminderpref: [{ recordId: 'weightreminderpref', deleted: false, cadence }],
+    });
+    const weekly = domainOver(seed('weekly'));
+    const gl = await weekly.gam.getGoalLine();
+    expect(gl.week_days).toEqual([
+      { day: '2026-06-15', weigh_in: 'rest', workout: 'hit', bp: 'rest' },
+      { day: '2026-06-16', weigh_in: 'hit', workout: 'rest', bp: 'rest' },
+      { day: '2026-06-17', weigh_in: 'rest', workout: 'future', bp: 'hit' },
+      { day: '2026-06-18', weigh_in: 'future', workout: 'future', bp: 'future' },
+      { day: '2026-06-19', weigh_in: 'future', workout: 'future', bp: 'future' },
+      { day: '2026-06-20', weigh_in: 'future', workout: 'future', bp: 'future' },
+      { day: '2026-06-21', weigh_in: 'future', workout: 'future', bp: 'future' },
+    ]);
+    // The day sets behind it never leak into the workouts row.
+    expect(Object.keys(gl.workouts)).toEqual(['feature_on', 'completed_this_week', 'next_scheduled', 'scheduled_this_week']);
+    expectNoWrites(weekly.records);
+
+    // Daily weigh-in cadence: a past day without a reading is a miss; today stays open.
+    const daily = await domainOver(seed('daily')).gam.getGoalLine();
+    expect(daily.week_days.slice(0, 3).map((d) => d.weigh_in)).toEqual(['miss', 'hit', 'future']);
+
+    // A scheduled Monday not done is a miss; feature-off levers are null.
+    const missed = await domainOver({ workoutgroup: [GROUP], workoutvariant: [VARIANT] }).gam.getGoalLine({
+      features: { weight: false, workout: true, bp: false, gamification: true },
+    });
+    expect(missed.week_days[0]).toEqual({ day: '2026-06-15', weigh_in: null, workout: 'miss', bp: null });
+
+    // A planned ad-hoc session still pending on a past day is scheduled, so a miss.
+    const adhoc = await domainOver({
+      workoutsession: [{ recordId: 'adhoc-9', deleted: false, group_id: -1, status: 'pending', scheduled_date: '2026-06-16T00:00:00Z', scheduled_time: '07:30' }],
+    }).gam.getGoalLine();
+    expect(adhoc.week_days.slice(0, 2).map((d) => d.workout)).toEqual(['rest', 'miss']);
+    // Skipped after its reminder: still a planned day not done. A started one stays out.
+    const skipped = await domainOver({
+      workoutsession: [
+        { recordId: 'adhoc-10', deleted: false, group_id: -1, status: 'skipped', scheduled_date: '2026-06-15T00:00:00Z', scheduled_time: '07:30' },
+        { recordId: 'adhoc-11', deleted: false, group_id: -1, status: 'in_progress', scheduled_date: '2026-06-16T00:00:00Z', scheduled_time: '07:30' },
+      ],
+    }).gam.getGoalLine();
+    expect(skipped.week_days.slice(0, 2).map((d) => d.workout)).toEqual(['miss', 'rest']);
+  });
+
   // med-8tur.2: the Today card's day key + the medication safety net the rings
   // tile used to carry (same adherenceAlertView source), gated on medication.
   it('carries its local-day key, its zone and the adherence alert (null with medication off)', async () => {

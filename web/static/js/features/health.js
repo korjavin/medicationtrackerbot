@@ -1087,59 +1087,69 @@ async function addNote() {
     loadNotes();
 }
 
-async function deleteNote(id) {
-    await safeConfirm('Delete this note?', async (ok) => {
-        if (!ok) return;
+function _notesWithout(prev, id) {
+    if (!Array.isArray(prev)) return prev;
+    return prev.filter((n) => !(n && n.id === id));
+}
 
-        // Optimistic: drop the matching row from the cached diary_notes list
-        // so it vanishes from the Notes list before DELETE resolves.
-        const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
-            ? await window.DataStore.applyOptimistic('diary_notes', (prev) => {
-                if (!Array.isArray(prev)) return prev;
-                return prev.filter((n) => !(n && n.id === id));
-            }, ['notes', 'health-notes'])
-            : null;
-
-        // Local/rejected rows carry `local_<n>` ids synthesized by the
-        // offline read path. The server DELETE handler only accepts numeric
-        // ids (400 otherwise), so purge via IndexedDB — mirrors the edit
-        // path below.
-        const isLocalId = typeof id === 'string' && id.startsWith('local_');
-        if (isLocalId) {
-            const localId = parseInt(id.replace('local_', ''), 10);
-            if (window.MedTrackerDB && window.MedTrackerDB.NotesStore
-                && typeof window.MedTrackerDB.NotesStore.confirmDelete === 'function'
-                && Number.isFinite(localId)) {
-                try {
-                    await window.MedTrackerDB.NotesStore.confirmDelete(localId);
-                    if (window.SyncManager && typeof window.SyncManager.updateStatus === 'function') {
-                        window.SyncManager.updateStatus();
-                    }
-                } catch (e) {
-                    console.error('Failed to purge local note delete:', e);
-                }
-            }
-            if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
-            await window.DataStore.invalidateTags(['health-notes', 'gamification']);
-            loadNotes();
-            return;
-        }
-
-        let res;
-        try {
-            res = await apiCall(`/api/notes/${id}`, 'DELETE');
-        } catch (e) {
-            if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
-            throw e;
-        }
-        if (res !== null) {
-            if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
-            await window.DataStore.invalidateTags(['health-notes', 'gamification']);
-            loadNotes();
-        } else {
-            if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
-        }
+// Delete a note: gone at once, Undo from the toast (kit rule 3).
+function deleteNote(id) {
+    return deleteWithUndo({
+        message: 'Note deleted',
+        optimistic: [{ key: 'diary_notes', mutator: (prev) => _notesWithout(prev, id), tags: ['notes', 'health-notes'] }],
+        remove: () => _deleteNoteApi(id),
+        replay: { fn: '_deleteNoteApi', arg: id },
     });
+}
+
+// The delete itself. Resolves true on success.
+async function _deleteNoteApi(id) {
+    // Optimistic: drop the matching row from the cached diary_notes list
+    // so it vanishes from the Notes list before DELETE resolves.
+    const handle = window.DataStore && typeof window.DataStore.applyOptimistic === 'function'
+        ? await window.DataStore.applyOptimistic('diary_notes', (prev) => _notesWithout(prev, id), ['notes', 'health-notes'])
+        : null;
+
+    // Local/rejected rows carry `local_<n>` ids synthesized by the
+    // offline read path. The server DELETE handler only accepts numeric
+    // ids (400 otherwise), so purge via IndexedDB — mirrors the edit
+    // path below.
+    const isLocalId = typeof id === 'string' && id.startsWith('local_');
+    if (isLocalId) {
+        const localId = parseInt(id.replace('local_', ''), 10);
+        if (window.MedTrackerDB && window.MedTrackerDB.NotesStore
+            && typeof window.MedTrackerDB.NotesStore.confirmDelete === 'function'
+            && Number.isFinite(localId)) {
+            try {
+                await window.MedTrackerDB.NotesStore.confirmDelete(localId);
+                if (window.SyncManager && typeof window.SyncManager.updateStatus === 'function') {
+                    window.SyncManager.updateStatus();
+                }
+            } catch (e) {
+                console.error('Failed to purge local note delete:', e);
+            }
+        }
+        if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
+        await window.DataStore.invalidateTags(['health-notes', 'gamification']);
+        loadNotes();
+        return true;
+    }
+
+    let res;
+    try {
+        res = await apiCall(`/api/notes/${id}`, 'DELETE');
+    } catch (e) {
+        if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+        throw e;
+    }
+    if (res === null) {
+        if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+        return false;
+    }
+    if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
+    await window.DataStore.invalidateTags(['health-notes', 'gamification']);
+    loadNotes();
+    return true;
 }
 
 // Edit-note modal (Phase 8, Task 8). The notes API exposes only POST + DELETE,

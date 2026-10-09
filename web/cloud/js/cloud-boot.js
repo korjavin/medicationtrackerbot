@@ -59,7 +59,10 @@ if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('controllerchange', () => {
         if (!hadController || reloading) return;
         reloading = true;
-        location.reload();
+        // Another tab's Reload can land here mid-Undo-window: send the delete first.
+        const owed = window.flushPendingDelete?.();
+        if (owed) owed.catch(() => {}).finally(() => location.reload());
+        else location.reload();
     });
 }
 
@@ -310,11 +313,21 @@ window.MedTrackerCloudReady = (async function boot() {
             if (document.getElementById('auth-expired-banner')) return;
             const banner = document.createElement('div');
             banner.id = 'auth-expired-banner';
-            banner.className = 'offline-banner'; // reuse the sync-degraded strip style
+            banner.className = 'wg-banner wg-banner--warn';
             banner.setAttribute('aria-live', 'polite');
-            banner.append('Session expired — sync is paused. ');
+            if (window.WGIcons) {
+                const ico = document.createElement('i');
+                ico.className = 'wg-ico wg-ico--sm';
+                ico.appendChild(window.WGIcons.iconSvg('lock'));
+                banner.appendChild(ico);
+            }
+            const text = document.createElement('span');
+            text.className = 'wg-banner__text';
+            text.textContent = 'Session expired · sync is paused.';
+            banner.appendChild(text);
             const btn = document.createElement('button');
             btn.type = 'button';
+            btn.className = 'wg-btn wg-btn--sm';
             btn.textContent = 'Re-authenticate';
             btn.addEventListener('click', () => {
                 btn.disabled = true;
@@ -331,7 +344,8 @@ window.MedTrackerCloudReady = (async function boot() {
                     .catch(() => { btn.disabled = false; });
             });
             banner.appendChild(btn);
-            document.body.prepend(banner);
+            const host = document.getElementById('app-banners');
+            if (host) host.appendChild(banner); else document.body.prepend(banner);
         })().catch((e) => console.error('[cloud-boot] auth-expired surface failed', e));
         // Reconnect auto-drain: online / visibility-regain events re-run the
         // boot drain so queued offline edits sync without a write or reload;

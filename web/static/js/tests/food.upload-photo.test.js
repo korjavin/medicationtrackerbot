@@ -44,7 +44,7 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
     let env;
 
     beforeEach(() => {
-        env = loadFrontendEnv();
+        env = loadFrontendEnv({ withSync: true });
 
         // food.js refers to these directly; stub them so the upload path
         // doesn't blow up on cache invalidation / list refresh during tests.
@@ -87,12 +87,10 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
         const card = document.querySelector('.wg-food-photo-summary');
         expect(card).not.toBeNull();
 
-        const rows = card.querySelectorAll('.wg-food-photo-summary__item');
-        expect(rows.length).toBe(SAMPLE_ITEMS.length);
-
-        // Total kcal sum is rendered in the totals row.
-        const totalsKcal = card.querySelector('.wg-food-photo-summary__totals-kcal');
-        expect(totalsKcal.textContent).toBe('385 kcal');
+        // The standard toast (med-xso6.5): item count + kcal total.
+        expect(card.classList.contains('wg-toast')).toBe(true);
+        expect(card.querySelector('.wg-toast__text').firstChild.textContent).toBe('2 items logged');
+        expect(card.querySelector('.wg-toast__text small').textContent).toBe('385 kcal · from photo');
     });
 
     it('clicking Undo issues a DELETE for every item and swaps card to "Removed N items"', async () => {
@@ -113,7 +111,7 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
         expect(apiSpy).not.toHaveBeenCalled();
 
         const card = document.querySelector('.wg-food-photo-summary');
-        const undoBtn = card.querySelector('.wg-food-photo-summary__undo');
+        const undoBtn = card.querySelector('.wg-toast__undo');
         expect(undoBtn).not.toBeNull();
 
         // Reset the refresh spies — the upload already called them once on
@@ -139,16 +137,10 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
             '/api/food/log/12',
         ]);
 
-        // Card transitioned to the success state — items rows are gone, a
-        // single "Removed 2 items" message took their place. The Close
-        // button (in the header) is still there so the user can dismiss.
-        const stillCard = document.querySelector('.wg-food-photo-summary');
-        expect(stillCard).not.toBeNull();
-        expect(stillCard.querySelector('.wg-food-photo-summary__items')).toBeNull();
-        const message = stillCard.querySelector('.wg-food-photo-summary__message');
-        expect(message).not.toBeNull();
-        expect(message.textContent).toBe('Removed 2 items');
-        expect(stillCard.querySelector('.wg-food-photo-summary__close')).not.toBeNull();
+        // The logged toast was swapped for a "Removed 2 items" toast.
+        const toasts = document.querySelectorAll('.wg-food-photo-summary');
+        expect(toasts).toHaveLength(1);
+        expect(toasts[0].querySelector('.wg-toast__text').textContent).toBe('Removed 2 items');
 
         // Food list + Today refresh on Undo success.
         expect(window.loadFoodLogs).toHaveBeenCalled();
@@ -179,7 +171,7 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
         await flushPromises();
 
         const card = document.querySelector('.wg-food-photo-summary');
-        const undoBtn = card.querySelector('.wg-food-photo-summary__undo');
+        const undoBtn = card.querySelector('.wg-toast__undo');
 
         undoBtn.click();
         await flushPromises();
@@ -189,7 +181,7 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
         let deleteCalls = apiSpy.mock.calls.filter(([, method]) => method === 'DELETE');
         expect(deleteCalls.length).toBe(2);
 
-        const retry = document.querySelector('.wg-food-photo-summary__retry');
+        const retry = document.querySelector('.wg-food-photo-summary.wg-toast--danger .wg-toast__undo');
         expect(retry).not.toBeNull();
 
         // Now Retry: only the failed item (id 12) should be re-issued.
@@ -206,7 +198,7 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
         // After successful retry, card transitions to the success message —
         // and reports the ORIGINAL total count, not the count of items
         // attempted in the final round.
-        const message = document.querySelector('.wg-food-photo-summary__message');
+        const message = document.querySelector('.wg-food-photo-summary .wg-toast__text');
         expect(message).not.toBeNull();
         expect(message.textContent).toBe('Removed 2 items');
     });
@@ -230,7 +222,7 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
         await flushPromises();
 
         const card = document.querySelector('.wg-food-photo-summary');
-        const undoBtn = card.querySelector('.wg-food-photo-summary__undo');
+        const undoBtn = card.querySelector('.wg-toast__undo');
 
         // Reset the refresh spies so we can assert the failed-Undo path
         // does NOT trigger an additional refresh.
@@ -244,11 +236,11 @@ describe('uploadFoodPhoto + Undo (friendly food-photo flow, Task 4)', () => {
         const stillCard = document.querySelector('.wg-food-photo-summary');
         expect(stillCard).not.toBeNull();
 
-        const errorMsg = stillCard.querySelector('.wg-food-photo-summary__message--error');
+        const errorMsg = stillCard.classList.contains('wg-toast--danger') && stillCard.querySelector('.wg-toast__text');
         expect(errorMsg).not.toBeNull();
         expect(errorMsg.textContent).toMatch(/could not undo/i);
 
-        const retry = stillCard.querySelector('.wg-food-photo-summary__retry');
+        const retry = stillCard.querySelector('.wg-toast__undo');
         expect(retry).not.toBeNull();
 
         // Partial failure: id 12 was deleted server-side while id 11 was not,

@@ -36,38 +36,38 @@ export async function fetchServerBuildID(fetchImpl) {
     return body?.build_id ?? '';
 }
 
-// Reuses bot mode's toast classes (web/static/css/styles.css .pwa-update-toast /
-// .pwa-update-btn) — cloud serves that same stylesheet, so the prompt looks
-// identical in both modes and this file ships no CSS and sets no inline styles
-// (CLAUDE.md rule 3).
+// The kit's info banner (components.css .wg-banner--info, med-xso6.5) in the
+// app's #app-banners strip under the top edge; this file ships no CSS and sets
+// no inline styles (CLAUDE.md rule 3).
 export function renderUpdateBanner(doc, onReload, onDismiss) {
-    const toast = doc.createElement('div');
-    toast.className = 'pwa-update-toast';
-    toast.id = 'cloud-update-toast';
-    toast.setAttribute('role', 'status');
+    const banner = doc.createElement('div');
+    banner.className = 'wg-banner wg-banner--info';
+    banner.id = 'cloud-update-banner';
+    banner.setAttribute('role', 'status');
 
     const text = doc.createElement('span');
+    text.className = 'wg-banner__text';
     text.textContent = 'A new version is available.';
 
-    const reload = doc.createElement('button');
-    reload.className = 'pwa-update-btn';
-    reload.id = 'cloud-update-reload';
-    reload.textContent = 'Reload';
-    reload.onclick = onReload;
-
     const dismiss = doc.createElement('button');
-    dismiss.className = 'pwa-update-btn';
+    dismiss.className = 'wg-btn wg-btn--ghost wg-btn--sm';
     dismiss.id = 'cloud-update-dismiss';
     dismiss.textContent = 'Later';
     dismiss.setAttribute('aria-label', 'Dismiss update notice');
     dismiss.onclick = () => {
-        toast.remove();
+        banner.remove();
         onDismiss?.();
     };
 
-    toast.append(text, reload, dismiss);
-    doc.body.appendChild(toast);
-    return toast;
+    const reload = doc.createElement('button');
+    reload.className = 'wg-btn wg-btn--sm';
+    reload.id = 'cloud-update-reload';
+    reload.textContent = 'Reload';
+    reload.onclick = onReload;
+
+    banner.append(text, dismiss, reload);
+    (doc.getElementById('app-banners') || doc.body).appendChild(banner);
+    return banner;
 }
 
 // Activate the waiting SW and reload. Mirrors app-shell.js's showUpdateToast:
@@ -85,6 +85,11 @@ export function renderUpdateBanner(doc, onReload, onDismiss) {
 // the dance. Only when update() finds NO new worker (the SW is already current,
 // only the page JS is stale) is a plain reload correct.
 async function activateAndReload(registration, win) {
+    // An open Undo window owes a delete; send it before the page goes away.
+    const owed = win.flushPendingDelete?.();
+    if (owed) {
+        try { await owed; } catch { /* the boot replay still has it */ }
+    }
     if (!registration) {
         win.location.reload();
         return;
@@ -124,19 +129,19 @@ async function activateAndReload(registration, win) {
 // again — so a dismiss inside that install window would otherwise re-nag. The
 // latch is a data attribute on the document (both triggers render into the same
 // real document, so it's shared across paths) rather than module state — same
-// DOM-dedup shape as the cloud-update-toast id, per-tab, and it resets on the
+// DOM-dedup shape as the cloud-update-banner id, per-tab, and it resets on the
 // next cold load, which is when re-prompting is fair. No window.* global
 // (rule 4), no inline style (rule 3).
 const DISMISSED_ATTR = 'data-cloud-update-dismissed';
 
 // Single entry point for both update triggers (SW-waiting and the build-ID
-// poll below). Two dedupes: the DOM id cloud-update-toast (a banner is already
+// poll below). Two dedupes: the DOM id cloud-update-banner (a banner is already
 // up) and the dismissed latch (the user said "Later" this session).
 export function showUpdateBanner({ doc, win, registration } = {}) {
     doc ??= document;
     win ??= window;
     if (doc.documentElement.hasAttribute(DISMISSED_ATTR)) return;
-    if (doc.getElementById('cloud-update-toast')) return;
+    if (doc.getElementById('cloud-update-banner')) return;
     renderUpdateBanner(
         doc,
         () => activateAndReload(registration, win),
