@@ -502,9 +502,13 @@ function _fmtSetNumber(v) {
 function _exerciseHistory(name) {
     const ui = _sessionUi();
     if (!ui.hist[name]) {
-        ui.hist[name] = Promise.resolve()
-            .then(() => apiCall(`/api/workout/exercises/history?name=${encodeURIComponent(name)}&limit=500`))
-            .then((rows) => (Array.isArray(rows) ? rows : null), () => null);
+        let p;
+        try {
+            p = Promise.resolve(apiCall(`/api/workout/exercises/history?name=${encodeURIComponent(name)}&limit=500`));
+        } catch (e) {
+            p = Promise.reject(e);
+        }
+        ui.hist[name] = p.then((rows) => (Array.isArray(rows) ? rows : null), () => null);
     }
     return ui.hist[name];
 }
@@ -1251,11 +1255,8 @@ function _setSessionSetField(logIndex, row, field, value) {
     if (!log) return;
     const done = _ensureLogSets(log).length;
     if (row < done) { updateLocalSet(logIndex, row, field, value); return; }
-    const v = _setRowValues(log, row);
+    // Only the touched cell leaves its ghost; the other keeps showing it.
     const draft = _setDraft(log, row - done);
-    // Touching a pending row accepts its ghost weight/reps along with the edit.
-    if (!('weight_kg' in draft)) draft.weight_kg = v.weight_kg;
-    if (!('reps' in draft)) draft.reps = v.reps;
     const tmp = _applySetField({ ...draft }, field, value);
     Object.keys(draft).forEach((k) => { delete draft[k]; });
     Object.assign(draft, tmp);
@@ -1369,7 +1370,12 @@ function addLocalSet(logIndex) {
 // session clock; it stops on minimise.
 function _startRest(label) {
     const ui = _sessionUi();
-    ui.rest = { endAt: Date.now() + SESSION_REST_SECONDS * 1000, total: SESSION_REST_SECONDS, label: label || '' };
+    ui.rest = {
+        left: SESSION_REST_SECONDS,
+        endAt: Date.now() + SESSION_REST_SECONDS * 1000,
+        total: SESSION_REST_SECONDS,
+        label: label || '',
+    };
     _ensureSessionTick();
     _renderRest();
 }
@@ -1377,6 +1383,7 @@ function _startRest(label) {
 function _extendRest(seconds) {
     const ui = _sessionUi();
     if (!ui.rest) return;
+    ui.rest.left += seconds;
     ui.rest.endAt += seconds * 1000;
     ui.rest.total += seconds;
     _renderRest();
@@ -1414,7 +1421,7 @@ function _renderRest() {
         box.append(time, body, plus, skip);
         dock.replaceChildren(box);
     }
-    const left = Math.max(0, Math.ceil((rest.endAt - Date.now()) / 1000));
+    const left = Math.max(0, rest.left);
     box.querySelector('.wg-rest__time').textContent = _fmtSessionClock(left);
     box.querySelector('.wg-eyebrow').textContent = rest.label ? `Rest · ${rest.label}` : 'Rest';
     box.querySelector('.wg-meter__fill').style.setProperty('--p', `${Math.round((left / Math.max(1, rest.total)) * 100)}%`);
@@ -1439,7 +1446,10 @@ function _sessionTick() {
     if (clock) clock.textContent = _sessionClockText(st.data);
     const ui = _sessionUi();
     if (!ui.rest) return;
-    if (Date.now() >= ui.rest.endAt) {
+    // One second per tick, caught up to the wall clock when a hidden tab's
+    // timers were throttled.
+    ui.rest.left = Math.min(ui.rest.left - 1, Math.ceil((ui.rest.endAt - Date.now()) / 1000));
+    if (ui.rest.left <= 0) {
         _clearRest();
         _notifyRestOver();
     } else {
@@ -2036,7 +2046,8 @@ async function saveWorkoutSessionDetails(opts) {
                         // ignores the key either way (Task 3).
                         ...(setsPayload ? { sets: setsPayload } : {})
                     }, { suppressWriteAlert: fromAutosave });
-                } else if (log._dirty && log._setsInit && Array.isArray(log.sets) && log.sets.length === 0 && !log.notes) {
+                } else if (log._dirty && log._setsInit && Array.isArray(log.sets) && log.sets.length === 0
+                    && !(Number(log.sets_completed) > 0) && !log.notes) {
                     // A planned row whose sets were all un-ticked again: nothing
                     // to create. Drop the flags so it doesn't re-try forever.
                     log._dirty = false;
