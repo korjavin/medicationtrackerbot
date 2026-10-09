@@ -259,7 +259,7 @@ export const PRIVACY_MANIFEST = [
       'web/cloud/js/aiclient.js:550',
       'web/domain/settings.js:56',
     ],
-    code: { go: ['internal/cloudserver/trial_proxy.go'], hosts: ['api.openai.com'] },
+    code: { go: ['internal/cloudserver/trial_proxy.go', 'internal/cloudserver/trial_anthropic.go'], hosts: ['api.openai.com', 'api.anthropic.com'] },
     docSignal: null,
     userCopy: {
       category: 'visible',
