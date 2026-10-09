@@ -122,6 +122,7 @@ net (§6.1). Rows are feature-gated.
 | `workouts` | `completed_this_week`, `next_scheduled`, `scheduled_this_week \| null` |
 | `bp` | `recorded_today`, `days_this_week`, `mean_7d {systolic, diastolic, days}`, `target`, `status in_range · above · unknown` |
 | `weighed_today`, `cta` | local-day fact; `cta ∈ weigh_in · start_session · none`, deterministic, nothing "owed" |
+| `week_days` | the live week Mon–Sun, one `{day, weigh_in, workout, bp}` per day, each `hit · miss · rest · future` (`null` with that feature off) — the Journey scorecard. A miss exists only against a stated contract: a past scheduled workout not done, a past day with no weigh-in under the daily cadence; BP is never a miss. Rule in `goalLineWeekDays` |
 | `adherence_alert`, `day`, `time_zone` | the medication safety net (§6.1 trailing-PDC alert, `null` with medication off) shown on the Today card only while active; the local-day key the goal/workout/BP facts are bucketed on and its zone (the adherence alert keeps the substrate's UTC-day window), so the UI refetches a payload from an earlier day |
 
 **0.3.2 The Today card** (replaces the rings tile and the mounted forecast as the
@@ -143,7 +144,9 @@ card reads the same episode progress so the two screens agree.
 *Journey (med-8tur.9):* goal-first — the order and the "More" disclosure
 (experiment / chapter / traits / keystones) live in `render()` in
 `web/static/js/features/journey.js`; reached milestones render as the goal
-card's timeline. The Tomorrow Forecast is gone entirely (card in med-8tur.9;
+card's timeline. Kit v2 (med-xso6.15): the goal card is a marker track plus three numbers,
+`week_days` render as the "This week" dot scorecard, and the plan pick is a
+single-select list with one commit button. The Tomorrow Forecast is gone entirely (card in med-8tur.9;
 route, `getForecast` and its strip line in med-8tur.12 — its calibration was
 in-sample, so it was removed rather than relabeled).
 

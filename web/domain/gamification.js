@@ -3341,9 +3341,13 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     ]);
 
     const goal = goalLineWeight(weightAll, goalAll, today, nowMs);
-    const workouts = on('workout')
+    const woFacts = on('workout')
       ? goalLineWorkouts({ groups, variants, rotations, sessionsRaw, today, monday, sinceMonday, nowMs })
       : { feature_on: false, completed_this_week: null, next_scheduled: null, scheduled_this_week: null };
+    const { completed_days: _cd, scheduled_days: _sd, ...workouts } = woFacts;
+    const weekDays = goalLineWeekDays({
+      monday, today, nowMs, weightAll, bpAll, workouts: woFacts, weighInCadence: await currentWeighInCadence(), on,
+    });
     const bp = on('bp')
       ? goalLineBP(bpAll, bpGoalAll, today, monday, nowMs)
       : { feature_on: false, recorded_today: null, days_this_week: null, mean_7d: null, target: null, status: 'unknown' };
@@ -3370,7 +3374,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     }
     return {
       enabled: true, goal, workouts, bp, weighed_today: weighedToday, cta,
-      adherence_alert: adherenceAlert, day: today, time_zone: timeZone || null, plan, joint,
+      adherence_alert: adherenceAlert, day: today, time_zone: timeZone || null, plan, joint, week_days: weekDays,
     };
   }
 
@@ -3610,7 +3614,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       return m ? m[1] : null;
     };
     const live = sessionsRaw.filter((s) => !s.deleted);
-    const completedIds = new Set(live.filter((s) => s.status === 'completed' && inWeek(dayOf(s))).map((s) => s.recordId));
+    const completedThisWeek = live.filter((s) => s.status === 'completed' && inWeek(dayOf(s)));
+    const completedIds = new Set(completedThisWeek.map((s) => s.recordId));
 
     const { groupOccurrences, adhoc, scheduleGroups } = workoutScheduleOccurrences({
       workoutGroups: groups, workoutVariants: variants, workoutRotations: rotations, workoutSessions: sessionsRaw,
@@ -3642,7 +3647,50 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       completed_this_week: completedIds.size,
       next_scheduled: next ? { day: next.day, time: next.time, group_title: next.group_title } : null,
       scheduled_this_week: scheduledThisWeek,
+      // Day keys for getGoalLine's week_days (stripped from its `workouts`).
+      // Scheduled = the plan's days plus planned ad-hoc sessions (a set time,
+      // never started: pending / notified / skipped — like a skipped plan day).
+      // A started ad-hoc session is left out: a spontaneous "start now" and a
+      // planned one are indistinguishable once started. A pre-skipped day was
+      // declined ahead of time — planned rest, not a plan day.
+      completed_days: new Set(completedThisWeek.map(dayOf)),
+      scheduled_days: new Set([
+        ...groupOccurrences.filter((o) => o.status !== 'deleted' && o.status !== 'pre_skipped').map((o) => o.dateStr),
+        ...adhoc.map((a) => a.dateStr),
+        ...live.filter((s) => s.group_id === -1 && (s.status === 'notified' || s.status === 'skipped')
+          && /^\d{2}:\d{2}/.test(String(s.scheduled_time || ''))).map(dayOf),
+      ].filter(inWeek)),
     };
+  }
+
+  // goalLineWeekDays (med-xso6.15): the live week Mon–Sun as per-day lever
+  // facts for the Journey scorecard — hit · miss · rest · future, read-only.
+  // A miss exists only against an explicit contract (§0.3 "levers are facts,
+  // not debts"): a past scheduled workout not completed, or a past day
+  // without a weigh-in under the DAILY weigh-in cadence. BP has no weekday
+  // contract (bp_days is a count), so a BP day is never a miss. Today is hit
+  // or still open ('future'); a lever whose feature is off is null.
+  function goalLineWeekDays({ monday, today, nowMs, weightAll, bpAll, workouts, weighInCadence, on }) {
+    const dayKey = (r) => localDayString(Date.parse(r.measured_at), timeZone);
+    const weighDays = new Set(weightAll.filter((r) => Number.isFinite(r.weight) && Date.parse(r.measured_at) <= nowMs).map(dayKey));
+    const bpDays = new Set(bpAll.filter((r) => !r.ignore_calc && Date.parse(r.measured_at) <= nowMs).map(dayKey));
+    const state = (day, hit, owed) => {
+      if (hit) return 'hit';
+      if (day > today) return 'future';
+      if (day === today) return owed ? 'future' : 'rest';
+      return owed ? 'miss' : 'rest';
+    };
+    const out = [];
+    for (let i = 0; i < 7; i++) {
+      const day = addDays(monday, i);
+      out.push({
+        day,
+        weigh_in: on('weight') ? state(day, weighDays.has(day), weighInCadence === 'daily') : null,
+        workout: workouts.feature_on ? state(day, workouts.completed_days.has(day), workouts.scheduled_days.has(day)) : null,
+        bp: on('bp') ? state(day, bpDays.has(day), false) : null,
+      });
+    }
+    return out;
   }
 
   // BP facts: daily-weighted (bp.js, docs/features.md convention) mean of both

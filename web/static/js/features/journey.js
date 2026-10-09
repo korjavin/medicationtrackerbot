@@ -11,9 +11,9 @@
 // separately-fetched atlas / weekly_review / gauges / traits / experiments /
 // chapter / keystones / narration / goal_line layers.
 //
-// Visuals come only from CSS classes + --wg-* tokens; the only inline style is
-// `style.setProperty('--fill-pct', …)` for progress fills (allowed by the
-// design-token guard, same convention as the weight-goal card + macro bar).
+// Visuals come only from CSS classes + --wg-* tokens; the only inline styles
+// are custom properties via style.setProperty: the kit's --p / --n on
+// .wg-track / .wg-meter, and --fill-pct on the trial / chapter bars.
 //
 // Loads as a classic <script> (no ES modules); state lives inside the IIFE.
 (function () {
@@ -67,10 +67,15 @@
     const GOAL_LINE_URL = '/api/gamification/goal-line';
     const GOAL_LINE_TAGS = ['gamification', 'weight', 'workout', 'bp', 'settings', 'medications', 'history'];
 
-    function goalWeight(kg) {
+    function weightParts(kg) {
         const unit = window.weightUnitPreference === 'lb' ? 'lb' : 'kg';
         const d = typeof formatWeight === 'function' ? formatWeight(kg, unit) : { value: Number(kg), label: unit };
-        return `${Number(d.value).toFixed(1)} ${d.label}`;
+        return { value: Number(d.value).toFixed(1), unit: d.label };
+    }
+
+    function goalWeight(kg) {
+        const d = weightParts(kg);
+        return `${d.value} ${d.unit}`;
     }
 
     // Reached goal milestones ride the keystones payload (kind 'goal_milestone',
@@ -84,17 +89,68 @@
         return ks.keystones.filter(isGoalMilestone);
     }
 
+    // null/undefined stay unknown — Number(null) would read as 0.
+    function num(x) {
+        if (x === null || x === undefined || x === '') return null;
+        const n = Number(x);
+        return Number.isFinite(n) ? n : null;
+    }
+
+    function pct(ratio) {
+        const n = Number(ratio);
+        return `${(Math.max(0, Math.min(1, Number.isFinite(n) ? n : 0)) * 100).toFixed(1)}%`;
+    }
+
+    function iconEl(name, className) {
+        const i = el('i', 'wg-ico' + (className ? ' ' + className : ''));
+        i.dataset.icon = name;
+        return i;
+    }
+
+    function stat(value, unit, label) {
+        const cell = el('div', 'wg-stat');
+        const v = el('span', 'wg-stat__value wg-stat__value--md', value);
+        if (unit) v.appendChild(el('small', null, unit));
+        cell.append(v, el('span', 'wg-meta', label));
+        return cell;
+    }
+
+    // Kit J1: the goal as current → target, a marker track (--p progress, --n
+    // markers, a pin on the next marker) and three numbers. The safety line
+    // keeps its wording and never praises pace (docs/gamification.md §0).
+    function goalTrack(g) {
+        const nm = g.next_milestone;
+        const track = el('span', 'wg-track wg-journey-goal__track');
+        track.style.setProperty('--p', pct(g.progress.fraction));
+        if (nm && Number(nm.count) > 0) track.style.setProperty('--n', String(Number(nm.count)));
+        track.appendChild(el('span', 'wg-track__fill'));
+        const start = num(g.start_ref);
+        const target = num(g.target);
+        const span = start !== null && target !== null ? Math.abs(start - target) : 0;
+        const showPin = !!nm && !nm.is_goal && num(nm.weight) !== null && span > 0;
+        if (showPin) {
+            const pin = el('span', 'wg-track__pin');
+            pin.style.setProperty('--p', pct(Math.abs(start - num(nm.weight)) / span));
+            track.appendChild(pin);
+        }
+        const ends = el('span', 'wg-track__ends');
+        ends.appendChild(el('span', null, start !== null ? `start ${weightParts(start).value}` : 'start'));
+        if (showPin) ends.appendChild(el('span', null, `next marker ${weightParts(nm.weight).value}`));
+        ends.appendChild(el('span', null, 'goal'));
+        return [track, ends];
+    }
+
     function renderGoalContext(j) {
         const gl = j && j.goal_line;
         if (!gl || gl.enabled === false || !gl.goal) return null;
         const g = gl.goal;
-        const card = el('section', 'wg-card wg-journey-goal');
+        const card = el('section', 'wg-card wg-vstack wg-journey-goal');
         card.id = 'journey-goal-card';
-        card.appendChild(el('div', 'wg-section-label', 'YOUR GOAL'));
+        card.appendChild(el('span', 'wg-eyebrow wg-eyebrow--dot', 'Your goal'));
         if (g.status === 'no_goal') {
             // Weight tab off → switchTab('weight') bounces to Today; no dead link.
             if (window.featureSettings && window.featureSettings.weight === false) return null;
-            const set = el('button', 'btn btn-sm btn-secondary', 'Set a weight goal');
+            const set = el('button', 'wg-btn', 'Set a weight goal');
             set.type = 'button';
             set.addEventListener('click', () => { if (typeof window.switchTab === 'function') window.switchTab('weight'); });
             card.appendChild(set);
@@ -102,38 +158,38 @@
         }
         const current = Number.isFinite(g.trend_weight) ? g.trend_weight
             : (g.latest_reading ? g.latest_reading.weight : null);
-        if (Number.isFinite(current)) {
-            card.appendChild(el('p', 'wg-mono-display wg-journey-goal__value',
-                `${goalWeight(current)} → ${goalWeight(g.target)}`));
+        if (Number.isFinite(current) && num(g.target) !== null) {
+            const value = el('span', 'wg-hstack wg-journey-goal__value');
+            const to = el('span', 'wg-stat__value wg-stat__value--hero wg-sun', weightParts(g.target).value);
+            to.appendChild(el('small', null, weightParts(g.target).unit));
+            value.append(el('span', 'wg-stat__value wg-stat__value--hero', weightParts(current).value),
+                iconEl('chev-r', 'wg-muted'), to);
+            card.appendChild(value);
         }
-        let line;
-        if (g.status === 'preliminary') line = 'Latest reading — your trend forms after a few more weigh-ins.';
-        else if (g.status === 'maintaining') line = 'Maintaining your goal.';
-        else if (g.status === 'at_goal') line = 'At your goal.';
-        else {
+        if (g.status === 'preliminary') card.appendChild(el('p', 'wg-journey-goal__line wg-hint', 'Latest reading — your trend forms after a few more weigh-ins.'));
+        else if (g.status === 'maintaining') card.appendChild(el('p', 'wg-journey-goal__line wg-hint', 'Maintaining your goal.'));
+        else if (g.status === 'at_goal') card.appendChild(el('p', 'wg-journey-goal__line wg-hint', 'At your goal.'));
+        else if (g.progress) {
             // goal.progress: the same episode progress Today + the Weight tab render.
-            if (g.progress) card.appendChild(progressBar(g.progress.fraction, 'wg-journey-bar__fill--sun'));
-            line = `${goalWeight(Math.abs(g.distance_to_goal || 0))} to go`;
-            if (g.next_milestone && !g.next_milestone.is_goal) line += ` · next marker ${goalWeight(g.next_milestone.weight)}`;
-        }
-        card.appendChild(el('p', 'wg-journey-goal__line wg-muted', line));
-        if (g.status === 'ok' && g.progress) {
+            card.append(...goalTrack(g));
             const since = g.start_ref_source === 'trend_at_set' ? 'since you set the goal' : 'since your first reading';
-            card.appendChild(el('p', 'wg-journey-goal__line wg-muted',
+            card.appendChild(el('p', 'wg-journey-goal__line wg-hint',
                 `${goalWeight(g.progress.done_kg)} of ${goalWeight(g.progress.total_kg)} ${since}`));
+        }
+        const stats = el('div', 'wg-grid3 wg-journey-goal__stats');
+        if ((g.status === 'ok' || g.status === 'preliminary') && num(g.distance_to_goal) !== null) {
+            const d = weightParts(Math.abs(num(g.distance_to_goal)));
+            stats.appendChild(stat(d.value, null, `${d.unit} to go`));
         }
         const nm = g.next_milestone;
         if (g.status === 'ok' && nm && Number(nm.count) > 0) {
             const passed = Math.max(0, (Number(nm.ordinal) || 1) - 1);
-            card.appendChild(el('p', 'wg-journey-goal__line wg-muted', `Markers: ${passed} of ${nm.count} passed`));
+            stats.appendChild(stat(String(passed), `/${Number(nm.count)}`, 'markers'));
         }
-        const cov = g.coverage;
-        if (cov) {
-            const n = Number(cov.weigh_in_days_28d) || 0;
-            const basis = Number.isFinite(g.trend_weight) ? 'trend' : 'latest reading';
-            card.appendChild(el('p', 'wg-journey-goal__line wg-muted',
-                `${basis} · ${n} weigh-in day${n === 1 ? '' : 's'} in the last 28`));
+        if (g.coverage) {
+            stats.appendChild(stat(String(Number(g.coverage.weigh_in_days_28d) || 0), null, 'weigh-ins / 28d'));
         }
+        if (stats.childNodes.length) card.appendChild(stats);
         if (g.too_fast) {
             card.appendChild(el('p', 'wg-journey-goal__line', 'Faster than 1% a week — worth checking with your doctor.'));
         }
@@ -143,32 +199,87 @@
         if (jt && Array.isArray(jt.periods) && jt.periods.length === 2 && jt.bp_target) {
             const [a, b] = jt.periods;
             const t = jt.bp_target;
-            card.appendChild(el('div', 'wg-section-label wg-journey-goal__timeline-label', 'TOGETHER'));
+            card.appendChild(el('span', 'wg-eyebrow wg-journey-goal__timeline-label', 'Together'));
             card.appendChild(el('p', 'wg-journey-goal__line',
                 `First vs last ${jt.weeks_per_period} full weeks of this goal: weight trend changed ${signedGoalWeight(jt.weight_change_kg)}; `
                 + `daily-weighted BP averaged ${a.bp.systolic}/${a.bp.diastolic} → ${b.bp.systolic}/${b.bp.diastolic} `
                 + `over ${a.bp.days}/${b.bp.days} measurement days (target ${t.systolic}/${t.diastolic}).`));
-            card.appendChild(el('p', 'wg-journey-goal__line wg-muted',
+            card.appendChild(el('p', 'wg-journey-goal__line wg-hint',
                 `${a.weigh_in_days}/${b.weigh_in_days} weigh-in days · concurrent changes don’t identify a cause.`));
         }
         const reached = goalMilestones(j);
         if (reached.length > 0) {
-            card.appendChild(el('div', 'wg-section-label wg-journey-goal__timeline-label', 'MILESTONES'));
+            card.appendChild(el('span', 'wg-eyebrow wg-journey-goal__timeline-label', 'Milestones'));
             const list = el('div', 'wg-journey-keystones__list');
             reached.forEach((k) => list.appendChild(keystoneRow(k)));
             card.appendChild(list);
         }
+        if (window.WGIcons && typeof window.WGIcons.hydrate === 'function') window.WGIcons.hydrate(card);
         return card;
     }
 
-    // "Your week" card (med-8tur.4, docs/gamification.md §0.3.4): the most
+    // "This week" scorecard (kit J1, med-xso6.15): the live week Mon–Sun as day
+    // dots per lever, from goal_line.week_days (getGoalLine). hit · miss · rest ·
+    // future come from the domain — a miss only exists against an explicit
+    // contract (a scheduled workout, a daily weigh-in); today wears a ring.
+    const SCORE_ROWS = [['weigh_in', 'Weigh-in'], ['workout', 'Workout'], ['bp', 'BP']];
+    const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+    function dayLabel(dayStr, i) {
+        const dd = /^\d{4}-\d{2}-(\d{2})$/.exec(String(dayStr || ''));
+        return dd ? `${WEEKDAYS[i]} ${dd[1]}` : WEEKDAYS[i];
+    }
+
+    function renderWeekScorecard(j) {
+        const gl = j && j.goal_line;
+        const days = gl && gl.enabled !== false && Array.isArray(gl.week_days) && gl.week_days.length === 7 ? gl.week_days : null;
+        if (!days) return null;
+        const rows = SCORE_ROWS.filter(([k]) => days.some((d) => d[k] != null));
+        if (rows.length === 0) return null;
+
+        const card = el('section', 'wg-card wg-vstack wg-journey-week');
+        card.id = 'journey-week-card';
+        const head = el('div', 'wg-card__head');
+        head.append(el('span', 'wg-card__title', 'This week'), el('span', 'wg-meta', `${dayLabel(days[0].day, 0)} – ${dayLabel(days[6].day, 6)}`));
+        card.appendChild(head);
+        const labels = el('div', 'wg-score');
+        const letters = el('span', 'wg-dots');
+        letters.setAttribute('aria-hidden', 'true');
+        WEEKDAYS.forEach((d) => letters.appendChild(el('span', 'wg-dots__lbl', d[0])));
+        labels.append(el('span'), letters, el('span'));
+        card.appendChild(labels);
+        rows.forEach(([key, name]) => {
+            const row = el('div', 'wg-score');
+            row.setAttribute('data-lever', key);
+            const dots = el('span', 'wg-dots');
+            dots.setAttribute('role', 'img');
+            const said = [];
+            let hits = 0;
+            days.forEach((d, i) => {
+                const st = d[key] || 'future';
+                const today = d.day === gl.day;
+                if (st === 'hit') hits += 1;
+                // An open today is just the ring (kit J1), not a dimmed future dot.
+                const cls = today && st === 'future' ? '' : ` wg-dot--${st}`;
+                dots.appendChild(el('span', `wg-dot${cls}${today ? ' wg-dot--today' : ''}`));
+                said.push(`${WEEKDAYS[i]} ${today && st === 'future' ? 'today' : st}`);
+            });
+            dots.setAttribute('aria-label', `${name}: ${said.join(', ')}`);
+            row.append(el('span', 'wg-score__name', name), dots, el('span', 'wg-score__val', String(hits)));
+            card.appendChild(row);
+        });
+        return card;
+    }
+
+    // "Last week" card (med-8tur.4, docs/gamification.md §0.3.4): the most
     // recently COMPLETED week as three fact rows — weight, workouts, BP — plus
-    // the best day, then one choice for the week ahead: a curated
-    // implementation intention, Keep this plan or Pause this week, and a
-    // compact cadence control. Fetched through its own cachedFetch entry
-    // (loadWeeklyReview), rendered as a native <details>/<summary>. Tone
-    // rules: facts only, every line wg-muted, missing reads as unknown.
+    // the best day, then the plan pick for the week ahead (a curated
+    // implementation intention, committed once, or Pause) and a compact
+    // cadence control. Fetched through its own cachedFetch entry
+    // (loadWeeklyReview). Tone rules: facts only, missing reads as unknown.
     const WEEKLY_CACHE_KEY = 'gamification_weekly';
+    // An uncommitted plan pick survives the re-render a cadence write triggers.
+    let draftPick = null; // { week, id }
     const WEEKLY_URL = '/api/gamification/weekly-review';
     const WEEK_PLAN_URL = '/api/gamification/week-plan';
 
@@ -293,37 +404,80 @@
         return wrap;
     }
 
+    // Kit J2: the plan is a single-select .wg-choices list with ONE commit.
+    // Tapping a choice only selects it; "Set … plan" writes it (through
+    // saveWeekPlan → DataStore.applyOptimistic). Pause is the ghost action
+    // beside it. The cadence selects keep writing on change.
     function renderWeekPlan(wr) {
         const opts = wr.options || {};
         const plan = wr.plan;
-        const section = el('div', 'wg-journey-weekly__plan');
-        section.setAttribute('data-plan-week', wr.plan_week || '');
         const nextWeek = wr.plan_scope === 'next_week';
         const scope = nextWeek ? 'next week' : 'this week';
-        section.appendChild(el('p', 'wg-section-label', nextWeek ? 'NEXT WEEK' : 'THIS WEEK'));
+        const section = el('div', 'wg-section wg-journey-weekly__plan');
+        section.setAttribute('data-plan-week', wr.plan_week || '');
+        const head = el('div', 'wg-section__head');
+        head.append(el('span', 'wg-eyebrow wg-eyebrow--dot wg-journey-weekly__scope', `Plan for ${scope}`),
+            el('span', 'wg-meta', 'pick one'));
+        section.appendChild(head);
         let current = `No pick yet — choose one for ${scope}.`;
         if (plan && plan.paused) current = `Paused ${scope}.`;
         else if (plan && plan.intention) current = plan.intention.text;
-        section.appendChild(el('p', 'wg-journey-weekly__current wg-muted', current));
+        section.appendChild(el('p', 'wg-hint wg-journey-weekly__current', current));
 
-        const choices = el('div', 'wg-journey-weekly__choices');
-        const choice = (id, text, pressed) => {
-            const btn = el('button', 'btn btn-sm btn-secondary wg-journey-weekly__choice', text);
+        const currentId = plan && !plan.paused && plan.intention ? plan.intention.id : null;
+        const ids = (opts.intentions || []).map((it) => it.id);
+        const draft = draftPick && draftPick.week === (wr.plan_week || '') && ids.includes(draftPick.id) ? draftPick.id : null;
+        let picked = draft || currentId;
+        const commit = el('button', 'wg-btn wg-btn--primary wg-journey-weekly__commit',
+            nextWeek ? 'Set next week’s plan' : 'Set this week’s plan');
+        commit.type = 'button';
+        commit.disabled = !picked || picked === currentId;
+
+        const choices = el('div', 'wg-choices wg-journey-weekly__choices');
+        (opts.intentions || []).forEach((it) => {
+            const btn = el('button', 'wg-choice');
             btn.type = 'button';
-            btn.setAttribute('data-choice', id);
-            btn.setAttribute('aria-pressed', pressed ? 'true' : 'false');
-            // weigh_in goes out only from its own select (it sets the reminder).
+            btn.setAttribute('data-choice', it.id);
+            btn.setAttribute('aria-pressed', it.id === picked ? 'true' : 'false');
+            const label = el('span', null, it.text);
+            if (it.id === currentId) label.appendChild(el('span', 'wg-choice__sub', 'Current'));
+            btn.appendChild(label);
             btn.addEventListener('click', () => {
-                const { weigh_in: _w, ...cadence } = readCadence(section);
-                saveWeekPlan({ choice: id, cadence }, wr.plan_scope);
+                picked = it.id;
+                draftPick = picked === currentId ? null : { week: wr.plan_week || '', id: picked };
+                choices.querySelectorAll('.wg-choice').forEach((b) => b.setAttribute('aria-pressed', b === btn ? 'true' : 'false'));
+                commit.disabled = picked === currentId;
             });
             choices.appendChild(btn);
-        };
-        (opts.intentions || []).forEach((it) => choice(it.id, it.text,
-            !!(plan && !plan.paused && plan.intention && plan.intention.id === it.id)));
-        choice('keep', 'Keep this plan', false);
-        choice('pause', `Pause ${scope}`, !!(plan && plan.paused));
+        });
         section.appendChild(choices);
+
+        // weigh_in goes out only from its own select (it sets the reminder).
+        const pickBody = (choice) => {
+            const { weigh_in: _w, ...cadence } = readCadence(section);
+            return { choice, cadence };
+        };
+        commit.addEventListener('click', () => {
+            if (!picked || picked === currentId) return;
+            commit.disabled = true;
+            draftPick = null;
+            saveWeekPlan(pickBody(picked), wr.plan_scope);
+        });
+        // A paused week flips the ghost action to Resume: back to the week's own
+        // intention, else 'keep' — so a pause is undoable even with no
+        // intentions on offer (a BP-only setup).
+        const paused = !!(plan && plan.paused);
+        const resumeChoice = plan && plan.intention ? plan.intention.id : 'keep';
+        const pause = el('button', 'wg-btn wg-btn--ghost wg-journey-weekly__pause', `${paused ? 'Resume' : 'Pause'} ${scope}`);
+        pause.type = 'button';
+        pause.setAttribute('data-choice', paused ? 'resume' : 'pause');
+        pause.addEventListener('click', () => {
+            draftPick = null;
+            saveWeekPlan(pickBody(paused ? resumeChoice : 'pause'), wr.plan_scope);
+        });
+        const actions = el('div', 'wg-grid2 wg-journey-weekly__actions');
+        actions.append(pause, commit);
+        section.appendChild(actions);
 
         const cad = (plan && plan.cadence) || {};
         const cadence = el('div', 'wg-journey-weekly__cadence');
@@ -339,8 +493,8 @@
                 Number.isInteger(cad.bp_days) && cad.bp_days > 0 ? String(cad.bp_days) : ''));
         }
         // A cadence change alone keeps the week's pick (no `choice`).
-        cadence.querySelectorAll('select').forEach((s) => {
-            s.addEventListener('change', () => { saveWeekPlan({ cadence: readCadence(section) }, wr.plan_scope); });
+        cadence.querySelectorAll('select').forEach((sel) => {
+            sel.addEventListener('change', () => { saveWeekPlan({ cadence: readCadence(section) }, wr.plan_scope); });
         });
         if (cadence.childNodes.length) section.appendChild(cadence);
         return section;
@@ -364,20 +518,19 @@
         const wr = j.weekly_review;
         if (!wr) return null;
 
-        const card = el('section', 'wg-card wg-journey-weekly');
-        const details = el('details', 'wg-journey-weekly__details');
-        details.open = true;
-        details.appendChild(el('summary', 'wg-journey-weekly__summary wg-section-label', 'YOUR WEEK'));
+        const card = el('section', 'wg-card wg-vstack wg-journey-weekly');
+        // The live week is the scorecard above; this card reviews the last
+        // completed one, then holds the plan pick.
+        card.appendChild(el('span', 'wg-eyebrow wg-journey-weekly__label', 'Last week'));
 
         if (wr.emptyState) {
-            details.appendChild(el('p', 'wg-journey-weekly__empty wg-muted', wr.emptyState));
-            card.appendChild(details);
+            card.appendChild(el('p', 'wg-journey-weekly__empty wg-hint', wr.emptyState));
             return card;
         }
         if (wr.enabled === false) return null;
 
         if (wr.quiet) {
-            details.appendChild(el('p', 'wg-journey-weekly__body wg-muted',
+            card.appendChild(el('p', 'wg-journey-weekly__body wg-hint',
                 'A quiet week — everything picks up where you left off.'));
         } else {
             const rows = wr.rows || {};
@@ -389,20 +542,19 @@
                 best ? `Best day: ${best}` : null,
             ].filter(Boolean);
             const list = el('div', 'wg-journey-weekly__list');
-            lines.forEach((line) => list.appendChild(el('p', 'wg-journey-weekly__line wg-muted', line)));
+            lines.forEach((line) => list.appendChild(el('p', 'wg-journey-weekly__line wg-hint', line)));
             const reached = rows.weight && Array.isArray(rows.weight.milestones_reached) ? rows.weight.milestones_reached : [];
-            reached.forEach((m) => list.appendChild(el('p', 'wg-journey-weekly__line wg-muted', `Reached: ${m.title}`)));
-            details.appendChild(list);
+            reached.forEach((m) => list.appendChild(el('p', 'wg-journey-weekly__line wg-hint', `Reached: ${m.title}`)));
+            card.appendChild(list);
         }
-        details.appendChild(renderWeekPlan(wr));
-        card.appendChild(details);
+        card.appendChild(renderWeekPlan(wr));
         return card;
     }
 
     // Gauges panel (gamification-11 §Task4): weight/BP/resting-HR read as
     // trends, never a daily grade — copy is numbers + direction words only,
     // no color judgment (a slowing trend is an observation, never red; see
-    // .wg-journey-gauge__caption, which stays wg-muted regardless of state).
+    // .wg-journey-gauge__caption, which stays a neutral meta line regardless of state).
     const GAUGE_PACE_STATUS_LABEL = {
         on_pace: 'on pace',
         too_slow: 'slower than your pace',
@@ -444,49 +596,69 @@
         return `${recent} avg · ${deltaWord}`;
     }
 
-    function renderGaugeRow(label, caption, sparklinePoints) {
-        const row = el('div', 'wg-journey-gauge');
-        row.appendChild(el('span', 'wg-journey-gauge__label', label));
-        if (Array.isArray(sparklinePoints) && sparklinePoints.length > 1 &&
+    // One gauge as a kit row (J2): title, a .wg-meter where the gauge has a
+    // real share to fill (BP in range over 30 days), the weight trend's
+    // sparkline, and the caption. No fill reads a grade: weight velocity and
+    // resting HR have no honest 0–100%, so they carry no meter.
+    function renderGaugeRow(label, caption, opts) {
+        const o = opts || {};
+        const row = el('div', 'wg-row wg-row--pad wg-journey-gauge');
+        const body = el('span', 'wg-row__body');
+        body.appendChild(el('span', 'wg-row__title wg-journey-gauge__label', label));
+        if (Number.isFinite(o.share)) {
+            const meter = el('span', 'wg-meter wg-journey-gauge__meter');
+            const fill = el('span', 'wg-meter__fill wg-meter__fill--sage');
+            fill.style.setProperty('--p', pct(o.share));
+            meter.appendChild(fill);
+            body.appendChild(meter);
+        }
+        const points = o.sparkline;
+        if (Array.isArray(points) && points.length > 1 &&
             window.WGSparkline && typeof window.WGSparkline.render === 'function') {
-            const spark = window.WGSparkline.render({ points: sparklinePoints, variant: 'mint', width: 300, height: 40 });
+            const spark = window.WGSparkline.render({ points, variant: 'mint', width: 300, height: 40 });
             if (spark) {
-                const chart = el('div', 'wg-journey-gauge__chart');
+                const chart = el('span', 'wg-journey-gauge__chart');
                 chart.appendChild(spark);
-                row.appendChild(chart);
+                body.appendChild(chart);
             }
         }
-        row.appendChild(el('p', 'wg-journey-gauge__caption wg-muted', caption));
+        body.appendChild(el('span', 'wg-row__meta wg-journey-gauge__caption', caption));
+        row.appendChild(body);
         return row;
     }
 
     // Reads `journey.gauges` (attached by load() from its own cachedFetch
     // entry — GET /api/gamification/gauges, gamification-11 §Task3) rather
     // than the Journey payload itself. Renders an explicit offline-empty state via `emptyState`, and
-    // omits the whole card while gate-off (`enabled:false`) or not loaded yet.
+    // omits the whole section while gate-off (`enabled:false`) or not loaded yet.
     function renderGauges(j) {
         const gauges = j.gauges;
         if (!gauges) return null;
 
-        const card = el('section', 'wg-card wg-journey-gauges');
-        card.appendChild(el('div', 'wg-section-label', 'GAUGES'));
+        const section = el('section', 'wg-section wg-journey-gauges');
+        const head = el('div', 'wg-section__head');
+        head.appendChild(el('span', 'wg-eyebrow', 'Gauges'));
+        section.appendChild(head);
 
         if (gauges.emptyState) {
-            card.appendChild(el('p', 'wg-journey-gauges__empty wg-muted', gauges.emptyState));
-            return card;
+            section.appendChild(el('p', 'wg-journey-gauges__empty wg-hint', gauges.emptyState));
+            return section;
         }
         if (gauges.enabled === false) return null;
 
-        const list = el('div', 'wg-journey-gauges__list');
+        const list = el('div', 'wg-list wg-journey-gauges__list');
         // weight === null is ED-safe mode (med-8tur.12): no weight row at all.
         if (gauges.weight !== null) {
-            list.appendChild(renderGaugeRow('Weight', weightGaugeCopy(gauges.weight), gauges.weight && gauges.weight.trend_history));
+            list.appendChild(renderGaugeRow('Weight', weightGaugeCopy(gauges.weight),
+                { sparkline: gauges.weight && gauges.weight.trend_history }));
         }
-        list.appendChild(renderGaugeRow('Blood pressure', bpGaugeCopy(gauges.bp)));
+        const bp = gauges.bp;
+        const bpShare = bp && bp.status === 'ok' && Number(bp.count_30d) > 0 ? Number(bp.share_30d) : NaN;
+        list.appendChild(renderGaugeRow('Blood pressure', bpGaugeCopy(bp), { share: bpShare }));
         list.appendChild(renderGaugeRow('Resting heart rate', restingHRGaugeCopy(gauges.resting_hr)));
-        card.appendChild(list);
+        section.appendChild(list);
 
-        return card;
+        return section;
     }
 
     // --- Discovery Atlas feed (Phase 1, cloud POC) ------------------------
@@ -562,7 +734,7 @@
         // runs at a time, and never during recovery mode.
         const tpl = expCtx && expCtx.templateByProbe && expCtx.templateByProbe[card.id];
         if (tpl && expCtx.canStart) {
-            const btn = el('button', 'btn btn-sm btn-secondary wg-journey-atlas__testit', 'Test it');
+            const btn = el('button', 'wg-btn wg-btn--sm wg-journey-atlas__testit', 'Test it');
             btn.type = 'button';
             btn.addEventListener('click', () => startExperiment(tpl.id, card.id));
             item.appendChild(btn);
@@ -730,7 +902,7 @@
                 card.appendChild(el('span', 'wg-tag wg-tag--mono wg-journey-experiment__paused',
                     'Paused — recovery mode'));
             }
-            const stop = el('button', 'btn btn-sm btn-link wg-journey-experiment__cancel', 'Stop trial (no penalty)');
+            const stop = el('button', 'wg-btn wg-btn--ghost wg-btn--sm wg-journey-experiment__cancel', 'Stop trial (no penalty)');
             stop.type = 'button';
             stop.addEventListener('click', () => cancelExperiment(a.id));
             card.appendChild(stop);
@@ -751,7 +923,7 @@
         if (v.disclaimer) {
             card.appendChild(el('p', 'wg-journey-experiment__disclaimer wg-muted', v.disclaimer));
         }
-        const done = el('button', 'btn btn-sm btn-link', 'Got it');
+        const done = el('button', 'wg-btn wg-btn--ghost wg-btn--sm wg-journey-experiment__done', 'Got it');
         done.type = 'button';
         done.addEventListener('click', () => cancelExperiment(v.id));
         card.appendChild(done);
@@ -801,7 +973,7 @@
             const row = el('div', 'wg-journey-chapter__theme');
             const head = el('div', 'wg-journey-chapter__theme-head');
             head.appendChild(el('span', 'wg-journey-chapter__theme-title', t.title));
-            const start = el('button', 'btn btn-sm btn-secondary', 'Start');
+            const start = el('button', 'wg-btn wg-btn--sm', 'Start');
             start.type = 'button';
             start.addEventListener('click', () => startChapter(t.id));
             head.appendChild(start);
@@ -830,7 +1002,7 @@
                 'wg-journey-bar__fill--sun'));
             card.appendChild(el('p', 'wg-journey-chapter__tracker wg-muted',
                 `Day ${Number(a.day_number) || 0} of ${duration}`));
-            const end = el('button', 'btn btn-sm btn-link wg-journey-chapter__close', 'End chapter (writes your review)');
+            const end = el('button', 'wg-btn wg-btn--ghost wg-btn--sm wg-journey-chapter__close', 'End chapter (writes your review)');
             end.type = 'button';
             end.addEventListener('click', () => closeChapter());
             card.appendChild(end);
@@ -971,7 +1143,7 @@
     }
 
     function narratorButton(label, kind, outEl) {
-        const btn = el('button', 'btn btn-sm btn-secondary', label);
+        const btn = el('button', 'wg-btn wg-btn--ghost wg-btn--sm', label);
         btn.type = 'button';
         btn.addEventListener('click', () => narrateInto(kind, outEl, btn));
         return btn;
@@ -1073,7 +1245,8 @@
         const content = document.getElementById('journey-content');
         if (!content) return;
 
-        // Goal-first (med-8tur.9): Goal Line detail → your week → discoveries
+        // Goal-first (med-8tur.9): Goal Line detail → this week's scorecard →
+        // last week + the plan pick → discoveries
         // (the "since you last looked" strip + Atlas) → gauges →
         // experiment/chapter/traits/keystones behind a disclosure → AI story.
         // HP/levels/Health Score are not rendered. The narrative layer also
@@ -1096,6 +1269,7 @@
             const whatsNewCard = renderWhatsNew(journey, builtIds, timelineShown);
             cards = [
                 goalCard,
+                renderWeekScorecard(journey),
                 substrate ? renderWeeklyReview(journey) : null,
                 whatsNewCard,
                 atlasCard,
