@@ -3359,15 +3359,11 @@ input:checked+.toggle-slider:before {
     z-index: var(--z-confirm);
 }
 
-/* Cloud feedback capture (med-dni.2) — floating "Send feedback" launcher +
-   compose modal. Cloud-mode-only; mounted post-unlock by
-   web/cloud/js/feedback-ui.js. Shell is the generic .wg-modal on the same
+/* Cloud feedback capture (med-dni.2) — compose modal opened from the Settings
+   "Send feedback" row (a kit .wg-setting). Cloud-mode-only; mounted post-unlock
+   by web/cloud/js/feedback-ui.js. Shell is the generic .wg-modal on the same
    --z-confirm layer as its .mt-confirm-backdrop; buttons reuse .wg-gloss so no
    bespoke colours live here. */
-.wg-feedback-launcher {
-    width: 100%;
-}
-
 .wg-feedback-modal {
     z-index: var(--z-confirm);
 }
@@ -11502,63 +11498,21 @@ input:checked+.toggle-slider:before {
     display: none !important;
 }
 
-/* Collapsible settings groups (med-eas.50) — native <details>/<summary>
-   folds that group the settings cards. No JS collapse logic; the browser
-   and keyboard handle open/close for free. The summary is a card-language
-   tap target (mono title, 44px min-height) with a token'd chevron that
-   rotates when the group is open. Group content stacks with the same gap
-   as the cards themselves (--wg-settings-section-gap). */
-.wg-settings-group {
+/* Settings v2 (med-xso6.23, kit S1/S2). The home is grouped .wg-list rows
+   (kit .wg-setting); each row's page body sits in the [hidden]
+   .wg-settings-pages store and moves into a pushed WGPage while open. */
+.wg-settings-home,
+.wg-settings-page {
     display: flex;
     flex-direction: column;
     gap: var(--wg-settings-section-gap);
 }
 
-.wg-settings-group__summary {
+.wg-settings-footer {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: var(--wg-settings-row-gap);
-    min-height: var(--wg-settings-save-btn-min-height);
-    padding: var(--wg-settings-section-pad);
-    cursor: pointer;
-    list-style: none;
-    /* Keep the single fold affordance reachable from deep inside a tall open
-       group (e.g. Import/Export): stick the summary to the top of the scroll
-       area so scrolling never carries the only toggle off-screen. The opaque
-       --wg-bg-card background below hides content sliding under it; the
-       local-stacking z-index lifts it above the group's sibling cards. */
-    position: sticky;
-    top: 0;
-    z-index: 10;
-    font-family: var(--wg-font-mono);
-    font-size: var(--wg-settings-title-size);
-    font-weight: var(--font-weight-medium);
-    letter-spacing: 0.02em;
-    color: var(--wg-fg-1);
-    background: var(--wg-bg-card);
-    border: 1px solid var(--wg-border-hairline);
-    border-radius: var(--wg-radius-card);
-}
-
-/* Suppress the native disclosure triangle (WebKit) — the ::after chevron
-   below is the affordance. `list-style: none` handles Firefox/Chromium. */
-.wg-settings-group__summary::-webkit-details-marker {
-    display: none;
-}
-
-.wg-settings-group__summary::after {
-    content: "";
-    width: 0.5em;
-    height: 0.5em;
-    margin-inline-start: auto;
-    border-right: 2px solid currentColor;
-    border-bottom: 2px solid currentColor;
-    transform: rotate(45deg);
-    transition: transform 0.15s ease;
-}
-
-.wg-settings-group[open] > .wg-settings-group__summary::after {
-    transform: rotate(-135deg);
+    padding-top: var(--wg-settings-section-gap);
 }
 
 /* Notifications card (Phase 9, Task 4) — webpush status pill + action-row
