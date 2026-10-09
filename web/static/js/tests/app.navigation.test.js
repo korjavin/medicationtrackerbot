@@ -45,6 +45,13 @@ async function boot({ features = ALL_ON, savedTab = null, savedSegment = null, p
         return createMockResponse({ json: {} });
     });
     window.handleDeepLinks = vi.fn();
+    // Navigation is under test, not the section loaders: stub what switchTab
+    // fans out to so no async render outlives the test's window.
+    for (const loader of ['loadToday', 'loadFoodLogs', 'loadBPReadings', 'loadWeightLogs', 'switchHealthTab',
+        'loadWorkouts', 'loadSettings', 'switchMedTab', 'reloadCurrentTab']) {
+        window[loader] = vi.fn();
+    }
+    window.Gamification = { load: vi.fn() };
     window.featureSettings = { ...features };
     if (savedTab) {
         window.localStorage.setItem('mt-active-tab', savedTab);
