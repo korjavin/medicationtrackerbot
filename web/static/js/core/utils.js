@@ -204,9 +204,10 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
     if (contentMode) body.appendChild(opts.content);
 
     // Dialogs with a field or a list keep their actions top-right beside the
-    // title so the mobile keyboard never covers them (med-8j5w.5); a plain
-    // confirm keeps the kit's actions row below the body.
-    if (input || choiceMode || contentMode) {
+    // title so the mobile keyboard never covers them (med-8j5w.5); a confirm
+    // — typed or not — keeps the kit's full-width actions row below the body,
+    // where a long destructive label ("Verify passkey & delete") still fits.
+    if (inputMode || choiceMode || contentMode) {
         const head = doc.createElement('div');
         head.className = 'mt-confirm-modal__head';
         actions.classList.add('mt-confirm-modal__head-acts');

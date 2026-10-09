@@ -59,19 +59,26 @@
     gap: var(--space-md);
 }
 
-/* safePrompt / safeChoose / safeForm and the typed confirm (med-8j5w.5):
-   the actions sit top-right beside the title so the mobile keyboard never
-   covers them. */
+/* safePrompt / safeChoose / safeForm (med-8j5w.5): the actions sit
+   top-right beside the title so the mobile keyboard never covers them;
+   a long title or label wraps the actions under it instead of overflowing. */
 .mt-confirm-modal__head {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: var(--space-md);
 }
 
 .mt-confirm-modal__head-acts {
-    flex-shrink: 0;
     margin-top: 0;
+    margin-left: auto;
+}
+
+/* .wg-btn labels never wrap, so two that don't fit side by side stack
+   (each flex:1 → full width) rather than overflow the dialog. */
+.mt-confirm-modal .wg-dialog__acts {
+    flex-wrap: wrap;
 }
 
 .mt-confirm-modal__label {
