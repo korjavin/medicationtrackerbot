@@ -27,7 +27,13 @@ window.AppNav = (function () {
     });
     const SEGMENT_LABEL = Object.freeze({ bp: 'BP', weight: 'Weight', health: 'Vitals' });
 
-    let _state = { current: null, badgeSeq: 0 };
+    // Origin tab of a Settings / Journey page, persisted so a restored page
+    // (bootstrap restores a recent mt-active-tab) still lights it and Back
+    // still returns there after a reload.
+    const PAGE_ORIGIN_KEY = 'mt-page-origin';
+    const BADGE_RECHECK_MAX_MS = 15 * 60 * 1000;
+
+    let _state = { current: null, badgeSeq: 0, badgeTimer: null };
 
     // Same predicate bootstrap's nav filter uses: a section with no feature
     // flag is always on; a flag map that hasn't loaded yet counts as on.
@@ -61,7 +67,9 @@ window.AppNav = (function () {
     }
 
     function previousTab() {
-        return window.AppStore ? window.AppStore.get('previousTab') : null;
+        const inSession = window.AppStore ? window.AppStore.get('previousTab') : null;
+        if (inSession) return inSession;
+        try { return window.localStorage.getItem(PAGE_ORIGIN_KEY); } catch (_) { return null; }
     }
 
     // Where Back goes from `tab`: a page returns to the tab it was opened from;
@@ -121,6 +129,9 @@ window.AppNav = (function () {
 
     // Missed + overdue: intakes still PENDING whose slot has passed (and are
     // not snoozed into the future). Pure — exported for tests.
+    // ponytail: rows come from the rolling 24h history window — a dose left
+    // PENDING for more than a day is history, not a nag; widen `days` if the
+    // owner wants older unresolved doses counted.
     function countDueDoses(rows, nowMs) {
         if (!Array.isArray(rows)) return 0;
         return rows.filter((r) => r && r.status === 'PENDING'
@@ -141,13 +152,33 @@ window.AppNav = (function () {
         try { rows = await apiCall('/api/history?days=1'); } catch (_) { rows = null; }
         // Offline / failed read keeps the last count; a newer refresh wins.
         if (seq !== _state.badgeSeq || !Array.isArray(rows)) return;
-        window.WGBottomNav.setBadge('meds', countDueDoses(rows, Date.now()));
+        const nowMs = Date.now();
+        window.WGBottomNav.setBadge('meds', countDueDoses(rows, nowMs));
+        scheduleBadgeRecheck(rows, nowMs);
+    }
+
+    // Doses come due (and snoozes lapse) with no data event: re-count at the
+    // next such deadline, or every 15 min while visible to catch doses not yet
+    // materialized.
+    function scheduleBadgeRecheck(rows, nowMs) {
+        clearTimeout(_state.badgeTimer);
+        _state.badgeTimer = null;
+        if (document.hidden) return; // visibilitychange re-counts on return
+        let next = nowMs + BADGE_RECHECK_MAX_MS;
+        for (const r of rows) {
+            if (!r || r.status !== 'PENDING') continue;
+            for (const at of [Date.parse(r.scheduled_at), Date.parse(r.snoozed_until)]) {
+                if (at > nowMs && at < next) next = at;
+            }
+        }
+        _state.badgeTimer = setTimeout(refreshMedsBadge, next - nowMs + 1000);
     }
 
     function onTabSwitch(tab) {
         const prev = _state.current;
         if (isPage(tab) && prev && !isPage(prev) && window.AppStore) {
             window.AppStore.set('previousTab', prev);
+            try { window.localStorage.setItem(PAGE_ORIGIN_KEY, prev); } catch (_) { /* storage blocked */ }
         }
         _state.current = tab;
         if (HEALTH_SECTIONS.indexOf(tab) !== -1) {

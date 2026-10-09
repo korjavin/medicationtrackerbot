@@ -36,7 +36,7 @@ async function until(predicate, rounds = 200) {
     throw new Error('until: condition never became true');
 }
 
-async function boot({ features = ALL_ON, savedTab = null, savedSegment = null } = {}) {
+async function boot({ features = ALL_ON, savedTab = null, savedSegment = null, pageOrigin = null } = {}) {
     allowConsoleNoise();
     const env = loadFrontendEnv();
     const { window } = env;
@@ -51,6 +51,7 @@ async function boot({ features = ALL_ON, savedTab = null, savedSegment = null } 
         window.localStorage.setItem('mt-active-tab-at', String(Date.now()));
     }
     if (savedSegment) window.localStorage.setItem('mt-health-segment', savedSegment);
+    if (pageOrigin) window.localStorage.setItem('mt-page-origin', pageOrigin);
     window.eval(fs.readFileSync(BOOTSTRAP_JS, 'utf8'));
     await until(() => window.document.querySelector('.wg-tabbar') && window.AppStore.get('currentTab'));
     return env;
@@ -171,6 +172,17 @@ describe('Navigation v2 — app-bar actions', () => {
             tab(document, 'food').click();
             document.querySelector('#food-view [data-nav-to="settings"]').click();
             expect(activeView(document)).toBe('settings-view');
+            expect(lit(document)).toEqual(['food']);
+            document.querySelector('#settings-view [data-nav-back]').click();
+            expect(activeView(document)).toBe('food-view');
+        } finally { cleanup(); }
+    });
+
+    it('a restored Settings page keeps its origin tab lit and Back returns there', async () => {
+        const { window, cleanup } = await boot({ savedTab: 'settings', pageOrigin: 'food' });
+        const { document } = window;
+        try {
+            await until(() => activeView(document) === 'settings-view');
             expect(lit(document)).toEqual(['food']);
             document.querySelector('#settings-view [data-nav-back]').click();
             expect(activeView(document)).toBe('food-view');
