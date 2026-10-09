@@ -1565,7 +1565,7 @@ function _buildMedConfirmChoice(index, name, med, mode) {
     btn.type = 'button';
     btn.dataset.index = String(index);
     btn.setAttribute('aria-pressed', 'true');
-    const label = _medsEl('span', 'wg-med-confirm-modal__choice-label', name);
+    const label = _medsEl('span', '', name);
     if (med && med.dosage) label.appendChild(_medsEl('span', 'wg-choice__sub', med.dosage));
     btn.appendChild(label);
     if (med && med.inventory_count !== null && med.inventory_count !== undefined) {
@@ -1618,6 +1618,8 @@ function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', i
     // picks a different time (dataset.edited, see onMedConfirmTimeChange).
     const timeSource = mode === 'confirm' ? new Date() : scheduledAt;
     delete timeInput.dataset.edited;
+    timeInput.classList.remove('wg-med-confirm-modal__input--shown');
+    timeInput.setAttribute('tabindex', '-1');
     try {
         timeInput.value = formatDateTimeLocalForInput(timeSource);
     } catch (e) {
@@ -1652,8 +1654,10 @@ function openMedConfirmTimePicker() {
     if (typeof input.showPicker === 'function') {
         try { input.showPicker(); return; } catch (_) { /* fall back below */ }
     }
+    // No programmatic picker: reveal the input itself as an editable field.
+    input.classList.add('wg-med-confirm-modal__input--shown');
+    input.removeAttribute('tabindex');
     input.focus();
-    input.click();
 }
 
 function onMedConfirmTimeChange() {

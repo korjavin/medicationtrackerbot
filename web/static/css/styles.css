@@ -9787,9 +9787,16 @@ input:checked+.toggle-slider:before {
     height: 100%;
     opacity: 0;
     pointer-events: none;
-    border: 0;
-    padding: 0;
-    margin: 0;
+}
+
+/* Fallback when the browser cannot open the picker programmatically:
+   the input shows as a plain kit .wg-input under the row. */
+.wg-med-confirm-modal__input.wg-med-confirm-modal__input--shown {
+    position: static;
+    height: auto;
+    margin-top: var(--space-sm);
+    opacity: 1;
+    pointer-events: auto;
 }
 
 /* WGToggle's hidden native checkbox: it covers the kit .wg-toggle pill
