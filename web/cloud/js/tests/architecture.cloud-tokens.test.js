@@ -26,6 +26,11 @@ const CLOUD_CSS = path.join(REPO_ROOT, 'web/cloud/css/cloud.css');
 // (signup.html links it after cloud.css, med-v83g): its tokens resolve from
 // cloud.css's :root in the shell, so they count as used and must match too.
 const DIALOG_CSS = path.join(REPO_ROOT, 'web/static/css/dialog.css');
+// The dialog wears the kit's .wg-dialog / .wg-btn / .wg-choice anatomy
+// (med-xso6.6), so signup.html links components.css too. Only the rules for
+// those roots render in the shell; their tokens must resolve there as well.
+const COMPONENTS_CSS = path.join(REPO_ROOT, 'web/static/css/components.css');
+const SHELL_KIT_ROOTS = ['.wg-dialog', '.wg-btn', '.wg-choice', '.wg-field', '.wg-input', '.wg-ico'];
 
 // The :root blocks hold gradients full of parens but no braces, so a
 // non-greedy match to the first '}' is a correct extraction here.
@@ -48,6 +53,14 @@ const appTokens = tokens(rootBlock(fs.readFileSync(APP_CSS, 'utf8')));
 const cloudCss = fs.readFileSync(CLOUD_CSS, 'utf8');
 const cloudTokens = tokens(rootBlock(cloudCss));
 const dialogCss = fs.readFileSync(DIALOG_CSS, 'utf8');
+// Declaration bodies of every components.css rule whose selector list names a
+// shell kit root (comments stripped; the one @keyframes block never matches).
+const shellKitCss = [...fs.readFileSync(COMPONENTS_CSS, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+    .matchAll(/([^{}]+)\{([^}]*)\}/g)]
+    .filter(([, sel]) => sel.split(',').some((s) => SHELL_KIT_ROOTS.some((root) => s.trim().startsWith(root))))
+    .map(([, , body]) => body)
+    .join('\n');
+const varsIn = (css) => [...css.matchAll(/var\((--[a-z0-9-]+)/gi)].map((m) => m[1]);
 
 describe('cloud.css design-token parity with styles.css', () => {
     it('declares at least the tokens its rules use', () => {
@@ -73,7 +86,8 @@ describe('cloud.css design-token parity with styles.css', () => {
         const unused = [...cloudTokens.keys()].filter((name) => {
             // A token may be referenced by another token's value (e.g. --wg-fg-1
             // resolves --wg-paper), which counts as used.
-            const inRules = body.includes(`var(${name})`) || dialogCss.includes(`var(${name})`);
+            const inRules = body.includes(`var(${name})`) || dialogCss.includes(`var(${name})`)
+                || shellKitCss.includes(`var(${name})`);
             const inTokens = [...cloudTokens.entries()].some(([n, v]) => n !== name && v.includes(`var(${name})`));
             return !inRules && !inTokens;
         });
@@ -83,6 +97,19 @@ describe('cloud.css design-token parity with styles.css', () => {
     it('declares every token the shared dialog.css uses', () => {
         const used = [...new Set([...dialogCss.matchAll(/var\((--[a-z0-9-]+)\)/gi)].map((m) => m[1]))];
         expect(used.filter((name) => !cloudTokens.has(name))).toEqual([]);
+    });
+
+    it('declares every token the kit dialog rules use, transitively (med-xso6.6)', () => {
+        expect(shellKitCss).toContain('var(--wg-sunfill)'); // the extraction found the .wg-btn rules
+        const seen = new Set();
+        const queue = varsIn(shellKitCss);
+        while (queue.length) {
+            const name = queue.pop();
+            if (seen.has(name)) continue;
+            seen.add(name);
+            if (appTokens.has(name)) queue.push(...varsIn(appTokens.get(name)));
+        }
+        expect([...seen].filter((name) => !cloudTokens.has(name))).toEqual([]);
     });
 
     it('hardcodes no color outside the :root block (CLAUDE.md rule 3)', () => {

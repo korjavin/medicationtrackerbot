@@ -89,7 +89,7 @@ describe('devices.js device list', () => {
     app.querySelectorAll('#device-list .device-row button')[0]
       .dispatchEvent(new dom.window.Event('click'));
     const dialog = await answerDialog(dom.window.document, true);
-    expect(dialog.querySelector('.wg-modal__title').textContent).toBe('Revoke this device?');
+    expect(dialog.querySelector('.wg-dialog__title').textContent).toBe('Revoke this device?');
 
     await vi.waitFor(() => {
       if (global.fetch.mock.calls.length === 0) throw new Error('not called yet');
