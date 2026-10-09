@@ -285,12 +285,37 @@ describe('features/bp.js — row delete undoes from the toast (med-xso6.5)', () 
         // A page killed inside the window leaves the entry; the next boot sends it.
         // Unknown function names are never called.
         window.localStorage.setItem('wg-pending-deletes', JSON.stringify([
-            { id: 'a', fn: '_deleteBPApi', arg: '1' },
-            { id: 'b', fn: 'alert', arg: 'x' },
+            { id: 'a', fn: '_deleteBPApi', arg: '1', at: 1, ttl: 5000 },
+            { id: 'b', fn: 'alert', arg: 'x', at: 1, ttl: 5000 },
         ]));
         await window.replayPendingDeletes();
         expect(journal()).toEqual([]);
         expect(window.apiCall.mock.calls.filter(([, m]) => m === 'DELETE')).toHaveLength(1);
+    });
+
+    it('replay leaves a live tab's open Undo window alone, and keeps a failed delete for a later boot', async () => {
+        const { window } = env;
+        installApiCache(window, { bp: { readingsRes: [], goalRes: null, statsRes: null } });
+        window.loadBPReadings = vi.fn();
+        window.apiCall = vi.fn(async () => null); // every DELETE fails
+        const journal = () => JSON.parse(window.localStorage.getItem('wg-pending-deletes') || '[]');
+
+        // Another tab opened this window a moment ago: the user may still Undo.
+        window.localStorage.setItem('wg-pending-deletes', JSON.stringify([
+            { id: 'live', fn: '_deleteBPApi', arg: '7', at: Date.now(), ttl: 5000 },
+            { id: 'old', fn: '_deleteBPApi', arg: '8', at: 1, ttl: 5000 },
+        ]));
+        await window.replayPendingDeletes();
+
+        const deletes = window.apiCall.mock.calls.filter(([, m]) => m === 'DELETE').map(([u]) => u);
+        expect(deletes).toHaveLength(1);
+        expect(deletes[0]).toContain('8');
+        expect(journal().map((e) => [e.id, e.tries])).toEqual([['live', undefined], ['old', 1]]);
+
+        // Two more failed boots and the abandoned delete is given up.
+        await window.replayPendingDeletes();
+        await window.replayPendingDeletes();
+        expect(journal().map((e) => e.id)).toEqual(['live']);
     });
 
     it('a second delete flushes the first: one Undo window, no snapshot resurrecting the other row', async () => {

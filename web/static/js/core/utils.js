@@ -56,7 +56,8 @@ function safeToast(msg, type, opts) {
 function deleteWithUndo(opts) {
     const o = opts || {};
     if (deleteWithUndo._active) deleteWithUndo._active.flush();
-    const journalId = o.replay ? _pendingDeletesAdd(o.replay) : null;
+    const duration = typeof o.duration === 'number' ? o.duration : 5000;
+    const journalId = o.replay ? _pendingDeletesAdd(o.replay, duration) : null;
     const ds = window.DataStore;
     const optimistic = Array.isArray(o.optimistic) ? o.optimistic : [];
     const handlesReady = (async () => {
@@ -128,7 +129,7 @@ function deleteWithUndo(opts) {
             duration: 0,
         }) || null;
     }
-    timer = setTimeout(() => finish(false), typeof o.duration === 'number' ? o.duration : 5000);
+    timer = setTimeout(() => finish(false), duration);
     document.addEventListener('visibilitychange', onHide);
     window.addEventListener('pagehide', onHide);
 
@@ -165,9 +166,11 @@ function _pendingDeletesWrite(list) {
     } catch (_) { /* storage blocked: no journal, the in-page path still runs */ }
 }
 
-function _pendingDeletesAdd(replay) {
+// at/ttl let another tab tell a live Undo window from an abandoned one.
+function _pendingDeletesAdd(replay, ttl) {
     const id = Date.now() + '-' + Math.random().toString(36).slice(2);
-    _pendingDeletesWrite([..._pendingDeletesRead(), { id, fn: String(replay.fn), arg: replay.arg }]);
+    _pendingDeletesWrite([..._pendingDeletesRead(),
+        { id, fn: String(replay.fn), arg: replay.arg, at: Date.now(), ttl }]);
     return id;
 }
 
@@ -175,16 +178,31 @@ function _pendingDeletesDrop(id) {
     if (id) _pendingDeletesWrite(_pendingDeletesRead().filter((e) => e && e.id !== id));
 }
 
-// Boot: run deletes a previous page owed but never finished. A replay that
-// already landed is a harmless repeat (delete/archive are idempotent).
+// Grace past an entry's Undo window before another tab may take it over: an
+// entry still inside window + grace may belong to a live tab (Undo pending).
+const PENDING_DELETE_GRACE_MS = 10000;
+
+// Boot: run deletes a page owed but never finished. A replay that already
+// landed is a harmless repeat (delete/archive are idempotent). Each entry
+// leaves the journal only once its delete succeeds; a failing one is retried
+// on later boots, three tries at most.
 async function replayPendingDeletes() {
-    const owed = _pendingDeletesRead();
-    _pendingDeletesWrite([]);
-    for (const e of owed) {
+    let waiting = false;
+    for (const e of _pendingDeletesRead()) {
         const fn = e && PENDING_DELETE_REPLAY.includes(e.fn) ? window[e.fn] : null;
-        if (typeof fn !== 'function') continue;
-        try { await fn(e.arg); } catch (err) { console.error('replayPendingDeletes failed', e.fn, err); }
+        if (typeof fn !== 'function') { _pendingDeletesDrop(e && e.id); continue; }
+        if (Date.now() - (Number(e.at) || 0) < (Number(e.ttl) || 5000) + PENDING_DELETE_GRACE_MS) {
+            waiting = true;
+            continue;
+        }
+        let ok = false;
+        try { ok = !!(await fn(e.arg)); } catch (err) { console.error('replayPendingDeletes failed', e.fn, err); }
+        const tries = (Number(e.tries) || 0) + 1;
+        if (ok || tries >= 3) _pendingDeletesDrop(e.id);
+        else _pendingDeletesWrite(_pendingDeletesRead().map((x) => (x && x.id === e.id ? { ...x, tries } : x)));
     }
+    // Young entries: their tab finishes (or Undoes) them; if it died, take over.
+    if (waiting) setTimeout(replayPendingDeletes, PENDING_DELETE_GRACE_MS);
 }
 
 // opts (optional): { title, confirmLabel, cancelLabel, icon, destructive,
