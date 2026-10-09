@@ -33,6 +33,7 @@ function getActiveBPRange() {
 function setActiveBPRange(days) {
     if (BP_RANGE_OPTIONS.indexOf(days) === -1) return;
     try { window.localStorage.setItem(BP_RANGE_STORAGE_KEY, String(days)); } catch (_) { /* ignore */ }
+    if (window.AppNav) window.AppNav.syncChrome(); // Health app-bar subtitle names the range
 }
 
 // Show BP recording modal

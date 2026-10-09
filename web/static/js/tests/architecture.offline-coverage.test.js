@@ -40,6 +40,10 @@ const ALLOWLIST = [
         reason: 'auth-cache localStorage helpers only — no API reads',
     },
     {
+        file: 'app-nav.js',
+        reason: 'nav chrome (Health segments, app-bar actions, previousTab); its one read is the Meds-badge GET /api/history?days=1, served from the local vault by the cloud shim and dropped (last count kept) when it fails — a badge, not a section landing',
+    },
+    {
         file: 'back-button.js',
         reason: 'wires the in-app back chevron to section navigation — no API reads',
     },

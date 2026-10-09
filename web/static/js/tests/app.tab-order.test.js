@@ -1,6 +1,6 @@
 // saveTabOrder persistence + fetchSettingsBundle tab-order preservation.
 //
-// After the Wandergeek bottom-nav rework the bottom nav is fixed-order
+// The tab bar is fixed-order
 // (no drag-to-reorder); the `tab_order` setting only conveys the Today
 // card order. The persistence API — POST /api/settings/tab-order plus the
 // settings_bundle.tabOrder cache — is unchanged, and /api/settings does

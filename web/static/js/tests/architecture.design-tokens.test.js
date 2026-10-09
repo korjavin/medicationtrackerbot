@@ -289,21 +289,10 @@ const WANDERGEEK_TOKENS = [
     '--wg-status-bar-font-size',
     '--wg-radius-pill',
 
-    // Bottom nav tokens (added in Task 5 alongside .wg-bottom-nav)
-    '--wg-bottom-nav-pad-top',
-    '--wg-bottom-nav-pad-x',
-    '--wg-bottom-nav-pad-bottom',
-    '--wg-bottom-nav-inner-radius',
-    '--wg-bottom-nav-inner-pad',
-    '--wg-bottom-nav-gap',
-    '--wg-nav-item-radius',
-    '--wg-nav-item-pad-y',
-    '--wg-nav-item-pad-x',
-    '--wg-nav-item-gap',
-    '--wg-nav-item-font-size',
-    '--wg-nav-icon-size',
-    '--wg-bottom-nav-z',
-    '--wg-bottom-nav-reserved',
+    // Tab bar shell tokens (Navigation v2, med-xso6.12 — replaced the
+    // --wg-bottom-nav-* / --wg-nav-item-* set with the kit .wg-tabbar).
+    '--wg-tabbar-reserved',
+    '--wg-call-indicator-z',
     '--wg-z-fab',
 
     // Today screen tokens (added in Task 7 alongside .wg-next-action-card,
@@ -1585,15 +1574,9 @@ describe('Architecture – Wandergeek tokens', () => {
     it('no --wg-* tokens are referenced from JS source files (except structural allowlist)', () => {
         // Structural variables (not visual values) are allowed on a
         // per-file, per-token basis. Visual tokens (colors, gradients,
-        // shadows, spacing) must stay CSS-only.
-        //
-        // --wg-nav-cols in wg-bottom-nav.js: items.length determines the
-        //   grid's column count; it's a structural integer, not a visual
-        //   value, and setting it via style.setProperty is the documented
-        //   pattern from the design plan (Task 5).
-        const ALLOWED_JS_TOKEN_REFS = {
-            'web/static/js/components/wg-bottom-nav.js': new Set(['--wg-nav-cols']),
-        };
+        // shadows, spacing) must stay CSS-only. (The tab bar's column count
+        // is the kit's un-prefixed `--n`, so it needs no entry here.)
+        const ALLOWED_JS_TOKEN_REFS = {};
 
         const jsDir = path.join(REPO_ROOT, 'web/static/js');
         const offenders = [];

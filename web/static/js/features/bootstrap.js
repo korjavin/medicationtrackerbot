@@ -94,31 +94,40 @@ async function maybeUpdateTimezone() {
     }
 }
 
-// Mount the Wandergeek bottom nav into #app once. Idempotent — re-entry is a
-// no-op. The nav registers itself with AppKernel so subsequent switchTab()
-// calls update the active slot. Tapping a slot calls switchTab(id) which
-// then fires AppKernel.onTabSwitch back into this module; the setActive()
-// call there is a no-op on the already-active button, no loop.
-// Disabled feature slots are hidden so tapping them can't silently bounce
-// back to Today via the switchTab feature-flag guard.
+// Mount the Wandergeek tab bar (components/wg-bottom-nav.js) into #app once.
+// Idempotent — re-entry is a no-op. The bar registers with AppKernel so
+// subsequent switchTab() calls update the active tab; a page (Settings /
+// Journey) keeps its origin tab lit (AppNav.navSectionFor). Tapping a tab
+// calls switchTab with the tab's section — the Health tab resolves to the
+// remembered, still-enabled BP / Weight / Vitals segment (features/app-nav.js).
+// A tab whose whole feature set is off is filtered out before mount, so
+// tapping it can't silently bounce back to Today via switchTab's guard.
 const NAV_ID_TO_FEATURE = {
-    bp: 'bp',
-    weight: 'weight',
     meds: 'medication',
     workouts: 'workout',
     food: 'food',
+    bp: 'bp',
+    weight: 'weight',
     health: 'health',
 };
+function navSectionEnabled(section, features) {
+    const feature = NAV_ID_TO_FEATURE[section];
+    return !feature || !features || !!features[feature];
+}
 function filterNavItemsByFeatures(items, features) {
     if (!features) return items.slice();
-    return items.filter((item) => {
-        const feature = NAV_ID_TO_FEATURE[item.id];
-        return !feature || features[feature];
-    });
+    return items.filter((item) => (Array.isArray(item.sections)
+        ? item.sections.some((s) => navSectionEnabled(s, features))
+        : navSectionEnabled(item.id, features)));
+}
+function currentNavItems() {
+    return filterNavItemsByFeatures(window.WGBottomNav.DEFAULT_ITEMS, window.featureSettings);
 }
 // Restore the saved section only if the user was last active within this
 // window; after a longer absence we reopen Today. The timestamp is written by
-// switchTab (app.js) on every navigation.
+// switchTab (app.js) on every navigation. Restorable: any enabled section a
+// visible tab owns (bp / weight / health via the Health tab) plus the
+// Settings / Journey pages (switchTab's own guard bounces a disabled Journey).
 const ACTIVE_TAB_TTL_MS = 30 * 60 * 1000;
 function readSavedActiveTab() {
     try {
@@ -128,56 +137,58 @@ function readSavedActiveTab() {
         if (!Number.isFinite(savedAt) || (Date.now() - savedAt) > ACTIVE_TAB_TTL_MS) {
             return 'today';
         }
-        const items = window.WGBottomNav
-            ? filterNavItemsByFeatures(window.WGBottomNav.DEFAULT_ITEMS, window.featureSettings)
-            : [];
-        return items.some((i) => i.id === saved) ? saved : 'today';
+        if (saved === 'settings' || saved === 'journey') return saved;
+        if (!window.WGBottomNav) return 'today';
+        const item = window.WGBottomNav.itemFor(currentNavItems(), saved);
+        return item && navSectionEnabled(saved, window.featureSettings) ? saved : 'today';
     } catch (_) {
         return 'today';
     }
 }
-let navCtrl = null;
-function mountCanonicalBottomNav() {
-    if (!window.WGBottomNav || document.querySelector('.wg-bottom-nav')) return;
+function navTargetFor(id) {
+    return window.AppNav ? window.AppNav.resolveNavTarget(id) : id;
+}
+function navHighlightFor(tab) {
+    return window.AppNav ? window.AppNav.navSectionFor(tab) : tab;
+}
+function mountNav(active) {
     const host = document.getElementById('app') || document.body;
-    if (!host) return;
-    const items = filterNavItemsByFeatures(window.WGBottomNav.DEFAULT_ITEMS, window.featureSettings);
-    navCtrl = window.WGBottomNav.mount(host, {
-        items,
-        active: readSavedActiveTab(),
+    if (!host) return null;
+    return window.WGBottomNav.mount(host, {
+        items: currentNavItems(),
+        active,
         onChange: (id) => {
-            if (typeof switchTab === 'function') switchTab(id);
+            if (typeof switchTab === 'function') switchTab(navTargetFor(id));
         },
     });
+}
+let navCtrl = null;
+function mountCanonicalBottomNav() {
+    if (!window.WGBottomNav || document.querySelector('.wg-tabbar')) return;
+    navCtrl = mountNav(readSavedActiveTab());
     if (window.AppKernel && typeof window.AppKernel.register === 'function') {
         window.AppKernel.register('wgBottomNav', {
-            onTabSwitch(tab) { navCtrl && navCtrl.setActive(tab); },
+            onTabSwitch(tab) { navCtrl && navCtrl.setActive(navHighlightFor(tab)); },
         });
     }
 }
 
-// Re-mount the bottom nav with the current feature flags. Called from
-// settings.js after a feature toggle so disabled slots disappear without a
-// reload — satisfies CLAUDE.md rule 6 ("filtered out of the nav before mount,
-// not bounced after tap").
+// Re-mount the tab bar with the current feature flags. Called from
+// settings.js after a feature toggle (and auth-bootstrap.js when fresh flags
+// arrive) so a tab whose whole feature set went off disappears without a
+// reload, and the Health segment strip re-filters.
 function rebuildCanonicalBottomNav() {
     if (!window.WGBottomNav) return;
-    const previousActive = navCtrl ? navCtrl.getActive() : 'today';
+    const current = (window.AppStore && window.AppStore.get('currentTab')) || 'today';
     if (navCtrl) {
         navCtrl.destroy();
         navCtrl = null;
     }
-    const host = document.getElementById('app') || document.body;
-    if (!host) return;
-    const items = filterNavItemsByFeatures(window.WGBottomNav.DEFAULT_ITEMS, window.featureSettings);
-    const stillPresent = items.some((i) => i.id === previousActive);
-    navCtrl = window.WGBottomNav.mount(host, {
-        items,
-        active: stillPresent ? previousActive : 'today',
-        onChange: (id) => {
-            if (typeof switchTab === 'function') switchTab(id);
-        },
-    });
+    navCtrl = mountNav(navHighlightFor(current));
+    if (window.AppNav) {
+        window.AppNav.syncChrome(current);
+        window.AppNav.refreshMedsBadge();
+    }
 }
 window.rebuildCanonicalBottomNav = rebuildCanonicalBottomNav;
 
@@ -188,7 +199,7 @@ checkAuth().then(async authorized => {
             window.SyncManager.init();
         }
 
-        // Mount the canonical bottom nav once (before the first switchTab so
+        // Mount the tab bar once (before the first switchTab so
         // it can receive the AppKernel.onTabSwitch('today') notification).
         mountCanonicalBottomNav();
 
@@ -222,7 +233,7 @@ checkAuth().then(async authorized => {
             window.TZPlanBanner.refresh();
         }
 
-        // Wire the in-app back chevron to return-to-Today once the initial tab is active.
+        // Wire Back (chevron + popstate) once the initial tab is active: pages return to their origin tab, sections to Today.
         if (window.AppBackButton && typeof window.AppBackButton.setup === 'function') {
             window.AppBackButton.setup();
         }

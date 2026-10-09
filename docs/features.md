@@ -2,7 +2,7 @@
 
 ## Today Dashboard
 
-Read-only landing surface (`web/static/js/features/today.js`, `window.TodayDashboard`). The unconditional home view on every cold start — `features/bootstrap.js` always calls `switchTab('today')` after auth. Section views (BP, Weight, Meds, Workouts, Food, Health (labelled "Vitals" in the bottom nav), Settings) are reached via the bottom nav, card deep-links, or URL hash / messenger start param.
+Read-only landing surface (`web/static/js/features/today.js`, `window.TodayDashboard`). The home view on cold start — `features/bootstrap.js` opens Today after auth unless the user was active in another section within the last 30 minutes. Section views are reached via the five-tab bar (Today · Food · Meds · Train · Health, where Health switches between BP / Weight / Vitals), the app-bar gear (Settings) and Today route icon (Journey), card deep-links, or URL hash / messenger start param — see [frontend.md → Navigation](frontend.md#navigation).
 
 **DOM skeleton** (`#today-content` render order, via `features/today.js`):
 
