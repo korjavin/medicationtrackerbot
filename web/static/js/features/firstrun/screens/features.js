@@ -210,7 +210,7 @@
 
         var cont = document.createElement('button');
         cont.type = 'button';
-        cont.className = 'wg-firstrun-btn wg-firstrun-btn--primary';
+        cont.className = 'wg-btn wg-btn--primary wg-btn--lg wg-btn--block';
         cont.textContent = 'Continue';
         cont.setAttribute('data-firstrun-action', 'continue');
         cont.addEventListener('click', function () {

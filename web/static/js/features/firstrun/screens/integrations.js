@@ -165,7 +165,7 @@
 
         const save = document.createElement('button');
         save.type = 'button';
-        save.className = 'wg-firstrun-btn wg-firstrun-btn--primary';
+        save.className = 'wg-btn wg-btn--primary wg-btn--lg wg-btn--block';
         save.textContent = 'Save';
         save.setAttribute('data-firstrun-action', 'save');
         save.addEventListener('click', function () {
@@ -190,7 +190,7 @@
 
         const skip = document.createElement('button');
         skip.type = 'button';
-        skip.className = 'wg-firstrun-btn wg-firstrun-btn--secondary';
+        skip.className = 'wg-btn wg-btn--ghost wg-btn--lg wg-btn--block';
         // Skipping key setup is NOT consent (bd med-yor.2): the trial path
         // asks for explicit consent on first use, so the label must not read
         // like a grant.

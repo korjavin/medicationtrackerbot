@@ -84,7 +84,7 @@ function renderAlreadyClaimed(app) {
       <p>Unlock your vault with the passkey you already created.</p>
       <p>If this is a new device, open Med Tracker on your former device and
          share access from there.</p>
-      <button id="unlock-instead">Unlock with your passkey</button>
+      <button id="unlock-instead" class="wg-btn wg-btn--primary">Unlock with your passkey</button>
     </section>`;
   app.querySelector('#unlock-instead').addEventListener('click', () => {
     // Same module app.js dispatches to for a returning device, so a claimed
@@ -111,7 +111,7 @@ function renderWelcome(app, claimToken, errorText) {
          Claude connector stay off until you switch them on. Food search and
          drug lookups have no switch — they go through an operator proxy
          whenever you use them. Settings lists exactly what each one shares.</p>
-      <button id="create-passkey">Create your passkey</button>
+      <button id="create-passkey" class="wg-btn wg-btn--primary">Create your passkey</button>
     </section>`;
   // Error text may carry a browser exception message; render via textContent,
   // never interpolated into innerHTML (this page holds the DEK — XSS here reads it).
@@ -255,7 +255,7 @@ function appendDiagnosticSection(app, { credentialId, createPrfEnabled }) {
     <p>Experimental: run a compatibility check on this passkey and download
        the report. The report records only capability outcomes — no key
        material.</p>
-    <button id="prf-diagnostic-button" class="secondary">Run compatibility check</button>
+    <button id="prf-diagnostic-button" class="wg-btn">Run compatibility check</button>
     <p class="kit-hint" id="prf-diagnostic-status"></p>`;
   section.appendChild(box);
   const button = box.querySelector('#prf-diagnostic-button');
@@ -305,7 +305,7 @@ function renderLossProtection(app, ctx) {
         <input type="checkbox" id="loss-ack-checkbox">
         I understand my data is unrecoverable if I lose this device.
       </label>
-      <button id="loss-ack-continue" disabled>Continue</button>
+      <button id="loss-ack-continue" class="wg-btn wg-btn--primary" disabled>Continue</button>
     </section>`;
   const checkbox = app.querySelector('#loss-ack-checkbox');
   const button = app.querySelector('#loss-ack-continue');
@@ -391,15 +391,15 @@ export async function renderEmergencyKit(app, ctx) {
       </dl>
       <div class="kit-qr">${qrSvg}</div>
       <div class="kit-actions">
-        <button id="kit-download">Download Emergency Kit</button>
-        <button id="kit-print" class="secondary">Print it instead</button>
+        <button id="kit-download" class="wg-btn">Download Emergency Kit</button>
+        <button id="kit-print" class="wg-btn wg-btn--ghost">Print it instead</button>
       </div>
       <label class="wizard-ack">
         <input type="checkbox" id="kit-saved-checkbox" disabled>
         I saved my Emergency Kit.
       </label>
       <p class="kit-hint" id="kit-hint">Download or print the kit to continue.</p>
-      <button id="kit-continue" disabled>${escapeHtml(ctx.continueLabel || 'Enter Med Tracker')}</button>
+      <button id="kit-continue" class="wg-btn wg-btn--primary" disabled>${escapeHtml(ctx.continueLabel || 'Enter Med Tracker')}</button>
     </section>`;
 
   // Server-controlled value — set via textContent, never innerHTML.
@@ -572,8 +572,8 @@ function renderIOSInstallStep(app, ctx) {
          notifications only to an installed app — in Safari, Med Tracker cannot
          notify you at all.</p>
       ${iosInstallStepsHtml('Open Med Tracker from your Home Screen and unlock with the same passkey — everything you set up here is already saved.')}
-      <button id="install-continue">I've installed it</button>
-      <button id="install-skip" class="secondary">Continue in browser anyway</button>
+      <button id="install-continue" class="wg-btn wg-btn--primary">I've installed it</button>
+      <button id="install-skip" class="wg-btn wg-btn--ghost">Continue in browser anyway</button>
       <p class="muted">You can install later from Safari's Share menu — until
          you do, no reminders will arrive on this device.</p>
     </section>`;
@@ -592,9 +592,9 @@ function renderAndroidInstallStep(app, ctx) {
       <p>Installing gives you a home-screen icon and a full-screen app.
          Reminders work in Chrome either way, so this one is up to you.</p>
       ${hasPrompt
-        ? '<button id="install-now">Add to Home Screen</button>'
+        ? '<button id="install-now" class="wg-btn wg-btn--primary">Add to Home Screen</button>'
         : '<p>Open your browser menu and choose “Install app” / “Add to Home Screen”.</p>'}
-      <button id="install-skip" class="secondary">Continue in browser anyway</button>
+      <button id="install-skip" class="wg-btn wg-btn--ghost">Continue in browser anyway</button>
     </section>`;
   app.querySelector('#install-skip').addEventListener('click', () => enterApp(ctx));
   const now = app.querySelector('#install-now');

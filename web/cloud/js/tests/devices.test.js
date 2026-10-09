@@ -71,6 +71,18 @@ describe('devices.js device list', () => {
     expect(rows[1].querySelector('.device-unverified')).not.toBeNull();
   });
 
+  // med-xso6.11: shell buttons wear the kit — one sun primary, destructive
+  // row actions as danger-ghost.
+  it('renders kit .wg-btn variants', async () => {
+    await renderAndSettle();
+
+    expect(app.querySelector('#add-device-button').className).toBe('wg-btn wg-btn--primary');
+    expect(app.querySelector('#devices-back').className).toBe('wg-btn');
+    const revoke = app.querySelector('#device-list .device-row button');
+    expect(revoke.classList.contains('wg-btn--danger-ghost')).toBe(true);
+    expect(app.querySelectorAll('.wg-btn--primary')).toHaveLength(1);
+  });
+
   // The point of med-lyv: devices and connectors are separate pages now.
   it('renders neither the connector picker nor the Telegram mount', async () => {
     await renderAndSettle();

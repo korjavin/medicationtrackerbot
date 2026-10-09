@@ -32,7 +32,8 @@ const (
 	feedbackReaderPath = "/feedback"
 	feedbackQueuePath  = "/api/feedback/queue"
 
-	// feedbackAgeVendorPath is the one web/static asset the base domain serves.
+	// feedbackAgeVendorPath is the web/static script the base domain serves
+	// (see baseDomainStaticAssets in router.go for the full list).
 	// The reader page decrypts with the vendored typage bundle, and /static/*
 	// otherwise only exists on account subdomains; copying the 150 KB bundle into
 	// web/cloud/vendor would be a second copy to drift. Exactly this path, not a

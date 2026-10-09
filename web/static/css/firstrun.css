@@ -79,39 +79,8 @@
     margin-top: var(--space-lg);
 }
 
-.wg-firstrun-btn {
-    appearance: none;
-    border: none;
-    border-radius: var(--radius-md);
-    padding: var(--space-md) var(--space-lg);
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-md);
-    font-weight: 600;
-    cursor: pointer;
-    transition: background-color 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
-    min-height: 48px;
-    line-height: 1.2;
-}
-
-.wg-firstrun-btn:active {
-    transform: scale(0.98);
-}
-
-.wg-firstrun-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.wg-firstrun-btn--primary {
-    background: var(--wg-sun);
-    color: var(--wg-ink);
-}
-
-.wg-firstrun-btn--secondary {
-    background: transparent;
-    color: var(--wg-fg-2);
-    border: 1px solid var(--wg-border-strong);
-}
+/* Buttons are the kit's .wg-btn variants (components.css); the step
+   indicator above the title is the kit's .wg-steps. */
 
 /* Capability blurbs on the final screen (med-1mn) — MCP and the voice agent,
    the two things onboarding otherwise never mentions. All values resolve via

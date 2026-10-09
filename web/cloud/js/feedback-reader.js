@@ -257,7 +257,7 @@ export function renderResults(list, results, onAck) {
     if (onAck) {
       const ack = document.createElement('button');
       ack.type = 'button';
-      ack.className = 'secondary fr-ack';
+      ack.className = 'wg-btn wg-btn--sm wg-btn--danger-ghost fr-ack';
       ack.textContent = 'Delete';
       ack.addEventListener('click', () => {
         ack.disabled = true;

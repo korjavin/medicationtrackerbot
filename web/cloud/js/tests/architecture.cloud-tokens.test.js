@@ -27,8 +27,9 @@ const CLOUD_CSS = path.join(REPO_ROOT, 'web/cloud/css/cloud.css');
 // cloud.css's :root in the shell, so they count as used and must match too.
 const DIALOG_CSS = path.join(REPO_ROOT, 'web/static/css/dialog.css');
 // The dialog wears the kit's .wg-dialog / .wg-btn / .wg-choice anatomy
-// (med-xso6.6), so signup.html links components.css too. Only the rules for
-// those roots render in the shell; their tokens must resolve there as well.
+// (med-xso6.6) and every shell button is a .wg-btn (med-xso6.11), so the shell
+// pages link components.css too. Only the rules for these roots render in the
+// shell; their tokens must resolve there as well.
 const COMPONENTS_CSS = path.join(REPO_ROOT, 'web/static/css/components.css');
 const SHELL_KIT_ROOTS = ['.wg-dialog', '.wg-btn', '.wg-choice', '.wg-field', '.wg-input', '.wg-ico'];
 

@@ -221,7 +221,10 @@ describe('firstrun feature picker screen', () => {
         const { window, document, cleanup } = loadFlow({ fetchMock: okFetch() });
         try {
             window.WGFirstRun.mount();
-            document.querySelector('[data-firstrun-action="continue"]').click();
+            const cont = document.querySelector('[data-firstrun-action="continue"]');
+            expect(cont.classList.contains('wg-btn')).toBe(true);
+            expect(cont.classList.contains('wg-btn--primary')).toBe(true);
+            cont.click();
             await flush();
             expect(window.WGFirstRun.state.getStep()).toBe('integrations');
         } finally {

@@ -67,18 +67,18 @@ function renderPicker(app, ctx, onExit, pairing, remote) {
           <dl>
             <dt>Connector URL</dt><dd class="claude-remote-url" id="claude-remote-url-current"></dd>
           </dl>
-          <button id="claude-remote-copy-current">Copy URL</button>
+          <button id="claude-remote-copy-current" class="wg-btn">Copy URL</button>
         </div>
-        <button id="claude-remote-connect-button">Enable remote connector</button>
+        <button id="claude-remote-connect-button" class="wg-btn wg-btn--primary">Enable remote connector</button>
       </div>
       <div class="claude-mode">
         <h3>Local shim (Claude Code) — alternative</h3>
         <p>Fully end-to-end encrypted: runs a shim binary on your own machine, so the server never sees your data.</p>
-        <button id="claude-local-connect-button">Connect Claude Code</button>
+        <button id="claude-local-connect-button" class="wg-btn">Connect Claude Code</button>
       </div>
       <p class="claude-mode-note">Only one connector can be active at a time — switching disconnects the other.</p>
-      <button id="claude-disconnect-button">Disconnect</button>
-      <button id="connectors-back">Back</button>
+      <button id="claude-disconnect-button" class="wg-btn wg-btn--danger-ghost">Disconnect</button>
+      <button id="connectors-back" class="wg-btn">Back</button>
     </section>`;
 
   app.querySelector('#claude-status').textContent = CLAUDE_STATUS_TEXT[mode];
@@ -135,14 +135,14 @@ function renderRemoteURL(app, ctx, onExit, token, url) {
       <dl>
         <dt>Connector URL</dt><dd class="claude-remote-url" id="claude-remote-url"></dd>
       </dl>
-      <button id="claude-remote-copy">Copy URL</button>
+      <button id="claude-remote-copy" class="wg-btn">Copy URL</button>
       <ol>
         <li>claude.ai: Settings &rarr; Connectors &rarr; Add custom connector &rarr; paste the URL.</li>
         <li>ChatGPT: Settings &rarr; Connectors &rarr; Add MCP &rarr; paste the URL.</li>
       </ol>
       <p class="claude-mode-note">Keep an unlocked tab open. The URL stays valid until you Disconnect — it survives
          server updates.</p>
-      <button id="claude-remote-done">Done</button>
+      <button id="claude-remote-done" class="wg-btn wg-btn--primary">Done</button>
     </section>`;
 
   // Server-generated capability URL — textContent only, never innerHTML.
@@ -168,10 +168,10 @@ function renderClaudeCode(app, ctx, onExit, code) {
       <dl>
         <dt>Pairing code</dt><dd class="claude-code" id="claude-code"></dd>
       </dl>
-      <button id="claude-copy-code">Copy code</button>
+      <button id="claude-copy-code" class="wg-btn">Copy code</button>
       <pre id="claude-config-snippet"></pre>
-      <button id="claude-copy-snippet">Copy config</button>
-      <button id="claude-done">Done</button>
+      <button id="claude-copy-snippet" class="wg-btn">Copy config</button>
+      <button id="claude-done" class="wg-btn wg-btn--primary">Done</button>
     </section>`;
 
   // Server/client-generated secrets — textContent only, never innerHTML.
@@ -187,8 +187,8 @@ function renderConnectorsError(app, ctx, onExit, errorText) {
     <section class="wizard-step">
       <h1>Connectors</h1>
       <p class="wizard-error"></p>
-      <button id="connectors-retry">Try again</button>
-      <button id="connectors-back">Back</button>
+      <button id="connectors-retry" class="wg-btn wg-btn--primary">Try again</button>
+      <button id="connectors-back" class="wg-btn">Back</button>
     </section>`;
   app.querySelector('.wizard-error').textContent = errorText;
   app.querySelector('#connectors-retry').addEventListener('click', () => renderConnectors(app, ctx, onExit));

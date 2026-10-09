@@ -38,6 +38,8 @@
 
     const OVERLAY_ID = 'wg-firstrun-overlay';
     const TITLE_ID = 'wg-firstrun-title';
+    const STEPS_ID = 'wg-firstrun-steps';
+    const FALLBACK_STEPS = ['welcome', 'features', 'integrations', 'done'];
     const BODY_ID = 'wg-firstrun-overlay-body';
     const COMPLETE_URL = '/api/firstrun/complete';
 
@@ -81,6 +83,16 @@
         const panel = document.createElement('div');
         panel.className = 'wg-firstrun-overlay__panel';
 
+        // Kit step indicator (.wg-steps): one bar per step, painted by
+        // _paintSteps on every render.
+        const steps = document.createElement('div');
+        steps.id = STEPS_ID;
+        steps.className = 'wg-steps';
+        steps.setAttribute('role', 'progressbar');
+        steps.setAttribute('aria-label', 'Setup progress');
+        steps.setAttribute('aria-valuemin', '1');
+        panel.appendChild(steps);
+
         const title = document.createElement('h2');
         title.id = TITLE_ID;
         title.className = 'wg-firstrun-overlay__title';
@@ -95,12 +107,31 @@
         document.body.appendChild(overlay);
     }
 
+    function _paintSteps(stepName) {
+        const steps = document.getElementById(STEPS_ID);
+        if (!steps) return;
+        const state = window.WGFirstRun && window.WGFirstRun.state;
+        const order = (state && state.VALID_STEPS) || FALLBACK_STEPS;
+        const now = Math.max(0, order.indexOf(stepName));
+        steps.replaceChildren();
+        order.forEach(function (_, i) {
+            const bar = document.createElement('i');
+            if (i < now) bar.className = 'is-done';
+            else if (i === now) bar.className = 'is-now';
+            steps.appendChild(bar);
+        });
+        steps.setAttribute('aria-valuemax', String(order.length));
+        steps.setAttribute('aria-valuenow', String(now + 1));
+        steps.setAttribute('aria-valuetext', 'Step ' + (now + 1) + ' of ' + order.length);
+    }
+
     function _renderCurrentStep() {
         const stepName = _currentStep();
         const screen = _lookupScreen(stepName);
         const title = document.getElementById(TITLE_ID);
         const body = document.getElementById(BODY_ID);
         if (!title || !body) return;
+        _paintSteps(stepName);
 
         // Screens that haven't loaded yet (e.g. an older bundle, a step
         // module deferred to a later task) leave the panel empty rather
