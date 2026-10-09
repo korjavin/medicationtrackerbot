@@ -36,6 +36,17 @@ type TrialConfig struct {
 	VisionAPIKey string
 	VisionURL    string
 	VisionModel  string
+	// Provider picks the chat backend: TrialProviderOpenAI (default, the
+	// triples above) or TrialProviderAnthropic (native Messages adapter,
+	// trial_anthropic.go). Both configs may be set at once; flipping
+	// TRIAL_AI_PROVIDER is the rollback switch.
+	Provider             string
+	AnthropicAPIKey      string
+	AnthropicModel       string
+	AnthropicVisionModel string
+	// AnthropicURL is the Messages API base; not env-configurable, tests
+	// point it at a fake.
+	AnthropicURL string
 	// ElevenLabs signed-URL minting for the operator's shared agent.
 	ElevenLabsAPIKey  string
 	ElevenLabsAgentID string
@@ -52,8 +63,21 @@ type TrialConfig struct {
 	DailyGlobal     int
 }
 
-// TrialAIConfigured reports whether the OpenAI chat proxy can serve requests.
-func (c TrialConfig) TrialAIConfigured() bool { return c.OpenAIAPIKey != "" }
+// Trial chat providers (TRIAL_AI_PROVIDER). The empty string means openai so
+// a zero TrialConfig keeps the pre-switch behavior.
+const (
+	TrialProviderOpenAI    = "openai"
+	TrialProviderAnthropic = "anthropic"
+)
+
+// TrialAIConfigured reports whether the chat proxy can serve requests: the
+// ACTIVE provider's key must be set.
+func (c TrialConfig) TrialAIConfigured() bool {
+	if c.Provider == TrialProviderAnthropic {
+		return c.AnthropicAPIKey != ""
+	}
+	return c.OpenAIAPIKey != ""
+}
 
 // TrialVoiceConfigured reports whether the ElevenLabs signed-URL mint can
 // serve requests (needs both the key and the shared agent).
@@ -67,17 +91,22 @@ func (c TrialConfig) TrialVoiceConfigured() bool {
 // false — the proxy routes 503 and cloud behavior is unchanged.
 func TrialConfigFromEnv() (TrialConfig, error) {
 	cfg := TrialConfig{
-		OpenAIAPIKey:      os.Getenv("TRIAL_OPENAI_API_KEY"),
-		OpenAIURL:         os.Getenv("TRIAL_OPENAI_URL"),
-		OpenAIModel:       os.Getenv("TRIAL_OPENAI_MODEL"),
-		VisionAPIKey:      os.Getenv("TRIAL_OPENAI_VISION_API_KEY"),
-		VisionURL:         os.Getenv("TRIAL_OPENAI_VISION_URL"),
-		VisionModel:       os.Getenv("TRIAL_OPENAI_VISION_MODEL"),
-		ElevenLabsAPIKey:  os.Getenv("TRIAL_ELEVENLABS_API_KEY"),
-		ElevenLabsAgentID: os.Getenv("TRIAL_ELEVENLABS_AGENT_ID"),
-		RatePerMinute:     trialDefaultRatePerMin,
-		DailyPerAccount:   trialDefaultDailyPerAccount,
-		DailyGlobal:       trialDefaultDailyGlobal,
+		OpenAIAPIKey:         os.Getenv("TRIAL_OPENAI_API_KEY"),
+		OpenAIURL:            os.Getenv("TRIAL_OPENAI_URL"),
+		OpenAIModel:          os.Getenv("TRIAL_OPENAI_MODEL"),
+		VisionAPIKey:         os.Getenv("TRIAL_OPENAI_VISION_API_KEY"),
+		VisionURL:            os.Getenv("TRIAL_OPENAI_VISION_URL"),
+		VisionModel:          os.Getenv("TRIAL_OPENAI_VISION_MODEL"),
+		Provider:             strings.ToLower(strings.TrimSpace(os.Getenv("TRIAL_AI_PROVIDER"))),
+		AnthropicAPIKey:      os.Getenv("TRIAL_ANTHROPIC_API_KEY"),
+		AnthropicModel:       os.Getenv("TRIAL_ANTHROPIC_MODEL"),
+		AnthropicVisionModel: os.Getenv("TRIAL_ANTHROPIC_VISION_MODEL"),
+		AnthropicURL:         trialAnthropicDefaultURL,
+		ElevenLabsAPIKey:     os.Getenv("TRIAL_ELEVENLABS_API_KEY"),
+		ElevenLabsAgentID:    os.Getenv("TRIAL_ELEVENLABS_AGENT_ID"),
+		RatePerMinute:        trialDefaultRatePerMin,
+		DailyPerAccount:      trialDefaultDailyPerAccount,
+		DailyGlobal:          trialDefaultDailyGlobal,
 	}
 	// Trim trailing slashes like internal/ai and aiclient.js do — the proxy
 	// concatenates "/chat/completions", and strict routers 404 on "//".
@@ -97,6 +126,19 @@ func TrialConfigFromEnv() (TrialConfig, error) {
 	}
 	if cfg.VisionModel == "" {
 		cfg.VisionModel = cfg.OpenAIModel
+	}
+	switch cfg.Provider {
+	case "":
+		cfg.Provider = TrialProviderOpenAI
+	case TrialProviderOpenAI, TrialProviderAnthropic:
+	default:
+		return cfg, errors.New("TRIAL_AI_PROVIDER must be openai or anthropic")
+	}
+	if cfg.AnthropicModel == "" {
+		cfg.AnthropicModel = trialAnthropicDefaultModel
+	}
+	if cfg.AnthropicVisionModel == "" {
+		cfg.AnthropicVisionModel = cfg.AnthropicModel
 	}
 	if v := os.Getenv("TRIAL_DAILY_PER_ACCOUNT"); v != "" {
 		n, err := strconv.Atoi(v)
