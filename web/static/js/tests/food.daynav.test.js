@@ -1,9 +1,10 @@
-// Wandergeek Food day-navigator (Phase 4, Task 3).
+// Food day navigator (kit F1/F2, med-xso6.16).
 //
-// Asserts the rewritten day-nav renders as a three-cell row — chevron
-// button, mono-display title + subtitle, chevron button — and that the
-// chevron buttons and date-label click handler hook into the existing
-// `shiftFoodDate` callback.
+// The navigator is the kit .wg-daynav: arrows in fixed 44px cells
+// (.wg-daynav__arrow), a label button holding the relative-day chip and the
+// date (.wg-daynav__date, which clips with an ellipsis), and the hidden
+// <input type="date"> the label opens. Add is the app-bar primary, not part
+// of the row.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -18,7 +19,7 @@ function toISODateLocal(date) {
     return `${y}-${m}-${d}`;
 }
 
-describe('Food day-navigator (Phase 4, Task 3)', () => {
+describe('Food day navigator (kit F1)', () => {
     let env;
 
     beforeEach(() => {
@@ -31,66 +32,96 @@ describe('Food day-navigator (Phase 4, Task 3)', () => {
         env = null;
     });
 
-    it('renders the 4-cell grid with chevron icon buttons, mono title/subtitle, and inline +Add', () => {
+    it('renders the kit .wg-daynav: arrow cells, a label with chip + date, and the hidden date input', () => {
         const { document } = env;
-
-        const nav = document.querySelector('.wg-food-day-nav');
+        const nav = document.querySelector('#food-view .wg-daynav');
         expect(nav).not.toBeNull();
-        expect(nav.classList.contains('wg-food-day-nav--with-action')).toBe(true);
+
+        // Three grid cells only — the hidden input is absolutely positioned.
+        const cells = Array.from(nav.children).filter((el) => el.tagName !== 'INPUT');
+        expect(cells.map((el) => el.id)).toEqual(['food-date-prev-btn', 'food-date-label', 'food-date-next-btn']);
 
         const prev = document.getElementById('food-date-prev-btn');
         const next = document.getElementById('food-date-next-btn');
-        expect(prev).not.toBeNull();
-        expect(next).not.toBeNull();
-        expect(prev.classList.contains('wg-icon-btn')).toBe(true);
-        expect(prev.classList.contains('wg-gloss')).toBe(true);
-        expect(prev.classList.contains('wg-food-day-nav__icon-btn')).toBe(true);
-        expect(next.classList.contains('wg-icon-btn')).toBe(true);
-        expect(next.classList.contains('wg-gloss')).toBe(true);
+        for (const [btn, icon] of [[prev, 'chev-l'], [next, 'chev-r']]) {
+            expect(btn.classList.contains('wg-daynav__arrow')).toBe(true);
+            expect(btn.querySelector(`.wg-ico[data-icon="${icon}"]`)).not.toBeNull();
+            expect(btn.getAttribute('style')).toBeNull();
+        }
 
-        // Chevron SVGs rendered via WGIcons, not inline <svg> strings.
-        const prevIcon = prev.querySelector('svg[data-wg-icon="chevronLeft"]');
-        const nextIcon = next.querySelector('svg[data-wg-icon="chevronRight"]');
-        expect(prevIcon).not.toBeNull();
-        expect(nextIcon).not.toBeNull();
+        const label = document.getElementById('food-date-label');
+        expect(label.tagName).toBe('BUTTON');
+        expect(label.classList.contains('wg-daynav__label')).toBe(true);
+        const chip = document.getElementById('food-date-chip');
+        expect(chip.classList.contains('wg-chip')).toBe(true);
+        expect(label.contains(chip)).toBe(true);
+        expect(document.getElementById('food-date-text').classList.contains('wg-daynav__date')).toBe(true);
 
-        const title = document.getElementById('food-date-label');
-        const subtitle = document.getElementById('food-date-subtitle');
-        expect(title).not.toBeNull();
-        expect(subtitle).not.toBeNull();
-        expect(title.classList.contains('wg-mono-display')).toBe(true);
-        expect(title.classList.contains('wg-food-day-nav__title')).toBe(true);
-        expect(subtitle.classList.contains('wg-section-label')).toBe(true);
-        expect(subtitle.classList.contains('wg-food-day-nav__subtitle')).toBe(true);
+        const input = document.getElementById('food-date-filter');
+        expect(input.getAttribute('type')).toBe('date');
+        expect(nav.contains(input)).toBe(true);
+        expect(label.contains(input)).toBe(false);
 
-        // Phase 5, Task 4 — inline +Add lives inside the day-nav row and
-        // opens the food modal directly. Round-2 Task 6 (defect #9) migrated
-        // the button from the per-section `.wg-food-day-nav__add` one-off to
-        // the shared `.wg-toolbar-btn .wg-toolbar-btn--primary` sizing pair
-        // so it matches the adjacent chevron icon buttons and the +Log /
-        // Add / Start adopters on BP / Meds / Workouts / Weight.
-        const addBtn = document.getElementById('add-food-inline-btn');
-        expect(addBtn).not.toBeNull();
-        expect(addBtn.classList.contains('wg-toolbar-btn')).toBe(true);
-        expect(addBtn.classList.contains('wg-toolbar-btn--primary')).toBe(true);
-        // The dead per-section one-off must not come back on this button.
-        expect(addBtn.classList.contains('wg-food-day-nav__add')).toBe(false);
+        // The old pill row is gone: no Photo / Scan pills, no legacy classes.
+        expect(document.querySelector('.wg-food-day-nav')).toBeNull();
+        expect(document.getElementById('add-food-photo-btn')).toBeNull();
+        expect(document.getElementById('scan-food-inline-btn')).toBeNull();
+        expect(nav.querySelector('#add-food-inline-btn')).toBeNull();
     });
 
-    it('updateFoodDateNav populates both title and DD.MM.YYYY subtitle', () => {
+    it('Add is the single .wg-btn--primary in the Food app bar', () => {
+        const { document, window } = env;
+        const view = document.getElementById('food-view');
+        const primaries = view.querySelectorAll('.wg-btn--primary');
+        expect(primaries).toHaveLength(1);
+        const add = document.getElementById('add-food-inline-btn');
+        expect(primaries[0]).toBe(add);
+        expect(add.closest('.wg-appbar')).not.toBeNull();
+        expect(add.textContent).toContain('Add');
+
+        let opened = 0;
+        window.showAddFoodModal = () => { opened += 1; };
+        add.click();
+        expect(opened).toBe(1);
+    });
+
+    it('a relative day shows as a chip beside the short date', () => {
         const { document, window } = env;
         const filter = document.getElementById('food-date-filter');
-        const title = document.getElementById('food-date-label');
-        const subtitle = document.getElementById('food-date-subtitle');
+        const chip = document.getElementById('food-date-chip');
+        const text = document.getElementById('food-date-text');
 
         const today = new Date();
         filter.value = toISODateLocal(today);
         window.updateFoodDateNav();
-        expect(title.textContent).toBe('Today');
+        expect(chip.textContent).toBe('Today');
+        expect(chip.classList.contains('hidden')).toBe(false);
+        const ddmm = window.formatFoodDateSubtitle(filter.value).slice(0, 5);
+        expect(text.textContent.endsWith(` ${ddmm}`)).toBe(true);
 
+        const yesterday = new Date(today);
+        yesterday.setDate(today.getDate() - 1);
+        filter.value = toISODateLocal(yesterday);
+        window.updateFoodDateNav();
+        expect(chip.textContent).toBe('Yesterday');
+    });
+
+    it('any other day hides the chip and spells out "<weekday> · DD.MM.YYYY"', () => {
+        const { document, window } = env;
+        const filter = document.getElementById('food-date-filter');
         filter.value = '2026-04-20';
         window.updateFoodDateNav();
-        expect(subtitle.textContent).toBe('20.04.2026');
+        expect(document.getElementById('food-date-chip').classList.contains('hidden')).toBe(true);
+        expect(document.getElementById('food-date-text').textContent).toMatch(/^\S+ · 20\.04\.2026$/);
+    });
+
+    it('clicking the date label opens the hidden picker', () => {
+        const { document } = env;
+        const filter = document.getElementById('food-date-filter');
+        let opened = 0;
+        filter.showPicker = () => { opened += 1; };
+        document.getElementById('food-date-label').click();
+        expect(opened).toBe(1);
     });
 
     it('clicking the prev/next chevrons dispatches shiftFoodDate with the correct delta', () => {
@@ -176,18 +207,9 @@ describe('Food day-navigator (Phase 4, Task 3)', () => {
     // a date-less product list was the reason it moved inside (med-ejq.3).
     it('day navigator lives inside the Log pane', () => {
         const { document } = env;
-        const nav = document.querySelector('.wg-food-day-nav');
+        const nav = document.querySelector('#food-view .wg-daynav');
         expect(nav).not.toBeNull();
         expect(document.getElementById('food-log-tab').contains(nav)).toBe(true);
-    });
-
-    it('clicking the inline +Add button opens the food modal', () => {
-        const { document, window } = env;
-        let opened = 0;
-        window.showAddFoodModal = () => { opened += 1; };
-        const btn = document.getElementById('add-food-inline-btn');
-        btn.click();
-        expect(opened).toBe(1);
     });
 
     it('#food-view opts into the shared .wg-screen-stage backdrop', () => {
@@ -210,33 +232,6 @@ describe('Food day-navigator (Phase 4, Task 3)', () => {
         expect(window.formatFoodDateSubtitle('2026-04-20')).toBe('20.04.2026');
         expect(window.formatFoodDateSubtitle('2026-12-01')).toBe('01.12.2026');
         expect(window.formatFoodDateSubtitle('')).toBe('');
-    });
-
-    it('chevron buttons carry the WG color-bearing classes and inherit currentColor via the SVG stroke', () => {
-        const { document } = env;
-        const prev = document.getElementById('food-date-prev-btn');
-        const next = document.getElementById('food-date-next-btn');
-
-        // Both buttons must carry the color-bearing wg-food-day-nav__icon-btn
-        // class so they pick up the explicit color/background tokens on the
-        // Wandergeek stage backdrop.
-        expect(prev.classList.contains('wg-food-day-nav__icon-btn')).toBe(true);
-        expect(next.classList.contains('wg-food-day-nav__icon-btn')).toBe(true);
-
-        // Chevron SVGs must inherit the button's foreground via currentColor,
-        // not a hard-coded color literal.
-        const prevIcon = prev.querySelector('svg[data-wg-icon="chevronLeft"]');
-        const nextIcon = next.querySelector('svg[data-wg-icon="chevronRight"]');
-        expect(prevIcon).not.toBeNull();
-        expect(nextIcon).not.toBeNull();
-        expect(prevIcon.getAttribute('stroke')).toBe('currentColor');
-        expect(nextIcon.getAttribute('stroke')).toBe('currentColor');
-
-        // No inline style smuggling a color onto the buttons or icons.
-        expect(prev.getAttribute('style')).toBeNull();
-        expect(next.getAttribute('style')).toBeNull();
-    });
-
     it('updateFoodDateNav disables next when the selected date is today or future', () => {
         const { document, window } = env;
         const filter = document.getElementById('food-date-filter');
@@ -269,16 +264,29 @@ describe('Food day-navigator (Phase 4, Task 3)', () => {
         expect(filter.value).toBe('2026-03-07');
     });
 });
+});
 
-describe('Food day-navigator title clipping (med-xso6.33)', () => {
+// med-xso6.33 / kit F2: a long absolute date can't push › — the label is the
+// minmax(0,1fr) cell between two fixed arrow cells and the date clips.
+describe('Food day navigator layout (kit F1/F2)', () => {
     const css = fs.readFileSync(
-        path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../css/styles.css'), 'utf8');
-    for (const cls of ['title', 'subtitle']) {
-        it(`.wg-food-day-nav__${cls} clips with an ellipsis`, () => {
-            const m = css.match(new RegExp(`\\.wg-food-day-nav__${cls} \\{([^}]*)\\}`));
-            expect(m[1]).toMatch(/overflow:\s*hidden/);
-            expect(m[1]).toMatch(/text-overflow:\s*ellipsis/);
-            expect(m[1]).toMatch(/white-space:\s*nowrap/);
-        });
-    }
+        path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../css/components.css'), 'utf8');
+    const rule = (sel) => (css.match(new RegExp(`\\${sel}\\{([^}]*)\\}`)) || [])[1] || '';
+
+    it('.wg-daynav gives the arrows fixed cells around a shrinkable centre', () => {
+        expect(rule('.wg-daynav')).toMatch(/grid-template-columns:var\(--wg-h-md\) minmax\(0,1fr\) var\(--wg-h-md\)/);
+    });
+
+    it('.wg-daynav__date clips with an ellipsis', () => {
+        const date = rule('.wg-daynav__date');
+        expect(date).toMatch(/overflow:hidden/);
+        expect(date).toMatch(/text-overflow:ellipsis/);
+        expect(date).toMatch(/white-space:nowrap/);
+    });
+
+    it('the Yesterday-overlap stopgap went with the old row', () => {
+        const styles = fs.readFileSync(
+            path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../css/styles.css'), 'utf8');
+        expect(styles).not.toMatch(/\.wg-food-day-nav__(title|subtitle)\s*\{/);
+    });
 });

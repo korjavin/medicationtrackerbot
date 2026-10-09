@@ -227,79 +227,71 @@ async function uploadFoodPhotoFile(file) {
 
     const eatenAt = await resolveFoodPhotoEatenAt(file);
 
-    const photoBtn = document.getElementById('add-food-photo-btn');
-    const originalLabel = photoBtn ? photoBtn.querySelector('.wg-toolbar-btn__label') : null;
-    const restoreLabel = originalLabel ? originalLabel.textContent : 'Photo';
-
-    await withSubmit(photoBtn, async () => {
-        if (originalLabel) originalLabel.textContent = 'Analyzing…';
-
+    // ponytail: no in-flight cue since the Photo pill left the day row
+    // (med-xso6.16); the Add sheet (med-xso6.17) owns the photo flow's UI.
+    try {
+        let items, failed;
+        // The photo never leaves the device via /api — it goes straight
+        // from the browser to the user's own AI provider
+        // (web/domain/foodai.js + web/cloud/js/aiclient.js).
+        // Trial path may refuse with trial_consent_required; the
+        // TrialConsent seam shows the disclosure dialog and reruns
+        // the parse once on Allow (bd med-yor.2 Task 4).
+        const parsePhoto = () => window.CloudFoodAI.parseMealFromPhoto(file, { eatenAt });
+        let result;
         try {
-            let items, failed;
-            // The photo never leaves the device via /api — it goes straight
-            // from the browser to the user's own AI provider
-            // (web/domain/foodai.js + web/cloud/js/aiclient.js).
-            // Trial path may refuse with trial_consent_required; the
-            // TrialConsent seam shows the disclosure dialog and reruns
-            // the parse once on Allow (bd med-yor.2 Task 4).
-            const parsePhoto = () => window.CloudFoodAI.parseMealFromPhoto(file, { eatenAt });
-            let result;
-            try {
-                result = (window.TrialConsent && typeof window.TrialConsent.retryAfterConsent === 'function')
-                    ? await window.TrialConsent.retryAfterConsent(parsePhoto)
-                    : await parsePhoto();
-            } catch (aiErr) {
-                throw aiErr;
-            }
-            items = Array.isArray(result.items) ? result.items : [];
-            failed = Math.max(0, Math.trunc(Number(result.failed) || 0));
-
-            // Optimistic projection: append the server-returned items into the
-            // day's cached payload before triggering the re-renders. This keeps
-            // the macros card + list in sync without waiting on a refetch round
-            // trip; the subsequent invalidateTags + reloads reconcile against
-            // authoritative server-grouped data.
-            if (items.length && window.DataStore && typeof window.DataStore.applyOptimistic === 'function') {
-                const localDay = toISODateLocalForPhoto(eatenAt);
-                const v2Key = `food_${localDay}_v2`;
-                const dayKey = typeof todayFoodKey === 'function'
-                    ? todayFoodKey(eatenAt)
-                    : `food_${localDay}_day`;
-                const appendMutator = (prev) => appendPhotoItemsToFoodCache(prev, items);
-                const handles = [
-                    await window.DataStore.applyOptimistic(v2Key, appendMutator, ['food']),
-                    await window.DataStore.applyOptimistic(dayKey, appendMutator, ['food'])
-                ];
-                for (const h of handles) { try { await h.commit(null); } catch (_) { /* best-effort */ } }
-            }
-
-            await window.DataStore.invalidateTags(['food', 'gamification']);
-            if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
-                await window.DataStore.clearCached(todayFoodKey(new Date()));
-            }
-            loadFoodLogs();
-            if (typeof loadToday === 'function') loadToday();
-
-            if (typeof showFoodPhotoSummary === 'function' && items.length) {
-                let summaryHandle;
-                summaryHandle = showFoodPhotoSummary({
-                    items,
-                    failed,
-                    onUndo: () => undoFoodAIItems(items, summaryHandle),
-                });
-            } else {
-                const suffix = failed > 0 ? ` (${failed} failed)` : '';
-                safeToast(items.length
-                    ? `Logged ${items.length} item${items.length === 1 ? '' : 's'}${suffix}.`
-                    : 'Photo logged.', 'info');
-            }
-        } catch (e) {
-            console.error('Food photo upload failed:', e);
-            safeToast('Failed to log food from photo: ' + (e.message || e), 'error');
-        } finally {
-            if (originalLabel) originalLabel.textContent = restoreLabel;
+            result = (window.TrialConsent && typeof window.TrialConsent.retryAfterConsent === 'function')
+                ? await window.TrialConsent.retryAfterConsent(parsePhoto)
+                : await parsePhoto();
+        } catch (aiErr) {
+            throw aiErr;
         }
-    });
+        items = Array.isArray(result.items) ? result.items : [];
+        failed = Math.max(0, Math.trunc(Number(result.failed) || 0));
+
+        // Optimistic projection: append the server-returned items into the
+        // day's cached payload before triggering the re-renders. This keeps
+        // the macros card + list in sync without waiting on a refetch round
+        // trip; the subsequent invalidateTags + reloads reconcile against
+        // authoritative server-grouped data.
+        if (items.length && window.DataStore && typeof window.DataStore.applyOptimistic === 'function') {
+            const localDay = toISODateLocalForPhoto(eatenAt);
+            const v2Key = `food_${localDay}_v2`;
+            const dayKey = typeof todayFoodKey === 'function'
+                ? todayFoodKey(eatenAt)
+                : `food_${localDay}_day`;
+            const appendMutator = (prev) => appendPhotoItemsToFoodCache(prev, items);
+            const handles = [
+                await window.DataStore.applyOptimistic(v2Key, appendMutator, ['food']),
+                await window.DataStore.applyOptimistic(dayKey, appendMutator, ['food'])
+            ];
+            for (const h of handles) { try { await h.commit(null); } catch (_) { /* best-effort */ } }
+        }
+
+        await window.DataStore.invalidateTags(['food', 'gamification']);
+        if (typeof todayFoodKey === 'function' && window.DataStore.clearCached) {
+            await window.DataStore.clearCached(todayFoodKey(new Date()));
+        }
+        loadFoodLogs();
+        if (typeof loadToday === 'function') loadToday();
+
+        if (typeof showFoodPhotoSummary === 'function' && items.length) {
+            let summaryHandle;
+            summaryHandle = showFoodPhotoSummary({
+                items,
+                failed,
+                onUndo: () => undoFoodAIItems(items, summaryHandle),
+            });
+        } else {
+            const suffix = failed > 0 ? ` (${failed} failed)` : '';
+            safeToast(items.length
+                ? `Logged ${items.length} item${items.length === 1 ? '' : 's'}${suffix}.`
+                : 'Photo logged.', 'info');
+        }
+    } catch (e) {
+        console.error('Food photo upload failed:', e);
+        safeToast('Failed to log food from photo: ' + (e.message || e), 'error');
+    }
 }
 
 // toISODateLocalForPhoto mirrors features/food/log.js's toISODateLocal but is
