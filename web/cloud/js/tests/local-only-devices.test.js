@@ -12,7 +12,7 @@ vi.mock('../crypto.js', () => ({
 
 import { auditEnvelope } from '../crypto.js';
 import { renderDeviceList } from '../devices.js';
-import { installDialogs, answerDialog } from './helpers/dialogs.js';
+import { installDialogs, installRowActions, answerDialog } from './helpers/dialogs.js';
 
 let dom;
 let app;
@@ -30,6 +30,7 @@ beforeEach(() => {
   vi.stubGlobal('navigator', dom.window.navigator);
   vi.stubGlobal('window', dom.window);
   installDialogs(dom.window);
+  installRowActions(dom.window);
   global.fetch = vi.fn(async () => ({ ok: true, json: async () => DEVICES }));
   app = dom.window.document.getElementById('app');
 });
@@ -42,7 +43,7 @@ afterEach(() => {
 });
 
 async function renderAndSettle() {
-  renderDeviceList(app, ctx, vi.fn());
+  renderDeviceList(app, ctx, {});
   await vi.waitFor(() => {
     if (!app.querySelector('#add-device-button')) throw new Error('not rendered yet');
   });
@@ -66,7 +67,9 @@ describe('local-only device list (devices.js)', () => {
   it('explains local-only removal differently from revocation', async () => {
     await renderAndSettle();
     const rows = app.querySelectorAll('#device-list .device-row');
-    const buttons = [...app.querySelectorAll('#device-list .device-row button')];
+    // Revoke/Remove live in each row's overflow menu (kit S4, med-xso6.25).
+    const buttons = [...app.querySelectorAll('#device-list .device-row .wg-menu__item--danger')];
+    expect(buttons[1].textContent).toContain('Remove');
     buttons[1].click();
     // The app's styled in-page dialog, never a native confirm() (med-v83g).
     const local = await answerDialog(dom.window.document, false);

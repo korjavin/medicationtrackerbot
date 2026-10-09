@@ -11446,6 +11446,32 @@ input:checked+.toggle-slider:before {
     min-width: 0;
 }
 
+/* Multi-line config snippet on the Claude connector page (web/cloud/js/
+   connectors.js): scrolls sideways instead of widening the page. */
+.wg-code-block {
+    margin: 0;
+    overflow-x: auto;
+    font: 500 var(--wg-fs-xs)/1.5 var(--wg-font-mono);
+    color: var(--wg-fg-2);
+}
+
+/* A code the user must read in full and type (the Add a device fallback
+   code): wraps instead of ellipsis-truncating. */
+.wg-code--wrap {
+    height: auto;
+    padding-block: var(--space-sm);
+}
+
+.wg-code--wrap > span {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+/* An empty error slot (e.g. the Add a device page) takes no gap. */
+.wg-page .wg-error:empty {
+    display: none;
+}
+
 .wg-invite-modal__url {
     display: block;
     font-size: var(--font-size-sm);

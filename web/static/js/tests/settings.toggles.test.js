@@ -597,15 +597,157 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             window.__MEDTRACKER_CLOUD__ = true;
             await window.loadSettings();
             expect(document.querySelector('.wg-settings-cloud-devices').classList.contains('wg-settings-hidden')).toBe(false);
-            expect(document.getElementById('settings-devices-link').getAttribute('href')).toBe('/devices');
-            // med-lyv split the connector picker onto its own page; the two rows
-            // used to land on the same screen, which is what made the MCP
-            // controls look like a property of the device list.
-            expect(document.getElementById('settings-claude-connector-link').getAttribute('href')).toBe('/connectors');
+            // med-xso6.25: no more links out to the passkey shell's /devices and
+            // /connectors pages — both are in-app pages now.
+            expect(document.querySelector('[data-settings-page="devices"] a[href="/devices"], [data-settings-page="devices"] a[href="/connectors"]')).toBeNull();
         } finally {
             delete window.__MEDTRACKER_CLOUD__;
             cleanup();
         }
+    });
+
+    // med-xso6.25 (kit S4–S5): the device list, add-device transfer and Claude
+    // connector render inside Settings pages from the cloud modules
+    // (web/cloud/js/devices.js, transfer.js, connectors.js — their own suites
+    // cover the rendering); this pins the bridge. The modules come in through
+    // the load*Module seams, like the privacy module above.
+    describe('Devices & connectors page', () => {
+        const installCloudModules = (window) => {
+            const flow = { cancel: vi.fn(async () => true), stop: vi.fn() };
+            const devices = {
+                renderDeviceList: vi.fn((mount, ctx, hooks) => {
+                    mount.innerHTML = '<button type="button" id="add-device-button" class="wg-btn wg-btn--primary">Add a device</button>';
+                    mount.querySelector('#add-device-button').addEventListener('click', hooks.onAddDevice);
+                    hooks.onLoaded([{}, {}]);
+                }),
+            };
+            const transfer = { renderAddDevice: vi.fn(() => flow) };
+            const connectors = { renderConnectors: vi.fn(), claudeConnectorMode: vi.fn(async () => 'remote') };
+            window.loadCloudDevicesModule = () => Promise.resolve(devices);
+            window.loadCloudTransferModule = () => Promise.resolve(transfer);
+            window.loadCloudConnectorsModule = () => Promise.resolve(connectors);
+            return { flow, devices, transfer, connectors };
+        };
+
+        const mountCloud = async (window) => {
+            window.__MEDTRACKER_CLOUD__ = true;
+            window.MedTrackerCloud = { ctx: { accountId: 'acct-1', dek: 'dek' } };
+            window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+            window.fetch = vi.fn(async () => ({ ok: true, json: async () => [{ credential_id: 'c', created_at: '2026-07-01T00:00:00Z' }] }));
+            await window.loadSettings();
+        };
+
+        const topPage = (document) => Array.from(document.querySelectorAll('mt-modal.wg-page[id^="wg-page-"]')).pop();
+        const topTitle = (document) => topPage(document)?.querySelector('.wg-pagebar__title').textContent;
+
+        it('mounts the device list into the pushed page and refreshes the row summaries from it', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                const m = installCloudModules(window);
+                await mountCloud(window);
+
+                const page = window.SettingsView.openSettingsPage('devices');
+                await vi.waitFor(() => expect(m.devices.renderDeviceList).toHaveBeenCalledTimes(1));
+                const [mount, ctx] = m.devices.renderDeviceList.mock.calls[0];
+                expect(mount.id).toBe('settings-devices-mount');
+                expect(page.el.contains(mount)).toBe(true);
+                expect(ctx.accountId).toBe('acct-1');
+
+                await vi.waitFor(() => expect(document.querySelector('[data-settings-summary="devices"]').textContent).toBe('2 devices'));
+                await vi.waitFor(() => expect(document.getElementById('settings-claude-connector-status').textContent).toBe('Remote · claude.ai / ChatGPT'));
+
+                // Kit S4: "Add a device" is the page's one sun primary; the
+                // Emergency Kit row is sensitive (danger) but not a primary.
+                expect(page.el.querySelectorAll('.wg-btn--primary')).toHaveLength(1);
+                const kit = document.getElementById('settings-emergency-kit-row');
+                expect(kit.classList.contains('wg-setting--danger')).toBe(true);
+                expect(page.el.contains(kit)).toBe(true);
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        it('Add a device pushes the transfer page, whose Back cancels the code server-side first', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                const m = installCloudModules(window);
+                await mountCloud(window);
+                const page = window.SettingsView.openSettingsPage('devices');
+                await vi.waitFor(() => expect(m.devices.renderDeviceList).toHaveBeenCalledTimes(1));
+
+                page.el.querySelector('#add-device-button').click();
+                await vi.waitFor(() => expect(topTitle(document)).toBe('Add a device'));
+                const [body, ctx] = m.transfer.renderAddDevice.mock.calls[0];
+                expect(topPage(document).contains(body)).toBe(true);
+                expect(ctx.accountId).toBe('acct-1');
+
+                // A failed cancel keeps the page: leaving would imply the code is dead.
+                m.flow.cancel.mockResolvedValueOnce(false);
+                topPage(document).querySelector('.wg-back').click();
+                await vi.waitFor(() => expect(m.flow.cancel).toHaveBeenCalledTimes(1));
+                await new Promise((r) => setTimeout(r, 0));
+                expect(topTitle(document)).toBe('Add a device');
+                expect(m.flow.stop).not.toHaveBeenCalled();
+
+                topPage(document).querySelector('.wg-back').click();
+                await vi.waitFor(() => expect(topTitle(document)).toBe('Devices & connectors'));
+                expect(m.flow.stop).toHaveBeenCalledTimes(1);
+                // Back on the list, freshly loaded (shows the new device).
+                await vi.waitFor(() => expect(m.devices.renderDeviceList).toHaveBeenCalledTimes(2));
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        it('the Claude connector row pushes the connector page (kit S5) and refreshes its status on close', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                const m = installCloudModules(window);
+                await mountCloud(window);
+                window.SettingsView.openSettingsPage('devices');
+                await vi.waitFor(() => expect(m.connectors.claudeConnectorMode).toHaveBeenCalledTimes(1));
+
+                document.getElementById('settings-claude-connector-row').click();
+                await vi.waitFor(() => expect(topTitle(document)).toBe('Claude connector'));
+                const [body, ctx] = m.connectors.renderConnectors.mock.calls[0];
+                expect(topPage(document).contains(body)).toBe(true);
+                expect(ctx.accountId).toBe('acct-1');
+                expect(topPage(document).querySelector('.wg-back').textContent).toBe('Devices');
+
+                const before = m.connectors.claudeConnectorMode.mock.calls.length;
+                topPage(document).querySelector('.wg-back').click();
+                await vi.waitFor(() => expect(m.connectors.claudeConnectorMode.mock.calls.length).toBeGreaterThan(before));
+                expect(topTitle(document)).toBe('Devices & connectors');
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        it('the deeplink opens Devices, and Connectors on top of it; never outside cloud mode', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                installCloudModules(window);
+                delete window.__MEDTRACKER_CLOUD__;
+                window.SettingsView.openDevicesDeeplink('connectors');
+                expect(document.querySelector('mt-modal.wg-page[id^="wg-page-"]')).toBeNull();
+
+                await mountCloud(window);
+                window.SettingsView.openDevicesDeeplink('connectors');
+                await vi.waitFor(() => expect(topTitle(document)).toBe('Claude connector'));
+                expect(Array.from(document.querySelectorAll('mt-modal.wg-page[id^="wg-page-"]')).map((p) => p.querySelector('.wg-pagebar__title').textContent))
+                    .toEqual(['Devices & connectors', 'Claude connector']);
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
     });
 
     // med-d5t.9 — "What can the operator see?" transparency section. settings.js
@@ -984,7 +1126,9 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                 await mountCloud(window);
 
                 expect(document.getElementById('second-device-nudge').classList.contains('wg-settings-hidden')).toBe(false);
-                expect(document.getElementById('second-device-nudge-add').getAttribute('href')).toBe('/devices');
+                // The nudge sits on the Devices page right above its one
+                // primary, "Add a device" (kit S4) — it carries no second one.
+                expect(document.getElementById('second-device-nudge').querySelector('a, .wg-btn--primary')).toBeNull();
             } finally {
                 delete window.__MEDTRACKER_CLOUD__;
                 cleanup();

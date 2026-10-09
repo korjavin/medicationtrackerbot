@@ -303,7 +303,7 @@ async function mintInvite() {
 
 // Second-device safety nudge (med-4pz.4). A single-device account can only be
 // opened from that one device: lose it without the Emergency Kit and the vault
-// is gone. Enrollment already exists (/devices → Add a device), but nothing
+// is gone. Enrollment already exists (Devices & connectors → Add a device), but nothing
 // prompted a single-device user toward it. This is a dismissible card, not a
 // mandatory step — with the kit properly saved (med-d5t.2) a second device is
 // defence in depth, hence a gentle nudge rather than a gate.
@@ -325,9 +325,8 @@ function secondDeviceNudgeDismissKey() {
 // Memoized for the page's lifetime (med-0ol.6): loadSettings() re-runs on every
 // tab repaint, and a cloud write repaints the open tab. A bulk .nxk import fires
 // hundreds of writes, so an un-memoized fetch here fanned a single import out
-// into thousands of /api/devices requests. The single-device count is stable
-// within a session — adding a device navigates through the /devices shell (full
-// reload, which re-inits this module) — so one fetch per load is all it needs.
+// into thousands of /api/devices requests. The count only changes from the
+// Devices page, whose list load hands the fresh count back (noteDeviceList).
 let _deviceCountPromise = null; // module-state: memoize the /api/devices fetch for the page's lifetime so a repaint storm can't fan it out (med-0ol.6)
 function fetchDeviceCount() {
     if (!_deviceCountPromise) {
@@ -368,6 +367,115 @@ async function bindSecondDeviceNudge() {
     // card hidden rather than nagging on incomplete information.
     const count = await fetchDeviceCount();
     nudge.classList.toggle('wg-settings-hidden', count !== 1);
+}
+
+// ---- Devices & connectors page (med-xso6.25, kit S4–S5) --------------------
+// The cloud modules render into the page (same origin, /js/*.js); this is only
+// the bridge. Each open re-renders the list, so it is never stale. The modules
+// are dynamic-imported through these seams so a test can swap them.
+// ponytail: no memoization — import() caches by specifier.
+function loadCloudDevicesModule() { return import('/js/devices.js'); }
+function loadCloudTransferModule() { return import('/js/transfer.js'); }
+function loadCloudConnectorsModule() { return import('/js/connectors.js'); }
+
+// The Emergency Kit rotation is a full-document ceremony (fresh passkey
+// assertion + the kit's download/print gate) and stays on the passkey shell;
+// it returns here when done. Fixed same-origin path.
+const EMERGENCY_KIT_URL = '/devices?flow=emergency-kit';
+
+const CONNECTOR_STATUS_TEXT = {
+    remote: 'Remote · claude.ai / ChatGPT',
+    local: 'Local shim · Claude Code',
+    none: 'Not connected',
+};
+
+function cloudCtx() {
+    return window.__MEDTRACKER_CLOUD__ ? window.MedTrackerCloud?.ctx || null : null;
+}
+
+// The list load already fetched /api/devices; reuse it for the home-row
+// summary and the nudge instead of a second request.
+function noteDeviceList(devices) {
+    _deviceCountPromise = Promise.resolve(devices.length);
+    refreshDevicesSummary();
+    bindSecondDeviceNudge();
+}
+
+async function mountCloudDevices() {
+    const ctx = cloudCtx();
+    const mount = document.getElementById('settings-devices-mount');
+    if (!ctx || !mount) return;
+    try {
+        const { renderDeviceList } = await loadCloudDevicesModule();
+        renderDeviceList(mount, ctx, { onAddDevice: openAddDevicePage, onLoaded: noteDeviceList });
+    } catch (e) {
+        console.error('devices module failed to load', e);
+        mount.textContent = 'Could not load your devices. Check your connection and reopen this page.';
+    }
+    refreshConnectorStatus(ctx);
+}
+
+async function refreshConnectorStatus(ctx) {
+    const el = document.getElementById('settings-claude-connector-status');
+    if (!el) return;
+    try {
+        const { claudeConnectorMode } = await loadCloudConnectorsModule();
+        el.textContent = CONNECTOR_STATUS_TEXT[await claudeConnectorMode(ctx)] || '';
+    } catch (_) { /* keep the static description */ }
+}
+
+// "Add a device" pushes its own page. Back runs the flow's server-side cancel
+// and refuses to leave if that fails: leaving would imply a live code is dead.
+async function openAddDevicePage() {
+    const ctx = cloudCtx();
+    if (!ctx || !window.WGPage) return;
+    const { renderAddDevice } = await loadCloudTransferModule();
+    const body = document.createElement('div');
+    body.className = 'wg-vstack';
+    let page = null;
+    const flow = renderAddDevice(body, ctx, () => page && page.close());
+    page = window.WGPage.push({
+        title: 'Add a device',
+        back: 'Devices',
+        body,
+        onBack: () => flow.cancel(),
+        onClose: () => {
+            flow.stop();
+            mountCloudDevices();
+        },
+    });
+}
+
+async function openConnectorPage() {
+    const ctx = cloudCtx();
+    if (!ctx || !window.WGPage) return;
+    const { renderConnectors } = await loadCloudConnectorsModule();
+    const body = document.createElement('div');
+    body.className = 'wg-vstack';
+    renderConnectors(body, ctx);
+    window.WGPage.push({
+        title: 'Claude connector',
+        back: 'Devices',
+        body,
+        onClose: () => refreshConnectorStatus(ctx),
+    });
+}
+
+let _cloudDevicesBound = false; // module-state: bind the Devices page rows once across repeated loadSettings() calls
+function bindCloudDevicesPage() {
+    if (_cloudDevicesBound) return;
+    _cloudDevicesBound = true;
+    document.getElementById('settings-claude-connector-row')?.addEventListener('click', openConnectorPage);
+    document.getElementById('settings-emergency-kit-row')?.addEventListener('click', () => {
+        window.location.assign(EMERGENCY_KIT_URL);
+    });
+}
+
+// ?tab=settings&page=devices|connectors (deeplink-router.js; the old shell
+// pages /devices and /connectors redirect here).
+function openDevicesDeeplink(target) {
+    if (!cloudCtx() || !openSettingsPage('devices')) return;
+    if (target === 'connectors') openConnectorPage();
 }
 
 // "What can the operator see?" transparency section (med-d5t.9). The content
@@ -557,9 +665,10 @@ async function loadSettings() {
         // updateWeeklyDigestVisibility hides it when gamification is off.
         document.querySelector('.wg-settings-notifications-cloud')?.classList.remove('wg-settings-hidden');
         await bindCloudNotifications();
-        // Devices row (add/manage a second device) only makes sense in cloud
-        // mode — server/mobile builds have no /devices shell route.
+        // Devices & connectors only make sense in cloud mode — server/mobile
+        // builds have no vault devices or relay.
         document.querySelector('.wg-settings-cloud-devices')?.classList.remove('wg-settings-hidden');
+        bindCloudDevicesPage();
         await bindSecondDeviceNudge();
         await bindOperatorVisibility();
         bindDeleteAccount();
@@ -740,6 +849,7 @@ function openSettingsPage(name) {
             refreshSettingsSummaries();
         },
     });
+    if (name === 'devices') mountCloudDevices();
     return page;
 }
 
@@ -1144,6 +1254,7 @@ function updateFeatureTabVisibility() {
 window.SettingsView = {
     loadSettings,
     openSettingsPage,
+    openDevicesDeeplink,
     saveTargets,
     mintInvite,
     updateFeatureToggles,

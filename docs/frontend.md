@@ -216,7 +216,9 @@ popstate all close the most recently opened modal through its registered close
 function (`ModalManager.register(id, fn)`), and `#modal-overlay` hides only when
 nothing on the stack is still visible. Nested editors use pushed pages
 (`components/wg-page.js`, `WGPage.push`) on the same stack instead of
-modal-on-modal. Full-document flows (`/devices`, `/connectors`) stay out of it.
+modal-on-modal. Full-document passkey ceremonies (the Emergency Kit rotation at
+`/devices?flow=emergency-kit`, unlock/claim/recover) stay out of it and return
+to an in-app deeplink (`?tab=settings&page=devices`, `features/deeplink-router.js`).
 
 **Sheets.** Form and flow modals are kit bottom sheets: an
 `<mt-modal class="wg-modal wg-sheet">` with `.wg-sheethead` (eyebrow + title;

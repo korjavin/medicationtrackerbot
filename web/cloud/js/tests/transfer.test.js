@@ -33,6 +33,7 @@ const ctx = { accountId: 'acct-1', dek: new Uint8Array(32) };
 let dom;
 let app;
 let onExit;
+let flow;         // renderAddDevice's controller (the host page's Back)
 let slotStatus;   // what GET /api/transfer/<id> reports
 let deleteStatus; // what DELETE returns
 let calls;
@@ -96,7 +97,7 @@ afterEach(() => {
 
 // renderAddDevice kicks off async work; settle it, then let the fake clock run.
 async function mountTransferScreen() {
-  renderAddDevice(app, ctx, onExit);
+  flow = renderAddDevice(app, ctx, onExit);
   await vi.waitFor(() => {
     if (!app.querySelector('#transfer-cancel')) throw new Error('not rendered yet');
   });
@@ -199,5 +200,56 @@ describe('Add a device — Cancel must mean cancelled (med-tuv)', () => {
     const after = calls.length;
     await vi.advanceTimersByTimeAsync(10000);
     expect(calls.length).toBe(after);
+  });
+});
+
+// med-xso6.25: the flow mounts in the app's "Add a device" page, whose Back is
+// the controller's cancel() — the same server-side cancel as the Cancel button.
+describe('Add a device — host page Back (med-xso6.25)', () => {
+  it('cancel() deletes the live slot and resolves true', async () => {
+    await mountTransferScreen();
+
+    await expect(flow.cancel()).resolves.toBe(true);
+    expect(calls).toContain(`DELETE /api/transfer/${SLOT_ID}`);
+    const after = calls.length;
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(calls.length).toBe(after);
+  });
+
+  it('cancel() resolves false and shows the error when the delete fails — the page must stay', async () => {
+    deleteStatus = 500;
+    await mountTransferScreen();
+
+    await expect(flow.cancel()).resolves.toBe(false);
+    expect(app.querySelector('#transfer-error').textContent).toMatch(/may still work/i);
+  });
+
+  it('cancel() after a claim makes no request — there is nothing live to cancel', async () => {
+    await mountTransferScreen();
+    slotStatus = 'claimed';
+    await vi.advanceTimersByTimeAsync(2000);
+    await vi.waitFor(() => {
+      if (!app.textContent.includes('Device added')) throw new Error('no success state');
+    });
+
+    calls.length = 0;
+    await expect(flow.cancel()).resolves.toBe(true);
+    expect(calls.filter((c) => c.startsWith('DELETE'))).toEqual([]);
+  });
+
+  it('stop() from a close that bypassed Back still deletes a live slot', async () => {
+    await mountTransferScreen();
+
+    flow.stop();
+    await vi.waitFor(() => expect(calls).toContain(`DELETE /api/transfer/${SLOT_ID}`));
+    const after = calls.length;
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(calls.length).toBe(after);
+  });
+
+  it('renders into the mount with no page chrome of its own', async () => {
+    await mountTransferScreen();
+    expect(app.querySelector('h1')).toBeNull();
+    expect(app.querySelector('#transfer-fallback').closest('.wg-code')).not.toBeNull();
   });
 });

@@ -144,12 +144,45 @@ describe('connectors.js Claude connector mode picker', () => {
     await renderAndSettle();
 
     app.querySelector('#claude-disconnect-button').dispatchEvent(new dom.window.Event('click'));
+    // Kit S5: danger-ghost → destructive dialog → filled clay confirm.
+    const dialog = await answerDialog(dom.window.document, true);
+    expect(dialog.querySelector('.wg-dialog__title').textContent).toBe('Disconnect Claude?');
+    expect(dialog.querySelector('.mt-confirm-modal__confirm').classList.contains('wg-btn--danger')).toBe(true);
     await vi.waitFor(() => {
       if (disconnectRemote.mock.calls.length === 0) throw new Error('not called yet');
     });
 
     expect(disconnectRemote).toHaveBeenCalledWith(ctx);
     expect(disconnectClaude).not.toHaveBeenCalled();
+  });
+
+  it('declining the disconnect dialog keeps the connector', async () => {
+    getPairing.mockResolvedValue({ recordId: 'mcppairing' });
+    getRemoteStatus.mockResolvedValue({ enabled: true, url: REMOTE_URL });
+    await renderAndSettle();
+
+    expect(app.querySelector('#claude-disconnect-button').classList.contains('wg-btn--danger-ghost')).toBe(true);
+    app.querySelector('#claude-disconnect-button').dispatchEvent(new dom.window.Event('click'));
+    await answerDialog(dom.window.document, false);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(disconnectRemote).not.toHaveBeenCalled();
+    expect(disconnectClaude).not.toHaveBeenCalled();
+  });
+
+  // Kit S5: the connector URL is a .wg-code field whose Copy writes it to the
+  // clipboard.
+  it('copies the connector URL from its code field', async () => {
+    getPairing.mockResolvedValue({ recordId: 'mcppairing' });
+    getRemoteStatus.mockResolvedValue({ enabled: true, url: REMOTE_URL });
+    const writeText = vi.fn(async () => {});
+    Object.defineProperty(dom.window.navigator, 'clipboard', { value: { writeText }, configurable: true });
+    await renderAndSettle();
+
+    const copy = app.querySelector('#claude-remote-copy-current');
+    expect(copy.closest('.wg-code').querySelector('#claude-remote-url-current')).not.toBeNull();
+    copy.click();
+    expect(writeText).toHaveBeenCalledWith(REMOTE_URL);
   });
 
   it('disconnect calls disconnectClaude when the local mode is active', async () => {
@@ -165,6 +198,7 @@ describe('connectors.js Claude connector mode picker', () => {
     expect(app.querySelector('#claude-remote-connect-button').hidden).toBe(false);
 
     app.querySelector('#claude-disconnect-button').dispatchEvent(new dom.window.Event('click'));
+    await answerDialog(dom.window.document, true);
     await vi.waitFor(() => {
       if (disconnectClaude.mock.calls.length === 0) throw new Error('not called yet');
     });
