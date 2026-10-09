@@ -42,6 +42,7 @@
         ttfrMs: null,
         status: 'Disconnected',
         log: [],
+        logOpen: false,
     };
 
     var els = {};
@@ -120,9 +121,27 @@
         return state.readings + ' readings over ' + secs + 's';
     }
 
+    // Status chip state: live = ok, in flight = pending, failure = danger,
+    // idle = neutral (kit chips carry status, never the text colour).
+    function statusChipState() {
+        if (state.connected) return 'ok';
+        if (state.busy) return 'pending';
+        if (/^(Error|No heart-rate)/.test(state.status)) return 'danger';
+        return '';
+    }
+
+    function paintStatus() {
+        if (!els.status) return;
+        els.status.textContent = state.status;
+        var chipState = statusChipState();
+        ['ok', 'pending', 'danger'].forEach(function (s) {
+            els.status.classList.toggle('wg-chip--' + s, s === chipState);
+        });
+    }
+
     function render() {
         if (!els.card) return;
-        els.status.textContent = state.status;
+        paintStatus();
         els.bpm.textContent = state.bpm === null ? '—' : String(state.bpm);
         els.ttfr.textContent = 'Time to first reading: ' + (state.ttfrMs === null ? '—' : fmtSecs(state.ttfrMs));
         els.device.textContent = state.deviceName ? 'Device: ' + state.deviceName : '';
@@ -135,12 +154,18 @@
         els.disconnect.classList.toggle('hidden', !state.connected && !state.busy);
         els.disconnect.disabled = state.busy;
         els.copy.disabled = state.log.length === 0;
-        if (els.log) els.log.textContent = state.log.join('\n');
+        els.copy.classList.toggle('hidden', !state.logOpen);
+        els.logToggle.textContent = state.logOpen ? 'Hide log' : 'Show log';
+        els.logToggle.setAttribute('aria-expanded', state.logOpen ? 'true' : 'false');
+        if (els.log) {
+            els.log.textContent = state.log.join('\n');
+            els.log.classList.toggle('hidden', !state.logOpen);
+        }
     }
 
     function setStatus(text) {
         state.status = text;
-        if (els.status) els.status.textContent = text;
+        paintStatus();
     }
 
     function ensureMounted() {
@@ -154,15 +179,19 @@
         }
         var card = mk('section', 'wg-card wg-live-hr hidden');
         card.id = CARD_ID;
-        card.appendChild(mk('div', 'wg-section-label', 'EXPERIMENTAL'));
-        card.appendChild(mk('div', 'wg-mono-display wg-live-hr__title', 'Live heart rate'));
+        var head = mk('div', 'wg-live-hr__head');
+        var titles = mk('div', 'wg-live-hr__titles');
+        titles.appendChild(mk('div', 'wg-section-label', 'EXPERIMENTAL'));
+        titles.appendChild(mk('div', 'wg-mono-display wg-live-hr__title', 'Live heart rate'));
+        head.appendChild(titles);
+        els.status = mk('span', 'wg-chip wg-chip--sm wg-live-hr__status', state.status);
+        els.status.id = 'live-hr-status';
+        els.status.setAttribute('role', 'status');
+        head.appendChild(els.status);
+        card.appendChild(head);
         card.appendChild(mk('p', 'wg-live-hr__hint wg-muted',
             'On the band or its app, enable Discoverable + heart-rate broadcast first ' +
             '(Zepp Life / Mi Fitness). Readings stay on this page — nothing is saved.'));
-
-        els.status = mk('div', 'wg-live-hr__status', state.status);
-        els.status.id = 'live-hr-status';
-        card.appendChild(els.status);
 
         var bpmRow = mk('div', 'wg-live-hr__bpm-row');
         els.bpm = mk('span', 'wg-mono-display wg-live-hr__bpm', '—');
@@ -182,29 +211,43 @@
         card.appendChild(els.readings);
 
         var actions = mk('div', 'wg-live-hr__actions');
-        els.connect = mk('button', 'wg-gloss wg-gloss--sun wg-live-hr__connect', 'Connect');
+        els.connect = mk('button', 'wg-btn wg-btn--primary wg-btn--sm wg-live-hr__connect', 'Connect');
         els.connect.id = 'live-hr-connect-btn';
         els.connect.type = 'button';
         els.connect.addEventListener('click', onConnectClick);
         actions.appendChild(els.connect);
-        els.showAll = mk('button', 'wg-gloss wg-live-hr__show-all', 'Show all devices');
+        els.showAll = mk('button', 'wg-btn wg-btn--sm wg-live-hr__show-all', 'Show all devices');
         els.showAll.id = 'live-hr-show-all-btn';
         els.showAll.type = 'button';
         els.showAll.addEventListener('click', onShowAllClick);
         actions.appendChild(els.showAll);
-        els.disconnect = mk('button', 'wg-gloss wg-live-hr__disconnect hidden', 'Disconnect');
+        els.disconnect = mk('button', 'wg-btn wg-btn--sm wg-live-hr__disconnect hidden', 'Disconnect');
         els.disconnect.id = 'live-hr-disconnect-btn';
         els.disconnect.type = 'button';
         els.disconnect.addEventListener('click', onDisconnectClick);
         actions.appendChild(els.disconnect);
-        els.copy = mk('button', 'wg-gloss wg-live-hr__copy', 'Copy log');
+        card.appendChild(actions);
+
+        // The session log is a diagnostics aid: collapsed behind a ghost
+        // toggle so the card reads as a product card, not a debug console.
+        var logActions = mk('div', 'wg-live-hr__actions');
+        els.logToggle = mk('button', 'wg-btn wg-btn--ghost wg-btn--sm wg-live-hr__log-toggle', 'Show log');
+        els.logToggle.id = 'live-hr-log-toggle';
+        els.logToggle.type = 'button';
+        els.logToggle.setAttribute('aria-controls', 'live-hr-log');
+        els.logToggle.addEventListener('click', function () {
+            state.logOpen = !state.logOpen;
+            render();
+        });
+        logActions.appendChild(els.logToggle);
+        els.copy = mk('button', 'wg-btn wg-btn--ghost wg-btn--sm wg-live-hr__copy hidden', 'Copy log');
         els.copy.id = 'live-hr-copy-btn';
         els.copy.type = 'button';
         els.copy.addEventListener('click', onCopyClick);
-        actions.appendChild(els.copy);
-        card.appendChild(actions);
+        logActions.appendChild(els.copy);
+        card.appendChild(logActions);
 
-        els.log = mk('pre', 'wg-gloss--inset wg-live-hr__log', '');
+        els.log = mk('pre', 'wg-gloss--inset wg-live-hr__log hidden', '');
         els.log.id = 'live-hr-log';
         els.log.setAttribute('aria-label', 'Live heart rate session log');
         card.appendChild(els.log);
@@ -227,6 +270,7 @@
         els.showAll = document.getElementById('live-hr-show-all-btn');
         els.disconnect = document.getElementById('live-hr-disconnect-btn');
         els.copy = document.getElementById('live-hr-copy-btn');
+        els.logToggle = document.getElementById('live-hr-log-toggle');
         els.log = document.getElementById('live-hr-log');
     }
 

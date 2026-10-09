@@ -170,7 +170,7 @@ describe('Health sleep card (Phase 8, Task 4)', () => {
         window.renderHealthOverviewContent(content, makeData());
         const card = content.querySelector('.wg-sleep-card');
         expect(card).not.toBeNull();
-        // Order: summary tiles → range selector → sleep card.
+        // Order: range selector → summary tiles → sleep card.
         const selector = content.querySelector('#health-range-selector');
         expect(selector).not.toBeNull();
         const selectorIdx = Array.from(content.children).indexOf(selector);

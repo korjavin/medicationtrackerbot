@@ -165,4 +165,38 @@ describe('features/live-hr.js — live-HR card', () => {
         expect(logText(env)).toContain('show-all chooser dismissed — previous grant kept');
         expect(env.document.getElementById('live-hr-connect-btn').textContent).toBe('Reconnect');
     });
+
+    it('kit v2 card: .wg-card, .wg-btn actions, a status chip, and the log collapsed behind Show log (med-xso6.27)', async () => {
+        loaded = loadLiveHrEnv();
+        const { env } = loaded;
+        const doc = env.document;
+        expect(doc.getElementById('live-hr-card').classList.contains('wg-card')).toBe(true);
+        for (const id of ['live-hr-connect-btn', 'live-hr-show-all-btn', 'live-hr-disconnect-btn', 'live-hr-copy-btn', 'live-hr-log-toggle']) {
+            expect(doc.getElementById(id).classList.contains('wg-btn')).toBe(true);
+        }
+        expect(doc.querySelector('#live-hr-card .wg-gloss')).toBeNull();
+
+        const status = doc.getElementById('live-hr-status');
+        expect(status.classList.contains('wg-chip')).toBe(true);
+        expect(status.classList.contains('wg-chip--ok')).toBe(false);
+
+        // Log + Copy are collapsed until the ghost toggle opens them.
+        const toggle = doc.getElementById('live-hr-log-toggle');
+        expect(toggle.classList.contains('wg-btn--ghost')).toBe(true);
+        expect(toggle.getAttribute('aria-expanded')).toBe('false');
+        expect(doc.getElementById('live-hr-log').classList.contains('hidden')).toBe(true);
+        expect(doc.getElementById('live-hr-copy-btn').classList.contains('hidden')).toBe(true);
+
+        doc.getElementById('live-hr-connect-btn').click();
+        await flush();
+        expect(status.classList.contains('wg-chip--ok')).toBe(true);
+        // Still logging while collapsed.
+        expect(logText(env)).toContain('subscribed: 0x2A37 notifications flowing');
+
+        toggle.click();
+        expect(toggle.textContent).toBe('Hide log');
+        expect(toggle.getAttribute('aria-expanded')).toBe('true');
+        expect(doc.getElementById('live-hr-log').classList.contains('hidden')).toBe(false);
+        expect(doc.getElementById('live-hr-copy-btn').classList.contains('hidden')).toBe(false);
+    });
 });

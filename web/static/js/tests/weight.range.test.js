@@ -4,7 +4,7 @@
 // Covers the range-selector render helper and its persistence:
 //   • renderWeightRangeSelector({ active, onChange }) — flex row holding
 //     a kit .wg-seg--sm strip with four 7d/30d/90d/All options AND a
-//     trailing shared .wg-toolbar-btn .wg-toolbar-btn--primary
+//     trailing kit .wg-btn .wg-btn--primary
 //     #add-weight-btn (mirrors BP's buildBPInlineAddButton). The active
 //     option is aria-pressed (med-xso6.10).
 //   • getActiveWeightRange / setActiveWeightRange — mt-weight-range
@@ -101,11 +101,10 @@ describe('Weight range selector + chart panel (Phase 6, Task 4)', () => {
 
             const cta = document.getElementById('add-weight-btn');
             expect(cta).not.toBeNull();
-            // Shared Round-2 Task 2 toolbar classes (color-only --primary).
-            expect(cta.classList.contains('wg-toolbar-btn')).toBe(true);
-            expect(cta.classList.contains('wg-toolbar-btn--primary')).toBe(true);
-            // The label span uses the shared .wg-toolbar-btn__label.
-            const label = cta.querySelector('.wg-toolbar-btn__label');
+            // Kit v2 button (med-xso6.27).
+            expect(cta.classList.contains('wg-btn')).toBe(true);
+            expect(cta.classList.contains('wg-btn--primary')).toBe(true);
+            const label = cta.querySelector('span');
             expect(label).not.toBeNull();
             expect(label.textContent).toBe('Log');
             expect(cta.getAttribute('aria-label')).toBe('Log weight');
