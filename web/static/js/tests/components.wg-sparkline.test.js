@@ -51,7 +51,7 @@ describe('WGSparkline.render', () => {
 
     it('emits a line path with deterministic `d` attribute for a 4-point series', () => {
         const svg = env.api.render({ points: [0, 50, 25, 100], width: 90, height: 30 });
-        const line = svg.querySelector('path.wg-spark');
+        const line = svg.querySelector('path.wg-spark-line');
         expect(line).not.toBeNull();
         const d = line.getAttribute('d');
         // 4 points → 3 intervals of 30px each, y scales so min→28 max→2
@@ -91,13 +91,13 @@ describe('WGSparkline.render', () => {
         const svg = env.api.render({ points: [42], variant: 'sun', width: 50, height: 20 });
         expect(svg).not.toBeNull();
         expect(svg.querySelector('path.wg-spark-fill')).toBeNull();
-        expect(svg.querySelector('path.wg-spark')).not.toBeNull();
+        expect(svg.querySelector('path.wg-spark-line')).not.toBeNull();
         expect(svg.querySelector('circle.wg-spark-tail')).not.toBeNull();
     });
 
     it('does not set inline colour on the <path> — stroke comes from CSS class', () => {
         const svg = env.api.render({ points: [1, 2, 3], variant: 'sun' });
-        const line = svg.querySelector('path.wg-spark');
+        const line = svg.querySelector('path.wg-spark-line');
         expect(line.getAttribute('stroke')).toBeNull();
         expect(line.getAttribute('style')).toBeNull();
     });

@@ -3,7 +3,7 @@
 // Ported from the handoff prototype (components.jsx:151-167) with one
 // explicit constraint: the path stroke colour is set in CSS, not via a
 // JS string. The renderer tags the <path> (and the fill + tail circle)
-// with `wg-spark--<variant>` classes, and styles.css maps each variant
+// with `wg-spark-{line,fill,tail}--<variant>` classes, and styles.css maps each variant
 // to a --wg-* token.
 //
 // API:
@@ -68,8 +68,8 @@
 
         const line = document.createElementNS(SVG_NS, 'path');
         line.setAttribute('d', lineD);
-        line.classList.add('wg-spark');
-        if (variant) line.classList.add(`wg-spark--${variant}`);
+        line.classList.add('wg-spark-line');
+        if (variant) line.classList.add(`wg-spark-line--${variant}`);
         svg.appendChild(line);
 
         const tail = document.createElementNS(SVG_NS, 'circle');

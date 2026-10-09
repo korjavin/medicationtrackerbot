@@ -1,18 +1,17 @@
 // Wandergeek toggle primitive.
 //
-// Renders a pill + knob driven by a hidden <input type="checkbox"> so the
-// existing change-event + id-based wiring in app.js (the
-// document.getElementById('<feature>-feature-toggle').addEventListener block
-// near loadSettings()) keeps binding without modification. The unchecked
-// state uses the inset gloss
-// gradient; the checked state flips the pill to the sun gradient, matching
-// the `.wg-gloss--sun` convention used for primary actions everywhere else.
+// Renders the kit .wg-toggle pill (css/components.css) driven by a hidden
+// <input type="checkbox"> so the existing change-event + id-based wiring in
+// app.js (the document.getElementById('<feature>-feature-toggle')
+// .addEventListener block near loadSettings()) keeps binding without
+// modification. The label itself is the pill and its ::after the knob; both
+// paint from the checkbox's :checked state.
 //
 // API:
 //   WGToggle.render({ id, checked, disabled, ariaLabel, onToggle }) -> HTMLElement
 //
 // The returned element is a <label class="wg-toggle"> containing a hidden
-// `<input type="checkbox" id="...">`, a track, and a knob. The hidden input
+// `<input type="checkbox" id="...">`. The hidden input
 // is the source of truth for state — callers can still do
 // `document.getElementById(id).checked` and listen for `change`.
 
@@ -32,14 +31,6 @@
         if (disabled) input.disabled = true;
         if (ariaLabel) input.setAttribute('aria-label', ariaLabel);
 
-        const track = document.createElement('span');
-        track.className = 'wg-toggle__track';
-        track.setAttribute('aria-hidden', 'true');
-
-        const knob = document.createElement('span');
-        knob.className = 'wg-toggle__knob';
-        knob.setAttribute('aria-hidden', 'true');
-
         if (typeof onToggle === 'function') {
             input.addEventListener('change', (e) => {
                 onToggle(e.target.checked, e);
@@ -47,8 +38,6 @@
         }
 
         label.appendChild(input);
-        label.appendChild(track);
-        label.appendChild(knob);
         return label;
     }
 

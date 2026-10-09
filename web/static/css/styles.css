@@ -238,22 +238,25 @@
     --wg-teal: #2D544F;
     --wg-teal-stage: #0f2522;
     --wg-teal-sage: #56AC8A;
-    --wg-mint: #8FC5BC;
+    /* App UI kit v2 renamed the old #8FC5BC mint to --wg-mint-mid and made
+       --wg-mint the brighter #9CE4CC (== --wg-mint-soft). */
+    --wg-mint: #9CE4CC;
     --wg-mint-soft: #9CE4CC;
     --wg-sun: #FBBD0D;
     --wg-sun-deep: #E5A600;
-    --wg-sun-soft: #FFE492;
+    --wg-sun-soft: #FFD870;
     --wg-clay: #C6553A;
     --wg-clay-soft: #F3A693;
 
-    /* Wandergeek — semantic aliases */
+    /* Wandergeek — semantic aliases. --wg-bg-stage is the app background
+       (the kit's --wg-bg-stage is its presentation backdrop, not shipped). */
     --wg-bg-stage: var(--wg-teal-stage);
-    --wg-bg-card: #254844;
+    --wg-bg-card: #21423D;
     --wg-bg-card-inset: #1F3F3B;
     --wg-fg-1: var(--wg-paper);
-    --wg-fg-2: rgba(244, 251, 247, 0.72);
-    --wg-fg-3: rgba(244, 251, 247, 0.55);
-    --wg-fg-4: rgba(244, 251, 247, 0.42);
+    --wg-fg-2: rgba(244, 251, 247, 0.76);
+    --wg-fg-3: rgba(244, 251, 247, 0.6);
+    --wg-fg-4: rgba(244, 251, 247, 0.36);
     --wg-fg-5: rgba(244, 251, 247, 0.32);
     --wg-border-hairline: rgba(255, 255, 255, 0.06);
     --wg-border-strong: rgba(255, 255, 255, 0.12);
@@ -825,22 +828,128 @@
     --wg-settings-version-size: 10px;
     --wg-settings-version-pad: 20px;
 
-    /* Toggle primitive tokens (Phase 9, Task 1) — the new WGToggle primitive
-       uses these for the off / on / focus / disabled visual states. `bg` is
-       the unchecked pill background, `bg-on` the checked gloss-sun
-       background; `knob` / `knob-on` are the circle fills; `border-*` cover
-       default / focus-visible / disabled outline variants. */
-    --wg-toggle-width: 46px;
-    --wg-toggle-height: 26px;
-    --wg-toggle-knob-size: 20px;
-    --wg-toggle-knob-pad: 3px;
-    --wg-toggle-bg: var(--wg-gloss-bg-inset);
-    --wg-toggle-bg-on: var(--wg-gloss-bg-sun);
-    --wg-toggle-knob: var(--wg-ink-70);
-    --wg-toggle-knob-on: var(--wg-ink);
-    --wg-toggle-border: rgba(0, 0, 0, 0.25);
+    /* Focus ring colour (originally the toggle's; now shared by row focus
+       rings). The toggle itself is the kit .wg-toggle in components.css. */
     --wg-toggle-border-focus: var(--wg-sun);
-    --wg-toggle-border-disabled: var(--wg-border-hairline);
+
+    /* ==========================================================================
+       App UI kit v2 foundations (docs/design/claude-design/ui_kits/app-v2/
+       tokens.css). Components live in css/components.css. Same-named palette
+       tokens above already carry the kit values.
+       ========================================================================== */
+
+    /* kit palette additions */
+    --wg-sage: #56AC8A;
+    --wg-mint-mid: #8FC5BC;
+    --wg-sun-hi: #FFD14A;
+    --wg-clay-hi: #D8624A;
+    --wg-clay-deep: #A8442C;
+    --wg-sky: #3FA3E5;
+    --wg-sky-soft: #9FD0F2;
+    --wg-violet: #7A5DB8;
+    --wg-orchid: #C983D9;
+    --wg-leaf: #5CC47B;
+
+    /* kit surfaces (dark only) */
+    --wg-bg-screen: #132D29;
+    --wg-bg-card-hi: #2A4E48;
+    --wg-bg-sheet: #24453F;
+    --wg-bg-inset-a: #162F2B;
+    --wg-bg-inset-b: #1C3934;
+    --wg-bg-raised-a: #3C6B65;
+    --wg-bg-raised-b: #264742;
+    --wg-bg-float: #0E2421;
+    --wg-toggle-bg: #0F2723;
+    --wg-banner-offline-bg: #1B2B29;
+    --wg-banner-warn-bg: #3A3216;
+    --wg-banner-info-bg: #16303F;
+
+    /* kit text + lines */
+    --wg-fg-on-sun: #1A1200;
+    --wg-fg-on-clay: #FFFFFF;
+    --wg-line: rgba(255, 255, 255, 0.07);
+    --wg-line-strong: rgba(255, 255, 255, 0.14);
+    --wg-line-dark: rgba(0, 0, 0, 0.28);
+
+    /* Semantic status — every chip, tag, row state and banner reads from these
+       five families. They replace the per-surface --wg-bp-status-*,
+       --wg-meds-status-* and --wg-tag-(normal|high|alert)-* tokens as screens
+       move onto the kit. No braces in :root comments — the token guards cut
+       the block at the first closing brace. */
+    --wg-ok-fg: #9CE4CC;
+    --wg-ok-bg: rgba(86, 172, 138, 0.18);
+    --wg-ok-line: rgba(86, 172, 138, 0.38);
+    --wg-warn-fg: #FFD870;
+    --wg-warn-bg: rgba(251, 189, 13, 0.14);
+    --wg-warn-line: rgba(251, 189, 13, 0.34);
+    --wg-danger-fg: #F3A693;
+    --wg-danger-bg: rgba(198, 85, 58, 0.2);
+    --wg-danger-line: rgba(198, 85, 58, 0.45);
+    --wg-stale-fg: rgba(244, 251, 247, 0.66);
+    --wg-stale-bg: rgba(244, 251, 247, 0.05);
+    --wg-stale-line: rgba(244, 251, 247, 0.24);
+    --wg-pending-fg: #9FD0F2;
+    --wg-pending-bg: rgba(63, 163, 229, 0.14);
+    --wg-pending-line: rgba(63, 163, 229, 0.36);
+
+    /* kit type scale */
+    --wg-fs-eyebrow: 10.5px;
+    --wg-fs-xs: 12px;
+    --wg-fs-sm: 13px;
+    --wg-fs-md: 14px;
+    --wg-fs-lg: 16px;
+    --wg-fs-xl: 18px;
+    --wg-fs-title: 22px;
+    --wg-fs-metric: 28px;
+    --wg-fs-hero: 36px;
+    --wg-track-eyebrow: 0.14em;
+
+    /* kit control scale: space · radius · height */
+    --wg-s1: 4px;
+    --wg-s2: 8px;
+    --wg-s3: 12px;
+    --wg-s4: 16px;
+    --wg-s5: 20px;
+    --wg-s6: 24px;
+    --wg-s8: 32px;
+    --wg-r-xs: 6px;
+    --wg-r-sm: 9px;
+    --wg-r-md: 12px;
+    --wg-r-lg: 16px;
+    --wg-r-xl: 22px;
+    --wg-r-pill: 999px;
+    --wg-h-sm: 36px;
+    --wg-h-md: 44px;
+    --wg-h-lg: 52px;
+    --wg-hit: 44px;
+
+    /* kit material */
+    --wg-gloss-hi: linear-gradient(180deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0) 52%);
+    --wg-raised: var(--wg-gloss-hi), linear-gradient(180deg, var(--wg-bg-raised-a) 0%, var(--wg-bg-raised-b) 100%);
+    --wg-sunfill: linear-gradient(180deg, rgba(255, 255, 255, 0.34) 0%, rgba(255, 255, 255, 0) 55%), linear-gradient(180deg, var(--wg-sun-hi) 0%, var(--wg-sun-deep) 100%);
+    --wg-clayfill: linear-gradient(180deg, rgba(255, 255, 255, 0.26) 0%, rgba(255, 255, 255, 0) 55%), linear-gradient(180deg, var(--wg-clay-hi) 0%, var(--wg-clay-deep) 100%);
+    --wg-sagefill: linear-gradient(180deg, rgba(255, 255, 255, 0.26) 0%, rgba(255, 255, 255, 0) 55%), linear-gradient(180deg, #6CC29E 0%, #3E8E6E 100%);
+    --wg-inset: linear-gradient(180deg, var(--wg-bg-inset-a) 0%, var(--wg-bg-inset-b) 100%);
+    --wg-sh-raised: inset 0 1px 0 rgba(255, 255, 255, 0.2), inset 0 -1px 0 rgba(0, 0, 0, 0.25), 0 2px 0 rgba(0, 0, 0, 0.2), 0 6px 14px -6px rgba(0, 0, 0, 0.4);
+    --wg-sh-sun: inset 0 1px 0 rgba(255, 255, 255, 0.55), inset 0 -1px 0 rgba(0, 0, 0, 0.16), 0 2px 0 rgba(150, 100, 0, 0.45), 0 6px 16px -4px rgba(251, 189, 13, 0.38);
+    --wg-sh-inset: inset 0 2px 4px rgba(0, 0, 0, 0.36), inset 0 -1px 0 rgba(255, 255, 255, 0.03);
+    --wg-sh-card: inset 0 1px 0 rgba(255, 255, 255, 0.07), inset 0 -1px 0 rgba(0, 0, 0, 0.2), 0 1px 0 rgba(0, 0, 0, 0.3);
+    --wg-sh-float: 0 18px 40px -12px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.06);
+    --wg-focus: 0 0 0 3px rgba(251, 189, 13, 0.32);
+    --wg-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+    --wg-dur-fast: 140ms;
+    --wg-dur: 220ms;
+
+    /* kit z-scale, mapped onto the app's existing stack so kit sheets,
+       dialogs and toasts layer the same way mt-modal / confirm / toast do. */
+    --wg-z-tabbar: var(--wg-bottom-nav-z);
+    --wg-z-sheet: var(--z-modal);
+    --wg-z-dialog: var(--z-confirm);
+    --wg-z-toast: var(--z-toast);
+
+    /* kit layout */
+    --wg-tabbar-h: 84px;
+    --wg-kb-h: 291px;
 }
 
 /* Desktop: give modals room. Phones (<720px) keep the caps above untouched. */
@@ -3300,19 +3409,6 @@ input:checked+.toggle-slider:before {
     -webkit-font-smoothing: antialiased;
 }
 
-.wg-card {
-    background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(0, 0, 0, 0) 60%),
-        var(--wg-bg-card);
-    border: 1px solid var(--wg-border-hairline);
-    border-radius: var(--wg-radius-card);
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.08),
-        inset 0 -1px 0 rgba(0, 0, 0, 0.2),
-        0 1px 0 rgba(0, 0, 0, 0.3);
-    padding: var(--wg-card-pad);
-}
-
 .wg-card--inset {
     background: var(--wg-gloss-bg-inset);
     box-shadow: var(--wg-gloss-shadow-inset);
@@ -3571,12 +3667,6 @@ input:checked+.toggle-slider:before {
     color: var(--wg-fg-2);
 }
 
-.wg-field {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-}
-
 .wg-field--row {
     display: flex;
     flex-direction: row;
@@ -3586,71 +3676,6 @@ input:checked+.toggle-slider:before {
 .wg-field--row > .wg-field {
     flex: 1;
     min-width: 0;
-}
-
-.wg-label {
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-xs);
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    color: var(--wg-fg-3);
-}
-
-.wg-input {
-    width: 100%;
-    padding: var(--space-md);
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-md);
-    color: var(--wg-fg-1);
-    background: var(--wg-bg-card-inset);
-    border: 1px solid var(--wg-border-hairline);
-    border-radius: var(--wg-radius-gloss);
-    box-sizing: border-box;
-    margin: 0;
-}
-
-.wg-select {
-    width: 100%;
-    padding: var(--space-md);
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-md);
-    color: var(--wg-fg-1);
-    background: var(--wg-bg-card-inset);
-    border: 1px solid var(--wg-border-hairline);
-    border-radius: var(--wg-radius-gloss);
-    box-sizing: border-box;
-    margin: 0;
-}
-
-.wg-input:focus {
-    outline: none;
-    border-color: var(--wg-sun);
-}
-
-.wg-select:focus {
-    outline: none;
-    border-color: var(--wg-sun);
-}
-
-.wg-input::placeholder {
-    color: var(--wg-fg-4);
-}
-
-textarea.wg-input {
-    resize: vertical;
-}
-
-.wg-tag {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-xs);
-    font-family: var(--wg-font-ui);
-    font-size: var(--wg-font-size-tag);
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    padding: 3px var(--space-sm);
-    border-radius: var(--radius-pill);
-    border: 1px solid transparent;
 }
 
 .wg-tag--normal {
@@ -3674,17 +3699,6 @@ textarea.wg-input {
 .wg-tag--mono {
     font-family: var(--wg-font-mono);
     letter-spacing: 0;
-}
-
-/* Sun-yellow active-chip variant. Used by the notes-composer tag chips
-   (Phase 8 / Task 7) when the user picks SLEEP / STRESS / HR / SPO2 /
-   STEPS / NOTE. Visual value resolves to the shared `--wg-tag-high-*`
-   palette (same sun-yellow used by BP high-normal + weight trend-good)
-   so no new colors enter the token set. */
-.wg-tag--sun {
-    background: var(--wg-tag-high-bg);
-    color: var(--wg-tag-high-fg);
-    border-color: var(--wg-tag-high-border);
 }
 
 .wg-section-label {
@@ -3725,10 +3739,6 @@ textarea.wg-input {
     font-weight: 500;
     letter-spacing: -0.02em;
     color: var(--wg-fg-1);
-}
-
-.wg-muted {
-    color: var(--wg-fg-3);
 }
 
 .wg-muted-strong {
@@ -4704,7 +4714,7 @@ textarea.wg-input {
 .wg-sparkline--mint-soft { color: var(--wg-mint-soft); }
 .wg-sparkline--coral { color: var(--wg-clay-soft); }
 
-.wg-spark {
+.wg-spark-line {
     stroke: currentColor;
     stroke-width: 1.4;
     stroke-linecap: round;
@@ -5391,7 +5401,7 @@ textarea.wg-input {
     padding: var(--space-sm);
     border-radius: var(--radius-md);
     background: var(--wg-bg-card-inset);
-    border-left: 3px solid var(--wg-mint);
+    border-left: 3px solid var(--wg-mint-mid);
 }
 
 .wg-journey-trait--dormant {
@@ -5435,7 +5445,7 @@ textarea.wg-input {
 .wg-journey-keystone__marker {
     display: inline-flex;
     flex: 0 0 auto;
-    color: var(--wg-mint);
+    color: var(--wg-mint-mid);
     margin-top: 2px;
 }
 
@@ -5484,14 +5494,14 @@ textarea.wg-input {
     flex-direction: column;
     gap: var(--space-xs);
     padding: var(--space-sm);
-    border-left: 2px solid var(--wg-mint);
+    border-left: 2px solid var(--wg-mint-mid);
     background: var(--wg-bg-card-inset);
     border-radius: var(--radius-sm);
 }
 
 .wg-journey-narrator__attr {
     align-self: flex-start;
-    color: var(--wg-mint);
+    color: var(--wg-mint-mid);
 }
 
 .wg-journey-narrator__text {
@@ -5516,7 +5526,7 @@ textarea.wg-input {
     padding: var(--space-xs) var(--space-sm);
     border-radius: var(--radius-md);
     background: var(--wg-bg-card-inset);
-    border-left: 3px solid var(--wg-mint);
+    border-left: 3px solid var(--wg-mint-mid);
     color: var(--wg-fg-1);
 }
 
@@ -5555,7 +5565,7 @@ textarea.wg-input {
 }
 
 .wg-journey-atlas__card--revealed {
-    border-left-color: var(--wg-mint);
+    border-left-color: var(--wg-mint-mid);
 }
 
 .wg-journey-atlas__card--developing {
@@ -5626,7 +5636,7 @@ textarea.wg-input {
     display: flex;
     flex-direction: column;
     gap: var(--space-xs);
-    border-left: 3px solid var(--wg-mint);
+    border-left: 3px solid var(--wg-mint-mid);
 }
 
 .wg-journey-experiment__title {
@@ -7144,7 +7154,7 @@ textarea.wg-input {
     flex-wrap: wrap;
 }
 
-.wg-plates {
+.wg-plates__glyph {
     display: block;
     height: 36px;
     width: auto;
@@ -11581,22 +11591,9 @@ textarea.wg-input {
     border-radius: var(--wg-radius-gloss);
 }
 
-/* Wandergeek toggle primitive (Phase 9, Task 1). Renders a pill with a
-   knob driven by a hidden <input type="checkbox">. The unchecked state
-   uses --wg-toggle-bg (inset-gloss); the checked state flips to
-   --wg-toggle-bg-on (the sun gradient) so the toggle visually matches
-   the `.wg-gloss--sun` convention used for primary actions everywhere
-   else in the Wandergeek system. Focus-visible and disabled states are
-   tokenized via --wg-toggle-border-{focus,disabled}. */
-.wg-toggle {
-    position: relative;
-    display: inline-block;
-    width: var(--wg-toggle-width);
-    height: var(--wg-toggle-height);
-    flex-shrink: 0;
-    cursor: pointer;
-}
-
+/* WGToggle's hidden native checkbox: it covers the kit .wg-toggle pill
+   (css/components.css) so clicks, keyboard focus and `change` events keep
+   flowing through a real <input>; the pill paints from its :checked state. */
 .wg-toggle__input {
     position: absolute;
     opacity: 0;
@@ -11605,57 +11602,6 @@ textarea.wg-input {
     margin: 0;
     inset: 0;
     cursor: pointer;
-}
-
-.wg-toggle__track {
-    position: absolute;
-    inset: 0;
-    background: var(--wg-toggle-bg);
-    border: 1px solid var(--wg-toggle-border);
-    border-radius: var(--wg-radius-pill);
-    box-shadow: var(--wg-gloss-shadow-inset);
-    transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
-    pointer-events: none;
-}
-
-.wg-toggle__knob {
-    position: absolute;
-    top: var(--wg-toggle-knob-pad);
-    left: var(--wg-toggle-knob-pad);
-    width: var(--wg-toggle-knob-size);
-    height: var(--wg-toggle-knob-size);
-    background: var(--wg-toggle-knob);
-    border-radius: var(--radius-pill);
-    transition: transform 160ms ease, background 160ms ease;
-    pointer-events: none;
-}
-
-.wg-toggle__input:checked ~ .wg-toggle__track {
-    background: var(--wg-toggle-bg-on);
-    box-shadow: var(--wg-gloss-shadow-sun);
-}
-
-.wg-toggle__input:checked ~ .wg-toggle__knob {
-    background: var(--wg-toggle-knob-on);
-    transform: translateX(calc(var(--wg-toggle-width) - var(--wg-toggle-knob-size) - var(--wg-toggle-knob-pad) - var(--wg-toggle-knob-pad)));
-}
-
-.wg-toggle__input:focus-visible ~ .wg-toggle__track {
-    outline: 2px solid var(--wg-toggle-border-focus);
-    outline-offset: 2px;
-}
-
-.wg-toggle__input:disabled ~ .wg-toggle__track {
-    border-color: var(--wg-toggle-border-disabled);
-    opacity: 0.6;
-}
-
-.wg-toggle__input:disabled ~ .wg-toggle__knob {
-    opacity: 0.6;
-}
-
-.wg-toggle--disabled {
-    cursor: not-allowed;
 }
 
 /* Settings row shell used by <mt-setting-toggle> — full spec in Phase 9,

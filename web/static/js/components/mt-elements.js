@@ -84,15 +84,7 @@ class MTSettingToggle extends HTMLElement {
             input.type = 'checkbox';
             input.className = 'wg-toggle__input';
             if (inputId) input.id = inputId;
-            const track = document.createElement('span');
-            track.className = 'wg-toggle__track';
-            track.setAttribute('aria-hidden', 'true');
-            const knob = document.createElement('span');
-            knob.className = 'wg-toggle__knob';
-            knob.setAttribute('aria-hidden', 'true');
             toggleEl.appendChild(input);
-            toggleEl.appendChild(track);
-            toggleEl.appendChild(knob);
         }
         control.appendChild(toggleEl);
 

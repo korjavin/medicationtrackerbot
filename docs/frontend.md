@@ -291,6 +291,15 @@ Key rules (enforced by architecture tests in `web/static/js/tests/architecture.d
 - **Spacing / radius / shadow / typography / z-index** all use tokens (`--space-*`, `--radius-*`, `--shadow-*`, `--font-size-*`, `--z-*`, and the Wandergeek `--wg-*` counterparts)
 - **Utility classes**: `.flex-row`, `.flex-between`, `.flex-center`, `.text-hint`, `.text-center`, `.hidden`, `.empty-state`, spacing helpers (`.mt-sm`, `.mb-md`, …)
 
+### App UI kit v2: two-file layout
+
+The kit (`docs/design/claude-design/ui_kits/app-v2/`, rules in its `README.md`) ships as two stylesheets, linked in `index.html` in this order:
+
+1. **`web/static/css/styles.css`**: every token, in its **first** `:root` block (the token guards read only that block, and they cut it at the first closing brace, so keep braces out of `:root` comments). Kit tokens sit under the "App UI kit v2 foundations" heading. Where the kit renamed an app token, the app takes the kit value: `--wg-mint` is now the brighter mint, and the old value is `--wg-mint-mid`. The kit's `--wg-bg-stage` is the backdrop for its own demo pages, so the app keeps its own value. `--wg-z-*` maps onto the app's `--z-*` / `--wg-bottom-nav-z` stack.
+2. **`web/static/css/components.css`**: the kit's `wg-*` components, ported from the kit's `components.css`. The header comment lists every place the port differs from the source. Each kit selector has one base rule, and it lives here (`architecture.wg-primitives.test.js`). `.wg-card`, `.wg-tag` and `.wg-muted` are wrapped in `:where()` so legacy companion classes still override them.
+
+**Status goes through five token families only**: `--wg-{ok,warn,danger,stale,pending}-{fg,bg,line}`. They replace the per-surface `--wg-bp-status-*`, `--wg-meds-status-*` and `--wg-tag-{normal,high,alert}-*` tokens as screens move onto the kit. The **control scale** is `--wg-s*` (space), `--wg-r-*` (radius), `--wg-h-*` / `--wg-hit` (heights) and `--wg-z-*`. Both are pinned in `REQUIRED_TOKENS`. The hex guard covers both stylesheets, and every `var(--wg-*)` in `components.css` must resolve in the first `:root` (`architecture.design-tokens.test.js`).
+
 ### Wandergeek tokens (`--wg-*`)
 
 The canonical visual system. Every new screen and component uses these. Organized by group (see `WANDERGEEK_TOKENS` in the design-tokens architecture test for the authoritative list):

@@ -15,6 +15,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const CSS_PATH = path.join(REPO_ROOT, 'web/static/css/styles.css');
+// Kit primitives (.wg-field/.wg-label/.wg-input/.wg-select) live in the
+// shipped kit sheet, loaded after styles.css.
+const COMPONENTS_CSS_PATH = path.join(REPO_ROOT, 'web/static/css/components.css');
 
 function extractClassBlocks(css, selector) {
     const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -45,7 +48,7 @@ describe('Wandergeek modal structural DOM', () => {
                     </div>
                     <div class="wg-field">
                         <label class="wg-label" for="y">Y</label>
-                        <select id="y" class="wg-select"><option>A</option></select>
+                        <select id="y" class="wg-input wg-select"><option>A</option></select>
                     </div>
                 </form>
             </div>
@@ -78,7 +81,9 @@ describe('Wandergeek modal structural DOM', () => {
 });
 
 describe('Wandergeek modal token-only CSS', () => {
-    const css = fs.readFileSync(CSS_PATH, 'utf8');
+    // Kit sheet first so `[body] = extractClassBlocks(...)` lands on the kit
+    // base rule, not a contextual styles.css rule like `.wg-field--row > .wg-field`.
+    const css = fs.readFileSync(COMPONENTS_CSS_PATH, 'utf8') + '\n' + fs.readFileSync(CSS_PATH, 'utf8');
 
     it.each([
         '.wg-modal',
@@ -113,28 +118,22 @@ describe('Wandergeek modal token-only CSS', () => {
         expect(body).toMatch(/font-family:\s*var\(--wg-font-mono\)/);
     });
 
-    it('.wg-field uses a flex column layout with var(--space-*) gap', () => {
+    it('.wg-field uses a flex column layout', () => {
         const [body] = extractClassBlocks(css, '.wg-field');
         expect(body).toMatch(/display:\s*flex\b/);
         expect(body).toMatch(/flex-direction:\s*column\b/);
-        expect(body).toMatch(/gap:\s*var\(--space-/);
     });
 
-    it('.wg-input and .wg-select share token-driven surface + border', () => {
-        const inputBlocks = extractClassBlocks(css, '.wg-input');
-        const selectBlocks = extractClassBlocks(css, '.wg-select');
-        expect(inputBlocks.length).toBeGreaterThan(0);
-        expect(selectBlocks.length).toBeGreaterThan(0);
-
-        // Both the input and select base blocks must reference the same
-        // set of Wandergeek tokens — a select must not drift away from
-        // the input's surface styling.
-        for (const body of [inputBlocks[0], selectBlocks[0]]) {
-            expect(body).toMatch(/background:\s*var\(--wg-bg-card-inset\)/);
-            expect(body).toMatch(/border:[\s\S]*var\(--wg-border-hairline\)/);
-            expect(body).toMatch(/border-radius:\s*var\(--wg-radius-gloss\)/);
-            expect(body).toMatch(/font-family:\s*var\(--wg-font-ui\)/);
-        }
+    it('.wg-input draws the kit inset surface; .wg-select is a modifier on it', () => {
+        const [input] = extractClassBlocks(css, '.wg-input');
+        expect(input).toMatch(/background:\s*var\(--wg-inset\)/);
+        expect(input).toMatch(/border:[\s\S]*var\(--wg-line-dark\)/);
+        expect(input).toMatch(/border-radius:\s*var\(--wg-r-md\)/);
+        // The kit select is `class="wg-input wg-select"`: it only adds the
+        // trigger layout + UI font on top of the input surface.
+        const [select] = extractClassBlocks(css, '.wg-select');
+        expect(select).toMatch(/font-family:\s*var\(--wg-font-ui\)/);
+        expect(select).not.toMatch(/background:/);
     });
 
     it('.wg-label uses --wg-fg-3 (AA-readable quiet text on teal stage)', () => {
