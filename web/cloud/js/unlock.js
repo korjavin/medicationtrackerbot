@@ -301,9 +301,31 @@ function renderUnlocked(app, ctx) {
         app.querySelector('section').appendChild(p);
       });
   });
+  // This menu is the storage-blocked fallback: the app cannot boot without the
+  // LDK cache, so device and connector management must stay reachable here.
+  // Same modules the app's Settings page mounts (med-xso6.25), in a bare
+  // shell frame with its own Back.
   app.querySelector('#devices-button').addEventListener('click', () => {
     import('./devices.js')
-      .then(({ renderDeviceList }) => renderDeviceList(app, ctx, () => renderUnlocked(app, ctx)))
+      .then(({ renderDeviceList, renderRegenerateKit }) => {
+        const backToMenu = () => renderUnlocked(app, ctx);
+        const showDevices = () => renderShellFrame(app, 'Devices', (mount) => {
+          renderDeviceList(mount, ctx, {
+            onAddDevice: () => import('./transfer.js').then(({ renderAddDevice }) => {
+              // Back goes through the flow's server-side cancel, like the
+              // in-app page's Back: a live code must never look dead.
+              renderShellFrame(app, 'Add a device', (m) => renderAddDevice(m, ctx, showDevices),
+                async (flow) => { if (await flow.cancel()) showDevices(); });
+            }),
+          });
+          const kit = document.createElement('button');
+          kit.className = 'wg-btn';
+          kit.textContent = 'Regenerate Emergency Kit';
+          kit.addEventListener('click', () => renderRegenerateKit(app, ctx, showDevices));
+          mount.after(kit);
+        }, backToMenu);
+        showDevices();
+      })
       .catch(() => {
         const p = document.createElement('p');
         p.className = 'wizard-error';
@@ -311,12 +333,10 @@ function renderUnlocked(app, ctx) {
         app.querySelector('section').appendChild(p);
       });
   });
-  // The connector picker used to live on the devices screen; med-lyv split it
-  // onto its own page, so the unlocked shell needs its own way in — otherwise
-  // shell users lose access to it entirely.
   app.querySelector('#connectors-button').addEventListener('click', () => {
     import('./connectors.js')
-      .then(({ renderConnectors }) => renderConnectors(app, ctx, () => renderUnlocked(app, ctx)))
+      .then(({ renderConnectors }) => renderShellFrame(app, 'Connectors', (mount) => renderConnectors(mount, ctx),
+        () => renderUnlocked(app, ctx)))
       .catch(() => {
         const p = document.createElement('p');
         p.className = 'wizard-error';
@@ -337,6 +357,20 @@ function renderUnlocked(app, ctx) {
         app.querySelector('section').appendChild(p);
       });
   });
+}
+
+// A titled shell section around a module that renders into a mount (the
+// modules own no chrome). onBack receives whatever mountFn returned.
+function renderShellFrame(app, title, mountFn, onBack) {
+  app.innerHTML = `
+    <section class="wizard-step">
+      <h1></h1>
+      <div id="shell-frame-mount"></div>
+      <button id="shell-frame-back" class="wg-btn">Back</button>
+    </section>`;
+  app.querySelector('h1').textContent = title;
+  const handle = mountFn(app.querySelector('#shell-frame-mount'));
+  app.querySelector('#shell-frame-back').addEventListener('click', () => onBack(handle));
 }
 
 // --- LDK cache (docs/cloud-crypto.md "LDK"): a non-extractable AES-GCM key

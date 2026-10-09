@@ -73,7 +73,21 @@ function handleDeepLinks() {
     const action = urlParams.get('action');
     const tab = urlParams.get('tab');
 
-    if (!action && tab) {
+    if (!action && tab === 'settings') {
+        // ?tab=settings&page=devices|connectors — where the passkey shell's old
+        // /devices and /connectors pages redirect (med-xso6.25). Only a fixed
+        // page list; anything else just lands on Settings.
+        const page = urlParams.get('page');
+        switchTab('settings');
+        if (page === 'devices' || page === 'connectors') {
+            setTimeout(() => {
+                if (window.SettingsView && typeof window.SettingsView.openDevicesDeeplink === 'function') {
+                    window.SettingsView.openDevicesDeeplink(page);
+                }
+            }, 100);
+        }
+        window.history.replaceState({}, '', '/');
+    } else if (!action && tab) {
         // Bare ?tab=<section> (no action): plain section deep-link, e.g. the
         // Telegram reminder "Open" URL button (?tab=workouts|bp|weight). Only
         // switch to a whitelisted, stable section id (bp/weight/health land on

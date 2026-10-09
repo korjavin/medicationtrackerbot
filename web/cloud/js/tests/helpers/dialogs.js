@@ -18,6 +18,14 @@ export function installDialogs(window) {
   for (const src of SRCS) window.eval(src);
 }
 
+// The app's row overflow menu (WGRowActions) — devices.js mounts inside the
+// account app, which loads it; the passkey shell does not. Call after
+// installDialogs (it needs WGIcons).
+const ROW_ACTIONS_SRC = fs.readFileSync(path.join(STATIC_JS, 'components/wg-row-actions.js'), 'utf8');
+export function installRowActions(window) {
+  window.eval(ROW_ACTIONS_SRC);
+}
+
 export function openDialog(document) {
   return document.querySelector('mt-modal.mt-confirm-modal');
 }

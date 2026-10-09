@@ -1,29 +1,32 @@
-// Device-list + revocation screen: docs/cloud-crypto.md "Removing a device /
+// Device-list + revocation: docs/cloud-crypto.md "Removing a device /
 // revocation" and the envelope-audit MAC ("Malicious operator adds their own
 // credential"). An unlocked device already holds the DEK, so it re-derives
 // K_mac and checks every envelope's mac before rendering a verified /
-// unverified badge — a forged envelope (no DEK access) fails the audit.
+// unverified chip — a forged envelope (no DEK access) fails the audit.
 //
-// Devices only. The Claude/MCP connector picker moved to connectors.js
-// (/connectors) and Telegram to Settings → Integrations, per med-lyv: which
-// passkeys may open the vault is a separate question from which AI client may
-// read it, and answering both on one screen made the second look like a
-// property of the first.
+// Mounted by the app's Settings → Devices & connectors page (med-xso6.25,
+// kit S4; features/settings.js mountCloudDevices) — the module renders kit
+// markup into the mount it is given and owns no page chrome. The one
+// full-document ceremony left here is the Emergency Kit rotation
+// (renderRegenerateKit), which the passkey shell runs at
+// /devices?flow=emergency-kit (web/cloud/js/app.js).
+//
+// Devices only. The Claude/MCP connector lives in connectors.js and Telegram
+// in Settings → Integrations, per med-lyv: which passkeys may open the vault
+// is a separate question from which AI client may read it.
 import { auditEnvelope, fromBase64, fromBase64Url } from './crypto.js';
 import { CREDENTIAL_MODE_LOCAL_ONLY, normalizeCredentialMode } from './credential-mode.js';
 
-export function renderDeviceList(app, ctx, onExit) {
-  app.innerHTML = `
-    <section class="wizard-step">
-      <h1>Devices</h1>
-      <p>Loading your devices&hellip;</p>
-    </section>`;
-  loadDevices(app, ctx, onExit).catch((err) => {
-    renderDeviceListError(app, ctx, onExit, err.message || String(err));
+// hooks: { onAddDevice() — the page opens the transfer flow;
+//          onLoaded(devices) — the page refreshes its summary/nudge }
+export function renderDeviceList(mount, ctx, hooks = {}) {
+  mount.innerHTML = '<p class="wg-hint">Loading your devices&hellip;</p>';
+  loadDevices(mount, ctx, hooks).catch((err) => {
+    renderDeviceListError(mount, ctx, hooks, err.message || String(err));
   });
 }
 
-async function loadDevices(app, ctx, onExit) {
+async function loadDevices(mount, ctx, hooks) {
   const res = await fetch('/api/devices');
   if (!res.ok) throw new Error('Could not load your devices.');
   const devices = await res.json();
@@ -33,7 +36,7 @@ async function loadDevices(app, ctx, onExit) {
       const mode = normalizeCredentialMode(d.mode);
       // Local-only credentials carry no envelope by design — that absence is
       // expected, not an audit failure, so they skip the MAC audit entirely
-      // and render their own badge. The mode is explicit, never inferred
+      // and render their own chip. The mode is explicit, never inferred
       // from the missing envelope.
       if (mode === CREDENTIAL_MODE_LOCAL_ONLY) {
         return { ...d, mode, verified: false, localOnly: true };
@@ -55,36 +58,35 @@ async function loadDevices(app, ctx, onExit) {
     })
   );
 
-  renderDevices(app, ctx, onExit, audited);
+  renderDevices(mount, ctx, hooks, audited);
+  if (typeof hooks.onLoaded === 'function') hooks.onLoaded(audited);
 }
 
-function renderDevices(app, ctx, onExit, devices) {
-  app.innerHTML = `
-    <section class="wizard-step">
-      <h1>Devices</h1>
-      <ul class="device-list" id="device-list"></ul>
-      <button id="add-device-button" class="wg-btn wg-btn--primary">Add a device</button>
-      <button id="regenerate-kit-button" class="wg-btn">Regenerate Emergency Kit</button>
-      <button id="devices-back" class="wg-btn">Back</button>
+// Kit S4: one sun primary ("Add a device"); Revoke sits behind each row's
+// overflow and confirms through a destructive dialog.
+function renderDevices(mount, ctx, hooks, devices) {
+  mount.innerHTML = `
+    <section class="wg-section">
+      <div class="wg-section__head"><span class="wg-eyebrow">Devices with a passkey</span></div>
+      <div class="wg-list" id="device-list"></div>
+      <button type="button" id="add-device-button" class="wg-btn wg-btn--primary wg-btn--block"><i class="wg-ico wg-ico--sm" data-icon="qr"></i>Add a device</button>
     </section>`;
 
-  const list = app.querySelector('#device-list');
+  const list = mount.querySelector('#device-list');
   for (const d of devices) {
-    list.appendChild(renderDeviceRow(app, ctx, onExit, d));
+    list.appendChild(renderDeviceRow(mount, ctx, hooks, d));
   }
 
-  app.querySelector('#add-device-button').addEventListener('click', () => {
-    import('./transfer.js')
-      .then(({ renderAddDevice }) => renderAddDevice(app, ctx, () => renderDeviceList(app, ctx, onExit)))
-      .catch(() => renderDeviceListError(app, ctx, onExit, 'Could not open the add-device flow. Try again.'));
+  mount.querySelector('#add-device-button').addEventListener('click', () => {
+    if (typeof hooks.onAddDevice === 'function') hooks.onAddDevice();
   });
-
-  app.querySelector('#regenerate-kit-button').addEventListener('click', () => {
-    renderRegenerateKit(app, ctx, () => renderDeviceList(app, ctx, onExit));
-  });
-
-  app.querySelector('#devices-back').addEventListener('click', onExit);
+  hydrateIcons(mount);
 }
+
+function hydrateIcons(root) {
+  if (window.WGIcons && typeof window.WGIcons.hydrate === 'function') window.WGIcons.hydrate(root);
+}
+
 
 // Regenerating is a ROTATION, never a reveal (med-d5t.12). The recovery code is
 // derived client-side at signup and only its verifier and the recovery-wrapped
@@ -152,75 +154,96 @@ async function rotateEmergencyKit(app, ctx, onDone) {
   await renderEmergencyKit(app, { accountId, dek, onKitSaved: onDone, continueLabel: 'Done' });
 }
 
-function renderDeviceRow(app, ctx, onExit, d) {
-  const li = document.createElement('li');
-  li.className = 'device-row';
+function renderDeviceRow(mount, ctx, hooks, d) {
+  const row = document.createElement('div');
+  row.className = 'wg-row device-row';
+
+  const lead = document.createElement('span');
+  lead.className = d.verified ? 'wg-row__lead wg-row__lead--ok' : 'wg-row__lead';
+  lead.innerHTML = '<i class="wg-ico" data-icon="device"></i>';
 
   // Server-controlled fields (credential id, timestamps) — textContent only,
   // never innerHTML (this page holds the DEK; XSS here reads it).
-  const label = document.createElement('span');
-  label.textContent = `Passkey ${d.credential_id.slice(0, 8)}… — added ${new Date(d.created_at).toLocaleDateString()}`;
-  li.appendChild(label);
+  const body = document.createElement('span');
+  body.className = 'wg-row__body';
+  const title = document.createElement('span');
+  title.className = 'wg-row__title';
+  title.textContent = `Passkey ${d.credential_id.slice(0, 8)}…`;
+  const meta = document.createElement('span');
+  meta.className = 'wg-row__meta';
+  meta.textContent = `added ${new Date(d.created_at).toLocaleDateString()}`;
 
-  const badge = document.createElement('span');
+  const chip = document.createElement('span');
   if (d.localOnly) {
-    badge.className = 'device-local-only';
-    badge.textContent = 'local-only — this browser only';
+    chip.className = 'wg-chip wg-chip--sm wg-chip--stale device-local-only';
+    chip.textContent = 'Local-only — this browser only';
+  } else if (d.verified) {
+    chip.className = 'wg-chip wg-chip--sm wg-chip--ok device-verified';
+    chip.textContent = 'Verified';
   } else {
-    badge.className = d.verified ? 'device-verified' : 'device-unverified';
-    badge.textContent = d.verified ? 'verified' : 'unverified — remove?';
+    chip.className = 'wg-chip wg-chip--sm wg-chip--danger device-unverified';
+    chip.textContent = 'Unverified — remove?';
   }
-  li.appendChild(badge);
+  meta.appendChild(chip);
+  body.append(title, meta);
+  row.append(lead, body);
 
-  const revokeButton = document.createElement('button');
-  revokeButton.className = 'wg-btn wg-btn--sm wg-btn--danger-ghost';
-  revokeButton.textContent = 'Revoke';
-  revokeButton.addEventListener('click', async () => {
-    // Retiring a device you still control vs. a stolen one need different
-    // responses: revocation alone only removes access going forward. A
-    // stolen unlocked device already saw the DEK, so recovering from that
-    // needs key rotation — out of scope here (docs/cloud-crypto.md "Removing
-    // a device / revocation" status note) — hence the copy pointing there.
-    const confirmed = await window.safeConfirm(
-      d.localOnly
-        ? 'Use this to sign out a browser you still control — it holds ' +
-            'no vault key of its own. If the device was lost or stolen, removing here does not protect the ' +
-            'copy it may have seen while unlocked — see the recovery guide about rotating your keys.'
-        : 'Use this to retire a device you still control. If it was lost or ' +
-            'stolen, revoking here does not protect your data on its own — see the recovery guide ' +
-            'about rotating your keys.',
-      null,
-      d.localOnly
-        ? { title: 'Remove this local-only sign-in?', confirmLabel: 'Remove' }
-        : { title: 'Revoke this device?', confirmLabel: 'Revoke' },
-    );
-    if (!confirmed) return;
-    revokeDevice(app, ctx, onExit, d.credential_id);
-  });
-  li.appendChild(revokeButton);
-
-  return li;
+  const label = d.localOnly ? 'Remove' : 'Revoke';
+  const onClick = () => confirmRevoke(mount, ctx, hooks, d);
+  if (window.WGRowActions) {
+    window.WGRowActions.attach(row, { label: title.textContent, extra: [{ label, icon: 'trash', danger: true, onClick }] });
+  } else {
+    // The passkey shell's storage-blocked fallback menu (unlock.js) has no
+    // row-actions component: a plain outlined destructive button.
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'wg-btn wg-btn--sm wg-btn--danger-ghost';
+    button.textContent = label;
+    button.addEventListener('click', onClick);
+    row.appendChild(button);
+  }
+  return row;
 }
 
-async function revokeDevice(app, ctx, onExit, credentialId) {
+async function confirmRevoke(mount, ctx, hooks, d) {
+  // Retiring a device you still control vs. a stolen one need different
+  // responses: revocation alone only removes access going forward. A
+  // stolen unlocked device already saw the DEK, so recovering from that
+  // needs key rotation — out of scope here (docs/cloud-crypto.md "Removing
+  // a device / revocation" status note) — hence the copy pointing there.
+  const confirmed = await window.safeConfirm(
+    d.localOnly
+      ? 'Use this to sign out a browser you still control — it holds ' +
+          'no vault key of its own. If the device was lost or stolen, removing here does not protect the ' +
+          'copy it may have seen while unlocked — see the recovery guide about rotating your keys.'
+      : 'Use this to retire a device you still control. If it was lost or ' +
+          'stolen, revoking here does not protect your data on its own — see the recovery guide ' +
+          'about rotating your keys.',
+    null,
+    d.localOnly
+      ? { title: 'Remove this local-only sign-in?', confirmLabel: 'Remove', destructive: true, icon: 'device' }
+      : { title: 'Revoke this device?', confirmLabel: 'Revoke', destructive: true, icon: 'device' },
+  );
+  if (!confirmed) return;
+  revokeDevice(mount, ctx, hooks, d.credential_id);
+}
+
+async function revokeDevice(mount, ctx, hooks, credentialId) {
   try {
-    const res = await fetch(`/api/devices/${credentialId}`, { method: 'DELETE' });
+    const res = await fetch(`/api/devices/${encodeURIComponent(credentialId)}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('Could not revoke that device. Try again.');
-    renderDeviceList(app, ctx, onExit);
+    renderDeviceList(mount, ctx, hooks);
   } catch (err) {
-    renderDeviceListError(app, ctx, onExit, err.message || String(err));
+    renderDeviceListError(mount, ctx, hooks, err.message || String(err));
   }
 }
 
-function renderDeviceListError(app, ctx, onExit, errorText) {
-  app.innerHTML = `
-    <section class="wizard-step">
-      <h1>Devices</h1>
-      <p class="wizard-error"></p>
-      <button id="devices-retry" class="wg-btn wg-btn--primary">Try again</button>
-      <button id="devices-back" class="wg-btn">Back</button>
+function renderDeviceListError(mount, ctx, hooks, errorText) {
+  mount.innerHTML = `
+    <section class="wg-section">
+      <p class="wg-error"></p>
+      <button type="button" id="devices-retry" class="wg-btn wg-btn--block">Try again</button>
     </section>`;
-  app.querySelector('.wizard-error').textContent = errorText;
-  app.querySelector('#devices-retry').addEventListener('click', () => renderDeviceList(app, ctx, onExit));
-  app.querySelector('#devices-back').addEventListener('click', onExit);
+  mount.querySelector('.wg-error').textContent = errorText;
+  mount.querySelector('#devices-retry').addEventListener('click', () => renderDeviceList(mount, ctx, hooks));
 }

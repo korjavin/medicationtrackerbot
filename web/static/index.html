@@ -1028,57 +1028,50 @@
 
             </div>
 
-            <!-- Devices & connectors: moved unchanged; the page is med-xso6.25. -->
+            <!-- Devices & connectors (med-xso6.25, kit S4). The device list is
+                 web/cloud/js/devices.js rendered into #settings-devices-mount on
+                 every open (features/settings.js mountCloudDevices); the
+                 connector row pushes the S5 page (connectors.js). Emergency Kit
+                 rotation stays a full-document passkey ceremony on the shell. -->
             <div class="wg-settings-page" data-settings-page="devices">
 
-            <section class="wg-card wg-settings-section wg-settings-cloud-devices wg-settings-hidden">
-                <h3 class="wg-settings-section__title">Devices</h3>
-                <p class="wg-settings-section__desc">Manage devices linked to this account</p>
+            <section class="wg-vstack wg-settings-cloud-devices wg-settings-hidden">
                 <div id="second-device-nudge" class="wg-settings-nudge wg-settings-hidden" role="note">
                     <div class="wg-settings-nudge__body">
                         <div class="wg-settings-nudge__title wg-mono-display">Add a second device</div>
                         <div class="wg-settings-nudge__desc">This account can only be opened from this one device. Enroll a second one (a desktop browser counts) so a lost or broken phone doesn't lock you out of your health data.</div>
                     </div>
                     <div class="wg-settings-nudge__actions">
-                        <a id="second-device-nudge-add" class="wg-gloss wg-settings-action-btn" href="/devices">Add a device</a>
                         <button id="second-device-nudge-dismiss" type="button" class="wg-settings-nudge__dismiss">Not now</button>
                     </div>
                 </div>
-                <div class="wg-settings-row-list">
-                    <div class="wg-settings-row">
-                        <div class="wg-settings-row__content">
-                            <div class="wg-settings-row__title wg-mono-display">Manage devices</div>
-                            <div class="wg-settings-row__desc">Add a new device</div>
-                        </div>
-                        <div class="wg-settings-row__control">
-                            <a id="settings-devices-link" class="wg-gloss wg-settings-action-btn" href="/devices">Open</a>
-                        </div>
+                <div id="settings-devices-mount"></div>
+                <section class="wg-section">
+                    <div class="wg-section__head"><span class="wg-eyebrow">Connectors</span></div>
+                    <div class="wg-list">
+                        <button type="button" id="settings-claude-connector-row" class="wg-row">
+                            <span class="wg-row__lead wg-row__lead--sun"><i class="wg-ico" data-icon="plug"></i></span>
+                            <span class="wg-row__body"><span class="wg-row__title">Claude connector</span><span class="wg-row__meta" id="settings-claude-connector-status">claude.ai, ChatGPT or Claude Code — with consent</span></span>
+                            <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                        </button>
                     </div>
-                    <div class="wg-settings-row">
-                        <div class="wg-settings-row__content">
-                            <div class="wg-settings-row__title wg-mono-display">Claude connector</div>
-                            <div class="wg-settings-row__desc">Use your data from claude.ai or ChatGPT — with consent</div>
-                        </div>
-                        <div class="wg-settings-row__control">
-                            <a id="settings-claude-connector-link" class="wg-gloss wg-settings-action-btn" href="/connectors">Open</a>
-                        </div>
-                    </div>
+                </section>
+                <div class="wg-list">
+                    <button type="button" id="settings-emergency-kit-row" class="wg-setting wg-setting--danger">
+                        <span class="wg-row__lead wg-row__lead--danger"><i class="wg-ico" data-icon="key"></i></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">Emergency Kit</span><span class="wg-setting__desc">Regenerate if you lost the printed copy</span></span>
+                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                    </button>
                 </div>
             </section>
 
-            <section class="wg-card wg-settings-section wg-settings-cloud-invite wg-settings-hidden">
-                <h3 class="wg-settings-section__title">Invite a friend</h3>
-                <p class="wg-settings-section__desc">Create a personal account for someone you know</p>
-                <div class="wg-settings-row-list">
-                    <div class="wg-settings-row">
-                        <div class="wg-settings-row__content">
-                            <div class="wg-settings-row__title wg-mono-display">Invite a friend</div>
-                            <div class="wg-settings-row__desc">Up to 100 invites per month</div>
-                        </div>
-                        <div class="wg-settings-row__control">
-                            <button type="button" id="settings-invite-btn" class="wg-gloss wg-settings-action-btn">Invite</button>
-                        </div>
-                    </div>
+            <section class="wg-settings-cloud-invite wg-settings-hidden">
+                <div class="wg-list">
+                    <button type="button" id="settings-invite-btn" class="wg-setting">
+                        <span class="wg-row__lead"><i class="wg-ico" data-icon="user"></i></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">Invite a friend</span><span class="wg-setting__desc">A personal account for someone you know · up to 100 a month</span></span>
+                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                    </button>
                 </div>
             </section>
 

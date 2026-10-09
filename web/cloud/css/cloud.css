@@ -1,5 +1,7 @@
-/* Cloud shell styling for /unlock, /claim, /recover, /devices, /connectors and
-   the base-domain landing page (med-t05.2).
+/* Cloud shell styling for /unlock, /claim, /recover, the /devices Emergency Kit
+   ceremony and the base-domain landing page (med-t05.2). Device and connector
+   management moved into the app's Settings (med-xso6.25); the .device-* rules
+   below only serve the storage-blocked unlock menu's fallback list.
 
    The shell cannot load web/static/css/styles.css: that sheet carries global
    element selectors that would restyle the whole wizard at once, and it lives
@@ -137,8 +139,7 @@ a.wg-btn {
   margin: 1rem 0;
 }
 
-.muted,
-.claude-mode-note {
+.muted {
   color: var(--wg-fg-3);
   font-size: 0.9rem;
 }
@@ -199,11 +200,6 @@ a.wg-btn {
   height: 1px;
   left: -9999px;
   border: 0;
-}
-
-.device-list {
-  list-style: none;
-  padding: 0;
 }
 
 .device-row {

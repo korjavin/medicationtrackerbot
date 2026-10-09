@@ -11659,6 +11659,20 @@ input:checked+.toggle-slider:before {
     min-width: 0;
 }
 
+/* Multi-line config snippet on the Claude connector page (web/cloud/js/
+   connectors.js): scrolls sideways instead of widening the page. */
+.wg-code-block {
+    margin: 0;
+    overflow-x: auto;
+    font: 500 var(--wg-fs-xs)/1.5 var(--wg-font-mono);
+    color: var(--wg-fg-2);
+}
+
+/* An empty error slot (e.g. the Add a device page) takes no gap. */
+.wg-page .wg-error:empty {
+    display: none;
+}
+
 .wg-invite-modal__url {
     display: block;
     font-size: var(--font-size-sm);

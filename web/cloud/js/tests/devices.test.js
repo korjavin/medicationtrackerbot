@@ -1,8 +1,12 @@
 // Device list + revocation. med-lyv split the Claude/MCP connector picker out
 // into connectors.js (see connectors.test.js) and moved Telegram to Settings →
-// Integrations, so this page now answers exactly one question: which passkeys
-// can open this vault. The "renders neither" case below pins that split — it is
-// the assertion that fails if the connector UI creeps back onto this screen.
+// Integrations, so this list answers exactly one question: which passkeys can
+// open this vault. The "renders neither" case below pins that split.
+//
+// med-xso6.25: the list mounts inside the app's Settings → Devices & connectors
+// page (kit S4): kit rows with an audit chip, Revoke behind each row's overflow
+// menu → destructive dialog, "Add a device" the one sun primary. The module
+// owns no page chrome (no Back, no heading) — the WGPage does.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JSDOM } from 'jsdom';
 
@@ -19,15 +23,15 @@ vi.mock('../signup.js', () => ({ renderEmergencyKit: vi.fn(async () => {}) }));
 import { assertPasskey } from '../unlock.js';
 import { renderEmergencyKit } from '../signup.js';
 
-import { renderDeviceList } from '../devices.js';
-import { installDialogs, answerDialog, openDialog, SHELL_DIALOG_SCRIPTS } from './helpers/dialogs.js';
+import { renderDeviceList, renderRegenerateKit } from '../devices.js';
+import { installDialogs, installRowActions, answerDialog, openDialog, SHELL_DIALOG_SCRIPTS } from './helpers/dialogs.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 let dom;
 let app;
-let onExit;
+let hooks;
 const ctx = { dek: 'fake-dek' };
 
 const DEVICES = [
@@ -41,9 +45,10 @@ beforeEach(() => {
   vi.stubGlobal('navigator', dom.window.navigator);
   vi.stubGlobal('window', dom.window);
   installDialogs(dom.window);
+  installRowActions(dom.window);
   global.fetch = vi.fn(async () => ({ ok: true, json: async () => DEVICES }));
   app = dom.window.document.getElementById('app');
-  onExit = vi.fn();
+  hooks = { onAddDevice: vi.fn(), onLoaded: vi.fn() };
 });
 
 afterEach(() => {
@@ -54,36 +59,56 @@ afterEach(() => {
 });
 
 async function renderAndSettle() {
-  renderDeviceList(app, ctx, onExit);
+  renderDeviceList(app, ctx, hooks);
   await vi.waitFor(() => {
     if (!app.querySelector('#add-device-button')) throw new Error('not rendered yet');
   });
 }
 
+const revokeItem = (row) => row.querySelector('.wg-menu__item--danger');
+
 describe('devices.js device list', () => {
-  it('renders one row per device with its audit badge', async () => {
+  it('renders one kit row per device with its audit chip', async () => {
     await renderAndSettle();
 
-    const rows = app.querySelectorAll('#device-list .device-row');
+    const rows = app.querySelectorAll('#device-list .wg-row.device-row');
     expect(rows).toHaveLength(2);
     // auditEnvelope is mocked true; the envelope-less device stays unverified.
-    expect(rows[0].querySelector('.device-verified')).not.toBeNull();
-    expect(rows[1].querySelector('.device-unverified')).not.toBeNull();
+    expect(rows[0].querySelector('.wg-chip--ok.device-verified')).not.toBeNull();
+    expect(rows[1].querySelector('.wg-chip--danger.device-unverified')).not.toBeNull();
+    expect(rows[0].querySelector('.wg-row__title').textContent).toBe('Passkey aaaabbbb…');
   });
 
-  // med-xso6.11: shell buttons wear the kit — one sun primary, destructive
-  // row actions as danger-ghost.
-  it('renders kit .wg-btn variants', async () => {
+  it('hands the audited list to the host (home-row summary, nudge)', async () => {
+    await renderAndSettle();
+    expect(hooks.onLoaded).toHaveBeenCalledTimes(1);
+    expect(hooks.onLoaded.mock.calls[0][0]).toHaveLength(2);
+  });
+
+  // Kit S4: "Add a device" is the one sun primary; Revoke is no longer a
+  // button beside it but an overflow menu item on each row.
+  it('has one sun primary and keeps Revoke behind each row overflow', async () => {
     await renderAndSettle();
 
-    expect(app.querySelector('#add-device-button').className).toBe('wg-btn wg-btn--primary');
-    expect(app.querySelector('#devices-back').className).toBe('wg-btn');
-    const revoke = app.querySelector('#device-list .device-row button');
-    expect(revoke.classList.contains('wg-btn--danger-ghost')).toBe(true);
     expect(app.querySelectorAll('.wg-btn--primary')).toHaveLength(1);
+    expect(app.querySelector('#add-device-button').classList.contains('wg-btn--primary')).toBe(true);
+    for (const row of app.querySelectorAll('#device-list .device-row')) {
+      expect(row.querySelector('.wg-swipe__more')).not.toBeNull();
+      expect(revokeItem(row).textContent).toContain('Revoke');
+      expect(row.querySelector('.wg-menu').hidden).toBe(true);
+    }
+    // No shell chrome: the hosting page owns Back.
+    expect(app.querySelector('#devices-back')).toBeNull();
+    expect(app.querySelector('h1')).toBeNull();
   });
 
-  // The point of med-lyv: devices and connectors are separate pages now.
+  it('Add a device hands off to the host', async () => {
+    await renderAndSettle();
+    app.querySelector('#add-device-button').click();
+    expect(hooks.onAddDevice).toHaveBeenCalledTimes(1);
+  });
+
+  // The point of med-lyv: devices and connectors are separate pages.
   it('renders neither the connector picker nor the Telegram mount', async () => {
     await renderAndSettle();
 
@@ -94,14 +119,14 @@ describe('devices.js device list', () => {
     expect(app.querySelector('#telegram-mount')).toBeNull();
   });
 
-  it('revokes a device and re-renders the list', async () => {
+  it('revokes a device through a destructive dialog and re-renders the list', async () => {
     await renderAndSettle();
 
     global.fetch.mockClear();
-    app.querySelectorAll('#device-list .device-row button')[0]
-      .dispatchEvent(new dom.window.Event('click'));
+    revokeItem(app.querySelectorAll('#device-list .device-row')[0]).click();
     const dialog = await answerDialog(dom.window.document, true);
     expect(dialog.querySelector('.wg-dialog__title').textContent).toBe('Revoke this device?');
+    expect(dialog.querySelector('.mt-confirm-modal__confirm').classList.contains('wg-btn--danger')).toBe(true);
 
     await vi.waitFor(() => {
       if (global.fetch.mock.calls.length === 0) throw new Error('not called yet');
@@ -109,11 +134,50 @@ describe('devices.js device list', () => {
     const [url, opts] = global.fetch.mock.calls[0];
     expect(url).toBe('/api/devices/aaaabbbbcccc');
     expect(opts.method).toBe('DELETE');
+    await vi.waitFor(() => expect(hooks.onLoaded).toHaveBeenCalledTimes(2));
   });
 
-  // bd med-kj0w: in the passkey shell, browser Back over an open dialog
-  // cancels just the dialog (its own history entry, via modal-history.js);
-  // the page's entry below stays, so Back with no dialog behaves as before.
+  it('declining the dialog revokes nothing', async () => {
+    await renderAndSettle();
+
+    global.fetch.mockClear();
+    revokeItem(app.querySelectorAll('#device-list .device-row')[1]).click();
+    await answerDialog(dom.window.document, false);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('shows the error with a retry when the list fails to load', async () => {
+    global.fetch = vi.fn(async () => ({ ok: false, json: async () => ({}) }));
+    renderDeviceList(app, ctx, hooks);
+    await vi.waitFor(() => {
+      if (!app.querySelector('#devices-retry')) throw new Error('not rendered yet');
+    });
+    expect(app.querySelector('.wg-error').textContent).toMatch(/Could not load your devices/);
+
+    global.fetch = vi.fn(async () => ({ ok: true, json: async () => DEVICES }));
+    app.querySelector('#devices-retry').click();
+    await vi.waitFor(() => {
+      if (!app.querySelector('#add-device-button')) throw new Error('not retried yet');
+    });
+  });
+
+  // The passkey shell's storage-blocked unlock menu (unlock.js) mounts the same
+  // list without the app's row-actions component: Revoke stays reachable.
+  it('falls back to a plain destructive Revoke button where WGRowActions is absent', async () => {
+    delete dom.window.WGRowActions;
+    await renderAndSettle();
+
+    const button = app.querySelector('#device-list .device-row > button.wg-btn--danger-ghost');
+    expect(button.textContent).toBe('Revoke');
+    global.fetch.mockClear();
+    button.click();
+    await answerDialog(dom.window.document, true);
+    await vi.waitFor(() => expect(global.fetch).toHaveBeenCalledWith('/api/devices/aaaabbbbcccc', { method: 'DELETE' }));
+  });
+
+  // bd med-kj0w: browser Back over an open dialog cancels just the dialog (its
+  // own history entry, via modal-history.js); the page's entry below stays.
   it('browser Back over the revoke dialog cancels it and stays on the page', async () => {
     const signupHtml = fs.readFileSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../signup.html'), 'utf8');
     for (const f of SHELL_DIALOG_SCRIPTS) expect(signupHtml).toContain(`<script src="/static/js/${f}"></script>`);
@@ -123,8 +187,7 @@ describe('devices.js device list', () => {
     const startLength = dom.window.history.length;
 
     global.fetch.mockClear();
-    app.querySelectorAll('#device-list .device-row button')[0]
-      .dispatchEvent(new dom.window.Event('click'));
+    revokeItem(app.querySelectorAll('#device-list .device-row')[0]).click();
     await vi.waitFor(() => {
       if (!openDialog(dom.window.document)) throw new Error('no dialog open');
     });
@@ -141,16 +204,8 @@ describe('devices.js device list', () => {
     expect(dom.window.history.state).toBe(null);
     expect(dom.window.history.length).toBe(startLength + 1);
     expect(dom.window.location.href).toBe('https://acct.example.test/');
-    expect(onExit).not.toHaveBeenCalled();
     expect(global.fetch).not.toHaveBeenCalled();
     expect(app.querySelectorAll('#device-list .device-row')).toHaveLength(2);
-  });
-
-  it('Back exits the page', async () => {
-    await renderAndSettle();
-
-    app.querySelector('#devices-back').dispatchEvent(new dom.window.Event('click'));
-    expect(onExit).toHaveBeenCalled();
   });
 });
 
@@ -162,15 +217,16 @@ describe('devices.js device list', () => {
 // and only its verifier + the recovery-wrapped envelope reach the server, so
 // nobody — including the account's owner — can be shown the existing code. The
 // only possible action is to mint a new one, which invalidates the old.
+//
+// med-xso6.25: a full-document passkey ceremony — the app's Emergency Kit row
+// navigates to /devices?flow=emergency-kit, where app.js runs this screen.
 describe('Regenerate Emergency Kit (med-d5t.12)', () => {
   const regenCtx = { dek: 'fake-dek', accountId: 'acct-1' };
+  let onDone;
 
-  async function openRegenerateScreen() {
-    renderDeviceList(app, regenCtx, onExit);
-    await vi.waitFor(() => {
-      if (!app.querySelector('#regenerate-kit-button')) throw new Error('not rendered yet');
-    });
-    app.querySelector('#regenerate-kit-button').click();
+  function openRegenerateScreen() {
+    onDone = vi.fn();
+    renderRegenerateKit(app, regenCtx, onDone);
     return app;
   }
 
@@ -181,23 +237,15 @@ describe('Regenerate Emergency Kit (med-d5t.12)', () => {
     app.querySelector('#regen-continue').click();
   }
 
-  it('offers the entry point on the devices page, beside "Add a device"', async () => {
-    renderDeviceList(app, regenCtx, onExit);
-    await vi.waitFor(() => {
-      if (!app.querySelector('#regenerate-kit-button')) throw new Error('not rendered yet');
-    });
-    expect(app.querySelector('#regenerate-kit-button')).not.toBeNull();
-  });
-
-  it('says plainly that the old kit stops working, and that we cannot show the current code', async () => {
-    await openRegenerateScreen();
+  it('says plainly that the old kit stops working, and that we cannot show the current code', () => {
+    openRegenerateScreen();
 
     expect(app.textContent).toMatch(/cannot show you your current recovery code/i);
     expect(app.textContent).toMatch(/permanently invalidates your old recovery code/i);
   });
 
-  it('will not rotate on a single tap — the acknowledgement gates it', async () => {
-    await openRegenerateScreen();
+  it('will not rotate on a single tap — the acknowledgement gates it', () => {
+    openRegenerateScreen();
 
     expect(app.querySelector('#regen-continue').disabled).toBe(true);
     app.querySelector('#regen-continue').click();
@@ -206,7 +254,7 @@ describe('Regenerate Emergency Kit (med-d5t.12)', () => {
 
   it('requires a fresh passkey assertion, and re-wraps the DEK that assertion returns', async () => {
     assertPasskey.mockResolvedValue({ accountId: 'acct-1', dek: 'fresh-dek' });
-    await openRegenerateScreen();
+    openRegenerateScreen();
 
     acknowledgeAndConfirm();
 
@@ -216,11 +264,13 @@ describe('Regenerate Emergency Kit (med-d5t.12)', () => {
     const [, kitCtx] = renderEmergencyKit.mock.calls[0];
     expect(kitCtx.dek).toBe('fresh-dek');
     expect(kitCtx.accountId).toBe('acct-1');
+    // The kit's Done returns to the caller (app.js → the in-app Devices page).
+    expect(kitCtx.onKitSaved).toBe(onDone);
   });
 
   it('leaves the old kit working when the passkey assertion fails', async () => {
     assertPasskey.mockRejectedValue(new Error('Unlock failed. Please try again.'));
-    await openRegenerateScreen();
+    openRegenerateScreen();
 
     acknowledgeAndConfirm();
 
@@ -238,7 +288,7 @@ describe('Regenerate Emergency Kit (med-d5t.12)', () => {
     // renderEmergencyKit uploads envelope + verifier atomically before it
     // renders anything; a failure there must not strand the account.
     renderEmergencyKit.mockRejectedValue(new Error('Could not save recovery material.'));
-    await openRegenerateScreen();
+    openRegenerateScreen();
 
     acknowledgeAndConfirm();
 
@@ -251,7 +301,7 @@ describe('Regenerate Emergency Kit (med-d5t.12)', () => {
 
   it('refuses a passkey belonging to a different account', async () => {
     assertPasskey.mockResolvedValue({ accountId: 'someone-else', dek: 'other-dek' });
-    await openRegenerateScreen();
+    openRegenerateScreen();
 
     acknowledgeAndConfirm();
 
@@ -261,14 +311,12 @@ describe('Regenerate Emergency Kit (med-d5t.12)', () => {
     expect(renderEmergencyKit).not.toHaveBeenCalled();
   });
 
-  it('Cancel returns to the device list without rotating anything', async () => {
-    await openRegenerateScreen();
+  it('Cancel returns to the caller without rotating anything', () => {
+    openRegenerateScreen();
 
     app.querySelector('#regen-cancel').click();
 
-    await vi.waitFor(() => {
-      if (!app.querySelector('#add-device-button')) throw new Error('not back yet');
-    });
+    expect(onDone).toHaveBeenCalledTimes(1);
     expect(assertPasskey).not.toHaveBeenCalled();
     expect(renderEmergencyKit).not.toHaveBeenCalled();
   });
