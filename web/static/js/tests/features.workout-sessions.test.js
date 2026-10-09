@@ -2276,7 +2276,7 @@ describe('features/workout/sessions.js — plate-loading chip (med-v75c.2)', () 
     // Mounted directly after the mono row.
     expect(card.querySelector('.wg-workouts-session-exercise__mono').nextElementSibling).toBe(chip);
 
-    const svg = chip.querySelector('svg.wg-plates');
+    const svg = chip.querySelector('svg.wg-plates__glyph');
     expect(svg).not.toBeNull();
     expect(svg.getAttribute('role')).toBe('img');
     // 4 plate rects per side; the sleeve is a line, never a rect.
@@ -2298,7 +2298,7 @@ describe('features/workout/sessions.js — plate-loading chip (med-v75c.2)', () 
 
     const chip = firstCard(document).querySelector('.wg-workouts-session-exercise__plates');
     expect(chip).not.toBeNull();
-    expect(chip.querySelector('svg.wg-plates')).not.toBeNull();
+    expect(chip.querySelector('svg.wg-plates__glyph')).not.toBeNull();
     expect(chip.querySelectorAll('rect').length).toBe(8);
     expect(chip.querySelector('.wg-plates__text').textContent).toBe('8 + 15 · 10 · 5 · 2 / side');
     expect(chip.querySelector('.wg-plates__delta').textContent).toBe('72 kg (-1 kg)');
@@ -2326,7 +2326,7 @@ describe('features/workout/sessions.js — plate-loading chip (med-v75c.2)', () 
 
     const chip = firstCard(document).querySelector('.wg-workouts-session-exercise__plates');
     expect(chip).not.toBeNull();
-    const svg = chip.querySelector('svg.wg-plates');
+    const svg = chip.querySelector('svg.wg-plates__glyph');
     expect(svg).not.toBeNull();
     expect(svg.querySelectorAll('rect').length).toBe(3);
     expect(chip.querySelector('.wg-plates__text').textContent).toBe('4 + 2 · 2 · 1');
@@ -2377,7 +2377,7 @@ describe('features/workout/sessions.js — plate-loading chip (med-v75c.2)', () 
     const chip = firstCard(document).querySelector('.wg-workouts-session-exercise__plates');
     expect(chip).not.toBeNull();
     expect(chip.querySelector('.wg-plates__auto').textContent).toBe('auto: Short bar');
-    expect(chip.querySelector('svg.wg-plates')).not.toBeNull();
+    expect(chip.querySelector('svg.wg-plates__glyph')).not.toBeNull();
     expect(chip.querySelector('.wg-plates__text').textContent).toBe('8 + 15 · 10 · 5 · 2 / side');
   });
 
@@ -2394,7 +2394,7 @@ describe('features/workout/sessions.js — plate-loading chip (med-v75c.2)', () 
 
     const chip = firstCard(document).querySelector('.wg-workouts-session-exercise__plates');
     expect(chip).not.toBeNull();
-    expect(chip.querySelector('svg.wg-plates')).not.toBeNull();
+    expect(chip.querySelector('svg.wg-plates__glyph')).not.toBeNull();
     expect(chip.querySelector('.wg-plates__text').textContent).toBe('4 + 2 · 2 · 1');
     expect(chip.textContent).not.toContain('/ side');
   });

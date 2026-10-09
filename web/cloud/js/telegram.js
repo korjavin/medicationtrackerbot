@@ -41,7 +41,7 @@ const TG_PREFS_SECTION_HTML = `
            has learned from your messages (e.g. "by 'my usual' I mean 2 eggs
            and toast"). Edit or clear it below — saving replaces the whole
            note.</p>
-        <textarea id="tg-prefs-note" class="wg-input" maxlength="${TG_PREFS_MAX_CHARS}"
+        <textarea id="tg-prefs-note" class="wg-input wg-textarea" maxlength="${TG_PREFS_MAX_CHARS}"
                   placeholder="No glossary yet — the assistant fills this in as you chat."></textarea>
         <div class="wizard-actions wg-settings-row__control">
           <button id="tg-prefs-save" class="wg-gloss wg-settings-action-btn">Save glossary</button>

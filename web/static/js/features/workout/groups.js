@@ -742,7 +742,7 @@ function _workoutPlateSvgElement(perSide, sides) {
     const NS = 'http://www.w3.org/2000/svg';
     const L = _workoutPlateLayout(perSide, sides);
     const svg = document.createElementNS(NS, 'svg');
-    svg.setAttribute('class', 'wg-plates');
+    svg.setAttribute('class', 'wg-plates__glyph');
     svg.setAttribute('viewBox', `0 0 ${L.W} ${L.H}`);
     svg.setAttribute('role', 'img');
     const sleeve = document.createElementNS(NS, 'line');

@@ -23,8 +23,8 @@
     --wg-paper: #F4FBF7;
     --wg-ink: #0F5042;
     --wg-fg-1: var(--wg-paper);
-    --wg-fg-3: rgba(244, 251, 247, 0.55);
-    --wg-fg-4: rgba(244, 251, 247, 0.42);
+    --wg-fg-3: rgba(244, 251, 247, 0.6);
+    --wg-fg-4: rgba(244, 251, 247, 0.36);
     --wg-border-hairline: rgba(255, 255, 255, 0.06);
     --wg-border-strong: rgba(255, 255, 255, 0.12);
     --wg-mint-soft: #9CE4CC;
@@ -35,8 +35,8 @@
     --wg-gloss-shadow-sun: inset 0 1px 0 rgba(255, 255, 255, 0.55), inset 0 -1px 0 rgba(0, 0, 0, 0.18), 0 2px 0 rgba(160, 110, 0, 0.4), 0 6px 18px -4px rgba(251, 189, 13, 0.45);
     --wg-radius-gloss: 10px;
     /* In-page dialog (.wg-modal / .wg-gloss below + /static/css/dialog.css). */
-    --wg-fg-2: rgba(244, 251, 247, 0.72);
-    --wg-bg-card: #254844;
+    --wg-fg-2: rgba(244, 251, 247, 0.76);
+    --wg-bg-card: #21423D;
     --wg-sun: #FBBD0D;
     --wg-card-pad: 14px;
     --wg-radius-card: 14px;

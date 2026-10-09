@@ -1,9 +1,10 @@
 /**
  * architecture.wg-primitives.test.js
  *
- * Asserts the Wandergeek material primitives (Task 2) are present in
- * styles.css and contain no hardcoded hex colors — every visual value
- * must resolve through a --wg-* token.
+ * Asserts the Wandergeek material primitives (Task 2) and the App UI kit v2
+ * primitives are present in styles.css / components.css (the shipped kit
+ * sheet, loaded after styles.css) and contain no hardcoded hex colors —
+ * every visual value must resolve through a --wg-* token.
  */
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
@@ -14,6 +15,29 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const CSS_PATH = path.join(REPO_ROOT, 'web/static/css/styles.css');
+const COMPONENTS_CSS_PATH = path.join(REPO_ROOT, 'web/static/css/components.css');
+
+/** App UI kit v2 primitive roots (docs/design/claude-design/ui_kits/app-v2). */
+const KIT_CLASSES = [
+    '.wg-btn',
+    '.wg-chip',
+    '.wg-row',
+    '.wg-sheet',
+    '.wg-dialog',
+    '.wg-toast',
+    '.wg-empty',
+    '.wg-skel',
+    '.wg-seg',
+    '.wg-tabbar',
+    '.wg-appbar',
+    '.wg-pagebar',
+    '.wg-setting',
+    '.wg-swipe',
+    '.wg-picks',
+    '.wg-stepper',
+    '.wg-meter',
+    '.wg-track',
+];
 
 const REQUIRED_CLASSES = [
     '.wg-stage',
@@ -43,19 +67,23 @@ const REQUIRED_CLASSES = [
     '.wg-label',
     '.wg-input',
     '.wg-select',
+    ...KIT_CLASSES,
 ];
 
+// Both sheets in load order: styles.css, then the kit's components.css.
 function loadCss() {
-    return fs.readFileSync(CSS_PATH, 'utf8');
+    return fs.readFileSync(CSS_PATH, 'utf8') + '\n' + fs.readFileSync(COMPONENTS_CSS_PATH, 'utf8');
 }
 
 /**
  * Extract the block body `{ ... }` for a CSS selector (simple rule match).
- * Returns the concatenation of every occurrence of `selector { ... }`.
+ * Returns the concatenation of every occurrence of `selector { ... }`,
+ * including the zero-specificity `:where(selector) { ... }` form
+ * components.css uses for bases legacy classes still override.
  */
 function extractClassBlocks(css, selector) {
     const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const re = new RegExp(`(^|[\\s,{}>+~])${escaped}\\s*\\{([^}]+)\\}`, 'g');
+    const re = new RegExp(`(^|[\\s,{}>+~]|:where\\()${escaped}\\)?\\s*\\{([^}]+)\\}`, 'g');
     const blocks = [];
     let m;
     while ((m = re.exec(css)) !== null) {
@@ -67,7 +95,7 @@ function extractClassBlocks(css, selector) {
 describe('Wandergeek material primitives', () => {
     const css = loadCss();
 
-    it.each(REQUIRED_CLASSES)('defines %s in styles.css', (cls) => {
+    it.each(REQUIRED_CLASSES)('defines %s in styles.css or components.css', (cls) => {
         const blocks = extractClassBlocks(css, cls);
         expect(blocks.length, `expected at least one rule for ${cls}`).toBeGreaterThan(0);
     });
@@ -177,9 +205,35 @@ describe('Wandergeek material primitives', () => {
         const blocks = extractClassBlocks(css, '.wg-input');
         expect(blocks.length).toBeGreaterThan(0);
         const body = blocks[0];
-        expect(body).toMatch(/background:\s*var\(--wg-bg-card-inset\)/);
+        expect(body).toMatch(/background:\s*var\(--wg-inset\)/);
         expect(body).toMatch(/color:\s*var\(--wg-fg-1\)/);
-        expect(body).toMatch(/border:[\s\S]*var\(--wg-border-hairline\)/);
+        expect(body).toMatch(/border:[\s\S]*var\(--wg-line-dark\)/);
+    });
+
+    it('each colliding kit selector has exactly one base definition, in components.css', () => {
+        // med-xso6.1: these existed in styles.css before the kit shipped;
+        // the kit rule is now the only base rule. Modifiers and contextual
+        // rules (e.g. `.wg-field--row > .wg-field`) are not base rules.
+        const styles = fs.readFileSync(CSS_PATH, 'utf8');
+        const kit = fs.readFileSync(COMPONENTS_CSS_PATH, 'utf8');
+        // A base rule is one whose whole selector is the bare class.
+        const baseRules = (css, cls) => {
+            const escaped = cls.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            return css.match(new RegExp(`(^|\\})\\s*(:where\\()?${escaped}\\)?\\s*\\{`, 'gm')) || [];
+        };
+        for (const cls of ['.wg-card', '.wg-field', '.wg-input', '.wg-label', '.wg-plates',
+            '.wg-select', '.wg-spark', '.wg-tag', '.wg-tag--sun', '.wg-toggle', '.wg-muted']) {
+            expect(baseRules(styles, cls), `${cls} still defined in styles.css`).toEqual([]);
+            expect(baseRules(kit, cls).length, `${cls} base rule in components.css`).toBe(1);
+        }
+    });
+
+    it('index.html links components.css after styles.css', () => {
+        const html = fs.readFileSync(path.join(REPO_ROOT, 'web/static/index.html'), 'utf8');
+        const styles = html.indexOf('/static/css/styles.css');
+        const kit = html.indexOf('/static/css/components.css');
+        expect(styles).toBeGreaterThan(-1);
+        expect(kit).toBeGreaterThan(styles);
     });
 
     it('.wg-label uses the --wg-fg-3 quiet-text token (AA on teal stage)', () => {

@@ -192,6 +192,18 @@ const REQUIRED_TOKENS = [
     '--z-popover',
     '--z-confirm',
     '--z-toast',
+
+    // App UI kit v2 — the five semantic status families. Every chip, tag,
+    // row state and banner reads from these (docs/frontend.md#design-tokens).
+    ...['ok', 'warn', 'danger', 'stale', 'pending'].flatMap((s) => [
+        `--wg-${s}-fg`, `--wg-${s}-bg`, `--wg-${s}-line`,
+    ]),
+
+    // App UI kit v2 — control scale: space · radius · height · z.
+    '--wg-s1', '--wg-s2', '--wg-s3', '--wg-s4', '--wg-s5', '--wg-s6', '--wg-s8',
+    '--wg-r-xs', '--wg-r-sm', '--wg-r-md', '--wg-r-lg', '--wg-r-xl', '--wg-r-pill',
+    '--wg-h-sm', '--wg-h-md', '--wg-h-lg', '--wg-hit',
+    '--wg-z-tabbar', '--wg-z-sheet', '--wg-z-dialog', '--wg-z-toast',
 ];
 
 /**
@@ -731,22 +743,33 @@ const WANDERGEEK_TOKENS = [
     '--wg-settings-version-size',
     '--wg-settings-version-pad',
 
-    // Toggle primitive tokens (Phase 9, Task 1) — the new WGToggle
-    // primitive draws an unchecked pill (--wg-toggle-bg) that flips to
-    // --wg-toggle-bg-on (sun gradient) when checked; knob / border /
-    // focus / disabled states are all tokenized.
-    '--wg-toggle-width',
-    '--wg-toggle-height',
-    '--wg-toggle-knob-size',
-    '--wg-toggle-knob-pad',
+    // Toggle: the kit .wg-toggle (css/components.css) paints its unchecked
+    // pill from --wg-toggle-bg; the focus-ring colour is shared by row focus
+    // rings.
     '--wg-toggle-bg',
-    '--wg-toggle-bg-on',
-    '--wg-toggle-knob',
-    '--wg-toggle-knob-on',
-    '--wg-toggle-border',
     '--wg-toggle-border-focus',
-    '--wg-toggle-border-disabled',
+
+    // App UI kit v2 (docs/design/claude-design/ui_kits/app-v2/tokens.css);
+    // the status families and control scale are in REQUIRED_TOKENS.
+    // Kit palette + surfaces + text + lines.
+    '--wg-sage', '--wg-mint-mid', '--wg-sun-hi', '--wg-clay-hi', '--wg-clay-deep',
+    '--wg-sky', '--wg-sky-soft', '--wg-violet', '--wg-orchid', '--wg-leaf',
+    '--wg-bg-screen', '--wg-bg-card-hi', '--wg-bg-sheet', '--wg-bg-inset-a',
+    '--wg-bg-inset-b', '--wg-bg-raised-a', '--wg-bg-raised-b', '--wg-bg-float',
+    '--wg-banner-offline-bg', '--wg-banner-warn-bg', '--wg-banner-info-bg',
+    '--wg-fg-on-sun', '--wg-fg-on-clay', '--wg-line', '--wg-line-strong', '--wg-line-dark',
+    // Kit type scale.
+    '--wg-fs-eyebrow', '--wg-fs-xs', '--wg-fs-sm', '--wg-fs-md', '--wg-fs-lg',
+    '--wg-fs-xl', '--wg-fs-title', '--wg-fs-metric', '--wg-fs-hero', '--wg-track-eyebrow',
+    // Kit material + motion + layout.
+    '--wg-gloss-hi', '--wg-raised', '--wg-sunfill', '--wg-clayfill', '--wg-sagefill',
+    '--wg-inset', '--wg-sh-raised', '--wg-sh-sun', '--wg-sh-inset', '--wg-sh-card',
+    '--wg-sh-float', '--wg-focus', '--wg-ease', '--wg-dur-fast', '--wg-dur',
+    '--wg-tabbar-h', '--wg-kb-h',
 ];
+
+/** Every --wg-* token css/components.css reads must be declared in :root. */
+const COMPONENTS_CSS_PATH = path.join(REPO_ROOT, 'web/static/css/components.css');
 
 describe('Architecture – design tokens', () => {
     it(':root block contains all required design tokens', () => {
@@ -765,8 +788,11 @@ describe('Architecture – design tokens', () => {
         }
     });
 
-    it('no hardcoded hex colors outside :root (except allowlisted fallbacks)', () => {
-        const css = fs.readFileSync(CSS_PATH, 'utf8');
+    it.each([
+        ['styles.css', CSS_PATH],
+        ['components.css', COMPONENTS_CSS_PATH],
+    ])('no hardcoded hex colors outside :root in %s (except allowlisted fallbacks)', (_name, cssPath) => {
+        const css = fs.readFileSync(cssPath, 'utf8');
 
         // Split CSS into lines and track whether we are inside :root or
         // a @media dark-mode :root override block
@@ -861,6 +887,14 @@ describe('Architecture – design tokens', () => {
                 `Replace these with CSS custom property tokens (var(--token-name)).`
             );
         }
+    });
+
+    it('every --wg-* token components.css reads is declared in the styles.css :root', () => {
+        const defined = extractCustomProperties(extractRootBlock(fs.readFileSync(CSS_PATH, 'utf8')));
+        const used = new Set(
+            [...fs.readFileSync(COMPONENTS_CSS_PATH, 'utf8').matchAll(/var\((--wg-[\w-]+)/g)].map((m) => m[1])
+        );
+        expect([...used].filter((t) => !defined.has(t))).toEqual([]);
     });
 
     it('button system classes are defined in CSS', () => {

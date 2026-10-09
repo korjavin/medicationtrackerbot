@@ -30,7 +30,7 @@ describe('WGToggle', () => {
         }
     });
 
-    it('renders a <label class="wg-toggle"> with hidden checkbox, track, and knob', () => {
+    it('renders a <label class="wg-toggle"> pill around a single hidden checkbox', () => {
         const { window, cleanup } = loadWGToggle();
         try {
             const el = window.WGToggle.render({ id: 'x-toggle' });
@@ -44,13 +44,9 @@ describe('WGToggle', () => {
             expect(input.checked).toBe(false);
             expect(input.disabled).toBe(false);
 
-            const track = el.querySelector('.wg-toggle__track');
-            expect(track).not.toBeNull();
-            expect(track.getAttribute('aria-hidden')).toBe('true');
-
-            const knob = el.querySelector('.wg-toggle__knob');
-            expect(knob).not.toBeNull();
-            expect(knob.getAttribute('aria-hidden')).toBe('true');
+            // The kit .wg-toggle paints the pill on the label and the knob as
+            // its ::after (css/components.css); no decorative child spans.
+            expect(el.children.length).toBe(1);
         } finally {
             cleanup();
         }

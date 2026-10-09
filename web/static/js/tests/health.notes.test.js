@@ -318,7 +318,9 @@ describe('Health Notes render (Phase 8, Task 7)', () => {
         expect(css).toMatch(/\.wg-health-notes-row__tag\s*\{/);
         expect(css).toMatch(/\.wg-health-notes__load-more-btn\s*\{/);
         expect(css).toMatch(/\.wg-health-notes__empty\s*\{/);
-        expect(css).toMatch(/\.wg-tag--sun\s*\{/);
+        // The sun tag is a kit primitive (css/components.css).
+        const kitCss = fs.readFileSync(path.join(path.dirname(CSS_PATH), 'components.css'), 'utf8');
+        expect(kitCss).toMatch(/\.wg-tag--sun\s*\{/);
     });
 });
 

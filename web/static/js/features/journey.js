@@ -281,7 +281,7 @@
     function cadenceSelect(label, key, options, value) {
         const wrap = el('label', 'wg-journey-weekly__cadence-field');
         wrap.appendChild(el('span', 'wg-muted', label));
-        const select = el('select', 'wg-select');
+        const select = el('select', 'wg-input wg-select');
         select.setAttribute('data-cadence', key);
         options.forEach(([v, text]) => {
             const opt = el('option', null, text);
