@@ -1,22 +1,27 @@
-/* In-page dialog (bd med-v83g): the rules for the one dialog shell every
-   alert / confirm / prompt / choice in the app renders through —
-   _mountConfirmModal in web/static/js/core/utils.js (safeAlert, safeConfirm,
-   safePrompt, safeChoose). No native browser dialogs anywhere.
+/* In-page dialog (bd med-v83g, kit v2 med-xso6.6): the shell every alert /
+   confirm / prompt / choice in the app renders through — _mountConfirmModal
+   in web/static/js/core/utils.js (safeAlert, safeConfirm, safePrompt,
+   safeChoose, safeForm). No native browser dialogs anywhere.
 
-   Linked by BOTH documents that open dialogs:
+   The anatomy is the kit's .wg-dialog (__icon, __title, __body, __acts) with
+   .wg-btn actions and .wg-choice rows, all from /static/css/components.css.
+   This sheet only adds what the kit's mock scrim supplied: the fixed,
+   centered placement on the --z-confirm layer, plus the prompt field, the
+   choice list's disabled state and the head-row actions of field/list
+   dialogs.
+
+   Linked by BOTH documents that open dialogs, after components.css:
      - the account app (web/static/index.html), after styles.css, which
-       supplies the generic .wg-modal / .wg-gloss shell and every token;
+       supplies every token;
      - the passkey shell (web/cloud/signup.html: /devices, /connectors,
        /unlock, the signup wizard), after cloud.css, which re-declares the
-       tokens and a minimal .wg-modal / .wg-gloss for the shell.
-   So only var(--…) tokens here, each declared in both :root blocks
-   (architecture.cloud-tokens.test.js pins the shell's copies).
+       tokens this sheet and the kit rules the dialog wears use
+       (architecture.cloud-tokens.test.js pins the shell's copies).
 
-   Both the backdrop and the modal sit on the dedicated --z-confirm layer
+   Both the backdrop and the dialog sit on the dedicated --z-confirm layer
    so a dialog opened from inside an existing modal (e.g. workout session
    detail at --z-modal, food-product modal at --z-popover) reliably
-   occludes that underlying modal — the regression that would otherwise
-   surface is a visible/clickable surface around the confirm prompt. */
+   occludes that underlying modal. */
 .mt-confirm-backdrop {
     position: fixed;
     inset: 0;
@@ -25,32 +30,55 @@
 }
 
 .mt-confirm-modal {
-    z-index: var(--z-confirm);
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: calc(100% - 2 * var(--space-lg));
     max-width: var(--wg-modal-max-w-compact);
+    max-height: 85vh;
+    overflow-y: auto;
+    z-index: var(--z-confirm);
+    font-family: var(--wg-font-ui);
+    color: var(--wg-fg-1);
+}
+
+.mt-confirm-modal__title,
+.mt-confirm-modal__message {
+    margin: 0;
 }
 
 /* pre-line: a message's own line breaks ("Title?\n\nDetail") survive. */
 .mt-confirm-modal__message {
-    margin: 0;
-    font-family: var(--wg-font-ui);
-    font-size: var(--font-size-sm);
-    color: var(--wg-fg-2);
-    line-height: 1.5;
     white-space: pre-line;
 }
 
-.mt-confirm-modal__cancel,
-.mt-confirm-modal__confirm {
-    min-height: 44px;
-    padding: var(--space-sm) var(--space-lg);
-    font-size: var(--font-size-sm);
+.mt-confirm-modal__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
 }
 
-/* safePrompt / safeChoose (med-8j5w.5): actions sit top-right in the
-   header so the mobile keyboard never covers them. */
-.mt-confirm-modal__header-actions {
-    flex-wrap: nowrap;
-    flex-shrink: 0;
+/* safePrompt / safeChoose / safeForm (med-8j5w.5): the actions sit
+   top-right beside the title so the mobile keyboard never covers them;
+   a long title or label wraps the actions under it instead of overflowing. */
+.mt-confirm-modal__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-md);
+}
+
+.mt-confirm-modal__head-acts {
+    margin-top: 0;
+    margin-left: auto;
+}
+
+/* .wg-btn labels never wrap, so two that don't fit side by side stack
+   (each flex:1 → full width) rather than overflow the dialog. */
+.mt-confirm-modal .wg-dialog__acts {
+    flex-wrap: wrap;
 }
 
 .mt-confirm-modal__label {
@@ -61,32 +89,12 @@
 
 .mt-confirm-modal__error {
     margin: 0;
-    font-family: var(--wg-font-ui);
     font-size: var(--font-size-sm);
-    color: var(--wg-clay-soft);
+    color: var(--wg-danger-fg);
 }
 
 .mt-confirm-modal__error[hidden] {
     display: none;
-}
-
-.mt-confirm-modal__choices {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
-}
-
-.mt-confirm-modal__choice {
-    width: 100%;
-    min-height: 44px;
-    padding: var(--space-sm) var(--space-md);
-    text-align: left;
-    font-size: var(--font-size-sm);
-}
-
-.mt-confirm-modal__choice--selected {
-    border-color: var(--wg-sun);
-    color: var(--wg-sun);
 }
 
 .mt-confirm-modal__choice:disabled {

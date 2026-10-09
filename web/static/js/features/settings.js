@@ -414,42 +414,11 @@ function bindDeleteAccount() {
     if (_deleteAccountBound) return;
     _deleteAccountBound = true;
 
-    const modal = document.getElementById('delete-account-modal');
     const openBtn = document.getElementById('delete-account-open');
-    const cancelBtn = document.getElementById('delete-account-cancel');
     const exportBtn = document.getElementById('delete-account-export');
     const exportStatus = document.getElementById('delete-account-export-status');
-    const confirmInput = document.getElementById('delete-account-confirm-input');
-    const confirmBtn = document.getElementById('delete-account-confirm');
     const errorEl = document.getElementById('delete-account-error');
-    if (!modal || !openBtn || !confirmBtn) return;
-
-    // Prefer the <mt-modal>.open()/.close() methods so the `inert` attribute
-    // the component's connectedCallback set (while `.hidden` was present) is
-    // cleared on open and restored on close. A raw classList toggle leaves the
-    // subtree inert, so the Cancel button never receives the click (med-hzy).
-    // Fall back to classList for any shell that mounts without the element.
-    const closeModal = () => {
-        if (typeof modal.close === 'function') modal.close();
-        else modal.classList.add('hidden');
-    };
-    openBtn.addEventListener('click', () => {
-        if (errorEl) errorEl.textContent = '';
-        if (exportStatus) exportStatus.textContent = '';
-        if (confirmInput) confirmInput.value = '';
-        confirmBtn.disabled = true;
-        if (typeof modal.open === 'function') modal.open();
-        else modal.classList.remove('hidden');
-    });
-    cancelBtn?.addEventListener('click', closeModal);
-
-    // The typed-confirmation gate: the delete button stays disabled until the
-    // exact phrase is entered. One tap must never erase a vault.
-    let confirmPhrase = 'delete my account';
-    loadAccountDeleteModule().then((m) => { confirmPhrase = m.DELETE_CONFIRM_PHRASE; }).catch(() => {});
-    confirmInput?.addEventListener('input', () => {
-        confirmBtn.disabled = confirmInput.value.trim().toLowerCase() !== confirmPhrase;
-    });
+    if (!openBtn) return;
 
     exportBtn?.addEventListener('click', async () => {
         if (exportStatus) exportStatus.textContent = 'Preparing your export…';
@@ -470,11 +439,35 @@ function bindDeleteAccount() {
     // its session) is gone — a retry after a blocked local wipe must skip the
     // re-auth ceremony (it would 401) and go straight back to the wipe.
     let serverDeleted = false;
-    confirmBtn.addEventListener('click', async () => {
-        confirmBtn.disabled = true;
+    openBtn.addEventListener('click', async () => {
         if (errorEl) errorEl.textContent = '';
+        let mod;
         try {
-            const { reauthAndDelete, clearLocalVault, baseDomainURL } = await loadAccountDeleteModule();
+            mod = await loadAccountDeleteModule();
+        } catch (err) {
+            if (errorEl) errorEl.textContent = err.message || 'Could not delete the account.';
+            return;
+        }
+        // The typed-confirmation gate (shared safeConfirm dialog, kit rule 3):
+        // the delete stays disabled until the exact phrase is entered. One
+        // tap must never erase a vault. Past the server delete there is
+        // nothing left to confirm — only the local wipe to retry.
+        if (!serverDeleted) {
+            const ok = await window.safeConfirm(
+                'This permanently erases your account and every reading, note, and setting from this server. It cannot be undone, and because your data is encrypted, no one — including the operator — can recover it afterwards.',
+                null,
+                {
+                    title: 'Delete your account?',
+                    icon: 'trash',
+                    destructive: true,
+                    typedConfirm: mod.DELETE_CONFIRM_PHRASE,
+                    confirmLabel: 'Verify passkey & delete',
+                },
+            );
+            if (!ok) return;
+        }
+        openBtn.disabled = true;
+        try {
             if (!serverDeleted) {
                 // Wipe BEFORE the server delete: once the account is gone its
                 // subdomain serves 404s, so a wipe blocked here and then
@@ -483,16 +476,16 @@ function bindDeleteAccount() {
                 // pre-delete is always safe — the account is intact and the
                 // cloud copy is authoritative, so an erased mirror re-syncs if
                 // the user aborts at the passkey prompt.
-                await clearLocalVault();
-                await reauthAndDelete();
+                await mod.clearLocalVault();
+                await mod.reauthAndDelete();
                 serverDeleted = true;
             }
             // Wipe again after the server delete: the page kept running through
             // the passkey ceremony, so background sync/reads may have re-created
             // the databases. This is the load-bearing verified erase.
-            await clearLocalVault();
+            await mod.clearLocalVault();
             // The subdomain is gone; send the user somewhere that still exists.
-            window.location.href = baseDomainURL();
+            window.location.href = mod.baseDomainURL();
         } catch (err) {
             // Past the server delete, only the local wipe can fail — be honest
             // that the account is gone but this device isn't clean yet, and
@@ -501,7 +494,7 @@ function bindDeleteAccount() {
             if (errorEl) errorEl.textContent = serverDeleted
                 ? `Your account was deleted, but this device's local copy could not be erased. ${msg} Keep this tab open and press Delete again — once this tab closes, the app can no longer wipe this device.`
                 : msg;
-            confirmBtn.disabled = false;
+            openBtn.disabled = false;
         }
     });
 }

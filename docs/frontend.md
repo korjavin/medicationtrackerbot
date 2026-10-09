@@ -195,10 +195,16 @@ below the feature-module integration entry point).
 No native browser dialogs anywhere: `alert()` / `confirm()` / `prompt()` render
 the browser's unstyled box. Every dialog goes through `_mountConfirmModal` in
 `core/utils.js` — `safeAlert` (single OK), `safeConfirm`, `safePrompt`,
-`safeChoose` — or `safeToast` for a non-blocking note. Its rules live in
-`web/static/css/dialog.css`, linked by both `index.html` and the passkey shell
-`web/cloud/signup.html` (which also loads `utils.js`, `mt-elements.js`,
-`modal-manager.js` and `modal-history.js`), so `web/cloud/js` modules call
+`safeChoose` — or `safeToast` for a non-blocking note. It renders the kit
+`.wg-dialog` anatomy with `.wg-btn` actions and `.wg-choice` rows; `opts.icon`
+(a `WGIcons` name), `opts.destructive` (filled clay confirm instead of sun) and
+`safeConfirm`'s `opts.typedConfirm` (confirm stays disabled until the phrase is
+typed — account delete uses it) cover record/account deletes (kit rule 3).
+`mt-modal.mt-confirm-modal` stays the JS hook for Back/Esc. Placement rules live
+in `web/static/css/dialog.css`, linked after `components.css` by both
+`index.html` and the passkey shell `web/cloud/signup.html` (which also loads
+`utils.js`, `wg-icons.js`, `mt-elements.js`, `modal-manager.js` and
+`modal-history.js`), so `web/cloud/js` modules call
 `window.safeConfirm` in either document. In both, an open dialog gets its own
 history entry (`modal-history.js`), so Back cancels just the dialog
 (`ModalManager.closeTopMostVisibleModal`).

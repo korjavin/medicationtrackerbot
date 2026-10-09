@@ -85,7 +85,7 @@ describe('features/workout/next-card.js — split-file integration', () => {
     expect(picker.querySelector('.mt-confirm-modal__message').textContent).toMatch(/every workout until you change it/);
     const options = Array.from(picker.querySelectorAll('.mt-confirm-modal__choice'));
     expect(options.map((o) => o.textContent)).toEqual(['Home', 'Gym A', 'No gym']);
-    expect(options[0].getAttribute('aria-selected')).toBe('true');
+    expect(options[0].getAttribute('aria-pressed')).toBe('true');
 
     options[1].click();
     await vi.waitFor(() => {
