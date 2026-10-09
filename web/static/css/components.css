@@ -10,7 +10,10 @@
    - Hex literals the kit inlined (toggle, banners) resolve through tokens.
    - .wg-toasts is position:fixed (the kit's is absolute inside its phone stage) and centered at 480px max;
      .wg-toast sets its own text color and an enter animation (off under reduced motion); .wg-banners is
-     the sticky top container the app's banners live in (med-xso6.5). */
+     the sticky top container the app's banners live in (med-xso6.5).
+- .wg-swipe base is :where() so a row card that becomes a swipe host keeps its own surface;
+  .wg-swipe--host (WGRowActions, med-xso6.9) slides the row's content left and the actions in over
+  it instead of moving a separate .wg-row, plus the overflow .wg-swipe__more / .wg-swipe__menu. */
 .wg-btn,.wg-input,.wg-row,.wg-setting,.wg-choice,.wg-dialog,.wg-sheet,.wg-tile,.wg-seg,.wg-stepper,.wg-daynav,.wg-code,.wg-file,.wg-toast,.wg-tabbar,.wg-pick,.wg-menu,button.wg-card{box-sizing:border-box}
 .wg-app{position:relative;display:flex;flex-direction:column;height:100%;overflow:hidden;background:var(--wg-bg-screen);color:var(--wg-fg-1);font-family:var(--wg-font-ui);font-size:var(--wg-fs-md);-webkit-font-smoothing:antialiased}
 .wg-app *,.wg-app *::before,.wg-app *::after{box-sizing:border-box}
@@ -135,7 +138,7 @@ button.wg-row{cursor:pointer}button.wg-row:hover{background:var(--wg-bg-card-hi)
 .wg-row--done .wg-row__title{color:var(--wg-fg-2)}
 .wg-row--muted{opacity:.6}
 /* swipe-to-act (touch) — overflow button is the pointer/keyboard fallback */
-.wg-swipe{position:relative;overflow:hidden;background:var(--wg-bg-float)}
+:where(.wg-swipe){position:relative;overflow:hidden;background:var(--wg-bg-float)}
 .wg-swipe__acts{position:absolute;top:0;right:0;bottom:0;display:flex}
 .wg-swipe__act{width:72px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border:0;background:var(--wg-raised);color:var(--wg-fg-1);font:600 11px var(--wg-font-ui);letter-spacing:.04em;cursor:pointer}
 .wg-swipe__act--danger{background:var(--wg-clayfill);color:#fff}
@@ -146,6 +149,17 @@ button.wg-row{cursor:pointer}button.wg-row:hover{background:var(--wg-bg-card-hi)
 .wg-menu__item{display:flex;align-items:center;gap:10px;height:44px;padding:0 10px;border:0;border-radius:var(--wg-r-sm);background:transparent;color:var(--wg-fg-1);font:500 var(--wg-fs-md) var(--wg-font-ui);text-align:left;cursor:pointer}
 .wg-menu__item:hover{background:rgba(255,255,255,.06)}.wg-menu__item--danger{color:var(--wg-danger-fg)}
 .wg-menu__sep{height:1px;margin:4px 6px;background:var(--wg-line)}
+.wg-swipe--host{position:relative;overflow:hidden;touch-action:pan-y}
+.wg-swipe--host>.wg-swipe__acts{z-index:1;transform:translateX(100%);transition:transform var(--wg-dur) var(--wg-ease)}
+.wg-swipe--host>:not(.wg-swipe__acts):not(.wg-menu){transition:transform var(--wg-dur) var(--wg-ease)}
+.wg-swipe--host.wg-swipe--open>.wg-swipe__acts{transform:none}
+.wg-swipe--host.wg-swipe--open>:not(.wg-swipe__acts):not(.wg-menu){transform:translateX(-144px)}
+.wg-swipe--host.wg-swipe--one.wg-swipe--open>:not(.wg-swipe__acts):not(.wg-menu){transform:translateX(-72px)}
+.wg-swipe--host.wg-swipe--menu{overflow:visible;z-index:21}
+.wg-swipe--host.wg-swipe--menu>.wg-swipe__acts{display:none}
+.wg-swipe__more{flex-shrink:0;color:var(--wg-fg-2)}
+.wg-swipe__menu{top:calc(100% - 4px);right:8px}.wg-swipe__menu[hidden]{display:none}
+@media (prefers-reduced-motion:reduce){.wg-swipe--host>*{transition:none}}
 /* metrics */
 .wg-stat{display:flex;flex-direction:column;gap:6px;min-width:0}
 .wg-stat__value{font:500 var(--wg-fs-metric)/1 var(--wg-font-mono);letter-spacing:-.03em;color:var(--wg-fg-1);white-space:nowrap}

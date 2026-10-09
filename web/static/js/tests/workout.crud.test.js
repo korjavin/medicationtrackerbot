@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { loadFrontendEnv } from './helpers/frontend-harness.js';
+import { clickRowAction, loadFrontendEnv } from './helpers/frontend-harness.js';
 
 describe('workout.js CRUD flows', () => {
   let consoleLogSpy;
@@ -104,6 +104,30 @@ describe('workout.js CRUD flows', () => {
         scheduled_time: '07:45',
         active: false
       }));
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('Plan day rows: overflow menu Edit / Delete reach showEditVariantModal / deleteVariant', async () => {
+    const { window, document, cleanup } = loadFrontendEnv({ withWorkout: true });
+
+    try {
+      window.apiCall = vi.fn().mockResolvedValue([{ id: 31, name: 'Day A', rotation_order: 1 }]);
+      await window.loadVariantsForGroup(11);
+
+      const row = document.querySelector('#workout-variants-list .workout-variant-card');
+      expect(row.classList.contains('wg-swipe')).toBe(true);
+      expect(row.querySelector('.icon-action-btn')).toBeNull();
+      const editSpy = vi.spyOn(window, 'showEditVariantModal').mockImplementation(() => {});
+      const deleteSpy = vi.spyOn(window, 'deleteVariant').mockImplementation(() => {});
+
+      clickRowAction(row, 'Edit');
+      expect(editSpy).toHaveBeenCalledWith(31);
+      clickRowAction(row, 'Delete');
+      expect(deleteSpy).toHaveBeenCalledTimes(1);
+      expect(deleteSpy.mock.calls[0][0]).toBe(31);
+      expect(editSpy).toHaveBeenCalledTimes(1);
     } finally {
       cleanup();
     }

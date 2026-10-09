@@ -71,14 +71,12 @@ async function loadVariantsForGroup(groupId) {
                 info.appendChild(description);
             }
 
-            const deleteBtn = createDeleteButton((event) => {
-                deleteVariant(variant.id, event);
-            });
-            deleteBtn.classList.add('workout-delete-btn-inline');
-
             card.appendChild(info);
-            card.appendChild(deleteBtn);
-            container.appendChild(card);
+            container.appendChild(window.WGRowActions.attach(card, {
+                label: variant.name,
+                onEdit: () => showEditVariantModal(variant.id),
+                onDelete: (event) => deleteVariant(variant.id, event),
+            }));
         });
     } catch (error) {
         console.error('Error loading variants:', error);
