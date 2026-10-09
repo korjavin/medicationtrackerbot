@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { deriveKData, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, generateDEK, toBase64 } from '../crypto.js';
-import { listRecords, listRecordsInRange, readAllLiveRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, startReconnectAutoDrain, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
+import { listRecords, listRecordsInRange, readAllLiveRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, startReconnectAutoDrain, requestDrain, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
 import { openDb, cachedDb, dropCachedDb, onCachedDbDropped } from '../localdb.js';
 
 // reauthenticate() dynamic-imports unlock.js for the passkey ceremony; the real
@@ -1102,7 +1102,9 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     // never fire its own ops GET, and the leaked run would hit unstubbed
     // globals. reauthenticate() is the one exported barrier that provably waits
     // the slot empty (`while (drainInFlight) await drainInFlight`) and leaves it
-    // empty; teardown() above already set `stopped`, so no rerun can re-fill it.
+    // empty; teardown() above already cleared any queued rerun, so nothing can
+    // re-fill it. (Tests that drive requestDrain without startReconnectAutoDrain
+    // never queue a rerun past their own assertions.)
     await reauthenticate(ctx).catch(() => {});
     vi.useRealTimers();
     vi.unstubAllGlobals();
@@ -1293,6 +1295,40 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     await fireDebounce();
     await followUp;
     expect(surfaced).toBe(1);
+  });
+
+  it('SSE sync-ready wakes (requestDrain) pull at once, share the slot, and coalesce mid-drain (bd med-eas.9)', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
+        countOpsGet();
+        await gate; // hold the first wake's drain in flight
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    teardown = startReconnectAutoDrain(ctx);
+    const first = nextOpsGet();
+    requestDrain(ctx); // a wake: no debounce, the pull starts now
+    await first;
+    expect(opsGets).toBe(1);
+
+    // A burst of wakes plus an online event while the drain is in flight:
+    // all share the one slot and fold into a single follow-up run.
+    requestDrain(ctx);
+    requestDrain(ctx);
+    window.dispatchEvent(new Event('online'));
+    await fireDebounce();
+    await idle();
+    expect(opsGets).toBe(1);
+    const followUp = nextOpsGet();
+    release();
+    await followUp; // the peer write that woke us mid-drain is not swallowed
+    expect(opsGets).toBe(2);
+    await idle();
+    expect(opsGets).toBe(2); // exactly one follow-up
   });
 
   it('a post-teardown online event no longer drains', async () => {

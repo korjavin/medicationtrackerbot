@@ -52,12 +52,29 @@ type SyncAPI struct {
 	store         syncStore
 	sessionSecret string
 	quotaBytes    int64
+	// broker fans a content-free `sync-ready` out to the account's open tabs
+	// after a durable oplog/snapshot write (bd med-eas.9). Nil = no wake (tests
+	// that build SyncAPI bare); tabs still pull on unlock/visibility/online.
+	broker *InboxBroker
 }
 
 // NewSyncAPI builds the sync handlers. quotaBytes <= 0 disables the
 // per-account storage quota.
 func NewSyncAPI(store syncStore, sessionSecret string, quotaBytes int64) *SyncAPI {
 	return &SyncAPI{store: store, sessionSecret: sessionSecret, quotaBytes: quotaBytes}
+}
+
+// SetEventBroker wires the sync-ready fan-out onto the shared inbox stream
+// broker (same setter shape as InboxAPI/Relay).
+func (a *SyncAPI) SetEventBroker(b *InboxBroker) { a.broker = b }
+
+// notifySync wakes the account's other tabs. The writer's own tab is woken
+// too — CredentialID is not a device id — and that echo is one empty GET.
+func (a *SyncAPI) notifySync(accountID string) {
+	if a.broker == nil {
+		return
+	}
+	slog.Info("sync: sse fanout", "accountID", accountID, "subscribers", a.broker.NotifySync(accountID))
 }
 
 // RegisterRoutes adds the sync routes to mux.
@@ -133,6 +150,7 @@ func (a *SyncAPI) PostOps(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
 	}
+	a.notifySync(session.AccountID)
 	writeJSON(w, http.StatusOK, postOpsResponse{Assigned: assigned})
 }
 
@@ -244,6 +262,9 @@ func (a *SyncAPI) PostSnapshot(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
 	}
+	// A full-vault import lands as a forced snapshot; waking here lets the
+	// other tabs re-bootstrap from it (pullTail sees snapshot_seq > cursor).
+	a.notifySync(session.AccountID)
 	w.WriteHeader(http.StatusNoContent)
 }
 

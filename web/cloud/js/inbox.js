@@ -415,6 +415,11 @@ export function startInboxEventStream(ctx, {
   // jittered delays below are deterministic.
   random = Math.random,
   onApplied = () => {},
+  // bd med-eas.9: the same stream carries a content-free `sync-ready` after any
+  // oplog/snapshot write on the account (another device's — or this tab's own,
+  // an echo that costs one empty GET). cloud-boot wires it to sync.js
+  // requestDrain, which shares the single-slot drain guard.
+  onSyncReady = () => {},
   ...drainOpts
 } = {}) {
   let stopped = false;
@@ -444,6 +449,16 @@ export function startInboxEventStream(ctx, {
     }
   };
 
+  const syncNow = () => {
+    if (stopped) return;
+    try {
+      // Fire-and-forget: requestDrain coalesces and swallows its own failures.
+      Promise.resolve(onSyncReady()).catch((e) => console.error('[inbox] sync wake failed', e));
+    } catch (e) {
+      console.error('[inbox] sync wake failed', e);
+    }
+  };
+
   const connect = () => {
     if (stopped || !EventSourceImpl) return;
     const es = new EventSourceImpl('/api/inbox/events');
@@ -454,9 +469,15 @@ export function startInboxEventStream(ctx, {
       // (and fanned out) between our last poll and this subscribe — without
       // this the wake for it is already gone and we'd wait for the next one.
       drainNow();
+      // Same reason for the oplog: a reconnect (e.g. after a deploy) may have
+      // missed sync wakes, so pull whatever landed meanwhile.
+      syncNow();
     });
     es.addEventListener('inbox-ready', () => {
       drainNow();
+    });
+    es.addEventListener('sync-ready', () => {
+      syncNow();
     });
     es.addEventListener('error', () => {
       // Manual reconnect with backoff: close first so the native

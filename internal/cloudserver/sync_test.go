@@ -378,3 +378,63 @@ func TestSyncAPI_SnapshotCapBoundary(t *testing.T) {
 		t.Fatalf("POST over-cap snapshot: status = %d, want 400", resp.StatusCode)
 	}
 }
+
+// TestSyncAPI_WritesWakeSyncStream pins bd med-eas.9: a durable oplog append
+// and a snapshot upload each fan a sync-ready wake to the account's streams
+// (the import path lands as a forced snapshot), while a rejected write wakes
+// nobody and the inbox slot stays untouched.
+func TestSyncAPI_WritesWakeSyncStream(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+	syncAPI := NewSyncAPI(store, "test-session-secret-at-least-32-bytes-long", 0)
+	broker := NewInboxBroker()
+	syncAPI.SetEventBroker(broker)
+	mux := http.NewServeMux()
+	NewWebAuthnAPI(store, "test-session-secret-at-least-32-bytes-long").RegisterRoutes(mux)
+	syncAPI.RegisterRoutes(mux)
+	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
+	session := registerAndGetSession(t, h, host, claimToken)
+
+	sub, unsub, ok := broker.Subscribe(account.ID)
+	if !ok {
+		t.Fatal("Subscribe rejected")
+	}
+	defer unsub()
+	woke := func() bool {
+		select {
+		case <-sub.Sync:
+			return true
+		default:
+			return false
+		}
+	}
+
+	resp, _ := postOpsBatch(t, h, host, session, []opWire{{RecordTypeTag: "note", Nonce: []byte("n"), CT: []byte("c")}})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST ops status = %d", resp.StatusCode)
+	}
+	if !woke() {
+		t.Fatal("POST /api/sync/ops produced no sync-ready wake")
+	}
+
+	if resp := putSnapshot(t, h, host, session, putSnapshotRequest{SnapshotSeq: 99, Nonce: []byte("n"), CT: []byte("ahead")}); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("snapshot ahead status = %d, want 400", resp.StatusCode)
+	}
+	if woke() {
+		t.Fatal("rejected snapshot produced a sync-ready wake")
+	}
+
+	if resp := putSnapshot(t, h, host, session, putSnapshotRequest{SnapshotSeq: 1, Nonce: []byte("n"), CT: []byte("snap")}); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("snapshot status = %d, want 204", resp.StatusCode)
+	}
+	if !woke() {
+		t.Fatal("POST /api/sync/snapshot produced no sync-ready wake")
+	}
+
+	select {
+	case <-sub.Inbox:
+		t.Fatal("sync writes woke the inbox slot")
+	default:
+	}
+}

@@ -253,7 +253,7 @@ window.MedTrackerCloudReady = (async function boot() {
     // (see decision above). A failed sync/shim-install is not a reason to evict
     // the user to the unlock screen.
     try {
-        const [{ installApiShim }, { pullOnOpen, startReconnectAutoDrain, getSyncStatus, reauthenticate }] = await Promise.all([
+        const [{ installApiShim }, { pullOnOpen, startReconnectAutoDrain, requestDrain, getSyncStatus, reauthenticate }] = await Promise.all([
             import('/js/apishim.js'),
             import('/js/sync.js'),
         ]);
@@ -339,8 +339,8 @@ window.MedTrackerCloudReady = (async function boot() {
         startReconnectAutoDrain(ctx, { onAuthExpired: surfaceAuthExpired });
         surfaceAuthExpired();
         if (window.DataStore && typeof window.DataStore.invalidateTags === 'function') {
-            // Cloud mode has no change-poll loop — pullOnOpen is the only sync
-            // trigger — so every shim-served tag must be evicted here or a
+            // Cloud mode has no change-poll loop — this boot pullOnOpen is the
+            // first sync trigger — so every shim-served tag must be evicted here or a
             // remote change from another device renders stale until some other
             // refresh path repaints. 'medications'/'history' cover the meds
             // list, Today next-dose tile (next_intake) and per-med history.
@@ -499,7 +499,10 @@ window.MedTrackerCloudReady = (async function boot() {
                 // no permission/subscription prerequisite and no external
                 // delivery hop. The 5s poller stays as the fallback when the
                 // stream is down.
-                startInboxEventStream(ctx, { apply, onApplied: afterApply });
+                // onSyncReady (bd med-eas.9): another device's write wakes this
+                // tab over the same stream; the pulled records repaint through
+                // the existing cloud-write refresh path.
+                startInboxEventStream(ctx, { apply, onApplied: afterApply, onSyncReady: () => requestDrain(ctx) });
 
                 // Both best-effort, each with its own catch — see the ORDER note
                 // above. A failed key publish means the relay refuses inbound

@@ -54,7 +54,7 @@ func TestInboxBroker_FanOut(t *testing.T) {
 	if n := broker.Notify("acct-a"); n != 2 {
 		t.Fatalf("Notify(acct-a) = %d, want 2", n)
 	}
-	for i, ch := range []<-chan struct{}{chA1, chA2} {
+	for i, ch := range []<-chan struct{}{chA1.Inbox, chA2.Inbox} {
 		select {
 		case <-ch:
 		default:
@@ -62,7 +62,7 @@ func TestInboxBroker_FanOut(t *testing.T) {
 		}
 	}
 	select {
-	case <-chB:
+	case <-chB.Inbox:
 		t.Fatal("acct-b subscriber woken by acct-a append")
 	default:
 	}
@@ -130,11 +130,40 @@ func TestInboxBroker_NotifyNeverBlocks(t *testing.T) {
 			t.Fatal("Notify blocked on an unread subscriber")
 		}
 	}
-	<-ch // exactly one pending wake, however many appends landed
+	<-ch.Inbox // exactly one pending wake, however many appends landed
 	select {
-	case <-ch:
+	case <-ch.Inbox:
 		t.Fatal("second wake queued instead of coalescing")
 	default:
+	}
+}
+
+// TestInboxBroker_KindsCoalesceIndependently pins bd med-eas.9: inbox and sync
+// wakes share one stream but not one slot — a pending inbox wake never
+// swallows a sync wake (or vice versa), and each kind still coalesces.
+func TestInboxBroker_KindsCoalesceIndependently(t *testing.T) {
+	broker := NewInboxBroker()
+	sub, _, ok := broker.Subscribe("acct")
+	if !ok {
+		t.Fatal("Subscribe rejected")
+	}
+	broker.Notify("acct")
+	if n := broker.NotifySync("acct"); n != 1 {
+		t.Fatalf("NotifySync = %d, want 1", n)
+	}
+	broker.Notify("acct")
+	broker.NotifySync("acct")
+	for name, ch := range map[string]<-chan struct{}{"inbox": sub.Inbox, "sync": sub.Sync} {
+		select {
+		case <-ch:
+		default:
+			t.Fatalf("%s wake lost to the other kind", name)
+		}
+		select {
+		case <-ch:
+			t.Fatalf("%s wake queued twice instead of coalescing", name)
+		default:
+		}
 	}
 }
 
@@ -191,6 +220,7 @@ func TestInboxEvents_DeliversContentFreeWake(t *testing.T) {
 	if !strings.Contains(body, "event: inbox-ready") {
 		t.Errorf("stream body has no inbox-ready event: %q", body)
 	}
+
 	// Zero-knowledge: the wake carries no event id and no payload — the tab
 	// learns nothing here it couldn't learn from an empty poll.
 	for _, line := range strings.Split(body, "\n") {
@@ -249,13 +279,13 @@ func TestRelay_WakeInbox_NotifiesBrokerOnEveryAppend(t *testing.T) {
 
 	relay.WakeInbox(ctx, account.ID)
 	select {
-	case <-ch:
+	case <-ch.Inbox:
 	default:
 		t.Fatal("first append produced no SSE wake")
 	}
 	relay.WakeInbox(ctx, account.ID) // inside the push cooldown
 	select {
-	case <-ch:
+	case <-ch.Inbox:
 	default:
 		t.Fatal("second append inside the push cooldown produced no SSE wake")
 	}
@@ -457,6 +487,16 @@ func TestInboxEvents_SurvivesServerWriteTimeout(t *testing.T) {
 	}
 	if line := nextLine("terminator"); line != "\n" {
 		t.Fatalf("terminator line = %q, want a blank line", line)
+	}
+
+	// bd med-eas.9: the same stream carries the content-free sync wake.
+	if n := broker.NotifySync(accountID); n != 1 {
+		t.Fatalf("NotifySync = %d, want 1", n)
+	}
+	for _, want := range []string{"event: sync-ready\n", "data:\n", "\n"} {
+		if line := nextLine(want); line != want {
+			t.Fatalf("sync wake line = %q, want %q", line, want)
+		}
 	}
 }
 

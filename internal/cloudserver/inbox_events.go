@@ -34,37 +34,46 @@ const (
 // plaintext — so the zero-knowledge posture is unchanged: the tab still fetches
 // ciphertext over authenticated GET /api/inbox and decrypts locally.
 //
+// The same stream also carries `sync-ready` (bd med-eas.9): SyncAPI.PostOps /
+// PostSnapshot call NotifySync after a durable write, and every open tab pulls
+// the oplog tail — a write on one device repaints the others within ~1s. Each
+// kind has its own size-1 slot, so a burst of one never swallows the other.
+//
 // ponytail: single-process in-memory, like Relay's wake-cooldown map. A
 // multi-replica deploy would fan out only to the tabs pinned to the replica
 // that sealed the event; the 5s poll still covers the rest, so the ceiling is
 // latency, not loss. A shared pub/sub (or sticky routing) if replicas arrive.
 type InboxBroker struct {
 	mu   sync.Mutex
-	subs map[string]map[*inboxSubscription]struct{}
+	subs map[string]map[*InboxSubscription]struct{}
 	// closed is set by Close (server shutdown): Subscribe is then rejected
 	// and Notify is a no-op, so no send can ever race a channel close.
 	closed bool
 }
 
-// inboxSubscription is one open stream. ch is buffered size 1 and Notify never
-// blocks on it: a pending wake already covers a newer one, since a drain is
-// per-account, not per-message.
-type inboxSubscription struct {
-	ch chan struct{}
+// InboxSubscription is one open stream. Each channel is buffered size 1 and a
+// notify never blocks on it: a pending wake already covers a newer one of the
+// same kind, since a drain/pull is per-account, not per-message.
+type InboxSubscription struct {
+	Inbox <-chan struct{} // inbox-ready: sealed mail queued (Notify)
+	Sync  <-chan struct{} // sync-ready: oplog/snapshot advanced (NotifySync)
+	inbox chan struct{}
+	sync  chan struct{}
 }
 
 // NewInboxBroker builds an empty broker. cmd/cloud wires one instance into both
 // the InboxAPI (which serves the streams) and the Relay (which notifies them).
 func NewInboxBroker() *InboxBroker {
-	return &InboxBroker{subs: make(map[string]map[*inboxSubscription]struct{})}
+	return &InboxBroker{subs: make(map[string]map[*InboxSubscription]struct{})}
 }
 
 // Subscribe registers one stream for accountID. ok is false when the account
 // already holds maxInboxEventSubscribersPerAccount streams — the caller must
 // reject the stream (the tab falls back to polling). The returned unsubscribe
 // is idempotent and must be called when the stream ends.
-func (b *InboxBroker) Subscribe(accountID string) (ch <-chan struct{}, unsubscribe func(), ok bool) {
-	sub := &inboxSubscription{ch: make(chan struct{}, 1)}
+func (b *InboxBroker) Subscribe(accountID string) (sub *InboxSubscription, unsubscribe func(), ok bool) {
+	inboxCh, syncCh := make(chan struct{}, 1), make(chan struct{}, 1)
+	sub = &InboxSubscription{Inbox: inboxCh, Sync: syncCh, inbox: inboxCh, sync: syncCh}
 	b.mu.Lock()
 	if b.closed {
 		b.mu.Unlock()
@@ -76,7 +85,7 @@ func (b *InboxBroker) Subscribe(accountID string) (ch <-chan struct{}, unsubscri
 		return nil, nil, false
 	}
 	if set == nil {
-		set = make(map[*inboxSubscription]struct{})
+		set = make(map[*InboxSubscription]struct{})
 		b.subs[accountID] = set
 	}
 	set[sub] = struct{}{}
@@ -95,13 +104,24 @@ func (b *InboxBroker) Subscribe(accountID string) (ch <-chan struct{}, unsubscri
 			}
 		})
 	}
-	return sub.ch, unsubscribe, true
+	return sub, unsubscribe, true
 }
 
 // Notify wakes every stream subscribed for accountID. It never blocks — a
 // slow reader coalesces into its one pending slot — and returns the subscriber
 // count so the caller can log the fan-out.
 func (b *InboxBroker) Notify(accountID string) int {
+	return b.notify(accountID, func(s *InboxSubscription) chan struct{} { return s.inbox })
+}
+
+// NotifySync wakes every stream for accountID with `sync-ready` (bd
+// med-eas.9): the account's oplog or snapshot advanced, so open tabs pull the
+// tail. Same non-blocking, coalescing, count-returning contract as Notify.
+func (b *InboxBroker) NotifySync(accountID string) int {
+	return b.notify(accountID, func(s *InboxSubscription) chan struct{} { return s.sync })
+}
+
+func (b *InboxBroker) notify(accountID string, slot func(*InboxSubscription) chan struct{}) int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.closed {
@@ -110,7 +130,7 @@ func (b *InboxBroker) Notify(accountID string) int {
 	n := 0
 	for sub := range b.subs[accountID] {
 		select {
-		case sub.ch <- struct{}{}:
+		case slot(sub) <- struct{}{}:
 		default: // a wake is already pending; one drain covers both
 		}
 		n++
@@ -132,10 +152,11 @@ func (b *InboxBroker) Close() {
 	b.closed = true
 	for _, set := range b.subs {
 		for sub := range set {
-			close(sub.ch)
+			close(sub.inbox)
+			close(sub.sync)
 		}
 	}
-	b.subs = make(map[string]map[*inboxSubscription]struct{})
+	b.subs = make(map[string]map[*InboxSubscription]struct{})
 }
 
 // SubscriberCount reports how many streams accountID holds. Tests (and only
@@ -175,7 +196,7 @@ func (a *InboxAPI) ServeInboxEvents(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "inbox events unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	ch, unsubscribe, ok := a.broker.Subscribe(session.AccountID)
+	sub, unsubscribe, ok := a.broker.Subscribe(session.AccountID)
 	if !ok {
 		slog.Warn("inbox events: subscriber cap reached", "accountID", session.AccountID)
 		http.Error(w, "too many streams", http.StatusTooManyRequests)
@@ -201,11 +222,17 @@ func (a *InboxAPI) ServeInboxEvents(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
-		case _, ok := <-ch:
+		case _, ok := <-sub.Inbox:
 			if !ok {
 				return // broker closed (server shutdown)
 			}
 			fmt.Fprint(w, "event: inbox-ready\ndata:\n\n")
+			flusher.Flush()
+		case _, ok := <-sub.Sync:
+			if !ok {
+				return // broker closed (server shutdown)
+			}
+			fmt.Fprint(w, "event: sync-ready\ndata:\n\n")
 			flusher.Flush()
 		case <-heartbeat.C:
 			fmt.Fprint(w, ": heartbeat\n\n")

@@ -1207,7 +1207,7 @@ export async function reauthenticate(ctx) {
   // pullOnOpen runs would flush the same pending set under the same predicted
   // seqs (duplicate ops + a guaranteed mis-predict retry).
   while (drainInFlight) await drainInFlight;
-  drainInFlight = pullOnOpen(ctx).finally(() => { drainInFlight = null; onDrainSettled(); });
+  drainInFlight = pullOnOpen(ctx).finally(() => { drainInFlight = null; drainSettled(ctx); });
   await drainInFlight;
   return getSyncStatus(ctx);
 }
@@ -1219,37 +1219,48 @@ export async function reauthenticate(ctx) {
 // guard (same posture as recordsLock) prevents overlapping drains. Returns a
 // teardown removing both listeners. No-op outside a DOM context.
 let drainInFlight = null;
-// Installed by startReconnectAutoDrain; reauthenticate's .finally calls it too,
-// so a rerun queued while a reauth-owned drain held the slot is still consumed
-// instead of leaking into a spurious drain after the NEXT auto-drain.
-let onDrainSettled = () => {};
+// A drain request that landed mid-drain: run once more after the current one
+// settles. reauthenticate's .finally consumes it too, so a rerun queued while a
+// reauth-owned drain held the slot is not leaked into a later drain.
+let drainRerun = false;
+// Installed by startReconnectAutoDrain: surfaces a mid-session auth expiry.
+let onDrainAuthExpired = null;
+function drainSettled(ctx) {
+  if (drainRerun) { drainRerun = false; requestDrain(ctx); }
+}
+
+// requestDrain runs the boot drain path (pullOnOpen) through the single-slot
+// in-flight guard shared by the visibility/online auto-drain, reauthenticate,
+// and the SSE sync-ready wake (bd med-eas.9): a wake never overlaps a drain,
+// and a burst of wakes mid-drain coalesces into one follow-up run.
+export function requestDrain(ctx) {
+  // An event landing mid-drain coalesces into a run that may already have
+  // missed it (a drain stuck on a dying fetch when connectivity returned, or a
+  // peer write landing after this drain's GET) — remember it and run once more
+  // after the current one settles.
+  if (drainInFlight) { drainRerun = true; return drainInFlight; }
+  drainInFlight = pullOnOpen(ctx)
+    .catch(() => {}) // failures already land in sync status; retried on the next event
+    .finally(() => {
+      drainInFlight = null;
+      drainSettled(ctx);
+      // A mid-session expiry (the common case for a non-sliding 30-day
+      // cookie in a long-lived PWA tab) is only ever detected by these
+      // event-driven drains — the boot-time check already ran. Hand it to
+      // the caller so the UI can surface it instead of queueing silently.
+      if (authExpired && onDrainAuthExpired) onDrainAuthExpired();
+    });
+  return drainInFlight;
+}
+
 export function startReconnectAutoDrain(ctx, { onAuthExpired } = {}) {
   if (typeof window === 'undefined' || typeof document === 'undefined') return () => {};
   let debounce = null;
-  let stopped = false;
-  let rerun = false;
-  const drain = () => {
-    // An event landing mid-drain coalesces into a run that may already have
-    // missed it (e.g. a drain stuck on a dying fetch when connectivity
-    // returned) — remember it and run once more after the current one settles.
-    if (drainInFlight) { rerun = true; return drainInFlight; }
-    drainInFlight = pullOnOpen(ctx)
-      .catch(() => {}) // failures already land in sync status; retried on the next event
-      .finally(() => {
-        drainInFlight = null;
-        onDrainSettled();
-        // A mid-session expiry (the common case for a non-sliding 30-day
-        // cookie in a long-lived PWA tab) is only ever detected by these
-        // event-driven drains — the boot-time check already ran. Hand it to
-        // the caller so the UI can surface it instead of queueing silently.
-        if (authExpired && !stopped && onAuthExpired) onAuthExpired();
-      });
-    return drainInFlight;
-  };
-  onDrainSettled = () => { if (rerun && !stopped) { rerun = false; drain(); } };
+  const surface = onAuthExpired ? () => onAuthExpired() : null;
+  onDrainAuthExpired = surface;
   const trigger = () => {
     clearTimeout(debounce);
-    debounce = setTimeout(drain, 250);
+    debounce = setTimeout(() => requestDrain(ctx), 250);
   };
   const onVisible = () => {
     if (document.visibilityState === 'visible' && navigator.onLine) trigger();
@@ -1257,7 +1268,9 @@ export function startReconnectAutoDrain(ctx, { onAuthExpired } = {}) {
   window.addEventListener('online', trigger);
   document.addEventListener('visibilitychange', onVisible);
   return () => {
-    stopped = true;
+    // No queued rerun or expiry surface outlives the teardown.
+    drainRerun = false;
+    if (onDrainAuthExpired === surface) onDrainAuthExpired = null;
     clearTimeout(debounce);
     window.removeEventListener('online', trigger);
     document.removeEventListener('visibilitychange', onVisible);
