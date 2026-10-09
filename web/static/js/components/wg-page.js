@@ -81,6 +81,7 @@
             if (closed) return;
             closed = true;
             window.ModalManager.close(id);
+            window.ModalManager.register(id, null);
             page.remove();
             if (returnFocus && returnFocus.isConnected && typeof returnFocus.focus === 'function') {
                 returnFocus.focus();

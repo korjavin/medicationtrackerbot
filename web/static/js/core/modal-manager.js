@@ -15,8 +15,10 @@ const ModalManager = {
     _stack: [],
     _closers: {},
 
+    // A falsy closeFn unregisters (dynamic modals such as WGPage on removal).
     register(modalId, closeFn) {
-        ModalManager._closers[modalId] = closeFn;
+        if (closeFn) ModalManager._closers[modalId] = closeFn;
+        else delete ModalManager._closers[modalId];
     },
 
     _isVisible(modalId) {

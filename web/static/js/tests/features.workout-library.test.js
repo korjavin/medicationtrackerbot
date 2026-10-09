@@ -529,7 +529,10 @@ describe('features/workout/library.js — split-file integration', () => {
         await input.oninput();
         expect(mount.hidden).toBe(false);
 
-        input.onkeydown({ key: 'Escape' });
+        const esc = new env.window.KeyboardEvent('keydown', { key: 'Escape', cancelable: true });
+        input.onkeydown(esc);
+        // The open list eats the Esc so ModalManager does not also close the modal.
+        expect(esc.defaultPrevented).toBe(true);
         expect(mount.hidden).toBe(true);
 
         await input.oninput();
