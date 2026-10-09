@@ -182,13 +182,13 @@ describe('startUpdateCheck', () => {
 });
 
 describe('renderUpdateBanner', () => {
-    it('reloads only when the user asks, and reuses the shared toast classes', () => {
+    it('reloads only when the user asks, rendered as the kit info banner', () => {
         const { doc } = setup();
         const onReload = vi.fn();
         renderUpdateBanner(doc, onReload);
 
-        const toast = doc.getElementById('cloud-update-toast');
-        expect(toast.className).toBe('pwa-update-toast');
+        const toast = doc.getElementById('cloud-update-banner');
+        expect(toast.className).toBe('wg-banner wg-banner--info');
         expect(toast.textContent).toContain('A new version is available.');
         expect(onReload).not.toHaveBeenCalled(); // never reload out from under a user
 
@@ -203,7 +203,7 @@ describe('renderUpdateBanner', () => {
         renderUpdateBanner(doc, onReload, onDismiss);
 
         doc.getElementById('cloud-update-dismiss').click();
-        expect(doc.getElementById('cloud-update-toast')).toBeNull();
+        expect(doc.getElementById('cloud-update-banner')).toBeNull();
         expect(onDismiss).toHaveBeenCalledOnce();
         expect(onReload).not.toHaveBeenCalled();
     });
@@ -211,7 +211,7 @@ describe('renderUpdateBanner', () => {
     it('sets no inline styles (CLAUDE.md rule 3)', () => {
         const { doc } = setup();
         renderUpdateBanner(doc, () => {});
-        expect(doc.getElementById('cloud-update-toast').getAttribute('style')).toBeNull();
+        expect(doc.getElementById('cloud-update-banner').getAttribute('style')).toBeNull();
     });
 });
 
@@ -226,6 +226,23 @@ describe('showUpdateBanner', () => {
         // The real reload comes from controllerchange; only the 2s fallback is
         // scheduled here, never called synchronously.
         expect(win.location.reload).not.toHaveBeenCalled();
+    });
+
+    it('an open Undo window is flushed and its delete awaited before SKIP_WAITING (med-xso6.5)', async () => {
+        const { doc, win } = setup();
+        let finishDelete;
+        win.flushPendingDelete = vi.fn(() => new Promise((r) => { finishDelete = r; }));
+        const registration = { waiting: { postMessage: vi.fn() } };
+        showUpdateBanner({ doc, win, registration });
+
+        doc.getElementById('cloud-update-reload').click();
+        expect(win.flushPendingDelete).toHaveBeenCalledOnce();
+        await flush();
+        expect(registration.waiting.postMessage).not.toHaveBeenCalled(); // delete still in flight
+
+        finishDelete('deleted');
+        await flush();
+        expect(registration.waiting.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
     });
 
     it('with no waiting SW, Reload reloads directly (build-ID fallback path)', () => {
@@ -273,7 +290,7 @@ describe('showUpdateBanner', () => {
         const { doc, win } = setup();
         showUpdateBanner({ doc, win });
         showUpdateBanner({ doc, win });
-        expect(doc.querySelectorAll('#cloud-update-toast')).toHaveLength(1);
+        expect(doc.querySelectorAll('#cloud-update-banner')).toHaveLength(1);
     });
 
     // med-7gw: after the user taps "Later", a re-fire from the other trigger
@@ -283,10 +300,10 @@ describe('showUpdateBanner', () => {
         const { doc, win } = setup();
         showUpdateBanner({ doc, win });
         doc.getElementById('cloud-update-dismiss').click();
-        expect(doc.getElementById('cloud-update-toast')).toBeNull();
+        expect(doc.getElementById('cloud-update-banner')).toBeNull();
 
         // A later trigger (e.g. cloud-boot onupdatefound after the poll) re-fires.
         showUpdateBanner({ doc, win, registration: { waiting: { postMessage: vi.fn() } } });
-        expect(doc.getElementById('cloud-update-toast')).toBeNull();
+        expect(doc.getElementById('cloud-update-banner')).toBeNull();
     });
 });

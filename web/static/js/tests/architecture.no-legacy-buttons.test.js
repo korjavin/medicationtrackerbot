@@ -61,8 +61,6 @@ const ALLOWLIST = {
     'web/static/js/features/weight.js': {
         'wg-toolbar-btn': { max: 2, owner: 'med-xso6.27 (Health v2 polish)' },
     },
-    'web/static/js/features/food-photo-summary.js': {
-        'wg-toolbar-btn': { max: 4, owner: 'med-xso6.5 (toast replaces the food AI summary card)' },
     },
     'web/static/js/features/today.js': {
         'bootstrap btn': { max: 3, owner: 'med-xso6.13 (Today v2 Goal Line)' },
@@ -75,9 +73,6 @@ const ALLOWLIST = {
     },
     'web/static/js/features/workout/next-card.js': {
         'wg-toolbar-btn': { max: 4, owner: 'med-xso6.21 (Workout v2)' },
-    },
-    'web/cloud/js/update-check.js': {
-        'pwa-update-btn': { max: 3, owner: 'med-xso6.5 (wg-toast / wg-banner update prompt)' },
     },
 };
 

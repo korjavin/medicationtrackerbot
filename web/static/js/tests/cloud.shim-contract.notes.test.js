@@ -72,7 +72,7 @@ describe('cloud shim contract — notes flows (features/health.js over web/domai
         const created = await window.apiCall('/api/notes', 'POST', { content: 'to be removed' });
 
         window.safeConfirm = async (msg, cb) => { await cb(true); };
-        await window.deleteNote(created.id);
+        await window.deleteNote(created.id).flush();
         await new Promise((resolve) => setTimeout(resolve, 0));
 
         const list = await window.apiCall('/api/notes?limit=50', 'GET');

@@ -241,23 +241,29 @@ describe('Workouts history (Phase 7, Task 4)', () => {
         expect(showSpy).toHaveBeenCalledWith(88);
     });
 
-    it('clicking the delete icon dispatches deleteWorkoutSessionById with confirm', async () => {
+    it('clicking the delete icon shows an Undo toast; the DELETE runs only when the Undo window closes (med-xso6.5)', async () => {
+        env.cleanup();
+        env = loadFrontendEnv({ withWorkout: true, withSync: true });
         const { window, document } = env;
         const container = document.getElementById('workout-history-display');
-        window.safeConfirm = vi.fn(async (_msg, cb) => { await cb(true); });
+        window.safeConfirm = vi.fn();
         const apiSpy = vi.fn(async () => true);
         window.apiCall = apiSpy;
         window.loadWorkoutHistoryTab = vi.fn();
 
         window._renderWorkoutHistory(container, [makeSession({ session: { id: 99 } })], [], 'UTC');
-        const deleteBtn = container.querySelector('.wg-workouts-history-row__delete');
-        deleteBtn.click();
-        // Let the async chain flush (click → deleteWorkoutSessionById → safeConfirm → apiCall → loadWorkoutHistoryTab).
-        for (let i = 0; i < 8; i += 1) await Promise.resolve();
+        container.querySelector('.wg-workouts-history-row__delete').click();
 
-        expect(window.safeConfirm).toHaveBeenCalled();
+        const undo = document.querySelector('.wg-toasts .wg-toast__undo');
+        expect(undo.textContent).toBe('Undo');
+        undo.click();
+        for (let i = 0; i < 8; i += 1) await Promise.resolve();
+        expect(apiSpy).not.toHaveBeenCalledWith('/api/workout/sessions/delete?id=99', 'DELETE');
+
+        expect(await window.deleteWorkoutSessionById(99).flush()).toBe('deleted');
         expect(apiSpy).toHaveBeenCalledWith('/api/workout/sessions/delete?id=99', 'DELETE');
         expect(window.loadWorkoutHistoryTab).toHaveBeenCalled();
+        expect(window.safeConfirm).not.toHaveBeenCalled();
     });
 
     it('surfaces the shared Pending sync chip on rows with isLocal=true', () => {

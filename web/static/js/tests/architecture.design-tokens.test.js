@@ -1478,8 +1478,6 @@ describe('Architecture – design tokens', () => {
             '.mt-lg', '.mt-xl',
             // Empty/error state
             '.empty-state-msg', '.no-data-msg',
-            // PWA update toast
-            '.pwa-update-toast', '.pwa-update-btn',
             // Sync debug panel
             '.sync-debug-panel',
             // Workout components (paper-era classes still used as dual-class alongside wg-* equivalents)
@@ -1541,15 +1539,16 @@ describe('Architecture – design tokens', () => {
         }
     });
 
-    it('.sync-toast layers above modal dialogs via the --z-toast token', () => {
+    it('the .wg-toasts stack layers above modal dialogs via the --z-toast token', () => {
         // med-omvw review: error toasts raised while a modal stays open must
-        // stay visible — the toast sits above --z-modal, by token (rule 3).
+        // stay visible — the toast stack sits above --z-modal, by token (rule 3).
         const css = fs.readFileSync(CSS_PATH, 'utf8');
-        const block = /\.sync-toast\s*\{([^}]*)\}/.exec(css);
+        expect(css).toMatch(/--wg-z-toast:\s*var\(--z-toast\)/);
+        const kit = fs.readFileSync(path.join(REPO_ROOT, 'web/static/css/components.css'), 'utf8');
+        const block = /\.wg-toasts\{([^}]*)\}/.exec(kit);
         expect(block).not.toBeNull();
-        const zLine = block[1].split('\n').find((l) => /z-index\s*:/i.test(l));
-        expect(zLine).toBeDefined();
-        expect(zLine).toContain('var(--z-toast)');
+        expect(block[1]).toContain('z-index:var(--wg-z-toast)');
+        expect(block[1]).toContain('position:fixed');
     });
 });
 

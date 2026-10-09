@@ -96,25 +96,19 @@ describe('app.js weight modal helpers and workout start modal flows', () => {
     }
   });
 
-  it('deleteWeightLog respects confirm path and falls back from Telegram confirm errors', async () => {
+  it('deleteWeightLog never confirms: Undo cancels the delete, flush runs it (med-xso6.5)', async () => {
     const { window, cleanup } = loadFrontendEnv();
 
     try {
-      const deleteSpy = vi.spyOn(window, '_deleteWeightApi').mockResolvedValue(undefined);
-      const confirmFalseSpy = vi.spyOn(window, 'safeConfirm').mockImplementation(async (_msg, cb) => { if (cb) await cb(false); return false; });
-      await window.deleteWeightLog(1);
+      const deleteSpy = vi.spyOn(window, '_deleteWeightApi').mockResolvedValue(true);
+      const confirmSpy = vi.spyOn(window, 'safeConfirm');
+
+      expect(await window.deleteWeightLog(1).undo()).toBe('undone');
       expect(deleteSpy).not.toHaveBeenCalled();
-      confirmFalseSpy.mockRestore();
 
-      const confirmTrueSpy = vi.spyOn(window, 'safeConfirm').mockImplementation(async (_msg, cb) => { if (cb) await cb(true); return true; });
-      await window.deleteWeightLog(2);
+      expect(await window.deleteWeightLog(2).flush()).toBe('deleted');
       expect(deleteSpy).toHaveBeenCalledWith(2);
-
-      // safeConfirm is the only public surface, so we keep asserting that
-      // callers go through it.
-      await window.deleteWeightLog(3);
-      expect(confirmTrueSpy).toHaveBeenCalled();
-      confirmTrueSpy.mockRestore();
+      expect(confirmSpy).not.toHaveBeenCalled();
     } finally {
       cleanup();
     }

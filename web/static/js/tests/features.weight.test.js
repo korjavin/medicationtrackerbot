@@ -271,3 +271,42 @@ describe('features/weight.js — target-weight goal dialog', () => {
         expect(window.apiCall).not.toHaveBeenCalled();
     });
 });
+
+describe('features/weight.js — row delete undoes from the toast (med-xso6.5)', () => {
+    let env;
+
+    beforeEach(() => {
+        env = loadFrontendEnv({ withSync: true });
+    });
+
+    afterEach(() => {
+        try { env.window.localStorage.clear(); } catch (_) { /* ignore */ }
+        env.cleanup();
+        env = null;
+    });
+
+    it('deleteWeightLog hides the log at once; Undo restores it and sends no DELETE', async () => {
+        const { window, document } = env;
+        const cache = installApiCache(window, {
+            weight: {
+                logsRes: [
+                    { id: 1, weight: 80.2, measured_at: '2026-05-10T08:00:00.000Z' },
+                    { id: 2, weight: 80.0, measured_at: '2026-05-12T08:00:00.000Z' }
+                ],
+                goalRes: null,
+                lineRes: null
+            }
+        });
+        window.apiCall = vi.fn(async (_url, method) => (method === 'DELETE' ? { ok: true } : null));
+        window.loadWeightLogs = vi.fn();
+
+        const ctl = window.deleteWeightLog('1');
+        await vi.waitFor(() => expect(cache.get('weight').logsRes.map((l) => l.id)).toEqual([2]));
+        expect(document.querySelector('.wg-toasts .wg-toast__text').textContent).toBe('Weight deleted');
+        document.querySelector('.wg-toasts .wg-toast__undo').click();
+
+        expect(await ctl.done).toBe('undone');
+        expect(cache.get('weight').logsRes.map((l) => l.id)).toEqual([1, 2]);
+        expect((window.apiCall.mock.calls.filter(([, m]) => m === 'DELETE'))).toHaveLength(0);
+    });
+});
