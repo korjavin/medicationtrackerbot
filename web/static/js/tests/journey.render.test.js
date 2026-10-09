@@ -10,14 +10,21 @@ const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const WG_ICONS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-icons.js');
 const WG_SPARKLINE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-sparkline.js');
 const JOURNEY_JS = path.join(REPO_ROOT, 'web/static/js/features/journey.js');
+const MT_ELEMENTS_JS = path.join(REPO_ROOT, 'web/static/js/components/mt-elements.js');
+const MODAL_MANAGER_JS = path.join(REPO_ROOT, 'web/static/js/core/modal-manager.js');
+const WG_PAGE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-page.js');
 
 function loadEnv() {
-    const dom = new JSDOM('<!DOCTYPE html><html><body><div id="journey-content"></div></body></html>', {
+    const dom = new JSDOM('<!DOCTYPE html><html><body><div id="modal-overlay" class="hidden"></div><div id="journey-content"></div></body></html>', {
         url: 'https://example.test/',
         pretendToBeVisual: true,
         runScripts: 'outside-only'
     });
     const { window } = dom;
+    // The "More" row pushes a WGPage on the ModalManager stack (med-xso6.8).
+    window.eval(fs.readFileSync(MT_ELEMENTS_JS, 'utf8'));
+    window.eval(fs.readFileSync(MODAL_MANAGER_JS, 'utf8'));
+    window.eval(fs.readFileSync(WG_PAGE_JS, 'utf8'));
     window.eval(fs.readFileSync(WG_ICONS_JS, 'utf8'));
     window.eval(fs.readFileSync(WG_SPARKLINE_JS, 'utf8'));
     window.eval(fs.readFileSync(JOURNEY_JS, 'utf8'));
@@ -205,10 +212,44 @@ describe('Journey render', () => {
             'wg-journey-narrator',
         ]);
         const more = document.getElementById('journey-more');
-        expect(more.tagName).toBe('DETAILS');
-        expect(more.open).toBe(false);
-        expect([...more.querySelectorAll(':scope > .wg-card')].map((c) => c.className.split(' ').pop()))
+        expect(more.querySelector('.wg-journey-more__row .wg-row__title').textContent).toBe('More');
+        expect(more.querySelector('.wg-journey-more__row .wg-row__meta').textContent)
+            .toBe('Experiments, chapters, traits, keystones');
+        expect(document.querySelector('.wg-page')).toBeNull();
+        expect([...more.querySelectorAll('.wg-journey-more__cards > .wg-card')].map((c) => c.className.split(' ').pop()))
             .toEqual(['wg-journey-chapter', 'wg-journey-traits', 'wg-journey-keystones']);
+    });
+
+    // med-xso6.8 (kit J2): the former <details> is a row that pushes its own page.
+    it('the More row pushes a page with a page bar holding the same cards; Back returns them', () => {
+        env.window.Gamification.render(fullJourney());
+        const { document } = env;
+        document.querySelector('.wg-journey-more__row').click();
+
+        const page = document.querySelector('mt-modal.wg-page');
+        expect(page).not.toBeNull();
+        expect(page.querySelector('.wg-pagebar .wg-pagebar__title').textContent).toBe('More');
+        expect(page.querySelector('.wg-pagebar .wg-back').textContent).toBe('Journey');
+        expect([...page.querySelectorAll('#journey-more-page > .wg-card')].map((c) => c.className.split(' ').pop()))
+            .toEqual(['wg-journey-chapter', 'wg-journey-traits', 'wg-journey-keystones']);
+        expect(document.getElementById('modal-overlay').classList.contains('hidden')).toBe(false);
+
+        page.querySelector('.wg-back').click();
+        expect(document.querySelector('.wg-page')).toBeNull();
+        expect(document.getElementById('modal-overlay').classList.contains('hidden')).toBe(true);
+        expect(document.querySelectorAll('#journey-more .wg-journey-more__cards > .wg-card')).toHaveLength(3);
+    });
+
+    it('a re-render while the More page is open refreshes the page in place', () => {
+        env.window.Gamification.render(fullJourney());
+        const { document } = env;
+        document.querySelector('.wg-journey-more__row').click();
+        env.window.Gamification.render(fullJourney({
+            experiments: { enabled: true, can_start: false, templates: [], active: { id: 'e', title: 'Trial', duration: 14, day_number: 3 } },
+        }));
+        expect(document.querySelectorAll('.wg-page')).toHaveLength(1);
+        expect(document.querySelector('#journey-more-page #journey-experiment-card')).not.toBeNull();
+        expect(document.querySelectorAll('#journey-more .wg-journey-more__cards > *')).toHaveLength(0);
     });
 
     it('the strip sits with the discoveries, after the goal and the week', () => {
@@ -220,30 +261,31 @@ describe('Journey render', () => {
         ]);
     });
 
-    it('a strip item pointing into the folded disclosure opens it before scrolling', () => {
+    it('a strip item pointing behind the More row opens its page before scrolling', () => {
         env.window.Gamification.render(fullJourney({
             atlas: { cards: [{ id: 'p', question: 'Q', state: 'revealed', text: 'a finding', seen: true }], whats_new: [{ kind: 'trait', text: 'New trait.', target: 'journey-traits-card' }] },
         }));
         const { document } = env;
         const scrollIntoView = vi.fn();
         document.getElementById('journey-traits-card').scrollIntoView = scrollIntoView;
-        expect(document.getElementById('journey-more').open).toBe(false);
+        expect(document.querySelector('.wg-page')).toBeNull();
         document.querySelector('.wg-journey-whatsnew__item').click();
-        expect(document.getElementById('journey-more').open).toBe(true);
+        expect(document.querySelector('.wg-page #journey-traits-card')).not.toBeNull();
         expect(scrollIntoView).toHaveBeenCalled();
     });
 
-    it('the disclosure opens by itself while a trial or a chapter is live', () => {
+    it('the More row says when a trial or a chapter is live', () => {
         env.window.Gamification.render(fullJourney({
             experiments: { enabled: true, can_start: false, templates: [], active: { id: 'e', title: 'Trial', duration: 14, day_number: 3 } },
         }));
-        expect(env.document.getElementById('journey-more').open).toBe(true);
+        const meta = () => env.document.querySelector('.wg-journey-more__row .wg-row__meta').textContent;
+        expect(meta()).toBe('1 trial running');
         expect(env.document.querySelector('#journey-more #journey-experiment-card')).not.toBeNull();
 
         env.window.Gamification.render(fullJourney({
             chapter: { enabled: true, active: { title: 'C', duration: 28, day_number: 2 } },
         }));
-        expect(env.document.getElementById('journey-more').open).toBe(true);
+        expect(meta()).toBe('chapter in progress');
     });
 
     // med-8tur.10 (§0.3.6): the joint weight/BP observation — both components,
@@ -331,7 +373,7 @@ describe('Journey render', () => {
         document.getElementById('journey-keystones-card').scrollIntoView = scrollIntoView;
         document.querySelector('.wg-journey-whatsnew__item').click();
         expect(scrollIntoView).toHaveBeenCalled();
-        expect(document.getElementById('journey-more').open).toBe(true);
+        expect(document.querySelector('.wg-page #journey-keystones-card')).not.toBeNull();
     });
 
     it('a disabled substrate still renders the goal + narrative layer, without the week or gauges', () => {

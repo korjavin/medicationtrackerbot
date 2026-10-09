@@ -167,6 +167,39 @@ describe('features/back-button.js — BrowserAdapter back chevron for section na
         }
     });
 
+    // med-xso6.8: the real ModalManager stack — Back closes the most recently
+    // opened modal (whatever its id), and the overlay stays until the last.
+    it('back closes stacked modals one at a time, most recent first', () => {
+        const { window, document, pressBack, cleanup } = createEnv();
+        try {
+            window.AppBackButton.setup();
+            window.switchTab('bp');
+            ['page-a', 'page-b', 'page-c'].forEach((id) => {
+                const m = document.createElement('div');
+                m.id = id;
+                m.className = 'hidden';
+                document.body.appendChild(m);
+                window.ModalManager.open(id);
+            });
+            const overlay = document.getElementById('modal-overlay');
+            const open = () => ['page-a', 'page-b', 'page-c'].filter((id) => !document.getElementById(id).classList.contains('hidden'));
+            window.switchTab.mockClear();
+
+            pressBack();
+            expect(open()).toEqual(['page-a', 'page-b']);
+            expect(overlay.classList.contains('hidden')).toBe(false);
+            pressBack();
+            expect(open()).toEqual(['page-a']);
+            expect(overlay.classList.contains('hidden')).toBe(false);
+            pressBack();
+            expect(open()).toEqual([]);
+            expect(overlay.classList.contains('hidden')).toBe(true);
+            expect(window.switchTab).not.toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
+
     // bd med-62lh: the in-page dialog mounts outside #modal-overlay but still
     // counts as an open modal.
     it('back handler cancels an in-page dialog instead of switching tabs', () => {

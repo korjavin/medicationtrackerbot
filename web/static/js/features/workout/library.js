@@ -722,7 +722,8 @@ async function bindExercisePicker({ input, mount, withLibrary = true, onPick } =
     };
 
     input.oninput = refresh;
-    input.onkeydown = (e) => { if (e.key === 'Escape') hide(); };
+    // An open list eats the Esc; a second Esc reaches ModalManager and closes the modal.
+    input.onkeydown = (e) => { if (e.key === 'Escape' && !mount.hidden) { e.preventDefault(); hide(); } };
     input.onblur = (e) => {
         // Tabbing from the input into the list must not tear it down before a
         // row can take focus — that would make the rows unreachable by

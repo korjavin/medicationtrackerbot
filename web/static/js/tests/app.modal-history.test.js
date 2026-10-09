@@ -135,4 +135,121 @@ describe('app.js modal history and back behavior', () => {
     }
   });
 
+  function pressEsc(window) {
+    const e = new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    window.document.body.dispatchEvent(e);
+    return e;
+  }
+
+  // med-xso6.8: Plan → Day → Exercise shaped pushed pages. Each Back (popstate,
+  // Esc, the page-bar chevron) closes exactly the topmost page; the overlay
+  // stays until the last one goes.
+  it('nested WGPages close one per popstate / Esc / Back chevron; overlay hides with the last', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      const overlay = document.getElementById('modal-overlay');
+      const backSpy = vi.spyOn(window.history, 'back');
+      const titles = () => [...document.querySelectorAll('mt-modal.wg-page .wg-pagebar__title')].map((t) => t.textContent);
+
+      window.WGPage.push({ title: 'Plan', back: 'Train', primary: { label: 'Save', onClick: () => {} } });
+      window.WGPage.push({ title: 'Day A', crumb: 'Plan 3', back: 'Plan', primary: { label: 'Done', onClick: () => {} } });
+      window.WGPage.push({ title: 'Squat', crumb: 'Plan 3 · Day A', back: 'Day A' });
+      await flushMutations();
+      expect(titles()).toEqual(['Plan', 'Day A', 'Squat']);
+      expect(overlay.classList.contains('hidden')).toBe(false);
+
+      window.dispatchEvent(new window.PopStateEvent('popstate'));
+      await flushMutations();
+      expect(titles()).toEqual(['Plan', 'Day A']);
+      expect(overlay.classList.contains('hidden')).toBe(false);
+
+      expect(pressEsc(window).defaultPrevented).toBe(true);
+      await flushMutations();
+      expect(titles()).toEqual(['Plan']);
+      expect(overlay.classList.contains('hidden')).toBe(false);
+      expect(backSpy).not.toHaveBeenCalled();
+
+      document.querySelector('mt-modal.wg-page .wg-back').click();
+      await flushMutations();
+      expect(titles()).toEqual([]);
+      expect(overlay.classList.contains('hidden')).toBe(true);
+      expect(backSpy).toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('a page whose onBack returns false stays open on Esc', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      const onBack = vi.fn(() => false);
+      const page = window.WGPage.push({ title: 'Edit day', onBack });
+      pressEsc(window);
+      await flushMutations();
+      expect(onBack).toHaveBeenCalledTimes(1);
+      expect(document.querySelector('mt-modal.wg-page')).not.toBeNull();
+      page.close();
+      expect(document.querySelector('mt-modal.wg-page')).toBeNull();
+      expect(document.getElementById('modal-overlay').classList.contains('hidden')).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  // med-xso6.34: Esc closes every modal, topmost first — sub-modal before its parent.
+  it('Esc closes the topmost modal only: food product, then the food modal', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    // Closing the food modal stops the scanner's <video>; jsdom has no pause().
+    const pauseSpy = vi.spyOn(window.HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    try {
+      window.ModalManager.food.open();
+      window.ModalManager.foodProduct.open();
+      await flushMutations();
+
+      pressEsc(window);
+      await flushMutations();
+      expect(document.getElementById('food-product-modal').classList.contains('hidden')).toBe(true);
+      expect(document.getElementById('food-modal').classList.contains('hidden')).toBe(false);
+      expect(document.getElementById('modal-overlay').classList.contains('hidden')).toBe(false);
+
+      pressEsc(window);
+      await flushMutations();
+      expect(document.getElementById('food-modal').classList.contains('hidden')).toBe(true);
+      expect(document.getElementById('modal-overlay').classList.contains('hidden')).toBe(true);
+    } finally {
+      pauseSpy.mockRestore();
+      cleanup();
+    }
+  });
+
+  it('Esc over an in-page dialog cancels just the dialog, not the modal under it', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      window.ModalManager.weight.open();
+      const answer = window.safeConfirm('Discard?');
+      await flushMutations();
+      expect(document.querySelector('mt-modal.mt-confirm-modal')).not.toBeNull();
+
+      pressEsc(window);
+      await expect(answer).resolves.toBe(false);
+      await flushMutations();
+      expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
+      expect(document.getElementById('weight-modal').classList.contains('hidden')).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('Esc closes a modal opened outside ModalManager (Settings invite)', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      const invite = document.getElementById('invite-modal');
+      invite.open();
+      pressEsc(window);
+      expect(invite.classList.contains('hidden')).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
 });

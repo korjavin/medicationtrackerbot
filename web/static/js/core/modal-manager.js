@@ -2,14 +2,47 @@
 // Loaded before app.js. Domain-specific close helpers (closeFoodScannerModal,
 // closeWorkoutGroupModal, etc.) are defined in app.js/workout.js and accessed
 // lazily at call time via the global scope.
+//
+// Stack (med-xso6.8): open() pushes the modal id, close() removes it, and the
+// shared #modal-overlay hides only once nothing on the stack is still visible.
+// Back / Esc / popstate all go through closeTopMostVisibleModal(), which closes
+// the most recently opened visible modal through its registered close function
+// (register(id, fn); a modal without one just gets close(id)). A close function
+// may refuse or finish later (the workout session awaits its autosave): the id
+// leaves the stack only when close(id) actually runs.
 
 const ModalManager = {
-    open(modalId) {
-        const overlay = document.getElementById('modal-overlay');
-        if (overlay) overlay.classList.remove('hidden');
+    _stack: [],
+    _closers: {},
+
+    register(modalId, closeFn) {
+        ModalManager._closers[modalId] = closeFn;
+    },
+
+    _isVisible(modalId) {
+        const modal = document.getElementById(modalId);
+        return !!modal && !modal.classList.contains('hidden');
+    },
+
+    // Drops ids whose modal was hidden behind ModalManager's back (a raw
+    // modal.close() / classList toggle) so they never pin the overlay.
+    _visibleStack() {
+        ModalManager._stack = ModalManager._stack.filter(ModalManager._isVisible);
+        return ModalManager._stack;
+    },
+
+    // opts.overlay === false: a sub-modal that stacks over its parent without
+    // touching #modal-overlay (food scanner / product).
+    open(modalId, opts) {
+        if (!opts || opts.overlay !== false) {
+            const overlay = document.getElementById('modal-overlay');
+            if (overlay) overlay.classList.remove('hidden');
+        }
 
         const modal = document.getElementById(modalId);
         if (!modal) return;
+        ModalManager._stack = ModalManager._stack.filter((id) => id !== modalId);
+        ModalManager._stack.push(modalId);
         if (typeof modal.open === 'function') {
             modal.open();
         } else {
@@ -18,16 +51,24 @@ const ModalManager = {
     },
 
     close(modalId) {
-        const overlay = document.getElementById('modal-overlay');
-        if (overlay) overlay.classList.add('hidden');
-
+        ModalManager._stack = ModalManager._stack.filter((id) => id !== modalId);
         const modal = document.getElementById(modalId);
-        if (!modal) return;
-        if (typeof modal.close === 'function') {
-            modal.close();
-        } else {
-            modal.classList.add('hidden');
+        if (modal) {
+            if (typeof modal.close === 'function') {
+                modal.close();
+            } else {
+                modal.classList.add('hidden');
+            }
         }
+        // A parent still open under this child keeps the overlay.
+        if (ModalManager._visibleStack().length === 0) {
+            const overlay = document.getElementById('modal-overlay');
+            if (overlay) overlay.classList.add('hidden');
+        }
+    },
+
+    closeTop() {
+        return ModalManager.closeTopMostVisibleModal();
     },
 
     bp: {
@@ -188,66 +229,32 @@ const ModalManager = {
 
     workoutAddExerciseToSession: {
         open() {
-            document.getElementById('modal-overlay').classList.remove('hidden');
-            const modal = document.getElementById('workout-add-exercise-to-session-modal');
-            if (!modal) return;
-            if (typeof modal.open === 'function') {
-                modal.open();
-            } else {
-                modal.classList.remove('hidden');
-            }
+            ModalManager.open('workout-add-exercise-to-session-modal');
         },
         close() {
-            const modal = document.getElementById('workout-add-exercise-to-session-modal');
-            if (!modal) return;
-            if (typeof modal.close === 'function') {
-                modal.close();
-            } else {
-                modal.classList.add('hidden');
-            }
+            ModalManager.close('workout-add-exercise-to-session-modal');
         }
     },
 
     foodProduct: {
         open() {
-            const modal = document.getElementById('food-product-modal');
-            if (modal && typeof modal.open === 'function') {
-                modal.open();
-            } else if (modal) {
-                modal.classList.remove('hidden');
-            }
+            ModalManager.open('food-product-modal', { overlay: false });
         },
         close() {
-            const modal = document.getElementById('food-product-modal');
-            if (modal && typeof modal.close === 'function') {
-                modal.close();
-            } else if (modal) {
-                modal.classList.add('hidden');
-            }
+            ModalManager.close('food-product-modal');
         }
     },
 
     foodScanner: {
         open() {
-            const scannerModal = document.getElementById('food-scanner-modal');
-            if (!scannerModal) return;
-            if (typeof scannerModal.open === 'function') {
-                scannerModal.open();
-            } else {
-                scannerModal.classList.remove('hidden');
-            }
+            if (!document.getElementById('food-scanner-modal')) return;
+            ModalManager.open('food-scanner-modal', { overlay: false });
             setFoodScannerStatus('Point camera at barcode or QR.');
             startFoodScanner();
         },
         close() {
             stopFoodScanner();
-            const scannerModal = document.getElementById('food-scanner-modal');
-            if (!scannerModal) return;
-            if (typeof scannerModal.close === 'function') {
-                scannerModal.close();
-            } else {
-                scannerModal.classList.add('hidden');
-            }
+            ModalManager.close('food-scanner-modal');
         }
     },
 
@@ -295,7 +302,9 @@ const ModalManager = {
 
     isAnyOpen() {
         const overlay = document.getElementById('modal-overlay');
-        return (!!overlay && !overlay.classList.contains('hidden')) || ModalManager.isDialogOpen();
+        return (!!overlay && !overlay.classList.contains('hidden'))
+            || ModalManager.isDialogOpen()
+            || ModalManager._visibleStack().length > 0;
     },
 
     closeTopMostVisibleModal() {
@@ -306,6 +315,18 @@ const ModalManager = {
             cancels[cancels.length - 1].click();
             return true;
         }
+        // Most recently opened first: the real top, whatever the modal.
+        const stack = ModalManager._visibleStack();
+        if (stack.length) {
+            const id = stack[stack.length - 1];
+            const fn = ModalManager._closers[id];
+            if (typeof fn === 'function') fn();
+            else ModalManager.close(id);
+            return true;
+        }
+        // Shown without ModalManager.open: the legacy priority list, then any
+        // other visible <mt-modal> (Settings invite / delete-account) — so Esc
+        // and Back close every modal, registered or not (med-xso6.34).
         for (const modalDef of ModalManager.getClosePriorityModalDefs()) {
             const modal = document.getElementById(modalDef.id);
             if (modal && !modal.classList.contains('hidden')) {
@@ -313,8 +334,26 @@ const ModalManager = {
                 return true;
             }
         }
+        const loose = document.querySelectorAll('mt-modal:not(.hidden):not(.mt-confirm-modal)');
+        if (loose.length) {
+            const modal = loose[loose.length - 1];
+            if (typeof modal.close === 'function') modal.close();
+            else modal.classList.add('hidden');
+            return true;
+        }
         return false;
     }
 };
+
+// The legacy close-priority lists are the initial registrations.
+ModalManager.getClosePriorityModalDefs().forEach((d) => ModalManager.register(d.id, d.fn));
+
+// Esc = Back for modals (med-xso6.34): one shared handler closes the topmost
+// modal, whichever it is. In-page dialogs handle Esc themselves in the capture
+// phase and preventDefault, so a dialog's Esc never also closes its parent.
+document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing) return;
+    if (ModalManager.closeTopMostVisibleModal()) e.preventDefault();
+});
 
 window.ModalManager = ModalManager;
