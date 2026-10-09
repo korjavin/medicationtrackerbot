@@ -257,11 +257,14 @@ func main() {
 	inviteAPI.RegisterRoutes(apiMux)
 	syncAPI.RegisterRoutes(apiMux)
 	pushAPI.RegisterRoutes(apiMux)
-	// One broker shared by the inbox stream handler and the relay: appends fanned
-	// out here reach every open unlocked tab as an SSE wake (bd med-j0tc).
+	// One broker shared by the inbox stream handler, the relay and the sync API:
+	// appends fanned out here reach every open unlocked tab as an SSE wake (bd
+	// med-j0tc, med-eas.9).
 	inboxBroker := cloudserver.NewInboxBroker()
 	inboxAPI := cloudserver.NewInboxAPI(store, cfg.sessionSecret)
 	inboxAPI.SetEventBroker(inboxBroker)
+	// Same stream carries sync-ready after oplog/snapshot writes (bd med-eas.9).
+	syncAPI.SetEventBroker(inboxBroker)
 	inboxAPI.RegisterRoutes(apiMux)
 	cloudserver.NewVitalsImportAPI(store, cfg.sessionSecret).RegisterRoutes(apiMux)
 	mcpRelayAPI.RegisterRoutes(apiMux)

@@ -805,6 +805,35 @@ describe('startInboxEventStream', () => {
         vi.useRealTimers();
     });
 
+    it('sync-ready wakes the oplog pull (and open catches up), never the inbox drain (bd med-eas.9)', async () => {
+        const { instances, FakeEventSource } = makeEventSourceHarness();
+        const drain = vi.fn(async () => ({ applied: 0, failed: 0 }));
+        const onSyncReady = vi.fn();
+
+        const stop = startInboxEventStream(ctx, { apply: () => {}, drain, onSyncReady, EventSourceImpl: FakeEventSource });
+        expect(onSyncReady).not.toHaveBeenCalled();
+        // A reconnect may have missed sync wakes: open pulls whatever landed.
+        instances[0].emit('open');
+        await flush();
+        expect(onSyncReady).toHaveBeenCalledTimes(1);
+        expect(drain).toHaveBeenCalledTimes(1);
+
+        instances[0].emit('sync-ready');
+        instances[0].emit('sync-ready');
+        await flush();
+        expect(onSyncReady).toHaveBeenCalledTimes(3); // coalescing is requestDrain's job
+        expect(drain).toHaveBeenCalledTimes(1); // inbox drain untouched by sync wakes
+
+        instances[0].emit('inbox-ready');
+        await flush();
+        expect(onSyncReady).toHaveBeenCalledTimes(3); // and vice versa
+        expect(drain).toHaveBeenCalledTimes(2);
+
+        stop();
+        instances[0].emit('sync-ready');
+        expect(onSyncReady).toHaveBeenCalledTimes(3); // nothing after stop
+    });
+
     it('falls back to polling (no stream, no crash) when EventSource is unavailable', async () => {
         const drain = vi.fn(async () => ({ applied: 0, failed: 0 }));
         const stop = startInboxEventStream(ctx, { apply: () => {}, drain, EventSourceImpl: null });

@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { deriveKData, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, generateDEK, toBase64 } from '../crypto.js';
-import { listRecords, listRecordsInRange, readAllLiveRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, startReconnectAutoDrain, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
+import { listRecords, listRecordsInRange, readAllLiveRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, startReconnectAutoDrain, requestDrain, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
 import { openDb, cachedDb, dropCachedDb, onCachedDbDropped } from '../localdb.js';
 
 // reauthenticate() dynamic-imports unlock.js for the passkey ceremony; the real
@@ -1102,7 +1102,9 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     // never fire its own ops GET, and the leaked run would hit unstubbed
     // globals. reauthenticate() is the one exported barrier that provably waits
     // the slot empty (`while (drainInFlight) await drainInFlight`) and leaves it
-    // empty; teardown() above already set `stopped`, so no rerun can re-fill it.
+    // empty; teardown() above already cleared any queued rerun, so nothing can
+    // re-fill it. (Tests that drive requestDrain without startReconnectAutoDrain
+    // never queue a rerun past their own assertions.)
     await reauthenticate(ctx).catch(() => {});
     vi.useRealTimers();
     vi.unstubAllGlobals();
@@ -1293,6 +1295,40 @@ describe('reconnect auto-drain (med-deq.2)', () => {
     await fireDebounce();
     await followUp;
     expect(surfaced).toBe(1);
+  });
+
+  it('SSE sync-ready wakes (requestDrain) pull at once, share the slot, and coalesce mid-drain (bd med-eas.9)', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).startsWith('/api/sync/ops') && (!init || init.method !== 'POST')) {
+        countOpsGet();
+        await gate; // hold the first wake's drain in flight
+        return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      }
+      if (String(url) === '/api/sync/snapshot') return new Response('{}', { status: 200 });
+      throw new Error(`unexpected fetch: ${url}`);
+    }));
+    teardown = startReconnectAutoDrain(ctx);
+    const first = nextOpsGet();
+    requestDrain(ctx); // a wake: no debounce, the pull starts now
+    await first;
+    expect(opsGets).toBe(1);
+
+    // A burst of wakes plus an online event while the drain is in flight:
+    // all share the one slot and fold into a single follow-up run.
+    requestDrain(ctx);
+    requestDrain(ctx);
+    window.dispatchEvent(new Event('online'));
+    await fireDebounce();
+    await idle();
+    expect(opsGets).toBe(1);
+    const followUp = nextOpsGet();
+    release();
+    await followUp; // the peer write that woke us mid-drain is not swallowed
+    expect(opsGets).toBe(2);
+    await idle();
+    expect(opsGets).toBe(2); // exactly one follow-up
   });
 
   it('a post-teardown online event no longer drains', async () => {
@@ -1814,6 +1850,110 @@ describe('full-vault import snapshots in a constant 2 requests, not per-record o
     expect(snapshotPosts).toBe(1);
     // Import recovered the device: the wedge is cleared so writes sync again.
     expect((await getSyncStatus(ctx)).wedged).toBe(false);
+  });
+
+  // bd med-eas.9 — a sync-ready wake lets a peer pull the importer's bump op
+  // BEFORE the snapshot at that seq lands. Its cursor then sits at the bump, so
+  // `snapshot_seq > localLastSeq` alone would never fire and the peer would keep
+  // its pre-import vault. The remembered bump seq must still trigger the
+  // re-bootstrap once the snapshot appears.
+  it('a peer that pulled the bump before the snapshot still re-bootstraps onto the import', async () => {
+    await replaceAllRecords([{ recordId: 'note-old', recordType: 'note', clientTs: 1, deleted: false, text: 'pre-import' }]);
+    await seedMeta({ localLastSeq: 10, lastSnapshotSeq: 5 });
+    const kData = await deriveKData(ctx.dek);
+    const bumpId = '__vault_import_bump__';
+    const bump = await encryptRecord({
+      kData, accountId, recordType: 'importbump', recordId: bumpId, seq: 11,
+      plaintext: new TextEncoder().encode(JSON.stringify({ recordId: bumpId, clientTs: 2, deleted: true })),
+    });
+    const bumpOp = { seq: 11, record_type_tag: `importbump:${bumpId}`, nonce: toBase64(bump.nonce), ct: toBase64(new Uint8Array(bump.ct)) };
+    const imported = [{ recordId: 'bp-imported', recordType: 'bp', clientTs: 3, deleted: false, systolic: 118 }];
+    const snap = await encryptSnapshot({ kData, accountId, snapshotSeq: 11, plaintext: new TextEncoder().encode(JSON.stringify(imported)) });
+    const snapshotBody = JSON.stringify({ snapshot_seq: 11, nonce: toBase64(snap.nonce), ct: toBase64(new Uint8Array(snap.ct)) });
+
+    let snapshotLanded = false;
+    const fetchStub = vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u.startsWith('/api/sync/ops?since=10')) {
+        return new Response(JSON.stringify({ ops: [bumpOp], next: false, snapshot_seq: 5 }), { status: 200 });
+      }
+      if (u.startsWith('/api/sync/ops?since=11')) {
+        return new Response(JSON.stringify({ ops: [], next: false, snapshot_seq: snapshotLanded ? 11 : 5 }), { status: 200 });
+      }
+      if (u === '/api/sync/snapshot' && !init?.method) return new Response(snapshotBody, { status: 200 });
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    });
+    vi.stubGlobal('fetch', fetchStub);
+
+    await pullOnOpen(ctx); // the wake that raced the importer: pulls the bump only
+    expect((await listRecords(ctx, 'note')).map((r) => r.recordId)).toEqual(['note-old']);
+
+    snapshotLanded = true;
+    const ds = { invalidateTags: vi.fn(async () => {}), requestTabRefresh: vi.fn() };
+    vi.stubGlobal('window', { DataStore: ds });
+    await pullOnOpen(ctx); // the snapshot's own wake
+    expect((await listRecords(ctx, 'note')).map((r) => r.recordId)).toEqual([]);
+    expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-imported']);
+    // The re-bootstrap repaints even though the tail above the snapshot is empty.
+    await vi.waitFor(() => expect(ds.requestTabRefresh).toHaveBeenCalled());
+    expect(ds.requestTabRefresh.mock.calls[0][0]).toContain('bp');
+    expect(ds.requestTabRefresh.mock.calls[0][1]).toBe('cloud-write');
+    vi.unstubAllGlobals();
+    vi.stubGlobal('fetch', fetchStub);
+
+    await pullOnOpen(ctx); // the bump is consumed: no second re-bootstrap
+    expect(fetchStub.mock.calls.filter(([u, i]) => String(u) === '/api/sync/snapshot' && !i?.method)).toHaveLength(1);
+  });
+
+  // bd med-eas.9 — between a peer's bump and its snapshot, this device's own
+  // compaction would publish its pre-import vault at/above the bump seq, and the
+  // server keeps the first snapshot at a seq. Hold compaction until it lands.
+  it('holds threshold compaction while a pulled import bump awaits its snapshot', async () => {
+    await replaceAllRecords([{ recordId: 'bp-1', recordType: 'bp', clientTs: 1, deleted: false, systolic: 120 }]);
+    let snapshotPosts = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u.startsWith('/api/sync/ops?')) return new Response(JSON.stringify({ ops: [], next: false }), { status: 200 });
+      if (u === '/api/sync/snapshot' && init?.method === 'POST') { snapshotPosts++; return new Response('{}', { status: 200 }); }
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+
+    await seedMeta({ localLastSeq: 600, lastSnapshotSeq: 0, importBumpSeq: 590 });
+    await pullOnOpen(ctx);
+    expect(snapshotPosts).toBe(0); // held: the import's snapshot has not landed
+
+    await seedMeta({ importBumpSeq: null });
+    await pullOnOpen(ctx);
+    expect(snapshotPosts).toBe(1); // same tail, no pending import: compacts
+    vi.unstubAllGlobals();
+  });
+
+  // bd med-eas.9 — a stranded import's retry posts a bump op, and that op's
+  // sync-ready echo comes straight back to this tab. If a wake retried the
+  // import, a snapshot that keeps failing (503) would loop bump → echo → bump.
+  it('a wake-triggered drain never retries a stranded import; an open/visibility drain still does', async () => {
+    await replaceAllRecords([{ recordId: 'bp-1', recordType: 'bp', clientTs: 1, deleted: false, systolic: 120 }]);
+    await seedMeta({ localLastSeq: 10, forceSnapshotPending: true });
+    let bumps = 0;
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/ops' && init?.method === 'POST') {
+        bumps++;
+        return new Response(JSON.stringify({ assigned: [10 + bumps] }), { status: 200 });
+      }
+      if (u === '/api/sync/snapshot' && init?.method === 'POST') return new Response('unavailable', { status: 503 });
+      throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
+    }));
+
+    await requestDrain(ctx, { wake: true });
+    expect(bumps).toBe(0); // the wake neither retried nor pulled over the stranded import
+
+    await requestDrain(ctx);
+    expect(bumps).toBe(1); // the ordinary drain retried once (snapshot 503 → still stranded)
+
+    await requestDrain(ctx, { wake: true }); // the bump's echo
+    expect(bumps).toBe(1); // ...does not chain another retry
+    vi.unstubAllGlobals();
   });
 });
 

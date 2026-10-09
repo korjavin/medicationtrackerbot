@@ -159,7 +159,7 @@ async function readMeta() {
   return withDb(async (db) => {
     const tx = db.transaction('sync_meta', 'readonly');
     const store = tx.objectStore('sync_meta');
-    const [localLastSeq, lastSnapshotSeq, lastSyncedAt, integrityErrors, forceSnapshotPending, snapshotError, snapshotErrorSeq, writeError, clockSkewMs, writeErrorStreak, syncWedged, lastSnapshotAt] = await Promise.all([
+    const [localLastSeq, lastSnapshotSeq, lastSyncedAt, integrityErrors, forceSnapshotPending, snapshotError, snapshotErrorSeq, writeError, clockSkewMs, writeErrorStreak, syncWedged, lastSnapshotAt, importBumpSeq] = await Promise.all([
       reqToPromise(store.get('localLastSeq')),
       reqToPromise(store.get('lastSnapshotSeq')),
       reqToPromise(store.get('lastSyncedAt')),
@@ -172,6 +172,7 @@ async function readMeta() {
       reqToPromise(store.get('writeErrorStreak')),
       reqToPromise(store.get('syncWedged')),
       reqToPromise(store.get('lastSnapshotAt')),
+      reqToPromise(store.get('importBumpSeq')),
     ]);
     return {
       localLastSeq: localLastSeq ?? null,
@@ -186,6 +187,7 @@ async function readMeta() {
       writeErrorStreak: writeErrorStreak ?? 0,
       syncWedged: syncWedged ?? false,
       lastSnapshotAt: lastSnapshotAt ?? null,
+      importBumpSeq: importBumpSeq ?? null,
     };
   });
 }
@@ -626,7 +628,7 @@ async function bootstrap(ctx) {
       lastSnapshotSeq = body.snapshot_seq;
     }
   }
-  await writeMeta({ localLastSeq: lastSnapshotSeq, lastSnapshotSeq });
+  await writeMeta({ localLastSeq: lastSnapshotSeq, lastSnapshotSeq, importBumpSeq: null });
   return true;
 }
 
@@ -673,10 +675,22 @@ async function pullTail(ctx) {
     // were away): ops between our cursor and body.snapshot_seq no longer exist,
     // so an incremental tail would silently skip them. Re-bootstrap from the
     // snapshot, then resume the tail above it.
-    if (typeof body.snapshot_seq === 'number' && body.snapshot_seq > meta.localLastSeq) {
+    //
+    // A peer's full-vault import posts its bump op BEFORE the snapshot at that
+    // seq (tryForceSnapshot). A pull in between (a sync-ready wake makes that
+    // likely, bd med-eas.9) moves our cursor past the bump, so the snapshot
+    // would no longer read as "ahead". importBumpSeq remembers the bump: a
+    // snapshot at/above it that we haven't loaded is the import — re-bootstrap.
+    const importLanded = meta.importBumpSeq !== null && typeof body.snapshot_seq === 'number'
+      && body.snapshot_seq >= meta.importBumpSeq && body.snapshot_seq > meta.lastSnapshotSeq;
+    if (typeof body.snapshot_seq === 'number' && (body.snapshot_seq > meta.localLastSeq || importLanded)) {
       // Transient failure, or a stranded import that must be pushed first: either
       // way the cursor didn't move, so looping would spin. Retry next open.
       if (!(await bootstrap(ctx))) return;
+      // The whole mirror was replaced (e.g. a peer's full-vault import), and
+      // the tail above the snapshot is usually empty — so nothing below would
+      // repaint. Every type may have changed.
+      notifyRecordsChanged(Object.keys(RECORD_TAGS), ORIGIN_EXTERNAL);
       continue;
     }
     const applied = new Set();
@@ -702,7 +716,9 @@ async function pullTail(ctx) {
         // just skip the row and advance. Genuine tamper detection lives on the
         // snapshot decrypt path (bootstrap), which has no benign-failure case.
       }
-      await writeMeta({ localLastSeq: op.seq });
+      await writeMeta(recordType === 'importbump'
+        ? { localLastSeq: op.seq, importBumpSeq: op.seq }
+        : { localLastSeq: op.seq });
     }
     await writeMeta({ lastSyncedAt: Date.now() });
     notifyRecordsChanged(applied, ORIGIN_EXTERNAL);
@@ -780,6 +796,12 @@ async function maybeSnapshot(ctx) {
   // here (the flushPending-internal callers already return before reaching it).
   // resetLocalSync clears syncWedged, so compaction resumes after recovery.
   if (meta.syncWedged) return;
+  // A peer's import bump was pulled but its snapshot hasn't landed here yet (bd
+  // med-eas.9): compacting now would publish this device's PRE-import vault at
+  // or above the bump seq, and the server keeps the first snapshot at a seq —
+  // burying the import. Hold off. ponytail: bounded by SNAPSHOT_FORCE_OPS, after
+  // which the importer is presumed gone and the oplog must not grow forever.
+  if (meta.importBumpSeq !== null && meta.localLastSeq - meta.importBumpSeq < SNAPSHOT_FORCE_OPS) return;
   const floor = Math.max(meta.lastSnapshotSeq, meta.snapshotErrorSeq ?? 0);
   if (meta.localLastSeq - floor < SNAPSHOT_THRESHOLD) return;
   // A negative age (clock stepped back) counts as elapsed, never a stall.
@@ -1174,7 +1196,12 @@ async function flushPendingUnlocked(ctx) {
 
 // Pull-on-open: bootstrap (snapshot + tail) on first run, incremental tail
 // pull otherwise, then retry any writes a previous session couldn't push.
-export async function pullOnOpen(ctx) {
+//
+// retryForcedSnapshot=false (wake-triggered drains, bd med-eas.9) skips the
+// stranded-import retry: that retry posts a bump op, whose own sync-ready echo
+// would otherwise start the next retry — an unbounded upload loop while the
+// snapshot keeps failing. Open/visibility/online/reauth drains still retry.
+export async function pullOnOpen(ctx, { retryForcedSnapshot = true } = {}) {
   await bootstrapIfNeeded(ctx);
   // A pending forced snapshot (a C2e full-vault import a prior session couldn't
   // complete offline) means the LOCAL store is authoritative and must be PUSHED
@@ -1185,7 +1212,7 @@ export async function pullOnOpen(ctx) {
   // land (offline), skip the pull entirely and retry next open — never let a
   // pull run while the import is still stranded on this device.
   if ((await readMeta()).forceSnapshotPending) {
-    await tryForceSnapshot(ctx);
+    if (retryForcedSnapshot) await tryForceSnapshot(ctx);
     if ((await readMeta()).forceSnapshotPending) return;
   }
   await pullTail(ctx);
@@ -1207,7 +1234,7 @@ export async function reauthenticate(ctx) {
   // pullOnOpen runs would flush the same pending set under the same predicted
   // seqs (duplicate ops + a guaranteed mis-predict retry).
   while (drainInFlight) await drainInFlight;
-  drainInFlight = pullOnOpen(ctx).finally(() => { drainInFlight = null; onDrainSettled(); });
+  drainInFlight = pullOnOpen(ctx).finally(() => { drainInFlight = null; drainSettled(ctx); });
   await drainInFlight;
   return getSyncStatus(ctx);
 }
@@ -1219,37 +1246,60 @@ export async function reauthenticate(ctx) {
 // guard (same posture as recordsLock) prevents overlapping drains. Returns a
 // teardown removing both listeners. No-op outside a DOM context.
 let drainInFlight = null;
-// Installed by startReconnectAutoDrain; reauthenticate's .finally calls it too,
-// so a rerun queued while a reauth-owned drain held the slot is still consumed
-// instead of leaking into a spurious drain after the NEXT auto-drain.
-let onDrainSettled = () => {};
+// A drain request that landed mid-drain: run once more after the current one
+// settles. reauthenticate's .finally consumes it too, so a rerun queued while a
+// reauth-owned drain held the slot is not leaked into a later drain. false, or
+// 'wake' (only SSE wakes queued) / 'full' (any open/visibility/online request).
+let drainRerun = false;
+// Installed by startReconnectAutoDrain: surfaces a mid-session auth expiry.
+let onDrainAuthExpired = null;
+function drainSettled(ctx) {
+  // A wake-only rerun stays a wake, so a failed import retry's own bump echo
+  // cannot chain another retry; a queued reconnect still gets its full retry.
+  if (drainRerun) {
+    const wake = drainRerun === 'wake';
+    drainRerun = false;
+    requestDrain(ctx, { wake });
+  }
+}
+
+// requestDrain runs the boot drain path (pullOnOpen) through the single-slot
+// in-flight guard shared by the visibility/online auto-drain, reauthenticate,
+// and the SSE sync-ready wake (bd med-eas.9): a wake never overlaps a drain,
+// and a burst of wakes mid-drain coalesces into one follow-up run. Pass
+// { wake: true } from the SSE path: it pulls but never retries a stranded
+// import (see pullOnOpen).
+export function requestDrain(ctx, { wake = false } = {}) {
+  // An event landing mid-drain coalesces into a run that may already have
+  // missed it (a drain stuck on a dying fetch when connectivity returned, or a
+  // peer write landing after this drain's GET) — remember it and run once more
+  // after the current one settles.
+  if (drainInFlight) {
+    if (drainRerun !== 'full') drainRerun = wake ? 'wake' : 'full';
+    return drainInFlight;
+  }
+  drainInFlight = pullOnOpen(ctx, { retryForcedSnapshot: !wake })
+    .catch(() => {}) // failures already land in sync status; retried on the next event
+    .finally(() => {
+      drainInFlight = null;
+      drainSettled(ctx);
+      // A mid-session expiry (the common case for a non-sliding 30-day
+      // cookie in a long-lived PWA tab) is only ever detected by these
+      // event-driven drains — the boot-time check already ran. Hand it to
+      // the caller so the UI can surface it instead of queueing silently.
+      if (authExpired && onDrainAuthExpired) onDrainAuthExpired();
+    });
+  return drainInFlight;
+}
+
 export function startReconnectAutoDrain(ctx, { onAuthExpired } = {}) {
   if (typeof window === 'undefined' || typeof document === 'undefined') return () => {};
   let debounce = null;
-  let stopped = false;
-  let rerun = false;
-  const drain = () => {
-    // An event landing mid-drain coalesces into a run that may already have
-    // missed it (e.g. a drain stuck on a dying fetch when connectivity
-    // returned) — remember it and run once more after the current one settles.
-    if (drainInFlight) { rerun = true; return drainInFlight; }
-    drainInFlight = pullOnOpen(ctx)
-      .catch(() => {}) // failures already land in sync status; retried on the next event
-      .finally(() => {
-        drainInFlight = null;
-        onDrainSettled();
-        // A mid-session expiry (the common case for a non-sliding 30-day
-        // cookie in a long-lived PWA tab) is only ever detected by these
-        // event-driven drains — the boot-time check already ran. Hand it to
-        // the caller so the UI can surface it instead of queueing silently.
-        if (authExpired && !stopped && onAuthExpired) onAuthExpired();
-      });
-    return drainInFlight;
-  };
-  onDrainSettled = () => { if (rerun && !stopped) { rerun = false; drain(); } };
+  const surface = onAuthExpired ? () => onAuthExpired() : null;
+  onDrainAuthExpired = surface;
   const trigger = () => {
     clearTimeout(debounce);
-    debounce = setTimeout(drain, 250);
+    debounce = setTimeout(() => requestDrain(ctx), 250);
   };
   const onVisible = () => {
     if (document.visibilityState === 'visible' && navigator.onLine) trigger();
@@ -1257,7 +1307,9 @@ export function startReconnectAutoDrain(ctx, { onAuthExpired } = {}) {
   window.addEventListener('online', trigger);
   document.addEventListener('visibilitychange', onVisible);
   return () => {
-    stopped = true;
+    // No queued rerun or expiry surface outlives the teardown.
+    drainRerun = false;
+    if (onDrainAuthExpired === surface) onDrainAuthExpired = null;
     clearTimeout(debounce);
     window.removeEventListener('online', trigger);
     document.removeEventListener('visibilitychange', onVisible);

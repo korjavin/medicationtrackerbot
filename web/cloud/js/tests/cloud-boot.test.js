@@ -277,6 +277,7 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
     let streamsStarted = 0;
     let streamCtx = null;
     let streamOpts = null;
+    const syncDrains = [];
     // Reminder-horizon bookkeeping (med-9y9): recomputes counts the UN-debounced
     // recomputeAndPush calls, debounced counts anything still going through the
     // 2s scheduler — which, on the boot + drain paths, must stay at zero.
@@ -289,6 +290,7 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
         'sync.js': {
           pullOnOpen: async () => {},
           startReconnectAutoDrain: () => () => {},
+          requestDrain: (c, opts) => { syncDrains.push({ c, opts }); },
           getSyncStatus: async () => ({ authExpired: false }),
           readAllLiveRecords: async () => [],
         },
@@ -320,6 +322,7 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
       streams: () => streamsStarted,
       streamCtx: () => streamCtx,
       streamOpts: () => streamOpts,
+      syncDrains,
       recomputes: () => recomputes,
       debounced: () => debounced,
       dispatch: (data) => handlers.forEach((h) => h({ data, ports: [port] })),
@@ -433,6 +436,18 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
     await boot.streamOpts().onApplied({ applied: 1 });
     expect(boot.recomputes()).toBe(2); // the SSE path extends the horizon too
     expect(boot.debounced()).toBe(0);
+  });
+
+  // bd med-eas.9: the same stream's sync-ready wake routes into sync.js
+  // requestDrain (the shared single-slot drain guard) for this vault's ctx.
+  it('wires the SSE sync-ready wake to requestDrain', async () => {
+    const boot = await bootInbox({ drainInbox: async () => ({ applied: 0 }) });
+    expect(boot.syncDrains).toHaveLength(0);
+    boot.streamOpts().onSyncReady();
+    expect(boot.syncDrains).toHaveLength(1);
+    expect(boot.syncDrains[0].c).toBe(boot.streamCtx());
+    expect(boot.syncDrains[0].opts).toEqual({ wake: true }); // never retries a stranded import
+    expect(boot.recomputes()).toBe(1); // a sync wake is not an inbox drain
   });
 
   it('still subscribes to the SSE wake when ensureInboxKey rejects', async () => {
