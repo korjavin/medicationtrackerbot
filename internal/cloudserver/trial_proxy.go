@@ -261,6 +261,10 @@ func (a *TrialProxyAPI) ChatCompletions(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "streaming_not_supported"})
 		return
 	}
+	if a.cfg.Provider == TrialProviderAnthropic {
+		a.anthropicChat(w, r, account.ID, payload, r.URL.Query().Get("vision") == "1")
+		return
+	}
 	_, sentResponseFormat := payload["response_format"]
 	modelJSON, _ := json.Marshal(model)
 	payload["model"] = modelJSON

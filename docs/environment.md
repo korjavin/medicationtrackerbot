@@ -30,6 +30,10 @@ TRIAL_OPENAI_MODEL=gpt-6-luna      # Model forced server-side on every trial cha
 TRIAL_OPENAI_VISION_API_KEY=...    # Vision triple; each field falls back to the text triple when unset. Overrides only — without TRIAL_OPENAI_API_KEY trial AI stays off
 TRIAL_OPENAI_VISION_URL=...
 TRIAL_OPENAI_VISION_MODEL=...
+TRIAL_AI_PROVIDER=openai           # Chat backend for the trial proxy: openai (default, the TRIAL_OPENAI_* triples) or anthropic (native Messages adapter, internal/cloudserver/trial_anthropic.go — client unchanged). Any other value: cmd/cloud refuses to start. The master switch follows the ACTIVE provider's key. Both blocks may stay set; rollback = flip this + redeploy
+TRIAL_ANTHROPIC_API_KEY=...        # Anthropic key used when TRIAL_AI_PROVIDER=anthropic. Recommended: its own Console workspace with a spend limit
+TRIAL_ANTHROPIC_MODEL=claude-haiku-5-5  # Model forced on anthropic-provider trial calls (default shown)
+TRIAL_ANTHROPIC_VISION_MODEL=...   # ?vision=1 model on the anthropic provider; falls back to TRIAL_ANTHROPIC_MODEL
 TRIAL_ELEVENLABS_API_KEY=...       # With TRIAL_ELEVENLABS_AGENT_ID, enables GET /api/trial/elevenlabs/signed-url
 TRIAL_ELEVENLABS_AGENT_ID=agent_...# Operator's shared ElevenLabs agent minted for trial users. Its tools and prompt are NOT provisioned automatically: run `pnpm trial:agent --apply` (dry run without --apply) after every `TOOLSET_VERSION` bump in web/cloud/js/elevenlabs-agent.js, or trial users keep the old voice tool list while BYO users get the new one. The script only ever PATCHes this id — it never creates an agent, so the value here stays valid. See docs/cloud-deployment.md.
 TRIAL_RATE_PER_MIN=10              # Per-account sliding-window limit shared across all trial routes (default: 10). Smooths bursts; bounds no spend.
