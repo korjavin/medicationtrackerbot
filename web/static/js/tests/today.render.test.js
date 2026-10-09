@@ -240,6 +240,20 @@ describe('Today v2 — Next up', () => {
         expect(env.window.showMedicationConfirmModal).toHaveBeenCalledWith(['m1', 'm2'], ['Allopurinol', 'Candecor'], at(8, 20), 'confirm', ['i1', 'i2']);
     });
 
+    it('a dose that just came due is a Take with the sun, not Missed, and never doubles with next_intake', () => {
+        const bootstrap = {
+            features: { medication: true, bp: false, weight: false, food: false, workout: false, health: false, gamification: false },
+            medications: [{ id: 'm1', name: 'Allopurinol' }, { id: 'm3', name: 'Metformin' }],
+            // still the just-passed slot inside its SWR window
+            next_intake: { scheduled_at: at(13, 58), medication_names: ['Allopurinol'], medication_ids: ['m1'] },
+            intake_history: [{ id: 'i1', medication_id: 'm1', scheduled_at: at(13, 58), status: 'PENDING' }]
+        };
+        env.render(env.aggregate(bootstrap, {}, NOW), root, { now: NOW });
+        expect(nextKinds(root)).toEqual(['med']);
+        expect(root.querySelector('.wg-chip--danger')).toBeNull();
+        expect(primaries(root).map((b) => b.getAttribute('data-action'))).toEqual(['take']);
+    });
+
     it('with history cached, an out-of-date next_intake behind now is dropped, not called missed', () => {
         const bootstrap = {
             features: { medication: true, bp: false, weight: false, food: false, workout: false, health: false, gamification: false },

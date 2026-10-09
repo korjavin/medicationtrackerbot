@@ -194,8 +194,9 @@
         return cell(value, 'meds', status, meta);
     }
 
-    // Missed doses for Next up: intakes still PENDING whose slot has passed
-    // and are not snoozed into the future — the same rule as the Meds tab
+    // Due / missed doses for Next up (Next up applies the missed grace):
+    // intakes still PENDING whose slot has passed and are not snoozed into the
+    // future — the same rule as the Meds tab
     // badge (app-nav.js countDueDoses), over the cached GET /api/history?days=1
     // rows (bootstrap.intake_history). Intake state, not cache timing, decides
     // what is missed. One group per slot (oldest first), names joined from the
@@ -620,13 +621,21 @@
         // out-of-date next_intake is dropped until revalidation replaces it.
         const missed = state && state.missedDoses;
         const historyKnown = !!missed && missed.status === 'ok' && Array.isArray(missed.value);
+        // A pending dose inside the same 5-min grace nextMed uses is due now
+        // (Take, eligible for the sun), not missed yet.
+        const historySlots = new Set();
         if (historyKnown) {
-            for (const g of missed.value) items.push({ kind: 'med-missed', value: g, at: Date.parse(g.scheduledAt) });
+            for (const g of missed.value) {
+                const at = Date.parse(g.scheduledAt);
+                historySlots.add(at);
+                items.push({ kind: at + OVERDUE_GRACE_MS < nowMs ? 'med-missed' : 'med', value: g, at });
+            }
         }
         const med = state && state.nextMed;
-        if (med && med.value && (med.status === 'ok' || (med.status === 'overdue' && !historyKnown))) {
-            const at = Date.parse(med.value.scheduledAt);
-            items.push({ kind: med.status === 'overdue' ? 'med-missed' : 'med', value: med.value, at });
+        const medAt = med && med.value ? Date.parse(med.value.scheduledAt) : NaN;
+        if (med && med.value && !historySlots.has(medAt)
+            && (med.status === 'ok' || (med.status === 'overdue' && !historyKnown))) {
+            items.push({ kind: med.status === 'overdue' ? 'med-missed' : 'med', value: med.value, at: medAt });
         }
         const wo = state && state.nextWorkout;
         if (wo && wo.status === 'ok' && wo.value) {

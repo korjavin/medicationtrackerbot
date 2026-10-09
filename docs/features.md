@@ -40,7 +40,7 @@ No cache of any kind → skeleton while the first fetch runs, the offline state 
 | `stepsLatest` | SWR `health_overview.step_stats_7d` (latest day with steps) | `health` |
 | `goalLine` | SWR `gamification_goal_line` | `journey` |
 
-`loadToday()` (app.js) reads these caches via `ApiCache.getWithMeta` for `settings_bundle`, `next_intake`, `medications`, `history_1_`, `bp`, `weight`, `workout_next`, `health_overview`, `gamification_goal_line`, and today's food key (`food_YYYY-MM-DD_day`).
+`loadToday()` (`features/today-loader.js`) reads these caches via `ApiCache.getWithMeta` for `settings_bundle`, `next_intake`, `medications`, `history_1_`, `bp`, `weight`, `workout_next`, `health_overview`, `gamification_goal_line`, and today's food key (`food_YYYY-MM-DD_day`).
 
 **Data sources**: no new backend endpoints in Phase 1 — everything reads from `/api/bootstrap` and the existing SWR caches in `data-store.js`. A Phase 2 `GET /api/today` server-side aggregate is deferred.
 

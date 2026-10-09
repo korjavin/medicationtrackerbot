@@ -215,6 +215,73 @@ describe('Today loader — features/today-loader.js', () => {
             const retry = root.querySelector('.wg-error .wg-btn');
             expect(retry.textContent).toBe('Retry');
         });
+
+        it('a repaint while the first refetch is still in flight keeps the skeleton (no error flash)', async () => {
+            setOnline(window, true);
+            window.MedTrackerDB = makeApiCache({});
+            const gate = makeDeferred();
+            window.DataStore.fetchFresh = vi.fn(() => gate.promise); // first refetch never settles until released
+            let tick = null;
+            window.setInterval = (fn) => { tick = fn; return 42; };
+            const realRender = window.TodayDashboard.renderToday;
+            const painted = [];
+            let signal = null;
+            window.TodayDashboard.renderToday = (state, root, opts) => {
+                const out = realRender(state, root, opts);
+                painted.push({ skeleton: !!root.querySelector('.wg-skel'), error: !!root.querySelector('.wg-error') });
+                if (signal) signal();
+                return out;
+            };
+
+            const loading = window.loadToday();
+            await vi.waitFor(() => expect(window.DataStore.fetchFresh).toHaveBeenCalled());
+            const repainted = new Promise((resolve) => { signal = resolve; });
+            tick();
+            await repainted;
+            expect(painted[painted.length - 1]).toEqual({ skeleton: true, error: false });
+
+            signal = null;
+            gate.resolve(null);
+            await loading;
+            expect(painted[painted.length - 1]).toEqual({ skeleton: false, error: true });
+        });
+    });
+
+    // Next up's missed doses read the cached 24h intake history (history_1_,
+    // the Meds badge's GET /api/history?days=1) and refetch it on every load.
+    describe('missed doses from intake history', () => {
+        it('renders a Missed row from cached history_1_ and refetches it online', async () => {
+            setOnline(window, true);
+            const ts = Date.now() - 60 * 1000;
+            const slot = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+            window.MedTrackerDB = makeApiCache({
+                settings_bundle: {
+                    data: {
+                        featureSettings: { ...FEATURES_MED_ONLY },
+                        foodTargets: { calories: 0, carbs: 0, protein: 0, fat: 0 },
+                        tabOrder: ['today', 'meds'],
+                        weightUnitPreference: 'kg'
+                    },
+                    timestamp: ts
+                },
+                medications: { data: [{ id: 11, name: 'Aspirin' }], timestamp: ts },
+                history_1_: {
+                    data: [{ id: 'i1', medication_id: 11, scheduled_at: slot, status: 'PENDING' }],
+                    timestamp: ts
+                }
+            });
+
+            await window.loadToday();
+
+            const root = env.document.getElementById('today-content');
+            const row = root.querySelector('[data-section="next-up"] [data-next="med-missed"]');
+            expect(row).not.toBeNull();
+            expect(row.querySelector('.wg-row__title').textContent).toBe('Aspirin');
+            expect(window.DataStore.fetchFresh).toHaveBeenCalledWith('history_1_', expect.any(Function), ['history', 'medications']);
+            const spec = window.DataStore.fetchFresh.mock.calls.find((c) => c[0] === 'history_1_');
+            await spec[1]();
+            expect(window.apiCall).toHaveBeenCalledWith('/api/history?days=1');
+        });
     });
 
     describe('refetch in-flight guard coalesces concurrent loadToday calls', () => {
