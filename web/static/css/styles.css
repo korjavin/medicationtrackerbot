@@ -11514,6 +11514,18 @@ input:checked+.toggle-slider:before {
     color: var(--wg-fg-2);
 }
 
+/* A code the user must read in full and type (the Add a device fallback
+   code): wraps instead of ellipsis-truncating. */
+.wg-code--wrap {
+    height: auto;
+    padding-block: var(--space-sm);
+}
+
+.wg-code--wrap > span {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
 /* An empty error slot (e.g. the Add a device page) takes no gap. */
 .wg-page .wg-error:empty {
     display: none;

@@ -62,6 +62,9 @@ export function renderAddDevice(mount, ctx, onExit) {
 
   async function renderTransferScreen({ qrUrl, fallback, expiresAt }) {
     const { qrcode } = await import('../vendor/qrcode.mjs');
+    // Back during the import already deleted the slot; don't restart timers
+    // on a detached mount.
+    if (flow.closed) return;
     const qr = qrcode(0, 'M');
     qr.addData(qrUrl);
     qr.make();
@@ -73,7 +76,7 @@ export function renderAddDevice(mount, ctx, onExit) {
         <div class="kit-qr wg-invite-modal__qr">${qr.createSvgTag(4)}</div>
         <div class="wg-field">
           <span class="wg-label">Fallback code</span>
-          <div class="wg-code"><span id="transfer-fallback"></span></div>
+          <div class="wg-code wg-code--wrap"><span id="transfer-fallback"></span></div>
         </div>
         <p class="wg-meta">Expires in <span id="transfer-countdown"></span></p>
         <p class="wg-error" id="transfer-error"></p>
