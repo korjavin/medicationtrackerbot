@@ -140,13 +140,14 @@
         const file = el('importexport-import-file')?.files?.[0];
         if (!field) return;
         if (!file) { field.hidden = true; return; }
+        // Resolve before the await: the view may be torn down by the time it lands.
+        const meta = document.querySelector('[data-file-input="importexport-import-file"] .wg-file__meta');
         try {
             const head = await readFileBytes(file.slice(0, 21));
             field.hidden = !window.BackupCrypto.isAgeFile(head);
         } catch (_) {
             field.hidden = true;
         }
-        const meta = document.querySelector('[data-file-input="importexport-import-file"] .wg-file__meta');
         if (meta && !field.hidden) meta.textContent = `${formatFileSize(file.size)} · encrypted`;
     }
 
