@@ -250,6 +250,71 @@ describe('Workout session takeover (med-xso6.21)', () => {
         expect(window.apiCall).not.toHaveBeenCalledWith('/api/workout/sessions/logs/update', 'POST', expect.anything(), expect.anything());
     });
 
+    // med-rqt5: a weight change carries over to every later pending row.
+    it('a pending-row weight change cascades to the later pending rows; ghost-accept and reps do not', async () => {
+        const { window, document } = env;
+        await openSession(window, [logFixture({ id: 1, sets_completed: 1, sets: [
+            { set_index: 0, weight_kg: 60, reps: 8, set_type: 'normal' }
+        ] })], { variant_id: 5, exercise_snapshot: [
+            { exercise_id: 10, exercise_name: 'Bench', target_sets: 4, target_reps_min: 8, target_weight_kg: 60 }
+        ] }, (endpoint) => {
+            if (endpoint.startsWith('/api/workout/exercises/history')) {
+                return [{ date: '2026-04-19', session_id: 70, sets: [
+                    { weight_kg: 60, reps: 8 }, { weight_kg: 62.5, reps: 7 }, { weight_kg: 65, reps: 6 }, { weight_kg: 67.5, reps: 5 }] }];
+            }
+            if (endpoint.includes('/logs/update')) return { ok: true };
+            return undefined;
+        });
+        await vi.waitFor(() => expect(setRows(document)[3].querySelector('.wg-set__cell--ghost').textContent).toContain('67.5'));
+        const weightCell = (i) => setRows(document)[i].querySelectorAll('.wg-set__cell')[0];
+        const repsCell = (i) => setRows(document)[i].querySelectorAll('.wg-set__cell')[1];
+
+        vi.useFakeTimers();
+        weightCell(1).click(); // accept the 62.5 ghost: no cascade
+        expect(weightCell(1).classList.contains('wg-set__cell--ghost')).toBe(false);
+        expect(weightCell(2).classList.contains('wg-set__cell--ghost')).toBe(true);
+        expect(weightCell(3).textContent).toContain('67.5');
+
+        const adjust = () => setRows(document)[1].querySelectorAll('.wg-set__adjust button');
+        adjust()[3].click(); // +1 rep: reps never cascade
+        expect(repsCell(2).classList.contains('wg-set__cell--ghost')).toBe(true);
+        adjust()[1].click(); // +2.5 kg → 65 on rows 1–3
+        for (const i of [1, 2, 3]) {
+            expect(weightCell(i).classList.contains('wg-set__cell--ghost')).toBe(false);
+            expect(weightCell(i).firstChild.textContent).toBe('65');
+        }
+        expect(weightCell(0).firstChild.textContent).toBe('60');
+
+        for (const i of [1, 2, 3]) setRows(document)[i].querySelector('.wg-set__done').click();
+        const sets = window.WorkoutSessionsState.logs[0].sets;
+        expect(sets.map((s) => s.weight_kg)).toEqual([60, 65, 65, 65]);
+    });
+
+    it('a typed weight on a done set cascades to the pending rows, never to other done sets', async () => {
+        const { window, document } = env;
+        await openSession(window, [logFixture({ id: 1, sets_completed: 2, sets: [
+            { set_index: 0, weight_kg: 60, reps: 8, set_type: 'normal' },
+            { set_index: 1, weight_kg: 60, reps: 8, set_type: 'normal' }
+        ] })], { variant_id: 5, exercise_snapshot: [
+            { exercise_id: 10, exercise_name: 'Bench', target_sets: 4, target_reps_min: 8, target_weight_kg: 60 }
+        ] }, (endpoint) => (endpoint.includes('/logs/update') ? { ok: true } : undefined));
+        const weightCell = (i) => setRows(document)[i].querySelectorAll('.wg-set__cell')[0];
+
+        weightCell(0).click();
+        await vi.waitFor(() => expect(document.querySelector('.mt-confirm-modal__input')).not.toBeNull());
+        const input = document.querySelector('.mt-confirm-modal__input');
+        input.value = '999';
+        input.dispatchEvent(new window.Event('input'));
+        document.querySelector('.mt-confirm-modal__confirm').click();
+        await vi.waitFor(() => expect(window.WorkoutSessionsState.logs[0].sets[0].weight_kg).toBe(500));
+
+        expect(window.WorkoutSessionsState.logs[0].sets[1].weight_kg).toBe(60);
+        for (const i of [2, 3]) {
+            expect(weightCell(i).classList.contains('wg-set__cell--ghost')).toBe(false);
+            expect(weightCell(i).firstChild.textContent).toBe('500');
+        }
+    });
+
     it('un-ticking the only done set saves without a weight, so the plan keeps its target', async () => {
         const { window, document } = env;
         await openSession(window, [logFixture({ sets_completed: 1, sets: [
