@@ -110,6 +110,61 @@ describe('cloud shim contract — workout stats + mi-band', () => {
         expect(all.total_sessions).toBe(1);
     });
 
+    // med-nw6r — the Consistency calendar pads the range to whole Mon–Sun
+    // weeks; a padded leading day must render its real status, while the
+    // range KPIs keep the exact window.
+    it('7d calendar fills the padded first week with real data; Sessions tile excludes it', async () => {
+        // Wednesday 2026-10-07: 7d starts Thu Oct 1, so the grid's first week
+        // opens on Mon Sep 28.
+        const NOW = Date.parse('2026-10-07T12:00:00Z');
+        env = loadCloudShimFrontendEnv({
+            wrapApiCallDirect: true, withWorkout: true, now: () => NOW, timeZone: 'UTC',
+        });
+        const { window, document } = env;
+        const dates = ['2026-09-29T10:00:00Z', '2026-10-06T10:00:00Z'];
+        const ids = [];
+        for (let i = 0; i < dates.length; i++) {
+            const s = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+            await window.apiCall(`/api/workout/sessions/status?id=${s.id}`, 'PUT', { status: 'completed' });
+            ids.push(s.id);
+        }
+        for (const rec of await env.records.list('workoutsession')) {
+            await env.records.put('workoutsession', { ...rec, scheduled_date: dates[ids.indexOf(rec.id)] });
+        }
+
+        const stats = await window.apiCallDirect('/api/workout/stats?range=7d');
+        // Range KPIs: only Oct 6 is inside the 7-day window.
+        expect(stats.total_sessions).toBe(1);
+        expect(stats.completed_sessions).toBe(1);
+        // The calendar series reaches back to the first displayed Monday.
+        expect(stats.daily_activity).toEqual([
+            { date: '2026-09-29', completed: 1, skipped: 0 },
+            { date: '2026-10-06', completed: 1, skipped: 0 },
+        ]);
+
+        window.localStorage.setItem('mt-workouts-stats-range', '7d');
+        const container = document.getElementById('workout-stats-display');
+        window._renderWorkoutStats(container, stats);
+
+        // Two week rows, newest first: row 0 = Oct 5–11, row 1 = Sep 28–Oct 4.
+        const cells = Array.from(container.querySelectorAll('.wg-workouts-stats__calendar-cell'));
+        expect(cells).toHaveLength(14);
+        const done = (c) => c.classList.contains('wg-workouts-stats__calendar-cell--done');
+        expect(done(cells[1])).toBe(true); // Tue Oct 6
+        expect(done(cells[8])).toBe(true); // Tue Sep 29 — padded, still real
+        expect(cells[8].title).toBe('2026-09-29 \u00b7 completed');
+        // Future days of the current week stay unlabelled padding.
+        expect(cells.slice(3, 7).every((c) => !c.title)).toBe(true);
+        // Weekday totals count the whole displayed span: two Tuesdays.
+        const totals = Array.from(container.querySelectorAll('.wg-workouts-stats__calendar-total'))
+            .map((c) => c.textContent);
+        expect(totals).toEqual(['0', '2', '0', '0', '0', '0', '0']);
+        // Sessions tile stays range-exact.
+        const tiles = Array.from(container.querySelectorAll('.wg-workouts-stats__tile'));
+        const sessionsTile = tiles.find((t) => t.querySelector('.wg-workouts-stats__tile-label').textContent === 'Sessions');
+        expect(sessionsTile.querySelector('.wg-workouts-stats__tile-value').textContent).toBe('1');
+    });
+
     // med-zte — one entry per LOCAL calendar day that saw a completed or
     // skipped session, ascending, rest days simply absent.
     it('daily_activity buckets completed and skipped sessions per local day, ascending', async () => {
