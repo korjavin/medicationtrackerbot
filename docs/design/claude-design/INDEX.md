@@ -40,4 +40,4 @@ Open `ui_kits/app-v2/index.html` in a browser; every page is static HTML.
 
 ## Changelog
 
-- 2026-10-10 — **W1 revision, pending owner approval** (local mirror only, not yet in Claude Design): Finish moves to the session top bar and the footer keeps Previous/Next (med-t5s6); one-tap RPE 6–10 chips on the active set and on the just-ticked set until rated, with "RPE n" shown in done rows (med-5wgd). New frame W1b; new layout rule `.wg-set__rpe-picks` in `components.css`. W2/W3 still draw Finish in the footer.
+- 2026-10-10 — **W1 revision, approved 2026-10-10**: Finish moves to the session top bar and the footer keeps Previous/Next (med-t5s6); one-tap RPE 6–10 chips on the active set and on the just-ticked set until rated, with "RPE n" shown in done rows (med-5wgd). New frame W1b; new layout rule `.wg-set__rpe-picks` in `components.css`. W2/W3 now draw Finish in the top bar too.
