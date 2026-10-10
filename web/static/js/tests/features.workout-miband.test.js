@@ -35,7 +35,7 @@ describe('features/workout/miband.js — split-file integration', () => {
     expect(window.WorkoutMiBandState.current).toBeNull();
   });
 
-  it('the modal header carries Cancel + Save only — no Delete button', () => {
+  it('the modal header carries Save + the close X only — no Delete button', () => {
     const { document } = env;
     expect(document.getElementById('miband-workout-delete-btn')).toBeNull();
     expect(document.getElementById('miband-workout-cancel-btn')).not.toBeNull();

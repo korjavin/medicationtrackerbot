@@ -223,11 +223,15 @@ to an in-app deeplink (`?tab=settings&page=devices`, `features/deeplink-router.j
 
 **Sheets.** Form and flow modals are kit bottom sheets: an
 `<mt-modal class="wg-modal wg-sheet">` with `.wg-sheethead` (eyebrow + title;
-forms put Cancel/Save in `.wg-sheethead__acts`) and an optional
+forms put Save in `.wg-sheethead__acts`) and an optional
 `.wg-sheet__foot` for a flow's primary. `components/wg-sheet.js` (`WGSheet`)
 builds the header for dynamically created sheets and owns the one keyboard dock
 (`visualViewport` → `.wg-scrim--kb` + `--wg-kb-h`). Sheets open and close
-through `ModalManager` like any modal.
+through `ModalManager` like any modal. Every content modal dismisses through
+one header close: the icon-only `.wg-btn.wg-btn--ghost.wg-btn--icon`
+`aria-label="Close"` X (trailing in a sheet head, leading in a page bar;
+`WGSheet.header` actions take `icon: 'x'`). Cancel stays only where it is an
+answer — the `safeConfirm` / `safeChoose` / `safePrompt` dialogs.
 
 **Guard** — `web/static/js/tests/architecture.no-native-dialogs.test.js` scans
 `web/static/js` and `web/cloud/js` (tests/vendor excluded) for bare or

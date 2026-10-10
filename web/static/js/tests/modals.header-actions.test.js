@@ -1,9 +1,11 @@
-// Each form modal's Cancel + primary button (Save / Log) must live in the
+// Each form modal's close X + primary button (Save / Log) must live in the
 // header — `.wg-<modal>__header-actions`, or the kit `.wg-sheethead__acts` for
 // modals converted to sheets (med-xso6.7) — so they stay visible above a
 // focused mobile keyboard, with no legacy body footer row and with the
 // documented button IDs still resolving. Flow sheets (workout start, brief,
 // invite) put their primary in the keyboard-docked `.wg-sheet__foot`.
+// Every content modal dismisses through the same icon-only X (med-q7k2): the
+// `*-cancel-btn` ids are kept so handlers keep binding.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
@@ -38,8 +40,9 @@ const cases = [
     {
         name: 'MedModal',
         modalId: 'med-modal',
-        // A pushed page (kit M5): Cancel / Save sit in the .wg-pagebar.
+        // A pushed page (kit M5): the X leads, Save trails in the .wg-pagebar.
         headerActionsClass: 'wg-pagebar',
+        closeLeads: true,
         legacyActionsSelector: '#med-modal .wg-meds-modal__header-actions',
         cancelBtnId: 'med-modal-cancel-btn',
         primaryBtnId: 'med-modal-save-btn',
@@ -132,7 +135,7 @@ describe.each(cases)('$name header-actions', (row) => {
         env = null;
     });
 
-    it(`Cancel and ${row.primaryLabel} live inside .${row.headerActionsClass}`, () => {
+    it(`close X and ${row.primaryLabel} live inside .${row.headerActionsClass}`, () => {
         const { document } = env;
         const headerActions = document.querySelector(`#${row.modalId} .${row.headerActionsClass}`);
         expect(headerActions).not.toBeNull();
@@ -159,16 +162,21 @@ describe.each(cases)('$name header-actions', (row) => {
         }
     });
 
-    it(`Cancel sits left of ${row.primaryLabel} inside the header row`, () => {
+    it(`the close X is the shared icon button, ${row.closeLeads ? 'leading' : 'trailing'} ${row.primaryLabel}`, () => {
         const { document } = env;
         const headerActions = document.querySelector(`#${row.modalId} .${row.headerActionsClass}`);
-        const cancelBtn = document.getElementById(row.cancelBtnId);
+        const closeBtn = document.getElementById(row.cancelBtnId);
         const primaryBtn = document.getElementById(row.primaryBtnId);
+        expect(closeBtn.className).toBe('wg-btn wg-btn--ghost wg-btn--icon');
+        expect(closeBtn.getAttribute('aria-label')).toBe('Close');
+        expect(closeBtn.querySelector('.wg-ico[data-icon="x"]')).not.toBeNull();
+        expect(closeBtn.textContent.trim()).toBe('');
         const children = Array.from(headerActions.children);
-        const cancelIdx = children.indexOf(cancelBtn);
+        const closeIdx = children.indexOf(closeBtn);
         const primaryIdx = children.indexOf(primaryBtn);
-        expect(cancelIdx).toBeGreaterThan(-1);
-        expect(primaryIdx).toBeGreaterThan(cancelIdx);
+        expect(closeIdx).toBeGreaterThan(-1);
+        if (row.closeLeads) expect(primaryIdx).toBeGreaterThan(closeIdx);
+        else expect(closeIdx).toBeGreaterThan(primaryIdx);
     });
 
     it.skipIf(!row.formAttr)(`Save button keeps form="${row.formAttr}" so it submits from outside the form`, () => {
@@ -212,7 +220,7 @@ describe.each(cases)('$name header-actions', (row) => {
         }
     });
 
-    it.skipIf(!row.sheet)('renders as a kit sheet: .wg-sheet > .wg-sheethead, Cancel ghost + primary .wg-btn, no per-modal header-btn class', () => {
+    it.skipIf(!row.sheet)('renders as a kit sheet: .wg-sheet > .wg-sheethead, close X + primary .wg-btn, no per-modal header-btn class', () => {
         const { document } = env;
         const modal = document.getElementById(row.modalId);
         expect(modal.classList.contains('wg-modal')).toBe(true);
@@ -223,7 +231,7 @@ describe.each(cases)('$name header-actions', (row) => {
         expect(head.querySelector('.wg-sheethead__titles .wg-sheethead__title')).not.toBeNull();
         const cancelBtn = document.getElementById(row.cancelBtnId);
         const primaryBtn = document.getElementById(row.primaryBtnId);
-        expect(cancelBtn.className).toBe('wg-btn wg-btn--ghost wg-btn--sm');
+        expect(cancelBtn.className).toBe('wg-btn wg-btn--ghost wg-btn--icon');
         expect(primaryBtn.className).toBe('wg-btn wg-btn--primary wg-btn--sm');
         expect(primaryBtn.textContent.trim()).toBe(row.primaryLabel);
         expect(modal.querySelector('[class*="__header-btn"], [class*="__header-actions"]')).toBeNull();
@@ -278,6 +286,24 @@ describe('flow sheets put their primary in .wg-sheet__foot', () => {
         window.WGSheet.dock();
         expect(sheet.classList.contains('wg-scrim--kb')).toBe(false);
         expect(sheet.style.getPropertyValue('--wg-kb-h')).toBe('');
+    });
+
+    it('no modal header carries a dismiss-only Cancel / Close text button — the X is the one close', () => {
+        const { document } = env;
+        const heads = document.querySelectorAll('mt-modal .wg-sheethead, mt-modal .wg-pagebar');
+        expect(heads.length).toBeGreaterThan(10);
+        for (const head of heads) {
+            for (const btn of head.querySelectorAll('button')) {
+                expect(['Cancel', 'Close']).not.toContain(btn.textContent.trim());
+            }
+        }
+        for (const id of ['workout-start-dismiss-btn', 'brief-cancel-btn', 'invite-close-btn', 'med-confirm-dismiss-btn',
+            'workout-scan-cancel-btn', 'workout-share-cancel-btn', 'workout-share-import-cancel-btn', 'workout-equipment-cancel-btn']) {
+            const btn = document.getElementById(id);
+            expect(btn.className).toBe('wg-btn wg-btn--ghost wg-btn--icon');
+            expect(btn.getAttribute('aria-label')).toBe('Close');
+            expect(btn.querySelector('.wg-ico[data-icon="x"]')).not.toBeNull();
+        }
     });
 
     it('workout start keeps snooze / skip in the body', () => {

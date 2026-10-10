@@ -287,7 +287,7 @@ describe('Wandergeek material primitives', () => {
         // Kit sheet header (med-xso6.7): eyebrow + sheethead title.
         expect(html).toMatch(/class="wg-eyebrow" id="bp-modal-eyebrow"/);
         expect(html).toMatch(/class="wg-sheethead__title" id="bp-modal-title"/);
-        // Cancel is a ghost .wg-btn; Log is the one primary. Form= attr must
+        // The close X is a ghost icon .wg-btn; Log is the one primary. Form= attr must
         // survive so handleBPSubmit's querySelector keeps working.
         expect(html).toMatch(/id="bp-modal-cancel-btn"[^>]*class="[^"]*\bwg-btn--ghost\b/);
         expect(html).toMatch(/form="bp-form"[^>]*class="[^"]*\bwg-btn--primary\b/);

@@ -33,7 +33,7 @@ describe('Medication editor page (kit M5–M6)', () => {
         env = null;
     });
 
-    it('is a pushed .wg-page with Cancel / Save in the page bar and four sections in order', () => {
+    it('is a pushed .wg-page with the close X / Save in the page bar and four sections in order', () => {
         const { document } = env;
         const page = document.getElementById('med-modal');
         expect(page.classList.contains('wg-page')).toBe(true);

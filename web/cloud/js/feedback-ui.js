@@ -36,7 +36,7 @@ function openFeedbackModal() {
     const backdrop = doc.createElement('div');
     backdrop.className = 'mt-confirm-backdrop wg-sheet-backdrop';
 
-    // Kit sheet (med-xso6.7): a compose flow — Cancel in the header, Send in
+    // Kit sheet (med-xso6.7): a compose flow — the close X in the header, Send in
     // the keyboard-docked foot (WGSheet keeps it above the virtual keyboard).
     const modal = doc.createElement('mt-modal');
     modal.className = 'wg-modal wg-sheet wg-feedback-modal';
@@ -47,7 +47,7 @@ function openFeedbackModal() {
     const { el: header, buttons: [cancelBtn] } = window.WGSheet.header({
         eyebrow: 'Feedback',
         title: 'Send feedback',
-        actions: [{ label: 'Cancel', attrs: { 'data-feedback-choice': 'cancel' } }],
+        actions: [{ label: 'Close', icon: 'x', attrs: { 'data-feedback-choice': 'cancel' } }],
     });
 
     const body = doc.createElement('div');

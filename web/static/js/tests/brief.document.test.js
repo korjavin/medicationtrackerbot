@@ -423,9 +423,10 @@ describe('Doctor brief — modal + print/download', () => {
         expect(checked).toEqual(['meds', 'bp', 'weight', 'vitals', 'notes']);
     });
 
-    it('is a flow sheet: Back/Cancel in the header, Download + the Print primary in the foot', () => {
+    it('is a flow sheet: Back + the close X in the header, Download + the Print primary in the foot', () => {
         const head = Array.from(doc.querySelectorAll('#brief-modal .wg-sheethead__acts button')).map((b) => b.id);
         expect(head).toEqual(['brief-back-btn', 'brief-cancel-btn']);
+        expect(doc.getElementById('brief-cancel-btn').getAttribute('aria-label')).toBe('Close');
         const foot = Array.from(doc.querySelectorAll('#brief-modal .wg-sheet__foot button')).map((b) => b.id);
         expect(foot).toEqual(['brief-download-btn', 'brief-print-btn']);
         expect(doc.getElementById('brief-print-btn').classList.contains('wg-btn--primary')).toBe(true);
@@ -433,7 +434,7 @@ describe('Doctor brief — modal + print/download', () => {
         expect(doc.getElementById('brief-back-btn').classList.contains('hidden')).toBe(true);
     });
 
-    it('Cancel closes the modal without generating anything', () => {
+    it('the close X closes the modal without generating anything', () => {
         env.window.DoctorBrief.open();
         click('brief-cancel-btn');
         expect(doc.getElementById('brief-modal').classList.contains('hidden')).toBe(true);

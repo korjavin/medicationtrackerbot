@@ -228,12 +228,15 @@ describe('feedback-ui', () => {
         expect(enqueueFeedback).not.toHaveBeenCalled();
     });
 
-    it('renders as a kit sheet on the ModalManager stack: Cancel in the header, Send in the foot', async () => {
+    it('renders as a kit sheet on the ModalManager stack: the close X in the header, Send in the foot', async () => {
         await mountFeedbackLauncher({});
         click(q('#feedback-launcher'));
         const modal = q('#feedback-modal');
         expect(modal.classList.contains('wg-sheet')).toBe(true);
-        expect(q('#feedback-modal .wg-sheethead__acts [data-feedback-choice="cancel"]').className).toContain('wg-btn--ghost');
+        const close = q('#feedback-modal .wg-sheethead__acts [data-feedback-choice="cancel"]');
+        expect(close.className).toBe('wg-btn wg-btn--ghost wg-btn--icon');
+        expect(close.getAttribute('aria-label')).toBe('Close');
+        expect(close.querySelector('.wg-ico[data-icon="x"]')).toBeTruthy();
         expect(q('#feedback-modal .wg-sheet__foot [data-feedback-choice="send"]').className).toContain('wg-btn--primary');
         expect(window.ModalManager.isAnyOpen()).toBe(true);
         // Single dim: the stack's #modal-overlay dims, the own backdrop is
