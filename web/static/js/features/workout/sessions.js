@@ -658,8 +658,12 @@ function _buildSetRow(log, index, row, activeRow) {
         if (ghost) c.classList.add('wg-set__cell--ghost');
         c.setAttribute('aria-label', `${label} ${_fmtSetNumber(value)}`);
         c.appendChild(document.createTextNode(_fmtSetNumber(value)));
-        const small = ghost ? (v.fromLast ? 'last' : '')
-            : (lastSet && !v.done && row === activeRow ? `last ${_fmtSetNumber(lastSet[field])}` : '');
+        // A rated row shows its RPE in the reps cell; the active pending row
+        // keeps "last N" there (its chip row already shows the rating).
+        const small = field === 'reps' && v.rpe != null && (v.done || row !== activeRow)
+            ? `RPE ${_fmtSetNumber(v.rpe)}`
+            : ghost ? (v.fromLast ? 'last' : '')
+                : (lastSet && !v.done && row === activeRow ? `last ${_fmtSetNumber(lastSet[field])}` : '');
         if (small) {
             const s = document.createElement('small');
             s.textContent = small;
@@ -691,6 +695,30 @@ function _buildSetRow(log, index, row, activeRow) {
                 adjust.appendChild(_wgBtn(label, 'wg-btn--sm', () => _adjustSessionSet(index, row, field, delta)));
             });
         el.appendChild(adjust);
+    }
+
+    // One-tap RPE: on the active pending row, and on the set just ticked
+    // until it is rated. Tapping the pressed chip clears the rating.
+    const justTicked = v.done && row === _ensureLogSets(log).length - 1 && v.rpe == null;
+    if ((row === activeRow && !v.done) || justTicked) {
+        const picks = document.createElement('div');
+        picks.className = 'wg-set__rpe-picks';
+        const eyebrow = document.createElement('span');
+        eyebrow.className = 'wg-eyebrow';
+        eyebrow.textContent = 'RPE';
+        picks.appendChild(eyebrow);
+        [6, 7, 8, 9, 10].forEach((n) => {
+            const on = v.rpe != null && Number(v.rpe) === n;
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'wg-pick';
+            b.textContent = String(n);
+            b.setAttribute('aria-label', `RPE ${n}`);
+            b.setAttribute('aria-pressed', on ? 'true' : 'false');
+            b.addEventListener('click', () => _setSessionSetField(index, row, 'rpe', on ? '' : String(n)));
+            picks.appendChild(b);
+        });
+        el.appendChild(picks);
     }
 
     if (moreOpen) {

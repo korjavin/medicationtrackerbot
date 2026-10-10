@@ -339,6 +339,7 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
 .wg-set--active{background:rgba(251,189,13,.06);box-shadow:inset 0 0 0 1px rgba(251,189,13,.35)}
 .wg-set--active .wg-set__cell--focus{border-color:rgba(251,189,13,.6);box-shadow:var(--wg-sh-inset),var(--wg-focus)}
 .wg-set__adjust{grid-column:2 / 4;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.wg-set__rpe-picks{grid-column:1 / -1;display:grid;grid-template-columns:30px repeat(5,minmax(0,1fr));align-items:center;gap:6px}.wg-set__rpe-picks>.wg-pick{height:var(--wg-h-md);min-width:0}
 .wg-rest{display:flex;align-items:center;gap:10px;padding:10px 10px 10px 14px;border-radius:16px;background:var(--wg-bg-float);border:1px solid var(--wg-warn-line);box-shadow:var(--wg-sh-float)}
 .wg-rest__time{font:500 26px/1 var(--wg-font-mono);color:var(--wg-sun)}
 .wg-rest__body{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}

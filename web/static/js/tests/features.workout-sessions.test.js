@@ -1986,6 +1986,59 @@ describe('features/workout/sessions.js — split-file integration', () => {
     expect(log.sets[1].weight_kg).toBe(500);
   });
 
+  it('one-tap RPE chips rate the just-ticked set and the active pending set (med-5wgd)', async () => {
+    const { window, document } = env;
+    installApiCache(window);
+    window.loadWorkoutHistoryTab = vi.fn();
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.originalStatus = 'in_progress';
+    window.WorkoutSessionsState.logs = [
+      { id: 5, exercise_id: 1, exercise_name: 'Bench', sets_completed: 1, reps_completed: 5, weight_kg: 40, notes: '', _targetSets: 3 }
+    ];
+    const container = document.getElementById('workout-session-logs');
+    window.renderWorkoutSessionLogs(container);
+    const log = window.WorkoutSessionsState.logs[0];
+    const row = (r) => container.querySelector(`.wg-set[data-row="${r}"]`);
+    const chip = (r, n) => row(r).querySelector(`.wg-set__rpe-picks [aria-label="RPE ${n}"]`);
+    const repsSmall = (r) => row(r).querySelector('[data-field="reps"] small');
+
+    // The unrated latest done row and the active pending row both carry chips 6–10.
+    expect(row(0).querySelectorAll('.wg-set__rpe-picks .wg-pick').length).toBe(5);
+    expect(row(1).querySelector('.wg-set__rpe-picks')).not.toBeNull();
+    expect(row(2).querySelector('.wg-set__rpe-picks')).toBeNull();
+    expect(repsSmall(0)).toBeNull();
+
+    // Rate the ticked set: one tap; chips vanish and the row shows "RPE 8".
+    chip(0, 8).click();
+    expect(log.sets[0].rpe).toBe(8);
+    expect(log._setsDirty).toBe(true);
+    expect(row(0).querySelector('.wg-set__rpe-picks')).toBeNull();
+    expect(repsSmall(0).textContent).toBe('RPE 8');
+
+    // Rate the active pending row before ticking; tapping the pressed chip clears it.
+    chip(1, 9).click();
+    expect(chip(1, 9).getAttribute('aria-pressed')).toBe('true');
+    chip(1, 9).click();
+    expect(chip(1, 9).getAttribute('aria-pressed')).toBe('false');
+    expect(log._drafts[0] && 'rpe' in log._drafts[0]).toBeFalsy();
+    chip(1, 9).click();
+    row(1).querySelector('.wg-set__done').click();
+    expect(log.sets[1].rpe).toBe(9);
+    // Rated on tick: no chip row on it, the next set is now the active one.
+    expect(row(1).querySelector('.wg-set__rpe-picks')).toBeNull();
+    expect(repsSmall(1).textContent).toBe('RPE 9');
+    expect(row(2).querySelector('.wg-set__rpe-picks')).not.toBeNull();
+    expect(container.textContent).not.toMatch(/RPE (null|—)/);
+
+    let updatePayload = null;
+    window.apiCall = vi.fn(async (endpoint, method, payload) => {
+      if (endpoint === '/api/workout/sessions/logs/update') { updatePayload = payload; return { ok: true }; }
+      return [];
+    });
+    await window.saveWorkoutSessionDetails();
+    expect(updatePayload.sets.map((s) => s.rpe)).toEqual([8, 9]);
+  });
+
   it('saveWorkoutSessionDetails posts the per-set array plus derived scalars for an edited log', async () => {
     const { window, document } = env;
     installApiCache(window);
