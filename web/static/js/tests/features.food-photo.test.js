@@ -49,7 +49,9 @@ describe('features/food/photo.js — split-file integration', () => {
         // capture: false — the food picker must allow gallery selection, not
         // force the camera (parity with the static input which omits the
         // `capture` attribute).
-        expect(pickPhotoSpy).toHaveBeenCalledWith({ capture: false });
+        expect(pickPhotoSpy).toHaveBeenCalledWith(undefined);
+        await window.triggerFoodPhotoPicker({ gallery: true });
+        expect(pickPhotoSpy).toHaveBeenLastCalledWith({ capture: false });
     });
 
     it('parseFoodPhotoExifDateString rejects malformed input and returns null', () => {

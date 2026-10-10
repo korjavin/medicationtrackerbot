@@ -752,6 +752,7 @@
         on('food-add-search', 'input', () => onSearchInput());
         on('food-add-scan-btn', 'click', () => window.ModalManager.foodScanner.open());
         on('food-add-photo-btn', 'click', () => triggerFoodPhotoPicker());
+        on('food-add-gallery-btn', 'click', () => triggerFoodPhotoPicker({ gallery: true }));
         on('food-add-describe-btn', 'click', () => openDescribe());
         on('food-add-manual-btn', 'click', () => openManual());
         on('food-add-primary-btn', 'click', () => onPrimary());

@@ -54,8 +54,10 @@ describe('window.FoodActions.triggerPhotoPicker (friendly food-photo flow, Task 
 
         // The Phase 2b abstraction is now the picker seam.
         expect(pickPhotoSpy).toHaveBeenCalledTimes(1);
-        // capture: false so the picker offers both camera and gallery.
-        expect(pickPhotoSpy).toHaveBeenCalledWith({ capture: false });
+        // Default = camera (capture on); gallery opts out.
+        expect(pickPhotoSpy).toHaveBeenCalledWith(undefined);
+        await window.FoodActions.triggerPhotoPicker({ gallery: true });
+        expect(pickPhotoSpy).toHaveBeenLastCalledWith({ capture: false });
     });
 
     it('returning null from MediaCapture.pickPhoto is a no-op (user cancelled the picker)', async () => {

@@ -296,7 +296,7 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
 .wg-sheet__foot>.wg-btn{flex:1}.wg-sheet__foot>.wg-btn--primary{flex:2}
 .wg-scrim--kb .wg-sheet__foot{padding-bottom:12px}
 /* action tiles (fast paths) */
-.wg-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.wg-actions--3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.wg-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.wg-actions--3{grid-template-columns:repeat(3,minmax(0,1fr))}.wg-actions--4{grid-template-columns:repeat(4,minmax(0,1fr))}
 .wg-action{display:flex;flex-direction:column;align-items:flex-start;gap:10px;min-height:84px;padding:12px;border-radius:14px;border:1px solid var(--wg-line-strong);background:var(--wg-raised);box-shadow:var(--wg-sh-raised);color:var(--wg-fg-1);text-align:left;cursor:pointer}
 .wg-action__icon{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:rgba(0,0,0,.18);color:var(--wg-sun)}
 .wg-action__label{font:600 var(--wg-fs-sm)/1.2 var(--wg-font-ui)}.wg-action__sub{display:block;margin-top:2px;font:400 11.5px/1.3 var(--wg-font-ui);color:var(--wg-fg-3)}
