@@ -21,18 +21,16 @@
 // older browser quirks, integration tests that simulate file selection) can
 // still feed a file into uploadFoodPhoto without going through MediaCapture.
 
-async function triggerFoodPhotoPicker() {
+// Default opens the camera directly (capture on). { gallery: true } opens the
+// photo picker instead (Android 14+ picker has no camera entry, hence two buttons).
+async function triggerFoodPhotoPicker(opts) {
     const capture = window.MediaCapture;
     if (!capture || typeof capture.pickPhoto !== 'function') {
         return;
     }
     let file;
     try {
-        // capture: false — the food picker must allow both camera and gallery
-        // (preserving the legacy behavior of the static #food-photo-input which
-        // doesn't carry a capture attribute). Otherwise mobile browsers force
-        // the camera and the user can't pick an existing photo from library.
-        file = await capture.pickPhoto({ capture: false });
+        file = await capture.pickPhoto(opts && opts.gallery ? { capture: false } : undefined);
     } catch (e) {
         console.error('Food photo picker failed:', e);
         return;

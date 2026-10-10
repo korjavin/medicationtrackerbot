@@ -37,7 +37,7 @@ describe('features/food/photo.js — Phase 2b abstraction seam (Task 7)', () => 
         env = null;
     });
 
-    it('triggerFoodPhotoPicker calls window.MediaCapture.pickPhoto({ capture: false })', async () => {
+    it('triggerFoodPhotoPicker calls pickPhoto with capture on by default, capture:false for gallery', async () => {
         const { window } = env;
         const pickPhotoSpy = vi.fn().mockResolvedValue(null);
         window.MediaCapture = { pickPhoto: pickPhotoSpy };
@@ -45,7 +45,9 @@ describe('features/food/photo.js — Phase 2b abstraction seam (Task 7)', () => 
         await window.triggerFoodPhotoPicker();
 
         expect(pickPhotoSpy).toHaveBeenCalledTimes(1);
-        expect(pickPhotoSpy).toHaveBeenCalledWith({ capture: false });
+        expect(pickPhotoSpy).toHaveBeenCalledWith(undefined);
+        await window.triggerFoodPhotoPicker({ gallery: true });
+        expect(pickPhotoSpy).toHaveBeenLastCalledWith({ capture: false });
     });
 
     it('a picked file goes to the Add sheet review via a dry-run CloudFoodAI parse', async () => {
