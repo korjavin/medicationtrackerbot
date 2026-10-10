@@ -71,7 +71,7 @@ describe('Food Add sheet', () => {
         expect(document.querySelectorAll('mt-modal.wg-sheet:not(.hidden)')).toHaveLength(1);
         expect(document.getElementById('food-add-search')).not.toBeNull();
         const tiles = Array.from(document.querySelectorAll('#food-add-tiles .wg-action .wg-action__label')).map((n) => n.textContent);
-        expect(tiles).toEqual(['Scan', 'Photo', 'Describe']);
+        expect(tiles).toEqual(['Scan', 'Photo', 'Gallery', 'Describe']);
 
         // Recent: newest first, one row per product (the older yogurt dedupes).
         expect(document.getElementById('food-add-recent-section').classList.contains('hidden')).toBe(false);
