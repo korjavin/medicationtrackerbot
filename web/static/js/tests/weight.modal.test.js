@@ -3,7 +3,7 @@
 // Covers the rewritten `#weight-modal` shell:
 //   • markup uses `.wg-modal` + `.wg-weight-modal__*` wrappers with a dual-line
 //     mono header, gloss-inset input wraps, a kg/lb unit-toggle pill pair; the
-//     header is the kit .wg-sheethead (med-xso6.7) with Cancel + Log/Save.
+//     header is the kit .wg-sheethead (med-xso6.7) with Log/Save + the close X.
 //   • opening via showWeightModal() sets the title to "New weight", datetime
 //     defaults to now, unit toggle starts on kg.
 //   • editWeightLog() prefills fields and swaps the title to "Edit weight".
@@ -48,7 +48,7 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
             expect(m[0]).toMatch(/wg-weight-modal/);
         });
 
-        it('renders the mono header (close-X removed; Cancel dismisses), unit-toggle pill pair, and action bar', () => {
+        it('renders the mono header (the shared close X dismisses), unit-toggle pill pair, and action bar', () => {
             const { document } = env;
             const modal = document.getElementById('weight-modal');
             expect(modal).not.toBeNull();

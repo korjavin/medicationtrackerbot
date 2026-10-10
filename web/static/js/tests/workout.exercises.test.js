@@ -267,7 +267,7 @@ describe('Workouts exercises library (Phase 7, Task 6)', () => {
             expect(notesWrap.classList.contains('wg-gloss--inset')).toBe(true);
         });
 
-        it('has Cancel (ghost) + Save (primary) kit buttons in the sheet header', () => {
+        it('has Save (primary) + the close X kit buttons in the sheet header', () => {
             const { document } = env;
             const actions = document.querySelector('#exercise-library-modal .wg-sheethead__acts');
             expect(actions).not.toBeNull();
@@ -277,7 +277,8 @@ describe('Workouts exercises library (Phase 7, Task 6)', () => {
             expect(cancel).not.toBeNull();
             expect(save).not.toBeNull();
 
-            expect(cancel.className).toBe('wg-btn wg-btn--ghost wg-btn--sm');
+            expect(cancel.className).toBe('wg-btn wg-btn--ghost wg-btn--icon');
+            expect(cancel.getAttribute('aria-label')).toBe('Close');
             expect(save.className).toBe('wg-btn wg-btn--primary wg-btn--sm');
         });
 

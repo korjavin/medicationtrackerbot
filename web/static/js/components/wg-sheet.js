@@ -6,7 +6,7 @@
 //
 //   .wg-sheet__grab
 //   .wg-sheethead > .wg-sheethead__titles (.wg-eyebrow + .wg-sheethead__title)
-//                 + .wg-sheethead__acts  (forms: Cancel ghost + Save/Log primary)
+//                 + .wg-sheethead__acts  (forms: Save/Log primary + the close X)
 //   .wg-sheet__body                      (scrolls)
 //   .wg-sheet__foot                      (optional; flows put their primary here)
 //
@@ -15,7 +15,8 @@
 // covers the bottom of the viewport, every open sheet gets .wg-scrim--kb and
 // --wg-kb-h, so its body shrinks and the foot sits on top of the keyboard.
 //
-//   WGSheet.header({ eyebrow, title, actions: [{ label, primary?, attrs? }] })
+//   WGSheet.header({ eyebrow, title, actions: [{ label, primary?, icon?, attrs? }] })
+//       icon: 'x' renders the icon-only close button, label as its aria-label
 //       → <header class="wg-sheethead">; returns { el, buttons: [<button>…] }
 //   WGSheet.dock()  re-measure now (also runs on visualViewport resize/scroll)
 
@@ -47,8 +48,19 @@
             for (const a of o.actions) {
                 const btn = doc.createElement('button');
                 btn.type = 'button';
-                btn.className = a.primary ? 'wg-btn wg-btn--primary wg-btn--sm' : 'wg-btn wg-btn--ghost wg-btn--sm';
-                btn.textContent = a.label;
+                if (a.icon) {
+                    // Icon-only (the close X): label becomes the aria-label.
+                    btn.className = 'wg-btn wg-btn--ghost wg-btn--icon';
+                    btn.setAttribute('aria-label', a.label);
+                    const i = doc.createElement('i');
+                    i.className = 'wg-ico';
+                    i.setAttribute('data-icon', a.icon);
+                    btn.appendChild(i);
+                    if (window.WGIcons && typeof window.WGIcons.hydrate === 'function') window.WGIcons.hydrate(btn);
+                } else {
+                    btn.className = a.primary ? 'wg-btn wg-btn--primary wg-btn--sm' : 'wg-btn wg-btn--ghost wg-btn--sm';
+                    btn.textContent = a.label;
+                }
                 for (const [k, v] of Object.entries(a.attrs || {})) btn.setAttribute(k, v);
                 acts.appendChild(btn);
                 buttons.push(btn);

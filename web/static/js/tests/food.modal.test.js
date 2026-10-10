@@ -40,7 +40,7 @@ describe('Manual food form (kit F8)', () => {
         env = null;
     });
 
-    it('is a kit sheet: .wg-sheethead with Cancel/Save, no AI checkbox, no legacy food-modal parts', () => {
+    it('is a kit sheet: .wg-sheethead with Save + the close X, no AI checkbox, no legacy food-modal parts', () => {
         const { document } = env;
         const modal = document.getElementById('food-modal');
         expect(modal.classList.contains('wg-modal')).toBe(true);

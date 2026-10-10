@@ -1206,7 +1206,7 @@
                 <div class="wg-sheethead__title">Share this link</div>
             </div>
             <div class="wg-sheethead__acts">
-                <button type="button" id="invite-close-btn" class="wg-btn wg-btn--ghost wg-btn--sm">Close</button>
+                <button type="button" id="invite-close-btn" class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button>
             </div>
         </header>
         <div class="wg-sheet__body wg-invite-modal__body">
@@ -1420,10 +1420,9 @@
                 <div class="wg-sheethead__title" id="workout-scan-modal-title">Scan sheet</div>
             </div>
             <div class="wg-sheethead__acts">
-                <button type="button" id="workout-scan-cancel-btn"
-                    class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
                 <button type="button" id="workout-scan-confirm-btn"
                     class="wg-btn wg-btn--primary wg-btn--sm">Log workout</button>
+                <button type="button" id="workout-scan-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button>
             </div>
         </header>
 
@@ -1444,8 +1443,7 @@
                 <div class="wg-sheethead__title" id="workout-share-title">Share plan</div>
             </div>
             <div class="wg-sheethead__acts">
-                <button type="button" id="workout-share-cancel-btn"
-                    class="wg-btn wg-btn--ghost wg-btn--sm">Close</button>
+                <button type="button" id="workout-share-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button>
             </div>
         </header>
 
@@ -1477,8 +1475,7 @@
                 <div class="wg-sheethead__title" id="workout-share-import-title">Import plan or gym</div>
             </div>
             <div class="wg-sheethead__acts">
-                <button type="button" id="workout-share-import-cancel-btn"
-                    class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
+                <button type="button" id="workout-share-import-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button>
             </div>
         </header>
 
@@ -1508,10 +1505,9 @@
                 <div class="wg-sheethead__title" id="exercise-library-modal-title">Add Exercise</div>
             </div>
             <div class="wg-sheethead__acts">
-                <button type="button" id="exercise-library-cancel-btn"
-                    class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
                 <button type="button" id="exercise-library-save-btn"
                     class="wg-btn wg-btn--primary wg-btn--sm">Save</button>
+                <button type="button" id="exercise-library-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button>
             </div>
         </header>
 
@@ -1601,10 +1597,9 @@
                 <div class="wg-sheethead__title" id="workout-equipment-modal-title">Add Equipment</div>
             </div>
             <div class="wg-sheethead__acts">
-                <button type="button" id="workout-equipment-cancel-btn"
-                    class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
                 <button type="button" id="workout-equipment-save-btn"
                     class="wg-btn wg-btn--primary wg-btn--sm">Save</button>
+                <button type="button" id="workout-equipment-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button>
             </div>
         </header>
 
@@ -1717,8 +1712,8 @@
                 <div class="wg-sheethead__title" id="miband-workout-modal-title">Edit entry</div>
             </div>
             <div class="wg-sheethead__acts">
-                <button type="button" id="miband-workout-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
                 <button type="button" id="miband-workout-save-btn" class="wg-btn wg-btn--primary wg-btn--sm">Save</button>
+                <button type="button" id="miband-workout-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button>
             </div>
         </header>
 
@@ -1800,8 +1795,8 @@
 
     <!-- Log-set modal (Phase 7, Task 8). Adds an exercise log to an in-progress
          workout session — mono eyebrow + title header, `.wg-gloss--inset` input
-         wraps for name / sets / reps / weight / notes, and a Cancel/Save action
-         bar (Save 2x flex per modal-button-order convention). -->
+         wraps for name / sets / reps / weight / notes, and Save + the close X
+         in the header. -->
     <mt-modal id="workout-add-exercise-to-session-modal" class="hidden wg-modal wg-sheet wg-workouts-log-set-modal">
         <div class="wg-sheet__grab"></div>
         <header class="wg-sheethead">
@@ -1810,10 +1805,9 @@
                 <div class="wg-sheethead__title" id="workout-add-exercise-to-session-title">Add exercise</div>
             </div>
             <div class="wg-sheethead__acts">
-                <button type="button" id="session-add-exercise-cancel-btn"
-                    class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
                 <button type="button" id="session-add-exercise-save-btn"
                     class="wg-btn wg-btn--primary wg-btn--sm">Save</button>
+                <button type="button" id="session-add-exercise-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button>
             </div>
         </header>
 
@@ -1927,7 +1921,7 @@
         </div>
     </mt-modal>
 
-    <!-- Manual food form (kit F8): Cancel/Save in the sheet header, "Values
+    <!-- Manual food form (kit F8): Save + the close X in the sheet header, "Values
          are" as an accent segment over the hidden #food-per-100g checkbox the
          maths reads, barcode + product link under More. The time chip is
          backed by the hidden #food-datetime input. -->
@@ -1939,8 +1933,8 @@
                 <div class="wg-sheethead__title">Food</div>
             </div>
             <div class="wg-sheethead__acts">
-                <button type="button" id="food-modal-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
                 <button type="button" id="food-modal-save-btn" class="wg-btn wg-btn--primary wg-btn--sm">Save</button>
+                <button type="button" id="food-modal-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button>
             </div>
         </header>
         <input type="hidden" id="food-id">
@@ -2041,8 +2035,8 @@
                 <div class="wg-sheethead__title">Edit product</div>
             </div>
             <div class="wg-sheethead__acts">
-                <button type="button" id="food-product-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
                 <button type="button" id="food-product-save-btn" class="wg-btn wg-btn--primary wg-btn--sm">Save</button>
+                <button type="button" id="food-product-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button>
             </div>
         </header>
         <input type="hidden" id="food-product-id">
@@ -2083,7 +2077,7 @@
     <!-- Medication editor (kit M5–M6): a pushed page on the modal stack -->
     <mt-modal id="med-modal" class="hidden wg-page wg-meds-editor" aria-label="Medication">
         <header class="wg-pagebar">
-            <button type="button" id="med-modal-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
+            <button type="button" id="med-modal-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button>
             <div class="wg-pagebar__center">
                 <div class="wg-pagebar__crumb" id="med-modal-eyebrow">Medication</div>
                 <div class="wg-pagebar__title" id="med-modal-title">New medication</div>
@@ -2216,8 +2210,8 @@
                 <div class="wg-sheethead__title" id="bp-modal-title">Blood pressure</div>
             </div>
             <div class="wg-sheethead__acts">
-                <button type="button" id="bp-modal-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
                 <button type="submit" form="bp-form" id="bp-modal-save-btn" class="wg-btn wg-btn--primary wg-btn--sm">Log</button>
+                <button type="button" id="bp-modal-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button>
             </div>
         </header>
 
@@ -2296,8 +2290,8 @@
                 <div class="wg-sheethead__title" id="weight-modal-title">Weight</div>
             </div>
             <div class="wg-sheethead__acts">
-                <button type="button" id="weight-modal-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
                 <button type="submit" form="weight-form" id="weight-modal-save-btn" class="wg-btn wg-btn--primary wg-btn--sm">Log</button>
+                <button type="button" id="weight-modal-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button>
             </div>
         </header>
 
@@ -2345,8 +2339,8 @@
                 <div class="wg-sheethead__title" id="note-modal-title">Edit note</div>
             </div>
             <div class="wg-sheethead__acts">
-                <button type="button" id="note-modal-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
                 <button type="submit" id="note-modal-save-btn" form="note-form" class="wg-btn wg-btn--primary wg-btn--sm">Save</button>
+                <button type="button" id="note-modal-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button>
             </div>
         </header>
 
@@ -2364,7 +2358,7 @@
     <!-- Doctor brief (med-5k6t.2) — range + section picker for the printable
          appointment summary. Print / Download both build a standalone HTML
          document in the browser; nothing is uploaded. A flow sheet: Back /
-         Cancel in the header, Download + the Print primary in the foot. -->
+         the close X in the header, Download + the Print primary in the foot. -->
     <mt-modal id="brief-modal" class="hidden wg-modal wg-sheet wg-health-modal">
         <div class="wg-sheet__grab"></div>
         <header class="wg-sheethead">
@@ -2374,7 +2368,7 @@
             </div>
             <div class="wg-sheethead__acts">
                 <button type="button" id="brief-back-btn" class="wg-btn wg-btn--ghost wg-btn--sm hidden">Back</button>
-                <button type="button" id="brief-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
+                <button type="button" id="brief-cancel-btn" class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button>
             </div>
         </header>
 
@@ -2453,7 +2447,7 @@
                 <div class="wg-sheethead__title" id="med-confirm-title"></div>
             </div>
             <div class="wg-sheethead__acts">
-                <button type="button" id="med-confirm-dismiss-btn" class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
+                <button type="button" id="med-confirm-dismiss-btn" class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button>
             </div>
         </header>
         <div class="wg-sheet__body wg-med-confirm-modal__body">
@@ -2485,7 +2479,7 @@
                 <div class="wg-sheethead__title" id="workout-start-title">Workout Time!</div>
             </div>
             <div class="wg-sheethead__acts">
-                <button type="button" id="workout-start-dismiss-btn" class="wg-btn wg-btn--ghost wg-btn--sm">Cancel</button>
+                <button type="button" id="workout-start-dismiss-btn" class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button>
             </div>
         </header>
         <div class="wg-sheet__body wg-workouts-start-modal__body">

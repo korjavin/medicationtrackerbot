@@ -3,9 +3,8 @@
 // Covers the new `#note-modal` shell:
 //   • markup uses `.wg-modal` + `.wg-health-modal__*` wrappers with a
 //     dual-line eyebrow + mono title, gloss-inset textarea wrap, and a
-//     Cancel + Save action bar where Save carries 2× flex per
-//     modal-button-order convention. The legacy close-X icon was removed
-//     in Plan 2026-04-26 (Cancel button is the sole header dismiss control).
+//     Save + the shared close X in the header (med-q7k2: the X, keeping the
+//     #note-modal-cancel-btn id, is the sole header dismiss control).
 //   • opening via editNote(note) populates the textarea, sets the title to
 //     "Edit note", and reveals the modal.
 //   • cancel button closes the modal (modal-controller history wiring
@@ -55,7 +54,7 @@ describe('Edit-note modal (Phase 8, Task 8)', () => {
             expect(m[0]).toMatch(/\bhidden\b/);
         });
 
-        it('renders as a kit sheet: .wg-sheethead (eyebrow + title, Cancel/Save top-right), gloss-inset textarea wrap', () => {
+        it('renders as a kit sheet: .wg-sheethead (eyebrow + title, Save + close X top-right), gloss-inset textarea wrap', () => {
             const { document } = env;
             const modal = document.getElementById('note-modal');
             expect(modal).not.toBeNull();
@@ -87,12 +86,13 @@ describe('Edit-note modal (Phase 8, Task 8)', () => {
             expect(saveBtn.getAttribute('form')).toBe('note-form');
 
             const actions = header.querySelector('.wg-sheethead__acts');
-            // Cancel and Save live inside the header so they stay visible above a focused mobile keyboard.
+            // The close X and Save live inside the header so they stay visible above a focused mobile keyboard.
             expect(cancelBtn.parentElement).toBe(actions);
             expect(saveBtn.parentElement).toBe(actions);
-            // Cancel left of Save.
+            // The X trails Save (med-q7k2).
             const children = Array.from(actions.children);
-            expect(children.indexOf(cancelBtn)).toBeLessThan(children.indexOf(saveBtn));
+            expect(children.indexOf(cancelBtn)).toBeGreaterThan(children.indexOf(saveBtn));
+            expect(cancelBtn.getAttribute('aria-label')).toBe('Close');
         });
 
         it('styles.css keeps the .wg-health-modal__* body rules and drops the per-modal header ones', () => {
