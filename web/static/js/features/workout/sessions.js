@@ -1266,10 +1266,21 @@ function updateLocalSet(logIndex, setIndex, field, value) {
 
 // _setSessionSetField edits one row: a done row persists (updateLocalSet), a
 // pending row only changes its local draft (nothing to save until done).
+// A weight change (not a ghost-accept, which passes the shown value) also
+// carries over to every later pending row's draft; done rows are never touched.
+// ponytail: cascade stays within one exercise; reps never cascade.
 function _setSessionSetField(logIndex, row, field, value) {
     const log = window.WorkoutSessionsState.logs[logIndex];
     if (!log) return;
     const done = _ensureLogSets(log).length;
+    if (field === 'weight_kg') {
+        const w = _applySetField({}, 'weight_kg', value).weight_kg;
+        if (w !== Number(_setRowValues(log, row).weight_kg)) {
+            for (let r = Math.max(row + 1, done); r < _targetSets(log); r++) {
+                _applySetField(_setDraft(log, r - done), 'weight_kg', w);
+            }
+        }
+    }
     if (row < done) { updateLocalSet(logIndex, row, field, value); return; }
     // Only the touched cell leaves its ghost; the other keeps showing it.
     const draft = _setDraft(log, row - done);
