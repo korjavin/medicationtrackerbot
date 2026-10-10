@@ -37,3 +37,7 @@ Open `ui_kits/app-v2/index.html` in a browser; every page is static HTML.
 | Settings home, Features, Backup, Devices & connectors | `screens-settings.html` S1–S5 | `features/settings.js`, `features/settings/`, cloud shell pages in `web/cloud/` |
 | Health (BP / Weight / Vitals segments; section id `health` stays) | `navigation.html` | `features/bp.js`, `weight.js`, `health.js`, `live-hr.js` |
 | Primitives (buttons, chips, rows, sheets, dialog, toast, empty, skeleton) | `foundations.html`, `components.html` | `web/static/js/components/`, `web/static/css/components.css`, `styles.css`, `dialog.css`, `core/utils.js` safe* dialogs |
+
+## Changelog
+
+- 2026-10-10 — **W1 revision, approved 2026-10-10**: Finish moves to the session top bar and the footer keeps Previous/Next (med-t5s6); one-tap RPE 6–10 chips on the active set and on the just-ticked set until rated, with "RPE n" shown in done rows (med-5wgd). New frame W1b; new layout rule `.wg-set__rpe-picks` in `components.css`. W2/W3 now draw Finish in the top bar too.

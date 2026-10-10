@@ -1,10 +1,10 @@
 // Workout session takeover (med-xso6.21, kit W1–W3).
 //
 // Covers the full-screen session view: the top bar (clock, plan · day · date,
-// status chip), the progress segments + overview (+ Exercise, gym, status of a
+// Finish while running, else the status chip), the progress segments + overview (+ Exercise, gym, status of a
 // finished session), ONE exercise at a time with .wg-set rows (done rows =
 // log.sets, pending rows = ghost values to accept), the rest timer docked
-// after a done set, the footer (prev / next / Finish) and the Finish dialog.
+// after a done set, the footer (prev / next) and the Finish dialog.
 
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -484,47 +484,47 @@ describe('Workout session takeover (med-xso6.21)', () => {
         expect(document.getElementById('workout-session-status-row')).not.toBeNull();
     });
 
-    // renderSessionDetailActions reads the open session's status off
-    // WorkoutSessionsState — bd med-4ca gates Finish on `in_progress`.
-    function openStatus(window, status) {
-        window.WorkoutSessionsState.data = sessionFixture({ status });
-    }
-
-    it('renders Finish as the sun primary in the footer', () => {
+    // med-t5s6 (kit W1): Finish sits in the top bar's right slot, far from
+    // Next; the footer carries prev / Next only.
+    it('puts Finish in the top bar and only prev / Next in the footer while running', async () => {
         const { window, document } = env;
-        openStatus(window, 'in_progress');
-        const actionsContainer = document.getElementById('workout-session-actions');
-        window.renderSessionDetailActions(actionsContainer, { onFinish: vi.fn() });
+        await openSession(window, [
+            logFixture(),
+            logFixture({ id: 2, exercise_name: 'Overhead' })
+        ]);
 
-        const finishBtn = actionsContainer.querySelector('.wg-workouts-session-actions__finish');
+        const finishBtn = document.getElementById('workout-session-finish-btn');
+        expect(finishBtn.closest('.wg-session-top')).not.toBeNull();
+        expect(finishBtn.closest('.wg-session-foot')).toBeNull();
         expect(finishBtn.classList.contains('wg-btn--primary')).toBe(true);
+        expect(finishBtn.classList.contains('wg-btn--sm')).toBe(false);
         expect(finishBtn.textContent).toBe('Finish');
-        expect(actionsContainer.querySelector('.wg-workouts-session-actions__delete')).toBeNull();
+
+        const acts = Array.from(document.getElementById('workout-session-actions').children);
+        expect(acts.map((b) => b.classList.contains('wg-workouts-session-actions__prev')
+            || b.classList.contains('wg-workouts-session-actions__next'))).toEqual([true, true]);
+        const next = document.querySelector('.wg-workouts-session-actions__next');
+        expect(next.classList.contains('wg-btn--sm')).toBe(false);
+        expect(next.classList.contains('wg-btn--ghost')).toBe(false);
     });
 
-    // bd med-4ca: a finished workout must not offer Finish.
-    it('omits Finish on a completed or skipped session', () => {
+    it('leaves the footer empty for a single-exercise session', async () => {
         const { window, document } = env;
-        const actionsContainer = document.getElementById('workout-session-actions');
-        openStatus(window, 'completed');
-        window.renderSessionDetailActions(actionsContainer, { onFinish: vi.fn() });
-        expect(document.getElementById('workout-session-finish-btn')).toBeNull();
-        openStatus(window, 'skipped');
-        window.renderSessionDetailActions(actionsContainer, { onFinish: vi.fn() });
-        expect(document.getElementById('workout-session-finish-btn')).toBeNull();
+        await openSession(window, [logFixture()]);
+        expect(document.getElementById('workout-session-actions').children.length).toBe(0);
+        expect(document.getElementById('workout-session-finish-btn').closest('.wg-session-top')).not.toBeNull();
     });
 
-    it('dispatches the Finish callback and tolerates an omitted one', () => {
+    // bd med-4ca: a finished workout must not offer Finish anywhere.
+    it('omits Finish on a completed or skipped session and shows the status chip', async () => {
         const { window, document } = env;
-        openStatus(window, 'in_progress');
-        const actionsContainer = document.getElementById('workout-session-actions');
-        const onFinish = vi.fn();
-        window.renderSessionDetailActions(actionsContainer, { onFinish });
-        actionsContainer.querySelector('.wg-workouts-session-actions__finish').click();
-        expect(onFinish).toHaveBeenCalledTimes(1);
-
-        window.renderSessionDetailActions(actionsContainer, {});
-        expect(() => actionsContainer.querySelector('.wg-workouts-session-actions__finish').click()).not.toThrow();
+        await openSession(window, [logFixture()], { status: 'completed' });
+        expect(document.getElementById('workout-session-finish-btn')).toBeNull();
+        expect(document.getElementById('workout-session-modal-status').textContent).toBe('Completed');
+        await window.closeWorkoutSessionModal();
+        await openSession(window, [logFixture()], { status: 'skipped' });
+        expect(document.getElementById('workout-session-finish-btn')).toBeNull();
+        expect(document.getElementById('workout-session-modal-status').textContent).toBe('Skipped');
     });
 
     it('Finish opens a dialog listing unlogged sets and a summary; Keep going saves nothing', async () => {

@@ -200,9 +200,21 @@ function _sessionClockText(session) {
 
 const SESSION_STATUS_CHIP_STATE = { in_progress: 'warn', completed: 'ok', skipped: 'stale' };
 
+// The top bar's right slot (kit W1, med-t5s6): while the workout runs it
+// holds Finish — top-vs-bottom keeps it far from Next; a finished session
+// shows its Completed/Skipped chip instead.
 function _renderSessionStatusChip(status) {
     const el = document.getElementById('workout-session-modal-status');
     if (!el) return;
+    if (status === 'in_progress') {
+        // bd med-4ca: Finish only while the workout actually runs (a finished
+        // session changes status from the overview's Status row). Never
+        // offline-gated (med-mgvo): the status write is local-first.
+        const finishBtn = _wgBtn('Finish', 'wg-btn--primary wg-workouts-session-actions__finish', () => finishWorkoutSession());
+        finishBtn.id = 'workout-session-finish-btn';
+        el.replaceChildren(finishBtn);
+        return;
+    }
     const label = _statusLabel(status);
     if (window.WGChip && typeof window.WGChip.create === 'function' && label) {
         el.replaceChildren(window.WGChip.create({ text: label, state: SESSION_STATUS_CHIP_STATE[status], small: true }));
@@ -212,9 +224,9 @@ function _renderSessionStatusChip(status) {
 }
 
 // renderWorkoutSessionHeader fills the takeover's top bar (kit .wg-session-top):
-// the clock, the plan · day · date line, and the status chip. Status is shown,
-// never edited, here — Finish (or the overview's Status row on a finished
-// session) changes it.
+// the clock, the plan · day · date line, and Finish (running) or the status
+// chip (finished). Status is never edited here — Finish (or the overview's
+// Status row on a finished session) changes it.
 function renderWorkoutSessionHeader(session) {
     const heading = document.getElementById('workout-session-modal-heading');
     if (!heading) return;
@@ -358,7 +370,7 @@ function renderWorkoutSessionLogs(logsContainer) {
         _ensureExerciseHistory(logs[ui.current].exercise_name);
     }
     const actions = document.getElementById('workout-session-actions');
-    if (actions) renderSessionDetailActions(actions, { onFinish: () => finishWorkoutSession() });
+    if (actions) renderSessionDetailActions(actions);
 }
 
 // _targetSets is how many set rows an exercise shows: its done sets plus the
@@ -1835,12 +1847,11 @@ function _buildFinishSummary() {
     return wrap;
 }
 
-// Footer (kit .wg-session-foot): prev / next exercise and, while the workout
-// runs, Finish.
-function renderSessionDetailActions(container, opts) {
+// Footer (kit .wg-session-foot): prev / next exercise only. Finish lives in
+// the top bar (_renderSessionStatusChip, med-t5s6) so it is never next to Next.
+function renderSessionDetailActions(container) {
     container.replaceChildren();
 
-    const onFinish = (opts && typeof opts.onFinish === 'function') ? opts.onFinish : () => {};
     const st = window.WorkoutSessionsState;
     const ui = _sessionUi();
     const n = (st.logs || []).length;
@@ -1850,24 +1861,11 @@ function renderSessionDetailActions(container, opts) {
         prev.setAttribute('aria-label', 'Previous exercise');
         prev.disabled = ui.current <= 0;
         prev.appendChild(_wgIco('chev-l'));
-        const next = _wgBtn('', 'wg-btn--ghost wg-btn--sm wg-workouts-session-actions__next', () => _showSessionExercise(ui.current + 1));
+        const next = _wgBtn('', 'wg-workouts-session-actions__next', () => _showSessionExercise(ui.current + 1));
         next.disabled = ui.current >= n - 1;
         next.append(document.createTextNode('Next'), _wgIco('chev-r', 'wg-ico--sm'));
         container.append(prev, next);
     }
-
-    // bd med-4ca: Finish only makes sense while the workout is actually
-    // running. On a finished session a second tap re-stamped completed_at and
-    // skipped a rotation variant; the domain guards that now, but the button
-    // should not offer a no-op either. A finished session changes its status
-    // from the overview's Status row.
-    if (st?.data?.status !== 'in_progress') return;
-
-    // Never offline-gated (med-mgvo): the status write is local-first, so a
-    // tap must always persist or surface an error — never silently no-op.
-    const finishBtn = _wgBtn('Finish', 'wg-btn--primary wg-workouts-session-actions__finish', () => onFinish());
-    finishBtn.id = 'workout-session-finish-btn';
-    container.appendChild(finishBtn);
 }
 
 async function closeWorkoutSessionModal() {
