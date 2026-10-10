@@ -1,14 +1,45 @@
 # Med Tracker
 
-**Private health tracking that doesn't ask you to give up sync, reminders, chat, or AI to get it.**
+**A self-hosted, end-to-end encrypted health tracker: medications, blood pressure, weight, workouts, food, sleep, and notes in one installable PWA.**
 
-Most privacy-first apps make you pay for privacy in convenience: no cross-device sync, notifications that don't really work, no assistant, a clunky shell. This one is built the other way around. Your vault is end-to-end encrypted, the keys live on *your* devices, and *because* of that everything still works: real-time sync, reminders that actually fire, an optional Telegram chat, an installable PWA, and your own AI pointed at your own data.
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
+![Go](https://img.shields.io/badge/server-Go-00ADD8.svg)
+![PWA](https://img.shields.io/badge/app-installable%20PWA-5A0FC8.svg)
+![E2EE](https://img.shields.io/badge/vault-end--to--end%20encrypted-2f6f5e.svg)
 
-You track medications, blood pressure, weight, workouts, meals, sleep, and notes in one place. The server running it can't read the vault. The optional integrations you switch on (Telegram, trial AI, voice, the hosted Claude connector, food lookup) deliberately leave the vault, and each one is enumerated in [the privacy boundary table](docs/cloud-mode.md#privacy-boundary--the-vault-promise-and-its-carve-outs).
+Privacy-first apps often cost you convenience: no sync across devices, reminders that don't fire, no assistant. This one tries not to. The vault is end-to-end encrypted and the keys stay on your devices, and you still get real-time sync, reminders that ring on schedule, offline logging, an optional Telegram chat, and your own AI (including Claude over MCP) pointed at your own data.
+
+The server running it can't read the vault. The optional integrations you switch on (Telegram, trial AI, voice, the hosted Claude connector, food lookup) deliberately leave it, and each one is listed in [the privacy boundary table](docs/cloud-mode.md#privacy-boundary--the-vault-promise-and-its-carve-outs).
+
+<p align="center">
+  <img src="docs/assets/screenshots/today.png" alt="Today dashboard: calories and macros, sleep, steps, a time-zone dose shift plan, and a live voice agent" width="320">
+</p>
 
 ---
 
-## How it works: your devices hold the keys, the server holds a sealed blob
+## What you get
+
+**Today** — one screen for the day: calories and macros against your targets, last night's sleep, steps, and anything that needs you, like a time-zone change that shifts your doses in 1-hour steps over a few days. Each card links into its section.
+
+**Medications** — scheduled, weekly, and as-needed doses · take several at once or log a missed one late · intake history · stock tracking with low/out badges, days-left estimates, and quick refills · drug-interaction checks · CSV export.
+
+![Medications: schedule, take-meds sheet, and stock with refill](docs/assets/screenshots/meds.png)
+
+**Food** — log by photo, barcode, or a plain description ("chicken breast with rice") that AI splits into items · Open Food Facts search and your own food DB · saved meals · daily and weekly progress against kcal and macro targets · mark a day as incomplete so it stays out of averages · undo for bulk removals.
+
+![Food: daily log with macros, an excluded incomplete day, and the empty state](docs/assets/screenshots/food.png)
+
+**Workouts** — training plans with rotating day splits (A/B/C like push/pull/legs) · per-exercise sets, reps, weight, rest, and warm-up · per-set logging, history, 1RM and PR analysis · opt-in progression hints ("Try 70 kg next time") · reminders before a session · Mi Band and external feed import.
+
+![Workouts: plan editor, day exercises, and exercise detail with a progression hint](docs/assets/screenshots/workouts.png)
+
+**Vitals** — blood pressure (goals, reminders, statistics, imports) · weight (goals, EMA trend, Libra-compatible export) · sleep, heart rate, SpO2, stress, and daily steps in one overview.
+
+**Diary** — free-text notes, included as context when you ask your AI for an analysis.
+
+**Everywhere** — web push · offline-first with pending-sync markers · installs to the home screen on iOS and Android · automatic time-zone detection with confirmation · a voice agent you can talk to while logging.
+
+## How the privacy works: your devices hold the keys, the server holds a sealed blob
 
 There are two kinds of place your data can live, and this app is careful about which is which.
 
@@ -37,26 +68,6 @@ The hard part of "the server can't read your data" is usually the stuff that *ne
 > - **Active whenever you use the feature, with no separate switch:** the **operator-default food database** (search terms and barcodes cross an operator proxy; setting your own endpoint in Settings removes the operator from that path) and **drug lookups** to RxNav (always proxied; there is no bring-your-own alternative).
 >
 > Each is spelled out in Settings → *What can the operator see?* and in the [privacy boundary table](docs/cloud-mode.md#privacy-boundary--the-vault-promise-and-its-carve-outs).
-
-## What you get
-
-**Today dashboard** — a read-only landing view: greeting, next medication, latest blood pressure + 7-day trend, weight + 7-day trend, today's calories, next workout, last night's sleep. Each card deep-links into the section for action.
-
-**Medications** — scheduled, weekly, and as-needed doses · intake history · snooze, skip, log past · inventory with restocks and low-stock alerts · drug-interaction checks · CSV export.
-
-**Blood pressure** — quick logging · goals · reminders · statistics · imports · CSV export.
-
-**Weight** — logging · goals · EMA trend · weekly reminders · Libra-compatible CSV export.
-
-**Workouts** — groups, variants, exercises, rotation (A/B/C/D splits like PPL or PHUL) · configurable notifications and snoozes · exercise-by-exercise logging from Telegram or the web · ad-hoc sessions · Mi Band and external feed ingestion.
-
-**Food** — manual logging and saved meals · nutrition targets · Open Food Facts search · AI-assisted `/food` that splits natural-language meals ("chicken breast with rice") into atomic items.
-
-**Activity & body** — sleep, heart rate, SpO2, stress, and daily steps in a unified Vitals overview.
-
-**Diary** — free-text notes via `/note` or the web UI, automatically included as context for AI analysis.
-
-**Delivery & fit-and-finish** — web push · offline-first PWA · deep-link navigation · automatic timezone detection with confirmation.
 
 ## How it is put together
 
