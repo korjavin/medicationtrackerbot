@@ -2688,6 +2688,8 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // active range that saw a completed or skipped session. Sparse by design (a
   // rest day is simply absent, exactly like an untrained week in
   // weekly_activity); the Consistency calendar fills the gaps itself.
+  // med-nw6r widens it (and only it) back to the Monday of the range's first
+  // day, because the calendar draws whole weeks.
   //
   // med-904.3 adds `hard_set_band` — the user's OWN trailing-3-window average
   // of hard sets and the ±20% band around it, so the Balance view can say "in
@@ -2727,8 +2729,8 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     let skippedSessions = 0;
     const weekMap = new Map();
     // Local calendar day -> { date, completed, skipped }, scoped to the ACTIVE
-    // range (not the wider 12-week heatmap span) so the calendar grid covers
-    // exactly the window the range pills claim.
+    // range (not the wider 12-week heatmap span) widened back to that range's
+    // first Monday (med-nw6r), so the calendar grid's whole weeks are real.
     const dayMap = new Map();
     // session id -> its heatmap week, for the log pass below. Only sessions
     // inside the heatmap span get one, so weekly_volume spans exactly the same
@@ -2747,17 +2749,31 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       completedWeeks.add(mondayOf(String(session.scheduled_date).slice(0, 10)));
     }
 
+    // med-nw6r: the Consistency calendar pads the range out to whole Mon–Sun
+    // weeks, so daily_activity reaches back to the Monday of the range's first
+    // day — a padded leading day must show what really happened, not "empty".
+    // Only daily_activity widens; every count keeps the exact `since30` window.
+    // 'all' needs no widening (since30 is -Infinity).
+    const calendarStart = range === 'all' ? '' : mondayOf(new Date(
+      Date.parse(`${today}T00:00:00Z`) - (rangeDays[range] - 1) * 86400000,
+    ).toISOString().slice(0, 10));
+
     for (const session of sessions) {
       const schedMs = new Date(session.scheduled_date).getTime();
-      if (schedMs >= since30 && (session.status === 'completed' || session.status === 'skipped')) {
-        totalSessions++;
+      if (session.status === 'completed' || session.status === 'skipped') {
+        const inRange = schedMs >= since30;
         // Same local-date-prefix rule as mondayOf: scheduled_date is an
         // offset-carrying instant whose "YYYY-MM-DD" prefix IS the local day.
         const day = String(session.scheduled_date).slice(0, 10);
-        if (!dayMap.has(day)) dayMap.set(day, { date: day, completed: 0, skipped: 0 });
-        const dayEntry = dayMap.get(day);
-        if (session.status === 'completed') { completedSessions++; dayEntry.completed++; }
-        else { skippedSessions++; dayEntry.skipped++; }
+        if (inRange || (calendarStart && day >= calendarStart)) {
+          if (!dayMap.has(day)) dayMap.set(day, { date: day, completed: 0, skipped: 0 });
+          dayMap.get(day)[session.status]++;
+        }
+        if (inRange) {
+          totalSessions++;
+          if (session.status === 'completed') completedSessions++;
+          else skippedSessions++;
+        }
       }
       if (schedMs >= cutoff12w) {
         const week = mondayOf(String(session.scheduled_date).slice(0, 10));
