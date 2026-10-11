@@ -46,7 +46,7 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     // the still-valid record -> endless loop. Post-fix: log and boot degraded.
     const { location } = await runBoot({
       modules: {
-        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', dek: new Uint8Array(1) }) },
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
         'apishim.js': { installApiShim: () => () => {} },
         'sync.js': () => Promise.reject(new Error('sync module failed to load')),
       },
@@ -57,7 +57,7 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
   it('does NOT redirect to /unlock when pullOnOpen rejects after a successful unlock', async () => {
     const { location } = await runBoot({
       modules: {
-        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', dek: new Uint8Array(1) }) },
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
         'apishim.js': { installApiShim: () => () => {} },
         'sync.js': { pullOnOpen: async () => { throw new Error('pull failed'); } },
       },
@@ -75,7 +75,7 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     let shimInstalled = false;
     const { location } = await runBoot({
       modules: {
-        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', dek: new Uint8Array(1) }) },
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
         'apishim.js': { installApiShim: () => { shimInstalled = true; return () => Promise.resolve(null); } },
         // A half-open sync: pullOnOpen never settles. Nothing after it in the
         // background block runs, so no other module import is needed.
@@ -114,7 +114,7 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     const { window } = await runBoot({
       setupWindow,
       modules: {
-        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', dek: new Uint8Array(1) }) },
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
         'apishim.js': { installApiShim: () => shimCall },
         'sync.js': {
           pullOnOpen: async () => { pullOnOpenCalled = true; },
@@ -147,7 +147,7 @@ describe('cloud-boot warm-unlock redirect gate (med-eas.16)', () => {
     let drainOpts;
     await runBoot({
       modules: {
-        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', dek: new Uint8Array(1) }) },
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
         'apishim.js': { installApiShim: () => () => Promise.resolve(null) },
         'sync.js': {
           pullOnOpen: async () => {},
@@ -188,7 +188,7 @@ describe('cloud-boot feedback launcher mount gate (med-dni.2 Task 3)', () => {
   // provided, or the harness's __imp throws and aborts before we reach it.
   function baseModules(extra) {
     return {
-      'unlock.js': { warmUnlock: async () => ({ accountId: 'a', dek: new Uint8Array(1) }) },
+      'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
       'apishim.js': { installApiShim: () => () => Promise.resolve(null) },
       'sync.js': {
         pullOnOpen: async () => {},
@@ -285,7 +285,7 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
     let debounced = 0;
     await runBoot({
       modules: {
-        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', dek: new Uint8Array(1) }) },
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
         'apishim.js': { installApiShim: () => () => Promise.resolve(null) },
         'sync.js': {
           pullOnOpen: async () => {},
@@ -468,7 +468,7 @@ describe('CloudVault.resetLocalSync inbox-clear ordering (med-eas.51)', () => {
     const order = [];
     const { window } = await runBoot({
       modules: {
-        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', dek: new Uint8Array(1) }) },
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
         'apishim.js': { installApiShim: () => () => Promise.resolve(null) },
         'sync.js': {
           pullOnOpen: async () => {},
@@ -494,7 +494,7 @@ describe('CloudVault.resetLocalSync inbox-clear ordering (med-eas.51)', () => {
     const order = [];
     const { window } = await runBoot({
       modules: {
-        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', dek: new Uint8Array(1) }) },
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
         'apishim.js': { installApiShim: () => () => Promise.resolve(null) },
         'sync.js': {
           pullOnOpen: async () => {},
@@ -518,7 +518,7 @@ describe('CloudVault.getInboxUnopenableCount (med-0tp)', () => {
   it('delegates to the inbox module getter', async () => {
     const { window } = await runBoot({
       modules: {
-        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', dek: new Uint8Array(1) }) },
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
         'apishim.js': { installApiShim: () => () => Promise.resolve(null) },
         'sync.js': {
           pullOnOpen: async () => {},
@@ -564,7 +564,7 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
   async function bootWithSync(sync) {
     const { window } = await runBoot({
       modules: {
-        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', dek: new Uint8Array(1) }) },
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
         'apishim.js': { installApiShim: () => () => Promise.resolve(null) },
         'sync.js': sync.mod,
         '/domain/vault.js': VAULT_MOD,
@@ -611,7 +611,7 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
       const sync = syncModule({ isBootstrapped: async () => true });
       const { window } = await runBoot({
         modules: {
-          'unlock.js': { warmUnlock: async () => ({ accountId: 'a', dek: new Uint8Array(1) }) },
+          'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
           'apishim.js': { installApiShim: () => () => Promise.resolve(null) },
           'sync.js': sync.mod,
           '/domain/vault.js': realVault,

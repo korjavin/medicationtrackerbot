@@ -18,7 +18,7 @@ import {
 } from 'vitest';
 
 import { createApiRouter } from '../apishim.js';
-import { generateDEK } from '../crypto.js';
+import { deriveDataKeys, generateDEK } from '../crypto.js';
 import { ORIGIN_UI } from '../sync.js';
 import { CATALOG } from '../mcp-responder.js';
 import { CATALOG as GENERATED } from '../mcp-catalog.generated.js';
@@ -63,7 +63,7 @@ describe('bounded list reads (med-vgw)', () => {
       throw new Error(`unexpected fetch: ${u}`);
     }));
 
-    api = createApiRouter({ accountId, dek: await generateDEK() }, { origin: ORIGIN_UI });
+    api = createApiRouter({ accountId, ...(await deriveDataKeys(generateDEK())) }, { origin: ORIGIN_UI });
 
     // Seeded newest-last so index 0 of a newest-first read is the final entry.
     for (let i = 0; i < SEEDED; i += 1) {

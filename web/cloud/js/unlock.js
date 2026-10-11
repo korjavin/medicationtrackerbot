@@ -1,19 +1,23 @@
 // Returning-device unlock flow: docs/cloud-crypto.md "Unlock" section. Warm
-// unlock silently unwraps the cached DEK from the local LDK (a non-extractable
-// WebCrypto key structured-cloned into IndexedDB); cold unlock re-derives the
-// DEK from a fresh passkey assertion + PRF when the cache is absent or fails
-// to open, then re-establishes the cache.
+// unlock silently reads the cached leaf keys (non-extractable WebCrypto keys
+// structured-cloned into IndexedDB); cold unlock re-derives the DEK from a
+// fresh passkey assertion + PRF when the cache is absent or fails to open,
+// then re-establishes the cache.
 import {
   saltKek,
   deriveKEK,
+  deriveDataKeys,
+  deriveKMac,
   unwrapEnvelope,
   fromBase64,
+  timingSafeEqual,
   toBase64Url,
 } from './crypto.js';
 import { openDb } from './localdb.js';
 
 const STORE_NAME = 'device';
 const LDK_RECORD_KEY = 'ldk';
+const LDK_STAGING_KEY = 'ldk-staging';
 const LDK_AAD = new TextEncoder().encode('mt/v1/ldk');
 
 export async function runUnlockFlow() {
@@ -28,7 +32,7 @@ export async function runUnlockFlow() {
   }
   if (cached) {
     try {
-      await unwrapWithLdk(cached);
+      await openLdkRecord(cached); // v2 leaf keys, or v1 migrated in place
       // The real app (web/static, C1) reads the LDK cache itself via
       // cloud-boot.js — send the browser there instead of the toy menu below.
       location.href = unlockSuccessTarget(location.hash);
@@ -157,9 +161,9 @@ async function coldUnlock(app) {
     // if the write just failed (storage-blocked private mode, quota policy,
     // partitioned iframe), redirecting would bounce straight back to
     // /unlock in a loop. Fall back to the toy in-memory menu instead, which
-    // still holds this cold-unlock's dek. ponytail: revisit once the real
-    // app has a no-cache boot path to hand the in-memory dek to directly.
-    renderUnlocked(app, { accountId, dek });
+    // still holds this cold-unlock's leaf keys. ponytail: revisit once the real
+    // app has a no-cache boot path to hand the in-memory keys to directly.
+    renderUnlocked(app, { accountId, ...(await deriveDataKeys(dek)) });
     return;
   }
   // The real app (web/static, C1) reads the LDK cache itself via
@@ -304,23 +308,75 @@ function renderShellFrame(app, title, mountFn, onBack) {
   app.querySelector('#shell-frame-back').addEventListener('click', () => onBack(handle));
 }
 
-// --- LDK cache (docs/cloud-crypto.md "LDK"): a non-extractable AES-GCM key
-// wraps the DEK locally so a warm launch unwraps silently instead of
-// demanding a biometric every time. Non-extractable keys structured-clone
-// into IndexedDB directly — no export/import round-trip needed.
+// --- LDK cache (docs/cloud-crypto.md "LDK"): the warm-unlock record holds the
+// operational leaf keys K_data / K_mac as non-extractable CryptoKeys,
+// structured-cloned into IndexedDB directly, so a warm launch reopens the
+// vault without a biometric and without any DEK bytes on disk or in memory.
+//
+// v2 = { v: 2, accountId, kData, kMac }. v1 = { ldk, nonce, ct, accountId }
+// (an AES-GCM-wrapped DEK, no `v`) is what older shells wrote; warm unlock
+// migrates it once. An old SW-cached /unlock shell can't read v2 and clears
+// it; its cold unlock then writes v1 and the next warm launch re-migrates.
 
-// Exported so claim.js (device-transfer enrollment) seeds the same warm-unlock
-// cache on the new device after its own registration ceremony finishes.
+// Seeds the cache from a ceremony DEK (signup, cold unlock, device transfer).
+// The write is probed before it counts; a cache that fails the probe is
+// cleared rather than left to strand the next launch.
 export async function establishLdkCache(dek, accountId) {
-  const ldk = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
-  const nonce = crypto.getRandomValues(new Uint8Array(12));
-  const ct = new Uint8Array(
-    await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce, additionalData: LDK_AAD }, ldk, dek)
-  );
-  await writeLdkRecord({ ldk, nonce, ct, accountId });
+  try {
+    await persistLeafKeys(dek, accountId);
+  } catch (e) {
+    await clearLdkRecord().catch(() => {});
+    throw e;
+  }
 }
 
-export async function unwrapWithLdk(record) {
+// Stage → probe → promote: the v2 record is written under a staging key, read
+// back through a fresh IDB handle and probed, then moved into the live slot in
+// one transaction. Whatever sat in the live slot (a v1 record mid-migration)
+// is untouched until that final transaction commits.
+async function persistLeafKeys(dek, accountId) {
+  const { kData, kMac } = await deriveDataKeys(dek);
+  const record = { v: 2, accountId, kData, kMac };
+  await deviceTx('readwrite', (store) => store.put(record, LDK_STAGING_KEY));
+  await verifyLdkDurable(dek, accountId, LDK_STAGING_KEY);
+  await deviceTx('readwrite', (store) => {
+    store.put(record, LDK_RECORD_KEY);
+    store.delete(LDK_STAGING_KEY);
+  });
+  return { kData, kMac };
+}
+
+// Proves the stored record holds THIS ceremony's leaf keys, read back from
+// IndexedDB (write → close → reopen → use). Never a self-roundtrip, which
+// passes for any key: the challenge is sealed with a K_data derived afresh
+// from the ceremony DEK and opened with the stored one; the MAC is minted
+// from the ceremony DEK's raw K_mac and verified with the stored one.
+// Exported for the unlock test.
+export async function verifyLdkDurable(dek, accountId, key = LDK_RECORD_KEY) {
+  const rec = await readLdkRecord(key);
+  if (!rec || rec.v !== 2 || rec.accountId !== accountId) {
+    throw new Error('This browser could not save its local key.');
+  }
+  const sameUsages = (k, want) => [...k.usages].sort().join() === want;
+  if (rec.kData?.extractable !== false || !sameUsages(rec.kData, 'decrypt,encrypt')
+    || rec.kMac?.extractable !== false || !sameUsages(rec.kMac, 'verify')) {
+    throw new Error('Local key has the wrong shape.');
+  }
+  const challenge = crypto.getRandomValues(new Uint8Array(32));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const { kData } = await deriveDataKeys(dek);
+  const sealed = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, kData, challenge);
+  const opened = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, rec.kData, sealed));
+  const signKey = await crypto.subtle.importKey(
+    'raw', await deriveKMac(dek), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const tag = await crypto.subtle.sign('HMAC', signKey, challenge);
+  if (!timingSafeEqual(opened, challenge) || !(await crypto.subtle.verify('HMAC', rec.kMac, tag, challenge))) {
+    throw new Error('Local key verification failed — this browser’s storage may be unreliable.');
+  }
+}
+
+// v1 only: the wrapped DEK an older shell left behind.
+async function unwrapWithLdk(record) {
   const pt = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv: record.nonce, additionalData: LDK_AAD },
     record.ldk,
@@ -329,42 +385,58 @@ export async function unwrapWithLdk(record) {
   return new Uint8Array(pt);
 }
 
-// Warm-unlock in one step: read the LDK cache and unwrap the DEK into the ctx
-// shape every caller needs ({ accountId, dek }). Returns null when there's no
-// cache (fresh/cleared device) so callers can redirect to /unlock; throws are
-// left to the caller's catch. Shared by cloud-boot.js (real-app shim) and
-// app.js's /devices branch so the ctx shape lives in exactly one place.
-export async function warmUnlock() {
-  const cached = await readLdkRecord();
-  if (!cached) return null;
-  const dek = await unwrapWithLdk(cached);
-  return { accountId: cached.accountId, dek };
-}
-
-// Exported so cloud-boot.js (web/static's cloud boot shim) can perform the
-// same warm-unlock read/unwrap without duplicating the LDK cache format.
-export async function readLdkRecord() {
-  const db = await openDb();
+// Record → operational ctx { accountId, kData, kMac }. Throws on a record it
+// can't open (callers clear it / go cold).
+async function openLdkRecord(record) {
+  if (record.v === 2) {
+    if (typeof record.accountId !== 'string' || record.kData?.algorithm?.name !== 'AES-GCM'
+      || record.kMac?.algorithm?.name !== 'HMAC') {
+      throw new Error('Corrupt local key record.');
+    }
+    return { accountId: record.accountId, kData: record.kData, kMac: record.kMac };
+  }
+  // v1: unwrap once, derive the leaf keys, promote to v2. A failed promotion
+  // keeps v1 (persistLeafKeys never touches the live slot until it commits)
+  // and this launch runs on the in-memory keys; the next launch retries.
+  const dek = await unwrapWithLdk(record);
   try {
-    return await new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, 'readonly');
-      const req = tx.objectStore(STORE_NAME).get(LDK_RECORD_KEY);
-      req.onsuccess = () => resolve(req.result || null);
-      req.onerror = () => reject(req.error);
-    });
+    try {
+      return { accountId: record.accountId, ...(await persistLeafKeys(dek, record.accountId)) };
+    } catch {
+      return { accountId: record.accountId, ...(await deriveDataKeys(dek)) };
+    }
   } finally {
-    db.close();
+    dek.fill(0);
   }
 }
 
-async function writeLdkRecord(record) {
+// Warm-unlock in one step: read the cache into the ctx shape every caller
+// needs ({ accountId, kData, kMac }). Returns null when there's no cache
+// (fresh/cleared device) so callers can redirect to /unlock; throws are left
+// to the caller's catch. Shared by cloud-boot.js (real-app shim) and app.js's
+// /devices branch so the ctx shape lives in exactly one place.
+export async function warmUnlock() {
+  const cached = await readLdkRecord();
+  if (!cached) return null;
+  return openLdkRecord(cached);
+}
+
+// Exported for the unlock test (inspects what the cache actually holds).
+export async function readLdkRecord(key = LDK_RECORD_KEY) {
+  return (await deviceTx('readonly', (store) => store.get(key))) || null;
+}
+
+// One transaction on the 'device' store over a fresh handle (closed after),
+// resolving with the last request's result once the transaction commits.
+async function deviceTx(mode, fn) {
   const db = await openDb();
   try {
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, 'readwrite');
-      tx.objectStore(STORE_NAME).put(record, LDK_RECORD_KEY);
-      tx.oncomplete = () => resolve();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, mode);
+      const req = fn(tx.objectStore(STORE_NAME));
+      tx.oncomplete = () => resolve(req?.result);
       tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
     });
   } finally {
     db.close();
@@ -372,17 +444,10 @@ async function writeLdkRecord(record) {
 }
 
 async function clearLdkRecord() {
-  const db = await openDb();
-  try {
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, 'readwrite');
-      tx.objectStore(STORE_NAME).delete(LDK_RECORD_KEY);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  } finally {
-    db.close();
-  }
+  await deviceTx('readwrite', (store) => {
+    store.delete(LDK_RECORD_KEY);
+    store.delete(LDK_STAGING_KEY);
+  });
 }
 
 // Shared-plan/gym fragment forwarding (med-uo64.3, med-8j5w.3): only a
