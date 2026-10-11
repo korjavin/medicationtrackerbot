@@ -333,7 +333,7 @@ describe('Today v2 — Log sheet', () => {
         expect(s.classList.contains('wg-sheet')).toBe(true);
         expect(s.classList.contains('hidden')).toBe(false);
         expect(s.querySelector('.wg-sheethead__title').textContent).toBe('Log');
-        expect(tiles()).toEqual(['food-search', 'food-photo', 'food-scan', 'food-describe', 'bp', 'weight', 'note']);
+        expect(tiles()).toEqual(['food-search', 'food-photo', 'food-library', 'food-scan', 'food-describe', 'bp', 'weight', 'note']);
         const eyebrows = Array.from(s.querySelectorAll('.wg-sheet__body > .wg-eyebrow')).map((n) => n.textContent);
         expect(eyebrows).toEqual(['Food', 'Measurements & notes']);
         expect(s.querySelector('.wg-actions--3 [data-log="bp"]')).not.toBeNull();
@@ -356,12 +356,12 @@ describe('Today v2 — Log sheet', () => {
 
     it('each tile closes the sheet and runs the same opener as before', () => {
         const h = {
-            onLogFood: vi.fn(), onPhotoMeal: vi.fn(), onScanFood: vi.fn(), onDescribeFood: vi.fn(),
+            onLogFood: vi.fn(), onPhotoMeal: vi.fn(), onLibraryMeal: vi.fn(), onScanFood: vi.fn(), onDescribeFood: vi.fn(),
             onAddBp: vi.fn(), onAddWeight: vi.fn(), onAddNote: vi.fn()
         };
         env.render(baseState(), root, { now: NOW, ...h });
         const expected = {
-            'food-search': h.onLogFood, 'food-photo': h.onPhotoMeal, 'food-scan': h.onScanFood,
+            'food-search': h.onLogFood, 'food-photo': h.onPhotoMeal, 'food-library': h.onLibraryMeal, 'food-scan': h.onScanFood,
             'food-describe': h.onDescribeFood, bp: h.onAddBp, weight: h.onAddWeight, note: h.onAddNote
         };
         for (const [id, fn] of Object.entries(expected)) {
@@ -415,6 +415,8 @@ describe('Today v2 — Log sheet', () => {
         expect(w.FoodScanner.openFoodScannerModal).toHaveBeenCalledTimes(1);
         tap('food-photo');
         expect(w.FoodActions.triggerPhotoPicker).toHaveBeenCalledTimes(1);
+        tap('food-library');
+        expect(w.FoodActions.triggerPhotoPicker).toHaveBeenLastCalledWith({ gallery: true });
         tap('food-describe');
         expect(w.FoodLog.addSheet.openDescribe).toHaveBeenCalledTimes(1);
         expect(w.showAddFoodModal).toHaveBeenCalledTimes(1);
