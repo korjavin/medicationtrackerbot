@@ -1,5 +1,70 @@
 # Explicit local-only passkey POC — findings (med-eas.2.1)
 
+> **Archived 2026-10-11 (bd `med-qz4y`): the POC code was removed.** PRF is the
+> only credential mode. Everything below the "Lesson + restore" section is the
+> original findings write-up, kept as history — it describes code that is no
+> longer in the tree.
+
+## Lesson + restore
+
+**The problem.** The vault KEK is derived from the WebAuthn PRF extension. Some
+passkey managers do not return PRF results for third-party sites — notably the
+Bitwarden browser extension, which intercepts `navigator.credentials` and drops
+PRF (see [the research doc](2026-07-13-cloud-prf-compatibility-research.md)).
+Users whose passkeys live there cannot enroll at all.
+
+**Rejected alternatives** (full table in the research doc):
+
+- *Server/client XOR split of the wrapping key* — gives the server a durable
+  key share per user; server compromise plus browser-profile compromise then
+  decrypts, session theft can pull the server half, and the local half is still
+  one-browser-bound, so it does not even fix synced-passkey portability.
+- *Passphrase/PIN-derived KEK* — introduces low-entropy offline-guessable
+  material; violates the R1/R5 invariants.
+- *Manager allowlist / feature sniff* — support cannot be inferred from a
+  browser or manager name; only a fresh create + immediate PRF assertion is
+  authoritative, and a wrong guess silently downgrades a user.
+
+**What the POC proved.** An explicitly labelled `local_only` credential can
+authenticate via ordinary WebAuthn while the existing device-local LDK wraps the
+DEK, with no new decrypting material server-side and honest recovery UX (every
+dead end points at the Emergency Kit or a trusted-device transfer).
+
+**Why it was held, then removed.** It never met its own promotion bar: no
+physical authenticator matrix (Bitwarden, platform passkeys, a roaming key) and
+no user-comprehension test of "this synced passkey will not recover your vault
+on a new device". Keeping it dormant would force every future crypto change
+(e.g. LDK cache v2, `med-5h1t.4`) to carry a second DEK holder.
+
+**Invariants that were hard-won — keep them on any rebuild:**
+
+1. The credential mode is an explicit server-stored label; never infer it from
+   envelope absence.
+2. The account's first credential (claim gate) must be PRF.
+3. The server rejects any envelope (or other share) on a local-only finish.
+4. Local-only enrollment stages the LDK record and verifies it reads back and
+   unwraps **before** register/finish, so a storage-blocked browser fails with
+   its enrollment token still unspent; every failure restores the prior LDK
+   record or clears the staged one.
+5. The server refuses to commit a local-only credential unless usable recovery
+   material (recovery envelope **and** its `recovery_auth` verifier) exists,
+   checked in the same transaction as the insert.
+6. The last-credential guard counts PRF credentials only, inside the delete
+   transaction — local-only credentials are not unwrap paths.
+7. Both an operator kill-switch (server env) **and** a browser opt-in are
+   required; the client flag alone does nothing.
+8. A PRF credential whose authenticator stops returning PRF keeps the hard
+   error — never a silent downgrade to the local path.
+9. The diagnostic report fails closed on sanitization (outcomes and error
+   classes only, never PRF bytes or credential material).
+
+**How to restore.** Git is the code archive — do not rebuild from this prose.
+The POC landed in PR #888 (merge `1de0b27f`); its removal is the PR that closed
+bd `med-qz4y`. Restore by `git revert -m 1 <med-qz4y merge commit>`, then
+resolve conflicts against whatever moved since. Migration 025
+(`credentials.mode`, default `'prf'`) was never dropped, so no schema work is
+needed. Re-run the promotion bar above before shipping it unflagged.
+
 **Date:** 2026-09-27
 **Bead:** `med-eas.2.1` (child of `med-eas.2`)
 **Research basis:** [2026-07-13-cloud-prf-compatibility-research.md](2026-07-13-cloud-prf-compatibility-research.md)

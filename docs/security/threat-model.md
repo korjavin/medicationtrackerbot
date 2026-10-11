@@ -355,7 +355,7 @@ Stated because a threat model that only lists what it checked is misleading.
   document does not assert what any particular deployment does.
 - **Real-device WebAuthn PRF behavior across the platform matrix** is
   feature-detected at runtime, not proven here
-  (`docs/2026-07-13-cloud-prf-compatibility-research.md`).
+  (`docs/archive/2026-07-13-cloud-prf-compatibility-research.md`).
 - **Subprocessor retention** is each party's own policy and is not verified.
 - **No formal cryptographic proof** of the composed protocol exists.
 
