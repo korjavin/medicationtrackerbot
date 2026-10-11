@@ -888,6 +888,101 @@ describe('Trackers card', () => {
         expect(cached('tracker-k').progress).toEqual({ total: 4, target: 3, met: false });
     });
 
+    // med-1vy5.8: a limit tap logs a slip — never "Done today"; the weekly
+    // strip inverts (clean sage, slip warn); a max-0 limit shows days clean.
+    const weekDays = (totals) => ['20', '21', '22', '23', '24', '25', '26'].map((d, i) => ({ day: `2026-04-${d}`, total: totals[i] || 0 }));
+    const NO_ALCOHOL = {
+        id: 'tracker-a', name: 'No alcohol', emoji: '', kind: 'check', unit: null, step: 1,
+        target: { op: 'atMost', value: 1, period: 'week' }, day: '2026-04-20',
+        progress: { total: 0, target: 1, met: true, cleanDays: 9, days: weekDays([]) },
+        todayLogs: [],
+    };
+    const NO_NIGHT = {
+        ...NO_ALCOHOL, id: 'tracker-n', name: 'No night eating',
+        target: { op: 'atMost', value: 0, period: 'week' },
+        progress: { total: 0, target: 0, met: true, cleanDays: 3, days: weekDays([]) },
+    };
+    const segClasses = (id) => [...tile(id).querySelectorAll('.wg-trk__week i')]
+        .map((s) => ['is-clean', 'is-slip', 'is-hit', 'is-future'].filter((c) => s.classList.contains(c)).join(' '));
+
+    it('check limit ≤1/week: slip strip, "Tap if you slip"; a tap logs a slip → Slipped today + At limit', async () => {
+        const MID_WEEK = { ...NO_ALCOHOL, id: 'tracker-a2', day: '2026-04-22', progress: { total: 1, target: 1, met: true, cleanDays: 2, days: weekDays([1]) } };
+        setup([NO_ALCOHOL, MID_WEEK]);
+        expect(segClasses('tracker-a2')).toEqual(['is-slip', 'is-clean', 'is-clean', 'is-future', 'is-future', 'is-future', 'is-future']);
+        expect(tile('tracker-a2').textContent).toContain('At limit');
+
+        const a = () => tile('tracker-a');
+        expect(a().classList.contains('wg-trk--limit')).toBe(true);
+        expect(a().querySelector('.wg-trk__val').textContent).toBe('0/ ≤1 this week');
+        expect(a().textContent).toContain('Tap if you slip');
+        expect(a().textContent).toContain('1 left this week');
+        expect(a().textContent).not.toMatch(/Done today|Tap when done/);
+        expect(a().querySelector('[data-action="tracker-tap"]').getAttribute('aria-label')).toBe('No alcohol, no slip today. Tap if you slip');
+        expect(segClasses('tracker-a')).toEqual(['is-clean', 'is-future', 'is-future', 'is-future', 'is-future', 'is-future', 'is-future']);
+
+        const logId = 'trackerlog:tracker-a:2026-04-20';
+        env.window.apiCall = vi.fn(async () => ({ id: logId, trackerId: 'tracker-a', date: '2026-04-20', done: true }));
+        a().querySelector('[data-action="tracker-tap"]').click();
+        await vi.waitFor(() => expect(toasts).toHaveLength(1));
+        expect(toasts[0].message).toBe('No alcohol — slip logged');
+        expect(toasts[0].opts.detail).toBe('1 / ≤1 this week');
+        expect(a().textContent).toContain('Slipped today');
+        expect(a().textContent).toContain('At limit');
+        expect(a().querySelector('.wg-trk__tick--slip')).not.toBeNull();
+        expect(a().classList.contains('wg-trk--met')).toBe(false);
+        expect(segClasses('tracker-a')[0]).toBe('is-slip');
+        expect(a().querySelector('[data-action="tracker-tap"]').getAttribute('aria-label')).toBe('No alcohol, slipped today. Tap to undo');
+    });
+
+    it('max-0 limit: "N days clean" (never 0 / ≤0); a slip → Slipped today + over chip; undo restores the streak', async () => {
+        const NO_COLA = {
+            id: 'tracker-z', name: 'Cola', emoji: '', kind: 'count', unit: 'can', step: 1,
+            target: { op: 'atMost', value: 0, period: 'day' }, progress: { total: 0, target: 0, met: true, cleanDays: 1 }, todayLogs: [],
+        };
+        setup([NO_NIGHT, NO_COLA]);
+        const n = () => tile('tracker-n');
+        expect(n().querySelector('.wg-trk__val').textContent).toBe('3days clean');
+        expect(tile('tracker-z').querySelector('.wg-trk__val').textContent).toBe('1day clean');
+        expect(root.textContent).not.toContain('≤0');
+        expect(n().querySelector('.wg-chip')).toBeNull();
+        expect(n().querySelector('[data-action="tracker-tap"]').getAttribute('aria-label')).toBe('No night eating, 3 days clean. Tap if you slip');
+
+        const logId = 'trackerlog:tracker-n:2026-04-20';
+        env.window.apiCall = vi.fn(async (url, method) => ({ id: logId, trackerId: 'tracker-n', date: '2026-04-20', done: method === 'POST' }));
+        n().querySelector('[data-action="tracker-tap"]').click();
+        await vi.waitFor(() => expect(toasts).toHaveLength(1));
+        expect(n().querySelector('.wg-trk__val').textContent).toBe('Slipped today');
+        expect(n().classList.contains('wg-trk--over')).toBe(true);
+        expect(n().querySelector('.wg-chip--warn').textContent).toContain('1 over this week');
+        expect(toasts[0].opts.detail).toBe('1 over this week');
+
+        toasts[0].opts.action.onClick();
+        await vi.waitFor(() => expect(cached('tracker-n').todayLogs).toEqual([]));
+        expect(env.window.apiCall).toHaveBeenLastCalledWith(`/api/trackers/tracker-n/log/${encodeURIComponent(logId)}`, 'DELETE');
+        expect(n().querySelector('.wg-trk__val').textContent).toBe('3days clean');
+        expect(n().querySelector('.wg-chip')).toBeNull();
+    });
+
+    it('max-0 limit loaded with a slip today: the sheet says Log a slip / Slipped today; undo refetches the streak', async () => {
+        const logId = 'trackerlog:tracker-n:2026-04-20';
+        const slipped = {
+            ...NO_NIGHT, progress: { total: 1, target: 0, met: false, cleanDays: 0, days: weekDays([1]) },
+            todayLogs: [{ id: logId, trackerId: 'tracker-n', date: '2026-04-20', done: true }],
+        };
+        setup([slipped]);
+        tile('tracker-n').querySelector('[data-action="tracker-more"]').click();
+        const sheet = () => env.window.document.getElementById('today-tracker-sheet');
+        expect(sheet().querySelector('.wg-stat__value').textContent).toBe('Slipped today');
+        expect(sheet().querySelector('[data-log-id] .wg-row__title').textContent).toBe('Slip');
+        env.window.apiCall = vi.fn(async (url, method) => (method === 'GET'
+            ? [{ ...NO_NIGHT, progress: { ...NO_NIGHT.progress, cleanDays: 5 } }]
+            : { id: logId, trackerId: 'tracker-n', date: '2026-04-20', done: false }));
+        sheet().querySelector('[data-action="tracker-delete-log"]').click();
+        await vi.waitFor(() => expect(toasts.find((t) => t.message === 'No night eating — slip removed')).toBeTruthy());
+        await vi.waitFor(() => expect(tile('tracker-n').querySelector('.wg-trk__val').textContent).toBe('5days clean'));
+        expect(sheet().querySelector('[data-action="tracker-add"]').textContent).toBe('Log a slip today');
+    });
+
     it('check tile toggles: tap marks today done, tap again unchecks by the day log id', async () => {
         setup([VITAMINS]);
         const logId = 'trackerlog:tracker-v:2026-04-20';

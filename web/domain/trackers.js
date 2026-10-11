@@ -172,6 +172,17 @@ export function createTrackersDomain({ records, now, timeZone }) {
         return { day, total: totals.get(day) || 0 };
       });
     }
+    if (op === 'atMost') {
+      // Days clean: consecutive local days ending today with total 0, back
+      // to the tracker's creation day (created today, no slip → 1). Derived,
+      // never stored; spans period boundaries.
+      const born = Date.parse(tracker.createdAt);
+      const made = Number.isNaN(born) ? today : localDay(born, timeZone);
+      const first = made < today ? made : today; // a future createdAt (clock skew) counts as today
+      let clean = 0;
+      for (let d = today; d >= first && !(totals.get(d) > 0); d = addDays(d, -1)) clean += 1;
+      out.cleanDays = clean;
+    }
     return out;
   }
 

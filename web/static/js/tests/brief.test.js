@@ -805,7 +805,8 @@ describe('doctor-visit brief — trackers section', () => {
             {
                 name: 'Coffee', emoji: '', unit: null,
                 target: { op: 'atMost', value: 3, period: 'day' },
-                progress: { total: 0, target: 3, met: true }
+                // cleanDays: created 20 days ago, never over — 21 local days.
+                progress: { total: 0, target: 3, met: true, cleanDays: 21 }
             }
         ]);
     });

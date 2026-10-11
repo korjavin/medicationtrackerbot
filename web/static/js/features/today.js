@@ -1002,6 +1002,42 @@
         return { value: fmtNum(p.total), rest: `/ ${lim}${fmtNum(p.target)}${tail ? ` ${tail}` : ''}` };
     }
 
+    // ---- Limits (med-1vy5.8): a tap logs a slip, never "done". -------------
+    function trackerIsLimit(t) {
+        return t.target.op === 'atMost';
+    }
+
+    function trackerIsZero(t) {
+        return trackerIsLimit(t) && Number(t.target.value) === 0;
+    }
+
+    function trackerTodayTotal(t) {
+        return (Array.isArray(t.todayLogs) ? t.todayLogs : []).reduce((s, l) => s + logAmount(t, l), 0);
+    }
+
+    // Days clean for a limit: 0 once today has a slip (optimistic taps move
+    // todayLogs, not the domain's progress.cleanDays), else the domain's
+    // streak; null when unknown (a server-loaded slip just undone — the
+    // unlog settle refetches it).
+    function trackerClean(t) {
+        if (trackerTodayTotal(t) > 0) return 0;
+        const n = Number((t.progress || {}).cleanDays);
+        return n > 0 ? n : null;
+    }
+
+    function trackerCleanText(t) {
+        const n = trackerClean(t);
+        if (n === 0) return 'Slipped today';
+        if (n === null) return 'No slip today';
+        return `${fmtNum(n)} ${n === 1 ? 'day' : 'days'} clean`;
+    }
+
+    // "1 over this week": a max-0 limit has no meaningful ratio.
+    function trackerOverText(t) {
+        const p = t.progress || {};
+        return `${fmtNum(p.total - p.target)} over${trackerIsZero(t) ? ` ${PERIOD_WORD[t.target.period]}` : ''}`;
+    }
+
     function trackerGlyph(t) {
         const g = el('span', 'wg-trk__glyph');
         const e = typeof t.emoji === 'string' ? t.emoji : '';
@@ -1092,6 +1128,7 @@
     }
 
     function trackerDetail(t) {
+        if (trackerIsZero(t)) return trackerState(t) === 'over' ? trackerOverText(t) : trackerCleanText(t);
         const r = trackerRatio(t);
         return `${r.value} ${r.rest}`;
     }
@@ -1115,7 +1152,8 @@
                 todayLogs: (x.todayLogs || []).map((l) => (l.id === provisionalId ? saved : l)),
             })) : null));
         if (res && res.id && !quiet) {
-            const message = t.kind === 'check' ? `${t.name} done` : `${t.name} +${fmtNum(n)}`;
+            let message = `${t.name} +${fmtNum(n)}`;
+            if (t.kind === 'check') message = trackerIsLimit(t) ? `${t.name} — slip logged` : `${t.name} done`;
             trackerToast(message, trackerDetail(addLog(log)(t)), () => unlogTracker(t, res, true));
         }
         return res;
@@ -1125,12 +1163,20 @@
     async function unlogTracker(t, log, quiet) {
         const api = trackersApi();
         if (!api) return null;
+        // Undoing the slip the domain already counted (cleanDays 0 from the
+        // server) leaves the streak unknown here: settle takes the fresh one.
+        const refetchClean = trackerIsLimit(t) && Number((t.progress || {}).cleanDays) === 0;
         const res = await trackerWrite(patchTracker(t.id, dropLog(log.id)), patchTracker(t.id, addLog(log)),
-            () => api(`/api/trackers/${encodeURIComponent(t.id)}/log/${encodeURIComponent(log.id)}`, 'DELETE'));
+            () => api(`/api/trackers/${encodeURIComponent(t.id)}/log/${encodeURIComponent(log.id)}`, 'DELETE'),
+            refetchClean ? async () => {
+                const fresh = await serverTrackerRow(api, t.id);
+                const cleanDays = fresh && fresh.progress ? fresh.progress.cleanDays : undefined;
+                return cleanDays === undefined ? null
+                    : patchTracker(t.id, (x) => ({ ...x, progress: { ...x.progress, cleanDays } }));
+            } : null);
         if (res && !quiet) {
-            const message = t.kind === 'check'
-                ? `${t.name} not done`
-                : `Removed +${fmtNum(log.amount)}${t.unit ? ` ${unitText(t.unit, log.amount)}` : ''}`;
+            let message = `Removed +${fmtNum(log.amount)}${t.unit ? ` ${unitText(t.unit, log.amount)}` : ''}`;
+            if (t.kind === 'check') message = trackerIsLimit(t) ? `${t.name} — slip removed` : `${t.name} not done`;
             trackerToast(message, null, () => logTracker(t, log.amount, true, log.at));
         }
         return res;
@@ -1169,15 +1215,17 @@
 
         const r = trackerRatio(t);
         const p = t.progress || {};
-        if (t.kind === 'check' && t.target.period === 'day') {
-            tap.appendChild(el('span', 'wg-trk__val wg-trk__val--text', done ? 'Done' : 'Not yet'));
-        } else {
-            const val = el('span', 'wg-trk__val', r.value);
-            val.appendChild(el('small', null, r.rest));
-            tap.appendChild(val);
-        }
-
-        if (t.kind === 'check') {
+        if (trackerIsLimit(t)) {
+            tile.classList.add('wg-trk--limit');
+            renderTrackerLimit(t, tap, state);
+        } else if (t.kind === 'check') {
+            if (t.target.period === 'day') {
+                tap.appendChild(el('span', 'wg-trk__val wg-trk__val--text', done ? 'Done' : 'Not yet'));
+            } else {
+                const val = el('span', 'wg-trk__val', r.value);
+                val.appendChild(el('small', null, r.rest));
+                tap.appendChild(val);
+            }
             const row = el('span', 'wg-trk__check');
             const tick = el('span', 'wg-trk__tick');
             if (done) tick.appendChild(ico('check'));
@@ -1185,14 +1233,13 @@
             tap.appendChild(row);
             tap.setAttribute('aria-label', `${t.name}, ${done ? 'done today. Tap to undo' : 'not done yet. Tap to mark done'}`);
         } else {
+            const val = el('span', 'wg-trk__val', r.value);
+            val.appendChild(el('small', null, r.rest));
+            tap.appendChild(val);
             tap.appendChild(Array.isArray(p.days) && p.days.length === 7 ? trackerWeek(t) : trackerMeter(t));
             const foot = el('span', 'wg-trk__foot');
-            const left = fmtNum(Math.max(0, p.target - p.total));
             if (state === 'met') foot.appendChild(chip('Goal met', 'ok', 'check'));
-            else if (state === 'todo') foot.appendChild(el('span', 'wg-meta', `${left} to go`));
-            else if (state === 'under') foot.appendChild(el('span', 'wg-meta', `${left} left ${PERIOD_WORD[t.target.period]}`));
-            else if (state === 'at') foot.appendChild(chip('At limit'));
-            else foot.appendChild(chip(`${fmtNum(p.total - p.target)} over`, 'warn'));
+            else foot.appendChild(el('span', 'wg-meta', `${fmtNum(Math.max(0, p.target - p.total))} to go`));
             tap.appendChild(foot);
             tap.setAttribute('aria-label', `${t.name}, ${r.value} ${r.rest}. Tap to add ${fmtNum(t.step)}`);
         }
@@ -1209,6 +1256,46 @@
         more.addEventListener('click', () => openTrackerSheet(t));
         tile.appendChild(more);
         return tile;
+    }
+
+    // Limit tile (med-1vy5.8): the value (ratio, or the clean streak for a
+    // max-0 limit — never "0 / ≤0"), the Mon..Sun slip strip for weekly
+    // limits (count day/month keep the neutral meter), then one foot: the
+    // slip tick (check) and the budget. Never green: clean is neutral.
+    function renderTrackerLimit(t, tap, state) {
+        const p = t.progress || {};
+        const zero = trackerIsZero(t);
+        const slipped = trackerTodayTotal(t) > 0;
+        const clean = trackerClean(t);
+        if (zero && !(clean > 0)) {
+            tap.appendChild(el('span', 'wg-trk__val wg-trk__val--text', trackerCleanText(t)));
+        } else {
+            const r = trackerRatio(t);
+            const val = el('span', 'wg-trk__val', zero ? fmtNum(clean) : r.value);
+            val.appendChild(el('small', null, zero ? `${clean === 1 ? 'day' : 'days'} clean` : r.rest));
+            tap.appendChild(val);
+        }
+        if (Array.isArray(p.days) && p.days.length === 7) tap.appendChild(trackerWeek(t));
+        else if (t.kind === 'count') tap.appendChild(trackerMeter(t));
+
+        const foot = el('span', 'wg-trk__foot');
+        if (t.kind === 'check') {
+            const row = el('span', 'wg-trk__check');
+            const tick = el('span', slipped ? 'wg-trk__tick wg-trk__tick--slip' : 'wg-trk__tick');
+            if (slipped) tick.appendChild(ico('x'));
+            row.append(tick, el('span', 'wg-meta', slipped ? 'Slipped today' : 'Tap if you slip'));
+            foot.appendChild(row);
+        }
+        if (state === 'over') foot.appendChild(chip(trackerOverText(t), 'warn'));
+        else if (!zero && state === 'at') foot.appendChild(chip('At limit'));
+        else if (!zero) foot.appendChild(el('span', 'wg-meta', `${fmtNum(p.target - p.total)} left ${PERIOD_WORD[t.target.period]}`));
+        if (foot.childNodes.length) tap.appendChild(foot);
+
+        let aria = `${t.name}, ${fmtNum(p.total)} of at most ${fmtNum(p.target)}${t.unit ? ` ${unitText(t.unit, p.target)}` : ''}. Tap to add ${fmtNum(t.step)}`;
+        if (t.kind === 'check' && slipped) aria = `${t.name}, slipped today. Tap to undo`;
+        else if (zero && !slipped) aria =`${t.name}, ${trackerCleanText(t).toLowerCase()}. Tap if you slip`;
+        else if (t.kind === 'check') aria = `${t.name}, no slip today. Tap if you slip`;
+        tap.setAttribute('aria-label', aria);
     }
 
     // A list cached on an earlier account-local day (Today left open past
@@ -1228,6 +1315,7 @@
         // ponytail: a week/month total keeps its sum (yesterday is still in the
         // period, except across a period boundary) until the refetch lands.
         // The Mon..Sun strip is dropped (meter shows) — its today marker would be a day off.
+        // A limit's cleanDays is a day stale (or unknown after yesterday's slip) until then too.
         const { days, ...rest } = p;
         return withLogs({ ...t, progress: { ...rest, total: t.target.period === 'day' ? 0 : p.total } }, 0, []);
     }
@@ -1317,9 +1405,9 @@
         const summary = el('div', 'wg-vstack');
         const line = el('div', 'wg-hstack');
         const r = trackerRatio(t);
-        const stat = el('span', 'wg-stat__value', r.value);
-        stat.appendChild(el('small', null, r.rest));
-        const rule = `${t.target.op === 'atMost' ? 'at most' : 'at least'} ${fmtNum(t.target.value)} ${PERIOD_RULE[t.target.period] || ''}`.trim();
+        const stat = el('span', 'wg-stat__value', trackerIsZero(t) ? trackerCleanText(t) : r.value);
+        if (!trackerIsZero(t)) stat.appendChild(el('small', null, r.rest));
+        const rule =`${t.target.op === 'atMost' ? 'at most' : 'at least'} ${fmtNum(t.target.value)} ${PERIOD_RULE[t.target.period] || ''}`.trim();
         line.append(stat, el('span', 'wg-spacer'), el('span', 'wg-meta', rule));
         summary.appendChild(line);
         body.appendChild(summary);
@@ -1367,7 +1455,7 @@
                 row.setAttribute('data-log-id', log.id);
                 const rb = el('span', 'wg-row__body');
                 rb.appendChild(el('span', 'wg-row__title wg-row__title--mono',
-                    t.kind === 'check' ? 'Done' : fmtTimeHM(log.at)));
+                    t.kind === 'check' ? (trackerIsLimit(t) ? 'Slip' : 'Done') : fmtTimeHM(log.at)));
                 row.appendChild(rb);
                 if (t.kind === 'count') {
                     const v = el('span', 'wg-row__value', `+${fmtNum(log.amount)}`);
@@ -1399,7 +1487,7 @@
             const foot = el('div', 'wg-sheet__foot');
             const label = t.kind === 'count'
                 ? `Add ${fmtNum(amount)}${t.unit ? ` ${unitText(t.unit, amount)}` : ''}`
-                : 'Mark done';
+                : (trackerIsLimit(t) ? 'Log a slip today' : 'Mark done');
             foot.appendChild(btn(label, {
                 primary: true, action: 'tracker-add',
                 onClick: () => logTracker(t, t.kind === 'count' ? amount : null),
@@ -1941,11 +2029,16 @@
     function trackerWeek(t) {
         const week = el('span', 'wg-trk__week');
         week.setAttribute('aria-hidden', 'true');
+        const limit = trackerIsLimit(t);
         t.progress.days.forEach((d) => {
             const seg = el('i');
-            if (d.total > 0) seg.classList.add('is-hit');
+            const future = !!t.day && d.day > t.day;
+            // A limit inverts it: clean days sage, slip days warn (med-1vy5.8).
+            if (limit && d.total > 0) seg.classList.add('is-slip');
+            else if (limit && !future) seg.classList.add('is-clean');
+            else if (!limit && d.total > 0) seg.classList.add('is-hit');
             if (d.day === t.day) seg.classList.add('is-today');
-            else if (t.day && d.day > t.day) seg.classList.add('is-future');
+            else if (future) seg.classList.add('is-future');
             week.appendChild(seg);
         });
         return week;
@@ -1967,9 +2060,9 @@
         const state = trackerState(t);
         if (state === 'met') return 'Goal met';
         if (state === 'todo') return `${left} to go`;
-        if (state === 'under') return `${left} left`;
-        if (state === 'at') return 'At limit';
-        return `${fmtNum(p.total - p.target)} over`;
+        if (state === 'over') return trackerOverText(t);
+        if (trackerIsZero(t)) return 'Within the limit';
+        return state === 'at' ? 'At limit' : `${left} left`;
     }
 
     function shortDate(day) {
@@ -2097,7 +2190,9 @@
         const nowCard = el('div', 'wg-card wg-vstack');
         nowCard.appendChild(el('span', 'wg-eyebrow wg-eyebrow--dot', { day: 'Today', week: 'This week', month: 'This month' }[t.target.period]));
         const line = el('span', 'wg-hstack');
-        if (t.kind === 'check' && t.target.period === 'day') {
+        if (trackerIsZero(t)) {
+            line.appendChild(el('span', 'wg-stat__value', trackerCleanText(t)));
+        } else if (t.kind === 'check' && t.target.period === 'day' && !trackerIsLimit(t)) {
             line.appendChild(el('span', 'wg-stat__value', trackerDoneToday(t) ? 'Done' : 'Not yet'));
         } else {
             const r = trackerRatio(t);
@@ -2107,7 +2202,8 @@
         }
         line.append(el('span', 'wg-spacer'), el('span', 'wg-meta', trackerStatusText(t)));
         nowCard.appendChild(line);
-        nowCard.appendChild(trackerMeter(t));
+        // A max-0 limit has no budget to fill: the clean streak is the line.
+        if (!trackerIsZero(t)) nowCard.appendChild(trackerMeter(t));
         nowCard.appendChild(el('span', 'wg-meta',
             `${t.target.op === 'atMost' ? 'Limit' : 'Goal'} · ${trackerRuleText(t)}${t.reminder ? ` · reminder ${t.reminder.time}` : ''}`));
         body.appendChild(nowCard);
