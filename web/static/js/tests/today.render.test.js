@@ -815,6 +815,33 @@ describe('Trackers card', () => {
         expect(root.querySelector('[data-section="trackers"]')).toBeNull();
     });
 
+    it('weekly tile renders a Mon..Sun strip (hit days, today ringed, future dimmed) and moves on tap; monthly keeps the meter', async () => {
+        const WEEKLY = {
+            id: 'tracker-s', name: 'Stretching', emoji: 'stretch', kind: 'count', unit: null, step: 1,
+            target: { op: 'atLeast', value: 3, period: 'week' }, day: '2026-04-20',
+            progress: {
+                total: 2, target: 3, met: false,
+                days: ['20', '21', '22', '23', '24', '25', '26'].map((d, i) => ({ day: `2026-04-${d}`, total: i === 0 ? 2 : 0 })),
+            },
+            todayLogs: [{ id: 'trackerlog-s', trackerId: 'tracker-s', at: at(9, 0), amount: 1 }],
+        };
+        const MONTHLY = { ...WEEKLY, id: 'tracker-m', target: { op: 'atLeast', value: 8, period: 'month' }, progress: { total: 2, target: 8, met: false } };
+        setup([WEEKLY, MONTHLY]);
+        const segs = [...tile('tracker-s').querySelectorAll('.wg-trk__week i')];
+        expect(segs).toHaveLength(7);
+        expect(segs.map((s) => s.classList.contains('is-hit'))).toEqual([true, false, false, false, false, false, false]);
+        expect(segs.findIndex((s) => s.classList.contains('is-today'))).toBe(0);
+        expect(segs.map((s) => s.classList.contains('is-future'))).toEqual([false, true, true, true, true, true, true]);
+        expect(tile('tracker-s').querySelector('.wg-meter')).toBeNull();
+        expect(tile('tracker-m').querySelector('.wg-trk__week')).toBeNull();
+        expect(tile('tracker-m').querySelector('.wg-meter')).not.toBeNull();
+
+        env.window.apiCall = vi.fn(() => new Promise(() => {}));
+        tile('tracker-s').querySelector('[data-action="tracker-tap"]').click();
+        await vi.waitFor(() => expect(cached('tracker-s').progress.days[0].total).toBe(3));
+        expect(cached('tracker-s').progress.days[1].total).toBe(0);
+    });
+
     it('tap: +step instantly, commits the server log id (survives reload), Undo deletes exactly that tap', async () => {
         setup([WATER]);
         let resolvePost;

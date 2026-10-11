@@ -1029,8 +1029,11 @@
     function withLogs(t, delta, todayLogs) {
         const p = t.progress || { total: 0, target: 0 };
         const total = Number(p.total) + delta;
+        // Weekly strip: today's segment moves with the optimistic total.
+        const days = Array.isArray(p.days)
+            ? p.days.map((d) => (d.day === t.day ? { ...d, total: d.total + delta } : d)) : p.days;
         const met = t.target.op === 'atMost' ? total <= p.target : total >= p.target;
-        return { ...t, todayLogs, progress: { ...p, total, met } };
+        return { ...t, todayLogs, progress: { ...p, total, met, days } };
     }
 
     function addLog(log) {
@@ -1182,7 +1185,7 @@
             tap.appendChild(row);
             tap.setAttribute('aria-label', `${t.name}, ${done ? 'done today. Tap to undo' : 'not done yet. Tap to mark done'}`);
         } else {
-            tap.appendChild(trackerMeter(t));
+            tap.appendChild(Array.isArray(p.days) && p.days.length === 7 ? trackerWeek(t) : trackerMeter(t));
             const foot = el('span', 'wg-trk__foot');
             const left = fmtNum(Math.max(0, p.target - p.total));
             if (state === 'met') foot.appendChild(chip('Goal met', 'ok', 'check'));
@@ -1224,7 +1227,9 @@
         const p = t.progress || {};
         // ponytail: a week/month total keeps its sum (yesterday is still in the
         // period, except across a period boundary) until the refetch lands.
-        return withLogs({ ...t, progress: { ...p, total: t.target.period === 'day' ? 0 : p.total } }, 0, []);
+        // The Mon..Sun strip is dropped (meter shows) — its today marker would be a day off.
+        const { days, ...rest } = p;
+        return withLogs({ ...t, progress: { ...rest, total: t.target.period === 'day' ? 0 : p.total } }, 0, []);
     }
 
     function trackersFor(list, nowMs) {
@@ -1930,6 +1935,20 @@
         sheet.appendChild(body);
         showTrackerModal(sheet, close);
         return sheet;
+    }
+
+    // Weekly tile (TR1): Mon..Sun strip instead of the meter.
+    function trackerWeek(t) {
+        const week = el('span', 'wg-trk__week');
+        week.setAttribute('aria-hidden', 'true');
+        t.progress.days.forEach((d) => {
+            const seg = el('i');
+            if (d.total > 0) seg.classList.add('is-hit');
+            if (d.day === t.day) seg.classList.add('is-today');
+            else if (t.day && d.day > t.day) seg.classList.add('is-future');
+            week.appendChild(seg);
+        });
+        return week;
     }
 
     function trackerMeter(t) {
