@@ -355,7 +355,13 @@
             scheduled_time: session.scheduled_time,
             group_name: groupName,
             status: session.status,
-            is_today: session.is_today === true
+            is_today: session.is_today === true,
+            // Same top-level fields the Workouts next-card reads (next-card.js):
+            // the rotating day's name and the ids its editor opens on.
+            variant_id: (data && data.variant_id) || 0,
+            group_id: (data && data.group_id) || 0,
+            variant_name: (data && data.variant_name) || '',
+            is_rotating: !!(data && data.is_rotating)
         };
         return cell(value, 'workouts', 'ok');
     }
@@ -707,7 +713,9 @@
         } else {
             const v = item.value;
             lead.appendChild(ico('dumbbell'));
-            body.appendChild(el('span', 'wg-row__title', v.group_name || 'Workout'));
+            const groupTitle = v.group_name || 'Workout';
+            body.appendChild(el('span', 'wg-row__title',
+                v.is_rotating && v.variant_name ? `${groupTitle} — ${v.variant_name}` : groupTitle));
             const parts = [];
             if (v.is_today) parts.push('today');
             else if (Number.isFinite(item.at)) parts.push(dayWord(item.at, nowMs));
@@ -725,7 +733,13 @@
             } else if (kind === 'resume') {
                 action = btn('Resume', { sm: true, primary, icon: 'play', action: 'resume-workout', onClick: () => h.onResumeWorkout(v.id) });
             } else {
-                action = btn('View', { sm: true, action: 'view-workout', onClick: () => h.onDeeplink('workouts') });
+                action = btn('View', { sm: true, action: 'view-workout', onClick: () => h.onViewWorkout(v) });
+                // An upcoming session can be started early: the start flow
+                // re-keys it onto today's slot (domain startSession, med-gmyf).
+                if (!v.is_today && v.id != null && (!v.status || v.status === 'pending' || v.status === 'scheduled')) {
+                    trail.appendChild(action);
+                    action = btn('Start', { sm: true, icon: 'play', action: 'start-workout', onClick: () => h.onStartWorkout(v.id) });
+                }
             }
         }
         body.appendChild(meta);
@@ -2617,6 +2631,15 @@
             onStartWorkout: opts.onStartWorkout || ((id) => {
                 if (win.WorkoutSessions && typeof win.WorkoutSessions.start === 'function') win.WorkoutSessions.start(id);
                 else onDeeplink('workouts');
+            }),
+            // The day's editor the Workouts next-card opens; Workouts first so
+            // the plan pages mount over their own section.
+            onViewWorkout: opts.onViewWorkout || ((v) => {
+                onDeeplink('workouts');
+                const card = win.WorkoutNextCard;
+                if (card && typeof card.openEdit === 'function' && v && v.variant_id && v.group_id) {
+                    card.openEdit(v.variant_id, v.group_id);
+                }
             }),
             onResumeWorkout: opts.onResumeWorkout || ((id) => {
                 if (win.WorkoutSessions && typeof win.WorkoutSessions.open === 'function') win.WorkoutSessions.open(id);

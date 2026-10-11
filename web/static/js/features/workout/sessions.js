@@ -2286,8 +2286,10 @@ async function startWorkoutSession(sessionId) {
             }
 
             // Open the session modal directly — no success alert (bd med-bp6t).
-            // The start route returns true, so the id we already hold is used.
-            await showWorkoutSessionModal(sessionId);
+            // Starting an upcoming session re-keys it onto today's slot (or an
+            // ad-hoc one, med-gmyf); the route names the session it started.
+            const startedId = result && result.session_id != null ? result.session_id : sessionId;
+            await showWorkoutSessionModal(startedId);
 
             if (nextHandle) await nextHandle.commit(null);
             await invalidateWorkoutCache();

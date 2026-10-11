@@ -131,13 +131,15 @@ describe('cloud shim contract — workout groups/variants/exercises/library CRUD
             // one group holds both an in_progress and a pending session.
             const future = await window.apiCallDirect('/api/workout/sessions/next');
             expect(future.session.id).not.toBe(done.session.id);
-            await window.apiCall(`/api/workout/sessions/${future.session.id}/start`, 'POST');
+            const started = await window.apiCall(`/api/workout/sessions/${future.session.id}/start`, 'POST');
             const list = await window.apiCall('/api/workout/sessions?limit=500');
             const mine = list.filter((v) => v.session.group_id === group.id);
             const today = mine.find((v) => v.session.id !== done.session.id && v.session.id !== future.session.id);
             const fresh = await window.apiCall(`/api/workout/sessions/details?id=${future.session.id}`, 'GET');
             expect(fresh.session.status).toBe('pending');
             expect(today).toBeDefined();
+            // The start route names the re-keyed session it started (med-rggu).
+            expect(started).toEqual({ session_id: today.session.id });
             expect((await window.apiCall(`/api/workout/sessions/details?id=${today.session.id}`, 'GET')).session.status)
                 .toBe('in_progress');
 

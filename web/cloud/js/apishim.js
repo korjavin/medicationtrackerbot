@@ -1085,7 +1085,8 @@ export function createApiRouter(ctx, {
         // today's occurrence instead of a future one if it had.
         const answersReminder = action === 'start' || action === 'skip' || action === 'preskip';
         const details = answersReminder ? await workout.getSessionDetails(id) : null;
-        if (action === 'start') await workout.startSession(id);
+        let startedId;
+        if (action === 'start') startedId = await workout.startSession(id);
         else if (action === 'snooze') await workout.snoozeSession(id, body && body.minutes);
         else if (action === 'skip') await workout.skipSession(id);
         else if (action === 'preskip') await workout.preSkipSession(id);
@@ -1095,7 +1096,9 @@ export function createApiRouter(ctx, {
         // start/snooze/skip change the session's status, which the horizon uses
         // to suppress the recurring reminder — re-push so the relay follows.
         scheduleReminderRecompute(ctx, { records, timeZone });
-        return true;
+        // start may run a different session than the tapped one (re-key onto
+        // today, or ad-hoc) — name it so the caller opens the right one.
+        return startedId != null ? { session_id: startedId } : true;
       }
     }
 

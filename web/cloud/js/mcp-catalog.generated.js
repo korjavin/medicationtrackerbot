@@ -2751,8 +2751,8 @@ export const CATALOG = [
       "id"
     ],
     "risk": "write",
-    "description": "Mark a workout session as in_progress and set started_at to now; clears any snooze and updates the user-facing notification.",
-    "response_summary": "Empty body on success (HTTP 200).",
+    "description": "Mark a workout session as in_progress and set started_at to now; clears any snooze and updates the user-facing notification. Starting a session scheduled for another day starts today's slot for the same plan (or an ad-hoc session when today's is already done) and leaves the tapped one pending.",
+    "response_summary": "{session_id} — the id of the session now in progress (may differ from the path id).",
     "required": [
       "id"
     ]
