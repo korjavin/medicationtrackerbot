@@ -207,4 +207,41 @@ describe('unlock share-plan fragment (med-uo64.3)', () => {
     });
 
   });
+
+  // med-5h1t.3: session renewal is login-only — no PRF requested, none needed,
+  // no envelope fetched, no DEK returned.
+  describe('session renewal', () => {
+    it('renewSession re-mints the session without PRF or an envelope unwrap', async () => {
+      let requested;
+      setGlobal('PublicKeyCredential', { parseRequestOptionsFromJSON: (x) => x || {} });
+      setGlobal('navigator', {
+        credentials: {
+          get: async (opts) => {
+            requested = opts.publicKey;
+            return {
+              rawId: new Uint8Array(4).buffer,
+              getClientExtensionResults: () => ({}), // a passkey without PRF
+              toJSON: () => ({ id: 'cred-1', rawId: 'cred-1', response: {}, clientExtensionResults: {} }),
+            };
+          },
+        },
+      });
+      const urls = [];
+      setGlobal('fetch', async (url) => {
+        const u = String(url);
+        urls.push(u);
+        if (u === '/api/webauthn/login/begin') return { ok: true, json: async () => ({ publicKey: {} }) };
+        if (u === '/api/webauthn/login/finish') return { ok: true, json: async () => ({ account_id: 'acct-9' }) };
+        throw new Error('unexpected fetch ' + u);
+      });
+
+      const { renewSession } = await import('../unlock.js');
+      const result = await renewSession();
+
+      expect(result).toEqual({ accountId: 'acct-9' });
+      expect(requested.userVerification).toBe('required');
+      expect(requested.extensions).toBeUndefined();
+      expect(urls).toEqual(['/api/webauthn/login/begin', '/api/webauthn/login/finish']);
+    });
+  });
 });

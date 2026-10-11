@@ -29,15 +29,41 @@ export function renderAddDevice(mount, ctx, onExit) {
     flow.live = false;
   };
 
+  // med-5h1t.3: the warm ctx carries no raw DEK, and an unlocked tab left open
+  // must not be enough to hand the vault to a new device. Every code starts
+  // with a fresh passkey assertion; its DEK lives only in this ceremony.
+  // Accepted tradeoff: a device whose passkey is gone or lacks PRF cannot
+  // originate a transfer — the Emergency Kit still enrolls a new device.
   function start() {
     stop();
-    mount.innerHTML = '<p class="wg-hint">Generating a one-time transfer code&hellip;</p>';
-    startTransfer().catch((err) => renderError(err.message || String(err)));
+    mount.innerHTML = `
+      <section class="wg-section">
+        <p>Confirm it's you with this device's passkey to create a one-time
+           code for your new device.</p>
+        <button type="button" id="transfer-confirm" class="wg-btn wg-btn--primary wg-btn--block">Confirm with passkey</button>
+      </section>`;
+    const confirmButton = mount.querySelector('#transfer-confirm');
+    confirmButton.addEventListener('click', () => {
+      confirmButton.disabled = true;
+      confirmButton.textContent = 'Waiting for your passkey…';
+      confirmAndStart().catch((err) => renderError(err.message || String(err)));
+    });
   }
 
-  async function startTransfer() {
+  async function confirmAndStart() {
+    const { assertPasskey } = await import('./unlock.js');
+    const { accountId, dek } = await assertPasskey();
+    // Checked before anything is encrypted or posted (same as devices.js
+    // rotateEmergencyKit): a passkey for another account must not mint a code.
+    if (accountId !== ctx.accountId) throw new Error('That passkey belongs to a different account.');
+    if (flow.closed) return;
+    mount.innerHTML = '<p class="wg-hint">Generating a one-time transfer code&hellip;</p>';
+    await startTransfer(dek);
+  }
+
+  async function startTransfer(dek) {
     const tk = crypto.getRandomValues(new Uint8Array(TRANSFER_TK_BYTES));
-    const packed = await encryptTransferPayload(tk, ctx.dek, ctx.accountId);
+    const packed = await encryptTransferPayload(tk, dek, ctx.accountId);
 
     const res = await fetch('/api/transfer', {
       method: 'POST',

@@ -86,27 +86,22 @@ function renderLocked(app, errorText) {
   }
 }
 
-// The cold-unlock ceremony proper: assert a passkey, evaluate PRF, and unwrap
-// that credential's envelope into the DEK. Exported because it is also the
-// *reauthentication* primitive — devices.js requires a fresh assertion before
-// rotating the recovery code, so an unlocked tab left open on a shared laptop
-// cannot invalidate someone's Emergency Kit (med-d5t.12). Its success proves
-// the user is physically present, and hands back the DEK the rotation re-wraps.
-export async function assertPasskey() {
+// The passkey login ceremony: assert a credential and let /login/finish re-mint
+// the session cookie. With a salt (cold unlock) the PRF eval rides along and
+// its output comes back for the KEK; without one (session renewal) nothing
+// key-related is requested, so renewal works where PRF is unavailable.
+async function loginCeremony(salt) {
   const beginRes = await fetch('/api/webauthn/login/begin', { method: 'POST' });
   if (!beginRes.ok) throw new Error('Could not start unlock — no passkey is registered yet.');
   const { publicKey } = await beginRes.json();
   const requestOptions = PublicKeyCredential.parseRequestOptionsFromJSON(publicKey);
 
-  // Top-level prf.eval = salt_kek per docs/cloud-crypto.md "cold unlock" — the
-  // salt applies to whichever allowed credential the authenticator picks.
-  const salt = await saltKek();
-  const assertion = await navigator.credentials.get({
-    publicKey: { ...requestOptions, userVerification: 'required', extensions: { prf: { eval: { first: salt } } } },
-  });
+  const options = { ...requestOptions, userVerification: 'required' };
+  if (salt) options.extensions = { prf: { eval: { first: salt } } };
+  const assertion = await navigator.credentials.get({ publicKey: options });
 
   const prfOutput = assertion.getClientExtensionResults().prf?.results?.first;
-  if (!prfOutput) throw new Error("This passkey doesn't support the security feature this app needs.");
+  if (salt && !prfOutput) throw new Error("This passkey doesn't support the security feature this app needs.");
 
   const finishBody = assertion.toJSON();
   // Never transmit the PRF output — it lives client-side only.
@@ -119,8 +114,28 @@ export async function assertPasskey() {
   });
   if (!finishRes.ok) throw new Error('Unlock failed. Please try again.');
   const { account_id: accountId } = await finishRes.json();
+  return { accountId, credentialId: new Uint8Array(assertion.rawId), prfOutput };
+}
 
-  const credentialId = new Uint8Array(assertion.rawId);
+// Session renewal only (sync.js reauthenticate): a fresh assertion re-mints the
+// 30-day session cookie. No PRF, no envelope, no raw DEK — the warm ctx already
+// holds what the operational path needs.
+export async function renewSession() {
+  const { accountId } = await loginCeremony(null);
+  return { accountId };
+}
+
+// The cold-unlock ceremony proper: assert a passkey, evaluate PRF, and unwrap
+// that credential's envelope into the DEK. Exported because it is also the
+// fresh-assertion gate for the raw-DEK ceremonies on a warm device —
+// devices.js before rotating the recovery code (med-d5t.12) and transfer.js
+// before handing the DEK to a new device (med-5h1t.3) — so an unlocked tab
+// left open on a shared laptop can do neither. Its success proves the user is
+// physically present, and hands back the DEK that ceremony needs.
+export async function assertPasskey() {
+  // Top-level prf.eval = salt_kek per docs/cloud-crypto.md "cold unlock" — the
+  // salt applies to whichever allowed credential the authenticator picks.
+  const { accountId, credentialId, prfOutput } = await loginCeremony(await saltKek());
   const kek = await deriveKEK(new Uint8Array(prfOutput), accountId, credentialId);
 
   const envRes = await fetch(`/api/envelopes/${toBase64Url(credentialId)}`);

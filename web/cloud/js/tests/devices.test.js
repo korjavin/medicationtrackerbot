@@ -11,7 +11,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JSDOM } from 'jsdom';
 
 vi.mock('../crypto.js', () => ({
-  auditEnvelope: vi.fn(async () => true),
+  auditEnvelopeWithKey: vi.fn(async () => true),
+  deriveDataKeys: vi.fn(async () => ({ kData: 'fake-kdata', kMac: 'fake-kmac' })),
   fromBase64: vi.fn((x) => x),
   fromBase64Url: vi.fn((x) => x),
 }));
@@ -21,6 +22,7 @@ vi.mock('../unlock.js', () => ({ assertPasskey: vi.fn() }));
 vi.mock('../signup.js', () => ({ renderEmergencyKit: vi.fn(async () => {}) }));
 
 import { assertPasskey } from '../unlock.js';
+import { auditEnvelopeWithKey } from '../crypto.js';
 import { renderEmergencyKit } from '../signup.js';
 
 import { renderDeviceList, renderRegenerateKit } from '../devices.js';
@@ -73,7 +75,9 @@ describe('devices.js device list', () => {
 
     const rows = app.querySelectorAll('#device-list .wg-row.device-row');
     expect(rows).toHaveLength(2);
-    // auditEnvelope is mocked true; the envelope-less device stays unverified.
+    // The audit runs on the verify-only K_mac leaf key, never raw DEK bytes
+    // (med-5h1t.3); mocked true, so the envelope-less device stays unverified.
+    expect(auditEnvelopeWithKey).toHaveBeenCalledWith(expect.objectContaining({ kMac: 'fake-kmac' }));
     expect(rows[0].querySelector('.wg-chip--ok.device-verified')).not.toBeNull();
     expect(rows[1].querySelector('.wg-chip--danger.device-unverified')).not.toBeNull();
     expect(rows[0].querySelector('.wg-row__title').textContent).toBe('Passkey aaaabbbb…');

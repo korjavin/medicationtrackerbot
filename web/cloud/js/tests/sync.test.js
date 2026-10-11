@@ -7,7 +7,7 @@ import { openDb, cachedDb, dropCachedDb, onCachedDbDropped } from '../localdb.js
 // reauthenticate() dynamic-imports unlock.js for the passkey ceremony; the real
 // module drives navigator.credentials, which doesn't exist in jsdom.
 vi.mock('../unlock.js', () => ({
-  assertPasskey: vi.fn(async () => ({ accountId: 'amber-falcon-8k3q9x', dek: null, credentialId: null })),
+  renewSession: vi.fn(async () => ({ accountId: 'amber-falcon-8k3q9x' })),
 }));
 
 const accountId = 'amber-falcon-8k3q9x';
@@ -756,10 +756,27 @@ describe('a full vault reads as full, not as offline (med-d5t.4)', () => {
     }));
     const status = await reauthenticate(ctx);
 
-    const { assertPasskey } = await import('../unlock.js');
-    expect(assertPasskey).toHaveBeenCalled();
+    const { renewSession } = await import('../unlock.js');
+    expect(renewSession).toHaveBeenCalled();
     expect(status.authExpired).toBe(false);
     expect(status.pendingCount).toBe(0);
+  });
+
+  // med-5h1t.3: renewal is login-only (no PRF, no unwrap) but still refuses a
+  // session for another account — nothing drains, the flag stays up.
+  it('reauthenticate rejects a renewal that lands on a different account and does not drain', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    opsStatus = 401;
+    await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+    await flushConfirmed(ctx);
+    const { renewSession } = await import('../unlock.js');
+    renewSession.mockResolvedValueOnce({ accountId: 'someone-else' });
+    const fetchSpy = vi.fn(async () => { throw new Error('must not drain'); });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await expect(reauthenticate(ctx)).rejects.toThrow(/different account/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(await getSyncStatus(ctx)).toMatchObject({ authExpired: true, pendingCount: 1 });
   });
 
   it('reports an unnameable permanent refusal honestly, without guessing "full"', async () => {
