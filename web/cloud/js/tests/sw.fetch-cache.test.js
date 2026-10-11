@@ -65,6 +65,7 @@ function makeCaches(fetchImpl) {
             return undefined;
         }),
         keys: vi.fn(async () => [...store.keys()]),
+        has: vi.fn(async (name) => store.has(name)),
         delete: vi.fn(async (name) => store.delete(name)),
     };
 }
@@ -372,7 +373,24 @@ describe('cloud sw.js — offline app-shell fetch cache (med-deq.1)', () => {
         expect(self.skipWaiting).not.toHaveBeenCalled();
     });
 
-    it('install REJECTS when a module in the ceremony graph fails — its css alone stays best-effort (med-5h1t.6)', async () => {
+    it('a failed install never deletes a SAME-NAME cache it did not create (reused stamp = the active worker\'s cache) (med-5h1t.6)', async () => {
+        // Rollback to the active image, same-minute deploys, or unstamped dev
+        // reuse SW_VERSION, so SHELL_CACHE already belongs to the live worker.
+        const liveBoot = bodyResponse('// active worker boot');
+        caches.seed(SHELL_CACHE, '/js/boot.js', liveBoot);
+        fetchMock.mockImplementation(async (url) =>
+            new URL(url, ORIGIN).pathname === '/'
+                ? bodyResponse('<script src="/js/boot.js"></script>')
+                : bodyResponse('', 404)
+        );
+
+        await expect(fireInstall()).rejects.toThrow('/js/boot.js');
+
+        expect(caches.delete).not.toHaveBeenCalled();
+        expect(caches.store.get(SHELL_CACHE).get('/js/boot.js')).toBe(liveBoot);
+    });
+
+    it('install REJECTS when a module in the ceremony graph fails — a non-module ceremony asset (css) stays best-effort (med-5h1t.6)', async () => {
         // Ceremony modules share crypto/unlock/sync with the '/' graph, so a
         // skipped one would later be filled from a newer deploy — fatal too.
         allowConsoleNoise(); // the skipped-best-effort-css warning logs by design
@@ -451,7 +469,7 @@ describe('cloud sw.js — offline app-shell fetch cache (med-deq.1)', () => {
         // router.go rewrites all five ceremony paths to /signup.html internally
         // (router.go L334-337), so the mock serves that same document for each —
         // exactly what warmCeremony fetches ('/unlock') and caches under every
-        // ceremony path. The best-effort ceremony warm then crawls signup's
+        // ceremony path. The ceremony warm then crawls signup's
         // module graph against the real /js + /css tree.
         const CEREMONY = new Set(['/unlock', '/claim', '/recover', '/devices', '/connectors']);
         fetchMock.mockImplementation(async (url) => {
@@ -521,7 +539,7 @@ describe('cloud sw.js — offline app-shell fetch cache (med-deq.1)', () => {
         await fireInstall();
 
         const cached = caches.store.get(SHELL_CACHE);
-        // Primary '/' shell still cached, unaffected by the best-effort ceremony warm.
+        // Primary '/' shell still cached alongside the ceremony shell.
         expect(cached.has('/')).toBe(true);
         expect(cached.has('/static/a.js?v=1')).toBe(true);
         // Ceremony doc cached under all five paths + its css + dynamic-import graph.

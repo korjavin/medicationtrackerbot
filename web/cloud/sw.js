@@ -77,14 +77,15 @@ async function cacheAndCrawl(cache, url) {
 // the update banner was accepted. So the cached graph is COHERENT PER
 // GENERATION — all-or-nothing:
 //   - Fatal: the '/' document, every one of its direct <script src>/<link href>
-//     refs, and every crawled .js/.mjs module (CRAWLABLE_RE) in either shell.
-//     Any failure REJECTS the install and warmShell deletes the partial cache.
-//     The previous SW + its complete cache keep serving; the browser retries
-//     the update on the next navigation. (The disk-backed test in
-//     sw.fetch-cache.test.js pins every ref to a real repo file so a bad ref
-//     can't permanently wedge updates.)
-//   - Best-effort: only the ceremony shell's non-module assets (its css) —
-//     logged and skipped; a missing stylesheet cannot skew a module graph.
+//     refs, and in the ceremony shell every non-vendor .js/.mjs (CRAWLABLE_RE,
+//     modules and classic scripts alike) — directly referenced or crawled.
+//     Any failure REJECTS the install and warmShell deletes the partial cache
+//     (only if this install created it). The previous SW + its complete cache
+//     keep serving; the browser retries the update on the next navigation.
+//     (The disk-backed test in sw.fetch-cache.test.js pins every ref to a real
+//     repo file so a bad ref can't permanently wedge updates.)
+//   - Best-effort: every OTHER ceremony-shell asset (css, vendor bundles) —
+//     logged and skipped; none of them is part of the crawled module graph.
 //
 // Crawl one document's subresource + ES-module graph into `cache`, sharing the
 // `seen` set across documents so an asset already cached by an earlier call is
@@ -112,6 +113,10 @@ async function warmDocGraph(cache, html, seen, strict) {
 }
 
 async function warmShell() {
+  // A reused stamp (rollback to the active worker's image, same-minute deploys,
+  // unstamped dev) means SHELL_CACHE is the ACTIVE worker's cache — never
+  // delete what this install did not create.
+  const preexisting = await caches.has(SHELL_CACHE);
   try {
     const cache = await caches.open(SHELL_CACHE);
     const doc = await fetch('/');
@@ -130,7 +135,7 @@ async function warmShell() {
     // No partial graph may survive: the fetch handler's global caches.match
     // searches every cache, so a half-warmed one would leak its modules into
     // the still-active previous generation.
-    await caches.delete(SHELL_CACHE);
+    if (!preexisting) await caches.delete(SHELL_CACHE);
     throw e;
   }
 }
