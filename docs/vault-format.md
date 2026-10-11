@@ -284,6 +284,18 @@ Flat per-sample arrays — the format hides the cloud day-batching (see
 - **note** (leaf, no `id`) — `content` (str), `tag` (str|null — one of
   `SLEEP`/`STRESS`/`HR`/`SPO2`/`STEPS`/`NOTE`), `created_at` (RFC3339).
 
+### `trackers`
+
+```json
+"trackers": { "items": [ { tracker } ], "logs": [ { log } ] }   // optional, cloud-only — omitted when empty
+```
+
+- **tracker** — the `tracker` record body plus its recordId as `id` (logs reference
+  it); fields per `web/domain/trackers.js`. Archived trackers are carried.
+- **log** (leaf) — count: `trackerId`, `at` (RFC3339), `amount`; check: `trackerId`,
+  `date` (`YYYY-MM-DD` local), `done`. Import re-mints a check log's
+  `trackerlog:<trackerId>:<date>` id and a fresh id per count log.
+
 ### `tz`
 
 ```json
@@ -553,6 +565,8 @@ Export → import → export (and each single hop) must be
   `med_reminder_pref` is stripped.
 - **Cloud-only food day flags** — `food.incomplete_days` (med-0sgs). Legacy bot
   files omit it; stripped the same way.
+- **Cloud-only trackers** — `trackers` (med-1vy5). Legacy bot files omit it;
+  stripped the same way.
 - **Timestamp offsets** — timestamps compare as **instants**, not as text. (Legacy
   bot import normalized every timestamp to UTC before storing it
   (`2026-07-07T12:00:00+02:00` → `2026-07-07T10:00:00Z`), because

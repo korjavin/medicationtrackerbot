@@ -18,6 +18,7 @@ import { createWorkoutSheetAIDomain } from '../../domain/workoutsheet.js';
 import { createWorkoutShareDomain } from '../../domain/workout-share.js';
 import { createWorkoutDomain } from '../../domain/workout.js';
 import { createEquipmentDomain } from '../../domain/equipment.js';
+import { createTrackersDomain } from '../../domain/trackers.js';
 import { createGamificationDomain } from '../../domain/gamification.js';
 import { createAnalysis } from '../../domain/analysis.js';
 import { createBriefDomain } from '../../domain/brief.js';
@@ -169,7 +170,7 @@ export function createApiRouter(ctx, {
   // domain module's signature (they all take timeZone as a captured string).
   let timeZone = deviceTimeZone;
   let bp; let weight; let notes; let settings; let vitals; let reminders;
-  let medications; let intake; let tzplan; let foodDb; let food; let aiClient; let exerciseTag; let equipment;
+  let medications; let intake; let tzplan; let foodDb; let food; let aiClient; let exerciseTag; let equipment; let trackers;
   let foodAI; let workout; let workoutSheetAI; let workoutShare; let gamification; let narrator; let analysis;
   function buildDomains(tz) {
     timeZone = tz;
@@ -203,6 +204,7 @@ export function createApiRouter(ctx, {
     foodAI = createFoodAIDomain({ aiClient, foodDomain: food, now });
     workout = createWorkoutDomain({ records, now, timeZone });
     equipment = createEquipmentDomain({ records, now });
+    trackers = createTrackersDomain({ records, now, timeZone });
     // LLM body-part tagging for exercise names the static catalog cannot
     // classify (custom / non-English names). Names only; `ai` consent scope.
     exerciseTag = createExerciseTagDomain({ aiClient, workoutDomain: workout });
@@ -510,6 +512,24 @@ export function createApiRouter(ctx, {
     if (method === 'DELETE') {
       const m = /^\/api\/notes\/([^/]+)$/.exec(path);
       if (m) { await notes.remove(m[1]); return true; }
+    }
+
+    // User trackers (med-1vy5). Ids are decoded: a check log id carries ':'.
+    if (path === '/api/trackers') {
+      if (method === 'GET') return trackers.list();
+      if (method === 'POST') return trackers.create(body);
+    }
+    if (path.startsWith('/api/trackers/')) {
+      const seg = path.slice('/api/trackers/'.length).split('/').map(decodeURIComponent);
+      const [id] = seg;
+      if (seg.length === 1 && method === 'PUT') return trackers.update(id, body);
+      if (seg.length === 1 && method === 'DELETE') { await trackers.archive(id); return true; }
+      if (seg.length === 2 && seg[1] === 'log' && method === 'POST') return trackers.log(id, body || {});
+      if (seg.length === 3 && seg[1] === 'log' && method === 'DELETE') return trackers.unlog(id, seg[2]);
+      if (seg.length === 3 && seg[1] === 'days' && method === 'PUT') return trackers.setDay(id, seg[2], body && body.done);
+      if (seg.length === 2 && seg[1] === 'history' && method === 'GET') {
+        return trackers.history(id, positiveIntParam(params, 'days', 30));
+      }
     }
 
     if (path === '/api/settings/weight-unit' && method === 'PATCH') {

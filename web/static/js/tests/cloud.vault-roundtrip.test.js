@@ -42,6 +42,19 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     expect(back.data).toEqual(dropGps(fixture.data));
   });
 
+  it('trackers keep their id; check logs re-mint the deterministic day id (med-1vy5)', () => {
+    const records = vaultToRecords(fixture, { now: NOW });
+    const of = (type) => records.filter((r) => r.recordType === type);
+    expect(of('tracker').map((r) => r.recordId)).toEqual(fixture.data.trackers.items.map((t) => t.id));
+    const logIds = of('trackerlog').map((r) => r.recordId);
+    expect(logIds).toContain('trackerlog:tracker-1783500000001_noalc01:2026-07-07');
+    expect(logIds.filter((id) => id.startsWith('trackerlog-'))).toHaveLength(2);
+    // A tracker-free file imports none and re-exports without the key.
+    const legacy = JSON.parse(JSON.stringify(fixture));
+    delete legacy.data.trackers;
+    expect('trackers' in recordsToVault(vaultToRecords(legacy, { now: NOW }), { now: NOW }).data).toBe(false);
+  });
+
   it('re-attaches goal milestones to the re-minted goal with their goal_set_at (med-8tur.5)', () => {
     const records = vaultToRecords(fixture, { now: NOW });
     const goal = records.find((r) => r.recordType === 'weightgoal' && r.set_at === '2026-06-01T09:00:00Z');
@@ -130,6 +143,8 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
       if (d.workouts) delete d.workouts.equipment;
       // Incomplete-day flags are cloud-only too (med-0sgs).
       if (d.food) delete d.food.incomplete_days;
+      // User trackers are cloud-only too (med-1vy5).
+      delete d.trackers;
       // Gyms are cloud-only too (med-8j5w.1): the locations list, the
       // active-gym singleton and the per-session stamp.
       if (d.workouts) {
