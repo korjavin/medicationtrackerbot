@@ -52,6 +52,8 @@ describe('trackers domain — validation', () => {
     await expect(d.create({ ...WATER, target: { ...WATER.target, op: 'exactly' } })).rejects.toMatchObject({ code: 'invalid_request' });
     await expect(d.create({ ...WATER, target: { ...WATER.target, period: 'year' } })).rejects.toMatchObject({ code: 'invalid_request' });
     await expect(d.create({ ...WATER, target: { ...WATER.target, value: 0 } })).rejects.toMatchObject({ code: 'invalid_request' });
+    await expect(d.create({ ...WATER, target: { op: 'atMost', value: -1, period: 'day' } })).rejects.toMatchObject({ code: 'invalid_request' });
+    expect((await d.create({ ...WATER, name: 'Cola', target: { op: 'atMost', value: 0, period: 'day' } })).target.value).toBe(0);
     await expect(d.create({ ...WATER, step: 0 })).rejects.toMatchObject({ code: 'invalid_request' });
     const ok = await d.create({ ...WATER, name: 'x'.repeat(60) });
     expect(ok.step).toBe(1);

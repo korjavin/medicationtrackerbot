@@ -68,6 +68,12 @@ function positive(v, field) {
   return n;
 }
 
+function nonNegative(v, field) {
+  const n = Number(v);
+  if (v === null || v === '' || !Number.isFinite(n) || n < 0) throw invalid(`${field} must be >= 0`);
+  return n;
+}
+
 // normalizeTracker validates a full tracker body (create, or update merged
 // over the stored one). Returns only the fields the record carries.
 function normalizeTracker(input) {
@@ -89,7 +95,8 @@ function normalizeTracker(input) {
     kind: input.kind,
     unit: typeof input.unit === 'string' && input.unit.trim() ? input.unit.trim() : null,
     step: input.kind === 'count' ? positive(input.step ?? 1, 'step') : 1,
-    target: { op: t.op, value: positive(t.value, 'target.value'), period: t.period },
+    // A limit of 0 is valid ("no cola"); a goal of 0 is not.
+    target: { op: t.op, value: t.op === 'atMost' ? nonNegative(t.value, 'target.value') : positive(t.value, 'target.value'), period: t.period },
     reminder,
     archived: !!input.archived,
   };
