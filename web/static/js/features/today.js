@@ -1049,9 +1049,11 @@
     }
 
     // One optimistic write on the cached list: patch, send, then commit — with
-    // the provisional log id swapped for the server's — or roll back when the
-    // call fails (apiCall resolves null and has already told the user).
-    async function trackerWrite(mutator, send, provisionalId) {
+    // the provisional log id swapped for the server's. A failed call (apiCall
+    // resolves null and has already told the user) commits `revert` over the
+    // CURRENT list instead of rolling back to the snapshot, so an overlapping
+    // tap that succeeded meanwhile is not erased with it.
+    async function trackerWrite(mutator, revert, send, provisionalId) {
         const ds = typeof window !== 'undefined' ? window.DataStore : null;
         const handle = (ds && typeof ds.applyOptimistic === 'function')
             ? await ds.applyOptimistic(TRACKERS_KEY, mutator, TRACKERS_TAGS)
@@ -1060,14 +1062,16 @@
         try { res = await send(); } catch (_) { res = null; }
         if (!handle) return res;
         try {
-            if (!res) {
-                await handle.rollback();
+            const cur = await ds.getCached(TRACKERS_KEY);
+            if (!Array.isArray(cur)) {
+                await (res ? handle.commit(null) : handle.rollback());
+            } else if (!res) {
+                await handle.commit(revert(cur));
             } else if (provisionalId && res.id) {
-                const cur = await ds.getCached(TRACKERS_KEY);
-                await handle.commit(Array.isArray(cur) ? cur.map((t) => ({
+                await handle.commit(cur.map((t) => ({
                     ...t,
                     todayLogs: (t.todayLogs || []).map((l) => (l.id === provisionalId ? res : l)),
-                })) : null);
+                })));
             } else {
                 await handle.commit(null);
             }
@@ -1100,7 +1104,7 @@
         const log = t.kind === 'check'
             ? { id: provisionalId, trackerId: t.id, done: true }
             : { id: provisionalId, trackerId: t.id, at: new Date().toISOString(), amount: n };
-        const res = await trackerWrite(patchTracker(t.id, addLog(log)),
+        const res = await trackerWrite(patchTracker(t.id, addLog(log)), patchTracker(t.id, dropLog(provisionalId)),
             () => api(`/api/trackers/${encodeURIComponent(t.id)}/log`, 'POST', t.kind === 'check' ? {} : { amount: n }),
             provisionalId);
         if (res && res.id && !quiet) {
@@ -1114,7 +1118,7 @@
     async function unlogTracker(t, log, quiet) {
         const api = trackersApi();
         if (!api) return null;
-        const res = await trackerWrite(patchTracker(t.id, dropLog(log.id)),
+        const res = await trackerWrite(patchTracker(t.id, dropLog(log.id)), patchTracker(t.id, addLog(log)),
             () => api(`/api/trackers/${encodeURIComponent(t.id)}/log/${encodeURIComponent(log.id)}`, 'DELETE'));
         if (res && !quiet) {
             trackerToast(`${t.name} not done`, null, () => logTracker(t, null, true));
@@ -1122,8 +1126,16 @@
         return res;
     }
 
+    // A log still carrying its provisional id has no server record to delete
+    // yet; its tap / delete waits for the commit.
+    function isProvisional(log) {
+        return String(log && log.id).startsWith('pending-');
+    }
+
     function trackerTap(t) {
-        if (trackerDoneToday(t)) return unlogTracker(t, t.todayLogs[0]);
+        if (trackerDoneToday(t)) {
+            return isProvisional(t.todayLogs[0]) ? null : unlogTracker(t, t.todayLogs[0]);
+        }
         return logTracker(t, t.step);
     }
 
@@ -1193,8 +1205,31 @@
         return tile;
     }
 
-    function renderTrackersCard(list) {
-        const trackers = Array.isArray(list) ? list.filter((t) => t && t.id && t.target) : [];
+    // A list cached on an earlier account-local day (Today left open past
+    // midnight, or an offline relaunch) must not show — or let a tap delete —
+    // yesterday's logs. The loader refetches it; until then the day's logs
+    // are dropped.
+    function freshTracker(t, nowMs) {
+        if (!t.day || !t.timeZone) return t;
+        let today;
+        try {
+            today = new Intl.DateTimeFormat('en-CA', {
+                timeZone: t.timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+            }).format(new Date(nowMs));
+        } catch (_) { return t; }
+        if (today === t.day) return t;
+        const p = t.progress || {};
+        // ponytail: a week/month total keeps its sum (yesterday is still in the
+        // period, except across a period boundary) until the refetch lands.
+        return withLogs({ ...t, progress: { ...p, total: t.target.period === 'day' ? 0 : p.total } }, 0, []);
+    }
+
+    function trackersFor(list, nowMs) {
+        return Array.isArray(list) ? list.filter((t) => t && t.id && t.target).map((t) => freshTracker(t, nowMs)) : [];
+    }
+
+    function renderTrackersCard(list, nowMs) {
+        const trackers = trackersFor(list, nowMs);
         if (!trackers.length) return null;
         const card = el('section', 'wg-card wg-today-trackers');
         card.setAttribute('data-section', 'trackers');
@@ -1313,7 +1348,7 @@
                     row.appendChild(v);
                 }
                 const trail = el('span', 'wg-row__trail');
-                trail.appendChild(btn(null, {
+                if (!isProvisional(log)) trail.appendChild(btn(null, {
                     ghost: true, iconOnly: true, icon: 'trash', aria: 'Delete', action: 'tracker-delete-log',
                     onClick: () => deleteTrackerLog(t, log),
                 }));
@@ -1365,10 +1400,10 @@
 
     // A Today repaint (every optimistic write ends in one) refreshes an open
     // sheet from the same list, so its total and log rows track the tiles.
-    function syncTrackerSheet(list) {
+    function syncTrackerSheet(list, nowMs) {
         const sheet = doc().getElementById(TRACKER_SHEET_ID);
         if (!sheet || sheet.classList.contains('hidden')) return;
-        const t = (Array.isArray(list) ? list : []).find((x) => x && x.id === sheet.getAttribute('data-tracker-id'));
+        const t = trackersFor(list, nowMs).find((x) => x && x.id === sheet.getAttribute('data-tracker-id'));
         if (!t) { closeTrackerSheet(); return; }
         renderTrackerSheet(sheet, t);
         hydrateIcons(sheet);
@@ -1868,9 +1903,9 @@
             root.appendChild(strip);
         }
 
-        const trackersCard = renderTrackersCard(state && state.trackers);
+        const trackersCard = renderTrackersCard(state && state.trackers, nowMs);
         if (trackersCard) { root.appendChild(trackersCard); }
-        syncTrackerSheet(state && state.trackers);
+        syncTrackerSheet(state && state.trackers, nowMs);
 
         const goal = renderGoalCard(state && state.goalLine, h, !next.hasPrimary, offline);
         if (goal.node) { root.appendChild(goal.node); }

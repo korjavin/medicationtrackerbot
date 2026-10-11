@@ -181,6 +181,10 @@ export function createTrackersDomain({ records, now, timeZone }) {
         ...trackerView(t),
         progress: progress(t, dayTotals(t, logs), today),
         todayLogs: todayLogs(t, logs, today),
+        // The account-local day progress/todayLogs describe, and its zone:
+        // a client holding a cached list can tell it went stale at midnight.
+        day: today,
+        timeZone,
       }));
   }
 

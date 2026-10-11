@@ -876,6 +876,21 @@ describe('Trackers card', () => {
         expect(cached('tracker-v').progress.total).toBe(0);
     });
 
+    it('a list cached on an earlier day shows no stale logs, and a check tap marks today instead of deleting yesterday', async () => {
+        const doneYesterday = {
+            ...VITAMINS, day: '2026-04-10', timeZone: 'UTC',
+            progress: { total: 1, target: 1, met: true },
+            todayLogs: [{ id: 'trackerlog:tracker-v:2026-04-10', trackerId: 'tracker-v', date: '2026-04-10', done: true }],
+        };
+        setup([{ ...WATER, day: '2026-04-10', timeZone: 'UTC' }, doneYesterday]);
+        expect(tile('tracker-w').querySelector('.wg-trk__val').textContent).toBe('0/ 8 glasses');
+        expect(tile('tracker-v').querySelector('.wg-trk__val').textContent).toBe('Not yet');
+        env.window.apiCall = vi.fn(async () => ({ id: 'trackerlog:tracker-v:2026-04-20', trackerId: 'tracker-v', date: '2026-04-20', done: true }));
+        tile('tracker-v').querySelector('[data-action="tracker-tap"]').click();
+        await vi.waitFor(() => expect(env.window.apiCall).toHaveBeenCalled());
+        expect(env.window.apiCall).toHaveBeenCalledWith('/api/trackers/tracker-v/log', 'POST', {});
+    });
+
     it('log sheet: custom amount via the stepper; a row delete undoes from the toast before any DELETE', async () => {
         setup([WATER]);
         env.window.apiCall = vi.fn(async (url, method) => (method === 'POST'

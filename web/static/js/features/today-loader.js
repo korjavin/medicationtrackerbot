@@ -445,6 +445,19 @@ function _todayGoalLineFromPastDay(swrCaches) {
     return gl.day !== today;
 }
 
+// Same idea for the trackers list: each item carries the account-local day
+// (and zone) its progress/todayLogs describe.
+function _todayTrackersFromPastDay(swrCaches) {
+    const list = swrCaches && swrCaches.trackers;
+    const t = Array.isArray(list) ? list.find((x) => x && typeof x.day === 'string' && x.timeZone) : null;
+    if (!t) return false;
+    try {
+        return t.day !== new Intl.DateTimeFormat('en-CA', {
+            timeZone: t.timeZone, year: 'numeric', month: '2-digit', day: '2-digit'
+        }).format(new Date());
+    } catch (_) { return false; }
+}
+
 async function _todayRender(foodKey, settled) {
     const root = document.getElementById('today-content');
     if (!root || !window.TodayDashboard) return { rendered: false };
@@ -532,7 +545,8 @@ async function loadToday() {
                 // The Goal Line payload is day-relative (weighed_today, cta, BP
                 // recorded today, this week's workouts) and no tag fires at
                 // midnight — a payload fetched on an earlier local day refetches.
-                if (rctx && rctx.rendered && rctx.online && _todayGoalLineFromPastDay(rctx.swrCaches)) loadToday();
+                if (rctx && rctx.rendered && rctx.online
+                    && (_todayGoalLineFromPastDay(rctx.swrCaches) || _todayTrackersFromPastDay(rctx.swrCaches))) loadToday();
             });
         };
         _todayLoaderState.repaintTick = setInterval(repaint, TODAY_REPAINT_INTERVAL_MS);
@@ -628,7 +642,12 @@ async function loadToday() {
         const otherFetches = missing.length > 0
             ? Promise.allSettled(missing.map((k) => window.DataStore.fetchFresh(k, specs[k].fetch, specs[k].tags)))
             : Promise.resolve([]);
-        await Promise.all([nextIntakePromise, otherFetches, loadTrackersCached()]);
+        // A list from an earlier day refetches outright (cachedFetch would
+        // repaint the stale one first and revalidate in the background).
+        const trackersPromise = _todayTrackersFromPastDay(swrCaches)
+            ? window.DataStore.fetchFresh('trackers', () => apiCall('/api/trackers', 'GET'), ['trackers']).catch(() => null)
+            : loadTrackersCached();
+        await Promise.all([nextIntakePromise, otherFetches, trackersPromise]);
     } finally {
         _todayLoaderState.refreshInFlight = false;
     }
