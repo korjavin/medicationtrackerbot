@@ -397,6 +397,8 @@ describe('Workout session takeover (med-xso6.21)', () => {
     it('the rest timer counts down, extends by 30s, can be skipped and clears itself at zero', async () => {
         const { window, document } = env;
         // Fake timers before the open: the session's 1s tick is created there.
+        const vibrate = vi.fn();
+        Object.defineProperty(window.navigator, 'vibrate', { configurable: true, value: vibrate });
         vi.useFakeTimers();
         await openSession(window, [logFixture({ sets_completed: 1 })]);
 
@@ -412,12 +414,15 @@ describe('Workout session takeover (med-xso6.21)', () => {
 
         rest.querySelector('.wg-rest__skip').click();
         expect(rest.hidden).toBe(true);
+        expect(vibrate).not.toHaveBeenCalled(); // skip is user-driven
 
         setRows(document)[1].querySelector('.wg-set__done').click(); // undo
         setRows(document)[1].querySelector('.wg-set__done').click(); // done again → new rest
         expect(rest.hidden).toBe(false);
         await vi.advanceTimersByTimeAsync(91000);
         expect(rest.hidden).toBe(true);
+        expect(vibrate).toHaveBeenCalledTimes(1);
+        expect(vibrate).toHaveBeenCalledWith(200);
     });
 
     it('asks the service worker for a notification when rest ends while the page is hidden', async () => {
@@ -427,6 +432,8 @@ describe('Workout session takeover (med-xso6.21)', () => {
             configurable: true,
             value: { ready: Promise.resolve({ showNotification }) }
         });
+        const vibrate = vi.fn();
+        Object.defineProperty(window.navigator, 'vibrate', { configurable: true, value: vibrate });
         vi.useFakeTimers();
         await openSession(window, [logFixture({ sets_completed: 1 })]);
         document.querySelector('.wg-workouts-session-exercise__add-set').click();
@@ -434,6 +441,7 @@ describe('Workout session takeover (med-xso6.21)', () => {
 
         Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
         await vi.advanceTimersByTimeAsync(91000);
+        expect(vibrate).not.toHaveBeenCalled();
         expect(showNotification).toHaveBeenCalledWith('Rest over', expect.objectContaining({ tag: 'workout-rest' }));
     });
 

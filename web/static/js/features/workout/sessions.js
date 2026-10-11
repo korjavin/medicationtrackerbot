@@ -1525,7 +1525,12 @@ function _sessionTick() {
 }
 
 function _notifyRestOver() {
-    if (typeof document === 'undefined' || !document.hidden) return;
+    if (typeof document === 'undefined') return;
+    if (!document.hidden) {
+        // ponytail: one guarded call; native/haptics.js if a second caller appears. iOS has no vibrate.
+        try { if (typeof navigator.vibrate === 'function') navigator.vibrate(200); } catch (_) { /* best-effort */ }
+        return;
+    }
     try {
         const sw = navigator.serviceWorker;
         if (!sw || !sw.ready) return;
