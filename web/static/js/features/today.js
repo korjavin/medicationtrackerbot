@@ -1541,11 +1541,13 @@
 
     const TRACKER_EDITOR_ID = 'today-tracker-editor';
     const TRACKER_MANAGE_ID = 'today-tracker-manage';
-    const TRACKER_ICONS = ['drop', 'cup', 'glass-off', 'stretch', 'pill', 'target'];
+    const TRACKER_ICONS = ['drop', 'cup', 'glass-off', 'moon', 'stretch', 'pill', 'target'];
     const TRACKER_TEMPLATES = [
         { name: 'Water', emoji: 'drop', kind: 'count', unit: 'glass', step: 1, target: { op: 'atLeast', value: 8, period: 'day' } },
         { name: 'Coffee', emoji: 'cup', kind: 'count', unit: 'cup', step: 1, target: { op: 'atMost', value: 3, period: 'day' } },
-        { name: 'No alcohol', emoji: 'glass-off', kind: 'check', unit: null, step: 1, target: { op: 'atLeast', value: 1, period: 'day' } },
+        // Abstain templates are limits with no value: the user sets "at most" (0 = a clean streak).
+        { name: 'No alcohol', emoji: 'glass-off', kind: 'check', unit: null, step: 1, target: { op: 'atMost', value: '', period: 'week' } },
+        { name: 'Late-night snack', emoji: 'moon', kind: 'check', unit: null, step: 1, target: { op: 'atMost', value: '', period: 'week' } },
         { name: 'Stretching', emoji: 'stretch', kind: 'check', unit: null, step: 1, target: { op: 'atLeast', value: 3, period: 'week' } },
         { name: 'Vitamins', emoji: 'pill', kind: 'check', unit: null, step: 1, target: { op: 'atLeast', value: 1, period: 'day' } },
     ];
@@ -1557,24 +1559,42 @@
         return s === '' ? NaN : Number(s);
     }
 
-    // "at least 8 glasses a day", "every day", "3 times a week", "at most 0 cans a day".
+    // A check limit counts slips; a check goal counts times.
+    function trackerCheckUnit(op, n) {
+        if (op === 'atMost') return n === 1 ? 'slip' : 'slips';
+        return n === 1 ? 'time' : 'times';
+    }
+
+    // "at least 8 glasses a day", "every day", "3 times a week", "at most 1 slip a week", "no slips a week".
     function trackerRuleText(d) {
         const { op, period } = d.target;
         const value = trackerNum(d.target.value);
+        if (d.kind === 'check' && op === 'atMost' && value === 0) return `no slips ${PERIOD_RULE[period]}`;
         if (d.kind === 'check' && op === 'atLeast' && value === 1 && period === 'day') return 'every day';
-        const what = d.kind === 'check' ? (value === 1 ? 'time' : 'times') : unitText(d.unit, value);
+        const what = d.kind === 'check' ? trackerCheckUnit(op, value) : unitText(d.unit, value);
         const lead = d.kind === 'check' && op === 'atLeast' ? '' : `${op === 'atMost' ? 'at most' : 'at least'} `;
         const n = Number.isFinite(value) ? fmtNum(value) : '…';
         return `${lead}${n}${what ? ` ${what}` : ''} ${PERIOD_RULE[period]}`;
     }
 
     function trackerKindRule(t) {
+        if (t.kind === 'check' && t.target.op === 'atMost') {
+            // A limit template carries no value: the user sets it.
+            if (!Number.isFinite(trackerNum(t.target.value))) return `Limit · you set how many slips ${PERIOD_RULE[t.target.period]}`;
+            return `Limit · ${trackerRuleText(t)}`;
+        }
         return `${t.kind === 'check' ? 'Check' : 'Count'} · ${trackerRuleText(t)}`;
     }
 
     function trackerFormHint(d) {
         const rule = trackerRuleText(d);
         const lead = rule.charAt(0).toUpperCase() + rule.slice(1);
+        if (d.kind === 'check' && d.target.op === 'atMost') {
+            const v = trackerNum(d.target.value);
+            if (!Number.isFinite(v)) return `Set how many slips ${PERIOD_RULE[d.target.period]} you allow — 0 for none. Tap the tile if you slip.`;
+            if (v === 0) return `${lead}. Tap the tile if you slip; the tile shows your clean streak.`;
+            return `${lead}. Tap the tile when you slip — the day counts against the limit; ${PERIOD_PLURAL[d.target.period].toLowerCase()} at or under it count as met.`;
+        }
         if (d.target.op === 'atMost') return `${lead}. ${PERIOD_PLURAL[d.target.period]} at or under the limit count as met.`;
         if (d.kind === 'check') return `${lead}. Tap the tile when it's done.`;
         const step = trackerNum(d.step);
@@ -1730,6 +1750,9 @@
                     ed.from = tpl.name;
                     ed.draft = trackerDraft(tpl);
                     rerender();
+                    // A limit template leaves the value to the user: ask for it.
+                    const v = ed.draft.target.value === '' && sheet.querySelector('[data-input="value"]');
+                    if (v && typeof v.focus === 'function') v.focus();
                 });
                 row.setAttribute('data-template', tpl.name);
                 list.appendChild(row);
@@ -1862,7 +1885,7 @@
                 input('value', d.target.value, { numeric: true, aria: limit ? 'No more than' : 'At least' }, (v) => { d.target.value = v; }),
                 () => {
                     const n = trackerNum(d.target.value);
-                    if (!count) return n === 1 ? 'time' : 'times';
+                    if (!count) return trackerCheckUnit(d.target.op, n);
                     return unitText(d.unit.trim(), n);
                 })),
             field('period', 'Per', seg('period', [['day', 'Day'], ['week', 'Week'], ['month', 'Month']], true, false,
@@ -1942,7 +1965,23 @@
         }
         closeTrackerEditor();
         const body = trackerBody(ed.draft);
+        if (ed.draft.kind === 'check') hintNoGoal(body);
         return ed.tracker ? updateTracker(ed.tracker, body) : createTracker({ ...body, kind: ed.draft.kind });
+    }
+
+    // One-time nudge (per device): a "No …" check saved as a goal usually
+    // means an abstain habit, which a Limit models (a tap = a slip).
+    const TRACKER_NO_GOAL_HINTED = 'wg.today.trackerNoGoalHinted';
+
+    function hintNoGoal(body) {
+        if (body.target.op !== 'atLeast' || !/^no\s/i.test(body.name)) return;
+        try {
+            if (window.localStorage.getItem(TRACKER_NO_GOAL_HINTED) === '1') return;
+            window.localStorage.setItem(TRACKER_NO_GOAL_HINTED, '1');
+        } catch (_) { /* best-effort: show it anyway */ }
+        if (typeof window.safeToast === 'function') {
+            window.safeToast(`Avoiding something? Edit "${body.name}" and set Target to Limit · at most — then a tap logs a slip, and 0 shows a clean streak.`, 'info');
+        }
     }
 
     function sortTrackers(list) {
