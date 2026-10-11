@@ -64,6 +64,12 @@ history:'<path d="M3.5 12a8.5 8.5 0 1 0 2.5-6"/><path d="M3.5 4v4h4M12 7.5V12l3 
 box:'<path d="M3.5 7.5 12 3l8.5 4.5v9L12 21l-8.5-4.5z"/><path d="M3.5 7.5 12 12l8.5-4.5M12 12v9"/>',
 sig:'<path d="M3 18h2.4v2.5H3zM7.7 15h2.4v5.5H7.7zM12.4 12h2.4v8.5h-2.4zM17.1 9h2.4v11.5h-2.4z" fill="currentColor" stroke="none"/>',
 wifi:'<path d="M2.5 9.5a14 14 0 0 1 19 0M5.5 13a9.5 9.5 0 0 1 13 0M8.6 16.4a5 5 0 0 1 6.8 0"/><circle cx="12" cy="19.5" r="1.2" fill="currentColor" stroke="none"/>',
+drop:'<path d="M12 3.5c3 4 6 7.2 6 10.5a6 6 0 0 1-12 0c0-3.3 3-6.5 6-10.5z"/>',
+cup:'<path d="M5 8.5h11v5.5a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5z"/><path d="M16 10.5h1.5a2.5 2.5 0 0 1 0 5H16M8.5 3.5v2.5M12 3.5v2.5"/>',
+'glass-off':'<path d="M7.5 3.5h9l-.6 5a3.9 3.9 0 0 1-7.8 0z"/><path d="M12 12.5v8M8.5 20.5h7M3.5 3.5l17 17"/>',
+can:'<path d="M7.5 5.5h9v14a1.5 1.5 0 0 1-1.5 1.5H9a1.5 1.5 0 0 1-1.5-1.5z"/><path d="M8.5 3h7M7.5 9h9"/>',
+stretch:'<circle cx="12" cy="4.5" r="1.8"/><path d="M4 9.5l8 1.5 8-1.5M12 11v4l-3.5 5.5M12 15l3.5 5.5"/>',
+target:'<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/>',
 batt:'<rect x="2" y="7" width="18" height="10" rx="2.5"/><rect x="4" y="9" width="12.5" height="6" rx="1" fill="currentColor" stroke="none"/><path d="M22 10.5v3"/>'
 };
 var s='<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" style="position:absolute" aria-hidden="true">';

@@ -12,6 +12,7 @@ Open `ui_kits/app-v2/index.html` in a browser; every page is static HTML.
 |------|-------|------------|
 | `tokens.css`, `components.css`, `icons.js` | Yes — the `wg-*` kit. Port into `web/static/css` / `web/static/js` under existing token/architecture guards. | `tokens.css` → the first `:root` of `web/static/css/styles.css`; `components.css` → `web/static/css/components.css` (port deltas in its header); `icons.js` → `web/static/js/components/wg-icons.js` (epic med-xso6) |
 | `kit.css`, `kit.js` | No — board/phone-frame presentation only. `kit.js` also shows the tab-bar markup v2 expects. | — (tab bar: `web/static/js/components/wg-bottom-nav.js`) |
+| `.wg-theme-light` (in `tokens.css`, `components.css`, `kit.css`) | No — designer's light-theme draft. The app is dark-only (owner, 2026-10-11); don't port it. | — |
 | `*.html` | Spec only. Screen ids (T1, F4, M2, W1, P1, S4…) are referenced by beads. | — (screens: see the table below) |
 
 ## Kit rules (from `ui_kits/app-v2/README.md`)
@@ -36,6 +37,7 @@ Open `ui_kits/app-v2/index.html` in a browser; every page is static HTML.
 | Workout session takeover, Plan/Day/Exercise pages | `screens-workouts.html` W1–W3, P1–P3 | `features/workout/` |
 | Settings home, Features, Backup, Devices & connectors | `screens-settings.html` S1–S5 | `features/settings.js`, `features/settings/`, cloud shell pages in `web/cloud/` |
 | Health (BP / Weight / Vitals segments; section id `health` stays) | `navigation.html` | `features/bp.js`, `weight.js`, `health.js`, `live-hr.js` |
+| Trackers (Today tiles, log sheet, create/edit + templates, history + strength; epic med-1vy5, brief `docs/design/briefs/trackers.md`) | `screens-trackers.html` TR1, TR1b, TR2, TR3 | `web/domain/trackers.js` (domain); UI not yet built (med-1vy5.2, .3) |
 | Primitives (buttons, chips, rows, sheets, dialog, toast, empty, skeleton) | `foundations.html`, `components.html` | `web/static/js/components/`, `web/static/css/components.css`, `styles.css`, `dialog.css`, `core/utils.js` safe* dialogs |
 
 ## Changelog

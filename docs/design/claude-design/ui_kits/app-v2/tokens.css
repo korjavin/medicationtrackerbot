@@ -10,7 +10,7 @@
 --wg-bg-stage:#0A1A18;--wg-bg-screen:#132D29;--wg-bg-card:#21423D;--wg-bg-card-hi:#2A4E48;--wg-bg-sheet:#24453F;
 --wg-bg-inset-a:#162F2B;--wg-bg-inset-b:#1C3934;--wg-bg-raised-a:#3C6B65;--wg-bg-raised-b:#264742;--wg-bg-float:#0E2421;
 /* text */
---wg-fg-1:#F4FBF7;--wg-fg-2:rgba(244,251,247,.76);--wg-fg-3:rgba(244,251,247,.6);--wg-fg-4:rgba(244,251,247,.36);--wg-fg-on-sun:#1A1200;--wg-fg-on-clay:#FFFFFF;
+--wg-fg-1:#F4FBF7;--wg-fg-2:rgba(244,251,247,.76);--wg-fg-3:rgba(244,251,247,.6);--wg-fg-4:rgba(244,251,247,.36);--wg-fg-on-sun:#1A1200;--wg-sun-ink:#FBBD0D;--wg-fg-on-clay:#FFFFFF;
 --wg-line:rgba(255,255,255,.07);--wg-line-strong:rgba(255,255,255,.14);--wg-line-dark:rgba(0,0,0,.28);
 /* semantic status — every chip, tag, row state and banner reads from these five */
 --wg-ok-fg:#9CE4CC;--wg-ok-bg:rgba(86,172,138,.18);--wg-ok-line:rgba(86,172,138,.38);
@@ -44,4 +44,21 @@
 --wg-z-tabbar:40;--wg-z-sheet:60;--wg-z-dialog:80;--wg-z-toast:90;
 /* layout */
 --wg-tabbar-h:84px;--wg-kb-h:291px;
+}
+/* light theme — DRAFT (trackers pass). Scope on .wg-app or any ancestor. Composite tokens are redeclared because var() resolves where it is declared. */
+.wg-theme-light{color-scheme:light;
+--wg-bg-screen:#F4FBF7;--wg-bg-card:#FFFFFF;--wg-bg-card-hi:#EDF6F2;--wg-bg-sheet:#FFFFFF;--wg-bg-inset-a:#E1EDE8;--wg-bg-inset-b:#EAF4F0;--wg-bg-raised-a:#FFFFFF;--wg-bg-raised-b:#E7F1ED;--wg-bg-float:#FFFFFF;
+--wg-fg-1:#0F2E29;--wg-fg-2:rgba(15,46,41,.8);--wg-fg-3:rgba(15,46,41,.64);--wg-fg-4:rgba(15,46,41,.34);--wg-sun-ink:#7F5200;
+--wg-line:rgba(15,80,66,.1);--wg-line-strong:rgba(15,80,66,.2);--wg-line-dark:rgba(15,80,66,.14);
+--wg-ok-fg:#1C6A4E;--wg-ok-bg:rgba(86,172,138,.16);--wg-ok-line:rgba(62,142,110,.5);
+--wg-warn-fg:#7F5200;--wg-warn-bg:rgba(251,189,13,.2);--wg-warn-line:rgba(229,166,0,.6);
+--wg-danger-fg:#A3402A;--wg-danger-bg:rgba(198,85,58,.12);--wg-danger-line:rgba(198,85,58,.5);
+--wg-stale-fg:rgba(15,46,41,.64);--wg-stale-bg:rgba(15,46,41,.04);--wg-stale-line:rgba(15,46,41,.3);
+--wg-pending-fg:#1B6492;--wg-pending-bg:rgba(63,163,229,.12);--wg-pending-line:rgba(63,163,229,.5);
+--wg-raised:linear-gradient(180deg,rgba(255,255,255,.7) 0%,rgba(255,255,255,0) 52%),linear-gradient(180deg,#FFFFFF 0%,#E7F1ED 100%);
+--wg-inset:linear-gradient(180deg,#E1EDE8 0%,#EAF4F0 100%);
+--wg-sh-raised:inset 0 1px 0 rgba(255,255,255,.9),0 1px 0 rgba(15,60,50,.14),0 4px 10px -6px rgba(15,60,50,.3);
+--wg-sh-inset:inset 0 1px 2px rgba(15,60,50,.14);
+--wg-sh-card:0 1px 0 rgba(15,60,50,.06),0 2px 8px -4px rgba(15,60,50,.14);
+--wg-sh-float:0 18px 40px -12px rgba(15,60,50,.32),0 0 0 1px rgba(15,60,50,.08);
 }

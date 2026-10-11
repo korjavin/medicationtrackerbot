@@ -13,7 +13,7 @@ document.querySelectorAll('[data-tabbar]').forEach(function(n){n.innerHTML=tabs(
 document.querySelectorAll('[data-tabbar-legacy]').forEach(function(n){n.innerHTML=tabs(LEG,n.getAttribute('data-tabbar-legacy'));});
 document.querySelectorAll('.kit-kb').forEach(function(k){k.innerHTML=k.hasAttribute('data-num')?kbNum():kb();});
 if(window.wgIcons)wgIcons.hydrate();
-requestAnimationFrame(function(){document.querySelectorAll('[data-scroll]').forEach(function(el){el.scrollTop=+el.getAttribute('data-scroll');});});
+function sc(){document.querySelectorAll('[data-scroll]').forEach(function(el){el.scrollTop=+el.getAttribute('data-scroll');});}requestAnimationFrame(sc);window.addEventListener('load',sc);if(document.fonts&&document.fonts.ready)document.fonts.ready.then(sc);setTimeout(sc,600);
 }
 document.addEventListener('click',function(e){
 var t=e.target.closest('.wg-seg__opt');if(t){t.parentNode.querySelectorAll('.wg-seg__opt').forEach(function(o){o.setAttribute('aria-pressed',o===t?'true':'false');});return;}
