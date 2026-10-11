@@ -852,22 +852,20 @@ function _renderFoodData(groups, weekStats, range, dateStr) {
 
     const isWeek = range === 'week';
     const stats = weekStats || {};
-    const targets = window.FoodLog.targets || {};
-    const weeklyTargets = {
-        calories: (Number(targets.calories) > 0) ? Number(targets.calories) * 7 : 0,
-        carbs:    (Number(targets.carbs) > 0)    ? Number(targets.carbs) * 7    : 0,
-        protein:  (Number(targets.protein) > 0)  ? Number(targets.protein) * 7  : 0,
-        fat:      (Number(targets.fat) > 0)      ? Number(targets.fat) * 7      : 0,
-    };
 
     if (isWeek) {
+        // Counts come from the domain (food.stats): flagged-incomplete days are
+        // already out of the sums. A cache row from before days_logged existed
+        // falls back to the full window.
+        const days = Number(stats.days) > 0 ? Number(stats.days) : 7;
+        const daysLogged = Number.isFinite(stats.days_logged) ? stats.days_logged : days;
         renderFoodMacrosCard(
             Math.round(Number(stats.calories) || 0),
             Math.round(Number(stats.carbs) || 0),
             Math.round(Number(stats.protein) || 0),
             Math.round(Number(stats.fat) || 0),
-            weeklyTargets,
-            { range: 'week' }
+            window.FoodLog.targets,
+            { range: 'week', days, daysLogged, daysExcluded: Number(stats.days_excluded) || 0 }
         );
     } else {
         renderFoodMacrosCard(
@@ -895,18 +893,23 @@ function renderFoodMacrosCard(calories, carbs, protein, fat, targets, opts) {
     if (!card) return;
 
     const safeTargets = targets || {};
-    const targetCalories = Number(safeTargets.calories) > 0 ? Number(safeTargets.calories) : 0;
-    const targetCarbs = Number(safeTargets.carbs) > 0 ? Number(safeTargets.carbs) : 0;
-    const targetProtein = Number(safeTargets.protein) > 0 ? Number(safeTargets.protein) : 0;
-    const targetFat = Number(safeTargets.fat) > 0 ? Number(safeTargets.fat) : 0;
+    const range = (opts && opts.range) || 'day';
+    // Week mode: `targets` are daily; scale them by the counted days, not 7,
+    // so a week with flagged-incomplete days is measured against what was counted.
+    const daysLogged = range === 'week' ? Number(opts.daysLogged) || 0 : 1;
+    const dailyOrZero = (v) => (Number(v) > 0 ? Number(v) : 0);
+    const noTargets = !(dailyOrZero(safeTargets.calories) || dailyOrZero(safeTargets.carbs)
+        || dailyOrZero(safeTargets.protein) || dailyOrZero(safeTargets.fat));
+    const targetCalories = dailyOrZero(safeTargets.calories) * daysLogged;
+    const targetCarbs = dailyOrZero(safeTargets.carbs) * daysLogged;
+    const targetProtein = dailyOrZero(safeTargets.protein) * daysLogged;
+    const targetFat = dailyOrZero(safeTargets.fat) * daysLogged;
 
     const safeCalories = Number.isFinite(calories) && calories > 0 ? calories : 0;
-    const range = (opts && opts.range) || 'day';
 
     const kcalEl = document.getElementById('food-macros-card-kcal');
     if (kcalEl) kcalEl.textContent = String(Math.round(safeCalories));
 
-    const noTargets = !(targetCalories || targetCarbs || targetProtein || targetFat);
     const percentBox = document.getElementById('food-macros-card-percent');
     if (percentBox) percentBox.classList.toggle('hidden', noTargets);
     const percentEl = document.getElementById('food-macros-card-percent-value');
@@ -921,8 +924,11 @@ function renderFoodMacrosCard(calories, carbs, protein, fat, targets, opts) {
 
     const avgEl = document.getElementById('food-macros-card-avg');
     if (avgEl) {
-        if (range === 'week' && safeCalories > 0) {
-            avgEl.textContent = `avg ${Math.round(safeCalories / 7).toLocaleString()} kcal/day · 7d`;
+        if (range === 'week' && safeCalories > 0 && daysLogged > 0) {
+            const excluded = Number(opts.daysExcluded) || 0;
+            avgEl.textContent = `avg ${Math.round(safeCalories / daysLogged).toLocaleString()} kcal/day`
+                + ` · ${daysLogged} of ${Number(opts.days) || 7} days logged`
+                + (excluded > 0 ? ` · ${excluded} not counted` : '');
             avgEl.classList.remove('hidden');
         } else {
             avgEl.textContent = '';

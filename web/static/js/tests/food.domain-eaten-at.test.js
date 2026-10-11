@@ -99,7 +99,6 @@ describe('food domain — legacy rows with an unparseable eaten_at (med-d5t.11)'
         // And the read must not throw on it: new Date(undefined).toISOString()
         // is a RangeError, which would take down the whole screen for one bad row.
         await expect(f.stats({ date: today, days: 1 })).resolves.toMatchObject({ calories: 0 });
-        await expect(f.stats({ date: today, days: 1, excludeIncomplete: true })).resolves.toMatchObject({ calories: 0 });
     });
 
     it('does not touch rows whose eaten_at is fine', async () => {
@@ -181,15 +180,27 @@ describe('food domain — incomplete-day flag (med-0sgs.1)', () => {
         expect([...await food.incompleteDays({ date: '2026-07-10', days: 3 })]).toEqual(['2026-07-08']);
     });
 
-    it('stats keeps the plain sum by default and drops flagged days on request', async () => {
+    it('stats drops flagged days and reports the counted-day split', async () => {
         const food = domainWith([
-            logAt('a', '2026-07-09T08:00:00Z', 100),
-            logAt('b', '2026-07-10T08:00:00Z', 200),
+            logAt('a', '2026-07-04T08:00:00Z', 100),
+            logAt('b', '2026-07-05T08:00:00Z', 200),
+            logAt('c', '2026-07-06T08:00:00Z', 300),
+            logAt('d', '2026-07-08T08:00:00Z', 400),
+            logAt('e', '2026-07-09T08:00:00Z', 500),
+            logAt('f', '2026-07-10T08:00:00Z', 600),
         ]);
+        // 07-07 has no logs and no flag: a logged 0-kcal day, still counted.
         await food.setDayIncomplete('2026-07-09', true);
+        await food.setDayIncomplete('2026-07-05', true);
+        await food.setDayIncomplete('2026-07-01', true); // outside the window
 
-        expect((await food.stats({ date: '2026-07-10', days: 2 })).calories).toBe(300);
-        expect((await food.stats({ date: '2026-07-10', days: 2, excludeIncomplete: true })).calories).toBe(200);
+        expect(await food.stats({ date: '2026-07-10', days: 7 })).toMatchObject({
+            calories: 100 + 300 + 400 + 600,
+            days: 7,
+            days_logged: 5,
+            days_excluded: 2,
+            excluded_days: ['2026-07-05', '2026-07-09'],
+        });
     });
 
     it('buckets a log by its local day, not its UTC day', async () => {

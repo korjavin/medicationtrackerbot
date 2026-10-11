@@ -187,7 +187,10 @@ describe('cloud shim contract — food log flows (features/food/log.js over web/
         await createLog(window, { name: 'B', eaten_at: new Date(atTime(today, 20, 0)).toISOString(), weight: 200, carbs: 30, protein: 15, fat: 8, calories: 252 });
 
         const stats = await window.apiCall(`/api/food/stats?date=${today}&days=1`);
-        expect(stats).toEqual({ calories: 78 + 252, carbs: 10 + 30, protein: 5 + 15, fat: 2 + 8 });
+        expect(stats).toEqual({
+            calories: 78 + 252, carbs: 10 + 30, protein: 5 + 15, fat: 2 + 8,
+            days: 1, days_logged: 1, days_excluded: 0, excluded_days: [],
+        });
 
         const targets = await window.apiCall('/api/food/settings/targets');
         expect(targets).toMatchObject({ calories: 2000, carbs: 250, protein: 100, fat: 70 });

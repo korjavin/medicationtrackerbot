@@ -480,8 +480,8 @@ export const CATALOG = [
     "method": "GET",
     "path": "/api/food/stats",
     "risk": "read",
-    "description": "Total calories and macros consumed over a date window. Divide by `days` yourself for a daily average; there is no per-day breakdown here — use food.log.list for that.",
-    "response_summary": "Object with the window's total calories, carbs, protein, fat (integers, kcal and grams).",
+    "description": "Total calories and macros consumed over a date window. Days flagged tracking-incomplete (food.days.set_incomplete) are excluded from the totals; excluded_days names them. For a daily average divide by `days_logged` (window days minus excluded days; an unflagged day with no logs counts as a logged 0 kcal day), not `days`. No per-day breakdown here — use food.log.list for that.",
+    "response_summary": "Object with the window's total calories, carbs, protein, fat (kcal and grams, flagged days excluded), plus days (window length), days_logged, days_excluded and excluded_days (sorted YYYY-MM-DD).",
     "params_schema": {
       "type": "object",
       "properties": {
@@ -502,7 +502,7 @@ export const CATALOG = [
         }
       }
     },
-    "response_example": "{\"calories\": 14210, \"carbs\": 1400, \"protein\": 700, \"fat\": 420}"
+    "response_example": "{\"calories\": 10150, \"carbs\": 1000, \"protein\": 500, \"fat\": 300, \"days\": 7, \"days_logged\": 5, \"days_excluded\": 2, \"excluded_days\": [\"2026-04-23\", \"2026-04-26\"]}"
   },
   {
     "id": "food.targets.read",

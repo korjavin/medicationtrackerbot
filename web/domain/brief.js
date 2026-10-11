@@ -237,7 +237,7 @@ export function createBriefDomain({
     const [totals, groups, targets] = await Promise.all([
       // Flagged-incomplete days (med-0sgs) drop out of the sums and the
       // day count alike, so a half-logged day never reads as a low-calorie one.
-      food.stats({ days, excludeIncomplete: true }),
+      food.stats({ days }),
       // days > 1 makes listGrouped group by calendar day, so one group = one
       // day with at least one log — which IS days_logged, no second fold.
       food.listGrouped({ days }),
