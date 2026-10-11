@@ -1223,15 +1223,19 @@ export async function pullOnOpen(ctx, { retryForcedSnapshot = true } = {}) {
   await maybeSnapshot(ctx);
 }
 
-// med-deq.2 — session-expiry recovery. Re-runs the passkey ceremony (unlock.js
-// assertPasskey — its /api/webauthn/login/finish re-mints the non-sliding
-// 30-day session cookie; the returned dek/accountId are discarded), then
-// immediately drains the queue the 401s stranded. Dynamic import because
-// unlock.js already dynamic-imports sync.js — a static edge here would be a
-// cycle.
+// med-deq.2 — session-expiry recovery. Re-runs the passkey login (unlock.js
+// renewSession — its /api/webauthn/login/finish re-mints the non-sliding
+// 30-day session cookie), then immediately drains the queue the 401s stranded.
+// Renewal only (med-5h1t.3): no PRF and no envelope unwrap, so it neither
+// reintroduces the raw DEK nor fails on a passkey without PRF while the warm
+// keys still work. Dynamic import because unlock.js already dynamic-imports
+// sync.js — a static edge here would be a cycle.
 export async function reauthenticate(ctx) {
-  const { assertPasskey } = await import('./unlock.js');
-  await assertPasskey();
+  const { renewSession } = await import('./unlock.js');
+  const { accountId } = await renewSession();
+  if (accountId !== ctx.accountId) {
+    throw new Error('That passkey belongs to a different account.');
+  }
   authExpired = false;
   // Serialize with any reconnect auto-drain in flight — two concurrent
   // pullOnOpen runs would flush the same pending set under the same predicted
