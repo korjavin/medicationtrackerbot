@@ -2475,8 +2475,9 @@
 
     function logSheetGroups(state, h) {
         const food = on(state && state.caloriesToday) ? [
-            { id: 'food-search', icon: 'search', label: 'Search', sub: 'Your foods + database', run: h.onLogFood },
+            { id: 'food-search', icon: 'search', label: 'Search', sub: 'Your foods + database', row: true, run: h.onLogFood },
             { id: 'food-photo', icon: 'camera', label: 'Photo meal', sub: 'AI estimates it', run: h.onPhotoMeal },
+            { id: 'food-library', icon: 'image', label: 'From library', sub: 'Existing photo', run: h.onLibraryMeal },
             { id: 'food-scan', icon: 'barcode', label: 'Scan barcode', run: h.onScanFood },
             { id: 'food-describe', icon: 'sparkle', label: 'Describe', sub: '"200 g chicken, rice"', run: h.onDescribeFood },
         ] : [];
@@ -2520,8 +2521,9 @@
             if (!tiles.length) return;
             body.appendChild(el('span', 'wg-eyebrow', title));
             const grid = el('div', cls);
+            const rows = [];
             for (const t of tiles) {
-                const tile = el('button', 'wg-action');
+                const tile = el('button', t.row ? 'wg-action wg-action--row' : 'wg-action');
                 tile.type = 'button';
                 tile.setAttribute('data-log', t.id);
                 const iconWrap = el('span', 'wg-action__icon');
@@ -2533,9 +2535,10 @@
                     closeLogSheet();
                     if (typeof t.run === 'function') t.run();
                 });
-                grid.appendChild(tile);
+                if (t.row) rows.push(tile); else grid.appendChild(tile);
             }
-            body.appendChild(grid);
+            for (const r of rows) body.appendChild(r);
+            if (grid.children.length) body.appendChild(grid);
         };
         group('Food', groups.food, 'wg-actions');
         group('Measurements & notes', groups.measure, 'wg-actions wg-actions--3');
@@ -2590,6 +2593,11 @@
             onPhotoMeal: opts.onPhotoMeal || (() => {
                 if (win.FoodActions && typeof win.FoodActions.triggerPhotoPicker === 'function') {
                     win.FoodActions.triggerPhotoPicker();
+                }
+            }),
+            onLibraryMeal: opts.onLibraryMeal || (() => {
+                if (win.FoodActions && typeof win.FoodActions.triggerPhotoPicker === 'function') {
+                    win.FoodActions.triggerPhotoPicker({ gallery: true });
                 }
             }),
             onScanFood: opts.onScanFood || (() => {

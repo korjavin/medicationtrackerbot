@@ -120,7 +120,7 @@
             input.type = 'file';
             input.accept = 'image/*';
             if (opts.capture !== false) {
-                try { input.capture = 'environment'; } catch (_) { /* ignore */ }
+                try { input.setAttribute('capture', 'environment'); } catch (_) { /* ignore */ }
             }
 
             var settled = false;
