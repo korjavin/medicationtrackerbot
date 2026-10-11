@@ -1254,7 +1254,9 @@ contributes a negligible remainder): `meds` (checkmark = day's taken/expected do
 ratio, frequency 1), `movement` (implicit checkmark = share of the 3×/week target
 met in the trailing 7 days, `min(1, workouts_in_last_7d/3)`, frequency 3/7 so the
 decay matches the cadence), `measurement` (any BP/weight/food log that day,
-frequency 1). This replaces the weekly streak as the Journey continuity
+frequency 1), then one `tracker:<id>` strength per non-archived user tracker
+(`trackerStrength` in `web/domain/gamification.js`; display only — trackers never
+earn HP). This replaces the weekly streak as the Journey continuity
 mechanic (§9 note); the derived streak (§14.5) survives as a footnote inside the
 new Strengths card, not a separate headline metric.
 
