@@ -156,7 +156,16 @@ export function createTrackersDomain({ records, now, timeZone }) {
     for (const [day, n] of totals) if (periodKey(day, period) === key) total += n;
     // atMost: an empty period (zero logs) is within the limit, so met.
     const met = op === 'atLeast' ? total >= value : total <= value;
-    return { total, target: value, met };
+    const out = { total, target: value, met };
+    if (period === 'week') {
+      // Mon..Sun of today's ISO week, for the tile's 7-segment strip.
+      const mon = addDays(today, -((new Date(`${today}T00:00:00Z`).getUTCDay() + 6) % 7));
+      out.days = Array.from({ length: 7 }, (_, i) => {
+        const day = addDays(mon, i);
+        return { day, total: totals.get(day) || 0 };
+      });
+    }
+    return out;
   }
 
   // todayLogs: the logs behind today's total, newest first — the Today tile's

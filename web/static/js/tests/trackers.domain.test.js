@@ -145,6 +145,18 @@ describe('trackers domain — period rollover in a non-UTC zone', () => {
     expect(await rollover('week', '2026-07-13T03:30:00Z', '2026-07-13T04:10:00Z', '2026-07-13T04:30:00Z')).toBe(1);
   });
 
+  it('week progress exposes Mon..Sun day totals in the account zone; day/month do not', async () => {
+    // Wed 2026-07-15 12:00 New York; log at Mon 23:30 local (= Tue 03:30Z) must stay on Monday.
+    const { d } = setup('2026-07-15T16:00:00Z');
+    const t = await d.create({ ...WATER, target: { op: 'atLeast', value: 3, period: 'week' } });
+    await d.log(t.id, { amount: 2, at: '2026-07-14T03:30:00Z' });
+    const p = (await progressOf(d, t.id));
+    expect(p.days.map((x) => x.day)).toEqual(['2026-07-13', '2026-07-14', '2026-07-15', '2026-07-16', '2026-07-17', '2026-07-18', '2026-07-19']);
+    expect(p.days.map((x) => x.total)).toEqual([2, 0, 0, 0, 0, 0, 0]);
+    const day = await d.create({ ...WATER });
+    expect((await progressOf(d, day.id)).days).toBeUndefined();
+  });
+
   it('month rolls over at the local first of the month', async () => {
     // 2026-07-31 23:30 / 2026-08-01 00:10 New York.
     expect(await rollover('month', '2026-08-01T03:30:00Z', '2026-08-01T04:10:00Z', '2026-08-01T04:30:00Z')).toBe(1);

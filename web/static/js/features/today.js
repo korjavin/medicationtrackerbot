@@ -1029,8 +1029,11 @@
     function withLogs(t, delta, todayLogs) {
         const p = t.progress || { total: 0, target: 0 };
         const total = Number(p.total) + delta;
+        // Weekly strip: today's segment moves with the optimistic total.
+        const days = Array.isArray(p.days)
+            ? p.days.map((d) => (d.day === t.day ? { ...d, total: d.total + delta } : d)) : p.days;
         const met = t.target.op === 'atMost' ? total <= p.target : total >= p.target;
-        return { ...t, todayLogs, progress: { ...p, total, met } };
+        return { ...t, todayLogs, progress: { ...p, total, met, days } };
     }
 
     function addLog(log) {
@@ -1180,11 +1183,25 @@
             tap.setAttribute('aria-label', `${t.name}, ${done ? 'done today. Tap to undo' : 'not done yet. Tap to mark done'}`);
         } else {
             const limit = t.target.op === 'atMost';
-            const meter = el('span', limit ? 'wg-meter wg-trk__limit' : 'wg-meter');
-            const fill = el('span', limit ? 'wg-meter__fill' : 'wg-meter__fill wg-meter__fill--sage');
-            fill.style.setProperty('--p', p.target > 0 ? pct(p.total / p.target) : (p.total > 0 ? '100%' : '0%'));
-            meter.appendChild(fill);
-            tap.appendChild(meter);
+            if (Array.isArray(p.days) && p.days.length === 7) {
+                // Weekly tile (TR1): Mon..Sun strip instead of the meter.
+                const week = el('span', 'wg-trk__week');
+                week.setAttribute('aria-hidden', 'true');
+                p.days.forEach((d) => {
+                    const seg = el('i');
+                    if (d.total > 0) seg.classList.add('is-hit');
+                    if (d.day === t.day) seg.classList.add('is-today');
+                    else if (t.day && d.day > t.day) seg.classList.add('is-future');
+                    week.appendChild(seg);
+                });
+                tap.appendChild(week);
+            } else {
+                const meter = el('span', limit ? 'wg-meter wg-trk__limit' : 'wg-meter');
+                const fill = el('span', limit ? 'wg-meter__fill' : 'wg-meter__fill wg-meter__fill--sage');
+                fill.style.setProperty('--p', p.target > 0 ? pct(p.total / p.target) : (p.total > 0 ? '100%' : '0%'));
+                meter.appendChild(fill);
+                tap.appendChild(meter);
+            }
             const foot = el('span', 'wg-trk__foot');
             const left = fmtNum(Math.max(0, p.target - p.total));
             if (state === 'met') foot.appendChild(chip('Goal met', 'ok', 'check'));
