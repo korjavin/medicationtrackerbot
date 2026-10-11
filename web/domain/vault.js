@@ -81,6 +81,7 @@ export const VAULT_MANAGED_TYPES = new Set([
   'location', 'activelocation',
   'sleep', 'daystats', 'hrsample', 'spo2sample', 'stresssample',
   'note',
+  'tracker', 'trackerlog',
   'tzplan', 'tzhistory',
   'settings', 'features', 'taborder', 'foodtargets', 'integrations', 'medreminderpref',
   'bpreminderpref', 'weightreminderpref', 'gamification', 'apitokens',
@@ -404,6 +405,17 @@ export function recordsToVault(records, { now, includeSecrets = true } = {}) {
   const data = {
     medications, bp, weight, food, workouts, vitals, diary, tz, settings, gamification,
   };
+  // User trackers (med-1vy5), cloud-only. A tracker keeps its recordId as `id`
+  // (logs reference it); logs are leaves. Omitted when empty so a tracker-free
+  // store exports byte-identical to an older client.
+  const trackerRows = pick('tracker');
+  const trackerLogs = pick('trackerlog');
+  if (trackerRows.length > 0 || trackerLogs.length > 0) {
+    data.trackers = {
+      items: sortBy(trackerRows, (r) => String(r.recordId)).map((r) => ({ id: r.recordId, ...stripMeta(r) })),
+      logs: sortBy(trackerLogs, (r) => `${r.trackerId}|${r.date || r.at}|${r.amount ?? ''}`).map((r) => stripMeta(r)),
+    };
+  }
   // Same rule as `integrations`: emit `[]` (not absent) so a restore can clear
   // stale tokens on the destination.
   if (includeSecrets) data.api_tokens = (tokensRec && tokensRec.tokens) || [];
@@ -633,6 +645,21 @@ export function vaultToRecords(vault, { now } = {}) {
 
   // --- diary (numeric-string recordId, as notes.js mints) ---
   for (const n of (data.diary || {}).notes || []) push('note', String(mintNum()), { ...n });
+
+  // --- trackers (med-1vy5): trackers keep their id; a check log re-mints its
+  // deterministic trackerlog:<trackerId>:<date> id, a count log a fresh one ---
+  const trackers = data.trackers || {};
+  for (const { id, ...body } of trackers.items || []) push('tracker', id, body);
+  for (const l of trackers.logs || []) {
+    if (l.date !== undefined) {
+      if (typeof l.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(l.date)) {
+        throw new Error(`Corrupt backup: tracker log has a bad date ${JSON.stringify(l.date)}`);
+      }
+      push('trackerlog', `trackerlog:${l.trackerId}:${l.date}`, { ...l });
+    } else {
+      push('trackerlog', `trackerlog-${mintNum()}`, { ...l });
+    }
+  }
 
   // --- tz ---
   const tz = data.tz || {};

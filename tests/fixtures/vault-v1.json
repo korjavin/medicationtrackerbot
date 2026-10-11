@@ -438,6 +438,56 @@
         }
       ]
     },
+    "trackers": {
+      "items": [
+        {
+          "id": "tracker-1783500000000_water01",
+          "name": "Water",
+          "emoji": "💧",
+          "kind": "count",
+          "unit": "glass",
+          "step": 1,
+          "target": { "op": "atLeast", "value": 8, "period": "day" },
+          "reminder": { "time": "14:00" },
+          "archived": false,
+          "createdAt": "2026-07-01T08:00:00.000Z"
+        },
+        {
+          "id": "tracker-1783500000001_noalc01",
+          "name": "No alcohol",
+          "emoji": "🚱",
+          "kind": "check",
+          "unit": null,
+          "step": 1,
+          "target": { "op": "atLeast", "value": 5, "period": "week" },
+          "reminder": null,
+          "archived": true,
+          "createdAt": "2026-07-01T08:05:00.000Z"
+        }
+      ],
+      "logs": [
+        {
+          "trackerId": "tracker-1783500000000_water01",
+          "at": "2026-07-08T08:00:00.000Z",
+          "amount": 1
+        },
+        {
+          "trackerId": "tracker-1783500000000_water01",
+          "at": "2026-07-08T12:00:00.000Z",
+          "amount": 2
+        },
+        {
+          "trackerId": "tracker-1783500000001_noalc01",
+          "date": "2026-07-07",
+          "done": true
+        },
+        {
+          "trackerId": "tracker-1783500000001_noalc01",
+          "date": "2026-07-08",
+          "done": false
+        }
+      ]
+    },
     "tz": {
       "current": "Europe/Berlin",
       "history": [
