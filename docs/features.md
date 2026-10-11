@@ -155,6 +155,9 @@ med-904.3 added `hard_set_band{current, baseline, low, high, status}` — the us
 
 User-defined count / check-off trackers with a day/week/month target or limit (epic `med-1vy5`). Data model, validation, period maths and the `/api/trackers` operations live in `web/domain/trackers.js` (routed by `web/cloud/js/apishim.js`); read the module, it is the source of truth. Count taps are one record each (totals summed on read, never a per-day counter); check days use the deterministic `trackerlog:<trackerId>:<date>` id like the food incomplete-day flag. Vault shape: `data.trackers` in [vault-format.md](vault-format.md#trackers).
 
+- **Agents**: MCP ops `trackers.list` / `trackers.log` / `trackers.history` (`internal/mcp/registry/operations_trackers.go`); `trackers.log` takes the tracker's id or its name (case-insensitive), so "log 2 glasses of water" is one call.
+- **Doctor brief**: opt-in `trackers` section — one line per active tracker with its current day/week/month progress; no block when there are none.
+
 ## Settings → Import/Export
 
 - **One Settings screen** (`web/static/js/features/settings/importexport.js`, hung off `loadSettings` like `SettingsIntegrations`; block `.wg-settings-importexport` in `index.html`). The **no-lock-in guarantee (C2e)**: your entire dataset (meds + intake log, BP, weight, food, workouts, vitals, sleep, diary, full tz-plan history, reminder prefs + reminder state, gamification, API tokens, settings) exports to and imports from one canonical JSON file, built fully client-side. The vault is the seamless migration mechanism: `export → new account → import` reproduces the install. Format spec: [vault-format.md](vault-format.md).
