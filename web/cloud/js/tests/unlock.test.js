@@ -147,20 +147,38 @@ describe('unlock share-plan fragment (med-uo64.3)', () => {
   describe('LDK cache v2', () => {
     const AAD = new TextEncoder().encode('mt/v1/ldk');
 
+    // One readwrite transaction on the device store, resolving with the
+    // last request's result.
+    async function deviceStore(fn) {
+      const db = await openDb();
+      try {
+        return await new Promise((resolve, reject) => {
+          const tx = db.transaction('device', 'readwrite');
+          const req = fn(tx.objectStore('device'));
+          tx.oncomplete = () => resolve(req?.result);
+          tx.onerror = () => reject(tx.error);
+        });
+      } finally { db.close(); }
+    }
+
     // What a pre-v2 shell wrote: the DEK AES-GCM-wrapped under a local key.
     async function writeV1(dek, accountId) {
       const ldk = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
       const nonce = crypto.getRandomValues(new Uint8Array(12));
       const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce, additionalData: AAD }, ldk, dek));
-      const v1 = { ldk, nonce, ct, accountId };
-      const db = await openDb();
-      await new Promise((resolve, reject) => {
-        const tx = db.transaction('device', 'readwrite');
-        tx.objectStore('device').put(v1, 'ldk');
-        tx.oncomplete = resolve;
-        tx.onerror = () => reject(tx.error);
-      });
-      db.close();
+      await deviceStore((s) => s.put({ ldk, nonce, ct, accountId }, 'ldk'));
+    }
+
+    // The pre-#1019 /unlock shell's warm branch, verbatim in effect: read
+    // 'ldk', try to unwrap it as v1, and delete it on ANY failure.
+    async function runOldShellWarmBranch() {
+      const cached = await deviceStore((s) => s.get('ldk'));
+      if (!cached) return;
+      try {
+        await crypto.subtle.decrypt({ name: 'AES-GCM', iv: cached.nonce, additionalData: AAD }, cached.ldk, cached.ct);
+      } catch {
+        await deviceStore((s) => { s.delete('ldk'); });
+      }
     }
 
     // The ctx's keys are this DEK's leaf keys: AES sealed by an independent
@@ -202,7 +220,8 @@ describe('unlock share-plan fragment (med-uo64.3)', () => {
       const rec = await readLdkRecord();
       expect(rec.v).toBe(2);
       expectNoDekBytes(rec);
-      expect(await deviceKeys()).toEqual(['ldk']); // no staging row left behind
+      expect(await deviceKeys()).toEqual(['ldk2']); // no staging row left behind
+      expect(await readLdkRecord('ldk')).toBeNull();
 
       const ctx = await warmUnlock();
       expect(Object.keys(ctx).sort()).toEqual(['accountId', 'kData', 'kMac']);
@@ -221,6 +240,7 @@ describe('unlock share-plan fragment (med-uo64.3)', () => {
       const rec = await readLdkRecord();
       expect(rec.v).toBe(2);
       expectNoDekBytes(rec);
+      expect(await deviceKeys()).toEqual(['ldk2']); // the wrapped DEK is gone
       await expectKeysOf(await warmUnlock(), dek);
     });
 
@@ -234,24 +254,79 @@ describe('unlock share-plan fragment (med-uo64.3)', () => {
       const ctx = await warmUnlock();
       spy.mockRestore();
       await expectKeysOf(ctx, dek);
-      const kept = await readLdkRecord();
+      expect(await readLdkRecord()).toBeNull();
+      const kept = await readLdkRecord('ldk');
       expect(kept.v).toBeUndefined();
       expect(kept.ct).toBeInstanceOf(Uint8Array);
 
       await warmUnlock();
       expect((await readLdkRecord()).v).toBe(2);
+      expect(await deviceKeys()).toEqual(['ldk2']);
     });
 
-    it('old-shell overlap: a v1 rewritten over v2 is re-migrated on the next launch', async () => {
+    // med-5h1t.5: a rollback to the pre-v2 /unlock shell must see "no cache",
+    // never "corrupt cache", or it wipes the only warm path.
+    it('old shell cannot destroy v2, even when its cold unlock then fails', async () => {
+      installFakeIdb();
+      const dek = generateDEK();
+      await writeV1(dek, 'acct-1');
+      await warmUnlock(); // migrates
+
+      await runOldShellWarmBranch();
+      // ...then its cold unlock fails (offline / cancelled): nothing written.
+
+      const ctx = await warmUnlock();
+      expect(ctx.accountId).toBe('acct-1');
+      await expectKeysOf(ctx, dek);
+      expect(await deviceKeys()).toEqual(['ldk2']);
+    });
+
+    it('old shell cold unlock after v2: its v1 is migrated and the legacy slot emptied', async () => {
       installFakeIdb();
       const dek = generateDEK();
       await establishLdkCache(dek, 'acct-1');
-      // An old SW-cached /unlock shell can't read v2, clears it, and its cold
-      // unlock writes v1 again.
-      await writeV1(dek, 'acct-1');
+      await runOldShellWarmBranch();
+      await writeV1(dek, 'acct-1'); // the old shell's successful cold unlock
 
       await expectKeysOf(await warmUnlock(), dek);
+      expect(await deviceKeys()).toEqual(['ldk2']);
       expectNoDekBytes(await readLdkRecord());
+    });
+
+    it('a v1 for another account is the fresher ceremony and wins', async () => {
+      installFakeIdb();
+      await establishLdkCache(generateDEK(), 'acct-1');
+      const dek = generateDEK();
+      await writeV1(dek, 'acct-2');
+
+      const ctx = await warmUnlock();
+      expect(ctx.accountId).toBe('acct-2');
+      await expectKeysOf(ctx, dek);
+      expect((await readLdkRecord()).accountId).toBe('acct-2');
+      expect(await deviceKeys()).toEqual(['ldk2']);
+    });
+
+    it('a v2 left in the legacy slot by a pre-split shell moves to the new slot', async () => {
+      installFakeIdb();
+      const dek = generateDEK();
+      const { kData, kMac } = await deriveDataKeys(dek);
+      await deviceStore((s) => s.put({ v: 2, accountId: 'acct-1', kData, kMac }, 'ldk'));
+
+      await expectKeysOf(await warmUnlock(), dek);
+      expect(await deviceKeys()).toEqual(['ldk2']);
+      await expectKeysOf(await warmUnlock(), dek);
+    });
+
+    it('an unreadable cache is cleared from both slots before the locked screen', async () => {
+      installFakeIdb();
+      await establishLdkCache(generateDEK(), 'acct-1');
+      await deviceStore((s) => s.put({ v: 2, accountId: 'acct-1' }, 'ldk')); // corrupt
+      const app = fakeApp();
+      setGlobal('document', { getElementById: () => app });
+      setGlobal('location', { hash: '', href: '' });
+      await runUnlockFlow();
+      expect(app.innerHTML).toContain('unlock-button');
+      expect(await deviceKeys()).toEqual([]);
     });
 
     it('the durability probe rejects a stored key from a different DEK', async () => {
@@ -278,7 +353,7 @@ describe('unlock share-plan fragment (med-uo64.3)', () => {
       const again = vi.spyOn(crypto.subtle, 'verify').mockResolvedValueOnce(false);
       await expect(establishLdkCache(generateDEK(), 'acct-1')).rejects.toThrow();
       again.mockRestore();
-      expect(await deviceKeys()).toEqual(['ldk']);
+      expect(await deviceKeys()).toEqual(['ldk2']);
       await expectKeysOf(await warmUnlock(), dek);
     });
   });

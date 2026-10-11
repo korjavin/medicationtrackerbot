@@ -1803,11 +1803,11 @@ describe('write-error retry budget wedges a doomed batch, resetLocalSync un-wedg
         });
       } finally { db.close(); }
     };
-    await deviceStore((s) => s.put({ v: 2, accountId, kData: ctx.kData, kMac: ctx.kMac }, 'ldk'));
+    await deviceStore((s) => s.put({ v: 2, accountId, kData: ctx.kData, kMac: ctx.kMac }, 'ldk2'));
 
     await resetLocalSync(ctx);
 
-    const ldk = await deviceStore((s) => s.get('ldk'));
+    const ldk = await deviceStore((s) => s.get('ldk2'));
     expect(ldk.v).toBe(2);
     expect(ldk.kData.algorithm.name).toBe('AES-GCM');
 

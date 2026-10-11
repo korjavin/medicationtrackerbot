@@ -16,7 +16,11 @@ import {
 import { openDb } from './localdb.js';
 
 const STORE_NAME = 'device';
-const LDK_RECORD_KEY = 'ldk';
+// v2 lives in its own slot: a pre-v2 shell reads only LDK_LEGACY_KEY, so it
+// sees "no cache" (renders locked, clears nothing) instead of a record it
+// can't open (which it deletes). Promotion empties the legacy slot.
+const LDK_RECORD_KEY = 'ldk2';
+const LDK_LEGACY_KEY = 'ldk';
 const LDK_STAGING_PREFIX = 'ldk-staging-';
 const LDK_AAD = new TextEncoder().encode('mt/v1/ldk');
 
@@ -24,7 +28,7 @@ export async function runUnlockFlow() {
   const app = document.getElementById('app');
   let cached = null;
   try {
-    cached = await readLdkRecord();
+    cached = await readLiveLdk();
   } catch {
     // IndexedDB unavailable (storage disabled, private mode, quota policy) —
     // fall through to cold unlock rather than leaving a blank page.
@@ -32,7 +36,7 @@ export async function runUnlockFlow() {
   }
   if (cached) {
     try {
-      await openLdkRecord(cached); // v2 leaf keys, or v1 migrated in place
+      await openLdkRecord(cached); // v2 leaf keys, or a legacy record migrated
       // The real app (web/static, C1) reads the LDK cache itself via
       // cloud-boot.js — send the browser there instead of the toy menu below.
       location.href = unlockSuccessTarget(location.hash);
@@ -313,10 +317,12 @@ function renderShellFrame(app, title, mountFn, onBack) {
 // structured-cloned into IndexedDB directly, so a warm launch reopens the
 // vault without a biometric and without any DEK bytes on disk or in memory.
 //
-// v2 = { v: 2, accountId, kData, kMac }. v1 = { ldk, nonce, ct, accountId }
-// (an AES-GCM-wrapped DEK, no `v`) is what older shells wrote; warm unlock
-// migrates it once. An old SW-cached /unlock shell can't read v2 and clears
-// it; its cold unlock then writes v1 and the next warm launch re-migrates.
+// v2 = { v: 2, accountId, kData, kMac } under LDK_RECORD_KEY. v1 =
+// { ldk, nonce, ct, accountId } (an AES-GCM-wrapped DEK, no `v`) under
+// LDK_LEGACY_KEY is what older shells wrote; warm unlock migrates it once and
+// empties the legacy slot. A rolled-back /unlock shell therefore finds no
+// cache and wipes nothing; if its cold unlock writes v1 again, that is the
+// fresher ceremony and the next warm launch re-migrates it.
 
 // Seeds the cache from a ceremony DEK (signup, cold unlock, device transfer).
 // The write is probed before it counts; one that fails the probe never
@@ -327,9 +333,9 @@ export async function establishLdkCache(dek, accountId) {
 
 // Stage → probe → promote: the v2 record is written under a per-call staging
 // key (concurrent tabs never share one), read back through a fresh IDB handle
-// and probed, then moved into the live slot in one transaction. Whatever sat
-// in the live slot (a v1 record mid-migration, another tab's fresh cache) is
-// untouched unless that final transaction commits.
+// and probed, then moved into the live slot in one transaction that also
+// empties the legacy slot. Neither slot (a legacy v1 mid-migration, another
+// tab's fresh cache) is touched unless that final transaction commits.
 async function persistLeafKeys(dek, accountId) {
   const { kData, kMac } = await deriveDataKeys(dek);
   const record = { v: 2, accountId, kData, kMac };
@@ -339,6 +345,7 @@ async function persistLeafKeys(dek, accountId) {
     await verifyLdkDurable(dek, accountId, staging);
     await deviceTx('readwrite', (store) => {
       store.put(record, LDK_RECORD_KEY);
+      store.delete(LDK_LEGACY_KEY);
       store.delete(staging);
     });
   } catch (e) {
@@ -391,17 +398,25 @@ async function unwrapWithLdk(record) {
 
 // Record → operational ctx { accountId, kData, kMac }. Throws on a record it
 // can't open (callers clear it / go cold).
-async function openLdkRecord(record) {
+async function openLdkRecord({ record, legacy }) {
   if (record.v === 2) {
     if (typeof record.accountId !== 'string' || record.kData?.algorithm?.name !== 'AES-GCM'
       || record.kMac?.algorithm?.name !== 'HMAC') {
       throw new Error('Corrupt local key record.');
     }
+    // A v2 in the legacy slot (written by a shell from before the slot split)
+    // was probed when written: just move it. A failed move retries next launch.
+    if (legacy) {
+      await deviceTx('readwrite', (store) => {
+        store.put(record, LDK_RECORD_KEY);
+        store.delete(LDK_LEGACY_KEY);
+      }).catch(() => {});
+    }
     return { accountId: record.accountId, kData: record.kData, kMac: record.kMac };
   }
-  // v1: unwrap once, derive the leaf keys, promote to v2. A failed promotion
-  // keeps v1 (persistLeafKeys never touches the live slot until it commits)
-  // and this launch runs on the in-memory keys; the next launch retries.
+  // v1 (legacy slot): unwrap once, derive the leaf keys, promote to v2. A
+  // failed promotion keeps v1 (persistLeafKeys touches neither slot until it
+  // commits) and this launch runs on the in-memory keys; the next one retries.
   const dek = await unwrapWithLdk(record);
   try {
     try {
@@ -420,9 +435,19 @@ async function openLdkRecord(record) {
 // to the caller's catch. Shared by cloud-boot.js (real-app shim) and app.js's
 // /devices branch so the ctx shape lives in exactly one place.
 export async function warmUnlock() {
-  const cached = await readLdkRecord();
+  const cached = await readLiveLdk();
   if (!cached) return null;
   return openLdkRecord(cached);
+}
+
+// The record warm unlock opens. A legacy-slot record wins: every promotion
+// empties that slot, so anything there was written after the v2 (an older
+// shell's cold unlock) and is the fresher ceremony.
+async function readLiveLdk() {
+  const legacy = await readLdkRecord(LDK_LEGACY_KEY);
+  if (legacy) return { record: legacy, legacy: true };
+  const record = await readLdkRecord();
+  return record ? { record, legacy: false } : null;
 }
 
 // Exported for the unlock test (inspects what the cache actually holds).
@@ -448,7 +473,10 @@ async function deviceTx(mode, fn) {
 }
 
 async function clearLdkRecord() {
-  await deviceTx('readwrite', (store) => { store.delete(LDK_RECORD_KEY); });
+  await deviceTx('readwrite', (store) => {
+    store.delete(LDK_RECORD_KEY);
+    store.delete(LDK_LEGACY_KEY);
+  });
 }
 
 // Shared-plan/gym fragment forwarding (med-uo64.3, med-8j5w.3): only a
