@@ -175,6 +175,17 @@ describe('unlock share-plan fragment (med-uo64.3)', () => {
       expect(await crypto.subtle.verify('HMAC', ctx.kMac, tag, msg)).toBe(true);
     }
 
+    async function deviceKeys() {
+      const db = await openDb();
+      try {
+        return await new Promise((resolve, reject) => {
+          const req = db.transaction('device', 'readonly').objectStore('device').getAllKeys();
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+      } finally { db.close(); }
+    }
+
     function expectNoDekBytes(rec) {
       expect(Object.keys(rec).sort()).toEqual(['accountId', 'kData', 'kMac', 'v']);
       expect(rec.kData.extractable).toBe(false);
@@ -191,7 +202,7 @@ describe('unlock share-plan fragment (med-uo64.3)', () => {
       const rec = await readLdkRecord();
       expect(rec.v).toBe(2);
       expectNoDekBytes(rec);
-      expect(await readLdkRecord('ldk-staging')).toBeNull();
+      expect(await deviceKeys()).toEqual(['ldk']); // no staging row left behind
 
       const ctx = await warmUnlock();
       expect(Object.keys(ctx).sort()).toEqual(['accountId', 'kData', 'kMac']);
@@ -253,14 +264,22 @@ describe('unlock share-plan fragment (med-uo64.3)', () => {
       await expect(verifyLdkDurable(dek, 'acct-other')).rejects.toThrow();
     });
 
-    it('a cache that fails its probe is cleared, not left to strand the next launch', async () => {
+    it('a write that fails its probe never reaches the live slot or clobbers what is there', async () => {
       installFakeIdb();
       const spy = vi.spyOn(crypto.subtle, 'verify').mockResolvedValueOnce(false);
       await expect(establishLdkCache(generateDEK(), 'acct-1')).rejects.toThrow();
       spy.mockRestore();
-      expect(await readLdkRecord()).toBeNull();
-      expect(await readLdkRecord('ldk-staging')).toBeNull();
+      expect(await deviceKeys()).toEqual([]);
       expect(await warmUnlock()).toBeNull();
+
+      // Another tab's committed cache survives this tab's failed write.
+      const dek = generateDEK();
+      await establishLdkCache(dek, 'acct-1');
+      const again = vi.spyOn(crypto.subtle, 'verify').mockResolvedValueOnce(false);
+      await expect(establishLdkCache(generateDEK(), 'acct-1')).rejects.toThrow();
+      again.mockRestore();
+      expect(await deviceKeys()).toEqual(['ldk']);
+      await expectKeysOf(await warmUnlock(), dek);
     });
   });
 

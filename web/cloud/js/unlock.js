@@ -17,7 +17,7 @@ import { openDb } from './localdb.js';
 
 const STORE_NAME = 'device';
 const LDK_RECORD_KEY = 'ldk';
-const LDK_STAGING_KEY = 'ldk-staging';
+const LDK_STAGING_PREFIX = 'ldk-staging-';
 const LDK_AAD = new TextEncoder().encode('mt/v1/ldk');
 
 export async function runUnlockFlow() {
@@ -319,30 +319,34 @@ function renderShellFrame(app, title, mountFn, onBack) {
 // it; its cold unlock then writes v1 and the next warm launch re-migrates.
 
 // Seeds the cache from a ceremony DEK (signup, cold unlock, device transfer).
-// The write is probed before it counts; a cache that fails the probe is
-// cleared rather than left to strand the next launch.
+// The write is probed before it counts; one that fails the probe never
+// reaches the live slot.
 export async function establishLdkCache(dek, accountId) {
-  try {
-    await persistLeafKeys(dek, accountId);
-  } catch (e) {
-    await clearLdkRecord().catch(() => {});
-    throw e;
-  }
+  await persistLeafKeys(dek, accountId);
 }
 
-// Stage → probe → promote: the v2 record is written under a staging key, read
-// back through a fresh IDB handle and probed, then moved into the live slot in
-// one transaction. Whatever sat in the live slot (a v1 record mid-migration)
-// is untouched until that final transaction commits.
+// Stage → probe → promote: the v2 record is written under a per-call staging
+// key (concurrent tabs never share one), read back through a fresh IDB handle
+// and probed, then moved into the live slot in one transaction. Whatever sat
+// in the live slot (a v1 record mid-migration, another tab's fresh cache) is
+// untouched unless that final transaction commits.
 async function persistLeafKeys(dek, accountId) {
   const { kData, kMac } = await deriveDataKeys(dek);
   const record = { v: 2, accountId, kData, kMac };
-  await deviceTx('readwrite', (store) => store.put(record, LDK_STAGING_KEY));
-  await verifyLdkDurable(dek, accountId, LDK_STAGING_KEY);
-  await deviceTx('readwrite', (store) => {
-    store.put(record, LDK_RECORD_KEY);
-    store.delete(LDK_STAGING_KEY);
-  });
+  const staging = LDK_STAGING_PREFIX + crypto.randomUUID();
+  try {
+    await deviceTx('readwrite', (store) => store.put(record, staging));
+    await verifyLdkDurable(dek, accountId, staging);
+    await deviceTx('readwrite', (store) => {
+      store.put(record, LDK_RECORD_KEY);
+      store.delete(staging);
+    });
+  } catch (e) {
+    // ponytail: a tab killed mid-call orphans its staging row (leaf keys only,
+    // never read by warmUnlock); sweep by prefix if that ever matters.
+    await deviceTx('readwrite', (store) => { store.delete(staging); }).catch(() => {});
+    throw e;
+  }
   return { kData, kMac };
 }
 
@@ -444,10 +448,7 @@ async function deviceTx(mode, fn) {
 }
 
 async function clearLdkRecord() {
-  await deviceTx('readwrite', (store) => {
-    store.delete(LDK_RECORD_KEY);
-    store.delete(LDK_STAGING_KEY);
-  });
+  await deviceTx('readwrite', (store) => { store.delete(LDK_RECORD_KEY); });
 }
 
 // Shared-plan/gym fragment forwarding (med-uo64.3, med-8j5w.3): only a
