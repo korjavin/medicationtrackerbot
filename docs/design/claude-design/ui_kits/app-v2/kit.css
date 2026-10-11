@@ -64,3 +64,5 @@ a{color:var(--wg-sun)}a:hover{color:var(--wg-sun-hi)}
 .kit-menu-pos{top:52px;right:0}
 .kit-stage .wg-tabbar{height:auto;padding-bottom:6px}
 .kit-chart{display:block;width:100%;height:150px}
+.kit-phone:has(.wg-theme-light){background:#F4FBF7}.kit-phone:has(.wg-theme-light) .kit-home{background:rgba(15,46,41,.4)}
+.kit-stage.wg-theme-light{color:var(--wg-fg-1)}
