@@ -333,9 +333,9 @@ export async function establishLdkCache(dek, accountId) {
 
 // Stage → probe → promote: the v2 record is written under a per-call staging
 // key (concurrent tabs never share one), read back through a fresh IDB handle
-// and probed, then moved into the live slot in one transaction. Whatever sat
-// in the live slot (a v1 record mid-migration, another tab's fresh cache) is
-// untouched unless that final transaction commits.
+// and probed, then moved into the live slot in one transaction that also
+// empties the legacy slot. Neither slot (a legacy v1 mid-migration, another
+// tab's fresh cache) is touched unless that final transaction commits.
 async function persistLeafKeys(dek, accountId) {
   const { kData, kMac } = await deriveDataKeys(dek);
   const record = { v: 2, accountId, kData, kMac };
@@ -414,9 +414,9 @@ async function openLdkRecord({ record, legacy }) {
     }
     return { accountId: record.accountId, kData: record.kData, kMac: record.kMac };
   }
-  // v1: unwrap once, derive the leaf keys, promote to v2. A failed promotion
-  // keeps v1 (persistLeafKeys never touches the live slot until it commits)
-  // and this launch runs on the in-memory keys; the next launch retries.
+  // v1 (legacy slot): unwrap once, derive the leaf keys, promote to v2. A
+  // failed promotion keeps v1 (persistLeafKeys touches neither slot until it
+  // commits) and this launch runs on the in-memory keys; the next one retries.
   const dek = await unwrapWithLdk(record);
   try {
     try {
