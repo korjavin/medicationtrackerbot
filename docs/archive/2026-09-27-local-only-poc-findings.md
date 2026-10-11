@@ -63,7 +63,10 @@ The POC landed in PR #888 (merge `1de0b27f`); its removal is the PR that closed
 bd `med-qz4y`. Restore by `git revert -m 1 <med-qz4y merge commit>`, then
 resolve conflicts against whatever moved since. Migration 025
 (`credentials.mode`, default `'prf'`) was never dropped, so no schema work is
-needed. Re-run the promotion bar above before shipping it unflagged.
+needed. Re-run the promotion bar above before shipping it unflagged. Note: since
+PR #1019 the warm cache holds only leaf keys (no wrapped DEK), so a revert alone
+cannot restore a local-only device's wrapped DEK; the local path needs its own
+DEK storage again.
 
 **Date:** 2026-09-27
 **Bead:** `med-eas.2.1` (child of `med-eas.2`)

@@ -454,7 +454,7 @@ So: **check the epoch before attempting decrypt.** In `bootstrap()` and
 
 1. Do not decrypt, do not advance the cursor, do not touch the local record store —
    the local plaintext mirror is the only copy of any unflushed writes.
-2. Clear the LDK cache (`clearLdkRecord`, `unlock.js:301-313`) and the plaintext `nk`
+2. Clear the LDK cache (`clearLdkRecord`, `unlock.js:475-480`) and the plaintext `nk`
    entry.
 3. Force a **cold unlock**: a passkey assertion → `GET /api/envelopes/{ref}` →
    `KEK_i` → `DEK′`. This is unavoidable. `KEK_i` is only derivable from a live
