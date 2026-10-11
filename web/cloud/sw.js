@@ -50,7 +50,7 @@ function moduleDeps(url, source) {
 }
 
 // Fetch one asset, cache it, and return its module deps (empty for non-JS or
-// vendor). Throws on a non-ok status so the caller can decide core-vs-optional.
+// vendor). Throws on a non-ok status so the caller can decide fatal-vs-best-effort.
 async function cacheAndCrawl(cache, url) {
   const res = await fetch(url);
   if (!res.ok) throw new Error('shell warm: ' + url + ' => ' + res.status);
@@ -67,91 +67,85 @@ async function cacheAndCrawl(cache, url) {
 // subresource fetches reject (a subresource deliberately never gets the HTML
 // shell below) and the app boots blank.
 //
-// CORE-vs-OPTIONAL split (med-gvk.1): the pre-med-gvk.1 warm was ALL-OR-NOTHING
-// — one flaky subresource on the first online visit rejected the whole install,
-// so NOTHING cached and the app stayed broken offline until a later navigation
-// happened to fetch every asset cleanly. Now:
-//   - CORE = the '/' document + its direct <script src>/<link href> tags (the
-//     app's styles, vendor bundles, cloud-boot.js + the core/* entry scripts
-//     the BROWSER fetches to parse and paint). These have no runtime backfill
-//     before the JS even runs, so a CORE miss = a broken/unstyled offline shell.
-//     A CORE failure still REJECTS the install: activate prunes the previous
-//     version's cache, so we keep the old SW + cache live and let the browser
-//     retry the update on the next navigation rather than activate a broken
-//     shell. (The disk-backed test in sw.fetch-cache.test.js pins every CORE ref
-//     to a real repo file so a bad ref can't permanently wedge updates.)
-//   - OPTIONAL = the transitively-crawled ES-module graph (unlock/apishim/sync/
-//     domain + lazy feature modules). These are fetched by the RUNNING JS via
-//     import(), so the fetch handler below backfills any skipped here on the
-//     first online use — and the modules the page actually loads this session
-//     are runtime-cached anyway. So one flaky module must NOT poison the whole
-//     precache: allSettled over each wave, log+skip failures, keep crawling the
-//     successes.
+// STRICT-vs-BEST-EFFORT (med-gvk.1, tightened by med-5h1t.6). med-gvk.1 made
+// the crawled ES-module graph "optional" (allSettled, log+skip) so one flaky
+// module could not reject the install. That bought nothing: an imported module
+// is not optional at runtime — a missing one breaks its importer anyway — and a
+// skipped module was later filled on a cache MISS from the CURRENT server, next
+// to siblings from the install's deploy. Across a deploy that changed module
+// interfaces (crypto/unlock/sync in med-5h1t) that mixed graph broke boot until
+// the update banner was accepted. So the cached graph is COHERENT PER
+// GENERATION — all-or-nothing:
+//   - Fatal: the '/' document, every one of its direct <script src>/<link href>
+//     refs, and every crawled .js/.mjs module (CRAWLABLE_RE) in either shell.
+//     Any failure REJECTS the install and warmShell deletes the partial cache.
+//     The previous SW + its complete cache keep serving; the browser retries
+//     the update on the next navigation. (The disk-backed test in
+//     sw.fetch-cache.test.js pins every ref to a real repo file so a bad ref
+//     can't permanently wedge updates.)
+//   - Best-effort: only the ceremony shell's non-module assets (its css) —
+//     logged and skipped; a missing stylesheet cannot skew a module graph.
+//
 // Crawl one document's subresource + ES-module graph into `cache`, sharing the
 // `seen` set across documents so an asset already cached by an earlier call is
-// not re-fetched. When `strict` (the '/' app shell), the DIRECT subresource
-// wave is Promise.all — a miss rejects (CORE, see above). When not strict (the
-// best-effort ceremony shell) the direct refs fold into the allSettled loop so
-// nothing rejects. Module-graph waves are always allSettled (log+skip).
+// not re-fetched. `strict` (the '/' app shell) makes every ref fatal.
 async function warmDocGraph(cache, html, seen, strict) {
-  const direct = [];
+  let wave = [];
   for (const m of html.matchAll(SHELL_REF_RE)) {
     // SHELL_REF_RE only captures root-relative refs, so origin is the only base.
     const href = new URL(m[1], self.location.origin).href;
     if (!seen.has(href)) {
       seen.add(href);
-      direct.push(href);
+      wave.push(href);
     }
   }
-  let wave;
-  if (strict) {
-    // CORE wave: Promise.all — any failure rejects install. The module deps
-    // these yield become the OPTIONAL frontier.
-    const coreDeps = await Promise.all(direct.map((url) => cacheAndCrawl(cache, url)));
-    wave = coreDeps.flat().filter((u) => !seen.has(u) && (seen.add(u), true));
-  } else {
-    wave = direct;
-  }
-  // OPTIONAL waves: allSettled — cache what succeeds, log+skip what fails, and
-  // keep crawling only the successes' deps.
   while (wave.length) {
     const results = await Promise.allSettled(wave.map((url) => cacheAndCrawl(cache, url)));
     const nextDeps = [];
     results.forEach((r, i) => {
       if (r.status === 'fulfilled') nextDeps.push(...r.value);
-      else console.warn('[sw] shell warm: skipped optional asset ' + wave[i], r.reason);
+      else if (strict || CRAWLABLE_RE.test(new URL(wave[i]).pathname)) throw r.reason;
+      else console.warn('[sw] shell warm: skipped best-effort asset ' + wave[i], r.reason);
     });
     wave = nextDeps.filter((u) => !seen.has(u) && (seen.add(u), true));
   }
 }
 
 async function warmShell() {
-  const cache = await caches.open(SHELL_CACHE);
-  const doc = await fetch('/');
-  if (!doc.ok) throw new Error('shell warm: / => ' + doc.status);
-  const html = await doc.clone().text();
-  await cache.put('/', doc);
-  const origin = self.location.origin;
-  const seen = new Set([new URL('/', origin).href]);
-  // CORE-strict: the '/' shell must fully cache or the install rejects.
-  await warmDocGraph(cache, html, seen, true);
-  // Best-effort: warm the ceremony document (signup.html) + its module graph so
-  // Settings sub-pages (/devices, /connectors, …) open offline. Its failure
-  // must NEVER reject the primary-shell install (med-gvk.3, mirrors med-gvk.1's
-  // core-vs-optional split at the document level).
-  await warmCeremony(cache, seen).catch((e) => console.warn('[sw] ceremony warm failed', e));
+  try {
+    const cache = await caches.open(SHELL_CACHE);
+    const doc = await fetch('/');
+    if (!doc.ok) throw new Error('shell warm: / => ' + doc.status);
+    const html = await doc.clone().text();
+    await cache.put('/', doc);
+    const origin = self.location.origin;
+    const seen = new Set([new URL('/', origin).href]);
+    await warmDocGraph(cache, html, seen, true);
+    // The ceremony document (signup.html) + its module graph, so Settings
+    // sub-pages (/devices, /connectors, …) open offline. Its modules share
+    // crypto/unlock/sync with the '/' graph, so a ceremony module failure is
+    // fatal too — otherwise it would be filled later from a newer deploy.
+    await warmCeremony(cache, seen);
+  } catch (e) {
+    // No partial graph may survive: the fetch handler's global caches.match
+    // searches every cache, so a half-warmed one would leak its modules into
+    // the still-active previous generation.
+    await caches.delete(SHELL_CACHE);
+    throw e;
+  }
 }
 
-// Best-effort ceremony precache: the router serves signup.html for all five
+// Ceremony precache: the router serves signup.html for all five
 // CEREMONY_PATHS, so fetch one ('/unlock'), cache that same document body under
 // EVERY ceremony path (a fresh clone per put) so an offline navigation to any
 // of them is an exact cache hit in cachedNavigationDoc, then crawl its module
 // graph (/css/cloud.css + /js/app.js + app.js's dynamic-import ceremony graph).
-// A miss returns quietly (no top-level warn) so synthetic install tests whose
-// mocks 404 /unlock stay green — only the per-asset skip warnings remain.
+// A 404 returns quietly (no ceremony pages; synthetic install tests whose mocks
+// 404 /unlock) — any other failure rejects the install like a module failure.
 async function warmCeremony(cache, seen) {
   const res = await fetch('/unlock');
-  if (!res.ok) return;
+  if (res.status === 404) return;
+  if (!res.ok) throw new Error('shell warm: /unlock => ' + res.status);
   const html = await res.clone().text();
   for (const path of CEREMONY_PATHS) {
     await cache.put(path, res.clone());

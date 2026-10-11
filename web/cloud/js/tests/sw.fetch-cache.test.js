@@ -337,20 +337,19 @@ describe('cloud sw.js — offline app-shell fetch cache (med-deq.1)', () => {
         expect(cached.size).toBe(Object.keys(files).length);
     });
 
-    it('install stays usable when an OPTIONAL module-graph asset fails: caches the rest, skips the flaky one (med-gvk.1)', async () => {
-        // The headline: pre-med-gvk.1 a single flaky subresource rejected the
-        // whole install so NOTHING cached. Now a failure in the transitively-
-        // crawled ES-module graph (OPTIONAL — the running JS re-fetches it, and
-        // the fetch handler backfills it) is logged + skipped; the core shell
-        // and every sibling that succeeded are still cached and install resolves.
-        allowConsoleNoise(); // the skipped-optional-asset warning logs by design
+    it('install REJECTS when a crawled module fails, leaves no partial cache and the previous generation untouched; a clean retry succeeds (med-5h1t.6)', async () => {
+        // A skipped module used to be filled later on a cache miss from the
+        // NEWER deploy, next to this generation's siblings — a mixed crypto/
+        // unlock/sync graph. The crawled graph is all-or-nothing now.
+        const OLD_CACHE = 'medtracker-cloud-shell-PREVIOUS';
+        const oldBoot = bodyResponse('// generation N boot');
+        caches.seed(OLD_CACHE, '/js/boot.js', oldBoot);
         const files = {
             '/': '<script src="/js/boot.js"></script><link rel="stylesheet" href="/static/s.css?v=1">',
             '/static/s.css?v=1': 'body{}',
-            // boot.js imports two modules: one resolves, one 404s.
+            // boot.js imports two modules: one resolves, one 404s (transient).
             '/js/boot.js': "import('/js/good.js'); import('/js/flaky.js');",
             '/js/good.js': 'export const ok = 1;',
-            // '/js/flaky.js' is absent → 404 → OPTIONAL reject → skipped, not fatal.
         };
         fetchMock.mockImplementation(async (url) => {
             const u = new URL(url, ORIGIN);
@@ -358,21 +357,51 @@ describe('cloud sw.js — offline app-shell fetch cache (med-deq.1)', () => {
             return body === undefined ? bodyResponse('', 404) : bodyResponse(body);
         });
 
-        await fireInstall(); // must NOT throw
+        await expect(fireInstall()).rejects.toThrow('/js/flaky.js');
 
+        // No half-warmed generation survives for the global caches.match to
+        // leak into the still-active previous SW; the previous cache is intact.
+        expect(caches.store.has(SHELL_CACHE)).toBe(false);
+        expect(caches.store.get(OLD_CACHE).get('/js/boot.js')).toBe(oldBoot);
+
+        // The browser retries the update on a later navigation; now it is clean.
+        files['/js/flaky.js'] = 'export const back = 1;';
+        await fireInstall();
         const cached = caches.store.get(SHELL_CACHE);
-        for (const key of ['/', '/static/s.css?v=1', '/js/boot.js', '/js/good.js']) {
-            expect(cached.has(key), key).toBe(true);
-        }
-        // The flaky optional asset was skipped, not cached, and did not poison
-        // the precache.
-        expect(cached.has('/js/flaky.js')).toBe(false);
+        for (const key of Object.keys(files)) expect(cached.has(key), key).toBe(true);
         expect(self.skipWaiting).not.toHaveBeenCalled();
     });
 
-    it('install still REJECTS when a CORE asset (a direct HTML subresource) fails — a later visit retries (med-gvk.1)', async () => {
-        // The other half of the core-vs-optional split: a directly-referenced
-        // <script src>/<link href> the browser fetches to paint has no runtime
+    it('install REJECTS when a module in the ceremony graph fails — its css alone stays best-effort (med-5h1t.6)', async () => {
+        // Ceremony modules share crypto/unlock/sync with the '/' graph, so a
+        // skipped one would later be filled from a newer deploy — fatal too.
+        allowConsoleNoise(); // the skipped-best-effort-css warning logs by design
+        const files = {
+            '/': '<script src="/static/a.js?v=1"></script>',
+            '/static/a.js?v=1': '// no imports',
+            '/unlock': '<link rel="stylesheet" href="/css/cloud.css"><script src="/js/app.js" type="module"></script>',
+            // '/css/cloud.css' absent → skipped, not fatal.
+            '/js/app.js': "await import('/js/unlock.js');",
+            '/js/unlock.js': 'export const x = 1;',
+        };
+        fetchMock.mockImplementation(async (url) => {
+            const u = new URL(url, ORIGIN);
+            const body = files[u.pathname + u.search];
+            return body === undefined ? bodyResponse('', 404) : bodyResponse(body);
+        });
+
+        await fireInstall(); // a missing stylesheet cannot skew a module graph
+        expect(caches.store.get(SHELL_CACHE).has('/js/unlock.js')).toBe(true);
+        expect(caches.store.get(SHELL_CACHE).has('/css/cloud.css')).toBe(false);
+
+        delete files['/js/unlock.js'];
+        await caches.delete(SHELL_CACHE);
+        await expect(fireInstall()).rejects.toThrow('/js/unlock.js');
+        expect(caches.store.has(SHELL_CACHE)).toBe(false);
+    });
+
+    it('install REJECTS when a direct HTML subresource of / fails — a later visit retries (med-gvk.1)', async () => {
+        // A directly-referenced <script src>/<link href> the browser fetches to paint has no runtime
         // backfill before the JS runs, so a miss = a broken offline shell.
         // Rejecting keeps the old SW + complete cache live for the retry.
         fetchMock.mockImplementation(async (url) =>
@@ -504,10 +533,10 @@ describe('cloud sw.js — offline app-shell fetch cache (med-deq.1)', () => {
         expect(cached.has('/js/unlock.js')).toBe(true);
     });
 
-    it('a ceremony-warm failure does NOT reject install — the primary / shell is still cached (med-gvk.3)', async () => {
-        // The best-effort guarantee: the ceremony document 404s (no /unlock in
-        // the mock), so warmCeremony returns quietly and install still resolves
-        // with the CORE-strict '/' shell fully cached.
+    it('a 404 ceremony document does NOT reject install — the primary / shell is still cached (med-gvk.3)', async () => {
+        // The ceremony document 404s (no /unlock in the mock), so warmCeremony
+        // returns quietly and install still resolves with the strict '/' shell
+        // fully cached. (A ceremony MODULE failure rejects — med-5h1t.6.)
         const files = {
             '/': '<script src="/static/a.js?v=1"></script>',
             '/static/a.js?v=1': '// no imports',
