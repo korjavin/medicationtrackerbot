@@ -1100,8 +1100,10 @@ describe('Trackers card', () => {
         expect(editor().classList.contains('hidden')).toBe(false);
         expect(editor().dataset.step).toBe('pick');
         expect([...editor().querySelectorAll('[data-template]')].map((r) => r.dataset.template))
-            .toEqual(['Water', 'Coffee', 'No alcohol', 'Stretching', 'Vitamins']);
+            .toEqual(['Water', 'Coffee', 'No alcohol', 'Late-night snack', 'Stretching', 'Vitamins']);
         expect(editor().querySelector('[data-template="Stretching"] .wg-row__meta').textContent).toBe('Check · 3 times a week');
+        expect(editor().querySelector('[data-template="Vitamins"] .wg-row__meta').textContent).toBe('Check · every day');
+        expect(editor().querySelector('[data-template="No alcohol"] .wg-row__meta').textContent).toBe('Limit · you set how many slips a week');
         editor().querySelector('[data-action="close"]').click();
         expect(editor().classList.contains('hidden')).toBe(true);
 
@@ -1173,6 +1175,61 @@ describe('Trackers card', () => {
             target: { op: 'atMost', value: 0, period: 'week' }, reminder: null,
         }));
         await vi.waitFor(() => expect(cached('tracker-z')).toBeTruthy());
+    });
+
+    // med-1vy5.9: an abstain template is a limit the user sizes; a tap = a slip.
+    it('No alcohol template: a check limit with no value — Save asks for it; slip hints; Manage reads slips', async () => {
+        setup([NO_ALCOHOL, NO_NIGHT, COFFEE]);
+        env.window.apiCall = vi.fn(async (url, method, body) => ({ id: 'tracker-x', ...body, createdAt: at(14, 0) }));
+        root.querySelector('[data-action="tracker-manage"]').click();
+        expect($('#today-tracker-manage [data-manage-id="tracker-a"] .wg-row__meta').textContent).toBe('Limit · at most 1 slip a week');
+        expect($('#today-tracker-manage [data-manage-id="tracker-n"] .wg-row__meta').textContent).toBe('Limit · no slips a week');
+        expect($('#today-tracker-manage [data-manage-id="tracker-k"] .wg-row__meta').textContent).toBe('Count · at most 3 cups a day');
+        $('#today-tracker-manage [data-action="close"]').click();
+
+        root.querySelector('[data-action="tracker-new"]').click();
+        editor().querySelector('[data-template="No alcohol"]').click();
+        expect(editor().querySelector('[data-seg="kind"] [data-value="check"]').getAttribute('aria-pressed')).toBe('true');
+        expect(editor().querySelector('[data-seg="op"] [data-value="atMost"]').getAttribute('aria-pressed')).toBe('true');
+        expect(editor().querySelector('[data-input="value"]').value).toBe('');
+        expect(env.window.document.activeElement).toBe(editor().querySelector('[data-input="value"]'));
+        const rule = () => editor().querySelector('[data-role="tracker-rule"]').textContent;
+        expect(rule()).toBe('Set how many slips a week you allow — 0 for none. Tap the tile if you slip.');
+        editor().querySelector('[data-action="tracker-save"]').click();
+        expect(env.window.apiCall).not.toHaveBeenCalled();
+        expect(editor().querySelector('[data-field="value"] .wg-error').textContent).toBe('Enter a limit of 0 or more');
+
+        type('[data-input="value"]', '2');
+        expect(rule()).toBe('At most 2 slips a week. Tap the tile when you slip — the day counts against the limit; weeks at or under it count as met.');
+        expect(editor().querySelector('[data-field="value"] .wg-affix__unit').textContent).toBe('slips');
+        type('[data-input="value"]', '0');
+        expect(rule()).toBe('No slips a week. Tap the tile if you slip; the tile shows your clean streak.');
+        editor().querySelector('[data-action="tracker-save"]').click();
+        await vi.waitFor(() => expect(env.window.apiCall).toHaveBeenCalledWith('/api/trackers', 'POST', {
+            name: 'No alcohol', emoji: 'glass-off', kind: 'check', unit: null, step: 1,
+            target: { op: 'atMost', value: 0, period: 'week' }, reminder: null,
+        }));
+        expect(toasts).toHaveLength(0);
+    });
+
+    it('a "No …" check saved as a goal gets a one-time hint to make it a Limit', async () => {
+        setup([]);
+        env.window.apiCall = vi.fn(async (url, method, body) => ({ id: `tracker-${Math.random()}`, ...body, createdAt: at(14, 0) }));
+        const create = (name) => {
+            root.querySelector('[data-action="tracker-new"]').click();
+            editor().querySelector('[data-action="tracker-custom"]').click();
+            type('[data-input="name"]', name);
+            editor().querySelector('[data-seg="kind"] [data-value="check"]').click();
+            type('[data-input="value"]', '1');
+            editor().querySelector('[data-action="tracker-save"]').click();
+        };
+        create('Reading');
+        expect(toasts).toHaveLength(0);
+        create('No night eating');
+        expect(toasts).toHaveLength(1);
+        expect(toasts[0].message).toContain('Limit · at most');
+        create('No sugar');
+        expect(toasts).toHaveLength(1);
     });
 
     it('edit from the log sheet: kind is fixed, Save PUTs and commits the fresh list', async () => {

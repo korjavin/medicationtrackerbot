@@ -327,11 +327,16 @@ ${rows.join('\n')}
         const items = list.map((t) => {
             const p = t.progress || {};
             const tg = t.target || {};
-            const unit = t.unit ? ` ${t.unit}` : '';
-            const goal = `${tg.op === 'atMost' ? 'limit' : 'target'} ${fmtNum(tg.value)}${unit} per ${tg.period}`;
+            const limit = tg.op === 'atMost';
+            // A check limit counts slips (a tap = a slip); a count keeps its unit.
+            const slips = limit && t.kind === 'check';
+            const unit = slips ? ` ${p.total === 1 ? 'slip' : 'slips'}` : (t.unit ? ` ${t.unit}` : '');
+            const goal = slips ? `limit ${fmtNum(tg.value)}` : `${limit ? 'limit' : 'target'} ${fmtNum(tg.value)}${unit} per ${tg.period}`;
             const name = `${t.emoji ? `${t.emoji} ` : ''}${t.name}`;
             const span = tg.period === 'day' ? 'today' : `this ${tg.period}`;
-            return `<li>${esc(`${name}: ${fmtNum(p.total)}${unit} ${span} (${goal})${p.met ? ' — met' : ''}`)}</li>`;
+            let verdict = p.met ? ' — met' : '';
+            if (limit) verdict = p.met ? ' — within limit' : ' — over';
+            return `<li>${esc(`${name}: ${fmtNum(p.total)}${unit} ${span} (${goal})${verdict}`)}</li>`;
         }).join('\n');
         return block('Trackers', `<ul>\n${items}\n</ul>`);
     }

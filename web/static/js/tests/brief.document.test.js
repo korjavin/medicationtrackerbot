@@ -378,16 +378,23 @@ describe('Doctor brief — printable document', () => {
                 progress: { total: 5, target: 8, met: false },
             },
             {
-                name: 'Coffee', emoji: '', unit: null,
+                name: 'Coffee', emoji: '', kind: 'count', unit: null,
                 target: { op: 'atMost', value: 3, period: 'day' },
                 progress: { total: 2, target: 3, met: true },
+            },
+            {
+                name: 'No alcohol', emoji: '', kind: 'check', unit: null,
+                target: { op: 'atMost', value: 1, period: 'week' },
+                progress: { total: 2, target: 1, met: false },
             },
         ];
         const html = build({ range: briefPayload().range, trackers }, {});
 
         expect(html).toContain('<h2>Trackers</h2>');
         expect(html).toContain('💧 Water: 5 glass today (target 8 glass per day)');
-        expect(html).toContain('Coffee: 2 today (limit 3 per day) — met');
+        expect(html).toContain('Coffee: 2 today (limit 3 per day) — within limit');
+        // A check limit counts slips (med-1vy5.9).
+        expect(html).toContain('No alcohol: 2 slips this week (limit 1) — over');
         expect(build({ range: briefPayload().range, trackers: [] }, {})).not.toContain('<h2>Trackers</h2>');
     });
 });

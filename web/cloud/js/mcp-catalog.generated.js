@@ -1614,8 +1614,8 @@ export const CATALOG = [
     "method": "GET",
     "path": "/api/trackers",
     "risk": "read",
-    "description": "List the user's active trackers (e.g. water 8/day, coffee at most 3/day, stretching 3/week) with current-period progress. Use it to find a tracker's id/name before trackers.log or trackers.history.",
-    "response_summary": "JSON array of trackers, oldest first: id, name, emoji, kind (count|check), unit (null when unset), step (default tap amount for count), target{op: atLeast|atMost, value, period: day|week|month}, reminder ({time} or null), archived, createdAt, progress{total, target, met} for the current day/ISO week/month in the account time zone. atMost with no logs is met. todayLogs: today's logs newest first (count: {id, trackerId, at, amount} per tap; check: today's {id, trackerId, date, done} when done) — a log id feeds trackers.unlog. day/timeZone: the account-local day those numbers describe.",
+    "description": "List the user's active trackers (e.g. water 8/day, coffee at most 3/day, stretching 3/week) with current-period progress. Use it to find a tracker's id/name before trackers.log or trackers.history, and to answer questions about a tracker (\"did I drink this week?\") — read progress, don't log.",
+    "response_summary": "JSON array of trackers, oldest first: id, name, emoji, kind (count|check), unit (null when unset), step (default tap amount for count), target{op: atLeast|atMost, value, period: day|week|month}, reminder ({time} or null), archived, createdAt, progress{total, target, met} for the current day/ISO week/month in the account time zone. atMost (a limit) counts slips: with no logs it is met, and progress also carries cleanDays — consecutive local days ending today with nothing logged, back to the creation day (0 = slipped today). todayLogs: today's logs newest first (count: {id, trackerId, at, amount} per tap; check: today's {id, trackerId, date, done} when done) — a log id feeds trackers.unlog. day/timeZone: the account-local day those numbers describe.",
     "response_example": "[\n  {\"id\": \"tracker-1783339200000_k3j9x2ab\", \"name\": \"Water\", \"emoji\": \"💧\", \"kind\": \"count\", \"unit\": \"glass\", \"step\": 1, \"target\": {\"op\": \"atLeast\", \"value\": 8, \"period\": \"day\"}, \"reminder\": null, \"archived\": false, \"createdAt\": \"2026-07-06T12:00:00.000Z\", \"progress\": {\"total\": 3, \"target\": 8, \"met\": false}},\n  {\"id\": \"tracker-1783339300000_p0q8w1cd\", \"name\": \"Stretching\", \"emoji\": \"🧘\", \"kind\": \"check\", \"unit\": null, \"step\": 1, \"target\": {\"op\": \"atLeast\", \"value\": 3, \"period\": \"week\"}, \"reminder\": {\"time\": \"20:00\"}, \"archived\": false, \"createdAt\": \"2026-07-06T12:01:40.000Z\", \"progress\": {\"total\": 1, \"target\": 3, \"met\": false}}\n]"
   },
   {
@@ -1627,7 +1627,7 @@ export const CATALOG = [
       "tracker"
     ],
     "risk": "write",
-    "description": "Log progress on a tracker. Path param `tracker` is the tracker id OR its name (case-insensitive exact match, e.g. \"water\"). A count tracker appends one entry of `amount`; a check tracker marks `date` done (idempotent per day).",
+    "description": "Log progress on a tracker. Path param `tracker` is the tracker id OR its name (case-insensitive exact match, e.g. \"water\"). A count tracker appends one entry of `amount`; a check tracker marks `date` done (idempotent per day). For an atMost tracker (a limit) a log records a slip (e.g. a drink on a no-alcohol tracker) — log only when the user reports one; read progress via trackers.list before logging.",
     "response_summary": "The written log: count → {id, trackerId, at, amount}; check → {id, trackerId, date, done:true}.",
     "required": [
       "tracker"

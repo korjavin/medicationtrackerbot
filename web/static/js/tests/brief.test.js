@@ -798,12 +798,12 @@ describe('doctor-visit brief — trackers section', () => {
 
         expect(trackers).toEqual([
             {
-                name: 'Water', emoji: '', unit: 'glass',
+                name: 'Water', emoji: '', kind: 'count', unit: 'glass',
                 target: { op: 'atLeast', value: 8, period: 'day' },
                 progress: { total: 5, target: 8, met: false }
             },
             {
-                name: 'Coffee', emoji: '', unit: null,
+                name: 'Coffee', emoji: '', kind: 'count', unit: null,
                 target: { op: 'atMost', value: 3, period: 'day' },
                 // cleanDays: created 20 days ago, never over — 21 local days.
                 progress: { total: 0, target: 3, met: true, cleanDays: 21 }

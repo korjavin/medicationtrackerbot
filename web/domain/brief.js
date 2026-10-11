@@ -290,7 +290,7 @@ export function createBriefDomain({
   // Today card shows (trackers.js list), not a window fold. [] when none.
   async function trackersSection() {
     return (await trackers.list()).map((t) => ({
-      name: t.name, emoji: t.emoji, unit: t.unit, target: t.target, progress: t.progress,
+      name: t.name, emoji: t.emoji, kind: t.kind, unit: t.unit, target: t.target, progress: t.progress,
     }));
   }
 
