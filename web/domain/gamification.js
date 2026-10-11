@@ -2819,7 +2819,9 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     return { active: pdc < cfg.adherenceAlertPDCThreshold, pdc, missed_doses: expected - taken };
   }
 
-  function strengthsView(ctx, bpReadings, todayStr, cfg) {
+  // trackerToday: the LOCAL end day for tracker strengths (their logs are local
+  // days); defaults to todayStr, which the weekly review already passes local.
+  function strengthsView(ctx, bpReadings, todayStr, cfg, trackerToday = todayStr) {
     const start = addDays(todayStr, -(HABIT_LOOKBACK_DAYS - 1));
     // meds
     const medMarks = [];
@@ -2849,7 +2851,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       d = addDays(d, 1);
     }
     const measurement = { key: 'measurement', label: 'Measurement', value: habitStrength(meaMarks, 1, cfg), frequency: 1 };
-    return [meds, movement, measurement, ...(ctx.trackers || []).map((t) => trackerStrength(t, start, todayStr, cfg))];
+    return [meds, movement, measurement, ...(ctx.trackers || []).map((t) => trackerStrength(t, trackerToday, cfg))];
   }
 
   // trackerStrength: one daily checkmark per day since the tracker existed.
@@ -2857,7 +2859,8 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
   // week/month: trailing 7/30-day window, like Movement — atLeast earns
   // min(1, total/value) at frequency value/window; atMost is a daily
   // "stayed under the window limit" at frequency 1.
-  function trackerStrength(t, start, todayStr, cfg) {
+  function trackerStrength(t, todayStr, cfg) {
+    const start = addDays(todayStr, -(HABIT_LOOKBACK_DAYS - 1));
     const { op, value, period } = t.target;
     const win = period === 'week' ? 7 : (period === 'month' ? 30 : 1);
     const marks = [];
@@ -3007,7 +3010,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
         period_days: SUMMARY_PERIOD_DAYS,
         period_rings: ringScoresFrom(periodAwards, false),
         health_score: healthScoreView(ctx, ctx._bpReadings, todayStr, cfg),
-        strengths: strengthsView(ctx, ctx._bpReadings, todayStr, cfg),
+        strengths: strengthsView(ctx, ctx._bpReadings, todayStr, cfg, localDayString(ctx.nowMs, timeZone)),
         adherence_alert: adherenceAlertView(ctx, todayStr, cfg),
       },
       scored, todayStr, level, tier,

@@ -429,6 +429,17 @@ describe('substrate read models — end-to-end HP over a synthetic vault', () =>
       expect(s.some((x) => x.key === 'tracker:gone')).toBe(false);
     });
 
+    it('the summary ends tracker strength on the LOCAL today, not the UTC one', async () => {
+      // 20:00 UTC Jun 15 = 05:00 Jun 16 in Tokyo; a tap at 19:00 UTC is local Jun 16.
+      const at = Date.UTC(2026, 5, 15, 20, 0, 0);
+      const records = createInMemoryRecordsPort({
+        tracker: [tracker('water', 'count', { op: 'atLeast', value: 1, period: 'day' })],
+        trackerlog: [tap('a', 'water', '2026-06-15T19:00:00Z', 1)],
+      });
+      const s = (await createGamificationDomain({ records, now: () => at, timeZone: 'Asia/Tokyo' }).getSummary()).strengths;
+      expect(valueOf(s, 'water')).toBeCloseTo(strength([...zeros(89), 1], 1), 12);
+    });
+
     it('existing three strengths, HP and the weekly review are unchanged by trackers', async () => {
       const base = seededDomain(RM_NOW + 7 * 86400000);
       const withT = seededDomain(RM_NOW + 7 * 86400000);
