@@ -108,6 +108,11 @@
             tag: ['gamification', 'weight', 'workout', 'bp', 'settings', 'medications', 'history'],
             description: 'Goal Line read model (GET /api/gamification/goal-line): weight goal on the trend + workout/BP facts + one CTA. Today hero + Journey goal-context card. Bootstrap-warmed from res.gamification_goal_line so the Today card renders on a cold-start/offline relaunch.'
         },
+        trackers: {
+            key: 'trackers',
+            tag: 'trackers',
+            description: 'Active trackers with current-period progress and today\'s logs (GET /api/trackers). Today Trackers card; optimistic write target for tile taps, undo and log-sheet deletes (med-1vy5.2).'
+        },
         gamification_gauges: {
             key: 'gamification_gauges',
             tag: 'gamification',

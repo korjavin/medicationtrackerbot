@@ -85,6 +85,9 @@ describe('trackers domain — count', () => {
     const t = await d.create(WATER);
     const first = await d.log(t.id, { amount: 2 });
     await d.log(t.id, { amount: 1 });
+    const [listed] = await d.list();
+    expect(listed.todayLogs.map((l) => l.amount).sort()).toEqual([1, 2]);
+    expect(listed.todayLogs.map((l) => l.id)).toContain(first.id);
     await d.unlog(t.id, first.id);
     expect((await progressOf(d, t.id)).total).toBe(1);
     await expect(d.unlog(t.id, first.id)).rejects.toMatchObject({ code: 'not_found' });
@@ -109,6 +112,7 @@ describe('trackers domain — check', () => {
     expect(b.id).toBe(a.id);
     expect(await records.list('trackerlog')).toHaveLength(1);
     expect((await progressOf(d, t.id)).total).toBe(1);
+    expect((await d.list())[0].todayLogs).toEqual([{ id: a.id, trackerId: t.id, date: '2026-07-08', done: true }]);
     await d.unlog(t.id, a.id);
     const [row] = await records.list('trackerlog');
     expect(row).toMatchObject({ recordId: a.id, done: false, deleted: false });

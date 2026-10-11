@@ -86,6 +86,20 @@ async function loadNextIntakeCached() {
     }
 }
 
+// Trackers card (med-1vy5.2): local-first read through cachedFetch — the
+// cached list renders at once and revalidates in the background (progress and
+// todayLogs are day-relative, so every Today load revalidates). Tile taps
+// write the same key through DataStore.applyOptimistic. Resolves null when
+// cachedFetch is missing or there is no cache offline.
+async function loadTrackersCached() {
+    if (typeof window.cachedFetch !== 'function') return null;
+    try {
+        return await window.cachedFetch('trackers', '/api/trackers', { tags: ['trackers'] });
+    } catch (_) {
+        return null;
+    }
+}
+
 // Returns a timezone-qualified DataStore key for health overview so that a
 // cached response from a prior timezone is never served as though it were
 // current. The in-memory swrCaches object always uses the fixed property name
@@ -340,6 +354,8 @@ async function _todayReadCaches(foodKey) {
                 swrCaches.food_today = { groups };
             }
             if (gamM?.data) swrCaches.gamification_goal_line = gamM.data;
+            const trackersM = await readMeta('trackers');
+            if (Array.isArray(trackersM?.data)) swrCaches.trackers = trackersM.data;
             for (let i = 0; i < keys.length; i++) {
                 const m = metas[i];
                 if (!m) continue;
@@ -384,6 +400,8 @@ async function _todayReadCaches(foodKey) {
                 swrCaches.food_today = { groups };
             }
             if (gam) swrCaches.gamification_goal_line = gam;
+            const trackers = await window.DataStore.getCached('trackers').catch(() => null);
+            if (Array.isArray(trackers)) swrCaches.trackers = trackers;
         }
     } catch (_) { /* best-effort — render whatever we have */ }
     // Register key→tag mappings for every Today cache we just read directly
@@ -425,6 +443,19 @@ function _todayGoalLineFromPastDay(swrCaches) {
         }).format(new Date());
     } catch (_) { return false; } // unknown zone string — leave revalidation event-driven
     return gl.day !== today;
+}
+
+// Same idea for the trackers list: each item carries the account-local day
+// (and zone) its progress/todayLogs describe.
+function _todayTrackersFromPastDay(swrCaches) {
+    const list = swrCaches && swrCaches.trackers;
+    const t = Array.isArray(list) ? list.find((x) => x && typeof x.day === 'string' && x.timeZone) : null;
+    if (!t) return false;
+    try {
+        return t.day !== new Intl.DateTimeFormat('en-CA', {
+            timeZone: t.timeZone, year: 'numeric', month: '2-digit', day: '2-digit'
+        }).format(new Date());
+    } catch (_) { return false; }
 }
 
 async function _todayRender(foodKey, settled) {
@@ -514,11 +545,19 @@ async function loadToday() {
                 // The Goal Line payload is day-relative (weighed_today, cta, BP
                 // recorded today, this week's workouts) and no tag fires at
                 // midnight — a payload fetched on an earlier local day refetches.
-                if (rctx && rctx.rendered && rctx.online && _todayGoalLineFromPastDay(rctx.swrCaches)) loadToday();
+                if (rctx && rctx.rendered && rctx.online
+                    && (_todayGoalLineFromPastDay(rctx.swrCaches) || _todayTrackersFromPastDay(rctx.swrCaches))) loadToday();
             });
         };
         _todayLoaderState.repaintTick = setInterval(repaint, TODAY_REPAINT_INTERVAL_MS);
         document.addEventListener('visibilitychange', repaint);
+    }
+
+    // Trackers read from the local vault (the cloud shim), so a list from an
+    // earlier day refreshes even offline — the network refetch below stops here.
+    if (!ctx.online && _todayTrackersFromPastDay(ctx.swrCaches) && window.DataStore) {
+        await window.DataStore.fetchFresh('trackers', () => apiCall('/api/trackers', 'GET'), ['trackers']).catch(() => null);
+        await _todayRender(foodKey, true);
     }
 
     // Refetch any cache that's missing — e.g. just evicted by a change poll.
@@ -610,7 +649,12 @@ async function loadToday() {
         const otherFetches = missing.length > 0
             ? Promise.allSettled(missing.map((k) => window.DataStore.fetchFresh(k, specs[k].fetch, specs[k].tags)))
             : Promise.resolve([]);
-        await Promise.all([nextIntakePromise, otherFetches]);
+        // A list from an earlier day refetches outright (cachedFetch would
+        // repaint the stale one first and revalidate in the background).
+        const trackersPromise = _todayTrackersFromPastDay(swrCaches)
+            ? window.DataStore.fetchFresh('trackers', () => apiCall('/api/trackers', 'GET'), ['trackers']).catch(() => null)
+            : loadTrackersCached();
+        await Promise.all([nextIntakePromise, otherFetches, trackersPromise]);
     } finally {
         _todayLoaderState.refreshInFlight = false;
     }
@@ -628,6 +672,7 @@ window.TodayLoader = {
     loadToday,
     fetchNextIntakePayload,
     loadNextIntakeCached,
+    loadTrackersCached,
     fetchSettingsBundle,
     todayFetchSpecs,
     todayFoodKey,

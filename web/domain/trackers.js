@@ -159,13 +159,33 @@ export function createTrackersDomain({ records, now, timeZone }) {
     return { total, target: value, met };
   }
 
+  // todayLogs: the logs behind today's total, newest first — the Today tile's
+  // done state and the log sheet's delete list (count: one per tap; check:
+  // today's done entry, if any).
+  function todayLogs(tracker, logs, today) {
+    return logs
+      .filter((l) => l.trackerId === tracker.recordId && (tracker.kind === 'check'
+        ? l.done === true && l.date === today
+        : !Number.isNaN(Date.parse(l.at)) && localDay(Date.parse(l.at), timeZone) === today))
+      .map(logView)
+      .sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+  }
+
   async function list() {
     const [trackers, logs] = await Promise.all([records.list(TRACKER), records.list(LOG)]);
     const today = localDay(now(), timeZone);
     return trackers
       .filter((t) => !t.archived)
       .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
-      .map((t) => ({ ...trackerView(t), progress: progress(t, dayTotals(t, logs), today) }));
+      .map((t) => ({
+        ...trackerView(t),
+        progress: progress(t, dayTotals(t, logs), today),
+        todayLogs: todayLogs(t, logs, today),
+        // The account-local day progress/todayLogs describe, and its zone:
+        // a client holding a cached list can tell it went stale at midnight.
+        day: today,
+        timeZone,
+      }));
   }
 
   async function create(input) {
