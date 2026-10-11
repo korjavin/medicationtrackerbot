@@ -746,6 +746,8 @@ describe('Goal Line cache tags', () => {
 // loadToday does in the app.
 describe('Trackers card', () => {
     const UTILS_JS = path.join(REPO_ROOT, 'web/static/js/core/utils.js');
+    const MODAL_MANAGER_JS = path.join(REPO_ROOT, 'web/static/js/core/modal-manager.js');
+    const WG_PAGE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-page.js');
     const WATER = {
         id: 'tracker-w', name: 'Water', emoji: 'drop', kind: 'count', unit: 'glass', step: 1,
         target: { op: 'atLeast', value: 8, period: 'day' }, progress: { total: 5, target: 8, met: false },
@@ -774,7 +776,7 @@ describe('Trackers card', () => {
         allowConsoleNoise();
         env = loadDataStoreEnv({ initialCache: { trackers: JSON.parse(JSON.stringify(list)) } });
         const w = env.window;
-        for (const f of [UTILS_JS, EMPTY_STATE_JS, WG_ICONS_JS, WG_CHIP_JS, WG_SPARKLINE_JS, TODAY_JS]) {
+        for (const f of [UTILS_JS, MODAL_MANAGER_JS, WG_PAGE_JS, EMPTY_STATE_JS, WG_ICONS_JS, WG_CHIP_JS, WG_SPARKLINE_JS, TODAY_JS]) {
             w.eval(fs.readFileSync(f, 'utf8'));
         }
         root = w.document.createElement('div');
@@ -808,6 +810,8 @@ describe('Trackers card', () => {
         env.cleanup();
 
         setup([]);
+        expect(root.querySelector('[data-section="trackers"] .wg-empty')).not.toBeNull();
+        env.window.TodayDashboard.renderToday({ trackers: null }, root, { now: NOW });
         expect(root.querySelector('[data-section="trackers"]')).toBeNull();
     });
 
@@ -919,5 +923,158 @@ describe('Trackers card', () => {
         // Undo re-logs the same amount at its original time; the 14:00 entry is untouched.
         expect(env.window.apiCall).toHaveBeenLastCalledWith('/api/trackers/tracker-w/log', 'POST', { amount: 5, at: at(9, 15) });
         await vi.waitFor(() => expect(cached('tracker-w').todayLogs.map((l) => l.id).sort()).toEqual(['trackerlog-p1', 'trackerlog-p2']));
+    });
+
+    // ---- create / edit / archive (TR2) and history (TR3), med-1vy5.3 ----
+    const $ = (sel) => env.window.document.querySelector(sel);
+    const editor = () => env.window.document.getElementById('today-tracker-editor');
+    const type = (sel, value) => {
+        const i = editor().querySelector(sel);
+        i.value = value;
+        i.dispatchEvent(new env.window.Event('input'));
+    };
+
+    it('empty state: Add a tracker opens the template step; Not now collapses the card to its header', () => {
+        setup([]);
+        expect(root.querySelector('[data-section="trackers"] .wg-empty__title').textContent).toBe('Track anything');
+        root.querySelector('[data-action="tracker-empty-add"]').click();
+        expect(editor().classList.contains('hidden')).toBe(false);
+        expect(editor().dataset.step).toBe('pick');
+        expect([...editor().querySelectorAll('[data-template]')].map((r) => r.dataset.template))
+            .toEqual(['Water', 'Coffee', 'No alcohol', 'Stretching', 'Vitamins']);
+        expect(editor().querySelector('[data-template="Stretching"] .wg-row__meta').textContent).toBe('Check · 3 times a week');
+        editor().querySelector('[data-action="close"]').click();
+        expect(editor().classList.contains('hidden')).toBe(true);
+
+        root.querySelector('[data-action="tracker-empty-dismiss"]').click();
+        expect(root.querySelector('[data-section="trackers"] .wg-empty')).toBeNull();
+        env.window.requestTabRefresh();
+        expect(root.querySelector('[data-section="trackers"] .wg-empty')).toBeNull();
+        expect(root.querySelector('[data-section="trackers"] [data-action="tracker-new"]')).not.toBeNull();
+    });
+
+    it('create from a template: prefilled, tweakable, reminder on; the tile appears and commits the server id', async () => {
+        setup([]);
+        // The commit takes the server's list row: it carries the day/timeZone
+        // a cached list needs to notice midnight.
+        const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        let saved = null;
+        env.window.apiCall = vi.fn(async (url, method, body) => {
+            if (method === 'POST') { saved = { id: 'tracker-n', ...body, archived: false, createdAt: at(14, 0) }; return saved; }
+            return [{ ...saved, progress: { total: 0, target: 10, met: false }, todayLogs: [], day: '2026-04-20', timeZone: zone }];
+        });
+        root.querySelector('[data-action="tracker-new"]').click();
+        editor().querySelector('[data-template="Water"]').click();
+        expect(editor().dataset.step).toBe('form');
+        expect(editor().querySelector('[data-input="name"]').value).toBe('Water');
+        expect(editor().querySelector('[data-input="unit"]').value).toBe('glass');
+        expect(editor().querySelector('[data-icon-pick="drop"]').getAttribute('aria-pressed')).toBe('true');
+        expect(editor().querySelector('[data-role="tracker-rule"]').textContent).toBe('At least 8 glasses a day. Each tap on the tile adds 1.');
+        type('[data-input="name"]', 'H2O');
+        type('[data-input="value"]', '10');
+        expect(editor().querySelector('[data-role="tracker-rule"]').textContent).toBe('At least 10 glasses a day. Each tap on the tile adds 1.');
+        editor().querySelector('[data-action="tracker-reminder"]').click();
+        expect(editor().querySelector('[data-input="reminderTime"]').value).toBe('20:00');
+        editor().querySelector('[data-action="tracker-save"]').click();
+
+        expect(editor().classList.contains('hidden')).toBe(true);
+        await vi.waitFor(() => expect(env.window.apiCall).toHaveBeenCalledWith('/api/trackers', 'POST', {
+            name: 'H2O', emoji: 'drop', kind: 'count', unit: 'glass', step: 1,
+            target: { op: 'atLeast', value: 10, period: 'day' }, reminder: { time: '20:00' },
+        }));
+        await vi.waitFor(() => expect(cached('tracker-n')).toBeTruthy());
+        expect(cached('tracker-n').progress).toEqual({ total: 0, target: 10, met: false });
+        expect(cached('tracker-n')).toMatchObject({ day: '2026-04-20', timeZone: zone });
+        expect(tile('tracker-n').querySelector('.wg-trk__val').textContent).toBe('0/ 10 glasses');
+    });
+
+    it('create from scratch: inline errors block Save; a 0 limit is valid and carries no reminder', async () => {
+        setup([]);
+        env.window.apiCall = vi.fn(async (url, method, body) => ({ id: 'tracker-z', ...body, createdAt: at(14, 0) }));
+        root.querySelector('[data-action="tracker-new"]').click();
+        editor().querySelector('[data-action="tracker-custom"]').click();
+        editor().querySelector('[data-action="tracker-save"]').click();
+        expect(env.window.apiCall).not.toHaveBeenCalled();
+        expect(editor().classList.contains('hidden')).toBe(false);
+        expect(editor().querySelector('[data-field="name"]').classList.contains('wg-field--error')).toBe(true);
+        expect(editor().querySelector('[data-field="name"] .wg-error').textContent).toBe('Add a name so you can find it on Today');
+        expect(editor().querySelector('[data-field="value"] .wg-error').textContent).toContain('switch to Limit and use 0');
+        expect(env.window.document.activeElement).toBe(editor().querySelector('[data-input="name"]'));
+
+        type('[data-input="name"]', 'Cola');
+        editor().querySelector('[data-action="tracker-reminder"]').click();
+        editor().querySelector('[data-seg="op"] [data-value="atMost"]').click();
+        expect(editor().querySelector('[data-action="tracker-reminder"]')).toBeNull();
+        expect(editor().textContent).toContain('No reminder for limits');
+        type('[data-input="value"]', '0');
+        editor().querySelector('[data-seg="period"] [data-value="week"]').click();
+        editor().querySelector('[data-action="tracker-save"]').click();
+        await vi.waitFor(() => expect(env.window.apiCall).toHaveBeenCalledWith('/api/trackers', 'POST', {
+            name: 'Cola', emoji: '', kind: 'count', unit: null, step: 1,
+            target: { op: 'atMost', value: 0, period: 'week' }, reminder: null,
+        }));
+        await vi.waitFor(() => expect(cached('tracker-z')).toBeTruthy());
+    });
+
+    it('edit from the log sheet: kind is fixed, Save PUTs and commits the fresh list', async () => {
+        setup([WATER]);
+        const fresh = [{ ...WATER, target: { ...WATER.target, value: 6 }, progress: { total: 5, target: 6, met: false } }];
+        env.window.apiCall = vi.fn(async (url, method) => (method === 'GET' ? fresh : { ...WATER, target: fresh[0].target }));
+        tile('tracker-w').querySelector('[data-action="tracker-more"]').click();
+        $('#today-tracker-sheet [data-action="tracker-edit"]').click();
+        expect($('#today-tracker-sheet').classList.contains('hidden')).toBe(true);
+        expect(editor().dataset.step).toBe('form');
+        expect(editor().querySelector('.wg-eyebrow').textContent).toBe('Edit tracker');
+        expect([...editor().querySelectorAll('[data-seg="kind"] button')].every((b) => b.disabled)).toBe(true);
+        type('[data-input="value"]', '6');
+        editor().querySelector('[data-action="tracker-save"]').click();
+        await vi.waitFor(() => expect(env.window.apiCall).toHaveBeenCalledWith('/api/trackers/tracker-w', 'PUT', {
+            name: 'Water', emoji: 'drop', unit: 'glass', step: 1,
+            target: { op: 'atLeast', value: 6, period: 'day' }, reminder: null,
+        }));
+        await vi.waitFor(() => expect(cached('tracker-w').target.value).toBe(6));
+        expect(tile('tracker-w').textContent).toContain('1 to go');
+    });
+
+    it('archive from Manage → edit: confirm, then the tracker leaves Today', async () => {
+        setup([WATER, COFFEE]);
+        env.window.apiCall = vi.fn(async () => true);
+        env.window.safeConfirm = vi.fn(async () => true);
+        root.querySelector('[data-action="tracker-manage"]').click();
+        $('#today-tracker-manage [data-manage-id="tracker-k"]').click();
+        expect(editor().querySelector('.wg-sheethead__title').textContent).toBe('Coffee');
+        expect(editor().textContent).toContain('No reminder for limits');
+        editor().querySelector('[data-action="tracker-archive"]').click();
+        await vi.waitFor(() => expect(env.window.apiCall).toHaveBeenCalledWith('/api/trackers/tracker-k', 'DELETE'));
+        expect(env.window.safeConfirm.mock.calls[0][2]).toMatchObject({ title: 'Archive Coffee?', confirmLabel: 'Archive' });
+        await vi.waitFor(() => expect(cached('tracker-k')).toBeUndefined());
+        expect(tile('tracker-k')).toBeNull();
+        expect(editor().classList.contains('hidden')).toBe(true);
+    });
+
+    it('history page: current period, 30 day bars against the goal, habit strength', async () => {
+        setup([WATER]);
+        const rows = Array.from({ length: 30 }, (_, i) => ({
+            date: new Date(Date.UTC(2026, 2, 22 + i)).toISOString().slice(0, 10),
+            total: i === 29 ? 5 : (i % 2 === 0 ? 8 : 3),
+        }));
+        env.window.apiCall = vi.fn(async (url) => (url.startsWith('/api/trackers/tracker-w/history')
+            ? rows
+            : { strengths: [{ key: 'tracker:tracker-w', label: 'Water', value: 0.64 }] }));
+        tile('tracker-w').querySelector('[data-action="tracker-more"]').click();
+        $('#today-tracker-sheet [data-action="tracker-history"]').click();
+        const page = () => $('[data-tracker-history="tracker-w"]');
+        expect(page()).not.toBeNull();
+        expect(page().textContent).toContain('3 to go');
+        expect(page().textContent).toContain('Goal · at least 8 glasses a day');
+        expect(env.window.apiCall).toHaveBeenCalledWith('/api/trackers/tracker-w/history?days=30', 'GET');
+        await vi.waitFor(() => expect(page().querySelectorAll('.wg-trkhist__bar')).toHaveLength(30));
+        expect(page().querySelectorAll('.wg-trkhist__bar--met')).toHaveLength(15);
+        expect(page().querySelectorAll('.wg-trkhist__bar')[29].classList.contains('wg-trkhist__bar--today')).toBe(true);
+        expect(page().querySelector('.wg-trkhist__goal').textContent).toBe('8');
+        const strength = page().querySelector('[data-section="tracker-strength"]');
+        expect(strength.querySelector('.wg-stat__value').textContent).toBe('64%');
+        expect(strength.textContent).toContain('Steady');
+        expect(strength.textContent).toContain('Met 15 of the last 29 days.');
     });
 });
