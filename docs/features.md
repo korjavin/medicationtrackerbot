@@ -155,7 +155,9 @@ med-904.3 added `hard_set_band{current, baseline, low, high, status}` — the us
 
 User-defined count / check-off trackers with a day/week/month target or limit (epic `med-1vy5`). Data model, validation, period maths and the `/api/trackers` operations live in `web/domain/trackers.js` (routed by `web/cloud/js/apishim.js`); read the module, it is the source of truth. Count taps are one record each (totals summed on read, never a per-day counter); check days use the deterministic `trackerlog:<trackerId>:<date>` id like the food incomplete-day flag. Vault shape: `data.trackers` in [vault-format.md](vault-format.md#trackers).
 
-**Reminders** (`med-1vy5.5`): a tracker with `reminder.time` gets a `tracker` horizon entry at that local time only while its `atLeast` target for the period is unmet (`atMost` limits never remind); every tracker write recomputes the horizon. Text is `"<emoji> <name>: <total>/<target> today"`; the generic-verbosity twin names no tracker. Telegram shows one 🌐 Open button to `?tab=today` (`tr:<slotUnix>` stem). Logic: the tracker block in `web/domain/reminders.js` `computeReminderHorizon`.
+- **Agents**: MCP ops `trackers.list` / `trackers.log` / `trackers.history` (`internal/mcp/registry/operations_trackers.go`); `trackers.log` takes the tracker's id or its name (case-insensitive), so "log 2 glasses of water" is one call.
+- **Doctor brief**: opt-in `trackers` section — one line per active tracker with its current day/week/month progress; no block when there are none.
+- **Reminders** (`med-1vy5.5`): a tracker with `reminder.time` gets a `tracker` horizon entry at that local time only while its `atLeast` target for the period is unmet (`atMost` limits never remind); every tracker write recomputes the horizon. Text is `"<emoji> <name>: <total>/<target> today"`; the generic-verbosity twin names no tracker. Telegram shows one 🌐 Open button to `?tab=today` (`tr:<slotUnix>` stem). Logic: the tracker block in `web/domain/reminders.js` `computeReminderHorizon`.
 
 ## Settings → Import/Export
 

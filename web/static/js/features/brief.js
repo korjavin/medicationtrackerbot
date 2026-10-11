@@ -23,7 +23,7 @@
 
     // Mirrors web/domain/brief.js SECTION_ORDER / DEFAULT_SECTIONS. The
     // checkbox defaults live in index.html; this list only fixes doc order.
-    const SECTION_ORDER = ['meds', 'bp', 'weight', 'vitals', 'notes', 'food', 'workouts'];
+    const SECTION_ORDER = ['meds', 'bp', 'weight', 'vitals', 'notes', 'food', 'workouts', 'trackers'];
 
     const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 
@@ -319,6 +319,23 @@ ${rows.join('\n')}
 </table>${topExercisesLine(w.top_exercises)}${chart}`);
     }
 
+    // One line per tracker: current day/week/month progress against its target
+    // or limit (med-1vy5). No trackers → no block.
+    function trackersBlock(data) {
+        const list = Array.isArray(data.trackers) ? data.trackers : [];
+        if (list.length === 0) return '';
+        const items = list.map((t) => {
+            const p = t.progress || {};
+            const tg = t.target || {};
+            const unit = t.unit ? ` ${t.unit}` : '';
+            const goal = `${tg.op === 'atMost' ? 'limit' : 'target'} ${fmtNum(tg.value)}${unit} per ${tg.period}`;
+            const name = `${t.emoji ? `${t.emoji} ` : ''}${t.name}`;
+            const span = tg.period === 'day' ? 'today' : `this ${tg.period}`;
+            return `<li>${esc(`${name}: ${fmtNum(p.total)}${unit} ${span} (${goal})${p.met ? ' — met' : ''}`)}</li>`;
+        }).join('\n');
+        return block('Trackers', `<ul>\n${items}\n</ul>`);
+    }
+
     const BLOCK_BUILDERS = {
         meds: (data) => medsBlock(data),
         bp: (data, unit, charts) => bpBlock(data, charts),
@@ -327,6 +344,7 @@ ${rows.join('\n')}
         notes: (data) => notesBlock(data),
         food: (data) => foodBlock(data),
         workouts: (data, unit, charts) => workoutsBlock(data, charts),
+        trackers: (data) => trackersBlock(data),
     };
 
     // buildBriefDocument(data, { unit, charts }) → a standalone HTML string.

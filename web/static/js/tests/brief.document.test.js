@@ -368,6 +368,28 @@ describe('Doctor brief — printable document', () => {
 
         expect(html).not.toContain('<h2>Workouts</h2>');
     });
+
+    // med-1vy5.6: one line per tracker, current period vs target/limit.
+    it('prints one line per tracker, and no block when there are none', () => {
+        const trackers = [
+            {
+                name: 'Water', emoji: '💧', unit: 'glass',
+                target: { op: 'atLeast', value: 8, period: 'day' },
+                progress: { total: 5, target: 8, met: false },
+            },
+            {
+                name: 'Coffee', emoji: '', unit: null,
+                target: { op: 'atMost', value: 3, period: 'day' },
+                progress: { total: 2, target: 3, met: true },
+            },
+        ];
+        const html = build({ range: briefPayload().range, trackers }, {});
+
+        expect(html).toContain('<h2>Trackers</h2>');
+        expect(html).toContain('💧 Water: 5 glass today (target 8 glass per day)');
+        expect(html).toContain('Coffee: 2 today (limit 3 per day) — met');
+        expect(build({ range: briefPayload().range, trackers: [] }, {})).not.toContain('<h2>Trackers</h2>');
+    });
 });
 
 describe('Doctor brief — modal + print/download', () => {

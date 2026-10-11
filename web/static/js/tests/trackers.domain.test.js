@@ -161,6 +161,20 @@ describe('trackers domain — archive + history', () => {
     ]);
   });
 
+  // med-1vy5.6: log takes a name too (MCP trackers.log); archived trackers
+  // never match, and two active ones sharing a name refuse to guess.
+  it('log resolves a case-insensitive name, skipping archived, refusing ambiguity', async () => {
+    const { d } = setup('2026-07-08T16:00:00Z');
+    const old = await d.create(WATER);
+    await d.archive(old.id);
+    const t = await d.create(WATER);
+    await d.log(' WATER ', { amount: 2 });
+    expect((await progressOf(d, t.id)).total).toBe(2);
+    await expect(d.log('juice')).rejects.toMatchObject({ code: 'not_found' });
+    await d.create(WATER);
+    await expect(d.log('water')).rejects.toMatchObject({ code: 'invalid_request' });
+  });
+
   it('update keeps id/createdAt and re-validates', async () => {
     const { d } = setup('2026-07-08T16:00:00Z');
     const t = await d.create(WATER);

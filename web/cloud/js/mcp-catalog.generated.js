@@ -1585,6 +1585,72 @@ export const CATALOG = [
     }
   },
   {
+    "id": "trackers.history",
+    "topic": "trackers",
+    "method": "GET",
+    "path": "/api/trackers/{id}/history",
+    "path_params": [
+      "id"
+    ],
+    "risk": "read",
+    "description": "Per-day totals for one tracker (id from trackers.list) over the last N local days, oldest first, empty days included.",
+    "response_summary": "JSON array of {date: YYYY-MM-DD, total}: summed amounts for count trackers, 1/0 for check trackers.",
+    "params_schema": {
+      "type": "object",
+      "properties": {
+        "days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 366,
+          "description": "Number of local days to return, ending today (default 30)."
+        }
+      }
+    },
+    "response_example": "[\n  {\"date\": \"2026-07-05\", \"total\": 6},\n  {\"date\": \"2026-07-06\", \"total\": 3}\n]"
+  },
+  {
+    "id": "trackers.list",
+    "topic": "trackers",
+    "method": "GET",
+    "path": "/api/trackers",
+    "risk": "read",
+    "description": "List the user's active trackers (e.g. water 8/day, coffee at most 3/day, stretching 3/week) with current-period progress. Use it to find a tracker's id/name before trackers.log or trackers.history.",
+    "response_summary": "JSON array of trackers, oldest first: id, name, emoji, kind (count|check), unit (null when unset), step (default tap amount for count), target{op: atLeast|atMost, value, period: day|week|month}, reminder ({time} or null), archived, createdAt, progress{total, target, met} for the current day/ISO week/month in the account time zone. atMost with no logs is met.",
+    "response_example": "[\n  {\"id\": \"tracker-1783339200000_k3j9x2ab\", \"name\": \"Water\", \"emoji\": \"💧\", \"kind\": \"count\", \"unit\": \"glass\", \"step\": 1, \"target\": {\"op\": \"atLeast\", \"value\": 8, \"period\": \"day\"}, \"reminder\": null, \"archived\": false, \"createdAt\": \"2026-07-06T12:00:00.000Z\", \"progress\": {\"total\": 3, \"target\": 8, \"met\": false}},\n  {\"id\": \"tracker-1783339300000_p0q8w1cd\", \"name\": \"Stretching\", \"emoji\": \"🧘\", \"kind\": \"check\", \"unit\": null, \"step\": 1, \"target\": {\"op\": \"atLeast\", \"value\": 3, \"period\": \"week\"}, \"reminder\": {\"time\": \"20:00\"}, \"archived\": false, \"createdAt\": \"2026-07-06T12:01:40.000Z\", \"progress\": {\"total\": 1, \"target\": 3, \"met\": false}}\n]"
+  },
+  {
+    "id": "trackers.log",
+    "topic": "trackers",
+    "method": "POST",
+    "path": "/api/trackers/{tracker}/log",
+    "path_params": [
+      "tracker"
+    ],
+    "risk": "write",
+    "description": "Log progress on a tracker. Path param `tracker` is the tracker id OR its name (case-insensitive exact match, e.g. \"water\"). A count tracker appends one entry of `amount`; a check tracker marks `date` done (idempotent per day).",
+    "response_summary": "The written log: count → {id, trackerId, at, amount}; check → {id, trackerId, date, done:true}.",
+    "required": [
+      "tracker"
+    ],
+    "body_schema": {
+      "type": "object",
+      "properties": {
+        "amount": {
+          "type": "number",
+          "description": "Count trackers only: how much to add, in the tracker's unit (default: the tracker's step). \"2 glasses of water\" = amount 2."
+        },
+        "at": {
+          "type": "string",
+          "description": "Count trackers only: when it happened, RFC3339 timestamp (default now)."
+        },
+        "date": {
+          "type": "string",
+          "description": "Check trackers only: the local day to mark done, YYYY-MM-DD (default today)."
+        }
+      }
+    }
+  },
+  {
     "id": "workouts.exercise_library.create",
     "topic": "workouts",
     "method": "POST",

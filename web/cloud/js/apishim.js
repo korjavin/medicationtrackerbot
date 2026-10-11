@@ -171,7 +171,7 @@ export function createApiRouter(ctx, {
   let timeZone = deviceTimeZone;
   let bp; let weight; let notes; let settings; let vitals; let reminders;
   let medications; let intake; let tzplan; let foodDb; let food; let aiClient; let exerciseTag; let equipment; let trackers;
-  let foodAI; let workout; let workoutSheetAI; let workoutShare; let gamification; let narrator; let analysis;
+  let foodAI; let workout; let workoutSheetAI; let workoutShare; let gamification; let narrator; let analysis; let brief;
   function buildDomains(tz) {
     timeZone = tz;
     bp = createBPDomain({ records, now, timeZone });
@@ -227,6 +227,12 @@ export function createApiRouter(ctx, {
     // ops (docs/plans/20260717-cloud-analysis-pathb.md).
     analysis = createAnalysis({
       bp, vitals, medications, intake, food, weight, workout, notes, now, timeZone,
+    });
+    // Doctor-visit brief (med-5k6t.1) — a printable summary folded from the
+    // domains above, nothing of its own. Rebuilt here so it follows the
+    // resolved zone like they do.
+    brief = createBriefDomain({
+      bp, weight, vitals, notes, medications, intake, food, workout, trackers, settings, now,
     });
   }
   buildDomains(deviceTimeZone);
@@ -306,12 +312,6 @@ export function createApiRouter(ctx, {
   async function writeWeightUnit(unit) {
     await records.put(UNIT_RECORD_TYPE, { recordId: 'weight-unit', clientTs: now(), deleted: false, unit });
   }
-
-  // Doctor-visit brief (med-5k6t.1) — a printable summary folded from the
-  // domains above, nothing of its own.
-  const brief = createBriefDomain({
-    bp, weight, vitals, notes, medications, intake, food, workout, settings, now,
-  });
 
   // settingsResponse builds the {settings, features} subset shared by
   // GET /api/settings and the bootstrap payload — the settings-only reads,
