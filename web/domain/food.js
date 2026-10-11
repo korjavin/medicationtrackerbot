@@ -531,26 +531,33 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     }));
   }
 
-  // stats mirrors handleGetFoodStats / GetStats (repo.go:592): plain window
-  // SUM, no per-day averaging. The Food screen totals keep counting flagged
-  // days (the logs are real); analytics pass excludeIncomplete for clean sums.
-  async function stats({ date, days = 7, excludeIncomplete = false } = {}) {
+  // stats sums the window's logs, always skipping days flagged "tracking
+  // incomplete" (a half-logged day is not a low-calorie one). days_logged =
+  // window days minus flagged days: an unflagged day with no logs counts as a
+  // logged 0-kcal day (owner decision, med-av1h), so averages divide by it.
+  async function stats({ date, days = 7 } = {}) {
     const { start, endExclusive } = dayWindow(date, days);
     const all = await records.list(LOG_RECORD_TYPE);
-    const flagged = excludeIncomplete ? await incompleteDays() : null;
+    const flagged = await incompleteDays({ date, days });
     const result = { calories: 0, carbs: 0, protein: 0, fat: 0 };
     for (const r of all) {
       if (r.deleted) continue;
       const ms = logInstantMs(r);
       // NaN (no usable instant) is dropped, matching listGrouped.
       if (Number.isNaN(ms) || ms < start || ms >= endExclusive) continue;
-      if (flagged && flagged.has(localDateKey(ms, timeZone))) continue;
+      if (flagged.has(localDateKey(ms, timeZone))) continue;
       result.calories += r.calories;
       result.carbs += r.carbs;
       result.protein += r.protein;
       result.fat += r.fat;
     }
-    return result;
+    return {
+      ...result,
+      days,
+      days_logged: days - flagged.size,
+      days_excluded: flagged.size,
+      excluded_days: [...flagged].sort(),
+    };
   }
 
   // setDayIncomplete flags/unflags one local day. Unflag writes

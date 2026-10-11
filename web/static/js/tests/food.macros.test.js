@@ -282,25 +282,37 @@ describe('Food daily macros card (Phase 4, Task 4)', () => {
         expect(row.querySelector('.wg-setting__title').textContent).toBe('Tracking incomplete');
     });
 
-    it('_renderFoodData keeps the macros card visible with weekly totals on range=week', () => {
-        // Phase 5, Task 4 — the macros card now contains an in-card
-        // Daily/Weekly toggle; when the range flips to 'week', the card
-        // stays visible and swaps in the weekly totals + ×7 targets.
+    it('_renderFoodData Weekly: averages and targets scale to counted days, not 7', () => {
+        // med-av1h: food.stats already drops flagged-incomplete days; the card
+        // divides by days_logged and measures against daily target x days_logged.
         const { window, document } = env;
-        const groups = [];
-        const weekStats = { calories: 3500, carbs: 400, protein: 250, fat: 100 };
+        window.FoodLog.targets = { calories: 2000, carbs: 200, protein: 100, fat: 70 };
+        const weekStats = {
+            calories: 9000, carbs: 900, protein: 450, fat: 300,
+            days: 7, days_logged: 5, days_excluded: 2, excluded_days: ['2026-04-15', '2026-04-17'],
+        };
 
-        window._renderFoodData(groups, weekStats, 'week', '2026-04-20');
+        window._renderFoodData([], weekStats, 'week', '2026-04-20');
 
         const card = document.getElementById('food-macros-card');
         expect(card.classList.contains('hidden')).toBe(false);
-        expect(document.getElementById('food-macros-card-kcal').textContent).toBe('3500');
-
+        expect(document.getElementById('food-macros-card-kcal').textContent).toBe('9000');
         const avg = document.getElementById('food-macros-card-avg');
         expect(avg.classList.contains('hidden')).toBe(false);
-        expect(avg.textContent).toContain('avg');
-        expect(avg.textContent).toContain('500');
-        expect(avg.textContent).toContain('kcal/day');
+        expect(avg.textContent).toBe(`avg ${(1800).toLocaleString()} kcal/day · 5 of 7 days logged · 2 not counted`);
+        // 9000 / (2000 x 5)
+        expect(document.getElementById('food-macros-card-percent-value').textContent).toBe('90%');
+        const energy = document.querySelector('#food-macros-card-bars .wg-macro-bar__value-target');
+        expect(energy.textContent).toContain('/ 10000');
+
+        // No flagged days: no "not counted" clause.
+        window._renderFoodData([], { ...weekStats, days_logged: 7, days_excluded: 0, excluded_days: [] }, 'week', '2026-04-20');
+        expect(avg.textContent).toBe(`avg ${(1286).toLocaleString()} kcal/day · 7 of 7 days logged`);
+
+        // Every day flagged: avg hidden, percent shows a dash.
+        window._renderFoodData([], { calories: 0, carbs: 0, protein: 0, fat: 0, days: 7, days_logged: 0, days_excluded: 7 }, 'week', '2026-04-20');
+        expect(avg.classList.contains('hidden')).toBe(true);
+        expect(document.getElementById('food-macros-card-percent-value').textContent).toBe('—');
     });
 
     it('Daily mode hides the avg-per-day subtitle under the kcal total', () => {

@@ -47,7 +47,7 @@ export const MAX_LIMIT = 1000;
 // year go" question while keeping the worst case finite.
 //
 // Deliberately NOT applied to the other `days`-taking ops, because their
-// responses do not grow with it: food.stats.read sums to four numbers,
+// responses do not grow with it: food.stats.read is a fixed-size summary,
 // medications.inventory.low returns one row per medication, medications.history
 // is hard-capped at 100 rows in the domain, and the health.analyze_* composites
 // are already clamped to a 90-day window by analysis.js's resolveWindow
