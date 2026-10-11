@@ -128,7 +128,7 @@ function debugOnce(key, ...args) {
 // them, and assigns nothing — the MCP responder dispatches catalog ops through
 // the same router the UI calls, so there is exactly one place that maps an HTTP
 // route onto a web/domain/ module (med-csu.3). ctx is the sync engine context
-// (accountId, dek, ...) that recordsPort/writeRecord already expect. Tests
+// (accountId, kData, kMac) that recordsPort/writeRecord already expect. Tests
 // inject an in-memory records port via opts.records to exercise the router
 // without crypto/IndexedDB (see tests/helpers/cloud-shim-harness.js) — the port
 // interface makes this a drop-in swap with zero router logic changes. opts.win

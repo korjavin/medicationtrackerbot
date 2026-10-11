@@ -14,7 +14,7 @@
 // Devices only. The Claude/MCP connector lives in connectors.js and Telegram
 // in Settings → Integrations, per med-lyv: which passkeys may open the vault
 // is a separate question from which AI client may read it.
-import { auditEnvelopeWithKey, deriveDataKeys, fromBase64, fromBase64Url } from './crypto.js';
+import { auditEnvelopeWithKey, fromBase64, fromBase64Url } from './crypto.js';
 
 // hooks: { onAddDevice() — the page opens the transfer flow;
 //          onLoaded(devices) — the page refreshes its summary/nudge }
@@ -30,10 +30,7 @@ async function loadDevices(mount, ctx, hooks) {
   if (!res.ok) throw new Error('Could not load your devices.');
   const devices = await res.json();
 
-  // Verify-only K_mac leaf key, cached on the ctx (same as sync.js getKData).
-  // ponytail: derived from ctx.dek until med-5h1t.4 puts the leaf keys on the
-  // warm ctx directly; then this branch goes.
-  if (!ctx.kMac) Object.assign(ctx, await deriveDataKeys(ctx.dek));
+  // Verify-only K_mac leaf key from the warm ctx (unlock.js warmUnlock).
   const audited = await Promise.all(
     (devices || []).map(async (d) => {
       const credentialId = fromBase64Url(d.credential_id);

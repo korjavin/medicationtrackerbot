@@ -15,7 +15,7 @@ import 'fake-indexeddb/auto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createApiRouter } from '../apishim.js';
-import { generateDEK } from '../crypto.js';
+import { deriveDataKeys, generateDEK } from '../crypto.js';
 import { ORIGIN_EXTERNAL, ORIGIN_UI } from '../sync.js';
 
 const accountId = 'amber-falcon-8k3q9x';
@@ -30,7 +30,7 @@ describe('write origin decides the repaint (med-dvr)', () => {
       req.onsuccess = resolve;
       req.onerror = () => reject(req.error);
     });
-    ctx = { accountId, dek: await generateDEK() };
+    ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
 
     ds = {
       invalidateTags: vi.fn(async () => {}),

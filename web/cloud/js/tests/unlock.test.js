@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { establishLdkCache, forwardableShareFragment, runUnlockFlow, unlockSuccessTarget } from '../unlock.js';
-import { deriveKEK, deriveKMac, toBase64, wrapEnvelope } from '../crypto.js';
+import { IDBFactory } from 'fake-indexeddb';
+import {
+  establishLdkCache, forwardableShareFragment, readLdkRecord, runUnlockFlow, unlockSuccessTarget,
+  verifyLdkDurable, warmUnlock,
+} from '../unlock.js';
+import { deriveDataKeys, deriveKEK, deriveKMac, generateDEK, toBase64, wrapEnvelope } from '../crypto.js';
+import { openDb } from '../localdb.js';
 
 // Unlock-shell side of the shared-plan fragment round-trip (bd med-uo64.3):
 // only #share-plan= rides between / and /unlock (cloud-boot.js forwards it
@@ -62,35 +67,10 @@ describe('unlock share-plan fragment (med-uo64.3)', () => {
     };
   }
 
-  // In-memory indexedDB shared by both return-leg suites: openDb only
-  // fires onsuccess (never onupgradeneeded, so applyUpgrade's schema calls
-  // stay out of it).
+  // A fresh fake-indexeddb per test: real structured clone (CryptoKeys
+  // included) and a real handle close/reopen between every cache operation.
   function installFakeIdb() {
-    const store = new Map();
-    const objectStore = () => ({
-      get: (key) => {
-        const req = {};
-        queueMicrotask(() => { req.result = store.get(key); if (req.onsuccess) req.onsuccess(); });
-        return req;
-      },
-      put: (rec, key) => {
-        store.set(key, rec);
-        const req = {};
-        queueMicrotask(() => { if (req.onsuccess) req.onsuccess(); });
-        return req;
-      },
-    });
-    const tx = () => ({
-      objectStore,
-      set oncomplete(fn) { queueMicrotask(() => { if (fn) fn(); }); },
-    });
-    setGlobal('indexedDB', {
-      open: () => {
-        const req = {};
-        queueMicrotask(() => { req.result = { transaction: tx, close() {} }; if (req.onsuccess) req.onsuccess(); });
-        return req;
-      },
-    });
+    setGlobal('indexedDB', new IDBFactory());
   }
 
   describe('cold unlock hint', () => {
@@ -138,8 +118,8 @@ describe('unlock share-plan fragment (med-uo64.3)', () => {
     it('hands the fragment back to / (real LDK round-trip)', async () => {
     installFakeIdb();
 
-    // A genuinely wrapped DEK via the real establishLdkCache, so the
-    // warm path below unwraps through real WebCrypto, not a stub.
+    // A genuine v2 cache via the real establishLdkCache, so the warm path
+    // below opens it through real WebCrypto + IndexedDB, not a stub.
     const dek = globalThis.crypto.getRandomValues(new Uint8Array(32));
     await establishLdkCache(dek, 'acct-1');
 
@@ -158,6 +138,148 @@ describe('unlock share-plan fragment (med-uo64.3)', () => {
     setGlobal('location', { hash: '#claim=tok123', href: '' });
     await runUnlockFlow();
     expect(globalThis.location.href).toBe('/');
+    // The /unlock shell recognises v2 and never wipes a valid cache.
+    expect((await readLdkRecord()).v).toBe(2);
+    });
+  });
+
+  // med-5h1t.4: the warm-unlock cache holds leaf CryptoKeys, never DEK bytes.
+  describe('LDK cache v2', () => {
+    const AAD = new TextEncoder().encode('mt/v1/ldk');
+
+    // What a pre-v2 shell wrote: the DEK AES-GCM-wrapped under a local key.
+    async function writeV1(dek, accountId) {
+      const ldk = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+      const nonce = crypto.getRandomValues(new Uint8Array(12));
+      const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce, additionalData: AAD }, ldk, dek));
+      const v1 = { ldk, nonce, ct, accountId };
+      const db = await openDb();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction('device', 'readwrite');
+        tx.objectStore('device').put(v1, 'ldk');
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+      db.close();
+    }
+
+    // The ctx's keys are this DEK's leaf keys: AES sealed by an independent
+    // derivation opens with ctx.kData; a MAC from the raw K_mac verifies.
+    async function expectKeysOf(ctx, dek) {
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const msg = crypto.getRandomValues(new Uint8Array(16));
+      const sealed = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, (await deriveDataKeys(dek)).kData, msg);
+      expect(new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, ctx.kData, sealed))).toEqual(msg);
+      const signKey = await crypto.subtle.importKey('raw', await deriveKMac(dek), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+      const tag = await crypto.subtle.sign('HMAC', signKey, msg);
+      expect(await crypto.subtle.verify('HMAC', ctx.kMac, tag, msg)).toBe(true);
+    }
+
+    async function deviceKeys() {
+      const db = await openDb();
+      try {
+        return await new Promise((resolve, reject) => {
+          const req = db.transaction('device', 'readonly').objectStore('device').getAllKeys();
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+      } finally { db.close(); }
+    }
+
+    function expectNoDekBytes(rec) {
+      expect(Object.keys(rec).sort()).toEqual(['accountId', 'kData', 'kMac', 'v']);
+      expect(rec.kData.extractable).toBe(false);
+      expect(rec.kMac.extractable).toBe(false);
+      expect([...rec.kData.usages].sort()).toEqual(['decrypt', 'encrypt']);
+      expect([...rec.kMac.usages]).toEqual(['verify']);
+    }
+
+    it('establishLdkCache writes v2 leaf keys that survive write → close → reopen → use', async () => {
+      installFakeIdb();
+      const dek = generateDEK();
+      await establishLdkCache(dek, 'acct-1');
+
+      const rec = await readLdkRecord();
+      expect(rec.v).toBe(2);
+      expectNoDekBytes(rec);
+      expect(await deviceKeys()).toEqual(['ldk']); // no staging row left behind
+
+      const ctx = await warmUnlock();
+      expect(Object.keys(ctx).sort()).toEqual(['accountId', 'kData', 'kMac']);
+      expect(ctx.accountId).toBe('acct-1');
+      await expectKeysOf(ctx, dek);
+    });
+
+    it('migrates a v1 record silently to v2 on warm unlock', async () => {
+      installFakeIdb();
+      const dek = generateDEK();
+      await writeV1(dek, 'acct-1');
+
+      const ctx = await warmUnlock();
+      await expectKeysOf(ctx, dek);
+      expect(ctx.dek).toBeUndefined();
+      const rec = await readLdkRecord();
+      expect(rec.v).toBe(2);
+      expectNoDekBytes(rec);
+      await expectKeysOf(await warmUnlock(), dek);
+    });
+
+    it('a failed conversion keeps v1 and still unlocks this launch; the next launch migrates', async () => {
+      installFakeIdb();
+      const dek = generateDEK();
+      await writeV1(dek, 'acct-1');
+
+      // The durability probe fails → the live slot is never touched.
+      const spy = vi.spyOn(crypto.subtle, 'verify').mockResolvedValueOnce(false);
+      const ctx = await warmUnlock();
+      spy.mockRestore();
+      await expectKeysOf(ctx, dek);
+      const kept = await readLdkRecord();
+      expect(kept.v).toBeUndefined();
+      expect(kept.ct).toBeInstanceOf(Uint8Array);
+
+      await warmUnlock();
+      expect((await readLdkRecord()).v).toBe(2);
+    });
+
+    it('old-shell overlap: a v1 rewritten over v2 is re-migrated on the next launch', async () => {
+      installFakeIdb();
+      const dek = generateDEK();
+      await establishLdkCache(dek, 'acct-1');
+      // An old SW-cached /unlock shell can't read v2, clears it, and its cold
+      // unlock writes v1 again.
+      await writeV1(dek, 'acct-1');
+
+      await expectKeysOf(await warmUnlock(), dek);
+      expectNoDekBytes(await readLdkRecord());
+    });
+
+    it('the durability probe rejects a stored key from a different DEK', async () => {
+      installFakeIdb();
+      const dek = generateDEK();
+      await establishLdkCache(dek, 'acct-1');
+
+      await expect(verifyLdkDurable(dek, 'acct-1')).resolves.toBeUndefined();
+      await expect(verifyLdkDurable(generateDEK(), 'acct-1')).rejects.toThrow();
+      await expect(verifyLdkDurable(dek, 'acct-other')).rejects.toThrow();
+    });
+
+    it('a write that fails its probe never reaches the live slot or clobbers what is there', async () => {
+      installFakeIdb();
+      const spy = vi.spyOn(crypto.subtle, 'verify').mockResolvedValueOnce(false);
+      await expect(establishLdkCache(generateDEK(), 'acct-1')).rejects.toThrow();
+      spy.mockRestore();
+      expect(await deviceKeys()).toEqual([]);
+      expect(await warmUnlock()).toBeNull();
+
+      // Another tab's committed cache survives this tab's failed write.
+      const dek = generateDEK();
+      await establishLdkCache(dek, 'acct-1');
+      const again = vi.spyOn(crypto.subtle, 'verify').mockResolvedValueOnce(false);
+      await expect(establishLdkCache(generateDEK(), 'acct-1')).rejects.toThrow();
+      again.mockRestore();
+      expect(await deviceKeys()).toEqual(['ldk']);
+      await expectKeysOf(await warmUnlock(), dek);
     });
   });
 

@@ -5,7 +5,7 @@
 // are { recordId, clientTs, deleted, ...body }, merged by last-write-wins on
 // clientTs; recordsPort() below exposes the generic list/put/del trio that
 // web/domain/'s domain modules are built on.
-import { deriveDataKeys, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, toBase64, fromBase64, gzip, gunzip, isGzip } from './crypto.js';
+import { encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, toBase64, fromBase64, gzip, gunzip, isGzip } from './crypto.js';
 import { cachedDb, dropCachedDb, onCachedDbDropped } from './localdb.js';
 import { mergeGamificationJournal } from '../../domain/gamification.js';
 
@@ -108,11 +108,11 @@ function withRecordsLock(fn) {
   return run;
 }
 
-// Leaf keys are non-extractable CryptoKeys derived once per ctx and cached on
-// it (the operational ctx shape {accountId, kData, kMac}); every record and
-// snapshot path goes through here and never sees raw key bytes.
+// The operational ctx is {accountId, kData, kMac}: non-extractable leaf keys
+// from the warm-unlock cache (unlock.js warmUnlock); every record and snapshot
+// path goes through here and never sees raw key bytes.
 async function getKData(ctx) {
-  if (!ctx.kData) Object.assign(ctx, await deriveDataKeys(ctx.dek));
+  if (!ctx.kData) throw new Error('sync: ctx carries no kData leaf key');
   return ctx.kData;
 }
 

@@ -12,7 +12,6 @@ import { JSDOM } from 'jsdom';
 
 vi.mock('../crypto.js', () => ({
   auditEnvelopeWithKey: vi.fn(async () => true),
-  deriveDataKeys: vi.fn(async () => ({ kData: 'fake-kdata', kMac: 'fake-kmac' })),
   fromBase64: vi.fn((x) => x),
   fromBase64Url: vi.fn((x) => x),
 }));
@@ -34,7 +33,7 @@ import { fileURLToPath } from 'node:url';
 let dom;
 let app;
 let hooks;
-const ctx = { dek: 'fake-dek' };
+const ctx = { accountId: 'acct-1', kData: 'fake-kdata', kMac: 'fake-kmac' };
 
 const DEVICES = [
   { credential_id: 'aaaabbbbcccc', created_at: '2026-07-01T10:00:00Z', envelope: { nonce: 'n', ct: 'c', mac: 'm' } },
@@ -225,7 +224,7 @@ describe('devices.js device list', () => {
 // med-xso6.25: a full-document passkey ceremony — the app's Emergency Kit row
 // navigates to /devices?flow=emergency-kit, where app.js runs this screen.
 describe('Regenerate Emergency Kit (med-d5t.12)', () => {
-  const regenCtx = { dek: 'fake-dek', accountId: 'acct-1' };
+  const regenCtx = { accountId: 'acct-1', kData: 'fake-kdata', kMac: 'fake-kmac' };
   let onDone;
 
   function openRegenerateScreen() {
@@ -264,7 +263,7 @@ describe('Regenerate Emergency Kit (med-d5t.12)', () => {
 
     await vi.waitFor(() => expect(renderEmergencyKit).toHaveBeenCalled());
     expect(assertPasskey).toHaveBeenCalledTimes(1);
-    // Not ctx.dek: an unlocked tab on a shared laptop must not be enough.
+    // The warm ctx holds no DEK; an unlocked tab on a shared laptop must not be enough.
     const [, kitCtx] = renderEmergencyKit.mock.calls[0];
     expect(kitCtx.dek).toBe('fresh-dek');
     expect(kitCtx.accountId).toBe('acct-1');
