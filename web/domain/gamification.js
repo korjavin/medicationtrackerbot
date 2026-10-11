@@ -14,6 +14,7 @@ import { dayStartMs, buildDailyWeightedStats } from './bp.js';
 import { workoutScheduleOccurrences, isoWeekKey } from './reminders.js';
 import { localWallToUtcMs } from './medschedule.js';
 import { DAY_STATUS_RECORD_TYPE, isFlaggedIncomplete } from './food.js';
+import { trackerDayTotals } from './trackers.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WINDOW_DAYS = 90; // trailing window (§4.1)
@@ -28,6 +29,8 @@ const SLEEP_RECORD_TYPE = 'sleep';
 const DAYSTATS_RECORD_TYPE = 'daystats';
 const WORKOUT_SESSION_RECORD_TYPE = 'workoutsession';
 const FOOD_LOG_RECORD_TYPE = 'foodlog';
+const TRACKER_RECORD_TYPE = 'tracker';
+const TRACKER_LOG_RECORD_TYPE = 'trackerlog';
 
 // Goal Line (docs/gamification.md §0.3.1) — read-only inputs + its constants
 // (weight/weightgoal reuse the factory's WEIGHT_RECORD_TYPE/WEIGHTGOAL_RECORD_TYPE).
@@ -2404,11 +2407,12 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     const hrPadDays = SCORING_WINDOW_DAYS + cfg.gaugeRestingHRBaselineWindowDays + 1;
     const hrFromKey = `${HR_RECORD_TYPE}-${msToUTCDay(nowMs - hrPadDays * DAY_MS)}`;
     const hrToKey = `${HR_RECORD_TYPE}-${msToUTCDay(nowMs + DAY_MS)}`;
-    const [bpAll, weightAll, weightGoalAll, sleepAll, dayStatsAll, hrAll, foodAll, foodTargetsAll, intakeAll, noteAll, workoutAll] = await Promise.all([
+    const [bpAll, weightAll, weightGoalAll, sleepAll, dayStatsAll, hrAll, foodAll, foodTargetsAll, intakeAll, noteAll, workoutAll, trackerAll, trackerLogAll] = await Promise.all([
       records.list(BP_RECORD_TYPE), records.list(WEIGHT_RECORD_TYPE), records.list(WEIGHTGOAL_RECORD_TYPE),
       records.list(SLEEP_RECORD_TYPE), records.list(DAYSTATS_RECORD_TYPE), records.listRange(HR_RECORD_TYPE, hrFromKey, hrToKey),
       records.list(FOOD_LOG_RECORD_TYPE), records.list(FOODTARGETS_RECORD_TYPE),
       records.list(INTAKE_RECORD_TYPE), records.list(NOTE_RECORD_TYPE), records.list(WORKOUT_SESSION_RECORD_TYPE),
+      records.list(TRACKER_RECORD_TYPE), records.list(TRACKER_LOG_RECORD_TYPE),
     ]);
     const foodFlaggedLocalDays = await incompleteFoodDays();
 
@@ -2517,7 +2521,23 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
     const { byDay: adherenceByDay, nextPendingDueMs } = buildAdherenceByDay(intakeAll.filter((r) => !r.deleted), nowMs);
     const hrDailyMin = buildHRDailyMin(hrAll.filter((r) => !r.deleted));
 
+    // User trackers (med-1vy5.4): strength display only — never scored for HP.
+    // Days are LOCAL (the trackers domain's own boundaries).
+    const trackerLogs = trackerLogAll.filter((r) => !r.deleted);
+    const trackers = trackerAll
+      .filter((t) => !t.deleted && !t.archived && t.target)
+      .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
+      .map((t) => {
+        const createdMs = Date.parse(t.createdAt);
+        return {
+          id: t.recordId, name: t.name, target: t.target,
+          createdDay: Number.isFinite(createdMs) ? localDayString(createdMs, timeZone) : '',
+          totals: trackerDayTotals(t, trackerLogs, timeZone),
+        };
+      });
+
     return {
+      trackers,
       nowMs, bpDays, weightDays, weightLogsDesc, goalWeight,
       sleepByDay, onsetByDay, stepsByDay, workoutDays, sessions,
       foodByDay, foodLoggedDays, foodIncompleteDays, foodTargets, diaryByDay, adherenceByDay, hrDailyMin,
@@ -2829,7 +2849,28 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
       d = addDays(d, 1);
     }
     const measurement = { key: 'measurement', label: 'Measurement', value: habitStrength(meaMarks, 1, cfg), frequency: 1 };
-    return [meds, movement, measurement];
+    return [meds, movement, measurement, ...(ctx.trackers || []).map((t) => trackerStrength(t, start, todayStr, cfg))];
+  }
+
+  // trackerStrength: one daily checkmark per day since the tracker existed.
+  // day: target met (atMost: an empty day is under the limit) → 1 else 0.
+  // week/month: trailing 7/30-day window, like Movement — atLeast earns
+  // min(1, total/value) at frequency value/window; atMost is a daily
+  // "stayed under the window limit" at frequency 1.
+  function trackerStrength(t, start, todayStr, cfg) {
+    const { op, value, period } = t.target;
+    const win = period === 'week' ? 7 : (period === 'month' ? 30 : 1);
+    const marks = [];
+    for (let d = t.createdDay > start ? t.createdDay : start; d <= todayStr; d = addDays(d, 1)) {
+      let total = 0;
+      for (let k = 0; k < win; k += 1) total += t.totals.get(addDays(d, -k)) || 0;
+      if (op === 'atMost') marks.push(total <= value ? 1 : 0);
+      else marks.push(win === 1 ? (total >= value ? 1 : 0) : Math.min(1, total / value));
+    }
+    // ponytail: frequency capped at 1/day — a big count target (50 glasses/week)
+    // is still a daily habit, not 7 check-ins a day.
+    const frequency = op === 'atLeast' && win > 1 ? Math.min(1, value / win) : 1;
+    return { key: `tracker:${t.id}`, label: t.name, value: habitStrength(marks, frequency, cfg), frequency };
   }
 
   // ----- ring aggregation (summary.go ringScores) -----------------------------
@@ -3092,7 +3133,7 @@ export function createGamificationDomain({ records, now, timeZone, getRecordsCha
 
     const sPrior = strengthsView(ctx, ctx._bpReadings, addDays(sunday, -7), cfg);
     const strengths = strengthsView(ctx, ctx._bpReadings, sunday, cfg)
-      .map((st, i) => ({ key: st.key, label: st.label, value_now: st.value, value_prior: (sPrior[i] && sPrior[i].value) || 0 }));
+      .map((st) => ({ key: st.key, label: st.label, value_now: st.value, value_prior: (sPrior.find((p) => p.key === st.key) || {}).value || 0 }));
     let weightGauge = computeWeightGaugeAt(ctx, sunday, cfg); delete weightGauge.goal_direction;
     if (edSafe) weightGauge = null;
     const bpGauge = computeBPGaugeAt(ctx, ctx._bpReadings, sunday, cfg);
