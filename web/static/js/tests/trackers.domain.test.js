@@ -98,7 +98,7 @@ describe('trackers domain — count', () => {
   it('atMost is met with zero logs and unmet once over the limit', async () => {
     const { d } = setup('2026-07-08T16:00:00Z');
     const t = await d.create(COFFEE);
-    expect(await progressOf(d, t.id)).toEqual({ total: 0, target: 3, met: true });
+    expect(await progressOf(d, t.id)).toEqual({ total: 0, target: 3, met: true, cleanDays: 1 });
     await d.log(t.id, { amount: 4 });
     expect((await progressOf(d, t.id)).met).toBe(false);
   });
@@ -200,5 +200,38 @@ describe('trackers domain — archive + history', () => {
     expect(u).toMatchObject({ id: t.id, name: 'H2O', createdAt: t.createdAt, target: { value: 10 } });
     await expect(d.update(t.id, { name: '' })).rejects.toMatchObject({ code: 'invalid_request' });
     await expect(d.update('nope', { name: 'x' })).rejects.toMatchObject({ code: 'not_found' });
+  });
+});
+
+// med-1vy5.8: limits carry a derived days-clean streak; goals do not.
+describe('trackers domain — cleanDays (atMost only)', () => {
+  const NO_ALCOHOL = { name: 'No alcohol', kind: 'check', target: { op: 'atMost', value: 1, period: 'week' } };
+
+  it('counts clean local days back to the creation day; a slip resets it; goals omit it', async () => {
+    // Created Wed 2026-07-01 noon New York.
+    const { d, clock } = setup('2026-07-01T16:00:00Z');
+    const t = await d.create(NO_ALCOHOL);
+    const water = await d.create(WATER);
+    expect((await progressOf(d, t.id)).cleanDays).toBe(1); // created today, no slip
+    expect((await progressOf(d, water.id)).cleanDays).toBeUndefined();
+    clock.ms = Date.parse('2026-07-08T16:00:00Z'); // Wed a week later
+    expect((await progressOf(d, t.id)).cleanDays).toBe(8); // never slipped: creation day through today
+    await d.setDay(t.id, '2026-07-05', true); // slip 3 days ago (Sun, the previous ISO week)
+    const p = await progressOf(d, t.id);
+    expect(p.cleanDays).toBe(3); // the week rollover (Mon 07-06) does not reset it
+    expect(p.total).toBe(0);
+    await d.log(t.id); // slip today
+    expect((await progressOf(d, t.id)).cleanDays).toBe(0);
+    clock.ms = Date.parse('2026-07-09T16:00:00Z');
+    expect((await progressOf(d, t.id)).cleanDays).toBe(1); // slipped yesterday
+  });
+
+  it('count limits use local-day totals: a slip at local 23:30 belongs to that day', async () => {
+    const { d, clock } = setup('2026-07-01T16:00:00Z');
+    const t = await d.create({ ...COFFEE, target: { op: 'atMost', value: 0, period: 'day' } });
+    clock.ms = Date.parse('2026-07-08T16:00:00Z');
+    // Mon 2026-07-06 23:30 New York = Tue 03:30Z.
+    await d.log(t.id, { amount: 1, at: '2026-07-07T03:30:00Z' });
+    expect((await progressOf(d, t.id)).cleanDays).toBe(2); // Tue + Wed
   });
 });

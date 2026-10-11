@@ -382,6 +382,8 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
 .wg-trk__week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px}
 .wg-trk__week i{height:6px;border-radius:3px;background:var(--wg-line-strong)}
 .wg-trk__week i.is-hit{background:var(--wg-sage)}.wg-trk__week i.is-future{opacity:.45}
+.wg-trk__week i.is-clean{background:var(--wg-sage)}.wg-trk__week i.is-slip{background:var(--wg-warn-fg)}
+.wg-trk__tick--slip{border-color:var(--wg-warn-line);background:var(--wg-warn-bg);color:var(--wg-warn-fg)}
 .wg-trk__week i.is-today{box-shadow:0 0 0 1.5px var(--wg-bg-card-hi),0 0 0 3px var(--wg-fg-3)}
 .wg-trk--met{border-color:var(--wg-ok-line);background:linear-gradient(180deg,var(--wg-ok-bg),rgba(0,0,0,0) 85%),var(--wg-bg-card-hi)}
 .wg-trk--met .wg-trk__glyph{border-color:var(--wg-ok-line);background:var(--wg-ok-bg);color:var(--wg-ok-fg)}
