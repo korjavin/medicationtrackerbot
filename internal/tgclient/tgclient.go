@@ -539,6 +539,11 @@ const (
 	CallbackWeightPrefix = "wt:"
 )
 
+// CallbackTrackerPrefix namespaces a user-tracker reminder: "tr:<slotUnix>".
+// It renders only a URL button (Open at Today), never callback_data, so there
+// is no tap to parse — the stem exists to pick that keyboard.
+const CallbackTrackerPrefix = "tr:"
+
 // Callback actions carried in the third field of callback_data. Confirm/Snooze
 // are meds (s:); Snooze1h/Snooze2h/Skip are workouts (w:); Snooze1h/Skip are
 // measures (bp:/wt:).
@@ -574,6 +579,9 @@ func ValidCallbackStem(s string) bool {
 		return validSlotRest(rest)
 	}
 	if rest, found := strings.CutPrefix(s, CallbackWeightPrefix); found {
+		return validSlotRest(rest)
+	}
+	if rest, found := strings.CutPrefix(s, CallbackTrackerPrefix); found {
 		return validSlotRest(rest)
 	}
 	rest, found := strings.CutPrefix(s, CallbackSlotPrefix)

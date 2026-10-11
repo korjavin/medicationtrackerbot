@@ -337,14 +337,14 @@ func TestParseCallbackData(t *testing.T) {
 // ValidCallbackStem gates what a client may put in the queue and therefore what
 // the relay puts in a button. Empty means "no buttons" and must stay legal.
 func TestValidCallbackStem(t *testing.T) {
-	valid := []string{"", "s:1", "s:1767225600"}
+	valid := []string{"", "s:1", "s:1767225600", "tr:1767225600"}
 	for _, s := range valid {
 		if !ValidCallbackStem(s) {
 			t.Errorf("ValidCallbackStem(%q) = false, want true", s)
 		}
 	}
 	invalid := []string{
-		"s:", "s:abc", "i:intake-7-1:confirm", "x:1", "1767225600",
+		"s:", "s:abc", "i:intake-7-1:confirm", "x:1", "1767225600", "tr:", "tr:0", "tr:1767225600:skip",
 		"s:1767225600:confirm",         // an already-built callback_data, not a stem
 		"s:99999999999999999999999999", // over the length cap
 	}

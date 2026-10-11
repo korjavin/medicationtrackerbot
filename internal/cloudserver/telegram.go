@@ -2325,6 +2325,12 @@ func (t *TelegramAPI) SendReminder(ctx context.Context, accountID, text, callbac
 			{Text: "⏰ Snooze 2h", CallbackData: callbackStem + ":" + tgclient.CallbackActionSnooze2h},
 			{Text: "⏭️ Skip", CallbackData: callbackStem + ":" + tgclient.CallbackActionSkip},
 		}
+	case strings.HasPrefix(callbackStem, tgclient.CallbackTrackerPrefix):
+		// Tracker reminders: just open the app at Today, where the tracker card
+		// is (med-1vy5.5). No taps to handle.
+		buttons = []tgclient.InlineKeyboardButton{
+			{Text: "🌐 Open", URL: t.reminderDeepLink(ctx, accountID, "today")},
+		}
 	case tgclient.IsMeasureCallback(callbackStem):
 		section := "bp"
 		if strings.HasPrefix(callbackStem, tgclient.CallbackWeightPrefix) {
@@ -2345,6 +2351,9 @@ func (t *TelegramAPI) SendReminder(ctx context.Context, accountID, text, callbac
 	// to Telegram) so a subdomain-lookup miss degrades to a smaller keyboard
 	// rather than a rejected send.
 	buttons = dropEmptyURLButtons(buttons)
+	if len(buttons) == 0 {
+		return client.SendMessageReturningID(ctx, *bot.ChatID, text)
+	}
 	return client.SendMessageWithButtonsReturningID(ctx, *bot.ChatID, text, buttons)
 }
 
