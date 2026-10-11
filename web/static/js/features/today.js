@@ -355,7 +355,10 @@
             scheduled_time: session.scheduled_time,
             group_name: groupName,
             status: session.status,
-            is_today: session.is_today === true
+            is_today: session.is_today === true,
+            // The planned Day the row's tap opens (WorkoutNextCard.openEdit).
+            group_id: (data && data.group_id) || session.group_id || null,
+            variant_id: (data && data.variant_id) || session.variant_id || null
         };
         return cell(value, 'workouts', 'ok');
     }
@@ -725,6 +728,21 @@
             } else {
                 action = btn('View', { sm: true, action: 'view-workout', onClick: () => h.onDeeplink('workouts') });
             }
+            // Tapping the row itself (not its action) previews the planned
+            // exercises in the existing Plan → Day pages.
+            row.classList.add('wg-today-next__tap');
+            row.setAttribute('role', 'button');
+            row.setAttribute('tabindex', '0');
+            row.setAttribute('data-action', 'open-workout-plan');
+            row.setAttribute('aria-label', `${v.group_name || 'Workout'} — view planned exercises`);
+            const open = () => h.onViewWorkoutPlan(v);
+            row.addEventListener('click', (e) => {
+                if (e.target.closest && e.target.closest('.wg-btn')) return;
+                open();
+            });
+            row.addEventListener('keydown', (e) => {
+                if (e.target === row && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open(); }
+            });
         }
         body.appendChild(meta);
         trail.appendChild(action);
@@ -1337,6 +1355,17 @@
             onResumeWorkout: opts.onResumeWorkout || ((id) => {
                 if (win.WorkoutSessions && typeof win.WorkoutSessions.open === 'function') win.WorkoutSessions.open(id);
                 else onDeeplink('workouts');
+            }),
+            // The Workouts card's planned-exercises tap (workout/next-card.js):
+            // Plan page with the session's Day pushed on top, over Today. An
+            // ad-hoc session (group_id -1) has no plan → the Workouts screen.
+            onViewWorkoutPlan: opts.onViewWorkoutPlan || ((v) => {
+                const card = win.WorkoutNextCard;
+                if (card && typeof card.openEdit === 'function' && v && v.group_id > 0 && v.variant_id > 0) {
+                    card.openEdit(v.variant_id, v.group_id);
+                } else {
+                    onDeeplink('workouts');
+                }
             }),
             onAddMedication: opts.onAddMedication || (() => {
                 onDeeplink('meds');

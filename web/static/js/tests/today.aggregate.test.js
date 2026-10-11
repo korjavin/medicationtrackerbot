@@ -343,12 +343,17 @@ describe('TodayDashboard.aggregateToday', () => {
           status: 'pending',
           is_today: false
         },
-        group_name: 'Push day'
+        group_name: 'Push day',
+        group_id: 3,
+        variant_id: 11
       }
     };
     const result = env.aggregate({ features: { workout: true } }, caches, now);
     expect(result.nextWorkout.status).toBe('ok');
     expect(result.nextWorkout.value.group_name).toBe('Push day');
+    // The planned Day the Next up row's tap opens.
+    expect(result.nextWorkout.value.group_id).toBe(3);
+    expect(result.nextWorkout.value.variant_id).toBe(11);
   });
 
   it('reports flat trend when the delta falls inside the epsilon band', () => {

@@ -171,6 +171,38 @@ describe('Today v2 — Next up', () => {
         expect(env.window.WorkoutSessions.open).toHaveBeenCalledWith(7);
     });
 
+    it('tapping the workout row previews the planned Day via WorkoutNextCard; its button keeps its own action', () => {
+        env.window.WorkoutNextCard = { openEdit: vi.fn() };
+        env.window.WorkoutSessions = { start: vi.fn(), open: vi.fn() };
+        const s = busyState();
+        s.nextWorkout.value = { ...WORKOUT_TODAY, group_id: 3, variant_id: 11 };
+        env.render(s, root, { now: NOW });
+        const row = root.querySelector('[data-next="workout"]');
+        expect(row.getAttribute('data-action')).toBe('open-workout-plan');
+        expect(row.getAttribute('role')).toBe('button');
+
+        row.querySelector('[data-action="start-workout"]').click();
+        expect(env.window.WorkoutSessions.start).toHaveBeenCalledWith(7);
+        expect(env.window.WorkoutNextCard.openEdit).not.toHaveBeenCalled();
+
+        row.querySelector('.wg-row__title').click();
+        expect(env.window.WorkoutNextCard.openEdit).toHaveBeenCalledWith(11, 3);
+
+        row.dispatchEvent(new env.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        expect(env.window.WorkoutNextCard.openEdit).toHaveBeenCalledTimes(2);
+    });
+
+    it('an ad-hoc session row (no plan) taps through to Workouts instead', () => {
+        env.window.WorkoutNextCard = { openEdit: vi.fn() };
+        const onDeeplink = vi.fn();
+        const s = busyState();
+        s.nextWorkout.value = { ...WORKOUT_TODAY, status: 'in_progress', group_id: -1, variant_id: 0 };
+        env.render(s, root, { now: NOW, onDeeplink });
+        root.querySelector('[data-next="workout"] .wg-row__title').click();
+        expect(env.window.WorkoutNextCard.openEdit).not.toHaveBeenCalled();
+        expect(onDeeplink).toHaveBeenCalledWith('workouts');
+    });
+
     it('a session on another day is a plain View to Workouts; the sun moves to the dose', () => {
         const s = busyState();
         s.nextWorkout.value = { ...WORKOUT_TODAY, is_today: false, scheduled_date: '2026-04-22' };

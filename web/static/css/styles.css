@@ -2795,6 +2795,15 @@ body:has(.wg-callbar--dock) .wg-toasts {
     align-self: flex-start;
 }
 
+/* Next up workout row: the row opens the planned Day; its button keeps its own action. */
+.wg-today-next__tap {
+    cursor: pointer;
+}
+
+.wg-today-next__tap:hover {
+    background: var(--wg-bg-card-hi);
+}
+
 /* Sparkline variants — stroke & fill colours come from a single
    `color` per variant so the <path>, fill path, and tail circle
    all track the same --wg-* token. */
