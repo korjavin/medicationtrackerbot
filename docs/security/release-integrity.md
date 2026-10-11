@@ -23,8 +23,8 @@ Everything below narrows that boundary. None of it eliminates it:
 - **A poisoned update** — compromised CI, compromised registry credentials, a
   compromised deploy host — has the same reach.
 - **On-origin XSS** is equivalent to malicious code for the duration of the
-  page: it can read the in-memory DEK and drive the non-extractable local device
-  key. The CSP raises the cost; it does not make the page safe to inject into.
+  page: it can read the in-memory DEK, and recover the raw DEK from the warm-unlock
+  cache (the local device key is non-extractable but wraps the raw DEK). The CSP raises the cost; it does not make the page safe to inject into.
 - **Nothing in the browser can attest what it ran.** A web page cannot prove to
   itself, or to you, that its own bytes match a published build. Verification is
   something a person does from outside the page (see below), after the fact.
