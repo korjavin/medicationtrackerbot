@@ -1894,9 +1894,9 @@
     }
 
     async function archiveTracker(t, after) {
-        const confirm = typeof window !== 'undefined' ? window.safeConfirm : null;
-        if (typeof confirm !== 'function') return null;
-        const ok = await confirm('It leaves Today and stops counting. Its history stays in your vault and in the doctor brief.', null, {
+        const ask = typeof window !== 'undefined' ? window.safeConfirm : null;
+        if (typeof ask !== 'function') return null;
+        const ok = await ask('It leaves Today and stops counting. Its history stays in your vault and in the doctor brief.', null, {
             title: `Archive ${t.name}?`, confirmLabel: 'Archive', icon: 'archive', destructive: true,
         });
         if (!ok) return null;
