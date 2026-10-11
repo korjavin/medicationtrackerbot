@@ -2535,7 +2535,7 @@
                     closeLogSheet();
                     if (typeof t.run === 'function') t.run();
                 });
-                (t.row ? rows : grid).appendChild(tile);
+                if (t.row) rows.push(tile); else grid.appendChild(tile);
             }
             for (const r of rows) body.appendChild(r);
             if (grid.children.length) body.appendChild(grid);
