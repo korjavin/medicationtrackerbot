@@ -35,7 +35,8 @@ const DEFAULT_DAYS = 90;
 
 // Canonical key order of the response. Food and workouts are opt-in: a doctor
 // visit about blood pressure should not ship a nutrition log unless asked.
-export const SECTION_ORDER = ['meds', 'bp', 'weight', 'vitals', 'notes', 'food', 'workouts'];
+// Trackers (med-1vy5) are user-named, so opt-in for the same reason.
+export const SECTION_ORDER = ['meds', 'bp', 'weight', 'vitals', 'notes', 'food', 'workouts', 'trackers'];
 export const DEFAULT_SECTIONS = ['meds', 'bp', 'weight', 'vitals', 'notes'];
 const KNOWN_SECTIONS = new Set(SECTION_ORDER);
 
@@ -111,7 +112,7 @@ export function scheduleSummary(schedule) {
 //   settings — for the food targets shown next to the food averages
 //   now()    — current time in ms epoch
 export function createBriefDomain({
-  bp, weight, vitals, notes, medications, intake, food, workout, settings, now,
+  bp, weight, vitals, notes, medications, intake, food, workout, trackers, settings, now,
 }) {
   async function medsSection(fromMs, toMs, nowMs) {
     // archived:true lists ALL meds (medications.js list: `archived || !m.archived`).
@@ -285,6 +286,14 @@ export function createBriefDomain({
     };
   }
 
+  // One line per active tracker: the current day/week/month progress the
+  // Today card shows (trackers.js list), not a window fold. [] when none.
+  async function trackersSection() {
+    return (await trackers.list()).map((t) => ({
+      name: t.name, emoji: t.emoji, unit: t.unit, target: t.target, progress: t.progress,
+    }));
+  }
+
   // build assembles the brief. Sequential per section on purpose: the sections
   // are independent, but a brief is generated once behind a print button, and
   // serializing keeps the "only selected sections are read" property obvious.
@@ -318,6 +327,7 @@ export function createBriefDomain({
     if (selected.has('notes')) out.notes = await notesSection(windowDays);
     if (selected.has('food')) out.food = await foodSection(windowDays);
     if (selected.has('workouts')) out.workouts = await workoutsSection(windowDays);
+    if (selected.has('trackers')) out.trackers = await trackersSection();
 
     return out;
   }

@@ -1289,6 +1289,42 @@ describe('cloud MCP coverage sweep', () => {
   });
 });
 
+// --- Trackers by name (med-1vy5.6) ---------------------------------------
+// "Log 2 glasses of water" is one mcp_call: the `tracker` path param takes the
+// tracker's name, resolved by web/domain/trackers.js.
+describe('cloud MCP trackers.log by name', () => {
+  it('logs to the tracker named in the path, case-insensitively', async () => {
+    const now = () => Date.parse('2026-07-06T12:00:00.000Z');
+    const router = createApiRouter(null, { records: createInMemoryRecordsPort(), now, timeZone: 'UTC' });
+    const dispatcher = createDispatcher({ router, now });
+    await router('/api/trackers', 'POST', {
+      name: 'Water', kind: 'count', unit: 'glass', target: { op: 'atLeast', value: 8, period: 'day' },
+    });
+
+    const call = (tracker) => handleRequest(dispatcher, {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'mcp_call',
+      params: {
+        operation_id: 'trackers.log',
+        path_params: { tracker },
+        params: { amount: 2 },
+        mode: 'write',
+        intent: 'log 2 glasses of water',
+      },
+    });
+
+    const res = await call('water');
+    expect(res.error).toBeUndefined();
+    expect(res.result.result).toMatchObject({ amount: 2 });
+    const [water] = await router('/api/trackers', 'GET');
+    expect(water.progress).toEqual({ total: 2, target: 8, met: false });
+
+    const missing = await call('juice');
+    expect(missing.error).toBeDefined();
+  });
+});
+
 // --- Progression preview compute (Phase 4, med-qj4.4.1) -------------------
 // The coverage/conformance sweeps only prove the op routes and returns the
 // advertised object shape; this proves the dry-run math actually projects a
@@ -1807,6 +1843,7 @@ describe('cloud MCP response_example conformance', () => {
     'medications.restocks.list', 'workouts.groups.list', 'workouts.variants.list',
     'workouts.exercises.list', 'workouts.exercise_library.list', 'workouts.miband.list',
     'workouts.sessions.list', 'workouts.equipment.list', 'workouts.locations.list',
+    'trackers.list', 'trackers.history',
   ];
 
   async function seedFixtures(dispatcher) {
@@ -1959,6 +1996,7 @@ describe('cloud MCP response_example conformance', () => {
       };
       case 'workouts.rotation.state': return { params: { group_id: ids.groupID } };
       case 'medications.restocks.list': return { path_params: { id: String(ids.medID) } };
+      case 'trackers.history': return { params: { days: 2 }, path_params: { id: ids.trackerID } };
       case 'food.products.search': return { params: { q: 'oat' } };
       case 'medications.intake.update': return { params: { updates: [] } };
       default: return {};
@@ -2072,6 +2110,10 @@ describe('cloud MCP response_example conformance', () => {
     await router('/api/weight/goal', 'POST', { target_weight: 75, set_at: '2026-07-01T08:00:00.000Z' });
 
     const ids = await seedFixtures(dispatcher);
+    // Tracker create is UI-only (no catalogued write); log goes through the op.
+    ids.trackerID = (await router('/api/trackers', 'POST', {
+      name: 'Water', emoji: '💧', kind: 'count', unit: 'glass', target: { op: 'atLeast', value: 8, period: 'day' }, reminder: { time: '20:00' },
+    })).id;
 
     const mismatches = [];
     const empty = [];

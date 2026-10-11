@@ -214,10 +214,24 @@ export function createTrackersDomain({ records, now, timeZone }) {
     return logView(record);
   }
 
+  // resolveTracker: an exact id, else a case-insensitive name match among
+  // active trackers — so an agent can "log 2 glasses of water" by name.
+  async function resolveTracker(ref) {
+    const all = await records.list(TRACKER);
+    const byId = all.find((r) => r.recordId === ref);
+    if (byId) return byId;
+    const name = String(ref).trim().toLowerCase();
+    const hits = all.filter((r) => !r.archived && String(r.name).toLowerCase() === name);
+    if (hits.length > 1) throw invalid(`more than one tracker is named "${ref}"; use its id`);
+    if (!hits.length) throw notFound('tracker not found');
+    return hits[0];
+  }
+
   // log: count appends one tap (amount defaults to step, at to now); check
-  // marks a date (default today) done.
-  async function log(trackerId, input = {}) {
-    const tracker = await getTracker(trackerId);
+  // marks a date (default today) done. trackerId may also be a tracker name.
+  async function log(trackerRef, input = {}) {
+    const tracker = await resolveTracker(trackerRef);
+    const trackerId = tracker.recordId;
     const nowMs = now();
     if (tracker.kind === 'check') {
       return setDay(trackerId, input.date || localDay(nowMs, timeZone), true);
