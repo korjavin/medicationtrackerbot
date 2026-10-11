@@ -171,17 +171,52 @@ describe('Today v2 — Next up', () => {
         expect(env.window.WorkoutSessions.open).toHaveBeenCalledWith(7);
     });
 
-    it('a session on another day is a plain View to Workouts; the sun moves to the dose', () => {
+    it('a session on another day offers View and Start, neither the sun; the sun moves to the dose', () => {
         const s = busyState();
         s.nextWorkout.value = { ...WORKOUT_TODAY, is_today: false, scheduled_date: '2026-04-22' };
+        env.window.WorkoutSessions = { start: vi.fn(), open: vi.fn() };
         const onDeeplink = vi.fn();
         env.render(s, root, { now: NOW, onDeeplink });
         expect(nextKinds(root)).toEqual(['med-missed', 'med', 'workout']);
-        const view = root.querySelector('[data-action="view-workout"]');
-        expect(view.classList.contains('wg-btn--primary')).toBe(false);
-        view.click();
+        const row = root.querySelector('[data-next="workout"]');
+        // Non-rotating plan keeps the plain plan name.
+        expect(row.querySelector('.wg-row__title').textContent).toBe('Daily split');
+        const acts = Array.from(row.querySelectorAll('.wg-row__trail .wg-btn'));
+        expect(acts.map((b) => b.getAttribute('data-action'))).toEqual(['view-workout', 'start-workout']);
+        expect(acts.some((b) => b.classList.contains('wg-btn--primary'))).toBe(false);
+        acts[0].click();
         expect(onDeeplink).toHaveBeenCalledWith('workouts');
+        acts[1].click();
+        expect(env.window.WorkoutSessions.start).toHaveBeenCalledWith(7);
         expect(primaries(root).map((b) => b.getAttribute('data-action'))).toEqual(['take']);
+
+        // A pre-skipped upcoming session is View only.
+        s.nextWorkout.value = { ...s.nextWorkout.value, status: 'pre_skipped' };
+        env.render(s, root, { now: NOW, onDeeplink });
+        expect(Array.from(root.querySelectorAll('[data-next="workout"] .wg-row__trail .wg-btn'))
+            .map((b) => b.getAttribute('data-action'))).toEqual(['view-workout']);
+    });
+
+    it('rotating plan: the row names the next day, View opens that day\'s editor (real workout_next shape)', () => {
+        const s = baseState();
+        s.nextWorkout = env.aggregate({ features: { workout: true } }, {
+            workout_next: {
+                session: { id: 12, scheduled_date: '2026-04-21T00:00:00Z', scheduled_time: '16:00', status: 'pending', is_today: false },
+                group_name: 'Plan3', group_id: 4, variant_id: 9, variant_name: 'Day B', is_rotating: true, exercises_count: 5
+            }
+        }, NOW).nextWorkout;
+        env.window.WorkoutNextCard = { openEdit: vi.fn() };
+        env.window.WorkoutSessions = { start: vi.fn(), open: vi.fn() };
+        const onDeeplink = vi.fn();
+        env.render(s, root, { now: NOW, onDeeplink });
+        const row = root.querySelector('[data-next="workout"]');
+        expect(row.querySelector('.wg-row__title').textContent).toBe('Plan3 — Day B');
+        expect(row.querySelector('.wg-row__meta').textContent).toBe('tomorrow · 16:00');
+        row.querySelector('[data-action="view-workout"]').click();
+        expect(onDeeplink).toHaveBeenCalledWith('workouts');
+        expect(env.window.WorkoutNextCard.openEdit).toHaveBeenCalledWith(9, 4);
+        row.querySelector('[data-action="start-workout"]').click();
+        expect(env.window.WorkoutSessions.start).toHaveBeenCalledWith(12);
     });
 
     it('nothing scheduled → an empty state that names the next step (no sun of its own)', () => {
