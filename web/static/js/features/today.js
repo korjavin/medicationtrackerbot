@@ -1049,9 +1049,10 @@
     }
 
     // One optimistic write on the cached list: patch, send, then commit —
-    // `settle(cur, res)` (optional) swaps provisional ids for the server's. A
-    // failed call (apiCall resolves null and has already told the user)
-    // commits `revert` over the CURRENT list instead of rolling back to the
+    // `settle(res)` (optional, may await a read) returns a patch for the
+    // CURRENT list that swaps provisional data for the server's. A failed
+    // call (apiCall resolves null and has already told the user) commits
+    // `revert` over the current list instead of rolling back to the
     // snapshot, so an overlapping tap that succeeded meanwhile is not erased.
     async function trackerWrite(mutator, revert, send, settle) {
         const ds = typeof window !== 'undefined' ? window.DataStore : null;
@@ -1062,13 +1063,14 @@
         try { res = await send(); } catch (_) { res = null; }
         if (!handle) return res;
         try {
+            const patch = res && settle ? await settle(res) : null;
             const cur = await ds.getCached(TRACKERS_KEY);
             if (!Array.isArray(cur)) {
                 await (res ? handle.commit(null) : handle.rollback());
             } else if (!res) {
                 await handle.commit(revert(cur));
-            } else if (settle) {
-                await handle.commit(await settle(cur, res));
+            } else if (patch) {
+                await handle.commit(patch(cur));
             } else {
                 await handle.commit(null);
             }
@@ -1105,7 +1107,7 @@
         const res = await trackerWrite(patchTracker(t.id, addLog(log)), patchTracker(t.id, dropLog(provisionalId)),
             () => api(`/api/trackers/${encodeURIComponent(t.id)}/log`, 'POST',
                 t.kind === 'check' ? {} : (at ? { amount: n, at } : { amount: n })),
-            (cur, saved) => (saved.id ? cur.map((x) => ({
+            (saved) => (saved.id ? (cur) => cur.map((x) => ({
                 ...x,
                 todayLogs: (x.todayLogs || []).map((l) => (l.id === provisionalId ? saved : l)),
             })) : null));
@@ -1840,8 +1842,17 @@
         return list.slice().sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
     }
 
+    // The server's list row for one tracker (progress, todayLogs and the
+    // day/timeZone a cached list needs to notice midnight), or null.
+    async function serverTrackerRow(api, id) {
+        try {
+            const list = await api('/api/trackers', 'GET');
+            return Array.isArray(list) ? (list.find((x) => x && x.id === id) || null) : null;
+        } catch (_) { return null; }
+    }
+
     // The new tile shows at once under a provisional id (taps wait for the
-    // commit); the server's tracker replaces it.
+    // commit); the server's row replaces it.
     async function createTracker(body) {
         const api = trackersApi();
         if (!api) return null;
@@ -1854,11 +1865,14 @@
             (prev) => [...(Array.isArray(prev) ? prev : []), row],
             (cur) => cur.filter((t) => t.id !== provisionalId),
             () => api('/api/trackers', 'POST', body),
-            (cur, saved) => cur.map((t) => (t.id === provisionalId ? { ...t, ...saved } : t)));
+            async (saved) => {
+                const fresh = saved.id ? await serverTrackerRow(api, saved.id) : null;
+                return (cur) => cur.map((t) => (t.id === provisionalId ? (fresh || { ...t, ...saved }) : t));
+            });
     }
 
-    // A changed period changes what the total sums, so the commit is the
-    // server's fresh list (falling back to the patched one).
+    // A changed period changes what the total sums, so the commit takes the
+    // server's row for this tracker (others keep any concurrent writes).
     async function updateTracker(t, body) {
         const api = trackersApi();
         if (!api) return null;
@@ -1872,8 +1886,8 @@
         return trackerWrite(patchTracker(t.id, apply(body)), patchTracker(t.id, apply(old)),
             () => api(`/api/trackers/${encodeURIComponent(t.id)}`, 'PUT', body),
             async () => {
-                const fresh = await api('/api/trackers', 'GET');
-                return Array.isArray(fresh) ? fresh : null;
+                const fresh = await serverTrackerRow(api, t.id);
+                return fresh ? (cur) => cur.map((x) => (x.id === t.id ? fresh : x)) : null;
             });
     }
 
@@ -1902,7 +1916,8 @@
         sheet.appendChild(trackerSheetHead('Trackers', 'Manage', close));
         const body = el('div', 'wg-sheet__body');
         const list = el('div', 'wg-list');
-        for (const t of trackers) {
+        // A tracker still saving has no record to edit yet.
+        for (const t of trackers.filter((x) => !isProvisional(x))) {
             const row = trackerLink('row', t.emoji, t.name, trackerKindRule(t), 'tracker-manage-edit', () => { close(); openTrackerEditor(t); });
             row.setAttribute('data-manage-id', t.id);
             list.appendChild(row);

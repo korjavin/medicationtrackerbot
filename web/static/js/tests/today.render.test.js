@@ -955,7 +955,14 @@ describe('Trackers card', () => {
 
     it('create from a template: prefilled, tweakable, reminder on; the tile appears and commits the server id', async () => {
         setup([]);
-        env.window.apiCall = vi.fn(async (url, method, body) => ({ id: 'tracker-n', ...body, archived: false, createdAt: at(14, 0) }));
+        // The commit takes the server's list row: it carries the day/timeZone
+        // a cached list needs to notice midnight.
+        const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        let saved = null;
+        env.window.apiCall = vi.fn(async (url, method, body) => {
+            if (method === 'POST') { saved = { id: 'tracker-n', ...body, archived: false, createdAt: at(14, 0) }; return saved; }
+            return [{ ...saved, progress: { total: 0, target: 10, met: false }, todayLogs: [], day: '2026-04-20', timeZone: zone }];
+        });
         root.querySelector('[data-action="tracker-new"]').click();
         editor().querySelector('[data-template="Water"]').click();
         expect(editor().dataset.step).toBe('form');
@@ -977,6 +984,7 @@ describe('Trackers card', () => {
         }));
         await vi.waitFor(() => expect(cached('tracker-n')).toBeTruthy());
         expect(cached('tracker-n').progress).toEqual({ total: 0, target: 10, met: false });
+        expect(cached('tracker-n')).toMatchObject({ day: '2026-04-20', timeZone: zone });
         expect(tile('tracker-n').querySelector('.wg-trk__val').textContent).toBe('0/ 10 glasses');
     });
 
