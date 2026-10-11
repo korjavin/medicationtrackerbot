@@ -86,6 +86,20 @@ async function loadNextIntakeCached() {
     }
 }
 
+// Trackers card (med-1vy5.2): local-first read through cachedFetch — the
+// cached list renders at once and revalidates in the background (progress and
+// todayLogs are day-relative, so every Today load revalidates). Tile taps
+// write the same key through DataStore.applyOptimistic. Resolves null when
+// cachedFetch is missing or there is no cache offline.
+async function loadTrackersCached() {
+    if (typeof window.cachedFetch !== 'function') return null;
+    try {
+        return await window.cachedFetch('trackers', '/api/trackers', { tags: ['trackers'] });
+    } catch (_) {
+        return null;
+    }
+}
+
 // Returns a timezone-qualified DataStore key for health overview so that a
 // cached response from a prior timezone is never served as though it were
 // current. The in-memory swrCaches object always uses the fixed property name
@@ -340,6 +354,8 @@ async function _todayReadCaches(foodKey) {
                 swrCaches.food_today = { groups };
             }
             if (gamM?.data) swrCaches.gamification_goal_line = gamM.data;
+            const trackersM = await readMeta('trackers');
+            if (Array.isArray(trackersM?.data)) swrCaches.trackers = trackersM.data;
             for (let i = 0; i < keys.length; i++) {
                 const m = metas[i];
                 if (!m) continue;
@@ -384,6 +400,8 @@ async function _todayReadCaches(foodKey) {
                 swrCaches.food_today = { groups };
             }
             if (gam) swrCaches.gamification_goal_line = gam;
+            const trackers = await window.DataStore.getCached('trackers').catch(() => null);
+            if (Array.isArray(trackers)) swrCaches.trackers = trackers;
         }
     } catch (_) { /* best-effort — render whatever we have */ }
     // Register key→tag mappings for every Today cache we just read directly
@@ -610,7 +628,7 @@ async function loadToday() {
         const otherFetches = missing.length > 0
             ? Promise.allSettled(missing.map((k) => window.DataStore.fetchFresh(k, specs[k].fetch, specs[k].tags)))
             : Promise.resolve([]);
-        await Promise.all([nextIntakePromise, otherFetches]);
+        await Promise.all([nextIntakePromise, otherFetches, loadTrackersCached()]);
     } finally {
         _todayLoaderState.refreshInFlight = false;
     }
@@ -628,6 +646,7 @@ window.TodayLoader = {
     loadToday,
     fetchNextIntakePayload,
     loadNextIntakeCached,
+    loadTrackersCached,
     fetchSettingsBundle,
     todayFetchSpecs,
     todayFoodKey,

@@ -432,6 +432,10 @@ const RECORD_TAGS = {
   // med-8tur.12: a mode switch (per-mechanic / ED-safe) synced from another
   // device re-renders Today's Goal Line and the Journey.
   gamificationmode: ['gamification'],
+  // med-1vy5.2: a tracker tap or edit from another device (or the agent)
+  // repaints the Today Trackers card.
+  tracker: ['trackers'],
+  trackerlog: ['trackers'],
   // ponytail: unmapped types (nk, firstrun, tzplan, *reminderpref, voiceprovisioning)
   // back no tag-cached screen, so they emit nothing. Add a row when one does.
 };

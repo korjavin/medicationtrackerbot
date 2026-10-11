@@ -739,3 +739,166 @@ describe('Goal Line cache tags', () => {
         }
     });
 });
+
+// Trackers card (screens-trackers.html TR1/TR1b, med-1vy5.2): tiles over the
+// cached GET /api/trackers list, writes through the real DataStore
+// .applyOptimistic, repaints from the cache the way requestTabRefresh →
+// loadToday does in the app.
+describe('Trackers card', () => {
+    const UTILS_JS = path.join(REPO_ROOT, 'web/static/js/core/utils.js');
+    const WATER = {
+        id: 'tracker-w', name: 'Water', emoji: 'drop', kind: 'count', unit: 'glass', step: 1,
+        target: { op: 'atLeast', value: 8, period: 'day' }, progress: { total: 5, target: 8, met: false },
+        todayLogs: [{ id: 'trackerlog-a', trackerId: 'tracker-w', at: at(9, 15), amount: 5 }],
+    };
+    const COLA = {
+        id: 'tracker-c', name: 'Cola', emoji: '', kind: 'count', unit: 'can', step: 1,
+        target: { op: 'atMost', value: 1, period: 'day' }, progress: { total: 2, target: 1, met: false },
+        todayLogs: [],
+    };
+    const COFFEE = {
+        id: 'tracker-k', name: 'Coffee', emoji: 'cup', kind: 'count', unit: 'cup', step: 1,
+        target: { op: 'atMost', value: 3, period: 'day' }, progress: { total: 3, target: 3, met: true },
+        todayLogs: [],
+    };
+    const VITAMINS = {
+        id: 'tracker-v', name: 'Vitamins', emoji: '🍊', kind: 'check', unit: null, step: 1,
+        target: { op: 'atLeast', value: 1, period: 'day' }, progress: { total: 0, target: 1, met: false },
+        todayLogs: [],
+    };
+
+    let env;
+    let root;
+    let toasts;
+    function setup(list) {
+        allowConsoleNoise();
+        env = loadDataStoreEnv({ initialCache: { trackers: JSON.parse(JSON.stringify(list)) } });
+        const w = env.window;
+        for (const f of [UTILS_JS, EMPTY_STATE_JS, WG_ICONS_JS, WG_CHIP_JS, WG_SPARKLINE_JS, TODAY_JS]) {
+            w.eval(fs.readFileSync(f, 'utf8'));
+        }
+        root = w.document.createElement('div');
+        w.document.body.appendChild(root);
+        toasts = [];
+        w.SyncManager = { showToast: (message, type, opts) => { toasts.push({ message, opts }); return { root: null, dismiss() {} }; } };
+        const repaint = () => w.TodayDashboard.renderToday({ trackers: env.cacheMap.get('trackers') }, root, { now: NOW });
+        w.requestTabRefresh = repaint;
+        repaint();
+    }
+    afterEach(() => { if (env) env.cleanup(); env = null; });
+
+    const tile = (id) => root.querySelector(`[data-tracker-id="${id}"]`);
+    const cached = (id) => env.cacheMap.get('trackers').find((t) => t.id === id);
+
+    it('renders one tile per tracker with goal, limit, over-limit and check states; no trackers → no card', () => {
+        setup([WATER, COFFEE, COLA, VITAMINS]);
+        const card = root.querySelector('[data-section="trackers"]');
+        expect(card.querySelectorAll('.wg-trk')).toHaveLength(4);
+        expect(tile('tracker-w').querySelector('.wg-trk__val').textContent).toBe('5/ 8 glasses');
+        expect(tile('tracker-w').textContent).toContain('3 to go');
+        expect(tile('tracker-w').querySelector('.wg-meter__fill--sage')).not.toBeNull();
+        expect(tile('tracker-k').dataset.state).toBe('at');
+        expect(tile('tracker-k').textContent).toContain('At limit');
+        expect(tile('tracker-k').classList.contains('wg-trk--met')).toBe(false);
+        expect(tile('tracker-c').classList.contains('wg-trk--over')).toBe(true);
+        expect(tile('tracker-c').querySelector('.wg-chip--warn').textContent).toContain('1 over');
+        expect(tile('tracker-c').querySelector('.wg-trk__val small').textContent).toBe('/ ≤1 can');
+        expect(tile('tracker-v').querySelector('.wg-trk__glyph--emoji').textContent).toBe('🍊');
+        expect(tile('tracker-v').querySelector('.wg-trk__val').textContent).toBe('Not yet');
+        env.cleanup();
+
+        setup([]);
+        expect(root.querySelector('[data-section="trackers"]')).toBeNull();
+    });
+
+    it('tap: +step instantly, commits the server log id (survives reload), Undo deletes exactly that tap', async () => {
+        setup([WATER]);
+        let resolvePost;
+        env.window.apiCall = vi.fn((url, method) => (method === 'POST'
+            ? new Promise((r) => { resolvePost = r; })
+            : Promise.resolve(true)));
+        tile('tracker-w').querySelector('[data-action="tracker-tap"]').click();
+        await vi.waitFor(() => expect(env.window.apiCall).toHaveBeenCalled());
+        expect(env.window.apiCall).toHaveBeenCalledWith('/api/trackers/tracker-w/log', 'POST', { amount: 1 });
+        // Optimistic: the tile and the cache move before the write resolves.
+        expect(cached('tracker-w').progress.total).toBe(6);
+        expect(tile('tracker-w').querySelector('.wg-trk__val').textContent).toBe('6/ 8 glasses');
+
+        resolvePost({ id: 'trackerlog-b', trackerId: 'tracker-w', at: at(14, 0), amount: 1 });
+        await vi.waitFor(() => expect(toasts).toHaveLength(1));
+        expect(cached('tracker-w').todayLogs.map((l) => l.id)).toEqual(['trackerlog-b', 'trackerlog-a']);
+        expect(toasts[0].message).toBe('Water +1');
+        expect(toasts[0].opts.detail).toBe('6 / 8 glasses');
+
+        toasts[0].opts.action.onClick();
+        await vi.waitFor(() => expect(cached('tracker-w').progress.total).toBe(5));
+        expect(env.window.apiCall).toHaveBeenLastCalledWith('/api/trackers/tracker-w/log/trackerlog-b', 'DELETE');
+        expect(cached('tracker-w').todayLogs.map((l) => l.id)).toEqual(['trackerlog-a']);
+        expect(tile('tracker-w').querySelector('.wg-trk__val').textContent).toBe('5/ 8 glasses');
+    });
+
+    it('a failed write rolls back to the prior count and shows no Undo', async () => {
+        setup([WATER]);
+        env.window.apiCall = vi.fn(async () => null);
+        tile('tracker-w').querySelector('[data-action="tracker-tap"]').click();
+        await vi.waitFor(() => expect(env.window.apiCall).toHaveBeenCalled());
+        await vi.waitFor(() => expect(cached('tracker-w').progress.total).toBe(5));
+        expect(cached('tracker-w').todayLogs).toHaveLength(1);
+        expect(tile('tracker-w').querySelector('.wg-trk__val').textContent).toBe('5/ 8 glasses');
+        expect(toasts).toHaveLength(0);
+    });
+
+    it('limit: the tap that crosses it turns the tile over-limit', async () => {
+        setup([COFFEE]);
+        env.window.apiCall = vi.fn(async () => ({ id: 'trackerlog-k', trackerId: 'tracker-k', at: at(14, 0), amount: 1 }));
+        tile('tracker-k').querySelector('[data-action="tracker-tap"]').click();
+        await vi.waitFor(() => expect(tile('tracker-k').classList.contains('wg-trk--over')).toBe(true));
+        expect(tile('tracker-k').textContent).toContain('1 over');
+        expect(cached('tracker-k').progress).toEqual({ total: 4, target: 3, met: false });
+    });
+
+    it('check tile toggles: tap marks today done, tap again unchecks by the day log id', async () => {
+        setup([VITAMINS]);
+        const logId = 'trackerlog:tracker-v:2026-04-20';
+        env.window.apiCall = vi.fn(async (url, method) => (method === 'POST'
+            ? { id: logId, trackerId: 'tracker-v', date: '2026-04-20', done: true }
+            : { id: logId, trackerId: 'tracker-v', date: '2026-04-20', done: false }));
+        tile('tracker-v').querySelector('[data-action="tracker-tap"]').click();
+        await vi.waitFor(() => expect(cached('tracker-v').todayLogs.map((l) => l.id)).toEqual([logId]));
+        expect(env.window.apiCall).toHaveBeenCalledWith('/api/trackers/tracker-v/log', 'POST', {});
+        expect(tile('tracker-v').classList.contains('wg-trk--met')).toBe(true);
+        expect(tile('tracker-v').querySelector('.wg-trk__val').textContent).toBe('Done');
+
+        tile('tracker-v').querySelector('[data-action="tracker-tap"]').click();
+        await vi.waitFor(() => expect(cached('tracker-v').todayLogs).toEqual([]));
+        expect(env.window.apiCall).toHaveBeenLastCalledWith(`/api/trackers/tracker-v/log/${encodeURIComponent(logId)}`, 'DELETE');
+        expect(tile('tracker-v').querySelector('.wg-trk__val').textContent).toBe('Not yet');
+        expect(cached('tracker-v').progress.total).toBe(0);
+    });
+
+    it('log sheet: custom amount via the stepper; a row delete undoes from the toast before any DELETE', async () => {
+        setup([WATER]);
+        env.window.apiCall = vi.fn(async (url, method) => (method === 'POST'
+            ? { id: 'trackerlog-c', trackerId: 'tracker-w', at: at(14, 0), amount: 2 }
+            : true));
+        tile('tracker-w').querySelector('[data-action="tracker-more"]').click();
+        const sheet = () => env.window.document.getElementById('today-tracker-sheet');
+        expect(sheet().classList.contains('hidden')).toBe(false);
+        expect(sheet().querySelectorAll('[data-log-id]')).toHaveLength(1);
+        sheet().querySelector('[data-action="tracker-more-amount"]').click();
+        expect(sheet().querySelector('[data-action="tracker-add"]').textContent).toBe('Add 2 glasses');
+        sheet().querySelector('[data-action="tracker-add"]').click();
+        await vi.waitFor(() => expect(cached('tracker-w').progress.total).toBe(7));
+        expect(env.window.apiCall).toHaveBeenCalledWith('/api/trackers/tracker-w/log', 'POST', { amount: 2 });
+        // The open sheet follows the repaint.
+        await vi.waitFor(() => expect(sheet().querySelectorAll('[data-log-id]')).toHaveLength(2));
+
+        sheet().querySelector('[data-log-id="trackerlog-a"] [data-action="tracker-delete-log"]').click();
+        await vi.waitFor(() => expect(cached('tracker-w').progress.total).toBe(2));
+        const del = toasts.find((t) => t.message === 'Removed +5 glasses');
+        expect(del).toBeTruthy();
+        del.opts.action.onClick();
+        await vi.waitFor(() => expect(cached('tracker-w').progress.total).toBe(7));
+        expect(env.window.apiCall).not.toHaveBeenCalledWith('/api/trackers/tracker-w/log/trackerlog-a', 'DELETE');
+    });
+});

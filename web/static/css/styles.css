@@ -669,6 +669,7 @@
 
     /* kit text + lines */
     --wg-fg-on-sun: #1A1200;
+    --wg-sun-ink: #FBBD0D; /* sun-coloured text (kit v2 trackers); equals --wg-sun on the dark-only app */
     --wg-fg-on-clay: #FFFFFF;
     --wg-line: rgba(255, 255, 255, 0.07);
     --wg-line-strong: rgba(255, 255, 255, 0.14);

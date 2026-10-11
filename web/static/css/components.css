@@ -7,7 +7,7 @@
    - The kit scopes box-sizing to .wg-app, which the app does not have; the full-width roots get it below,
      and .wg-input also resets margin (styles.css `input {}` adds a margin-bottom).
    - .wg-toggle also paints from WGToggle's label + hidden checkbox (:has(> .wg-toggle__input:checked)).
-   - Hex literals the kit inlined (toggle, banners) resolve through tokens.
+   - Hex literals the kit inlined (toggle, banners, tracker tick) resolve through tokens.
    - .wg-toasts is position:fixed (the kit's is absolute inside its phone stage) and centered at 480px max;
      .wg-toast sets its own text color and an enter animation (off under reduced motion); .wg-banners is
      the sticky top container the app's banners live in (med-xso6.5).
@@ -359,6 +359,38 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
 .wg-code{display:flex;align-items:center;gap:8px;padding:0 6px 0 14px;height:48px;border-radius:var(--wg-r-md);background:var(--wg-inset);box-shadow:var(--wg-sh-inset);font:500 var(--wg-fs-sm) var(--wg-font-mono);color:var(--wg-fg-2);min-width:0}
 .wg-code>span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
+/* trackers — tile per tracker on Today (TR1); tap = +step / toggle, ⋯ = log sheet */
+.wg-trks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.wg-trk{position:relative;min-width:0;border-radius:14px;border:1px solid var(--wg-line);background:var(--wg-bg-card-hi)}
+.wg-trk--wide{grid-column:1 / -1}
+.wg-trk__tap{display:flex;flex-direction:column;gap:8px;width:100%;height:100%;min-height:116px;padding:12px;border:0;border-radius:inherit;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;transition:transform var(--wg-dur-fast) var(--wg-ease)}
+.wg-trk__tap:active{transform:scale(.98)}.wg-trk__tap:focus-visible{outline:0;box-shadow:var(--wg-focus)}
+.wg-trk__top{display:flex;align-items:center;gap:8px;min-width:0;padding-right:28px}
+.wg-trk__glyph{width:32px;height:32px;flex-shrink:0;display:grid;place-items:center;border-radius:var(--wg-r-sm);border:1px solid var(--wg-line);background:var(--wg-stale-bg);color:var(--wg-fg-2)}
+.wg-trk__glyph--emoji{font-size:18px;line-height:1}
+.wg-trk__name{min-width:0;font:600 var(--wg-fs-sm)/1.25 var(--wg-font-ui);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wg-trk__val{font:500 22px/1 var(--wg-font-mono);letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wg-trk__val small{margin-left:4px;font:500 var(--wg-fs-xs) var(--wg-font-ui);letter-spacing:0;color:var(--wg-fg-3)}
+.wg-trk__val--text{font-size:var(--wg-fs-lg);color:var(--wg-fg-2)}
+.wg-trk__foot{display:flex;align-items:center;justify-content:space-between;gap:6px;min-width:0;margin-top:auto}
+.wg-trk__more{position:absolute;top:0;right:0;width:44px;height:44px;display:grid;place-items:center;border:0;border-radius:0 14px 0 12px;background:transparent;color:var(--wg-fg-3);cursor:pointer}
+.wg-trk__more:hover{color:var(--wg-fg-1)}.wg-trk__more:focus-visible{outline:0;box-shadow:var(--wg-focus)}
+.wg-trk__limit .wg-meter__fill{background:var(--wg-fg-3)}
+.wg-trk__check{display:flex;align-items:center;gap:8px;margin-top:auto}
+.wg-trk__tick{width:24px;height:24px;flex-shrink:0;display:grid;place-items:center;border-radius:50%;border:2px solid var(--wg-fg-4);color:var(--wg-fg-on-clay)}
+.wg-trk__tick .wg-ico{width:14px;height:14px}.wg-trk__tick .wg-ico svg{stroke-width:2.6}
+.wg-trk__week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px}
+.wg-trk__week i{height:6px;border-radius:3px;background:var(--wg-line-strong)}
+.wg-trk__week i.is-hit{background:var(--wg-sage)}.wg-trk__week i.is-future{opacity:.45}
+.wg-trk__week i.is-today{box-shadow:0 0 0 1.5px var(--wg-bg-card-hi),0 0 0 3px var(--wg-fg-3)}
+.wg-trk--met{border-color:var(--wg-ok-line);background:linear-gradient(180deg,var(--wg-ok-bg),rgba(0,0,0,0) 85%),var(--wg-bg-card-hi)}
+.wg-trk--met .wg-trk__glyph{border-color:var(--wg-ok-line);background:var(--wg-ok-bg);color:var(--wg-ok-fg)}
+.wg-trk--met .wg-trk__tick{border-color:transparent;background:var(--wg-sagefill)}
+.wg-trk--met .wg-trk__val--text{color:var(--wg-ok-fg)}
+.wg-trk--over{border-color:var(--wg-warn-line);background:linear-gradient(180deg,var(--wg-warn-bg),rgba(0,0,0,0) 85%),var(--wg-bg-card-hi)}
+.wg-trk--over .wg-trk__val{color:var(--wg-warn-fg)}.wg-trk--over .wg-meter__fill{background:var(--wg-warn-fg)}
+/* toasts raised above an open sheet's footer (TR1b) */
+.wg-toasts--sheet{bottom:96px}
 /* First-run overlay (app-only, not part of the kit; folded in from firstrun.css,
    med-xso6.28) — full-screen overlay for the post-install guided
    setup flow (mobile Phase 2c). Mounted by features/firstrun/index.js
