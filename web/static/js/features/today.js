@@ -1028,7 +1028,7 @@
 
     function withLogs(t, delta, todayLogs) {
         const p = t.progress || { total: 0, target: 0 };
-        const total = Math.round((Number(p.total) + delta) * 100) / 100;
+        const total = Number(p.total) + delta;
         const met = t.target.op === 'atMost' ? total <= p.target : total >= p.target;
         return { ...t, todayLogs, progress: { ...p, total, met } };
     }
@@ -1094,18 +1094,20 @@
         return `${r.value} ${r.rest}`;
     }
 
-    // Count: append one log of `amount` (default the tap step). Check: mark
-    // today done. Toasts with Undo unless `quiet` (an undo of an undo).
-    async function logTracker(t, amount, quiet) {
+    // Count: append one log of `amount` (default the tap step), at `at`
+    // (default now). Check: mark today done. Toasts with Undo unless `quiet`
+    // (an undo of an undo).
+    async function logTracker(t, amount, quiet, at) {
         const api = trackersApi();
         if (!api) return null;
         const provisionalId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const n = t.kind === 'check' ? 1 : (Number(amount) > 0 ? Number(amount) : t.step);
         const log = t.kind === 'check'
             ? { id: provisionalId, trackerId: t.id, done: true }
-            : { id: provisionalId, trackerId: t.id, at: new Date().toISOString(), amount: n };
+            : { id: provisionalId, trackerId: t.id, at: at || new Date().toISOString(), amount: n };
         const res = await trackerWrite(patchTracker(t.id, addLog(log)), patchTracker(t.id, dropLog(provisionalId)),
-            () => api(`/api/trackers/${encodeURIComponent(t.id)}/log`, 'POST', t.kind === 'check' ? {} : { amount: n }),
+            () => api(`/api/trackers/${encodeURIComponent(t.id)}/log`, 'POST',
+                t.kind === 'check' ? {} : (at ? { amount: n, at } : { amount: n })),
             provisionalId);
         if (res && res.id && !quiet) {
             const message = t.kind === 'check' ? `${t.name} done` : `${t.name} +${fmtNum(n)}`;
@@ -1121,7 +1123,10 @@
         const res = await trackerWrite(patchTracker(t.id, dropLog(log.id)), patchTracker(t.id, addLog(log)),
             () => api(`/api/trackers/${encodeURIComponent(t.id)}/log/${encodeURIComponent(log.id)}`, 'DELETE'));
         if (res && !quiet) {
-            trackerToast(`${t.name} not done`, null, () => logTracker(t, null, true));
+            const message = t.kind === 'check'
+                ? `${t.name} not done`
+                : `Removed +${fmtNum(log.amount)}${t.unit ? ` ${unitText(t.unit, log.amount)}` : ''}`;
+            trackerToast(message, null, () => logTracker(t, log.amount, true, log.at));
         }
         return res;
     }
@@ -1253,22 +1258,6 @@
         if (sheet) sheet.classList.add('hidden');
     }
 
-    function deleteTrackerLog(t, log) {
-        const api = trackersApi();
-        const del = typeof window !== 'undefined' ? window.deleteWithUndo : null;
-        if (!api) return;
-        const send = () => api(`/api/trackers/${encodeURIComponent(t.id)}/log/${encodeURIComponent(log.id)}`, 'DELETE');
-        if (typeof del !== 'function') { unlogTracker(t, log, true); return; }
-        const what = t.kind === 'check' ? 'done' : `+${fmtNum(log.amount)} ${unitText(t.unit, log.amount)}`.trim();
-        del({
-            message: `Removed ${what}`,
-            optimistic: [{ key: TRACKERS_KEY, mutator: patchTracker(t.id, dropLog(log.id)), tags: TRACKERS_TAGS }],
-            remove: send,
-        });
-        const stack = doc().querySelector('body > .wg-toasts');
-        if (stack) stack.classList.add('wg-toasts--sheet');
-    }
-
     function renderTrackerSheet(sheet, t) {
         sheet.replaceChildren();
         sheet.setAttribute('data-tracker-id', t.id);
@@ -1350,7 +1339,7 @@
                 const trail = el('span', 'wg-row__trail');
                 if (!isProvisional(log)) trail.appendChild(btn(null, {
                     ghost: true, iconOnly: true, icon: 'trash', aria: 'Delete', action: 'tracker-delete-log',
-                    onClick: () => deleteTrackerLog(t, log),
+                    onClick: () => unlogTracker(t, log),
                 }));
                 row.appendChild(trail);
                 list.appendChild(row);

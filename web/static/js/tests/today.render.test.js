@@ -891,10 +891,11 @@ describe('Trackers card', () => {
         expect(env.window.apiCall).toHaveBeenCalledWith('/api/trackers/tracker-v/log', 'POST', {});
     });
 
-    it('log sheet: custom amount via the stepper; a row delete undoes from the toast before any DELETE', async () => {
+    it('log sheet: custom amount via the stepper; a row delete undoes from the toast by re-logging it', async () => {
         setup([WATER]);
-        env.window.apiCall = vi.fn(async (url, method) => (method === 'POST'
-            ? { id: 'trackerlog-c', trackerId: 'tracker-w', at: at(14, 0), amount: 2 }
+        let posts = 0;
+        env.window.apiCall = vi.fn(async (url, method, body) => (method === 'POST'
+            ? { id: `trackerlog-p${++posts}`, trackerId: 'tracker-w', at: body.at || at(14, 0), amount: body.amount }
             : true));
         tile('tracker-w').querySelector('[data-action="tracker-more"]').click();
         const sheet = () => env.window.document.getElementById('today-tracker-sheet');
@@ -909,11 +910,14 @@ describe('Trackers card', () => {
         await vi.waitFor(() => expect(sheet().querySelectorAll('[data-log-id]')).toHaveLength(2));
 
         sheet().querySelector('[data-log-id="trackerlog-a"] [data-action="tracker-delete-log"]').click();
-        await vi.waitFor(() => expect(cached('tracker-w').progress.total).toBe(2));
-        const del = toasts.find((t) => t.message === 'Removed +5 glasses');
-        expect(del).toBeTruthy();
-        del.opts.action.onClick();
+        await vi.waitFor(() => expect(toasts.find((t) => t.message === 'Removed +5 glasses')).toBeTruthy());
+        expect(env.window.apiCall).toHaveBeenCalledWith('/api/trackers/tracker-w/log/trackerlog-a', 'DELETE');
+        expect(cached('tracker-w').progress.total).toBe(2);
+        expect(cached('tracker-w').todayLogs.map((l) => l.id)).toEqual(['trackerlog-p1']);
+        toasts.find((t) => t.message === 'Removed +5 glasses').opts.action.onClick();
         await vi.waitFor(() => expect(cached('tracker-w').progress.total).toBe(7));
-        expect(env.window.apiCall).not.toHaveBeenCalledWith('/api/trackers/tracker-w/log/trackerlog-a', 'DELETE');
+        // Undo re-logs the same amount at its original time; the 14:00 entry is untouched.
+        expect(env.window.apiCall).toHaveBeenLastCalledWith('/api/trackers/tracker-w/log', 'POST', { amount: 5, at: at(9, 15) });
+        await vi.waitFor(() => expect(cached('tracker-w').todayLogs.map((l) => l.id).sort()).toEqual(['trackerlog-p1', 'trackerlog-p2']));
     });
 });

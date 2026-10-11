@@ -553,6 +553,13 @@ async function loadToday() {
         document.addEventListener('visibilitychange', repaint);
     }
 
+    // Trackers read from the local vault (the cloud shim), so a list from an
+    // earlier day refreshes even offline — the network refetch below stops here.
+    if (!ctx.online && _todayTrackersFromPastDay(ctx.swrCaches) && window.DataStore) {
+        await window.DataStore.fetchFresh('trackers', () => apiCall('/api/trackers', 'GET'), ['trackers']).catch(() => null);
+        await _todayRender(foodKey, true);
+    }
+
     // Refetch any cache that's missing — e.g. just evicted by a change poll.
     // Without this, a local mutation that clears next_intake would leave Today
     // showing "missing" until the user navigates away and back. fetchFresh
