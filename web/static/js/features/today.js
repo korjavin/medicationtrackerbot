@@ -1227,7 +1227,9 @@
         const p = t.progress || {};
         // ponytail: a week/month total keeps its sum (yesterday is still in the
         // period, except across a period boundary) until the refetch lands.
-        return withLogs({ ...t, progress: { ...p, total: t.target.period === 'day' ? 0 : p.total } }, 0, []);
+        // The Mon..Sun strip is dropped (meter shows) — its today marker would be a day off.
+        const { days, ...rest } = p;
+        return withLogs({ ...t, progress: { ...rest, total: t.target.period === 'day' ? 0 : p.total } }, 0, []);
     }
 
     function trackersFor(list, nowMs) {
