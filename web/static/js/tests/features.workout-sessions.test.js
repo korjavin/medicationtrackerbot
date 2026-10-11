@@ -1191,6 +1191,26 @@ describe('features/workout/sessions.js — split-file integration', () => {
     expect(window.loadNextWorkout).toHaveBeenCalled();
   });
 
+  // med-rggu: starting an upcoming session re-keys it onto today's slot, so
+  // the modal opens the running session /next reports, not the tapped id.
+  it('startWorkoutSession on an upcoming session opens the re-keyed running session', async () => {
+    const { window } = env;
+    installApiCache(window, {
+      workout_next: { session: { id: 42, status: 'pending' } }
+    });
+    window.safeConfirm = vi.fn(async (_msg, cb) => { await cb(true); });
+    window.showWorkoutSessionModal = vi.fn();
+    window.loadNextWorkout = vi.fn();
+    window.apiCall = vi.fn(async (endpoint) => (endpoint === '/api/workout/sessions/next'
+      ? { session: { id: 77, status: 'in_progress' } }
+      : true));
+
+    await window.startWorkoutSession(42);
+
+    expect(window.apiCall).toHaveBeenCalledWith('/api/workout/sessions/42/start', 'POST');
+    expect(window.showWorkoutSessionModal).toHaveBeenCalledWith(77);
+  });
+
   // bd med-bp6t: a swallowed start failure rolls back workout_next and
   // surfaces a guarded error toast — no modal, no alert, no refresh.
   it('startWorkoutSession rolls back and toasts on POST failure', async () => {
