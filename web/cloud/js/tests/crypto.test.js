@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   auditEnvelope,
+  auditEnvelopeWithKey,
+  decryptRecord,
+  decryptSnapshot,
+  deriveDataKeys,
+  deriveKData,
+  encryptRecord,
+  encryptSnapshot,
   decryptSharePayload,
   decryptTransferPayload,
   deriveKEK,
@@ -246,3 +256,99 @@ describe('toBase64 (med-9z3.8)', () => {
     expect(withoutNative(() => toBase64Url(bytes))).toBe('-__-AA');
   });
 });
+
+// bd med-5h1t.2: leaf keys moved from raw HKDF bytes (deriveKData/deriveKMac,
+// imported per op) to non-extractable CryptoKeys (deriveDataKeys). Every
+// ciphertext and envelope MAC already in the wild was made by the old path, so
+// both directions must interoperate byte-for-byte.
+describe('deriveDataKeys interop with the raw-bytes derivation', () => {
+  // Known-answer vector produced by the pre-change raw-bytes crypto.js
+  // (deriveKData + byte-key AES-GCM, deriveKMac + computeEnvelopeMac).
+  const KAT = {
+    dek: 'AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=',
+    kData: 'KIWB7gOhiYi5yOrl0JIBzWrTF4W3fHeQ3NmUzThHjao=',
+    record: { nonce: '+W4HOjdUTHvMK6Ll', ct: 'WHMQY5v3qCSN1wakGNariRqj8Vge3Xl7oder' },
+    snapshot: { nonce: 'Beutn/uRtWywnyt9', ct: 'GcV21lkO+ZJ3qNZAYFyUeBEm4Uk6GtquBd7sIC4yTOYPijHohD9S' },
+    envMac: '4Ru1yU+eVCfhZv4Yccgz8l7OlIQzqX6IIQg944RNOT8=',
+  };
+  const dec = (b) => new TextDecoder().decode(b);
+  const seq8 = (n) => { const o = new Uint8Array(8); new DataView(o.buffer).setBigUint64(0, BigInt(n), false); return o; };
+  const recAad = (recordId, seq) => encodeFields('mt/v1/rec', accountId, 'note', recordId, seq8(seq));
+  const snapAad = (seq) => encodeFields('mt/v1/snap', accountId, seq8(seq));
+  // The old path: raw K_data bytes imported per call.
+  const rawKey = (bytes, usage) => crypto.subtle.importKey('raw', bytes, 'AES-GCM', false, [usage]);
+  async function rawEncrypt(kDataBytes, aad, plaintext) {
+    const nonce = crypto.getRandomValues(new Uint8Array(12));
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce, additionalData: aad }, await rawKey(kDataBytes, 'encrypt'), plaintext));
+    return { nonce, ct };
+  }
+  async function rawDecrypt(kDataBytes, aad, nonce, ct) {
+    return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: nonce, additionalData: aad }, await rawKey(kDataBytes, 'decrypt'), ct));
+  }
+
+  it('derives the same K_data bytes as before (raw path pinned)', async () => {
+    expect(toBase64(await deriveKData(fromBase64(KAT.dek)))).toBe(KAT.kData);
+  });
+
+  it('decrypts a record and a snapshot encrypted by the old raw-bytes path (known answer)', async () => {
+    const { kData } = await deriveDataKeys(fromBase64(KAT.dek));
+    const rec = await decryptRecord({ kData, accountId, recordType: 'note', recordId: 'note-1', seq: 7, nonce: fromBase64(KAT.record.nonce), ct: fromBase64(KAT.record.ct) });
+    expect(dec(rec)).toBe('hello vault');
+    const snap = await decryptSnapshot({ kData, accountId, snapshotSeq: 500, nonce: fromBase64(KAT.snapshot.nonce), ct: fromBase64(KAT.snapshot.ct) });
+    expect(dec(snap)).toBe('[{"recordId":"note-1"}]');
+  });
+
+  it('verifies an envelope MAC minted by the raw K_mac path, and rejects a tampered one', async () => {
+    const { kMac } = await deriveDataKeys(fromBase64(KAT.dek));
+    const envelope = { nonce: new Uint8Array(12).fill(9), ct: new Uint8Array(48).fill(3), mac: fromBase64(KAT.envMac) };
+    expect(await auditEnvelopeWithKey({ kMac, envelope, credentialId })).toBe(true);
+    const bad = { ...envelope, mac: envelope.mac.slice() };
+    bad.mac[0] ^= 1;
+    expect(await auditEnvelopeWithKey({ kMac, envelope: bad, credentialId })).toBe(false);
+    expect(await auditEnvelope({ dek: fromBase64(KAT.dek), envelope, credentialId })).toBe(true);
+  });
+
+  it('round-trips records old->new and new->old for a fresh DEK', async () => {
+    const dek = generateDEK();
+    const kDataBytes = await deriveKData(dek);
+    const { kData } = await deriveDataKeys(dek);
+    const plaintext = utf8Bytes('{"recordId":"note-9","clientTs":1}');
+
+    const old = await rawEncrypt(kDataBytes, recAad('note-9', 42), plaintext);
+    expect(dec(await decryptRecord({ kData, accountId, recordType: 'note', recordId: 'note-9', seq: 42, ...old }))).toBe(dec(plaintext));
+
+    const fresh = await encryptRecord({ kData, accountId, recordType: 'note', recordId: 'note-9', seq: 42, plaintext });
+    expect(dec(await rawDecrypt(kDataBytes, recAad('note-9', 42), fresh.nonce, fresh.ct))).toBe(dec(plaintext));
+  });
+
+  it('the golden vault fixture (tests/fixtures/vault-v1.json) survives a snapshot round trip across both paths', async () => {
+    const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
+    const fixture = fs.readFileSync(path.join(root, 'tests/fixtures/vault-v1.json'));
+    const plaintext = await gzip(new Uint8Array(fixture));
+    const dek = generateDEK();
+    const kDataBytes = await deriveKData(dek);
+    const { kData } = await deriveDataKeys(dek);
+
+    const old = await rawEncrypt(kDataBytes, snapAad(11), plaintext);
+    const viaNew = await gunzip(await decryptSnapshot({ kData, accountId, snapshotSeq: 11, ...old }));
+    expect(JSON.parse(dec(viaNew))).toEqual(JSON.parse(dec(fixture)));
+
+    const fresh = await encryptSnapshot({ kData, accountId, snapshotSeq: 11, plaintext });
+    const viaOld = await gunzip(await rawDecrypt(kDataBytes, snapAad(11), fresh.nonce, fresh.ct));
+    expect(JSON.parse(dec(viaOld))).toEqual(JSON.parse(dec(fixture)));
+  });
+
+  it('leaf keys are non-extractable with least-privilege usages', async () => {
+    const { kData, kMac } = await deriveDataKeys(generateDEK());
+    expect(kData.extractable).toBe(false);
+    expect(kMac.extractable).toBe(false);
+    expect([...kData.usages].sort()).toEqual(['decrypt', 'encrypt']);
+    expect(kMac.usages).toEqual(['verify']);
+    expect(kMac.algorithm.length).toBe(256);
+    await expect(crypto.subtle.exportKey('raw', kData)).rejects.toThrow();
+  });
+});
+
+function utf8Bytes(s) {
+  return new TextEncoder().encode(s);
+}

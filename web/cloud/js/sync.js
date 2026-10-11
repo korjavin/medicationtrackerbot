@@ -5,7 +5,7 @@
 // are { recordId, clientTs, deleted, ...body }, merged by last-write-wins on
 // clientTs; recordsPort() below exposes the generic list/put/del trio that
 // web/domain/'s domain modules are built on.
-import { deriveKData, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, toBase64, fromBase64, gzip, gunzip, isGzip } from './crypto.js';
+import { deriveDataKeys, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, toBase64, fromBase64, gzip, gunzip, isGzip } from './crypto.js';
 import { cachedDb, dropCachedDb, onCachedDbDropped } from './localdb.js';
 import { mergeGamificationJournal } from '../../domain/gamification.js';
 
@@ -82,7 +82,6 @@ let offline = false;
 // 401 = server session expired — distinct from network-offline. Pending ops are
 // never dropped; the user re-runs the passkey ceremony to re-mint the session.
 let authExpired = false;
-const kDataCache = new WeakMap();
 
 // Serializes the record-store mutations that must not interleave:
 // replaceAllRecords() clears the whole store and re-lays a snapshot, while a
@@ -109,13 +108,12 @@ function withRecordsLock(fn) {
   return run;
 }
 
+// Leaf keys are non-extractable CryptoKeys derived once per ctx and cached on
+// it (the operational ctx shape {accountId, kData, kMac}); every record and
+// snapshot path goes through here and never sees raw key bytes.
 async function getKData(ctx) {
-  let kData = kDataCache.get(ctx.dek);
-  if (!kData) {
-    kData = await deriveKData(ctx.dek);
-    kDataCache.set(ctx.dek, kData);
-  }
-  return kData;
+  if (!ctx.kData) Object.assign(ctx, await deriveDataKeys(ctx.dek));
+  return ctx.kData;
 }
 
 // --- local IDB mirror ---------------------------------------------------

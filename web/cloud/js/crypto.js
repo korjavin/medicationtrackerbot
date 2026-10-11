@@ -119,14 +119,26 @@ async function hkdf(ikm, salt, info, lengthBytes = 32) {
   return new Uint8Array(bits);
 }
 
+// Byte-key helpers: ceremony/one-shot keys (KEK, TK, NK, share K, pairing
+// key) arrive as raw bytes and are imported per call.
 async function aesGcmEncrypt(rawKey, nonce, plaintext, aad) {
   const key = await crypto.subtle.importKey('raw', rawKey, 'AES-GCM', false, ['encrypt']);
-  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce, additionalData: aad }, key, plaintext);
-  return new Uint8Array(ct);
+  return aesGcmEncryptWithKey(key, nonce, plaintext, aad);
 }
 
 async function aesGcmDecrypt(rawKey, nonce, ciphertext, aad) {
   const key = await crypto.subtle.importKey('raw', rawKey, 'AES-GCM', false, ['decrypt']);
+  return aesGcmDecryptWithKey(key, nonce, ciphertext, aad);
+}
+
+// CryptoKey helpers: the operational K_data leaf key (deriveDataKeys) is a
+// non-extractable CryptoKey and never exists as bytes on the warm path.
+async function aesGcmEncryptWithKey(key, nonce, plaintext, aad) {
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce, additionalData: aad }, key, plaintext);
+  return new Uint8Array(ct);
+}
+
+async function aesGcmDecryptWithKey(key, nonce, ciphertext, aad) {
   const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: nonce, additionalData: aad }, key, ciphertext);
   return new Uint8Array(pt);
 }
@@ -176,9 +188,15 @@ export async function unwrapEnvelope({ kek, envelope, accountId, credentialId })
 // flags envelopes an operator forged without holding the DEK (docs/cloud-crypto.md
 // "Malicious operator adds their own credential").
 export async function auditEnvelope({ dek, envelope, credentialId }) {
-  const kMac = await deriveKMac(dek);
-  const expected = await computeEnvelopeMac(kMac, credentialId, envelope.nonce, envelope.ct);
-  return timingSafeEqual(expected, envelope.mac);
+  const { kMac } = await deriveDataKeys(dek);
+  return auditEnvelopeWithKey({ kMac, envelope, credentialId });
+}
+
+// Same audit with the verify-only K_mac CryptoKey from deriveDataKeys
+// (subtle.verify is constant-time on the tag).
+export async function auditEnvelopeWithKey({ kMac, envelope, credentialId }) {
+  const data = encodeFields('mt/v1/envmac', credentialId, envelope.nonce, envelope.ct);
+  return crypto.subtle.verify('HMAC', kMac, envelope.mac, data);
 }
 
 // Path B device transfer (docs/cloud-crypto.md "Enrolling a new device"): the
@@ -255,8 +273,23 @@ export async function deriveVerifier(codeBytes, accountId) {
 
 // K_data = HKDF(DEK, info="mt/v1/data") — oplog record + snapshot encryption
 // key (docs/cloud-crypto.md key hierarchy table).
+// Raw-bytes form: kept for the interop test that pins it to deriveDataKeys.
 export async function deriveKData(dek) {
   return hkdf(dek, new Uint8Array(0), utf8('mt/v1/data'));
+}
+
+// Leaf keys for the operational path, derived straight into non-extractable
+// CryptoKeys (same HKDF salt/info as deriveKData / deriveKMac, so existing
+// ciphertext and envelope MACs are unchanged). K_mac is verify-only; minting
+// envelope MACs stays on the raw-DEK ceremony path (computeEnvelopeMac).
+export async function deriveDataKeys(dek) {
+  const base = await crypto.subtle.importKey('raw', dek, 'HKDF', false, ['deriveKey']);
+  const params = (label) => ({ name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info: utf8(label) });
+  const [kData, kMac] = await Promise.all([
+    crypto.subtle.deriveKey(params('mt/v1/data'), base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']),
+    crypto.subtle.deriveKey(params('mt/v1/envmac'), base, { name: 'HMAC', hash: 'SHA-256', length: 256 }, false, ['verify']),
+  ]);
+  return { kData, kMac };
 }
 
 // account_seq / snapshot_seq are JS numbers (server int64, well under
@@ -275,10 +308,11 @@ function encodeSeq(seq) {
 // returns — see docs' "Seq assignment vs AAD" note. Callers encrypt using
 // their best-known (usually correct) predicted seq and must be prepared for
 // decryptRecord to reject a record whose true assigned seq differs.
+// kData is the CryptoKey from deriveDataKeys (records and snapshots alike).
 export async function encryptRecord({ kData, accountId, recordType, recordId, seq, plaintext }) {
   const nonce = crypto.getRandomValues(new Uint8Array(12));
   const aad = encodeFields('mt/v1/rec', accountId, recordType, recordId, encodeSeq(seq));
-  const ct = await aesGcmEncrypt(kData, nonce, plaintext, aad);
+  const ct = await aesGcmEncryptWithKey(kData, nonce, plaintext, aad);
   return { nonce, ct };
 }
 
@@ -286,7 +320,7 @@ export async function encryptRecord({ kData, accountId, recordType, recordId, se
 // ciphertext was actually encrypted under — the anti-reorder/replay property.
 export async function decryptRecord({ kData, accountId, recordType, recordId, seq, nonce, ct }) {
   const aad = encodeFields('mt/v1/rec', accountId, recordType, recordId, encodeSeq(seq));
-  return aesGcmDecrypt(kData, nonce, ct, aad);
+  return aesGcmDecryptWithKey(kData, nonce, ct, aad);
 }
 
 // gzip/gunzip via Web Streams (CompressionStream). Used to compress snapshot
@@ -335,13 +369,13 @@ export function isGzip(bytes) {
 export async function encryptSnapshot({ kData, accountId, snapshotSeq, plaintext }) {
   const nonce = crypto.getRandomValues(new Uint8Array(12));
   const aad = encodeFields('mt/v1/snap', accountId, encodeSeq(snapshotSeq));
-  const ct = await aesGcmEncrypt(kData, nonce, plaintext, aad);
+  const ct = await aesGcmEncryptWithKey(kData, nonce, plaintext, aad);
   return { nonce, ct };
 }
 
 export async function decryptSnapshot({ kData, accountId, snapshotSeq, nonce, ct }) {
   const aad = encodeFields('mt/v1/snap', accountId, encodeSeq(snapshotSeq));
-  return aesGcmDecrypt(kData, nonce, ct, aad);
+  return aesGcmDecryptWithKey(kData, nonce, ct, aad);
 }
 
 // Push payload (docs/cloud-crypto.md "Push payload"): AES-GCM(NK, payload,
