@@ -17,6 +17,7 @@ import {
   minDoseIntervalMs, localWallToUtcMs, localDateParts,
   listLowOnStock, getDaysOfStockRemaining,
 } from './medschedule.js';
+import { trackerDayTotals } from './trackers.js';
 
 const REMINDERPREF_RECORD_TYPE = 'medreminderpref';
 const REMINDERPREF_RECORD_ID = 'medreminderpref';
@@ -52,6 +53,13 @@ export function isoWeekKey(day) {
 }
 
 const FORECAST_DAYS = 7;
+
+// trackerPeriodKey: the day/ISO-week/month a 'YYYY-MM-DD' falls in.
+function trackerPeriodKey(day, period) {
+  if (period === 'week') return isoWeekKey(day);
+  if (period === 'month') return day.slice(0, 7);
+  return day;
+}
 // ponytail: hard cap far under the relay's 2000-entry/4KB limit; unrealistic
 // to hit with real schedules, guards a pathological edge case only.
 const MAX_HORIZON_ENTRIES = 500;
@@ -104,6 +112,10 @@ const GENERIC_BP_TEXT = '\u{1F4CA} Time for a scheduled measurement';
 const GENERIC_WEIGHT_TEXT = '\u{2696}\u{FE0F} Time for a scheduled measurement';
 const GENERIC_LOW_STOCK_TEXT = '\u{26A0}\u{FE0F} Some medications are running low';
 const GENERIC_WORKOUT_TEXT = '\u{1F3CB}\u{FE0F} Time for your workout';
+// Tracker names are user-chosen and can say anything — the generic twin must
+// never carry one (bd med-1vy5.5).
+const GENERIC_TRACKER_TEXT = '\u{1F4CB} A tracker goal is still open';
+const TRACKER_PERIOD_WORDS = { day: 'today', week: 'this week', month: 'this month' };
 
 const LOW_STOCK_HOUR = 11; // bot fires the daily low-stock warning at 11:00 local (low_stock.go)
 
@@ -480,6 +492,7 @@ export function computeReminderHorizon({
   workoutRotations = [], workoutSessions = [],
   timeZone, now, tzPlan, bpStatus = { enabled: false }, weightStatus = { enabled: false },
   workoutStatus = { enabled: false }, weighInPushText = null, weighInPausedWeeks = [],
+  trackers = [], trackerLogs = [],
 } = {}) {
   const meds = medications.filter((m) => !m.deleted && !m.archived);
   const medById = new Map(meds.map((m) => [m.recordId ?? m.id, m]));
@@ -693,6 +706,37 @@ export function computeReminderHorizon({
     for (const a of adhoc) pushWorkout(a.scheduledMs, WORKOUT_ADHOC_TEXT);
   }
 
+  // User-tracker reminders (med-1vy5.5): at reminder.time local, only while
+  // the period's atLeast target is unmet. atMost limits get none in v1. The
+  // total is as of recompute time — every tracker write recomputes, so a slot
+  // in a later period simply reads that period's (usually empty) total.
+  for (const t of trackers) {
+    if (t.deleted || t.archived || !t.target || t.target.op !== 'atLeast') continue;
+    const at = parseHHMM(t.reminder && t.reminder.time);
+    if (!at) continue;
+    const totals = trackerDayTotals(t, trackerLogs.filter((l) => !l.deleted), timeZone);
+    const { year, month, day } = localDateParts(now, timeZone);
+    for (let d = 0; d < FORECAST_DAYS; d++) {
+      const targetMs = localWallToUtcMs(Date.UTC(year, month - 1, day + d, at.hour, at.minute), timeZone);
+      if (targetMs <= now) continue;
+      const p = localDateParts(targetMs, timeZone);
+      const slotDay = `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`;
+      const key = trackerPeriodKey(slotDay, t.target.period);
+      let total = 0;
+      for (const [k, n] of totals) if (trackerPeriodKey(k, t.target.period) === key) total += n;
+      if (total >= t.target.value) continue;
+      const fireAtUnix = Math.floor(targetMs / 1000);
+      const label = [t.emoji, t.name].filter(Boolean).join(' ');
+      entries.push({
+        fireAtUnix,
+        kind: 'tracker',
+        text: `${label}: ${total}/${t.target.value} ${TRACKER_PERIOD_WORDS[t.target.period] || ''}`.trim(),
+        genericText: GENERIC_TRACKER_TEXT,
+        callback: `tr:${fireAtUnix}`,
+      });
+    }
+  }
+
   entries.sort((a, b) => a.fireAtUnix - b.fireAtUnix);
   return entries.slice(0, MAX_HORIZON_ENTRIES);
 }
@@ -834,7 +878,7 @@ export function createRemindersDomain({ records, now }) {
     medications, intakes, bps, weights, timeZone, tzPlan,
     workoutGroups = [], workoutVariants = [], workoutExercises = [],
     workoutRotations = [], workoutSessions = [], workoutEnabled = false,
-    weighInPushText = null, weighInPausedWeeks = [],
+    weighInPushText = null, weighInPausedWeeks = [], trackers = [], trackerLogs = [],
   }) {
     const [{ enabled }, bpStatus, weightStatus] = await Promise.all([
       getStatus(),
@@ -871,6 +915,8 @@ export function createRemindersDomain({ records, now }) {
       workoutStatus,
       weighInPushText,
       weighInPausedWeeks,
+      trackers,
+      trackerLogs,
     });
   }
 

@@ -157,6 +157,7 @@ User-defined count / check-off trackers with a day/week/month target or limit (e
 
 - **Agents**: MCP ops `trackers.list` / `trackers.log` / `trackers.history` (`internal/mcp/registry/operations_trackers.go`); `trackers.log` takes the tracker's id or its name (case-insensitive), so "log 2 glasses of water" is one call.
 - **Doctor brief**: opt-in `trackers` section — one line per active tracker with its current day/week/month progress; no block when there are none.
+- **Reminders** (`med-1vy5.5`): a tracker with `reminder.time` gets a `tracker` horizon entry at that local time only while its `atLeast` target for the period is unmet (`atMost` limits never remind); every tracker write recomputes the horizon. Text is `"<emoji> <name>: <total>/<target> today"`; the generic-verbosity twin names no tracker. Telegram shows one 🌐 Open button to `?tab=today` (`tr:<slotUnix>` stem). Logic: the tracker block in `web/domain/reminders.js` `computeReminderHorizon`.
 
 ## Settings → Import/Export
 

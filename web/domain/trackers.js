@@ -116,6 +116,26 @@ function logView(r) {
     : { id: r.recordId, trackerId: r.trackerId, at: r.at, amount: r.amount };
 }
 
+// trackerDayTotals: Map<'YYYY-MM-DD', total> for one tracker in the zone.
+// Count = summed amounts per local day; check = 1 per done day. Exported for
+// the habit-strength read in gamification.js.
+export function trackerDayTotals(tracker, logs, timeZone) {
+  const totals = new Map();
+  for (const l of logs) {
+    if (l.trackerId !== tracker.recordId) continue;
+    if (tracker.kind === 'check') {
+      if (l.done === true && isDay(l.date)) totals.set(l.date, 1);
+      continue;
+    }
+    const ms = Date.parse(l.at);
+    const amount = Number(l.amount);
+    if (Number.isNaN(ms) || !Number.isFinite(amount)) continue;
+    const day = localDay(ms, timeZone);
+    totals.set(day, (totals.get(day) || 0) + amount);
+  }
+  return totals;
+}
+
 // createTrackersDomain builds the trackers API over the injected ports:
 //   records  — { list(type), put(type, record), del(type, id) }
 //   now()    — current time in ms epoch
@@ -127,24 +147,7 @@ export function createTrackersDomain({ records, now, timeZone }) {
     return rec;
   }
 
-  // dayTotals: Map<'YYYY-MM-DD', total> for one tracker. Count = summed
-  // amounts per local day; check = 1 per done day.
-  function dayTotals(tracker, logs) {
-    const totals = new Map();
-    for (const l of logs) {
-      if (l.trackerId !== tracker.recordId) continue;
-      if (tracker.kind === 'check') {
-        if (l.done === true && isDay(l.date)) totals.set(l.date, 1);
-        continue;
-      }
-      const ms = Date.parse(l.at);
-      const amount = Number(l.amount);
-      if (Number.isNaN(ms) || !Number.isFinite(amount)) continue;
-      const day = localDay(ms, timeZone);
-      totals.set(day, (totals.get(day) || 0) + amount);
-    }
-    return totals;
-  }
+  const dayTotals = (tracker, logs) => trackerDayTotals(tracker, logs, timeZone);
 
   function progress(tracker, totals, today) {
     const { op, value, period } = tracker.target;

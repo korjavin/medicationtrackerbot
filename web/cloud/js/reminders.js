@@ -34,6 +34,8 @@ const WORKOUT_ROTATION_RECORD_TYPE = 'workoutrotation';
 const WORKOUT_SESSION_RECORD_TYPE = 'workoutsession';
 const WEIGHT_UNIT_RECORD_TYPE = 'weightunitpref';
 const WEEK_PLAN_RECORD_TYPE = 'gamificationweek';
+const TRACKER_RECORD_TYPE = 'tracker';
+const TRACKER_LOG_RECORD_TYPE = 'trackerlog';
 const DEBOUNCE_MS = 2000;
 
 const timers = new Map();
@@ -63,7 +65,7 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
   const [
     medications, intakes, tzplans, bps, weights,
     workoutGroups, workoutVariants, workoutExercises, workoutRotations, workoutSessions,
-    weekPlans,
+    weekPlans, trackers, trackerLogs,
   ] = await Promise.all([
     records.list(MEDICATION_RECORD_TYPE),
     // RAW, tombstones included: a dose slot deleted on purpose must suppress
@@ -84,6 +86,8 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
     records.listRaw(WORKOUT_SESSION_RECORD_TYPE),
     // A week paused in the weekly review sends no weigh-in nudges (med-8tur.4).
     records.list(WEEK_PLAN_RECORD_TYPE),
+    records.list(TRACKER_RECORD_TYPE),
+    records.list(TRACKER_LOG_RECORD_TYPE),
   ]);
   const tzPlan = tzplans.find((r) => r.recordId === TZPLAN_RECORD_ID && !r.deleted) || null;
   const weighInPushText = await computeWeighInPushText(records, remindersDomain, timeZone, now, features);
@@ -103,6 +107,8 @@ export async function computeReminderEntries(ctx, { records: recordsOverride, ti
     tzPlan,
     weighInPushText,
     weighInPausedWeeks: weekPlans.filter((w) => !w.deleted && w.paused).map((w) => w.week),
+    trackers: trackers.filter((r) => !r.deleted),
+    trackerLogs: trackerLogs.filter((r) => !r.deleted),
   });
 
   const digest = await computeDigestEntry(records, timeZone, now(), features);

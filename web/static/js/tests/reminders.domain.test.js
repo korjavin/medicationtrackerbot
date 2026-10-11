@@ -461,3 +461,69 @@ describe('domain/reminders.js — paused weeks + ISO week keys', () => {
         expect(isoWeekKey('2025-12-29')).toBe('2026-W01'); // a Monday: already 2026's first week
     });
 });
+
+// bd med-1vy5.5 — user-tracker reminders: fire at reminder.time local only while
+// the period's atLeast target is unmet; atMost limits never remind in v1.
+describe('domain/reminders.js — tracker reminder kind', () => {
+    // Tue Jul 7 2026, 10:00 UTC.
+    const NOW = Date.UTC(2026, 6, 7, 10, 0, 0);
+    const water = (over = {}) => ({
+        recordId: 'tracker-w', name: 'Water', emoji: '\u{1F4A7}', kind: 'count', step: 1,
+        target: { op: 'atLeast', value: 8, period: 'day' }, reminder: { time: '20:00' }, archived: false, ...over,
+    });
+    const taps = (n, at) => Array.from({ length: n }, (_, i) => ({
+        recordId: `trackerlog-${i}`, trackerId: 'tracker-w', at, amount: 1,
+    }));
+    const trackerEntries = (args) => computeReminderHorizon({ timeZone: 'UTC', now: NOW, ...args })
+        .filter((e) => e.kind === 'tracker');
+
+    it('fires at reminder.time while the target is unmet, with progress text', () => {
+        const entries = trackerEntries({ trackers: [water()], trackerLogs: taps(5, '2026-07-07T08:00:00Z') });
+        const today = Date.UTC(2026, 6, 7, 20, 0, 0) / 1000;
+        expect(entries[0]).toMatchObject({
+            fireAtUnix: today, text: '\u{1F4A7} Water: 5/8 today', callback: `tr:${today}`,
+        });
+        // A new day starts from zero: the remaining horizon days fire too.
+        expect(entries).toHaveLength(7);
+        expect(entries[1].text).toBe('\u{1F4A7} Water: 0/8 today');
+    });
+
+    it('is suppressed once the period target is met', () => {
+        const entries = trackerEntries({ trackers: [water()], trackerLogs: taps(8, '2026-07-07T08:00:00Z') });
+        expect(entries.some((e) => e.fireAtUnix === Date.UTC(2026, 6, 7, 20, 0, 0) / 1000)).toBe(false);
+        // A weekly target met this ISO week (Mon Jul 6 – Sun Jul 12) stays quiet
+        // until the first slot of next week (Mon Jul 13).
+        const weekly = water({ target: { op: 'atLeast', value: 3, period: 'week' } });
+        const weekEntries = trackerEntries({ trackers: [weekly], trackerLogs: taps(3, '2026-07-06T08:00:00Z') });
+        expect(weekEntries.map((e) => e.fireAtUnix)).toEqual([Date.UTC(2026, 6, 13, 20, 0, 0) / 1000]);
+    });
+
+    it('never fires for atMost limits, archived trackers or trackers without a reminder', () => {
+        expect(trackerEntries({
+            trackers: [
+                water({ target: { op: 'atMost', value: 3, period: 'day' } }),
+                water({ archived: true }),
+                water({ reminder: null }),
+            ],
+        })).toEqual([]);
+    });
+
+    it('fires at the account time zone wall clock and counts that zone\'s day', () => {
+        // 20:00 in Tokyo (UTC+9) is 11:00 UTC, still ahead at 10:00 UTC. A tap at
+        // 2026-07-06T16:00Z is Jul 7 01:00 in Tokyo — it counts toward today there.
+        const entries = trackerEntries({
+            timeZone: 'Asia/Tokyo', trackers: [water()], trackerLogs: taps(2, '2026-07-06T16:00:00Z'),
+        });
+        expect(entries[0].fireAtUnix).toBe(Date.UTC(2026, 6, 7, 11, 0, 0) / 1000);
+        expect(entries[0].text).toBe('\u{1F4A7} Water: 2/8 today');
+    });
+
+    it('generic text never carries the tracker name', () => {
+        const entries = trackerEntries({ trackers: [water({ name: 'Secret Habit' })] });
+        expect(entries.length).toBeGreaterThan(0);
+        for (const e of entries) {
+            expect(e.text).toContain('Secret Habit');
+            expect(e.genericText).not.toContain('Secret Habit');
+        }
+    });
+});

@@ -515,18 +515,25 @@ export function createApiRouter(ctx, {
     }
 
     // User trackers (med-1vy5). Ids are decoded: a check log id carries ':'.
+    // Every write recomputes the horizon: a tracker reminder fires only while
+    // its target is unmet (med-1vy5.5).
+    const trackerWrite = async (p) => {
+      const res = await p;
+      scheduleReminderRecompute(ctx, { records, timeZone });
+      return res;
+    };
     if (path === '/api/trackers') {
       if (method === 'GET') return trackers.list();
-      if (method === 'POST') return trackers.create(body);
+      if (method === 'POST') return trackerWrite(trackers.create(body));
     }
     if (path.startsWith('/api/trackers/')) {
       const seg = path.slice('/api/trackers/'.length).split('/').map(decodeURIComponent);
       const [id] = seg;
-      if (seg.length === 1 && method === 'PUT') return trackers.update(id, body);
-      if (seg.length === 1 && method === 'DELETE') { await trackers.archive(id); return true; }
-      if (seg.length === 2 && seg[1] === 'log' && method === 'POST') return trackers.log(id, body || {});
-      if (seg.length === 3 && seg[1] === 'log' && method === 'DELETE') return trackers.unlog(id, seg[2]);
-      if (seg.length === 3 && seg[1] === 'days' && method === 'PUT') return trackers.setDay(id, seg[2], body && body.done);
+      if (seg.length === 1 && method === 'PUT') return trackerWrite(trackers.update(id, body));
+      if (seg.length === 1 && method === 'DELETE') { await trackerWrite(trackers.archive(id)); return true; }
+      if (seg.length === 2 && seg[1] === 'log' && method === 'POST') return trackerWrite(trackers.log(id, body || {}));
+      if (seg.length === 3 && seg[1] === 'log' && method === 'DELETE') return trackerWrite(trackers.unlog(id, seg[2]));
+      if (seg.length === 3 && seg[1] === 'days' && method === 'PUT') return trackerWrite(trackers.setDay(id, seg[2], body && body.done));
       if (seg.length === 2 && seg[1] === 'history' && method === 'GET') {
         return trackers.history(id, positiveIntParam(params, 'days', 30));
       }
