@@ -1887,7 +1887,9 @@
             () => api(`/api/trackers/${encodeURIComponent(t.id)}`, 'PUT', body),
             async () => {
                 const fresh = await serverTrackerRow(api, t.id);
-                return fresh ? (cur) => cur.map((x) => (x.id === t.id ? fresh : x)) : null;
+                // A tap made while saving is still provisional: keep it on top.
+                const merge = (x) => (x.todayLogs || []).filter(isProvisional).reduce((acc, l) => addLog(l)(acc), fresh);
+                return fresh ? (cur) => cur.map((x) => (x.id === t.id ? merge(x) : x)) : null;
             });
     }
 
