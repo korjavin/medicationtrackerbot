@@ -1192,7 +1192,7 @@ describe('features/workout/sessions.js — split-file integration', () => {
   });
 
   // med-rggu: starting an upcoming session re-keys it onto today's slot, so
-  // the modal opens the running session /next reports, not the tapped id.
+  // the modal opens the session the start route names, not the tapped id.
   it('startWorkoutSession on an upcoming session opens the re-keyed running session', async () => {
     const { window } = env;
     installApiCache(window, {
@@ -1201,9 +1201,7 @@ describe('features/workout/sessions.js — split-file integration', () => {
     window.safeConfirm = vi.fn(async (_msg, cb) => { await cb(true); });
     window.showWorkoutSessionModal = vi.fn();
     window.loadNextWorkout = vi.fn();
-    window.apiCall = vi.fn(async (endpoint) => (endpoint === '/api/workout/sessions/next'
-      ? { session: { id: 77, status: 'in_progress' } }
-      : true));
+    window.apiCall = vi.fn(async () => ({ session_id: 77 }));
 
     await window.startWorkoutSession(42);
 

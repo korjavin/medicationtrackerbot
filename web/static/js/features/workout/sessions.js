@@ -2286,15 +2286,9 @@ async function startWorkoutSession(sessionId) {
             }
 
             // Open the session modal directly — no success alert (bd med-bp6t).
-            // The start route returns true, and starting an upcoming session
-            // re-keys it onto today's slot (or an ad-hoc one, med-gmyf), so the
-            // running session is read back from /next (in_progress ranks first);
-            // the tapped id is the fallback.
-            let startedId = sessionId;
-            try {
-                const next = await apiCall('/api/workout/sessions/next');
-                if (next && next.session && next.session.status === 'in_progress') startedId = next.session.id;
-            } catch (_) { /* keep the tapped id */ }
+            // Starting an upcoming session re-keys it onto today's slot (or an
+            // ad-hoc one, med-gmyf); the route names the session it started.
+            const startedId = result && result.session_id != null ? result.session_id : sessionId;
             await showWorkoutSessionModal(startedId);
 
             if (nextHandle) await nextHandle.commit(null);

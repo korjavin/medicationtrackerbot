@@ -1665,6 +1665,8 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   // plain SQL column UPDATEs in the Go source with no observable
   // intermediate state, so folding them is behavior-preserving. A missing
   // session no-ops (mirrors `UPDATE ... WHERE id = ?` matching zero rows).
+  // Returns the id of the session actually running (the re-keyed slot or
+  // ad-hoc session below, else `id`); undefined when nothing was found.
   async function startSession(id) {
     const session = await findSession(id);
     if (!session) return;
@@ -1699,8 +1701,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       // finished one, it is not available to start, so today's workout is an
       // ad-hoc session.
       if (!slot || slot.status === 'completed' || slot.status === 'skipped') {
-        await createAdHocSession();
-        return;
+        return (await createAdHocSession()).id;
       }
       target = slot;
     }
@@ -1712,6 +1713,7 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       snoozed_until: null,
       clientTs: nowMs,
     });
+    return target.id;
   }
 
   async function snoozeSession(id, minutes) {
