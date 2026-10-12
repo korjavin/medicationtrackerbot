@@ -18,6 +18,9 @@ const RECONNECT_MIN_MS = 1000;
 // The server keeps a detached call for 30 s (voiceCallGrace); 1+2+4+8+8+8 s of
 // backoff spans it, and the first redial past it gets 4404 and stops.
 const RECONNECT_MAX_MS = 8000;
+// Bound on start(): the hello is the server's first frame, so a healthy leg
+// answers in one round trip.
+const START_TIMEOUT_MS = 5000;
 
 // Mirror voiceStatusUnknownCall / voiceStatusReplaced in voice_llm_relay.go:
 // the call is gone or another leg took it — redialing can never succeed.
@@ -137,7 +140,15 @@ export function createVoiceLLMResponder({ aiClient, url, now = () => Date.now() 
     stopped = false;
     reconnectDelay = RECONNECT_MIN_MS;
     return new Promise((resolve, reject) => {
-      pendingStart = { resolve, reject };
+      // A leg that opens but never says hello must not hold the call up.
+      const timer = setTimeout(() => {
+        if (pendingStart === entry) fail('voice relay sent no hello');
+      }, START_TIMEOUT_MS);
+      const entry = {
+        resolve: (t) => { clearTimeout(timer); resolve(t); },
+        reject: (e) => { clearTimeout(timer); reject(e); },
+      };
+      pendingStart = entry;
       connect();
     });
   }

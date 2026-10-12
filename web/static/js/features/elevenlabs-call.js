@@ -487,6 +487,34 @@
         if (window.CloudVoiceLLM) window.CloudVoiceLLM.stop();
     }
 
+    // openVoiceLLMLeg → the call token, or null to call without the relay.
+    // The leg must be up before the signed URL is minted, so the agent's first
+    // LLM turn finds it. Bot mode has no relay. Best-effort on purpose: an
+    // agent not (yet) switched to the custom LLM (med-h849.3) never uses the
+    // leg, so a failed leg or a declined consent must not block the call — an
+    // agent that does use it speaks the relay's own fallback sentence instead.
+    async function openVoiceLLMLeg(live) {
+        if (!window.CloudVoiceLLM) return null;
+        try {
+            // No AI key of its own → the relay answers through the trial proxy,
+            // which needs `voice` consent even when the ElevenLabs key is the
+            // user's: ask now, not as a failed first turn. Trial-voice callers
+            // (no ElevenLabs key) are asked by fetchSignedURL() — skip so a
+            // decline is not prompted twice.
+            if (await window.CloudVoiceLLM.usesTrialAI() && await window.CloudElevenLabs.hasKey()) {
+                await ensureTrialVoiceConsent();
+            }
+            return await window.CloudVoiceLLM.start();
+        } catch (err) {
+            // A stale chain (hung up / timed out meanwhile) was already
+            // stopped and must not close a newer call's leg.
+            if (!live()) return null;
+            stopVoiceLLM();
+            console.warn('[voice-llm] calling without the relay leg:', (err && (err.code || err.message)) || 'error');
+            return null;
+        }
+    }
+
     // Voice readiness for the idle trigger (kit T4): true once a vault key or
     // the operator trial is known to exist, false when neither is, null while
     // unknown (the trigger then reads "Call agent" and a tap tries the call,
@@ -790,16 +818,7 @@
             setState('error', 'Connection timed out — allow microphone access and try again.');
         }, CONNECT_TIMEOUT_MS);
         try {
-            // The device leg must be up before the signed URL is minted, so
-            // the agent's first LLM turn finds it. Bot mode has no relay.
-            // With no AI key of its own the relay answers through the trial
-            // proxy, which needs `voice` consent even when the ElevenLabs key
-            // is the user's — ask now, not as a failed first turn.
-            if (window.CloudVoiceLLM && await window.CloudVoiceLLM.usesTrialAI()) {
-                await ensureTrialVoiceConsent();
-            }
-            if (!live()) return;
-            const call = window.CloudVoiceLLM ? await window.CloudVoiceLLM.start() : null;
+            const call = await openVoiceLLMLeg(live);
             if (!live()) return;
             const [signedUrl, sdk] = await Promise.all([
                 fetchSignedURL(),

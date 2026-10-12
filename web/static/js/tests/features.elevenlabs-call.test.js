@@ -1939,34 +1939,51 @@ describe('features/elevenlabs-call.js — voice LLM relay leg (cloud, bd med-h84
         }
     });
 
-    it('a failed leg fails the call without minting a signed URL', async () => {
+    // Until the agent is switched to the custom LLM (med-h849.3) it never uses
+    // the leg, so a broken leg must not cost the user the call.
+    it('a failed leg still starts the call, without customLlmExtraBody', async () => {
         const { window, cleanup } = relayEnv();
         try {
-            window.CloudVoiceLLM.start = vi.fn(async () => { throw new Error('voice relay closed before hello (1006)'); });
-            await startCall(window);
-            expect(window.WGCallAgent.getState().state).toBe('error');
-            expect(window.CloudElevenLabs.fetchSignedURL).not.toHaveBeenCalled();
-            expect(window.CloudVoiceLLM.stop).toHaveBeenCalled();
+            window.console.warn = vi.fn();
+            window.CloudVoiceLLM.start = vi.fn(async () => { throw new Error('voice relay sent no hello'); });
+            const { opts } = await startCall(window);
+            expect(window.WGCallAgent.getState().state).toBe('in_call');
+            expect(window.CloudElevenLabs.fetchSignedURL).toHaveBeenCalled();
+            expect(opts).not.toHaveProperty('customLlmExtraBody');
+            expect(window.CloudVoiceLLM.stop).toHaveBeenCalledTimes(1);
+
+            await window.WGCallAgent.endCall();
+            expect(window.CloudVoiceLLM.stop).toHaveBeenCalledTimes(2);
         } finally {
             cleanup();
         }
     });
 
     it('trial AI behind a BYO ElevenLabs key asks for voice consent before opening the leg', async () => {
-        const { window, cleanup } = relayEnv();
+        const granted = relayEnv();
         try {
-            window.CloudVoiceLLM.usesTrialAI = vi.fn(async () => true);
-            window.apiCall = vi.fn(async () => ({ ai: true, voice: null, tg: null }));
-            await startCall(window);
-            expect(window.WGCallAgent.getState().message).toMatch(/needs your consent/);
-            expect(window.CloudVoiceLLM.start).not.toHaveBeenCalled();
-
-            window.apiCall = vi.fn(async () => ({ ai: null, voice: true, tg: null }));
-            await startCall(window);
-            expect(window.CloudVoiceLLM.start).toHaveBeenCalledTimes(1);
-            expect(window.__TEST_CONVERSATION_OPTS__.customLlmExtraBody).toEqual({ call: 'call-tok' });
+            granted.window.CloudVoiceLLM.usesTrialAI = vi.fn(async () => true);
+            granted.window.apiCall = vi.fn(async () => ({ ai: null, voice: true, tg: null }));
+            const { opts } = await startCall(granted.window);
+            expect(granted.window.apiCall).toHaveBeenCalledWith('/api/settings/trial-consent', 'GET');
+            expect(granted.window.CloudVoiceLLM.start).toHaveBeenCalledTimes(1);
+            expect(opts.customLlmExtraBody).toEqual({ call: 'call-tok' });
         } finally {
-            cleanup();
+            granted.cleanup();
+        }
+
+        // Declined: no leg, but the call itself still goes ahead.
+        const declined = relayEnv();
+        try {
+            declined.window.console.warn = vi.fn();
+            declined.window.CloudVoiceLLM.usesTrialAI = vi.fn(async () => true);
+            declined.window.apiCall = vi.fn(async () => ({ ai: true, voice: null, tg: null }));
+            const { opts } = await startCall(declined.window);
+            expect(declined.window.CloudVoiceLLM.start).not.toHaveBeenCalled();
+            expect(declined.window.WGCallAgent.getState().state).toBe('in_call');
+            expect(opts).not.toHaveProperty('customLlmExtraBody');
+        } finally {
+            declined.cleanup();
         }
     });
 

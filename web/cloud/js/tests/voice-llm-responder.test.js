@@ -152,6 +152,18 @@ describe('voice-llm-responder (bd med-h849.2)', () => {
     expect(FakeSocket.instances).toHaveLength(2);
   });
 
+  it('start() rejects and closes the leg when no hello arrives in time', async () => {
+    vi.useFakeTimers();
+    const { responder } = makeResponder(async () => {});
+    const p = responder.start();
+    const caught = p.catch((e) => e);
+    vi.advanceTimersByTime(5000);
+    expect((await caught).message).toMatch(/no hello/);
+    expect(FakeSocket.instances[0].readyState).toBe(3);
+    vi.advanceTimersByTime(60000);
+    expect(FakeSocket.instances).toHaveLength(1);
+  });
+
   it('start() rejects when the leg closes before hello, and when stop() runs first', async () => {
     const { responder } = makeResponder(async () => {});
     const p1 = responder.start();
