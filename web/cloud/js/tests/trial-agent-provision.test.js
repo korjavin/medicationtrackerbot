@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { TOOL_SPECS, TOOLSET_VERSION, buildAgentConfig } from '../elevenlabs-agent.js';
+import { TOOL_SPECS, TOOLSET_VERSION, buildAgentConfig, toolBody } from '../elevenlabs-agent.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 const SCRIPT = path.join(REPO_ROOT, 'scripts/provision-trial-agent.mjs');
@@ -62,6 +62,12 @@ describe('scripts/provision-trial-agent.mjs', () => {
     expect(cc.language_presets.ru.overrides.agent.first_message).toBeTruthy();
     expect(cc.agent.prompt.prompt).toContain('reply in the language the user is speaking');
     expect(TOOLSET_VERSION).toBeGreaterThanOrEqual(6);
+  });
+
+  it('sets the typing tool-call sound per tool — ElevenLabs ignores the agent-level field', () => {
+    for (const spec of TOOL_SPECS) {
+      expect(toolBody(spec).tool_config).toMatchObject({ tool_call_sound: 'typing', tool_call_sound_behavior: 'always' });
+    }
   });
 
   it('refuses to apply — never creates an agent — when the agent id is unset', () => {
