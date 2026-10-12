@@ -317,15 +317,7 @@ func fromAnthropicResponse(r anthropicResponse) map[string]any {
 			msg["content"] = nil
 		}
 	}
-	finish := "stop"
-	switch r.StopReason {
-	case "max_tokens":
-		finish = "length"
-	case "tool_use":
-		finish = "tool_calls"
-	case "refusal":
-		finish = "content_filter"
-	}
+	finish := anthropicFinishReason(r.StopReason)
 	prompt := r.Usage.InputTokens + r.Usage.CacheCreationInputTokens + r.Usage.CacheReadInputTokens
 	return map[string]any{
 		"id":      r.ID,
@@ -337,6 +329,20 @@ func fromAnthropicResponse(r anthropicResponse) map[string]any {
 			"total_tokens":      prompt + r.Usage.OutputTokens,
 		},
 	}
+}
+
+// anthropicFinishReason maps a Messages API stop_reason to the OpenAI
+// finish_reason our clients branch on.
+func anthropicFinishReason(stop string) string {
+	switch stop {
+	case "max_tokens":
+		return "length"
+	case "tool_use":
+		return "tool_calls"
+	case "refusal":
+		return "content_filter"
+	}
+	return "stop"
 }
 
 // anthropicRejectsSchema classifies a 400 body like upstreamRejectsSchema, but
@@ -355,8 +361,12 @@ func anthropicRejectsSchema(r io.Reader) bool {
 }
 
 // anthropicChat runs one translated request. Gates (rate limit, budget,
-// body cap, stream rejection) already ran in ChatCompletions.
-func (a *TrialProxyAPI) anthropicChat(w http.ResponseWriter, r *http.Request, accountID string, payload map[string]json.RawMessage, vision bool) {
+// body cap) already ran in ChatCompletions. stream asks the Messages API for
+// SSE and translates it to chat.completion.chunk lines (trial_stream.go).
+// Thinking stays off: ElevenLabs replays tool_calls without our
+// anthropic_content round-trip, so tool_use history is rebuilt with no
+// thinking blocks — valid only while the request never enables thinking.
+func (a *TrialProxyAPI) anthropicChat(w http.ResponseWriter, r *http.Request, accountID string, payload map[string]json.RawMessage, vision, stream bool) {
 	model := a.cfg.AnthropicModel
 	if vision {
 		model = a.cfg.AnthropicVisionModel
@@ -367,6 +377,9 @@ func (a *TrialProxyAPI) anthropicChat(w http.ResponseWriter, r *http.Request, ac
 		return
 	}
 	_, sentResponseFormat := areq["output_config"]
+	if stream {
+		areq["stream"] = true
+	}
 	upstreamBody, err := json.Marshal(areq)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
@@ -402,6 +415,10 @@ func (a *TrialProxyAPI) anthropicChat(w http.ResponseWriter, r *http.Request, ac
 			errCode = "response_format_unsupported"
 		}
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": errCode, "upstream_status": resp.StatusCode})
+		return
+	}
+	if stream {
+		relayAnthropicStream(w, accountID, resp.Body)
 		return
 	}
 	var ar anthropicResponse
