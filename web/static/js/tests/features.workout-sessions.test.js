@@ -2891,3 +2891,133 @@ describe('features/workout/sessions.js — session gym (med-8j5w.2)', () => {
     expect(autoLabel(document)).toBe('auto: Short bar');
   });
 });
+
+describe('features/workout/sessions.js — in-session weight suggestion (med-h5u3)', () => {
+  let env;
+  let consoleErrorSpy;
+
+  const SUGGESTION = {
+    target_weight_kg: 42.5, training_goal: 'strength', equipment: null,
+    snap: { raw_kg: 42.5, snapped_kg: 42.5, reason: null },
+    last: { weight_kg: 40, reps: 5, effort: 'RPE 8 · 2 RIR', logged_at: '2026-04-20T09:00:00Z' },
+  };
+
+  // One done set (40 × 5 from the scalars) + pending rows ghosting 40.
+  function mount(window, document, { suggest = SUGGESTION, targetSets = 3 } = {}) {
+    installApiCache(window);
+    window.loadWorkoutHistoryTab = vi.fn();
+    window.apiCall = vi.fn(async (endpoint) => {
+      if (String(endpoint).startsWith('/api/workout/exercises/suggest-target')) {
+        if (suggest instanceof Error) throw suggest;
+        return suggest;
+      }
+      return [];
+    });
+    window.WorkoutSessionsState.data = { id: 42, status: 'in_progress' };
+    window.WorkoutSessionsState.originalStatus = 'in_progress';
+    window.WorkoutSessionsState.logs = [
+      { id: 5, exercise_id: 1, exercise_name: 'Bench', sets_completed: 1, reps_completed: 5, weight_kg: 40, notes: '', _targetSets: targetSets },
+    ];
+    const container = document.getElementById('workout-session-logs');
+    window.renderWorkoutSessionLogs(container);
+    return container;
+  }
+  const drain = async () => {
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+  };
+  const chipOf = (c) => c.querySelector('.wg-workouts-session-exercise__suggest-chip');
+  const cardOf = (c) => c.querySelector('.wg-workouts-session-exercise__suggest');
+  const weightOf = (c, r) => c.querySelector(`.wg-set[data-row="${r}"] [data-field="weight_kg"]`).getAttribute('aria-label');
+  const writes = (window) => window.apiCall.mock.calls.filter(([, method]) => method && method !== 'GET');
+
+  beforeEach(() => {
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    env = loadFrontendEnv({ withWorkout: true });
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
+    try { env.window.localStorage.clear(); } catch (_) { /* ignore */ }
+    env.cleanup();
+    env = null;
+  });
+
+  it('shows a collapsed Try <kg> chip, asked by plan row', async () => {
+    const { window, document } = env;
+    const c = mount(window, document);
+    await drain();
+    const chip = chipOf(c);
+    expect(chip).not.toBeNull();
+    expect(chip.textContent).toBe('Try 42.5 kg');
+    expect(chip.getAttribute('aria-expanded')).toBe('false');
+    expect(cardOf(c)).toBeNull();
+    const url = window.apiCall.mock.calls.map(([e]) => e).find((e) => e.includes('suggest-target'));
+    expect(url).toBe('/api/workout/exercises/suggest-target?name=Bench&exercise_id=1&session_id=42');
+  });
+
+  it('renders nothing for a null answer or a 404 (bot mode)', async () => {
+    const { window, document } = env;
+    let c = mount(window, document, { suggest: null });
+    await drain();
+    expect(chipOf(c)).toBeNull();
+    window.WorkoutSessionsState.ui = null;
+    c = mount(window, document, { suggest: new Error('404') });
+    await drain();
+    expect(chipOf(c)).toBeNull();
+  });
+
+  it('hides the chip when the first pending row already shows the suggestion, or nothing is pending', async () => {
+    const { window, document } = env;
+    let c = mount(window, document, { suggest: { ...SUGGESTION, target_weight_kg: 40 } });
+    await drain();
+    expect(chipOf(c)).toBeNull();
+    window.WorkoutSessionsState.ui = null;
+    c = mount(window, document, { targetSets: 1 });
+    await drain();
+    expect(chipOf(c)).toBeNull();
+  });
+
+  it('expands to the card (survives a set tick); Apply drafts the pending rows only and writes nothing', async () => {
+    const { window, document } = env;
+    const c = mount(window, document);
+    await drain();
+    chipOf(c).click();
+    await drain();
+    expect(chipOf(c).getAttribute('aria-expanded')).toBe('true');
+    expect(cardOf(c).querySelector('.wg-row__title').textContent).toBe('Try 42.5 kg');
+    expect(cardOf(c).querySelector('.wg-hint').textContent).toBe('Last: 40 kg × 5 · RPE 8 · 2 RIR');
+
+    // Ticking row 1 at its ghost 40 re-renders every card; the card stays open.
+    c.querySelector('.wg-set[data-row="1"] .wg-set__done').click();
+    await drain();
+    expect(cardOf(c)).not.toBeNull();
+
+    const before = writes(window).length;
+    cardOf(c).querySelector('.wg-workouts-session-exercise__suggest-apply').click();
+    await drain();
+    expect(weightOf(c, 0)).toBe('Weight 40');
+    expect(weightOf(c, 1)).toBe('Weight 40');
+    expect(weightOf(c, 2)).toBe('Weight 42.5');
+    expect(chipOf(c)).toBeNull();
+    expect(cardOf(c)).toBeNull();
+    // Session only: no log write and no plan (exercises update) write.
+    expect(writes(window).length).toBe(before);
+    expect(window.apiCall.mock.calls.some(([e]) => String(e).startsWith('/api/workout/exercises/update'))).toBe(false);
+  });
+
+  it('Apply covers every pending row; the effort clause is omitted when unrated', async () => {
+    const { window, document } = env;
+    const c = mount(window, document, { suggest: { ...SUGGESTION, last: { ...SUGGESTION.last, effort: null } } });
+    await drain();
+    chipOf(c).click();
+    await drain();
+    expect(cardOf(c).querySelector('.wg-hint').textContent).toBe('Last: 40 kg × 5');
+    cardOf(c).querySelector('.wg-workouts-session-exercise__suggest-apply').click();
+    await drain();
+    expect(weightOf(c, 0)).toBe('Weight 40');
+    expect(weightOf(c, 1)).toBe('Weight 42.5');
+    expect(weightOf(c, 2)).toBe('Weight 42.5');
+    expect(window.apiCall.mock.calls.filter(([e]) => String(e).includes('suggest-target')).length).toBe(1);
+  });
+});

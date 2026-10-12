@@ -1204,6 +1204,82 @@ describe('cloud shim contract — workout stats + mi-band', () => {
             expect(plain.equipment).toBeNull();
             expect(plain.snap).toEqual({ raw_kg: 62.5, snapped_kg: 62.5, reason: null });
         });
+
+        // med-h5u3 — the live session asks by plan row (exercise_id, no goal).
+        describe('by plan row (exercise_id)', () => {
+            async function planRow(window, goal, row) {
+                const group = await window.apiCall('/api/workout/groups/create', 'POST', { name: 'Legs', training_goal: goal });
+                const variant = await window.apiCall('/api/workout/variants/create', 'POST', { group_id: group.id, name: 'A' });
+                return window.apiCall('/api/workout/exercises/create', 'POST', {
+                    variant_id: variant.id, exercise_name: 'Squat', target_sets: 3, ...row,
+                });
+            }
+            async function logRow(window, exercise, weight_kg, reps) {
+                const session = (await window.apiCall('/api/workout/sessions/adhoc', 'POST')).session;
+                await window.apiCall('/api/workout/sessions/logs/create', 'POST', {
+                    session_id: session.id, exercise_id: exercise.id, exercise_name: 'Squat',
+                    source: 'schedule', status: 'completed',
+                    sets: [0, 1, 2].map((set_index) => ({ set_index, weight_kg, reps, set_type: 'normal' })),
+                });
+                await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+                return session;
+            }
+
+            it("the asking session's own ticked sets are not \"last time\"", async () => {
+                env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+                const { window } = env;
+                const ex = await planRow(window, 'strength', {});
+                await logRow(window, ex, 100, 6);
+                const current = await logRow(window, ex, 102.5, 6);
+
+                const s = await window.apiCallDirect(
+                    `/api/workout/exercises/suggest-target?name=Squat&exercise_id=${ex.id}&session_id=${current.id}`);
+                expect(s.last.weight_kg).toBe(100);
+                expect(s.target_weight_kg).toBe(102.5);
+            });
+
+            it('a rule-less row takes the routine goal and answers byte-identically to the editor', async () => {
+                env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+                const { window } = env;
+                const ex = await planRow(window, 'strength', {});
+                await logRow(window, ex, 100, 6);
+
+                const byRow = await window.apiCallDirect(`/api/workout/exercises/suggest-target?name=Squat&exercise_id=${ex.id}`);
+                const editor = await window.apiCallDirect('/api/workout/exercises/suggest-target?name=Squat&goal=strength');
+                // Strength preset (linear +2.5), not the hypertrophy default (hold at 100).
+                expect(byRow.training_goal).toBe('strength');
+                expect(byRow.target_weight_kg).toBe(102.5);
+                expect(byRow).toEqual(editor);
+            });
+
+            it("an opt-in rule on the row drives the suggestion, not the goal preset's step", async () => {
+                env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+                const { window } = env;
+                const ex = await planRow(window, 'hypertrophy', {
+                    target_reps_min: 5, target_reps_max: 5,
+                    progression_rule: { type: 'linear', increment_kg: 5 },
+                });
+                await logRow(window, ex, 100, 5);
+
+                const byRow = await window.apiCallDirect(`/api/workout/exercises/suggest-target?name=Squat&exercise_id=${ex.id}`);
+                expect(byRow.target_weight_kg).toBe(105);
+                // The editor's goal preset (hypertrophy double, 8-12) would hold.
+                const editor = await window.apiCallDirect('/api/workout/exercises/suggest-target?name=Squat&goal=hypertrophy');
+                expect(editor.target_weight_kg).toBe(100);
+            });
+
+            it('an unknown exercise_id falls back to name + goal', async () => {
+                env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+                const { window } = env;
+                await logSession(window, 'Squat', [{ weight_kg: 100, reps: 6 }]);
+
+                const plain = await window.apiCallDirect('/api/workout/exercises/suggest-target?name=Squat&goal=strength');
+                const unknown = await window.apiCallDirect(
+                    '/api/workout/exercises/suggest-target?name=Squat&goal=strength&exercise_id=987654');
+                expect(unknown).toEqual(plain);
+                expect(unknown.target_weight_kg).toBe(102.5);
+            });
+        });
     });
 
     it('mi-band list respects limit, patch applies diff-semantics over six fields, delete tombstones', async () => {

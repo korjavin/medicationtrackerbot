@@ -3231,9 +3231,25 @@ export function createWorkoutDomain({ records, now, timeZone }) {
   async function suggestExerciseTarget(input) {
     const name = String((input && input.exercise_name) || '').trim();
     if (!name) return null;
-    const goal = normalizeGoal(input && input.goal);
+    // med-h5u3: the live session asks by plan row (exercise_id) instead of
+    // goal — its snapshot carries no goal. A live row supplies the goal
+    // (effectiveGoal, unless the caller passed one), the equipment binding, and
+    // — when it has an opt-in rule — the plan itself, so the in-session chip
+    // can never disagree with what propagate writes for that row. Unknown or
+    // deleted row → the editor's name + goal path, unchanged.
+    const exerciseId = Number(input && input.exercise_id) || 0;
+    const row = exerciseId > 0
+      ? await findByNumericId(records, WORKOUT_RECORD_TYPES.EXERCISE, exerciseId)
+      : null;
+    const goal = row && !(input && input.goal) ? await effectiveGoal(row) : normalizeGoal(input && input.goal);
+    // The live session also passes its own id: its ticked sets are already
+    // completed logs, and must not stand in for "last time" (a reload mid-
+    // workout would otherwise suggest a bump over the set just lifted). Its
+    // stamped gym is where the loads resolve, exactly as propagate does.
+    const sessionId = Number(input && input.session_id) || 0;
+    const session = sessionId > 0 ? await findSession(sessionId) : null;
     const { logs } = await sortedLogsByName(name);
-    const latest = logs[0];
+    const latest = sessionId > 0 ? logs.find((l) => l.session_id !== sessionId) : logs[0];
     if (!latest) return null;
 
     // Same effective-scalar collapse propagate and progressionPreview do: a
@@ -3244,7 +3260,8 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     if (!stats) return null;
 
     const band = defaultsForGoal(goal);
-    const plan = {
+    const ruled = row && row.progression_rule && row.progression_rule.type !== 'none';
+    const plan = ruled ? row : {
       // target_sets stays null so the set-count gate is open: the editor's sets
       // field is the user's *intent* for the next session, not a bar the last
       // log had to clear to earn a suggestion.
@@ -3257,18 +3274,22 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     // `general` seeds the 'none' preset, whose patch is mirrorPatch — so an
     // ungated goal suggests the weight you last lifted. That is the correct
     // answer for a goal that prescribes no progression, not a missing feature.
-    // The exercise does not exist yet at suggest time, so the binding resolves
+    // An asked-for plan row binds the equipment itself. In the editor the
+    // exercise does not exist yet at suggest time, so the binding resolves
     // through the latest log instead: a schedule log's exercise_id names a
     // workoutexercise row (follow the row itself — override included); a
     // library log's id already names the library row. Anything else → unbound.
-    let exercise = null;
-    if (latest.source === 'library') exercise = { exercise_library_id: latest.exercise_id };
-    else if (latest.exercise_id > 0) {
+    let exercise = row;
+    if (!exercise && latest.source === 'library') exercise = { exercise_library_id: latest.exercise_id };
+    else if (!exercise && latest.exercise_id > 0) {
       exercise = await findByNumericId(records, WORKOUT_RECORD_TYPES.EXERCISE, latest.exercise_id);
     }
     // A library log carries no plan target: auto-match on the logged weight.
     const bound = await resolveEquipmentLoads(exercise,
-      { kg: exercise && hasValue(exercise.target_weight_kg) ? exercise.target_weight_kg : latest.weight_kg });
+      {
+        kg: exercise && hasValue(exercise.target_weight_kg) ? exercise.target_weight_kg : latest.weight_kg,
+        locationId: session && isLocationStamped(session) ? session.location_id : undefined,
+      });
     const { patch, snap } = progressionPatch(plan, sets, reps, latest.weight_kg, latest.sets, goal, bound.loads);
     const lastWeight = hasValue(latest.weight_kg) && latest.weight_kg > 0 ? latest.weight_kg : null;
     // {} means the rule held the plan with no anchor to hold it at; fall back to

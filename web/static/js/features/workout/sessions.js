@@ -143,7 +143,7 @@ const SESSION_REST_SECONDS = 90; // ponytail: one default rest; per-exercise res
 function _sessionUi() {
     const st = window.WorkoutSessionsState;
     if (!st.ui) {
-        st.ui = { sessionId: null, current: 0, overview: false, active: null, more: null, rest: null, tick: null, hist: {}, targets: {} };
+        st.ui = { sessionId: null, current: 0, overview: false, active: null, more: null, rest: null, tick: null, hist: {}, targets: {}, suggest: {}, suggestOpen: {} };
     }
     return st.ui;
 }
@@ -795,6 +795,11 @@ function _buildSessionExerciseCard(log, index) {
     monoRow.textContent = _formatLogMono(log);
     entry.appendChild(monoRow);
 
+    // In-session weight suggestion (med-h5u3): a collapsed "Try <kg>" chip in
+    // the meta row that expands to the editor's suggestion card under the mono
+    // row. Fire-and-forget like the chips above.
+    _maybeAttachSuggestChip(entry, meta, monoRow, log, index);
+
     // Plate-loading chip (med-v75c.2): which plates to load for the working
     // weight. Fire-and-forget; silent no-op when the exercise has no
     // bound/resolvable equipment. Synchronous when the gear is already cached
@@ -917,6 +922,96 @@ async function _maybeAttachBodyPartChip(headerRow, log) {
     headerRow.appendChild(chip);
 }
 
+// -- In-session weight suggestion (med-h5u3) --
+//
+// The plan editor's "Try <kg>" (suggestExerciseTarget, the same progression
+// engine propagate runs) asked from the live session by plan row, with the
+// session's id so the domain skips this session's own ticked sets and resolves
+// loads at its gym. One read per exercise row (two rows can share a name with
+// different rules) per open, re-asked on a gym switch. Bot mode 404 / null →
+// nothing rendered.
+function _suggestKey(log) {
+    return `${log.source === 'library' ? 'lib' : 'row'}:${_logKey(log)}`;
+}
+
+function _exerciseSuggestion(log) {
+    const ui = _sessionUi();
+    const key = _suggestKey(log);
+    if (!ui.suggest[key]) {
+        // A library log's id lives in the library id space: ask by name only.
+        const id = log.source === 'library' ? 0 : (Number(log.exercise_id) || 0);
+        const sid = Number(window.WorkoutSessionsState.data && window.WorkoutSessionsState.data.id) || 0;
+        let p;
+        try {
+            p = Promise.resolve(apiCall(`/api/workout/exercises/suggest-target?name=${encodeURIComponent(log.exercise_name)}`
+                + (id > 0 ? `&exercise_id=${id}` : '') + (sid > 0 ? `&session_id=${sid}` : '')));
+        } catch (e) {
+            p = Promise.reject(e);
+        }
+        ui.suggest[key] = p.then((r) => (r && r.target_weight_kg != null ? r : null), () => null);
+    }
+    return ui.suggest[key];
+}
+
+// Chip only while a pending row exists and its shown weight is not already the
+// suggestion (the editor's _syncSuggestApply hide rule). Apply drafts the first
+// pending row through _setSessionSetField, whose cascade carries it to every
+// later pending row; done rows are never touched and nothing is written until
+// a set is ticked. Session only — propagate carries the lifted weight to the
+// plan, so Apply has no plan write of its own.
+async function _maybeAttachSuggestChip(entry, meta, monoRow, log, index) {
+    if (!log || !log.exercise_name) return;
+    const ui = _sessionUi();
+    const pending = _exerciseSuggestion(log);
+    const s = await pending;
+    // A gym switch re-asks: a superseded read never renders.
+    if (ui.suggest[_suggestKey(log)] !== pending) return;
+    if (!s || !meta.isConnected || window.WorkoutSessionsState.ui !== ui) return;
+    if (meta.querySelector('.wg-workouts-session-exercise__suggest-chip')) return;
+    const first = _ensureLogSets(log).length;
+    if (first >= _targetSets(log)) return;
+    const kg = Number(s.target_weight_kg);
+    if (Number(_setRowValues(log, first).weight_kg) === kg) return;
+
+    const key = _suggestKey(log);
+    const open = !!ui.suggestOpen[key];
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'wg-chip wg-chip--sm wg-workouts-session-exercise__suggest-chip';
+    chip.setAttribute('aria-expanded', open ? 'true' : 'false');
+    chip.append(_wgIco('sparkle'), document.createTextNode(`Try ${kg} kg`));
+    chip.addEventListener('click', () => {
+        ui.suggestOpen[key] = !ui.suggestOpen[key];
+        _rerenderSessionLogs();
+    });
+    meta.appendChild(chip);
+    if (!open) return;
+
+    // Same markup as the editor's #workout-exercise-suggest-card (kit P3).
+    const card = document.createElement('div');
+    card.className = 'wg-card wg-card--accent wg-hstack wg-workouts-session-exercise__suggest';
+    const body = document.createElement('span');
+    body.className = 'wg-vstack wg-spacer';
+    const title = document.createElement('span');
+    title.className = 'wg-row__title';
+    title.textContent = `Try ${kg} kg`;
+    body.appendChild(title);
+    const last = s.last;
+    if (last && last.weight_kg != null) {
+        // Effort clause omitted entirely when unrated, exactly like the editor.
+        const parts = [`${last.weight_kg} kg × ${last.reps}`];
+        if (last.effort) parts.push(last.effort);
+        const hint = document.createElement('span');
+        hint.className = 'wg-hint';
+        hint.textContent = `Last: ${parts.join(' · ')}`;
+        body.appendChild(hint);
+    }
+    const apply = _wgBtn('Apply', 'wg-btn--sm wg-workouts-session-exercise__suggest-apply',
+        () => _setSessionSetField(index, _ensureLogSets(log).length, 'weight_kg', String(kg)));
+    card.append(_wgIco('sparkle', 'wg-sun'), body, apply);
+    entry.insertBefore(card, monoRow.nextSibling);
+}
+
 // -- Plate-loading chip (med-v75c.2) --
 //
 // Each exercise card shows which plates to load for the active set row's
@@ -977,12 +1072,20 @@ function refreshSessionPlateGear() {
     st.plateGearGen = (st.plateGearGen || 0) + 1;
     st.plateGear = null;
     st.plateGearPromise = null;
+    // The weight suggestion snaps to the session gym's loads too: re-ask.
+    if (st.ui) st.ui.suggest = {};
     (st.logs || []).forEach((log, index) => {
         const entry = document.getElementById(`exercise-log-${index}`);
         if (!entry) return;
         const old = entry.querySelector('.wg-workouts-session-exercise__plates');
         if (old) old.remove();
         _maybeAttachPlateChip(entry, log);
+        const meta = entry.querySelector('.wg-ex__meta');
+        const mono = entry.querySelector('.wg-workouts-session-exercise__mono');
+        if (!meta || !mono) return;
+        entry.querySelectorAll('.wg-workouts-session-exercise__suggest-chip, .wg-workouts-session-exercise__suggest')
+            .forEach((el) => el.remove());
+        _maybeAttachSuggestChip(entry, meta, mono, log, index);
     });
 }
 
@@ -1567,6 +1670,7 @@ async function showWorkoutSessionModal(sessionId) {
             // Last-session values and the PR baseline re-read on every open.
             st.ui.hist = {};
             st.ui.last = {};
+            st.ui.suggest = {};
         }
 
         window.WorkoutSessionsState.logs = data.logs || [];
