@@ -223,6 +223,12 @@ func toAnthropicRequest(payload map[string]json.RawMessage, model string) (map[s
 		"model":      model,
 		"max_tokens": trialAnthropicMaxTokens,
 		"messages":   out,
+		// Top-level automatic caching: a moving breakpoint on the last
+		// cacheable block, so the growing transcript (ElevenLabs and tg-agent
+		// resend the full history every turn) is read from cache turn over
+		// turn instead of re-prefilled. Composes with the explicit system
+		// breakpoint below (2 of 4 slots, both 5-minute TTL).
+		"cache_control": map[string]string{"type": "ephemeral"},
 	}
 	if len(system) > 0 {
 		// One breakpoint on the system block caches tools+system (render
@@ -363,9 +369,14 @@ func anthropicRejectsSchema(r io.Reader) bool {
 // anthropicChat runs one translated request. Gates (rate limit, budget,
 // body cap) already ran in ChatCompletions. stream asks the Messages API for
 // SSE and translates it to chat.completion.chunk lines (trial_stream.go).
-// Thinking stays off: ElevenLabs replays tool_calls without our
-// anthropic_content round-trip, so tool_use history is rebuilt with no
-// thinking blocks — valid only while the request never enables thinking.
+// Thinking is ON: the current models (claude-haiku-5-5, claude-opus-5-5) run
+// adaptive thinking when the request omits `thinking`, and Opus 5.5 rejects
+// {type:"disabled"} outright, so effort is the only lever. Stream turns are
+// the voice line (the only stream caller), where thinking is dead air
+// (relayAnthropicStream drops thinking blocks), so they ask for effort "low";
+// non-stream callers keep the model default. ElevenLabs replays tool_calls
+// without our anthropic_content round-trip, so that tool_use history carries
+// no thinking blocks — the API accepts history without them.
 func (a *TrialProxyAPI) anthropicChat(w http.ResponseWriter, r *http.Request, accountID string, payload map[string]json.RawMessage, vision, stream bool) {
 	model := a.cfg.AnthropicModel
 	if vision {
@@ -379,6 +390,12 @@ func (a *TrialProxyAPI) anthropicChat(w http.ResponseWriter, r *http.Request, ac
 	_, sentResponseFormat := areq["output_config"]
 	if stream {
 		areq["stream"] = true
+		oc, _ := areq["output_config"].(map[string]any)
+		if oc == nil {
+			oc = map[string]any{}
+		}
+		oc["effort"] = "low"
+		areq["output_config"] = oc
 	}
 	upstreamBody, err := json.Marshal(areq)
 	if err != nil {
