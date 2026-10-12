@@ -2,8 +2,11 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"path/filepath"
 	"testing"
+	"time"
 )
 
 // newTestDB opens an in-memory SQLite and creates a one-column table for the
@@ -114,5 +117,50 @@ func TestWithTx_RollsBackOnCtxCancelInsideFn(t *testing.T) {
 
 	if got := countItems(t, d); got != 0 {
 		t.Fatalf("expected 0 items after rollback, got %d", got)
+	}
+}
+
+// A read-then-write WithTx must wait out another connection's write lock
+// (BEGIN IMMEDIATE + busy_timeout) instead of failing with SQLITE_BUSY.
+func TestWithTx_WaitsForExternalWriter(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "t.db")
+	d, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.Close() })
+	if _, err := d.Exec(`CREATE TABLE items (id INTEGER PRIMARY KEY, val TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+
+	ext, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ext.Close() })
+	ext.SetMaxOpenConns(1)
+	conn, err := ext.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		_, _ = conn.ExecContext(context.Background(), "COMMIT")
+		_ = conn.Close()
+	}()
+
+	err = d.WithTx(context.Background(), func(tx TX) error {
+		var n int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM items`).Scan(&n); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`INSERT INTO items (val) VALUES ('x')`)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("WithTx should wait for the external writer, got: %v", err)
 	}
 }
