@@ -221,18 +221,25 @@ func (c *voiceCall) unregister(id int64, w *voiceWaiter) {
 }
 
 // dispatch routes a device frame to its waiter; unknown ids are dropped.
-func (c *voiceCall) dispatch(ctx context.Context, f voiceFrame) {
+func (c *voiceCall) dispatch(f voiceFrame) {
 	c.mu.Lock()
 	w := c.waiters[f.ID]
 	c.mu.Unlock()
 	if w == nil {
 		return
 	}
+	// Never block: this runs on the leg's only read loop, which also processes
+	// keepalive pongs. A turn whose HTTP client cannot keep up with its queue
+	// is failed (gone) instead of stalling every turn on the leg.
 	select {
 	case w.ch <- f:
-	case <-w.done:
-	case <-w.gone:
-	case <-ctx.Done():
+	default:
+		c.mu.Lock()
+		if c.waiters[f.ID] == w {
+			close(w.gone)
+			delete(c.waiters, f.ID)
+		}
+		c.mu.Unlock()
 	}
 }
 
@@ -358,7 +365,7 @@ func (a *VoiceLLMRelayAPI) DeviceSocket(w http.ResponseWriter, r *http.Request) 
 		if json.Unmarshal(data, &f) != nil || f.ID == 0 {
 			continue
 		}
-		call.dispatch(legCtx, f)
+		call.dispatch(f)
 	}
 }
 
@@ -511,6 +518,9 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 						return
 					}
 				default:
+					// Leg dropped or this turn overflowed its queue; in the
+					// latter case the device is still streaming, so stop it.
+					go cancel()
 					fallback()
 					return
 				}
