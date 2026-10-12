@@ -1139,9 +1139,10 @@ export function createApiRouter(ctx, {
       return workout.suggestExerciseTarget({
         exercise_name: params.get('name') || '',
         goal: params.get('goal') || '',
-        // med-h5u3: the live session asks by plan row; the domain resolves
-        // goal/rule/equipment from it.
+        // med-h5u3: the live session asks by plan row (goal/rule/equipment)
+        // and its own session (excluded from history, its gym for loads).
         exercise_id: params.get('exercise_id') || '',
+        session_id: params.get('session_id') || '',
       });
     }
 

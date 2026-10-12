@@ -925,26 +925,31 @@ async function _maybeAttachBodyPartChip(headerRow, log) {
 // -- In-session weight suggestion (med-h5u3) --
 //
 // The plan editor's "Try <kg>" (suggestExerciseTarget, the same progression
-// engine propagate runs) asked from the live session by plan row. One read per
-// exercise name per session (kept across a minimise → reopen of the same
-// session: by then this session's own ticked sets are history and would skew
-// the answer). Bot mode 404 / null → nothing rendered.
+// engine propagate runs) asked from the live session by plan row, with the
+// session's id so the domain skips this session's own ticked sets and resolves
+// loads at its gym. One read per exercise row per session (two rows can share
+// a name with different rules). Bot mode 404 / null → nothing rendered.
+function _suggestKey(log) {
+    return `${log.source === 'library' ? 'lib' : 'row'}:${_logKey(log)}`;
+}
+
 function _exerciseSuggestion(log) {
     const ui = _sessionUi();
-    const name = log.exercise_name;
-    if (!ui.suggest[name]) {
+    const key = _suggestKey(log);
+    if (!ui.suggest[key]) {
         // A library log's id lives in the library id space: ask by name only.
         const id = log.source === 'library' ? 0 : (Number(log.exercise_id) || 0);
+        const sid = Number(window.WorkoutSessionsState.data && window.WorkoutSessionsState.data.id) || 0;
         let p;
         try {
-            p = Promise.resolve(apiCall(`/api/workout/exercises/suggest-target?name=${encodeURIComponent(name)}`
-                + (id > 0 ? `&exercise_id=${id}` : '')));
+            p = Promise.resolve(apiCall(`/api/workout/exercises/suggest-target?name=${encodeURIComponent(log.exercise_name)}`
+                + (id > 0 ? `&exercise_id=${id}` : '') + (sid > 0 ? `&session_id=${sid}` : '')));
         } catch (e) {
             p = Promise.reject(e);
         }
-        ui.suggest[name] = p.then((r) => (r && r.target_weight_kg != null ? r : null), () => null);
+        ui.suggest[key] = p.then((r) => (r && r.target_weight_kg != null ? r : null), () => null);
     }
-    return ui.suggest[name];
+    return ui.suggest[key];
 }
 
 // Chip only while a pending row exists and its shown weight is not already the
@@ -964,15 +969,15 @@ async function _maybeAttachSuggestChip(entry, meta, monoRow, log, index) {
     const kg = Number(s.target_weight_kg);
     if (Number(_setRowValues(log, first).weight_kg) === kg) return;
 
-    const name = log.exercise_name;
-    const open = !!ui.suggestOpen[name];
+    const key = _suggestKey(log);
+    const open = !!ui.suggestOpen[key];
     const chip = document.createElement('button');
     chip.type = 'button';
     chip.className = 'wg-chip wg-chip--sm wg-workouts-session-exercise__suggest-chip';
     chip.setAttribute('aria-expanded', open ? 'true' : 'false');
     chip.append(_wgIco('sparkle'), document.createTextNode(`Try ${kg} kg`));
     chip.addEventListener('click', () => {
-        ui.suggestOpen[name] = !ui.suggestOpen[name];
+        ui.suggestOpen[key] = !ui.suggestOpen[key];
         _rerenderSessionLogs();
     });
     meta.appendChild(chip);

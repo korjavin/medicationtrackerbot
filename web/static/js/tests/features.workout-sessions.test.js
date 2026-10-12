@@ -2953,7 +2953,7 @@ describe('features/workout/sessions.js — in-session weight suggestion (med-h5u
     expect(chip.getAttribute('aria-expanded')).toBe('false');
     expect(cardOf(c)).toBeNull();
     const url = window.apiCall.mock.calls.map(([e]) => e).find((e) => e.includes('suggest-target'));
-    expect(url).toBe('/api/workout/exercises/suggest-target?name=Bench&exercise_id=1');
+    expect(url).toBe('/api/workout/exercises/suggest-target?name=Bench&exercise_id=1&session_id=42');
   });
 
   it('renders nothing for a null answer or a 404 (bot mode)', async () => {

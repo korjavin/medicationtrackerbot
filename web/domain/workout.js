@@ -3242,8 +3242,14 @@ export function createWorkoutDomain({ records, now, timeZone }) {
       ? await findByNumericId(records, WORKOUT_RECORD_TYPES.EXERCISE, exerciseId)
       : null;
     const goal = row && !(input && input.goal) ? await effectiveGoal(row) : normalizeGoal(input && input.goal);
+    // The live session also passes its own id: its ticked sets are already
+    // completed logs, and must not stand in for "last time" (a reload mid-
+    // workout would otherwise suggest a bump over the set just lifted). Its
+    // stamped gym is where the loads resolve, exactly as propagate does.
+    const sessionId = Number(input && input.session_id) || 0;
+    const session = sessionId > 0 ? await findSession(sessionId) : null;
     const { logs } = await sortedLogsByName(name);
-    const latest = logs[0];
+    const latest = sessionId > 0 ? logs.find((l) => l.session_id !== sessionId) : logs[0];
     if (!latest) return null;
 
     // Same effective-scalar collapse propagate and progressionPreview do: a
@@ -3280,7 +3286,10 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     }
     // A library log carries no plan target: auto-match on the logged weight.
     const bound = await resolveEquipmentLoads(exercise,
-      { kg: exercise && hasValue(exercise.target_weight_kg) ? exercise.target_weight_kg : latest.weight_kg });
+      {
+        kg: exercise && hasValue(exercise.target_weight_kg) ? exercise.target_weight_kg : latest.weight_kg,
+        locationId: session && isLocationStamped(session) ? session.location_id : undefined,
+      });
     const { patch, snap } = progressionPatch(plan, sets, reps, latest.weight_kg, latest.sets, goal, bound.loads);
     const lastWeight = hasValue(latest.weight_kg) && latest.weight_kg > 0 ? latest.weight_kg : null;
     // {} means the rule held the plan with no anchor to hold it at; fall back to

@@ -1222,7 +1222,21 @@ describe('cloud shim contract — workout stats + mi-band', () => {
                     sets: [0, 1, 2].map((set_index) => ({ set_index, weight_kg, reps, set_type: 'normal' })),
                 });
                 await window.apiCall(`/api/workout/sessions/status?id=${session.id}`, 'PUT', { status: 'completed' });
+                return session;
             }
+
+            it("the asking session's own ticked sets are not \"last time\"", async () => {
+                env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
+                const { window } = env;
+                const ex = await planRow(window, 'strength', {});
+                await logRow(window, ex, 100, 6);
+                const current = await logRow(window, ex, 102.5, 6);
+
+                const s = await window.apiCallDirect(
+                    `/api/workout/exercises/suggest-target?name=Squat&exercise_id=${ex.id}&session_id=${current.id}`);
+                expect(s.last.weight_kg).toBe(100);
+                expect(s.target_weight_kg).toBe(102.5);
+            });
 
             it('a rule-less row takes the routine goal and answers byte-identically to the editor', async () => {
                 env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true });
