@@ -138,6 +138,7 @@ func relayAnthropicStream(w http.ResponseWriter, accountID string, body io.Reade
 		cacheRead, chunks int
 		done, clientGone  bool
 		toolIndex         = map[int]int{} // content block index → tool_calls index
+		hasArgs           = map[int]bool{}
 		created           = time.Now().Unix()
 	)
 	emit := func(delta map[string]any, finish any) bool {
@@ -180,6 +181,7 @@ func relayAnthropicStream(w http.ResponseWriter, accountID string, body io.Reade
 				}
 			case "input_json_delta":
 				if n, ok := toolIndex[ev.Index]; ok && ev.Delta.PartialJSON != "" {
+					hasArgs[ev.Index] = true
 					return emit(map[string]any{"tool_calls": []any{map[string]any{
 						"index": n, "function": map[string]string{"arguments": ev.Delta.PartialJSON},
 					}}}, nil)
@@ -195,10 +197,18 @@ func relayAnthropicStream(w http.ResponseWriter, accountID string, body io.Reade
 		case "message_stop":
 			done = true
 			return false
+		case "content_block_stop":
+			// A zero-argument tool call may stream no input_json_delta at all;
+			// "" is not JSON, so close it as "{}".
+			if n, ok := toolIndex[ev.Index]; ok && !hasArgs[ev.Index] {
+				return emit(map[string]any{"tool_calls": []any{map[string]any{
+					"index": n, "function": map[string]string{"arguments": "{}"},
+				}}}, nil)
+			}
 		case "error":
 			return false
 		}
-		return true // ping, content_block_stop
+		return true // ping, non-tool content_block_stop
 	})
 	finishStream(sse, accountID, "anthropic", start, chunks, done, clientGone, err, stopReason, cacheRead)
 }

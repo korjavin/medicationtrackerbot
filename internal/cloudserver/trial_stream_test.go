@@ -180,11 +180,17 @@ data: {"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta"
 event: content_block_delta
 data: {"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"0.5}"}}
 
+event: content_block_stop
+data: {"type":"content_block_stop","index":2}
+
 event: content_block_start
 data: {"type":"content_block_start","index":3,"content_block":{"type":"tool_use","id":"toolu_2","name":"end_call","input":{}}}
 
 event: content_block_delta
-data: {"type":"content_block_delta","index":3,"delta":{"type":"input_json_delta","partial_json":"{}"}}
+data: {"type":"content_block_delta","index":3,"delta":{"type":"input_json_delta","partial_json":""}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":3}
 
 event: message_delta
 data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":9}}
