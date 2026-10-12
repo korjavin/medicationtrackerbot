@@ -171,6 +171,36 @@ describe('Today v2 — Next up', () => {
         expect(env.window.WorkoutSessions.open).toHaveBeenCalledWith(7);
     });
 
+    it('workout row: View is constant, the state action follows it (med-vjrv)', () => {
+        env.window.WorkoutSessions = { start: vi.fn(), open: vi.fn() };
+        env.window.WorkoutNextCard = { openEdit: vi.fn() };
+        const onDeeplink = vi.fn();
+        const trailOf = (value) => {
+            const s = busyState();
+            s.nextWorkout.value = value;
+            env.render(s, root, { now: NOW, onDeeplink });
+            return Array.from(root.querySelectorAll('[data-next="workout"] .wg-row__trail .wg-btn'));
+        };
+        const ids = (a) => a.map((b) => b.getAttribute('data-action'));
+        // Today / pending: View then Start, Start is the sun.
+        let acts = trailOf({ ...WORKOUT_TODAY, variant_id: 9, group_id: 4 });
+        expect(ids(acts)).toEqual(['view-workout', 'start-workout']);
+        expect(acts.map((b) => b.classList.contains('wg-btn--primary'))).toEqual([false, true]);
+        acts[0].click();
+        expect(onDeeplink).toHaveBeenCalledWith('workouts');
+        expect(env.window.WorkoutNextCard.openEdit).toHaveBeenCalledWith(9, 4);
+        acts[1].click();
+        expect(env.window.WorkoutSessions.start).toHaveBeenCalledWith(7);
+        // Today / in progress: View then Resume, Resume is the sun.
+        acts = trailOf({ ...WORKOUT_TODAY, status: 'in_progress' });
+        expect(ids(acts)).toEqual(['view-workout', 'resume-workout']);
+        expect(acts.map((b) => b.classList.contains('wg-btn--primary'))).toEqual([false, true]);
+        acts[1].click();
+        expect(env.window.WorkoutSessions.open).toHaveBeenCalledWith(7);
+        // Today / completed: View only.
+        expect(ids(trailOf({ ...WORKOUT_TODAY, status: 'completed' }))).toEqual(['view-workout']);
+    });
+
     it('a session on another day offers View and Start, neither the sun; the sun moves to the dose', () => {
         const s = busyState();
         s.nextWorkout.value = { ...WORKOUT_TODAY, is_today: false, scheduled_date: '2026-04-22' };

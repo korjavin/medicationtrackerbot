@@ -727,23 +727,19 @@
             if (v.status === 'pre_skipped') parts.push('skipped');
             if (v.status === 'in_progress') parts.push('in progress');
             meta.textContent = parts.join(' · ');
+            // View is constant for every workout row; the state action follows it
+            // (med-vjrv: it was wired per-state and flipped between View-only / Start-only).
+            trail.appendChild(btn('View', { sm: true, action: 'view-workout', onClick: () => h.onViewWorkout(v) }));
             const kind = workoutAction(v);
-            if (kind === 'start') {
+            if (kind === 'start' || (kind === 'view' && !v.is_today && v.id != null && (!v.status || v.status === 'pending' || v.status === 'scheduled'))) {
+                // An upcoming session can be started early (domain startSession, med-gmyf).
                 action = btn('Start', { sm: true, primary, icon: 'play', action: 'start-workout', onClick: () => h.onStartWorkout(v.id) });
             } else if (kind === 'resume') {
                 action = btn('Resume', { sm: true, primary, icon: 'play', action: 'resume-workout', onClick: () => h.onResumeWorkout(v.id) });
-            } else {
-                action = btn('View', { sm: true, action: 'view-workout', onClick: () => h.onViewWorkout(v) });
-                // An upcoming session can be started early: the start flow
-                // re-keys it onto today's slot (domain startSession, med-gmyf).
-                if (!v.is_today && v.id != null && (!v.status || v.status === 'pending' || v.status === 'scheduled')) {
-                    trail.appendChild(action);
-                    action = btn('Start', { sm: true, icon: 'play', action: 'start-workout', onClick: () => h.onStartWorkout(v.id) });
-                }
             }
         }
         body.appendChild(meta);
-        trail.appendChild(action);
+        if (action) trail.appendChild(action);
         row.append(lead, body, trail);
         return row;
     }
