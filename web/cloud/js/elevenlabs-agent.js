@@ -14,7 +14,7 @@ const AGENTS_ENDPOINT = 'https://api.elevenlabs.io/v1/convai/agents';
 
 // Bump this whenever TOOL_SPECS or the agent config below changes so unlocked
 // devices reprovision on their next connect.
-export const TOOLSET_VERSION = 5;
+export const TOOLSET_VERSION = 6;
 
 // Rachel — a warm ElevenLabs female voice (med-eas.27).
 const VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
@@ -47,9 +47,27 @@ const SYSTEM_PROMPT = [
   "user's choices or numbers; if something is off, point to the next small best",
   'step. You give reflections, not medical advice or diagnoses. Do not mention',
   'being an AI.',
+  '',
+  'Always reply in the language the user is speaking; if they switch languages,',
+  'switch with them. Tool names and arguments stay in English.',
 ].join('\n');
 
 const FIRST_MESSAGE = 'Silas here. Would you like to log a reading, or take a look at your numbers?';
+
+// Languages the language_detection system tool may switch to mid-call (it only
+// switches between the default language and these presets), each with a
+// translated greeting. English stays the default (bd med-qxdv).
+const FIRST_MESSAGE_TRANSLATIONS = {
+  ru: 'Это Сайлас. Хотите записать показатель или посмотреть свои данные?',
+  uk: 'Це Сайлас. Хочете записати показник чи переглянути свої дані?',
+  de: 'Hier ist Silas. Möchtest du einen Wert eintragen oder dir deine Zahlen ansehen?',
+  es: 'Aquí Silas. ¿Quieres registrar una medición o echar un vistazo a tus datos?',
+  fr: 'Ici Silas. Voulez-vous enregistrer une mesure ou consulter vos chiffres ?',
+};
+
+// eleven_flash_v2 (ElevenLabs' default for 'en' agents) is English-only, so a
+// mid-call switch to another language needs a v2_5 multilingual model.
+const TTS_MODEL_ID = 'eleven_flash_v2_5';
 
 // Fixed tool spec list. Each name matches a clientTools callback registered in
 // web/static/js/features/elevenlabs-call.js buildClientTools(), which maps it
@@ -325,7 +343,20 @@ export function buildAgentConfig(toolIds) {
   return {
     conversation_config: {
       agent: {
-        prompt: { prompt: SYSTEM_PROMPT, tool_ids: toolIds },
+        prompt: {
+          prompt: SYSTEM_PROMPT,
+          tool_ids: toolIds,
+          // Lets the agent switch to a language_presets language mid-call.
+          // Blank description = ElevenLabs' default detection prompt.
+          built_in_tools: {
+            language_detection: {
+              type: 'system',
+              name: 'language_detection',
+              description: '',
+              params: { system_tool_type: 'language_detection' },
+            },
+          },
+        },
         first_message: FIRST_MESSAGE,
         language: 'en',
         // Audible cue when the agent calls a tool (owner UX request). Nesting
@@ -333,7 +364,12 @@ export function buildAgentConfig(toolIds) {
         tool_call_sound: 'typing',
         tool_call_sound_behavior: 'always',
       },
-      tts: { voice_id: VOICE_ID },
+      tts: { voice_id: VOICE_ID, model_id: TTS_MODEL_ID },
+      language_presets: Object.fromEntries(
+        Object.entries(FIRST_MESSAGE_TRANSLATIONS).map(([lang, text]) => [
+          lang, { overrides: { agent: { first_message: text } } },
+        ]),
+      ),
     },
   };
 }
