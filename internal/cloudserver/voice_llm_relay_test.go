@@ -486,3 +486,31 @@ func TestRouter_BaseDomainForwardsVoiceLLMCompletions(t *testing.T) {
 		}
 	}
 }
+
+// bd med-h849.14: the fallback sentence follows the caller's language, taken
+// from the last user message; English stays the default.
+func TestVoiceLLMRelay_FallbackInCallerLanguage(t *testing.T) {
+	f := newVoiceRelayFixture(t)
+	ask := func(body string) string {
+		req := httptest.NewRequest(http.MethodPost, voiceLLMCompletionsPath, strings.NewReader(body))
+		req.Host = f.host
+		rec := httptest.NewRecorder()
+		f.h.ServeHTTP(rec, req)
+		return rec.Body.String()
+	}
+	for _, c := range []struct{ msgs, want string }{
+		{`[{"role":"user","content":"Привет, как дела?"}]`, "положите трубку"},
+		{`[{"role":"user","content":[{"type":"text","text":"Привіт, як справи?"}]}]`, "покладіть слухавку"},
+		{`[{"role":"user","content":"Привет"},{"role":"assistant","content":"Hi"},{"role":"user","content":"hello"}]`, "please hang up and call again"},
+		{`[]`, "please hang up and call again"},
+	} {
+		if out := ask(`{"messages":` + c.msgs + `,"elevenlabs_extra_body":{"call":"nope"}}`); !strings.Contains(out, c.want) {
+			t.Errorf("messages %s: got %q, want %q", c.msgs, out, c.want)
+		}
+	}
+	for text, want := range map[string]string{"Wie geht's? Schön": "de", "¿Cómo estás?": "es", "ça va très bien": "fr", "hello": "en"} {
+		if got := langOfText(text); got != want {
+			t.Errorf("langOfText(%q) = %s, want %s", text, got, want)
+		}
+	}
+}

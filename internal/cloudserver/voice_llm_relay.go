@@ -55,8 +55,7 @@ const (
 	// voiceHangUpText is for a call nothing can recover (unknown or expired
 	// token); voiceRetryText for every transient failure on a live call — the
 	// tab is still open and the next turn may well work (bd med-h849.11).
-	voiceHangUpText = "I lost the connection to your app — please hang up and call again."
-	voiceRetryText  = "Sorry, I didn't catch that — could you say it again?"
+	// Texts are per language: see voice_lang.go (English is the default).
 )
 
 // Close codes on the device leg, mirroring the MCP relay's (see StatusNoPairing
@@ -397,7 +396,7 @@ func (a *VoiceLLMRelayAPI) DeviceSocket(w http.ResponseWriter, r *http.Request) 
 // ChatCompletions is the ElevenLabs custom-LLM endpoint. Short of the miss
 // rate limit it always answers with an SSE stream that ends in [DONE] — the
 // provider's answer relayed verbatim, or a fixed spoken fallback sentence
-// (voiceHangUpText for an unknown call, voiceRetryText for a transient
+// (hang-up for an unknown call, retry for a transient
 // failure) — and never returns content of its own beyond that sentence. A
 // device leg that drops before anything was written gets one re-send on the
 // leg the browser redials (bd med-h849.11).
@@ -423,6 +422,7 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 	_ = json.Unmarshal(payload["elevenlabs_extra_body"], &extra)
 	delete(payload, "elevenlabs_extra_body")
 
+	lang := voiceLang(payload)
 	call := a.lookup(extra.Call)
 	if call == nil {
 		if !a.badCalls.Allow(clientIP(r)) {
@@ -439,7 +439,7 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusOK)
-		writeVoiceFallback(func(s string) error { _, err := io.WriteString(w, s); return err }, voiceHangUpText)
+		writeVoiceFallback(func(s string) error { _, err := io.WriteString(w, s); return err }, voiceHangUp(lang))
 		return
 	}
 	forward, err := json.Marshal(payload)
@@ -501,13 +501,13 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 					return false
 				}
 				outcome = "no_device"
-				writeVoiceFallback(write, voiceRetryText)
+				writeVoiceFallback(write, voiceRetry(lang))
 				return false
 			}
 			id, waiter, _ = call.register(conn)
 		}
 		if err := writeDeviceFrame(r.Context(), conn, voiceFrame{ID: id, Type: "request", Body: forward}); err != nil {
-			writeVoiceFallback(write, voiceRetryText)
+			writeVoiceFallback(write, voiceRetry(lang))
 			return false
 		}
 		return true
@@ -526,7 +526,7 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 		if tail != "\n\n" {
 			_ = write("\n\n")
 		}
-		writeVoiceFallback(write, voiceRetryText)
+		writeVoiceFallback(write, voiceRetry(lang))
 	}
 	// handle applies one device frame; true ends the turn.
 	handle := func(f voiceFrame) bool {
