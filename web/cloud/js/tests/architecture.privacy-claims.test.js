@@ -93,6 +93,7 @@ const PROMISE_CARVE_OUTS = /optional integrations?[^.]{0,200}(outside (that|the)
 const REQUIRED_CARVE_OUTS = [
   ['trial AI', /trial ai/i],
   ['trial voice', /trial voice/i],
+  ['voice LLM relay', /voice[\s-]?llm relay|voice agent.s answers/i],
   ['Telegram relay', /telegram/i],
   ['Telegram bot token at rest', /bot token/i],
   ['hosted MCP (tier 2)', /hosted mcp/i],

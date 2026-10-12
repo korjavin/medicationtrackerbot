@@ -30,8 +30,8 @@
         },
         voice: {
             title: 'Use the trial voice agent?',
-            data: 'Your voice audio and the agent conversation (including transcripts) will be processed by the voice service — AND the health data the agent reads from your vault to answer you: blood pressure, weight, workouts, medications, food, sleep, notes, whatever you ask it about.',
-            transit: 'This content transits the operator’s ElevenLabs agent — the operator’s provider processes it on the operator’s key.',
+            data: 'Your voice audio and the agent conversation (including transcripts) will be processed by the voice service, and the agent\u2019s answers are written by the operator\u2019s AI provider, which receives each turn (the conversation so far) — AND the health data the agent reads from your vault to answer you: blood pressure, weight, workouts, medications, food, sleep, notes, whatever you ask it about.',
+            transit: 'This content transits the operator’s ElevenLabs agent and then the operator’s server (in transit only, not stored) on its way to the operator’s AI provider account — the operator’s providers process it on the operator’s keys.',
         },
         tg: {
             title: 'Let the Telegram assistant use the trial AI?',
