@@ -347,3 +347,78 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
         expect(fetchSpy).not.toHaveBeenCalled();
     });
 });
+
+// bd med-h849.2 — window.CloudVoiceLLM: the voice LLM relay's device leg, wired
+// by installApiShim to the same aiClient the food AI uses. A relay request
+// frame reaches the user's own provider with the vault key + model and
+// stream:true, and the provider's raw SSE comes back as chunk frames.
+describe('cloud shim contract — voice LLM relay leg (web/cloud/js/voice-llm-responder.js)', () => {
+    let env;
+
+    class FakeSocket {
+        constructor(url) {
+            this.url = url;
+            this.readyState = 1;
+            this.sent = [];
+            FakeSocket.last = this;
+        }
+
+        send(data) { this.sent.push(JSON.parse(data)); }
+
+        close() { this.readyState = 3; }
+
+        recv(frame) { this.onmessage({ data: JSON.stringify(frame) }); }
+    }
+    FakeSocket.OPEN = 1;
+
+    beforeEach(() => {
+        env = loadCloudShimFrontendEnv();
+        installApiCache(env.window);
+        env.window.__MEDTRACKER_CLOUD__ = true;
+        vi.stubGlobal('WebSocket', FakeSocket);
+        vi.stubGlobal('location', { protocol: 'https:', host: 'acct.example.test' });
+    });
+
+    afterEach(() => {
+        env.window.CloudVoiceLLM.stop();
+        vi.unstubAllGlobals();
+        env.cleanup();
+        env = null;
+    });
+
+    it('serves a relay request through the vault provider and streams the raw SSE back', async () => {
+        const { window } = env;
+        await window.apiCall('/api/settings/integrations', 'PATCH', {
+            openai: { api_key: 'sk-test-dummy', url: 'https://api.example.test/v1', model: 'my-model' },
+        });
+        const sse = 'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\ndata: [DONE]\n\n';
+        let reads = 0;
+        const fetchSpy = vi.fn(async () => ({
+            ok: true,
+            status: 200,
+            body: {
+                getReader: () => ({
+                    read: async () => (reads++ === 0
+                        ? { done: false, value: new TextEncoder().encode(sse) }
+                        : { done: true, value: undefined }),
+                }),
+            },
+        }));
+        vi.stubGlobal('fetch', fetchSpy);
+
+        const started = window.CloudVoiceLLM.start();
+        const sock = FakeSocket.last;
+        expect(sock.url).toBe('wss://acct.example.test/api/voice-llm/device');
+        sock.recv({ type: 'hello', call: 'tok' });
+        await expect(started).resolves.toBe('tok');
+
+        sock.recv({ id: 1, type: 'request', body: { model: 'medtracker', messages: [{ role: 'user', content: 'hi' }] } });
+        await vi.waitFor(() => expect(sock.sent.at(-1)).toEqual({ id: 1, type: 'end' }));
+
+        expect(sock.sent[0]).toEqual({ id: 1, type: 'chunk', data: sse });
+        const [url, init] = fetchSpy.mock.calls[0];
+        expect(url).toBe('https://api.example.test/v1/chat/completions');
+        expect(init.headers.Authorization).toBe('Bearer sk-test-dummy');
+        expect(JSON.parse(init.body)).toMatchObject({ model: 'my-model', stream: true });
+    });
+});

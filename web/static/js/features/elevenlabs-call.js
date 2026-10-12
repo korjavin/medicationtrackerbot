@@ -479,6 +479,42 @@
         clearConnectWatchdog();
     }
 
+    // Voice LLM relay device leg (cloud only, bd med-h849.2): the agent's LLM
+    // turns reach this tab through it, so it lives exactly as long as the call.
+    // Callers only stop it from a live() generation (or a hang-up/timeout that
+    // bumps it), so a stale chain never closes a newer call's leg.
+    function stopVoiceLLM() {
+        if (window.CloudVoiceLLM) window.CloudVoiceLLM.stop();
+    }
+
+    // openVoiceLLMLeg → the call token, or null to call without the relay.
+    // The leg must be up before the signed URL is minted, so the agent's first
+    // LLM turn finds it. Bot mode has no relay. Best-effort on purpose: an
+    // agent not (yet) switched to the custom LLM (med-h849.3) never uses the
+    // leg, so a failed leg or a declined consent must not block the call — an
+    // agent that does use it speaks the relay's own fallback sentence instead.
+    async function openVoiceLLMLeg(live) {
+        if (!window.CloudVoiceLLM) return null;
+        try {
+            // No AI key of its own → the relay answers through the trial proxy,
+            // which needs `voice` consent even when the ElevenLabs key is the
+            // user's: ask now, not as a failed first turn. Trial-voice callers
+            // (no ElevenLabs key) are asked by fetchSignedURL() — skip so a
+            // decline is not prompted twice.
+            if (await window.CloudVoiceLLM.usesTrialAI() && await window.CloudElevenLabs.hasKey()) {
+                await ensureTrialVoiceConsent();
+            }
+            return await window.CloudVoiceLLM.start();
+        } catch (err) {
+            // A stale chain (hung up / timed out meanwhile) was already
+            // stopped and must not close a newer call's leg.
+            if (!live()) return null;
+            stopVoiceLLM();
+            console.warn('[voice-llm] calling without the relay leg:', (err && (err.code || err.message)) || 'error');
+            return null;
+        }
+    }
+
     // Voice readiness for the idle trigger (kit T4): true once a vault key or
     // the operator trial is known to exist, false when neither is, null while
     // unknown (the trigger then reads "Call agent" and a tap tries the call,
@@ -758,6 +794,7 @@
 
     async function endCall() {
         cancelConnect();
+        stopVoiceLLM();
         const conv = activeConversation;
         activeConversation = null;
         if (conv && typeof conv.endSession === 'function') {
@@ -777,9 +814,12 @@
             connectTimer = null;
             if (!live()) return;
             callGeneration += 1;
+            stopVoiceLLM();
             setState('error', 'Connection timed out — allow microphone access and try again.');
         }, CONNECT_TIMEOUT_MS);
         try {
+            const call = await openVoiceLLMLeg(live);
+            if (!live()) return;
             const [signedUrl, sdk] = await Promise.all([
                 fetchSignedURL(),
                 loadSDK(),
@@ -795,14 +835,17 @@
                 workletPaths: WORKLET_PATHS,
                 libsampleratePath: LIBSAMPLERATE_PATH,
                 ...(clientTools ? { clientTools } : {}),
+                ...(call ? { customLlmExtraBody: { call } } : {}),
                 onConnect: () => { if (live()) setState('in_call', 'Connected'); },
                 onDisconnect: () => {
                     if (!live()) return;
+                    stopVoiceLLM();
                     activeConversation = null;
                     setState('idle', '');
                 },
                 onError: (err) => {
                     if (!live()) return;
+                    stopVoiceLLM();
                     activeConversation = null;
                     const msg = (err && (err.message || err.error)) || 'Call error';
                     setState('error', msg);
@@ -832,6 +875,7 @@
         } catch (err) {
             if (!live()) return;
             clearConnectWatchdog();
+            stopVoiceLLM();
             activeConversation = null;
             const msg = err && err.status === 503
                 ? 'Voice agent is not configured on this server.'
