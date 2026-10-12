@@ -54,10 +54,10 @@ describe('scripts/provision-trial-agent.mjs', () => {
     expect(src).not.toContain('You are Silas');
   });
 
-  it('ships a multilingual agent: v2_5 TTS, language detection, ru preset, mirror-language prompt (bd med-qxdv)', () => {
+  it('ships a multilingual agent: v4_turbo TTS, language detection, ru preset, mirror-language prompt (bd med-qxdv)', () => {
     const cc = buildAgentConfig([]).conversation_config;
     expect(cc.agent.language).toBe('en');
-    expect(cc.tts.model_id).toMatch(/_v2_5$/);
+    expect(cc.tts.model_id).toBe('eleven_v4_turbo');
     expect(cc.agent.prompt.built_in_tools.language_detection.params.system_tool_type).toBe('language_detection');
     expect(cc.language_presets.ru.overrides.agent.first_message).toBeTruthy();
     expect(cc.agent.prompt.prompt).toContain('reply in the language the user is speaking');
