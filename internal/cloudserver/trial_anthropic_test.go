@@ -129,7 +129,14 @@ func TestTrialAnthropic_SchemaTextAndVision(t *testing.T) {
 	if sys["text"] != "You parse meals." || sys["cache_control"] == nil {
 		t.Fatalf("system = %v", sys)
 	}
-	format := body["output_config"].(map[string]any)["format"].(map[string]any)
+	if cc, _ := body["cache_control"].(map[string]any); cc["type"] != "ephemeral" {
+		t.Fatalf("top-level cache_control = %v, want ephemeral (transcript caching)", body["cache_control"])
+	}
+	oc := body["output_config"].(map[string]any)
+	if _, has := oc["effort"]; has {
+		t.Fatalf("non-stream request must keep the model's default effort: %v", oc)
+	}
+	format := oc["format"].(map[string]any)
 	if format["type"] != "json_schema" || format["schema"].(map[string]any)["additionalProperties"] != false {
 		t.Fatalf("output_config.format = %v", format)
 	}

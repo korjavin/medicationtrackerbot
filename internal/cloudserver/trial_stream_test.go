@@ -263,6 +263,12 @@ func TestTrialStream_AnthropicTranslation(t *testing.T) {
 	if got["stream"] != true || got["model"] != anthModel {
 		t.Fatalf("upstream body = %v", got)
 	}
+	if oc, _ := got["output_config"].(map[string]any); oc["effort"] != "low" {
+		t.Fatalf("voice turn output_config = %v, want effort low", got["output_config"])
+	}
+	if cc, _ := got["cache_control"].(map[string]any); cc["type"] != "ephemeral" {
+		t.Fatalf("top-level cache_control = %v, want ephemeral", got["cache_control"])
+	}
 	for _, banned := range []string{"thinking", "user", "temperature"} {
 		if _, has := got[banned]; has {
 			t.Fatalf("upstream body carries %q: %v", banned, got)
