@@ -927,8 +927,9 @@ async function _maybeAttachBodyPartChip(headerRow, log) {
 // The plan editor's "Try <kg>" (suggestExerciseTarget, the same progression
 // engine propagate runs) asked from the live session by plan row, with the
 // session's id so the domain skips this session's own ticked sets and resolves
-// loads at its gym. One read per exercise row per session (two rows can share
-// a name with different rules). Bot mode 404 / null → nothing rendered.
+// loads at its gym. One read per exercise row (two rows can share a name with
+// different rules) per open, re-asked on a gym switch. Bot mode 404 / null →
+// nothing rendered.
 function _suggestKey(log) {
     return `${log.source === 'library' ? 'lib' : 'row'}:${_logKey(log)}`;
 }
@@ -961,7 +962,10 @@ function _exerciseSuggestion(log) {
 async function _maybeAttachSuggestChip(entry, meta, monoRow, log, index) {
     if (!log || !log.exercise_name) return;
     const ui = _sessionUi();
-    const s = await _exerciseSuggestion(log);
+    const pending = _exerciseSuggestion(log);
+    const s = await pending;
+    // A gym switch re-asks: a superseded read never renders.
+    if (ui.suggest[_suggestKey(log)] !== pending) return;
     if (!s || !meta.isConnected || window.WorkoutSessionsState.ui !== ui) return;
     if (meta.querySelector('.wg-workouts-session-exercise__suggest-chip')) return;
     const first = _ensureLogSets(log).length;
@@ -1068,12 +1072,20 @@ function refreshSessionPlateGear() {
     st.plateGearGen = (st.plateGearGen || 0) + 1;
     st.plateGear = null;
     st.plateGearPromise = null;
+    // The weight suggestion snaps to the session gym's loads too: re-ask.
+    if (st.ui) st.ui.suggest = {};
     (st.logs || []).forEach((log, index) => {
         const entry = document.getElementById(`exercise-log-${index}`);
         if (!entry) return;
         const old = entry.querySelector('.wg-workouts-session-exercise__plates');
         if (old) old.remove();
         _maybeAttachPlateChip(entry, log);
+        const meta = entry.querySelector('.wg-ex__meta');
+        const mono = entry.querySelector('.wg-workouts-session-exercise__mono');
+        if (!meta || !mono) return;
+        entry.querySelectorAll('.wg-workouts-session-exercise__suggest-chip, .wg-workouts-session-exercise__suggest')
+            .forEach((el) => el.remove());
+        _maybeAttachSuggestChip(entry, meta, mono, log, index);
     });
 }
 
@@ -1658,6 +1670,7 @@ async function showWorkoutSessionModal(sessionId) {
             // Last-session values and the PR baseline re-read on every open.
             st.ui.hist = {};
             st.ui.last = {};
+            st.ui.suggest = {};
         }
 
         window.WorkoutSessionsState.logs = data.logs || [];
