@@ -14,7 +14,7 @@ const AGENTS_ENDPOINT = 'https://api.elevenlabs.io/v1/convai/agents';
 
 // Bump this whenever TOOL_SPECS or the agent config below changes so unlocked
 // devices reprovision on their next connect.
-export const TOOLSET_VERSION = 8;
+export const TOOLSET_VERSION = 9;
 
 // Rachel — a warm ElevenLabs female voice (med-eas.27).
 const VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
@@ -362,6 +362,9 @@ export function buildAgentConfig(toolIds, { llmURL } = {}) {
           llm: 'custom-llm',
           custom_llm: { url: llmURL, model_id: 'medtracker', api_type: 'chat_completions' },
           tool_ids: toolIds,
+          // Max (2-15 s, default 4): ElevenLabs aborts + re-sends a custom-LLM turn
+          // after this; the relay's user-tab round trip can take longer (med-h849.13).
+          cascade_timeout_seconds: 15,
           // Lets the agent switch to a language_presets language mid-call.
           // Blank description = ElevenLabs' default detection prompt.
           built_in_tools: {
@@ -375,6 +378,14 @@ export function buildAgentConfig(toolIds, { llmURL } = {}) {
         },
         first_message: FIRST_MESSAGE,
         language: 'en',
+      },
+      // One short filler per slow turn so the caller isn't met with silence.
+      turn: {
+        soft_timeout_config: {
+          timeout_seconds: 2.5,
+          message: 'One moment…',
+          disable_until_first_user_message: true,
+        },
       },
       tts: { voice_id: VOICE_ID, model_id: TTS_MODEL_ID },
       language_presets: Object.fromEntries(

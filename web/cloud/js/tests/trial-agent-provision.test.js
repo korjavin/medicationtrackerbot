@@ -79,6 +79,18 @@ describe('scripts/provision-trial-agent.mjs', () => {
     expect(() => buildAgentConfig([])).toThrow(/llmURL/);
   });
 
+  it('sets the turn-timeout knobs so slow relay turns are not aborted at ~8 s (bd med-h849.13)', () => {
+    const cc = buildAgentConfig([], { llmURL: LLM_URL }).conversation_config;
+    expect(cc.agent.prompt.cascade_timeout_seconds).toBe(15);
+    expect(cc.turn.soft_timeout_config).toEqual({
+      timeout_seconds: 2.5, message: 'One moment…', disable_until_first_user_message: true,
+    });
+    expect(TOOLSET_VERSION).toBeGreaterThanOrEqual(9);
+    const r = run([], { TRIAL_VOICE_LLM_URL: LLM_URL });
+    expect(r.stdout).toContain('"cascade_timeout_seconds": 15');
+    expect(r.stdout).toContain('"soft_timeout_config"');
+  });
+
   it('dry run prints TRIAL_VOICE_LLM_URL and the custom_llm block', () => {
     const r = run([], { TRIAL_VOICE_LLM_URL: LLM_URL });
     expect(r.status, r.stderr).toBe(0);
