@@ -192,9 +192,49 @@
         // guard() is the single place a dispatcher throw becomes a short JSON
         // string. The workout tools chain several dispatches, so the try/catch
         // has to wrap the whole tool body, not one handle() call.
+        // Every result stays in the ElevenLabs transcript and is re-sent on each
+        // later turn, so cap it to a voice budget (bd med-h849.9).
+        const MAX_RESULT = 14 * 1024;
+        const HINT = 'ask with a smaller window (days/limit) or a query';
+        const capResult = (value) => {
+            const full = JSON.stringify(value);
+            if (full === undefined || full.length <= MAX_RESULT) return full;
+            // Largest array: the result itself or one top-level field.
+            const isObj = value && typeof value === 'object' && !Array.isArray(value);
+            let key = null;
+            if (isObj) {
+                let best = -1;
+                Object.keys(value).forEach((k) => {
+                    if (Array.isArray(value[k]) && value[k].length > best) { best = value[k].length; key = k; }
+                });
+            }
+            const arr = Array.isArray(value) ? value : (key !== null ? value[key] : null);
+            if (arr && arr.length) {
+                const build = (n) => {
+                    const marker = { truncated: true, omitted: arr.length - n, hint: HINT };
+                    const kept = arr.slice(0, n);
+                    return JSON.stringify(key === null ? [...kept, marker] : { ...value, [key]: kept, ...marker });
+                };
+                let lo = 0, hi = arr.length;
+                while (lo < hi) {
+                    const mid = (lo + hi + 1) >> 1;
+                    if (build(mid).length <= MAX_RESULT) lo = mid; else hi = mid - 1;
+                }
+                return build(lo);
+            }
+            // No array to trim: cut the serialized string, keep the marker parseable.
+            const text = typeof value === 'string' ? value : full;
+            let n = MAX_RESULT - 300;
+            let out;
+            do { // escaping can inflate the slice; shrink until the envelope fits
+                out = JSON.stringify({ truncated: true, omitted: text.length - n, partial: text.slice(0, n), hint: HINT });
+                n = Math.floor(n * 0.8);
+            } while (out.length > MAX_RESULT && n > 0);
+            return out;
+        };
         const guard = async (fn) => {
             try {
-                return JSON.stringify(await fn());
+                return capResult(await fn());
             } catch (err) {
                 return JSON.stringify({ error: (err && err.message) || 'MCP dispatch failed' });
             }

@@ -1131,6 +1131,45 @@ describe('features/elevenlabs-call.js — cloud dynamic MCP client-tools', () =>
         }
     });
 
+    it('caps oversized tool results to the 14 KB voice budget and leaves small ones byte-identical', async () => {
+        const { window, cleanup } = createConversationEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            const notes = Array.from({ length: 400 }, (_, i) => ({ id: i, text: 'n'.repeat(250) }));
+            const small = { rows: [{ sys: 120 }] };
+            window.CloudMCPDispatcher = {
+                handle: vi.fn(async (method, params) => {
+                    if (params.op === 'health.notes.list') return { notes };
+                    if (params.op === 'bare.list') return notes;
+                    if (params.op === 'blob') return { blob: 'x'.repeat(100000) };
+                    return small;
+                }),
+            };
+            const { opts } = await startCall(window);
+
+            const nested = await opts.clientTools.mcp_call({ op: 'health.notes.list' });
+            expect(nested.length).toBeLessThanOrEqual(14 * 1024);
+            const n = JSON.parse(nested);
+            expect(n.truncated).toBe(true);
+            expect(n.notes.length + n.omitted).toBe(400);
+            expect(n.notes[0].id).toBe(0);
+            expect(typeof n.hint).toBe('string');
+
+            const bare = await opts.clientTools.mcp_call({ op: 'bare.list' });
+            expect(bare.length).toBeLessThanOrEqual(14 * 1024);
+            const b = JSON.parse(bare);
+            expect(b[b.length - 1]).toMatchObject({ truncated: true });
+
+            const blob = await opts.clientTools.mcp_call({ op: 'blob' });
+            expect(blob.length).toBeLessThanOrEqual(14 * 1024);
+            expect(JSON.parse(blob).truncated).toBe(true);
+
+            expect(await opts.clientTools.mcp_call({ op: 'small' })).toBe(JSON.stringify(small));
+        } finally {
+            cleanup();
+        }
+    });
+
     it('registers no clientTools without a dispatcher', async () => {
         const { window, cleanup } = createConversationEnv();
         try {
