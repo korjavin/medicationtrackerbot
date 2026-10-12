@@ -54,6 +54,16 @@ describe('scripts/provision-trial-agent.mjs', () => {
     expect(src).not.toContain('You are Silas');
   });
 
+  it('ships a multilingual agent: v2_5 TTS, language detection, ru preset, mirror-language prompt (bd med-qxdv)', () => {
+    const cc = buildAgentConfig([]).conversation_config;
+    expect(cc.agent.language).toBe('en');
+    expect(cc.tts.model_id).toMatch(/_v2_5$/);
+    expect(cc.agent.prompt.built_in_tools.language_detection.params.system_tool_type).toBe('language_detection');
+    expect(cc.language_presets.ru.overrides.agent.first_message).toBeTruthy();
+    expect(cc.agent.prompt.prompt).toContain('reply in the language the user is speaking');
+    expect(TOOLSET_VERSION).toBeGreaterThanOrEqual(6);
+  });
+
   it('refuses to apply — never creates an agent — when the agent id is unset', () => {
     const r = run(['--apply'], { TRIAL_ELEVENLABS_API_KEY: FAKE_KEY });
     expect(r.status).toBe(1);
