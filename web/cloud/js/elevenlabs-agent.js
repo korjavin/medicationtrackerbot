@@ -14,7 +14,7 @@ const AGENTS_ENDPOINT = 'https://api.elevenlabs.io/v1/convai/agents';
 
 // Bump this whenever TOOL_SPECS or the agent config below changes so unlocked
 // devices reprovision on their next connect.
-export const TOOLSET_VERSION = 6;
+export const TOOLSET_VERSION = 7;
 
 // Rachel — a warm ElevenLabs female voice (med-eas.27).
 const VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
@@ -267,6 +267,11 @@ export function toolBody(spec) {
       // toggle.) Verify the field name against the live API during
       // acceptance, like tool_call_sound.
       expects_response: true,
+      // Audible typing cue while the tool runs (owner UX request). ElevenLabs
+      // keeps this per tool — the agent-level field is ignored, and a tool
+      // PATCH without it resets the sound to none.
+      tool_call_sound: 'typing',
+      tool_call_sound_behavior: 'always',
     },
   };
 }
@@ -360,10 +365,6 @@ export function buildAgentConfig(toolIds) {
         },
         first_message: FIRST_MESSAGE,
         language: 'en',
-        // Audible cue when the agent calls a tool (owner UX request). Nesting
-        // verified against the live API during acceptance.
-        tool_call_sound: 'typing',
-        tool_call_sound_behavior: 'always',
       },
       tts: { voice_id: VOICE_ID, model_id: TTS_MODEL_ID },
       language_presets: Object.fromEntries(
