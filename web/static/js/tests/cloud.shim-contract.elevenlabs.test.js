@@ -270,6 +270,8 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
                 description: expect.any(String),
                 parameters: expect.objectContaining({ type: 'object', required: ['systolic', 'diastolic'] }),
                 expects_response: true,
+                tool_call_sound: 'typing',
+                tool_call_sound_behavior: 'always',
             },
         });
     });
@@ -296,7 +298,7 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
         expect(calls.filter((c) => c.url.includes('/tools/') && c.method === 'PATCH')).toHaveLength(TOOL_SPECS.length);
     });
 
-    it('ensureAgent creates once with tool_ids + tool_call_sound, then reuses on matching version', async () => {
+    it('ensureAgent creates once with tool_ids, then reuses on matching version', async () => {
         const { window } = env;
         await setKey(window);
         const first = makeElevenLabsFetch({ existingTools: existingAll() });
@@ -309,8 +311,6 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
         const agent = createCall.body.conversation_config.agent;
         expect(agent.prompt.tool_ids).toHaveLength(TOOL_SPECS.length);
         expect(agent.prompt.prompt).toMatch(/tool/i);
-        expect(agent.tool_call_sound).toBe('typing');
-        expect(agent.tool_call_sound_behavior).toBe('always');
         expect(createCall.body.conversation_config.tts.voice_id).toBeTruthy();
 
         // Second provision on the same (stored) TOOLSET_VERSION reuses the agent.
@@ -336,7 +336,7 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
         expect(calls.some((c) => c.url.endsWith('/agents/create'))).toBe(false);
         const patch = calls.find((c) => c.method === 'PATCH' && c.url.includes('/agents/'));
         expect(patch.url).toContain('preset-1');
-        expect(patch.body.conversation_config.agent.tool_call_sound).toBe('typing');
+        expect(patch.body.conversation_config.tts.voice_id).toBeTruthy();
     });
 
     it('missing key: throws a Settings/Integrations hint without calling fetch', async () => {
