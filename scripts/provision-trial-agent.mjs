@@ -14,7 +14,10 @@
 //
 // Credentials come from the same envs cmd/cloud reads
 // (internal/cloudserver/trial.go): TRIAL_ELEVENLABS_API_KEY and
-// TRIAL_ELEVENLABS_AGENT_ID. The key is never printed.
+// TRIAL_ELEVENLABS_AGENT_ID. The key is never printed. TRIAL_VOICE_LLM_URL is
+// the agent's custom LLM base — the voice LLM relay on the base domain,
+// https://<base-domain>/api/voice-llm (bd med-h849); ElevenLabs POSTs
+// <url>/chat/completions with the per-call relay token.
 import {
   TOOL_SPECS,
   TOOLSET_VERSION,
@@ -39,6 +42,7 @@ const apply = argv.includes('--apply');
 
 const agentId = process.env.TRIAL_ELEVENLABS_AGENT_ID || '';
 const apiKey = process.env.TRIAL_ELEVENLABS_API_KEY || '';
+const llmURL = process.env.TRIAL_VOICE_LLM_URL || '';
 
 if (!apply) {
   // Dry run is a payload preview, so it deliberately needs no credentials and
@@ -46,10 +50,12 @@ if (!apply) {
   // WOULD write to a live shared production agent.
   console.log(`TOOLSET_VERSION ${TOOLSET_VERSION} — ${TOOL_SPECS.length} tools`);
   console.log(`target agent: ${agentId || '(TRIAL_ELEVENLABS_AGENT_ID unset — --apply would refuse)'}`);
+  console.log(`TRIAL_VOICE_LLM_URL: ${llmURL || '(unset — --apply would refuse)'}`);
   console.log('\n--- tools (one PATCH-or-POST per tool, matched by name) ---');
   for (const spec of TOOL_SPECS) console.log(JSON.stringify(toolBody(spec)));
   console.log('\n--- agent PATCH body (tool ids resolved at apply time) ---');
-  console.log(JSON.stringify(buildAgentConfig(TOOL_SPECS.map((s) => `<id:${s.name}>`)), null, 2));
+  const previewURL = llmURL || '<TRIAL_VOICE_LLM_URL>';
+  console.log(JSON.stringify(buildAgentConfig(TOOL_SPECS.map((s) => `<id:${s.name}>`), { llmURL: previewURL }), null, 2));
   console.log('\nDry run — nothing was sent. Re-run with --apply to push this.');
   process.exit(0);
 }
@@ -61,6 +67,11 @@ if (!agentId) {
 }
 if (!apiKey) {
   console.error('TRIAL_ELEVENLABS_API_KEY is not set. Refusing.');
+  process.exit(1);
+}
+if (!llmURL) {
+  console.error('TRIAL_VOICE_LLM_URL is not set (https://<base-domain>/api/voice-llm). Without it the '
+    + "trial agent would keep ElevenLabs' built-in LLM. Refusing.");
   process.exit(1);
 }
 
@@ -85,7 +96,7 @@ try {
     console.error(`Resolved only ${toolIds.length}/${TOOL_SPECS.length} tool ids — refusing to wire a partial agent.`);
     process.exit(1);
   }
-  await patchAgent(apiKey, agentId, buildAgentConfig(toolIds));
+  await patchAgent(apiKey, agentId, buildAgentConfig(toolIds, { llmURL }));
   console.log(`\nAgent ${agentId} updated: ${toolIds.length} tools, TOOLSET_VERSION ${TOOLSET_VERSION}.`);
 } catch (err) {
   // A 404 here means TRIAL_ELEVENLABS_AGENT_ID does not exist under this key —

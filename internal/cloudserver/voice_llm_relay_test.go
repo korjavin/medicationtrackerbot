@@ -227,14 +227,24 @@ func TestVoiceLLMRelay_RevokeAccount(t *testing.T) {
 	}
 	for _, tok := range []string{liveTok, parkedTok} {
 		resp := f.post(t, ctx, `{"messages":[],"elevenlabs_extra_body":{"call":"`+tok+`"}}`)
+		out, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		if resp.StatusCode != http.StatusNotFound {
-			t.Fatalf("token after teardown = %d, want 404", resp.StatusCode)
+		if !isVoiceFallback(resp.StatusCode, string(out)) {
+			t.Fatalf("token after teardown = %d %q, want the spoken fallback", resp.StatusCode, out)
 		}
 	}
 }
 
-// Test 2: unknown token -> 404 unknown_call; repeated misses from one IP -> 429.
+// isVoiceFallback reports whether a completion answer is the relay's spoken
+// fallback stream — what an unknown call gets instead of an error status the
+// custom-llm agent would turn into silence.
+func isVoiceFallback(code int, body string) bool {
+	return code == http.StatusOK && strings.Contains(body, "please hang up and call again") &&
+		strings.HasSuffix(body, "data: [DONE]\n\n")
+}
+
+// Test 2: unknown or missing token -> spoken fallback; repeated misses from
+// one IP -> 429.
 func TestVoiceLLMRelay_UnknownCallRateLimited(t *testing.T) {
 	f := newVoiceRelayFixture(t)
 	f.api.badCalls = newRateLimiter(3, time.Minute)
@@ -249,8 +259,8 @@ func TestVoiceLLMRelay_UnknownCallRateLimited(t *testing.T) {
 	}
 	for i := 0; i < 3; i++ {
 		rec := do()
-		if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "unknown_call") {
-			t.Fatalf("attempt %d = %d %q, want 404 unknown_call", i, rec.Code, rec.Body.String())
+		if !isVoiceFallback(rec.Code, rec.Body.String()) || rec.Header().Get("Content-Type") != "text/event-stream" {
+			t.Fatalf("attempt %d = %d %q, want the spoken fallback", i, rec.Code, rec.Body.String())
 		}
 	}
 	if rec := do(); rec.Code != http.StatusTooManyRequests {
@@ -340,9 +350,10 @@ func TestVoiceLLMRelay_ReattachWithinGrace(t *testing.T) {
 	f.waitDetached(t, ctx, token)
 	time.Sleep(f.api.grace + 100*time.Millisecond)
 	resp = f.post(t, ctx, body)
+	out, _ = io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusNotFound {
-		t.Fatalf("after grace = %d, want 404", resp.StatusCode)
+	if !isVoiceFallback(resp.StatusCode, string(out)) {
+		t.Fatalf("after grace = %d %q, want the spoken fallback", resp.StatusCode, out)
 	}
 	// And the device can no longer reclaim it.
 	hdr := http.Header{}
@@ -372,8 +383,10 @@ func TestRouter_BaseDomainForwardsVoiceLLMCompletions(t *testing.T) {
 	req.Host = "app.example.com"
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "unknown_call") {
-		t.Fatalf("base-domain completions = %d %q, want the relay's 404 unknown_call", rec.Code, rec.Body.String())
+	// No extra body at all (the relay leg never came up): the relay still
+	// answers with the spoken fallback rather than leaving the agent silent.
+	if !isVoiceFallback(rec.Code, rec.Body.String()) {
+		t.Fatalf("base-domain completions = %d %q, want the relay's spoken fallback", rec.Code, rec.Body.String())
 	}
 	if csp := rec.Header().Get("Content-Security-Policy"); bareSchemeToken(cspDirective(csp, "connect-src")) != "" {
 		t.Fatalf("CSP widened: %q", csp)
