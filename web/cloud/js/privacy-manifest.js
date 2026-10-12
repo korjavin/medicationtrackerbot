@@ -353,7 +353,7 @@ export const PRIVACY_MANIFEST = [
     operatorVisibility: 'plaintext',
     retention: 'Not stored and not logged beyond account, call fingerprint, byte counts, duration and outcome',
     activation: 'no-toggle',
-    activationNote: 'whenever a voice call runs; trial users already consented via the `voice` scope, BYO-ElevenLabs users get no extra prompt',
+    activationNote: 'whenever a voice call runs; trial users already consented via the `voice` scope, with your own AI key there is no extra prompt; with only an ElevenLabs key (no AI key) the call asks for the `voice` consent first, because the trial AI answers',
     byo: 'Your AI key never leaves your browser; the relay cannot be end-to-end encrypted because ElevenLabs is the sender and speaks plaintext',
     evidence: [
       'internal/cloudserver/voice_llm_relay.go:41',
@@ -366,7 +366,7 @@ export const PRIVACY_MANIFEST = [
     userCopy: {
       category: 'visible',
       title: 'Voice agent answers pass through the operator\'s server',
-      detail: 'The voice agent\'s replies are written by an AI model, not by ElevenLabs. For every turn ElevenLabs sends the conversation so far, the tool results read from your vault and the agent\'s instructions to the operator\'s server, which passes them in transit to your unlocked browser; your browser calls your own AI provider (or, with no key, the operator\'s trial AI account) and streams the answer back. The operator\'s server can see that content while it passes through, because ElevenLabs sends it in plaintext and it cannot be end-to-end encrypted; it is never stored, and logs keep only sizes and timings. Your own AI key never leaves your browser.',
+      detail: 'The voice agent\'s replies are written by an AI model, not by ElevenLabs. For every turn ElevenLabs sends the conversation so far, the tool results read from your vault and the agent\'s instructions to the operator\'s server, which passes them in transit to your unlocked browser; your browser calls your own AI provider (or, if you have no AI key of your own, the operator\'s trial AI account, which asks for your voice consent first) and streams the answer back. The operator\'s server can see that content while it passes through, because ElevenLabs sends it in plaintext and it cannot be end-to-end encrypted; it is never stored, and logs keep only sizes and timings. Your own AI key never leaves your browser.',
     },
   },
 
@@ -419,7 +419,7 @@ export const PRIVACY_MANIFEST = [
     userCopy: {
       category: 'leaves',
       title: 'Voice calls with your own ElevenLabs key',
-      detail: 'A voice call sends your audio to ElevenLabs and gets speech back, so ElevenLabs sees what you say and the transcript of it. It also sees the answers: when you ask about your numbers the app reads them out of your vault and hands them to the agent as tool results. The agent can reach the full set of operations this app exposes, so whichever part of your health record you ask about — blood pressure, weight, workouts, medications, food, sleep, diary notes — travels with the conversation. The app also creates an agent and its tools in your ElevenLabs account on first use. Audio, transcripts and tool calls go browser-direct. The agent\'s answers are the exception: ElevenLabs sends each turn (the transcript so far, tool results and the agent\'s instructions) to the operator\'s server, which passes it in transit to your browser; your browser asks your own AI provider and streams the reply back. The operator\'s server does not store or log that content, and your AI key never leaves your browser.',
+      detail: 'A voice call sends your audio to ElevenLabs and gets speech back, so ElevenLabs sees what you say and the transcript of it. It also sees the answers: when you ask about your numbers the app reads them out of your vault and hands them to the agent as tool results. The agent can reach the full set of operations this app exposes, so whichever part of your health record you ask about — blood pressure, weight, workouts, medications, food, sleep, diary notes — travels with the conversation. The app also creates an agent and its tools in your ElevenLabs account on first use. Audio, transcripts and tool calls go browser-direct. The agent\'s answers are the exception: ElevenLabs sends each turn (the transcript so far, tool results and the agent\'s instructions) to the operator\'s server, which passes it in transit to your browser; your browser asks your own AI provider (or, with no AI key set, the operator\'s trial AI account, after asking for your voice consent) and streams the reply back. The operator\'s server does not store or log that content, and your AI key never leaves your browser.',
     },
   },
   {
