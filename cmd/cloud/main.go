@@ -257,7 +257,8 @@ func main() {
 	cloudserver.NewVitalsImportAPI(store, cfg.sessionSecret).RegisterRoutes(apiMux)
 	mcpRelayAPI.RegisterRoutes(apiMux)
 	mcpRemoteAPI.RegisterRoutes(apiMux)
-	cloudserver.NewVoiceLLMRelayAPI(store, cfg.sessionSecret).RegisterRoutes(apiMux)
+	voiceLLMRelayAPI := cloudserver.NewVoiceLLMRelayAPI(store, cfg.sessionSecret)
+	voiceLLMRelayAPI.RegisterRoutes(apiMux)
 	trialProxyAPI.RegisterRoutes(apiMux)
 	foodProxyAPI.RegisterRoutes(apiMux)
 	rxnavProxyAPI.RegisterRoutes(apiMux)
@@ -303,6 +304,7 @@ func main() {
 	// Telegram webhook. All best-effort — the DB delete is the source of truth.
 	accountTeardown := func(ctx context.Context, accountID string) {
 		mcpRelayAPI.RevokePairing(accountID)
+		voiceLLMRelayAPI.RevokeAccount(accountID)
 		mcpRemoteAPI.TeardownForAccount(ctx, accountID)
 		if tgAPI != nil {
 			tgAPI.TeardownForAccount(ctx, accountID)

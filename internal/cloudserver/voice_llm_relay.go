@@ -288,6 +288,27 @@ func (a *VoiceLLMRelayAPI) lookup(token string) *voiceCall {
 }
 
 // reap drops c once its grace has run out with no leg re-attached.
+// RevokeAccount kills every call of accountID (account teardown): tokens stop
+// resolving at once, grace included, and live device legs are closed.
+func (a *VoiceLLMRelayAPI) RevokeAccount(accountID string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for token, c := range a.calls {
+		if c.accountID != accountID {
+			continue
+		}
+		delete(a.calls, token)
+		c.mu.Lock()
+		if c.conn != nil {
+			c.failWaitersLocked(c.conn)
+			c.conn.CloseNow() // non-blocking, safe under the locks
+			c.conn = nil
+			c.ready = make(chan struct{})
+		}
+		c.mu.Unlock()
+	}
+}
+
 func (a *VoiceLLMRelayAPI) reap(c *voiceCall) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

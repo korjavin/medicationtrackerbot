@@ -207,6 +207,33 @@ func TestVoiceLLMRelay_DrainsBeforeLegGone(t *testing.T) {
 	}
 }
 
+// Account teardown closes the live device leg and kills the token, including
+// a call sitting in its reclaim grace.
+func TestVoiceLLMRelay_RevokeAccount(t *testing.T) {
+	f := newVoiceRelayFixture(t)
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
+	defer cancel()
+	live, liveTok := f.dialDevice(t, ctx, "")
+	defer live.CloseNow()
+	parked, parkedTok := f.dialDevice(t, ctx, "")
+	parked.Close(websocket.StatusNormalClosure, "")
+	f.waitDetached(t, ctx, parkedTok)
+
+	acct := f.api.lookup(liveTok).accountID
+	f.api.RevokeAccount(acct)
+
+	if _, _, err := live.Read(ctx); err == nil {
+		t.Fatal("live device leg survived account teardown")
+	}
+	for _, tok := range []string{liveTok, parkedTok} {
+		resp := f.post(t, ctx, `{"messages":[],"elevenlabs_extra_body":{"call":"`+tok+`"}}`)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("token after teardown = %d, want 404", resp.StatusCode)
+		}
+	}
+}
+
 // Test 2: unknown token -> 404 unknown_call; repeated misses from one IP -> 429.
 func TestVoiceLLMRelay_UnknownCallRateLimited(t *testing.T) {
 	f := newVoiceRelayFixture(t)
