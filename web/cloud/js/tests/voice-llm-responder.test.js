@@ -101,6 +101,63 @@ describe('voice-llm-responder (bd med-h849.2)', () => {
     responder.stop();
   });
 
+  // bd med-h849.11: a transient failure before any chunk is retried once.
+  const status503 = () => Object.assign(new Error('API returned status code 503'), { status: 503 });
+  async function startedWith(chatStream) {
+    const made = makeResponder(chatStream);
+    const p = made.responder.start();
+    const [sock] = FakeSocket.instances;
+    sock.recv({ type: 'hello', call: 'tok' });
+    await p;
+    return { ...made, sock };
+  }
+
+  it('retries a 503 before any chunk once, and the turn ends ok', async () => {
+    let calls = 0;
+    const { aiClient, responder, sock } = await startedWith(async ({ onChunk }) => {
+      calls += 1;
+      if (calls === 1) throw status503();
+      onChunk('data: [DONE]\n\n');
+    });
+    sock.recv({ id: 4, type: 'request', body: {} });
+    await drain();
+    expect(aiClient.chatStream).toHaveBeenCalledTimes(2);
+    expect(sock.sent).toEqual([{ id: 4, type: 'chunk', data: 'data: [DONE]\n\n' }, { id: 4, type: 'end' }]);
+    responder.stop();
+  });
+
+  it('does not retry once a chunk was sent, nor a second failure', async () => {
+    const { aiClient, responder, sock } = await startedWith(async ({ onChunk }) => {
+      onChunk('data: {}\n\n');
+      throw status503();
+    });
+    sock.recv({ id: 5, type: 'request', body: {} });
+    await drain();
+    expect(aiClient.chatStream).toHaveBeenCalledTimes(1);
+    expect(sock.sent.at(-1)).toEqual({ id: 5, type: 'error', message: 'API returned status code 503' });
+
+    aiClient.chatStream.mockImplementation(async () => { throw status503(); });
+    sock.sent = [];
+    sock.recv({ id: 6, type: 'request', body: {} });
+    await drain();
+    expect(aiClient.chatStream).toHaveBeenCalledTimes(3);
+    expect(sock.sent).toEqual([{ id: 6, type: 'error', message: 'API returned status code 503' }]);
+    responder.stop();
+  });
+
+  it('does not retry an aborted turn', async () => {
+    const { aiClient, responder, sock } = await startedWith(({ signal }) => new Promise((_, reject) => {
+      signal.addEventListener('abort', () => reject(status503()));
+    }));
+    sock.recv({ id: 8, type: 'request', body: {} });
+    await drain();
+    sock.recv({ id: 8, type: 'cancel' });
+    await drain();
+    expect(aiClient.chatStream).toHaveBeenCalledTimes(1);
+    expect(sock.sent).toEqual([]);
+    responder.stop();
+  });
+
   it('cancel aborts that turn and sends nothing more for it', async () => {
     let signal;
     const { responder } = makeResponder(({ signal: s }) => {
