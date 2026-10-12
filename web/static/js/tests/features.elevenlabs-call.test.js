@@ -1139,7 +1139,7 @@ describe('features/elevenlabs-call.js — cloud dynamic MCP client-tools', () =>
             const small = { rows: [{ sys: 120 }] };
             window.CloudMCPDispatcher = {
                 handle: vi.fn(async (method, params) => {
-                    if (params.op === 'health.notes.list') return { notes };
+                    if (params.op === 'health.notes.list') return { status: 'ok', result: { notes }, api_calls: 1 };
                     if (params.op === 'bare.list') return notes;
                     if (params.op === 'blob') return { blob: 'x'.repeat(100000) };
                     return small;
@@ -1151,8 +1151,8 @@ describe('features/elevenlabs-call.js — cloud dynamic MCP client-tools', () =>
             expect(nested.length).toBeLessThanOrEqual(14 * 1024);
             const n = JSON.parse(nested);
             expect(n.truncated).toBe(true);
-            expect(n.notes.length + n.omitted).toBe(400);
-            expect(n.notes[0].id).toBe(0);
+            expect(n.result.notes.length + n.omitted).toBe(400);
+            expect(n.result.notes[0].id).toBe(0);
             expect(typeof n.hint).toBe('string');
 
             const bare = await opts.clientTools.mcp_call({ op: 'bare.list' });

@@ -199,28 +199,39 @@
         const capResult = (value) => {
             const full = JSON.stringify(value);
             if (full === undefined || full.length <= MAX_RESULT) return full;
-            // Largest array: the result itself or one top-level field.
-            const isObj = value && typeof value === 'object' && !Array.isArray(value);
-            let key = null;
-            if (isObj) {
-                let best = -1;
-                Object.keys(value).forEach((k) => {
-                    if (Array.isArray(value[k]) && value[k].length > best) { best = value[k].length; key = k; }
-                });
-            }
-            const arr = Array.isArray(value) ? value : (key !== null ? value[key] : null);
+            // Largest array within 3 levels (the dispatcher wraps rows in
+            // {status, result: {...}}), addressed by key path.
+            let bestPath = null;
+            let bestSize = -1;
+            const walk = (v, path) => {
+                if (Array.isArray(v)) {
+                    const size = JSON.stringify(v).length;
+                    if (size > bestSize) { bestSize = size; bestPath = path; }
+                } else if (v && typeof v === 'object' && path.length < 3) {
+                    Object.keys(v).forEach((k) => walk(v[k], path.concat(k)));
+                }
+            };
+            walk(value, []);
+            const atPath = (v, path) => path.reduce((o, k) => o[k], v);
+            const arr = bestPath ? atPath(value, bestPath) : null;
             if (arr && arr.length) {
                 const build = (n) => {
                     const marker = { truncated: true, omitted: arr.length - n, hint: HINT };
                     const kept = arr.slice(0, n);
-                    return JSON.stringify(key === null ? [...kept, marker] : { ...value, [key]: kept, ...marker });
+                    if (!bestPath.length) return JSON.stringify([...kept, marker]);
+                    const root = Array.isArray(value) ? [...value] : { ...value };
+                    let node = root;
+                    bestPath.slice(0, -1).forEach((k) => { node[k] = Array.isArray(node[k]) ? [...node[k]] : { ...node[k] }; node = node[k]; });
+                    node[bestPath[bestPath.length - 1]] = kept;
+                    return JSON.stringify({ ...root, ...marker });
                 };
                 let lo = 0, hi = arr.length;
                 while (lo < hi) {
                     const mid = (lo + hi + 1) >> 1;
                     if (build(mid).length <= MAX_RESULT) lo = mid; else hi = mid - 1;
                 }
-                return build(lo);
+                const trimmed = build(lo);
+                if (trimmed.length <= MAX_RESULT) return trimmed;
             }
             // No array to trim: cut the serialized string, keep the marker parseable.
             const text = typeof value === 'string' ? value : full;
