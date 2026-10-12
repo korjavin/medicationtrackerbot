@@ -103,8 +103,8 @@ agent's tools and prompt are **not** provisioned by the server — nothing in
 `cmd/cloud` touches the ElevenLabs management API. Push them from the repo:
 
 ```bash
-TRIAL_ELEVENLABS_API_KEY=... TRIAL_ELEVENLABS_AGENT_ID=agent_... pnpm trial:agent           # dry run: prints the payload, calls nothing
-TRIAL_ELEVENLABS_API_KEY=... TRIAL_ELEVENLABS_AGENT_ID=agent_... pnpm trial:agent --apply   # rewrites the live shared agent
+TRIAL_ELEVENLABS_API_KEY=... TRIAL_ELEVENLABS_AGENT_ID=agent_... TRIAL_VOICE_LLM_URL=https://<base-domain>/api/voice-llm pnpm trial:agent           # dry run: prints the payload, calls nothing
+TRIAL_ELEVENLABS_API_KEY=... TRIAL_ELEVENLABS_AGENT_ID=agent_... TRIAL_VOICE_LLM_URL=https://<base-domain>/api/voice-llm pnpm trial:agent --apply   # rewrites the live shared agent
 ```
 
 It reads `TOOL_SPECS` and the agent config straight out of
@@ -112,6 +112,12 @@ It reads `TOOL_SPECS` and the agent config straight out of
 itself from — creates or updates the trial account's own client tools (matched
 by tool name; tool ids are per-ElevenLabs-account), and PATCHes the given agent
 id. It never creates an agent, so the id in your env stays valid.
+
+The shared agent answers through the voice LLM relay, so `TRIAL_VOICE_LLM_URL`
+(`https://<base-domain>/api/voice-llm`; ElevenLabs POSTs `<url>/chat/completions`)
+must be set when you run it — `--apply` refuses without it. The variable is read
+only by this script, not by the server. After deploying the relay, set it and
+re-run `pnpm trial:agent --apply` once.
 
 **Re-run it after every `TOOLSET_VERSION` bump.** This does not happen
 automatically on deploy. BYO users reprovision themselves on their next voice
