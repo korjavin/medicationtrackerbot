@@ -236,21 +236,33 @@ func (c *voiceCall) dispatch(ctx context.Context, f voiceFrame) {
 	}
 }
 
-// mint registers a fresh call token for accountID.
-func (a *VoiceLLMRelayAPI) mint(accountID string) *voiceCall {
-	b := make([]byte, voiceCallTokenBytes)
-	if _, err := rand.Read(b); err != nil {
-		panic("voice llm relay: crypto/rand failed: " + err.Error())
-	}
-	c := &voiceCall{
-		token:     base64.RawURLEncoding.EncodeToString(b),
-		accountID: accountID,
-		ready:     make(chan struct{}),
-		waiters:   make(map[int64]*voiceWaiter),
-	}
+// attachLeg binds conn to a call: a fresh one (token == "") or the existing
+// call token names, if it belongs to accountID and has not expired. It runs
+// under a.mu so a reclaim can never race reap into acknowledging an evicted
+// call. Returns nil if token names no live call of this account.
+func (a *VoiceLLMRelayAPI) attachLeg(accountID, token string, conn *websocket.Conn) *voiceCall {
 	a.mu.Lock()
-	a.calls[c.token] = c
-	a.mu.Unlock()
+	defer a.mu.Unlock()
+	var c *voiceCall
+	if token != "" {
+		c = a.calls[token]
+		if c == nil || c.accountID != accountID || c.expired(time.Now()) {
+			return nil
+		}
+	} else {
+		b := make([]byte, voiceCallTokenBytes)
+		if _, err := rand.Read(b); err != nil {
+			panic("voice llm relay: crypto/rand failed: " + err.Error())
+		}
+		c = &voiceCall{
+			token:     base64.RawURLEncoding.EncodeToString(b),
+			accountID: accountID,
+			ready:     make(chan struct{}),
+			waiters:   make(map[int64]*voiceWaiter),
+		}
+		a.calls[c.token] = c
+	}
+	c.attach(conn)
 	return c
 }
 
@@ -270,14 +282,11 @@ func (a *VoiceLLMRelayAPI) lookup(token string) *voiceCall {
 
 // reap drops c once its grace has run out with no leg re-attached.
 func (a *VoiceLLMRelayAPI) reap(c *voiceCall) {
-	if !c.expired(time.Now()) {
-		return
-	}
 	a.mu.Lock()
-	if a.calls[c.token] == c {
+	defer a.mu.Unlock()
+	if a.calls[c.token] == c && c.expired(time.Now()) {
 		delete(a.calls, c.token)
 	}
-	a.mu.Unlock()
 }
 
 func writeVoiceFrame(ctx context.Context, conn *websocket.Conn, f voiceFrame) error {
@@ -313,21 +322,25 @@ func (a *VoiceLLMRelayAPI) DeviceSocket(w http.ResponseWriter, r *http.Request) 
 	defer conn.CloseNow()
 	conn.SetReadLimit(voiceMaxFrameBytes)
 
-	var call *voiceCall
-	if token := r.URL.Query().Get("call"); token != "" {
-		call = a.lookup(token)
-		if call == nil || call.accountID != session.AccountID {
-			conn.Close(voiceStatusUnknownCall, "unknown or expired call")
-			return
-		}
-	} else {
-		call = a.mint(session.AccountID)
+	call := a.attachLeg(session.AccountID, r.URL.Query().Get("call"), conn)
+	if call == nil {
+		conn.Close(voiceStatusUnknownCall, "unknown or expired call")
+		return
 	}
+	// Detach on every exit path (a failed hello included), so even a call that
+	// never got a working leg ages out through the grace + reap.
+	defer func() {
+		if call.detach(conn, a.grace) {
+			slog.Info("voice llm relay: device detached", "account_id", call.accountID, "call", endpointFingerprint(call.token))
+			time.AfterFunc(a.grace+time.Millisecond, func() { a.reap(call) })
+		}
+	}()
+	slog.Info("voice llm relay: device attached", "account_id", call.accountID, "call", endpointFingerprint(call.token))
+	// On a re-attach a turn already waiting for the leg may get its request
+	// frame out before this hello; the browser already knows the token then.
 	if err := writeDeviceFrame(r.Context(), conn, voiceFrame{Type: "hello", Call: call.token}); err != nil {
 		return
 	}
-	call.attach(conn)
-	slog.Info("voice llm relay: device attached", "account_id", call.accountID, "call", endpointFingerprint(call.token))
 
 	legCtx, cancelLeg := context.WithCancel(r.Context())
 	defer cancelLeg()
@@ -346,10 +359,6 @@ func (a *VoiceLLMRelayAPI) DeviceSocket(w http.ResponseWriter, r *http.Request) 
 			continue
 		}
 		call.dispatch(legCtx, f)
-	}
-	if call.detach(conn, a.grace) {
-		slog.Info("voice llm relay: device detached", "account_id", call.accountID, "call", endpointFingerprint(call.token))
-		time.AfterFunc(a.grace+time.Millisecond, func() { a.reap(call) })
 	}
 }
 
@@ -452,39 +461,67 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 	turnCtx, cancelTurn = context.WithTimeout(r.Context(), a.turnTimeout)
 	defer cancelTurn()
 	sawDone := false
+	tail := "\n\n" // last two bytes written: the fallback must start a fresh SSE event
+	fallback := func() {
+		if tail != "\n\n" {
+			_ = write("\n\n")
+		}
+		writeVoiceFallback(write)
+	}
+	// handle applies one device frame; true ends the turn.
+	handle := func(f voiceFrame) bool {
+		switch f.Type {
+		case "chunk":
+			if err := write(f.Data); err != nil {
+				cancel()
+				outcome = "cancel"
+				return true
+			}
+			if t := tail + f.Data; len(t) >= 2 {
+				tail = t[len(t)-2:]
+			}
+			// ponytail: per-chunk check; a [DONE] split across chunks just
+			// gets a harmless second [DONE] below.
+			sawDone = sawDone || strings.Contains(f.Data, "data: [DONE]")
+		case "end":
+			if !sawDone {
+				_ = write("data: [DONE]\n\n")
+			}
+			outcome = "ok"
+			return true
+		case "error":
+			fallback()
+			return true
+		}
+		return false
+	}
 	for {
 		select {
 		case f := <-waiter.ch:
-			switch f.Type {
-			case "chunk":
-				if err := write(f.Data); err != nil {
-					cancel()
-					outcome = "cancel"
-					return
-				}
-				// ponytail: per-chunk check; a [DONE] split across chunks just
-				// gets a harmless second [DONE] below.
-				sawDone = sawDone || strings.Contains(f.Data, "data: [DONE]")
-			case "end":
-				if !sawDone {
-					_ = write("data: [DONE]\n\n")
-				}
-				outcome = "ok"
-				return
-			case "error":
-				writeVoiceFallback(write)
+			if handle(f) {
 				return
 			}
 		case <-waiter.gone:
-			writeVoiceFallback(write)
-			return
+			// Frames read before the leg dropped (maybe its final chunks and
+			// end) are already queued; honour them before calling it a failure.
+			for {
+				select {
+				case f := <-waiter.ch:
+					if handle(f) {
+						return
+					}
+				default:
+					fallback()
+					return
+				}
+			}
 		case <-turnCtx.Done():
 			cancel()
 			if r.Context().Err() != nil {
 				outcome = "cancel"
 				return
 			}
-			writeVoiceFallback(write)
+			fallback()
 			return
 		}
 	}

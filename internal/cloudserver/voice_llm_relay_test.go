@@ -169,6 +169,44 @@ func TestVoiceLLMRelay_StreamsDeviceChunks(t *testing.T) {
 	}
 }
 
+// A device that sends its last chunk + end and closes at once still gets its
+// answer through (queued frames win over the leg-gone signal), and a chunk
+// cut mid-event is terminated before the fallback starts a fresh event.
+func TestVoiceLLMRelay_DrainsBeforeLegGone(t *testing.T) {
+	f := newVoiceRelayFixture(t)
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
+	defer cancel()
+	body := func(tok string) string { return `{"messages":[],"elevenlabs_extra_body":{"call":"` + tok + `"}}` }
+
+	device, token := f.dialDevice(t, ctx, "")
+	respCh := make(chan *http.Response, 1)
+	go func() { respCh <- f.post(t, ctx, body(token)) }()
+	req := readVoiceFrame(t, ctx, device)
+	sendVoiceFrame(t, ctx, device, voiceFrame{ID: req.ID, Type: "chunk", Data: "data: {}\n\n"})
+	sendVoiceFrame(t, ctx, device, voiceFrame{ID: req.ID, Type: "end"})
+	device.CloseNow()
+	resp := <-respCh
+	out, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if string(out) != "data: {}\n\ndata: [DONE]\n\n" {
+		t.Fatalf("drained turn = %q", out)
+	}
+
+	f.waitDetached(t, ctx, token)
+	device, _ = f.dialDevice(t, ctx, token)
+	defer device.CloseNow()
+	go func() { respCh <- f.post(t, ctx, body(token)) }()
+	req = readVoiceFrame(t, ctx, device)
+	sendVoiceFrame(t, ctx, device, voiceFrame{ID: req.ID, Type: "chunk", Data: `data: {"choi`})
+	sendVoiceFrame(t, ctx, device, voiceFrame{ID: req.ID, Type: "error", Message: "provider 500"})
+	resp = <-respCh
+	out, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !strings.HasPrefix(string(out), "data: {\"choi\n\ndata: {") || strings.Contains(string(out), "provider 500") {
+		t.Fatalf("fallback after a cut event = %q", out)
+	}
+}
+
 // Test 2: unknown token -> 404 unknown_call; repeated misses from one IP -> 429.
 func TestVoiceLLMRelay_UnknownCallRateLimited(t *testing.T) {
 	f := newVoiceRelayFixture(t)
