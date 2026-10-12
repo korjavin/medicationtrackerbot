@@ -257,6 +257,7 @@ func main() {
 	cloudserver.NewVitalsImportAPI(store, cfg.sessionSecret).RegisterRoutes(apiMux)
 	mcpRelayAPI.RegisterRoutes(apiMux)
 	mcpRemoteAPI.RegisterRoutes(apiMux)
+	cloudserver.NewVoiceLLMRelayAPI(store, cfg.sessionSecret).RegisterRoutes(apiMux)
 	trialProxyAPI.RegisterRoutes(apiMux)
 	foodProxyAPI.RegisterRoutes(apiMux)
 	rxnavProxyAPI.RegisterRoutes(apiMux)

@@ -375,7 +375,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// forwarding this ONE prefix from the base branch is safe. Forward
 		// ONLY this prefix, never all of /api/ — any other base-domain /api/
 		// path still falls through to the shell and 404s.
-		if strings.HasPrefix(r.URL.Path, "/api/s/") {
+		// The voice LLM relay's completion endpoint (med-h849.1) is the same
+		// kind of capability: auth is the per-call token in the body, never the
+		// Host, and the shared trial agent needs one fixed URL. Exact path only.
+		if strings.HasPrefix(r.URL.Path, "/api/s/") || r.URL.Path == voiceLLMCompletionsPath {
 			if h.api == nil {
 				http.NotFound(w, r)
 				return
