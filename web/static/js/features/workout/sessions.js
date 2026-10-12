@@ -143,7 +143,7 @@ const SESSION_REST_SECONDS = 90; // ponytail: one default rest; per-exercise res
 function _sessionUi() {
     const st = window.WorkoutSessionsState;
     if (!st.ui) {
-        st.ui = { sessionId: null, current: 0, overview: false, active: null, more: null, rest: null, tick: null, hist: {}, targets: {} };
+        st.ui = { sessionId: null, current: 0, overview: false, active: null, more: null, rest: null, tick: null, hist: {}, targets: {}, suggest: {}, suggestOpen: {} };
     }
     return st.ui;
 }
@@ -795,6 +795,11 @@ function _buildSessionExerciseCard(log, index) {
     monoRow.textContent = _formatLogMono(log);
     entry.appendChild(monoRow);
 
+    // In-session weight suggestion (med-h5u3): a collapsed "Try <kg>" chip in
+    // the meta row that expands to the editor's suggestion card under the mono
+    // row. Fire-and-forget like the chips above.
+    _maybeAttachSuggestChip(entry, meta, monoRow, log, index);
+
     // Plate-loading chip (med-v75c.2): which plates to load for the working
     // weight. Fire-and-forget; silent no-op when the exercise has no
     // bound/resolvable equipment. Synchronous when the gear is already cached
@@ -915,6 +920,87 @@ async function _maybeAttachBodyPartChip(headerRow, log) {
     chip.textContent = friendly;
     chip.title = 'Body part';
     headerRow.appendChild(chip);
+}
+
+// -- In-session weight suggestion (med-h5u3) --
+//
+// The plan editor's "Try <kg>" (suggestExerciseTarget, the same progression
+// engine propagate runs) asked from the live session by plan row. One read per
+// exercise name per session (kept across a minimise → reopen of the same
+// session: by then this session's own ticked sets are history and would skew
+// the answer). Bot mode 404 / null → nothing rendered.
+function _exerciseSuggestion(log) {
+    const ui = _sessionUi();
+    const name = log.exercise_name;
+    if (!ui.suggest[name]) {
+        // A library log's id lives in the library id space: ask by name only.
+        const id = log.source === 'library' ? 0 : (Number(log.exercise_id) || 0);
+        let p;
+        try {
+            p = Promise.resolve(apiCall(`/api/workout/exercises/suggest-target?name=${encodeURIComponent(name)}`
+                + (id > 0 ? `&exercise_id=${id}` : '')));
+        } catch (e) {
+            p = Promise.reject(e);
+        }
+        ui.suggest[name] = p.then((r) => (r && r.target_weight_kg != null ? r : null), () => null);
+    }
+    return ui.suggest[name];
+}
+
+// Chip only while a pending row exists and its shown weight is not already the
+// suggestion (the editor's _syncSuggestApply hide rule). Apply drafts the first
+// pending row through _setSessionSetField, whose cascade carries it to every
+// later pending row; done rows are never touched and nothing is written until
+// a set is ticked. Session only — propagate carries the lifted weight to the
+// plan, so Apply has no plan write of its own.
+async function _maybeAttachSuggestChip(entry, meta, monoRow, log, index) {
+    if (!log || !log.exercise_name) return;
+    const ui = _sessionUi();
+    const s = await _exerciseSuggestion(log);
+    if (!s || !meta.isConnected || window.WorkoutSessionsState.ui !== ui) return;
+    if (meta.querySelector('.wg-workouts-session-exercise__suggest-chip')) return;
+    const first = _ensureLogSets(log).length;
+    if (first >= _targetSets(log)) return;
+    const kg = Number(s.target_weight_kg);
+    if (Number(_setRowValues(log, first).weight_kg) === kg) return;
+
+    const name = log.exercise_name;
+    const open = !!ui.suggestOpen[name];
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'wg-chip wg-chip--sm wg-workouts-session-exercise__suggest-chip';
+    chip.setAttribute('aria-expanded', open ? 'true' : 'false');
+    chip.append(_wgIco('sparkle'), document.createTextNode(`Try ${kg} kg`));
+    chip.addEventListener('click', () => {
+        ui.suggestOpen[name] = !ui.suggestOpen[name];
+        _rerenderSessionLogs();
+    });
+    meta.appendChild(chip);
+    if (!open) return;
+
+    // Same markup as the editor's #workout-exercise-suggest-card (kit P3).
+    const card = document.createElement('div');
+    card.className = 'wg-card wg-card--accent wg-hstack wg-workouts-session-exercise__suggest';
+    const body = document.createElement('span');
+    body.className = 'wg-vstack wg-spacer';
+    const title = document.createElement('span');
+    title.className = 'wg-row__title';
+    title.textContent = `Try ${kg} kg`;
+    body.appendChild(title);
+    const last = s.last;
+    if (last && last.weight_kg != null) {
+        // Effort clause omitted entirely when unrated, exactly like the editor.
+        const parts = [`${last.weight_kg} kg × ${last.reps}`];
+        if (last.effort) parts.push(last.effort);
+        const hint = document.createElement('span');
+        hint.className = 'wg-hint';
+        hint.textContent = `Last: ${parts.join(' · ')}`;
+        body.appendChild(hint);
+    }
+    const apply = _wgBtn('Apply', 'wg-btn--sm wg-workouts-session-exercise__suggest-apply',
+        () => _setSessionSetField(index, _ensureLogSets(log).length, 'weight_kg', String(kg)));
+    card.append(_wgIco('sparkle', 'wg-sun'), body, apply);
+    entry.insertBefore(card, monoRow.nextSibling);
 }
 
 // -- Plate-loading chip (med-v75c.2) --

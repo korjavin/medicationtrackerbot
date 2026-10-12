@@ -195,6 +195,17 @@ exposed as the cloud-only MCP op `workouts.progression_preview` (GET
 (`web/cloud/js/mcp-catalog.cloud-extra.js` + `apishim.js createApiRouter`), so
 `mcp-catalog.generated.js` stays untouched (drift-safe).
 
+**In-session suggestion (`med-h5u3`).** Each live-session exercise card
+(`_maybeAttachSuggestChip` in `web/static/js/features/workout/sessions.js`) asks
+the editor's `suggestExerciseTarget` by plan row
+(`GET /api/workout/exercises/suggest-target?name=&exercise_id=`), once per name
+per session. The row supplies the goal (`effectiveGoal`) and, when it has an
+opt-in rule, the plan itself, so the chip matches what `propagate` will write;
+a rule-less row gets the editor's goal-preset answer. A collapsed
+`Try <kg>` chip shows while a pending set's weight differs; it expands to the
+editor's suggestion card. Apply drafts the pending rows of **this session
+only** — no plan write; ticking the sets and `propagate` carry it forward.
+
 The presets shipped goal-agnostic (rep target only); they are now goal-differentiated — see below (`med-qj4.6.3`, revised `med-qj4.10`, which removed the effort gate so the load bump fires on the rep target alone).
 
 ## Goal-aware foundation (`med-qj4.6.1`) — implemented
