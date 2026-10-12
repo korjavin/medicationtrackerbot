@@ -2,6 +2,7 @@ package cloudserver
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -71,7 +72,7 @@ func sseDataLines(body io.Reader, yield func(data string) bool) error {
 // stripping "model" from every chunk. An in-band upstream error, a malformed
 // chunk, or a stream that ends without [DONE] becomes one sanitized error
 // chunk + [DONE] — never a hang, never the provider's error text.
-func relayOpenAIStream(w http.ResponseWriter, accountID string, body io.Reader) {
+func relayOpenAIStream(ctx context.Context, w http.ResponseWriter, accountID string, body io.Reader) {
 	start := time.Now()
 	sse := startSSE(w)
 	chunks, done, clientGone := 0, false, false
@@ -99,7 +100,7 @@ func relayOpenAIStream(w http.ResponseWriter, accountID string, body io.Reader) 
 		chunks++
 		return true
 	})
-	finishStream(sse, accountID, "openai", start, chunks, done, clientGone, err, "", 0)
+	finishStream(ctx, sse, accountID, "openai", start, chunks, done, clientGone, err, "", 0)
 }
 
 // anthropicStreamEvent is the subset of a Messages SSE event we translate.
@@ -130,7 +131,7 @@ type anthropicStreamEvent struct {
 // id/name; input_json_delta → delta.tool_calls arguments; message_delta
 // stop_reason → finish_reason; message_stop → [DONE]. Thinking blocks are
 // skipped. The upstream "model" is never copied.
-func relayAnthropicStream(w http.ResponseWriter, accountID string, body io.Reader) {
+func relayAnthropicStream(ctx context.Context, w http.ResponseWriter, accountID string, body io.Reader) {
 	start := time.Now()
 	sse := startSSE(w)
 	var (
@@ -210,13 +211,18 @@ func relayAnthropicStream(w http.ResponseWriter, accountID string, body io.Reade
 		}
 		return true // ping, non-tool content_block_stop
 	})
-	finishStream(sse, accountID, "anthropic", start, chunks, done, clientGone, err, stopReason, cacheRead)
+	finishStream(ctx, sse, accountID, "anthropic", start, chunks, done, clientGone, err, stopReason, cacheRead)
 }
 
 // finishStream closes a relayed stream: [DONE] on success, one sanitized
 // error chunk + [DONE] when upstream broke, nothing when the client left.
 // One log line per request, sizes and outcome only.
-func finishStream(sse *sseWriter, accountID, provider string, start time.Time, chunks int, done, clientGone bool, scanErr error, stopReason string, cacheRead int) {
+func finishStream(ctx context.Context, sse *sseWriter, accountID, provider string, start time.Time, chunks int, done, clientGone bool, scanErr error, stopReason string, cacheRead int) {
+	// A browser abort cancels the upstream read before any write to the gone
+	// client fails, so the request context is the real disconnect signal.
+	if !done && ctx.Err() != nil {
+		clientGone = true
+	}
 	switch {
 	case clientGone:
 	case done:

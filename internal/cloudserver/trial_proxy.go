@@ -349,7 +349,7 @@ func (a *TrialProxyAPI) ChatCompletions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if stream {
-		relayOpenAIStream(w, account.ID, resp.Body)
+		relayOpenAIStream(r.Context(), w, account.ID, resp.Body)
 		return
 	}
 	// SECURITY INVARIANT: the upstream 200 echoes the forced trial model in

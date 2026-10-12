@@ -435,7 +435,7 @@ func (a *TrialProxyAPI) anthropicChat(w http.ResponseWriter, r *http.Request, ac
 		return
 	}
 	if stream {
-		relayAnthropicStream(w, accountID, resp.Body)
+		relayAnthropicStream(r.Context(), w, accountID, resp.Body)
 		return
 	}
 	var ar anthropicResponse

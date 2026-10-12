@@ -1,8 +1,10 @@
 package cloudserver
 
 import (
+	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -400,5 +402,49 @@ func TestTrialStream_ExtendsServerDeadlines(t *testing.T) {
 	}
 	if data := sseData(t, rec.ResponseRecorder); data[len(data)-1] != "[DONE]" {
 		t.Fatalf("data = %q", data)
+	}
+}
+
+// errAfterReader serves its data, then fails like a cancelled upstream read.
+type errAfterReader struct {
+	data string
+	err  error
+}
+
+func (r *errAfterReader) Read(p []byte) (int, error) {
+	if r.data == "" {
+		return 0, r.err
+	}
+	n := copy(p, r.data)
+	r.data = r.data[n:]
+	return n, nil
+}
+
+func TestTrialStream_ClientAbortIsNotUpstreamError(t *testing.T) {
+	var logs strings.Builder
+	captureSlog(t, slog.NewTextHandler(&logs, nil))
+
+	partial := `data: {"id":"c1","choices":[{"index":0,"delta":{"content":"Hel"}}]}` + "\n\n"
+	// Cancelled client: no error chunk, logged as client_gone at Info.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	rec := httptest.NewRecorder()
+	relayOpenAIStream(ctx, rec, "acc", &errAfterReader{partial, context.Canceled})
+	if strings.Contains(rec.Body.String(), "upstream_error") || strings.Contains(rec.Body.String(), "[DONE]") {
+		t.Fatalf("gone client got %q", rec.Body.String())
+	}
+	if l := logs.String(); !strings.Contains(l, "client_gone=true") || strings.Contains(l, "upstream_error") || strings.Contains(l, "level=WARN") {
+		t.Fatalf("abort log = %q", l)
+	}
+
+	// Live client + broken upstream: still upstream_error=true at Warn.
+	logs.Reset()
+	rec = httptest.NewRecorder()
+	relayOpenAIStream(context.Background(), rec, "acc", &errAfterReader{partial, io.ErrUnexpectedEOF})
+	if l := logs.String(); !strings.Contains(l, "client_gone=false") || !strings.Contains(l, "upstream_error=true") || !strings.Contains(l, "level=WARN") {
+		t.Fatalf("broken log = %q", l)
+	}
+	if !strings.HasSuffix(strings.TrimSpace(rec.Body.String()), "[DONE]") {
+		t.Fatalf("live client body = %q", rec.Body.String())
 	}
 }
