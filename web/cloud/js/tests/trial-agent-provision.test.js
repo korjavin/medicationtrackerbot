@@ -15,6 +15,7 @@ import { TOOL_SPECS, TOOLSET_VERSION, buildAgentConfig, toolBody } from '../elev
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 const SCRIPT = path.join(REPO_ROOT, 'scripts/provision-trial-agent.mjs');
 const FAKE_KEY = 'sk_trial_fake_key_do_not_use';
+const LLM_URL = 'https://app.example.com/api/voice-llm';
 
 function run(args, env = {}) {
   return spawnSync(process.execPath, [SCRIPT, ...args], {
@@ -44,7 +45,7 @@ describe('scripts/provision-trial-agent.mjs', () => {
   it('prints the shared agent body rather than its own copy of the prompt', () => {
     const r = run(['--dry-run']);
     expect(r.status, r.stderr).toBe(0);
-    const shared = buildAgentConfig([]).conversation_config.agent;
+    const shared = buildAgentConfig([], { llmURL: LLM_URL }).conversation_config.agent;
     expect(r.stdout).toContain(shared.first_message);
     expect(r.stdout).toContain(shared.prompt.prompt.split('\n')[0]);
     // No prompt text may be re-declared in the script itself — a second copy is
@@ -55,13 +56,44 @@ describe('scripts/provision-trial-agent.mjs', () => {
   });
 
   it('ships a multilingual agent: v4_turbo TTS, language detection, ru preset, mirror-language prompt (bd med-qxdv)', () => {
-    const cc = buildAgentConfig([]).conversation_config;
+    const cc = buildAgentConfig([], { llmURL: LLM_URL }).conversation_config;
     expect(cc.agent.language).toBe('en');
     expect(cc.tts.model_id).toBe('eleven_v4_turbo');
     expect(cc.agent.prompt.built_in_tools.language_detection.params.system_tool_type).toBe('language_detection');
     expect(cc.language_presets.ru.overrides.agent.first_message).toBeTruthy();
     expect(cc.agent.prompt.prompt).toContain('reply in the language the user is speaking');
     expect(TOOLSET_VERSION).toBeGreaterThanOrEqual(6);
+  });
+
+  it('points the agent at the voice LLM relay, never ElevenLabs\' built-in LLM (bd med-h849.3)', () => {
+    const cfg = buildAgentConfig([], { llmURL: LLM_URL });
+    expect(cfg.conversation_config.agent.prompt.llm).toBe('custom-llm');
+    expect(cfg.conversation_config.agent.prompt.custom_llm).toEqual({
+      url: LLM_URL, model_id: 'medtracker', api_type: 'chat_completions',
+    });
+    // Owner decision: no AI key / secret ever goes into ElevenLabs.
+    expect(cfg.conversation_config.agent.prompt.custom_llm).not.toHaveProperty('api_key');
+    expect(cfg.platform_settings.overrides.custom_llm_extra_body).toBe(true);
+    expect(TOOLSET_VERSION).toBeGreaterThanOrEqual(8);
+    // No silent fallback to the built-in LLM.
+    expect(() => buildAgentConfig([])).toThrow(/llmURL/);
+  });
+
+  it('dry run prints TRIAL_VOICE_LLM_URL and the custom_llm block', () => {
+    const r = run([], { TRIAL_VOICE_LLM_URL: LLM_URL });
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toContain(`TRIAL_VOICE_LLM_URL: ${LLM_URL}`);
+    expect(r.stdout).toContain('"custom-llm"');
+    const unset = run([]);
+    expect(unset.status, unset.stderr).toBe(0);
+    expect(unset.stdout).toContain('TRIAL_VOICE_LLM_URL: (unset');
+  });
+
+  it('refuses --apply without TRIAL_VOICE_LLM_URL', () => {
+    const r = run(['--apply'], { TRIAL_ELEVENLABS_API_KEY: FAKE_KEY, TRIAL_ELEVENLABS_AGENT_ID: 'agent_fake' });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('TRIAL_VOICE_LLM_URL is not set');
+    expect(r.stdout).toBe('');
   });
 
   it('sets the typing tool-call sound per tool — ElevenLabs ignores the agent-level field', () => {

@@ -1514,7 +1514,12 @@ export function installApiShim(ctx, {
   // from code (browser-direct with the vault key) so the user configures only
   // the API key. elevenlabs-call.js calls provision() before minting the
   // signed URL. See web/cloud/js/elevenlabs-agent.js.
-  targetWindow.CloudElevenLabsAgent = createElevenLabsAgentProvisioner({ settingsDomain: settings });
+  // The agent's LLM is the voice relay on this account subdomain (bd med-h849):
+  // the existing /api/* forward reaches internal/cloudserver/voice_llm_relay.go.
+  targetWindow.CloudElevenLabsAgent = createElevenLabsAgentProvisioner({
+    settingsDomain: settings,
+    llmURL: `${targetWindow.location.origin}/api/voice-llm`,
+  });
   // Voice MCP tools: elevenlabs-call.js registers mcp_help/mcp_call clientTools
   // (cloud only) that dispatch straight into this in-tab catalog — through this
   // very router, no relay/crypto (the relay responder in mcp-responder.js only

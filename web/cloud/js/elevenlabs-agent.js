@@ -14,7 +14,7 @@ const AGENTS_ENDPOINT = 'https://api.elevenlabs.io/v1/convai/agents';
 
 // Bump this whenever TOOL_SPECS or the agent config below changes so unlocked
 // devices reprovision on their next connect.
-export const TOOLSET_VERSION = 7;
+export const TOOLSET_VERSION = 8;
 
 // Rachel — a warm ElevenLabs female voice (med-eas.27).
 const VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
@@ -345,12 +345,22 @@ export async function ensureTools(key, onEvent) {
 // the operator's trial-agent script consume it, so a prompt change reaches the
 // shared trial agent on the next `pnpm trial:agent` instead of quietly diverging
 // (bd med-qgnk).
-export function buildAgentConfig(toolIds) {
+//
+// llmURL is the voice LLM relay base (bd med-h849): ElevenLabs POSTs
+// <llmURL>/chat/completions and the relay hands the turn to the user's unlocked
+// tab, which calls the user's own AI. No api_key on purpose — the relay
+// authenticates by the per-call token in custom_llm_extra_body, and no AI key
+// ever enters an ElevenLabs secret store. Required: a silent fallback to
+// ElevenLabs' built-in LLM is exactly what this replaces.
+export function buildAgentConfig(toolIds, { llmURL } = {}) {
+  if (!llmURL) throw new Error('buildAgentConfig: llmURL (voice LLM relay URL) is required');
   return {
     conversation_config: {
       agent: {
         prompt: {
           prompt: SYSTEM_PROMPT,
+          llm: 'custom-llm',
+          custom_llm: { url: llmURL, model_id: 'medtracker', api_type: 'chat_completions' },
           tool_ids: toolIds,
           // Lets the agent switch to a language_presets language mid-call.
           // Blank description = ElevenLabs' default detection prompt.
@@ -373,6 +383,9 @@ export function buildAgentConfig(toolIds) {
         ]),
       ),
     },
+    // Lets elevenlabs-call.js's startSession({ customLlmExtraBody: { call } })
+    // reach the relay as elevenlabs_extra_body — the per-call identity.
+    platform_settings: { overrides: { custom_llm_extra_body: true } },
   };
 }
 
@@ -398,7 +411,8 @@ export async function patchAgent(key, agentId, config) {
   return agentId;
 }
 
-export function createElevenLabsAgentProvisioner({ settingsDomain }) {
+// llmURL: the voice LLM relay base on this account's own origin (apishim.js).
+export function createElevenLabsAgentProvisioner({ settingsDomain, llmURL }) {
   async function apiKey() {
     const { elevenlabs } = await settingsDomain.readIntegrationsUnmasked();
     if (!elevenlabs || !elevenlabs.api_key) {
@@ -415,7 +429,7 @@ export function createElevenLabsAgentProvisioner({ settingsDomain }) {
     const stored = await settingsDomain.getVoiceProvisioning();
     const { elevenlabs } = await settingsDomain.readIntegrationsUnmasked();
     const presetId = (elevenlabs && elevenlabs.agent_id) || stored.agentId || '';
-    const config = buildAgentConfig(toolIds);
+    const config = buildAgentConfig(toolIds, { llmURL });
 
     let agentId;
     if (presetId) {
