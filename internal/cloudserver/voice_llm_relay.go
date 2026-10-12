@@ -454,9 +454,13 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 	_ = rc.Flush()
 
 	respBytes := 0
+	ttfcMs := int64(-1) // -1: no chunk written
 	write := func(s string) error {
 		n, err := io.WriteString(w, s)
 		respBytes += n
+		if ttfcMs < 0 && err == nil && s != "" {
+			ttfcMs = time.Since(start).Milliseconds()
+		}
 		if err == nil {
 			err = rc.Flush()
 		}
@@ -466,7 +470,7 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 	defer func() {
 		slog.Info("voice llm relay: turn", "account_id", call.accountID, "call", endpointFingerprint(call.token),
 			"request_bytes", len(body), "response_bytes", respBytes,
-			"duration_ms", time.Since(start).Milliseconds(), "outcome", outcome)
+			"duration_ms", time.Since(start).Milliseconds(), "ttfc_ms", ttfcMs, "outcome", outcome)
 	}()
 
 	turnCtx, cancelTurn := context.WithTimeout(r.Context(), a.noDeviceWait+a.turnTimeout)

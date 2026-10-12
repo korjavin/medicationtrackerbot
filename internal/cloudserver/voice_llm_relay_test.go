@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -112,6 +114,8 @@ func (f *voiceRelayFixture) waitDetached(t *testing.T, ctx context.Context, toke
 // stripped and every other field byte-identical; chunks stream back in order,
 // each flushed before the next is sent, and the stream ends with [DONE].
 func TestVoiceLLMRelay_StreamsDeviceChunks(t *testing.T) {
+	logs := &syncBuf{}
+	captureSlog(t, slog.NewTextHandler(logs, nil))
 	f := newVoiceRelayFixture(t)
 	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
 	defer cancel()
@@ -167,7 +171,24 @@ func TestVoiceLLMRelay_StreamsDeviceChunks(t *testing.T) {
 	if want := chunk2 + "data: [DONE]\n\n"; string(rest) != want {
 		t.Fatalf("rest = %q, want %q", rest, want)
 	}
+	// The turn log line lands just after the handler returns.
+	var line string
+	for i := 0; i < 100 && !strings.Contains(line, "voice llm relay: turn"); i++ {
+		time.Sleep(20 * time.Millisecond)
+		line = logs.String()
+	}
+	if !strings.Contains(line, "ttfc_ms=") || strings.Contains(line, "ttfc_ms=-1") {
+		t.Fatalf("turn log missing a real ttfc_ms: %q", line)
+	}
 }
+
+type syncBuf struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuf) Write(p []byte) (int, error) { s.mu.Lock(); defer s.mu.Unlock(); return s.b.Write(p) }
+func (s *syncBuf) String() string              { s.mu.Lock(); defer s.mu.Unlock(); return s.b.String() }
 
 // A device that sends its last chunk + end and closes at once still gets its
 // answer through (queued frames win over the leg-gone signal), and a chunk
