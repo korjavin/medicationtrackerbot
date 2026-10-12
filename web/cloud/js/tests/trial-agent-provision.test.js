@@ -86,6 +86,12 @@ describe('scripts/provision-trial-agent.mjs', () => {
       timeout_seconds: 2.5, message: 'One moment…', disable_until_first_user_message: true,
     });
     expect(TOOLSET_VERSION).toBeGreaterThanOrEqual(9);
+    // Every preset language gets its own filler, so the caller never hears English.
+    for (const [lang, preset] of Object.entries(cc.language_presets)) {
+      const msg = preset.overrides.turn.soft_timeout_config.message;
+      expect(msg, lang).toBeTruthy();
+      expect(msg, lang).not.toBe('One moment…');
+    }
     const r = run([], { TRIAL_VOICE_LLM_URL: LLM_URL });
     expect(r.stdout).toContain('"cascade_timeout_seconds": 15');
     expect(r.stdout).toContain('"soft_timeout_config"');

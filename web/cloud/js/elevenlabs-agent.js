@@ -65,6 +65,17 @@ const FIRST_MESSAGE_TRANSLATIONS = {
   fr: 'Ici Silas. Voulez-vous enregistrer une mesure ou consulter vos chiffres ?',
 };
 
+// Soft-timeout filler per preset language (bd med-h849.13). Set through
+// overrides.turn.soft_timeout_config.message (documented, no source_hash) rather
+// than soft_timeout_translation, whose required source_hash is undocumented.
+const SOFT_TIMEOUT_TRANSLATIONS = {
+  ru: 'Одну секунду…',
+  uk: 'Одну секунду…',
+  de: 'Einen Moment…',
+  es: 'Un momento…',
+  fr: 'Un instant…',
+};
+
 // Multilingual TTS so a language_detection switch can actually speak the new
 // language. An 'en' agent only accepts flash/turbo v2 or v4 — the API 400s
 // eleven_flash_v2_5 ("English Agents must use turbo or flash v2").
@@ -390,7 +401,12 @@ export function buildAgentConfig(toolIds, { llmURL } = {}) {
       tts: { voice_id: VOICE_ID, model_id: TTS_MODEL_ID },
       language_presets: Object.fromEntries(
         Object.entries(FIRST_MESSAGE_TRANSLATIONS).map(([lang, text]) => [
-          lang, { overrides: { agent: { first_message: text } } },
+          lang, {
+            overrides: {
+              agent: { first_message: text },
+              turn: { soft_timeout_config: { message: SOFT_TIMEOUT_TRANSLATIONS[lang] } },
+            },
+          },
         ]),
       ),
     },
