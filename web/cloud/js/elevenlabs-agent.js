@@ -65,9 +65,10 @@ const FIRST_MESSAGE_TRANSLATIONS = {
   fr: 'Ici Silas. Voulez-vous enregistrer une mesure ou consulter vos chiffres ?',
 };
 
-// eleven_flash_v2 (ElevenLabs' default for 'en' agents) is English-only, so a
-// mid-call switch to another language needs a v2_5 multilingual model.
-const TTS_MODEL_ID = 'eleven_flash_v2_5';
+// Multilingual TTS so a language_detection switch can actually speak the new
+// language. An 'en' agent only accepts flash/turbo v2 or v4 — the API 400s
+// eleven_flash_v2_5 ("English Agents must use turbo or flash v2").
+const TTS_MODEL_ID = 'eleven_v4_turbo';
 
 // Fixed tool spec list. Each name matches a clientTools callback registered in
 // web/static/js/features/elevenlabs-call.js buildClientTools(), which maps it
