@@ -312,6 +312,10 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
         expect(agent.prompt.tool_ids).toHaveLength(TOOL_SPECS.length);
         expect(agent.prompt.prompt).toMatch(/tool/i);
         expect(createCall.body.conversation_config.tts.voice_id).toBeTruthy();
+        // The agent's LLM is the voice relay on this account's origin (bd med-h849.3).
+        expect(agent.prompt.llm).toBe('custom-llm');
+        expect(agent.prompt.custom_llm.url).toBe(`${window.location.origin}/api/voice-llm`);
+        expect(createCall.body.platform_settings.overrides.custom_llm_extra_body).toBe(true);
 
         // Second provision on the same (stored) TOOLSET_VERSION reuses the agent.
         const second = makeElevenLabsFetch({ existingTools: existingAll() });
@@ -337,6 +341,7 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
         const patch = calls.find((c) => c.method === 'PATCH' && c.url.includes('/agents/'));
         expect(patch.url).toContain('preset-1');
         expect(patch.body.conversation_config.tts.voice_id).toBeTruthy();
+        expect(patch.body.conversation_config.agent.prompt.custom_llm.url).toBe(`${window.location.origin}/api/voice-llm`);
     });
 
     it('missing key: throws a Settings/Integrations hint without calling fetch', async () => {

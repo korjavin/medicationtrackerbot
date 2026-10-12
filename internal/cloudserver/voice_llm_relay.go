@@ -390,10 +390,11 @@ func (a *VoiceLLMRelayAPI) DeviceSocket(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-// ChatCompletions is the ElevenLabs custom-LLM endpoint. It always answers a
-// known call with an SSE stream that ends in [DONE] — the provider's answer
-// relayed verbatim, or one fixed spoken fallback sentence — and never returns
-// content of its own beyond that sentence.
+// ChatCompletions is the ElevenLabs custom-LLM endpoint. Short of the miss
+// rate limit it always answers with an SSE stream that ends in [DONE] — the
+// provider's answer relayed verbatim, or one fixed spoken fallback sentence
+// (also for an unknown call) — and never returns content of its own beyond
+// that sentence.
 func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	body, err := io.ReadAll(io.LimitReader(r.Body, voiceMaxBodyBytes+1))
@@ -422,7 +423,17 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 			http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
 			return
 		}
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "unknown_call"})
+		// A custom-llm agent reaches us on EVERY turn, including calls whose
+		// relay leg never came up (elevenlabs-call.js then starts the session
+		// without the extra body) and calls orphaned by a restart. ElevenLabs
+		// does not cascade a custom LLM to a backup model, so an error status
+		// would leave the agent silent; answer with the same spoken fallback a
+		// known call gets. It carries no data, and misses still count above.
+		slog.Info("voice llm relay: unknown call", "has_token", extra.Call != "")
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusOK)
+		writeVoiceFallback(func(s string) error { _, err := io.WriteString(w, s); return err })
 		return
 	}
 	forward, err := json.Marshal(payload)
