@@ -792,6 +792,13 @@
         try {
             // The device leg must be up before the signed URL is minted, so
             // the agent's first LLM turn finds it. Bot mode has no relay.
+            // With no AI key of its own the relay answers through the trial
+            // proxy, which needs `voice` consent even when the ElevenLabs key
+            // is the user's — ask now, not as a failed first turn.
+            if (window.CloudVoiceLLM && await window.CloudVoiceLLM.usesTrialAI()) {
+                await ensureTrialVoiceConsent();
+            }
+            if (!live()) return;
             const call = window.CloudVoiceLLM ? await window.CloudVoiceLLM.start() : null;
             if (!live()) return;
             const [signedUrl, sdk] = await Promise.all([

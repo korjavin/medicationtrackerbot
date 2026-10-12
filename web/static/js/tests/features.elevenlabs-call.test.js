@@ -1865,6 +1865,7 @@ describe('features/elevenlabs-call.js — voice LLM relay leg (cloud, bd med-h84
                 window.CloudVoiceLLM = {
                     start: vi.fn(async () => { order.push('start'); return 'call-tok'; }),
                     stop: vi.fn(),
+                    usesTrialAI: vi.fn(async () => false),
                 };
                 const mint = window.CloudElevenLabs.fetchSignedURL;
                 window.CloudElevenLabs.fetchSignedURL = vi.fn(async (...a) => { order.push('mint'); return mint(...a); });
@@ -1946,6 +1947,24 @@ describe('features/elevenlabs-call.js — voice LLM relay leg (cloud, bd med-h84
             expect(window.WGCallAgent.getState().state).toBe('error');
             expect(window.CloudElevenLabs.fetchSignedURL).not.toHaveBeenCalled();
             expect(window.CloudVoiceLLM.stop).toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('trial AI behind a BYO ElevenLabs key asks for voice consent before opening the leg', async () => {
+        const { window, cleanup } = relayEnv();
+        try {
+            window.CloudVoiceLLM.usesTrialAI = vi.fn(async () => true);
+            window.apiCall = vi.fn(async () => ({ ai: true, voice: null, tg: null }));
+            await startCall(window);
+            expect(window.WGCallAgent.getState().message).toMatch(/needs your consent/);
+            expect(window.CloudVoiceLLM.start).not.toHaveBeenCalled();
+
+            window.apiCall = vi.fn(async () => ({ ai: null, voice: true, tg: null }));
+            await startCall(window);
+            expect(window.CloudVoiceLLM.start).toHaveBeenCalledTimes(1);
+            expect(window.__TEST_CONVERSATION_OPTS__.customLlmExtraBody).toEqual({ call: 'call-tok' });
         } finally {
             cleanup();
         }

@@ -24,7 +24,7 @@ const RECONNECT_MAX_MS = 8000;
 export const STATUS_UNKNOWN_CALL = 4404;
 export const STATUS_REPLACED = 4409;
 
-// createVoiceLLMResponder → { start(): Promise<callToken>, stop() }.
+// createVoiceLLMResponder → { start(): Promise<callToken>, stop(), usesTrialAI() }.
 // start() dials the device leg and resolves with the hello's call token (the
 // value elevenlabs-call.js passes as customLlmExtraBody.call), then serves
 // requests until stop(). A blip mid-call redials with ?call=<token> to reclaim.
@@ -156,5 +156,5 @@ export function createVoiceLLMResponder({ aiClient, url, now = () => Date.now() 
     if (sock) sock.close();
   }
 
-  return { start, stop };
+  return { start, stop, usesTrialAI: () => aiClient.usesTrial() };
 }

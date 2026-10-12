@@ -722,5 +722,13 @@ export function createAIClient({ settingsDomain }) {
     if (rest) onChunk(rest);
   }
 
-  return { parseMealFromDescription, parseActivityFromDescription, parseMealFromImage, parseWorkoutSheetImage, classifyExercises, chat, chatStream, listModels };
+  // usesTrial: true when text calls would go to the trial proxy (no vault key,
+  // trial offered) — lets the voice call ask for `voice` consent up front
+  // instead of failing the first relayed turn.
+  async function usesTrial() {
+    const { text } = await credentials();
+    return !text.apiKey && trialAIAvailable();
+  }
+
+  return { parseMealFromDescription, parseActivityFromDescription, parseMealFromImage, parseWorkoutSheetImage, classifyExercises, chat, chatStream, usesTrial, listModels };
 }
