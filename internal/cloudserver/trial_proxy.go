@@ -33,6 +33,10 @@ type TrialProxyAPI struct {
 	store         sessionStore
 	sessionSecret string
 	limiter       *rateLimiter
+	// streamLimiter is the separate per-account window for stream:true chat
+	// requests (voice turns, bd med-h849.4): one call is a request per turn
+	// plus one per tool round, far past the shared limiter's budget.
+	streamLimiter *rateLimiter
 	// budget persists the daily spend caps (bd med-d5t.5). Nil disables them,
 	// which is what the older two-arg constructor leaves behind for tests that
 	// only exercise the proxy's upstream behavior.
@@ -55,6 +59,7 @@ func NewTrialProxyAPI(store sessionStore, sessionSecret string, cfg TrialConfig)
 		store:                   store,
 		sessionSecret:           sessionSecret,
 		limiter:                 newRateLimiter(cfg.RatePerMinute, time.Minute),
+		streamLimiter:           newRateLimiter(trialStreamRatePerMin, time.Minute),
 		client:                  &http.Client{Timeout: trialUpstreamTimout},
 		elevenLabsSignedURLBase: "https://api.elevenlabs.io/v1/convai/conversation/get_signed_url",
 	}
@@ -108,8 +113,8 @@ func (a *TrialProxyAPI) RegisterRoutes(mux *http.ServeMux) {
 // rateLimit enforces the shared per-account trial limit (one limiter across
 // all trial routes). On limit it writes the 429 contract (mirrors demo-mode's
 // shape so existing frontend 429 handling applies) and returns false.
-func (a *TrialProxyAPI) rateLimit(w http.ResponseWriter, accountID string) bool {
-	if a.limiter.Allow(accountID) {
+func (a *TrialProxyAPI) rateLimit(w http.ResponseWriter, limiter *rateLimiter, accountID string) bool {
+	if limiter.Allow(accountID) {
 		return true
 	}
 	slog.Info("trial rate limited", "account", accountID)
@@ -132,7 +137,7 @@ func (a *TrialProxyAPI) ElevenLabsSignedURL(w http.ResponseWriter, r *http.Reque
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_not_configured"})
 		return
 	}
-	if !a.rateLimit(w, account.ID) {
+	if !a.rateLimit(w, a.limiter, account.ID) {
 		return
 	}
 
@@ -221,14 +226,6 @@ func (a *TrialProxyAPI) ChatCompletions(w http.ResponseWriter, r *http.Request) 
 	if r.URL.Query().Get("vision") == "1" {
 		key, baseURL, model = a.cfg.VisionAPIKey, a.cfg.VisionURL, a.cfg.VisionModel
 	}
-	if !a.rateLimit(w, account.ID) {
-		return
-	}
-	// After the burst limiter, before any upstream call: this is the spend gate.
-	if !a.consumeBudget(w, r, account.ID) {
-		return
-	}
-
 	// cmd/cloud's http.Server deadlines (15s read / 45s write) would kill the
 	// slow vision path before the 90s upstream timeout — extend both for this
 	// route. Best effort: unsupported writers (tests) just keep the defaults.
@@ -247,8 +244,8 @@ func (a *TrialProxyAPI) ChatCompletions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Decode to force the model and reject streaming; RawMessage keeps every
-	// other field byte-identical to what the client sent.
+	// Decode to force the model and read the stream flag; RawMessage keeps
+	// every other field byte-identical to what the client sent.
 	var payload map[string]json.RawMessage
 	// A JSON `null` body unmarshals successfully into a nil map — reject it
 	// too, or payload["model"] below panics.
@@ -257,13 +254,30 @@ func (a *TrialProxyAPI) ChatCompletions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	var stream bool
-	if raw, has := payload["stream"]; has && json.Unmarshal(raw, &stream) == nil && stream {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "streaming_not_supported"})
+	if raw, has := payload["stream"]; has {
+		_ = json.Unmarshal(raw, &stream)
+	}
+	// The body is parsed before the gates so streaming (voice) turns can draw
+	// on their own limiter; the daily budget still counts every request.
+	limiter := a.limiter
+	if stream {
+		limiter = a.streamLimiter
+	}
+	if !a.rateLimit(w, limiter, account.ID) {
+		return
+	}
+	// After the burst limiter, before any upstream call: this is the spend gate.
+	if !a.consumeBudget(w, r, account.ID) {
 		return
 	}
 	if a.cfg.Provider == TrialProviderAnthropic {
-		a.anthropicChat(w, r, account.ID, payload, r.URL.Query().Get("vision") == "1")
+		a.anthropicChat(w, r, account.ID, payload, r.URL.Query().Get("vision") == "1", stream)
 		return
+	}
+	if stream {
+		// ElevenLabs' per-caller id has no business at the operator's provider,
+		// and not every OpenAI-compatible upstream accepts the knob.
+		delete(payload, "user")
 	}
 	_, sentResponseFormat := payload["response_format"]
 	modelJSON, _ := json.Marshal(model)
@@ -332,6 +346,10 @@ func (a *TrialProxyAPI) ChatCompletions(w http.ResponseWriter, r *http.Request) 
 			errCode = "response_format_unsupported"
 		}
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": errCode, "upstream_status": resp.StatusCode})
+		return
+	}
+	if stream {
+		relayOpenAIStream(w, account.ID, resp.Body)
 		return
 	}
 	// SECURITY INVARIANT: the upstream 200 echoes the forced trial model in

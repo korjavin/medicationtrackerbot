@@ -287,21 +287,21 @@ func TestTrialAnthropic_GatesBeforeUpstream(t *testing.T) {
 		t.Fatalf("status = %d body %q, want 503 trial_not_configured", rec.Code, rec.Body.String())
 	}
 
-	// Rate limit and stream rejection run before any upstream call.
+	// The rate limit runs before any upstream call.
 	cfg = anthropicTrialCfg(f.srv.URL)
 	cfg.RatePerMinute = 1
 	h, _, host, claim = newTrialTestHandlerAPI(t, cfg)
 	session = registerAndGetSession(t, h, host, claim)
-	rec = postTrialChat(h, host, "/api/trial/openai/chat/completions", `{"stream":true,"messages":[]}`, session)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("stream status = %d, want 400", rec.Code)
+	rec = postTrialChat(h, host, "/api/trial/openai/chat/completions", `{"messages":[{"role":"user","content":"x"}]}`, session)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("first call status = %d, want 200", rec.Code)
 	}
 	rec = postTrialChat(h, host, "/api/trial/openai/chat/completions", `{"messages":[{"role":"user","content":"x"}]}`, session)
 	if rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("second call status = %d, want 429", rec.Code)
 	}
-	if len(f.bodies) != 0 {
-		t.Fatalf("upstream called %d times, want 0", len(f.bodies))
+	if len(f.bodies) != 1 {
+		t.Fatalf("upstream called %d times, want 1", len(f.bodies))
 	}
 }
 
