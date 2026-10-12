@@ -192,9 +192,61 @@
         // guard() is the single place a dispatcher throw becomes a short JSON
         // string. The workout tools chain several dispatches, so the try/catch
         // has to wrap the whole tool body, not one handle() call.
+        // Every result stays in the ElevenLabs transcript and is re-sent on each
+        // later turn, so cap it to a voice budget (bd med-h849.9).
+        const MAX_RESULT = 14 * 1024;
+        const bytes = (s) => encodeURIComponent(s).replace(/%[0-9A-F]{2}/g, '_').length; // no TextEncoder in jsdom windows; // UTF-8 bytes: Cyrillic is 2 B/char
+        const HINT ='ask with a smaller window (days/limit) or a query';
+        const capResult = (value) => {
+            const full = JSON.stringify(value);
+            if (full === undefined || bytes(full) <= MAX_RESULT) return full;
+            // Largest array within 3 levels (the dispatcher wraps rows in
+            // {status, result: {...}}), addressed by key path.
+            let bestPath = null;
+            let bestSize = -1;
+            const walk = (v, path) => {
+                if (Array.isArray(v)) {
+                    const size = JSON.stringify(v).length;
+                    if (size > bestSize) { bestSize = size; bestPath = path; }
+                } else if (v && typeof v === 'object' && path.length < 3) {
+                    Object.keys(v).forEach((k) => walk(v[k], path.concat(k)));
+                }
+            };
+            walk(value, []);
+            const atPath = (v, path) => path.reduce((o, k) => o[k], v);
+            const arr = bestPath ? atPath(value, bestPath) : null;
+            if (arr && arr.length) {
+                const build = (n) => {
+                    const marker = { truncated: true, omitted: arr.length - n, hint: HINT };
+                    const kept = arr.slice(0, n);
+                    if (!bestPath.length) return JSON.stringify([...kept, marker]);
+                    const root = Array.isArray(value) ? [...value] : { ...value };
+                    let node = root;
+                    bestPath.slice(0, -1).forEach((k) => { node[k] = Array.isArray(node[k]) ? [...node[k]] : { ...node[k] }; node = node[k]; });
+                    node[bestPath[bestPath.length - 1]] = kept;
+                    return JSON.stringify({ ...root, ...marker });
+                };
+                let lo = 0, hi = arr.length;
+                while (lo < hi) {
+                    const mid = (lo + hi + 1) >> 1;
+                    if (bytes(build(mid)) <= MAX_RESULT) lo = mid; else hi = mid - 1;
+                }
+                const trimmed = build(lo);
+                if (bytes(trimmed) <= MAX_RESULT) return trimmed;
+            }
+            // No array to trim: cut the serialized string, keep the marker parseable.
+            const text = typeof value === 'string' ? value : full;
+            let n = MAX_RESULT - 300;
+            let out;
+            do { // escaping can inflate the slice; shrink until the envelope fits
+                out = JSON.stringify({ truncated: true, omitted: text.length - n, partial: text.slice(0, n), hint: HINT });
+                n = Math.floor(n * 0.8);
+            } while (bytes(out) > MAX_RESULT && n > 0);
+            return out;
+        };
         const guard = async (fn) => {
             try {
-                return JSON.stringify(await fn());
+                return capResult(await fn());
             } catch (err) {
                 return JSON.stringify({ error: (err && err.message) || 'MCP dispatch failed' });
             }
