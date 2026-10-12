@@ -675,5 +675,52 @@ export function createAIClient({ settingsDomain }) {
       : postChatRaw(`${text.url.replace(/\/$/, '')}/chat/completions`, text.apiKey, body);
   }
 
-  return { parseMealFromDescription, parseActivityFromDescription, parseMealFromImage, parseWorkoutSheetImage, classifyExercises, chat, listModels };
+  // chatStream is the voice-relay primitive (bd med-h849.2): ElevenLabs'
+  // custom-LLM request body arrives through the relay, goes to the same
+  // provider chat() would use with stream:true, and the provider's raw SSE
+  // text is handed to onChunk UNPARSED — the server writes it to ElevenLabs
+  // verbatim. Resolves when the stream ends; rejects on non-2xx (trial errors
+  // mapped like chat()) or when signal aborts the fetch. Trial calls gate on
+  // the `voice` consent scope.
+  async function chatStream({ body, signal, onChunk }) {
+    const { text } = await credentials();
+    const useTrial = !text.apiKey;
+    if (useTrial && !trialAIAvailable()) throw noKeyError();
+    if (useTrial) await ensureTrialConsent('voice');
+    // ElevenLabs-only fields an OpenAI-compatible provider may 400 on; the
+    // rest of the request goes through untouched.
+    const {
+      elevenlabs_extra_body: _extra, user: _user, user_id: _userId, model: _model, ...req
+    } = body || {};
+    req.stream = true;
+    const headers = { 'Content-Type': 'application/json' };
+    let endpoint = '/api/trial/openai/chat/completions'; // trial: server forces the model
+    if (!useTrial) {
+      req.model = text.model;
+      if (Array.isArray(req.tools) && req.tools.length && isLunaModel(text.model)) req.reasoning_effort = 'none';
+      endpoint = `${text.url.replace(/\/$/, '')}/chat/completions`;
+      headers.Authorization = `Bearer ${text.apiKey}`;
+    }
+    const res = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(req), signal });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      const err = new Error(extractErrorMessage(errText) || `API returned status code ${res.status}`);
+      err.apiError = true;
+      err.status = res.status;
+      err.body = errText;
+      throw useTrial ? mapTrialError(err) : err;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, { stream: true });
+      if (chunk) onChunk(chunk);
+    }
+    const rest = decoder.decode();
+    if (rest) onChunk(rest);
+  }
+
+  return { parseMealFromDescription, parseActivityFromDescription, parseMealFromImage, parseWorkoutSheetImage, classifyExercises, chat, chatStream, listModels };
 }

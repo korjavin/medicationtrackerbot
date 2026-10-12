@@ -479,6 +479,14 @@
         clearConnectWatchdog();
     }
 
+    // Voice LLM relay device leg (cloud only, bd med-h849.2): the agent's LLM
+    // turns reach this tab through it, so it lives exactly as long as the call.
+    // Callers only stop it from a live() generation (or a hang-up/timeout that
+    // bumps it), so a stale chain never closes a newer call's leg.
+    function stopVoiceLLM() {
+        if (window.CloudVoiceLLM) window.CloudVoiceLLM.stop();
+    }
+
     // Voice readiness for the idle trigger (kit T4): true once a vault key or
     // the operator trial is known to exist, false when neither is, null while
     // unknown (the trigger then reads "Call agent" and a tap tries the call,
@@ -758,6 +766,7 @@
 
     async function endCall() {
         cancelConnect();
+        stopVoiceLLM();
         const conv = activeConversation;
         activeConversation = null;
         if (conv && typeof conv.endSession === 'function') {
@@ -777,9 +786,14 @@
             connectTimer = null;
             if (!live()) return;
             callGeneration += 1;
+            stopVoiceLLM();
             setState('error', 'Connection timed out — allow microphone access and try again.');
         }, CONNECT_TIMEOUT_MS);
         try {
+            // The device leg must be up before the signed URL is minted, so
+            // the agent's first LLM turn finds it. Bot mode has no relay.
+            const call = window.CloudVoiceLLM ? await window.CloudVoiceLLM.start() : null;
+            if (!live()) return;
             const [signedUrl, sdk] = await Promise.all([
                 fetchSignedURL(),
                 loadSDK(),
@@ -795,14 +809,17 @@
                 workletPaths: WORKLET_PATHS,
                 libsampleratePath: LIBSAMPLERATE_PATH,
                 ...(clientTools ? { clientTools } : {}),
+                ...(call ? { customLlmExtraBody: { call } } : {}),
                 onConnect: () => { if (live()) setState('in_call', 'Connected'); },
                 onDisconnect: () => {
                     if (!live()) return;
+                    stopVoiceLLM();
                     activeConversation = null;
                     setState('idle', '');
                 },
                 onError: (err) => {
                     if (!live()) return;
+                    stopVoiceLLM();
                     activeConversation = null;
                     const msg = (err && (err.message || err.error)) || 'Call error';
                     setState('error', msg);
@@ -832,6 +849,7 @@
         } catch (err) {
             if (!live()) return;
             clearConnectWatchdog();
+            stopVoiceLLM();
             activeConversation = null;
             const msg = err && err.status === 503
                 ? 'Voice agent is not configured on this server.'

@@ -34,6 +34,7 @@ import { createFoodDbClient } from './fooddb.js';
 import { createElevenLabsClient } from './elevenlabs-signed-url.js';
 import { createElevenLabsAgentProvisioner } from './elevenlabs-agent.js';
 import { createDispatcher } from './mcp-responder.js';
+import { createVoiceLLMResponder } from './voice-llm-responder.js';
 import { registerEgressHosts } from './egress-hosts.js';
 
 // materializeTimerHandle is module-level (not per-shim-instance) because the
@@ -1445,7 +1446,7 @@ export function createApiRouter(ctx, {
   Object.defineProperty(shimCall, 'domains', {
     enumerable: true,
     get: () => ({
-      bp, weight, notes, settings, food, foodAI, workoutSheetAI, foodDb, intake, tzplan, now,
+      bp, weight, notes, settings, food, foodAI, workoutSheetAI, foodDb, intake, tzplan, now, aiClient,
     }),
   });
   shimCall.ensureTimeZone = ensureTimeZone;
@@ -1489,7 +1490,7 @@ export function installApiShim(ctx, {
   // must go through `.domains` at call time, the way runMaterializationSweep
   // does below.
   const {
-    settings, foodDb, now,
+    settings, foodDb, now, aiClient,
   } = shimCall.domains;
   const {
     food, foodAI, workoutSheetAI,
@@ -1520,6 +1521,11 @@ export function installApiShim(ctx, {
   // exists in the Claude-connector-elected tab and builds its own router over
   // the same records port, so this is the clean reuse seam).
   targetWindow.CloudMCPDispatcher = createDispatcher({ router: bgCall, now });
+  // Voice LLM relay (bd med-h849.2): the ElevenLabs agent's completions come
+  // back to this tab over /api/voice-llm/device and go to the user's own AI
+  // (vault key, or the trial proxy) via aiClient.chatStream. elevenlabs-call.js
+  // start()s it before minting the signed URL and stop()s it on hang-up.
+  targetWindow.CloudVoiceLLM = createVoiceLLMResponder({ aiClient });
 
   // Due-dose materialization + tz-plan status refresh: neither domain module
   // owns a timer (Task 3/4's modules stay pure functions of their inputs), so

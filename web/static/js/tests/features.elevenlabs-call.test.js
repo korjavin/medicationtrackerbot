@@ -1853,3 +1853,111 @@ describe('features/elevenlabs-call.js — trial-voice fallback precedence (cloud
         }
     });
 });
+
+describe('features/elevenlabs-call.js — voice LLM relay leg (cloud, bd med-h849.2)', () => {
+    // window.CloudVoiceLLM is the apishim-published device leg: start() resolves
+    // with the call token the agent's custom-LLM hop carries back to the relay.
+    function relayEnv({ conv } = {}) {
+        const order = [];
+        const env = createConversationEnv({
+            conv,
+            setup: (window) => {
+                window.CloudVoiceLLM = {
+                    start: vi.fn(async () => { order.push('start'); return 'call-tok'; }),
+                    stop: vi.fn(),
+                };
+                const mint = window.CloudElevenLabs.fetchSignedURL;
+                window.CloudElevenLabs.fetchSignedURL = vi.fn(async (...a) => { order.push('mint'); return mint(...a); });
+            },
+        });
+        return { ...env, order };
+    }
+
+    function bridgeTimers(window) {
+        window.setTimeout = (...args) => globalThis.setTimeout(...args);
+        window.clearTimeout = (...args) => globalThis.clearTimeout(...args);
+    }
+
+    it('opens the leg before minting the signed URL and passes the token as customLlmExtraBody.call', async () => {
+        const { window, order, cleanup } = relayEnv();
+        try {
+            const { opts } = await startCall(window);
+            expect(order).toEqual(['start', 'mint']);
+            expect(opts.customLlmExtraBody).toEqual({ call: 'call-tok' });
+            expect(window.CloudVoiceLLM.stop).not.toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('stops the leg on hang-up', async () => {
+        const { window, cleanup } = relayEnv();
+        try {
+            await startCall(window);
+            await window.WGCallAgent.endCall();
+            expect(window.CloudVoiceLLM.stop).toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('stops the leg on onDisconnect and on onError', async () => {
+        const first = relayEnv();
+        try {
+            const { opts } = await startCall(first.window);
+            opts.onDisconnect();
+            expect(first.window.CloudVoiceLLM.stop).toHaveBeenCalledTimes(1);
+        } finally {
+            first.cleanup();
+        }
+        const second = relayEnv();
+        try {
+            const { opts } = await startCall(second.window);
+            opts.onError(new Error('boom'));
+            expect(second.window.CloudVoiceLLM.stop).toHaveBeenCalledTimes(1);
+        } finally {
+            second.cleanup();
+        }
+    });
+
+    it('stops the leg on the connect timeout', async () => {
+        vi.useFakeTimers();
+        const { window, document, cleanup } = relayEnv({ conv: { then() { /* never settles */ } } });
+        try {
+            bridgeTimers(window);
+            const card = window.WGCallAgent.mountCard(document.body);
+            window.WGCallAgent.startCall(card);
+            for (let i = 0; i < 30; i += 1) await Promise.resolve();
+            expect(window.CloudVoiceLLM.stop).not.toHaveBeenCalled();
+            vi.advanceTimersByTime(30000);
+            expect(window.WGCallAgent.getState().state).toBe('error');
+            expect(window.CloudVoiceLLM.stop).toHaveBeenCalledTimes(1);
+        } finally {
+            cleanup();
+            vi.useRealTimers();
+        }
+    });
+
+    it('a failed leg fails the call without minting a signed URL', async () => {
+        const { window, cleanup } = relayEnv();
+        try {
+            window.CloudVoiceLLM.start = vi.fn(async () => { throw new Error('voice relay closed before hello (1006)'); });
+            await startCall(window);
+            expect(window.WGCallAgent.getState().state).toBe('error');
+            expect(window.CloudElevenLabs.fetchSignedURL).not.toHaveBeenCalled();
+            expect(window.CloudVoiceLLM.stop).toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('without the relay (bot mode) startSession gets no customLlmExtraBody', async () => {
+        const { window, cleanup } = createConversationEnv();
+        try {
+            const { opts } = await startCall(window);
+            expect(opts).not.toHaveProperty('customLlmExtraBody');
+        } finally {
+            cleanup();
+        }
+    });
+});
