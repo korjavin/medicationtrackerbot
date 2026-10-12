@@ -52,7 +52,11 @@ const (
 	voiceBadCallMax    = 20
 	voiceBadCallWindow = time.Minute
 
-	voiceFallbackText = "I lost the connection to your app — please hang up and call again."
+	// voiceHangUpText is for a call nothing can recover (unknown or expired
+	// token); voiceRetryText for every transient failure on a live call — the
+	// tab is still open and the next turn may well work (bd med-h849.11).
+	voiceHangUpText = "I lost the connection to your app — please hang up and call again."
+	voiceRetryText  = "Sorry, I didn't catch that — could you say it again?"
 )
 
 // Close codes on the device leg, mirroring the MCP relay's (see StatusNoPairing
@@ -392,9 +396,11 @@ func (a *VoiceLLMRelayAPI) DeviceSocket(w http.ResponseWriter, r *http.Request) 
 
 // ChatCompletions is the ElevenLabs custom-LLM endpoint. Short of the miss
 // rate limit it always answers with an SSE stream that ends in [DONE] — the
-// provider's answer relayed verbatim, or one fixed spoken fallback sentence
-// (also for an unknown call) — and never returns content of its own beyond
-// that sentence.
+// provider's answer relayed verbatim, or a fixed spoken fallback sentence
+// (voiceHangUpText for an unknown call, voiceRetryText for a transient
+// failure) — and never returns content of its own beyond that sentence. A
+// device leg that drops before anything was written gets one re-send on the
+// leg the browser redials (bd med-h849.11).
 func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	body, err := io.ReadAll(io.LimitReader(r.Body, voiceMaxBodyBytes+1))
@@ -426,14 +432,14 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 		// A custom-llm agent reaches us on EVERY turn, including calls whose
 		// relay leg never came up (elevenlabs-call.js then starts the session
 		// without the extra body) and calls orphaned by a restart. ElevenLabs
-		// does not cascade a custom LLM to a backup model, so an error status
-		// would leave the agent silent; answer with the same spoken fallback a
-		// known call gets. It carries no data, and misses still count above.
+		// retries a failing custom LLM a few times but has no backup model to
+		// fall to, so an error status ends in silence; answer with a spoken
+		// fallback instead. It carries no data, and misses still count above.
 		slog.Info("voice llm relay: unknown call", "has_token", extra.Call != "")
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusOK)
-		writeVoiceFallback(func(s string) error { _, err := io.WriteString(w, s); return err })
+		writeVoiceFallback(func(s string) error { _, err := io.WriteString(w, s); return err }, voiceHangUpText)
 		return
 	}
 	forward, err := json.Marshal(payload)
@@ -473,43 +479,54 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 			"duration_ms", time.Since(start).Milliseconds(), "ttfc_ms", ttfcMs, "outcome", outcome)
 	}()
 
-	turnCtx, cancelTurn := context.WithTimeout(r.Context(), a.noDeviceWait+a.turnTimeout)
-	defer cancelTurn()
-
 	var (
 		id     int64
 		waiter *voiceWaiter
 		conn   *websocket.Conn
 	)
-	for waiter == nil {
-		if conn = call.waitConn(turnCtx, a.noDeviceWait); conn == nil {
-			if r.Context().Err() != nil {
-				outcome = "cancel"
-				return
-			}
-			outcome = "no_device"
-			writeVoiceFallback(write)
-			return
+	defer func() {
+		if waiter != nil {
+			call.unregister(id, waiter)
 		}
-		id, waiter, _ = call.register(conn)
+	}()
+	// send waits for a live leg, registers the turn on it and writes the
+	// request frame; false means the turn already ended (fallback or cancel).
+	send := func() bool {
+		waitCtx, cancelWait := context.WithTimeout(r.Context(), a.noDeviceWait+a.turnTimeout)
+		defer cancelWait()
+		for waiter == nil {
+			if conn = call.waitConn(waitCtx, a.noDeviceWait); conn == nil {
+				if r.Context().Err() != nil {
+					outcome = "cancel"
+					return false
+				}
+				outcome = "no_device"
+				writeVoiceFallback(write, voiceRetryText)
+				return false
+			}
+			id, waiter, _ = call.register(conn)
+		}
+		if err := writeDeviceFrame(r.Context(), conn, voiceFrame{ID: id, Type: "request", Body: forward}); err != nil {
+			writeVoiceFallback(write, voiceRetryText)
+			return false
+		}
+		return true
 	}
-	defer call.unregister(id, waiter)
-
-	if err := writeDeviceFrame(r.Context(), conn, voiceFrame{ID: id, Type: "request", Body: forward}); err != nil {
-		writeVoiceFallback(write)
+	if !send() {
 		return
 	}
 	cancel := func() { _ = writeDeviceFrame(r.Context(), conn, voiceFrame{ID: id, Type: "cancel"}) }
 
-	turnCtx, cancelTurn = context.WithTimeout(r.Context(), a.turnTimeout)
-	defer cancelTurn()
+	turnTimer := time.NewTimer(a.turnTimeout) // re-armed on a re-send
+	defer turnTimer.Stop()
+	resent := false
 	sawDone := false
 	tail := "\n\n" // last two bytes written: the fallback must start a fresh SSE event
 	fallback := func() {
 		if tail != "\n\n" {
 			_ = write("\n\n")
 		}
-		writeVoiceFallback(write)
+		writeVoiceFallback(write, voiceRetryText)
 	}
 	// handle applies one device frame; true ends the turn.
 	handle := func(f voiceFrame) bool {
@@ -547,6 +564,7 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 		case <-waiter.gone:
 			// Frames read before the leg dropped (maybe its final chunks and
 			// end) are already queued; honour them before calling it a failure.
+		drain:
 			for {
 				select {
 				case f := <-waiter.ch:
@@ -554,27 +572,41 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 						return
 					}
 				default:
-					// Leg dropped or this turn overflowed its queue; in the
-					// latter case the device is still streaming, so stop it.
-					go cancel()
-					fallback()
-					return
+					break drain
 				}
 			}
-		case <-turnCtx.Done():
-			cancel()
-			if r.Context().Err() != nil {
-				outcome = "cancel"
+			// Leg dropped or this turn overflowed its queue; in the latter
+			// case the device is still streaming, so stop it.
+			oldConn, oldID := conn, id
+			go func() { _ = writeDeviceFrame(r.Context(), oldConn, voiceFrame{ID: oldID, Type: "cancel"}) }()
+			if resent || respBytes > 0 {
+				fallback()
 				return
 			}
+			// Nothing reached ElevenLabs yet: the browser redials with ?call=
+			// within the grace, so re-send the request once on the new leg.
+			resent = true
+			call.unregister(id, waiter)
+			waiter = nil
+			if !send() {
+				return
+			}
+			_ = rc.SetWriteDeadline(time.Now().Add(a.noDeviceWait + a.turnTimeout + 15*time.Second))
+			turnTimer.Reset(a.turnTimeout)
+		case <-r.Context().Done():
+			cancel()
+			outcome = "cancel"
+			return
+		case <-turnTimer.C:
+			cancel()
 			fallback()
 			return
 		}
 	}
 }
 
-// writeVoiceFallback speaks the one fixed sentence and ends the stream.
-func writeVoiceFallback(write func(string) error) {
+// writeVoiceFallback speaks one fixed sentence and ends the stream.
+func writeVoiceFallback(write func(string) error, text string) {
 	chunk := func(delta any, finish any) string {
 		b, _ := json.Marshal(map[string]any{
 			"id":      "relay",
@@ -583,7 +615,7 @@ func writeVoiceFallback(write func(string) error) {
 		})
 		return "data: " + string(b) + "\n\n"
 	}
-	_ = write(chunk(map[string]string{"role": "assistant", "content": voiceFallbackText}, nil))
+	_ = write(chunk(map[string]string{"role": "assistant", "content": text}, nil))
 	_ = write(chunk(map[string]string{}, "stop"))
 	_ = write("data: [DONE]\n\n")
 }

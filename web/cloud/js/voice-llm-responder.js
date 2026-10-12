@@ -63,15 +63,26 @@ export function createVoiceLLMResponder({ aiClient, url, now = () => Date.now() 
     const t0 = now();
     let ttfc = null;
     let outcome = 'ok';
+    const attempt = () => aiClient.chatStream({
+      body,
+      signal: ctrl.signal,
+      onChunk: (data) => {
+        if (ttfc === null) ttfc = now() - t0;
+        send(sock, { id, type: 'chunk', data });
+      },
+    });
     try {
-      await aiClient.chatStream({
-        body,
-        signal: ctrl.signal,
-        onChunk: (data) => {
-          if (ttfc === null) ttfc = now() - t0;
-          send(sock, { id, type: 'chunk', data });
-        },
-      });
+      try {
+        await attempt();
+      } catch (err) {
+        // One retry for a transient failure (a 429/5xx from the provider or
+        // trial proxy, or a network TypeError) while nothing has been sent —
+        // ElevenLabs would otherwise speak the relay's fallback (bd med-h849.11).
+        const status = err && err.status;
+        const transient = err instanceof TypeError || status === 429 || status >= 500;
+        if (!transient || ttfc !== null || ctrl.signal.aborted) throw err;
+        await attempt();
+      }
       if (ctrl.signal.aborted) outcome = 'cancel';
       else send(sock, { id, type: 'end' });
     } catch (err) {

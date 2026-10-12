@@ -223,7 +223,8 @@ func TestVoiceLLMRelay_DrainsBeforeLegGone(t *testing.T) {
 	resp = <-respCh
 	out, _ = io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if !strings.HasPrefix(string(out), "data: {\"choi\n\ndata: {") || strings.Contains(string(out), "provider 500") {
+	if !strings.HasPrefix(string(out), "data: {\"choi\n\ndata: {") || strings.Contains(string(out), "provider 500") ||
+		!isVoiceRetry(resp.StatusCode, string(out)) {
 		t.Fatalf("fallback after a cut event = %q", out)
 	}
 }
@@ -262,6 +263,69 @@ func TestVoiceLLMRelay_RevokeAccount(t *testing.T) {
 func isVoiceFallback(code int, body string) bool {
 	return code == http.StatusOK && strings.Contains(body, "please hang up and call again") &&
 		strings.HasSuffix(body, "data: [DONE]\n\n")
+}
+
+// isVoiceRetry reports whether a completion answer is the transient-failure
+// sentence: the call is alive, so it must never tell the user to hang up.
+func isVoiceRetry(code int, body string) bool {
+	return code == http.StatusOK && strings.Contains(body, "could you say it again") &&
+		!strings.Contains(body, "hang up") && strings.HasSuffix(body, "data: [DONE]\n\n")
+}
+
+// bd med-h849.11: a leg that drops after the request frame, before anything
+// was written, gets the same body re-sent on the leg the browser redials and
+// that leg's answer relayed; with no redial within the wait the turn ends in
+// the retry sentence, not the hang-up one.
+func TestVoiceLLMRelay_LegDropResendsOnReattach(t *testing.T) {
+	f := newVoiceRelayFixture(t)
+	f.api.noDeviceWait = 300 * time.Millisecond
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
+	defer cancel()
+	device, token := f.dialDevice(t, ctx, "")
+	body := `{"messages":[{"role":"user","content":"hi"}],"elevenlabs_extra_body":{"call":"` + token + `"}}`
+	respCh := make(chan *http.Response, 1)
+	go func() { respCh <- f.post(t, ctx, body) }()
+	req := readVoiceFrame(t, ctx, device)
+	device.CloseNow()
+	f.waitDetached(t, ctx, token)
+
+	// The waiting turn's request may beat the hello on the new leg.
+	hdr := http.Header{}
+	hdr.Set("Cookie", f.session.Name+"="+f.session.Value)
+	device2, _, err := websocket.Dial(ctx, "ws://"+f.host+"/api/voice-llm/device?call="+token,
+		&websocket.DialOptions{HTTPClient: f.client, HTTPHeader: hdr})
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer device2.CloseNow()
+	req2 := readVoiceFrame(t, ctx, device2)
+	if req2.Type == "hello" {
+		req2 = readVoiceFrame(t, ctx, device2)
+	} else if hello := readVoiceFrame(t, ctx, device2); hello.Type != "hello" {
+		t.Fatalf("second frame = %+v, want hello", hello)
+	}
+	if req2.Type != "request" || string(req2.Body) != string(req.Body) {
+		t.Fatalf("re-sent frame = %+v, want the original body %s", req2, req.Body)
+	}
+	sendVoiceFrame(t, ctx, device2, voiceFrame{ID: req2.ID, Type: "chunk", Data: "data: {}\n\n"})
+	sendVoiceFrame(t, ctx, device2, voiceFrame{ID: req2.ID, Type: "end"})
+	resp := <-respCh
+	out, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if string(out) != "data: {}\n\ndata: [DONE]\n\n" {
+		t.Fatalf("re-sent turn = %q", out)
+	}
+
+	// No redial: the retry sentence once the wait runs out.
+	go func() { respCh <- f.post(t, ctx, body) }()
+	readVoiceFrame(t, ctx, device2)
+	device2.CloseNow()
+	resp = <-respCh
+	out, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !isVoiceRetry(resp.StatusCode, string(out)) {
+		t.Fatalf("leg gone, no redial = %d %q, want the retry sentence", resp.StatusCode, out)
+	}
 }
 
 // Test 2: unknown or missing token -> spoken fallback; repeated misses from
@@ -303,8 +367,7 @@ func TestVoiceLLMRelay_NoDeviceFallback(t *testing.T) {
 	resp := f.post(t, ctx, `{"messages":[],"elevenlabs_extra_body":{"call":"`+token+`"}}`)
 	defer resp.Body.Close()
 	out, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK || !strings.Contains(string(out), "I lost the connection to your app") ||
-		!strings.HasSuffix(string(out), "data: [DONE]\n\n") {
+	if !isVoiceRetry(resp.StatusCode, string(out)) {
 		t.Fatalf("fallback = %d %q", resp.StatusCode, out)
 	}
 	if d := time.Since(start); d > 5*time.Second {
