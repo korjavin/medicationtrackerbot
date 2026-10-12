@@ -195,10 +195,11 @@
         // Every result stays in the ElevenLabs transcript and is re-sent on each
         // later turn, so cap it to a voice budget (bd med-h849.9).
         const MAX_RESULT = 14 * 1024;
-        const HINT = 'ask with a smaller window (days/limit) or a query';
+        const bytes = (s) => encodeURIComponent(s).replace(/%[0-9A-F]{2}/g, '_').length; // no TextEncoder in jsdom windows; // UTF-8 bytes: Cyrillic is 2 B/char
+        const HINT ='ask with a smaller window (days/limit) or a query';
         const capResult = (value) => {
             const full = JSON.stringify(value);
-            if (full === undefined || full.length <= MAX_RESULT) return full;
+            if (full === undefined || bytes(full) <= MAX_RESULT) return full;
             // Largest array within 3 levels (the dispatcher wraps rows in
             // {status, result: {...}}), addressed by key path.
             let bestPath = null;
@@ -228,10 +229,10 @@
                 let lo = 0, hi = arr.length;
                 while (lo < hi) {
                     const mid = (lo + hi + 1) >> 1;
-                    if (build(mid).length <= MAX_RESULT) lo = mid; else hi = mid - 1;
+                    if (bytes(build(mid)) <= MAX_RESULT) lo = mid; else hi = mid - 1;
                 }
                 const trimmed = build(lo);
-                if (trimmed.length <= MAX_RESULT) return trimmed;
+                if (bytes(trimmed) <= MAX_RESULT) return trimmed;
             }
             // No array to trim: cut the serialized string, keep the marker parseable.
             const text = typeof value === 'string' ? value : full;
@@ -240,7 +241,7 @@
             do { // escaping can inflate the slice; shrink until the envelope fits
                 out = JSON.stringify({ truncated: true, omitted: text.length - n, partial: text.slice(0, n), hint: HINT });
                 n = Math.floor(n * 0.8);
-            } while (out.length > MAX_RESULT && n > 0);
+            } while (bytes(out) > MAX_RESULT && n > 0);
             return out;
         };
         const guard = async (fn) => {

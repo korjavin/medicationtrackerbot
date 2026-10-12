@@ -1141,6 +1141,7 @@ describe('features/elevenlabs-call.js — cloud dynamic MCP client-tools', () =>
                 handle: vi.fn(async (method, params) => {
                     if (params.op === 'health.notes.list') return { status: 'ok', result: { notes }, api_calls: 1 };
                     if (params.op === 'bare.list') return notes;
+                    if (params.op === 'ru.list') return { status: 'ok', result: { notes: notes.map((x) => ({ ...x, text: 'п'.repeat(250) })) } };
                     if (params.op === 'blob') return { blob: 'x'.repeat(100000) };
                     return small;
                 }),
@@ -1159,6 +1160,10 @@ describe('features/elevenlabs-call.js — cloud dynamic MCP client-tools', () =>
             expect(bare.length).toBeLessThanOrEqual(14 * 1024);
             const b = JSON.parse(bare);
             expect(b[b.length - 1]).toMatchObject({ truncated: true });
+
+            const ru = await opts.clientTools.mcp_call({ op: 'ru.list' });
+            expect(Buffer.byteLength(ru)).toBeLessThanOrEqual(14 * 1024);
+            expect(JSON.parse(ru).truncated).toBe(true);
 
             const blob = await opts.clientTools.mcp_call({ op: 'blob' });
             expect(blob.length).toBeLessThanOrEqual(14 * 1024);
