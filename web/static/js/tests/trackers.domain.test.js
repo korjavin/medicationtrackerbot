@@ -235,3 +235,45 @@ describe('trackers domain — cleanDays (atMost only)', () => {
     expect((await progressOf(d, t.id)).cleanDays).toBe(2); // Tue + Wed
   });
 });
+
+// med-q2bq: a streak is a max-0 limit with target.days; achieved is derived
+// from the best clean run since creation, never stored.
+describe('trackers domain — streak (target.days on a max-0 limit)', () => {
+  const STREAK = { name: 'No soda', kind: 'count', target: { op: 'atMost', value: 0, period: 'day', days: 7 } };
+
+  it('validates days: only on atMost 0, integer 1..366', async () => {
+    const { d } = setup('2026-07-01T16:00:00Z');
+    const t = await d.create(STREAK);
+    expect(t.target).toEqual({ op: 'atMost', value: 0, period: 'day', days: 7 });
+    expect((await d.list()).find((x) => x.id === t.id).target.days).toBe(7);
+    await expect(d.create({ ...WATER, target: { ...WATER.target, days: 7 } })).rejects.toMatchObject({ code: 'invalid_request' });
+    await expect(d.create({ ...COFFEE, target: { ...COFFEE.target, days: 7 } })).rejects.toMatchObject({ code: 'invalid_request' });
+    for (const days of [0, 1.5, 400]) {
+      await expect(d.create({ ...STREAK, target: { ...STREAK.target, days } })).rejects.toMatchObject({ code: 'invalid_request' });
+    }
+    expect('days' in (await d.create({ ...STREAK, target: { op: 'atMost', value: 0, period: 'day' } })).target).toBe(false);
+  });
+
+  it('derives bestDays + goal.achieved; a later slip keeps it; raising days recomputes', async () => {
+    const { d, clock } = setup('2026-07-01T16:00:00Z');
+    const t = await d.create(STREAK);
+    const plain = await d.create({ ...STREAK, name: 'Plain', target: { op: 'atMost', value: 0, period: 'day' } });
+    clock.ms = Date.parse('2026-07-04T16:00:00Z'); // created 3 days ago
+    expect(await progressOf(d, t.id)).toMatchObject({ cleanDays: 4, bestDays: 4, goal: { days: 7, achieved: false } });
+    const p = await progressOf(d, plain.id);
+    expect(p.cleanDays).toBe(4);
+    expect('goal' in p || 'bestDays' in p).toBe(false);
+
+    clock.ms = Date.parse('2026-07-07T16:00:00Z'); // 7 clean days
+    expect(await progressOf(d, t.id)).toMatchObject({ cleanDays: 7, bestDays: 7, goal: { days: 7, achieved: true } });
+    await d.update(t.id, { target: { ...STREAK.target, days: 14 } });
+    expect(await progressOf(d, t.id)).toMatchObject({ cleanDays: 7, bestDays: 7, goal: { days: 14, achieved: false } });
+    await d.update(t.id, { target: STREAK.target });
+
+    clock.ms = Date.parse('2026-07-08T16:00:00Z');
+    await d.log(t.id); // slip today, after 7 clean days (07-01..07-07)
+    expect(await progressOf(d, t.id)).toMatchObject({ cleanDays: 0, bestDays: 7, goal: { days: 7, achieved: true } });
+    clock.ms = Date.parse('2026-07-09T16:00:00Z');
+    expect(await progressOf(d, t.id)).toMatchObject({ cleanDays: 1, bestDays: 7, goal: { days: 7, achieved: true } });
+  });
+});
