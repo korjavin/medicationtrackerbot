@@ -387,6 +387,17 @@ describe('Doctor brief — printable document', () => {
                 target: { op: 'atMost', value: 1, period: 'week' },
                 progress: { total: 2, target: 1, met: false },
             },
+            // med-yd2u: a streak reads as the day it is on, or reached.
+            {
+                name: 'No sugar', emoji: '', kind: 'check', unit: null,
+                target: { op: 'atMost', value: 0, period: 'day', days: 7 },
+                progress: { total: 0, target: 0, met: true, cleanDays: 4, bestDays: 4, goal: { days: 7, achieved: false } },
+            },
+            {
+                name: 'No soda', emoji: '', kind: 'check', unit: null,
+                target: { op: 'atMost', value: 0, period: 'day', days: 7 },
+                progress: { total: 1, target: 0, met: false, cleanDays: 0, bestDays: 9, goal: { days: 7, achieved: true } },
+            },
         ];
         const html = build({ range: briefPayload().range, trackers }, {});
 
@@ -395,6 +406,8 @@ describe('Doctor brief — printable document', () => {
         expect(html).toContain('Coffee: 2 today (limit 3 per day) — within limit');
         // A check limit counts slips (med-1vy5.9).
         expect(html).toContain('No alcohol: 2 slips this week (limit 1) — over');
+        expect(html).toContain('<li>No sugar: day 4 of 7</li>');
+        expect(html).toContain('<li>No soda: 7-day goal reached</li>');
         expect(build({ range: briefPayload().range, trackers: [] }, {})).not.toContain('<h2>Trackers</h2>');
     });
 });

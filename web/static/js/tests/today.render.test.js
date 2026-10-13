@@ -1133,7 +1133,7 @@ describe('Trackers card', () => {
             .toEqual(['Water', 'Coffee', 'No alcohol', 'Late-night snack', 'Stretching', 'Vitamins']);
         expect(editor().querySelector('[data-template="Stretching"] .wg-row__meta').textContent).toBe('Check · 3 times a week');
         expect(editor().querySelector('[data-template="Vitamins"] .wg-row__meta').textContent).toBe('Check · every day');
-        expect(editor().querySelector('[data-template="No alcohol"] .wg-row__meta').textContent).toBe('Limit · you set how many slips a week');
+        expect(editor().querySelector('[data-template="No alcohol"] .wg-row__meta').textContent).toBe('Limit · hold for 7 days');
         editor().querySelector('[data-action="close"]').click();
         expect(editor().classList.contains('hidden')).toBe(true);
 
@@ -1207,10 +1207,15 @@ describe('Trackers card', () => {
         await vi.waitFor(() => expect(cached('tracker-z')).toBeTruthy());
     });
 
-    // med-1vy5.9: an abstain template is a limit the user sizes; a tap = a slip.
-    it('No alcohol template: a check limit with no value — Save asks for it; slip hints; Manage reads slips', async () => {
+    // med-1vy5.9 / med-yd2u: an abstain template is a 7-day streak (max 0,
+    // hold for N days); a tap = a slip. A non-zero limit brings the period back.
+    it('No alcohol template: a 7-day streak — days replace the period; a non-zero limit restores it; Manage reads slips', async () => {
         setup([NO_ALCOHOL, NO_NIGHT, COFFEE]);
-        env.window.apiCall = vi.fn(async (url, method, body) => ({ id: 'tracker-x', ...body, createdAt: at(14, 0) }));
+        let saved = null;
+        env.window.apiCall = vi.fn(async (url, method, body) => {
+            if (method === 'POST') { saved = { id: 'tracker-x', ...body, createdAt: at(14, 0) }; return saved; }
+            return [{ ...saved, progress: { total: 0, target: 0, met: true, cleanDays: 1, bestDays: 1, goal: { days: 7, achieved: false } }, todayLogs: [] }];
+        });
         root.querySelector('[data-action="tracker-manage"]').click();
         expect($('#today-tracker-manage [data-manage-id="tracker-a"] .wg-row__meta').textContent).toBe('Limit · at most 1 slip a week');
         expect($('#today-tracker-manage [data-manage-id="tracker-n"] .wg-row__meta').textContent).toBe('Limit · no slips a week');
@@ -1221,25 +1226,126 @@ describe('Trackers card', () => {
         editor().querySelector('[data-template="No alcohol"]').click();
         expect(editor().querySelector('[data-seg="kind"] [data-value="check"]').getAttribute('aria-pressed')).toBe('true');
         expect(editor().querySelector('[data-seg="op"] [data-value="atMost"]').getAttribute('aria-pressed')).toBe('true');
-        expect(editor().querySelector('[data-input="value"]').value).toBe('');
-        expect(env.window.document.activeElement).toBe(editor().querySelector('[data-input="value"]'));
+        expect(editor().querySelector('[data-input="value"]').value).toBe('0');
+        const hidden = (key) => editor().querySelector(`[data-field="${key}"]`).classList.contains('hidden');
         const rule = () => editor().querySelector('[data-role="tracker-rule"]').textContent;
-        expect(rule()).toBe('Set how many slips a week you allow — 0 for none. Tap the tile if you slip.');
-        editor().querySelector('[data-action="tracker-save"]').click();
-        expect(env.window.apiCall).not.toHaveBeenCalled();
-        expect(editor().querySelector('[data-field="value"] .wg-error').textContent).toBe('Enter a limit of 0 or more');
+        expect(hidden('period')).toBe(true);
+        expect(hidden('days')).toBe(false);
+        expect(editor().querySelector('[data-seg="days"] [data-value="7"]').getAttribute('aria-pressed')).toBe('true');
+        expect(rule()).toBe('Hold for 7 days · a slip restarts the count.');
 
         type('[data-input="value"]', '2');
-        expect(rule()).toBe('At most 2 slips a week. Tap the tile when you slip — the day counts against the limit; weeks at or under it count as met.');
+        expect(hidden('period')).toBe(false);
+        expect(hidden('days')).toBe(true);
+        expect(rule()).toBe('At most 2 slips a day. Tap the tile when you slip — the day counts against the limit; days at or under it count as met.');
         expect(editor().querySelector('[data-field="value"] .wg-affix__unit').textContent).toBe('slips');
         type('[data-input="value"]', '0');
-        expect(rule()).toBe('No slips a week. Tap the tile if you slip; the tile shows your clean streak.');
+        type('[data-input="days"]', '30');
+        expect(rule()).toBe('Hold for 30 days · a slip restarts the count.');
+        expect(editor().querySelector('[data-seg="days"] [data-value="30"]').getAttribute('aria-pressed')).toBe('true');
+        type('[data-input="days"]', '0');
+        editor().querySelector('[data-action="tracker-save"]').click();
+        expect(env.window.apiCall).not.toHaveBeenCalled();
+        expect(editor().querySelector('[data-field="days"] .wg-error').textContent).toBe('Enter a whole number of days, 1 or more');
+        editor().querySelector('[data-seg="days"] [data-value="7"]').click();
         editor().querySelector('[data-action="tracker-save"]').click();
         await vi.waitFor(() => expect(env.window.apiCall).toHaveBeenCalledWith('/api/trackers', 'POST', {
             name: 'No alcohol', emoji: 'glass-off', kind: 'check', unit: null, step: 1,
-            target: { op: 'atMost', value: 0, period: 'week' }, reminder: null,
+            target: { op: 'atMost', value: 0, period: 'day', days: 7 }, reminder: null,
         }));
+        await vi.waitFor(() => expect(cached('tracker-x')).toBeTruthy());
+        await vi.waitFor(() => expect(tile('tracker-x').querySelector('.wg-trk__val').textContent).toBe('1/ 7 days clean'));
+        expect(tile('tracker-x').querySelector('.wg-trk__week')).toBeNull();
         expect(toasts).toHaveLength(0);
+    });
+
+    // med-yd2u: a streak tile — N / days over a bar; a slip zeroes it, undo
+    // restores it; reached → done state with Extend / Archive.
+    const STREAK = {
+        id: 'tracker-q', name: 'No alcohol', emoji: 'glass-off', kind: 'check', unit: null, step: 1,
+        target: { op: 'atMost', value: 0, period: 'day', days: 7 },
+        progress: { total: 0, target: 0, met: true, cleanDays: 4, bestDays: 4, goal: { days: 7, achieved: false } },
+        todayLogs: [],
+    };
+    const REACHED = { ...STREAK, progress: { ...STREAK.progress, cleanDays: 9, bestDays: 9, goal: { days: 7, achieved: true } } };
+    const fillOf = (id) => tile(id).querySelector('.wg-meter__fill').style.getPropertyValue('--p');
+
+    it('streak tile: N / 7 days clean with a bar; a slip reads Slipped today · 0 / 7 and zeroes it; undo restores it', async () => {
+        setup([STREAK]);
+        const q = () => tile('tracker-q');
+        expect(q().querySelector('.wg-trk__val').textContent).toBe('4/ 7 days clean');
+        expect(fillOf('tracker-q')).toBe('57.1%');
+        expect(q().querySelector('[data-action="tracker-extend"]')).toBeNull();
+        expect(q().querySelector('[data-action="tracker-tap"]').getAttribute('aria-label')).toBe('No alcohol, 4 of 7 days clean. Tap if you slip');
+
+        const logId = 'trackerlog:tracker-q:2026-04-20';
+        env.window.apiCall = vi.fn(async (url, method) => ({ id: logId, trackerId: 'tracker-q', date: '2026-04-20', done: method === 'POST' }));
+        q().querySelector('[data-action="tracker-tap"]').click();
+        await vi.waitFor(() => expect(toasts).toHaveLength(1));
+        expect(q().querySelector('.wg-trk__val').textContent).toBe('Slipped today · 0 / 7');
+        expect(fillOf('tracker-q')).toBe('0.0%');
+
+        toasts[0].opts.action.onClick();
+        await vi.waitFor(() => expect(cached('tracker-q').todayLogs).toEqual([]));
+        expect(q().querySelector('.wg-trk__val').textContent).toBe('4/ 7 days clean');
+        expect(fillOf('tracker-q')).toBe('57.1%');
+    });
+
+    it('streak reached: done state with Extend / Archive; Extend to 14 carries days and puts the bar back in progress', async () => {
+        setup([REACHED]);
+        const q = () => tile('tracker-q');
+        expect(q().querySelector('.wg-trk__val').textContent).toBe('7 days — goal reached');
+        expect(q().classList.contains('wg-trk--met')).toBe(true);
+        expect(fillOf('tracker-q')).toBe('100%');
+
+        let put = null;
+        env.window.apiCall = vi.fn(async (url, method, body) => {
+            if (method === 'PUT') { put = body; return { ...REACHED, ...body }; }
+            return new Promise(() => {}); // the settle refetch stays pending: the optimistic row shows
+        });
+        q().querySelector('[data-action="tracker-extend"]').click();
+        expect(editor().classList.contains('hidden')).toBe(false);
+        expect(env.window.document.activeElement).toBe(editor().querySelector('[data-input="days"]'));
+        expect(editor().querySelector('[data-input="days"]').value).toBe('7');
+        type('[data-input="days"]', '14');
+        editor().querySelector('[data-action="tracker-save"]').click();
+        await vi.waitFor(() => expect(put).not.toBeNull());
+        expect(put.target).toEqual({ op: 'atMost', value: 0, period: 'day', days: 14 });
+        await vi.waitFor(() => expect(q().querySelector('.wg-trk__val').textContent).toBe('9/ 14 days clean'));
+        expect(fillOf('tracker-q')).toBe('64.3%');
+        expect(q().querySelector('[data-action="tracker-extend"]')).toBeNull();
+    });
+
+    it('streak reached: a name-only edit keeps days; Archive confirms in-page, then the tracker leaves Today', async () => {
+        setup([REACHED]);
+        env.window.apiCall = vi.fn(async (url, method, body) => (method === 'GET' ? new Promise(() => {}) : { ...REACHED, ...body }));
+        tile('tracker-q').querySelector('[data-action="tracker-more"]').click();
+        $('#today-tracker-sheet [data-action="tracker-edit"]').click();
+        type('[data-input="name"]', 'Dry month');
+        editor().querySelector('[data-action="tracker-save"]').click();
+        await vi.waitFor(() => expect(env.window.apiCall).toHaveBeenCalledWith('/api/trackers/tracker-q', 'PUT', expect.objectContaining({
+            name: 'Dry month', target: { op: 'atMost', value: 0, period: 'day', days: 7 },
+        })));
+
+        env.window.safeConfirm = vi.fn(async () => true);
+        await vi.waitFor(() => expect(tile('tracker-q').querySelector('.wg-trk__name').textContent).toBe('Dry month'));
+        tile('tracker-q').querySelector('[data-action="tracker-goal-archive"]').click();
+        await vi.waitFor(() => expect(env.window.apiCall).toHaveBeenCalledWith('/api/trackers/tracker-q', 'DELETE'));
+        expect(env.window.safeConfirm.mock.calls[0][2]).toMatchObject({ title: 'Archive Dry month?', confirmLabel: 'Archive' });
+        await vi.waitFor(() => expect(tile('tracker-q')).toBeNull());
+    });
+
+    it('legacy max-0 limit without days: the editor shows an empty, optional days field and Save keeps its period', async () => {
+        setup([NO_NIGHT]);
+        env.window.apiCall = vi.fn(async (url, method, body) => (method === 'GET' ? new Promise(() => {}) : { ...NO_NIGHT, ...body }));
+        tile('tracker-n').querySelector('[data-action="tracker-more"]').click();
+        $('#today-tracker-sheet [data-action="tracker-edit"]').click();
+        expect(editor().querySelector('[data-input="days"]').value).toBe('');
+        expect(editor().querySelector('[data-field="days"]').classList.contains('hidden')).toBe(false);
+        editor().querySelector('[data-action="tracker-save"]').click();
+        await vi.waitFor(() => expect(env.window.apiCall).toHaveBeenCalledWith('/api/trackers/tracker-n', 'PUT', expect.objectContaining({
+            target: { op: 'atMost', value: 0, period: 'week' },
+        })));
     });
 
     it('a "No …" check saved as a goal gets a one-time hint to make it a Limit', async () => {

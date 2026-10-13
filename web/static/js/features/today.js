@@ -1021,6 +1021,14 @@
         return trackerIsLimit(t) && Number(t.target.value) === 0;
     }
 
+    // Streak (med-yd2u): "hold for N days" — a max-0 limit with target.days.
+    // Takes a tracker's target or the editor draft's (typed strings); 0 = none.
+    function streakDays(target) {
+        if (!target || target.op !== 'atMost' || trackerNum(target.value) !== 0) return 0;
+        const n = trackerNum(target.days);
+        return Number.isInteger(n) && n > 0 ? n : 0;
+    }
+
     function trackerTodayTotal(t) {
         return (Array.isArray(t.todayLogs) ? t.todayLogs : []).reduce((s, l) => s + logAmount(t, l), 0);
     }
@@ -1175,14 +1183,15 @@
         if (!api) return null;
         // Undoing the slip the domain already counted (cleanDays 0 from the
         // server) leaves the streak unknown here: settle takes the fresh one.
+        // A streak's bestDays / goal come along (that slip may have cut the best run).
         const refetchClean = trackerIsLimit(t) && Number((t.progress || {}).cleanDays) === 0;
         const res = await trackerWrite(patchTracker(t.id, dropLog(log.id)), patchTracker(t.id, addLog(log)),
             () => api(`/api/trackers/${encodeURIComponent(t.id)}/log/${encodeURIComponent(log.id)}`, 'DELETE'),
             refetchClean ? async () => {
-                const fresh = await serverTrackerRow(api, t.id);
-                const cleanDays = fresh && fresh.progress ? fresh.progress.cleanDays : undefined;
-                return cleanDays === undefined ? null
-                    : patchTracker(t.id, (x) => ({ ...x, progress: { ...x.progress, cleanDays } }));
+                const fp = (await serverTrackerRow(api, t.id) || {}).progress || {};
+                if (fp.cleanDays === undefined) return null;
+                const streak = fp.goal ? { bestDays: fp.bestDays, goal: fp.goal } : {};
+                return patchTracker(t.id, (x) => ({ ...x, progress: { ...x.progress, cleanDays: fp.cleanDays, ...streak } }));
             } : null);
         if (res && !quiet) {
             let message = `Removed +${fmtNum(log.amount)}${t.unit ? ` ${unitText(t.unit, log.amount)}` : ''}`;
@@ -1211,7 +1220,7 @@
         const done = trackerDoneToday(t);
         let cls = 'wg-trk';
         if (state === 'met') cls += ' wg-trk--met';
-        if (state === 'over') cls += ' wg-trk--over';
+        if (state === 'over' && !trackerGoalReached(t)) cls += ' wg-trk--over';
         const tile = el('div', cls);
         tile.setAttribute('data-tracker-id', t.id);
         tile.setAttribute('data-state', state);
@@ -1265,6 +1274,10 @@
         more.appendChild(ico('more', true));
         more.addEventListener('click', () => openTrackerSheet(t));
         tile.appendChild(more);
+        if (trackerGoalReached(t)) {
+            tile.classList.add('wg-trk--met');
+            if (!isProvisional(t)) tile.appendChild(trackerGoalActions(t));
+        }
         return tile;
     }
 
@@ -1277,6 +1290,11 @@
         const zero = trackerIsZero(t);
         const slipped = trackerTodayTotal(t) > 0;
         const clean = trackerClean(t);
+        const goalDays = streakDays(t.target);
+        if (goalDays) {
+            renderTrackerStreak(t, tap, goalDays, slipped, clean);
+            return;
+        }
         if (zero && !(clean > 0)) {
             tap.appendChild(el('span', 'wg-trk__val wg-trk__val--text', trackerCleanText(t)));
         } else {
@@ -1306,6 +1324,55 @@
         else if (zero && !slipped) aria =`${t.name}, ${trackerCleanText(t).toLowerCase()}. Tap if you slip`;
         else if (t.kind === 'check') aria = `${t.name}, no slip today. Tap if you slip`;
         tap.setAttribute('aria-label', aria);
+    }
+
+    function trackerGoalReached(t) {
+        return !!(streakDays(t.target) && t.progress && t.progress.goal && t.progress.goal.achieved);
+    }
+
+    // Streak tile (med-yd2u): "N / 7 days clean" over a progress bar; a slip
+    // zeroes both (trackerClean is 0 once today has a slip). Reached → the
+    // done state; renderTrackerTile adds Extend / Archive outside the tap.
+    function renderTrackerStreak(t, tap, goalDays, slipped, clean) {
+        const n = clean || 0;
+        const reached = trackerGoalReached(t);
+        if (reached) {
+            tap.appendChild(el('span', 'wg-trk__val wg-trk__val--text', `${goalDays} days — goal reached`));
+        } else if (slipped) {
+            tap.appendChild(el('span', 'wg-trk__val wg-trk__val--text', `Slipped today · 0 / ${goalDays}`));
+        } else {
+            const val = el('span', 'wg-trk__val', fmtNum(n));
+            val.appendChild(el('small', null, `/ ${goalDays} days clean`));
+            tap.appendChild(val);
+        }
+        const meter = el('span', 'wg-meter');
+        const fill = el('span', 'wg-meter__fill wg-meter__fill--sage');
+        fill.style.setProperty('--p', reached ? '100%' : pct(n / goalDays));
+        meter.appendChild(fill);
+        tap.appendChild(meter);
+        if (t.kind === 'check') {
+            const row = el('span', 'wg-trk__check');
+            const tick = el('span', slipped ? 'wg-trk__tick wg-trk__tick--slip' : 'wg-trk__tick');
+            if (slipped) tick.appendChild(ico('x'));
+            row.append(tick, el('span', 'wg-meta', slipped ? 'Slipped today' : 'Tap if you slip'));
+            const foot = el('span', 'wg-trk__foot');
+            foot.appendChild(row);
+            tap.appendChild(foot);
+        }
+        let aria = `${t.name}, ${fmtNum(n)} of ${goalDays} days clean. Tap if you slip`;
+        if (reached) aria = `${t.name}, ${goalDays}-day goal reached. Tap if you slip`;
+        if (slipped) aria = `${t.name}, slipped today, 0 of ${goalDays} days. Tap to ${t.kind === 'check' ? 'undo' : `add ${fmtNum(t.step)}`}`;
+        tap.setAttribute('aria-label', aria);
+    }
+
+    // Reached is one-shot (no auto-restart): extend the goal or archive.
+    function trackerGoalActions(t) {
+        const acts = el('div', 'wg-trk__acts');
+        acts.append(
+            btn('Extend', { sm: true, action: 'tracker-extend', onClick: () => openTrackerEditor(t, 'days') }),
+            btn('Archive', { sm: true, ghost: true, action: 'tracker-goal-archive', onClick: () => archiveTracker(t) }),
+        );
+        return acts;
     }
 
     // A list cached on an earlier account-local day (Today left open past
@@ -1541,9 +1608,9 @@
     const TRACKER_TEMPLATES = [
         { name: 'Water', emoji: 'drop', kind: 'count', unit: 'glass', step: 1, target: { op: 'atLeast', value: 8, period: 'day' } },
         { name: 'Coffee', emoji: 'cup', kind: 'count', unit: 'cup', step: 1, target: { op: 'atMost', value: 3, period: 'day' } },
-        // Abstain templates are limits with no value: the user sets "at most" (0 = a clean streak).
-        { name: 'No alcohol', emoji: 'glass-off', kind: 'check', unit: null, step: 1, target: { op: 'atMost', value: '', period: 'week' } },
-        { name: 'Late-night snack', emoji: 'moon', kind: 'check', unit: null, step: 1, target: { op: 'atMost', value: '', period: 'week' } },
+        // Abstain templates are 7-day streaks (max 0, hold for N days); the user can change N or the limit.
+        { name: 'No alcohol', emoji: 'glass-off', kind: 'check', unit: null, step: 1, target: { op: 'atMost', value: 0, period: 'day', days: 7 } },
+        { name: 'Late-night snack', emoji: 'moon', kind: 'check', unit: null, step: 1, target: { op: 'atMost', value: 0, period: 'day', days: 7 } },
         { name: 'Stretching', emoji: 'stretch', kind: 'check', unit: null, step: 1, target: { op: 'atLeast', value: 3, period: 'week' } },
         { name: 'Vitamins', emoji: 'pill', kind: 'check', unit: null, step: 1, target: { op: 'atLeast', value: 1, period: 'day' } },
     ];
@@ -1565,6 +1632,8 @@
     function trackerRuleText(d) {
         const { op, period } = d.target;
         const value = trackerNum(d.target.value);
+        const goal = streakDays(d.target);
+        if (goal) return `hold for ${goal} ${goal === 1 ? 'day' : 'days'}`;
         if (d.kind === 'check' && op === 'atMost' && value === 0) return `no slips ${PERIOD_RULE[period]}`;
         if (d.kind === 'check' && op === 'atLeast' && value === 1 && period === 'day') return 'every day';
         const what = d.kind === 'check' ? trackerCheckUnit(op, value) : unitText(d.unit, value);
@@ -1585,6 +1654,7 @@
     function trackerFormHint(d) {
         const rule = trackerRuleText(d);
         const lead = rule.charAt(0).toUpperCase() + rule.slice(1);
+        if (streakDays(d.target)) return `${lead} · a slip restarts the count.`;
         if (d.kind === 'check' && d.target.op === 'atMost') {
             const v = trackerNum(d.target.value);
             if (!Number.isFinite(v)) return `Set how many slips ${PERIOD_RULE[d.target.period]} you allow — 0 for none. Tap the tile if you slip.`;
@@ -1679,7 +1749,8 @@
             kind: t.kind || 'count',
             unit: t.unit || '',
             step: String(t.step || 1),
-            target: { op: target.op, value: String(target.value), period: target.period },
+            // days: a streak's "hold for N days" (empty = none, the legacy max-0 limit).
+            target: { op: target.op, value: String(target.value), period: target.period, days: target.days ? String(target.days) : '' },
             reminderOn: !!t.reminder,
             reminderTime: (t.reminder && t.reminder.time) || '20:00',
         };
@@ -1697,6 +1768,10 @@
             errors.value = 'A goal needs at least 1. To track "none", switch to Limit and use 0.';
         } else if (d.target.op === 'atMost' && !(v >= 0)) {
             errors.value = 'Enter a limit of 0 or more';
+        } else if (d.target.op === 'atMost' && v === 0 && String(d.target.days).trim() !== '' && !streakDays(d.target)) {
+            errors.days = 'Enter a whole number of days, 1 or more';
+        } else if (streakDays(d.target) > 366) {
+            errors.days = 'Keep it to 366 days or fewer';
         }
         if (d.target.op === 'atLeast' && d.reminderOn && !REMINDER_TIME.test(d.reminderTime)) {
             errors.reminder = 'Pick a time for the reminder';
@@ -1707,12 +1782,16 @@
     // A limit carries no reminder: it is dropped on Save (TR2-C).
     function trackerBody(d) {
         const count = d.kind === 'count';
+        const days = streakDays(d.target);
         return {
             name: d.name.trim(),
             emoji: d.emoji.trim(),
             unit: count && d.unit.trim() ? d.unit.trim() : null,
             step: count ? trackerNum(d.step) : 1,
-            target: { op: d.target.op, value: trackerNum(d.target.value), period: d.target.period },
+            // A streak counts days: its period is 'day'. Carry days through every edit (an update replaces the record).
+            target: days
+                ? { op: 'atMost', value: 0, period: 'day', days }
+                : { op: d.target.op, value: trackerNum(d.target.value), period: d.target.period },
             reminder: d.target.op === 'atLeast' && d.reminderOn ? { time: d.reminderTime } : null,
         };
     }
@@ -1721,12 +1800,15 @@
         hideTrackerModal(TRACKER_EDITOR_ID);
     }
 
-    // No tracker → create, on the template step; a tracker → edit, on the form.
-    function openTrackerEditor(tracker) {
+    // No tracker → create, on the template step; a tracker → edit, on the
+    // form (`focus` names an input to start on — Extend opens on days).
+    function openTrackerEditor(tracker, focus) {
         const sheet = mountTrackerModal(TRACKER_EDITOR_ID, 'wg-sheet--full wg-today-tracker-editor', 'Tracker editor');
         const ed = { tracker: tracker || null, step: tracker ? 'form' : 'pick', from: null, draft: trackerDraft(tracker), errors: {} };
         renderTrackerEditor(sheet, ed);
         showTrackerModal(sheet, closeTrackerEditor);
+        const f = focus && sheet.querySelector(`[data-input="${focus}"]`);
+        if (f && typeof f.focus === 'function') f.focus();
         return sheet;
     }
 
@@ -1746,9 +1828,6 @@
                     ed.from = tpl.name;
                     ed.draft = trackerDraft(tpl);
                     rerender();
-                    // A limit template leaves the value to the user: ask for it.
-                    const v = ed.draft.target.value === '' && sheet.querySelector('[data-input="value"]');
-                    if (v && typeof v.focus === 'function') v.focus();
                 });
                 row.setAttribute('data-template', tpl.name);
                 list.appendChild(row);
@@ -1884,10 +1963,27 @@
                     if (!count) return trackerCheckUnit(d.target.op, n);
                     return unitText(d.unit.trim(), n);
                 })),
-            field('period', 'Per', seg('period', [['day', 'Day'], ['week', 'Week'], ['month', 'Month']], true, false,
-                () => d.target.period, (v) => { d.target.period = v; })),
         );
-        body.appendChild(targetRow);
+        // A limit of 0 is a streak: "Hold for N days" replaces the period
+        // (shown / hidden as the value is typed, so the field keeps focus).
+        const periodField = field('period', 'Per', seg('period', [['day', 'Day'], ['week', 'Week'], ['month', 'Month']], true, false,
+            () => d.target.period, (v) => { d.target.period = v; }));
+        const presets = seg('days', [['7', '7'], ['30', '30'], ['90', '90']], true, false,
+            () => d.target.days, (v) => { d.target.days = v; });
+        const daysField = field('days', 'Hold for', presets,
+            affix(input('days', d.target.days, { numeric: true, placeholder: 'Custom', aria: 'Hold for days' }, (v) => { d.target.days = v.trim(); }),
+                () => (trackerNum(d.target.days) === 1 ? 'day' : 'days')),
+            el('span', 'wg-hint', 'Optional. Empty keeps an open-ended clean streak.'));
+        const zeroLimit = () => limit && trackerNum(d.target.value) === 0;
+        const syncStreak = () => {
+            periodField.classList.toggle('hidden', zeroLimit());
+            daysField.classList.toggle('hidden', !zeroLimit());
+            presets.querySelectorAll('[data-value]').forEach((o) => o.setAttribute('aria-pressed', String(o.getAttribute('data-value') === d.target.days)));
+        };
+        live.push(syncStreak);
+        syncStreak();
+        targetRow.appendChild(periodField);
+        body.append(targetRow, daysField);
         const hint = el('p', 'wg-hint', trackerFormHint(d));
         hint.setAttribute('data-role', 'tracker-rule');
         live.push(() => { hint.textContent = trackerFormHint(d); });
@@ -2001,7 +2097,12 @@
         const provisionalId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const row = {
             ...body, id: provisionalId, archived: false, createdAt: new Date().toISOString(),
-            progress: { total: 0, target: body.target.value, met: body.target.op === 'atMost' }, todayLogs: [],
+            progress: {
+                total: 0, target: body.target.value, met: body.target.op === 'atMost',
+                // A new streak: today, unslipped, is its first clean day.
+                ...(body.target.days ? { cleanDays: 1, bestDays: 1, goal: { days: body.target.days, achieved: body.target.days <= 1 } } : {}),
+            },
+            todayLogs: [],
         };
         return trackerWrite(
             (prev) => [...(Array.isArray(prev) ? prev : []), row],
@@ -2022,7 +2123,12 @@
             const p = x.progress || { total: 0 };
             const value = fields.target.value;
             const met = fields.target.op === 'atMost' ? p.total <= value : p.total >= value;
-            return { ...x, ...fields, progress: { ...p, target: value, met } };
+            // A streak's goal follows its days (achieved = the best run reaches it); no days → no goal.
+            const rest = { ...p };
+            delete rest.goal;
+            const days = fields.target.days;
+            const next = days ? { goal: { days, achieved: Number(p.bestDays) >= days } } : {};
+            return { ...x, ...fields, progress: { ...rest, ...next, target: value, met } };
         };
         const old = { name: t.name, emoji: t.emoji, unit: t.unit, step: t.step, target: t.target, reminder: t.reminder };
         return trackerWrite(patchTracker(t.id, apply(body)), patchTracker(t.id, apply(old)),
