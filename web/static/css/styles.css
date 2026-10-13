@@ -4521,12 +4521,20 @@ body:has(.wg-callbar--dock) .wg-toasts {
 /* Plate-loading chip (med-v75c.2): which plates to load for the card's
    working weight. The svg geometry (x/y/width/height) arrives as attributes;
    all paint resolves here via tokens — never fill/stroke attributes. */
-.wg-workouts-session-exercise__plates {
+.wg-workouts-session-exercise__plates,
+.wg-workouts-session-exercise__equip-none {
     display: flex;
     align-items: center;
     gap: var(--space-sm);
     margin-top: var(--space-xs);
     flex-wrap: wrap;
+}
+
+/* The plates line under the strip's source line (med-j6pn, kit W4). */
+.wg-plates__line {
+    display: flex;
+    flex-wrap: wrap;
+    column-gap: var(--space-sm);
 }
 
 .wg-plates__glyph {

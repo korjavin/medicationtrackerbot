@@ -415,6 +415,16 @@ the live variant for the row → library link, so their plan-row cards stay
 chipless (med-qj4.2.1 no-fetch contract); in-progress sessions keep the chip
 even when a mid-workout plan edit has materialized a snapshot.
 
+Mid-workout equipment swap (med-j6pn, kit W4/W4b): on an in-progress
+session the strip names its equipment on a source line and carries a swap
+button; a card with nothing to load keeps a dashed no-equipment line with the
+same button. The button opens a picker sheet (Auto + the inventory at the
+session's gym, `inventoryAt`). A pick is persistent, not per-session: a
+plan-backed log writes the plan row's `equipment_id` (the P3 override), and a
+library-sourced log writes the library row's binding. Auto writes null. The
+strip and the weight suggestion re-solve at once, and a toast offers Undo
+(`_setSessionExerciseEquipment` in `features/workout/sessions.js`).
+
 **MCP** (med-niix.4, via the `mcp-catalog.cloud-extra.js` seam —
 no registry entry, so `mcp-catalog.generated.js` is untouched):
 `workouts.equipment.list` (read; records carry computed `loads_kg`,

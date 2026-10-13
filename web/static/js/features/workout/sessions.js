@@ -1077,8 +1077,7 @@ function refreshSessionPlateGear() {
     (st.logs || []).forEach((log, index) => {
         const entry = document.getElementById(`exercise-log-${index}`);
         if (!entry) return;
-        const old = entry.querySelector('.wg-workouts-session-exercise__plates');
-        if (old) old.remove();
+        entry.querySelectorAll(SESSION_EQUIP_STRIP_SEL).forEach((el) => el.remove());
         _maybeAttachPlateChip(entry, log);
         const meta = entry.querySelector('.wg-ex__meta');
         const mono = entry.querySelector('.wg-workouts-session-exercise__mono');
@@ -1180,7 +1179,9 @@ async function _buildSessionPlateGear(sessionData) {
         return {
             sessionId: sessionId, rowsById: rowsById, libById: libById,
             inv: inv, location: location, loadingFor: loadingFor, nearestLoads: nearestLoads,
-            equipmentForExercise: equipmentForExercise, pickNearestLoad: pickNearestLoad
+            equipmentForExercise: equipmentForExercise, pickNearestLoad: pickNearestLoad,
+            // The swap picker's gym filter (med-j6pn); absent = whole inventory.
+            inventoryAt: domain && typeof domain.inventoryAt === 'function' ? domain.inventoryAt : null
         };
     } catch (_) {
         return fail();
@@ -1218,84 +1219,379 @@ function _plateWeightFor(log) {
     return Number(row >= 0 ? _setRowValues(log, row).weight_kg : log.weight_kg);
 }
 
-// _renderSessionPlateChip builds the chip for one card synchronously from
-// resolved gear. Returns true when a chip was mounted, false when the card
-// stays unchanged (no weight, unbound gear, exact fixed load, bare bar,
-// empty inventory). Every lookup is guarded and the domain solvers are
-// total, so a malformed response degrades to no chip, never a throw.
+// Both strip variants a card can carry: the plate chip and (med-j6pn) the
+// dashed no-equipment line that keeps the swap button reachable.
+const SESSION_EQUIP_STRIP_SEL = '.wg-workouts-session-exercise__plates, .wg-workouts-session-exercise__equip-none';
+
+// _sessionPlateLoad solves what to load for one item at weight w:
+// { glyph: { perSide, sides, text } | null, parts: [[text, cls]] }, or null
+// when there is nothing to load (no weight, exact fixed load, bare bar, no
+// achievable rung).
+function _sessionPlateLoad(eq, w, gear, groups, unit) {
+    if (!eq || !Number.isFinite(w) || w <= 0) return null;
+    if (eq.kind === 'plated') {
+        const sides = eq.sides === 1 ? 1 : 2;
+        const glyphFor = (ld) => ({ perSide: ld.per_side, sides, text: groups.plateText(ld.bar_kg, ld.per_side, sides, unit) });
+        const ld = gear.loadingFor(eq, w);
+        if (ld && ld.per_side.length > 0) {
+            const g = glyphFor(ld);
+            return { glyph: g, parts: [[g.text, 'wg-plates__text']] };
+        }
+        // Exact bare-bar working weight: nothing to load, like the print
+        // sheet (which draws no glyph for an empty per_side).
+        if (ld) return null;
+        // Below the bar nothing is achievable: say so instead of suggesting
+        // the bare bar as a "nearest" rung above the target.
+        const bar = Number(eq.bar_kg);
+        if (Number.isFinite(bar) && w < bar) {
+            return { glyph: null, parts: [[`below bar (${_sessionPlateR2(bar)} kg)`, 'wg-plates__text']] };
+        }
+        const near = gear.nearestLoads(eq.loads_kg, w);
+        const chosen = gear.pickNearestLoad(near.below, near.above, w);
+        if (chosen === null) return null;
+        const best = gear.loadingFor(eq, chosen);
+        if (!best) return null;
+        const glyph = best.per_side.length > 0 ? glyphFor(best) : null;
+        const parts = glyph ? [[glyph.text, 'wg-plates__text']] : [];
+        const delta = _sessionPlateR2(chosen - w);
+        const sign = delta > 0 ? '+' : '';
+        parts.push([`${_sessionPlateR2(chosen)} kg (${sign}${delta} kg)`, 'wg-plates__delta']);
+        return { glyph, parts };
+    }
+    if (eq.kind === 'fixed') {
+        const loads = (Array.isArray(eq.loads_kg) ? eq.loads_kg : [])
+            .map(Number).filter((n) => Number.isFinite(n) && n > 0);
+        if (loads.indexOf(w) !== -1) return null;
+        const near = gear.nearestLoads(loads, w);
+        const chosen = gear.pickNearestLoad(near.below, near.above, w);
+        if (chosen === null) return null;
+        return { glyph: null, parts: [[`nearest: ${_sessionPlateR2(chosen)} kg`, 'wg-plates__text']] };
+    }
+    return null;
+}
+
+// _renderSessionPlateChip builds the strip for one card synchronously from
+// resolved gear (kit W4): a source line naming the equipment ("auto: <name>"
+// for an auto-match), the plates line, and — on an in-progress session — the
+// swap button. Returns true when a plate chip was mounted. When nothing
+// resolves to load (no weight, unbound gear, exact fixed load, bare bar) an
+// in-progress card gets the dashed no-equipment line instead (still false);
+// any other card stays unchanged. Every lookup is guarded and the domain
+// solvers are total, so a malformed response degrades to no chip, never a throw.
 function _renderSessionPlateChip(entry, log, gear) {
     if (!entry || !log || !gear || gear.failed) return false;
-    if (entry.querySelector('.wg-workouts-session-exercise__plates')) return false;
+    if (entry.querySelector(SESSION_EQUIP_STRIP_SEL)) return false;
     const groups = window.WorkoutGroups;
     if (!groups || typeof groups.plateSvg !== 'function' || typeof groups.plateText !== 'function') return false;
     const w = _plateWeightFor(log);
-    if (!Number.isFinite(w) || w <= 0) return false;
     const hit = _sessionEquipmentForLog(log, gear);
-    if (!hit) return false;
-    const eq = hit.item;
     const unit = (typeof readWeightUnitPreference === 'function') ? readWeightUnitPreference() : 'kg';
+    const load = hit ? _sessionPlateLoad(hit.item, w, gear, groups, unit) : null;
+    const swappable = !!_sessionEquipTarget(log, gear);
+    if (!load && !swappable) return false;
 
-    const wrap = document.createElement('div');
-    wrap.className = 'wg-plates wg-workouts-session-exercise__plates';
-    const addText = (text, cls) => {
+    const span = (cls, text) => {
         const s = document.createElement('span');
-        s.className = cls;
-        s.textContent = text;
-        wrap.appendChild(s);
+        if (cls) s.className = cls;
+        if (text !== undefined) s.textContent = text;
+        return s;
     };
-    const addGlyph = (perSide, sides, text) => {
-        const svg = groups.plateSvg(perSide, sides);
-        svg.setAttribute('aria-label', `Plate loading: ${text}`);
+    const wrap = document.createElement('div');
+    wrap.className = load
+        ? 'wg-plates wg-workouts-session-exercise__plates'
+        : 'wg-plates wg-plates--none wg-workouts-session-exercise__equip-none';
+    if (load && load.glyph) {
+        const svg = groups.plateSvg(load.glyph.perSide, load.glyph.sides);
+        svg.setAttribute('aria-label', `Plate loading: ${load.glyph.text}`);
         wrap.appendChild(svg);
-        addText(text, 'wg-plates__text');
-    };
-    // med-x295: an auto-matched item (no explicit binding) names itself first.
-    if (hit.auto) addText(`auto: ${eq.name}`, 'wg-plates__auto');
-
-    if (eq.kind === 'plated') {
-        const sides = eq.sides === 1 ? 1 : 2;
-        const ld = gear.loadingFor(eq, w);
-        if (ld && ld.per_side.length > 0) {
-            addGlyph(ld.per_side, sides, groups.plateText(ld.bar_kg, ld.per_side, sides, unit));
-        } else if (ld) {
-            // Exact bare-bar working weight: nothing to load, like the print
-            // sheet (which draws no glyph for an empty per_side).
-            return false;
-        } else {
-            // Below the bar nothing is achievable: say so instead of
-            // suggesting the bare bar as a "nearest" rung above the target.
-            const bar = Number(eq.bar_kg);
-            if (Number.isFinite(bar) && w < bar) {
-                addText(`below bar (${_sessionPlateR2(bar)} kg)`, 'wg-plates__text');
-            } else {
-                const near = gear.nearestLoads(eq.loads_kg, w);
-                const chosen = gear.pickNearestLoad(near.below, near.above, w);
-                if (chosen === null) return false;
-                const best = gear.loadingFor(eq, chosen);
-                if (!best) return false;
-                if (best.per_side.length > 0) {
-                    addGlyph(best.per_side, sides, groups.plateText(best.bar_kg, best.per_side, sides, unit));
-                }
-                const delta = _sessionPlateR2(chosen - w);
-                const sign = delta > 0 ? '+' : '';
-                addText(`${_sessionPlateR2(chosen)} kg (${sign}${delta} kg)`, 'wg-plates__delta');
-            }
-        }
-    } else if (eq.kind === 'fixed') {
-        const loads = (Array.isArray(eq.loads_kg) ? eq.loads_kg : [])
-            .map(Number).filter((n) => Number.isFinite(n) && n > 0);
-        if (loads.indexOf(w) !== -1) return false;
-        const near = gear.nearestLoads(loads, w);
-        const chosen = gear.pickNearestLoad(near.below, near.above, w);
-        if (chosen === null) return false;
-        addText(`nearest: ${_sessionPlateR2(chosen)} kg`, 'wg-plates__text');
+    }
+    const txt = span('wg-plates__txt');
+    // med-x295: an auto-matched item (no explicit binding) says so.
+    const src = span(hit && hit.auto ? 'wg-plates__src wg-plates__auto' : 'wg-plates__src');
+    if (hit) {
+        if (hit.auto) src.appendChild(document.createTextNode('auto: '));
+        src.appendChild(document.createElement('b')).textContent = hit.item.name || 'Equipment';
     } else {
-        return false;
+        src.textContent = 'No equipment';
+    }
+    txt.appendChild(src);
+    const line = span('wg-plates__line');
+    if (load) load.parts.forEach(([text, cls]) => line.appendChild(span(cls, text)));
+    else line.textContent = !hit && !(w > 0) ? 'Bodyweight · nothing to load' : 'Nothing to load';
+    txt.appendChild(line);
+    wrap.appendChild(txt);
+
+    if (swappable) {
+        const swap = document.createElement('button');
+        swap.type = 'button';
+        swap.className = 'wg-plates__swap';
+        swap.setAttribute('aria-label', 'Change equipment');
+        swap.appendChild(_wgIco('swap', 'wg-ico--sm'));
+        swap.addEventListener('click', () => { _openSessionEquipPicker(log); });
+        wrap.appendChild(swap);
     }
 
     const mono = entry.querySelector('.wg-workouts-session-exercise__mono');
     if (mono) entry.insertBefore(wrap, mono.nextSibling);
     else entry.appendChild(wrap);
+    return !!load;
+}
+
+// _sessionEquipTarget names where a swap for this log is saved (med-j6pn):
+// { kind: 'plan', row } for a plan-backed log (the plan row's equipment_id,
+// same field as P3's Equipment row), { kind: 'library', row } for an
+// ad-hoc / library-sourced one. Only an in-progress session swaps — a
+// finished one is frozen. null = no swap.
+function _sessionEquipTarget(log, gear) {
+    const st = window.WorkoutSessionsState;
+    if (!log || !gear || gear.failed || !st.data || st.data.status !== 'in_progress') return null;
+    if (log.source === 'library') {
+        const lib = gear.libById[log.exercise_id];
+        return lib ? { kind: 'library', row: lib } : null;
+    }
+    const row = gear.rowsById[log.exercise_id];
+    return row ? { kind: 'plan', row } : null;
+}
+
+// One-line item summary for the picker: "bar 20 · plates to 25",
+// "pair · handle 2 · plates to 10", "fixed · 16 kg".
+function _sessionEquipSummary(item) {
+    const r = _sessionPlateR2;
+    if (item.kind === 'plated') {
+        const plates = (Array.isArray(item.plates) ? item.plates : [])
+            .map((p) => Number(p && p.kg)).filter((n) => Number.isFinite(n) && n > 0);
+        const parts = item.pair ? ['pair'] : [];
+        parts.push(`${item.pair || item.sides === 1 ? 'handle' : 'bar'} ${r(item.bar_kg)}`);
+        if (plates.length) parts.push(`plates to ${r(Math.max(...plates))}`);
+        return parts.join(' · ');
+    }
+    const loads = (Array.isArray(item.loads_kg) ? item.loads_kg : [])
+        .map(Number).filter((n) => Number.isFinite(n) && n > 0).sort((a, b) => a - b);
+    if (!loads.length) return 'fixed';
+    const lo = r(loads[0]);
+    const hi = r(loads[loads.length - 1]);
+    return lo === hi ? `fixed · ${lo} kg` : `fixed · ${lo}–${hi} kg`;
+}
+
+function _sessionEquipPlanLabel() {
+    return window.WorkoutSessionsState.planLabel || 'plan';
+}
+
+function _closeSessionEquipPicker() {
+    const mm = window.ModalManager;
+    if (mm && typeof mm.close === 'function') { mm.close('workout-session-equip-sheet'); return; }
+    const node = document.getElementById('workout-session-equip-sheet');
+    if (node) node.classList.add('hidden');
+}
+
+// _openSessionEquipPicker (kit W4b): a bottom sheet over the session with
+// Auto (clear the override) and the inventory at the session's gym; the
+// current choice is pressed and one tap picks + closes.
+async function _openSessionEquipPicker(log) {
+    const gear = _sessionPlateGearSync();
+    const target = _sessionEquipTarget(log, gear);
+    if (!target) return;
+    const loc = gear.location || null;
+    const inv = Array.isArray(gear.inv) ? gear.inv : [];
+    const scoped = loc && typeof gear.inventoryAt === 'function'
+        ? gear.inventoryAt(inv, loc.locationId, loc.liveLocationIds) : inv;
+    // A pending optimistic create carries a local_ id the write would reject.
+    const items = scoped.filter((i) => i && i.id !== null && i.id !== undefined
+        && !(typeof i.id === 'string' && i.id.indexOf('local_') === 0));
+    let gymName = null;
+    if (loc && loc.locationId !== null && loc.locationId !== undefined
+        && window.WorkoutEquipment && typeof window.WorkoutEquipment.locations === 'function') {
+        try {
+            const state = await window.WorkoutEquipment.locations();
+            const l = state.locations.find((x) => String(x.id) === String(loc.locationId));
+            gymName = l ? (l.name || null) : null;
+        } catch (_) { gymName = null; }
+    }
+    const isPlan = target.kind === 'plan';
+    const current = target.row.equipment_id === null || target.row.equipment_id === undefined
+        ? null : String(target.row.equipment_id);
+
+    const doc = document;
+    const el = (tag, cls, text) => {
+        const n = doc.createElement(tag);
+        if (cls) n.className = cls;
+        if (text !== undefined) n.textContent = text;
+        return n;
+    };
+    let sheet = doc.getElementById('workout-session-equip-sheet');
+    if (!sheet) {
+        sheet = doc.createElement('mt-modal');
+        sheet.id = 'workout-session-equip-sheet';
+        sheet.className = 'hidden wg-modal wg-sheet wg-workouts-equip-sheet';
+        sheet.setAttribute('aria-label', 'Equipment');
+    }
+    doc.body.appendChild(sheet); // last in the body: above the session takeover
+
+    const head = el('header', 'wg-sheethead');
+    const titles = el('div', 'wg-sheethead__titles');
+    titles.append(el('div', 'wg-eyebrow', isPlan ? `Saves to ${_sessionEquipPlanLabel()}` : 'Saves to library'),
+        el('div', 'wg-sheethead__title', 'Equipment'));
+    const acts = el('div', 'wg-sheethead__acts');
+    const close = _wgBtn('', 'wg-btn--ghost wg-btn--icon', _closeSessionEquipPicker);
+    close.setAttribute('aria-label', 'Close');
+    close.appendChild(_wgIco('x'));
+    acts.appendChild(close);
+    head.append(titles, acts);
+
+    const body = el('div', 'wg-sheet__body');
+    const choice = (icon, label, sub, value) => {
+        const pressed = value === current;
+        const b = el('button', 'wg-choice');
+        b.type = 'button';
+        b.setAttribute('aria-pressed', pressed ? 'true' : 'false');
+        b.dataset.equipmentId = value === null ? '' : value;
+        const lead = el('span', 'wg-row__lead');
+        lead.appendChild(_wgIco(icon));
+        const text = el('span', null, label);
+        text.appendChild(el('span', 'wg-choice__sub', sub));
+        b.append(lead, text);
+        b.addEventListener('click', () => {
+            _closeSessionEquipPicker();
+            if (!pressed) _setSessionExerciseEquipment(target.kind, target.row.id, value === null ? null : Number(value), label);
+        });
+        return b;
+    };
+    if (items.length === 0) {
+        const empty = el('div', 'wg-empty');
+        const ico = el('span', 'wg-empty__icon');
+        ico.appendChild(_wgIco('box', 'wg-ico--lg'));
+        empty.append(ico, el('p', 'wg-empty__title', gymName ? `No equipment at ${gymName}` : 'No equipment yet'),
+            el('p', 'wg-empty__body', 'Add the bars, dumbbells and plates you have in Workouts → Equipment, and the strip will work out every load for you.'));
+        body.appendChild(empty);
+    } else {
+        // What Auto resolves to: the override cleared (a plan row then
+        // inherits the library binding, else auto-matches at this gym).
+        const lib = isPlan ? (gear.libById[target.row.exercise_library_id] || null) : { ...target.row, equipment_id: null };
+        const plan = isPlan ? { ...target.row, equipment_id: null } : null;
+        // Same weight the strip's resolution uses (_sessionEquipmentForLog).
+        const autoHit = gear.equipmentForExercise(plan, lib, inv, Number(log.weight_kg), loc);
+        const at = gymName ? ` at ${gymName}` : '';
+        const autoSub = !autoHit ? `Nothing matches${at}`
+            : (autoHit.auto ? `Best match${at} · now ${autoHit.item.name}` : `From library · now ${autoHit.item.name}`);
+        const autoList = el('div', 'wg-choices');
+        autoList.appendChild(choice('sparkle', 'Auto', autoSub, null));
+        body.appendChild(autoList);
+        const section = el('section', 'wg-section');
+        const sHead = el('div', 'wg-section__head');
+        sHead.appendChild(el('span', 'wg-eyebrow', `${gymName ? `At ${gymName}` : 'Your equipment'} · ${items.length}`));
+        const list = el('div', 'wg-choices');
+        items.forEach((item) => {
+            const icon = ['barbell', 'dumbbell', 'kettlebell'].indexOf(item.implement) !== -1 ? item.implement : 'box';
+            list.appendChild(choice(icon, item.name || 'Equipment', _sessionEquipSummary(item), String(item.id)));
+        });
+        section.append(sHead, list);
+        body.appendChild(section);
+    }
+    sheet.replaceChildren(el('div', 'wg-sheet__grab'), head, body);
+
+    const mm = window.ModalManager;
+    if (mm && typeof mm.open === 'function') {
+        if (typeof mm.register === 'function') mm.register(sheet.id, _closeSessionEquipPicker);
+        mm.open(sheet.id);
+    } else {
+        sheet.classList.remove('hidden');
+    }
+}
+
+// Re-solve every mounted card's strip from the cached gear (no rebuild).
+function _rerenderSessionEquipStrips() {
+    const st = window.WorkoutSessionsState;
+    (st.logs || []).forEach((log, index) => {
+        const entry = document.getElementById(`exercise-log-${index}`);
+        if (entry) _refreshSessionPlateChip(entry, log);
+    });
+}
+
+// _setSessionExerciseEquipment persists a swap (med-j6pn): the plan row's
+// equipment_id (kind 'plan') or the library row's (kind 'library'); null
+// clears the override (Auto). Both endpoints replace their core fields, so the
+// row's own values are sent back verbatim; progression_rule / training_goal
+// are omitted, which preserves them. Optimistic (rule 9): the open session's
+// gear is patched and the strips re-solve at once; a failed write restores
+// both. `label` set → success toast with Undo (which writes the previous id
+// back, quietly). `fallbackRow` is the row as last written, for an Undo after
+// the session view closed (its gear no longer holds the row).
+async function _setSessionExerciseEquipment(kind, rowId, equipmentId, label, fallbackRow) {
+    // Sync when cached, so the strip re-solves within the tap.
+    const st = window.WorkoutSessionsState;
+    const gear = st.data ? (_sessionPlateGearSync() || await _sessionPlateGear()) : null;
+    const isPlan = kind === 'plan';
+    const map = gear && !gear.failed ? (isPlan ? gear.rowsById : gear.libById) : null;
+    const live = map && map[rowId] ? map : null;
+    let before = live ? live[rowId] : null;
+    if (!before && fallbackRow) {
+        // No open gear: re-read the row so the full-replace PUT carries its
+        // current targets, not the swap-time snapshot.
+        try {
+            const rows = await apiCall(isPlan ? `/api/workout/exercises?variant_id=${fallbackRow.variant_id}` : '/api/workout/exercise-library');
+            before = (Array.isArray(rows) ? rows : []).find((r) => r && r.id === rowId) || null;
+        } catch (_) { before = null; }
+        if (!before) before = fallbackRow;
+    }
+    if (!before) return false;
+    const prevId = before.equipment_id === undefined ? null : before.equipment_id;
+    const patched = { ...before, equipment_id: equipmentId };
+    if (live) {
+        live[rowId] = patched;
+        _rerenderSessionEquipStrips();
+    }
+
+    let handle = null;
+    try {
+        if (window.DataStore && typeof window.DataStore.applyOptimistic === 'function') {
+            // The library list caches the binding; plan rows live in no cached
+            // payload, so their handle only parks the plans read until commit.
+            handle = isPlan
+                ? await window.DataStore.applyOptimistic('workout_groups', (prev) => prev, ['workout'])
+                : await window.DataStore.applyOptimistic('exercise_library', (prev) => (Array.isArray(prev)
+                    ? prev.map((r) => (r && r.id === rowId ? { ...r, equipment_id: equipmentId } : r)) : prev), ['exercise_library']);
+        }
+    } catch (_) { handle = null; /* a failed cache projection must not block the write */ }
+
+    const opt = (v) => (v === undefined ? null : v);
+    const body = isPlan
+        ? {
+            exercise_name: before.exercise_name, target_sets: before.target_sets,
+            target_reps_min: before.target_reps_min, target_reps_max: opt(before.target_reps_max),
+            target_weight_kg: opt(before.target_weight_kg), order_index: before.order_index,
+            equipment_id: equipmentId,
+        }
+        : {
+            name: before.name, default_sets: before.default_sets, default_reps_min: before.default_reps_min,
+            default_reps_max: opt(before.default_reps_max), default_weight_kg: opt(before.default_weight_kg),
+            notes: before.notes || '', body_part: before.body_part || '', equipment_id: equipmentId,
+        };
+    const url = isPlan ? `/api/workout/exercises/update?id=${rowId}` : `/api/workout/exercise-library/update?id=${rowId}`;
+    let ok = false;
+    try {
+        ok = !!(await apiCall(url, 'PUT', body, { suppressWriteAlert: true }));
+    } catch (_) {
+        ok = false;
+    }
+    if (!ok) {
+        if (live && live[rowId] === patched) {
+            live[rowId] = before;
+            _rerenderSessionEquipStrips();
+        }
+        if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
+        safeToast("Couldn't change the equipment — try again.", 'error');
+        return false;
+    }
+    if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
+    // Re-read the truth and re-ask the weight suggestion (it snaps to the
+    // new gear); local writes never reach the remote-change listener.
+    refreshSessionPlateGear();
+    if (label) {
+        safeToast(`Equipment: ${label}`, 'success', {
+            detail: isPlan ? `Saved to ${_sessionEquipPlanLabel()}` : 'Saved to library',
+            action: { label: 'Undo', onClick: () => { _setSessionExerciseEquipment(kind, rowId, prevId, null, patched); } },
+        });
+    }
     return true;
 }
 
@@ -1304,12 +1600,12 @@ function _renderSessionPlateChip(entry, log, gear) {
 // + double-append, silent no-op when gear is unresolvable.
 async function _maybeAttachPlateChip(entry, log) {
     if (!entry || !log) return;
-    if (entry.querySelector('.wg-workouts-session-exercise__plates')) return;
+    if (entry.querySelector(SESSION_EQUIP_STRIP_SEL)) return;
     const gear = await _sessionPlateGear();
     // The card may have been re-rendered (add/remove set) while we awaited —
     // only decorate the still-mounted entry, and don't double-chip.
     if (!entry.isConnected) return;
-    if (entry.querySelector('.wg-workouts-session-exercise__plates')) return;
+    if (entry.querySelector(SESSION_EQUIP_STRIP_SEL)) return;
     const st = window.WorkoutSessionsState;
     if (!gear || gear.failed || !st.data || gear.sessionId !== st.data.id) return;
     if (gear.gen !== (st.plateGearGen || 0)) return; // a refresh superseded this build
@@ -1323,8 +1619,7 @@ async function _maybeAttachPlateChip(entry, log) {
 // with the card-build attach harmless).
 function _refreshSessionPlateChip(entry, log) {
     if (!entry || !log) return;
-    const old = entry.querySelector('.wg-workouts-session-exercise__plates');
-    if (old) old.remove();
+    entry.querySelectorAll(SESSION_EQUIP_STRIP_SEL).forEach((el) => el.remove());
     const gear = _sessionPlateGearSync();
     if (gear && !gear.failed) _renderSessionPlateChip(entry, log, gear);
     else _maybeAttachPlateChip(entry, log);
@@ -1675,6 +1970,10 @@ async function showWorkoutSessionModal(sessionId) {
 
         window.WorkoutSessionsState.logs = data.logs || [];
         window.WorkoutSessionsState.data = data.session;
+        // The plan names ride on the details envelope, not the session row:
+        // the equipment swap's "Saves to <Plan> · <Day>" (med-j6pn).
+        window.WorkoutSessionsState.planLabel = [data.group_name || data.session.group_name,
+            data.variant_name || data.session.variant_name].filter(Boolean).join(' · ');
         window.WorkoutSessionsState.originalStatus = data.session.status;
         st.targetStatus = data.session.status;
 
