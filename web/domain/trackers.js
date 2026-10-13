@@ -89,14 +89,21 @@ function normalizeTracker(input) {
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(input.reminder.time || '')) throw invalid('reminder.time must be HH:MM');
     reminder = { time: input.reminder.time };
   }
+  // A limit of 0 is valid ("no cola"); a goal of 0 is not.
+  const target = { op: t.op, value: t.op === 'atMost' ? nonNegative(t.value, 'target.value') : positive(t.value, 'target.value'), period: t.period };
+  // Streak ("hold N days"): a max-0 limit with an optional target length.
+  if (t.days !== undefined && t.days !== null) {
+    if (t.op !== 'atMost' || target.value !== 0) throw invalid('target.days is only allowed on an atMost 0 limit');
+    if (!Number.isInteger(t.days) || t.days < 1 || t.days > MAX_HISTORY_DAYS) throw invalid(`target.days must be an integer from 1 to ${MAX_HISTORY_DAYS}`);
+    target.days = t.days;
+  }
   return {
     name,
     emoji: typeof input.emoji === 'string' ? input.emoji : '',
     kind: input.kind,
     unit: typeof input.unit === 'string' && input.unit.trim() ? input.unit.trim() : null,
     step: input.kind === 'count' ? positive(input.step ?? 1, 'step') : 1,
-    // A limit of 0 is valid ("no cola"); a goal of 0 is not.
-    target: { op: t.op, value: t.op === 'atMost' ? nonNegative(t.value, 'target.value') : positive(t.value, 'target.value'), period: t.period },
+    target,
     reminder,
     archived: !!input.archived,
   };
@@ -182,6 +189,18 @@ export function createTrackersDomain({ records, now, timeZone }) {
       let clean = 0;
       for (let d = today; d >= first && !(totals.get(d) > 0); d = addDays(d, -1)) clean += 1;
       out.cleanDays = clean;
+      if (tracker.target.days) {
+        // Streak goal: achieved is derived from the best run since creation,
+        // so a later slip never un-achieves it and raising days recomputes.
+        let best = 0;
+        let run = 0;
+        for (let d = first; d <= today; d = addDays(d, 1)) {
+          run = totals.get(d) > 0 ? 0 : run + 1;
+          if (run > best) best = run;
+        }
+        out.bestDays = best;
+        out.goal = { days: tracker.target.days, achieved: best >= tracker.target.days };
+      }
     }
     return out;
   }

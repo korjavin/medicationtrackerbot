@@ -463,6 +463,18 @@
           "reminder": null,
           "archived": true,
           "createdAt": "2026-07-01T08:05:00.000Z"
+        },
+        {
+          "id": "tracker-1783500000002_streak1",
+          "name": "No soda",
+          "emoji": "🥤",
+          "kind": "count",
+          "unit": null,
+          "step": 1,
+          "target": { "op": "atMost", "value": 0, "period": "day", "days": 7 },
+          "reminder": null,
+          "archived": false,
+          "createdAt": "2026-07-02T08:00:00.000Z"
         }
       ],
       "logs": [
