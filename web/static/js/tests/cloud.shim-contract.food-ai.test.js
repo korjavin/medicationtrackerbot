@@ -734,6 +734,22 @@ describe('cloud shim contract — food AI flows (features/food/{add-sheet,photo,
             expect(res.items[0].uncertain).toBe(false);
         });
 
+        it('the system prompt splits by dish, not by ingredient (med-x7bk)', async () => {
+            const { window } = env;
+            await setOpenAIKey(window);
+            const fetchMock = vi.fn().mockResolvedValue(chatCompletionResponse([
+                { name: 'Fish and butter sandwich', weight_grams: 150, carbs_100g: 30, protein_100g: 12, fat_100g: 14, uncertain: false },
+            ]));
+            vi.stubGlobal('fetch', fetchMock);
+
+            const res = await window.CloudFoodAI.parseMealFromDescription('бутерброд, хлеб с маслом и рыбой', { dryRun: true });
+            expect(res.items).toHaveLength(1);
+
+            const system = JSON.parse(fetchMock.mock.calls[0][1].body).messages[0].content;
+            expect(system).toMatch(/One item per separately eaten dish/);
+            expect(system).not.toMatch(/atomic|ingredient listed/i);
+        });
+
         it('domain: photo dry run writes nothing; logParsedItems writes the reviewed items with recomputed macros', async () => {
             const { window } = env;
             await setOpenAIKey(window);
