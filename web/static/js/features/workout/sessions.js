@@ -1523,7 +1523,16 @@ async function _setSessionExerciseEquipment(kind, rowId, equipmentId, label, fal
     const isPlan = kind === 'plan';
     const map = gear && !gear.failed ? (isPlan ? gear.rowsById : gear.libById) : null;
     const live = map && map[rowId] ? map : null;
-    const before = live ? live[rowId] : fallbackRow;
+    let before = live ? live[rowId] : null;
+    if (!before && fallbackRow) {
+        // No open gear: re-read the row so the full-replace PUT carries its
+        // current targets, not the swap-time snapshot.
+        try {
+            const rows = await apiCall(isPlan ? `/api/workout/exercises?variant_id=${fallbackRow.variant_id}` : '/api/workout/exercise-library');
+            before = (Array.isArray(rows) ? rows : []).find((r) => r && r.id === rowId) || null;
+        } catch (_) { before = null; }
+        if (!before) before = fallbackRow;
+    }
     if (!before) return false;
     const prevId = before.equipment_id === undefined ? null : before.equipment_id;
     const patched = { ...before, equipment_id: equipmentId };
