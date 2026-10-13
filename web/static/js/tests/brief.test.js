@@ -764,3 +764,66 @@ describe('doctor-visit brief — GET /api/brief (med-5k6t.1)', () => {
         });
     });
 });
+
+// med-1vy5.6: one line per active tracker with its CURRENT period progress.
+describe('doctor-visit brief — trackers section', () => {
+    const tracker = (recordId, name, target, extra = {}) => ({
+        recordId, deleted: false, clientTs: NOW, name, emoji: '', kind: 'count', unit: null, step: 1,
+        target, reminder: null, archived: false, createdAt: iso(NOW - 30 * DAY), ...extra
+    });
+    const tap = (recordId, trackerId, at, amount) => ({
+        recordId, deleted: false, clientTs: NOW, trackerId, at, amount
+    });
+    const vault = () => ({
+        tracker: [
+            tracker('tracker-w', 'Water', { op: 'atLeast', value: 8, period: 'day' }, { unit: 'glass' }),
+            tracker('tracker-c', 'Coffee', { op: 'atMost', value: 3, period: 'day' }, { createdAt: iso(NOW - 20 * DAY) }),
+            tracker('tracker-old', 'Old', { op: 'atLeast', value: 1, period: 'day' }, { archived: true })
+        ],
+        trackerlog: [
+            tap('tl-1', 'tracker-w', '2026-08-20T08:00:00Z', 2),
+            tap('tl-2', 'tracker-w', '2026-08-20T10:00:00Z', 3),
+            // 20:00Z on the 19th: yesterday in UTC, today (05:00) in Tokyo.
+            tap('tl-3', 'tracker-w', '2026-08-19T20:00:00Z', 1)
+        ]
+    });
+
+    it('is opt-in: absent from the default brief', async () => {
+        const brief = await routerWith(vault())('/api/brief', 'GET');
+        expect(brief.trackers).toBeUndefined();
+    });
+
+    it('lists each active tracker with today\'s progress, archived ones left out', async () => {
+        const { trackers } = await routerWith(vault())('/api/brief?sections=trackers', 'GET');
+
+        expect(trackers).toEqual([
+            {
+                name: 'Water', emoji: '', kind: 'count', unit: 'glass',
+                target: { op: 'atLeast', value: 8, period: 'day' },
+                progress: { total: 5, target: 8, met: false }
+            },
+            {
+                name: 'Coffee', emoji: '', kind: 'count', unit: null,
+                target: { op: 'atMost', value: 3, period: 'day' },
+                // cleanDays: created 20 days ago, never over — 21 local days.
+                progress: { total: 0, target: 3, met: true, cleanDays: 21 }
+            }
+        ]);
+    });
+
+    it('is an empty list when the user has no trackers', async () => {
+        const { trackers } = await routerWith({})('/api/brief?sections=trackers', 'GET');
+        expect(trackers).toEqual([]);
+    });
+
+    // The brief is rebuilt with the other domains when a pinned account zone
+    // resolves, so its period boundaries follow that zone, not the device's.
+    it('cuts the day in the pinned account time zone', async () => {
+        const seed = vault();
+        seed.settings = [{ recordId: 'settings', clientTs: NOW, deleted: false, timezone: 'Asia/Tokyo' }];
+
+        const { trackers } = await routerWith(seed)('/api/brief?sections=trackers', 'GET');
+
+        expect(trackers[0].progress.total).toBe(6);
+    });
+});

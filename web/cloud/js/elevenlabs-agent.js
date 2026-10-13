@@ -14,7 +14,7 @@ const AGENTS_ENDPOINT = 'https://api.elevenlabs.io/v1/convai/agents';
 
 // Bump this whenever TOOL_SPECS or the agent config below changes so unlocked
 // devices reprovision on their next connect.
-export const TOOLSET_VERSION = 5;
+export const TOOLSET_VERSION = 9;
 
 // Rachel — a warm ElevenLabs female voice (med-eas.27).
 const VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
@@ -47,9 +47,39 @@ const SYSTEM_PROMPT = [
   "user's choices or numbers; if something is off, point to the next small best",
   'step. You give reflections, not medical advice or diagnoses. Do not mention',
   'being an AI.',
+  '',
+  'Always reply in the language the user is speaking; if they switch languages,',
+  'switch with them. Tool names and arguments stay in English.',
 ].join('\n');
 
 const FIRST_MESSAGE = 'Silas here. Would you like to log a reading, or take a look at your numbers?';
+
+// Languages the language_detection system tool may switch to mid-call (it only
+// switches between the default language and these presets), each with a
+// translated greeting. English stays the default (bd med-qxdv).
+const FIRST_MESSAGE_TRANSLATIONS = {
+  ru: 'Это Сайлас. Хотите записать показатель или посмотреть свои данные?',
+  uk: 'Це Сайлас. Хочете записати показник чи переглянути свої дані?',
+  de: 'Hier ist Silas. Möchtest du einen Wert eintragen oder dir deine Zahlen ansehen?',
+  es: 'Aquí Silas. ¿Quieres registrar una medición o echar un vistazo a tus datos?',
+  fr: 'Ici Silas. Voulez-vous enregistrer une mesure ou consulter vos chiffres ?',
+};
+
+// Soft-timeout filler per preset language (bd med-h849.13). Set through
+// overrides.turn.soft_timeout_config.message (documented, no source_hash) rather
+// than soft_timeout_translation, whose required source_hash is undocumented.
+const SOFT_TIMEOUT_TRANSLATIONS = {
+  ru: 'Одну секунду…',
+  uk: 'Одну секунду…',
+  de: 'Einen Moment…',
+  es: 'Un momento…',
+  fr: 'Un instant…',
+};
+
+// Multilingual TTS so a language_detection switch can actually speak the new
+// language. An 'en' agent only accepts flash/turbo v2 or v4 — the API 400s
+// eleven_flash_v2_5 ("English Agents must use turbo or flash v2").
+const TTS_MODEL_ID = 'eleven_v4_turbo';
 
 // Fixed tool spec list. Each name matches a clientTools callback registered in
 // web/static/js/features/elevenlabs-call.js buildClientTools(), which maps it
@@ -248,6 +278,11 @@ export function toolBody(spec) {
       // toggle.) Verify the field name against the live API during
       // acceptance, like tool_call_sound.
       expects_response: true,
+      // Audible typing cue while the tool runs (owner UX request). ElevenLabs
+      // keeps this per tool — the agent-level field is ignored, and a tool
+      // PATCH without it resets the sound to none.
+      tool_call_sound: 'typing',
+      tool_call_sound_behavior: 'always',
     },
   };
 }
@@ -321,20 +356,63 @@ export async function ensureTools(key, onEvent) {
 // the operator's trial-agent script consume it, so a prompt change reaches the
 // shared trial agent on the next `pnpm trial:agent` instead of quietly diverging
 // (bd med-qgnk).
-export function buildAgentConfig(toolIds) {
+//
+// llmURL is the voice LLM relay base (bd med-h849): ElevenLabs POSTs
+// <llmURL>/chat/completions and the relay hands the turn to the user's unlocked
+// tab, which calls the user's own AI. No api_key on purpose — the relay
+// authenticates by the per-call token in custom_llm_extra_body, and no AI key
+// ever enters an ElevenLabs secret store. Required: a silent fallback to
+// ElevenLabs' built-in LLM is exactly what this replaces.
+export function buildAgentConfig(toolIds, { llmURL } = {}) {
+  if (!llmURL) throw new Error('buildAgentConfig: llmURL (voice LLM relay URL) is required');
   return {
     conversation_config: {
       agent: {
-        prompt: { prompt: SYSTEM_PROMPT, tool_ids: toolIds },
+        prompt: {
+          prompt: SYSTEM_PROMPT,
+          llm: 'custom-llm',
+          custom_llm: { url: llmURL, model_id: 'medtracker', api_type: 'chat_completions' },
+          tool_ids: toolIds,
+          // Max (2-15 s, default 4): ElevenLabs aborts + re-sends a custom-LLM turn
+          // after this; the relay's user-tab round trip can take longer (med-h849.13).
+          cascade_timeout_seconds: 15,
+          // Lets the agent switch to a language_presets language mid-call.
+          // Blank description = ElevenLabs' default detection prompt.
+          built_in_tools: {
+            language_detection: {
+              type: 'system',
+              name: 'language_detection',
+              description: '',
+              params: { system_tool_type: 'language_detection' },
+            },
+          },
+        },
         first_message: FIRST_MESSAGE,
         language: 'en',
-        // Audible cue when the agent calls a tool (owner UX request). Nesting
-        // verified against the live API during acceptance.
-        tool_call_sound: 'typing',
-        tool_call_sound_behavior: 'always',
       },
-      tts: { voice_id: VOICE_ID },
+      // One short filler per slow turn so the caller isn't met with silence.
+      turn: {
+        soft_timeout_config: {
+          timeout_seconds: 2.5,
+          message: 'One moment…',
+          disable_until_first_user_message: true,
+        },
+      },
+      tts: { voice_id: VOICE_ID, model_id: TTS_MODEL_ID },
+      language_presets: Object.fromEntries(
+        Object.entries(FIRST_MESSAGE_TRANSLATIONS).map(([lang, text]) => [
+          lang, {
+            overrides: {
+              agent: { first_message: text },
+              turn: { soft_timeout_config: { message: SOFT_TIMEOUT_TRANSLATIONS[lang] } },
+            },
+          },
+        ]),
+      ),
     },
+    // Lets elevenlabs-call.js's startSession({ customLlmExtraBody: { call } })
+    // reach the relay as elevenlabs_extra_body — the per-call identity.
+    platform_settings: { overrides: { custom_llm_extra_body: true } },
   };
 }
 
@@ -360,7 +438,8 @@ export async function patchAgent(key, agentId, config) {
   return agentId;
 }
 
-export function createElevenLabsAgentProvisioner({ settingsDomain }) {
+// llmURL: the voice LLM relay base on this account's own origin (apishim.js).
+export function createElevenLabsAgentProvisioner({ settingsDomain, llmURL }) {
   async function apiKey() {
     const { elevenlabs } = await settingsDomain.readIntegrationsUnmasked();
     if (!elevenlabs || !elevenlabs.api_key) {
@@ -377,7 +456,7 @@ export function createElevenLabsAgentProvisioner({ settingsDomain }) {
     const stored = await settingsDomain.getVoiceProvisioning();
     const { elevenlabs } = await settingsDomain.readIntegrationsUnmasked();
     const presetId = (elevenlabs && elevenlabs.agent_id) || stored.agentId || '';
-    const config = buildAgentConfig(toolIds);
+    const config = buildAgentConfig(toolIds, { llmURL });
 
     let agentId;
     if (presetId) {

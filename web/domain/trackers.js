@@ -68,6 +68,12 @@ function positive(v, field) {
   return n;
 }
 
+function nonNegative(v, field) {
+  const n = Number(v);
+  if (v === null || v === '' || !Number.isFinite(n) || n < 0) throw invalid(`${field} must be >= 0`);
+  return n;
+}
+
 // normalizeTracker validates a full tracker body (create, or update merged
 // over the stored one). Returns only the fields the record carries.
 function normalizeTracker(input) {
@@ -83,13 +89,21 @@ function normalizeTracker(input) {
     if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(input.reminder.time || '')) throw invalid('reminder.time must be HH:MM');
     reminder = { time: input.reminder.time };
   }
+  // A limit of 0 is valid ("no cola"); a goal of 0 is not.
+  const target = { op: t.op, value: t.op === 'atMost' ? nonNegative(t.value, 'target.value') : positive(t.value, 'target.value'), period: t.period };
+  // Streak ("hold N days"): a max-0 limit with an optional target length.
+  if (t.days !== undefined && t.days !== null) {
+    if (t.op !== 'atMost' || target.value !== 0) throw invalid('target.days is only allowed on an atMost 0 limit');
+    if (!Number.isInteger(t.days) || t.days < 1 || t.days > MAX_HISTORY_DAYS) throw invalid(`target.days must be an integer from 1 to ${MAX_HISTORY_DAYS}`);
+    target.days = t.days;
+  }
   return {
     name,
     emoji: typeof input.emoji === 'string' ? input.emoji : '',
     kind: input.kind,
     unit: typeof input.unit === 'string' && input.unit.trim() ? input.unit.trim() : null,
     step: input.kind === 'count' ? positive(input.step ?? 1, 'step') : 1,
-    target: { op: t.op, value: positive(t.value, 'target.value'), period: t.period },
+    target,
     reminder,
     archived: !!input.archived,
   };
@@ -116,6 +130,26 @@ function logView(r) {
     : { id: r.recordId, trackerId: r.trackerId, at: r.at, amount: r.amount };
 }
 
+// trackerDayTotals: Map<'YYYY-MM-DD', total> for one tracker in the zone.
+// Count = summed amounts per local day; check = 1 per done day. Exported for
+// the habit-strength read in gamification.js.
+export function trackerDayTotals(tracker, logs, timeZone) {
+  const totals = new Map();
+  for (const l of logs) {
+    if (l.trackerId !== tracker.recordId) continue;
+    if (tracker.kind === 'check') {
+      if (l.done === true && isDay(l.date)) totals.set(l.date, 1);
+      continue;
+    }
+    const ms = Date.parse(l.at);
+    const amount = Number(l.amount);
+    if (Number.isNaN(ms) || !Number.isFinite(amount)) continue;
+    const day = localDay(ms, timeZone);
+    totals.set(day, (totals.get(day) || 0) + amount);
+  }
+  return totals;
+}
+
 // createTrackersDomain builds the trackers API over the injected ports:
 //   records  — { list(type), put(type, record), del(type, id) }
 //   now()    — current time in ms epoch
@@ -127,24 +161,7 @@ export function createTrackersDomain({ records, now, timeZone }) {
     return rec;
   }
 
-  // dayTotals: Map<'YYYY-MM-DD', total> for one tracker. Count = summed
-  // amounts per local day; check = 1 per done day.
-  function dayTotals(tracker, logs) {
-    const totals = new Map();
-    for (const l of logs) {
-      if (l.trackerId !== tracker.recordId) continue;
-      if (tracker.kind === 'check') {
-        if (l.done === true && isDay(l.date)) totals.set(l.date, 1);
-        continue;
-      }
-      const ms = Date.parse(l.at);
-      const amount = Number(l.amount);
-      if (Number.isNaN(ms) || !Number.isFinite(amount)) continue;
-      const day = localDay(ms, timeZone);
-      totals.set(day, (totals.get(day) || 0) + amount);
-    }
-    return totals;
-  }
+  const dayTotals = (tracker, logs) => trackerDayTotals(tracker, logs, timeZone);
 
   function progress(tracker, totals, today) {
     const { op, value, period } = tracker.target;
@@ -153,7 +170,51 @@ export function createTrackersDomain({ records, now, timeZone }) {
     for (const [day, n] of totals) if (periodKey(day, period) === key) total += n;
     // atMost: an empty period (zero logs) is within the limit, so met.
     const met = op === 'atLeast' ? total >= value : total <= value;
-    return { total, target: value, met };
+    const out = { total, target: value, met };
+    if (period === 'week') {
+      // Mon..Sun of today's ISO week, for the tile's 7-segment strip.
+      const mon = addDays(today, -((new Date(`${today}T00:00:00Z`).getUTCDay() + 6) % 7));
+      out.days = Array.from({ length: 7 }, (_, i) => {
+        const day = addDays(mon, i);
+        return { day, total: totals.get(day) || 0 };
+      });
+    }
+    if (op === 'atMost') {
+      // Days clean: consecutive local days ending today with total 0, back
+      // to the tracker's creation day (created today, no slip → 1). Derived,
+      // never stored; spans period boundaries.
+      const born = Date.parse(tracker.createdAt);
+      const made = Number.isNaN(born) ? today : localDay(born, timeZone);
+      const first = made < today ? made : today; // a future createdAt (clock skew) counts as today
+      let clean = 0;
+      for (let d = today; d >= first && !(totals.get(d) > 0); d = addDays(d, -1)) clean += 1;
+      out.cleanDays = clean;
+      if (tracker.target.days) {
+        // Streak goal: achieved is derived from the best run since creation,
+        // so a later slip never un-achieves it and raising days recomputes.
+        let best = 0;
+        let run = 0;
+        for (let d = first; d <= today; d = addDays(d, 1)) {
+          run = totals.get(d) > 0 ? 0 : run + 1;
+          if (run > best) best = run;
+        }
+        out.bestDays = best;
+        out.goal = { days: tracker.target.days, achieved: best >= tracker.target.days };
+      }
+    }
+    return out;
+  }
+
+  // todayLogs: the logs behind today's total, newest first — the Today tile's
+  // done state and the log sheet's delete list (count: one per tap; check:
+  // today's done entry, if any).
+  function todayLogs(tracker, logs, today) {
+    return logs
+      .filter((l) => l.trackerId === tracker.recordId && (tracker.kind === 'check'
+        ? l.done === true && l.date === today
+        : !Number.isNaN(Date.parse(l.at)) && localDay(Date.parse(l.at), timeZone) === today))
+      .map(logView)
+      .sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
   }
 
   async function list() {
@@ -162,7 +223,15 @@ export function createTrackersDomain({ records, now, timeZone }) {
     return trackers
       .filter((t) => !t.archived)
       .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
-      .map((t) => ({ ...trackerView(t), progress: progress(t, dayTotals(t, logs), today) }));
+      .map((t) => ({
+        ...trackerView(t),
+        progress: progress(t, dayTotals(t, logs), today),
+        todayLogs: todayLogs(t, logs, today),
+        // The account-local day progress/todayLogs describe, and its zone:
+        // a client holding a cached list can tell it went stale at midnight.
+        day: today,
+        timeZone,
+      }));
   }
 
   async function create(input) {
@@ -214,10 +283,24 @@ export function createTrackersDomain({ records, now, timeZone }) {
     return logView(record);
   }
 
+  // resolveTracker: an exact id, else a case-insensitive name match among
+  // active trackers — so an agent can "log 2 glasses of water" by name.
+  async function resolveTracker(ref) {
+    const all = await records.list(TRACKER);
+    const byId = all.find((r) => r.recordId === ref);
+    if (byId) return byId;
+    const name = String(ref).trim().toLowerCase();
+    const hits = all.filter((r) => !r.archived && String(r.name).toLowerCase() === name);
+    if (hits.length > 1) throw invalid(`more than one tracker is named "${ref}"; use its id`);
+    if (!hits.length) throw notFound('tracker not found');
+    return hits[0];
+  }
+
   // log: count appends one tap (amount defaults to step, at to now); check
-  // marks a date (default today) done.
-  async function log(trackerId, input = {}) {
-    const tracker = await getTracker(trackerId);
+  // marks a date (default today) done. trackerId may also be a tracker name.
+  async function log(trackerRef, input = {}) {
+    const tracker = await resolveTracker(trackerRef);
+    const trackerId = tracker.recordId;
     const nowMs = now();
     if (tracker.kind === 'check') {
       return setDay(trackerId, input.date || localDay(nowMs, timeZone), true);

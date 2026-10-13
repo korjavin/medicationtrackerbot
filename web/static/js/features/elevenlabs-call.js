@@ -192,9 +192,61 @@
         // guard() is the single place a dispatcher throw becomes a short JSON
         // string. The workout tools chain several dispatches, so the try/catch
         // has to wrap the whole tool body, not one handle() call.
+        // Every result stays in the ElevenLabs transcript and is re-sent on each
+        // later turn, so cap it to a voice budget (bd med-h849.9).
+        const MAX_RESULT = 14 * 1024;
+        const bytes = (s) => encodeURIComponent(s).replace(/%[0-9A-F]{2}/g, '_').length; // no TextEncoder in jsdom windows; // UTF-8 bytes: Cyrillic is 2 B/char
+        const HINT ='ask with a smaller window (days/limit) or a query';
+        const capResult = (value) => {
+            const full = JSON.stringify(value);
+            if (full === undefined || bytes(full) <= MAX_RESULT) return full;
+            // Largest array within 3 levels (the dispatcher wraps rows in
+            // {status, result: {...}}), addressed by key path.
+            let bestPath = null;
+            let bestSize = -1;
+            const walk = (v, path) => {
+                if (Array.isArray(v)) {
+                    const size = JSON.stringify(v).length;
+                    if (size > bestSize) { bestSize = size; bestPath = path; }
+                } else if (v && typeof v === 'object' && path.length < 3) {
+                    Object.keys(v).forEach((k) => walk(v[k], path.concat(k)));
+                }
+            };
+            walk(value, []);
+            const atPath = (v, path) => path.reduce((o, k) => o[k], v);
+            const arr = bestPath ? atPath(value, bestPath) : null;
+            if (arr && arr.length) {
+                const build = (n) => {
+                    const marker = { truncated: true, omitted: arr.length - n, hint: HINT };
+                    const kept = arr.slice(0, n);
+                    if (!bestPath.length) return JSON.stringify([...kept, marker]);
+                    const root = Array.isArray(value) ? [...value] : { ...value };
+                    let node = root;
+                    bestPath.slice(0, -1).forEach((k) => { node[k] = Array.isArray(node[k]) ? [...node[k]] : { ...node[k] }; node = node[k]; });
+                    node[bestPath[bestPath.length - 1]] = kept;
+                    return JSON.stringify({ ...root, ...marker });
+                };
+                let lo = 0, hi = arr.length;
+                while (lo < hi) {
+                    const mid = (lo + hi + 1) >> 1;
+                    if (bytes(build(mid)) <= MAX_RESULT) lo = mid; else hi = mid - 1;
+                }
+                const trimmed = build(lo);
+                if (bytes(trimmed) <= MAX_RESULT) return trimmed;
+            }
+            // No array to trim: cut the serialized string, keep the marker parseable.
+            const text = typeof value === 'string' ? value : full;
+            let n = MAX_RESULT - 300;
+            let out;
+            do { // escaping can inflate the slice; shrink until the envelope fits
+                out = JSON.stringify({ truncated: true, omitted: text.length - n, partial: text.slice(0, n), hint: HINT });
+                n = Math.floor(n * 0.8);
+            } while (bytes(out) > MAX_RESULT && n > 0);
+            return out;
+        };
         const guard = async (fn) => {
             try {
-                return JSON.stringify(await fn());
+                return capResult(await fn());
             } catch (err) {
                 return JSON.stringify({ error: (err && err.message) || 'MCP dispatch failed' });
             }
@@ -479,6 +531,42 @@
         clearConnectWatchdog();
     }
 
+    // Voice LLM relay device leg (cloud only, bd med-h849.2): the agent's LLM
+    // turns reach this tab through it, so it lives exactly as long as the call.
+    // Callers only stop it from a live() generation (or a hang-up/timeout that
+    // bumps it), so a stale chain never closes a newer call's leg.
+    function stopVoiceLLM() {
+        if (window.CloudVoiceLLM) window.CloudVoiceLLM.stop();
+    }
+
+    // openVoiceLLMLeg → the call token, or null to call without the relay.
+    // The leg must be up before the signed URL is minted, so the agent's first
+    // LLM turn finds it. Bot mode has no relay. Best-effort on purpose: an
+    // agent not (yet) switched to the custom LLM (med-h849.3) never uses the
+    // leg, so a failed leg or a declined consent must not block the call — an
+    // agent that does use it speaks the relay's own fallback sentence instead.
+    async function openVoiceLLMLeg(live) {
+        if (!window.CloudVoiceLLM) return null;
+        try {
+            // No AI key of its own → the relay answers through the trial proxy,
+            // which needs `voice` consent even when the ElevenLabs key is the
+            // user's: ask now, not as a failed first turn. Trial-voice callers
+            // (no ElevenLabs key) are asked by fetchSignedURL() — skip so a
+            // decline is not prompted twice.
+            if (await window.CloudVoiceLLM.usesTrialAI() && await window.CloudElevenLabs.hasKey()) {
+                await ensureTrialVoiceConsent();
+            }
+            return await window.CloudVoiceLLM.start();
+        } catch (err) {
+            // A stale chain (hung up / timed out meanwhile) was already
+            // stopped and must not close a newer call's leg.
+            if (!live()) return null;
+            stopVoiceLLM();
+            console.warn('[voice-llm] calling without the relay leg:', (err && (err.code || err.message)) || 'error');
+            return null;
+        }
+    }
+
     // Voice readiness for the idle trigger (kit T4): true once a vault key or
     // the operator trial is known to exist, false when neither is, null while
     // unknown (the trigger then reads "Call agent" and a tap tries the call,
@@ -758,6 +846,7 @@
 
     async function endCall() {
         cancelConnect();
+        stopVoiceLLM();
         const conv = activeConversation;
         activeConversation = null;
         if (conv && typeof conv.endSession === 'function') {
@@ -777,9 +866,12 @@
             connectTimer = null;
             if (!live()) return;
             callGeneration += 1;
+            stopVoiceLLM();
             setState('error', 'Connection timed out — allow microphone access and try again.');
         }, CONNECT_TIMEOUT_MS);
         try {
+            const call = await openVoiceLLMLeg(live);
+            if (!live()) return;
             const [signedUrl, sdk] = await Promise.all([
                 fetchSignedURL(),
                 loadSDK(),
@@ -795,14 +887,17 @@
                 workletPaths: WORKLET_PATHS,
                 libsampleratePath: LIBSAMPLERATE_PATH,
                 ...(clientTools ? { clientTools } : {}),
+                ...(call ? { customLlmExtraBody: { call } } : {}),
                 onConnect: () => { if (live()) setState('in_call', 'Connected'); },
                 onDisconnect: () => {
                     if (!live()) return;
+                    stopVoiceLLM();
                     activeConversation = null;
                     setState('idle', '');
                 },
                 onError: (err) => {
                     if (!live()) return;
+                    stopVoiceLLM();
                     activeConversation = null;
                     const msg = (err && (err.message || err.error)) || 'Call error';
                     setState('error', msg);
@@ -832,6 +927,7 @@
         } catch (err) {
             if (!live()) return;
             clearConnectWatchdog();
+            stopVoiceLLM();
             activeConversation = null;
             const msg = err && err.status === 503
                 ? 'Voice agent is not configured on this server.'

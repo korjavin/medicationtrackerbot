@@ -223,6 +223,12 @@ func toAnthropicRequest(payload map[string]json.RawMessage, model string) (map[s
 		"model":      model,
 		"max_tokens": trialAnthropicMaxTokens,
 		"messages":   out,
+		// Top-level automatic caching: a moving breakpoint on the last
+		// cacheable block, so the growing transcript (ElevenLabs and tg-agent
+		// resend the full history every turn) is read from cache turn over
+		// turn instead of re-prefilled. Composes with the explicit system
+		// breakpoint below (2 of 4 slots, both 5-minute TTL).
+		"cache_control": map[string]string{"type": "ephemeral"},
 	}
 	if len(system) > 0 {
 		// One breakpoint on the system block caches tools+system (render
@@ -317,15 +323,7 @@ func fromAnthropicResponse(r anthropicResponse) map[string]any {
 			msg["content"] = nil
 		}
 	}
-	finish := "stop"
-	switch r.StopReason {
-	case "max_tokens":
-		finish = "length"
-	case "tool_use":
-		finish = "tool_calls"
-	case "refusal":
-		finish = "content_filter"
-	}
+	finish := anthropicFinishReason(r.StopReason)
 	prompt := r.Usage.InputTokens + r.Usage.CacheCreationInputTokens + r.Usage.CacheReadInputTokens
 	return map[string]any{
 		"id":      r.ID,
@@ -337,6 +335,20 @@ func fromAnthropicResponse(r anthropicResponse) map[string]any {
 			"total_tokens":      prompt + r.Usage.OutputTokens,
 		},
 	}
+}
+
+// anthropicFinishReason maps a Messages API stop_reason to the OpenAI
+// finish_reason our clients branch on.
+func anthropicFinishReason(stop string) string {
+	switch stop {
+	case "max_tokens":
+		return "length"
+	case "tool_use":
+		return "tool_calls"
+	case "refusal":
+		return "content_filter"
+	}
+	return "stop"
 }
 
 // anthropicRejectsSchema classifies a 400 body like upstreamRejectsSchema, but
@@ -355,8 +367,17 @@ func anthropicRejectsSchema(r io.Reader) bool {
 }
 
 // anthropicChat runs one translated request. Gates (rate limit, budget,
-// body cap, stream rejection) already ran in ChatCompletions.
-func (a *TrialProxyAPI) anthropicChat(w http.ResponseWriter, r *http.Request, accountID string, payload map[string]json.RawMessage, vision bool) {
+// body cap) already ran in ChatCompletions. stream asks the Messages API for
+// SSE and translates it to chat.completion.chunk lines (trial_stream.go).
+// Thinking is ON: the current models (claude-haiku-5-5, claude-opus-5-5) run
+// adaptive thinking when the request omits `thinking`, and Opus 5.5 rejects
+// {type:"disabled"} outright, so effort is the only lever. Stream turns are
+// the voice line (the only stream caller), where thinking is dead air
+// (relayAnthropicStream drops thinking blocks), so they ask for effort "low";
+// non-stream callers keep the model default. ElevenLabs replays tool_calls
+// without our anthropic_content round-trip, so that tool_use history carries
+// no thinking blocks — the API accepts history without them.
+func (a *TrialProxyAPI) anthropicChat(w http.ResponseWriter, r *http.Request, accountID string, payload map[string]json.RawMessage, vision, stream bool) {
 	model := a.cfg.AnthropicModel
 	if vision {
 		model = a.cfg.AnthropicVisionModel
@@ -367,6 +388,15 @@ func (a *TrialProxyAPI) anthropicChat(w http.ResponseWriter, r *http.Request, ac
 		return
 	}
 	_, sentResponseFormat := areq["output_config"]
+	if stream {
+		areq["stream"] = true
+		oc, _ := areq["output_config"].(map[string]any)
+		if oc == nil {
+			oc = map[string]any{}
+		}
+		oc["effort"] = "low"
+		areq["output_config"] = oc
+	}
 	upstreamBody, err := json.Marshal(areq)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
@@ -402,6 +432,10 @@ func (a *TrialProxyAPI) anthropicChat(w http.ResponseWriter, r *http.Request, ac
 			errCode = "response_format_unsupported"
 		}
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": errCode, "upstream_status": resp.StatusCode})
+		return
+	}
+	if stream {
+		relayAnthropicStream(r.Context(), w, accountID, resp.Body)
 		return
 	}
 	var ar anthropicResponse

@@ -25,10 +25,16 @@ vi.mock('../../vendor/qrcode.mjs', () => ({
   qrcode: () => ({ addData() {}, make() {}, createSvgTag: () => '<svg></svg>' }),
 }));
 
+// med-5h1t.3: every code starts with a fresh passkey assertion.
+vi.mock('../unlock.js', () => ({ assertPasskey: vi.fn() }));
+
 import { renderAddDevice } from '../transfer.js';
+import { assertPasskey } from '../unlock.js';
+import { encryptTransferPayload } from '../crypto.js';
 
 const SLOT_ID = 'slot-abc';
-const ctx = { accountId: 'acct-1', dek: new Uint8Array(32) };
+const ctx = { accountId: 'acct-1' };
+const FRESH_DEK = new Uint8Array([9, 9, 9]);
 
 let dom;
 let app;
@@ -84,6 +90,9 @@ beforeEach(() => {
   deleteStatus = 204;
   calls = [];
   installFetch();
+  assertPasskey.mockReset();
+  assertPasskey.mockResolvedValue({ accountId: 'acct-1', dek: FRESH_DEK });
+  encryptTransferPayload.mockClear();
 });
 
 afterEach(() => {
@@ -95,13 +104,79 @@ afterEach(() => {
   delete global.location;
 });
 
-// renderAddDevice kicks off async work; settle it, then let the fake clock run.
+// renderAddDevice opens on the passkey confirm step; confirm, settle the async
+// work, then let the fake clock run.
 async function mountTransferScreen() {
   flow = renderAddDevice(app, ctx, onExit);
+  app.querySelector('#transfer-confirm').click();
   await vi.waitFor(() => {
     if (!app.querySelector('#transfer-cancel')) throw new Error('not rendered yet');
   });
 }
+
+describe('Add a device — fresh passkey confirm (med-5h1t.3)', () => {
+  it('does not start a transfer on mount — it waits for an explicit passkey confirm', async () => {
+    flow = renderAddDevice(app, ctx, onExit);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(app.querySelector('#transfer-confirm').textContent).toBe('Confirm with passkey');
+    expect(assertPasskey).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+  });
+
+  it('encrypts the DEK from the fresh assertion, never one on the warm ctx', async () => {
+    await mountTransferScreen();
+
+    expect(assertPasskey).toHaveBeenCalledTimes(1);
+    expect(encryptTransferPayload).toHaveBeenCalledWith(expect.anything(), FRESH_DEK, 'acct-1');
+    expect(calls).toContain('POST /api/transfer');
+  });
+
+  it('rejects a passkey for another account before encrypting or posting anything', async () => {
+    assertPasskey.mockResolvedValue({ accountId: 'someone-else', dek: new Uint8Array(3) });
+    flow = renderAddDevice(app, ctx, onExit);
+    app.querySelector('#transfer-confirm').click();
+
+    await vi.waitFor(() => {
+      if (!app.textContent.includes('different account')) throw new Error('no error yet');
+    });
+    expect(encryptTransferPayload).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+    expect(app.querySelector('#transfer-retry')).not.toBeNull();
+  });
+
+  it('a failed or cancelled assertion shows an error and posts nothing; retry asks again', async () => {
+    assertPasskey.mockRejectedValueOnce(new Error('Unlock failed. Please try again.'));
+    flow = renderAddDevice(app, ctx, onExit);
+    app.querySelector('#transfer-confirm').click();
+
+    await vi.waitFor(() => {
+      if (!app.querySelector('#transfer-retry')) throw new Error('no error yet');
+    });
+    expect(calls).toEqual([]);
+
+    app.querySelector('#transfer-retry').click();
+    app.querySelector('#transfer-confirm').click();
+    await vi.waitFor(() => {
+      if (!app.querySelector('#transfer-cancel')) throw new Error('not rendered yet');
+    });
+    expect(assertPasskey).toHaveBeenCalledTimes(2);
+  });
+
+  it('Back during the passkey prompt leaves nothing behind', async () => {
+    let resolveAssertion;
+    assertPasskey.mockReturnValue(new Promise((r) => { resolveAssertion = r; }));
+    flow = renderAddDevice(app, ctx, onExit);
+    app.querySelector('#transfer-confirm').click();
+
+    await expect(flow.cancel()).resolves.toBe(true);
+    resolveAssertion({ accountId: 'acct-1', dek: FRESH_DEK });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(encryptTransferPayload).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+  });
+});
 
 describe('Add a device — completion feedback (med-tuv)', () => {
   it('polls the slot and swaps to a success state once it is claimed', async () => {

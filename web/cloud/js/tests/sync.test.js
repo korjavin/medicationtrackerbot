@@ -1,20 +1,21 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { deriveKData, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, generateDEK, toBase64 } from '../crypto.js';
+import { deriveDataKeys, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, generateDEK, toBase64 } from '../crypto.js';
 import { listRecords, listRecordsInRange, readAllLiveRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, startReconnectAutoDrain, requestDrain, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
 import { openDb, cachedDb, dropCachedDb, onCachedDbDropped } from '../localdb.js';
 
 // reauthenticate() dynamic-imports unlock.js for the passkey ceremony; the real
 // module drives navigator.credentials, which doesn't exist in jsdom.
 vi.mock('../unlock.js', () => ({
-  assertPasskey: vi.fn(async () => ({ accountId: 'amber-falcon-8k3q9x', dek: null, credentialId: null })),
+  renewSession: vi.fn(async () => ({ accountId: 'amber-falcon-8k3q9x' })),
 }));
 
 const accountId = 'amber-falcon-8k3q9x';
+const kDataFor = async (dek) => (await deriveDataKeys(dek)).kData;
 
 describe('sync record/snapshot AAD binding (docs/cloud-crypto.md "Oplog record / snapshot")', () => {
   it('round-trips a record through encrypt -> "server assigns seq" -> decrypt', async () => {
-    const kData = await deriveKData(generateDEK());
+    const kData = await kDataFor(generateDEK());
     const plaintext = new TextEncoder().encode(JSON.stringify({ recordId: 'note-1', clientTs: 1, text: 'hello', deleted: false }));
 
     // Client predicts seq before the server assigns one (docs' "Seq assignment
@@ -26,7 +27,7 @@ describe('sync record/snapshot AAD binding (docs/cloud-crypto.md "Oplog record /
   });
 
   it('throws when the server-claimed seq differs from the one encrypted under (reorder/replay detection)', async () => {
-    const kData = await deriveKData(generateDEK());
+    const kData = await kDataFor(generateDEK());
     const plaintext = new TextEncoder().encode('secret note');
     const { nonce, ct } = await encryptRecord({ kData, accountId, recordType: 'note', recordId: 'note-1', seq: 7, plaintext });
     await expect(
@@ -35,7 +36,7 @@ describe('sync record/snapshot AAD binding (docs/cloud-crypto.md "Oplog record /
   });
 
   it('throws when the record_type/record_id used at decrypt differ from encryption (tampered tag)', async () => {
-    const kData = await deriveKData(generateDEK());
+    const kData = await kDataFor(generateDEK());
     const plaintext = new TextEncoder().encode('secret note');
     const { nonce, ct } = await encryptRecord({ kData, accountId, recordType: 'note', recordId: 'note-1', seq: 7, plaintext });
     await expect(
@@ -44,7 +45,7 @@ describe('sync record/snapshot AAD binding (docs/cloud-crypto.md "Oplog record /
   });
 
   it('round-trips a snapshot through encrypt -> decrypt', async () => {
-    const kData = await deriveKData(generateDEK());
+    const kData = await kDataFor(generateDEK());
     const records = [{ recordId: 'note-1', clientTs: 1, text: 'hello', deleted: false }];
     const plaintext = new TextEncoder().encode(JSON.stringify(records));
     const { nonce, ct } = await encryptSnapshot({ kData, accountId, snapshotSeq: 500, plaintext });
@@ -53,7 +54,7 @@ describe('sync record/snapshot AAD binding (docs/cloud-crypto.md "Oplog record /
   });
 
   it('throws when the snapshot_seq used at decrypt differs from encryption', async () => {
-    const kData = await deriveKData(generateDEK());
+    const kData = await kDataFor(generateDEK());
     const plaintext = new TextEncoder().encode('[]');
     const { nonce, ct } = await encryptSnapshot({ kData, accountId, snapshotSeq: 500, plaintext });
     await expect(decryptSnapshot({ kData, accountId, snapshotSeq: 501, nonce, ct })).rejects.toThrow();
@@ -239,7 +240,7 @@ describe('maybeSnapshot surfaces a permanent snapshot failure instead of failing
       req.onsuccess = resolve;
       req.onerror = () => reject(req.error);
     });
-    ctx = { accountId, dek: await generateDEK() };
+    ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
     snapshotPosts = 0;
     snapshotStatus = 413; // account storage quota exceeded — permanent
 
@@ -412,7 +413,7 @@ describe('non-UI writes repaint the open tab (med-d5t.10)', () => {
       req.onsuccess = resolve;
       req.onerror = () => reject(req.error);
     });
-    ctx = { accountId, dek: await generateDEK() };
+    ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
   });
 
   it('a food log written outside the UI (voice agent / MCP relay) invalidates and repaints', async () => {
@@ -519,7 +520,7 @@ describe('non-UI writes repaint the open tab (med-d5t.10)', () => {
 
   it('an incoming sync pull repaints once per page, with the union of the pulled types', async () => {
     stubDataStore();
-    const kData = await deriveKData(ctx.dek);
+    const kData = ctx.kData;
     const seal = async (recordType, recordId, seq, record) => {
       const { nonce, ct } = await encryptRecord({
         kData, accountId, recordType, recordId, seq,
@@ -587,7 +588,7 @@ describe('a full vault reads as full, not as offline (med-d5t.4)', () => {
       req.onsuccess = resolve;
       req.onerror = () => reject(req.error);
     });
-    ctx = { accountId, dek: await generateDEK() };
+    ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
     opsStatus = 200;
     opsPosts = 0;
 
@@ -755,10 +756,27 @@ describe('a full vault reads as full, not as offline (med-d5t.4)', () => {
     }));
     const status = await reauthenticate(ctx);
 
-    const { assertPasskey } = await import('../unlock.js');
-    expect(assertPasskey).toHaveBeenCalled();
+    const { renewSession } = await import('../unlock.js');
+    expect(renewSession).toHaveBeenCalled();
     expect(status.authExpired).toBe(false);
     expect(status.pendingCount).toBe(0);
+  });
+
+  // med-5h1t.3: renewal is login-only (no PRF, no unwrap) but still refuses a
+  // session for another account — nothing drains, the flag stays up.
+  it('reauthenticate rejects a renewal that lands on a different account and does not drain', async () => {
+    await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
+    opsStatus = 401;
+    await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hello' });
+    await flushConfirmed(ctx);
+    const { renewSession } = await import('../unlock.js');
+    renewSession.mockResolvedValueOnce({ accountId: 'someone-else' });
+    const fetchSpy = vi.fn(async () => { throw new Error('must not drain'); });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await expect(reauthenticate(ctx)).rejects.toThrow(/different account/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(await getSyncStatus(ctx)).toMatchObject({ authExpired: true, pendingCount: 1 });
   });
 
   it('reports an unnameable permanent refusal honestly, without guessing "full"', async () => {
@@ -803,7 +821,7 @@ describe('writeRecord does not await the background oplog push (med-eas.77)', ()
       req.onsuccess = resolve;
       req.onerror = () => reject(req.error);
     });
-    ctx = { accountId, dek: await generateDEK() };
+    ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
   });
 
   it('resolves the write before the /api/sync/ops push settles', async () => {
@@ -938,7 +956,7 @@ describe('sync fetches abort on a half-open connection (med-gvk.2)', () => {
       req.onsuccess = resolve;
       req.onerror = () => reject(req.error);
     });
-    ctx = { accountId, dek: await generateDEK() };
+    ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
   });
 
   afterEach(() => {
@@ -1071,7 +1089,7 @@ describe('reconnect auto-drain (med-deq.2)', () => {
       req.onsuccess = resolve;
       req.onerror = () => reject(req.error);
     });
-    ctx = { accountId, dek: await generateDEK() };
+    ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
     await seedMeta({ localLastSeq: 0, lastSnapshotSeq: 0 });
     opsGets = 0;
     notifyOpsGet = () => {};
@@ -1419,7 +1437,7 @@ describe('clock skew must not silently drop the newer edit (med-d5t.6)', () => {
       req.onsuccess = resolve;
       req.onerror = () => reject(req.error);
     });
-    ctx = { accountId, dek: await generateDEK() };
+    ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
     serverDate = null;
 
     let posted = 0;
@@ -1588,7 +1606,7 @@ describe('flushPending drains a bulk backlog in bounded batches (med-0ol.2/.3/.5
       req.onsuccess = resolve;
       req.onerror = () => reject(req.error);
     });
-    ctx = { accountId, dek: await generateDEK() };
+    ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
   });
 
   it('posts a 1200-record backlog in three ≤500-op batches, never one giant body', async () => {
@@ -1704,7 +1722,7 @@ describe('write-error retry budget wedges a doomed batch, resetLocalSync un-wedg
       req.onsuccess = resolve;
       req.onerror = () => reject(req.error);
     });
-    ctx = { accountId, dek: await generateDEK() };
+    ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
   });
 
   it('pauses syncing after the budget is spent and stops re-posting the doomed batch', async () => {
@@ -1757,7 +1775,7 @@ describe('write-error retry budget wedges a doomed batch, resetLocalSync un-wedg
     );
 
     // The server's compacted snapshot holds a different, canonical record set.
-    const kData = await deriveKData(ctx.dek);
+    const kData = ctx.kData;
     const snapshotSeq = 42;
     const snapRecords = [{ recordId: 'bp-1', recordType: 'bp', clientTs: 10, deleted: false, systolic: 120 }];
     const snapPlain = new TextEncoder().encode(JSON.stringify(snapRecords));
@@ -1772,7 +1790,26 @@ describe('write-error retry budget wedges a doomed batch, resetLocalSync un-wedg
       throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
     }));
 
+    // The warm-unlock cache (v2 leaf keys, med-5h1t.4) lives in 'device' and
+    // must survive the reset, or the device locks itself out.
+    const deviceStore = async (fn) => {
+      const db = await openDb();
+      try {
+        return await new Promise((resolve, reject) => {
+          const tx = db.transaction('device', 'readwrite');
+          const req = fn(tx.objectStore('device'));
+          tx.oncomplete = () => resolve(req.result);
+          tx.onerror = () => reject(tx.error);
+        });
+      } finally { db.close(); }
+    };
+    await deviceStore((s) => s.put({ v: 2, accountId, kData: ctx.kData, kMac: ctx.kMac }, 'ldk2'));
+
     await resetLocalSync(ctx);
+
+    const ldk = await deviceStore((s) => s.get('ldk2'));
+    expect(ldk.v).toBe(2);
+    expect(ldk.kData.algorithm.name).toBe('AES-GCM');
 
     const status = await getSyncStatus(ctx);
     expect(status.wedged).toBe(false); // sync_meta was wiped — the wedge is cleared
@@ -1813,7 +1850,7 @@ describe('full-vault import snapshots in a constant 2 requests, not per-record o
       req.onsuccess = resolve;
       req.onerror = () => reject(req.error);
     });
-    ctx = { accountId, dek: await generateDEK() };
+    ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
   });
 
   it('a 1500-record import issues exactly 1 ops POST (bump) + 1 snapshot POST', async () => {
@@ -1860,7 +1897,7 @@ describe('full-vault import snapshots in a constant 2 requests, not per-record o
   it('a peer that pulled the bump before the snapshot still re-bootstraps onto the import', async () => {
     await replaceAllRecords([{ recordId: 'note-old', recordType: 'note', clientTs: 1, deleted: false, text: 'pre-import' }]);
     await seedMeta({ localLastSeq: 10, lastSnapshotSeq: 5 });
-    const kData = await deriveKData(ctx.dek);
+    const kData = ctx.kData;
     const bumpId = '__vault_import_bump__';
     const bump = await encryptRecord({
       kData, accountId, recordType: 'importbump', recordId: bumpId, seq: 11,
@@ -2185,7 +2222,7 @@ describe('plaintext records memo (med-90w.1)', () => {
       req.onsuccess = resolve;
       req.onerror = () => reject(req.error);
     });
-    ctx = { accountId, dek: await generateDEK() };
+    ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
   });
 
   afterEach(() => { vi.unstubAllGlobals(); });
@@ -2225,7 +2262,7 @@ describe('plaintext records memo (med-90w.1)', () => {
     // List first so 'bp' is memoized before the inbound op lands.
     expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-1']);
 
-    const kData = await deriveKData(ctx.dek);
+    const kData = ctx.kData;
     const seal = async (recordType, recordId, seq, record) => {
       const { nonce, ct } = await encryptRecord({
         kData, accountId, recordType, recordId, seq,
@@ -2273,7 +2310,7 @@ describe('plaintext records memo (med-90w.1)', () => {
     expect((await listRecords(ctx, 'bp')).map((r) => r.recordId)).toEqual(['bp-1']);
 
     // Reset wipes local + re-bootstraps from a snapshot carrying a different row.
-    const kData = await deriveKData(ctx.dek);
+    const kData = ctx.kData;
     const snapRecords = [{ recordId: 'bp-server', recordType: 'bp', clientTs: 900, deleted: false, systolic: 111 }];
     const { nonce, ct } = await encryptSnapshot({
       kData, accountId, snapshotSeq: 10,
@@ -2367,7 +2404,7 @@ describe('derived writes are put-if-absent, not floor-then-hope (med-qhpu)', () 
       req.onsuccess = resolve;
       req.onerror = () => reject(req.error);
     });
-    ctx = { accountId, dek: await generateDEK() };
+    ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
     posted = [];
     pulledOps = [];
     let assignNext = 100;
@@ -2472,7 +2509,7 @@ describe('derived writes are put-if-absent, not floor-then-hope (med-qhpu)', () 
 
   it('a materialization racing an incoming completed row keeps the completed row', async () => {
     await seed([]);
-    const kData = await deriveKData(ctx.dek);
+    const kData = ctx.kData;
     const completed = { recordId: SLOT, clientTs: 9000, deleted: false, id: 42, status: 'completed' };
     const { nonce, ct } = await encryptRecord({
       kData, accountId, recordType: 'workoutsession', recordId: SLOT, seq: 6,
@@ -2652,7 +2689,7 @@ describe('gamificationjournal merges grow-only fields on apply (med-ooeh)', () =
   };
 
   const pull = async (recordType, record) => {
-    const kData = await deriveKData(ctx.dek);
+    const kData = ctx.kData;
     const { nonce, ct } = await encryptRecord({
       kData, accountId, recordType, recordId: record.recordId, seq: 6,
       plaintext: new TextEncoder().encode(JSON.stringify(record)),
@@ -2674,7 +2711,7 @@ describe('gamificationjournal merges grow-only fields on apply (med-ooeh)', () =
       req.onsuccess = resolve;
       req.onerror = () => reject(req.error);
     });
-    ctx = { accountId, dek: await generateDEK() };
+    ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
     pulledOps = [];
     vi.stubGlobal('fetch', vi.fn(async (url, init) => {
       const u = String(url);

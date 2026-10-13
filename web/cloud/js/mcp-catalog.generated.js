@@ -480,8 +480,8 @@ export const CATALOG = [
     "method": "GET",
     "path": "/api/food/stats",
     "risk": "read",
-    "description": "Total calories and macros consumed over a date window. Divide by `days` yourself for a daily average; there is no per-day breakdown here — use food.log.list for that.",
-    "response_summary": "Object with the window's total calories, carbs, protein, fat (integers, kcal and grams).",
+    "description": "Total calories and macros consumed over a date window. Days flagged tracking-incomplete (food.days.set_incomplete) are excluded from the totals; excluded_days names them. For a daily average divide by `days_logged` (window days minus excluded days; an unflagged day with no logs counts as a logged 0 kcal day), not `days`. No per-day breakdown here — use food.log.list for that.",
+    "response_summary": "Object with the window's total calories, carbs, protein, fat (kcal and grams, flagged days excluded), plus days (window length), days_logged, days_excluded and excluded_days (sorted YYYY-MM-DD).",
     "params_schema": {
       "type": "object",
       "properties": {
@@ -502,7 +502,7 @@ export const CATALOG = [
         }
       }
     },
-    "response_example": "{\"calories\": 14210, \"carbs\": 1400, \"protein\": 700, \"fat\": 420}"
+    "response_example": "{\"calories\": 10150, \"carbs\": 1000, \"protein\": 500, \"fat\": 300, \"days\": 7, \"days_logged\": 5, \"days_excluded\": 2, \"excluded_days\": [\"2026-04-23\", \"2026-04-26\"]}"
   },
   {
     "id": "food.targets.read",
@@ -1580,6 +1580,72 @@ export const CATALOG = [
             "medium",
             "strict"
           ]
+        }
+      }
+    }
+  },
+  {
+    "id": "trackers.history",
+    "topic": "trackers",
+    "method": "GET",
+    "path": "/api/trackers/{id}/history",
+    "path_params": [
+      "id"
+    ],
+    "risk": "read",
+    "description": "Per-day totals for one tracker (id from trackers.list) over the last N local days, oldest first, empty days included.",
+    "response_summary": "JSON array of {date: YYYY-MM-DD, total}: summed amounts for count trackers, 1/0 for check trackers.",
+    "params_schema": {
+      "type": "object",
+      "properties": {
+        "days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 366,
+          "description": "Number of local days to return, ending today (default 30)."
+        }
+      }
+    },
+    "response_example": "[\n  {\"date\": \"2026-07-05\", \"total\": 6},\n  {\"date\": \"2026-07-06\", \"total\": 3}\n]"
+  },
+  {
+    "id": "trackers.list",
+    "topic": "trackers",
+    "method": "GET",
+    "path": "/api/trackers",
+    "risk": "read",
+    "description": "List the user's active trackers (e.g. water 8/day, coffee at most 3/day, stretching 3/week) with current-period progress. Use it to find a tracker's id/name before trackers.log or trackers.history, and to answer questions about a tracker (\"did I drink this week?\") — read progress, don't log.",
+    "response_summary": "JSON array of trackers, oldest first: id, name, emoji, kind (count|check), unit (null when unset), step (default tap amount for count), target{op: atLeast|atMost, value, period: day|week|month, days?}, reminder ({time} or null), archived, createdAt, progress{total, target, met} for the current day/ISO week/month in the account time zone. atMost (a limit) counts slips: with no logs it is met, and progress also carries cleanDays — consecutive local days ending today with nothing logged, back to the creation day (0 = slipped today). A streak (\"hold N days\") is an atMost 0 limit whose target also carries days (1-366): its progress adds bestDays (longest clean run since creation, current run included) and goal{days, achieved} — achieved = bestDays \u003e= days, so a later slip resets cleanDays but never un-achieves the goal. todayLogs: today's logs newest first (count: {id, trackerId, at, amount} per tap; check: today's {id, trackerId, date, done} when done) — a log id feeds trackers.unlog. day/timeZone: the account-local day those numbers describe.",
+    "response_example": "[\n  {\"id\": \"tracker-1783339200000_k3j9x2ab\", \"name\": \"Water\", \"emoji\": \"💧\", \"kind\": \"count\", \"unit\": \"glass\", \"step\": 1, \"target\": {\"op\": \"atLeast\", \"value\": 8, \"period\": \"day\"}, \"reminder\": null, \"archived\": false, \"createdAt\": \"2026-07-06T12:00:00.000Z\", \"progress\": {\"total\": 3, \"target\": 8, \"met\": false}},\n  {\"id\": \"tracker-1783339300000_p0q8w1cd\", \"name\": \"Stretching\", \"emoji\": \"🧘\", \"kind\": \"check\", \"unit\": null, \"step\": 1, \"target\": {\"op\": \"atLeast\", \"value\": 3, \"period\": \"week\"}, \"reminder\": {\"time\": \"20:00\"}, \"archived\": false, \"createdAt\": \"2026-07-06T12:01:40.000Z\", \"progress\": {\"total\": 1, \"target\": 3, \"met\": false}}\n]"
+  },
+  {
+    "id": "trackers.log",
+    "topic": "trackers",
+    "method": "POST",
+    "path": "/api/trackers/{tracker}/log",
+    "path_params": [
+      "tracker"
+    ],
+    "risk": "write",
+    "description": "Log progress on a tracker. Path param `tracker` is the tracker id OR its name (case-insensitive exact match, e.g. \"water\"). A count tracker appends one entry of `amount`; a check tracker marks `date` done (idempotent per day). For an atMost tracker (a limit) a log records a slip (e.g. a drink on a no-alcohol tracker) — log only when the user reports one; read progress via trackers.list before logging.",
+    "response_summary": "The written log: count → {id, trackerId, at, amount}; check → {id, trackerId, date, done:true}.",
+    "required": [
+      "tracker"
+    ],
+    "body_schema": {
+      "type": "object",
+      "properties": {
+        "amount": {
+          "type": "number",
+          "description": "Count trackers only: how much to add, in the tracker's unit (default: the tracker's step). \"2 glasses of water\" = amount 2."
+        },
+        "at": {
+          "type": "string",
+          "description": "Count trackers only: when it happened, RFC3339 timestamp (default now)."
+        },
+        "date": {
+          "type": "string",
+          "description": "Check trackers only: the local day to mark done, YYYY-MM-DD (default today)."
         }
       }
     }
@@ -2685,8 +2751,8 @@ export const CATALOG = [
       "id"
     ],
     "risk": "write",
-    "description": "Mark a workout session as in_progress and set started_at to now; clears any snooze and updates the user-facing notification.",
-    "response_summary": "Empty body on success (HTTP 200).",
+    "description": "Mark a workout session as in_progress and set started_at to now; clears any snooze and updates the user-facing notification. Starting a session scheduled for another day starts today's slot for the same plan (or an ad-hoc session when today's is already done) and leaves the tapped one pending.",
+    "response_summary": "{session_id} — the id of the session now in progress (may differ from the path id).",
     "required": [
       "id"
     ]

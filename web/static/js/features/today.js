@@ -356,9 +356,12 @@
             group_name: groupName,
             status: session.status,
             is_today: session.is_today === true,
-            // The planned Day the row's tap opens (WorkoutNextCard.openEdit).
-            group_id: (data && data.group_id) || session.group_id || null,
-            variant_id: (data && data.variant_id) || session.variant_id || null
+            // Same top-level fields the Workouts next-card reads (next-card.js):
+            // the rotating day's name and the ids its editor opens on.
+            variant_id: (data && data.variant_id) || 0,
+            group_id: (data && data.group_id) || 0,
+            variant_name: (data && data.variant_name) || '',
+            is_rotating: !!(data && data.is_rotating)
         };
         return cell(value, 'workouts', 'ok');
     }
@@ -442,7 +445,9 @@
             nextWorkout: nextWorkoutCell(caches, workoutEnabled),
             sleepLastNight: sleepLastNightCell(caches, nowMs, healthEnabled),
             stepsLatest: stepsLatestCell(caches, healthEnabled),
-            goalLine: goalLineCell(goalLinePayload, gamificationEnabled, weightEnabled)
+            goalLine: goalLineCell(goalLinePayload, gamificationEnabled, weightEnabled),
+            // GET /api/trackers as cached (no feature flag: no trackers, no card).
+            trackers: Array.isArray(caches.trackers) ? caches.trackers : null
         };
         return result;
     }
@@ -451,7 +456,7 @@
     //
     // renderToday(state, root, handlers) fills `root` top to bottom:
     //   call row (Call agent · Log · Doctor brief) → Next up list → vitals
-    //   strip (BP · Weight · Fuel) → Goal Line track → macros card →
+    //   strip (BP · Weight · Fuel) → Trackers card → Goal Line track → macros card →
     //   sleep / steps tiles → tz-transition card.
     //
     // Kit rules: one sun-filled control (.wg-btn--primary) per view — the
@@ -708,7 +713,9 @@
         } else {
             const v = item.value;
             lead.appendChild(ico('dumbbell'));
-            body.appendChild(el('span', 'wg-row__title', v.group_name || 'Workout'));
+            const groupTitle = v.group_name || 'Workout';
+            body.appendChild(el('span', 'wg-row__title',
+                v.is_rotating && v.variant_name ? `${groupTitle} — ${v.variant_name}` : groupTitle));
             const parts = [];
             if (v.is_today) parts.push('today');
             else if (Number.isFinite(item.at)) parts.push(dayWord(item.at, nowMs));
@@ -720,22 +727,24 @@
             if (v.status === 'pre_skipped') parts.push('skipped');
             if (v.status === 'in_progress') parts.push('in progress');
             meta.textContent = parts.join(' · ');
+            // View is constant for every workout row; the state action follows it
+            // (med-vjrv: it was wired per-state and flipped between View-only / Start-only).
+            trail.appendChild(btn('View', { sm: true, action: 'view-workout', onClick: () => h.onViewWorkout(v) }));
             const kind = workoutAction(v);
-            if (kind === 'start') {
+            if (kind === 'start' || (kind === 'view' && !v.is_today && v.id != null && (!v.status || v.status === 'pending' || v.status === 'scheduled'))) {
+                // An upcoming session can be started early (domain startSession, med-gmyf).
                 action = btn('Start', { sm: true, primary, icon: 'play', action: 'start-workout', onClick: () => h.onStartWorkout(v.id) });
             } else if (kind === 'resume') {
                 action = btn('Resume', { sm: true, primary, icon: 'play', action: 'resume-workout', onClick: () => h.onResumeWorkout(v.id) });
-            } else {
-                action = btn('View', { sm: true, action: 'view-workout', onClick: () => h.onDeeplink('workouts') });
             }
-            // Tapping the row itself (not its action) previews the planned
-            // exercises in the existing Plan → Day pages.
+            // Tapping the row itself (not its buttons) does what View does:
+            // the planned Day's exercises in the Plan → Day pages.
             row.classList.add('wg-today-next__tap');
             row.setAttribute('role', 'button');
             row.setAttribute('tabindex', '0');
             row.setAttribute('data-action', 'open-workout-plan');
             row.setAttribute('aria-label', `${v.group_name || 'Workout'} — view planned exercises`);
-            const open = () => h.onViewWorkoutPlan(v);
+            const open = () => h.onViewWorkout(v);
             row.addEventListener('click', (e) => {
                 if (e.target.closest && e.target.closest('.wg-btn')) return;
                 open();
@@ -745,7 +754,7 @@
             });
         }
         body.appendChild(meta);
-        trail.appendChild(action);
+        if (action) trail.appendChild(action);
         row.append(lead, body, trail);
         return row;
     }
@@ -966,6 +975,1433 @@
         else if (age && age !== 'today') tile.appendChild(chip(age, 'stale'));
         else tile.appendChild(el('span', 'wg-meta', 'today'));
         return tile;
+    }
+
+    // ---- Trackers card (screens-trackers.html TR1/TR1b, med-1vy5.2) --------
+    //
+    // One tile per active tracker, between the vitals strip and the Goal Line.
+    // Tap = +step (count) or toggle today (check); the toast undoes exactly
+    // that log. The ⋯ button or a long press (contextmenu) opens the log sheet:
+    // a custom amount plus today's logs with delete. Every write patches the
+    // cached GET /api/trackers list through DataStore.applyOptimistic and
+    // commits (with the real log id) or rolls back. No list read yet → no
+    // card; an empty list → the create prompt (TR1-C).
+
+    const TRACKERS_KEY = 'trackers';
+    const TRACKERS_TAGS = ['trackers'];
+    const TRACKER_SHEET_ID = 'today-tracker-sheet';
+    const PERIOD_WORD = { day: 'today', week: 'this week', month: 'this month' };
+    const PERIOD_RULE = { day: 'a day', week: 'a week', month: 'a month' };
+
+    function fmtNum(n) {
+        return String(Math.round(Number(n) * 100) / 100);
+    }
+
+    // ponytail: naive English plural (glass → glasses, cup → cups);
+    // abbreviations (ml, km) stay as typed. Per-unit plurals when someone asks.
+    function unitText(unit, n) {
+        if (!unit) return '';
+        if (Number(n) === 1 || unit.length <= 2) return unit;
+        return /(s|x|z|ch|sh)$/.test(unit) ? `${unit}es` : `${unit}s`;
+    }
+
+    function trackerDoneToday(t) {
+        return t.kind === 'check' && Array.isArray(t.todayLogs) && t.todayLogs.length > 0;
+    }
+
+    // 'met' | 'todo' (goals) · 'under' | 'at' | 'over' (limits).
+    function trackerState(t) {
+        const p = t.progress || {};
+        if (t.target && t.target.op === 'atMost') {
+            if (p.total > p.target) return 'over';
+            return p.total === p.target ? 'at' : 'under';
+        }
+        return p.total >= p.target ? 'met' : 'todo';
+    }
+
+    // "5 / 8 glasses", "2 / ≤3 cups", "2 / 3 this week".
+    function trackerRatio(t) {
+        const p = t.progress || {};
+        const lim = t.target.op === 'atMost' ? '≤' : '';
+        const tail = t.target.period === 'day' ? unitText(t.unit, p.target) : PERIOD_WORD[t.target.period];
+        return { value: fmtNum(p.total), rest: `/ ${lim}${fmtNum(p.target)}${tail ? ` ${tail}` : ''}` };
+    }
+
+    // ---- Limits (med-1vy5.8): a tap logs a slip, never "done". -------------
+    function trackerIsLimit(t) {
+        return t.target.op === 'atMost';
+    }
+
+    function trackerIsZero(t) {
+        return trackerIsLimit(t) && Number(t.target.value) === 0;
+    }
+
+    // Streak (med-yd2u): "hold for N days" — a max-0 limit with target.days.
+    // Takes a tracker's target or the editor draft's (typed strings); 0 = none.
+    function streakDays(target) {
+        if (!target || target.op !== 'atMost' || trackerNum(target.value) !== 0) return 0;
+        const n = trackerNum(target.days);
+        return Number.isInteger(n) && n > 0 ? n : 0;
+    }
+
+    function trackerTodayTotal(t) {
+        return (Array.isArray(t.todayLogs) ? t.todayLogs : []).reduce((s, l) => s + logAmount(t, l), 0);
+    }
+
+    // Days clean for a limit: 0 once today has a slip (optimistic taps move
+    // todayLogs, not the domain's progress.cleanDays), else the domain's
+    // streak; null when unknown (a server-loaded slip just undone — the
+    // unlog settle refetches it).
+    function trackerClean(t) {
+        if (trackerTodayTotal(t) > 0) return 0;
+        const n = Number((t.progress || {}).cleanDays);
+        return n > 0 ? n : null;
+    }
+
+    function trackerCleanText(t) {
+        const n = trackerClean(t);
+        if (n === 0) return 'Slipped today';
+        if (n === null) return 'No slip today';
+        return `${fmtNum(n)} ${n === 1 ? 'day' : 'days'} clean`;
+    }
+
+    // "1 over this week": a max-0 limit has no meaningful ratio.
+    function trackerOverText(t) {
+        const p = t.progress || {};
+        return `${fmtNum(p.total - p.target)} over${trackerIsZero(t) ? ` ${PERIOD_WORD[t.target.period]}` : ''}`;
+    }
+
+    function trackerGlyph(t) {
+        const g = el('span', 'wg-trk__glyph');
+        const e = typeof t.emoji === 'string' ? t.emoji : '';
+        const W = typeof window !== 'undefined' ? window.WGIcons : null;
+        if (/^[a-z-]+$/.test(e) && W && W.paths && W.paths[e]) {
+            g.appendChild(ico(e));
+        } else if (e) {
+            // The emoji exception: user content inside the glyph only.
+            g.classList.add('wg-trk__glyph--emoji');
+            g.textContent = e;
+        } else {
+            g.appendChild(ico('target'));
+        }
+        return g;
+    }
+
+    function patchTracker(id, fn) {
+        return (prev) => (Array.isArray(prev) ? prev.map((t) => (t && t.id === id ? fn(t) : t)) : prev);
+    }
+
+    function logAmount(t, log) {
+        return t.kind === 'check' ? 1 : (Number(log.amount) || 0);
+    }
+
+    function withLogs(t, delta, todayLogs) {
+        const p = t.progress || { total: 0, target: 0 };
+        const total = Number(p.total) + delta;
+        // Weekly strip: today's segment moves with the optimistic total.
+        const days = Array.isArray(p.days)
+            ? p.days.map((d) => (d.day === t.day ? { ...d, total: d.total + delta } : d)) : p.days;
+        const met = t.target.op === 'atMost' ? total <= p.target : total >= p.target;
+        return { ...t, todayLogs, progress: { ...p, total, met, days } };
+    }
+
+    function addLog(log) {
+        return (t) => withLogs(t, logAmount(t, log), [log, ...(t.todayLogs || [])]);
+    }
+
+    function dropLog(logId) {
+        return (t) => {
+            const log = (t.todayLogs || []).find((l) => l.id === logId);
+            return log ? withLogs(t, -logAmount(t, log), t.todayLogs.filter((l) => l.id !== logId)) : t;
+        };
+    }
+
+    function trackersApi() {
+        return (typeof window !== 'undefined' && typeof window.apiCall === 'function') ? window.apiCall : null;
+    }
+
+    // One optimistic write on the cached list: patch, send, then commit —
+    // `settle(res)` (optional, may await a read) returns a patch for the
+    // CURRENT list that swaps provisional data for the server's. A failed
+    // call (apiCall resolves null and has already told the user) commits
+    // `revert` over the current list instead of rolling back to the
+    // snapshot, so an overlapping tap that succeeded meanwhile is not erased.
+    async function trackerWrite(mutator, revert, send, settle) {
+        const ds = typeof window !== 'undefined' ? window.DataStore : null;
+        const handle = (ds && typeof ds.applyOptimistic === 'function')
+            ? await ds.applyOptimistic(TRACKERS_KEY, mutator, TRACKERS_TAGS)
+            : null;
+        let res = null;
+        try { res = await send(); } catch (_) { res = null; }
+        if (!handle) return res;
+        try {
+            const patch = res && settle ? await settle(res) : null;
+            const cur = await ds.getCached(TRACKERS_KEY);
+            if (!Array.isArray(cur)) {
+                await (res ? handle.commit(null) : handle.rollback());
+            } else if (!res) {
+                await handle.commit(revert(cur));
+            } else if (patch) {
+                await handle.commit(patch(cur));
+            } else {
+                await handle.commit(null);
+            }
+        } catch (_) { /* best-effort */ }
+        return res;
+    }
+
+    function trackerToast(message, detail, onUndo) {
+        const toast = (typeof window !== 'undefined' && typeof window.safeToast === 'function')
+            ? window.safeToast(message, 'success', { detail, action: { label: 'Undo', onClick: onUndo } })
+            : null;
+        const sheet = doc().getElementById(TRACKER_SHEET_ID);
+        if (toast && toast.root && toast.root.parentElement && sheet && !sheet.classList.contains('hidden')) {
+            toast.root.parentElement.classList.add('wg-toasts--sheet');
+        }
+    }
+
+    function trackerDetail(t) {
+        if (trackerIsZero(t)) return trackerState(t) === 'over' ? trackerOverText(t) : trackerCleanText(t);
+        const r = trackerRatio(t);
+        return `${r.value} ${r.rest}`;
+    }
+
+    // Count: append one log of `amount` (default the tap step), at `at`
+    // (default now). Check: mark today done. Toasts with Undo unless `quiet`
+    // (an undo of an undo).
+    async function logTracker(t, amount, quiet, at) {
+        const api = trackersApi();
+        if (!api) return null;
+        const provisionalId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const n = t.kind === 'check' ? 1 : (Number(amount) > 0 ? Number(amount) : t.step);
+        const log = t.kind === 'check'
+            ? { id: provisionalId, trackerId: t.id, done: true }
+            : { id: provisionalId, trackerId: t.id, at: at || new Date().toISOString(), amount: n };
+        const res = await trackerWrite(patchTracker(t.id, addLog(log)), patchTracker(t.id, dropLog(provisionalId)),
+            () => api(`/api/trackers/${encodeURIComponent(t.id)}/log`, 'POST',
+                t.kind === 'check' ? {} : (at ? { amount: n, at } : { amount: n })),
+            (saved) => (saved.id ? (cur) => cur.map((x) => ({
+                ...x,
+                todayLogs: (x.todayLogs || []).map((l) => (l.id === provisionalId ? saved : l)),
+            })) : null));
+        if (res && res.id && !quiet) {
+            let message = `${t.name} +${fmtNum(n)}`;
+            if (t.kind === 'check') message = trackerIsLimit(t) ? `${t.name} — slip logged` : `${t.name} done`;
+            trackerToast(message, trackerDetail(addLog(log)(t)), () => unlogTracker(t, res, true));
+        }
+        return res;
+    }
+
+    // Count: delete that one log. Check: write done:false for its day.
+    async function unlogTracker(t, log, quiet) {
+        const api = trackersApi();
+        if (!api) return null;
+        // Undoing the slip the domain already counted (cleanDays 0 from the
+        // server) leaves the streak unknown here: settle takes the fresh one.
+        // A streak's bestDays / goal come along (that slip may have cut the best run).
+        const refetchClean = trackerIsLimit(t) && Number((t.progress || {}).cleanDays) === 0;
+        const res = await trackerWrite(patchTracker(t.id, dropLog(log.id)), patchTracker(t.id, addLog(log)),
+            () => api(`/api/trackers/${encodeURIComponent(t.id)}/log/${encodeURIComponent(log.id)}`, 'DELETE'),
+            refetchClean ? async () => {
+                const fp = (await serverTrackerRow(api, t.id) || {}).progress || {};
+                if (fp.cleanDays === undefined) return null;
+                const streak = fp.goal ? { bestDays: fp.bestDays, goal: fp.goal } : {};
+                return patchTracker(t.id, (x) => ({ ...x, progress: { ...x.progress, cleanDays: fp.cleanDays, ...streak } }));
+            } : null);
+        if (res && !quiet) {
+            let message = `Removed +${fmtNum(log.amount)}${t.unit ? ` ${unitText(t.unit, log.amount)}` : ''}`;
+            if (t.kind === 'check') message = trackerIsLimit(t) ? `${t.name} — slip removed` : `${t.name} not done`;
+            trackerToast(message, null, () => logTracker(t, log.amount, true, log.at));
+        }
+        return res;
+    }
+
+    // A log still carrying its provisional id has no server record to delete
+    // yet; its tap / delete waits for the commit.
+    function isProvisional(log) {
+        return String(log && log.id).startsWith('pending-');
+    }
+
+    function trackerTap(t) {
+        if (isProvisional(t)) return null; // created a moment ago, not saved yet
+        if (trackerDoneToday(t)) {
+            return isProvisional(t.todayLogs[0]) ? null : unlogTracker(t, t.todayLogs[0]);
+        }
+        return logTracker(t, t.step);
+    }
+
+    function renderTrackerTile(t) {
+        const state = trackerState(t);
+        const done = trackerDoneToday(t);
+        let cls = 'wg-trk';
+        if (state === 'met') cls += ' wg-trk--met';
+        if (state === 'over' && !trackerGoalReached(t)) cls += ' wg-trk--over';
+        const tile = el('div', cls);
+        tile.setAttribute('data-tracker-id', t.id);
+        tile.setAttribute('data-state', state);
+
+        const tap = el('button', 'wg-trk__tap');
+        tap.type = 'button';
+        tap.setAttribute('data-action', 'tracker-tap');
+        const top = el('span', 'wg-trk__top');
+        top.append(trackerGlyph(t), el('span', 'wg-trk__name', t.name));
+        tap.appendChild(top);
+
+        const r = trackerRatio(t);
+        const p = t.progress || {};
+        if (trackerIsLimit(t)) {
+            tile.classList.add('wg-trk--limit');
+            renderTrackerLimit(t, tap, state);
+        } else if (t.kind === 'check') {
+            if (t.target.period === 'day') {
+                tap.appendChild(el('span', 'wg-trk__val wg-trk__val--text', done ? 'Done' : 'Not yet'));
+            } else {
+                const val = el('span', 'wg-trk__val', r.value);
+                val.appendChild(el('small', null, r.rest));
+                tap.appendChild(val);
+            }
+            const row = el('span', 'wg-trk__check');
+            const tick = el('span', 'wg-trk__tick');
+            if (done) tick.appendChild(ico('check'));
+            row.append(tick, el('span', 'wg-meta', done ? 'Done today' : 'Tap when done'));
+            tap.appendChild(row);
+            tap.setAttribute('aria-label', `${t.name}, ${done ? 'done today. Tap to undo' : 'not done yet. Tap to mark done'}`);
+        } else {
+            const val = el('span', 'wg-trk__val', r.value);
+            val.appendChild(el('small', null, r.rest));
+            tap.appendChild(val);
+            tap.appendChild(Array.isArray(p.days) && p.days.length === 7 ? trackerWeek(t) : trackerMeter(t));
+            const foot = el('span', 'wg-trk__foot');
+            if (state === 'met') foot.appendChild(chip('Goal met', 'ok', 'check'));
+            else foot.appendChild(el('span', 'wg-meta', `${fmtNum(Math.max(0, p.target - p.total))} to go`));
+            tap.appendChild(foot);
+            tap.setAttribute('aria-label', `${t.name}, ${r.value} ${r.rest}. Tap to add ${fmtNum(t.step)}`);
+        }
+        tap.addEventListener('click', () => trackerTap(t));
+        // Long press on touch surfaces as contextmenu: open the log sheet.
+        tap.addEventListener('contextmenu', (e) => { e.preventDefault(); openTrackerSheet(t); });
+        tile.appendChild(tap);
+
+        const more = el('button', 'wg-trk__more');
+        more.type = 'button';
+        more.setAttribute('data-action', 'tracker-more');
+        more.setAttribute('aria-label', `${t.name}: log and options`);
+        more.appendChild(ico('more', true));
+        more.addEventListener('click', () => openTrackerSheet(t));
+        tile.appendChild(more);
+        if (trackerGoalReached(t)) {
+            tile.classList.add('wg-trk--met');
+            if (!isProvisional(t)) tile.appendChild(trackerGoalActions(t));
+        }
+        return tile;
+    }
+
+    // Limit tile (med-1vy5.8): the value (ratio, or the clean streak for a
+    // max-0 limit — never "0 / ≤0"), the Mon..Sun slip strip for weekly
+    // limits (count day/month keep the neutral meter), then one foot: the
+    // slip tick (check) and the budget. Never green: clean is neutral.
+    function renderTrackerLimit(t, tap, state) {
+        const p = t.progress || {};
+        const zero = trackerIsZero(t);
+        const slipped = trackerTodayTotal(t) > 0;
+        const clean = trackerClean(t);
+        const goalDays = streakDays(t.target);
+        if (goalDays) {
+            renderTrackerStreak(t, tap, goalDays, slipped, clean);
+            return;
+        }
+        if (zero && !(clean > 0)) {
+            tap.appendChild(el('span', 'wg-trk__val wg-trk__val--text', trackerCleanText(t)));
+        } else {
+            const r = trackerRatio(t);
+            const val = el('span', 'wg-trk__val', zero ? fmtNum(clean) : r.value);
+            val.appendChild(el('small', null, zero ? `${clean === 1 ? 'day' : 'days'} clean` : r.rest));
+            tap.appendChild(val);
+        }
+        if (Array.isArray(p.days) && p.days.length === 7) tap.appendChild(trackerWeek(t));
+        else if (t.kind === 'count') tap.appendChild(trackerMeter(t));
+
+        const foot = el('span', 'wg-trk__foot');
+        if (t.kind === 'check') {
+            const row = el('span', 'wg-trk__check');
+            const tick = el('span', slipped ? 'wg-trk__tick wg-trk__tick--slip' : 'wg-trk__tick');
+            if (slipped) tick.appendChild(ico('x'));
+            row.append(tick, el('span', 'wg-meta', slipped ? 'Slipped today' : 'Tap if you slip'));
+            foot.appendChild(row);
+        }
+        if (state === 'over') foot.appendChild(chip(trackerOverText(t), 'warn'));
+        else if (!zero && state === 'at') foot.appendChild(chip('At limit'));
+        else if (!zero) foot.appendChild(el('span', 'wg-meta', `${fmtNum(p.target - p.total)} left ${PERIOD_WORD[t.target.period]}`));
+        if (foot.childNodes.length) tap.appendChild(foot);
+
+        let aria = `${t.name}, ${fmtNum(p.total)} of at most ${fmtNum(p.target)}${t.unit ? ` ${unitText(t.unit, p.target)}` : ''}. Tap to add ${fmtNum(t.step)}`;
+        if (t.kind === 'check' && slipped) aria = `${t.name}, slipped today. Tap to undo`;
+        else if (zero && !slipped) aria =`${t.name}, ${trackerCleanText(t).toLowerCase()}. Tap if you slip`;
+        else if (t.kind === 'check') aria = `${t.name}, no slip today. Tap if you slip`;
+        tap.setAttribute('aria-label', aria);
+    }
+
+    function trackerGoalReached(t) {
+        return !!(streakDays(t.target) && t.progress && t.progress.goal && t.progress.goal.achieved);
+    }
+
+    // Streak tile (med-yd2u): "N / 7 days clean" over a progress bar; a slip
+    // zeroes both (trackerClean is 0 once today has a slip). Reached → the
+    // done state; renderTrackerTile adds Extend / Archive outside the tap.
+    function renderTrackerStreak(t, tap, goalDays, slipped, clean) {
+        const n = clean || 0;
+        const reached = trackerGoalReached(t);
+        if (reached) {
+            tap.appendChild(el('span', 'wg-trk__val wg-trk__val--text', `${goalDays} days — goal reached`));
+        } else if (slipped) {
+            tap.appendChild(el('span', 'wg-trk__val wg-trk__val--text', `Slipped today · 0 / ${goalDays}`));
+        } else {
+            const val = el('span', 'wg-trk__val', fmtNum(n));
+            val.appendChild(el('small', null, `/ ${goalDays} days clean`));
+            tap.appendChild(val);
+        }
+        const meter = el('span', 'wg-meter');
+        const fill = el('span', 'wg-meter__fill wg-meter__fill--sage');
+        fill.style.setProperty('--p', reached ? '100%' : pct(n / goalDays));
+        meter.appendChild(fill);
+        tap.appendChild(meter);
+        if (t.kind === 'check') {
+            const row = el('span', 'wg-trk__check');
+            const tick = el('span', slipped ? 'wg-trk__tick wg-trk__tick--slip' : 'wg-trk__tick');
+            if (slipped) tick.appendChild(ico('x'));
+            row.append(tick, el('span', 'wg-meta', slipped ? 'Slipped today' : 'Tap if you slip'));
+            const foot = el('span', 'wg-trk__foot');
+            foot.appendChild(row);
+            tap.appendChild(foot);
+        }
+        let aria = `${t.name}, ${fmtNum(n)} of ${goalDays} days clean. Tap if you slip`;
+        if (reached) aria = `${t.name}, ${goalDays}-day goal reached. Tap if you slip`;
+        if (slipped) aria = `${t.name}, slipped today, 0 of ${goalDays} days. Tap to ${t.kind === 'check' ? 'undo' : `add ${fmtNum(t.step)}`}`;
+        tap.setAttribute('aria-label', aria);
+    }
+
+    // Reached is one-shot (no auto-restart): extend the goal or archive.
+    function trackerGoalActions(t) {
+        const acts = el('div', 'wg-trk__acts');
+        acts.append(
+            btn('Extend', { sm: true, action: 'tracker-extend', onClick: () => openTrackerEditor(t, 'days') }),
+            btn('Archive', { sm: true, ghost: true, action: 'tracker-goal-archive', onClick: () => archiveTracker(t) }),
+        );
+        return acts;
+    }
+
+    // A list cached on an earlier account-local day (Today left open past
+    // midnight, or an offline relaunch) must not show — or let a tap delete —
+    // yesterday's logs. The loader refetches it; until then the day's logs
+    // are dropped.
+    function freshTracker(t, nowMs) {
+        if (!t.day || !t.timeZone) return t;
+        let today;
+        try {
+            today = new Intl.DateTimeFormat('en-CA', {
+                timeZone: t.timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+            }).format(new Date(nowMs));
+        } catch (_) { return t; }
+        if (today === t.day) return t;
+        const p = t.progress || {};
+        // ponytail: a week/month total keeps its sum (yesterday is still in the
+        // period, except across a period boundary) until the refetch lands.
+        // The Mon..Sun strip is dropped (meter shows) — its today marker would be a day off.
+        // A limit's cleanDays is a day stale (or unknown after yesterday's slip) until then too.
+        const { days, ...rest } = p;
+        return withLogs({ ...t, progress: { ...rest, total: t.target.period === 'day' ? 0 : p.total } }, 0, []);
+    }
+
+    function trackersFor(list, nowMs) {
+        return Array.isArray(list) ? list.filter((t) => t && t.id && t.target).map((t) => freshTracker(t, nowMs)) : [];
+    }
+
+    // "Not now" on the empty card is a per-device convenience: the card
+    // collapses to its header, whose "+" still creates.
+    const TRACKERS_EMPTY_DISMISSED = 'wg.today.trackersEmptyDismissed';
+
+    function trackersEmptyDismissed() {
+        try { return window.localStorage.getItem(TRACKERS_EMPTY_DISMISSED) === '1'; } catch (_) { return false; }
+    }
+
+    function dismissTrackersEmpty() {
+        try { window.localStorage.setItem(TRACKERS_EMPTY_DISMISSED, '1'); } catch (_) { /* best-effort */ }
+        const card = doc().querySelector('[data-section="trackers"]');
+        const empty = card && card.querySelector('.wg-empty');
+        if (empty) empty.remove();
+    }
+
+    // No list yet (never fetched) → no card. An empty list → the TR1-C empty
+    // state, or just the header once dismissed.
+    function renderTrackersCard(list, nowMs) {
+        if (!Array.isArray(list)) return null;
+        const trackers = trackersFor(list, nowMs);
+        const card = el('section', 'wg-card wg-today-trackers');
+        card.setAttribute('data-section', 'trackers');
+        const head = el('div', 'wg-card__head');
+        head.appendChild(el('span', 'wg-card__title', 'Trackers'));
+        const acts = el('span', 'wg-hstack');
+        acts.appendChild(btn(null, { ghost: true, iconOnly: true, icon: 'plus', aria: 'New tracker', action: 'tracker-new', onClick: () => openTrackerEditor() }));
+        if (trackers.length) acts.appendChild(btn('Manage', { ghost: true, action: 'tracker-manage', onClick: () => openTrackerManage(trackers) }));
+        head.appendChild(acts);
+        card.appendChild(head);
+        if (!trackers.length) {
+            if (!trackersEmptyDismissed()) {
+                const empty = el('div', 'wg-empty');
+                const icon = el('span', 'wg-empty__icon');
+                icon.appendChild(ico('target'));
+                const emptyActs = el('div', 'wg-empty__acts');
+                emptyActs.append(
+                    btn('Add a tracker', { sm: true, icon: 'plus', action: 'tracker-empty-add', onClick: () => openTrackerEditor() }),
+                    btn('Not now', { sm: true, ghost: true, action: 'tracker-empty-dismiss', onClick: dismissTrackersEmpty }),
+                );
+                empty.append(icon, el('p', 'wg-empty__title', 'Track anything'),
+                    el('p', 'wg-empty__body', 'Count glasses of water, keep coffee under a limit, or check off a daily stretch. One tap logs it.'),
+                    emptyActs);
+                card.appendChild(empty);
+            }
+            return card;
+        }
+        const grid = el('div', 'wg-trks');
+        trackers.forEach((t) => grid.appendChild(renderTrackerTile(t)));
+        card.appendChild(grid);
+        return card;
+    }
+
+    // ---- Tracker log sheet (TR1b) ------------------------------------------
+
+    function closeTrackerSheet() {
+        const stack = doc().querySelector('body > .wg-toasts');
+        if (stack) stack.classList.remove('wg-toasts--sheet');
+        hideTrackerModal(TRACKER_SHEET_ID);
+    }
+
+    function renderTrackerSheet(sheet, t) {
+        sheet.replaceChildren();
+        sheet.setAttribute('data-tracker-id', t.id);
+        const step = Number(t.step) > 0 ? Number(t.step) : 1;
+        const amount = Number(sheet.getAttribute('data-amount')) > 0 ? Number(sheet.getAttribute('data-amount')) : step;
+        sheet.setAttribute('data-amount', String(amount));
+
+        sheet.appendChild(el('div', 'wg-sheet__grab'));
+        const head = el('header', 'wg-sheethead');
+        const titles = el('div', 'wg-sheethead__titles');
+        titles.appendChild(el('div', 'wg-eyebrow', 'Tracker · today'));
+        titles.appendChild(el('div', 'wg-sheethead__title', t.name));
+        const acts = el('div', 'wg-sheethead__acts');
+        acts.appendChild(btn(null, { ghost: true, iconOnly: true, icon: 'x', aria: 'Close', action: 'close', onClick: closeTrackerSheet }));
+        head.append(titles, acts);
+        sheet.appendChild(head);
+
+        const body = el('div', 'wg-sheet__body');
+        const summary = el('div', 'wg-vstack');
+        const line = el('div', 'wg-hstack');
+        const r = trackerRatio(t);
+        const stat = el('span', 'wg-stat__value', trackerIsZero(t) ? trackerCleanText(t) : r.value);
+        if (!trackerIsZero(t)) stat.appendChild(el('small', null, r.rest));
+        const rule =`${t.target.op === 'atMost' ? 'at most' : 'at least'} ${fmtNum(t.target.value)} ${PERIOD_RULE[t.target.period] || ''}`.trim();
+        line.append(stat, el('span', 'wg-spacer'), el('span', 'wg-meta', rule));
+        summary.appendChild(line);
+        body.appendChild(summary);
+
+        if (t.kind === 'count') {
+            const field = el('div', 'wg-field');
+            field.appendChild(el('span', 'wg-label', 'Add an amount'));
+            const stepper = el('div', 'wg-stepper');
+            const minus = el('button', 'wg-stepper__btn');
+            minus.type = 'button';
+            minus.setAttribute('aria-label', 'Fewer');
+            minus.setAttribute('data-action', 'tracker-fewer');
+            minus.appendChild(ico('minus'));
+            const val = el('span', 'wg-stepper__val', fmtNum(amount));
+            val.appendChild(el('small', null, unitText(t.unit, amount)));
+            const plus = el('button', 'wg-stepper__btn');
+            plus.type = 'button';
+            plus.setAttribute('aria-label', 'More');
+            plus.setAttribute('data-action', 'tracker-more-amount');
+            plus.appendChild(ico('plus'));
+            const setAmount = (n) => {
+                sheet.setAttribute('data-amount', String(Math.max(step, Math.round(n * 100) / 100)));
+                renderTrackerSheet(sheet, t);
+                hydrateIcons(sheet);
+            };
+            minus.addEventListener('click', () => setAmount(amount - step));
+            plus.addEventListener('click', () => setAmount(amount + step));
+            stepper.append(minus, val, plus);
+            field.appendChild(stepper);
+            body.appendChild(field);
+        }
+
+        const logs = Array.isArray(t.todayLogs) ? t.todayLogs : [];
+        const section = el('section', 'wg-section');
+        const sHead = el('div', 'wg-section__head');
+        sHead.append(el('span', 'wg-eyebrow', 'Today’s logs'),
+            el('span', 'wg-meta', `${logs.length} ${logs.length === 1 ? 'entry' : 'entries'}`));
+        section.appendChild(sHead);
+        if (!logs.length) {
+            section.appendChild(el('p', 'wg-hint', 'Nothing logged today.'));
+        } else {
+            const list = el('div', 'wg-list');
+            for (const log of logs) {
+                const row = el('div', 'wg-row');
+                row.setAttribute('data-log-id', log.id);
+                const rb = el('span', 'wg-row__body');
+                rb.appendChild(el('span', 'wg-row__title wg-row__title--mono',
+                    t.kind === 'check' ? (trackerIsLimit(t) ? 'Slip' : 'Done') : fmtTimeHM(log.at)));
+                row.appendChild(rb);
+                if (t.kind === 'count') {
+                    const v = el('span', 'wg-row__value', `+${fmtNum(log.amount)}`);
+                    if (t.unit) v.appendChild(el('small', null, unitText(t.unit, log.amount)));
+                    row.appendChild(v);
+                }
+                const trail = el('span', 'wg-row__trail');
+                if (!isProvisional(log)) trail.appendChild(btn(null, {
+                    ghost: true, iconOnly: true, icon: 'trash', aria: 'Delete', action: 'tracker-delete-log',
+                    onClick: () => unlogTracker(t, log),
+                }));
+                row.appendChild(trail);
+                list.appendChild(row);
+            }
+            section.appendChild(list);
+        }
+        body.appendChild(section);
+        const links = el('div', 'wg-list');
+        links.append(
+            trackerLink('setting', 'history', 'History', 'Last 30 days and habit strength', 'tracker-history',
+                () => { closeTrackerSheet(); openTrackerHistory(t); }),
+            trackerLink('setting', 'pencil', 'Edit tracker', 'Name, target, reminder', 'tracker-edit',
+                () => { closeTrackerSheet(); openTrackerEditor(t); }),
+        );
+        body.appendChild(links);
+        sheet.appendChild(body);
+
+        if (t.kind === 'count' || !trackerDoneToday(t)) {
+            const foot = el('div', 'wg-sheet__foot');
+            const label = t.kind === 'count'
+                ? `Add ${fmtNum(amount)}${t.unit ? ` ${unitText(t.unit, amount)}` : ''}`
+                : (trackerIsLimit(t) ? 'Log a slip today' : 'Mark done');
+            foot.appendChild(btn(label, {
+                primary: true, action: 'tracker-add',
+                onClick: () => logTracker(t, t.kind === 'count' ? amount : null),
+            }));
+            sheet.appendChild(foot);
+        }
+    }
+
+    function openTrackerSheet(t) {
+        if (isProvisional(t)) return null;
+        const sheet = mountTrackerModal(TRACKER_SHEET_ID, 'wg-today-tracker-sheet', 'Tracker log');
+        if (sheet.getAttribute('data-tracker-id') !== t.id) sheet.removeAttribute('data-amount');
+        renderTrackerSheet(sheet, t);
+        showTrackerModal(sheet, closeTrackerSheet);
+        return sheet;
+    }
+
+    // A Today repaint (every optimistic write ends in one) refreshes an open
+    // sheet from the same list, so its total and log rows track the tiles.
+    function syncTrackerSheet(list, nowMs) {
+        const sheet = doc().getElementById(TRACKER_SHEET_ID);
+        if (!sheet || sheet.classList.contains('hidden')) return;
+        const t = trackersFor(list, nowMs).find((x) => x && x.id === sheet.getAttribute('data-tracker-id'));
+        if (!t) { closeTrackerSheet(); return; }
+        renderTrackerSheet(sheet, t);
+        hydrateIcons(sheet);
+    }
+
+    // ---- Tracker create / edit (TR2), manage, history (TR3) — med-1vy5.3 ----
+    //
+    // Create starts on the template picker; a template only prefills the
+    // form. Edit opens on the form; the kind is fixed once created (the
+    // domain refuses a change). Save validates inline, closes, and writes
+    // through trackerWrite (DataStore.applyOptimistic). Archive is the only
+    // delete: a wg-dialog confirm, then the tracker leaves the list. History
+    // is a pushed WGPage: current period, 30 days of bars, habit strength.
+
+    const TRACKER_EDITOR_ID = 'today-tracker-editor';
+    const TRACKER_MANAGE_ID = 'today-tracker-manage';
+    const TRACKER_ICONS = ['drop', 'cup', 'glass-off', 'moon', 'stretch', 'pill', 'target'];
+    const TRACKER_TEMPLATES = [
+        { name: 'Water', emoji: 'drop', kind: 'count', unit: 'glass', step: 1, target: { op: 'atLeast', value: 8, period: 'day' } },
+        { name: 'Coffee', emoji: 'cup', kind: 'count', unit: 'cup', step: 1, target: { op: 'atMost', value: 3, period: 'day' } },
+        // Abstain templates are 7-day streaks (max 0, hold for N days); the user can change N or the limit.
+        { name: 'No alcohol', emoji: 'glass-off', kind: 'check', unit: null, step: 1, target: { op: 'atMost', value: 0, period: 'day', days: 7 } },
+        { name: 'Late-night snack', emoji: 'moon', kind: 'check', unit: null, step: 1, target: { op: 'atMost', value: 0, period: 'day', days: 7 } },
+        { name: 'Stretching', emoji: 'stretch', kind: 'check', unit: null, step: 1, target: { op: 'atLeast', value: 3, period: 'week' } },
+        { name: 'Vitamins', emoji: 'pill', kind: 'check', unit: null, step: 1, target: { op: 'atLeast', value: 1, period: 'day' } },
+    ];
+    const PERIOD_PLURAL = { day: 'Days', week: 'Weeks', month: 'Months' };
+    const REMINDER_TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+    function trackerNum(v) {
+        const s = String(v == null ? '' : v).trim().replace(',', '.');
+        return s === '' ? NaN : Number(s);
+    }
+
+    // A check limit counts slips; a check goal counts times.
+    function trackerCheckUnit(op, n) {
+        if (op === 'atMost') return n === 1 ? 'slip' : 'slips';
+        return n === 1 ? 'time' : 'times';
+    }
+
+    // "at least 8 glasses a day", "every day", "3 times a week", "at most 1 slip a week", "no slips a week".
+    function trackerRuleText(d) {
+        const { op, period } = d.target;
+        const value = trackerNum(d.target.value);
+        const goal = streakDays(d.target);
+        if (goal) return `hold for ${goal} ${goal === 1 ? 'day' : 'days'}`;
+        if (d.kind === 'check' && op === 'atMost' && value === 0) return `no slips ${PERIOD_RULE[period]}`;
+        if (d.kind === 'check' && op === 'atLeast' && value === 1 && period === 'day') return 'every day';
+        const what = d.kind === 'check' ? trackerCheckUnit(op, value) : unitText(d.unit, value);
+        const lead = d.kind === 'check' && op === 'atLeast' ? '' : `${op === 'atMost' ? 'at most' : 'at least'} `;
+        const n = Number.isFinite(value) ? fmtNum(value) : '…';
+        return `${lead}${n}${what ? ` ${what}` : ''} ${PERIOD_RULE[period]}`;
+    }
+
+    function trackerKindRule(t) {
+        if (t.kind === 'check' && t.target.op === 'atMost') {
+            // A limit template carries no value: the user sets it.
+            if (!Number.isFinite(trackerNum(t.target.value))) return `Limit · you set how many slips ${PERIOD_RULE[t.target.period]}`;
+            return `Limit · ${trackerRuleText(t)}`;
+        }
+        return `${t.kind === 'check' ? 'Check' : 'Count'} · ${trackerRuleText(t)}`;
+    }
+
+    function trackerFormHint(d) {
+        const rule = trackerRuleText(d);
+        const lead = rule.charAt(0).toUpperCase() + rule.slice(1);
+        if (streakDays(d.target)) return `${lead} · a slip restarts the count.`;
+        if (d.kind === 'check' && d.target.op === 'atMost') {
+            const v = trackerNum(d.target.value);
+            if (!Number.isFinite(v)) return `Set how many slips ${PERIOD_RULE[d.target.period]} you allow — 0 for none. Tap the tile if you slip.`;
+            if (v === 0) return `${lead}. Tap the tile if you slip; the tile shows your clean streak.`;
+            return `${lead}. Tap the tile when you slip — the day counts against the limit; ${PERIOD_PLURAL[d.target.period].toLowerCase()} at or under it count as met.`;
+        }
+        if (d.target.op === 'atMost') return `${lead}. ${PERIOD_PLURAL[d.target.period]} at or under the limit count as met.`;
+        if (d.kind === 'check') return `${lead}. Tap the tile when it's done.`;
+        const step = trackerNum(d.step);
+        return `${lead}. Each tap on the tile adds ${Number.isFinite(step) ? fmtNum(step) : '…'}.`;
+    }
+
+    // A row lead: a kit icon name, else the user's emoji, else the target icon.
+    function trackerLead(emoji) {
+        const lead = el('span', 'wg-row__lead');
+        const W = typeof window !== 'undefined' ? window.WGIcons : null;
+        if (/^[a-z-]+$/.test(emoji || '') && W && W.paths && W.paths[emoji]) lead.appendChild(ico(emoji));
+        else if (emoji) lead.textContent = emoji;
+        else lead.appendChild(ico('target'));
+        return lead;
+    }
+
+    // A tappable list row (kind 'row') or settings link (kind 'setting').
+    function trackerLink(kind, emoji, title, desc, action, onClick) {
+        const row = kind === 'row';
+        const b = el('button', row ? 'wg-row' : 'wg-setting');
+        b.type = 'button';
+        b.setAttribute('data-action', action);
+        const body = el('span', row ? 'wg-row__body' : 'wg-setting__body');
+        body.appendChild(el('span', row ? 'wg-row__title' : 'wg-setting__title', title));
+        if (desc) body.appendChild(el('span', row ? 'wg-row__meta' : 'wg-setting__desc', desc));
+        const chev = ico('chev-r');
+        chev.classList.add('wg-row__chev');
+        b.append(trackerLead(emoji), body, chev);
+        b.addEventListener('click', onClick);
+        return b;
+    }
+
+    function trackerSheetHead(eyebrow, title, onClose, onSave) {
+        const head = el('header', 'wg-sheethead');
+        const titles = el('div', 'wg-sheethead__titles');
+        titles.append(el('div', 'wg-eyebrow', eyebrow), el('div', 'wg-sheethead__title', title));
+        const acts = el('div', 'wg-sheethead__acts');
+        acts.appendChild(btn(null, { ghost: true, iconOnly: true, icon: 'x', aria: 'Close', action: 'close', onClick: onClose }));
+        if (onSave) acts.appendChild(btn('Save', { primary: true, sm: true, action: 'tracker-save', onClick: onSave }));
+        head.append(titles, acts);
+        return head;
+    }
+
+    function mountTrackerModal(id, cls, label) {
+        const d = doc();
+        let node = d.getElementById(id);
+        if (!node) {
+            node = d.createElement('mt-modal');
+            node.id = id;
+            node.className = `hidden wg-modal wg-sheet${cls ? ` ${cls}` : ''}`;
+            node.setAttribute('aria-label', label);
+            d.body.appendChild(node);
+        }
+        return node;
+    }
+
+    function showTrackerModal(node, closer) {
+        hydrateIcons(node);
+        const mm = typeof window !== 'undefined' ? window.ModalManager : null;
+        if (mm && typeof mm.open === 'function') {
+            if (typeof mm.register === 'function') mm.register(node.id, closer);
+            mm.open(node.id);
+        } else if (typeof node.open === 'function') {
+            node.open();
+        } else {
+            node.classList.remove('hidden');
+        }
+    }
+
+    function hideTrackerModal(id) {
+        const mm = typeof window !== 'undefined' ? window.ModalManager : null;
+        if (mm && typeof mm.close === 'function') { mm.close(id); return; }
+        const node = doc().getElementById(id);
+        if (node) node.classList.add('hidden');
+    }
+
+    // The form's working copy: numbers stay the typed strings until Save.
+    function trackerDraft(src) {
+        const t = src || {};
+        const target = t.target || { op: 'atLeast', value: '', period: 'day' };
+        const emoji = typeof t.emoji === 'string' ? t.emoji : '';
+        return {
+            name: t.name || '',
+            emoji,
+            emojiMode: !!emoji && TRACKER_ICONS.indexOf(emoji) === -1,
+            kind: t.kind || 'count',
+            unit: t.unit || '',
+            step: String(t.step || 1),
+            // days: a streak's "hold for N days" (empty = none, the legacy max-0 limit).
+            target: { op: target.op, value: String(target.value), period: target.period, days: target.days ? String(target.days) : '' },
+            reminderOn: !!t.reminder,
+            reminderTime: (t.reminder && t.reminder.time) || '20:00',
+        };
+    }
+
+    // Mirrors normalizeTracker in web/domain/trackers.js, worded for people.
+    function validateTrackerDraft(d) {
+        const errors = {};
+        const name = d.name.trim();
+        if (!name) errors.name = 'Add a name so you can find it on Today';
+        else if ([...name].length > 60) errors.name = 'Keep the name to 60 characters or fewer';
+        if (d.kind === 'count' && !(trackerNum(d.step) > 0)) errors.step = 'Each tap must add more than 0';
+        const v = trackerNum(d.target.value);
+        if (d.target.op === 'atLeast' && !(v > 0)) {
+            errors.value = 'A goal needs at least 1. To track "none", switch to Limit and use 0.';
+        } else if (d.target.op === 'atMost' && !(v >= 0)) {
+            errors.value = 'Enter a limit of 0 or more';
+        } else if (d.target.op === 'atMost' && v === 0 && String(d.target.days).trim() !== '' && !streakDays(d.target)) {
+            errors.days = 'Enter a whole number of days, 1 or more';
+        } else if (streakDays(d.target) > 366) {
+            errors.days = 'Keep it to 366 days or fewer';
+        }
+        if (d.target.op === 'atLeast' && d.reminderOn && !REMINDER_TIME.test(d.reminderTime)) {
+            errors.reminder = 'Pick a time for the reminder';
+        }
+        return errors;
+    }
+
+    // A limit carries no reminder: it is dropped on Save (TR2-C).
+    function trackerBody(d) {
+        const count = d.kind === 'count';
+        const days = streakDays(d.target);
+        return {
+            name: d.name.trim(),
+            emoji: d.emoji.trim(),
+            unit: count && d.unit.trim() ? d.unit.trim() : null,
+            step: count ? trackerNum(d.step) : 1,
+            // A streak counts days: its period is 'day'. Carry days through every edit (an update replaces the record).
+            target: days
+                ? { op: 'atMost', value: 0, period: 'day', days }
+                : { op: d.target.op, value: trackerNum(d.target.value), period: d.target.period },
+            reminder: d.target.op === 'atLeast' && d.reminderOn ? { time: d.reminderTime } : null,
+        };
+    }
+
+    function closeTrackerEditor() {
+        hideTrackerModal(TRACKER_EDITOR_ID);
+    }
+
+    // No tracker → create, on the template step; a tracker → edit, on the
+    // form (`focus` names an input to start on — Extend opens on days).
+    function openTrackerEditor(tracker, focus) {
+        const sheet = mountTrackerModal(TRACKER_EDITOR_ID, 'wg-sheet--full wg-today-tracker-editor', 'Tracker editor');
+        const ed = { tracker: tracker || null, step: tracker ? 'form' : 'pick', from: null, draft: trackerDraft(tracker), errors: {} };
+        renderTrackerEditor(sheet, ed);
+        showTrackerModal(sheet, closeTrackerEditor);
+        const f = focus && sheet.querySelector(`[data-input="${focus}"]`);
+        if (f && typeof f.focus === 'function') f.focus();
+        return sheet;
+    }
+
+    function renderTrackerEditor(sheet, ed) {
+        const rerender = () => { renderTrackerEditor(sheet, ed); hydrateIcons(sheet); };
+        sheet.replaceChildren();
+        sheet.setAttribute('data-step', ed.step);
+        sheet.appendChild(el('div', 'wg-sheet__grab'));
+        const body = el('div', 'wg-sheet__body');
+
+        if (ed.step === 'pick') {
+            sheet.appendChild(trackerSheetHead('New tracker', 'Pick a starting point', closeTrackerEditor));
+            const list = el('div', 'wg-list');
+            for (const tpl of TRACKER_TEMPLATES) {
+                const row = trackerLink('row', tpl.emoji, tpl.name, trackerKindRule(tpl), 'tracker-template', () => {
+                    ed.step = 'form';
+                    ed.from = tpl.name;
+                    ed.draft = trackerDraft(tpl);
+                    rerender();
+                });
+                row.setAttribute('data-template', tpl.name);
+                list.appendChild(row);
+            }
+            const custom = el('div', 'wg-list');
+            custom.appendChild(trackerLink('row', 'plus', 'Custom', 'Start blank', 'tracker-custom', () => {
+                ed.step = 'form';
+                ed.from = 'custom';
+                ed.draft = trackerDraft(null);
+                rerender();
+            }));
+            body.append(list, custom, el('p', 'wg-hint', 'A template only fills in the form. You can change everything before you save.'));
+            sheet.appendChild(body);
+            return;
+        }
+
+        const d = ed.draft;
+        const editing = !!ed.tracker;
+        const custom = ed.from === 'custom';
+        let eyebrow = 'Edit tracker';
+        if (!editing) eyebrow = custom ? 'New tracker · custom' : 'New tracker · from template';
+        let title = 'New tracker';
+        if (editing) title = ed.tracker.name;
+        else if (!custom) title = ed.from;
+        sheet.appendChild(trackerSheetHead(eyebrow, title, closeTrackerEditor, () => saveTrackerEditor(sheet, ed)));
+
+        // Typing updates the plain-English summary and the affix units in
+        // place (no re-render, so the field keeps focus).
+        const live = [];
+        const refresh = () => live.forEach((fn) => fn());
+
+        const field = (key, label, ...controls) => {
+            const f = el('div', ed.errors[key] ? 'wg-field wg-field--error' : 'wg-field');
+            f.setAttribute('data-field', key);
+            f.appendChild(el('span', 'wg-label', label));
+            controls.forEach((c) => f.appendChild(c));
+            if (ed.errors[key]) {
+                const err = el('span', 'wg-error');
+                err.append(ico('alert', true), doc().createTextNode(ed.errors[key]));
+                f.appendChild(err);
+            }
+            return f;
+        };
+        const input = (key, value, opts, onInput) => {
+            const o = opts || {};
+            const i = el('input', o.numeric ? 'wg-input' : 'wg-input wg-input--text');
+            i.type = 'text';
+            if (o.numeric) i.setAttribute('inputmode', 'decimal');
+            if (o.maxLength) i.maxLength = o.maxLength;
+            if (o.placeholder) i.placeholder = o.placeholder;
+            if (o.aria) i.setAttribute('aria-label', o.aria);
+            i.value = value;
+            i.setAttribute('data-input', key);
+            i.addEventListener('input', () => { onInput(i.value); refresh(); });
+            return i;
+        };
+        const affix = (inp, unitFn) => {
+            const a = el('div', 'wg-affix wg-affix--unit');
+            const u = el('span', 'wg-affix__unit', unitFn());
+            live.push(() => { u.textContent = unitFn(); });
+            a.append(inp, u);
+            return a;
+        };
+        const seg = (key, options, small, disabled, read, write) => {
+            const s = el('div', small ? 'wg-seg wg-seg--sm' : 'wg-seg');
+            s.setAttribute('role', 'group');
+            s.setAttribute('data-seg', key);
+            for (const [value, label] of options) {
+                const o = el('button', 'wg-seg__opt', label);
+                o.type = 'button';
+                o.setAttribute('aria-pressed', String(read() === value));
+                o.setAttribute('data-value', value);
+                if (disabled) o.disabled = true;
+                else o.addEventListener('click', () => { write(value); rerender(); });
+                s.appendChild(o);
+            }
+            return s;
+        };
+
+        body.appendChild(field('name', 'Name', input('name', d.name, { maxLength: 60, placeholder: 'e.g. Reading', aria: 'Name' }, (v) => { d.name = v; })));
+
+        const picks = el('div', 'wg-picks');
+        for (const name of TRACKER_ICONS) {
+            const p = el('button', 'wg-pick');
+            p.type = 'button';
+            p.setAttribute('aria-pressed', String(!d.emojiMode && d.emoji === name));
+            p.setAttribute('aria-label', name);
+            p.setAttribute('data-icon-pick', name);
+            p.appendChild(ico(name, true));
+            p.addEventListener('click', () => { d.emoji = name; d.emojiMode = false; rerender(); });
+            picks.appendChild(p);
+        }
+        const emojiPick = el('button', 'wg-pick', 'Emoji');
+        emojiPick.type = 'button';
+        emojiPick.setAttribute('aria-pressed', String(d.emojiMode));
+        emojiPick.setAttribute('data-icon-pick', 'emoji');
+        emojiPick.addEventListener('click', () => {
+            if (!d.emojiMode) d.emoji = '';
+            d.emojiMode = true;
+            rerender();
+        });
+        picks.appendChild(emojiPick);
+        const iconControls = [picks];
+        if (d.emojiMode) {
+            iconControls.push(input('emoji', d.emoji, { maxLength: 16, placeholder: 'e.g. 🍊', aria: 'Emoji' }, (v) => { d.emoji = v; }));
+        }
+        iconControls.push(el('span', 'wg-hint', 'Or choose any emoji. It shows on the tile only.'));
+        body.appendChild(field('emoji', 'Icon', ...iconControls));
+
+        body.appendChild(field('kind', 'Kind', seg('kind', [['count', 'Count'], ['check', 'Check']], false, editing,
+            () => d.kind, (v) => { d.kind = v; })));
+
+        const count = d.kind === 'count';
+        if (count) {
+            const row = el('div', 'wg-fieldrow');
+            row.append(
+                field('unit', 'Unit · optional', input('unit', d.unit, { placeholder: 'e.g. page', aria: 'Unit' }, (v) => { d.unit = v; })),
+                field('step', 'Each tap adds', affix(input('step', d.step, { numeric: true, aria: 'Each tap adds' }, (v) => { d.step = v; }),
+                    () => unitText(d.unit.trim(), trackerNum(d.step)))),
+            );
+            body.appendChild(row);
+        }
+
+        body.appendChild(field('op', 'Target', seg('op', [['atLeast', 'Goal · at least'], ['atMost', 'Limit · at most']], false, false,
+            () => d.target.op, (v) => { d.target.op = v; })));
+        const targetRow = el('div', 'wg-fieldrow');
+        const limit = d.target.op === 'atMost';
+        targetRow.append(
+            field('value', limit ? 'No more than' : 'At least', affix(
+                input('value', d.target.value, { numeric: true, aria: limit ? 'No more than' : 'At least' }, (v) => { d.target.value = v; }),
+                () => {
+                    const n = trackerNum(d.target.value);
+                    if (!count) return trackerCheckUnit(d.target.op, n);
+                    return unitText(d.unit.trim(), n);
+                })),
+        );
+        // A limit of 0 is a streak: "Hold for N days" replaces the period
+        // (shown / hidden as the value is typed, so the field keeps focus).
+        const periodField = field('period', 'Per', seg('period', [['day', 'Day'], ['week', 'Week'], ['month', 'Month']], true, false,
+            () => d.target.period, (v) => { d.target.period = v; }));
+        const presets = seg('days', [['7', '7'], ['30', '30'], ['90', '90']], true, false,
+            () => d.target.days, (v) => { d.target.days = v; });
+        const daysField = field('days', 'Hold for', presets,
+            affix(input('days', d.target.days, { numeric: true, placeholder: 'Custom', aria: 'Hold for days' }, (v) => { d.target.days = v.trim(); }),
+                () => (trackerNum(d.target.days) === 1 ? 'day' : 'days')),
+            el('span', 'wg-hint', 'Optional. Empty keeps an open-ended clean streak.'));
+        const zeroLimit = () => limit && trackerNum(d.target.value) === 0;
+        const syncStreak = () => {
+            periodField.classList.toggle('hidden', zeroLimit());
+            daysField.classList.toggle('hidden', !zeroLimit());
+            presets.querySelectorAll('[data-value]').forEach((o) => o.setAttribute('aria-pressed', String(o.getAttribute('data-value') === d.target.days)));
+        };
+        live.push(syncStreak);
+        syncStreak();
+        targetRow.appendChild(periodField);
+        body.append(targetRow, daysField);
+        const hint = el('p', 'wg-hint', trackerFormHint(d));
+        hint.setAttribute('data-role', 'tracker-rule');
+        live.push(() => { hint.textContent = trackerFormHint(d); });
+        body.appendChild(hint);
+
+        if (limit) {
+            const quiet = el('div', 'wg-setting wg-setting--boxed wg-setting--quiet');
+            const qb = el('span', 'wg-setting__body');
+            qb.append(el('span', 'wg-setting__title', 'No reminder for limits'),
+                el('span', 'wg-setting__desc', 'Reminders only nudge goals you haven’t reached yet.'));
+            quiet.append(trackerLead('bell'), qb);
+            body.appendChild(quiet);
+        } else {
+            const rem = el('div', 'wg-setting wg-setting--boxed');
+            rem.setAttribute('data-field', 'reminder');
+            const rb = el('span', 'wg-setting__body');
+            rb.append(el('span', 'wg-setting__title', 'Reminder'),
+                el('span', 'wg-setting__desc', 'Only if the goal isn’t met by then'));
+            rem.appendChild(rb);
+            if (d.reminderOn) {
+                const time = el('input', 'wg-input wg-trkedit__time');
+                time.type = 'time';
+                time.value = d.reminderTime;
+                time.setAttribute('aria-label', 'Reminder time');
+                time.setAttribute('data-input', 'reminderTime');
+                time.addEventListener('input', () => { d.reminderTime = time.value; });
+                rem.appendChild(time);
+            }
+            const toggle = el('button', 'wg-toggle');
+            toggle.type = 'button';
+            toggle.setAttribute('role', 'switch');
+            toggle.setAttribute('aria-checked', String(d.reminderOn));
+            toggle.setAttribute('aria-label', 'Reminder');
+            toggle.setAttribute('data-action', 'tracker-reminder');
+            toggle.addEventListener('click', () => { d.reminderOn = !d.reminderOn; rerender(); });
+            rem.appendChild(toggle);
+            body.appendChild(rem);
+            if (ed.errors.reminder) {
+                const err = el('span', 'wg-error');
+                err.append(ico('alert', true), doc().createTextNode(ed.errors.reminder));
+                body.appendChild(err);
+            }
+        }
+
+        if (editing) {
+            const box = el('div', 'wg-vstack');
+            const archive = btn('Archive tracker', { icon: 'archive', action: 'tracker-archive', onClick: () => archiveTracker(ed.tracker, closeTrackerEditor) });
+            archive.classList.add('wg-btn--danger-ghost', 'wg-btn--block');
+            const since = trackerSince(ed.tracker);
+            box.append(archive, el('p', 'wg-hint', `${since ? `Tracking since ${since}. ` : ''}Archiving removes it from Today and keeps its history.`));
+            body.appendChild(box);
+        }
+        sheet.appendChild(body);
+    }
+
+    function trackerSince(t) {
+        const d = new Date(t && t.createdAt);
+        if (isNaN(d.getTime())) return '';
+        return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
+    }
+
+    // Errors show inline after Save and focus moves to the first one (TR2-D).
+    function saveTrackerEditor(sheet, ed) {
+        ed.errors = validateTrackerDraft(ed.draft);
+        if (Object.keys(ed.errors).length) {
+            renderTrackerEditor(sheet, ed);
+            hydrateIcons(sheet);
+            const first = sheet.querySelector('.wg-field--error input, [data-field="reminder"] input');
+            if (first && typeof first.focus === 'function') first.focus();
+            return null;
+        }
+        closeTrackerEditor();
+        const body = trackerBody(ed.draft);
+        if (ed.draft.kind === 'check') hintNoGoal(body);
+        return ed.tracker ? updateTracker(ed.tracker, body) : createTracker({ ...body, kind: ed.draft.kind });
+    }
+
+    // One-time nudge (per device): a "No …" check saved as a goal usually
+    // means an abstain habit, which a Limit models (a tap = a slip).
+    const TRACKER_NO_GOAL_HINTED = 'wg.today.trackerNoGoalHinted';
+
+    function hintNoGoal(body) {
+        if (body.target.op !== 'atLeast' || !/^no\s/i.test(body.name)) return;
+        try {
+            if (window.localStorage.getItem(TRACKER_NO_GOAL_HINTED) === '1') return;
+            window.localStorage.setItem(TRACKER_NO_GOAL_HINTED, '1');
+        } catch (_) { /* best-effort: show it anyway */ }
+        if (typeof window.safeToast === 'function') {
+            window.safeToast(`Avoiding something? Edit "${body.name}" and set Target to Limit · at most — then a tap logs a slip, and 0 shows a clean streak.`, 'info');
+        }
+    }
+
+    function sortTrackers(list) {
+        return list.slice().sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+    }
+
+    // The server's list row for one tracker (progress, todayLogs and the
+    // day/timeZone a cached list needs to notice midnight), or null.
+    async function serverTrackerRow(api, id) {
+        try {
+            const list = await api('/api/trackers', 'GET');
+            return Array.isArray(list) ? (list.find((x) => x && x.id === id) || null) : null;
+        } catch (_) { return null; }
+    }
+
+    // The new tile shows at once under a provisional id (taps wait for the
+    // commit); the server's row replaces it.
+    async function createTracker(body) {
+        const api = trackersApi();
+        if (!api) return null;
+        const provisionalId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const row = {
+            ...body, id: provisionalId, archived: false, createdAt: new Date().toISOString(),
+            progress: {
+                total: 0, target: body.target.value, met: body.target.op === 'atMost',
+                // A new streak: today, unslipped, is its first clean day.
+                ...(body.target.days ? { cleanDays: 1, bestDays: 1, goal: { days: body.target.days, achieved: body.target.days <= 1 } } : {}),
+            },
+            todayLogs: [],
+        };
+        return trackerWrite(
+            (prev) => [...(Array.isArray(prev) ? prev : []), row],
+            (cur) => cur.filter((t) => t.id !== provisionalId),
+            () => api('/api/trackers', 'POST', body),
+            async (saved) => {
+                const fresh = saved.id ? await serverTrackerRow(api, saved.id) : null;
+                return (cur) => cur.map((t) => (t.id === provisionalId ? (fresh || { ...t, ...saved }) : t));
+            });
+    }
+
+    // A changed period changes what the total sums, so the commit takes the
+    // server's row for this tracker (others keep any concurrent writes).
+    async function updateTracker(t, body) {
+        const api = trackersApi();
+        if (!api) return null;
+        const apply = (fields) => (x) => {
+            const p = x.progress || { total: 0 };
+            const value = fields.target.value;
+            const met = fields.target.op === 'atMost' ? p.total <= value : p.total >= value;
+            // A streak's goal follows its days (achieved = the best run reaches it); no days → no goal.
+            const rest = { ...p };
+            delete rest.goal;
+            const days = fields.target.days;
+            const next = days ? { goal: { days, achieved: Number(p.bestDays) >= days } } : {};
+            return { ...x, ...fields, progress: { ...rest, ...next, target: value, met } };
+        };
+        const old = { name: t.name, emoji: t.emoji, unit: t.unit, step: t.step, target: t.target, reminder: t.reminder };
+        return trackerWrite(patchTracker(t.id, apply(body)), patchTracker(t.id, apply(old)),
+            () => api(`/api/trackers/${encodeURIComponent(t.id)}`, 'PUT', body),
+            async () => {
+                const fresh = await serverTrackerRow(api, t.id);
+                // A tap made while saving is still provisional: keep it on top.
+                const merge = (x) => (x.todayLogs || []).filter(isProvisional).reduce((acc, l) => addLog(l)(acc), fresh);
+                return fresh ? (cur) => cur.map((x) => (x.id === t.id ? merge(x) : x)) : null;
+            });
+    }
+
+    async function archiveTracker(t, after) {
+        const ask = typeof window !== 'undefined' ? window.safeConfirm : null;
+        if (typeof ask !== 'function') return null;
+        const ok = await ask('It leaves Today and stops counting. Its history stays in your vault and in the doctor brief.', null, {
+            title: `Archive ${t.name}?`, confirmLabel: 'Archive', icon: 'archive', destructive: true,
+        });
+        if (!ok) return null;
+        if (typeof after === 'function') after();
+        const api = trackersApi();
+        if (!api) return null;
+        return trackerWrite(
+            (prev) => (Array.isArray(prev) ? prev.filter((x) => x.id !== t.id) : prev),
+            (cur) => (cur.some((x) => x.id === t.id) ? cur : sortTrackers([...cur, t])),
+            () => api(`/api/trackers/${encodeURIComponent(t.id)}`, 'DELETE'));
+    }
+
+    // Manage: every active tracker (tap = edit) plus New tracker.
+    function openTrackerManage(trackers) {
+        const sheet = mountTrackerModal(TRACKER_MANAGE_ID, '', 'Manage trackers');
+        const close = () => hideTrackerModal(TRACKER_MANAGE_ID);
+        sheet.replaceChildren();
+        sheet.appendChild(el('div', 'wg-sheet__grab'));
+        sheet.appendChild(trackerSheetHead('Trackers', 'Manage', close));
+        const body = el('div', 'wg-sheet__body');
+        const list = el('div', 'wg-list');
+        // A tracker still saving has no record to edit yet.
+        for (const t of trackers.filter((x) => !isProvisional(x))) {
+            const row = trackerLink('row', t.emoji, t.name, trackerKindRule(t), 'tracker-manage-edit', () => { close(); openTrackerEditor(t); });
+            row.setAttribute('data-manage-id', t.id);
+            list.appendChild(row);
+        }
+        const add = el('div', 'wg-list');
+        add.appendChild(trackerLink('row', 'plus', 'New tracker', 'From a template or blank', 'tracker-manage-new', () => { close(); openTrackerEditor(); }));
+        body.append(list, add, el('p', 'wg-hint', 'Archiving a tracker takes it off Today and keeps its history.'));
+        sheet.appendChild(body);
+        showTrackerModal(sheet, close);
+        return sheet;
+    }
+
+    // Weekly tile (TR1): Mon..Sun strip instead of the meter.
+    function trackerWeek(t) {
+        const week = el('span', 'wg-trk__week');
+        week.setAttribute('aria-hidden', 'true');
+        const limit = trackerIsLimit(t);
+        t.progress.days.forEach((d) => {
+            const seg = el('i');
+            const future = !!t.day && d.day > t.day;
+            // A limit inverts it: clean days sage, slip days warn (med-1vy5.8).
+            if (limit && d.total > 0) seg.classList.add('is-slip');
+            else if (limit && !future) seg.classList.add('is-clean');
+            else if (!limit && d.total > 0) seg.classList.add('is-hit');
+            if (d.day === t.day) seg.classList.add('is-today');
+            else if (future) seg.classList.add('is-future');
+            week.appendChild(seg);
+        });
+        return week;
+    }
+
+    function trackerMeter(t) {
+        const p = t.progress || {};
+        const limit = t.target.op === 'atMost';
+        const meter = el('span', limit ? 'wg-meter wg-trk__limit' : 'wg-meter');
+        const fill = el('span', limit ? 'wg-meter__fill' : 'wg-meter__fill wg-meter__fill--sage');
+        fill.style.setProperty('--p', p.target > 0 ? pct(p.total / p.target) : (p.total > 0 ? '100%' : '0%'));
+        meter.appendChild(fill);
+        return meter;
+    }
+
+    function trackerStatusText(t) {
+        const p = t.progress || {};
+        const left = fmtNum(Math.max(0, p.target - p.total));
+        const state = trackerState(t);
+        if (state === 'met') return 'Goal met';
+        if (state === 'todo') return `${left} to go`;
+        if (state === 'over') return trackerOverText(t);
+        if (trackerIsZero(t)) return 'Within the limit';
+        return state === 'at' ? 'At limit' : `${left} left`;
+    }
+
+    function shortDate(day) {
+        return `${day.slice(8, 10)}.${day.slice(5, 7)}`;
+    }
+
+    function mondayOf(day) {
+        const ms = Date.parse(`${day}T00:00:00Z`);
+        const dow = (new Date(ms).getUTCDay() + 6) % 7;
+        return new Date(ms - dow * DAY_IN_MS).toISOString().slice(0, 10);
+    }
+
+    // history() rows (oldest first) → bar buckets: days, or ISO weeks for a
+    // weekly tracker (the last 5). ponytail: a monthly tracker shows its days
+    // unjudged (no goal line) — month bars when someone keeps one.
+    function trackerBuckets(t, rows) {
+        if (t.target.period !== 'week') return rows.map((r) => ({ label: shortDate(r.date), total: Number(r.total) || 0 }));
+        const weeks = [];
+        for (const r of rows) {
+            const key = mondayOf(r.date);
+            const last = weeks[weeks.length - 1];
+            if (last && last.key === key) last.total += Number(r.total) || 0;
+            else weeks.push({ key, label: shortDate(key), total: Number(r.total) || 0 });
+        }
+        return weeks.slice(-5);
+    }
+
+    function renderTrackerBars(t, rows) {
+        const card = el('div', 'wg-card');
+        card.setAttribute('data-section', 'tracker-history');
+        const weekly = t.target.period === 'week';
+        const judged = t.target.period !== 'month';
+        const buckets = trackerBuckets(t, rows);
+        const head = el('div', 'wg-card__head');
+        head.appendChild(el('span', 'wg-card__title', weekly ? 'Last 5 weeks' : 'Last 30 days'));
+        if (rows.length) head.appendChild(el('span', 'wg-meta', `${shortDate(rows[0].date)} – ${shortDate(rows[rows.length - 1].date)}`));
+        card.appendChild(head);
+        if (!buckets.length) {
+            card.appendChild(el('p', 'wg-hint', 'No history yet.'));
+            return card;
+        }
+        const target = Number(t.target.value) || 0;
+        const limit = t.target.op === 'atMost';
+        const scale = Math.max(target * 1.5, 1, ...buckets.map((b) => b.total));
+        const met = (b) => (limit ? b.total <= target : b.total >= target);
+        const bars = el('div', 'wg-trkhist');
+        bars.style.setProperty('--n', String(buckets.length));
+        buckets.forEach((b, i) => {
+            const current = i === buckets.length - 1;
+            let cls = 'wg-trkhist__bar';
+            if (judged && limit && !met(b)) cls += ' wg-trkhist__bar--over';
+            else if (judged && !limit && met(b)) cls += ' wg-trkhist__bar--met';
+            else if (current) cls += ' wg-trkhist__bar--today';
+            const bar = el('span', cls);
+            bar.style.setProperty('--p', pct(b.total / scale));
+            bar.setAttribute('title', `${b.label}: ${fmtNum(b.total)}`);
+            bars.appendChild(bar);
+        });
+        if (judged) {
+            const goal = el('span', 'wg-trkhist__goal');
+            goal.style.setProperty('--p', pct(target / scale));
+            goal.appendChild(el('span', null, fmtNum(target)));
+            bars.appendChild(goal);
+        }
+        card.appendChild(bars);
+        const axis = el('div', 'wg-trkhist__axis');
+        axis.append(el('span', null, buckets[0].label));
+        if (buckets.length > 2) axis.append(el('span', null, buckets[Math.floor(buckets.length / 2)].label));
+        axis.append(el('span', null, weekly ? 'This week' : 'Today'));
+        card.appendChild(axis);
+        const legend = el('div', 'wg-trkhist__legend');
+        const key = (cls, text) => {
+            const s = el('span');
+            s.append(el('i', cls), doc().createTextNode(text));
+            return s;
+        };
+        if (judged && limit) legend.append(key(null, 'Within limit'), key('is-over', 'Over limit'));
+        else if (judged) legend.append(key('is-met', 'Met'), key(null, 'Under goal'));
+        legend.append(key('is-today', weekly ? 'This week, in progress' : 'Today, in progress'));
+        card.appendChild(legend);
+        return card;
+    }
+
+    // "Met 22 of the last 29 days" — finished buckets only (not today / this week).
+    function trackerMetText(t, rows) {
+        if (t.target.period === 'month') return '';
+        const done = trackerBuckets(t, rows).slice(0, -1);
+        if (!done.length) return '';
+        const target = Number(t.target.value) || 0;
+        const n = done.filter((b) => (t.target.op === 'atMost' ? b.total <= target : b.total >= target)).length;
+        const unit = t.target.period === 'week' ? 'weeks' : 'days';
+        return ` ${t.target.op === 'atMost' ? 'Within the limit' : 'Met'} ${n} of the last ${done.length} ${unit}.`;
+    }
+
+    function strengthWord(v) {
+        if (v < 0.25) return 'Starting';
+        if (v < 0.5) return 'Building';
+        if (v < 0.8) return 'Steady';
+        return 'Strong';
+    }
+
+    function renderTrackerStrength(strength, metText) {
+        const card = el('div', 'wg-card wg-vstack');
+        card.setAttribute('data-section', 'tracker-strength');
+        card.appendChild(el('span', 'wg-eyebrow', 'Habit strength'));
+        const line = el('span', 'wg-hstack');
+        const v = Math.max(0, Math.min(1, Number(strength.value) || 0));
+        line.append(el('span', 'wg-stat__value wg-stat__value--md', `${Math.round(v * 100)}%`), chip(strengthWord(v)));
+        card.appendChild(line);
+        card.appendChild(el('p', 'wg-hint',
+            `Grows on days you meet the goal and fades slowly on days you don't, so one missed day barely moves it.${metText}`));
+        return card;
+    }
+
+    // TR3: a pushed page. The current period renders at once; the bars and
+    // the strength (habit strength from GET /api/gamification/summary,
+    // med-1vy5.4) fill in once read.
+    function openTrackerHistory(t) {
+        const W = typeof window !== 'undefined' ? window.WGPage : null;
+        const api = trackersApi();
+        if (!W || typeof W.push !== 'function' || !api) return null;
+        const body = el('div', 'wg-vstack');
+        body.setAttribute('data-tracker-history', t.id);
+
+        const nowCard = el('div', 'wg-card wg-vstack');
+        nowCard.appendChild(el('span', 'wg-eyebrow wg-eyebrow--dot', { day: 'Today', week: 'This week', month: 'This month' }[t.target.period]));
+        const line = el('span', 'wg-hstack');
+        if (trackerIsZero(t)) {
+            line.appendChild(el('span', 'wg-stat__value', trackerCleanText(t)));
+        } else if (t.kind === 'check' && t.target.period === 'day' && !trackerIsLimit(t)) {
+            line.appendChild(el('span', 'wg-stat__value', trackerDoneToday(t) ? 'Done' : 'Not yet'));
+        } else {
+            const r = trackerRatio(t);
+            const stat = el('span', 'wg-stat__value', r.value);
+            stat.appendChild(el('small', null, r.rest));
+            line.appendChild(stat);
+        }
+        line.append(el('span', 'wg-spacer'), el('span', 'wg-meta', trackerStatusText(t)));
+        nowCard.appendChild(line);
+        // A max-0 limit has no budget to fill: the clean streak is the line.
+        if (!trackerIsZero(t)) nowCard.appendChild(trackerMeter(t));
+        nowCard.appendChild(el('span', 'wg-meta',
+            `${t.target.op === 'atMost' ? 'Limit' : 'Goal'} · ${trackerRuleText(t)}${t.reminder ? ` · reminder ${t.reminder.time}` : ''}`));
+        body.appendChild(nowCard);
+
+        const slot = el('div', 'wg-vstack');
+        body.appendChild(slot);
+
+        const page = W.push({
+            title: t.name, crumb: 'Tracker', back: 'Today', body,
+            primary: { label: 'Edit', onClick: () => { page.close(); openTrackerEditor(t); } },
+        });
+        const archive = btn('Archive tracker', { icon: 'archive', action: 'tracker-archive', onClick: () => archiveTracker(t, () => page.close()) });
+        archive.classList.add('wg-btn--danger-ghost', 'wg-btn--block');
+        body.appendChild(archive);
+        hydrateIcons(body);
+
+        const days = t.target.period === 'week' ? 42 : 30;
+        Promise.all([
+            Promise.resolve(api(`/api/trackers/${encodeURIComponent(t.id)}/history?days=${days}`, 'GET')).catch(() => null),
+            Promise.resolve(api('/api/gamification/summary', 'GET')).catch(() => null),
+        ]).then(([rows, summary]) => {
+            const list = Array.isArray(rows) ? rows : [];
+            slot.appendChild(renderTrackerBars(t, list));
+            const strengths = summary && Array.isArray(summary.strengths) ? summary.strengths : [];
+            const strength = strengths.find((s) => s && s.key === `tracker:${t.id}`);
+            if (strength) slot.appendChild(renderTrackerStrength(strength, trackerMetText(t, list)));
+        });
+        return page;
     }
 
     // ---- Goal Line (docs/gamification.md §0.3.2) ----------------------------
@@ -1195,8 +2631,9 @@
 
     function logSheetGroups(state, h) {
         const food = on(state && state.caloriesToday) ? [
-            { id: 'food-search', icon: 'search', label: 'Search', sub: 'Your foods + database', run: h.onLogFood },
+            { id: 'food-search', icon: 'search', label: 'Search', sub: 'Your foods + database', row: true, run: h.onLogFood },
             { id: 'food-photo', icon: 'camera', label: 'Photo meal', sub: 'AI estimates it', run: h.onPhotoMeal },
+            { id: 'food-library', icon: 'image', label: 'From library', sub: 'Existing photo', run: h.onLibraryMeal },
             { id: 'food-scan', icon: 'barcode', label: 'Scan barcode', run: h.onScanFood },
             { id: 'food-describe', icon: 'sparkle', label: 'Describe', sub: '"200 g chicken, rice"', run: h.onDescribeFood },
         ] : [];
@@ -1240,8 +2677,9 @@
             if (!tiles.length) return;
             body.appendChild(el('span', 'wg-eyebrow', title));
             const grid = el('div', cls);
+            const rows = [];
             for (const t of tiles) {
-                const tile = el('button', 'wg-action');
+                const tile = el('button', t.row ? 'wg-action wg-action--row' : 'wg-action');
                 tile.type = 'button';
                 tile.setAttribute('data-log', t.id);
                 const iconWrap = el('span', 'wg-action__icon');
@@ -1253,9 +2691,10 @@
                     closeLogSheet();
                     if (typeof t.run === 'function') t.run();
                 });
-                grid.appendChild(tile);
+                if (t.row) rows.push(tile); else grid.appendChild(tile);
             }
-            body.appendChild(grid);
+            for (const r of rows) body.appendChild(r);
+            if (grid.children.length) body.appendChild(grid);
         };
         group('Food', groups.food, 'wg-actions');
         group('Measurements & notes', groups.measure, 'wg-actions wg-actions--3');
@@ -1312,6 +2751,11 @@
                     win.FoodActions.triggerPhotoPicker();
                 }
             }),
+            onLibraryMeal: opts.onLibraryMeal || (() => {
+                if (win.FoodActions && typeof win.FoodActions.triggerPhotoPicker === 'function') {
+                    win.FoodActions.triggerPhotoPicker({ gallery: true });
+                }
+            }),
             onScanFood: opts.onScanFood || (() => {
                 if (win.FoodLog && typeof win.FoodLog.openAdd === 'function') win.FoodLog.openAdd();
                 if (win.FoodScanner && typeof win.FoodScanner.openFoodScannerModal === 'function') {
@@ -1352,20 +2796,19 @@
                 if (win.WorkoutSessions && typeof win.WorkoutSessions.start === 'function') win.WorkoutSessions.start(id);
                 else onDeeplink('workouts');
             }),
+            // The day's editor the Workouts next-card opens; Workouts first so
+            // the plan pages mount over their own section.
+            onViewWorkout: opts.onViewWorkout || ((v) => {
+                onDeeplink('workouts');
+                const card = win.WorkoutNextCard;
+                // An ad-hoc session (ids -1) has no plan: Workouts alone.
+                if (card && typeof card.openEdit === 'function' && v && v.variant_id > 0 && v.group_id > 0) {
+                    card.openEdit(v.variant_id, v.group_id);
+                }
+            }),
             onResumeWorkout: opts.onResumeWorkout || ((id) => {
                 if (win.WorkoutSessions && typeof win.WorkoutSessions.open === 'function') win.WorkoutSessions.open(id);
                 else onDeeplink('workouts');
-            }),
-            // The Workouts card's planned-exercises tap (workout/next-card.js):
-            // Plan page with the session's Day pushed on top, over Today. An
-            // ad-hoc session (group_id -1) has no plan → the Workouts screen.
-            onViewWorkoutPlan: opts.onViewWorkoutPlan || ((v) => {
-                const card = win.WorkoutNextCard;
-                if (card && typeof card.openEdit === 'function' && v && v.group_id > 0 && v.variant_id > 0) {
-                    card.openEdit(v.variant_id, v.group_id);
-                } else {
-                    onDeeplink('workouts');
-                }
             }),
             onAddMedication: opts.onAddMedication || (() => {
                 onDeeplink('meds');
@@ -1473,6 +2916,10 @@
             root.appendChild(strip);
         }
 
+        const trackersCard = renderTrackersCard(state && state.trackers, nowMs);
+        if (trackersCard) { root.appendChild(trackersCard); }
+        syncTrackerSheet(state && state.trackers, nowMs);
+
         const goal = renderGoalCard(state && state.goalLine, h, !next.hasPrimary, offline);
         if (goal.node) { root.appendChild(goal.node); }
 
@@ -1498,7 +2945,7 @@
         }
 
         // Nothing tracked (only the call bar, if any) → every feature is off.
-        if (!anyFeature && !goal.node) {
+        if (!anyFeature && !goal.node && !(trackersCard && trackersCard.querySelector('.wg-trk'))) {
             const empty = typeof createEmptyState === 'function'
                 ? createEmptyState({
                     icon: 'gear',
@@ -1534,7 +2981,7 @@
     // Must match the tag vocabulary emitted by internal/store/migrations/027_add_change_events.sql.
     // Notable: workout uses singular 'workout' (not 'workouts'), intake_log emits 'history',
     // and reminder/settings tables emit 'settings'.
-    const RELEVANT_TAGS = ['bp', 'weight', 'medications', 'history', 'food', 'workout', 'health', 'settings', 'gamification'];
+    const RELEVANT_TAGS = ['bp', 'weight', 'medications', 'history', 'food', 'workout', 'health', 'settings', 'gamification', 'trackers'];
 
     function subscribe(opts) {
         const options = opts || {};

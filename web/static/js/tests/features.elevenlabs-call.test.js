@@ -1131,6 +1131,50 @@ describe('features/elevenlabs-call.js — cloud dynamic MCP client-tools', () =>
         }
     });
 
+    it('caps oversized tool results to the 14 KB voice budget and leaves small ones byte-identical', async () => {
+        const { window, cleanup } = createConversationEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            const notes = Array.from({ length: 400 }, (_, i) => ({ id: i, text: 'n'.repeat(250) }));
+            const small = { rows: [{ sys: 120 }] };
+            window.CloudMCPDispatcher = {
+                handle: vi.fn(async (method, params) => {
+                    if (params.op === 'health.notes.list') return { status: 'ok', result: { notes }, api_calls: 1 };
+                    if (params.op === 'bare.list') return notes;
+                    if (params.op === 'ru.list') return { status: 'ok', result: { notes: notes.map((x) => ({ ...x, text: 'п'.repeat(250) })) } };
+                    if (params.op === 'blob') return { blob: 'x'.repeat(100000) };
+                    return small;
+                }),
+            };
+            const { opts } = await startCall(window);
+
+            const nested = await opts.clientTools.mcp_call({ op: 'health.notes.list' });
+            expect(nested.length).toBeLessThanOrEqual(14 * 1024);
+            const n = JSON.parse(nested);
+            expect(n.truncated).toBe(true);
+            expect(n.result.notes.length + n.omitted).toBe(400);
+            expect(n.result.notes[0].id).toBe(0);
+            expect(typeof n.hint).toBe('string');
+
+            const bare = await opts.clientTools.mcp_call({ op: 'bare.list' });
+            expect(bare.length).toBeLessThanOrEqual(14 * 1024);
+            const b = JSON.parse(bare);
+            expect(b[b.length - 1]).toMatchObject({ truncated: true });
+
+            const ru = await opts.clientTools.mcp_call({ op: 'ru.list' });
+            expect(Buffer.byteLength(ru)).toBeLessThanOrEqual(14 * 1024);
+            expect(JSON.parse(ru).truncated).toBe(true);
+
+            const blob = await opts.clientTools.mcp_call({ op: 'blob' });
+            expect(blob.length).toBeLessThanOrEqual(14 * 1024);
+            expect(JSON.parse(blob).truncated).toBe(true);
+
+            expect(await opts.clientTools.mcp_call({ op: 'small' })).toBe(JSON.stringify(small));
+        } finally {
+            cleanup();
+        }
+    });
+
     it('registers no clientTools without a dispatcher', async () => {
         const { window, cleanup } = createConversationEnv();
         try {
@@ -1848,6 +1892,150 @@ describe('features/elevenlabs-call.js — trial-voice fallback precedence (cloud
             const { card } = await startCall(window);
             expect(card.dataset.state).toBe('error');
             expect(window.WGCallAgent.getState().message).toMatch(/needs your consent/);
+        } finally {
+            cleanup();
+        }
+    });
+});
+
+describe('features/elevenlabs-call.js — voice LLM relay leg (cloud, bd med-h849.2)', () => {
+    // window.CloudVoiceLLM is the apishim-published device leg: start() resolves
+    // with the call token the agent's custom-LLM hop carries back to the relay.
+    function relayEnv({ conv } = {}) {
+        const order = [];
+        const env = createConversationEnv({
+            conv,
+            setup: (window) => {
+                window.CloudVoiceLLM = {
+                    start: vi.fn(async () => { order.push('start'); return 'call-tok'; }),
+                    stop: vi.fn(),
+                    usesTrialAI: vi.fn(async () => false),
+                };
+                const mint = window.CloudElevenLabs.fetchSignedURL;
+                window.CloudElevenLabs.fetchSignedURL = vi.fn(async (...a) => { order.push('mint'); return mint(...a); });
+            },
+        });
+        return { ...env, order };
+    }
+
+    function bridgeTimers(window) {
+        window.setTimeout = (...args) => globalThis.setTimeout(...args);
+        window.clearTimeout = (...args) => globalThis.clearTimeout(...args);
+    }
+
+    it('opens the leg before minting the signed URL and passes the token as customLlmExtraBody.call', async () => {
+        const { window, order, cleanup } = relayEnv();
+        try {
+            const { opts } = await startCall(window);
+            expect(order).toEqual(['start', 'mint']);
+            expect(opts.customLlmExtraBody).toEqual({ call: 'call-tok' });
+            expect(window.CloudVoiceLLM.stop).not.toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('stops the leg on hang-up', async () => {
+        const { window, cleanup } = relayEnv();
+        try {
+            await startCall(window);
+            await window.WGCallAgent.endCall();
+            expect(window.CloudVoiceLLM.stop).toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('stops the leg on onDisconnect and on onError', async () => {
+        const first = relayEnv();
+        try {
+            const { opts } = await startCall(first.window);
+            opts.onDisconnect();
+            expect(first.window.CloudVoiceLLM.stop).toHaveBeenCalledTimes(1);
+        } finally {
+            first.cleanup();
+        }
+        const second = relayEnv();
+        try {
+            const { opts } = await startCall(second.window);
+            opts.onError(new Error('boom'));
+            expect(second.window.CloudVoiceLLM.stop).toHaveBeenCalledTimes(1);
+        } finally {
+            second.cleanup();
+        }
+    });
+
+    it('stops the leg on the connect timeout', async () => {
+        vi.useFakeTimers();
+        const { window, document, cleanup } = relayEnv({ conv: { then() { /* never settles */ } } });
+        try {
+            bridgeTimers(window);
+            const card = window.WGCallAgent.mountCard(document.body);
+            window.WGCallAgent.startCall(card);
+            for (let i = 0; i < 30; i += 1) await Promise.resolve();
+            expect(window.CloudVoiceLLM.stop).not.toHaveBeenCalled();
+            vi.advanceTimersByTime(30000);
+            expect(window.WGCallAgent.getState().state).toBe('error');
+            expect(window.CloudVoiceLLM.stop).toHaveBeenCalledTimes(1);
+        } finally {
+            cleanup();
+            vi.useRealTimers();
+        }
+    });
+
+    // Until the agent is switched to the custom LLM (med-h849.3) it never uses
+    // the leg, so a broken leg must not cost the user the call.
+    it('a failed leg still starts the call, without customLlmExtraBody', async () => {
+        const { window, cleanup } = relayEnv();
+        try {
+            window.console.warn = vi.fn();
+            window.CloudVoiceLLM.start = vi.fn(async () => { throw new Error('voice relay sent no hello'); });
+            const { opts } = await startCall(window);
+            expect(window.WGCallAgent.getState().state).toBe('in_call');
+            expect(window.CloudElevenLabs.fetchSignedURL).toHaveBeenCalled();
+            expect(opts).not.toHaveProperty('customLlmExtraBody');
+            expect(window.CloudVoiceLLM.stop).toHaveBeenCalledTimes(1);
+
+            await window.WGCallAgent.endCall();
+            expect(window.CloudVoiceLLM.stop).toHaveBeenCalledTimes(2);
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('trial AI behind a BYO ElevenLabs key asks for voice consent before opening the leg', async () => {
+        const granted = relayEnv();
+        try {
+            granted.window.CloudVoiceLLM.usesTrialAI = vi.fn(async () => true);
+            granted.window.apiCall = vi.fn(async () => ({ ai: null, voice: true, tg: null }));
+            const { opts } = await startCall(granted.window);
+            expect(granted.window.apiCall).toHaveBeenCalledWith('/api/settings/trial-consent', 'GET');
+            expect(granted.window.CloudVoiceLLM.start).toHaveBeenCalledTimes(1);
+            expect(opts.customLlmExtraBody).toEqual({ call: 'call-tok' });
+        } finally {
+            granted.cleanup();
+        }
+
+        // Declined: no leg, but the call itself still goes ahead.
+        const declined = relayEnv();
+        try {
+            declined.window.console.warn = vi.fn();
+            declined.window.CloudVoiceLLM.usesTrialAI = vi.fn(async () => true);
+            declined.window.apiCall = vi.fn(async () => ({ ai: true, voice: null, tg: null }));
+            const { opts } = await startCall(declined.window);
+            expect(declined.window.CloudVoiceLLM.start).not.toHaveBeenCalled();
+            expect(declined.window.WGCallAgent.getState().state).toBe('in_call');
+            expect(opts).not.toHaveProperty('customLlmExtraBody');
+        } finally {
+            declined.cleanup();
+        }
+    });
+
+    it('without the relay (bot mode) startSession gets no customLlmExtraBody', async () => {
+        const { window, cleanup } = createConversationEnv();
+        try {
+            const { opts } = await startCall(window);
+            expect(opts).not.toHaveProperty('customLlmExtraBody');
         } finally {
             cleanup();
         }

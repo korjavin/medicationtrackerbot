@@ -12,6 +12,7 @@ Open `ui_kits/app-v2/index.html` in a browser; every page is static HTML.
 |------|-------|------------|
 | `tokens.css`, `components.css`, `icons.js` | Yes — the `wg-*` kit. Port into `web/static/css` / `web/static/js` under existing token/architecture guards. | `tokens.css` → the first `:root` of `web/static/css/styles.css`; `components.css` → `web/static/css/components.css` (port deltas in its header); `icons.js` → `web/static/js/components/wg-icons.js` (epic med-xso6) |
 | `kit.css`, `kit.js` | No — board/phone-frame presentation only. `kit.js` also shows the tab-bar markup v2 expects. | — (tab bar: `web/static/js/components/wg-bottom-nav.js`) |
+| `.wg-theme-light` (in `tokens.css`, `components.css`, `kit.css`) | No — designer's light-theme draft. The app is dark-only (owner, 2026-10-11); don't port it. | — |
 | `*.html` | Spec only. Screen ids (T1, F4, M2, W1, P1, S4…) are referenced by beads. | — (screens: see the table below) |
 
 ## Kit rules (from `ui_kits/app-v2/README.md`)
@@ -29,13 +30,15 @@ Open `ui_kits/app-v2/index.html` in a browser; every page is static HTML.
 | Surface | Spec | Current code |
 |---------|------|--------------|
 | Navigation (5 tabs: Today · Food · Meds · Train · Health; gear → Settings) | `navigation.html` | `web/static/js/components/wg-bottom-nav.js`, `features/app-nav.js`, `features/tab-controller.js`, `web/static/index.html` app bars |
-| Today (Next up, Log sheet, Goal Line, call bar, tz card, first-run/offline/skeleton) | `screens-today.html` T1–T6 | `features/today.js`, `today-loader.js`, `elevenlabs-call.js`, `tz-plan-banner.js`, `brief.js` |
+| Today (Next up, Log sheet, Goal Line, call bar, tz card, first-run/offline/skeleton) | `screens-today.html` T1–T6, T3b (Log sheet with five food paths, med-jp7z) | `features/today.js`, `today-loader.js`, `elevenlabs-call.js`, `tz-plan-banner.js`, `brief.js` |
 | Journey (pushed page) | `screens-today.html` J1–J2 | `features/journey.js` |
 | Food log, Add sheet, Describe, AI review, manual | `screens-food.html` F1–F8 | `features/food/`, `food-photo-summary.js` |
 | Meds schedule, take sheet, stock, editor page | `screens-meds.html` M1–M6 | `features/meds.js`, `meds-history.js`, `medication-utils.js` |
 | Workout session takeover, Plan/Day/Exercise pages | `screens-workouts.html` W1–W3, P1–P3 | `features/workout/` |
+| Session equipment swap (plates-strip swap button, no-strip state, picker sheet; bead med-j6pn, brief `docs/design/briefs/session-equipment-swap.md`) | `screens-workouts.html` W4, W4b | `features/workout/sessions.js` (plates strip), `features/workout/equipment.js` (inventory, editor) |
 | Settings home, Features, Backup, Devices & connectors | `screens-settings.html` S1–S5 | `features/settings.js`, `features/settings/`, cloud shell pages in `web/cloud/` |
 | Health (BP / Weight / Vitals segments; section id `health` stays) | `navigation.html` | `features/bp.js`, `weight.js`, `health.js`, `live-hr.js` |
+| Trackers (Today tiles, log sheet, create/edit + templates, history + strength; epic med-1vy5, brief `docs/design/briefs/trackers.md`) | `screens-trackers.html` TR1, TR1b, TR2, TR3 | `web/domain/trackers.js` (domain); `features/today.js` (card, log sheet, editor + templates, manage sheet, history page) |
 | Primitives (buttons, chips, rows, sheets, dialog, toast, empty, skeleton) | `foundations.html`, `components.html` | `web/static/js/components/`, `web/static/css/components.css`, `styles.css`, `dialog.css`, `core/utils.js` safe* dialogs |
 
 ## Changelog

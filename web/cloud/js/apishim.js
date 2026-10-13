@@ -34,6 +34,7 @@ import { createFoodDbClient } from './fooddb.js';
 import { createElevenLabsClient } from './elevenlabs-signed-url.js';
 import { createElevenLabsAgentProvisioner } from './elevenlabs-agent.js';
 import { createDispatcher } from './mcp-responder.js';
+import { createVoiceLLMResponder } from './voice-llm-responder.js';
 import { registerEgressHosts } from './egress-hosts.js';
 
 // materializeTimerHandle is module-level (not per-shim-instance) because the
@@ -128,7 +129,7 @@ function debugOnce(key, ...args) {
 // them, and assigns nothing — the MCP responder dispatches catalog ops through
 // the same router the UI calls, so there is exactly one place that maps an HTTP
 // route onto a web/domain/ module (med-csu.3). ctx is the sync engine context
-// (accountId, dek, ...) that recordsPort/writeRecord already expect. Tests
+// (accountId, kData, kMac) that recordsPort/writeRecord already expect. Tests
 // inject an in-memory records port via opts.records to exercise the router
 // without crypto/IndexedDB (see tests/helpers/cloud-shim-harness.js) — the port
 // interface makes this a drop-in swap with zero router logic changes. opts.win
@@ -171,7 +172,7 @@ export function createApiRouter(ctx, {
   let timeZone = deviceTimeZone;
   let bp; let weight; let notes; let settings; let vitals; let reminders;
   let medications; let intake; let tzplan; let foodDb; let food; let aiClient; let exerciseTag; let equipment; let trackers;
-  let foodAI; let workout; let workoutSheetAI; let workoutShare; let gamification; let narrator; let analysis;
+  let foodAI; let workout; let workoutSheetAI; let workoutShare; let gamification; let narrator; let analysis; let brief;
   function buildDomains(tz) {
     timeZone = tz;
     bp = createBPDomain({ records, now, timeZone });
@@ -227,6 +228,12 @@ export function createApiRouter(ctx, {
     // ops (docs/plans/20260717-cloud-analysis-pathb.md).
     analysis = createAnalysis({
       bp, vitals, medications, intake, food, weight, workout, notes, now, timeZone,
+    });
+    // Doctor-visit brief (med-5k6t.1) — a printable summary folded from the
+    // domains above, nothing of its own. Rebuilt here so it follows the
+    // resolved zone like they do.
+    brief = createBriefDomain({
+      bp, weight, vitals, notes, medications, intake, food, workout, trackers, settings, now,
     });
   }
   buildDomains(deviceTimeZone);
@@ -306,12 +313,6 @@ export function createApiRouter(ctx, {
   async function writeWeightUnit(unit) {
     await records.put(UNIT_RECORD_TYPE, { recordId: 'weight-unit', clientTs: now(), deleted: false, unit });
   }
-
-  // Doctor-visit brief (med-5k6t.1) — a printable summary folded from the
-  // domains above, nothing of its own.
-  const brief = createBriefDomain({
-    bp, weight, vitals, notes, medications, intake, food, workout, settings, now,
-  });
 
   // settingsResponse builds the {settings, features} subset shared by
   // GET /api/settings and the bootstrap payload — the settings-only reads,
@@ -515,18 +516,25 @@ export function createApiRouter(ctx, {
     }
 
     // User trackers (med-1vy5). Ids are decoded: a check log id carries ':'.
+    // Every write recomputes the horizon: a tracker reminder fires only while
+    // its target is unmet (med-1vy5.5).
+    const trackerWrite = async (p) => {
+      const res = await p;
+      scheduleReminderRecompute(ctx, { records, timeZone });
+      return res;
+    };
     if (path === '/api/trackers') {
       if (method === 'GET') return trackers.list();
-      if (method === 'POST') return trackers.create(body);
+      if (method === 'POST') return trackerWrite(trackers.create(body));
     }
     if (path.startsWith('/api/trackers/')) {
       const seg = path.slice('/api/trackers/'.length).split('/').map(decodeURIComponent);
       const [id] = seg;
-      if (seg.length === 1 && method === 'PUT') return trackers.update(id, body);
-      if (seg.length === 1 && method === 'DELETE') { await trackers.archive(id); return true; }
-      if (seg.length === 2 && seg[1] === 'log' && method === 'POST') return trackers.log(id, body || {});
-      if (seg.length === 3 && seg[1] === 'log' && method === 'DELETE') return trackers.unlog(id, seg[2]);
-      if (seg.length === 3 && seg[1] === 'days' && method === 'PUT') return trackers.setDay(id, seg[2], body && body.done);
+      if (seg.length === 1 && method === 'PUT') return trackerWrite(trackers.update(id, body));
+      if (seg.length === 1 && method === 'DELETE') { await trackerWrite(trackers.archive(id)); return true; }
+      if (seg.length === 2 && seg[1] === 'log' && method === 'POST') return trackerWrite(trackers.log(id, body || {}));
+      if (seg.length === 3 && seg[1] === 'log' && method === 'DELETE') return trackerWrite(trackers.unlog(id, seg[2]));
+      if (seg.length === 3 && seg[1] === 'days' && method === 'PUT') return trackerWrite(trackers.setDay(id, seg[2], body && body.done));
       if (seg.length === 2 && seg[1] === 'history' && method === 'GET') {
         return trackers.history(id, positiveIntParam(params, 'days', 30));
       }
@@ -1078,7 +1086,8 @@ export function createApiRouter(ctx, {
         // today's occurrence instead of a future one if it had.
         const answersReminder = action === 'start' || action === 'skip' || action === 'preskip';
         const details = answersReminder ? await workout.getSessionDetails(id) : null;
-        if (action === 'start') await workout.startSession(id);
+        let startedId;
+        if (action === 'start') startedId = await workout.startSession(id);
         else if (action === 'snooze') await workout.snoozeSession(id, body && body.minutes);
         else if (action === 'skip') await workout.skipSession(id);
         else if (action === 'preskip') await workout.preSkipSession(id);
@@ -1088,7 +1097,9 @@ export function createApiRouter(ctx, {
         // start/snooze/skip change the session's status, which the horizon uses
         // to suppress the recurring reminder — re-push so the relay follows.
         scheduleReminderRecompute(ctx, { records, timeZone });
-        return true;
+        // start may run a different session than the tapped one (re-key onto
+        // today, or ad-hoc) — name it so the caller opens the right one.
+        return startedId != null ? { session_id: startedId } : true;
       }
     }
 
@@ -1128,6 +1139,10 @@ export function createApiRouter(ctx, {
       return workout.suggestExerciseTarget({
         exercise_name: params.get('name') || '',
         goal: params.get('goal') || '',
+        // med-h5u3: the live session asks by plan row (goal/rule/equipment)
+        // and its own session (excluded from history, its gym for loads).
+        exercise_id: params.get('exercise_id') || '',
+        session_id: params.get('session_id') || '',
       });
     }
 
@@ -1435,7 +1450,7 @@ export function createApiRouter(ctx, {
   Object.defineProperty(shimCall, 'domains', {
     enumerable: true,
     get: () => ({
-      bp, weight, notes, settings, food, foodAI, workoutSheetAI, foodDb, intake, tzplan, now,
+      bp, weight, notes, settings, food, foodAI, workoutSheetAI, foodDb, intake, tzplan, now, aiClient,
     }),
   });
   shimCall.ensureTimeZone = ensureTimeZone;
@@ -1479,7 +1494,7 @@ export function installApiShim(ctx, {
   // must go through `.domains` at call time, the way runMaterializationSweep
   // does below.
   const {
-    settings, foodDb, now,
+    settings, foodDb, now, aiClient,
   } = shimCall.domains;
   const {
     food, foodAI, workoutSheetAI,
@@ -1503,13 +1518,23 @@ export function installApiShim(ctx, {
   // from code (browser-direct with the vault key) so the user configures only
   // the API key. elevenlabs-call.js calls provision() before minting the
   // signed URL. See web/cloud/js/elevenlabs-agent.js.
-  targetWindow.CloudElevenLabsAgent = createElevenLabsAgentProvisioner({ settingsDomain: settings });
+  // The agent's LLM is the voice relay on this account subdomain (bd med-h849):
+  // the existing /api/* forward reaches internal/cloudserver/voice_llm_relay.go.
+  targetWindow.CloudElevenLabsAgent = createElevenLabsAgentProvisioner({
+    settingsDomain: settings,
+    llmURL: `${targetWindow.location.origin}/api/voice-llm`,
+  });
   // Voice MCP tools: elevenlabs-call.js registers mcp_help/mcp_call clientTools
   // (cloud only) that dispatch straight into this in-tab catalog — through this
   // very router, no relay/crypto (the relay responder in mcp-responder.js only
   // exists in the Claude-connector-elected tab and builds its own router over
   // the same records port, so this is the clean reuse seam).
   targetWindow.CloudMCPDispatcher = createDispatcher({ router: bgCall, now });
+  // Voice LLM relay (bd med-h849.2): the ElevenLabs agent's completions come
+  // back to this tab over /api/voice-llm/device and go to the user's own AI
+  // (vault key, or the trial proxy) via aiClient.chatStream. elevenlabs-call.js
+  // start()s it before minting the signed URL and stop()s it on hang-up.
+  targetWindow.CloudVoiceLLM = createVoiceLLMResponder({ aiClient });
 
   // Due-dose materialization + tz-plan status refresh: neither domain module
   // owns a timer (Task 3/4's modules stay pure functions of their inputs), so

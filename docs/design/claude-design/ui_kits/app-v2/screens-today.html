@@ -7,7 +7,7 @@
 <script src="icons.js"></script><script src="kit.js"></script>
 </head>
 <body>
-<nav class="kit-top"><div class="kit-top__brand">MedTracker · App UI kit v2<small>Wandergeek · mobile 390×844 · dark</small></div><a href="index.html">Overview</a><a href="foundations.html">Foundations</a><a href="components.html">Components</a><a href="screens-today.html" aria-current="page">Today &amp; Journey</a><a href="screens-food.html">Food</a><a href="screens-meds.html">Meds</a><a href="screens-workouts.html">Workouts</a><a href="screens-settings.html">Settings</a><a href="navigation.html">Navigation</a></nav>
+<nav class="kit-top"><div class="kit-top__brand">MedTracker · App UI kit v2<small>Wandergeek · mobile 390×844 · dark + light draft</small></div><a href="index.html">Overview</a><a href="foundations.html">Foundations</a><a href="components.html">Components</a><a href="screens-today.html" aria-current="page">Today &amp; Journey</a><a href="screens-food.html">Food</a><a href="screens-meds.html">Meds</a><a href="screens-workouts.html">Workouts</a><a href="screens-settings.html">Settings</a><a href="screens-trackers.html">Trackers</a><a href="navigation.html">Navigation</a></nav>
 <main class="kit-page">
 <h1 class="kit-h1">Today &amp; Journey</h1>
 <p class="kit-lede">Today is organised around <em>now</em>. The order is: anything overdue, then what's due next (each with its one action), a compact vitals strip, and the Goal Line as a visual track. The seven quick-action tiles collapse into one Log button that opens a sheet. The call agent stays at the top as a slim bar.</p>
@@ -84,6 +84,73 @@
 </div>
 </div></div></div>
 </div></div><figcaption class="kit-cap"><b>T3</b><span>Log sheet, opened from the Today Log button</span><em>This replaces 7 tiles and 3 rows on the first screen. The fast food paths come first, then measurements. Disabled features drop out of the grid. Doctor brief stays as an icon in the call bar.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="T3b Log sheet, five food paths"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-appbar"><div class="wg-appbar__titles"><h1 class="wg-appbar__title">Today</h1><p class="wg-appbar__sub">Fri · 09.10 · 14:49</p></div></header>
+<div class="wg-content"></div>
+<nav class="wg-tabbar" data-tabbar="today"></nav>
+<div class="wg-scrim wg-scrim--sheet"><div class="wg-sheet"><span class="wg-sheet__grab"></span>
+<div class="wg-sheethead"><div class="wg-sheethead__titles"><div class="wg-eyebrow">Now · 14:49</div><div class="wg-sheethead__title">Log</div></div><div class="wg-sheethead__acts"><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button></div></div>
+<div class="wg-sheet__body">
+<span class="wg-eyebrow">Food</span>
+<button class="wg-action wg-action--row"><span class="wg-action__icon"><i class="wg-ico" data-icon="search"></i></span><span class="wg-action__label">Search<span class="wg-action__sub">Your foods + database</span></span></button>
+<div class="wg-actions">
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="camera"></i></span><span class="wg-action__label">Photo meal<span class="wg-action__sub">AI estimates it</span></span></button>
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="image"></i></span><span class="wg-action__label">From library<span class="wg-action__sub">Existing photo</span></span></button>
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="barcode"></i></span><span class="wg-action__label">Scan barcode</span></button>
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="sparkle"></i></span><span class="wg-action__label">Describe<span class="wg-action__sub">"200 g chicken, rice"</span></span></button>
+</div>
+<span class="wg-eyebrow">Measurements &amp; notes</span>
+<div class="wg-actions wg-actions--3">
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="activity"></i></span><span class="wg-action__label">BP</span></button>
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="scale"></i></span><span class="wg-action__label">Weight</span></button>
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="note"></i></span><span class="wg-action__label">Note</span></button>
+</div>
+</div></div></div>
+</div></div><figcaption class="kit-cap"><b>T3b</b><span>Log sheet, five food paths (layout A, picked)</span><em>Search becomes a row because it opens a search screen, while the four tiles below each start capture right away. Photo meal and From library share the top row as two ways into the same AI estimate. Neither tile is sun-filled. Camera and picker open only after the tap.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="T3b-B Log sheet, 3-column comparison"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-appbar"><div class="wg-appbar__titles"><h1 class="wg-appbar__title">Today</h1><p class="wg-appbar__sub">Fri · 09.10 · 14:49</p></div></header>
+<div class="wg-content"></div>
+<nav class="wg-tabbar" data-tabbar="today"></nav>
+<div class="wg-scrim wg-scrim--sheet"><div class="wg-sheet"><span class="wg-sheet__grab"></span>
+<div class="wg-sheethead"><div class="wg-sheethead__titles"><div class="wg-eyebrow">Now · 14:49</div><div class="wg-sheethead__title">Log</div></div><div class="wg-sheethead__acts"><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button></div></div>
+<div class="wg-sheet__body">
+<span class="wg-eyebrow">Food</span>
+<div class="wg-actions wg-actions--3">
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="search"></i></span><span class="wg-action__label">Search</span></button>
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="camera"></i></span><span class="wg-action__label">Photo meal</span></button>
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="image"></i></span><span class="wg-action__label">Library</span></button>
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="barcode"></i></span><span class="wg-action__label">Scan</span></button>
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="sparkle"></i></span><span class="wg-action__label">Describe</span></button>
+</div>
+<span class="wg-eyebrow">Measurements &amp; notes</span>
+<div class="wg-actions wg-actions--3">
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="activity"></i></span><span class="wg-action__label">BP</span></button>
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="scale"></i></span><span class="wg-action__label">Weight</span></button>
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="note"></i></span><span class="wg-action__label">Note</span></button>
+</div>
+</div></div></div>
+</div></div><figcaption class="kit-cap"><b>T3b-B</b><span>Comparison: layout B, 3 columns (rejected)</span><em>Five tiles leave an empty cell, and a 2+3 split would need a second grid. The sub-labels have to go, and those are what explain Photo meal and Describe. The FOOD group also stops lining up with the 3-column grid below it.</em></figcaption></figure>
+
+<figure class="kit-frame" data-screen-label="T3b-C Log sheet, Food disabled"><div class="kit-phone"><div class="wg-app">
+<div class="kit-status"></div>
+<header class="wg-appbar"><div class="wg-appbar__titles"><h1 class="wg-appbar__title">Today</h1><p class="wg-appbar__sub">Fri · 09.10 · 14:49</p></div></header>
+<div class="wg-content"></div>
+<nav class="wg-tabbar" data-tabbar="today"></nav>
+<div class="wg-scrim wg-scrim--sheet"><div class="wg-sheet"><span class="wg-sheet__grab"></span>
+<div class="wg-sheethead"><div class="wg-sheethead__titles"><div class="wg-eyebrow">Now · 14:49</div><div class="wg-sheethead__title">Log</div></div><div class="wg-sheethead__acts"><button class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button></div></div>
+<div class="wg-sheet__body">
+<span class="wg-eyebrow">Measurements &amp; notes</span>
+<div class="wg-actions wg-actions--3">
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="activity"></i></span><span class="wg-action__label">BP</span></button>
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="scale"></i></span><span class="wg-action__label">Weight</span></button>
+<button class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="note"></i></span><span class="wg-action__label">Note</span></button>
+</div>
+</div></div></div>
+</div></div><figcaption class="kit-cap"><b>T3b-C</b><span>Log sheet, Food disabled</span><em>The FOOD group drops out, unchanged from T3. Only measurements and notes remain.</em></figcaption></figure>
 
 <figure class="kit-frame" data-screen-label="T4 Today first run"><div class="kit-phone"><div class="wg-app">
 <div class="kit-status"></div>

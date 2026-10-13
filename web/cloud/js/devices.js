@@ -1,7 +1,7 @@
 // Device-list + revocation: docs/cloud-crypto.md "Removing a device /
 // revocation" and the envelope-audit MAC ("Malicious operator adds their own
-// credential"). An unlocked device already holds the DEK, so it re-derives
-// K_mac and checks every envelope's mac before rendering a verified /
+// credential"). An unlocked device holds the verify-only K_mac leaf key, so it
+// checks every envelope's mac before rendering a verified /
 // unverified chip — a forged envelope (no DEK access) fails the audit.
 //
 // Mounted by the app's Settings → Devices & connectors page (med-xso6.25,
@@ -14,8 +14,7 @@
 // Devices only. The Claude/MCP connector lives in connectors.js and Telegram
 // in Settings → Integrations, per med-lyv: which passkeys may open the vault
 // is a separate question from which AI client may read it.
-import { auditEnvelope, fromBase64, fromBase64Url } from './crypto.js';
-import { CREDENTIAL_MODE_LOCAL_ONLY, normalizeCredentialMode } from './credential-mode.js';
+import { auditEnvelopeWithKey, fromBase64, fromBase64Url } from './crypto.js';
 
 // hooks: { onAddDevice() — the page opens the transfer flow;
 //          onLoaded(devices) — the page refreshes its summary/nudge }
@@ -31,21 +30,14 @@ async function loadDevices(mount, ctx, hooks) {
   if (!res.ok) throw new Error('Could not load your devices.');
   const devices = await res.json();
 
+  // Verify-only K_mac leaf key from the warm ctx (unlock.js warmUnlock).
   const audited = await Promise.all(
     (devices || []).map(async (d) => {
-      const mode = normalizeCredentialMode(d.mode);
-      // Local-only credentials carry no envelope by design — that absence is
-      // expected, not an audit failure, so they skip the MAC audit entirely
-      // and render their own chip. The mode is explicit, never inferred
-      // from the missing envelope.
-      if (mode === CREDENTIAL_MODE_LOCAL_ONLY) {
-        return { ...d, mode, verified: false, localOnly: true };
-      }
       const credentialId = fromBase64Url(d.credential_id);
       let verified = false;
       if (d.envelope) {
-        verified = await auditEnvelope({
-          dek: ctx.dek,
+        verified = await auditEnvelopeWithKey({
+          kMac: ctx.kMac,
           envelope: {
             nonce: fromBase64(d.envelope.nonce),
             ct: fromBase64(d.envelope.ct),
@@ -54,7 +46,7 @@ async function loadDevices(mount, ctx, hooks) {
           credentialId,
         });
       }
-      return { ...d, mode, verified };
+      return { ...d, verified };
     })
   );
 
@@ -174,10 +166,7 @@ function renderDeviceRow(mount, ctx, hooks, d) {
   meta.textContent = `added ${new Date(d.created_at).toLocaleDateString()}`;
 
   const chip = document.createElement('span');
-  if (d.localOnly) {
-    chip.className = 'wg-chip wg-chip--sm wg-chip--stale device-local-only';
-    chip.textContent = 'Local-only — this browser only';
-  } else if (d.verified) {
+  if (d.verified) {
     chip.className = 'wg-chip wg-chip--sm wg-chip--ok device-verified';
     chip.textContent = 'Verified';
   } else {
@@ -188,7 +177,7 @@ function renderDeviceRow(mount, ctx, hooks, d) {
   body.append(title, meta);
   row.append(lead, body);
 
-  const label = d.localOnly ? 'Remove' : 'Revoke';
+  const label = 'Revoke';
   const onClick = () => confirmRevoke(mount, ctx, hooks, d);
   if (window.WGRowActions) {
     window.WGRowActions.attach(row, { label: title.textContent, extra: [{ label, icon: 'trash', danger: true, onClick }] });
@@ -212,17 +201,11 @@ async function confirmRevoke(mount, ctx, hooks, d) {
   // needs key rotation — out of scope here (docs/cloud-crypto.md "Removing
   // a device / revocation" status note) — hence the copy pointing there.
   const confirmed = await window.safeConfirm(
-    d.localOnly
-      ? 'Use this to sign out a browser you still control — it holds ' +
-          'no vault key of its own. If the device was lost or stolen, removing here does not protect the ' +
-          'copy it may have seen while unlocked — see the recovery guide about rotating your keys.'
-      : 'Use this to retire a device you still control. If it was lost or ' +
-          'stolen, revoking here does not protect your data on its own — see the recovery guide ' +
-          'about rotating your keys.',
+    'Use this to retire a device you still control. If it was lost or ' +
+      'stolen, revoking here does not protect your data on its own — see the recovery guide ' +
+      'about rotating your keys.',
     null,
-    d.localOnly
-      ? { title: 'Remove this local-only sign-in?', confirmLabel: 'Remove', destructive: true, icon: 'device' }
-      : { title: 'Revoke this device?', confirmLabel: 'Revoke', destructive: true, icon: 'device' },
+    { title: 'Revoke this device?', confirmLabel: 'Revoke', destructive: true, icon: 'device' },
   );
   if (!confirmed) return;
   revokeDevice(mount, ctx, hooks, d.credential_id);

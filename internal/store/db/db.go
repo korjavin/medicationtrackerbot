@@ -11,6 +11,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	_ "modernc.org/sqlite" // Pure Go SQLite driver
 )
@@ -30,7 +31,16 @@ type DB struct {
 // populated schema run migrations on their own behalf (cloudstore.New runs
 // Migrate over its embedded migrations).
 func Open(path string) (*DB, error) {
-	sdb, err := sql.Open("sqlite", path)
+	// _txlock=immediate makes every BeginTx a BEGIN IMMEDIATE: a DEFERRED tx
+	// that reads then writes gets SQLITE_BUSY at once (no busy-handler wait)
+	// when another process (litestream) holds the WAL write lock. With
+	// MaxOpenConns=1 read-only txs lose no concurrency. busy_timeout goes in
+	// the DSN so it holds for every pooled connection, not just the first.
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	sdb, err := sql.Open("sqlite", path+sep+"_txlock=immediate&_pragma=busy_timeout(5000)")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}

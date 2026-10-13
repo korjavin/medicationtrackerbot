@@ -48,7 +48,7 @@ public keys — never any key material                                          
 | **K_mac** | HKDF(DEK, "envmac") | derived in memory | envelope-audit MAC (see Security analysis) |
 | **NK** | random 256-bit, stored *as an encrypted vault record* | inside vault; plaintext copy in device IndexedDB | push-payload app-layer key — the SW must decrypt pushes with no ceremony (see below) |
 | **inbox keypair** | ECDH P-256 (X25519 where available), private key a vault record, public key on server | inside vault | sealed inbound mailbox (Telegram callbacks, cross-device messages) |
-| **LDK** | per-device, non-extractable WebCrypto AES key in IndexedDB | device only | warm-unlock cache: wraps DEK locally so sync doesn't demand a biometric per launch |
+| **LDK cache** | per-device record in IndexedDB holding the leaf keys `K_data` (AES-GCM) + `K_mac` (HMAC, verify-only) as non-extractable CryptoKeys | device only | warm-unlock cache so sync doesn't demand a biometric per launch; holds no DEK bytes (`web/cloud/js/unlock.js`) |
 
 DEK rotation (device revocation after suspected compromise) = generate DEK′, upload a fresh snapshot under it, re-wrap the remaining envelopes, rotate NK. Cheap because the snapshot/compaction machinery already exists. Per-epoch content keys were considered and rejected: snapshot-based rotation makes them redundant complexity.
 
@@ -123,7 +123,7 @@ Binding `account_seq` into the AAD makes server-side reordering/replay of cipher
 
 ### Unlock
 
-- **Warm** (normal launch): unwrap DEK from the local LDK-wrapped cache in IndexedDB. Silent — no biometric, sync just works. API calls use the stored device session token.
+- **Warm** (normal launch): read the leaf keys from the local cache in IndexedDB (no DEK). Silent — no biometric, sync just works. API calls use the stored device session token.
 - **Cold** (fresh browser profile, cleared storage, strict mode): server returns the account's credential-id list → `get()` with `allowCredentials = [ids]` and top-level `prf.eval = salt_kek` (the salt applies to whichever credential the user picks) → `KEK_i` → download `envelope_i` → DEK. Re-establish LDK cache. The same assertion doubles as server auth (signature verified → fresh session token).
 
 ### Enrolling a new device
@@ -134,7 +134,7 @@ The crux: a new passkey's PRF output exists only on the new device, and the plai
 
 **Path B — QR hand-off from an unlocked device (implemented, C0b).**
 
-1. Old device (unlocked): "Add a device" (`web/cloud/js/transfer.js`) → generates one-shot transfer key `TK` (256-bit) and uploads a transfer slot via `POST /api/transfer`: `{slot_id, enrollment_token, ct = AES-GCM(TK, DEK, aad = "mt/v1/xfer" ‖ account_id)}`. TTL 10 minutes, single fetch, then deleted (lazy cleanup, no background sweeper). `TK` never touches the server.
+1. Old device (unlocked): "Add a device" (`web/cloud/js/transfer.js`) → "Confirm with passkey": a fresh assertion (`assertPasskey`) whose `account_id` must equal the vault's before anything is encrypted or posted, and whose DEK is the one handed over — the warm ctx holds no raw DEK (bd med-5h1t.3). A device whose passkey is gone or lacks PRF therefore cannot originate a transfer; the Emergency Kit (Path C) still can. Then it generates one-shot transfer key `TK` (256-bit) and uploads a transfer slot via `POST /api/transfer`: `{slot_id, enrollment_token, ct = AES-GCM(TK, DEK, aad = "mt/v1/xfer" ‖ account_id)}`. TTL 10 minutes, single fetch, then deleted (lazy cleanup, no background sweeper). `TK` never touches the server.
 2. Old device displays QR = `https://<sub>.<base>/claim#<slot_id>.<TK>` (typed fallback: `<slot_id>.<TK>` base32 string).
 3. New device scans (native camera app) or types the fallback at the `/claim` route, fetches the slot via `POST /api/transfer/{slot_id}/claim` (the `enrollment_token` authorizes it), decrypts DEK (AEAD failure → explicit "code invalid or tampered" abort), creates its passkey via `register/begin|finish` gated by the enrollment token, uploads `envelope_new` + credential.
 4. The old device polls `GET /api/transfer/{slot_id}` (session-authed, account-scoped) every 2s and swaps to a "Device added" state naming the new passkey once the slot reports `claimed` — otherwise it would keep counting down and offering Cancel after enrollment had already succeeded (bd med-tuv). Its **Cancel** issues `DELETE /api/transfer/{slot_id}`, which invalidates the slot server-side immediately. That button previously only cleared a local timer, leaving the code claimable for the rest of its window — a user who had shown the QR to the wrong person believed they had killed a credential they had not.
@@ -167,7 +167,7 @@ Push arrives at the service worker in the background: **no user gesture, no WebA
 **The E2EE boundary is the cloud; the local boundary is the OS.**
 
 - Local plaintext cache (Dexie/IndexedDB) and NK are protected by device unlock + OS full-disk encryption, the same posture any locally-stored database gets.
-- The LDK is a **non-extractable** WebCrypto key structured-cloned into IndexedDB. That is a *script-level* guarantee: on-origin JS (e.g. an XSS payload) can *use* it but can never export raw bits. It is **not** disk-forensics protection — the browser profile on disk is the OS's problem. Stating this precisely matters; non-extractable keys are commonly oversold.
+- The warm-unlock cache (`web/cloud/js/unlock.js`, `warmUnlock()`) holds only the leaf keys `K_data` and `K_mac` as **non-extractable** WebCrypto keys structured-cloned into IndexedDB (record v2 `{v:2, accountId, kData, kMac}` under device-store key `ldk2`); no DEK bytes live on disk or in the operational ctx. The raw DEK exists only inside ceremonies (signup, cold unlock, recovery, device transfer, kit rotation). A v1 record from an older shell (the DEK AES-wrapped under a local key, key `ldk`) is migrated on the next warm unlock and the `ldk` slot is emptied; a failed migration keeps v1 and retries next launch. v2 lives in its own slot so a rolled-back pre-v2 `/unlock` shell sees no cache (renders locked, deletes nothing) rather than a record it can't open (which it would delete); if that shell's cold unlock writes a fresh v1, it wins and is re-migrated. Every write is probed before it counts: a challenge sealed with `K_data` derived afresh from the ceremony DEK must open with the stored key, and a MAC minted from the ceremony DEK must verify with the stored `K_mac`. This removes the portable raw DEK but is **not** bounded XSS compromise: a non-extractable `CryptoKey` can still be `postMessage`-cloned to an attacker-origin window and kept as a decryption oracle (W3C WebCrypto §6.2), and the plaintext Dexie cache stays readable. It is also **not** disk-forensics protection — the browser profile on disk is the OS's problem. Stating this precisely matters; non-extractable keys are commonly oversold.
 - **Strict mode** (later, optional): no LDK cache — a passkey ceremony on every launch, DEK memory-only. One biometric tap per open; offered, not default.
 
 ## Server data model (per account)
@@ -195,7 +195,7 @@ Everything in `envelopes`, `oplog`, `snapshots`, `scheduled_pushes` is ciphertex
 | Phishing / fake login page | Passkeys are origin-bound: a look-alike site cannot run an assertion for the real RP ID, so neither auth nor PRF output is obtainable. Stronger than any passphrase flow. ✅ |
 | Stolen **locked** device | OS boundary: passkey needs UV; LDK cache needs the unlocked browser profile. Remote-revoke from another device regardless. ✅ |
 | Stolen **unlocked** device | Full read of that device's copy — true of every E2EE app. Response: revoke + DEK rotation from a surviving credential. ⚠️ inherent |
-| XSS on the instance origin | Catastrophic while unlocked (reads plaintext, uses LDK). Non-extractable keys block raw-key exfil, but the real defenses are upstream: strict CSP, zero third-party script, SRI, SW-pinned bundles (cloud-mode.md code-serving caveat). **Exfil is now bounded by a per-account `connect-src` allowlist** — see below. ⚠️ inherent to web crypto |
+| XSS on the instance origin | Catastrophic while unlocked (reads plaintext, uses LDK). The warm-unlock cache holds only non-extractable leaf keys, so same-origin script cannot read the raw DEK from it — but a non-extractable `CryptoKey` can still be cloned out as a decryption oracle and plaintext in Dexie stays readable (see Local at-rest posture). The real defenses are upstream: strict CSP, zero third-party script, SRI, SW-pinned bundles (cloud-mode.md code-serving caveat). **Exfil is now bounded by a per-account `connect-src` allowlist** — see below. ⚠️ inherent to web crypto |
 | Loss of all passkeys **and** the recovery code | Data unrecoverable, by design. Mitigated by onboarding: enroll ≥2 credentials, keep the Kit. ⚠️ stated plainly |
 
 ## Edge cases

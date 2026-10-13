@@ -2023,6 +2023,33 @@ func TestSendReminder_MeasureRendersOpenURLAndButtons(t *testing.T) {
 	}
 }
 
+// A tracker reminder ("tr:" stem, med-1vy5.5) renders only 🌐 Open to ?tab=today:
+// no callback_data buttons, so there is no tap to handle.
+func TestSendReminder_TrackerRendersOpenTodayOnly(t *testing.T) {
+	tg := newRecordingTG(t)
+	f := linkedBotTap(t, tg)
+
+	sub, err := f.store.SubdomainByAccount(t.Context(), f.accountID)
+	if err != nil {
+		t.Fatalf("SubdomainByAccount: %v", err)
+	}
+	if _, err := f.api.SendReminder(t.Context(), f.accountID, "Water: 5/8 today", "tr:1721550000"); err != nil {
+		t.Fatalf("SendReminder: %v", err)
+	}
+	tg.mu.Lock()
+	defer tg.mu.Unlock()
+	if len(tg.mu.sent) != 1 {
+		t.Fatalf("sent %d messages, want 1", len(tg.mu.sent))
+	}
+	body := tg.mu.sent[0]
+	if want := "https://" + sub + ".localhost/?tab=today"; !strings.Contains(body, want) {
+		t.Errorf("tracker reminder missing %q: %s", want, body)
+	}
+	if strings.Contains(body, "callback_data") {
+		t.Errorf("tracker reminder must carry no callback buttons: %s", body)
+	}
+}
+
 // A workout reminder now prepends a ▶️ Start deep-link (url) button to ?tab=workouts.
 func TestSendReminder_WorkoutIncludesStartURL(t *testing.T) {
 	tg := newRecordingTG(t)

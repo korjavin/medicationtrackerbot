@@ -48,7 +48,7 @@ generated privacy boundary table),
 │    · encrypted oplog + snapshot compaction (ciphertext in, out)    │
 │    · blind push relay: (fire_at, ciphertext) → Web Push            │
 │    · sealed inbound mailbox                                        │
-│    · optional Telegram relay, optional MCP relay                   │
+│    · optional Telegram relay, optional MCP relay, voice-LLM relay  │
 │    · plaintext-carrying proxies, each disclosed: trial AI/voice,   │
 │      operator-default food DB, RxNav                               │
 │  internal/cloudstore → cloud.db (SQLite)                           │
@@ -85,7 +85,7 @@ build-and-release question, not an architectural one — see
   (`sync.go`), push subscriptions + the relay loop (`push.go`, `relay.go`),
   the sealed inbox (`inbox.go`), invites (`invite.go`, `provision.go`),
   Telegram (`telegram.go`, `tg_token.go`), MCP (`mcp_relay.go`,
-  `mcp_remote.go`, `mcp_endpoint.go`), and the disclosed plaintext proxies
+  `mcp_remote.go`, `mcp_endpoint.go`), the voice LLM relay (`voice_llm_relay.go`), and the disclosed plaintext proxies
   (`trial_proxy.go`, `food_proxy.go`, `rxnav_proxy.go`,
   `vitals_import_api.go`).
 - `cloudstore/` — `cloud.db` repository: accounts, credentials, envelopes,

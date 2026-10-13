@@ -669,6 +669,7 @@
 
     /* kit text + lines */
     --wg-fg-on-sun: #1A1200;
+    --wg-sun-ink: #FBBD0D; /* sun-coloured text (kit v2 trackers); equals --wg-sun on the dark-only app */
     --wg-fg-on-clay: #FFFFFF;
     --wg-line: rgba(255, 255, 255, 0.07);
     --wg-line-strong: rgba(255, 255, 255, 0.14);
@@ -2795,7 +2796,7 @@ body:has(.wg-callbar--dock) .wg-toasts {
     align-self: flex-start;
 }
 
-/* Next up workout row: the row opens the planned Day; its button keeps its own action. */
+/* Next up workout row: a row tap does what its View does; its buttons keep their own actions. */
 .wg-today-next__tap {
     cursor: pointer;
 }

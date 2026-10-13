@@ -245,8 +245,10 @@ shipped, and must never be cited as the answer to this risk.
 
 ### 7.2 On-origin XSS is equivalent to a malicious operator, while the page lives
 
-A5 reads the in-memory DEK and drives the non-extractable LDK. Non-extractable
-keys block raw-key export; they do not make the page safe to inject into. The
+A5 reads the in-memory DEK and drives the non-extractable LDK. The LDK is
+non-extractable, but it wraps the raw DEK and any same-origin script can unwrap
+it, so raw-DEK exfiltration is possible today and permanent until rotation
+exists. Non-extractable keys do not make the page safe to inject into. The
 `connect-src` allowlist bounds exfiltration, with an honest gap: an XSS with
 persistence can `PUT /api/egress-hosts` to add its own host and force a reload
 to pick up the widened policy (`internal/cloudserver/egress.go`, capped at
@@ -355,7 +357,7 @@ Stated because a threat model that only lists what it checked is misleading.
   document does not assert what any particular deployment does.
 - **Real-device WebAuthn PRF behavior across the platform matrix** is
   feature-detected at runtime, not proven here
-  (`docs/2026-07-13-cloud-prf-compatibility-research.md`).
+  (`docs/archive/2026-07-13-cloud-prf-compatibility-research.md`).
 - **Subprocessor retention** is each party's own policy and is not verified.
 - **No formal cryptographic proof** of the composed protocol exists.
 

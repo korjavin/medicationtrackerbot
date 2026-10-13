@@ -270,6 +270,8 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
                 description: expect.any(String),
                 parameters: expect.objectContaining({ type: 'object', required: ['systolic', 'diastolic'] }),
                 expects_response: true,
+                tool_call_sound: 'typing',
+                tool_call_sound_behavior: 'always',
             },
         });
     });
@@ -296,7 +298,7 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
         expect(calls.filter((c) => c.url.includes('/tools/') && c.method === 'PATCH')).toHaveLength(TOOL_SPECS.length);
     });
 
-    it('ensureAgent creates once with tool_ids + tool_call_sound, then reuses on matching version', async () => {
+    it('ensureAgent creates once with tool_ids, then reuses on matching version', async () => {
         const { window } = env;
         await setKey(window);
         const first = makeElevenLabsFetch({ existingTools: existingAll() });
@@ -309,9 +311,11 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
         const agent = createCall.body.conversation_config.agent;
         expect(agent.prompt.tool_ids).toHaveLength(TOOL_SPECS.length);
         expect(agent.prompt.prompt).toMatch(/tool/i);
-        expect(agent.tool_call_sound).toBe('typing');
-        expect(agent.tool_call_sound_behavior).toBe('always');
         expect(createCall.body.conversation_config.tts.voice_id).toBeTruthy();
+        // The agent's LLM is the voice relay on this account's origin (bd med-h849.3).
+        expect(agent.prompt.llm).toBe('custom-llm');
+        expect(agent.prompt.custom_llm.url).toBe(`${window.location.origin}/api/voice-llm`);
+        expect(createCall.body.platform_settings.overrides.custom_llm_extra_body).toBe(true);
 
         // Second provision on the same (stored) TOOLSET_VERSION reuses the agent.
         const second = makeElevenLabsFetch({ existingTools: existingAll() });
@@ -336,7 +340,8 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
         expect(calls.some((c) => c.url.endsWith('/agents/create'))).toBe(false);
         const patch = calls.find((c) => c.method === 'PATCH' && c.url.includes('/agents/'));
         expect(patch.url).toContain('preset-1');
-        expect(patch.body.conversation_config.agent.tool_call_sound).toBe('typing');
+        expect(patch.body.conversation_config.tts.voice_id).toBeTruthy();
+        expect(patch.body.conversation_config.agent.prompt.custom_llm.url).toBe(`${window.location.origin}/api/voice-llm`);
     });
 
     it('missing key: throws a Settings/Integrations hint without calling fetch', async () => {
@@ -345,5 +350,80 @@ describe('cloud shim contract — ElevenLabs provisioner (web/cloud/js/elevenlab
         vi.stubGlobal('fetch', fetchSpy);
         await expect(window.CloudElevenLabsAgent.provision()).rejects.toThrow(/Settings.*Integrations/i);
         expect(fetchSpy).not.toHaveBeenCalled();
+    });
+});
+
+// bd med-h849.2 — window.CloudVoiceLLM: the voice LLM relay's device leg, wired
+// by installApiShim to the same aiClient the food AI uses. A relay request
+// frame reaches the user's own provider with the vault key + model and
+// stream:true, and the provider's raw SSE comes back as chunk frames.
+describe('cloud shim contract — voice LLM relay leg (web/cloud/js/voice-llm-responder.js)', () => {
+    let env;
+
+    class FakeSocket {
+        constructor(url) {
+            this.url = url;
+            this.readyState = 1;
+            this.sent = [];
+            FakeSocket.last = this;
+        }
+
+        send(data) { this.sent.push(JSON.parse(data)); }
+
+        close() { this.readyState = 3; }
+
+        recv(frame) { this.onmessage({ data: JSON.stringify(frame) }); }
+    }
+    FakeSocket.OPEN = 1;
+
+    beforeEach(() => {
+        env = loadCloudShimFrontendEnv();
+        installApiCache(env.window);
+        env.window.__MEDTRACKER_CLOUD__ = true;
+        vi.stubGlobal('WebSocket', FakeSocket);
+        vi.stubGlobal('location', { protocol: 'https:', host: 'acct.example.test' });
+    });
+
+    afterEach(() => {
+        env.window.CloudVoiceLLM.stop();
+        vi.unstubAllGlobals();
+        env.cleanup();
+        env = null;
+    });
+
+    it('serves a relay request through the vault provider and streams the raw SSE back', async () => {
+        const { window } = env;
+        await window.apiCall('/api/settings/integrations', 'PATCH', {
+            openai: { api_key: 'sk-test-dummy', url: 'https://api.example.test/v1', model: 'my-model' },
+        });
+        const sse = 'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\ndata: [DONE]\n\n';
+        let reads = 0;
+        const fetchSpy = vi.fn(async () => ({
+            ok: true,
+            status: 200,
+            body: {
+                getReader: () => ({
+                    read: async () => (reads++ === 0
+                        ? { done: false, value: new TextEncoder().encode(sse) }
+                        : { done: true, value: undefined }),
+                }),
+            },
+        }));
+        vi.stubGlobal('fetch', fetchSpy);
+
+        const started = window.CloudVoiceLLM.start();
+        const sock = FakeSocket.last;
+        expect(sock.url).toBe('wss://acct.example.test/api/voice-llm/device');
+        sock.recv({ type: 'hello', call: 'tok' });
+        await expect(started).resolves.toBe('tok');
+
+        sock.recv({ id: 1, type: 'request', body: { model: 'medtracker', messages: [{ role: 'user', content: 'hi' }] } });
+        await vi.waitFor(() => expect(sock.sent.at(-1)).toEqual({ id: 1, type: 'end' }));
+
+        expect(sock.sent[0]).toEqual({ id: 1, type: 'chunk', data: sse });
+        const [url, init] = fetchSpy.mock.calls[0];
+        expect(url).toBe('https://api.example.test/v1/chat/completions');
+        expect(init.headers.Authorization).toBe('Bearer sk-test-dummy');
+        expect(JSON.parse(init.body)).toMatchObject({ model: 'my-model', stream: true });
     });
 });

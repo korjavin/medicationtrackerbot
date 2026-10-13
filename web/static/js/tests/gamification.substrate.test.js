@@ -369,6 +369,96 @@ describe('substrate read models — end-to-end HP over a synthetic vault', () =>
     expect(s.lifetime_hp).toBeGreaterThan(0);
   });
 
+  describe('user tracker habit strength (med-1vy5.4)', () => {
+    const OLD = '2026-01-01T00:00:00.000Z'; // > 90 days before RM_NOW
+    const tracker = (id, kind, target, createdAt = OLD, extra = {}) => ({
+      recordId: id, deleted: false, name: id, emoji: '', kind, unit: null, step: 1,
+      target, reminder: null, archived: false, createdAt, ...extra,
+    });
+    const tap = (id, trackerId, at, amount) => ({ recordId: id, deleted: false, trackerId, at, amount });
+    const done = (trackerId, date) => ({ recordId: `trackerlog:${trackerId}:${date}`, deleted: false, trackerId, date, done: true });
+    const day = (n) => new Date(RM_NOW + n * 86400000).toISOString().slice(0, 10);
+    const strengthsOf = async (seed) => {
+      const records = createInMemoryRecordsPort(seed);
+      return (await createGamificationDomain({ records, now: () => RM_NOW, timeZone: 'UTC' }).getSummary()).strengths;
+    };
+    const valueOf = (list, id) => list.find((s) => s.key === `tracker:${id}`).value;
+    const strength = (marks, freq) => scoring.habitStrength(marks, freq, cfg);
+    const zeros = (n) => Array(n).fill(0);
+    const ones = (n) => Array(n).fill(1);
+
+    it('atLeast daily: only a day whose total meets the target checks', async () => {
+      const s = await strengthsOf({
+        tracker: [tracker('water', 'count', { op: 'atLeast', value: 2, period: 'day' })],
+        trackerlog: [
+          tap('a', 'water', `${day(-1)}T10:00:00Z`, 1), // 1 < 2 → 0
+          tap('b', 'water', `${RM_TODAY}T09:00:00Z`, 1),
+          tap('c', 'water', `${RM_TODAY}T11:00:00Z`, 1), // 2 → met
+        ],
+      });
+      expect(valueOf(s, 'water')).toBeCloseTo(strength([...zeros(89), 1], 1), 12);
+      expect(s.find((x) => x.key === 'tracker:water').label).toBe('water');
+    });
+
+    it('atMost daily: an empty day is within the limit, an over day is not', async () => {
+      const s = await strengthsOf({
+        tracker: [tracker('coffee', 'count', { op: 'atMost', value: 3, period: 'day' })],
+        trackerlog: [tap('a', 'coffee', `${day(-1)}T08:00:00Z`, 4)],
+      });
+      expect(valueOf(s, 'coffee')).toBeCloseTo(strength([...ones(88), 0, 1], 1), 12);
+    });
+
+    it('weekly atLeast: trailing-7d progress / value at frequency value/7', async () => {
+      const s = await strengthsOf({
+        tracker: [tracker('stretch', 'check', { op: 'atLeast', value: 3, period: 'week' })],
+        trackerlog: [done('stretch', day(-2)), done('stretch', day(-1)), done('stretch', RM_TODAY)],
+      });
+      const f = s.find((x) => x.key === 'tracker:stretch');
+      expect(f.frequency).toBeCloseTo(3 / 7, 12);
+      expect(f.value).toBeCloseTo(strength([...zeros(87), 1 / 3, 2 / 3, 1], 3 / 7), 12);
+    });
+
+    it('a tracker created 10 days ago scores only those days; archived ones are skipped', async () => {
+      const s = await strengthsOf({
+        tracker: [
+          tracker('nobeer', 'check', { op: 'atMost', value: 0, period: 'day' }, new Date(RM_NOW - 9 * 86400000).toISOString()),
+          tracker('gone', 'check', { op: 'atMost', value: 0, period: 'day' }, OLD, { archived: true }),
+        ],
+      });
+      expect(valueOf(s, 'nobeer')).toBeCloseTo(strength(ones(10), 1), 12);
+      expect(s.some((x) => x.key === 'tracker:gone')).toBe(false);
+    });
+
+    it('the summary ends tracker strength on the LOCAL today, not the UTC one', async () => {
+      // 20:00 UTC Jun 15 = 05:00 Jun 16 in Tokyo; a tap at 19:00 UTC is local Jun 16.
+      const at = Date.UTC(2026, 5, 15, 20, 0, 0);
+      const records = createInMemoryRecordsPort({
+        tracker: [tracker('water', 'count', { op: 'atLeast', value: 1, period: 'day' })],
+        trackerlog: [tap('a', 'water', '2026-06-15T19:00:00Z', 1)],
+      });
+      const s = (await createGamificationDomain({ records, now: () => at, timeZone: 'Asia/Tokyo' }).getSummary()).strengths;
+      expect(valueOf(s, 'water')).toBeCloseTo(strength([...zeros(89), 1], 1), 12);
+    });
+
+    it('existing three strengths, HP and the weekly review are unchanged by trackers', async () => {
+      const base = seededDomain(RM_NOW + 7 * 86400000);
+      const withT = seededDomain(RM_NOW + 7 * 86400000);
+      await withT.records.put('tracker', tracker('water', 'count', { op: 'atLeast', value: 1, period: 'day' }));
+      await withT.records.put('trackerlog', tap('t1', 'water', isoAtMs(RM_NOW), 5));
+      const [a, b] = await Promise.all([base.gam.getSummary(), withT.gam.getSummary()]);
+      expect(b.strengths.slice(0, 3)).toEqual(a.strengths);
+      expect(b.strengths).toHaveLength(4);
+      expect(b.lifetime_hp).toBe(a.lifetime_hp);
+      expect(b.today_rings).toEqual(a.today_rings);
+      const [wa, wb] = await Promise.all([base.gam.getWeeklyReview(), withT.gam.getWeeklyReview()]);
+      expect(wb.levers).toEqual(wa.levers);
+      expect(wb.strengths.slice(0, 3)).toEqual(wa.strengths);
+      const ws = wb.strengths.find((x) => x.key === 'tracker:water');
+      expect(ws.value_now).toBeGreaterThan(0);
+      expect(ws.value_prior).toBe(0); // its only log lands after the prior week
+    });
+  });
+
   it('getRings mirrors the slim Today shape', async () => {
     const { gam } = seededDomain();
     const r = await gam.getRings();

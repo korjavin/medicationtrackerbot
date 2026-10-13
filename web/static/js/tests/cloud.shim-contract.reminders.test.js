@@ -589,3 +589,36 @@ describe('cloud shim horizon — weigh-in cadence + goal-aware web push', () => 
         } finally { env.cleanup(); }
     });
 });
+
+// bd med-1vy5.5 — end-to-end over the tracker routes: logging to target drops
+// today's tracker reminder, and the write schedules a recompute+push.
+describe('cloud shim horizon — tracker reminders (med-1vy5.5)', () => {
+    // Tue Jul 7 2026, 10:00 UTC; the tracker reminds at 20:00 UTC.
+    const NOW = Date.UTC(2026, 6, 7, 10, 0, 0);
+    const TODAY_SLOT = Date.UTC(2026, 6, 7, 20, 0, 0) / 1000;
+    let env;
+    beforeEach(() => {
+        vi.useFakeTimers(); vi.setSystemTime(NOW); pushSchedule.mockClear();
+        env = loadCloudShimFrontendEnv({ wrapApiCallDirect: true, timeZone: 'UTC' });
+    });
+    afterEach(() => { env.cleanup(); env = null; vi.useRealTimers(); });
+
+    const trackerSlots = async () => (
+        await computeReminderEntries({}, { records: env.records, timeZone: 'UTC' })
+    ).filter((e) => e.kind === 'tracker').map((e) => e.fireAtUnix);
+
+    it('fires until the day target is logged, and the log re-pushes the horizon', async () => {
+        const { window } = env;
+        const t = await window.apiCall('/api/trackers', 'POST', {
+            name: 'Stretch', kind: 'count', target: { op: 'atLeast', value: 2, period: 'day' }, reminder: { time: '20:00' },
+        });
+        expect(await trackerSlots()).toContain(TODAY_SLOT);
+        await vi.advanceTimersByTimeAsync(2100);
+        pushSchedule.mockClear();
+
+        await window.apiCall(`/api/trackers/${t.id}/log`, 'POST', { amount: 2 });
+        expect(await trackerSlots()).not.toContain(TODAY_SLOT);
+        await vi.advanceTimersByTimeAsync(2100);
+        expect(pushSchedule).toHaveBeenCalled();
+    });
+});

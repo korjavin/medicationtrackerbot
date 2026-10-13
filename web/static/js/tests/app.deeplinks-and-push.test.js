@@ -231,6 +231,17 @@ describe('handleDeepLinks – bare ?tab=<section> (Telegram reminder Open button
     }
   });
 
+  it('?tab=today (tracker reminder Open, med-1vy5.5) switches to Today', () => {
+    const { window, cleanup } = loadFrontendEnv({ url: 'https://example.test/?tab=today' });
+    try {
+      const switchTabSpy = vi.spyOn(window, 'switchTab').mockImplementation(() => {});
+      window.handleDeepLinks();
+      expect(switchTabSpy).toHaveBeenCalledWith('today');
+    } finally {
+      cleanup();
+    }
+  });
+
   it('?tab=bp switches to bp tab (no modal, no action)', () => {
     const { window, cleanup } = loadFrontendEnv({ url: 'https://example.test/?tab=bp' });
     try {

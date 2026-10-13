@@ -88,6 +88,11 @@ Kept for rationale and provenance. **Never cite as current behavior.**
   code is gone; these files are history only. The image builds and runs only
   `./cloud` (`Dockerfile`).
 
+  Also archived: the PRF-compatibility research and the local-only passkey
+  POC findings ([2026-09-27-local-only-poc-findings.md](archive/2026-09-27-local-only-poc-findings.md),
+  bd med-qz4y) — the POC code was removed; the doc carries the lesson, the
+  invariants, and how to restore it from git history.
+
   One of those still deserves a callout rather than burial:
   **[archive/installer.md](archive/installer.md)** documents `install.sh`, a
   script that was **deleted from the repository**; it cannot be followed.
@@ -98,8 +103,7 @@ Kept for rationale and provenance. **Never cite as current behavior.**
 - **[fablesecreview.md](fablesecreview.md)**,
   [2026-05-13-go-code-review.md](2026-05-13-go-code-review.md),
   [2026-05-13-frontend-code-review.md](2026-05-13-frontend-code-review.md),
-  [wandergeek-retrospective.md](wandergeek-retrospective.md),
-  [2026-07-13-cloud-prf-compatibility-research.md](2026-07-13-cloud-prf-compatibility-research.md)
+  [wandergeek-retrospective.md](wandergeek-retrospective.md)
   — point-in-time reviews and research notes. Left in place rather than moved:
   they record a moment accurately and were never meant to be current, so
   relocating them is churn.

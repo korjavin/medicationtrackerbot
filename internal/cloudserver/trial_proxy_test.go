@@ -116,12 +116,7 @@ func TestTrialProxy_ChatCompletions(t *testing.T) {
 		t.Fatalf("vision model not forced: %q", gotBody)
 	}
 
-	// stream:true is rejected.
-	rec = postTrialChat(h, host, "/api/trial/openai/chat/completions",
-		`{"stream":true,"messages":[]}`, session)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("stream:true status = %d, want 400", rec.Code)
-	}
+	// stream:true is served as SSE — see trial_stream_test.go.
 
 	// A JSON null body must 400, not panic (nil-map assignment).
 	rec = postTrialChat(h, host, "/api/trial/openai/chat/completions", `null`, session)

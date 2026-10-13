@@ -5,7 +5,7 @@
 // are { recordId, clientTs, deleted, ...body }, merged by last-write-wins on
 // clientTs; recordsPort() below exposes the generic list/put/del trio that
 // web/domain/'s domain modules are built on.
-import { deriveKData, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, toBase64, fromBase64, gzip, gunzip, isGzip } from './crypto.js';
+import { encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, toBase64, fromBase64, gzip, gunzip, isGzip } from './crypto.js';
 import { cachedDb, dropCachedDb, onCachedDbDropped } from './localdb.js';
 import { mergeGamificationJournal } from '../../domain/gamification.js';
 
@@ -82,7 +82,6 @@ let offline = false;
 // 401 = server session expired — distinct from network-offline. Pending ops are
 // never dropped; the user re-runs the passkey ceremony to re-mint the session.
 let authExpired = false;
-const kDataCache = new WeakMap();
 
 // Serializes the record-store mutations that must not interleave:
 // replaceAllRecords() clears the whole store and re-lays a snapshot, while a
@@ -109,13 +108,12 @@ function withRecordsLock(fn) {
   return run;
 }
 
+// The operational ctx is {accountId, kData, kMac}: non-extractable leaf keys
+// from the warm-unlock cache (unlock.js warmUnlock); every record and snapshot
+// path goes through here and never sees raw key bytes.
 async function getKData(ctx) {
-  let kData = kDataCache.get(ctx.dek);
-  if (!kData) {
-    kData = await deriveKData(ctx.dek);
-    kDataCache.set(ctx.dek, kData);
-  }
-  return kData;
+  if (!ctx.kData) throw new Error('sync: ctx carries no kData leaf key');
+  return ctx.kData;
 }
 
 // --- local IDB mirror ---------------------------------------------------
@@ -432,6 +430,10 @@ const RECORD_TAGS = {
   // med-8tur.12: a mode switch (per-mechanic / ED-safe) synced from another
   // device re-renders Today's Goal Line and the Journey.
   gamificationmode: ['gamification'],
+  // med-1vy5.2: a tracker tap or edit from another device (or the agent)
+  // repaints the Today Trackers card.
+  tracker: ['trackers'],
+  trackerlog: ['trackers'],
   // ponytail: unmapped types (nk, firstrun, tzplan, *reminderpref, voiceprovisioning)
   // back no tag-cached screen, so they emit nothing. Add a row when one does.
 };
@@ -1221,15 +1223,19 @@ export async function pullOnOpen(ctx, { retryForcedSnapshot = true } = {}) {
   await maybeSnapshot(ctx);
 }
 
-// med-deq.2 — session-expiry recovery. Re-runs the passkey ceremony (unlock.js
-// assertPasskey — its /api/webauthn/login/finish re-mints the non-sliding
-// 30-day session cookie; the returned dek/accountId are discarded), then
-// immediately drains the queue the 401s stranded. Dynamic import because
-// unlock.js already dynamic-imports sync.js — a static edge here would be a
-// cycle.
+// med-deq.2 — session-expiry recovery. Re-runs the passkey login (unlock.js
+// renewSession — its /api/webauthn/login/finish re-mints the non-sliding
+// 30-day session cookie), then immediately drains the queue the 401s stranded.
+// Renewal only (med-5h1t.3): no PRF and no envelope unwrap, so it neither
+// reintroduces the raw DEK nor fails on a passkey without PRF while the warm
+// keys still work. Dynamic import because unlock.js already dynamic-imports
+// sync.js — a static edge here would be a cycle.
 export async function reauthenticate(ctx) {
-  const { assertPasskey } = await import('./unlock.js');
-  await assertPasskey();
+  const { renewSession } = await import('./unlock.js');
+  const { accountId } = await renewSession();
+  if (accountId !== ctx.accountId) {
+    throw new Error('That passkey belongs to a different account.');
+  }
   authExpired = false;
   // Serialize with any reconnect auto-drain in flight — two concurrent
   // pullOnOpen runs would flush the same pending set under the same predicted
