@@ -35,6 +35,7 @@ Open `ui_kits/app-v2/index.html` in a browser; every page is static HTML.
 | Food log, Add sheet, Describe, AI review, manual | `screens-food.html` F1–F8 | `features/food/`, `food-photo-summary.js` |
 | Meds schedule, take sheet, stock, editor page | `screens-meds.html` M1–M6 | `features/meds.js`, `meds-history.js`, `medication-utils.js` |
 | Workout session takeover, Plan/Day/Exercise pages | `screens-workouts.html` W1–W3, P1–P3 | `features/workout/` |
+| Session equipment swap (plates-strip swap button, no-strip state, picker sheet; bead med-j6pn, brief `docs/design/briefs/session-equipment-swap.md`) | `screens-workouts.html` W4, W4b | `features/workout/sessions.js` (plates strip), `features/workout/equipment.js` (inventory, editor) |
 | Settings home, Features, Backup, Devices & connectors | `screens-settings.html` S1–S5 | `features/settings.js`, `features/settings/`, cloud shell pages in `web/cloud/` |
 | Health (BP / Weight / Vitals segments; section id `health` stays) | `navigation.html` | `features/bp.js`, `weight.js`, `health.js`, `live-hr.js` |
 | Trackers (Today tiles, log sheet, create/edit + templates, history + strength; epic med-1vy5, brief `docs/design/briefs/trackers.md`) | `screens-trackers.html` TR1, TR1b, TR2, TR3 | `web/domain/trackers.js` (domain); `features/today.js` (card, log sheet, editor + templates, manage sheet, history page) |
