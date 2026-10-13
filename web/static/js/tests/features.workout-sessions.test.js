@@ -2431,7 +2431,9 @@ describe('features/workout/sessions.js — plate-loading chip (med-v75c.2)', () 
     // Library-bound: no auto-match label (med-x295).
     expect(chip.querySelector('.wg-plates__auto')).toBeNull();
     // Rule 3: geometry attributes only — no paint in the emitted markup.
-    expect(chip.outerHTML).not.toMatch(/fill=|stroke=|style=/);
+    // (The swap button's kit icon is a separate svg, outside the glyph.)
+    expect(svg.outerHTML).not.toMatch(/fill=|stroke=|style=/);
+    expect(chip.outerHTML).not.toMatch(/style=/);
   });
 
   it('an unreachable 73 shows the 72 loading plus a "-1 kg" delta', async () => {
@@ -2453,7 +2455,7 @@ describe('features/workout/sessions.js — plate-loading chip (med-v75c.2)', () 
     const card = firstCard(document);
     const chip = card.querySelector('.wg-workouts-session-exercise__plates');
     expect(chip).not.toBeNull();
-    expect(chip.querySelector('svg')).toBeNull();
+    expect(chip.querySelector('svg.wg-plates__glyph')).toBeNull();
     expect(chip.querySelector('.wg-plates__text').textContent).toBe('below bar (8 kg)');
     expect(card.querySelector('.wg-workouts-session-exercise__mono').textContent).toBe('3 × 5 · 5 kg');
   });
@@ -2485,7 +2487,7 @@ describe('features/workout/sessions.js — plate-loading chip (med-v75c.2)', () 
 
     const chip = firstCard(document).querySelector('.wg-workouts-session-exercise__plates');
     expect(chip).not.toBeNull();
-    expect(chip.querySelector('svg')).toBeNull();
+    expect(chip.querySelector('svg.wg-plates__glyph')).toBeNull();
     // 20 sits halfway between 16 and 24 — the tie goes below.
     expect(chip.querySelector('.wg-plates__text').textContent).toBe('nearest: 16 kg');
 
@@ -2831,6 +2833,8 @@ describe('features/workout/sessions.js — plate-loading chip (med-v75c.2)', () 
     it('a library-sourced log saves to the library binding', async () => {
       const { window, document } = env;
       const world = await openSwapSession(window, {
+        // No plan rows: a planned row named like the log would take its card.
+        rows: [],
         logs: [chipLog({ exercise_id: 11, source: 'library', weight_kg: 72 })],
         lib: [{ id: 11, name: 'Bench press', equipment_id: 3, default_sets: 3, default_reps_min: 5, notes: 'n', body_part: 'Chest' }],
       });
