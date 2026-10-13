@@ -737,6 +737,21 @@
             } else if (kind === 'resume') {
                 action = btn('Resume', { sm: true, primary, icon: 'play', action: 'resume-workout', onClick: () => h.onResumeWorkout(v.id) });
             }
+            // Tapping the row itself (not its buttons) does what View does:
+            // the planned Day's exercises in the Plan → Day pages.
+            row.classList.add('wg-today-next__tap');
+            row.setAttribute('role', 'button');
+            row.setAttribute('tabindex', '0');
+            row.setAttribute('data-action', 'open-workout-plan');
+            row.setAttribute('aria-label', `${v.group_name || 'Workout'} — view planned exercises`);
+            const open = () => h.onViewWorkout(v);
+            row.addEventListener('click', (e) => {
+                if (e.target.closest && e.target.closest('.wg-btn')) return;
+                open();
+            });
+            row.addEventListener('keydown', (e) => {
+                if (e.target === row && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open(); }
+            });
         }
         body.appendChild(meta);
         if (action) trail.appendChild(action);
@@ -2786,7 +2801,8 @@
             onViewWorkout: opts.onViewWorkout || ((v) => {
                 onDeeplink('workouts');
                 const card = win.WorkoutNextCard;
-                if (card && typeof card.openEdit === 'function' && v && v.variant_id && v.group_id) {
+                // An ad-hoc session (ids -1) has no plan: Workouts alone.
+                if (card && typeof card.openEdit === 'function' && v && v.variant_id > 0 && v.group_id > 0) {
                     card.openEdit(v.variant_id, v.group_id);
                 }
             }),

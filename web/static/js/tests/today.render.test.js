@@ -201,6 +201,44 @@ describe('Today v2 — Next up', () => {
         expect(ids(trailOf({ ...WORKOUT_TODAY, status: 'completed' }))).toEqual(['view-workout']);
     });
 
+    it('tapping the workout row does what View does; its buttons keep their own actions', () => {
+        env.window.WorkoutNextCard = { openEdit: vi.fn() };
+        env.window.WorkoutSessions = { start: vi.fn(), open: vi.fn() };
+        const onDeeplink = vi.fn();
+        const s = busyState();
+        s.nextWorkout.value = { ...WORKOUT_TODAY, group_id: 3, variant_id: 11 };
+        env.render(s, root, { now: NOW, onDeeplink });
+        const row = root.querySelector('[data-next="workout"]');
+        expect(row.getAttribute('data-action')).toBe('open-workout-plan');
+        expect(row.getAttribute('role')).toBe('button');
+
+        row.querySelector('[data-action="start-workout"]').click();
+        expect(env.window.WorkoutSessions.start).toHaveBeenCalledWith(7);
+        expect(env.window.WorkoutNextCard.openEdit).not.toHaveBeenCalled();
+
+        row.querySelector('.wg-row__title').click();
+        expect(onDeeplink).toHaveBeenCalledWith('workouts');
+        expect(env.window.WorkoutNextCard.openEdit).toHaveBeenCalledWith(11, 3);
+
+        // View is not double-fired by the row handler.
+        row.querySelector('[data-action="view-workout"]').click();
+        expect(env.window.WorkoutNextCard.openEdit).toHaveBeenCalledTimes(2);
+
+        row.dispatchEvent(new env.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        expect(env.window.WorkoutNextCard.openEdit).toHaveBeenCalledTimes(3);
+    });
+
+    it('an ad-hoc session row (no plan) taps through to Workouts without opening a plan', () => {
+        env.window.WorkoutNextCard = { openEdit: vi.fn() };
+        const onDeeplink = vi.fn();
+        const s = busyState();
+        s.nextWorkout.value = { ...WORKOUT_TODAY, status: 'in_progress', group_id: -1, variant_id: -1 };
+        env.render(s, root, { now: NOW, onDeeplink });
+        root.querySelector('[data-next="workout"] .wg-row__title').click();
+        expect(env.window.WorkoutNextCard.openEdit).not.toHaveBeenCalled();
+        expect(onDeeplink).toHaveBeenCalledWith('workouts');
+    });
+
     it('a session on another day offers View and Start, neither the sun; the sun moves to the dose', () => {
         const s = busyState();
         s.nextWorkout.value = { ...WORKOUT_TODAY, is_today: false, scheduled_date: '2026-04-22' };
