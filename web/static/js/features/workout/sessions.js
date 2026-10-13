@@ -1374,8 +1374,7 @@ function _sessionEquipSummary(item) {
 }
 
 function _sessionEquipPlanLabel() {
-    const d = window.WorkoutSessionsState.data || {};
-    return [d.group_name, d.variant_name].filter(Boolean).join(' · ') || 'plan';
+    return window.WorkoutSessionsState.planLabel || 'plan';
 }
 
 function _closeSessionEquipPicker() {
@@ -1469,7 +1468,8 @@ async function _openSessionEquipPicker(log) {
         // inherits the library binding, else auto-matches at this gym).
         const lib = isPlan ? (gear.libById[target.row.exercise_library_id] || null) : { ...target.row, equipment_id: null };
         const plan = isPlan ? { ...target.row, equipment_id: null } : null;
-        const autoHit = gear.equipmentForExercise(plan, lib, inv, _plateWeightFor(log), loc);
+        // Same weight the strip's resolution uses (_sessionEquipmentForLog).
+        const autoHit = gear.equipmentForExercise(plan, lib, inv, Number(log.weight_kg), loc);
         const at = gymName ? ` at ${gymName}` : '';
         const autoSub = !autoHit ? `Nothing matches${at}`
             : (autoHit.auto ? `Best match${at} · now ${autoHit.item.name}` : `From library · now ${autoHit.item.name}`);
@@ -1514,19 +1514,23 @@ function _rerenderSessionEquipStrips() {
 // are omitted, which preserves them. Optimistic (rule 9): the open session's
 // gear is patched and the strips re-solve at once; a failed write restores
 // both. `label` set → success toast with Undo (which writes the previous id
-// back, quietly).
-async function _setSessionExerciseEquipment(kind, rowId, equipmentId, label) {
+// back, quietly). `fallbackRow` is the row as last written, for an Undo after
+// the session view closed (its gear no longer holds the row).
+async function _setSessionExerciseEquipment(kind, rowId, equipmentId, label, fallbackRow) {
     // Sync when cached, so the strip re-solves within the tap.
-    const gear = _sessionPlateGearSync() || await _sessionPlateGear();
-    if (!gear || gear.failed) return false;
+    const st = window.WorkoutSessionsState;
+    const gear = st.data ? (_sessionPlateGearSync() || await _sessionPlateGear()) : null;
     const isPlan = kind === 'plan';
-    const map = isPlan ? gear.rowsById : gear.libById;
-    const before = map[rowId];
+    const map = gear && !gear.failed ? (isPlan ? gear.rowsById : gear.libById) : null;
+    const live = map && map[rowId] ? map : null;
+    const before = live ? live[rowId] : fallbackRow;
     if (!before) return false;
     const prevId = before.equipment_id === undefined ? null : before.equipment_id;
     const patched = { ...before, equipment_id: equipmentId };
-    map[rowId] = patched;
-    _rerenderSessionEquipStrips();
+    if (live) {
+        live[rowId] = patched;
+        _rerenderSessionEquipStrips();
+    }
 
     let handle = null;
     try {
@@ -1561,9 +1565,11 @@ async function _setSessionExerciseEquipment(kind, rowId, equipmentId, label) {
         ok = false;
     }
     if (!ok) {
-        if (map[rowId] === patched) map[rowId] = before;
+        if (live && live[rowId] === patched) {
+            live[rowId] = before;
+            _rerenderSessionEquipStrips();
+        }
         if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
-        _rerenderSessionEquipStrips();
         safeToast("Couldn't change the equipment — try again.", 'error');
         return false;
     }
@@ -1574,7 +1580,7 @@ async function _setSessionExerciseEquipment(kind, rowId, equipmentId, label) {
     if (label) {
         safeToast(`Equipment: ${label}`, 'success', {
             detail: isPlan ? `Saved to ${_sessionEquipPlanLabel()}` : 'Saved to library',
-            action: { label: 'Undo', onClick: () => { _setSessionExerciseEquipment(kind, rowId, prevId, null); } },
+            action: { label: 'Undo', onClick: () => { _setSessionExerciseEquipment(kind, rowId, prevId, null, patched); } },
         });
     }
     return true;
@@ -1955,6 +1961,10 @@ async function showWorkoutSessionModal(sessionId) {
 
         window.WorkoutSessionsState.logs = data.logs || [];
         window.WorkoutSessionsState.data = data.session;
+        // The plan names ride on the details envelope, not the session row:
+        // the equipment swap's "Saves to <Plan> · <Day>" (med-j6pn).
+        window.WorkoutSessionsState.planLabel = [data.group_name || data.session.group_name,
+            data.variant_name || data.session.variant_name].filter(Boolean).join(' · ');
         window.WorkoutSessionsState.originalStatus = data.session.status;
         st.targetStatus = data.session.status;
 

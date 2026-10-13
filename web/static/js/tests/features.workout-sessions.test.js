@@ -2695,8 +2695,9 @@ describe('features/workout/sessions.js — plate-loading chip (med-v75c.2)', () 
     // A stateful fake: PUTs land in `world`, so the post-write rebuild reads
     // the truth back like the vault would.
     async function openSwapSession(window, { logs, session, rows, lib, inventory, failWrites } = {}) {
-      const world = { rows: rows || ROWS, lib: lib || libFor(3), puts: [] };
-      const sess = session || chipSession();
+      const world = { rows: rows || [{ ...ROWS[0], order_index: 2 }], lib: lib || libFor(3), puts: [] };
+      // Production shape: the plan names ride on the details envelope only.
+      const sess = session || chipSession({ group_name: undefined, variant_name: undefined });
       window.apiCall = vi.fn(async (endpoint, method, body) => {
         const url = String(endpoint);
         if (method === 'PUT') {
@@ -2710,7 +2711,9 @@ describe('features/workout/sessions.js — plate-loading chip (med-v75c.2)', () 
           }
           return true;
         }
-        if (url.startsWith('/api/workout/sessions/details')) return { session: sess, logs: logs || [chipLog()] };
+        if (url.startsWith('/api/workout/sessions/details')) {
+          return { session: sess, logs: logs || [chipLog()], group_name: 'PPL', variant_name: 'Push Day' };
+        }
         if (url.includes('/api/workout/exercises?variant_id=')) return world.rows;
         if (url === '/api/workout/exercise-library') return world.lib;
         if (url === '/api/workout/equipment') return inventory || [BAR8, KB4];
@@ -2771,7 +2774,7 @@ describe('features/workout/sessions.js — plate-loading chip (med-v75c.2)', () 
       // progression rule / goal keys are omitted so they survive.
       expect(world.puts[0].body).toEqual({
         exercise_name: 'Bench press', target_sets: 3, target_reps_min: 5, target_reps_max: null,
-        target_weight_kg: 72, order_index: undefined, equipment_id: 4,
+        target_weight_kg: 72, order_index: 2, equipment_id: 4,
       });
       chip = firstCard(document).querySelector('.wg-workouts-session-exercise__plates');
       expect(chip.querySelector('.wg-plates__src').textContent).toBe('Loadable KB');
@@ -2787,6 +2790,25 @@ describe('features/workout/sessions.js — plate-loading chip (med-v75c.2)', () 
       expect(world.puts).toHaveLength(2);
       expect(world.puts[1].body.equipment_id).toBe(null);
       expect(firstCard(document).querySelector('.wg-plates__src').textContent).toBe('Short bar');
+    });
+
+    it('Undo still writes the previous id back after the session view closed', async () => {
+      const { window, document } = env;
+      const world = await openSwapSession(window, {});
+      firstCard(document).querySelector('.wg-plates__swap').click();
+      await drainSwap();
+      choiceNamed(document, 'Loadable KB').click();
+      await drainSwap();
+
+      await window.closeWorkoutSessionModal();
+      await drainSwap();
+      const toast = window.SyncManager.showToast.mock.calls.find((c) => c[0] === 'Equipment: Loadable KB');
+      toast[2].action.onClick();
+      await drainSwap();
+
+      const undo = world.puts[world.puts.length - 1];
+      expect(undo.url).toBe('/api/workout/exercises/update?id=101');
+      expect(undo.body).toMatchObject({ exercise_name: 'Bench press', order_index: 2, equipment_id: null });
     });
 
     it('nothing to load still shows the dashed no-equipment line with the swap button', async () => {
