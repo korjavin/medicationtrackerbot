@@ -3,21 +3,22 @@
 // can later run inside the Go server via goja (C6). The browser aiClient
 // (web/cloud/js/aiclient.js) does the actual provider HTTP calls; this file
 // only validates the parsed shape and turns items into food log records.
-// Prompts/schema pinned verbatim from internal/ai/openai.go; convertParsedMeal
+// Prompts/schema started from internal/ai/openai.go; convertParsedMeal
 // mirrors internal/domain/food_ai.go's convertParsedMeal.
 
 import { calculateMacros } from './food.js';
 
 // Started as internal/ai/openai.go's MealSystemPrompt; the `uncertain` rule
-// (med-xso6.17) feeds the review step's warn chip.
-export const MealSystemPrompt = `You are a nutrition expert. Parse a free-text meal description and split it into an ordered list of atomic food items.
+// (med-xso6.17) feeds the review step's warn chip. The unit is the DISH, not
+// the ingredient (med-x7bk): "bread with butter and fish" is one row.
+export const MealSystemPrompt = `You are a nutrition expert. Parse a free-text meal description into an ordered list of the dishes and foods that were eaten.
 
 Rules:
 - Return every dish name in English, regardless of the input language. Translate non-English names.
-- Use common, generic names (e.g. "chicken breast", not "grilled marinated chicken breast with lemon"; "rice", not "steamed jasmine rice").
-- Split complex meals into atomic items: one item per distinct food or ingredient listed. Do not combine unrelated foods into a single row.
-- Do not over-split composed dishes that the user named as a single unit. A sandwich stays one item ("ham and cheese sandwich"); do not break it into bread + cheese + ham. Soup or stew stays one item.
-- For each item return: name, weight_grams (estimated total eaten), and macronutrients PER 100 GRAMS (carbs_100g, protein_100g, fat_100g).
+- One item per separately eaten dish or food. Separators between dishes ("and", commas, "+", new lines) mean separate items: "soup and fries" is two items; "2 eggs, toast, orange juice" is three.
+- Ingredients, fillings or toppings that describe one dish belong to that dish and stay ONE item: "X with Y and Z", "X: a, b, c", a dish name followed by its ingredients ("sandwich, bread with butter and fish"), or ingredients that together make one dish ("bread with butter and fish"). Soup, stew, salad, sandwich or burger is one item. "Oatmeal with banana and coffee" is two items: oatmeal with banana, and coffee.
+- Name a composed dish by its main components ("fish and butter sandwich", "oatmeal with banana"). Name a single plain food generically ("chicken breast", not "grilled marinated chicken breast with lemon"; "rice", not "steamed jasmine rice").
+- For each item return: name, weight_grams (estimated total eaten; for a composed dish, the whole dish), and macronutrients PER 100 GRAMS (carbs_100g, protein_100g, fat_100g), estimated from the listed composition.
 - Preserve the order the user mentioned the items in.
 - Set uncertain to true when you had to guess what the food is or how much was eaten (hidden ingredients, no quantity given, an unclear photo); otherwise false.
 - If the text describes no food, return an empty items array.`;
@@ -25,11 +26,12 @@ Rules:
 // Started as internal/ai/openai.go's MealPhotoSystemPrompt.
 export const MealPhotoSystemPrompt = MealSystemPrompt + `
 
-You are looking at a single photograph of a meal. Identify each visible food
-item, estimate its eaten weight in grams from the apparent portion size, and
-report typical macronutrients per 100 grams for that food. If multiple distinct
-foods share a plate, list each as its own item. If the photo shows no
-food, return an empty items array.`;
+You are looking at a single photograph of a meal. Identify each visible dish,
+estimate its eaten weight in grams from the apparent portion size, and report
+typical macronutrients per 100 grams for that dish. A sandwich, burger or
+composed salad stays one item; only distinct dishes (e.g. a main and a side,
+a drink) are separate items. If the photo shows no food, return an empty
+items array.`;
 
 // Started as internal/ai/openai.go's mealSchema (JSON-Schema shape), plus
 // `uncertain`. Strict mode needs every property required; a provider on the
