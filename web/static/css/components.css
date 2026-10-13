@@ -376,6 +376,7 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
 .wg-trk__more{position:absolute;top:0;right:0;width:44px;height:44px;display:grid;place-items:center;border:0;border-radius:0 14px 0 12px;background:transparent;color:var(--wg-fg-3);cursor:pointer}
 .wg-trk__more:hover{color:var(--wg-fg-1)}.wg-trk__more:focus-visible{outline:0;box-shadow:var(--wg-focus)}
 .wg-trk__limit .wg-meter__fill{background:var(--wg-fg-3)}
+.wg-trk__acts{display:flex;gap:6px;padding:0 12px 12px}
 .wg-trk__check{display:flex;align-items:center;gap:8px;margin-top:auto}
 .wg-trk__tick{width:24px;height:24px;flex-shrink:0;display:grid;place-items:center;border-radius:50%;border:2px solid var(--wg-fg-4);color:var(--wg-fg-on-clay)}
 .wg-trk__tick .wg-ico{width:14px;height:14px}.wg-trk__tick .wg-ico svg{stroke-width:2.6}

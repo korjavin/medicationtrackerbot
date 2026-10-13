@@ -333,6 +333,11 @@ ${rows.join('\n')}
             const unit = slips ? ` ${p.total === 1 ? 'slip' : 'slips'}` : (t.unit ? ` ${t.unit}` : '');
             const goal = slips ? `limit ${fmtNum(tg.value)}` : `${limit ? 'limit' : 'target'} ${fmtNum(tg.value)}${unit} per ${tg.period}`;
             const name = `${t.emoji ? `${t.emoji} ` : ''}${t.name}`;
+            // A streak (med-yd2u): "hold for N days" — the day it is on, or reached.
+            if (p.goal && tg.days) {
+                const line = p.goal.achieved ? `${fmtNum(tg.days)}-day goal reached` : `day ${fmtNum(p.cleanDays || 0)} of ${fmtNum(tg.days)}`;
+                return `<li>${esc(`${name}: ${line}`)}</li>`;
+            }
             const span = tg.period === 'day' ? 'today' : `this ${tg.period}`;
             let verdict = p.met ? ' — met' : '';
             if (limit) verdict = p.met ? ' — within limit' : ' — over';
