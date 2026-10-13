@@ -2689,6 +2689,166 @@ describe('features/workout/sessions.js — plate-loading chip (med-v75c.2)', () 
     expect(chip).not.toBeNull();
     expect(chip.querySelector('.wg-plates__text').textContent).toBe('8 + 15 · 10 · 5 · 2 / side (kg)');
   });
+
+  // med-j6pn (kit W4/W4b): swap the equipment from the strip mid-workout.
+  describe('equipment swap', () => {
+    // A stateful fake: PUTs land in `world`, so the post-write rebuild reads
+    // the truth back like the vault would.
+    async function openSwapSession(window, { logs, session, rows, lib, inventory, failWrites } = {}) {
+      const world = { rows: rows || ROWS, lib: lib || libFor(3), puts: [] };
+      const sess = session || chipSession();
+      window.apiCall = vi.fn(async (endpoint, method, body) => {
+        const url = String(endpoint);
+        if (method === 'PUT') {
+          world.puts.push({ url, body });
+          if (failWrites) return null;
+          const id = Number(url.split('id=')[1]);
+          if (url.startsWith('/api/workout/exercises/update')) {
+            world.rows = world.rows.map((r) => (r.id === id ? { ...r, equipment_id: body.equipment_id } : r));
+          } else if (url.startsWith('/api/workout/exercise-library/update')) {
+            world.lib = world.lib.map((r) => (r.id === id ? { ...r, equipment_id: body.equipment_id } : r));
+          }
+          return true;
+        }
+        if (url.startsWith('/api/workout/sessions/details')) return { session: sess, logs: logs || [chipLog()] };
+        if (url.includes('/api/workout/exercises?variant_id=')) return world.rows;
+        if (url === '/api/workout/exercise-library') return world.lib;
+        if (url === '/api/workout/equipment') return inventory || [BAR8, KB4];
+        return [];
+      });
+      window.WorkoutEquipment.list = async () => (inventory || [BAR8, KB4]);
+      window.WorkoutGroups.loadEquipmentDomain = async () => ({
+        loadingFor, nearestLoads, equipmentForExercise, pickNearestLoad,
+      });
+      window.SyncManager = { ...(window.SyncManager || {}), showToast: vi.fn(() => ({ dismiss() {} })) };
+      await window.showWorkoutSessionModal(sess.id);
+      for (let i = 0; i < 4; i += 1) await new Promise((r) => setTimeout(r, 0));
+      return world;
+    }
+
+    async function drainSwap() {
+      for (let i = 0; i < 8; i += 1) await new Promise((r) => setTimeout(r, 0));
+    }
+
+    const sheetOf = (document) => document.getElementById('workout-session-equip-sheet');
+    const choices = (document) => Array.from(sheetOf(document).querySelectorAll('.wg-choice'));
+    const choiceNamed = (document, name) => choices(document)
+      .find((b) => b.firstChild.nextSibling.firstChild.textContent === name);
+
+    it('a plan-backed strip names its gear, picks a new item into the plan row, re-solves and undoes', async () => {
+      const { window, document } = env;
+      const world = await openSwapSession(window, { logs: [chipLog({ exercise_name: 'Bench press', weight_kg: 9 })] });
+
+      let chip = firstCard(document).querySelector('.wg-workouts-session-exercise__plates');
+      expect(chip.querySelector('.wg-plates__src').textContent).toBe('Short bar');
+      expect(chip.querySelector('.wg-plates__auto')).toBeNull();
+      chip.querySelector('.wg-plates__swap').click();
+      await drainSwap();
+
+      const sheet = sheetOf(document);
+      expect(sheet.classList.contains('hidden')).toBe(false);
+      expect(sheet.querySelector('.wg-sheethead .wg-eyebrow').textContent).toBe('Saves to PPL · Push Day');
+      expect(sheet.querySelector('.wg-sheethead__title').textContent).toBe('Equipment');
+      // Auto on top (the row has no override: it inherits the library bar).
+      const auto = choices(document)[0];
+      expect(auto.textContent).toContain('Auto');
+      expect(auto.querySelector('.wg-choice__sub').textContent).toBe('From library · now Short bar');
+      expect(auto.getAttribute('aria-pressed')).toBe('true');
+      expect(choiceNamed(document, 'Short bar').querySelector('.wg-choice__sub').textContent)
+        .toBe('bar 8 · plates to 15');
+      expect(choiceNamed(document, 'Loadable KB').querySelector('.wg-choice__sub').textContent)
+        .toBe('handle 4 · plates to 2');
+
+      choiceNamed(document, 'Loadable KB').click();
+      // Optimistic: the strip re-solves before the write settles.
+      expect(firstCard(document).querySelector('.wg-plates__src').textContent).toBe('Loadable KB');
+      await drainSwap();
+
+      expect(sheet.classList.contains('hidden')).toBe(true);
+      expect(world.puts).toHaveLength(1);
+      expect(world.puts[0].url).toBe('/api/workout/exercises/update?id=101');
+      // The row is sent back verbatim (full-replace endpoint); the
+      // progression rule / goal keys are omitted so they survive.
+      expect(world.puts[0].body).toEqual({
+        exercise_name: 'Bench press', target_sets: 3, target_reps_min: 5, target_reps_max: null,
+        target_weight_kg: 72, order_index: undefined, equipment_id: 4,
+      });
+      chip = firstCard(document).querySelector('.wg-workouts-session-exercise__plates');
+      expect(chip.querySelector('.wg-plates__src').textContent).toBe('Loadable KB');
+      expect(chip.querySelector('.wg-plates__text').textContent).toBe('4 + 2 · 2 · 1');
+
+      const toast = window.SyncManager.showToast;
+      expect(toast).toHaveBeenCalledWith('Equipment: Loadable KB', 'success', expect.objectContaining({
+        detail: 'Saved to PPL · Push Day',
+      }));
+      toast.mock.calls[0][2].action.onClick();
+      await drainSwap();
+
+      expect(world.puts).toHaveLength(2);
+      expect(world.puts[1].body.equipment_id).toBe(null);
+      expect(firstCard(document).querySelector('.wg-plates__src').textContent).toBe('Short bar');
+    });
+
+    it('nothing to load still shows the dashed no-equipment line with the swap button', async () => {
+      const { window, document } = env;
+      await openSwapSession(window, {
+        logs: [chipLog({ exercise_name: 'Pull-up', weight_kg: 0 })],
+        rows: [{ ...ROWS[0], exercise_name: 'Pull-up' }],
+        lib: [{ id: 11, name: 'Pull-up', equipment_id: null }],
+      });
+
+      const card = firstCard(document);
+      expect(card.querySelector('.wg-workouts-session-exercise__plates')).toBeNull();
+      const none = card.querySelector('.wg-plates--none');
+      expect(none).not.toBeNull();
+      expect(none.querySelector('.wg-plates__src').textContent).toBe('No equipment');
+      expect(none.querySelector('.wg-plates__line').textContent).toBe('Bodyweight · nothing to load');
+      expect(none.querySelector('.wg-plates__swap')).not.toBeNull();
+    });
+
+    it('a library-sourced log saves to the library binding', async () => {
+      const { window, document } = env;
+      const world = await openSwapSession(window, {
+        logs: [chipLog({ exercise_id: 11, source: 'library', weight_kg: 72 })],
+        lib: [{ id: 11, name: 'Bench press', equipment_id: 3, default_sets: 3, default_reps_min: 5, notes: 'n', body_part: 'Chest' }],
+      });
+
+      firstCard(document).querySelector('.wg-plates__swap').click();
+      await drainSwap();
+      expect(sheetOf(document).querySelector('.wg-sheethead .wg-eyebrow').textContent).toBe('Saves to library');
+      expect(choiceNamed(document, 'Short bar').getAttribute('aria-pressed')).toBe('true');
+
+      choices(document)[0].click(); // Auto clears the binding
+      await drainSwap();
+      expect(world.puts[0].url).toBe('/api/workout/exercise-library/update?id=11');
+      expect(world.puts[0].body).toEqual({
+        name: 'Bench press', default_sets: 3, default_reps_min: 5, default_reps_max: null,
+        default_weight_kg: null, notes: 'n', body_part: 'Chest', equipment_id: null,
+      });
+      expect(window.SyncManager.showToast).toHaveBeenCalledWith('Equipment: Auto', 'success',
+        expect.objectContaining({ detail: 'Saved to library' }));
+    });
+
+    it('a failed write rolls the strip back and toasts the error', async () => {
+      const { window, document } = env;
+      const world = await openSwapSession(window, { failWrites: true });
+
+      firstCard(document).querySelector('.wg-plates__swap').click();
+      await drainSwap();
+      choiceNamed(document, 'Loadable KB').click();
+      await drainSwap();
+
+      expect(world.puts).toHaveLength(1);
+      expect(firstCard(document).querySelector('.wg-plates__src').textContent).toBe('Short bar');
+      expect(window.SyncManager.showToast).toHaveBeenCalledWith("Couldn't change the equipment — try again.", 'error');
+    });
+
+    it('a completed session is frozen: no swap button', async () => {
+      const { window, document } = env;
+      await openSwapSession(window, { session: chipSession({ status: 'completed' }) });
+      expect(firstCard(document).querySelector('.wg-plates__swap')).toBeNull();
+    });
+  });
 });
 
 describe('features/workout/sessions.js — session gym (med-8j5w.2)', () => {
