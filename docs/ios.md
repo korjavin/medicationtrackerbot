@@ -56,8 +56,8 @@ The GO/NO-GO gate for the remote-origin design. The app the workflow ships
 carries a throwaway diagnostic ([`ios/App/Spike.swift`](../ios/App/Spike.swift),
 removed by the shell bead): a stethoscope button on the right edge opens a
 panel that opens URLs, runs checks against the page currently loaded, and
-keeps a report across app kills with host names redacted to `<base>` /
-`<sub1>`, `<sub2>`… so it can be pasted into a bead.
+keeps a report across app kills, host names redacted before they are stored
+(`<base>`, `<sub-xxxxxx>` = short hash per account) so it can be pasted into a bead.
 
 What the build sets up (all in [`ios/project.yml`](../ios/project.yml)):
 
@@ -100,7 +100,7 @@ bead.
 
 1. **Claim B in the app.** Panel → paste B's claim link → Open → finish the
    claim. Expect `tap` lines `webauthn.create ok:true` then
-   `webauthn.get ok:true prfFirst:true`, and the app unlocked on `<sub1>`.
+   `webauthn.get ok:true prfFirst:true`, and the app unlocked on a `<sub-…>` host.
 2. **Probe on B.** Panel → *Passkey create + PRF* (creates a passkey named
    "iOS spike - delete me"; delete it in Passwords afterwards) → *Passkey get
    + PRF*. Expect `ok:true` and `prfFirstBytes: 32` on the get.

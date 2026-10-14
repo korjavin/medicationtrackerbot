@@ -1,3 +1,4 @@
+import CryptoKit
 import SwiftUI
 import UIKit
 import WebKit
@@ -100,25 +101,29 @@ final class Spike: NSObject, ObservableObject, WKScriptMessageHandlerWithReply, 
 
     // MARK: report
 
+    /// Redacts before storing, so the persisted log (wgSpikeLog) never holds
+    /// a raw deployment or account host name.
     func log(_ s: String) {
-        lines.append("[\(Date().formatted(date: .omitted, time: .standard))] \(s)")
+        lines.append("[\(Date().formatted(date: .omitted, time: .standard))] \(redact(s))")
     }
 
-    /// The log with the deployment's host names replaced by <base> and
-    /// <sub1>, <sub2>... so it can be pasted into a public bead or doc.
-    var report: String {
-        var text = lines.joined(separator: "\n")
-        guard !baseDomain.isEmpty else { return text }
+    var report: String { lines.joined(separator: "\n") }
+
+    /// Replaces the base domain with <base> and each account label with
+    /// <sub-xxxxxx> (a short SHA-256 of the label: stable across launches so
+    /// two accounts stay distinguishable, with no raw label kept anywhere).
+    private func redact(_ s: String) -> String {
+        guard !baseDomain.isEmpty else { return s }
+        var text = s
         let escaped = NSRegularExpression.escapedPattern(for: baseDomain)
         if let re = try? NSRegularExpression(pattern: "([A-Za-z0-9-]+)\\.\(escaped)") {
-            var tags: [String: String] = [:]
             let ns = text as NSString
-            for m in re.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
-                let label = ns.substring(with: m.range(at: 1))
-                if tags[label] == nil { tags[label] = "<sub\(tags.count + 1)>" }
+            // Back to front so earlier ranges stay valid while replacing.
+            for m in re.matches(in: text, range: NSRange(location: 0, length: ns.length)).reversed() {
+                let label = (text as NSString).substring(with: m.range(at: 1))
+                let tag = SHA256.hash(data: Data(label.utf8)).prefix(3).map { String(format: "%02x", $0) }.joined()
+                text = (text as NSString).replacingCharacters(in: m.range(at: 1), with: "<sub-\(tag)>")
             }
-            // Longest label first so "ba.<base>" is not caught by "a.<base>".
-            for (label, tag) in tags.sorted(by: { $0.key.count > $1.key.count }) { text = text.replacingOccurrences(of: "\(label).\(baseDomain)", with: "\(tag).\(baseDomain)") }
         }
         return text.replacingOccurrences(of: baseDomain, with: "<base>")
     }
@@ -157,9 +162,12 @@ final class Spike: NSObject, ObservableObject, WKScriptMessageHandlerWithReply, 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard let url = webView.url, var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
         parts.fragment = nil // never keep or log a #claim= token
+        parts.query = nil
         let clean = parts.url?.absoluteString ?? ""
         log("loaded \(clean)")
         if let host = url.host, !baseDomain.isEmpty, host == baseDomain || host.hasSuffix("." + baseDomain) {
+            // Unredacted on purpose: the relaunch needs the real origin, and it stays in
+            // the app's own sandbox (the PWA keeps its origin too). Fragment/query stripped above.
             UserDefaults.standard.set(clean, forKey: "wgSpikeLastURL")
         }
     }
