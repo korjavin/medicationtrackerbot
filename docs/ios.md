@@ -40,7 +40,9 @@ skips the upload and stays green.
 The API key lets Xcode create and download the App Store provisioning profile
 itself (`-allowProvisioningUpdates`); no profile secret is needed. Signing
 material goes into a throwaway keychain on the runner and is deleted at the
-end of the job.
+end of the job. Secrets are bound only to the dispatch-gated signing steps, never
+job-wide, so PR and push builds cannot read them. Optional hardening: move them
+into a GitHub environment with required reviewers.
 
 ## Shipping a build
 
