@@ -56,7 +56,7 @@ WKWebView ignores `<a download>` and `window.print()` on its own. The
 `Downloads` class in [`ios/App/App.swift`](../ios/App/App.swift) saves every
 download (blob:/data: links, `Content-Disposition: attachment`) to a temp file,
 opens the share sheet (Save to Files), and deletes the file when the sheet
-closes. A page script sends `window.print()`, and the offscreen-iframe print in
+closes (a file left by a killed app is swept at the next launch). A page script sends `window.print()`, and the offscreen-iframe print in
 `web/cloud/js/print-doc.js`, to the iOS print sheet. No web code changes.
 
 ## Spike: passkey PRF, Service Worker, IndexedDB in WKWebView (bd med-w6gx.2)

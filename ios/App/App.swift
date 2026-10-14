@@ -79,7 +79,11 @@ final class Downloads: NSObject, WKDownloadDelegate, WKScriptMessageHandler, WKN
     private var destinations: [WKDownload: URL] = [:]
     private var printView: WKWebView? // retained until its document finished loading and printed
 
+    /// All downloads live here; swept at launch for any file a killed app left behind.
+    private let root = FileManager.default.temporaryDirectory.appendingPathComponent("wg-downloads", isDirectory: true)
+
     func install(on config: WKWebViewConfiguration) {
+        try? FileManager.default.removeItem(at: root)
         config.userContentController.add(self, contentWorld: .page, name: "wgPrint")
         config.userContentController.addUserScript(
             WKUserScript(source: Downloads.printShim, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
@@ -101,7 +105,7 @@ final class Downloads: NSObject, WKDownloadDelegate, WKScriptMessageHandler, WKN
                   suggestedFilename: String) async -> URL? {
         // Own directory per download: the destination must not exist yet, and
         // the file keeps the page's filename in the share sheet.
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let dir = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         } catch {
@@ -117,7 +121,8 @@ final class Downloads: NSObject, WKDownloadDelegate, WKScriptMessageHandler, WKN
         guard let url = destinations.removeValue(forKey: download) else { return }
         let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
         sheet.completionWithItemsHandler = { _, _, _, _ in
-            // The file can hold a recovery code or a full vault export: never leave it in tmp.
+            // The file can hold a recovery code or a full vault export: delete it now,
+            // not when iOS purges tmp (a kill mid-sheet is swept at next launch).
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
         }
         guard let top = Downloads.topViewController() else {
