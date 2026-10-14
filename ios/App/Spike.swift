@@ -37,6 +37,7 @@ final class Spike: NSObject, ObservableObject, WKScriptMessageHandlerWithReply, 
         config.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: "wgSpike")
         config.userContentController.addUserScript(
             WKUserScript(source: Spike.webauthnTap, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
+        Downloads.shared.install(on: config) // shell code (App.swift); the shell bead keeps it
         let view = WKWebView(frame: .zero, configuration: config)
         view.isInspectable = true // Safari Web Inspector from a Mac, for spike debugging only
         view.navigationDelegate = self
@@ -158,6 +159,23 @@ final class Spike: NSObject, ObservableObject, WKScriptMessageHandlerWithReply, 
     }
 
     // MARK: WKNavigationDelegate
+
+    // Downloads (bd med-w6gx.11): the shell bead moves these four forwards to its own delegate.
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
+        Downloads.policy(for: navigationAction)
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse) async -> WKNavigationResponsePolicy {
+        Downloads.policy(for: navigationResponse)
+    }
+
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        download.delegate = Downloads.shared
+    }
+
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        download.delegate = Downloads.shared
+    }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard let url = webView.url, var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
