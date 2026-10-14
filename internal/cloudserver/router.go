@@ -46,6 +46,7 @@ type Handler struct {
 	// med-rbl.1). nil (the default, and every deployment without a manager bot)
 	// 404s it, same as an unmounted route.
 	feedbackReader http.Handler
+	aasa           []byte // apple-app-site-association JSON; nil = route off, see SetAppleAppSiteAssociation
 
 	landingRaw   []byte // web/cloud/index.html verbatim, used to build landingIndex
 	landingIndex []byte // landingRaw + "request an invite" contact line; nil = serve the raw shell file (today's behavior), see SetRequestInviteEmail
@@ -327,6 +328,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// assets, /api/*) keeps 'self'.
 	setSecurityHeaders(w, false, nil)
 	if host == h.baseDomain {
+		if h.serveAASA(w, r) {
+			return
+		}
 		if h.landingIndex != nil && (r.URL.Path == "/" || r.URL.Path == "/index.html") {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.Write(h.landingIndex)
@@ -400,6 +404,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	sub, ok := strings.CutSuffix(host, "."+h.baseDomain)
 	if !ok || sub == "" {
 		http.NotFound(w, r)
+		return
+	}
+
+	if h.serveAASA(w, r) {
 		return
 	}
 
