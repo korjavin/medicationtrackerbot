@@ -1,0 +1,4 @@
+# Generated on the CI runner by xcodegen / xcodebuild.
+*.xcodeproj/
+App/Info.plist
+build/

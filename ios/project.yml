@@ -1,0 +1,35 @@
+# XcodeGen spec — the .xcodeproj is generated on the CI runner
+# (`xcodegen generate`), never committed and never built locally (see docs/ios.md).
+name: MedTracker
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "18.0"
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    # Overridden on the xcodebuild command line from repo variables.
+    PRODUCT_BUNDLE_IDENTIFIER: com.example.medtracker
+    WG_START_URL: ""
+targets:
+  MedTracker:
+    type: application
+    platform: iOS
+    sources: [App]
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Automatic
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Med Tracker
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        ITSAppUsesNonExemptEncryption: false
+        WGStartURL: $(WG_START_URL)

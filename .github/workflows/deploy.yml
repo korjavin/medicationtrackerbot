@@ -10,6 +10,9 @@ on:
       - 'web/static/js/tests/**'
       - 'docs/**'
       - '**/*.md'
+      # iOS-only merges must not redeploy production (bd med-w6gx.9).
+      - 'ios/**'
+      - '.github/workflows/ios.yml'
   pull_request:
     branches:
       - master
