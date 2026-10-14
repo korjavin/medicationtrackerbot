@@ -114,7 +114,8 @@ jobs:
             DEVELOPMENT_TEAM="$IOS_TEAM_ID" \
             PRODUCT_BUNDLE_IDENTIFIER="$IOS_BUNDLE_ID" \
             CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
-            WG_START_URL="https://${CLOUD_BASE_DOMAIN}/" | tail -n 50
+            WG_START_URL="https://${CLOUD_BASE_DOMAIN}/" \
+            WG_BASE_DOMAIN="${CLOUD_BASE_DOMAIN}" | tail -n 50
           test "${PIPESTATUS[0]}" -eq 0
           xcodebuild -exportArchive -archivePath build/MedTracker.xcarchive \
             -exportOptionsPlist ExportOptions.plist -exportPath build/export \

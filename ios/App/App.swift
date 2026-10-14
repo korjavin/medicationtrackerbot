@@ -1,28 +1,66 @@
 import SwiftUI
 import WebKit
 
-// Skeleton shell (bd med-w6gx.9): one WKWebView on the account origin.
-// The spike (med-w6gx.2) and shell (med-w6gx.3) beads extend this.
+// Shell: one WKWebView on the account origin (bd med-w6gx.9). The overlay
+// button + panel are the GO/NO-GO spike diagnostic (bd med-w6gx.2, Spike.swift);
+// the shell bead (med-w6gx.3) drops them.
 @main
 struct WGApp: App {
+    @StateObject private var spike = Spike()
+
     var body: some Scene {
-        WindowGroup { WebView().ignoresSafeArea() }
+        WindowGroup {
+            WebView(spike: spike)
+                .ignoresSafeArea()
+                .overlay(alignment: .trailing) {
+                    Button { spike.showPanel = true } label: {
+                        Image(systemName: "stethoscope")
+                            .padding(10)
+                            .background(.ultraThinMaterial, in: Circle())
+                    }
+                    .padding(.trailing, 6)
+                    .accessibilityLabel("Spike diagnostics")
+                }
+                .sheet(isPresented: $spike.showPanel) { SpikePanel(spike: spike) }
+        }
     }
 }
 
 struct WebView: UIViewRepresentable {
-    func makeUIView(context: Context) -> WKWebView {
-        let view = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
-        // WGStartURL comes from the WG_START_URL build setting (CI fills it
-        // from a repo variable so the deployment domain stays out of the tree).
-        let raw = Bundle.main.object(forInfoDictionaryKey: "WGStartURL") as? String ?? ""
-        if let url = URL(string: raw), url.scheme == "https" {
-            view.load(URLRequest(url: url))
-        } else {
-            view.loadHTMLString("<h1>Start URL not configured</h1>", baseURL: nil)
-        }
-        return view
-    }
-
+    let spike: Spike
+    func makeUIView(context: Context) -> WKWebView { spike.webView }
     func updateUIView(_ uiView: WKWebView, context: Context) {}
+}
+
+struct SpikePanel: View {
+    @ObservedObject var spike: Spike
+    @State private var url = ""
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Open URL (claim link or account URL)") {
+                    TextField("https://", text: $url)
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    Button("Open") { spike.open(url); url = "" }
+                }
+                Section("Checks (run on the page currently loaded)") {
+                    Button("Run checks: bridge, SW, IndexedDB, camera") { spike.runChecks() }
+                    Button("Passkey create + PRF (throwaway passkey)") { spike.passkeyCreate() }
+                    Button("Passkey get + PRF") { spike.passkeyGet() }
+                    Button("Reset web data (forces a cold unlock)", role: .destructive) { spike.resetWebData() }
+                }
+                Section("Report (host names redacted)") {
+                    Button("Copy report") { UIPasteboard.general.string = spike.report }
+                    Button("Clear report", role: .destructive) { spike.lines = [] }
+                    Text(spike.report)
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
+                }
+            }
+            .navigationTitle("iOS spike")
+        }
+    }
 }

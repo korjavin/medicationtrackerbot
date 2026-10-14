@@ -14,6 +14,8 @@ settings:
     # Overridden on the xcodebuild command line from repo variables.
     PRODUCT_BUNDLE_IDENTIFIER: com.example.medtracker
     WG_START_URL: ""
+    # CLOUD_BASE_DOMAIN (accounts are <sub>.<this>); empty in the unsigned CI build.
+    WG_BASE_DOMAIN: ""
 targets:
   MedTracker:
     type: application
@@ -23,6 +25,13 @@ targets:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
+    # Passkeys in WKWebView for every account subdomain; confirmed by the
+    # server's /.well-known/apple-app-site-association (bd med-w6gx.1).
+    entitlements:
+      path: App/MedTracker.entitlements
+      properties:
+        com.apple.developer.associated-domains:
+          - "webcredentials:*.$(WG_BASE_DOMAIN)"
     info:
       path: App/Info.plist
       properties:
@@ -33,3 +42,9 @@ targets:
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         ITSAppUsesNonExemptEncryption: false
         WGStartURL: $(WG_START_URL)
+        NSCameraUsageDescription: Scan food barcodes and take meal photos.
+        # Service Workers only run on app-bound domains (max 10). Whether the
+        # wildcard entry covers arbitrary account subdomains is spike check 3.
+        WKAppBoundDomains:
+          - "$(WG_BASE_DOMAIN)"
+          - "*.$(WG_BASE_DOMAIN)"
