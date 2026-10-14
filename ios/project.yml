@@ -25,6 +25,7 @@ targets:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"
     # Passkeys in WKWebView for every account subdomain; confirmed by the
     # server's /.well-known/apple-app-site-association (bd med-w6gx.1).
     entitlements:
@@ -40,6 +41,8 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        # Portrait-only is legal for iPad only with full screen (App Store 90474).
+        UIRequiresFullScreen: true
         ITSAppUsesNonExemptEncryption: false
         WGStartURL: $(WG_START_URL)
         NSCameraUsageDescription: Scan food barcodes and take meal photos.
