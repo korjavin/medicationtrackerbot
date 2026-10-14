@@ -1,0 +1,128 @@
+name: iOS
+
+# macOS minutes cost ~10x Linux and mobile CI was removed once for spend
+# (med-2ue): this runs ONLY on ios/ or this file, or by hand. See docs/ios.md.
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios.yml'
+  # Any branch: spike branches ship to TestFlight from here.
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      # Non-secret config lives in repo variables so the deployment domain and
+      # Apple team stay out of this public tree; the build works without them.
+      # Secrets are deliberately NOT job-level: only the dispatch-gated signing
+      # steps below get them, so PR-controlled build steps never see them.
+      IOS_BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID }}
+      IOS_TEAM_ID: ${{ vars.IOS_TEAM_ID }}
+      CLOUD_BASE_DOMAIN: ${{ vars.CLOUD_BASE_DOMAIN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: |
+          command -v xcodegen >/dev/null || brew install xcodegen
+          xcodegen generate
+          xcodebuild -version
+
+      - name: Build (unsigned, simulator)
+        working-directory: ios
+        run: |
+          xcodebuild build -project MedTracker.xcodeproj -scheme MedTracker \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO | tail -n 50
+          test "${PIPESTATUS[0]}" -eq 0
+
+      # TestFlight only on a manual dispatch, and only once every signing input
+      # exists — until the owner adds them, the run stays green on the build above.
+      - name: Check signing inputs
+        id: signing
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          IOS_DIST_CERT_P12_BASE64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+          IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+        run: |
+          missing=""
+          for v in IOS_BUNDLE_ID IOS_TEAM_ID CLOUD_BASE_DOMAIN IOS_DIST_CERT_P12_BASE64 IOS_DIST_CERT_PASSWORD ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8_BASE64; do
+            [ -n "${!v}" ] || missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "::notice::TestFlight upload skipped — missing:$missing (see docs/ios.md)"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install signing material
+        if: github.event_name == 'workflow_dispatch' && steps.signing.outputs.ready == 'true'
+        env:
+          IOS_DIST_CERT_P12_BASE64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+          IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+        run: |
+          echo "::add-mask::${CLOUD_BASE_DOMAIN}"
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PW="$(uuidgen)"
+          echo "::add-mask::${KEYCHAIN_PW}"
+          echo "$IOS_DIST_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/dist.p12"
+          security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/dist.p12" -P "$IOS_DIST_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PW" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/dist.p12"
+          echo "$ASC_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/asc_key.p8"
+
+      - name: Archive and upload to TestFlight
+        if: github.event_name == 'workflow_dispatch' && steps.signing.outputs.ready == 'true'
+        working-directory: ios
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          AUTH=(-allowProvisioningUpdates
+                -authenticationKeyPath "$RUNNER_TEMP/asc_key.p8"
+                -authenticationKeyID "$ASC_KEY_ID"
+                -authenticationKeyIssuerID "$ASC_ISSUER_ID")
+          xcodebuild archive -project MedTracker.xcodeproj -scheme MedTracker \
+            -destination 'generic/platform=iOS' -archivePath build/MedTracker.xcarchive \
+            "${AUTH[@]}" \
+            DEVELOPMENT_TEAM="$IOS_TEAM_ID" \
+            PRODUCT_BUNDLE_IDENTIFIER="$IOS_BUNDLE_ID" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            WG_START_URL="https://${CLOUD_BASE_DOMAIN}/" | tail -n 50
+          test "${PIPESTATUS[0]}" -eq 0
+          xcodebuild -exportArchive -archivePath build/MedTracker.xcarchive \
+            -exportOptionsPlist ExportOptions.plist -exportPath build/export \
+            "${AUTH[@]}" | tail -n 50
+          test "${PIPESTATUS[0]}" -eq 0
+
+      - name: Clean up signing material
+        if: always() && github.event_name == 'workflow_dispatch' && steps.signing.outputs.ready == 'true'
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
+          rm -f "$RUNNER_TEMP/asc_key.p8"
