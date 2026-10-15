@@ -70,8 +70,8 @@ manifest entry: there is no egress).
   `wgNative` bridge; `window.Health` on iOS is
   [`native/health.js`](../web/static/js/native/health.js).
 - **Mapping:** [`web/domain/healthimport.js`](../web/domain/healthimport.js)
-  writes the existing `bp` / `weight` record shapes plus an optional
-  `source: "apple_health"` (older clients ignore it). recordId =
+  writes the existing `bp` / `weight` record shapes plus optional
+  `source: "apple_health"` and `source_id` (older clients ignore both). recordId =
   `bp-hk-<uuid>` / `weight-hk-<uuid>` from the HealthKit sample, written at the
   LWW floor (`putIfAbsent`, `clientTs: 0`), so re-imports and a second iPhone
   never duplicate, overwrite an edit or resurrect a delete.
@@ -81,9 +81,13 @@ manifest entry: there is no egress).
   Settings → *Apple Health* toggle asks for read access, then imports at unlock
   and on every return to the foreground (no background delivery in v1). Toggle,
   anchors and "last imported" are device-local (`localStorage`).
-- **Not in v1:** deleting a sample in Health does not delete it here; a vault
-  restore re-mints recordIds, so a later full re-scan on a fresh install can
-  duplicate restored Health readings. Sleep and workouts are med-w6gx.7.
+  An anchor is kept only after a page that returned something, so history
+  hidden while access was denied is still read once it is granted; switching
+  the toggle on again rescans from the start.
+- **Not in v1:** deleting a sample in Health does not delete it here. A vault
+  restore keeps the `-hk-` ids (`source_id`) but carries no bp/weight
+  tombstones, so a full rescan after a restore brings back Health readings
+  deleted before the backup. Sleep and workouts are med-w6gx.7.
 - **Signing:** the App ID needs the *HealthKit* capability (developer portal →
   Identifiers) if automatic signing does not enable it.
 

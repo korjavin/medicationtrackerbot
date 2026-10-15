@@ -1470,7 +1470,8 @@ export async function writeRecord(ctx, recordType, record, origin = ORIGIN_EXTER
 // also why the background materialization sweep runs on the external port — it
 // is a timer, not a user action, and its due doses must repaint Today.
 // `deferFlush` makes put/del queue to 'pending' WITHOUT an inline oplog push —
-// only the inbox drain uses it (the drain flushes once, chunked, after each
+// only bulk writers use it: the inbox drain and the Apple Health import
+// (health-import.js, one flushConfirmed per run) (the drain flushes once, chunked, after each
 // event via flushConfirmed), so a bulk .nxk import stops emitting one POST per
 // record (med-0ol.2). Every other writer keeps the eager per-write push.
 export function recordsPort(ctx, origin = ORIGIN_EXTERNAL, { deferFlush = false } = {}) {

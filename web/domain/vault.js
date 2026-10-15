@@ -64,6 +64,7 @@
 
 import { calculateBPCategory } from './bp.js';
 import { calculateWeightTrend } from './weight.js';
+import { healthImportRecordId } from './healthimport.js';
 
 export const VAULT_FORMAT = 'medtracker-vault';
 export const VAULT_VERSION = 1;
@@ -544,7 +545,9 @@ export function vaultToRecords(vault, { now } = {}) {
   const bp = data.bp || {};
   for (const r of bp.readings || []) {
     const category = r.ignore_calc ? '' : calculateBPCategory(r.systolic, r.diastolic);
-    push('bp', `bp-${mintNum()}`, { ...r, category });
+    // An Apple Health reading keeps its source-derived id, so the next
+    // HealthKit scan finds it instead of importing it a second time.
+    push('bp', healthImportRecordId('bp', r) || `bp-${mintNum()}`, { ...r, category });
   }
   if (bp.goal) push('bpgoal', 'bpgoal', { ...bp.goal });
 
@@ -555,7 +558,7 @@ export function vaultToRecords(vault, { now } = {}) {
   for (const log of ascLogs) {
     const trend = calculateWeightTrend(log.weight, prevTrend);
     prevTrend = trend;
-    push('weight', `weight-${mintNum()}`, { ...log, weight_trend: trend });
+    push('weight', healthImportRecordId('weight', log) || `weight-${mintNum()}`, { ...log, weight_trend: trend });
   }
   for (const g of weight.goals || []) push('weightgoal', `weightgoal-${mintNum()}`, { ...g });
   if (weight.unit_pref) push('weightunitpref', 'weight-unit', { unit: weight.unit_pref === 'lb' ? 'lb' : 'kg' });

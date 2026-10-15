@@ -7,7 +7,8 @@ import HealthKit
 ///
 /// Ops (web/static/js/native/health.js):
 ///   health.authorize {types}             → Bool (false: no Health store on this device)
-///   health.query {type, anchor?, limit?} → {samples, anchor, more}
+///   health.query {type, anchor?, limit?} → {samples, anchor, returned, more}
+///     (returned: added + deleted objects HealthKit handed back)
 /// Kinds: "bp" (blood-pressure correlations), "weight" (body mass).
 /// Sleep and workouts (med-7) add their kinds to `readTypes` and `query`.
 @MainActor
@@ -51,7 +52,7 @@ enum Health {
     }
 
     private static func query(_ args: [String: Any]) async throws -> Any {
-        guard HKHealthStore.isHealthDataAvailable() else { return ["samples": [], "more": false] as [String: Any] }
+        guard HKHealthStore.isHealthDataAvailable() else { return ["samples": [], "returned": 0, "more": false] as [String: Any] }
         let anchor = (args["anchor"] as? String)
             .flatMap { Data(base64Encoded: $0) }
             .flatMap { try? NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: $0) }
@@ -87,7 +88,8 @@ enum Health {
             throw Failure("unknown type: \(t ?? "")")
         }
         let token = try NSKeyedArchiver.archivedData(withRootObject: newAnchor, requiringSecureCoding: true)
-        return ["samples": samples, "anchor": token.base64EncodedString(), "more": returned >= limit] as [String: Any]
+        return ["samples": samples, "anchor": token.base64EncodedString(),
+                "returned": returned, "more": returned >= limit] as [String: Any]
     }
 
     private static func ms(_ date: Date) -> Double { (date.timeIntervalSince1970 * 1000).rounded() }

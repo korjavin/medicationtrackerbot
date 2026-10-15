@@ -18,6 +18,7 @@ vi.mock('../sync.js', () => ({
 
 import { runHealthImport, startHealthImport, healthStatusText } from '../health-import.js';
 import { createBPDomain } from '../../../domain/bp.js';
+import { recordsToVault, vaultToRecords } from '../../../domain/vault.js';
 
 const U1 = '11111111-2222-4333-8444-555555555555';
 const U2 = '66666666-7777-4888-9999-aaaaaaaaaaaa';
@@ -56,7 +57,7 @@ function fakeHealth(data) {
             const from = anchor ? Number(anchor) : 0;
             const all = data[type] || [];
             const page = all.slice(from, from + limit);
-            return { samples: page, anchor: String(from + page.length), more: from + page.length < all.length };
+            return { samples: page, anchor: String(from + page.length), returned: page.length, more: from + page.length < all.length };
         },
     };
 }
@@ -121,7 +122,22 @@ describe('Apple Health import', () => {
         const health = fakeHealth({ bp: [], weight });
         expect(await runHealthImport({}, { health, storage, records, flush })).toEqual({ added: 1200 });
         expect(health.calls.filter((c) => c.type === 'weight').map((c) => c.anchor)).toEqual([null, '500', '1000']);
-        expect(JSON.parse(storage.getItem('wg.health.anchors'))).toEqual({ bp: '0', weight: '1200' });
+        // bp returned nothing (none recorded, or read access denied): no anchor
+        // is kept, so history granted later is still read from the start.
+        expect(JSON.parse(storage.getItem('wg.health.anchors'))).toEqual({ weight: '1200' });
+    });
+
+    it('a vault backup and restore keeps the Health-derived ids, so the next scan finds them', async () => {
+        const data = { bp: [bpSample(U1, T0, 125, 82)], weight: [kgSample(U2, T0, 70)] };
+        await runHealthImport({}, { health: fakeHealth(data), storage, records, flush });
+        const vault = recordsToVault([...records.rows.values()], { now: T0 });
+        expect(vault.data.bp.readings[0]).toMatchObject({ source: 'apple_health', source_id: U1 });
+        const restored = memRecords();
+        for (const r of vaultToRecords(vault, { now: T0 })) restored.rows.set(r.recordId, r);
+        expect(restored.rows.has(`bp-hk-${U1}`)).toBe(true);
+        expect(restored.rows.has(`weight-hk-${U2}`)).toBe(true);
+        storage.setItem('wg.health.anchors', '{}');
+        expect(await runHealthImport({}, { health: fakeHealth(data), storage, records: restored, flush })).toEqual({ added: 0 });
     });
 
     it('skips malformed samples instead of stalling the import', async () => {

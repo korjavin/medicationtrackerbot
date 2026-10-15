@@ -203,7 +203,7 @@ export function createBPDomain({ records, now, timeZone }) {
       notes: input.notes || '',
       tag: input.tag || '',
       // Optional and additive: absent on every hand-entered reading.
-      ...(input.source ? { source: input.source } : {}),
+      ...(input.source ? { source: input.source, source_id: input.source_id || '' } : {}),
     };
     if (derived) return toResponse(await records.putIfAbsent(RECORD_TYPE, record));
     await records.put(RECORD_TYPE, record);

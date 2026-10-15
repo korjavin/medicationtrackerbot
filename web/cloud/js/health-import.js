@@ -67,7 +67,10 @@ export async function runHealthImport(ctx, {
         for (let page = 0; page < MAX_PAGES; page++) {
             const res = await health.query({ type: kind, anchor: anchors[kind] || null, limit: PAGE });
             added += (await domain.importSamples(kind, res && res.samples)).added;
-            if (res && typeof res.anchor === 'string') {
+            // Only an anchor that moved past something we saw is kept: while
+            // read access is denied Health returns nothing, and an anchor
+            // saved then could skip the history once access is granted.
+            if (res && typeof res.anchor === 'string' && res.returned > 0) {
                 anchors[kind] = res.anchor;
                 writeJSON(storage, ANCHORS_KEY, anchors);
             }
@@ -147,6 +150,9 @@ export function startHealthImport(ctx, {
             return false;
         }
         writeJSON(storage, ENABLED_KEY, true);
+        // Switching on is also the manual rescan: start from the beginning
+        // (known readings are skipped by id).
+        writeJSON(storage, ANCHORS_KEY, {});
         refresh();
         importNow();
         return true;

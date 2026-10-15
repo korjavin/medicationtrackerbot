@@ -11,8 +11,9 @@
 // overwrites an edit to that reading and never resurrects a deleted one (a
 // tombstone occupies the slot).
 //
-// The only new field is the optional `source: 'apple_health'`; clients that
-// predate it ignore it (toResponse picks known fields).
+// The only new fields are the optional `source: 'apple_health'` and
+// `source_id` (the sample UUID, so a vault restore keeps the id — vault.js);
+// clients that predate them ignore them (toResponse picks known fields).
 import { createBPDomain } from './bp.js';
 import { createWeightDomain } from './weight.js';
 
@@ -23,6 +24,14 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 export function healthRecordId(kind, uuid) {
   return `${kind}-hk-${String(uuid).toLowerCase()}`;
+}
+
+// The recordId an imported body maps back to (vault restore re-mints leaf ids),
+// or null for anything that did not come from Apple Health.
+export function healthImportRecordId(kind, body) {
+  return body && body.source === HEALTH_SOURCE && UUID_RE.test(body.source_id)
+    ? healthRecordId(kind, body.source_id)
+    : null;
 }
 
 function positive(v) {
@@ -45,6 +54,7 @@ export function createHealthImportDomain({ records, now, timeZone }) {
         systolic: Math.round(s.systolic),
         diastolic: Math.round(s.diastolic),
         source: HEALTH_SOURCE,
+        source_id: s.uuid,
       }, opts),
     },
     weight: {
@@ -53,6 +63,7 @@ export function createHealthImportDomain({ records, now, timeZone }) {
         measured_at: s.start,
         weight: Math.round(s.kg * 100) / 100,
         source: HEALTH_SOURCE,
+        source_id: s.uuid,
       }, opts),
     },
   };
@@ -65,7 +76,11 @@ export function createHealthImportDomain({ records, now, timeZone }) {
     if (!k) throw new Error(`healthimport: unknown kind ${kind}`);
     // Tombstones included: a deleted reading stays deleted.
     const have = new Set((await records.listRaw(kind)).map((r) => r.recordId));
-    // Oldest first, so weight_trend builds forward over a first import.
+    // Oldest first, so a first import into an empty history builds
+    // weight_trend forward. Like any backdated entry (weight.create), a sample
+    // older than the newest reading smooths against that newest one, and the
+    // trend depends on the writing device's mirror — it is a display aid, the
+    // first writer's value wins (putIfAbsent).
     // ponytail: weight.create re-lists per call (O(n²) on a first import of
     // years of history); batch the trend if that ever shows up as slow.
     const fresh = (Array.isArray(samples) ? samples : [])

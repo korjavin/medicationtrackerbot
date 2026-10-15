@@ -97,7 +97,7 @@ export function createWeightDomain({ records, now, timeZone }) {
       body_fat: input.body_fat ?? null,
       muscle_mass: input.muscle_mass ?? null,
       notes: input.notes || '',
-      ...(input.source ? { source: input.source } : {}),
+      ...(input.source ? { source: input.source, source_id: input.source_id || '' } : {}),
     };
     if (derived) return toResponse(await records.putIfAbsent(RECORD_TYPE, record));
     await records.put(RECORD_TYPE, record);

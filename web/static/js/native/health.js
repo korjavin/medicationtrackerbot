@@ -8,7 +8,7 @@
 //     sheet for `types` (e.g. ['bp', 'weight']); false when this device has no
 //     Health data store. HealthKit never says whether read access was granted
 //     — a denied type simply returns no samples.
-//   query({ type, anchor, limit }) → Promise<{ samples, anchor, more }>: an
+//   query({ type, anchor, limit }) → Promise<{ samples, anchor, returned, more }>: an
 //     anchored query; pass the returned anchor (opaque string) back next time
 //     to get only what was added since. `more` means call again now.
 //

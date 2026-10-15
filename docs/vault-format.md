@@ -124,7 +124,9 @@ is called out as unix-seconds or milliseconds, it is an **RFC3339 string**.
 - **reading** (leaf, no `id`) — `measured_at` (RFC3339), `systolic` (num), `diastolic`
   (num), `pulse` (num|null), `site` (str), `position` (str), `ignore_calc` (bool),
   `notes` (str), `tag` (str), optional `source` (str, `"apple_health"` on readings
-  imported from Apple Health; absent otherwise). `category` is **derived** (recomputed on read from
+  imported from Apple Health; absent otherwise) and `source_id` (str, the HealthKit
+  sample UUID — import re-mints such a reading as `bp-hk-<uuid>` instead of a fresh
+  id, so the next Health scan recognises it). `category` is **derived** (recomputed on read from
   systolic/diastolic) — omitted from the format; import never trusts it.
 
 ### `weight`
@@ -138,7 +140,7 @@ is called out as unix-seconds or milliseconds, it is an **RFC3339 string**.
 ```
 
 - **log** (leaf, no `id`) — `measured_at` (RFC3339), `weight` (num), `body_fat`
-  (num|null), `muscle_mass` (num|null), `notes` (str), optional `source` (as bp).
+  (num|null), `muscle_mass` (num|null), `notes` (str), optional `source` / `source_id` (as bp; re-minted as `weight-hk-<uuid>`).
   `weight_trend` is **derived**
   (rolling average) — omitted.
 - **goals** (leaf, no `id`) — the full append-only goal history, **oldest first**.
