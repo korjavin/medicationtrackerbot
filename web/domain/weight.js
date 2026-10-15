@@ -79,7 +79,10 @@ export function createWeightDomain({ records, now, timeZone }) {
   // derived: see createBPDomain (LWW floor for re-derivable imports).
   async function create(input, { replacesId, recordId, derived = false } = {}) {
     const nowMs = now();
-    const all = await records.list(RECORD_TYPE);
+    // A derived row must be the same body on every device that derives it
+    // (equal clientTs 0 never reconciles under LWW), so its trend comes from
+    // the sample alone, never from this device's history.
+    const all = derived ? [] : await records.list(RECORD_TYPE);
     const previous = all
       .filter((r) => r.recordId !== replacesId)
       .sort((a, b) => Date.parse(b.measured_at) - Date.parse(a.measured_at))[0];

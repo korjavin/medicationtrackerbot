@@ -84,10 +84,13 @@ manifest entry: there is no egress).
   An anchor is kept only after a page that returned something, so history
   hidden while access was denied is still read once it is granted; switching
   the toggle on again rescans from the start.
-- **Not in v1:** deleting a sample in Health does not delete it here. A vault
-  restore keeps the `-hk-` ids (`source_id`) but carries no bp/weight
-  tombstones, so a full rescan after a restore brings back Health readings
-  deleted before the backup. Sleep and workouts are med-w6gx.7.
+  A vault backup keeps the `-hk-` ids (`source_id`) and their tombstones, and
+  the importer also recognises a reading by `source_id` (an older client's
+  restore re-mints ids), so neither a restore nor a rescan duplicates or
+  resurrects. A derived weight's `weight_trend` comes from the sample alone, so
+  every device writes the same body.
+- **Not in v1:** deleting a sample in Health does not delete it here. Sleep and
+  workouts are med-w6gx.7.
 - **Signing:** automatic signing enabled the *HealthKit* capability on the App
   ID by itself. Upload validation demands `NSHealthUpdateUsageDescription` even
   for a read-only app, so `project.yml` carries one saying the app never writes.

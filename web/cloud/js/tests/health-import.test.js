@@ -140,6 +140,49 @@ describe('Apple Health import', () => {
         expect(await runHealthImport({}, { health: fakeHealth(data), storage, records: restored, flush })).toEqual({ added: 0 });
     });
 
+    it('a deleted Health reading stays deleted across a backup, restore and full rescan', async () => {
+        const data = { bp: [bpSample(U1, T0, 125, 82)], weight: [kgSample(U2, T0, 70)] };
+        await runHealthImport({}, { health: fakeHealth(data), storage, records, flush });
+        await records.del('bp', `bp-hk-${U1}`);
+        await records.del('weight', `weight-hk-${U2}`);
+        const vault = recordsToVault([...records.rows.values()], { now: T0 });
+        expect(vault.data.tombstones).toEqual([
+            { recordType: 'bp', recordId: `bp-hk-${U1}` },
+            { recordType: 'weight', recordId: `weight-hk-${U2}` },
+        ]);
+        const restored = memRecords();
+        for (const r of vaultToRecords(vault, { now: T0 })) restored.rows.set(r.recordId, r);
+        storage.setItem('wg.health.anchors', '{}');
+        expect(await runHealthImport({}, { health: fakeHealth(data), storage, records: restored, flush })).toEqual({ added: 0 });
+        expect(restored.rows.get(`bp-hk-${U1}`).deleted).toBe(true);
+    });
+
+    it('a reading restored under a fresh id (older client) is still recognised by its source_id', async () => {
+        const data = { bp: [bpSample(U1, T0, 125, 82)], weight: [kgSample(U2, T0, 70)] };
+        await runHealthImport({}, { health: fakeHealth(data), storage, records, flush });
+        const restored = memRecords();
+        for (const r of records.rows.values()) {
+            const fresh = r.recordType === 'bp' ? 'bp-1' : 'weight-2';
+            restored.rows.set(fresh, { ...r, recordId: fresh, clientTs: T0 });
+        }
+        storage.setItem('wg.health.anchors', '{}');
+        expect(await runHealthImport({}, { health: fakeHealth(data), storage, records: restored, flush })).toEqual({ added: 0 });
+        expect(restored.rows.size).toBe(2);
+    });
+
+    it('two devices with different histories write the same body for one sample', async () => {
+        const sample = { weight: [kgSample(U2, T0, 70)] };
+        const a = memRecords();
+        const b = memRecords();
+        await b.put('weight', { recordId: 'weight_1_x', clientTs: 5, deleted: false, measured_at: '2026-10-05T07:00:00.000Z', weight: 100, weight_trend: 100 });
+        await runHealthImport({}, { health: fakeHealth(sample), storage, records: a, flush });
+        const s2 = memStorage();
+        s2.setItem('wg.health.enabled', 'true');
+        await runHealthImport({}, { health: fakeHealth(sample), storage: s2, records: b, flush });
+        expect(a.rows.get(`weight-hk-${U2}`)).toEqual(b.rows.get(`weight-hk-${U2}`));
+        expect(a.rows.get(`weight-hk-${U2}`).weight_trend).toBe(70);
+    });
+
     it('skips malformed samples instead of stalling the import', async () => {
         const health = fakeHealth({
             bp: [bpSample('not-a-uuid', T0, 120, 80), bpSample(U1, NaN, 120, 80), bpSample(U3, T0, 0, 80), bpSample(U2, T0, 120, 80)],

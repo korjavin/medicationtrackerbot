@@ -74,15 +74,16 @@ export function createHealthImportDomain({ records, now, timeZone }) {
   async function importSamples(kind, samples) {
     const k = KINDS[kind];
     if (!k) throw new Error(`healthimport: unknown kind ${kind}`);
-    // Tombstones included: a deleted reading stays deleted.
-    const have = new Set((await records.listRaw(kind)).map((r) => r.recordId));
-    // Oldest first, so a first import into an empty history builds
-    // weight_trend forward. Like any backdated entry (weight.create), a sample
-    // older than the newest reading smooths against that newest one, and the
-    // trend depends on the writing device's mirror — it is a display aid, the
-    // first writer's value wins (putIfAbsent).
-    // ponytail: weight.create re-lists per call (O(n²) on a first import of
-    // years of history); batch the trend if that ever shows up as slow.
+    // Tombstones included: a deleted reading stays deleted. A row restored by
+    // an older client sits under a fresh id but keeps source_id — count it too.
+    const have = new Set();
+    for (const r of await records.listRaw(kind)) {
+      have.add(r.recordId);
+      const id = healthImportRecordId(kind, r);
+      if (id) have.add(id);
+    }
+    // Oldest first: a stable write order. (weight.create gives a derived row a
+    // trend from the sample alone, so every device writes the same body.)
     const fresh = (Array.isArray(samples) ? samples : [])
       .filter((s) => s && UUID_RE.test(s.uuid) && Number.isFinite(s.start) && k.valid(s))
       .sort((a, b) => a.start - b.start);

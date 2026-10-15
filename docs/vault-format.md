@@ -459,7 +459,11 @@ tombstone included — as occupying the slot. A tombstone there means "deliberat
 deleted, do not re-materialize"; dropping it on export resurrects the day and its
 reminder on the next import. Every other type is delete-by-absence (a missing row
 stays missing after the replace-only import), so only `intake` and
-`workoutsession` tombstones are carried.
+`workoutsession` tombstones are carried — plus Apple Health imports
+(`bp-hk-<uuid>`, `weight-hk-<uuid>`, bd med-w6gx.6), which a full Health rescan
+re-derives the same way, so a reading deleted before the backup stays deleted.
+Clients that predate these two types skip them on import (the unknown-type rule
+below).
 
 - Only exact derived-slot ids are carried: `intake-<medId>-<unixSec>` (mirroring
   medintake.js `slotId`) and `session-<groupId>-<YYYY-MM-DD>` (mirroring workout.js

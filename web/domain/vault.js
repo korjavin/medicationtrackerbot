@@ -96,7 +96,10 @@ export const VAULT_MANAGED_TYPES = new Set([
 // re-materialize"), not just the absence of a row — so the vault must carry it.
 // Every other type is delete-by-absence: a missing row stays missing after a
 // replace-only import, and its tombstones are correctly dropped on export.
-export const TOMBSTONED_SLOT_TYPES = new Set(['intake', 'workoutsession']);
+// Apple Health imports (bp-hk-<uuid>, weight-hk-<uuid>, healthimport.js) are
+// slots of the same kind: a deleted one must stay deleted across a restore and
+// a full Health rescan. Older clients skip these tombstone types on import.
+export const TOMBSTONED_SLOT_TYPES = new Set(['intake', 'workoutsession', 'bp', 'weight']);
 
 // Derived-slot id shapes, mirroring the canonical builders — medintake.js
 // slotId(medId, scheduledAtMs) and workout.js sessionRecordId(groupId, date);
@@ -108,6 +111,8 @@ export const TOMBSTONED_SLOT_TYPES = new Set(['intake', 'workoutsession']);
 const SLOT_ID_SHAPE = {
   intake: /^intake-\d+-\d+$/,
   workoutsession: /^session-\d+-\d{4}-\d{2}-\d{2}$/,
+  bp: /^bp-hk-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+  weight: /^weight-hk-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
 };
 
 function isSlotTombstone(recordType, recordId) {
