@@ -40,6 +40,7 @@ function toResponse(record) {
   if (record.body_fat !== null && record.body_fat !== undefined) resp.body_fat = record.body_fat;
   if (record.muscle_mass !== null && record.muscle_mass !== undefined) resp.muscle_mass = record.muscle_mass;
   if (record.notes) resp.notes = record.notes;
+  if (record.source) resp.source = record.source;
   return resp;
 }
 
@@ -75,7 +76,8 @@ function goalResponse(latestGoal, highestRecord) {
 export function createWeightDomain({ records, now, timeZone }) {
   // recordId: see createBPDomain — deterministic ids let the Telegram inbox
   // drain re-apply an event without double-logging (drain protocol, rule 2).
-  async function create(input, { replacesId, recordId } = {}) {
+  // derived: see createBPDomain (LWW floor for re-derivable imports).
+  async function create(input, { replacesId, recordId, derived = false } = {}) {
     const nowMs = now();
     const all = await records.list(RECORD_TYPE);
     const previous = all
@@ -87,7 +89,7 @@ export function createWeightDomain({ records, now, timeZone }) {
 
     const record = {
       recordId: recordId || genId(nowMs),
-      clientTs: nowMs,
+      clientTs: derived ? 0 : nowMs,
       deleted: false,
       measured_at: toISOString(input.measured_at),
       weight: input.weight,
@@ -95,7 +97,9 @@ export function createWeightDomain({ records, now, timeZone }) {
       body_fat: input.body_fat ?? null,
       muscle_mass: input.muscle_mass ?? null,
       notes: input.notes || '',
+      ...(input.source ? { source: input.source } : {}),
     };
+    if (derived) return toResponse(await records.putIfAbsent(RECORD_TYPE, record));
     await records.put(RECORD_TYPE, record);
     return toResponse(record);
   }

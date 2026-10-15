@@ -163,7 +163,7 @@ register themselves at script-load time and replace the stub.
 | `window.Barcode` | Barcode scanning | `BarcodeDetector` (Chrome) / ZXing fallback |
 | `window.Bluetooth` | Web Bluetooth heart rate (HR slice) | `navigator.bluetooth` GATT + 0x2A37 parse (med-byks.1) |
 | `window.LocalNotifications` | Device-scheduled notifications (`isSupported`) | web: unsupported; ios: the app shell (`native/local-notifications.js`) |
-| `window.Health` | Apple Health read (`isSupported`) | web: unsupported; ios: the app shell (`native/health.js`) |
+| `window.Health` | Apple Health read (`isSupported`; ios adds `requestAuthorization`, `query` — see `native/health.js`) | web: unsupported; ios: the app shell (`native/health.js`) |
 
 **Platforms** — `native/index.js` is the only place that decides the platform
 (`__native.platform`): `'ios'` when the iOS app shell's `wgNative` reply handler

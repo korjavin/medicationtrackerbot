@@ -530,6 +530,17 @@ window.MedTrackerCloudReady = (async function boot() {
             })
             .catch((e) => console.error('[cloud-boot] inbox poller install failed', e));
 
+        // Apple Health import (bd med-w6gx.6): only inside the iOS app shell,
+        // where native/health.js installs the ios impl. On the web isSupported()
+        // is false and the module is never even fetched.
+        let healthSupported = false;
+        try { healthSupported = !!(window.Health && window.Health.isSupported()); } catch { /* stub: native/ not loaded */ }
+        if (healthSupported) {
+            import('/js/health-import.js')
+                .then(({ startHealthImport }) => startHealthImport(ctx))
+                .catch((e) => console.error('[cloud-boot] health import failed', e));
+        }
+
         // Snooze / don't-bug taps from a push notification (med-9b8.3). The
         // service worker has no DEK, so it hands the action here instead of
         // POSTing it itself: warm tab → postMessage, cold start → ?reminder_action.

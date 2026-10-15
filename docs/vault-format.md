@@ -123,7 +123,8 @@ is called out as unix-seconds or milliseconds, it is an **RFC3339 string**.
 
 - **reading** (leaf, no `id`) — `measured_at` (RFC3339), `systolic` (num), `diastolic`
   (num), `pulse` (num|null), `site` (str), `position` (str), `ignore_calc` (bool),
-  `notes` (str), `tag` (str). `category` is **derived** (recomputed on read from
+  `notes` (str), `tag` (str), optional `source` (str, `"apple_health"` on readings
+  imported from Apple Health; absent otherwise). `category` is **derived** (recomputed on read from
   systolic/diastolic) — omitted from the format; import never trusts it.
 
 ### `weight`
@@ -137,7 +138,8 @@ is called out as unix-seconds or milliseconds, it is an **RFC3339 string**.
 ```
 
 - **log** (leaf, no `id`) — `measured_at` (RFC3339), `weight` (num), `body_fat`
-  (num|null), `muscle_mass` (num|null), `notes` (str). `weight_trend` is **derived**
+  (num|null), `muscle_mass` (num|null), `notes` (str), optional `source` (as bp).
+  `weight_trend` is **derived**
   (rolling average) — omitted.
 - **goals** (leaf, no `id`) — the full append-only goal history, **oldest first**.
   Each: `target_weight` (num), `target_date` (`YYYY-MM-DD`), `set_at` (RFC3339),
