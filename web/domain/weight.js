@@ -22,6 +22,18 @@ export function calculateWeightTrend(currentWeight, previousTrend) {
   return alpha * currentWeight + (1 - alpha) * previousTrend;
 }
 
+// compareChain is THE order of a recomputed chain (readers and restore):
+// instant, then weight, then recordId. ponytail: restore re-mints manual ids, so
+// only (instant, weight) survive it — enough, rows tied on both yield the same
+// EMA values in either order; recordId just keeps one device deterministic.
+export function compareChain(a, b) {
+  const d = (Date.parse(a.measured_at) - Date.parse(b.measured_at)) || (a.weight - b.weight);
+  if (d) return d;
+  const ia = String(a.recordId || '');
+  const ib = String(b.recordId || '');
+  return ia < ib ? -1 : ia > ib ? 1 : 0;
+}
+
 // weightTrendChain is THE weight_trend EMA walk over a chain sorted oldest
 // first, seeded from null. vault.js restore uses it too.
 export function weightTrendChain(rowsAsc) {
@@ -41,7 +53,7 @@ export const isHealthWeight = (r) => healthImportRecordId(RECORD_TYPE, r) !== nu
 // restore's own (lexical, master) order and stored trends never show here.
 function withTrends(rows) {
   if (!rows.some(isHealthWeight)) return rows;
-  const asc = [...rows].sort((a, b) => Date.parse(a.measured_at) - Date.parse(b.measured_at));
+  const asc = [...rows].sort(compareChain);
   const trends = weightTrendChain(asc);
   return asc.map((r, i) => ({ ...r, weight_trend: trends[i] }));
 }

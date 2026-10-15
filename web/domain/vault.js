@@ -63,7 +63,7 @@
 // vault actually carries them — see managedTypesForImport.
 
 import { calculateBPCategory } from './bp.js';
-import { isHealthWeight, weightTrendChain } from './weight.js';
+import { compareChain, isHealthWeight, weightTrendChain } from './weight.js';
 import { healthImportRecordId } from './healthsource.js';
 
 export const VAULT_FORMAT = 'medtracker-vault';
@@ -559,7 +559,13 @@ export function vaultToRecords(vault, { now } = {}) {
 
   // --- weight (rebuild every trend with weight.js weightTrendChain, the walk its readers use) ---
   const weight = data.weight || {};
-  const ascLogs = sortBy(weight.logs || [], (r) => r.measured_at);
+  // A backup holding Apple Health rows walks the readers' chain order, so the
+  // manual rows' stored trends equal what was shown (and still hold once the
+  // last Health row is deleted). Manual-only backups keep the original order.
+  const logs = weight.logs || [];
+  const ascLogs = logs.some(isHealthWeight)
+    ? [...logs].sort(compareChain)
+    : sortBy(logs, (r) => r.measured_at);
   const trends = weightTrendChain(ascLogs);
   ascLogs.forEach((log, i) => {
     // An Apple Health row stays trend-less (null), as healthimport writes it,

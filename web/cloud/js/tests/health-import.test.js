@@ -255,6 +255,29 @@ describe('Apple Health import', () => {
             expect(await trends(records)).toEqual([73, 70]);
             expect(await trends(restoreOf(records))).toEqual([73, 70]);
         });
+
+        it('readings at the same instant keep one chain order across a restore', async () => {
+            const at = '2026-10-02T00:00:00Z';
+            await records.put('weight', { recordId: 'w1', clientTs: 1, deleted: false, measured_at: at, weight: 80, weight_trend: 80 });
+            await records.put('weight', hkRow(70, at));
+            const pairs = async (recs) => (await createWeightDomain({ records: recs, now: NOW, timeZone: 'UTC' })
+                .list({ days: 0 })).map((l) => [l.weight, l.weight_trend]);
+            expect(await pairs(records)).toEqual([[70, 70], [80, 71]]);
+            expect(await pairs(restoreOf(records))).toEqual([[70, 70], [80, 71]]);
+        });
+
+        it('after a restore, deleting the last Health row leaves the trends that were shown', async () => {
+            await records.put('weight', hkRow(70, '2026-10-01T00:00:00Z'));
+            await records.put('weight', { recordId: 'a', clientTs: 1, deleted: false, measured_at: '2026-10-01T23:00:00-02:00', weight: 100, weight_trend: 100 });
+            await records.put('weight', { recordId: 'b', clientTs: 2, deleted: false, measured_at: '2026-10-02T00:30:00Z', weight: 80, weight_trend: 80 });
+            const shown = await trends(records); // 70, then 80 → 71, then 100 → 73.9 (time order)
+            const restored = restoreOf(records);
+            await createWeightDomain({ records: restored, now: NOW, timeZone: 'UTC' }).remove(`weight-hk-${U1}`);
+            const left = await trends(restored);
+            expect(left[0]).toBeCloseTo(73.9, 6);
+            expect(left[1]).toBeCloseTo(71, 6);
+            expect(left).toEqual(shown.slice(0, 2));
+        });
     });
 
     it('deleting a reading restored under a fresh id (older client) keeps it deleted on a full rescan', async () => {
