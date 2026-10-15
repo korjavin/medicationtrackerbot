@@ -12,10 +12,14 @@ export function healthRecordId(kind, uuid) {
 
 // The recordId an imported body maps back to (vault restore re-mints leaf ids),
 // or null for anything that did not come from Apple Health.
+// A Health sleep record is keyed by its sleep day (YYYY-MM-DD, healthimport.js
+// importSleep), every other kind by the sample UUID.
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 export function healthImportRecordId(kind, body) {
-  return body && body.source === HEALTH_SOURCE && UUID_RE.test(body.source_id)
-    ? healthRecordId(kind, body.source_id)
-    : null;
+  if (!body || body.source !== HEALTH_SOURCE) return null;
+  const ok = kind === 'sleep' ? DAY_RE.test(body.source_id) : UUID_RE.test(body.source_id);
+  return ok ? healthRecordId(kind, body.source_id) : null;
 }
 
 // deleteHealthAlias: a Health row restored by an older client sits under a
@@ -24,4 +28,20 @@ export function healthImportRecordId(kind, body) {
 export async function deleteHealthAlias(records, kind, row) {
   const canonical = healthImportRecordId(kind, row);
   if (canonical && canonical !== row.recordId) await records.del(kind, canonical);
+}
+
+// The body `id` of an imported Health workout (miband record, bd med-w6gx.7):
+// the edit/delete routes key on it, so it must be the same on every device and
+// after a restore. It must never equal another miband row's id (delete and
+// edit find the row by it), so it lives in its own band: 1e14 + the UUID's
+// last 48 bits (random in HealthKit's v4 UUIDs), i.e. [1e14, 1e14 + 2^48) ≈
+// [1.0e14, 3.8e14]. Every other miband id is either a Mi Band start time in
+// epoch ms (vitals.js / vault.js: < 1e14 until the year 5138), a bot-era small
+// integer, or workout.js mintNumericId(startMs * 1000) (≥ 3.8e14 for any
+// start after 1982). The band stays far below Number.MAX_SAFE_INTEGER, and it
+// sits below mint, so mint's localMax + 1 fallback never climbs into it.
+export const HEALTH_ID_BASE = 1e14;
+
+export function healthNumericId(uuid) {
+  return HEALTH_ID_BASE + parseInt(String(uuid).slice(-12), 16);
 }

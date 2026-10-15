@@ -9,8 +9,10 @@ import HealthKit
 ///   health.authorize {types}             → Bool (false: no Health store on this device)
 ///   health.query {type, anchor?, limit?} → {samples, anchor, returned, more}
 ///     (returned: added + deleted objects HealthKit handed back)
-/// Kinds: "bp" (blood-pressure correlations), "weight" (body mass).
-/// Sleep and workouts (med-7) add their kinds to `readTypes` and `query`.
+///   health.query {type: "sleep", from, to} → {samples, from, to, returned: 0, more: false}
+///     (no anchor: re-reads nights still settling — web/cloud/js/health-import.js)
+/// Kinds: "bp" (blood-pressure correlations), "weight" (body mass), and
+/// (bd med-w6gx.7) "sleep" (sleep-analysis samples) and "workout" (HKWorkout).
 @MainActor
 enum Health {
     struct Failure: LocalizedError {
@@ -22,13 +24,28 @@ enum Health {
     static let systolic = HKQuantityType(.bloodPressureSystolic)
     static let diastolic = HKQuantityType(.bloodPressureDiastolic)
     static let bodyMass = HKQuantityType(.bodyMass)
+    static let sleepAnalysis = HKCategoryType(.sleepAnalysis)
+    static let heartRate = HKQuantityType(.heartRate)
+    static let energy = HKQuantityType(.activeEnergyBurned)
+    static let distances = [HKQuantityType(.distanceWalkingRunning), HKQuantityType(.distanceCycling),
+                            HKQuantityType(.distanceSwimming)]
+    /// A sleep page is answered with every sleep sample from this much before
+    /// the page's earliest new sample to this much after its latest, so the web
+    /// side sees every night of each sleep day it touches (healthimport.js: a
+    /// day's nights end within 24h and start at most a day before). ponytail:
+    /// one window per page, unbounded — out-of-order backfill can read a long
+    /// span once; split into per-day windows if that shows up as slow.
+    static let sleepPad: TimeInterval = 48 * 3600
 
     /// Read authorization is per quantity type: a blood-pressure correlation
-    /// is readable once both of its members are.
+    /// is readable once both of its members are; a workout's heart rate,
+    /// energy and distance totals need their own types.
     static func readTypes(_ kind: String) -> [HKObjectType] {
         switch kind {
         case "bp": return [systolic, diastolic]
         case "weight": return [bodyMass]
+        case "sleep": return [sleepAnalysis]
+        case "workout": return [HKObjectType.workoutType(), heartRate, energy] + distances
         default: return []
         }
     }
@@ -56,8 +73,14 @@ enum Health {
         let anchor = (args["anchor"] as? String)
             .flatMap { Data(base64Encoded: $0) }
             .flatMap { try? NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: $0) }
+        if args["type"] as? String == "sleep", let f = (args["from"] as? NSNumber)?.doubleValue, let t = (args["to"] as? NSNumber)?.doubleValue {
+            let from = Date(timeIntervalSince1970: f / 1000), to = Date(timeIntervalSince1970: t / 1000)
+            let samples = try await sleepSamples(from, to)
+            return ["samples": samples, "from": ms(from), "to": ms(to), "returned": 0, "more": false] as [String: Any]
+        }
         let limit = max(1, min(args["limit"] as? Int ?? 500, 1000))
-        let samples: [[String: Any]]
+        var samples: [[String: Any]] = []
+        var window: [String: Any] = [:]
         let newAnchor: HKQueryAnchor
         let returned: Int
         switch args["type"] as? String {
@@ -84,12 +107,57 @@ enum Health {
             }
             newAnchor = r.newAnchor
             returned = r.addedSamples.count + r.deletedObjects.count
+        case "sleep":
+            // The anchor finds what is new; the answer is every sleep sample
+            // around it (all sources), with the window it covers as from/to.
+            let r = try await HKAnchoredObjectQueryDescriptor(
+                predicates: [.categorySample(type: sleepAnalysis)],
+                anchor: anchor, limit: limit).result(for: store)
+            if let lo = r.addedSamples.map(\.startDate).min(), let hi = r.addedSamples.map(\.endDate).max() {
+                let from = lo.addingTimeInterval(-sleepPad), to = hi.addingTimeInterval(sleepPad)
+                samples = try await sleepSamples(from, to)
+                window = ["from": ms(from), "to": ms(to)]
+            }
+            newAnchor = r.newAnchor
+            returned = r.addedSamples.count + r.deletedObjects.count
+        case "workout":
+            let r = try await HKAnchoredObjectQueryDescriptor(
+                predicates: [.workout()],
+                anchor: anchor, limit: limit).result(for: store)
+            let bpm = HKUnit.count().unitDivided(by: .minute())
+            samples = r.addedSamples.map { w -> [String: Any] in
+                var o: [String: Any] = ["uuid": w.uuid.uuidString, "start": ms(w.startDate), "end": ms(w.endDate),
+                                        "activity": Int(w.workoutActivityType.rawValue), "duration": w.duration]
+                if let hr = w.statistics(for: heartRate)?.averageQuantity() { o["hr"] = hr.doubleValue(for: bpm) }
+                if let kcal = w.statistics(for: energy)?.sumQuantity() { o["energy"] = kcal.doubleValue(for: .kilocalorie()) }
+                if let m = distances.lazy.compactMap({ w.statistics(for: $0)?.sumQuantity() }).first {
+                    o["distance"] = m.doubleValue(for: .meter())
+                }
+                return o
+            }
+            newAnchor = r.newAnchor
+            returned = r.addedSamples.count + r.deletedObjects.count
         case let t:
             throw Failure("unknown type: \(t ?? "")")
         }
         let token = try NSKeyedArchiver.archivedData(withRootObject: newAnchor, requiringSecureCoding: true)
-        return ["samples": samples, "anchor": token.base64EncodedString(),
-                "returned": returned, "more": returned >= limit] as [String: Any]
+        let page: [String: Any] = ["samples": samples, "anchor": token.base64EncodedString(),
+                                   "returned": returned, "more": returned >= limit]
+        return page.merging(window) { a, _ in a }
+    }
+
+    /// Every sleep sample (all sources) overlapping [from, to].
+    private static func sleepSamples(_ from: Date, _ to: Date) async throws -> [[String: Any]] {
+        let around = HKQuery.predicateForSamples(withStart: from, end: to, options: [])
+        let all = try await HKSampleQueryDescriptor(
+            predicates: [.categorySample(type: sleepAnalysis, predicate: around)],
+            sortDescriptors: []).result(for: store)
+        return all.map { s -> [String: Any] in
+            var o: [String: Any] = ["uuid": s.uuid.uuidString, "start": ms(s.startDate), "end": ms(s.endDate),
+                                    "value": s.value, "source": s.sourceRevision.source.bundleIdentifier]
+            if let tz = s.metadata?[HKMetadataKeyTimeZone] as? String { o["tz"] = tz }
+            return o
+        }
     }
 
     private static func ms(_ date: Date) -> Double { (date.timeIntervalSince1970 * 1000).rounded() }

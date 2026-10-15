@@ -449,7 +449,8 @@ function _buildMiBandCard(w) {
 
     const name = document.createElement('span');
     name.className = 'wg-workouts-history-row__name';
-    name.textContent = w.source === 'manual' ? 'Manual entry' : 'Mi Band';
+    name.textContent = w.source === 'manual' ? 'Manual entry'
+        : w.source === 'apple_health' ? 'Apple Health' : 'Mi Band';
     title.appendChild(name);
 
     body.appendChild(title);

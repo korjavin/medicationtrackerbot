@@ -119,8 +119,95 @@ manifest entry: there is no egress).
   types), so a later full Health rescan brings deleted readings back. A client
   that predates this change sees Health weights without a trend and seeds a
   new entry's trend from the raw weight. Neither can be fixed from this side.
-- **Not in v1:** deleting a sample in Health does not delete it here. Sleep and
-  workouts are med-w6gx.7.
+- **Not in v1:** deleting a sample in Health does not delete it here.
+
+### Sleep and workouts (bd med-w6gx.7)
+
+Same toggle, same anchored queries. A build that switched the toggle on for BP
+and weight only asks once, at the next open, for the new types.
+
+- **Sleep** → the existing `sleep` record (Vitals), **one per sleep day**.
+  `Health.swift` answers a sleep page with *every* sleep sample (all sources)
+  from 48h before the page's earliest new sample to 48h after its latest, plus
+  that window; `healthimport.js` groups them into nights per source (gaps ≤ 1h,
+  *In Bed* ignored), keeps only nights whole inside the window, and maps
+  Core/Deep/REM/Awake to light/deep/rem/awake minutes (`total_minutes` = asleep
+  time). Overlapping samples of one night count each minute once, as the
+  highest of deep > REM > core > awake > unspecified, so the minutes never
+  exceed the night's span.
+  - A **sleep day** runs 18:00–18:00 local by when a night *ends*: the night
+    ending at 07:00 and a nap at 15:00 are that date's; it is the record's
+    `day` (the wake day for a normal night). Local = the samples' own zone
+    (HealthKit's `HKTimeZone`), else **UTC** — never the iPhone's zone.
+  - recordId `sleep-hk-<day>` (`source_id` = the day). The record holds every
+    night and nap of that day from **one source** — the one with the most
+    asleep minutes — with `start_time`/`end_time` spanning them. Naps are
+    therefore merged into the day's record rather than kept as sessions.
+  - Written once, `putIfAbsent` at `clientTs: 0` like every other import
+    (CLAUDE.md rule 12): the **first settled version of a day wins**, an edit
+    always outranks it, and a deleted day stays deleted (its tombstone also
+    rides in vault backups). Manual and Mi Band entries live under other ids.
+- **Settling:** a sleep day is written only once its last sample ended **3h**
+  ago (`SLEEP_SETTLE_MS`), so a night still being written is not frozen as a
+  fragment. A night still settling when its samples were read leaves its
+  start in `wg.health.sleepPending` (saved before the anchor moves past it);
+  every later run first re-reads sleep by time window (`health.query {type:
+  "sleep", from: start − 48h, to: now}`, no anchor), until nothing is left
+  settling.
+- **Workouts** → the existing `miband` activity record (Workouts → History,
+  labelled *Apple Health*): type name, start/end, duration, distance, active
+  energy, average heart rate. recordId `miband-hk-<uuid>`, body `id` from the
+  UUID. A Health workout **never** creates or edits a strength session, set,
+  rotation or progression (docs/workout-depth.md) — it is a history row only.
+- **Overlap rule:**
+  - an entry already in the vault wins — a Mi Band night or ride, a manual
+    entry, or (workouts) one imported earlier from another Health source — and
+    the Health copy that overlaps it in time is skipped;
+  - among new overlapping Health workouts (Watch + a third-party app writing
+    the same run), the longest wins, ties to the smaller UUID, so every iPhone
+    picks the same one; Health sleep sources compete per sleep day, as above;
+  - a Health *strength* workout (traditional / functional strength training)
+    that overlaps an in-app workout session is skipped: the per-set log is the
+    record of that visit. Other Health workouts during a session (a treadmill
+    run) are kept;
+  - a deleted Health workout stays deleted: a rescan does not bring it back.
+- **Known residuals:** the rule is applied once, against what this iPhone has
+  synced at that moment — an entry that arrives later (a Mi Band `.nxk` import
+  of a night already imported from Health) does not displace the Health copy,
+  so that night counts twice until one is removed (sleep has no delete in the
+  app yet), and a skipped Health entry stays skipped after the entry that beat
+  it is deleted, until the toggle is switched off and on (a rescan). A night
+  whose samples carry no time zone takes its sleep day in UTC; for a morning
+  wake-up that is the local date nearly everywhere, but a zone-less and a
+  zoned source can file one night on different days (and so show it twice)
+  for wake-ups before ~05:00 east of UTC+10 or after ~10:00 west of UTC−8.
+  The first settled version of a sleep day wins: if a device writes a day
+  while its Health copy is still incomplete (Health sync lag across devices
+  beyond the 3h settle), a later fuller version is not applied. Deleting the
+  day does not re-import it — the tombstone keeps it deleted (the safe
+  direction). A backup restored and re-exported by a client that predates the
+  `miband-hk-` / `sleep-hk-` tombstones loses them, as for BP and weight
+  above, so a later rescan brings a deleted Health workout or night back.
+  A deleted Health workout leaves only a bodyless tombstone, so another
+  source's copy of it (Strava writing the same run later, or a rescan that
+  reads the copy on a different page) can still appear and needs deleting too.
+  A sleep page reads every sleep sample from 48h before the page's earliest
+  new sample to 48h after its latest, so a page of out-of-order backfill can
+  read a long stretch of history at once (slow, not wrong).
+
+### Device check — sleep and workouts (TestFlight)
+
+1. Wear an Apple Watch for a night (or add a sleep sample in Health), record a
+   Watch workout, and a strength workout during an in-app session.
+2. Open the app (the Health sheet now also lists Sleep, Workouts, Heart Rate,
+   Active Energy and distances) → allow → once 3h have passed since waking
+   (reopen then), the night shows in Vitals on its wake day with its stages; the workout shows in Workouts → History as *Apple
+   Health*; the strength workout during the session does not.
+3. Kill/reopen and toggle off/on: no duplicates. Delete the imported workout,
+   toggle off/on: it stays deleted.
+4. A Mi Band ride already in the app at the same time as a Health ride: only
+   the Mi Band one shows.
+5. A web browser on the same account shows the same night and workout.
 - **Signing:** an earlier automatic-signing run enabled the *HealthKit*
   capability on the App ID. Signing is now manual, so the App Store profile in
   `IOS_APPSTORE_PROFILE_BASE64` must be generated (or re-saved) after that, or
