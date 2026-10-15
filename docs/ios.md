@@ -119,8 +119,62 @@ manifest entry: there is no egress).
   types), so a later full Health rescan brings deleted readings back. A client
   that predates this change sees Health weights without a trend and seeds a
   new entry's trend from the raw weight. Neither can be fixed from this side.
-- **Not in v1:** deleting a sample in Health does not delete it here. Sleep and
-  workouts are med-w6gx.7.
+- **Not in v1:** deleting a sample in Health does not delete it here.
+
+### Sleep and workouts (bd med-w6gx.7)
+
+Same toggle, same anchored queries, same floor. A build that switched the toggle
+on for BP and weight only asks once, at the next open, for the new types.
+
+- **Sleep** → the existing `sleep` night (Vitals). `Health.swift` answers a sleep
+  page with *every* sleep sample within 18h of the page's new ones, plus that
+  window; `healthimport.js` groups them into nights per source (gaps ≤ 1h,
+  *In Bed* ignored), keeps only nights whole inside the window, and maps
+  Core/Deep/REM/Awake to light/deep/rem/awake minutes (`total_minutes` = asleep
+  time). recordId `sleep-hk-<uuid of the night's first sample>`; `day` is the
+  wake day and `timezone_offset` the night's offset, both in the sample's own
+  time zone (HealthKit's `HKTimeZone`), else this iPhone's.
+- **Workouts** → the existing `miband` activity record (Workouts → History,
+  labelled *Apple Health*): type name, start/end, duration, distance, active
+  energy, average heart rate. recordId `miband-hk-<uuid>`, body `id` from the
+  UUID. A Health workout **never** creates or edits a strength session, set,
+  rotation or progression (docs/workout-depth.md) — it is a history row only.
+- **Overlap rule** (both kinds), applied when a night or workout is first seen:
+  - an entry already in the vault wins — a Mi Band night or ride, a manual
+    cardio entry, or one imported earlier from another Health source — and the
+    Health copy that overlaps it in time is skipped;
+  - among new overlapping Health entries (Watch + a third-party app writing the
+    same run or night), the longest wins (asleep time for nights), ties to the
+    smaller UUID, so every iPhone picks the same one;
+  - a Health *strength* workout (traditional / functional strength training)
+    that overlaps an in-app workout session is skipped: the per-set log is the
+    record of that visit. Other Health workouts during a session (a treadmill
+    run) are kept;
+  - a deleted Health workout keeps its slot: a rescan neither brings it back
+    nor lets another source's copy of it take its place.
+- **Known residuals:** the rule is applied once, against what this iPhone has
+  synced at that moment — an entry that arrives later (a Mi Band `.nxk` import
+  of a night already imported from Health) does not displace the Health copy,
+  so that night counts twice until one is removed (sleep has no delete in the
+  app yet), and a skipped Health entry stays skipped after the entry that beat
+  it is deleted, until the toggle is switched off and on (a rescan). A night
+  whose samples carry no time zone takes each importing iPhone's zone for its
+  `day`, so two iPhones in different zones could file it on different days.
+  A night a source keeps extending after it was imported stays as first read.
+
+### Device check — sleep and workouts (TestFlight)
+
+1. Wear an Apple Watch for a night (or add a sleep sample in Health), record a
+   Watch workout, and a strength workout during an in-app session.
+2. Open the app (the Health sheet now also lists Sleep, Workouts, Heart Rate,
+   Active Energy and distances) → allow → the night shows in Vitals on its wake
+   day with its stages; the workout shows in Workouts → History as *Apple
+   Health*; the strength workout during the session does not.
+3. Kill/reopen and toggle off/on: no duplicates. Delete the imported workout,
+   toggle off/on: it stays deleted.
+4. A Mi Band ride already in the app at the same time as a Health ride: only
+   the Mi Band one shows.
+5. A web browser on the same account shows the same night and workout.
 - **Signing:** an earlier automatic-signing run enabled the *HealthKit*
   capability on the App ID. Signing is now manual, so the App Store profile in
   `IOS_APPSTORE_PROFILE_BASE64` must be generated (or re-saved) after that, or

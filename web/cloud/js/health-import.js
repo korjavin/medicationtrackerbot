@@ -17,10 +17,12 @@
 import { recordsPort, ORIGIN_EXTERNAL, flushConfirmed } from './sync.js';
 import { createHealthImportDomain } from '../../domain/healthimport.js';
 
-export const HEALTH_KINDS = ['bp', 'weight'];
+// Sleep and workouts: bd med-w6gx.7.
+export const HEALTH_KINDS = ['bp', 'weight', 'sleep', 'workout'];
 const ENABLED_KEY = 'wg.health.enabled';
 const ANCHORS_KEY = 'wg.health.anchors';
 const LAST_KEY = 'wg.health.last';
+const ASKED_KEY = 'wg.health.asked';
 const PAGE = 500;
 // ponytail: caps one run at 20k samples per kind; the saved anchor resumes the
 // rest on the next open.
@@ -64,17 +66,24 @@ export async function runHealthImport(ctx, {
     const anchors = readJSON(storage, ANCHORS_KEY, {});
     let added = 0;
     for (const kind of HEALTH_KINDS) {
-        for (let page = 0; page < MAX_PAGES; page++) {
-            const res = await health.query({ type: kind, anchor: anchors[kind] || null, limit: PAGE });
-            added += (await domain.importSamples(kind, res && res.samples)).added;
-            // Only an anchor that moved past something we saw is kept: while
-            // read access is denied Health returns nothing, and an anchor
-            // saved then could skip the history once access is granted.
-            if (res && typeof res.anchor === 'string' && res.returned > 0) {
-                anchors[kind] = res.anchor;
-                writeJSON(storage, ANCHORS_KEY, anchors);
+        // One kind failing (e.g. a type this device was never asked access
+        // for) must not stop the others; its anchor stays where it was.
+        try {
+            for (let page = 0; page < MAX_PAGES; page++) {
+                const res = await health.query({ type: kind, anchor: anchors[kind] || null, limit: PAGE });
+                // The whole result goes along: sleep reads its window ({from, to}).
+                added += (await domain.importSamples(kind, res && res.samples, res)).added;
+                // Only an anchor that moved past something we saw is kept: while
+                // read access is denied Health returns nothing, and an anchor
+                // saved then could skip the history once access is granted.
+                if (res && typeof res.anchor === 'string' && res.returned > 0) {
+                    anchors[kind] = res.anchor;
+                    writeJSON(storage, ANCHORS_KEY, anchors);
+                }
+                if (!res || !res.more) break;
             }
-            if (!res || !res.more) break;
+        } catch (e) {
+            console.error(`[health] ${kind} import failed`, e);
         }
     }
     const last = readJSON(storage, LAST_KEY, {});
@@ -95,7 +104,7 @@ function formatWhen(ms) {
 }
 
 export function healthStatusText(storage = globalThis.localStorage) {
-    if (!isHealthImportEnabled(storage)) return 'Import blood pressure and weight';
+    if (!isHealthImportEnabled(storage)) return 'Import blood pressure, weight, sleep and workouts';
     const last = readJSON(storage, LAST_KEY, {});
     if (!last.checkedAt) return 'Importing…';
     if (!last.total) return `Checked ${formatWhen(last.checkedAt)} · nothing yet. Check access in Settings → Health → Data Access & Devices.`;
@@ -150,6 +159,7 @@ export function startHealthImport(ctx, {
             return false;
         }
         writeJSON(storage, ENABLED_KEY, true);
+        writeJSON(storage, ASKED_KEY, HEALTH_KINDS);
         // Switching on is also the manual rescan: start from the beginning
         // (known readings are skipped by id).
         writeJSON(storage, ANCHORS_KEY, {});
@@ -161,6 +171,17 @@ export function startHealthImport(ctx, {
     doc.addEventListener('visibilitychange', () => {
         if (doc.visibilityState === 'visible') importNow();
     });
+    // Switched on by a build that read fewer kinds (bp/weight before
+    // med-w6gx.7): ask once for the new ones before importing. Health shows
+    // its sheet only for types it has not asked about yet.
+    const asked = readJSON(storage, ASKED_KEY, []);
+    if (isHealthImportEnabled(storage) && !HEALTH_KINDS.every((k) => Array.isArray(asked) && asked.includes(k))) {
+        return Promise.resolve()
+            .then(() => health.requestAuthorization(HEALTH_KINDS))
+            .then(() => writeJSON(storage, ASKED_KEY, HEALTH_KINDS))
+            .catch((e) => console.error('[health] authorization failed', e))
+            .then(importNow);
+    }
     return importNow();
 }
 

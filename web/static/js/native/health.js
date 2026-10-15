@@ -10,7 +10,10 @@
 //     — a denied type simply returns no samples.
 //   query({ type, anchor, limit }) → Promise<{ samples, anchor, returned, more }>: an
 //     anchored query; pass the returned anchor (opaque string) back next time
-//     to get only what was added since. `more` means call again now.
+//     to get only what was added since. `more` means call again now. Types:
+//     'bp', 'weight', 'sleep', 'workout' (bd med-w6gx.7); a 'sleep' page
+//     returns every sleep sample around the new ones, plus the window's
+//     { from, to } (ms).
 //
 // Load order: after native/index.js.
 (function () {

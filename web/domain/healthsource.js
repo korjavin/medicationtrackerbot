@@ -25,3 +25,12 @@ export async function deleteHealthAlias(records, kind, row) {
   const canonical = healthImportRecordId(kind, row);
   if (canonical && canonical !== row.recordId) await records.del(kind, canonical);
 }
+
+// The body `id` of an imported Health workout (miband record, bd med-w6gx.7):
+// the edit/delete routes key on it, so it must be the same on every device and
+// after a restore. The UUID's last 48 bits (random in HealthKit's v4 UUIDs)
+// stay below Number.MAX_SAFE_INTEGER and below workout.js mintNumericId's
+// range (nowMs * 1000).
+export function healthNumericId(uuid) {
+  return parseInt(String(uuid).slice(-12), 16);
+}

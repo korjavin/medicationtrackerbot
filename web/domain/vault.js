@@ -39,7 +39,7 @@
 //     medintake.js look up by exact recordId); every older plan lands on a
 //     `tzplanhistory-<idx>` recordId of the same `tzplan` type, ignored by
 //     those readers and re-merged on export.
-//   - intake + workoutsession (and Apple Health bp/weight -hk-) tombstones at
+//   - intake + workoutsession (and Apple Health bp/weight/miband -hk-) tombstones at
 //     deterministic slot ids are suppression signals (bd med-jtaj): recordsToVault carries them as
 //     data.tombstones and vaultToRecords re-materializes them as bodyless
 //     deleted rows. All other tombstones are delete-by-absence (dropped).
@@ -64,7 +64,7 @@
 
 import { calculateBPCategory } from './bp.js';
 import { compareChain, isHealthWeight, weightTrendChain } from './weight.js';
-import { healthImportRecordId } from './healthsource.js';
+import { healthImportRecordId, healthNumericId } from './healthsource.js';
 
 export const VAULT_FORMAT = 'medtracker-vault';
 export const VAULT_VERSION = 1;
@@ -96,10 +96,11 @@ export const VAULT_MANAGED_TYPES = new Set([
 // re-materialize"), not just the absence of a row — so the vault must carry it.
 // Every other type is delete-by-absence: a missing row stays missing after a
 // replace-only import, and its tombstones are correctly dropped on export.
-// Apple Health imports (bp-hk-<uuid>, weight-hk-<uuid>, healthimport.js) are
-// slots of the same kind: a deleted one must stay deleted across a restore and
-// a full Health rescan. Older clients skip these tombstone types on import.
-export const TOMBSTONED_SLOT_TYPES = new Set(['intake', 'workoutsession', 'bp', 'weight']);
+// Apple Health imports (bp-hk-<uuid>, weight-hk-<uuid>, miband-hk-<uuid>,
+// healthimport.js) are slots of the same kind: a deleted one must stay deleted
+// across a restore and a full Health rescan. Older clients skip these tombstone
+// types on import. (Health sleep nights have no delete path, so no tombstones.)
+export const TOMBSTONED_SLOT_TYPES = new Set(['intake', 'workoutsession', 'bp', 'weight', 'miband']);
 
 // Derived-slot id shapes, mirroring the canonical builders — medintake.js
 // slotId(medId, scheduledAtMs), workout.js sessionRecordId(groupId, date) and
@@ -113,6 +114,7 @@ const SLOT_ID_SHAPE = {
   intake: /^intake-\d+-\d+$/,
   workoutsession: /^session-\d+-\d{4}-\d{2}-\d{2}$/,
   bp: /^bp-hk-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+  miband: /^miband-hk-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
   weight: /^weight-hk-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
 };
 
@@ -632,7 +634,11 @@ export function vaultToRecords(vault, { now } = {}) {
     if (!Number.isFinite(w.source_start_ms)) {
       throw new Error(`Corrupt backup: miband workout has no source_start_ms ${JSON.stringify(w.source_start_ms)}`);
     }
-    push('miband', `miband-${w.source_start_ms}`, { ...rest, id: w.source_start_ms });
+    // An Apple Health workout keeps its source-derived id and body id (bd
+    // med-w6gx.7), so the next Health scan finds it.
+    const hk = healthImportRecordId('miband', w);
+    if (hk) push('miband', hk, { ...rest, id: healthNumericId(w.source_id) });
+    else push('miband', `miband-${w.source_start_ms}`, { ...rest, id: w.source_start_ms });
   }
 
   // --- vitals (pack the flat sample arrays back into day-batches) ---
@@ -653,7 +659,8 @@ export function vaultToRecords(vault, { now } = {}) {
     if (key == null || key === '') {
       throw new Error(`Corrupt backup: sleep entry has unparseable start_time ${JSON.stringify(sl.start_time)} and no day`);
     }
-    push('sleep', `sleep-${key}`, { ...sl });
+    // An Apple Health night keeps its source-derived id (bd med-w6gx.7).
+    push('sleep', healthImportRecordId('sleep', sl) || `sleep-${key}`, { ...sl });
   }
   for (const ds of vitals.day_stats || []) push('daystats', `daystats-${ds.day}`, { ...ds });
   packSamples('hrsample', vitals.heart || [], push, sampleCutoffMs);

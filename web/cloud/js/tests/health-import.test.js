@@ -20,6 +20,10 @@ import { runHealthImport, startHealthImport, healthStatusText } from '../health-
 import { createBPDomain } from '../../../domain/bp.js';
 import { createWeightDomain } from '../../../domain/weight.js';
 import { recordsToVault, vaultToRecords } from '../../../domain/vault.js';
+import { createVitalsDomain } from '../../../domain/vitals.js';
+import { createWorkoutDomain } from '../../../domain/workout.js';
+import { createHealthImportDomain } from '../../../domain/healthimport.js';
+import { healthNumericId } from '../../../domain/healthsource.js';
 
 const U1 = '11111111-2222-4333-8444-555555555555';
 const U2 = '66666666-7777-4888-9999-aaaaaaaaaaaa';
@@ -350,11 +354,11 @@ describe('Apple Health import', () => {
             const afterImport = vi.fn(async () => {});
             await startHealthImport({}, { health, storage, doc: document, run, afterImport });
             expect(toggle().checked).toBe(false);
-            expect(desc()).toBe('Import blood pressure and weight');
+            expect(desc()).toBe('Import blood pressure, weight, sleep and workouts');
 
             await flip(true);
             await new Promise((r) => setTimeout(r, 0));
-            expect(health.requestAuthorization).toHaveBeenCalledWith(['bp', 'weight']);
+            expect(health.requestAuthorization).toHaveBeenCalledWith(['bp', 'weight', 'sleep', 'workout']);
             expect(records.rows.has(`bp-hk-${U1}`)).toBe(true);
             expect(afterImport).toHaveBeenCalledTimes(1);
             expect(desc()).toMatch(/^Last imported .* · 1 reading so far$/);
@@ -365,7 +369,7 @@ describe('Apple Health import', () => {
             const before = health.calls.length;
             await flip(true);
             await new Promise((r) => setTimeout(r, 0));
-            expect(health.calls.slice(before).map((c) => c.anchor)).toEqual([null, null]);
+            expect(health.calls.slice(before).map((c) => c.anchor)).toEqual([null, null, null, null]);
         });
 
         it('flips back with a message when this device has no Health store', async () => {
@@ -384,6 +388,184 @@ describe('Apple Health import', () => {
             await flip(true);
             await new Promise((r) => setTimeout(r, 0));
             expect(desc()).toMatch(/nothing yet\. Check access in Settings → Health/);
+        });
+
+        it('a toggle switched on by an older build asks once for the new kinds', async () => {
+            storage.setItem('wg.health.enabled', 'true');
+            const health = fakeHealth({});
+            await startHealthImport({}, { health, storage, doc: document, run: vi.fn(async () => null) });
+            expect(health.requestAuthorization).toHaveBeenCalledWith(['bp', 'weight', 'sleep', 'workout']);
+            await startHealthImport({}, { health, storage, doc: document, run: vi.fn(async () => null) });
+            expect(health.requestAuthorization).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    // bd med-w6gx.7: sleep nights and workouts.
+    describe('sleep and workouts', () => {
+        const H = 3_600_000;
+        const uid = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+        const N0 = Date.parse('2026-10-01T21:00:00Z');
+        const WATCH = 'com.apple.health.watch';
+        const slp = (n, start, end, value, source = WATCH, tz = 'Europe/Berlin') => ({ uuid: uid(n), start, end, value, source, tz });
+        // One Watch night (core/deep/awake/rem/core) under an iPhone in-bed span.
+        const night = [
+            slp(1, N0, N0 + 2 * H, 3),
+            slp(2, N0 + 2 * H, N0 + 3 * H, 4),
+            slp(3, N0 + 3 * H, N0 + 3 * H + 10 * 60_000, 2),
+            slp(4, N0 + 3 * H + 10 * 60_000, N0 + 4 * H + 10 * 60_000, 5),
+            slp(5, N0 + 4 * H + 10 * 60_000, N0 + 8 * H, 3),
+            slp(6, N0 - 30 * 60_000, N0 + 8.5 * H, 0, 'com.apple.iphone'),
+        ];
+        const run = (id, start, end, activity, extra = {}) => ({ uuid: uid(id), start, end, activity, duration: (end - start) / 1000, ...extra });
+        const W0 = Date.parse('2026-10-03T06:00:00Z');
+
+        // Like Health.swift: a sleep page is every sleep sample, with the
+        // window padded 18h around them; other kinds page as fakeHealth does.
+        function healthOf(data) {
+            const h = fakeHealth(data);
+            const page = h.query.bind(h);
+            h.query = async (args) => {
+                const res = await page(args);
+                if (args.type !== 'sleep' || !res.samples.length) return res;
+                const from = Math.min(...res.samples.map((s) => s.start)) - 18 * H;
+                const to = Math.max(...res.samples.map((s) => s.end)) + 18 * H;
+                return { ...res, from, to, samples: data.sleep.filter((s) => s.start < to && s.end > from) };
+            };
+            return h;
+        }
+        const opts = (data, recs = records) => ({ health: healthOf(data), storage, records: recs, flush, now: () => W0 + 24 * H });
+
+        it('imports one night into the existing sleep shape, on its own wake day and offset', async () => {
+            const mi = slp(7, N0 + 0.5 * H, N0 + 7.5 * H, 1, 'com.mi.fitness'); // a second source, shorter: yields
+            expect(await runHealthImport({}, opts({ sleep: [...night, mi] }))).toEqual({ added: 1 });
+            const row = records.rows.get(`sleep-hk-${uid(1)}`);
+            expect(row).toEqual({
+                recordId: `sleep-hk-${uid(1)}`, recordType: 'sleep', clientTs: 0, deleted: false,
+                start_time: '2026-10-01T21:00:00Z', end_time: '2026-10-02T05:00:00Z',
+                timezone_offset: -120, day: '2026-10-02',
+                light_minutes: 350, deep_minutes: 60, rem_minutes: 60, awake_minutes: 10, total_minutes: 470,
+                user_modified: false, source: 'apple_health', source_id: uid(1),
+            });
+            const vitals = createVitalsDomain({ records, now: () => W0, timeZone: 'UTC' });
+            expect(await vitals.sleepDaily({ from: N0 - 24 * H })).toEqual([
+                expect.objectContaining({ date: '2026-10-02', total_mins: 470, deep_mins: 60 }),
+            ]);
+            // Rescan: nothing new.
+            storage.setItem('wg.health.anchors', '{}');
+            expect(await runHealthImport({}, opts({ sleep: [...night, mi] }))).toEqual({ added: 0 });
+        });
+
+        it('a night already in the vault (Mi Band, manual) wins; a night clipped by the window waits', async () => {
+            await records.put('sleep', {
+                recordId: `sleep-${N0 + H}`, clientTs: 5, deleted: false,
+                start_time: '2026-10-01T22:00:00Z', end_time: '2026-10-02T04:00:00Z', total_minutes: 360, day: '2026-10-02',
+            });
+            expect(await runHealthImport({}, opts({ sleep: night }))).toEqual({ added: 0 });
+            const domain = createHealthImportDomain({ records: memRecords(), now: () => W0, timeZone: 'UTC' });
+            expect(await domain.importSamples('sleep', night, { from: N0 - 30 * 60_000, to: N0 + 20 * H })).toEqual({ added: 0 });
+            expect(await domain.importSamples('sleep', night, { from: N0 - 2 * H, to: N0 + 20 * H })).toEqual({ added: 1 });
+        });
+
+        it('every device writes the same night body, whatever its own time zone', async () => {
+            const bodies = [];
+            for (const timeZone of ['UTC', 'America/New_York']) {
+                const recs = memRecords();
+                await createHealthImportDomain({ records: recs, now: () => W0, timeZone })
+                    .importSamples('sleep', [...night].reverse(), { from: N0 - 18 * H, to: N0 + 26 * H });
+                bodies.push([...recs.rows.values()]);
+            }
+            expect(bodies[0]).toEqual(bodies[1]);
+        });
+
+        it('imports workouts as activities beside strength sessions, never into them', async () => {
+            // An in-app strength session 18:00–19:00 (per-set logging) and a Mi Band ride.
+            await records.put('workoutsession', {
+                recordId: 'session-1-2026-10-02', clientTs: 5, deleted: false, id: 1, status: 'completed',
+                started_at: '2026-10-02T18:00:00Z', completed_at: '2026-10-02T19:00:00Z',
+            });
+            await records.put('miband', {
+                recordId: `miband-${W0 - 20 * H}`, clientTs: 5, deleted: false, id: W0 - 20 * H, source: 'miband',
+                activity_name: 'cycling', source_start_ms: W0 - 20 * H, source_end_ms: W0 - 19 * H,
+            });
+            const S0 = Date.parse('2026-10-02T18:05:00Z');
+            const workout = [
+                run(1, W0, W0 + H, 37, { distance: 10_012.4, energy: 650.6, hr: 151.2 }),
+                run(2, W0 + 60_000, W0 + 50 * 60_000, 37), // the same run via another app: shorter, yields
+                run(3, S0, S0 + 50 * 60_000, 50), // the Watch's strength workout of the in-app session
+                run(4, S0, S0 + 20 * 60_000, 13), // a ride during it: not strength, imported
+                run(5, W0 - 20 * H + 60_000, W0 - 19.5 * H, 13), // the Mi Band ride again
+                run(6, W0 + 30 * H, W0 + 31 * H, 50), // a strength workout with no session
+            ];
+            expect(await runHealthImport({}, opts({ workout }))).toEqual({ added: 3 });
+            expect(records.rows.get(`miband-hk-${uid(1)}`)).toEqual({
+                recordId: `miband-hk-${uid(1)}`, recordType: 'miband', clientTs: 0, deleted: false,
+                id: healthNumericId(uid(1)), activity_type: 0, activity_name: 'running',
+                source_start_ms: W0, source_end_ms: W0 + H, duration_sec: 3600, distance_m: 10012, steps: 0,
+                calories: 651, heart_rate_avg: 151, spo2_avg: 0, pause_ms: 0, tz_offset: 0,
+                source: 'apple_health', source_id: uid(1),
+            });
+            expect(records.rows.has(`miband-hk-${uid(4)}`)).toBe(true);
+            expect(records.rows.has(`miband-hk-${uid(6)}`)).toBe(true);
+            expect(await records.list('workoutsession')).toHaveLength(1);
+            expect(await records.list('exerciselog')).toEqual([]);
+
+            const listed = await createWorkoutDomain({ records, now: () => W0 + 2 * 24 * H, timeZone: 'UTC' }).listMiBand();
+            expect(listed.find((w) => w.id === healthNumericId(uid(1)))).toMatchObject({
+                activity_name: 'running', distance_m: 10012, source: 'apple_health',
+            });
+        });
+
+        it('a deleted workout stays deleted across a backup, restore and full rescan; nights and workouts keep their ids', async () => {
+            const workout = [run(1, W0, W0 + H, 37), run(2, W0 + 60_000, W0 + 50 * 60_000, 37), run(3, W0 + 5 * H, W0 + 6 * H, 13)];
+            const data = { sleep: night, workout };
+            await runHealthImport({}, opts(data));
+            await createWorkoutDomain({ records, now: () => W0, timeZone: 'UTC' }).deleteMiBand(healthNumericId(uid(1)));
+
+            const vault = recordsToVault([...records.rows.values()], { now: W0 });
+            expect(vault.data.tombstones).toEqual([{ recordType: 'miband', recordId: `miband-hk-${uid(1)}` }]);
+            const restored = memRecords();
+            for (const r of vaultToRecords(vault, { now: W0 })) restored.rows.set(r.recordId, r);
+            const strip = (rows) => rows.filter((r) => !r.deleted && ['sleep', 'miband'].includes(r.recordType))
+                .map(({ clientTs, ...r }) => r)
+                .sort((a, b) => (a.recordId < b.recordId ? -1 : 1));
+            const before = strip([...records.rows.values()]);
+            expect(strip([...restored.rows.values()])).toEqual(before);
+            // Restore → re-export is byte-identical.
+            expect(recordsToVault([...restored.rows.values()], { now: W0 })).toEqual(vault);
+
+            storage.setItem('wg.health.anchors', '{}');
+            // The deleted run stays deleted, and the other app's copy does not take its place.
+            expect(await runHealthImport({}, opts(data, restored))).toEqual({ added: 0 });
+            expect(restored.rows.get(`miband-hk-${uid(1)}`).deleted).toBe(true);
+            expect(restored.rows.has(`miband-hk-${uid(2)}`)).toBe(false);
+        });
+
+        it('rows restored under fresh ids (older client) are recognised, and deleting one keeps its Health id deleted', async () => {
+            const data = { sleep: night, workout: [run(1, W0, W0 + H, 37)] };
+            await runHealthImport({}, opts(data));
+            const restored = memRecords();
+            for (const r of records.rows.values()) {
+                const fresh = r.recordType === 'sleep' ? `sleep-${N0}` : `miband-${W0}`;
+                restored.rows.set(fresh, { ...r, recordId: fresh, clientTs: W0, ...(r.recordType === 'miband' ? { id: W0 } : {}) });
+            }
+            storage.setItem('wg.health.anchors', '{}');
+            expect(await runHealthImport({}, opts(data, restored))).toEqual({ added: 0 });
+            await createWorkoutDomain({ records: restored, now: () => W0, timeZone: 'UTC' }).deleteMiBand(W0);
+            expect(restored.rows.get(`miband-hk-${uid(1)}`).deleted).toBe(true);
+            storage.setItem('wg.health.anchors', '{}');
+            expect(await runHealthImport({}, opts(data, restored))).toEqual({ added: 0 });
+            expect(await restored.list('miband')).toEqual([]);
+        });
+
+        it('one kind failing does not stop the others', async () => {
+            const health = healthOf({ weight: [kgSample(U2, T0, 70)] });
+            const query = health.query;
+            health.query = async (args) => {
+                if (args.type === 'bp') throw new Error('Authorization not determined');
+                return query(args);
+            };
+            expect(await runHealthImport({}, { health, storage, records, flush })).toEqual({ added: 1 });
+            expect(JSON.parse(storage.getItem('wg.health.anchors'))).toEqual({ weight: '1' });
         });
     });
 });

@@ -43,6 +43,7 @@ import {
 } from './equipment.js';
 import { localDateParts, localWallToUtcMs } from './medschedule.js';
 import { formatHHMM } from './reminders.js';
+import { deleteHealthAlias } from './healthsource.js';
 import {
   normalizeGoal, TRAINING_GOALS, defaultsForGoal, rirFromRpe, formatEffort,
   NEAR_FAILURE_RIR,
@@ -3461,6 +3462,9 @@ export function createWorkoutDomain({ records, now, timeZone }) {
     const rec = await findByNumericId(records, WORKOUT_RECORD_TYPES.MIBAND, id);
     if (!rec) throw invalidRequest('Workout not found', 'not_found');
     await records.del(WORKOUT_RECORD_TYPES.MIBAND, rec.recordId);
+    // An Apple Health workout restored under a fresh id keeps its -hk- slot
+    // tombstoned too, so a Health rescan does not bring it back (bd med-w6gx.7).
+    await deleteHealthAlias(records, WORKOUT_RECORD_TYPES.MIBAND, rec);
   }
 
   return {
