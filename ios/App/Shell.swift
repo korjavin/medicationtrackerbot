@@ -7,7 +7,7 @@ import WebKit
 /// account host; everything else (vault, Service Worker, IndexedDB) lives in the
 /// persistent default website data store, per origin.
 @MainActor
-final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMessageHandler {
+final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMessageHandler, WKScriptMessageHandlerWithReply {
     static let hostKey = "wgAccountHost"
     /// Settings.bundle toggle (iOS Settings → Med Tracker → Switch account).
     static let forgetKey = "wgForgetAccount"
@@ -39,6 +39,8 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         webView = WKWebView(frame: .zero, configuration: config)
         super.init()
         config.userContentController.add(self, contentWorld: .page, name: "wgChrome")
+        // Its presence is what makes web/static/js/native/index.js pick the 'ios' platform.
+        config.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: "wgNative")
         webView.navigationDelegate = self
         // The page sits between the native bands (RootView), so nothing scrolls
         // under the status bar and no white shows around it.
@@ -185,6 +187,29 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         guard let body = message.body as? [String: String] else { return }
         if let c = body["top"].flatMap(Shell.color) { top = Color(uiColor: c) }
         if let c = body["bottom"].flatMap(Shell.color) { bottom = Color(uiColor: c) }
+    }
+
+    // MARK: wgNative — the native/ bridge (bd med-w6gx.4)
+
+    /// web/static/js/native/index.js `call(op, args)` posts {op, args}; the reply
+    /// resolves its promise, an error string rejects it. Capabilities add ops
+    /// here (notifications.* med-w6gx.5, health.* med-w6gx.6).
+    func userContentController(_ userContentController: WKUserContentController,
+                               didReceive message: WKScriptMessage,
+                               replyHandler: @escaping (Any?, String?) -> Void) {
+        // Only the account's own top-level page reaches native capabilities.
+        let origin = message.frameInfo.securityOrigin
+        guard message.frameInfo.isMainFrame, origin.protocol == "https", origin.host.lowercased() == host else {
+            replyHandler(nil, "forbidden")
+            return
+        }
+        let body = message.body as? [String: Any] ?? [:]
+        switch body["op"] as? String {
+        case "ping":
+            replyHandler("pong", nil)
+        case let op:
+            replyHandler(nil, "unsupported: \(op ?? "")")
+        }
     }
 
     /// "rgb(r, g, b)" / "rgba(r, g, b, a)" from getComputedStyle; nil when transparent or unparseable.

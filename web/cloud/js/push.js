@@ -16,7 +16,11 @@ const REMINDERS_KEY = 'demoReminders';
 // platform probe — docs/cloud-mode.md Onboarding ("derive steps from
 // display-mode: standalone").
 export function isStandalone() {
-  return window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  return window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true
+    // The iOS app shell is an installed app too: there is nothing to add to
+    // the Home Screen. native/ says so through its capability (false on web,
+    // and absent where native/ is not loaded).
+    || window.LocalNotifications?.isSupported?.() === true;
 }
 
 export function isIOS() {

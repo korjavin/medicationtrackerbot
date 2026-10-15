@@ -162,6 +162,21 @@ register themselves at script-load time and replace the stub.
 | `window.MediaCapture` | Camera + photo picker | `getUserMedia` + `<input type=file>` |
 | `window.Barcode` | Barcode scanning | `BarcodeDetector` (Chrome) / ZXing fallback |
 | `window.Bluetooth` | Web Bluetooth heart rate (HR slice) | `navigator.bluetooth` GATT + 0x2A37 parse (med-byks.1) |
+| `window.LocalNotifications` | Device-scheduled notifications (`isSupported`) | web: unsupported; ios: the app shell (`native/local-notifications.js`) |
+| `window.Health` | Apple Health read (`isSupported`) | web: unsupported; ios: the app shell (`native/health.js`) |
+
+**Platforms** — `native/index.js` is the only place that decides the platform
+(`__native.platform`): `'ios'` when the iOS app shell's `wgNative` reply handler
+exists (`window.webkit.messageHandlers.wgNative`, [`ios/App/Shell.swift`](../ios/App/Shell.swift)),
+`'web'` otherwise. `registerImpl(capability, 'web' | 'ios', impl)` keeps both and
+installs the running platform's impl, falling back to web's — so on web every
+global is exactly the web impl. ios impls reach Swift with
+`__native.call(op, args)`: a promise of the Swift reply, rejected with its error
+string; Swift answers only the account host's main frame. Feature code branches
+on a capability's `isSupported()`, never on the platform. The passkey shell
+(`web/cloud/signup.html`) loads `native/index.js` + `native/local-notifications.js`
+too: `push.js` `isStandalone()` treats a supported `LocalNotifications` as the
+installed app, so the iOS app never shows the Add-to-Home-Screen steps.
 
 **Capability probes** — where a capability may be absent, the check is exposed
 as a method so feature code never re-derives it:
@@ -187,7 +202,8 @@ outside `tests/`, which legitimately stubs the seam) mentions
 `window.Capacitor` / `isNativePlatform` anywhere in the frontend: the Capacitor
 Android shell was removed, so branching on it is dead code.
 
-**Adding a new device capability** — create `web/<capability>.js` calling
+**Adding a new device capability** — create `web/<capability>.js` (or
+`<capability>.js` registering both its web and ios impls) calling
 `registerImpl()`, add the stub to the foundation module's init list, add one
 entry to `architecture.globals.test.js` with justification, and add a
 `tests/native.<capability>.test.js` (pure-unit is the right shape — these sit
