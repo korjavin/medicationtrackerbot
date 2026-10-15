@@ -63,7 +63,7 @@
 // vault actually carries them — see managedTypesForImport.
 
 import { calculateBPCategory } from './bp.js';
-import { compareMeasuredAt, isHealthWeight, weightTrendChain } from './weight.js';
+import { isHealthWeight, weightTrendChain } from './weight.js';
 import { healthImportRecordId } from './healthsource.js';
 
 export const VAULT_FORMAT = 'medtracker-vault';
@@ -559,7 +559,7 @@ export function vaultToRecords(vault, { now } = {}) {
 
   // --- weight (rebuild every trend with weight.js weightTrendChain, the walk its readers use) ---
   const weight = data.weight || {};
-  const ascLogs = [...(weight.logs || [])].sort(compareMeasuredAt);
+  const ascLogs = sortBy(weight.logs || [], (r) => r.measured_at);
   const trends = weightTrendChain(ascLogs);
   ascLogs.forEach((log, i) => {
     // An Apple Health row stays trend-less (null), as healthimport writes it,

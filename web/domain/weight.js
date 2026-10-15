@@ -22,18 +22,8 @@ export function calculateWeightTrend(currentWeight, previousTrend) {
   return alpha * currentWeight + (1 - alpha) * previousTrend;
 }
 
-// compareMeasuredAt is THE chain order, shared by vault.js restore and
-// withTrends. ponytail: lexical on the measured_at string, exactly as restore
-// has always sorted — RFC3339 offsets other than Z order by text, not instant;
-// normalize measured_at to UTC on write if mixed offsets ever show up.
-export function compareMeasuredAt(a, b) {
-  if (a.measured_at < b.measured_at) return -1;
-  if (a.measured_at > b.measured_at) return 1;
-  return 0;
-}
-
 // weightTrendChain is THE weight_trend EMA walk over a chain sorted oldest
-// first (compareMeasuredAt), seeded from null. vault.js restore uses it too.
+// first, seeded from null. vault.js restore uses it too.
 export function weightTrendChain(rowsAsc) {
   let prev = null;
   return rowsAsc.map((r) => (prev = calculateWeightTrend(r.weight, prev)));
@@ -46,10 +36,12 @@ export const isHealthWeight = (r) => healthImportRecordId(RECORD_TYPE, r) !== nu
 // Apple Health rows is returned as stored (unchanged behaviour, null trends
 // included). Health rows are stored without a trend so their body is
 // device-independent; a history holding one (canonical or a restored alias) is
-// recomputed whole by weightTrendChain, as vault restore does.
+// recomputed whole by weightTrendChain in instant order. That is all a reader
+// sees while a Health row exists, and restore keeps Health rows trend-less, so
+// restore's own (lexical, master) order and stored trends never show here.
 function withTrends(rows) {
   if (!rows.some(isHealthWeight)) return rows;
-  const asc = [...rows].sort(compareMeasuredAt);
+  const asc = [...rows].sort((a, b) => Date.parse(a.measured_at) - Date.parse(b.measured_at));
   const trends = weightTrendChain(asc);
   return asc.map((r, i) => ({ ...r, weight_trend: trends[i] }));
 }

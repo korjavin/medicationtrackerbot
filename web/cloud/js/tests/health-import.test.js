@@ -251,7 +251,9 @@ describe('Apple Health import', () => {
         it('timestamps with an RFC3339 offset order the same before and after a restore', async () => {
             await records.put('weight', hkRow(70, '2026-10-02T00:00:00Z'));
             await records.put('weight', { recordId: 'w1', clientTs: 1, deleted: false, measured_at: '2026-10-01T23:00:00-02:00', weight: 100, weight_trend: 100 });
-            expect(await trends(restoreOf(records))).toEqual(await trends(records));
+            // The manual reading is 01:00Z, after the Health one: 70, then 73.
+            expect(await trends(records)).toEqual([73, 70]);
+            expect(await trends(restoreOf(records))).toEqual([73, 70]);
         });
     });
 

@@ -110,9 +110,9 @@ manifest entry: there is no egress).
   resurrects; deleting such a re-minted reading also tombstones its `-hk-` id
   ([`healthsource.js`](../web/domain/healthsource.js)). A derived weight stores
   no `weight_trend`, so every device writes the same body; `weight.js` reads a
-  history that holds a Health row by recomputing the whole EMA in the order
-  vault restore uses, so the trend shown matches the trend after a restore
-  (restore keeps Health rows trend-less too). A history without Health rows
+  history that holds a Health row by recomputing the whole EMA in time order,
+  and restore keeps Health rows trend-less, so the trend shown matches the
+  trend after a restore. A history without Health rows
   reads exactly as stored.
 - **Known residuals:** a backup restored and re-exported by a client that
   predates the `-hk-` tombstones loses them (it skips the unknown tombstone
