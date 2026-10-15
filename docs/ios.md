@@ -70,6 +70,189 @@ Actions → **iOS** → Run workflow → pick the branch. When the run is green 
 build appears in App Store Connect → TestFlight after Apple's processing
 (minutes); install it on the device through the TestFlight app.
 
+## App Store submission (bd med-w6gx.8)
+
+Everything in the binary is in `ios/`; the store listing is filled in App
+Store Connect (ASC) by the owner from this section.
+
+- **Icon:** `ios/App/Assets.xcassets/AppIcon.appiconset/icon.png` is the brand
+  icon (`web/static/icons/icon.png`, 1024², no alpha); Xcode derives every
+  size from it.
+- **Launch screen:** `UILaunchScreen` → `LaunchBackground` colour
+  (`--wg-bg-screen`, `#132D29`), so there is no white flash before the dark app.
+  No logo: Apple asks for a launch screen that looks like the first screen.
+- **Bundle id / team:** the `IOS_BUNDLE_ID` / `IOS_TEAM_ID` repo variables
+  (Owner setup above).
+- **Usage strings** (`ios/project.yml`):
+
+  | Key | Why |
+  |-----|-----|
+  | `NSCameraUsageDescription` | barcode scan, meal photos, first-run QR |
+  | `NSMicrophoneUsageDescription` | voice assistant, voice notes in feedback |
+  | `NSHealthShareUsageDescription` | Apple Health read import |
+  | `NSHealthUpdateUsageDescription` | demanded by upload validation; says the app never writes |
+
+  Local notifications need no Info.plist string (iOS asks at runtime). Photo
+  picking goes through the system picker, which needs no permission; passkeys
+  use the system sheet, so no Face ID string.
+- **Privacy manifest:** `ios/App/PrivacyInfo.xcprivacy` — no tracking, the
+  `UserDefaults` required-reason API (`CA92.1`, the stored account host), and
+  the collected types below. Keep it in step with the label.
+- **Encryption export:** `ITSAppUsesNonExemptEncryption: false` — the only
+  crypto is the system's (WebCrypto, TLS, passkeys).
+
+### Privacy label (ASC → App Privacy)
+
+Derived from [`web/cloud/js/privacy-manifest.js`](../web/cloud/js/privacy-manifest.js)
+plus HealthKit (read-only, into the vault) and local notifications (no data
+leaves the device). Conservative: the vault is end-to-end encrypted, but
+several opt-in features send a request's plaintext through the operator's
+server or to its AI/voice providers, so the types they carry are declared.
+
+- **Tracking:** No. **Data used to track you:** none.
+- **Data linked to you**, every one for **App Functionality** only (no
+  analytics, no advertising, no product personalisation):
+
+  | ASC type | From (manifest ids) |
+  |----------|---------------------|
+  | Health & Fitness → Health | `vault` (incl. Apple Health imports), `trial-ai`, `trial-chat`, `trial-voice`, `voice-llm-relay`, `mcp-hosted`, `telegram-relay`, `rxnav` |
+  | Health & Fitness → Fitness | `vault`, `nxk-import`, the same AI/voice/MCP rows |
+  | Identifiers → User ID | `account-existence` (account subdomain), `telegram-relay` (chat id) |
+  | User Content → Photos or Videos | `trial-ai` (meal photos) |
+  | User Content → Audio Data | `trial-voice`, `feedback` (voice notes) |
+  | User Content → Customer Support | `feedback`, `feedback-telegram` |
+  | User Content → Other User Content | `trial-ai` (meal text), `trial-chat`, `food-operator` (search terms) |
+
+- **Not declared:** contact info (no email, name or phone is ever asked),
+  location, contacts, browsing history, purchases, diagnostics. Sync IPs and
+  timings (`sync-metadata`) are server operations metadata, not used for any
+  of Apple's purposes.
+
+A new manifest entry that carries a new kind of data means a new row here and
+in `PrivacyInfo.xcprivacy`.
+
+### Listing text
+
+- **Privacy policy URL:** <https://github.com/korjavin/medicationtrackerbot/blob/master/docs/privacy-policy.md>
+  ([privacy-policy.md](privacy-policy.md); the first-run screen links it, and
+  the signed-in app shows Settings → Account & privacy). Nothing on the cloud
+  domain serves a policy: the base domain serves only the landing page and
+  the AASA.
+- **Support URL:** <https://github.com/korjavin/medicationtrackerbot/issues>.
+- **Medical disclaimer** — end of the description, and the first-run footer:
+
+  > Med Tracker is a personal log, not a medical device, and does not give
+  > medical advice. Talk to your doctor before changing a treatment.
+
+- **Account deletion** (guideline 5.1.1(v)): in the app, Settings → Account &
+  privacy → Delete my account (passkey re-check, then `DELETE /api/account`,
+  [`internal/cloudserver/account.go`](../internal/cloudserver/account.go)).
+  It is immediate; no web form needed.
+
+### Reviewer access
+
+Accounts are invite-only and unlock only with a passkey bound to the
+account's own subdomain, so there is no username/password to hand over.
+Two existing paths give a reviewer access on their own device, no new server
+code:
+
+1. **Seeded demo account** — the reviewer redeems the demo account's Emergency
+   Kit (`/recover`) and creates their own passkey on it, then sees seeded data.
+   A redeemed code is **burned**: the app makes the redeemer save a new kit. So
+   each review round needs a fresh code, which the owner makes from their own
+   passkey on the demo account (Settings → Devices & connectors → Emergency
+   Kit).
+2. **Fresh account** — an unclaimed invite link (Settings → Devices &
+   connectors → Invite a friend, or `cloud admin invite`); claiming it creates
+   the reviewer's own empty account. Valid `CLOUD_CLAIM_TTL` days (default 14);
+   `cloud admin reset-claim <sub>` re-issues an expired, unclaimed one. This is
+   the one to test **account deletion** on, so the demo account survives.
+
+Both need iCloud Keychain on the review device (passkeys).
+
+**Preparing the demo account (owner, before each submission):**
+
+1. Create an invite, claim it on your own device (this passkey is how you
+   regenerate the kit later), save the Emergency Kit.
+2. Seed it: Settings → Backup & import → import
+   [`tests/fixtures/vault-v1.json`](../tests/fixtures/vault-v1.json) (every
+   domain, mid-2026 dates), then log a few entries for today and add a
+   medication with a reminder in the next hour, so Today, charts and
+   reminders all have content.
+3. Settings → Devices & connectors → Emergency Kit → regenerate; copy the
+   Account ID and recovery code into ASC (below). Do this again before every
+   resubmission.
+4. Make a second invite link for the fresh-account path.
+5. After review: Settings → Devices & connectors → revoke the reviewer's
+   passkeys.
+
+**ASC → App Review Information:** Sign-in required: on; User name: the demo
+account address (`<sub>.<base>`); Password: the recovery code; Notes:
+
+```text
+Med Tracker is an invite-only, end-to-end encrypted health log. Sign-in uses
+passkeys only (no passwords), so please use the steps below on a device with
+iCloud Keychain turned on.
+
+Demo account with sample data:
+1. Open the app, enter the account address from "User name", tap Continue.
+2. Tap "Recover with your Emergency Kit".
+3. Enter Account ID: <ACCOUNT ID> and the recovery code from "Password".
+4. Create a passkey when asked (Face ID). The app then shows a new Emergency
+   Kit: tap "Download Emergency Kit", save it anywhere, tick "I saved my
+   Emergency Kit", and continue. You are now in the demo account.
+
+Fresh account (please use this one to test account deletion):
+open the app and paste this invite link: <INVITE LINK>
+Then create a passkey and save the Emergency Kit as above.
+
+Native features:
+- Apple Health (read-only): Settings > Apple Health. Blood pressure, weight,
+  sleep and workouts are imported into the encrypted vault. The app never
+  writes to Health and never uses Health data for advertising.
+- Reminders: Settings > Notifications > Enable, then "Send test". Medication
+  reminders are scheduled on the device as local notifications.
+- Camera: food barcode scanning and meal photos (Food), QR scan on first run.
+- Downloads and printing (backups, Emergency Kit) via the share and print sheets.
+
+Account deletion: Settings > Account & privacy > Delete my account.
+
+AI and voice features are optional and off until the user enables them; each
+asks for explicit consent before any data is sent to an AI provider.
+
+Med Tracker is a personal log, not a medical device, and does not give
+medical advice.
+```
+
+### Submission checklist
+
+Repo side (done in this bead): icon, launch colour, usage strings, privacy
+manifest, privacy policy, first-run disclaimer and policy link, this section.
+
+Owner only:
+
+- [ ] Apple Developer Program agreements and (free app) the Free Apps
+      agreement accepted in ASC → Business.
+- [ ] ASC app record with the `IOS_BUNDLE_ID` App ID; name, subtitle,
+      category **Medical** or **Health & Fitness**, age rating questionnaire
+      (medical/treatment information: yes — the app records it, gives no
+      advice), price Free.
+- [ ] Owner setup secrets and variables present; App Store profile
+      regenerated after the HealthKit / Associated Domains capabilities.
+- [ ] Production serves the AASA (`IOS_TEAM_ID`, `IOS_BUNDLE_ID` in the cloud
+      env) on the base domain and an account subdomain.
+- [ ] Actions → iOS → Run workflow on `master`; the build reaches TestFlight;
+      install it and run the device checks in this file (shell, notifications,
+      Health).
+- [ ] App Privacy filled in as above; privacy policy and support URLs set.
+- [ ] Screenshots (6.9" iPhone at least) from a TestFlight install on the demo
+      account; description ends with the medical disclaimer.
+- [ ] Demo account prepared and App Review Information filled in as above,
+      with a fresh recovery code and invite link.
+- [ ] Export compliance: answers match `ITSAppUsesNonExemptEncryption: false`.
+- [ ] Select the build, submit for review. After approval or rejection:
+      revoke the reviewer's passkeys; regenerate the kit before resubmitting.
+
 ## Downloads and printing (bd med-w6gx.11)
 
 WKWebView ignores `<a download>` and `window.print()` on its own. The
