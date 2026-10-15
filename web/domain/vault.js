@@ -39,8 +39,8 @@
 //     medintake.js look up by exact recordId); every older plan lands on a
 //     `tzplanhistory-<idx>` recordId of the same `tzplan` type, ignored by
 //     those readers and re-merged on export.
-//   - intake + workoutsession tombstones at deterministic slot ids are
-//     suppression signals (bd med-jtaj): recordsToVault carries them as
+//   - intake + workoutsession (and Apple Health bp/weight -hk-) tombstones at
+//     deterministic slot ids are suppression signals (bd med-jtaj): recordsToVault carries them as
 //     data.tombstones and vaultToRecords re-materializes them as bodyless
 //     deleted rows. All other tombstones are delete-by-absence (dropped).
 //   - gamificationmilestone (goal milestones) rides in data.gamification.milestones
@@ -102,8 +102,9 @@ export const VAULT_MANAGED_TYPES = new Set([
 export const TOMBSTONED_SLOT_TYPES = new Set(['intake', 'workoutsession', 'bp', 'weight']);
 
 // Derived-slot id shapes, mirroring the canonical builders — medintake.js
-// slotId(medId, scheduledAtMs) and workout.js sessionRecordId(groupId, date);
-// the session shape is identical to the tombstone probe in reminders.js.
+// slotId(medId, scheduledAtMs), workout.js sessionRecordId(groupId, date) and
+// healthimport.js healthRecordId(kind, uuid) (lowercased UUID — change both
+// together); the session shape is identical to the tombstone probe in reminders.js.
 // Only tombstones at these ids suppress re-materialization. Manually-keyed
 // rows (`intake-manual-…`, `session-adhoc-…`) and suffixed import ids
 // (`intake-<m>-<s>-tz_step`, which nothing looks up) delete-by-absence, so

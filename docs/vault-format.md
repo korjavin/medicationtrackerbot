@@ -466,8 +466,10 @@ Clients that predate these two types skip them on import (the unknown-type rule
 below).
 
 - Only exact derived-slot ids are carried: `intake-<medId>-<unixSec>` (mirroring
-  medintake.js `slotId`) and `session-<groupId>-<YYYY-MM-DD>` (mirroring workout.js
-  `sessionRecordId`, the same shape the reminder horizon probes). Manually-keyed
+  medintake.js `slotId`), `session-<groupId>-<YYYY-MM-DD>` (mirroring workout.js
+  `sessionRecordId`, the same shape the reminder horizon probes), and
+  `bp-hk-<uuid>` / `weight-hk-<uuid>` (lowercase UUID, mirroring healthimport.js
+  `healthRecordId`). Manually-keyed
   rows (`intake-manual-…`, `session-adhoc-…`) and suffixed import ids
   (`intake-<m>-<s>-tz_step`, which nothing looks up) delete-by-absence: their
   tombstones are dropped on export. On import, entries for UNKNOWN record types are
@@ -537,7 +539,7 @@ only guard.
 | `miband_gps_tracks` | **Legacy bot exports carry it** nested under `workouts.miband[].gps`; **cloud import drops it** (`vaultToRecords`). It was 44% of a real vault (~77 MiB / 168 tracks) and no code renders a route, yet it rode in every cloud snapshot and was structured-cloned on every `records.list()`. Accepted loss: GPS tracks do not survive a cloud round-trip. |
 | `workout_schedule_snapshots` | **write-only table.** In the deleted Go store no reader ever consumed it — no handler, no MCP op, no frontend. Nothing can read the data, so carrying it would preserve nothing. |
 | cloud-only `voiceprovisioning` | plumbing with no `/api` route |
-| tombstones for non-derived-slot types | delete-by-absence: a missing row stays missing after the replace-only import, so only `intake` / `workoutsession` tombstones are carried (see [`tombstones`](#tombstones)) |
+| tombstones for non-derived-slot types | delete-by-absence: a missing row stays missing after the replace-only import, so only `intake` / `workoutsession` and Apple Health `bp` / `weight` (`-hk-`) tombstones are carried (see [`tombstones`](#tombstones)) |
 
 Also never exported: **derived fields** recomputed on read — bp `category`, weight
 `weight_trend`, miband `start_time`/`end_time`, workout schedule materialization.

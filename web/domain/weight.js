@@ -81,7 +81,9 @@ export function createWeightDomain({ records, now, timeZone }) {
     const nowMs = now();
     // A derived row must be the same body on every device that derives it
     // (equal clientTs 0 never reconciles under LWW), so its trend comes from
-    // the sample alone, never from this device's history.
+    // the sample alone, never from this device's history. Its stored
+    // weight_trend therefore equals its weight (a later manual entry seeds its
+    // EMA from it; vault restore recomputes the whole chain).
     const all = derived ? [] : await records.list(RECORD_TYPE);
     const previous = all
       .filter((r) => r.recordId !== replacesId)
