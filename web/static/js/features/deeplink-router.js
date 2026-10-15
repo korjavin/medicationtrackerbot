@@ -89,11 +89,12 @@ function handleDeepLinks() {
         window.history.replaceState({}, '', '/');
     } else if (!action && tab) {
         // Bare ?tab=<section> (no action): plain section deep-link, e.g. the
-        // Telegram reminder "Open" URL button (?tab=today|workouts|bp|weight). Only
+        // Telegram reminder "Open" URL button (?tab=today|workouts|bp|weight), or an
+        // iOS app notification tap (?tab=meds too, bd med-w6gx.5). Only
         // switch to a whitelisted, stable section id (bp/weight/health land on
         // the Health tab with that segment active); ignore unknown tabs so
         // activateTabGroup can't blank the page.
-        const allowedTabs = ['today', 'workouts', 'bp', 'weight', 'health'];
+        const allowedTabs = ['today', 'meds', 'workouts', 'bp', 'weight', 'health'];
         if (allowedTabs.includes(tab)) {
             if (!isDeepLinkFeatureEnabled(tab)) {
                 switchTab('today');

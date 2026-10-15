@@ -102,8 +102,30 @@ makes `web/static/js/native/index.js` pick the `ios` platform, so
 `window.LocalNotifications` / `window.Health` report supported (they report
 unsupported on the web). `__native.call(op, args)` posts `{op, args}` and
 resolves with the Swift reply; only the account host's main frame is answered.
-Ops: `ping` → `"pong"`; notifications and HealthKit ops come with med-w6gx.5/.6.
+Ops: `ping` → `"pong"`; `notifications.*` (below); HealthKit ops come with med-w6gx.6.
 Details: [docs/frontend.md → Device-Capability Abstractions](frontend.md#device-capability-abstractions).
+
+### Reminders as local notifications (bd med-w6gx.5)
+
+WKWebView has no Web Push. Whenever the web app computes the reminder horizon
+([architecture.md §5](architecture.md#5-reminders)) — every unlock, every
+reminder-affecting edit, every inbox drain — `recomputeAndPush`
+(`web/cloud/js/reminders.js`) also hands it to `window.LocalNotifications`,
+which `ios/App/Notifications.swift` schedules with `UNUserNotificationCenter`,
+replace-all. iOS keeps at most 64 pending: the earliest 63 reminders plus an
+"Open the app to keep reminders running" notice a minute after the last, the
+device-side twin of the relay's dry-queue warning. No server change, no APNs;
+it works offline. The relay upload is unchanged (Telegram, other devices);
+Telegram-only delivery schedules nothing on the phone, and the app never makes
+a Web Push subscription.
+
+- **Permission:** Settings → Notifications → Enable asks iOS (once); Disable
+  points to iOS Settings, since an app cannot revoke its own permission.
+  Send test posts a local notification a second later.
+- **Tap:** opens the reminder's section (meds, bp, weight, workouts, else
+  today): `switchTab` on the open app, `/?tab=<section>` on a cold start.
+- **Not in v1:** Confirm/Snooze buttons on the notification; a cold start onto
+  a locked vault lands on Today after unlock (`/unlock` drops the query).
 
 ### Device check (TestFlight)
 
@@ -118,6 +140,12 @@ Details: [docs/frontend.md → Device-Capability Abstractions](frontend.md#devic
    Scan the Emergency Kit QR → the same account opens.
 7. Claiming in the app goes from the Emergency Kit (and Telegram, when
    offered) straight into the app: no "Add to your Home Screen" step.
+8. Settings → Notifications → Enable → iOS asks → Allow; Send test → a
+   notification arrives within seconds, also with the app open.
+9. Add a med due in ~3 minutes, kill the app, airplane mode → the reminder
+   fires; tapping it opens Meds.
+10. Edit that med's time → only the new time fires (pending notifications are
+    replaced).
 
 ## Spike: passkey PRF, Service Worker, IndexedDB in WKWebView (bd med-w6gx.2)
 

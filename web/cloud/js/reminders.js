@@ -192,7 +192,50 @@ export async function recomputeAndPush(ctx, opts = {}) {
     computeReminderEntries(ctx, opts),
     domain.getDeliveryPref(),
   ]);
+  await scheduleLocalNotifications(entries, pref);
   await pushSchedule(ctx, entries, pref);
+}
+
+// iOS app shell only (bd med-w6gx.5): WKWebView has no Web Push, so the same
+// horizon is also handed to the device's own scheduler. On the web
+// LocalNotifications reports unsupported (or is absent) and this returns before
+// doing anything. Runs ahead of pushSchedule and never throws: an offline PUT
+// must not cost the device its reminders. The relay upload is unchanged — it
+// still serves Telegram and the account's other devices.
+const LOCAL_NOTIFICATION_CAP = 64; // iOS keeps at most 64 pending local notifications
+const LAPSE_TEXT = 'Open the app to keep reminders running'; // sw.js STALE_SYNC_WARNING's words
+const KIND_SECTION = { medication: 'meds', low_stock: 'meds', bp: 'bp', weight: 'weight', workout: 'workouts' };
+
+// The earliest reminders that fit the cap, the last slot kept for a lapse notice
+// right after them: the device-side twin of the relay's dry-queue warning
+// (same lapse semantics — the next open refreshes all of it). Telegram-only
+// delivery schedules nothing on the device, as it sends no Web Push on the web.
+export function localNotificationItems(entries, pref = {}, nowUnix = Math.floor(Date.now() / 1000)) {
+  if (pref.delivery === 'telegram') return [];
+  const items = entries
+    .filter((e) => e.fireAtUnix > nowUnix)
+    .sort((a, b) => a.fireAtUnix - b.fireAtUnix)
+    .slice(0, LOCAL_NOTIFICATION_CAP - 1)
+    .map((e) => ({
+      fireAtUnix: e.fireAtUnix,
+      title: 'Med Tracker',
+      body: (e.pushText || e.text || '').replace(/\*\*/g, ''),
+      section: KIND_SECTION[e.kind] || 'today',
+    }));
+  if (items.length) {
+    items.push({ fireAtUnix: items[items.length - 1].fireAtUnix + 60, title: 'Med Tracker', body: LAPSE_TEXT, section: 'today' });
+  }
+  return items;
+}
+
+async function scheduleLocalNotifications(entries, pref) {
+  const local = globalThis.LocalNotifications;
+  if (!local || typeof local.isSupported !== 'function' || local.isSupported() !== true) return;
+  try {
+    await local.schedule(localNotificationItems(entries, pref));
+  } catch (e) {
+    console.error('[reminders] local notification schedule failed', e);
+  }
 }
 
 // scheduleReminderRecompute debounces recomputeAndPush per ctx (keyed by

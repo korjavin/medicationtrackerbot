@@ -41,6 +41,13 @@ function loadCloudRemindersModule() { return import('/js/reminders.js'); }
 // warning about it there would stomp the "Notifications disabled" confirmation.
 async function refreshCloudPushToggleState(toggleBtn, status) {
     try {
+        if (localNotificationsSupported()) {
+            // iOS app shell: "subscribed" is the iOS notification permission.
+            const granted = (await window.LocalNotifications.permission()) === 'granted';
+            toggleBtn.dataset.subscribed = granted ? '1' : '0';
+            toggleBtn.textContent = granted ? 'Disable' : 'Enable';
+            return;
+        }
         const { getSubscription } = await loadCloudPushModule();
         const sub = await getSubscription();
         toggleBtn.dataset.subscribed = sub ? '1' : '0';
@@ -93,6 +100,36 @@ function requestNotificationPermissionNormalized() {
     });
 }
 
+// The iOS app shell schedules reminders on the device (bd med-w6gx.5): the
+// toggle asks iOS for permission and the test button posts a local
+// notification. False on the web, where every branch below is the Web Push one.
+function localNotificationsSupported() {
+    return window.LocalNotifications?.isSupported?.() === true;
+}
+
+const IOS_NOTIFICATION_SETTINGS = 'iOS Settings → Med Tracker → Notifications';
+
+async function toggleLocalNotifications(toggleBtn, status) {
+    if (toggleBtn.dataset.subscribed === '1') {
+        // An app cannot revoke its own permission; iOS Settings can.
+        applyWebpushStatus(status, `To turn reminders off on this iPhone, use ${IOS_NOTIFICATION_SETTINGS}.`, 'muted');
+        return;
+    }
+    const permission = await window.LocalNotifications.requestPermission();
+    if (permission !== 'granted') {
+        applyWebpushStatus(status, `Notifications are off for Med Tracker. Turn them on in ${IOS_NOTIFICATION_SETTINGS}.`, 'error');
+        return;
+    }
+    const ctx = window.MedTrackerCloud?.ctx;
+    if (ctx) {
+        const { recomputeAndPush } = await loadCloudRemindersModule();
+        // Schedules this iPhone's reminders now; a failed relay upload (offline)
+        // does not unschedule them, so it is not this toggle's failure.
+        await recomputeAndPush(ctx).catch(() => {});
+    }
+    applyWebpushStatus(status, 'Notifications enabled', 'success');
+}
+
 function bindCloudNotifications() {
     const toggleBtn = document.getElementById('cloud-push-toggle');
     const testBtn = document.getElementById('cloud-push-test-btn');
@@ -115,7 +152,9 @@ function bindCloudNotifications() {
     toggleBtn.addEventListener('click', async () => {
         toggleBtn.disabled = true;
         try {
-            if (toggleBtn.dataset.subscribed === '1') {
+            if (localNotificationsSupported()) {
+                await toggleLocalNotifications(toggleBtn, status);
+            } else if (toggleBtn.dataset.subscribed === '1') {
                 const { unsubscribe } = await loadCloudPushModule();
                 await unsubscribe();
                 applyWebpushStatus(status, 'Notifications disabled', 'muted');
@@ -170,8 +209,12 @@ function bindCloudNotifications() {
         } else {
             testBtn.disabled = true;
             try {
-                const { sendTestPush } = await loadCloudRemindersModule();
-                await sendTestPush(ctx);
+                if (localNotificationsSupported()) {
+                    await window.LocalNotifications.test();
+                } else {
+                    const { sendTestPush } = await loadCloudRemindersModule();
+                    await sendTestPush(ctx);
+                }
                 applyWebpushStatus(status, 'Test sent to this device.', 'success');
             } catch (err) {
                 applyWebpushStatus(status, err.message || 'Failed to send test push', 'error');
