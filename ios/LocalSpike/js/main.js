@@ -36,7 +36,8 @@ function set(id, status, detail) {
 }
 
 function reportText() {
-  const head = `wg local-mode spike · build ${env.build || '?'} (${env.version || '?'}) · iOS ${env.ios || '?'} · ${env.model || '?'} · origin ${location.origin} · ${new Date().toISOString()}`;
+  const head = `wg local-mode spike · build ${env.build || '?'} (${env.version || '?'}) · iOS ${env.ios || '?'} · ${env.model || '?'} · origin ${location.origin} · ${new Date().toISOString()}` +
+    (env.error ? ` · /env.json FAILED (${env.error}): launch ids are per page load` : '');
   const rows = [...results].map(([id, r]) => `#${id} ${r.status} ${r.name} — ${r.detail}`);
   const viol = `CSP violations seen: ${(window.__wgViolations || []).join('; ') || 'none'}`;
   return [head, ...rows, viol, nativeText ? `\n— native (over the bridge) —\n${nativeText}` : ''].join('\n');
@@ -97,13 +98,19 @@ async function checkIndexedDB() {
 
   const me = { launch: env.launch, build: env.build, vendor: env.vendor, at: new Date().toISOString() };
   let fresh = false;
+  let keyError = null;
   if (!sealed) {
-    // Before the write transaction: awaiting WebCrypto inside it would let it auto-commit.
-    const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode('sealed'));
-    sealed = { key, iv, ct, ...me };
-    fresh = true;
+    // Before the write transaction: awaiting WebCrypto inside it would let it
+    // auto-commit. A crypto failure is 2k's, never 2's.
+    try {
+      const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode('sealed'));
+      sealed = { key, iv, ct, ...me };
+      fresh = true;
+    } catch (e) {
+      keyError = e;
+    }
   }
   const t = db.transaction(['launches', 'kv'], 'readwrite');
   t.objectStore('launches').add(me);
@@ -121,6 +128,7 @@ async function checkIndexedDB() {
     `; this launch ${me.launch} build ${me.build}`);
 
   try {
+    if (keyError) throw keyError;
     const pt = new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: sealed.iv }, sealed.key, sealed.ct));
     const same = sealed.launch === me.launch;
     const from = same ? 'created this launch — kill + relaunch to test' : `from launch ${sealed.launch} build ${sealed.build} (${sealed.at})`;
@@ -302,6 +310,12 @@ async function main() {
   set('5', 'MANUAL', 'tap "Test camera"');
   render();
   try { env = await (await fetch('/env.json')).json(); } catch (e) { env = { error: errText(e) }; }
+  if (!env.launch) {
+    // Without the native per-process id every page load counts as a launch:
+    // say so in the report rather than record unidentified launches.
+    env.launch = `page-${Math.random().toString(36).slice(2, 8)}`;
+    $('status').textContent = `/env.json failed (${env.error || 'no launch id'}): relaunch results in #2 are per page load, not per process.`;
+  }
   await run('1', checkCrypto);
   await run('3', checkModules);
   await run('6', checkCSP);
