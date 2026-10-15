@@ -463,12 +463,15 @@ stays missing after the replace-only import), so only `intake` and
 (`bp-hk-<uuid>`, `weight-hk-<uuid>`, bd med-w6gx.6), which a full Health rescan
 re-derives the same way, so a reading deleted before the backup stays deleted.
 Clients that predate these two types skip them on import (the unknown-type rule
-below).
+below) — so a file restored and re-exported by such a client has lost them, and
+a later full Health rescan resurrects those readings (known residual, not
+fixable retroactively). Apple Health weights carry no `weight_trend` at all
+(the derived body must be device-independent); the restore recompute fills it.
 
 - Only exact derived-slot ids are carried: `intake-<medId>-<unixSec>` (mirroring
   medintake.js `slotId`), `session-<groupId>-<YYYY-MM-DD>` (mirroring workout.js
   `sessionRecordId`, the same shape the reminder horizon probes), and
-  `bp-hk-<uuid>` / `weight-hk-<uuid>` (lowercase UUID, mirroring healthimport.js
+  `bp-hk-<uuid>` / `weight-hk-<uuid>` (lowercase UUID, mirroring healthsource.js
   `healthRecordId`). Manually-keyed
   rows (`intake-manual-…`, `session-adhoc-…`) and suffixed import ids
   (`intake-<m>-<s>-tz_step`, which nothing looks up) delete-by-absence: their

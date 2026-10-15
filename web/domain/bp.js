@@ -3,6 +3,8 @@
 // later run inside the Go server via goja (C6) with a Go-backed records port.
 // Mirrors internal/store/bp/repo.go + internal/server/bp_handlers.go.
 
+import { deleteHealthAlias } from './healthsource.js';
+
 const RECORD_TYPE = 'bp';
 const GOAL_RECORD_TYPE = 'bpgoal';
 const GOAL_RECORD_ID = 'bpgoal';
@@ -252,12 +254,14 @@ export function createBPDomain({ records, now, timeZone }) {
 
   async function remove(id) {
     const all = await records.list(RECORD_TYPE);
-    if (!all.some((r) => r.recordId === id)) {
+    const row = all.find((r) => r.recordId === id);
+    if (!row) {
       const err = new Error('reading not found');
       err.code = 'not_found';
       throw err;
     }
     await records.del(RECORD_TYPE, id);
+    await deleteHealthAlias(records, RECORD_TYPE, row);
   }
 
   async function getGoal() {

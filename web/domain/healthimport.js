@@ -16,23 +16,11 @@
 // clients that predate them ignore them (toResponse picks known fields).
 import { createBPDomain } from './bp.js';
 import { createWeightDomain } from './weight.js';
+import {
+  HEALTH_SOURCE, UUID_RE, healthRecordId, healthImportRecordId,
+} from './healthsource.js';
 
-export const HEALTH_SOURCE = 'apple_health';
-
-// HKObject.uuid.uuidString — also keeps the recordId free of anything odd.
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-export function healthRecordId(kind, uuid) {
-  return `${kind}-hk-${String(uuid).toLowerCase()}`;
-}
-
-// The recordId an imported body maps back to (vault restore re-mints leaf ids),
-// or null for anything that did not come from Apple Health.
-export function healthImportRecordId(kind, body) {
-  return body && body.source === HEALTH_SOURCE && UUID_RE.test(body.source_id)
-    ? healthRecordId(kind, body.source_id)
-    : null;
-}
+export { HEALTH_SOURCE, healthRecordId, healthImportRecordId };
 
 function positive(v) {
   return typeof v === 'number' && Number.isFinite(v) && v > 0;
@@ -75,15 +63,16 @@ export function createHealthImportDomain({ records, now, timeZone }) {
     const k = KINDS[kind];
     if (!k) throw new Error(`healthimport: unknown kind ${kind}`);
     // Tombstones included: a deleted reading stays deleted. A row restored by
-    // an older client sits under a fresh id but keeps source_id — count it too.
+    // an older client sits under a fresh id but keeps source_id — count it too
+    // (deleting such an alias also tombstones its canonical id: healthsource.js).
     const have = new Set();
     for (const r of await records.listRaw(kind)) {
       have.add(r.recordId);
       const id = healthImportRecordId(kind, r);
       if (id) have.add(id);
     }
-    // Oldest first: a stable write order. (weight.create gives a derived row a
-    // trend from the sample alone, so every device writes the same body.)
+    // Oldest first: a stable write order. (weight.create stores a derived row
+    // without a trend, so every device writes the same body.)
     const fresh = (Array.isArray(samples) ? samples : [])
       .filter((s) => s && UUID_RE.test(s.uuid) && Number.isFinite(s.start) && k.valid(s))
       .sort((a, b) => a.start - b.start);

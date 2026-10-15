@@ -63,8 +63,8 @@
 // vault actually carries them — see managedTypesForImport.
 
 import { calculateBPCategory } from './bp.js';
-import { calculateWeightTrend } from './weight.js';
-import { healthImportRecordId } from './healthimport.js';
+import { weightTrendChain } from './weight.js';
+import { healthImportRecordId } from './healthsource.js';
 
 export const VAULT_FORMAT = 'medtracker-vault';
 export const VAULT_VERSION = 1;
@@ -103,7 +103,7 @@ export const TOMBSTONED_SLOT_TYPES = new Set(['intake', 'workoutsession', 'bp', 
 
 // Derived-slot id shapes, mirroring the canonical builders — medintake.js
 // slotId(medId, scheduledAtMs), workout.js sessionRecordId(groupId, date) and
-// healthimport.js healthRecordId(kind, uuid) (lowercased UUID — change both
+// healthsource.js healthRecordId(kind, uuid) (lowercased UUID — change both
 // together); the session shape is identical to the tombstone probe in reminders.js.
 // Only tombstones at these ids suppress re-materialization. Manually-keyed
 // rows (`intake-manual-…`, `session-adhoc-…`) and suffixed import ids
@@ -560,12 +560,10 @@ export function vaultToRecords(vault, { now } = {}) {
   // --- weight (compute the derived trend the same way weight.js create does) ---
   const weight = data.weight || {};
   const ascLogs = sortBy(weight.logs || [], (r) => r.measured_at);
-  let prevTrend = null;
-  for (const log of ascLogs) {
-    const trend = calculateWeightTrend(log.weight, prevTrend);
-    prevTrend = trend;
-    push('weight', healthImportRecordId('weight', log) || `weight-${mintNum()}`, { ...log, weight_trend: trend });
-  }
+  const trends = weightTrendChain(ascLogs);
+  ascLogs.forEach((log, i) => {
+    push('weight', healthImportRecordId('weight', log) || `weight-${mintNum()}`, { ...log, weight_trend: trends[i] });
+  });
   for (const g of weight.goals || []) push('weightgoal', `weightgoal-${mintNum()}`, { ...g });
   if (weight.unit_pref) push('weightunitpref', 'weight-unit', { unit: weight.unit_pref === 'lb' ? 'lb' : 'kg' });
 

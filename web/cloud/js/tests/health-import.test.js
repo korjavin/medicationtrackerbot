@@ -18,6 +18,7 @@ vi.mock('../sync.js', () => ({
 
 import { runHealthImport, startHealthImport, healthStatusText } from '../health-import.js';
 import { createBPDomain } from '../../../domain/bp.js';
+import { createWeightDomain } from '../../../domain/weight.js';
 import { recordsToVault, vaultToRecords } from '../../../domain/vault.js';
 
 const U1 = '11111111-2222-4333-8444-555555555555';
@@ -180,7 +181,50 @@ describe('Apple Health import', () => {
         s2.setItem('wg.health.enabled', 'true');
         await runHealthImport({}, { health: fakeHealth(sample), storage: s2, records: b, flush });
         expect(a.rows.get(`weight-hk-${U2}`)).toEqual(b.rows.get(`weight-hk-${U2}`));
-        expect(a.rows.get(`weight-hk-${U2}`).weight_trend).toBe(70);
+        expect(a.rows.get(`weight-hk-${U2}`).weight_trend).toBeNull();
+    });
+
+    it('Health weights feed the trend EMA, and the trend shown matches the one a restore rebuilds', async () => {
+        const DAY = 86_400_000;
+        const data = { bp: [], weight: [kgSample(U1, T0, 70), kgSample(U2, T0 + DAY, 100)] };
+        await runHealthImport({}, { health: fakeHealth(data), storage, records, flush });
+        const weight = createWeightDomain({ records, now: () => T0 + 3 * DAY, timeZone: 'UTC' });
+        const manual = await weight.create({ measured_at: T0 + 2 * DAY, weight: 100 });
+        expect(manual.weight_trend).toBeCloseTo(75.7, 6); // 70 → 73 → 75.7, not reset to 100
+        const shown = (await weight.list({ days: 0 })).map((l) => l.weight_trend);
+        const restored = memRecords();
+        for (const r of vaultToRecords(recordsToVault([...records.rows.values()], { now: T0 }), { now: T0 })) {
+            restored.rows.set(r.recordId, r);
+        }
+        const after = (await createWeightDomain({ records: restored, now: () => T0 + 3 * DAY, timeZone: 'UTC' })
+            .list({ days: 0 })).map((l) => l.weight_trend);
+        expect(after).toEqual(shown);
+        expect(shown.map((t) => Math.round(t * 10) / 10)).toEqual([75.7, 73, 70]);
+    });
+
+    it('a manual-only weight history keeps its stored trends', async () => {
+        await records.put('weight', { recordId: 'w1', clientTs: 1, deleted: false, measured_at: '2026-10-01T07:00:00.000Z', weight: 80, weight_trend: 81 });
+        await records.put('weight', { recordId: 'w2', clientTs: 2, deleted: false, measured_at: '2026-10-02T07:00:00.000Z', weight: 90, weight_trend: 85 });
+        const weight = createWeightDomain({ records, now: () => T0 + 86_400_000 * 5, timeZone: 'UTC' });
+        expect((await weight.list({ days: 0 })).map((l) => l.weight_trend)).toEqual([85, 81]);
+        expect((await weight.create({ measured_at: '2026-10-03T07:00:00.000Z', weight: 95 })).weight_trend).toBeCloseTo(86, 6);
+    });
+
+    it('deleting a reading restored under a fresh id (older client) keeps it deleted on a full rescan', async () => {
+        const data = { bp: [bpSample(U1, T0, 125, 82)], weight: [kgSample(U2, T0, 70)] };
+        await runHealthImport({}, { health: fakeHealth(data), storage, records, flush });
+        const restored = memRecords();
+        for (const r of records.rows.values()) {
+            const fresh = r.recordType === 'bp' ? 'bp-1' : 'weight-2';
+            restored.rows.set(fresh, { ...r, recordId: fresh, clientTs: T0 });
+        }
+        const deps = { records: restored, now: () => T0, timeZone: 'UTC' };
+        await createBPDomain(deps).remove('bp-1');
+        await createWeightDomain(deps).remove('weight-2');
+        storage.setItem('wg.health.anchors', '{}');
+        expect(await runHealthImport({}, { health: fakeHealth(data), storage, records: restored, flush })).toEqual({ added: 0 });
+        expect(await restored.list('bp')).toEqual([]);
+        expect(await restored.list('weight')).toEqual([]);
     });
 
     it('skips malformed samples instead of stalling the import', async () => {

@@ -3,6 +3,8 @@
 // later run inside the Go server via goja (C6) with a Go-backed records port.
 // Mirrors internal/store/weight/repo.go + internal/server/weight_handlers.go.
 
+import { deleteHealthAlias } from './healthsource.js';
+
 const RECORD_TYPE = 'weight';
 const GOAL_RECORD_TYPE = 'weightgoal';
 const GOAL_MIN_KG = 20;
@@ -18,6 +20,27 @@ export function calculateWeightTrend(currentWeight, previousTrend) {
   if (previousTrend === null || previousTrend === undefined) return currentWeight;
   const alpha = 0.1;
   return alpha * currentWeight + (1 - alpha) * previousTrend;
+}
+
+// weightTrendChain is THE weight_trend EMA walk over a chain sorted oldest
+// first, seeded from null. vault.js restore rebuilds every weight_trend with it.
+export function weightTrendChain(rowsAsc) {
+  let prev = null;
+  return rowsAsc.map((r) => (prev = calculateWeightTrend(r.weight, prev)));
+}
+
+const hasTrend = (r) => r.weight_trend !== null && r.weight_trend !== undefined;
+
+// withTrends returns the rows carrying the trend to read. A manual-only chain
+// keeps its stored trends (unchanged behaviour). Apple Health rows (derived)
+// are stored without a trend so their body is device-independent; a chain that
+// holds one is recomputed whole by weightTrendChain, so the trend shown equals
+// the trend a vault restore produces.
+function withTrends(rows) {
+  if (rows.every(hasTrend)) return rows;
+  const asc = [...rows].sort((a, b) => Date.parse(a.measured_at) - Date.parse(b.measured_at));
+  const trends = weightTrendChain(asc);
+  return asc.map((r, i) => ({ ...r, weight_trend: trends[i] }));
 }
 
 function toISOString(v) {
@@ -36,7 +59,7 @@ function toResponse(record) {
     measured_at: record.measured_at,
     weight: record.weight,
   };
-  if (record.weight_trend !== null && record.weight_trend !== undefined) resp.weight_trend = record.weight_trend;
+  if (hasTrend(record)) resp.weight_trend = record.weight_trend;
   if (record.body_fat !== null && record.body_fat !== undefined) resp.body_fat = record.body_fat;
   if (record.muscle_mass !== null && record.muscle_mass !== undefined) resp.muscle_mass = record.muscle_mass;
   if (record.notes) resp.notes = record.notes;
@@ -80,17 +103,13 @@ export function createWeightDomain({ records, now, timeZone }) {
   async function create(input, { replacesId, recordId, derived = false } = {}) {
     const nowMs = now();
     // A derived row must be the same body on every device that derives it
-    // (equal clientTs 0 never reconciles under LWW), so its trend comes from
-    // the sample alone, never from this device's history. Its stored
-    // weight_trend therefore equals its weight (a later manual entry seeds its
-    // EMA from it; vault restore recomputes the whole chain).
-    const all = derived ? [] : await records.list(RECORD_TYPE);
+    // (equal clientTs 0 never reconciles under LWW), so it stores no trend;
+    // readers fill it in from the chain (withTrends).
+    const all = derived ? [] : withTrends((await records.list(RECORD_TYPE))
+      .filter((r) => r.recordId !== replacesId));
     const previous = all
-      .filter((r) => r.recordId !== replacesId)
       .sort((a, b) => Date.parse(b.measured_at) - Date.parse(a.measured_at))[0];
-    const previousTrend = previous && previous.weight_trend !== null && previous.weight_trend !== undefined
-      ? previous.weight_trend
-      : null;
+    const previousTrend = previous && hasTrend(previous) ? previous.weight_trend : null;
 
     const record = {
       recordId: recordId || genId(nowMs),
@@ -98,7 +117,7 @@ export function createWeightDomain({ records, now, timeZone }) {
       deleted: false,
       measured_at: toISOString(input.measured_at),
       weight: input.weight,
-      weight_trend: calculateWeightTrend(input.weight, previousTrend),
+      weight_trend: derived ? null : calculateWeightTrend(input.weight, previousTrend),
       body_fat: input.body_fat ?? null,
       muscle_mass: input.muscle_mass ?? null,
       notes: input.notes || '',
@@ -111,7 +130,7 @@ export function createWeightDomain({ records, now, timeZone }) {
 
   async function list({ days = 30, limit = 100 } = {}) {
     const since = days > 0 ? now() - days * 24 * 60 * 60 * 1000 : 0;
-    const all = await records.list(RECORD_TYPE);
+    const all = withTrends(await records.list(RECORD_TYPE));
     const filtered = all
       .filter((r) => !since || Date.parse(r.measured_at) >= since)
       .sort((a, b) => Date.parse(b.measured_at) - Date.parse(a.measured_at));
@@ -121,12 +140,14 @@ export function createWeightDomain({ records, now, timeZone }) {
 
   async function remove(id) {
     const all = await records.list(RECORD_TYPE);
-    if (!all.some((r) => r.recordId === id)) {
+    const row = all.find((r) => r.recordId === id);
+    if (!row) {
       const err = new Error('weight log not found');
       err.code = 'not_found';
       throw err;
     }
     await records.del(RECORD_TYPE, id);
+    await deleteHealthAlias(records, RECORD_TYPE, row);
   }
 
   async function latestGoal() {

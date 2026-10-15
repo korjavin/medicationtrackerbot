@@ -87,8 +87,17 @@ manifest entry: there is no egress).
   A vault backup keeps the `-hk-` ids (`source_id`) and their tombstones, and
   the importer also recognises a reading by `source_id` (an older client's
   restore re-mints ids), so neither a restore nor a rescan duplicates or
-  resurrects. A derived weight's `weight_trend` comes from the sample alone, so
-  every device writes the same body.
+  resurrects; deleting such a re-minted reading also tombstones its `-hk-` id
+  ([`healthsource.js`](../web/domain/healthsource.js)). A derived weight stores
+  no `weight_trend`, so every device writes the same body; `weight.js` reads a
+  chain that holds one by recomputing the whole EMA exactly as a vault restore
+  does, so the trend shown matches the trend after a restore (a manual-only
+  history keeps its stored trends).
+- **Known residuals:** a backup restored and re-exported by a client that
+  predates the `-hk-` tombstones loses them (it skips the unknown tombstone
+  types), so a later full Health rescan brings deleted readings back. A client
+  that predates this change sees Health weights without a trend and seeds a
+  new entry's trend from the raw weight. Neither can be fixed from this side.
 - **Not in v1:** deleting a sample in Health does not delete it here. Sleep and
   workouts are med-w6gx.7.
 - **Signing:** automatic signing enabled the *HealthKit* capability on the App
