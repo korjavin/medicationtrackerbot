@@ -266,6 +266,19 @@ describe('Apple Health import', () => {
             expect(await pairs(restoreOf(records))).toEqual([[70, 70], [80, 71]]);
         });
 
+        it('a Health and a manual reading tied on instant and weight keep their trends across a restore', async () => {
+            const at = '2026-10-02T00:00:00Z';
+            await records.put('weight', { recordId: 'w0', clientTs: 1, deleted: false, measured_at: '2026-10-01T00:00:00Z', weight: 60, weight_trend: 60 });
+            await records.put('weight', { recordId: 'z-manual', clientTs: 2, deleted: false, measured_at: at, weight: 80, weight_trend: 80 });
+            await records.put('weight', hkRow(80, at));
+            const bySource = async (recs) => Object.fromEntries((await createWeightDomain({ records: recs, now: NOW, timeZone: 'UTC' })
+                .list({ days: 0 })).map((l) => [l.source || (l.weight === 60 ? 'first' : 'manual'), l.weight_trend]));
+            const live = await bySource(records);
+            expect(live.apple_health).toBeCloseTo(62, 6);
+            expect(live.manual).toBeCloseTo(63.8, 6);
+            expect(await bySource(restoreOf(records))).toEqual(live);
+        });
+
         it('after a restore, deleting the last Health row leaves the trends that were shown', async () => {
             await records.put('weight', hkRow(70, '2026-10-01T00:00:00Z'));
             await records.put('weight', { recordId: 'a', clientTs: 1, deleted: false, measured_at: '2026-10-01T23:00:00-02:00', weight: 100, weight_trend: 100 });

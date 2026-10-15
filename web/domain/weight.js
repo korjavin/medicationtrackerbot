@@ -23,11 +23,13 @@ export function calculateWeightTrend(currentWeight, previousTrend) {
 }
 
 // compareChain is THE order of a recomputed chain (readers and restore):
-// instant, then weight, then recordId. ponytail: restore re-mints manual ids, so
-// only (instant, weight) survive it — enough, rows tied on both yield the same
-// EMA values in either order; recordId just keeps one device deterministic.
+// instant, then weight, then Health row before manual, then recordId.
+// ponytail: restore re-mints manual ids, so only the first three survive it —
+// two manual (or two Health) rows tied on all three are interchangeable for
+// the EMA; recordId just keeps one device deterministic.
 export function compareChain(a, b) {
-  const d = (Date.parse(a.measured_at) - Date.parse(b.measured_at)) || (a.weight - b.weight);
+  const d = (Date.parse(a.measured_at) - Date.parse(b.measured_at)) || (a.weight - b.weight)
+    || (isHealthWeight(b) - isHealthWeight(a));
   if (d) return d;
   const ia = String(a.recordId || '');
   const ib = String(b.recordId || '');
