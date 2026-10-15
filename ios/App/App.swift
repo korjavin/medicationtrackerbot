@@ -103,6 +103,12 @@ struct FirstRunView: View {
                     .buttonStyle(.bordered)
             }
             Spacer()
+            // App Store packaging (bd med-w6gx.8): same wording as the store description.
+            Text("Med Tracker is a personal log, not a medical device, and does not give medical advice. Talk to your doctor before changing a treatment.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            Link("Privacy policy", destination: URL(string: "https://github.com/korjavin/medicationtrackerbot/blob/master/docs/privacy-policy.md")!)
+                .font(.footnote)
         }
         .padding(24)
         .frame(maxWidth: .infinity, alignment: .leading)
