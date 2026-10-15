@@ -29,7 +29,7 @@ const ASKED_KEY = 'wg.health.asked';
 const SLEEP_PENDING_KEY = 'wg.health.sleepPending';
 // The same margin Health.swift pads an anchored sleep page with, so the night
 // lies whole inside the re-read window.
-const SLEEP_PAD_MS = 18 * 3600 * 1000;
+const SLEEP_PAD_MS = 48 * 3600 * 1000;
 const PAGE = 500;
 // ponytail: caps one run at 20k samples per kind; the saved anchor resumes the
 // rest on the next open.
@@ -81,7 +81,12 @@ export async function runHealthImport(ctx, {
                 // The whole result goes along: sleep reads its window ({from, to}).
                 const r = await domain.importSamples(kind, res && res.samples, res);
                 added += r.added;
-                if (Number.isFinite(r.pending)) pending.push(r.pending);
+                // Saved before the caller moves the anchor past these samples:
+                // a later page failing must not lose an unsettled night.
+                if (Number.isFinite(r.pending)) {
+                    pending.push(r.pending);
+                    writeJSON(storage, SLEEP_PENDING_KEY, Math.min(...pending));
+                }
             };
             const since = kind === 'sleep' ? readJSON(storage, SLEEP_PENDING_KEY, null) : null;
             if (Number.isFinite(since)) {

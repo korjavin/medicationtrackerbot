@@ -80,7 +80,7 @@ have to survive a round-trip — the importer is free to re-mint them.
   An Apple Health bp reading / weight log (`source: "apple_health"` with a `source_id`)
   is re-minted as `bp-hk-<uuid>` / `weight-hk-<uuid>` for the same reason: the next
   Health scan finds it instead of adding it again. Apple Health sleep logs and miband
-  workouts (bd med-w6gx.7) likewise become `sleep-hk-<uuid>` / `miband-hk-<uuid>`, a
+  workouts (bd med-w6gx.7) likewise become `sleep-hk-<day>` / `miband-hk-<uuid>`, a
   workout's body `id` 1e14 + the UUID's last 48 bits, a band no other miband id
   reaches (healthsource.js `healthNumericId`).
 
@@ -280,7 +280,7 @@ Flat per-sample arrays — the format hides the cloud day-batching (see
   `day` (`YYYY-MM-DD`), `light_minutes`, `deep_minutes`, `rem_minutes`,
   `awake_minutes`, `total_minutes`, `turn_over_count`, `heart_rate_avg`, `spo2_avg`
   (num), `user_modified` (bool), `notes` (str), optional `source` / `source_id` (as bp:
-  an Apple Health night, named by its first sample's UUID; re-minted as `sleep-hk-<uuid>`).
+  an Apple Health sleep day, `source_id` = its `day`; re-minted as `sleep-hk-<day>`).
 - **day_stat** — `day` (`YYYY-MM-DD`), `steps`, `calories`, `distance` (num).
 - **sample** (heart/spo2/stress) — `date_time` (RFC3339), `tz_offset` (seconds),
   `value` (num), optional `type` (int sample-kind discriminator, omitted when 0), and

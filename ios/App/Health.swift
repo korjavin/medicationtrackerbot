@@ -31,10 +31,11 @@ enum Health {
                             HKQuantityType(.distanceSwimming)]
     /// A sleep page is answered with every sleep sample from this much before
     /// the page's earliest new sample to this much after its latest, so the web
-    /// side sees whole nights (healthimport.js). ponytail: one window per page,
-    /// unbounded — out-of-order backfill can read a long span once; split into
-    /// per-night windows if that shows up as slow.
-    static let sleepPad: TimeInterval = 18 * 3600
+    /// side sees every night of each sleep day it touches (healthimport.js: a
+    /// day's nights end within 24h and start at most a day before). ponytail:
+    /// one window per page, unbounded — out-of-order backfill can read a long
+    /// span once; split into per-day windows if that shows up as slow.
+    static let sleepPad: TimeInterval = 48 * 3600
 
     /// Read authorization is per quantity type: a blood-pressure correlation
     /// is readable once both of its members are; a workout's heart rate,

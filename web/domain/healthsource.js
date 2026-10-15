@@ -12,10 +12,14 @@ export function healthRecordId(kind, uuid) {
 
 // The recordId an imported body maps back to (vault restore re-mints leaf ids),
 // or null for anything that did not come from Apple Health.
+// A Health sleep record is keyed by its sleep day (YYYY-MM-DD, healthimport.js
+// importSleep), every other kind by the sample UUID.
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 export function healthImportRecordId(kind, body) {
-  return body && body.source === HEALTH_SOURCE && UUID_RE.test(body.source_id)
-    ? healthRecordId(kind, body.source_id)
-    : null;
+  if (!body || body.source !== HEALTH_SOURCE) return null;
+  const ok = kind === 'sleep' ? DAY_RE.test(body.source_id) : UUID_RE.test(body.source_id);
+  return ok ? healthRecordId(kind, body.source_id) : null;
 }
 
 // deleteHealthAlias: a Health row restored by an older client sits under a

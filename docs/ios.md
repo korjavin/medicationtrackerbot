@@ -123,38 +123,59 @@ manifest entry: there is no egress).
 
 ### Sleep and workouts (bd med-w6gx.7)
 
-Same toggle, same anchored queries, same floor. A build that switched the toggle
-on for BP and weight only asks once, at the next open, for the new types.
+Same toggle, same anchored queries. A build that switched the toggle on for BP
+and weight only asks once, at the next open, for the new types.
 
-- **Sleep** → the existing `sleep` night (Vitals). `Health.swift` answers a sleep
-  page with *every* sleep sample (all sources) from 18h before the page's
-  earliest new sample to 18h after its latest, plus that window; `healthimport.js` groups them into nights per source (gaps ≤ 1h,
+- **Sleep** → the existing `sleep` record (Vitals), **one per sleep day**.
+  `Health.swift` answers a sleep page with *every* sleep sample (all sources)
+  from 48h before the page's earliest new sample to 48h after its latest, plus
+  that window; `healthimport.js` groups them into nights per source (gaps ≤ 1h,
   *In Bed* ignored), keeps only nights whole inside the window, and maps
   Core/Deep/REM/Awake to light/deep/rem/awake minutes (`total_minutes` = asleep
   time). Overlapping samples of one night count each minute once, as the
   highest of deep > REM > core > awake > unspecified, so the minutes never
-  exceed the night's span. recordId `sleep-hk-<uuid of the night's first
-  sample>`; `day` is the wake day and `timezone_offset` the night's offset, both
-  in the sample's own time zone (HealthKit's `HKTimeZone`), else **UTC** — never
-  the iPhone's zone, so every device writes the same body.
-- **Settling:** the night sits at the LWW floor and is never rewritten, so it is
-  written only once its last sample ended **3h** ago (`SLEEP_SETTLE_MS`). A
-  night still settling when its samples were read leaves its start in
-  `wg.health.sleepPending`; every later run first re-reads sleep by time window
-  (`health.query {type: "sleep", from: start − 18h, to: now}`, no anchor), until
-  nothing is left settling.
+  exceed the night's span.
+  - A **sleep day** runs 18:00–18:00 local by when a night *ends*: the night
+    ending at 07:00 and a nap at 15:00 are that date's; it is the record's
+    `day` (the wake day for a normal night). Local = the samples' own zone
+    (HealthKit's `HKTimeZone`), else **UTC** — never the iPhone's zone.
+  - recordId `sleep-hk-<day>` (`source_id` = the day). The record holds every
+    night and nap of that day from **one source** — the one with the most
+    asleep minutes — with `start_time`/`end_time` spanning them. Naps are
+    therefore merged into the day's record rather than kept as sessions.
+  - **Content-derived clientTs, not the rule-12 floor.** A floored row is
+    "first writer wins forever": an iPhone whose Health store had only a
+    fragment of the night, or another source's copy, would freeze its version.
+    Instead the row is written with `put` at `sleepClientTs(day, body)`: a
+    stamp that grows with asleep minutes, then staged over unstaged, then a
+    body hash — so the fullest version wins on every device, identical bodies
+    tie exactly, and different ones never tie. It is computed from content,
+    never from `now()`, so a stale device cannot outrank real state: the stamp
+    is at most the day's UTC midnight − 20h + 2.8h, which is before the end of
+    any night of that day plus the 3h settle below, i.e. before the row can be
+    seen. Every edit or delete — stamped with the clock — therefore beats every
+    import, and an import never writes over a tombstone or a newer stamp.
+    Manual and Mi Band entries live under other ids and are not affected.
+- **Settling:** a sleep day is written only once its last sample ended **3h**
+  ago (`SLEEP_SETTLE_MS`) — no churn through half-written nights, and the
+  bound above. A night still settling when its samples were read leaves its
+  start in `wg.health.sleepPending` (saved before the anchor moves past it);
+  every later run first re-reads sleep by time window (`health.query {type:
+  "sleep", from: start − 48h, to: now}`, no anchor), until nothing is left
+  settling. A Watch that syncs late just brings a fuller version later, which
+  replaces the earlier one.
 - **Workouts** → the existing `miband` activity record (Workouts → History,
   labelled *Apple Health*): type name, start/end, duration, distance, active
   energy, average heart rate. recordId `miband-hk-<uuid>`, body `id` from the
   UUID. A Health workout **never** creates or edits a strength session, set,
   rotation or progression (docs/workout-depth.md) — it is a history row only.
-- **Overlap rule** (both kinds), applied when a night or workout is first seen:
+- **Overlap rule:**
   - an entry already in the vault wins — a Mi Band night or ride, a manual
-    cardio entry, or one imported earlier from another Health source — and the
-    Health copy that overlaps it in time is skipped;
-  - among new overlapping Health entries (Watch + a third-party app writing the
-    same run or night), the longest wins (asleep time for nights), ties to the
-    smaller UUID, so every iPhone picks the same one;
+    entry, or (workouts) one imported earlier from another Health source — and
+    the Health copy that overlaps it in time is skipped;
+  - among new overlapping Health workouts (Watch + a third-party app writing
+    the same run), the longest wins, ties to the smaller UUID, so every iPhone
+    picks the same one; Health sleep sources compete per sleep day, as above;
   - a Health *strength* workout (traditional / functional strength training)
     that overlaps an in-app workout session is skipped: the per-set log is the
     record of that visit. Other Health workouts during a session (a treadmill
@@ -166,17 +187,23 @@ on for BP and weight only asks once, at the next open, for the new types.
   so that night counts twice until one is removed (sleep has no delete in the
   app yet), and a skipped Health entry stays skipped after the entry that beat
   it is deleted, until the toggle is switched off and on (a rescan). A night
-  whose samples carry no time zone is filed on its UTC wake day (east of about
-  UTC+7 a morning wake-up can land on the previous date). A night a source
-  extends more than 3h after its last sample (a Watch that syncs a day late)
-  stays as first read. A backup restored and re-exported by a client that
-  predates the `miband-hk-` tombstones loses them, as for BP and weight above,
-  so a later rescan brings a deleted Health workout back.
+  whose samples carry no time zone takes its sleep day in UTC; for a morning
+  wake-up that is the local date nearly everywhere, but a zone-less and a
+  zoned source can file one night on different days (and so show it twice)
+  for wake-ups before ~05:00 east of UTC+10 or after ~10:00 west of UTC−8.
+  Two versions of a day with the same asleep minutes and stage presence are
+  ordered by body hash, not by quality. A sleep day restored from a backup is
+  stamped at restore time, so later fuller versions no longer replace it. The
+  sync layer subtracts each device's measured clock skew from any stamp, so a
+  device with a skewed clock (seconds) may tip a near-tie the other way —
+  devices still converge on one version. A backup restored and re-exported by a
+  client that predates the `miband-hk-` tombstones loses them, as for BP and
+  weight above, so a later rescan brings a deleted Health workout back.
   A deleted Health workout leaves only a bodyless tombstone, so another
   source's copy of it (Strava writing the same run later, or a rescan that
   reads the copy on a different page) can still appear and needs deleting too.
-  A sleep page reads every sleep sample from 18h before the page's earliest
-  new sample to 18h after its latest, so a page of out-of-order backfill can
+  A sleep page reads every sleep sample from 48h before the page's earliest
+  new sample to 48h after its latest, so a page of out-of-order backfill can
   read a long stretch of history at once (slow, not wrong).
 
 ### Device check — sleep and workouts (TestFlight)

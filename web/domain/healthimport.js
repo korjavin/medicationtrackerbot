@@ -18,11 +18,12 @@
 // Sleep and workouts (bd med-w6gx.7) land in the existing `sleep` night and
 // `miband` activity shapes — never in strength sessions or sets. Their bodies
 // are a pure function of the HealthKit samples (no clock, no device zone, no
-// local history), so every device writes the same body under one id; the
-// clock only decides WHEN a night is settled enough to write. Overlap rule (docs/ios.md):
-// a Health night or workout overlapping one already in the vault (manual,
-// Mi Band, or another Health source) is skipped; among new overlapping
-// candidates the longest wins, ties to the smaller UUID.
+// local history), so every device writes the same body under one id.
+// Workouts follow the bp/weight floor (overlap rule: a workout overlapping one
+// already in the vault is skipped; among new overlapping candidates the
+// longest wins, ties to the smaller UUID). Sleep does not — see importSleep:
+// one record per sleep day, written with a content-derived clientTs so the
+// most complete version wins on every device (docs/ios.md).
 import { createBPDomain, offsetMsAt } from './bp.js';
 import { createWeightDomain } from './weight.js';
 import {
@@ -36,9 +37,9 @@ function positive(v) {
 const MIN_MS = 60_000;
 const HOUR_MS = 3_600_000;
 // Sleep samples of one source at most this far apart make one night.
-// Health.swift pads each sleep window by 18h; a night is imported only when it
-// lies whole inside the window (a gap clear of either edge), so a night clipped
-// at an edge is read whole by the window of the page that holds it.
+// Health.swift pads each sleep window by 48h — wide enough to hold every night
+// of the sleep day any of its samples belongs to; a night is used only when it
+// lies whole inside the window (a gap clear of either edge).
 const SLEEP_GAP_MS = HOUR_MS;
 // HKCategoryValueSleepAnalysis: 0 inBed (ignored: a bedtime schedule, not
 // sleep), 1 asleepUnspecified, 2 awake, 3 asleepCore, 4 asleepDeep, 5 asleepREM.
@@ -47,11 +48,16 @@ const SLEEP_PHASE = { 1: 'asleep', 2: 'awake', 3: 'light', 4: 'deep', 5: 'rem' }
 // Watch's stages, or a duplicate), each minute counts once, as the highest of:
 // deep > REM > core > awake > unspecified asleep.
 const SLEEP_RANK = { 4: 5, 5: 4, 3: 3, 2: 2, 1: 1 };
-// A night is imported only once its last sample ended this long ago: the
-// record sits at the LWW floor and can never be rewritten, so a night still
-// being written (stages land after wake-up, the Watch syncs late) must wait.
-// The cloud side re-reads unsettled nights by time window (health-import.js).
+// A sleep day is written only once its last sample ended this long ago, so a
+// night still being written is not churned through partial versions — and so
+// its content-derived clientTs (sleepClientTs) is always older than the moment
+// the row became visible, i.e. than any edit or delete of it. The cloud side
+// re-reads unsettled nights by time window (health-import.js).
 export const SLEEP_SETTLE_MS = 3 * HOUR_MS;
+// A sleep day runs from 18:00 to 18:00 local, by when a night ENDS: a night
+// ending 07:00 belongs to that date (its wake day), a nap at 15:00 to the
+// same one, a night still going at 18:00 to the next.
+const SLEEP_DAY_SHIFT_MS = 6 * HOUR_MS;
 // HKWorkoutActivityType raw values. running/walking/cycling reuse the history
 // list's labels (web/static/js/features/workout/history.js MIBAND_ACTIVITY_META).
 const WORKOUT_NAMES = {
@@ -105,12 +111,34 @@ function phaseMs(samples) {
   return ms;
 }
 
+function fnv1a(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 0x01000193);
+  return h >>> 0;
+}
+
+// sleepClientTs: the LWW stamp of a Health sleep day, derived from its content
+// instead of the clock (a deliberate exception to CLAUDE.md rule 12's floor).
+// More asleep minutes, then staged over unstaged, then a body hash: so the
+// most complete version wins on every device, identical bodies tie exactly,
+// and different bodies never tie (bar a hash collision). It stays below
+//   base + 2881 × 3500 + 3500 ≈ base + 2.8h,  base = the day's UTC midnight − 20h
+// which is at or before 18:00 local of the previous day in every zone
+// (UTC−12…UTC+14), i.e. before the earliest end of any night of that day. The
+// row is written only SLEEP_SETTLE_MS (3h) after that end, so every edit or
+// delete of it — stamped with the clock — outranks every import of it, and a
+// stale device's shorter version loses to a fuller one instead of erasing it.
+export function sleepClientTs(day, body) {
+  const base = Date.parse(`${day}T00:00:00Z`) - 20 * HOUR_MS;
+  const minutes = Math.min(Math.max(body.total_minutes || 0, 0), 1440);
+  const staged = body.light_minutes === null || body.light_minutes === undefined ? 0 : 1;
+  return base + (minutes * 2 + staged) * 3500 + (fnv1a(JSON.stringify(body)) % 3500);
+}
+
 // sleepNights groups one window of raw sleep samples into nights: per source,
 // samples (inBed excluded) chained while the gap stays ≤ SLEEP_GAP_MS. A night
 // counts only with some sleep in it; `whole` says it lies whole inside
-// [from, to] (only those are imported; a clipped one still blocks what it
-// overlaps, so it never loses to a shorter copy). `span` is the asleep time,
-// the weight the overlap rule ranks by.
+// [from, to] (a sleep day is written only when all its nights are).
 export function sleepNights(samples, from, to) {
   if (!Number.isFinite(from) || !Number.isFinite(to)) return [];
   const valid = (Array.isArray(samples) ? samples : [])
@@ -133,8 +161,7 @@ export function sleepNights(samples, from, to) {
     .map((n) => {
       const ms = phaseMs(n.samples);
       return {
-        // Named by its first sample (sorted by start, then UUID).
-        uuid: n.samples[0].uuid,
+        src: n.src,
         tz: (n.samples.find((s) => typeof s.tz === 'string' && s.tz) || {}).tz,
         start: n.start,
         end: n.end,
@@ -180,8 +207,8 @@ export function createHealthImportDomain({ records, now, timeZone }) {
   // The record type each bridge kind lands in.
   const TYPE = { bp: 'bp', weight: 'weight', sleep: 'sleep', workout: 'miband' };
 
-  // Sleep / workout rows go straight to the LWW floor, like bp/weight's
-  // derived create (the vitals and workout domains have no create for them).
+  // Workout rows go straight to the LWW floor, like bp/weight's derived
+  // create (the workout domain has no create for them).
   const floored = (type, uuid, body) => records.putIfAbsent(type, {
     recordId: healthRecordId(type, uuid), clientTs: 0, deleted: false,
     ...body, source: HEALTH_SOURCE, source_id: uuid,
@@ -210,39 +237,89 @@ export function createHealthImportDomain({ records, now, timeZone }) {
     return out;
   }
 
-  // → { added, pending }: pending is the start (ms) of the earliest night not
-  // settled yet (SLEEP_SETTLE_MS), for the caller to re-read later; else absent.
-  async function importSleep(samples, bounds, have) {
+  // importSleep → { added, pending }. Health sleep is one record per sleep day
+  // (SLEEP_DAY_SHIFT_MS), id `sleep-hk-<day>`: every night and nap of that day
+  // from ONE source, the one with the highest sleepClientTs (most asleep
+  // minutes). The key is the same across sources and devices, so copies of a
+  // night converge on one row by LWW instead of piling up, and a fuller
+  // version (late stages, a lagging iPhone) replaces a partial one.
+  // Not written: a day whose best version is clipped by the window or not
+  // settled (`pending` = the earliest unsettled start, for the caller to
+  // re-read by time window); a day overlapping a non-Health sleep entry
+  // (Mi Band, manual: it wins); a day an edit or delete already outranks.
+  async function importSleep(samples, bounds) {
     const all = sleepNights(samples, bounds && bounds.from, bounds && bounds.to);
     const settledBy = now() - SLEEP_SETTLE_MS;
     const open = all.filter((n) => n.end > settledBy);
     const pending = open.length ? Math.min(...open.map((n) => n.start)) : undefined;
-    const ready = (n) => n.whole && n.end <= settledBy;
-    const nights = all.filter(ready).map((n) => ({ ...n, recordId: healthRecordId('sleep', n.uuid) }));
-    if (!nights.length) return { added: 0, pending };
-    // A clipped or unsettled night still blocks what it overlaps, so it never
-    // loses to a shorter copy before it is read whole.
-    const taken = spans(await records.list('sleep'), (r) => Date.parse(r.start_time), (r) => Date.parse(r.end_time))
-      .concat(all.filter((n) => !ready(n)));
+    if (!all.length) return { added: 0, pending };
+
     const min = (v) => Math.round(v / MIN_MS);
-    let added = 0;
-    for (const n of pickFree(nights, have, taken)) {
+    const days = new Map(); // day -> source -> nights
+    for (const n of all) {
       const offset = offsetMsAt(n.end, zoneOf(n.tz));
-      have.add(n.recordId);
-      await floored('sleep', n.uuid, {
-        start_time: rfc3339(n.start),
-        end_time: rfc3339(n.end),
-        // Minutes west of UTC, as the Mi Band import stores it.
-        timezone_offset: -Math.round(offset / MIN_MS) || 0,
-        // The wake day, on the night's local calendar.
-        day: new Date(n.end + offset).toISOString().slice(0, 10),
-        light_minutes: n.staged ? min(n.ms.light) : null,
-        deep_minutes: n.staged ? min(n.ms.deep) : null,
-        rem_minutes: n.staged ? min(n.ms.rem) : null,
-        awake_minutes: min(n.ms.awake),
-        total_minutes: min(n.span),
-        user_modified: false,
-      });
+      const day = new Date(n.end + offset + SLEEP_DAY_SHIFT_MS).toISOString().slice(0, 10);
+      if (!days.has(day)) days.set(day, new Map());
+      const bySrc = days.get(day);
+      if (!bySrc.has(n.src)) bySrc.set(n.src, []);
+      bySrc.get(n.src).push(n);
+    }
+
+    const raw = await records.listRaw('sleep');
+    const byId = new Map(raw.map((r) => [r.recordId, r]));
+    // A Health row an older client's restore re-minted under a fresh id keeps
+    // source_id (its day): that day is already there, leave it.
+    const aliased = new Set();
+    for (const r of raw) {
+      const id = healthImportRecordId('sleep', r);
+      if (id && id !== r.recordId) aliased.add(id);
+    }
+    const others = spans(
+      raw.filter((r) => !r.deleted && !healthImportRecordId('sleep', r)),
+      (r) => Date.parse(r.start_time), (r) => Date.parse(r.end_time),
+    );
+
+    let added = 0;
+    for (const [day, bySrc] of days) {
+      let best = null;
+      for (const nights of bySrc.values()) {
+        const ms = { asleep: 0, awake: 0, light: 0, deep: 0, rem: 0 };
+        for (const n of nights) for (const k of Object.keys(ms)) ms[k] += n.ms[k];
+        const start = Math.min(...nights.map((n) => n.start));
+        const end = Math.max(...nights.map((n) => n.end));
+        const last = nights.reduce((a, n) => (n.end > a.end ? n : a));
+        const offset = offsetMsAt(end, zoneOf(last.tz));
+        const staged = nights.some((n) => n.staged);
+        const body = {
+          start_time: rfc3339(start),
+          end_time: rfc3339(end),
+          // Minutes west of UTC, as the Mi Band import stores it.
+          timezone_offset: -Math.round(offset / MIN_MS) || 0,
+          day,
+          light_minutes: staged ? min(ms.light) : null,
+          deep_minutes: staged ? min(ms.deep) : null,
+          rem_minutes: staged ? min(ms.rem) : null,
+          awake_minutes: min(ms.awake),
+          total_minutes: min(ms.asleep + ms.light + ms.deep + ms.rem),
+          user_modified: false,
+          source: HEALTH_SOURCE,
+          source_id: day,
+        };
+        const c = {
+          body, start, end, ts: sleepClientTs(day, body),
+          ready: end <= settledBy && nights.every((n) => n.whole),
+        };
+        if (!best || c.ts > best.ts) best = c;
+      }
+      const recordId = healthRecordId('sleep', day);
+      const prev = byId.get(recordId);
+      if (!best.ready || aliased.has(recordId)) continue;
+      if (prev && (prev.deleted || prev.clientTs >= best.ts)) continue;
+      // Same body already there: the sync layer may have shifted its stamp by
+      // this device's clock skew, which must not trigger a rewrite every run.
+      if (prev && Object.keys(best.body).every((k) => prev[k] === best.body[k])) continue;
+      if (overlaps(best, others)) continue;
+      await records.put('sleep', { recordId, clientTs: best.ts, deleted: false, ...best.body });
       added++;
     }
     return { added, pending };
@@ -295,6 +372,7 @@ export function createHealthImportDomain({ records, now, timeZone }) {
   async function importSamples(kind, samples, bounds) {
     const type = TYPE[kind];
     if (!type) throw new Error(`healthimport: unknown kind ${kind}`);
+    if (kind === 'sleep') return importSleep(samples, bounds);
     // Tombstones included: a deleted reading stays deleted. A row restored by
     // an older client sits under a fresh id but keeps source_id — count it too
     // (deleting such an alias also tombstones its canonical id: healthsource.js).
@@ -304,7 +382,6 @@ export function createHealthImportDomain({ records, now, timeZone }) {
       const id = healthImportRecordId(type, r);
       if (id) have.add(id);
     }
-    if (kind === 'sleep') return importSleep(samples, bounds, have);
     if (kind === 'workout') return { added: await importWorkouts(samples, have) };
     const k = KINDS[kind];
     // Oldest first: a stable write order. (weight.create stores a derived row
