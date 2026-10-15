@@ -228,14 +228,19 @@ export function localNotificationItems(entries, pref = {}, nowUnix = Math.floor(
   return items;
 }
 
-async function scheduleLocalNotifications(entries, pref) {
+// Serialized like push.js pushChains: each schedule is a replace-all, so two in
+// flight could interleave (Swift removes, then adds one by one) or let an older
+// horizon land last. One chain is enough — the device has one schedule.
+let localChain = Promise.resolve();
+
+function scheduleLocalNotifications(entries, pref) {
   const local = globalThis.LocalNotifications;
-  if (!local || typeof local.isSupported !== 'function' || local.isSupported() !== true) return;
-  try {
-    await local.schedule(localNotificationItems(entries, pref));
-  } catch (e) {
-    console.error('[reminders] local notification schedule failed', e);
-  }
+  if (!local || typeof local.isSupported !== 'function' || local.isSupported() !== true) return Promise.resolve();
+  const items = localNotificationItems(entries, pref);
+  localChain = localChain
+    .then(() => local.schedule(items))
+    .catch((e) => console.error('[reminders] local notification schedule failed', e));
+  return localChain;
 }
 
 // scheduleReminderRecompute debounces recomputeAndPush per ctx (keyed by

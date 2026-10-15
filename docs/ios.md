@@ -108,7 +108,8 @@ Details: [docs/frontend.md → Device-Capability Abstractions](frontend.md#devic
 ### Reminders as local notifications (bd med-w6gx.5)
 
 WKWebView has no Web Push. Whenever the web app computes the reminder horizon
-([architecture.md §5](architecture.md#5-reminders)) — every unlock, every
+([architecture.md §5](architecture.md#5-reminders)) — every unlock, every return
+to the app (the page stays alive across app switches), every
 reminder-affecting edit, every inbox drain — `recomputeAndPush`
 (`web/cloud/js/reminders.js`) also hands it to `window.LocalNotifications`,
 which `ios/App/Notifications.swift` schedules with `UNUserNotificationCenter`,
