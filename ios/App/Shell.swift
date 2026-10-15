@@ -21,6 +21,8 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     /// Behind the status bar and the home indicator: the page's own colours at its top and bottom edge.
     @Published private(set) var top = Color(uiColor: Shell.screen)
     @Published private(set) var bottom = Color(uiColor: Shell.screen)
+    /// In memory only: Try again must keep an invite link's #claim= fragment.
+    private var lastURL: URL?
 
     override init() {
         let config = WKWebViewConfiguration()
@@ -70,7 +72,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     }
 
     func retry() {
-        if let host, let url = URL(string: "https://\(host)/") { load(url) }
+        if let url = lastURL ?? host.flatMap({ URL(string: "https://\($0)/") }) { load(url) }
     }
 
     /// Back to first-run. Website data is kept: it is per origin, so returning to
@@ -78,6 +80,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     func forget() {
         UserDefaults.standard.removeObject(forKey: Shell.hostKey)
         host = nil
+        lastURL = nil
         loadError = nil
         webView.loadHTMLString("", baseURL: nil) // stop the old account's page
     }
@@ -91,6 +94,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
 
     private func load(_ url: URL) {
         loadError = nil
+        lastURL = url
         webView.load(URLRequest(url: url))
     }
 
@@ -126,7 +130,17 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse) async -> WKNavigationResponsePolicy {
-        Downloads.policy(for: navigationResponse)
+        // An HTTP error before any page of this account showed — a mistyped or
+        // deleted account answers 404 — gets the error screen (Switch account)
+        // instead of a bare error page the user cannot leave.
+        if navigationResponse.isForMainFrame, let http = navigationResponse.response as? HTTPURLResponse,
+           http.statusCode >= 400, !showingAccount(webView) {
+            loadError = http.statusCode == 404
+                ? "There is no account at \(host ?? "this address")."
+                : HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+            return .cancel
+        }
+        return Downloads.policy(for: navigationResponse)
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
@@ -148,11 +162,15 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         // -999 superseded by another load; 102 interrupted by policy (external link, download).
         if (e.domain == NSURLErrorDomain && e.code == NSURLErrorCancelled) || (e.domain == "WebKitErrorDomain" && e.code == 102) { return }
         // A page of this account already showing stays usable.
-        if webView.url?.host?.lowercased() != host { loadError = e.localizedDescription }
+        if !showingAccount(webView) { loadError = e.localizedDescription }
+    }
+
+    private func showingAccount(_ webView: WKWebView) -> Bool {
+        host != nil && webView.url?.host?.lowercased() == host
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        retry()
+        if webView.url == nil { retry() } else { webView.reload() } // reload keeps the current URL and fragment
     }
 
     // MARK: wgChrome messages

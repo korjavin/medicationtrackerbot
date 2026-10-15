@@ -78,7 +78,9 @@ changes for it.
   other link (and `mailto:`/`tel:`) opens in Safari or its own app.
 - **Offline:** a cold start offline is answered by the Service Worker; a native
   "Can't open your account" screen (Try again / Switch account) appears only
-  when the very first load fails with nothing cached.
+  when the very first load fails with nothing cached, or the host answers an
+  HTTP error (a mistyped or deleted account is a 404). Try again keeps an
+  invite link's `#claim=` fragment (in memory only).
 - **Switch account:** iOS Settings → Med Tracker → *Switch account*, then return
   to the app; also on the load-error screen. Website data is per origin and is
   kept, so switching back still finds offline data and warm unlock.
