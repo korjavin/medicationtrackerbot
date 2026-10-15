@@ -23,6 +23,9 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     @Published private(set) var bottom = Color(uiColor: Shell.screen)
     /// In memory only: Try again must keep an invite link's #claim= fragment.
     private var lastURL: URL?
+    /// Host of the last committed page: WKWebView.url already names the
+    /// provisional one while a load is in flight.
+    private var committedHost: String?
 
     override init() {
         let config = WKWebViewConfiguration()
@@ -81,6 +84,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         UserDefaults.standard.removeObject(forKey: Shell.hostKey)
         host = nil
         lastURL = nil
+        committedHost = nil
         loadError = nil
         webView.loadHTMLString("", baseURL: nil) // stop the old account's page
     }
@@ -134,8 +138,8 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         // deleted account answers 404 — gets the error screen (Switch account)
         // instead of a bare error page the user cannot leave.
         if navigationResponse.isForMainFrame, let http = navigationResponse.response as? HTTPURLResponse,
-           http.statusCode >= 400, !showingAccount(webView) {
-            loadError = http.statusCode == 404
+           http.statusCode >= 400, !showingAccount {
+            loadError = http.statusCode == 404 && http.url?.host?.lowercased() == host
                 ? "There is no account at \(host ?? "this address")."
                 : HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
             return .cancel
@@ -162,12 +166,14 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         // -999 superseded by another load; 102 interrupted by policy (external link, download).
         if (e.domain == NSURLErrorDomain && e.code == NSURLErrorCancelled) || (e.domain == "WebKitErrorDomain" && e.code == 102) { return }
         // A page of this account already showing stays usable.
-        if !showingAccount(webView) { loadError = e.localizedDescription }
+        if !showingAccount { loadError = e.localizedDescription }
     }
 
-    private func showingAccount(_ webView: WKWebView) -> Bool {
-        host != nil && webView.url?.host?.lowercased() == host
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        committedHost = webView.url?.host?.lowercased()
     }
+
+    private var showingAccount: Bool { host != nil && committedHost == host }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         if webView.url == nil { retry() } else { webView.reload() } // reload keeps the current URL and fragment
