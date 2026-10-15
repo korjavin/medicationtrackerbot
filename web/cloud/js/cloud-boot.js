@@ -422,7 +422,9 @@ window.MedTrackerCloudReady = (async function boot() {
         // unlock happens once while "open the app" happens many times — and the
         // phone holds only 64 reminders (bd med-w6gx.5). Re-schedule each time
         // the app comes back to the front. Never on the web.
-        if (window.LocalNotifications?.isSupported?.() === true) {
+        let localNotifications = false;
+        try { localNotifications = window.LocalNotifications?.isSupported?.() === true; } catch { /* native/ stub */ }
+        if (localNotifications) {
             document.addEventListener('visibilitychange', () => {
                 if (document.visibilityState !== 'visible') return;
                 import('/js/reminders.js')

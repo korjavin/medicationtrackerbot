@@ -24,8 +24,14 @@ export function isStandalone() {
 }
 
 // The device schedules reminders itself (the iOS app shell, docs/ios.md).
+// False without a window, without native/, or before its impl registered (the
+// foundation stub throws).
 function hasLocalNotifications() {
-  return window.LocalNotifications?.isSupported?.() === true;
+  try {
+    return globalThis.LocalNotifications?.isSupported?.() === true;
+  } catch {
+    return false;
+  }
 }
 
 export function isIOS() {

@@ -235,7 +235,9 @@ let localChain = Promise.resolve();
 
 function scheduleLocalNotifications(entries, pref) {
   const local = globalThis.LocalNotifications;
-  if (!local || typeof local.isSupported !== 'function' || local.isSupported() !== true) return Promise.resolve();
+  let supported = false;
+  try { supported = local?.isSupported?.() === true; } catch { /* native/ stub: not registered */ }
+  if (!supported) return Promise.resolve();
   const items = localNotificationItems(entries, pref);
   localChain = localChain
     .then(() => local.schedule(items))

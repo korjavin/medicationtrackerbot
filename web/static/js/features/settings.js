@@ -104,7 +104,12 @@ function requestNotificationPermissionNormalized() {
 // toggle asks iOS for permission and the test button posts a local
 // notification. False on the web, where every branch below is the Web Push one.
 function localNotificationsSupported() {
-    return window.LocalNotifications?.isSupported?.() === true;
+    // The native/ foundation stub throws until an impl registers.
+    try {
+        return window.LocalNotifications?.isSupported?.() === true;
+    } catch (e) {
+        return false;
+    }
 }
 
 const IOS_NOTIFICATION_SETTINGS = 'iOS Settings → Med Tracker → Notifications';
