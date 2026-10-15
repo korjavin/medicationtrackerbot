@@ -61,6 +61,18 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         host = defaults.string(forKey: Shell.hostKey).flatMap { AccountURL.isAccountHost($0, base: base) ? $0 : nil }
         applySettings()
         retry()
+        Notifications.shared.onOpen = { [weak self] section in self?.openSection(section) }
+    }
+
+    /// A notification tap (bd med-w6gx.5): switch the open app to the section,
+    /// or load the account on it (the deep-link router reads ?tab=).
+    func openSection(_ section: String) {
+        guard let host else { return }
+        if showingAccount, !webView.isLoading {
+            webView.evaluateJavaScript("window.switchTab && window.switchTab('\(section)')")
+        } else if let url = URL(string: "https://\(host)/?tab=\(section)") {
+            load(url)
+        }
     }
 
     /// First-run submit. Returns the message to show, or nil once the account is opening.
@@ -207,6 +219,8 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         switch body["op"] as? String {
         case "ping":
             replyHandler("pong", nil)
+        case let op? where op.hasPrefix("notifications."):
+            Notifications.shared.handle(op, args: body["args"] as? [String: Any] ?? [:], reply: replyHandler)
         case let op? where op.hasPrefix("health."):
             let args = body["args"] as? [String: Any] ?? [:]
             Task {

@@ -479,3 +479,102 @@ describe('iOS Enable-push permission handling (med-1n6)', () => {
         }
     });
 });
+
+// bd med-w6gx.5: inside the iOS app shell window.LocalNotifications reports
+// supported, and the same controls drive iOS notifications instead of Web Push.
+describe('cloud Notifications controls inside the iOS app (LocalNotifications)', () => {
+    function shellLocal(window, { permission = 'default', grant = 'granted' } = {}) {
+        const local = {
+            isSupported: () => true,
+            permission: vi.fn(async () => local.state),
+            requestPermission: vi.fn(async () => { local.state = grant; return grant; }),
+            schedule: vi.fn(async () => 0),
+            test: vi.fn(async () => true),
+            state: permission,
+        };
+        window.LocalNotifications = local;
+        return local;
+    }
+
+    it('Enable asks iOS, reschedules the horizon, and never touches Web Push', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            const local = shellLocal(window);
+            const subscribe = vi.fn();
+            const getSubscription = vi.fn();
+            const recomputeAndPush = vi.fn().mockResolvedValue(undefined);
+            stubCloudModules(window, {
+                push: { subscribe, unsubscribe: vi.fn(), getSubscription },
+                reminders: { sendTestPush: vi.fn(), recomputeAndPush }
+            });
+            const ctx = { accountId: 'acc-1' };
+            window.MedTrackerCloud = { ctx };
+            window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+            await window.loadSettings();
+
+            const toggleBtn = document.getElementById('cloud-push-toggle');
+            await vi.waitFor(() => expect(toggleBtn.dataset.subscribed).toBe('0'));
+            toggleBtn.click();
+            await vi.waitFor(() => expect(recomputeAndPush).toHaveBeenCalledWith(ctx));
+            expect(local.requestPermission).toHaveBeenCalledTimes(1);
+            await vi.waitFor(() => expect(toggleBtn.textContent).toBe('Disable'));
+            expect(subscribe).not.toHaveBeenCalled();
+            expect(getSubscription).not.toHaveBeenCalled();
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('a refused permission points to iOS Settings', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            shellLocal(window, { grant: 'denied' });
+            const recomputeAndPush = vi.fn();
+            stubCloudModules(window, {
+                push: { subscribe: vi.fn(), unsubscribe: vi.fn(), getSubscription: vi.fn() },
+                reminders: { sendTestPush: vi.fn(), recomputeAndPush }
+            });
+            window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+            await window.loadSettings();
+
+            const toggleBtn = document.getElementById('cloud-push-toggle');
+            await vi.waitFor(() => expect(toggleBtn.disabled).toBe(false));
+            toggleBtn.click();
+            const status = document.getElementById('cloud-push-status');
+            await vi.waitFor(() => expect(status.textContent).toContain('iOS Settings'));
+            expect(recomputeAndPush).not.toHaveBeenCalled();
+            expect(toggleBtn.textContent).toBe('Enable');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('Send test posts a local notification instead of a test push', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            const local = shellLocal(window, { permission: 'granted' });
+            const sendTestPush = vi.fn();
+            stubCloudModules(window, {
+                push: { subscribe: vi.fn(), unsubscribe: vi.fn(), getSubscription: vi.fn() },
+                reminders: { sendTestPush }
+            });
+            window.MedTrackerCloud = { ctx: { accountId: 'acc-1' } };
+            window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+            await window.loadSettings();
+
+            await vi.waitFor(() => expect(document.getElementById('cloud-push-toggle').dataset.subscribed).toBe('1'));
+            document.getElementById('cloud-push-test-btn').click();
+            await vi.waitFor(() => expect(local.test).toHaveBeenCalledTimes(1));
+            expect(sendTestPush).not.toHaveBeenCalled();
+            await vi.waitFor(() => expect(document.getElementById('cloud-push-status').textContent).toContain('Test sent to this device.'));
+        } finally {
+            cleanup();
+        }
+    });
+});

@@ -10,6 +10,10 @@ import WebKit
 struct WGApp: App {
     @StateObject private var shell = Shell()
 
+    init() {
+        Notifications.shared.install() // before launch finishes: a tap that started the app is delivered
+    }
+
     var body: some Scene {
         WindowGroup { RootView(shell: shell) }
     }

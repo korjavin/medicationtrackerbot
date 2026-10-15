@@ -2,8 +2,14 @@
 //
 // Only the iOS app shell has them (UNUserNotificationCenter; WKWebView has no
 // Web Push). The web impl reports unsupported, so feature code branches on
-// isSupported(), never on the platform. Scheduling ops arrive with the
-// reminder hand-off (bd med-w6gx.5) as foundation.call('notifications.*').
+// isSupported(), never on the platform, and calls nothing else on web.
+//
+// ios ops (bd med-w6gx.5, Swift side ios/App/Notifications.swift):
+//   permission()        → 'granted' | 'denied' | 'default'
+//   requestPermission() → the same, after the iOS prompt (asked once)
+//   schedule(items)     → replace-all of the pending reminders; items are
+//                         {fireAtUnix, title, body, section}, at most 64 (iOS cap)
+//   test()              → one notification a second from now
 //
 // Load order: after native/index.js.
 (function () {
@@ -19,5 +25,9 @@
     });
     foundation.registerImpl('LocalNotifications', 'ios', {
         isSupported: function () { return true; },
+        permission: function () { return foundation.call('notifications.permission'); },
+        requestPermission: function () { return foundation.call('notifications.requestPermission'); },
+        schedule: function (items) { return foundation.call('notifications.schedule', { items: items }); },
+        test: function () { return foundation.call('notifications.test'); },
     });
 })();

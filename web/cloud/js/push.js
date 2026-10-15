@@ -20,7 +20,18 @@ export function isStandalone() {
     // The iOS app shell is an installed app too: there is nothing to add to
     // the Home Screen. native/ says so through its capability (false on web,
     // and absent where native/ is not loaded).
-    || window.LocalNotifications?.isSupported?.() === true;
+    || hasLocalNotifications();
+}
+
+// The device schedules reminders itself (the iOS app shell, docs/ios.md).
+// False without a window, without native/, or before its impl registered (the
+// foundation stub throws).
+function hasLocalNotifications() {
+  try {
+    return globalThis.LocalNotifications?.isSupported?.() === true;
+  } catch {
+    return false;
+  }
 }
 
 export function isIOS() {
@@ -234,6 +245,10 @@ export async function ensurePushSubscription() {
     return { state: 'failed', error: e };
   }
   if (typeof PushManager === 'undefined') return { state: 'unsupported' };
+  // The iOS app shell delivers reminders as local notifications
+  // (reminders.js scheduleLocalNotifications), never through a Web Push
+  // subscription (bd med-w6gx.5). False on the web.
+  if (hasLocalNotifications()) return { state: 'unsupported' };
   // Permission is the user's standing intent to be reminded. Without it there
   // is nothing to repair — enabling push is a deliberate, gestured act.
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') {
@@ -372,6 +387,10 @@ async function addDemoReminder(ctx, minutes, text) {
 }
 
 export function renderPush(app, ctx, onExit) {
+  if (hasLocalNotifications()) {
+    renderLocalNotificationsNote(app, onExit);
+    return;
+  }
   if (isIOS() && !isStandalone()) {
     renderInstallFirst(app, onExit);
     return;
@@ -386,6 +405,19 @@ function renderInstallFirst(app, onExit) {
       <p>Install this app to your Home Screen before enabling notifications —
          iOS only delivers push to an installed app.</p>
       ${iosInstallStepsHtml('Open Med Tracker from your Home Screen and come back here.')}
+      <button id="push-back" class="wg-btn">Back</button>
+    </section>`;
+  app.querySelector('#push-back').addEventListener('click', onExit);
+}
+
+// The iOS app has no Web Push to set up here: reminders are scheduled on the
+// phone whenever the account opens (bd med-w6gx.5).
+function renderLocalNotificationsNote(app, onExit) {
+  app.innerHTML = `
+    <section class="wizard-step">
+      <h1>Reminders</h1>
+      <p>This app sends reminders as iPhone notifications once your account is open.
+         Turn them on in Settings → Notifications, or allow Med Tracker in iOS Settings.</p>
       <button id="push-back" class="wg-btn">Back</button>
     </section>`;
   app.querySelector('#push-back').addEventListener('click', onExit);

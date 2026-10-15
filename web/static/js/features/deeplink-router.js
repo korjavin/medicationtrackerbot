@@ -18,6 +18,16 @@ function isDeepLinkFeatureEnabled(tab) {
     return window.featureSettings ? window.featureSettings[feature] !== false : true;
 }
 
+// True only inside the iOS app shell (native/ LocalNotifications); the
+// foundation stub throws until an impl registers.
+function isLocalNotificationsDevice() {
+    try {
+        return window.LocalNotifications?.isSupported?.() === true;
+    } catch (e) {
+        return false;
+    }
+}
+
 function handleDeepLinks() {
     // Path-based deep links: /bp_add, /weight_add
     const deepLinkRoutes = {
@@ -94,6 +104,9 @@ function handleDeepLinks() {
         // the Health tab with that segment active); ignore unknown tabs so
         // activateTabGroup can't blank the page.
         const allowedTabs = ['today', 'workouts', 'bp', 'weight', 'health'];
+        // An iOS app notification tap that cold-starts the app lands on
+        // ?tab=meds (bd med-w6gx.5). Only there: the web allowlist is unchanged.
+        if (isLocalNotificationsDevice()) allowedTabs.push('meds');
         if (allowedTabs.includes(tab)) {
             if (!isDeepLinkFeatureEnabled(tab)) {
                 switchTab('today');
