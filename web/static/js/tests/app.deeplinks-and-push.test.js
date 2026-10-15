@@ -273,6 +273,31 @@ describe('handleDeepLinks – bare ?tab=<section> (Telegram reminder Open button
     }
   });
 
+  // bd med-w6gx.5: ?tab=meds is the iOS app's notification-tap cold start; the
+  // web allowlist stays as it was.
+  it('?tab=meds is ignored on the web', () => {
+    const { window, cleanup } = loadFrontendEnv({ url: 'https://example.test/?tab=meds' });
+    try {
+      const switchTabSpy = vi.spyOn(window, 'switchTab').mockImplementation(() => {});
+      window.handleDeepLinks();
+      expect(switchTabSpy).not.toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('?tab=meds opens Meds inside the iOS app (LocalNotifications supported)', () => {
+    const { window, cleanup } = loadFrontendEnv({ url: 'https://example.test/?tab=meds' });
+    try {
+      window.LocalNotifications = { isSupported: () => true };
+      const switchTabSpy = vi.spyOn(window, 'switchTab').mockImplementation(() => {});
+      window.handleDeepLinks();
+      expect(switchTabSpy).toHaveBeenCalledWith('meds');
+    } finally {
+      cleanup();
+    }
+  });
+
   it('?tab=unknown does NOT call switchTab but still cleans the URL', () => {
     const { window, cleanup } = loadFrontendEnv({ url: 'https://example.test/?tab=unknown' });
     try {

@@ -192,14 +192,17 @@ export async function recomputeAndPush(ctx, opts = {}) {
     computeReminderEntries(ctx, opts),
     domain.getDeliveryPref(),
   ]);
-  await scheduleLocalNotifications(entries, pref);
+  // The relay upload is started first and never waits on the device: a slow
+  // or hung bridge call must not delay Telegram or the other devices.
+  const local = scheduleLocalNotifications(entries, pref);
   await pushSchedule(ctx, entries, pref);
+  await local; // never rejects, bounded by LOCAL_SCHEDULE_TIMEOUT_MS
 }
 
 // iOS app shell only (bd med-w6gx.5): WKWebView has no Web Push, so the same
 // horizon is also handed to the device's own scheduler. On the web
 // LocalNotifications reports unsupported (or is absent) and this returns before
-// doing anything. Runs ahead of pushSchedule and never throws: an offline PUT
+// doing anything. Runs alongside pushSchedule and never throws: an offline PUT
 // must not cost the device its reminders. The relay upload is unchanged — it
 // still serves Telegram and the account's other devices.
 const LOCAL_NOTIFICATION_CAP = 64; // iOS keeps at most 64 pending local notifications
@@ -232,6 +235,16 @@ export function localNotificationItems(entries, pref = {}, nowUnix = Math.floor(
 // flight could interleave (Swift removes, then adds one by one) or let an older
 // horizon land last. One chain is enough — the device has one schedule.
 let localChain = Promise.resolve();
+// A bridge call that never answers must not wedge every later schedule.
+const LOCAL_SCHEDULE_TIMEOUT_MS = 10000;
+
+function withTimeout(promise, ms) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`local notification schedule timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
 
 function scheduleLocalNotifications(entries, pref) {
   const local = globalThis.LocalNotifications;
@@ -240,7 +253,7 @@ function scheduleLocalNotifications(entries, pref) {
   if (!supported) return Promise.resolve();
   const items = localNotificationItems(entries, pref);
   localChain = localChain
-    .then(() => local.schedule(items))
+    .then(() => withTimeout(local.schedule(items), LOCAL_SCHEDULE_TIMEOUT_MS))
     .catch((e) => console.error('[reminders] local notification schedule failed', e));
   return localChain;
 }

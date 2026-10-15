@@ -81,6 +81,21 @@ describe('recomputeAndPush hands the horizon to LocalNotifications in the iOS ap
     expect(schedule).toHaveBeenCalledWith([]);
     expect(pushSchedule).toHaveBeenCalledTimes(1);
   });
+
+  it('ios: a hung bridge call neither delays the relay upload nor wedges later schedules', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const schedule = vi.fn().mockReturnValueOnce(new Promise(() => {})).mockResolvedValue(0);
+    globalThis.LocalNotifications = { isSupported: () => true, schedule };
+    let done = false;
+    const run = recomputeAndPush(ctx, { records: fakeRecords(seed('both')), timeZone: 'UTC' }).then(() => { done = true; });
+    await vi.waitFor(() => expect(pushSchedule).toHaveBeenCalledTimes(1));
+    expect(done).toBe(false);
+    await vi.advanceTimersByTimeAsync(10000); // the bridge call times out
+    await run;
+    await recomputeAndPush(ctx, { records: fakeRecords(seed('both')), timeZone: 'UTC' });
+    expect(schedule).toHaveBeenCalledTimes(2);
+    expect(pushSchedule).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('localNotificationItems', () => {
