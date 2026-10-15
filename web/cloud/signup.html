@@ -28,6 +28,11 @@
 <script src="/static/js/components/mt-elements.js"></script>
 <script src="/static/js/core/modal-manager.js"></script>
 <script src="/static/js/features/modal-history.js"></script>
+<!-- Device capabilities (docs/frontend.md): push.js asks
+     window.LocalNotifications whether the iOS app shell delivers reminders,
+     so the claim wizard skips its Add-to-Home-Screen step there. Inert on web. -->
+<script src="/static/js/native/index.js"></script>
+<script src="/static/js/native/local-notifications.js"></script>
 </head>
 <body>
   <main id="app">

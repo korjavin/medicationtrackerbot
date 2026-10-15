@@ -92,9 +92,18 @@ changes for it.
   spike saw `persisted: false`, so WebKit may evict website data under storage
   pressure; the vault re-syncs from the server, unsynced offline writes are
   what eviction would lose.
-- **Not here:** the web app's "Add to Home Screen" prompts still show inside the
-  app until the web side can tell it runs in the shell (`native/` ios platform,
-  med-w6gx.4).
+- **No install prompts:** the web app's "Add to Home Screen" steps do not show
+  inside the app (bridge below).
+
+### The native bridge (bd med-w6gx.4)
+
+The shell registers a `wgNative` `WKScriptMessageHandlerWithReply`; its presence
+makes `web/static/js/native/index.js` pick the `ios` platform, so
+`window.LocalNotifications` / `window.Health` report supported (they report
+unsupported on the web). `__native.call(op, args)` posts `{op, args}` and
+resolves with the Swift reply; only the account host's main frame is answered.
+Ops: `ping` → `"pong"`; notifications and HealthKit ops come with med-w6gx.5/.6.
+Details: [docs/frontend.md → Device-Capability Abstractions](frontend.md#device-capability-abstractions).
 
 ### Device check (TestFlight)
 
@@ -107,6 +116,8 @@ changes for it.
    header does not scroll behind the status bar or an open sheet.
 6. Settings → Med Tracker → Switch account on → back in the app: first-run.
    Scan the Emergency Kit QR → the same account opens.
+7. Claiming in the app goes from the Emergency Kit (and Telegram, when
+   offered) straight into the app: no "Add to your Home Screen" step.
 
 ## Spike: passkey PRF, Service Worker, IndexedDB in WKWebView (bd med-w6gx.2)
 
