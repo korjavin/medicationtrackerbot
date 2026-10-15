@@ -24,6 +24,7 @@ import { createVitalsDomain } from '../../../domain/vitals.js';
 import { createWorkoutDomain } from '../../../domain/workout.js';
 import { createHealthImportDomain } from '../../../domain/healthimport.js';
 import { healthNumericId } from '../../../domain/healthsource.js';
+import { allowConsoleNoise } from '../../../static/js/tests/helpers/setup.js';
 
 const U1 = '11111111-2222-4333-8444-555555555555';
 const U2 = '66666666-7777-4888-9999-aaaaaaaaaaaa';
@@ -558,6 +559,7 @@ describe('Apple Health import', () => {
         });
 
         it('one kind failing does not stop the others', async () => {
+            allowConsoleNoise(); // the failed kind is logged by design
             const health = healthOf({ weight: [kgSample(U2, T0, 70)] });
             const query = health.query;
             health.query = async (args) => {
