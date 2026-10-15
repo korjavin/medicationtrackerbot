@@ -59,6 +59,17 @@ jobs:
             -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO | tail -n 50
           test "${PIPESTATUS[0]}" -eq 0
 
+      # Local-mode diagnostic (bd med-o7zq.1): a broken page only shows on the
+      # phone, so check the bundle carries it and its scripts parse.
+      - name: Check local-mode diagnostic page
+        working-directory: ios
+        run: |
+          test -f build/sim/Build/Products/Debug-iphonesimulator/MedTracker.app/LocalSpike/index.html
+          node --check LocalSpike/js/boot.js
+          find LocalSpike -name '*.js' ! -name boot.js -print0 | while IFS= read -r -d '' f; do
+            node --input-type=module --check < "$f" || { echo "::error file=ios/$f::syntax error"; exit 1; }
+          done
+
       # TestFlight only on a manual dispatch, and only once every signing input
       # exists — until the owner adds them, the run stays green on the build above.
       - name: Check signing inputs

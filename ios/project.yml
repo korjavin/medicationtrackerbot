@@ -19,7 +19,12 @@ targets:
   MedTracker:
     type: application
     platform: iOS
-    sources: [App]
+    sources:
+      - App
+      # Local-mode diagnostic page (bd med-o7zq.1), copied as a folder to
+      # <bundle>/LocalSpike and served by ios/App/LocalSpike.swift.
+      - path: LocalSpike
+        type: folder
     settings:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
