@@ -191,7 +191,8 @@ Apple fetches it through its CDN
 (`https://app-site-association.cdn-apple.com/a/v1/<host>`), which can lag by
 hours after the first deploy. If an archive fails on the Associated Domains
 entitlement, enable *Associated Domains* on the App ID (developer portal →
-Identifiers).
+Identifiers), then re-generate the App Store profile and update
+`IOS_APPSTORE_PROFILE_BASE64` (signing is manual, see Owner setup).
 
 ### Findings
 
