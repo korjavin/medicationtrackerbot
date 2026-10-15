@@ -210,6 +210,51 @@ describe('Apple Health import', () => {
         expect((await weight.create({ measured_at: '2026-10-03T07:00:00.000Z', weight: 95 })).weight_trend).toBeCloseTo(86, 6);
     });
 
+    describe('weight trend around Apple Health rows', () => {
+        const NOW = () => Date.parse('2026-10-20T00:00:00Z');
+        const hkRow = (weight, measured_at) => ({
+            recordId: `weight-hk-${U1}`, clientTs: 0, deleted: false, weight, weight_trend: null, measured_at,
+            source: 'apple_health', source_id: U1,
+        });
+        const trends = async (recs) => (await createWeightDomain({ records: recs, now: NOW, timeZone: 'UTC' })
+            .list({ days: 0 })).map((l) => l.weight_trend);
+        const restoreOf = (recs) => {
+            const out = memRecords();
+            for (const r of vaultToRecords(recordsToVault([...recs.rows.values()], { now: T0 }), { now: T0 })) {
+                out.rows.set(r.recordId, r);
+            }
+            return out;
+        };
+
+        it('a history without Health rows reads as stored, a missing trend included', async () => {
+            await records.put('weight', { recordId: 'w1', clientTs: 1, deleted: false, measured_at: '2026-10-01T00:00:00Z', weight: 70, weight_trend: null });
+            await records.put('weight', { recordId: 'w2', clientTs: 2, deleted: false, measured_at: '2026-10-02T00:00:00Z', weight: 100, weight_trend: 90 });
+            expect(await trends(records)).toEqual([90, undefined]);
+            const next = await createWeightDomain({ records, now: NOW, timeZone: 'UTC' })
+                .create({ measured_at: '2026-10-03T00:00:00Z', weight: 100 });
+            expect(next.weight_trend).toBeCloseTo(91, 6);
+        });
+
+        it('a restore keeps Health rows trend-less, so later deletes read the same with or without it', async () => {
+            await records.put('weight', { recordId: 'w1', clientTs: 1, deleted: false, measured_at: '2026-10-01T00:00:00Z', weight: 70, weight_trend: 70 });
+            await records.put('weight', hkRow(100, '2026-10-02T00:00:00Z'));
+            await records.put('weight', { recordId: 'w3', clientTs: 3, deleted: false, measured_at: '2026-10-03T00:00:00Z', weight: 100, weight_trend: 75.7 });
+            const restored = restoreOf(records);
+            expect(restored.rows.get(`weight-hk-${U1}`).weight_trend).toBeNull();
+            const restoredFirst = [...restored.rows.values()].find((r) => r.weight === 70).recordId;
+            await createWeightDomain({ records, now: NOW, timeZone: 'UTC' }).remove('w1');
+            await createWeightDomain({ records: restored, now: NOW, timeZone: 'UTC' }).remove(restoredFirst);
+            expect(await trends(records)).toEqual([100, 100]);
+            expect(await trends(restored)).toEqual([100, 100]);
+        });
+
+        it('timestamps with an RFC3339 offset order the same before and after a restore', async () => {
+            await records.put('weight', hkRow(70, '2026-10-02T00:00:00Z'));
+            await records.put('weight', { recordId: 'w1', clientTs: 1, deleted: false, measured_at: '2026-10-01T23:00:00-02:00', weight: 100, weight_trend: 100 });
+            expect(await trends(restoreOf(records))).toEqual(await trends(records));
+        });
+    });
+
     it('deleting a reading restored under a fresh id (older client) keeps it deleted on a full rescan', async () => {
         const data = { bp: [bpSample(U1, T0, 125, 82)], weight: [kgSample(U2, T0, 70)] };
         await runHealthImport({}, { health: fakeHealth(data), storage, records, flush });

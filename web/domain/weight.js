@@ -3,7 +3,7 @@
 // later run inside the Go server via goja (C6) with a Go-backed records port.
 // Mirrors internal/store/weight/repo.go + internal/server/weight_handlers.go.
 
-import { deleteHealthAlias } from './healthsource.js';
+import { deleteHealthAlias, healthImportRecordId } from './healthsource.js';
 
 const RECORD_TYPE = 'weight';
 const GOAL_RECORD_TYPE = 'weightgoal';
@@ -22,23 +22,34 @@ export function calculateWeightTrend(currentWeight, previousTrend) {
   return alpha * currentWeight + (1 - alpha) * previousTrend;
 }
 
+// compareMeasuredAt is THE chain order, shared by vault.js restore and
+// withTrends. ponytail: lexical on the measured_at string, exactly as restore
+// has always sorted — RFC3339 offsets other than Z order by text, not instant;
+// normalize measured_at to UTC on write if mixed offsets ever show up.
+export function compareMeasuredAt(a, b) {
+  if (a.measured_at < b.measured_at) return -1;
+  if (a.measured_at > b.measured_at) return 1;
+  return 0;
+}
+
 // weightTrendChain is THE weight_trend EMA walk over a chain sorted oldest
-// first, seeded from null. vault.js restore rebuilds every weight_trend with it.
+// first (compareMeasuredAt), seeded from null. vault.js restore uses it too.
 export function weightTrendChain(rowsAsc) {
   let prev = null;
   return rowsAsc.map((r) => (prev = calculateWeightTrend(r.weight, prev)));
 }
 
 const hasTrend = (r) => r.weight_trend !== null && r.weight_trend !== undefined;
+export const isHealthWeight = (r) => healthImportRecordId(RECORD_TYPE, r) !== null;
 
-// withTrends returns the rows carrying the trend to read. A manual-only chain
-// keeps its stored trends (unchanged behaviour). Apple Health rows (derived)
-// are stored without a trend so their body is device-independent; a chain that
-// holds one is recomputed whole by weightTrendChain, so the trend shown equals
-// the trend a vault restore produces.
+// withTrends returns the rows carrying the trend to read. A history without
+// Apple Health rows is returned as stored (unchanged behaviour, null trends
+// included). Health rows are stored without a trend so their body is
+// device-independent; a history holding one (canonical or a restored alias) is
+// recomputed whole by weightTrendChain, as vault restore does.
 function withTrends(rows) {
-  if (rows.every(hasTrend)) return rows;
-  const asc = [...rows].sort((a, b) => Date.parse(a.measured_at) - Date.parse(b.measured_at));
+  if (!rows.some(isHealthWeight)) return rows;
+  const asc = [...rows].sort(compareMeasuredAt);
   const trends = weightTrendChain(asc);
   return asc.map((r, i) => ({ ...r, weight_trend: trends[i] }));
 }

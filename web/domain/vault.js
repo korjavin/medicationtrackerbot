@@ -63,7 +63,7 @@
 // vault actually carries them — see managedTypesForImport.
 
 import { calculateBPCategory } from './bp.js';
-import { weightTrendChain } from './weight.js';
+import { compareMeasuredAt, isHealthWeight, weightTrendChain } from './weight.js';
 import { healthImportRecordId } from './healthsource.js';
 
 export const VAULT_FORMAT = 'medtracker-vault';
@@ -559,10 +559,14 @@ export function vaultToRecords(vault, { now } = {}) {
 
   // --- weight (rebuild every trend with weight.js weightTrendChain, the walk its readers use) ---
   const weight = data.weight || {};
-  const ascLogs = sortBy(weight.logs || [], (r) => r.measured_at);
+  const ascLogs = [...(weight.logs || [])].sort(compareMeasuredAt);
   const trends = weightTrendChain(ascLogs);
   ascLogs.forEach((log, i) => {
-    push('weight', healthImportRecordId('weight', log) || `weight-${mintNum()}`, { ...log, weight_trend: trends[i] });
+    // An Apple Health row stays trend-less (null), as healthimport writes it,
+    // so readers keep recomputing the chain exactly as before the restore.
+    push('weight', healthImportRecordId('weight', log) || `weight-${mintNum()}`, {
+      ...log, weight_trend: isHealthWeight(log) ? null : trends[i],
+    });
   });
   for (const g of weight.goals || []) push('weightgoal', `weightgoal-${mintNum()}`, { ...g });
   if (weight.unit_pref) push('weightunitpref', 'weight-unit', { unit: weight.unit_pref === 'lb' ? 'lb' : 'kg' });
