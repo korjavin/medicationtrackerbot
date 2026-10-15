@@ -120,8 +120,10 @@ manifest entry: there is no egress).
   new entry's trend from the raw weight. Neither can be fixed from this side.
 - **Not in v1:** deleting a sample in Health does not delete it here. Sleep and
   workouts are med-w6gx.7.
-- **Signing:** automatic signing enabled the *HealthKit* capability on the App
-  ID by itself. Upload validation demands `NSHealthUpdateUsageDescription` even
+- **Signing:** an earlier automatic-signing run enabled the *HealthKit*
+  capability on the App ID. Signing is now manual, so the App Store profile in
+  `IOS_APPSTORE_PROFILE_BASE64` must be generated (or re-saved) after that, or
+  the archive fails on the HealthKit entitlement. Upload validation demands `NSHealthUpdateUsageDescription` even
   for a read-only app, so `project.yml` carries one saying the app never writes.
 
 ### Device check (TestFlight)
