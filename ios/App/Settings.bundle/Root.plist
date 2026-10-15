@@ -22,6 +22,24 @@
 			<key>DefaultValue</key>
 			<false/>
 		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSGroupSpecifier</string>
+			<key>Title</key>
+			<string>Diagnostics</string>
+			<key>FooterText</key>
+			<string>Test build only. Turn on and return to Med Tracker to run the on-device storage checks; your account and its data are not touched.</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSToggleSwitchSpecifier</string>
+			<key>Title</key>
+			<string>Local mode diagnostic</string>
+			<key>Key</key>
+			<string>wgLocalSpike</string>
+			<key>DefaultValue</key>
+			<false/>
+		</dict>
 	</array>
 </dict>
 </plist>
