@@ -32,6 +32,9 @@ targets:
       properties:
         com.apple.developer.associated-domains:
           - "webcredentials:*.$(WG_BASE_DOMAIN)"
+        # Apple Health, read-only (bd med-w6gx.6, ios/App/Health.swift).
+        com.apple.developer.healthkit: true
+        com.apple.developer.healthkit.access: []
     info:
       path: App/Info.plist
       properties:
@@ -49,6 +52,10 @@ targets:
         UIViewControllerBasedStatusBarAppearance: false
         UIStatusBarStyle: UIStatusBarStyleLightContent
         NSCameraUsageDescription: Scan food barcodes, take meal photos and scan your account QR code.
+        NSHealthShareUsageDescription: Import your blood pressure and weight readings from Apple Health into your encrypted vault.
+        # Read-only, but App Store upload validation rejects a HealthKit app
+        # without the update string too (seen on the med-w6gx.6 dispatch).
+        NSHealthUpdateUsageDescription: Med Tracker only reads from Apple Health and never writes to it.
         # Service Workers only run on app-bound domains (max 10); the wildcard
         # entry covers every account subdomain (spike med-w6gx.2, check 3).
         WKAppBoundDomains:

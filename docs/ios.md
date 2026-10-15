@@ -79,6 +79,69 @@ opens the share sheet (Save to Files), and deletes the file when the sheet
 closes (a file left by a killed app is swept at the next launch). A page script sends `window.print()`, and the offscreen-iframe print in
 `web/cloud/js/print-doc.js`, to the iOS print sheet. No web code changes.
 
+## Apple Health import (bd med-w6gx.6)
+
+Read-only: Health → the page → the encrypted vault, like a hand-entered reading;
+the app never writes to Health and nothing new leaves the device (no privacy
+manifest entry: there is no egress).
+
+- **Native:** [`ios/App/Health.swift`](../ios/App/Health.swift) answers
+  `health.authorize` and `health.query` (anchored queries, raw samples) over the
+  `wgNative` bridge; `window.Health` on iOS is
+  [`native/health.js`](../web/static/js/native/health.js).
+- **Mapping:** [`web/domain/healthimport.js`](../web/domain/healthimport.js)
+  writes the existing `bp` / `weight` record shapes plus optional
+  `source: "apple_health"` and `source_id` (older clients ignore both). recordId =
+  `bp-hk-<uuid>` / `weight-hk-<uuid>` from the HealthKit sample, written at the
+  LWW floor (`putIfAbsent`, `clientTs: 0`), so re-imports and a second iPhone
+  never duplicate, overwrite an edit or resurrect a delete.
+- **Runner + Settings row:**
+  [`web/cloud/js/health-import.js`](../web/cloud/js/health-import.js), loaded by
+  `cloud-boot.js` only when `window.Health.isSupported()` (never on the web).
+  Settings → *Apple Health* toggle asks for read access, then imports at unlock
+  and on every return to the foreground (no background delivery in v1). Toggle,
+  anchors and "last imported" are device-local (`localStorage`).
+  An anchor is kept only after a page that returned something, so history
+  hidden while access was denied is still read once it is granted; switching
+  the toggle on again rescans from the start.
+  A vault backup keeps the `-hk-` ids (`source_id`) and their tombstones, and
+  the importer also recognises a reading by `source_id` (an older client's
+  restore re-mints ids), so neither a restore nor a rescan duplicates or
+  resurrects; deleting such a re-minted reading also tombstones its `-hk-` id
+  ([`healthsource.js`](../web/domain/healthsource.js)). A derived weight stores
+  no `weight_trend`, so every device writes the same body; `weight.js` reads a
+  history that holds a Health row by recomputing the whole EMA in time order,
+  and restore keeps Health rows trend-less, so the trend shown matches the
+  trend after a restore. A history without Health rows
+  reads exactly as stored.
+- **Known residuals:** a backup restored and re-exported by a client that
+  predates the `-hk-` tombstones loses them (it skips the unknown tombstone
+  types), so a later full Health rescan brings deleted readings back. A client
+  that predates this change sees Health weights without a trend and seeds a
+  new entry's trend from the raw weight. Neither can be fixed from this side.
+- **Not in v1:** deleting a sample in Health does not delete it here. Sleep and
+  workouts are med-w6gx.7.
+- **Signing:** an earlier automatic-signing run enabled the *HealthKit*
+  capability on the App ID. Signing is now manual, so the App Store profile in
+  `IOS_APPSTORE_PROFILE_BASE64` must be generated (or re-saved) after that, or
+  the archive fails on the HealthKit entitlement. Upload validation demands `NSHealthUpdateUsageDescription` even
+  for a read-only app, so `project.yml` carries one saying the app never writes.
+
+### Device check (TestFlight)
+
+1. Health app: add a blood-pressure reading and a weight.
+2. App → Settings → Apple Health on → the Health sheet lists Blood Pressure
+   (systolic, diastolic) and Weight → allow → both readings appear in BP and
+   Weight once, at their Health time.
+3. Kill and reopen, and background/foreground: no duplicates; a new Health
+   reading appears after returning to the app.
+4. Edit one imported reading and delete another in the app, then toggle off/on:
+   the edit stays, the deleted one does not come back.
+5. iPhone Settings → Health → Data Access & Devices → Med Tracker → turn all
+   off → add a Health reading → reopen: nothing new, no error; the row says
+   where to check access if nothing was ever imported.
+6. A web browser on the same account: the imported readings show there too.
+
 ## The shell (bd med-w6gx.3)
 
 One WKWebView on the account origin `https://<sub>.<base>/`, exactly like the

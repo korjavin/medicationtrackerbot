@@ -39,8 +39,8 @@
 //     medintake.js look up by exact recordId); every older plan lands on a
 //     `tzplanhistory-<idx>` recordId of the same `tzplan` type, ignored by
 //     those readers and re-merged on export.
-//   - intake + workoutsession tombstones at deterministic slot ids are
-//     suppression signals (bd med-jtaj): recordsToVault carries them as
+//   - intake + workoutsession (and Apple Health bp/weight -hk-) tombstones at
+//     deterministic slot ids are suppression signals (bd med-jtaj): recordsToVault carries them as
 //     data.tombstones and vaultToRecords re-materializes them as bodyless
 //     deleted rows. All other tombstones are delete-by-absence (dropped).
 //   - gamificationmilestone (goal milestones) rides in data.gamification.milestones
@@ -63,7 +63,8 @@
 // vault actually carries them — see managedTypesForImport.
 
 import { calculateBPCategory } from './bp.js';
-import { calculateWeightTrend } from './weight.js';
+import { compareChain, isHealthWeight, weightTrendChain } from './weight.js';
+import { healthImportRecordId } from './healthsource.js';
 
 export const VAULT_FORMAT = 'medtracker-vault';
 export const VAULT_VERSION = 1;
@@ -95,11 +96,15 @@ export const VAULT_MANAGED_TYPES = new Set([
 // re-materialize"), not just the absence of a row — so the vault must carry it.
 // Every other type is delete-by-absence: a missing row stays missing after a
 // replace-only import, and its tombstones are correctly dropped on export.
-export const TOMBSTONED_SLOT_TYPES = new Set(['intake', 'workoutsession']);
+// Apple Health imports (bp-hk-<uuid>, weight-hk-<uuid>, healthimport.js) are
+// slots of the same kind: a deleted one must stay deleted across a restore and
+// a full Health rescan. Older clients skip these tombstone types on import.
+export const TOMBSTONED_SLOT_TYPES = new Set(['intake', 'workoutsession', 'bp', 'weight']);
 
 // Derived-slot id shapes, mirroring the canonical builders — medintake.js
-// slotId(medId, scheduledAtMs) and workout.js sessionRecordId(groupId, date);
-// the session shape is identical to the tombstone probe in reminders.js.
+// slotId(medId, scheduledAtMs), workout.js sessionRecordId(groupId, date) and
+// healthsource.js healthRecordId(kind, uuid) (lowercased UUID — change both
+// together); the session shape is identical to the tombstone probe in reminders.js.
 // Only tombstones at these ids suppress re-materialization. Manually-keyed
 // rows (`intake-manual-…`, `session-adhoc-…`) and suffixed import ids
 // (`intake-<m>-<s>-tz_step`, which nothing looks up) delete-by-absence, so
@@ -107,6 +112,8 @@ export const TOMBSTONED_SLOT_TYPES = new Set(['intake', 'workoutsession']);
 const SLOT_ID_SHAPE = {
   intake: /^intake-\d+-\d+$/,
   workoutsession: /^session-\d+-\d{4}-\d{2}-\d{2}$/,
+  bp: /^bp-hk-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+  weight: /^weight-hk-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
 };
 
 function isSlotTombstone(recordType, recordId) {
@@ -544,19 +551,29 @@ export function vaultToRecords(vault, { now } = {}) {
   const bp = data.bp || {};
   for (const r of bp.readings || []) {
     const category = r.ignore_calc ? '' : calculateBPCategory(r.systolic, r.diastolic);
-    push('bp', `bp-${mintNum()}`, { ...r, category });
+    // An Apple Health reading keeps its source-derived id, so the next
+    // HealthKit scan finds it instead of importing it a second time.
+    push('bp', healthImportRecordId('bp', r) || `bp-${mintNum()}`, { ...r, category });
   }
   if (bp.goal) push('bpgoal', 'bpgoal', { ...bp.goal });
 
-  // --- weight (compute the derived trend the same way weight.js create does) ---
+  // --- weight (rebuild every trend with weight.js weightTrendChain, the walk its readers use) ---
   const weight = data.weight || {};
-  const ascLogs = sortBy(weight.logs || [], (r) => r.measured_at);
-  let prevTrend = null;
-  for (const log of ascLogs) {
-    const trend = calculateWeightTrend(log.weight, prevTrend);
-    prevTrend = trend;
-    push('weight', `weight-${mintNum()}`, { ...log, weight_trend: trend });
-  }
+  // A backup holding Apple Health rows walks the readers' chain order, so the
+  // manual rows' stored trends equal what was shown (and still hold once the
+  // last Health row is deleted). Manual-only backups keep the original order.
+  const logs = weight.logs || [];
+  const ascLogs = logs.some(isHealthWeight)
+    ? [...logs].sort(compareChain)
+    : sortBy(logs, (r) => r.measured_at);
+  const trends = weightTrendChain(ascLogs);
+  ascLogs.forEach((log, i) => {
+    // An Apple Health row stays trend-less (null), as healthimport writes it,
+    // so readers keep recomputing the chain exactly as before the restore.
+    push('weight', healthImportRecordId('weight', log) || `weight-${mintNum()}`, {
+      ...log, weight_trend: isHealthWeight(log) ? null : trends[i],
+    });
+  });
   for (const g of weight.goals || []) push('weightgoal', `weightgoal-${mintNum()}`, { ...g });
   if (weight.unit_pref) push('weightunitpref', 'weight-unit', { unit: weight.unit_pref === 'lb' ? 'lb' : 'kg' });
 

@@ -1,9 +1,16 @@
 // window.Health — Apple Health (HealthKit) read access (bd med-w6gx.4).
 //
 // Only the iOS app shell has it. The web impl reports unsupported, so feature
-// code branches on isSupported(), never on the platform. Permission and query
-// ops arrive with the HealthKit import (bd med-w6gx.6) as
-// foundation.call('health.*').
+// code branches on isSupported(), never on the platform.
+//
+// ios (bd med-w6gx.6), answered by ios/App/Health.swift:
+//   requestAuthorization(types) → Promise<boolean>: shows the Health read
+//     sheet for `types` (e.g. ['bp', 'weight']); false when this device has no
+//     Health data store. HealthKit never says whether read access was granted
+//     — a denied type simply returns no samples.
+//   query({ type, anchor, limit }) → Promise<{ samples, anchor, returned, more }>: an
+//     anchored query; pass the returned anchor (opaque string) back next time
+//     to get only what was added since. `more` means call again now.
 //
 // Load order: after native/index.js.
 (function () {
@@ -19,5 +26,11 @@
     });
     foundation.registerImpl('Health', 'ios', {
         isSupported: function () { return true; },
+        requestAuthorization: function (types) {
+            return foundation.call('health.authorize', { types: types });
+        },
+        query: function (args) {
+            return foundation.call('health.query', args);
+        },
     });
 })();

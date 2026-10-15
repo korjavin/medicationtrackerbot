@@ -77,6 +77,9 @@ have to survive a round-trip — the importer is free to re-mint them.
   `intake-<medId>-<slotUnixSeconds>`, a scheduled session's is
   `session-<groupId>-<localDate>`, a rotation's is `rotation-<groupId>` — derived from
   content, so a device that already has that slot converges by LWW instead of double-logging.
+  An Apple Health bp reading / weight log (`source: "apple_health"` with a `source_id`)
+  is re-minted as `bp-hk-<uuid>` / `weight-hk-<uuid>` for the same reason: the next
+  Health scan finds it instead of adding it again.
 
 ## `data` keys
 
@@ -123,7 +126,10 @@ is called out as unix-seconds or milliseconds, it is an **RFC3339 string**.
 
 - **reading** (leaf, no `id`) — `measured_at` (RFC3339), `systolic` (num), `diastolic`
   (num), `pulse` (num|null), `site` (str), `position` (str), `ignore_calc` (bool),
-  `notes` (str), `tag` (str). `category` is **derived** (recomputed on read from
+  `notes` (str), `tag` (str), optional `source` (str, `"apple_health"` on readings
+  imported from Apple Health; absent otherwise) and `source_id` (str, the HealthKit
+  sample UUID — import re-mints such a reading as `bp-hk-<uuid>` instead of a fresh
+  id, so the next Health scan recognises it). `category` is **derived** (recomputed on read from
   systolic/diastolic) — omitted from the format; import never trusts it.
 
 ### `weight`
@@ -137,7 +143,8 @@ is called out as unix-seconds or milliseconds, it is an **RFC3339 string**.
 ```
 
 - **log** (leaf, no `id`) — `measured_at` (RFC3339), `weight` (num), `body_fat`
-  (num|null), `muscle_mass` (num|null), `notes` (str). `weight_trend` is **derived**
+  (num|null), `muscle_mass` (num|null), `notes` (str), optional `source` / `source_id` (as bp; re-minted as `weight-hk-<uuid>`).
+  `weight_trend` is **derived**
   (rolling average) — omitted.
 - **goals** (leaf, no `id`) — the full append-only goal history, **oldest first**.
   Each: `target_weight` (num), `target_date` (`YYYY-MM-DD`), `set_at` (RFC3339),
@@ -452,11 +459,19 @@ tombstone included — as occupying the slot. A tombstone there means "deliberat
 deleted, do not re-materialize"; dropping it on export resurrects the day and its
 reminder on the next import. Every other type is delete-by-absence (a missing row
 stays missing after the replace-only import), so only `intake` and
-`workoutsession` tombstones are carried.
+`workoutsession` tombstones are carried — plus Apple Health imports
+(`bp-hk-<uuid>`, `weight-hk-<uuid>`, bd med-w6gx.6), which a full Health rescan
+re-derives the same way, so a reading deleted before the backup stays deleted.
+Clients that predate these two types skip them on import (the unknown-type rule
+below) — so a file restored and re-exported by such a client has lost them, and
+a later full Health rescan resurrects those readings (known residual, not
+fixable retroactively).
 
 - Only exact derived-slot ids are carried: `intake-<medId>-<unixSec>` (mirroring
-  medintake.js `slotId`) and `session-<groupId>-<YYYY-MM-DD>` (mirroring workout.js
-  `sessionRecordId`, the same shape the reminder horizon probes). Manually-keyed
+  medintake.js `slotId`), `session-<groupId>-<YYYY-MM-DD>` (mirroring workout.js
+  `sessionRecordId`, the same shape the reminder horizon probes), and
+  `bp-hk-<uuid>` / `weight-hk-<uuid>` (lowercase UUID, mirroring healthsource.js
+  `healthRecordId`). Manually-keyed
   rows (`intake-manual-…`, `session-adhoc-…`) and suffixed import ids
   (`intake-<m>-<s>-tz_step`, which nothing looks up) delete-by-absence: their
   tombstones are dropped on export. On import, entries for UNKNOWN record types are
@@ -526,7 +541,7 @@ only guard.
 | `miband_gps_tracks` | **Legacy bot exports carry it** nested under `workouts.miband[].gps`; **cloud import drops it** (`vaultToRecords`). It was 44% of a real vault (~77 MiB / 168 tracks) and no code renders a route, yet it rode in every cloud snapshot and was structured-cloned on every `records.list()`. Accepted loss: GPS tracks do not survive a cloud round-trip. |
 | `workout_schedule_snapshots` | **write-only table.** In the deleted Go store no reader ever consumed it — no handler, no MCP op, no frontend. Nothing can read the data, so carrying it would preserve nothing. |
 | cloud-only `voiceprovisioning` | plumbing with no `/api` route |
-| tombstones for non-derived-slot types | delete-by-absence: a missing row stays missing after the replace-only import, so only `intake` / `workoutsession` tombstones are carried (see [`tombstones`](#tombstones)) |
+| tombstones for non-derived-slot types | delete-by-absence: a missing row stays missing after the replace-only import, so only `intake` / `workoutsession` and Apple Health `bp` / `weight` (`-hk-`) tombstones are carried (see [`tombstones`](#tombstones)) |
 
 Also never exported: **derived fields** recomputed on read — bp `category`, weight
 `weight_trend`, miband `start_time`/`end_time`, workout schedule materialization.

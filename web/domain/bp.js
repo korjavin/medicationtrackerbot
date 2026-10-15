@@ -3,6 +3,8 @@
 // later run inside the Go server via goja (C6) with a Go-backed records port.
 // Mirrors internal/store/bp/repo.go + internal/server/bp_handlers.go.
 
+import { deleteHealthAlias } from './healthsource.js';
+
 const RECORD_TYPE = 'bp';
 const GOAL_RECORD_TYPE = 'bpgoal';
 const GOAL_RECORD_ID = 'bpgoal';
@@ -76,6 +78,7 @@ function toResponse(record) {
   if (record.category) resp.category = record.category;
   if (record.notes) resp.notes = record.notes;
   if (record.tag) resp.tag = record.tag;
+  if (record.source) resp.source = record.source;
   return resp;
 }
 
@@ -181,11 +184,15 @@ export function createBPDomain({ records, now, timeZone }) {
   // supply a deterministic one (the Telegram inbox drain derives it from the
   // mailbox event id, so a re-drain overwrites its own row instead of adding a
   // second reading — docs/cloud-mode.md → drain protocol, rule 2).
-  async function create(input, { recordId } = {}) {
+  // derived: an import any device can re-derive into the same recordId (Apple
+  // Health, web/domain/healthimport.js) takes the LWW floor — clientTs 0 via
+  // putIfAbsent, so it never overwrites an edit or resurrects a delete
+  // (CLAUDE.md rule 12). Returns the stored winner.
+  async function create(input, { recordId, derived = false } = {}) {
     const nowMs = now();
     const record = {
       recordId: recordId || genId(nowMs),
-      clientTs: nowMs,
+      clientTs: derived ? 0 : nowMs,
       deleted: false,
       measured_at: toISOString(input.measured_at),
       systolic: input.systolic,
@@ -197,7 +204,10 @@ export function createBPDomain({ records, now, timeZone }) {
       ignore_calc: !!input.ignore_calc,
       notes: input.notes || '',
       tag: input.tag || '',
+      // Optional and additive: absent on every hand-entered reading.
+      ...(input.source ? { source: input.source, source_id: input.source_id || '' } : {}),
     };
+    if (derived) return toResponse(await records.putIfAbsent(RECORD_TYPE, record));
     await records.put(RECORD_TYPE, record);
     return toResponse(record);
   }
@@ -244,12 +254,14 @@ export function createBPDomain({ records, now, timeZone }) {
 
   async function remove(id) {
     const all = await records.list(RECORD_TYPE);
-    if (!all.some((r) => r.recordId === id)) {
+    const row = all.find((r) => r.recordId === id);
+    if (!row) {
       const err = new Error('reading not found');
       err.code = 'not_found';
       throw err;
     }
     await records.del(RECORD_TYPE, id);
+    await deleteHealthAlias(records, RECORD_TYPE, row);
   }
 
   async function getGoal() {

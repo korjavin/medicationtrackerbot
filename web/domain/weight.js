@@ -3,6 +3,8 @@
 // later run inside the Go server via goja (C6) with a Go-backed records port.
 // Mirrors internal/store/weight/repo.go + internal/server/weight_handlers.go.
 
+import { deleteHealthAlias, healthImportRecordId } from './healthsource.js';
+
 const RECORD_TYPE = 'weight';
 const GOAL_RECORD_TYPE = 'weightgoal';
 const GOAL_MIN_KG = 20;
@@ -18,6 +20,44 @@ export function calculateWeightTrend(currentWeight, previousTrend) {
   if (previousTrend === null || previousTrend === undefined) return currentWeight;
   const alpha = 0.1;
   return alpha * currentWeight + (1 - alpha) * previousTrend;
+}
+
+// compareChain is THE order of a recomputed chain (readers and restore):
+// instant, then weight, then Health row before manual, then recordId.
+// ponytail: restore re-mints manual ids, so only the first three survive it —
+// two manual (or two Health) rows tied on all three are interchangeable for
+// the EMA; recordId just keeps one device deterministic.
+export function compareChain(a, b) {
+  const d = (Date.parse(a.measured_at) - Date.parse(b.measured_at)) || (a.weight - b.weight)
+    || (isHealthWeight(b) - isHealthWeight(a));
+  if (d) return d;
+  const ia = String(a.recordId || '');
+  const ib = String(b.recordId || '');
+  return ia < ib ? -1 : ia > ib ? 1 : 0;
+}
+
+// weightTrendChain is THE weight_trend EMA walk over a chain sorted oldest
+// first, seeded from null. vault.js restore uses it too.
+export function weightTrendChain(rowsAsc) {
+  let prev = null;
+  return rowsAsc.map((r) => (prev = calculateWeightTrend(r.weight, prev)));
+}
+
+const hasTrend = (r) => r.weight_trend !== null && r.weight_trend !== undefined;
+export const isHealthWeight = (r) => healthImportRecordId(RECORD_TYPE, r) !== null;
+
+// withTrends returns the rows carrying the trend to read. A history without
+// Apple Health rows is returned as stored (unchanged behaviour, null trends
+// included). Health rows are stored without a trend so their body is
+// device-independent; a history holding one (canonical or a restored alias) is
+// recomputed whole by weightTrendChain in instant order. That is all a reader
+// sees while a Health row exists, and restore keeps Health rows trend-less, so
+// restore's own (lexical, master) order and stored trends never show here.
+function withTrends(rows) {
+  if (!rows.some(isHealthWeight)) return rows;
+  const asc = [...rows].sort(compareChain);
+  const trends = weightTrendChain(asc);
+  return asc.map((r, i) => ({ ...r, weight_trend: trends[i] }));
 }
 
 function toISOString(v) {
@@ -36,10 +76,11 @@ function toResponse(record) {
     measured_at: record.measured_at,
     weight: record.weight,
   };
-  if (record.weight_trend !== null && record.weight_trend !== undefined) resp.weight_trend = record.weight_trend;
+  if (hasTrend(record)) resp.weight_trend = record.weight_trend;
   if (record.body_fat !== null && record.body_fat !== undefined) resp.body_fat = record.body_fat;
   if (record.muscle_mass !== null && record.muscle_mass !== undefined) resp.muscle_mass = record.muscle_mass;
   if (record.notes) resp.notes = record.notes;
+  if (record.source) resp.source = record.source;
   return resp;
 }
 
@@ -75,34 +116,38 @@ function goalResponse(latestGoal, highestRecord) {
 export function createWeightDomain({ records, now, timeZone }) {
   // recordId: see createBPDomain — deterministic ids let the Telegram inbox
   // drain re-apply an event without double-logging (drain protocol, rule 2).
-  async function create(input, { replacesId, recordId } = {}) {
+  // derived: see createBPDomain (LWW floor for re-derivable imports).
+  async function create(input, { replacesId, recordId, derived = false } = {}) {
     const nowMs = now();
-    const all = await records.list(RECORD_TYPE);
+    // A derived row must be the same body on every device that derives it
+    // (equal clientTs 0 never reconciles under LWW), so it stores no trend;
+    // readers fill it in from the chain (withTrends).
+    const all = derived ? [] : withTrends((await records.list(RECORD_TYPE))
+      .filter((r) => r.recordId !== replacesId));
     const previous = all
-      .filter((r) => r.recordId !== replacesId)
       .sort((a, b) => Date.parse(b.measured_at) - Date.parse(a.measured_at))[0];
-    const previousTrend = previous && previous.weight_trend !== null && previous.weight_trend !== undefined
-      ? previous.weight_trend
-      : null;
+    const previousTrend = previous && hasTrend(previous) ? previous.weight_trend : null;
 
     const record = {
       recordId: recordId || genId(nowMs),
-      clientTs: nowMs,
+      clientTs: derived ? 0 : nowMs,
       deleted: false,
       measured_at: toISOString(input.measured_at),
       weight: input.weight,
-      weight_trend: calculateWeightTrend(input.weight, previousTrend),
+      weight_trend: derived ? null : calculateWeightTrend(input.weight, previousTrend),
       body_fat: input.body_fat ?? null,
       muscle_mass: input.muscle_mass ?? null,
       notes: input.notes || '',
+      ...(input.source ? { source: input.source, source_id: input.source_id || '' } : {}),
     };
+    if (derived) return toResponse(await records.putIfAbsent(RECORD_TYPE, record));
     await records.put(RECORD_TYPE, record);
     return toResponse(record);
   }
 
   async function list({ days = 30, limit = 100 } = {}) {
     const since = days > 0 ? now() - days * 24 * 60 * 60 * 1000 : 0;
-    const all = await records.list(RECORD_TYPE);
+    const all = withTrends(await records.list(RECORD_TYPE));
     const filtered = all
       .filter((r) => !since || Date.parse(r.measured_at) >= since)
       .sort((a, b) => Date.parse(b.measured_at) - Date.parse(a.measured_at));
@@ -112,12 +157,14 @@ export function createWeightDomain({ records, now, timeZone }) {
 
   async function remove(id) {
     const all = await records.list(RECORD_TYPE);
-    if (!all.some((r) => r.recordId === id)) {
+    const row = all.find((r) => r.recordId === id);
+    if (!row) {
       const err = new Error('weight log not found');
       err.code = 'not_found';
       throw err;
     }
     await records.del(RECORD_TYPE, id);
+    await deleteHealthAlias(records, RECORD_TYPE, row);
   }
 
   async function latestGoal() {

@@ -221,6 +221,12 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             replyHandler("pong", nil)
         case let op? where op.hasPrefix("notifications."):
             Notifications.shared.handle(op, args: body["args"] as? [String: Any] ?? [:], reply: replyHandler)
+        case let op? where op.hasPrefix("health."):
+            let args = body["args"] as? [String: Any] ?? [:]
+            Task {
+                do { replyHandler(try await Health.handle(op, args), nil) }
+                catch { replyHandler(nil, error.localizedDescription) }
+            }
         case let op:
             replyHandler(nil, "unsupported: \(op ?? "")")
         }
