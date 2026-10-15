@@ -23,6 +23,13 @@ const ENABLED_KEY = 'wg.health.enabled';
 const ANCHORS_KEY = 'wg.health.anchors';
 const LAST_KEY = 'wg.health.last';
 const ASKED_KEY = 'wg.health.asked';
+// Start (ms) of the earliest sleep night not settled at the last run: the
+// anchor has already moved past its samples, so the next run re-reads sleep
+// from there by time window (healthimport.js SLEEP_SETTLE_MS).
+const SLEEP_PENDING_KEY = 'wg.health.sleepPending';
+// The same margin Health.swift pads an anchored sleep page with, so the night
+// lies whole inside the re-read window.
+const SLEEP_PAD_MS = 18 * 3600 * 1000;
 const PAGE = 500;
 // ponytail: caps one run at 20k samples per kind; the saved anchor resumes the
 // rest on the next open.
@@ -69,10 +76,20 @@ export async function runHealthImport(ctx, {
         // One kind failing (e.g. a type this device was never asked access
         // for) must not stop the others; its anchor stays where it was.
         try {
+            const pending = [];
+            const take = async (res) => {
+                // The whole result goes along: sleep reads its window ({from, to}).
+                const r = await domain.importSamples(kind, res && res.samples, res);
+                added += r.added;
+                if (Number.isFinite(r.pending)) pending.push(r.pending);
+            };
+            const since = kind === 'sleep' ? readJSON(storage, SLEEP_PENDING_KEY, null) : null;
+            if (Number.isFinite(since)) {
+                await take(await health.query({ type: 'sleep', from: since - SLEEP_PAD_MS, to: now() }));
+            }
             for (let page = 0; page < MAX_PAGES; page++) {
                 const res = await health.query({ type: kind, anchor: anchors[kind] || null, limit: PAGE });
-                // The whole result goes along: sleep reads its window ({from, to}).
-                added += (await domain.importSamples(kind, res && res.samples, res)).added;
+                await take(res);
                 // Only an anchor that moved past something we saw is kept: while
                 // read access is denied Health returns nothing, and an anchor
                 // saved then could skip the history once access is granted.
@@ -81,6 +98,9 @@ export async function runHealthImport(ctx, {
                     writeJSON(storage, ANCHORS_KEY, anchors);
                 }
                 if (!res || !res.more) break;
+            }
+            if (kind === 'sleep') {
+                writeJSON(storage, SLEEP_PENDING_KEY, pending.length ? Math.min(...pending) : null);
             }
         } catch (e) {
             console.error(`[health] ${kind} import failed`, e);

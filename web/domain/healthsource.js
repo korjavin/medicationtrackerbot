@@ -28,9 +28,16 @@ export async function deleteHealthAlias(records, kind, row) {
 
 // The body `id` of an imported Health workout (miband record, bd med-w6gx.7):
 // the edit/delete routes key on it, so it must be the same on every device and
-// after a restore. The UUID's last 48 bits (random in HealthKit's v4 UUIDs)
-// stay below Number.MAX_SAFE_INTEGER and below workout.js mintNumericId's
-// range (nowMs * 1000).
+// after a restore. It must never equal another miband row's id (delete and
+// edit find the row by it), so it lives in its own band: 1e14 + the UUID's
+// last 48 bits (random in HealthKit's v4 UUIDs), i.e. [1e14, 1e14 + 2^48) ≈
+// [1.0e14, 3.8e14]. Every other miband id is either a Mi Band start time in
+// epoch ms (vitals.js / vault.js: < 1e14 until the year 5138), a bot-era small
+// integer, or workout.js mintNumericId(startMs * 1000) (≥ 3.8e14 for any
+// start after 1982). The band stays far below Number.MAX_SAFE_INTEGER, and it
+// sits below mint, so mint's localMax + 1 fallback never climbs into it.
+export const HEALTH_ID_BASE = 1e14;
+
 export function healthNumericId(uuid) {
-  return parseInt(String(uuid).slice(-12), 16);
+  return HEALTH_ID_BASE + parseInt(String(uuid).slice(-12), 16);
 }

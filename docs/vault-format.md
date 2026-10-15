@@ -81,7 +81,8 @@ have to survive a round-trip — the importer is free to re-mint them.
   is re-minted as `bp-hk-<uuid>` / `weight-hk-<uuid>` for the same reason: the next
   Health scan finds it instead of adding it again. Apple Health sleep logs and miband
   workouts (bd med-w6gx.7) likewise become `sleep-hk-<uuid>` / `miband-hk-<uuid>`, a
-  workout's body `id` the UUID's last 48 bits (healthsource.js `healthNumericId`).
+  workout's body `id` 1e14 + the UUID's last 48 bits, a band no other miband id
+  reaches (healthsource.js `healthNumericId`).
 
 ## `data` keys
 

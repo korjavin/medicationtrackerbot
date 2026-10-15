@@ -9,6 +9,8 @@ import HealthKit
 ///   health.authorize {types}             → Bool (false: no Health store on this device)
 ///   health.query {type, anchor?, limit?} → {samples, anchor, returned, more}
 ///     (returned: added + deleted objects HealthKit handed back)
+///   health.query {type: "sleep", from, to} → {samples, from, to, returned: 0, more: false}
+///     (no anchor: re-reads nights still settling — web/cloud/js/health-import.js)
 /// Kinds: "bp" (blood-pressure correlations), "weight" (body mass), and
 /// (bd med-w6gx.7) "sleep" (sleep-analysis samples) and "workout" (HKWorkout).
 @MainActor
@@ -70,6 +72,11 @@ enum Health {
         let anchor = (args["anchor"] as? String)
             .flatMap { Data(base64Encoded: $0) }
             .flatMap { try? NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: $0) }
+        if args["type"] as? String == "sleep", let f = (args["from"] as? NSNumber)?.doubleValue, let t = (args["to"] as? NSNumber)?.doubleValue {
+            let from = Date(timeIntervalSince1970: f / 1000), to = Date(timeIntervalSince1970: t / 1000)
+            let samples = try await sleepSamples(from, to)
+            return ["samples": samples, "from": ms(from), "to": ms(to), "returned": 0, "more": false] as [String: Any]
+        }
         let limit = max(1, min(args["limit"] as? Int ?? 500, 1000))
         var samples: [[String: Any]] = []
         var window: [String: Any] = [:]
@@ -107,16 +114,7 @@ enum Health {
                 anchor: anchor, limit: limit).result(for: store)
             if let lo = r.addedSamples.map(\.startDate).min(), let hi = r.addedSamples.map(\.endDate).max() {
                 let from = lo.addingTimeInterval(-sleepPad), to = hi.addingTimeInterval(sleepPad)
-                let around = HKQuery.predicateForSamples(withStart: from, end: to, options: [])
-                let all = try await HKSampleQueryDescriptor(
-                    predicates: [.categorySample(type: sleepAnalysis, predicate: around)],
-                    sortDescriptors: []).result(for: store)
-                samples = all.map { s -> [String: Any] in
-                    var o: [String: Any] = ["uuid": s.uuid.uuidString, "start": ms(s.startDate), "end": ms(s.endDate),
-                                            "value": s.value, "source": s.sourceRevision.source.bundleIdentifier]
-                    if let tz = s.metadata?[HKMetadataKeyTimeZone] as? String { o["tz"] = tz }
-                    return o
-                }
+                samples = try await sleepSamples(from, to)
                 window = ["from": ms(from), "to": ms(to)]
             }
             newAnchor = r.newAnchor
@@ -145,6 +143,20 @@ enum Health {
         let page: [String: Any] = ["samples": samples, "anchor": token.base64EncodedString(),
                                    "returned": returned, "more": returned >= limit]
         return page.merging(window) { a, _ in a }
+    }
+
+    /// Every sleep sample (all sources) overlapping [from, to].
+    private static func sleepSamples(_ from: Date, _ to: Date) async throws -> [[String: Any]] {
+        let around = HKQuery.predicateForSamples(withStart: from, end: to, options: [])
+        let all = try await HKSampleQueryDescriptor(
+            predicates: [.categorySample(type: sleepAnalysis, predicate: around)],
+            sortDescriptors: []).result(for: store)
+        return all.map { s -> [String: Any] in
+            var o: [String: Any] = ["uuid": s.uuid.uuidString, "start": ms(s.startDate), "end": ms(s.endDate),
+                                    "value": s.value, "source": s.sourceRevision.source.bundleIdentifier]
+            if let tz = s.metadata?[HKMetadataKeyTimeZone] as? String { o["tz"] = tz }
+            return o
+        }
     }
 
     private static func ms(_ date: Date) -> Double { (date.timeIntervalSince1970 * 1000).rounded() }

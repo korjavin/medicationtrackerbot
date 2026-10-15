@@ -131,9 +131,18 @@ on for BP and weight only asks once, at the next open, for the new types.
   earliest new sample to 18h after its latest, plus that window; `healthimport.js` groups them into nights per source (gaps ≤ 1h,
   *In Bed* ignored), keeps only nights whole inside the window, and maps
   Core/Deep/REM/Awake to light/deep/rem/awake minutes (`total_minutes` = asleep
-  time). recordId `sleep-hk-<uuid of the night's first sample>`; `day` is the
-  wake day and `timezone_offset` the night's offset, both in the sample's own
-  time zone (HealthKit's `HKTimeZone`), else this iPhone's.
+  time). Overlapping samples of one night count each minute once, as the
+  highest of deep > REM > core > awake > unspecified, so the minutes never
+  exceed the night's span. recordId `sleep-hk-<uuid of the night's first
+  sample>`; `day` is the wake day and `timezone_offset` the night's offset, both
+  in the sample's own time zone (HealthKit's `HKTimeZone`), else **UTC** — never
+  the iPhone's zone, so every device writes the same body.
+- **Settling:** the night sits at the LWW floor and is never rewritten, so it is
+  written only once its last sample ended **3h** ago (`SLEEP_SETTLE_MS`). A
+  night still settling when its samples were read leaves its start in
+  `wg.health.sleepPending`; every later run first re-reads sleep by time window
+  (`health.query {type: "sleep", from: start − 18h, to: now}`, no anchor), until
+  nothing is left settling.
 - **Workouts** → the existing `miband` activity record (Workouts → History,
   labelled *Apple Health*): type name, start/end, duration, distance, active
   energy, average heart rate. recordId `miband-hk-<uuid>`, body `id` from the
@@ -157,9 +166,12 @@ on for BP and weight only asks once, at the next open, for the new types.
   so that night counts twice until one is removed (sleep has no delete in the
   app yet), and a skipped Health entry stays skipped after the entry that beat
   it is deleted, until the toggle is switched off and on (a rescan). A night
-  whose samples carry no time zone takes each importing iPhone's zone for its
-  `day`, so two iPhones in different zones could file it on different days.
-  A night a source keeps extending after it was imported stays as first read.
+  whose samples carry no time zone is filed on its UTC wake day (east of about
+  UTC+7 a morning wake-up can land on the previous date). A night a source
+  extends more than 3h after its last sample (a Watch that syncs a day late)
+  stays as first read. A backup restored and re-exported by a client that
+  predates the `miband-hk-` tombstones loses them, as for BP and weight above,
+  so a later rescan brings a deleted Health workout back.
   A deleted Health workout leaves only a bodyless tombstone, so another
   source's copy of it (Strava writing the same run later, or a rescan that
   reads the copy on a different page) can still appear and needs deleting too.
@@ -172,8 +184,8 @@ on for BP and weight only asks once, at the next open, for the new types.
 1. Wear an Apple Watch for a night (or add a sleep sample in Health), record a
    Watch workout, and a strength workout during an in-app session.
 2. Open the app (the Health sheet now also lists Sleep, Workouts, Heart Rate,
-   Active Energy and distances) → allow → the night shows in Vitals on its wake
-   day with its stages; the workout shows in Workouts → History as *Apple
+   Active Energy and distances) → allow → once 3h have passed since waking
+   (reopen then), the night shows in Vitals on its wake day with its stages; the workout shows in Workouts → History as *Apple
    Health*; the strength workout during the session does not.
 3. Kill/reopen and toggle off/on: no duplicates. Delete the imported workout,
    toggle off/on: it stays deleted.
