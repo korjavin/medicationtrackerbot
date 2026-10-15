@@ -413,10 +413,25 @@ window.MedTrackerCloudReady = (async function boot() {
         // sends the user down, and a 2s timer that a quick close (or a
         // frozen/discarded background tab) drops would leave the horizon
         // exactly as empty as it was. Concurrent recomputes are safe —
-        // pushSchedule serializes per account (push.js pushChains).
+        // pushSchedule serializes per account (push.js pushChains), and so does
+        // the iOS local schedule (reminders.js localChain).
         import('/js/reminders.js')
             .then(({ recomputeAndPush }) => recomputeAndPush(ctx))
             .catch((e) => console.error('[cloud-boot] reminder recompute failed', e));
+        // The iOS app shell keeps this page alive across app switches, so an
+        // unlock happens once while "open the app" happens many times — and the
+        // phone holds only 64 reminders (bd med-w6gx.5). Re-schedule each time
+        // the app comes back to the front. Never on the web.
+        let localNotifications = false;
+        try { localNotifications = window.LocalNotifications?.isSupported?.() === true; } catch { /* native/ stub */ }
+        if (localNotifications) {
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState !== 'visible') return;
+                import('/js/reminders.js')
+                    .then(({ recomputeAndPush }) => recomputeAndPush(ctx))
+                    .catch((e) => console.error('[cloud-boot] reminder recompute failed', e));
+            });
+        }
         // Safari evicts the push subscription of a PWA left unopened for a few
         // days, and nothing used to notice — reminders stopped forever, with no
         // signal, on a medication tracker (med-d5t.3). If permission is still

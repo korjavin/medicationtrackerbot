@@ -192,6 +192,10 @@ dose" — the client does:
    horizon lapses — the server *does* know last-sync time, so it sends a
    generic escalating warning rather than silently stopping.
 
+Inside the iOS app (no Web Push in WKWebView) the same horizon is also
+scheduled on the device as local notifications, capped at iOS's 64 — see
+[docs/ios.md](ios.md#reminders-as-local-notifications-bd-med-w6gx5).
+
 **Telegram dose reminders and the re-fire chain.** A med reminder sent over
 Telegram carries `Confirm`/`Snooze` buttons whose `callback_data` is the slot
 stem `s:<slotUnix>`, and the relay re-arms an hourly re-fire after every send

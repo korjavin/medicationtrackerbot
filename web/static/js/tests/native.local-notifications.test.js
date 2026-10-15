@@ -74,3 +74,27 @@ describe('native/local-notifications.js', () => {
         expect(() => w.LocalNotifications.__native.registerImpl('LocalNotifications', 'android', {})).toThrow(/must be "web" or "ios"/);
     });
 });
+
+// bd med-w6gx.5: the ios scheduling ops are thin bridge calls; the web impl has
+// none, so web code can only ever reach isSupported().
+describe('native/local-notifications.js ios ops', () => {
+    it('web: no scheduling surface at all', () => {
+        const { w } = load();
+        expect(Object.keys(w.LocalNotifications).filter((k) => k !== '__native')).toEqual(['isSupported']);
+    });
+
+    it('ios: permission / requestPermission / schedule / test post their notifications.* op', async () => {
+        const { w, sent } = load({ ios: true });
+        const ln = w.LocalNotifications;
+        const items = [{ fireAtUnix: 1, title: 't', body: 'b', section: 'meds' }];
+        for (const p of [ln.permission(), ln.requestPermission(), ln.schedule(items), ln.test()]) {
+            await p.catch(() => {}); // the fake bridge answers only ping
+        }
+        expect(sent).toEqual([
+            { op: 'notifications.permission', args: {} },
+            { op: 'notifications.requestPermission', args: {} },
+            { op: 'notifications.schedule', args: { items } },
+            { op: 'notifications.test', args: {} },
+        ]);
+    });
+});
