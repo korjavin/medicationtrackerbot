@@ -49,9 +49,8 @@ const SLEEP_PHASE = { 1: 'asleep', 2: 'awake', 3: 'light', 4: 'deep', 5: 'rem' }
 // deep > REM > core > awake > unspecified asleep.
 const SLEEP_RANK = { 4: 5, 5: 4, 3: 3, 2: 2, 1: 1 };
 // A sleep day is written only once its last sample ended this long ago, so a
-// night still being written is not churned through partial versions — and so
-// its content-derived clientTs (sleepClientTs) is always older than the moment
-// the row became visible, i.e. than any edit or delete of it. The cloud side
+// night still being written is not frozen as a partial version (the first
+// settled version of a day wins: putIfAbsent at the floor). The cloud side
 // re-reads unsettled nights by time window (health-import.js).
 export const SLEEP_SETTLE_MS = 3 * HOUR_MS;
 // A sleep day runs from 18:00 to 18:00 local, by when a night ENDS: a night
@@ -109,30 +108,6 @@ function phaseMs(samples) {
     if (best) ms[SLEEP_PHASE[best.value]] += cuts[i + 1] - cuts[i];
   }
   return ms;
-}
-
-function fnv1a(str) {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 0x01000193);
-  return h >>> 0;
-}
-
-// sleepClientTs: the LWW stamp of a Health sleep day, derived from its content
-// instead of the clock (a deliberate exception to CLAUDE.md rule 12's floor).
-// More asleep minutes, then staged over unstaged, then a body hash: so the
-// most complete version wins on every device, identical bodies tie exactly,
-// and different bodies never tie (bar a hash collision). It stays below
-//   base + 2881 × 3500 + 3500 ≈ base + 2.8h,  base = the day's UTC midnight − 20h
-// which is at or before 18:00 local of the previous day in every zone
-// (UTC−12…UTC+14), i.e. before the earliest end of any night of that day. The
-// row is written only SLEEP_SETTLE_MS (3h) after that end, so every edit or
-// delete of it — stamped with the clock — outranks every import of it, and a
-// stale device's shorter version loses to a fuller one instead of erasing it.
-export function sleepClientTs(day, body) {
-  const base = Date.parse(`${day}T00:00:00Z`) - 20 * HOUR_MS;
-  const minutes = Math.min(Math.max(body.total_minutes || 0, 0), 1440);
-  const staged = body.light_minutes === null || body.light_minutes === undefined ? 0 : 1;
-  return base + (minutes * 2 + staged) * 3500 + (fnv1a(JSON.stringify(body)) % 3500);
 }
 
 // sleepNights groups one window of raw sleep samples into nights: per source,
@@ -239,14 +214,15 @@ export function createHealthImportDomain({ records, now, timeZone }) {
 
   // importSleep → { added, pending }. Health sleep is one record per sleep day
   // (SLEEP_DAY_SHIFT_MS), id `sleep-hk-<day>`: every night and nap of that day
-  // from ONE source, the one with the highest sleepClientTs (most asleep
-  // minutes). The key is the same across sources and devices, so copies of a
-  // night converge on one row by LWW instead of piling up, and a fuller
-  // version (late stages, a lagging iPhone) replaces a partial one.
-  // Not written: a day whose best version is clipped by the window or not
-  // settled (`pending` = the earliest unsettled start, for the caller to
-  // re-read by time window); a day overlapping a non-Health sleep entry
-  // (Mi Band, manual: it wins); a day an edit or delete already outranks.
+  // from ONE source, the one with the most asleep minutes (then staged). The
+  // key is the same across sources and devices, so copies of a night land on
+  // one row instead of piling up. Written once, putIfAbsent at clientTs 0
+  // (CLAUDE.md rule 12): the first settled version wins, an edit or delete
+  // always outranks it, a tombstone keeps the day deleted.
+  // Not written: a day already there (live or deleted); a day whose best
+  // version is clipped by the window or not settled (`pending` = the earliest
+  // unsettled start, for the caller to re-read by time window); a day
+  // overlapping a non-Health sleep entry (Mi Band, manual: it wins).
   async function importSleep(samples, bounds) {
     const all = sleepNights(samples, bounds && bounds.from, bounds && bounds.to);
     const settledBy = now() - SLEEP_SETTLE_MS;
@@ -306,20 +282,16 @@ export function createHealthImportDomain({ records, now, timeZone }) {
           source_id: day,
         };
         const c = {
-          body, start, end, ts: sleepClientTs(day, body),
+          body, start, end, rank: body.total_minutes * 2 + (staged ? 1 : 0),
           ready: end <= settledBy && nights.every((n) => n.whole),
         };
-        if (!best || c.ts > best.ts) best = c;
+        // Sources arrive sorted by name: a tie keeps the first.
+        if (!best || c.rank > best.rank) best = c;
       }
       const recordId = healthRecordId('sleep', day);
-      const prev = byId.get(recordId);
-      if (!best.ready || aliased.has(recordId)) continue;
-      if (prev && (prev.deleted || prev.clientTs >= best.ts)) continue;
-      // Same body already there: the sync layer may have shifted its stamp by
-      // this device's clock skew, which must not trigger a rewrite every run.
-      if (prev && Object.keys(best.body).every((k) => prev[k] === best.body[k])) continue;
+      if (!best.ready || byId.has(recordId) || aliased.has(recordId)) continue;
       if (overlaps(best, others)) continue;
-      await records.put('sleep', { recordId, clientTs: best.ts, deleted: false, ...best.body });
+      await records.putIfAbsent('sleep', { recordId, clientTs: 0, deleted: false, ...best.body });
       added++;
     }
     return { added, pending };

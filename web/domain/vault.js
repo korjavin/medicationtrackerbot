@@ -39,7 +39,7 @@
 //     medintake.js look up by exact recordId); every older plan lands on a
 //     `tzplanhistory-<idx>` recordId of the same `tzplan` type, ignored by
 //     those readers and re-merged on export.
-//   - intake + workoutsession (and Apple Health bp/weight/miband -hk-) tombstones at
+//   - intake + workoutsession (and Apple Health bp/weight/miband/sleep -hk-) tombstones at
 //     deterministic slot ids are suppression signals (bd med-jtaj): recordsToVault carries them as
 //     data.tombstones and vaultToRecords re-materializes them as bodyless
 //     deleted rows. All other tombstones are delete-by-absence (dropped).
@@ -96,11 +96,11 @@ export const VAULT_MANAGED_TYPES = new Set([
 // re-materialize"), not just the absence of a row — so the vault must carry it.
 // Every other type is delete-by-absence: a missing row stays missing after a
 // replace-only import, and its tombstones are correctly dropped on export.
-// Apple Health imports (bp-hk-<uuid>, weight-hk-<uuid>, miband-hk-<uuid>,
+// Apple Health imports (bp-hk-<uuid>, weight-hk-<uuid>, miband-hk-<uuid>, sleep-hk-<day>,
 // healthimport.js) are slots of the same kind: a deleted one must stay deleted
 // across a restore and a full Health rescan. Older clients skip these tombstone
-// types on import. (Health sleep nights have no delete path, so no tombstones.)
-export const TOMBSTONED_SLOT_TYPES = new Set(['intake', 'workoutsession', 'bp', 'weight', 'miband']);
+// types on import. Ordinary `sleep-<start>` rows stay delete-by-absence.
+export const TOMBSTONED_SLOT_TYPES = new Set(['intake', 'workoutsession', 'bp', 'weight', 'miband', 'sleep']);
 
 // Derived-slot id shapes, mirroring the canonical builders — medintake.js
 // slotId(medId, scheduledAtMs), workout.js sessionRecordId(groupId, date) and
@@ -116,6 +116,7 @@ const SLOT_ID_SHAPE = {
   bp: /^bp-hk-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
   miband: /^miband-hk-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
   weight: /^weight-hk-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+  sleep: /^sleep-hk-\d{4}-\d{2}-\d{2}$/,
 };
 
 function isSlotTombstone(recordType, recordId) {

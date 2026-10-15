@@ -22,7 +22,7 @@ import { createWeightDomain } from '../../../domain/weight.js';
 import { recordsToVault, vaultToRecords } from '../../../domain/vault.js';
 import { createVitalsDomain } from '../../../domain/vitals.js';
 import { createWorkoutDomain } from '../../../domain/workout.js';
-import { createHealthImportDomain, sleepClientTs } from '../../../domain/healthimport.js';
+import { createHealthImportDomain } from '../../../domain/healthimport.js';
 import { healthNumericId } from '../../../domain/healthsource.js';
 import { allowConsoleNoise } from '../../../static/js/tests/helpers/setup.js';
 
@@ -421,15 +421,6 @@ describe('Apple Health import', () => {
         const W0 = Date.parse('2026-10-03T06:00:00Z');
         // The night above ends 07:00 Berlin on 2 Oct: that sleep day's record.
         const DAY_ID = 'sleep-hk-2026-10-02';
-        // Two devices exchanging rows the way sync does: the higher clientTs wins.
-        const exchange = (a, b) => {
-            for (const [x, y] of [[a, b], [b, a]]) {
-                for (const r of x.rows.values()) {
-                    const mine = y.rows.get(r.recordId);
-                    if (!mine || r.clientTs > mine.clientTs) y.rows.set(r.recordId, { ...r });
-                }
-            }
-        };
 
         // Like Health.swift: a sleep page is every sleep sample, with the
         // window padded 18h around them; other kinds page as fakeHealth does.
@@ -463,10 +454,8 @@ describe('Apple Health import', () => {
                 user_modified: false, source: 'apple_health', source_id: '2026-10-02',
             };
             expect(row).toEqual({
-                recordId: DAY_ID, recordType: 'sleep', clientTs: sleepClientTs('2026-10-02', body), deleted: false, ...body,
+                recordId: DAY_ID, recordType: 'sleep', clientTs: 0, deleted: false, ...body,
             });
-            // Content-derived, and below the moment the row could first be seen.
-            expect(row.clientTs).toBeLessThan(Date.parse(row.end_time) + 3 * H);
             const vitals = createVitalsDomain({ records, now: () => W0, timeZone: 'UTC' });
             expect(await vitals.sleepDaily({ from: N0 - 24 * H })).toEqual([
                 expect.objectContaining({ date: '2026-10-02', total_mins: 470, deep_mins: 60 }),
@@ -637,60 +626,50 @@ describe('Apple Health import', () => {
             expect(records.rows.get(DAY_ID)).toMatchObject({ total_minutes: 470 });
         });
 
-        it('devices converge on the fullest version of a night, never a frozen fragment', async () => {
-            const fragment = memRecords(); // an iPhone whose Health store had only the first 2h
-            const full = memRecords();
-            const at = (recs, now) => createHealthImportDomain({ records: recs, now: () => now, timeZone: 'UTC' });
+        it('the first settled version of a night wins; a fuller one later is not applied', async () => {
+            const at = createHealthImportDomain({ records, now: () => W0, timeZone: 'UTC' });
             const window = { from: N0 - 48 * H, to: N0 + 60 * H };
-            expect(await at(fragment, W0).importSamples('sleep', night.slice(0, 1), window)).toEqual({ added: 1 });
-            expect(fragment.rows.get(DAY_ID).total_minutes).toBe(120);
-            await at(full, W0).importSamples('sleep', night, window);
-            exchange(fragment, full);
-            expect(fragment.rows.get(DAY_ID)).toEqual(full.rows.get(DAY_ID));
-            expect(full.rows.get(DAY_ID).total_minutes).toBe(470);
-            // The lagging iPhone catching up on its own also replaces its fragment.
-            const late = memRecords();
-            await at(late, W0).importSamples('sleep', night.slice(0, 1), window);
-            expect(await at(late, W0 + H).importSamples('sleep', night, window)).toEqual({ added: 1 });
-            expect(late.rows.get(DAY_ID)).toEqual(full.rows.get(DAY_ID));
+            expect(await at.importSamples('sleep', night.slice(0, 1), window)).toEqual({ added: 1 });
+            expect(await at.importSamples('sleep', night, window)).toEqual({ added: 0 });
+            expect(records.rows.get(DAY_ID)).toMatchObject({ clientTs: 0, total_minutes: 120 });
         });
 
-        it('two sources\' copies of a night imported on two devices end as one row', async () => {
-            const watch = memRecords();
-            const other = memRecords();
+        it('two sources\' copies of a night end as one row for the day', async () => {
             const copy = night.map((s, i) => ({ ...s, uuid: uid(20 + i), source: 'com.other.app' }));
             copy[4] = { ...copy[4], end: copy[4].end - 60 * 60_000 }; // the other app saw an hour less
-            const at = (recs) => createHealthImportDomain({ records: recs, now: () => W0, timeZone: 'UTC' });
+            const at = createHealthImportDomain({ records, now: () => W0, timeZone: 'UTC' });
             const window = { from: N0 - 48 * H, to: N0 + 60 * H };
-            await at(watch).importSamples('sleep', night, window);
-            await at(other).importSamples('sleep', copy, window);
-            exchange(watch, other);
-            for (const recs of [watch, other]) {
-                expect([...recs.rows.values()]).toEqual([expect.objectContaining({ recordId: DAY_ID, total_minutes: 470 })]);
-            }
-            // A rescan seeing both sources changes nothing.
-            expect(await at(other).importSamples('sleep', [...night, ...copy], window)).toEqual({ added: 0 });
+            expect(await at.importSamples('sleep', [...copy, ...night], window)).toEqual({ added: 1 });
+            expect([...records.rows.values()]).toEqual([expect.objectContaining({ recordId: DAY_ID, total_minutes: 470 })]);
+            expect(await at.importSamples('sleep', [...night, ...copy], window)).toEqual({ added: 0 });
         });
 
-        it('an edit or a delete outranks every later import of that night', async () => {
-            const at = (recs) => createHealthImportDomain({ records: recs, now: () => W0, timeZone: 'UTC' });
+        it('an edit outranks a rescan, and a deleted night stays deleted', async () => {
+            const at = createHealthImportDomain({ records, now: () => W0, timeZone: 'UTC' });
             const window = { from: N0 - 48 * H, to: N0 + 60 * H };
-            await at(records).importSamples('sleep', night.slice(0, 1), window);
-            // Edited (stamped with the clock, after the row became visible).
+            await at.importSamples('sleep', night, window);
             await records.put('sleep', { ...records.rows.get(DAY_ID), clientTs: W0, notes: 'woke up twice' });
-            expect(await at(records).importSamples('sleep', night, window)).toEqual({ added: 0 });
-            expect(records.rows.get(DAY_ID)).toMatchObject({ notes: 'woke up twice', total_minutes: 120 });
-            // Deleted: stays deleted after a full rescan.
-            const other = memRecords();
-            await at(other).importSamples('sleep', night, window);
-            await other.del('sleep', DAY_ID);
-            expect(await at(other).importSamples('sleep', night, window)).toEqual({ added: 0 });
-            expect(other.rows.get(DAY_ID).deleted).toBe(true);
-            // And another device's import loses to the tombstone in sync.
-            const third = memRecords();
-            await at(third).importSamples('sleep', night, window);
-            exchange(other, third);
-            expect(third.rows.get(DAY_ID).deleted).toBe(true);
+            expect(await at.importSamples('sleep', night, window)).toEqual({ added: 0 });
+            expect(records.rows.get(DAY_ID)).toMatchObject({ notes: 'woke up twice', total_minutes: 470 });
+            await records.del('sleep', DAY_ID);
+            expect(await at.importSamples('sleep', night, window)).toEqual({ added: 0 });
+            expect(records.rows.get(DAY_ID).deleted).toBe(true);
+        });
+
+        it('a deleted night stays deleted across a backup, restore and full rescan', async () => {
+            await runHealthImport({}, opts({ sleep: night }));
+            await records.del('sleep', DAY_ID);
+            const vault = recordsToVault([...records.rows.values()], { now: W0 });
+            expect(vault.data.tombstones).toEqual([{ recordType: 'sleep', recordId: DAY_ID }]);
+            const restored = memRecords();
+            for (const r of vaultToRecords(vault, { now: W0 })) restored.rows.set(r.recordId, r);
+            expect(recordsToVault([...restored.rows.values()], { now: W0 })).toEqual(vault);
+            storage.setItem('wg.health.anchors', '{}');
+            expect(await runHealthImport({}, opts({ sleep: night }, restored))).toEqual({ added: 0 });
+            expect(restored.rows.get(DAY_ID).deleted).toBe(true);
+            // An ordinary (Mi Band, manual) night's tombstone stays delete-by-absence.
+            const vault2 = recordsToVault([{ recordType: 'sleep', recordId: `sleep-${N0}`, clientTs: 1, deleted: true }], { now: W0 });
+            expect(vault2.data.tombstones).toBeUndefined();
         });
 
         it('a nap joins its day\'s record', async () => {

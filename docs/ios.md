@@ -143,27 +143,17 @@ and weight only asks once, at the next open, for the new types.
     night and nap of that day from **one source** — the one with the most
     asleep minutes — with `start_time`/`end_time` spanning them. Naps are
     therefore merged into the day's record rather than kept as sessions.
-  - **Content-derived clientTs, not the rule-12 floor.** A floored row is
-    "first writer wins forever": an iPhone whose Health store had only a
-    fragment of the night, or another source's copy, would freeze its version.
-    Instead the row is written with `put` at `sleepClientTs(day, body)`: a
-    stamp that grows with asleep minutes, then staged over unstaged, then a
-    body hash — so the fullest version wins on every device, identical bodies
-    tie exactly, and different ones never tie. It is computed from content,
-    never from `now()`, so a stale device cannot outrank real state: the stamp
-    is at most the day's UTC midnight − 20h + 2.8h, which is before the end of
-    any night of that day plus the 3h settle below, i.e. before the row can be
-    seen. Every edit or delete — stamped with the clock — therefore beats every
-    import, and an import never writes over a tombstone or a newer stamp.
-    Manual and Mi Band entries live under other ids and are not affected.
+  - Written once, `putIfAbsent` at `clientTs: 0` like every other import
+    (CLAUDE.md rule 12): the **first settled version of a day wins**, an edit
+    always outranks it, and a deleted day stays deleted (its tombstone also
+    rides in vault backups). Manual and Mi Band entries live under other ids.
 - **Settling:** a sleep day is written only once its last sample ended **3h**
-  ago (`SLEEP_SETTLE_MS`) — no churn through half-written nights, and the
-  bound above. A night still settling when its samples were read leaves its
+  ago (`SLEEP_SETTLE_MS`), so a night still being written is not frozen as a
+  fragment. A night still settling when its samples were read leaves its
   start in `wg.health.sleepPending` (saved before the anchor moves past it);
   every later run first re-reads sleep by time window (`health.query {type:
   "sleep", from: start − 48h, to: now}`, no anchor), until nothing is left
-  settling. A Watch that syncs late just brings a fuller version later, which
-  replaces the earlier one.
+  settling.
 - **Workouts** → the existing `miband` activity record (Workouts → History,
   labelled *Apple Health*): type name, start/end, duration, distance, active
   energy, average heart rate. recordId `miband-hk-<uuid>`, body `id` from the
@@ -191,14 +181,13 @@ and weight only asks once, at the next open, for the new types.
   wake-up that is the local date nearly everywhere, but a zone-less and a
   zoned source can file one night on different days (and so show it twice)
   for wake-ups before ~05:00 east of UTC+10 or after ~10:00 west of UTC−8.
-  Two versions of a day with the same asleep minutes and stage presence are
-  ordered by body hash, not by quality. A sleep day restored from a backup is
-  stamped at restore time, so later fuller versions no longer replace it. The
-  sync layer subtracts each device's measured clock skew from any stamp, so a
-  device with a skewed clock (seconds) may tip a near-tie the other way —
-  devices still converge on one version. A backup restored and re-exported by a
-  client that predates the `miband-hk-` tombstones loses them, as for BP and
-  weight above, so a later rescan brings a deleted Health workout back.
+  The first settled version of a sleep day wins: if a device writes a day
+  while its Health copy is still incomplete (Health sync lag across devices
+  beyond the 3h settle), a later fuller version is not applied. Deleting the
+  day does not re-import it — the tombstone keeps it deleted (the safe
+  direction). A backup restored and re-exported by a client that predates the
+  `miband-hk-` / `sleep-hk-` tombstones loses them, as for BP and weight
+  above, so a later rescan brings a deleted Health workout or night back.
   A deleted Health workout leaves only a bodyless tombstone, so another
   source's copy of it (Strava writing the same run later, or a rescan that
   reads the copy on a different page) can still appear and needs deleting too.
