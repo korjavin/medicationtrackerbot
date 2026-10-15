@@ -363,3 +363,79 @@ Gotchas:
 - `navigator.storage.persisted()` is `false`: WebView data is evictable under
   storage pressure. The shell requests persistence (above).
 - Resetting web data logs a benign `-999` (navigation cancelled).
+
+## Spike: local mode on a custom-scheme origin (bd med-o7zq.1)
+
+The GO/NO-GO gate for iOS local mode (epic `med-o7zq`): is a
+`WKURLSchemeHandler` origin in WKWebView a usable app origin on iOS 18? The
+med-w6gx.2 results above were on `https` origins and do not carry over.
+
+- **What runs:** [`ios/App/LocalSpike.swift`](../ios/App/LocalSpike.swift)
+  opens its own WKWebView (default website data store, app-bound limit on like
+  the shell) on `app://local/`, served from the bundled test page
+  [`ios/LocalSpike/`](../ios/LocalSpike/) with the CSP as a response header.
+  The page ([`js/main.js`](../ios/LocalSpike/js/main.js)) runs every check it
+  can decide and shows a PASS/FAIL/MANUAL/INFO table; the native side adds the
+  data-directory scan (7, 12) and the bridge's view of the origin (8). No
+  private WebKit API, no Service Worker. The shell's normal path never creates
+  any of it; it is throwaway and goes with med-o7zq.4.
+- **Open it:** iPhone Settings → Med Tracker → *Local mode diagnostic* on →
+  back to the app. *Close* (top left) turns it off again. *App-bound* reloads
+  without the app-bound limit if the page fails to load with it.
+- **Get the report out:** the page's *Share report* (that is check 4) or
+  *Copy report*; or the native *Report* button (Copy / share), which also
+  carries the page's report when the bridge works. Account host names are
+  redacted; only the first 8 characters of the vendor id appear.
+- **Build:** Actions → **iOS** → Run workflow on the spike branch (or master
+  after merge), then install from TestFlight (see *Shipping a build*).
+
+### Owner run on the device
+
+1. Fresh install of the build (or the update over an existing one) → open the
+   diagnostic → wait for "Automatic checks done" → tap *Test camera* (allow) →
+   *Share report* (the share sheet must open: check 4) → save the report.
+2. **Kill/relaunch (2, 2k):** swipe the app away, reopen, open the diagnostic:
+   #2 and #2k turn PASS and list the earlier launch.
+3. **Update (2):** dispatch a new build, install it over this one from
+   TestFlight, open the diagnostic: #2 lists launches from the older build number.
+4. **BYOK (9):** the dummy-key probes run by themselves; for a *successful*
+   request paste a real key in the form (it is never stored or reported) →
+   *Test with my key* → `HTTP 200`.
+5. **Backup → restore (10):** with launches recorded, make an iCloud (or
+   encrypted Finder) backup, restore it onto a second iPhone (or erase this one
+   and restore), install the app from TestFlight if it is not restored, open the
+   diagnostic: #2 must still list the old launches (with the old vendor id).
+6. **Eviction (11):** note #11 (persisted, usage), fill the phone until iOS
+   warns that storage is almost full (e.g. download large videos), leave it a
+   few hours, open the diagnostic: the launch history must still be there. Also
+   iPhone Settings → General → iPhone Storage → Med Tracker → *Offload App*,
+   reinstall from TestFlight, reopen: same check.
+7. Paste the reports (Share or the native Report) into the bead; the table
+   below is filled from them.
+
+**GO** needs 1, 2, 2k, 3, 6, 8, 10 PASS and IndexedDB not evicted (11).
+A FAIL on 4, 5 or 9 is a feature gap to plan around, not a NO-GO. **NO-GO**
+→ back to the architect: the fallback (a loopback HTTP asset server, or native
+storage behind the records port) is a separate spike, not improvised.
+
+### Results
+
+Pending a device run — nothing below has been observed yet.
+
+| # | Check | How | Result |
+|---|-------|-----|--------|
+| 1 | `isSecureContext`, `crypto.subtle` AES-GCM (+ PBKDF2) | auto | pending device run |
+| 2 | IndexedDB records survive kill/relaunch and a TestFlight update | auto + steps 2–3 | pending device run |
+| 2k | Non-extractable AES key stored in IndexedDB still decrypts | auto + step 2 | pending device run |
+| 3 | ES modules: nested static, root-relative `/static/`, `../../domain/`, dynamic `import()`, JS MIME | auto | pending device run |
+| 4 | Blob download → share sheet (med-w6gx.11 path) | step 1 | pending device run |
+| 5 | `getUserMedia` camera + readable frame (barcode path) | step 1 | pending device run |
+| 6 | CSP from the scheme-handler header enforced (inline, eval, connect-src) | auto | pending device run |
+| 7 | Where WebKit stores the origin's data; file protection class | auto (native) | pending device run |
+| 8 | Native bridge on the custom origin (`frameInfo.securityOrigin`) | auto | pending device run |
+| 9 | BYOK fetch + CORS preflight to OpenAI / Anthropic; a successful request | auto + step 4 | pending device run |
+| 10 | Real backup → restore keeps IndexedDB | step 5 | pending device run |
+| 11 | Eviction under storage pressure / offload; `storage.persisted()` | step 6 | pending device run |
+| 12 | `isExcludedFromBackup` settable on the origin's data dir (set, read back, reverted) | auto (native) | pending device run |
+
+**Verdict:** pending device run.

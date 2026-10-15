@@ -22,10 +22,18 @@ struct WGApp: App {
 struct RootView: View {
     @ObservedObject var shell: Shell
     @Environment(\.scenePhase) private var phase
+    /// Local-mode diagnostic (bd med-o7zq.1): exists only while its Settings toggle is on.
+    @State private var spike: LocalSpike?
 
     var body: some View {
         Group {
-            if shell.host == nil {
+            if let spike {
+                LocalSpikeView(spike: spike) {
+                    UserDefaults.standard.set(false, forKey: LocalSpike.toggleKey)
+                    spike.stop()
+                    self.spike = nil
+                }
+            } else if shell.host == nil {
                 FirstRunView(shell: shell)
             } else {
                 WebView(webView: shell.webView)
@@ -40,8 +48,19 @@ struct RootView: View {
             }
         }
         .onChange(of: phase) { _, now in
-            if now == .active { shell.applySettings() }
+            if now == .active {
+                shell.applySettings()
+                openSpikeIfRequested()
+            }
         }
+        .onAppear(perform: openSpikeIfRequested)
+    }
+
+    private func openSpikeIfRequested() {
+        guard spike == nil, LocalSpike.requested else { return }
+        let s = LocalSpike()
+        s.start()
+        spike = s
     }
 }
 

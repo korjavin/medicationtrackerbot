@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Local mode diagnostic</title>
+<link rel="stylesheet" href="/static/spike.css">
+<!-- Classic script first: it records CSP violations, including the inline one below. -->
+<script src="/js/boot.js"></script>
+<!-- Check 6: the CSP header from the scheme handler must block this. -->
+<script>window.__wgInlineRan = true;</script>
+<script type="module" src="/js/main.js"></script>
+</head>
+<body>
+<h1>Local mode diagnostic</h1>
+<p class="hint">bd med-o7zq.1 — runs on its own custom-scheme origin, separate from your account. Nothing here is sent anywhere except the two AI-provider probes in check 9.</p>
+<div class="actions">
+  <button id="share" type="button">Share report (check 4)</button>
+  <button id="copy" type="button">Copy report</button>
+  <button id="camera" type="button">Test camera (check 5)</button>
+</div>
+<fieldset>
+  <legend>Check 9 — optional real request with your own key (kept in memory only, never in the report)</legend>
+  <select id="provider">
+    <option value="https://api.openai.com/v1/models|openai">OpenAI</option>
+    <option value="https://api.anthropic.com/v1/models|anthropic">Anthropic</option>
+  </select>
+  <input id="key" type="password" autocomplete="off" placeholder="API key">
+  <button id="keytest" type="button">Test with my key</button>
+</fieldset>
+<p id="status" class="hint">Running checks…</p>
+<table id="results"><tbody></tbody></table>
+<video id="video" playsinline muted hidden></video>
+<pre id="report"></pre>
+</body>
+</html>

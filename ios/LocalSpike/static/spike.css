@@ -1,0 +1,15 @@
+/* Diagnostic page only (bd med-o7zq.1); not part of the web app. */
+:root { color-scheme: dark; }
+body { margin: 0; padding: 12px 16px 40px; font: 15px/1.4 -apple-system, system-ui, sans-serif; background: #132d29; color: #e8f0ee; }
+h1 { font-size: 20px; margin: 4px 0 8px; }
+.hint { color: #9fb5b0; font-size: 13px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+button, select, input { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid #3c5c56; background: #1c3d38; color: inherit; }
+fieldset { border: 1px solid #3c5c56; border-radius: 8px; margin: 8px 0; display: flex; flex-wrap: wrap; gap: 8px; }
+legend { font-size: 13px; color: #9fb5b0; }
+input { flex: 1; min-width: 140px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+td { border-top: 1px solid #2a4a44; padding: 6px 4px; vertical-align: top; word-break: break-word; }
+td.st { font-weight: 700; white-space: nowrap; }
+.PASS { color: #7ee2a8; } .FAIL { color: #ff8a80; } .MANUAL, .INFO { color: #ffd479; } .pending { color: #9fb5b0; }
+pre { white-space: pre-wrap; word-break: break-word; font-size: 11px; color: #9fb5b0; }
