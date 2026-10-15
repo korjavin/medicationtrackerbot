@@ -88,8 +88,9 @@ manifest entry: there is no egress).
   restore keeps the `-hk-` ids (`source_id`) but carries no bp/weight
   tombstones, so a full rescan after a restore brings back Health readings
   deleted before the backup. Sleep and workouts are med-w6gx.7.
-- **Signing:** the App ID needs the *HealthKit* capability (developer portal →
-  Identifiers) if automatic signing does not enable it.
+- **Signing:** automatic signing enabled the *HealthKit* capability on the App
+  ID by itself. Upload validation demands `NSHealthUpdateUsageDescription` even
+  for a read-only app, so `project.yml` carries one saying the app never writes.
 
 ### Device check (TestFlight)
 
