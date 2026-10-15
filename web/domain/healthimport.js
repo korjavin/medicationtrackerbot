@@ -20,8 +20,6 @@ import {
   HEALTH_SOURCE, UUID_RE, healthRecordId, healthImportRecordId,
 } from './healthsource.js';
 
-export { HEALTH_SOURCE, healthRecordId, healthImportRecordId };
-
 function positive(v) {
   return typeof v === 'number' && Number.isFinite(v) && v > 0;
 }

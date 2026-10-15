@@ -557,7 +557,7 @@ export function vaultToRecords(vault, { now } = {}) {
   }
   if (bp.goal) push('bpgoal', 'bpgoal', { ...bp.goal });
 
-  // --- weight (compute the derived trend the same way weight.js create does) ---
+  // --- weight (rebuild every trend with weight.js weightTrendChain, the walk its readers use) ---
   const weight = data.weight || {};
   const ascLogs = sortBy(weight.logs || [], (r) => r.measured_at);
   const trends = weightTrendChain(ascLogs);

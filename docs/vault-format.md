@@ -465,8 +465,7 @@ re-derives the same way, so a reading deleted before the backup stays deleted.
 Clients that predate these two types skip them on import (the unknown-type rule
 below) — so a file restored and re-exported by such a client has lost them, and
 a later full Health rescan resurrects those readings (known residual, not
-fixable retroactively). Apple Health weights carry no `weight_trend` at all
-(the derived body must be device-independent); the restore recompute fills it.
+fixable retroactively).
 
 - Only exact derived-slot ids are carried: `intake-<medId>-<unixSec>` (mirroring
   medintake.js `slotId`), `session-<groupId>-<YYYY-MM-DD>` (mirroring workout.js
