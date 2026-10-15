@@ -1,67 +1,162 @@
+import AVFoundation
 import SwiftUI
 import UIKit
+import VisionKit
 import WebKit
 
-// Shell: one WKWebView on the account origin (bd med-w6gx.9). The overlay
-// button + panel are the GO/NO-GO spike diagnostic (bd med-w6gx.2, Spike.swift);
-// the shell bead (med-w6gx.3) drops them.
+// The iOS shell (bd med-w6gx.3): first-run → the account origin in one
+// WKWebView (Shell.swift). docs/ios.md.
 @main
 struct WGApp: App {
-    @StateObject private var spike = Spike()
+    @StateObject private var shell = Shell()
 
     var body: some Scene {
-        WindowGroup {
-            WebView(spike: spike)
-                .ignoresSafeArea()
-                .overlay(alignment: .trailing) {
-                    Button { spike.showPanel = true } label: {
-                        Image(systemName: "stethoscope")
-                            .padding(10)
-                            .background(.ultraThinMaterial, in: Circle())
+        WindowGroup { RootView(shell: shell) }
+    }
+}
+
+struct RootView: View {
+    @ObservedObject var shell: Shell
+    @Environment(\.scenePhase) private var phase
+
+    var body: some View {
+        Group {
+            if shell.host == nil {
+                FirstRunView(shell: shell)
+            } else {
+                WebView(webView: shell.webView)
+                    .ignoresSafeArea(.keyboard) // WKWebView handles the keyboard itself
+                    .background {
+                        // The safe-area bands, in the page's own top/bottom colours.
+                        VStack(spacing: 0) { shell.top; shell.bottom }.ignoresSafeArea()
                     }
-                    .padding(.trailing, 6)
-                    .accessibilityLabel("Spike diagnostics")
-                }
-                .sheet(isPresented: $spike.showPanel) { SpikePanel(spike: spike) }
+                    .overlay {
+                        if let error = shell.loadError { LoadErrorView(shell: shell, message: error) }
+                    }
+            }
+        }
+        .onChange(of: phase) { _, now in
+            if now == .active { shell.applySettings() }
         }
     }
 }
 
 struct WebView: UIViewRepresentable {
-    let spike: Spike
-    func makeUIView(context: Context) -> WKWebView { spike.webView }
+    let webView: WKWebView
+    func makeUIView(context: Context) -> WKWebView { webView }
     func updateUIView(_ uiView: WKWebView, context: Context) {}
 }
 
-struct SpikePanel: View {
-    @ObservedObject var spike: Spike
-    @State private var url = ""
+/// Invite-only: no signup here. The user brings an invite/claim link, the
+/// account address, or the Emergency Kit QR.
+struct FirstRunView: View {
+    @ObservedObject var shell: Shell
+    @State private var text = ""
+    @State private var error: String?
+    @State private var scanning = false
 
     var body: some View {
-        NavigationStack {
-            List {
-                Section("Open URL (claim link or account URL)") {
-                    TextField("https://", text: $url)
-                        .keyboardType(.URL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    Button("Open") { spike.open(url); url = "" }
-                }
-                Section("Checks (run on the page currently loaded)") {
-                    Button("Run checks: bridge, SW, IndexedDB, camera") { spike.runChecks() }
-                    Button("Passkey create + PRF (throwaway passkey)") { spike.passkeyCreate() }
-                    Button("Passkey get + PRF") { spike.passkeyGet() }
-                    Button("Reset web data (forces a cold unlock)", role: .destructive) { spike.resetWebData() }
-                }
-                Section("Report (host names redacted)") {
-                    Button("Copy report") { UIPasteboard.general.string = spike.report }
-                    Button("Clear report", role: .destructive) { spike.lines = [] }
-                    Text(spike.report)
-                        .font(.caption.monospaced())
-                        .textSelection(.enabled)
-                }
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Med Tracker").font(.largeTitle.bold())
+            Text("Open your account with your invite link, your account address, or the QR code on your Emergency Kit. Accounts are by invitation only.")
+                .foregroundStyle(.secondary)
+            TextField("Invite link or account address", text: $text)
+                .keyboardType(.URL)
+                .textContentType(.URL)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.go)
+                .onSubmit { submit(text) }
+                .padding(12)
+                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+            if let error {
+                Text(error).font(.callout).foregroundStyle(.orange)
             }
-            .navigationTitle("iOS spike")
+            Button("Continue") { submit(text) }
+                .buttonStyle(.borderedProminent)
+                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            if DataScannerViewController.isSupported {
+                Button { scan() } label: { Label("Scan QR code", systemImage: "qrcode.viewfinder") }
+                    .buttonStyle(.bordered)
+            }
+            Spacer()
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(uiColor: Shell.screen).ignoresSafeArea())
+        .preferredColorScheme(.dark)
+        .sheet(isPresented: $scanning) {
+            QRScanner { payload in
+                scanning = false
+                // Straight to submit, never into the text field: a kit QR carries the recovery code.
+                submit(payload)
+            }
+            .ignoresSafeArea()
+        }
+    }
+
+    private func submit(_ raw: String) {
+        error = shell.open(raw)
+    }
+
+    private func scan() {
+        Task {
+            if await AVCaptureDevice.requestAccess(for: .video) {
+                scanning = true
+            } else {
+                error = "Allow camera access for Med Tracker in Settings to scan a QR code."
+            }
+        }
+    }
+}
+
+struct LoadErrorView: View {
+    @ObservedObject var shell: Shell
+    let message: String
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("Can't open your account").font(.title2.bold())
+            Text(message).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            Button("Try again") { shell.retry() }.buttonStyle(.borderedProminent)
+            Button("Switch account") { shell.forget() }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(uiColor: Shell.screen).ignoresSafeArea())
+        .preferredColorScheme(.dark)
+    }
+}
+
+/// Reads one QR code with VisionKit and hands back its text.
+struct QRScanner: UIViewControllerRepresentable {
+    let found: (String) -> Void
+
+    func makeUIViewController(context: Context) -> DataScannerViewController {
+        let scanner = DataScannerViewController(recognizedDataTypes: [.barcode(symbologies: [.qr])], isHighlightingEnabled: true)
+        scanner.delegate = context.coordinator
+        return scanner
+    }
+
+    func updateUIViewController(_ scanner: DataScannerViewController, context: Context) {
+        if !scanner.isScanning { try? scanner.startScanning() }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(found: found) }
+
+    @MainActor
+    final class Coordinator: NSObject, DataScannerViewControllerDelegate {
+        let found: (String) -> Void
+        private var done = false
+        init(found: @escaping (String) -> Void) { self.found = found }
+
+        func dataScanner(_ scanner: DataScannerViewController, didAdd addedItems: [RecognizedItem], allItems: [RecognizedItem]) {
+            for case .barcode(let code) in addedItems {
+                guard !done, let text = code.payloadStringValue else { continue }
+                done = true
+                scanner.stopScanning()
+                found(text)
+            }
         }
     }
 }
