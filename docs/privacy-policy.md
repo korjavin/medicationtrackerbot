@@ -37,10 +37,12 @@ integrations.
   through the operator's server to Telegram; your bot token is stored on the
   server.
 - **Voice assistant**: your voice, the transcript, and the records the
-  assistant reads to answer you go to ElevenLabs and to the AI provider that
-  answers.
-- **Your own AI or voice keys**: the same kinds of data go directly from your
-  device to the provider you configured.
+  assistant reads to answer you go to ElevenLabs. Each turn of the
+  conversation then passes through the operator's server (in transit, not
+  stored) to your device, which asks your own AI provider or, without one, the
+  operator's AI provider for the answer. This is so even with your own keys.
+- **Your own AI key** (outside voice calls): meal, activity and assistant
+  requests go directly from your device to the provider you configured.
 - **Hosted AI-assistant access (MCP)**: queries and answers pass through the
   operator's server in memory while it is enabled.
 - **Food search and barcode scans**: search terms go to a food database,

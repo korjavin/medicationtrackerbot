@@ -134,8 +134,11 @@ in `PrivacyInfo.xcprivacy`.
 ### Listing text
 
 - **Privacy policy URL:** <https://github.com/korjavin/medicationtrackerbot/blob/master/docs/privacy-policy.md>
-  ([privacy-policy.md](privacy-policy.md); the first-run screen links it, and
-  the signed-in app shows Settings → Account & privacy). Nothing on the cloud
+  ([privacy-policy.md](privacy-policy.md); the first-run screen links it, iOS
+  Settings → Med Tracker → Privacy names it, and
+  the signed-in app shows its disclosures under Settings → Account & privacy;
+  a clickable link there would change the web app, so it is not added).
+  Nothing on the cloud
   domain serves a policy: the base domain serves only the landing page and
   the AASA.
 - **Support URL:** <https://github.com/korjavin/medicationtrackerbot/issues>.

@@ -22,6 +22,14 @@
 			<key>DefaultValue</key>
 			<false/>
 		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSGroupSpecifier</string>
+			<key>Title</key>
+			<string>Privacy</string>
+			<key>FooterText</key>
+			<string>Privacy policy: github.com/korjavin/medicationtrackerbot/blob/master/docs/privacy-policy.md. In the app: Settings → Account &amp; privacy.</string>
+		</dict>
 	</array>
 </dict>
 </plist>
