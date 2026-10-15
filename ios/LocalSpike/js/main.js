@@ -122,8 +122,9 @@ async function checkIndexedDB() {
 
   try {
     const pt = new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: sealed.iv }, sealed.key, sealed.ct));
-    const from = fresh ? 'created this launch — reopen to test' : `from launch ${sealed.launch} build ${sealed.build} (${sealed.at})`;
-    set('2k', pt === 'sealed' ? (fresh ? 'MANUAL' : 'PASS') : 'FAIL',
+    const same = sealed.launch === me.launch;
+    const from = same ? 'created this launch — kill + relaunch to test' : `from launch ${sealed.launch} build ${sealed.build} (${sealed.at})`;
+    set('2k', pt === 'sealed' ? (same ? 'MANUAL' : 'PASS') : 'FAIL',
       `key extractable=${sealed.key.extractable}, decrypt ${pt === 'sealed' ? 'ok' : 'MISMATCH'}, ${from}`);
   } catch (e) {
     set('2k', 'FAIL', `stored key unusable: ${errText(e)}`);

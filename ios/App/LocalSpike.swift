@@ -26,8 +26,10 @@ final class LocalSpike: NSObject, ObservableObject, WKNavigationDelegate, WKScri
 
     /// setURLSchemeHandler raises for a scheme WebKit handles itself.
     let scheme = WKWebView.handlesURLScheme("app") ? "wgapp" : "app"
-    /// Fresh per process: the page's IndexedDB history shows which launches wrote it.
-    let launch = String(UUID().uuidString.prefix(8))
+    /// Fresh per process (static: reopening the diagnostic is not a relaunch):
+    /// the page's IndexedDB history shows which launches wrote it.
+    static let launch = String(UUID().uuidString.prefix(8))
+    var launch: String { LocalSpike.launch }
     @Published private(set) var webView: WKWebView?
     /// Production shell config: navigation limited to app-bound domains. Off retries without the limit.
     @Published var appBound = true { didSet { start() } }
