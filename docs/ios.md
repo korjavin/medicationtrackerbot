@@ -127,8 +127,8 @@ Same toggle, same anchored queries, same floor. A build that switched the toggle
 on for BP and weight only asks once, at the next open, for the new types.
 
 - **Sleep** → the existing `sleep` night (Vitals). `Health.swift` answers a sleep
-  page with *every* sleep sample within 18h of the page's new ones, plus that
-  window; `healthimport.js` groups them into nights per source (gaps ≤ 1h,
+  page with *every* sleep sample (all sources) from 18h before the page's
+  earliest new sample to 18h after its latest, plus that window; `healthimport.js` groups them into nights per source (gaps ≤ 1h,
   *In Bed* ignored), keeps only nights whole inside the window, and maps
   Core/Deep/REM/Awake to light/deep/rem/awake minutes (`total_minutes` = asleep
   time). recordId `sleep-hk-<uuid of the night's first sample>`; `day` is the
@@ -150,8 +150,7 @@ on for BP and weight only asks once, at the next open, for the new types.
     that overlaps an in-app workout session is skipped: the per-set log is the
     record of that visit. Other Health workouts during a session (a treadmill
     run) are kept;
-  - a deleted Health workout keeps its slot: a rescan neither brings it back
-    nor lets another source's copy of it take its place.
+  - a deleted Health workout stays deleted: a rescan does not bring it back.
 - **Known residuals:** the rule is applied once, against what this iPhone has
   synced at that moment — an entry that arrives later (a Mi Band `.nxk` import
   of a night already imported from Health) does not displace the Health copy,
@@ -161,6 +160,12 @@ on for BP and weight only asks once, at the next open, for the new types.
   whose samples carry no time zone takes each importing iPhone's zone for its
   `day`, so two iPhones in different zones could file it on different days.
   A night a source keeps extending after it was imported stays as first read.
+  A deleted Health workout leaves only a bodyless tombstone, so another
+  source's copy of it (Strava writing the same run later, or a rescan that
+  reads the copy on a different page) can still appear and needs deleting too.
+  A sleep page reads every sleep sample from 18h before the page's earliest
+  new sample to 18h after its latest, so a page of out-of-order backfill can
+  read a long stretch of history at once (slow, not wrong).
 
 ### Device check — sleep and workouts (TestFlight)
 

@@ -48,7 +48,7 @@ const WORKOUT_NAMES = {
   37: 'running', 52: 'walking', 13: 'cycling', 24: 'Hiking', 46: 'Swimming',
   50: 'Strength Training', 20: 'Functional Strength', 59: 'Core Training',
   63: 'HIIT', 16: 'Elliptical', 35: 'Rowing', 44: 'Stair Climbing', 57: 'Yoga',
-  66: 'Pilates', 73: 'Mixed Cardio', 11: 'Cross Training', 77: 'Dance', 78: 'Cardio Dance',
+  66: 'Pilates', 73: 'Mixed Cardio', 11: 'Cross Training', 14: 'Dance', 77: 'Cardio Dance', 78: 'Social Dance',
 };
 // A strength workout also yields to an in-app workout session it overlaps:
 // per-set logging (docs/workout-depth.md) is the record of that gym visit. A
@@ -166,9 +166,11 @@ export function createHealthImportDomain({ records, now, timeZone }) {
     .filter((r) => Number.isFinite(r.start) && Number.isFinite(r.end));
 
   // The overlap rule. `taken` starts as the vault's live spans; a candidate
-  // already known (imported, or deleted: a tombstone) keeps its span taken so a
-  // second source's copy of a deleted workout does not take its place. Then the
-  // longest new candidate first, ties to the smaller UUID.
+  // already known (imported, or deleted: a tombstone) keeps its span taken, so
+  // a rescan does not hand a deleted workout's slot to a copy in the same page.
+  // ponytail: a tombstone has no body, so a copy arriving in another page (a
+  // late second source, a long rescan) is imported — docs/ios.md residuals.
+  // Then the longest new candidate first, ties to the smaller UUID.
   function pickFree(candidates, have, taken, alsoTaken = () => []) {
     const known = candidates.filter((c) => have.has(c.recordId));
     taken.push(...known);
@@ -182,8 +184,8 @@ export function createHealthImportDomain({ records, now, timeZone }) {
     return out;
   }
 
-  async function importSleep(samples, window, have) {
-    const all = sleepNights(samples, window && window.from, window && window.to);
+  async function importSleep(samples, bounds, have) {
+    const all = sleepNights(samples, bounds && bounds.from, bounds && bounds.to);
     const nights = all.filter((n) => n.whole).map((n) => ({ ...n, recordId: healthRecordId('sleep', n.uuid) }));
     if (!nights.length) return 0;
     const taken = spans(await records.list('sleep'), (r) => Date.parse(r.start_time), (r) => Date.parse(r.end_time))
@@ -252,11 +254,11 @@ export function createHealthImportDomain({ records, now, timeZone }) {
     return added;
   }
 
-  // importSamples(kind, samples, window) → { added }: the records that were new
-  // here. `window` is the whole query result ({from, to} for sleep). Malformed
+  // importSamples(kind, samples, bounds) → { added }: the records that were new
+  // here. `bounds` is the whole query result ({from, to} for sleep). Malformed
   // samples are skipped, never thrown on — one odd entry in Health must not
   // stall every later import behind the same anchor.
-  async function importSamples(kind, samples, window) {
+  async function importSamples(kind, samples, bounds) {
     const type = TYPE[kind];
     if (!type) throw new Error(`healthimport: unknown kind ${kind}`);
     // Tombstones included: a deleted reading stays deleted. A row restored by
@@ -268,7 +270,7 @@ export function createHealthImportDomain({ records, now, timeZone }) {
       const id = healthImportRecordId(type, r);
       if (id) have.add(id);
     }
-    if (kind === 'sleep') return { added: await importSleep(samples, window, have) };
+    if (kind === 'sleep') return { added: await importSleep(samples, bounds, have) };
     if (kind === 'workout') return { added: await importWorkouts(samples, have) };
     const k = KINDS[kind];
     // Oldest first: a stable write order. (weight.create stores a derived row

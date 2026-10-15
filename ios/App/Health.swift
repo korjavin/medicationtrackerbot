@@ -27,8 +27,11 @@ enum Health {
     static let energy = HKQuantityType(.activeEnergyBurned)
     static let distances = [HKQuantityType(.distanceWalkingRunning), HKQuantityType(.distanceCycling),
                             HKQuantityType(.distanceSwimming)]
-    /// A sleep page is answered with every sleep sample within this much of
-    /// the page's new ones, so the web side sees whole nights (healthimport.js).
+    /// A sleep page is answered with every sleep sample from this much before
+    /// the page's earliest new sample to this much after its latest, so the web
+    /// side sees whole nights (healthimport.js). ponytail: one window per page,
+    /// unbounded — out-of-order backfill can read a long span once; split into
+    /// per-night windows if that shows up as slow.
     static let sleepPad: TimeInterval = 18 * 3600
 
     /// Read authorization is per quantity type: a blood-pressure correlation
