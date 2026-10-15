@@ -626,6 +626,33 @@ describe('Apple Health import', () => {
             expect(records.rows.get(DAY_ID)).toMatchObject({ total_minutes: 470 });
         });
 
+        it('an empty re-read (read access revoked) keeps a settling night pending', async () => {
+            const health = healthOf({ sleep: night });
+            const page = health.query;
+            let denied = false;
+            health.query = async (args) => {
+                if (!denied) return page(args);
+                return Number.isFinite(args.from)
+                    ? { samples: [], from: args.from, to: args.to, returned: 0, more: false }
+                    : { samples: [], anchor: args.anchor, returned: 0, more: false };
+            };
+            const at = (now) => ({ health, storage, records, flush, now: () => now });
+            expect(await runHealthImport({}, at(N0 + 8.5 * H))).toEqual({ added: 0 });
+            expect(JSON.parse(storage.getItem('wg.health.sleepPending'))).toBe(N0);
+            denied = true;
+            expect(await runHealthImport({}, at(N0 + 10 * H))).toEqual({ added: 0 });
+            expect(JSON.parse(storage.getItem('wg.health.sleepPending'))).toBe(N0);
+            denied = false;
+            expect(await runHealthImport({}, at(N0 + 24 * H))).toEqual({ added: 1 });
+            expect(records.rows.get(DAY_ID)).toMatchObject({ total_minutes: 470 });
+            expect(JSON.parse(storage.getItem('wg.health.sleepPending'))).toBe(null);
+            // Past the 7-day cap an empty re-read lets it go.
+            storage.setItem('wg.health.sleepPending', JSON.stringify(N0));
+            denied = true;
+            await runHealthImport({}, at(N0 + 8 * 24 * H));
+            expect(JSON.parse(storage.getItem('wg.health.sleepPending'))).toBe(null);
+        });
+
         it('the first settled version of a night wins; a fuller one later is not applied', async () => {
             const at = createHealthImportDomain({ records, now: () => W0, timeZone: 'UTC' });
             const window = { from: N0 - 48 * H, to: N0 + 60 * H };

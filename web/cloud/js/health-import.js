@@ -30,6 +30,10 @@ const SLEEP_PENDING_KEY = 'wg.health.sleepPending';
 // The same margin Health.swift pads an anchored sleep page with, so the night
 // lies whole inside the re-read window.
 const SLEEP_PAD_MS = 48 * 3600 * 1000;
+// An empty re-read (what HealthKit answers once read access is revoked) keeps
+// the pending night; it is dropped only past this age.
+// ponytail: fixed 7-day cap, a night whose access stays revoked longer is lost.
+const SLEEP_PENDING_CAP_MS = 7 * 24 * 3600 * 1000;
 const PAGE = 500;
 // ponytail: caps one run at 20k samples per kind; the saved anchor resumes the
 // rest on the next open.
@@ -90,7 +94,11 @@ export async function runHealthImport(ctx, {
             };
             const since = kind === 'sleep' ? readJSON(storage, SLEEP_PENDING_KEY, null) : null;
             if (Number.isFinite(since)) {
-                await take(await health.query({ type: 'sleep', from: since - SLEEP_PAD_MS, to: now() }));
+                const res = await health.query({ type: 'sleep', from: since - SLEEP_PAD_MS, to: now() });
+                await take(res);
+                if (!(res && Array.isArray(res.samples) && res.samples.length) && since > now() - SLEEP_PENDING_CAP_MS) {
+                    pending.push(since);
+                }
             }
             for (let page = 0; page < MAX_PAGES; page++) {
                 const res = await health.query({ type: kind, anchor: anchors[kind] || null, limit: PAGE });
