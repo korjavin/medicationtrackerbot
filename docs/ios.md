@@ -33,16 +33,36 @@ skips the upload and stays green.
 |------|---------------|
 | `IOS_DIST_CERT_P12_BASE64` | Apple Distribution certificate + private key exported from Keychain Access as `.p12`, then `base64 -i dist.p12 \| pbcopy` |
 | `IOS_DIST_CERT_PASSWORD` | the password set on that `.p12` export |
-| `ASC_KEY_ID` | App Store Connect → Users and Access → Integrations → Team Keys: create a key with the Admin role (Xcode creates the provisioning profile through it); its Key ID |
+| `IOS_APPSTORE_PROFILE_BASE64` | developer portal → Profiles → **+** → *App Store Connect* → the App ID → that Apple Distribution certificate → download, then `base64 -i <name>.mobileprovision \| pbcopy` |
+| `ASC_KEY_ID` | App Store Connect → Users and Access → Integrations → Team Keys: create a key (App Manager is enough — it only uploads); its Key ID |
 | `ASC_ISSUER_ID` | the Issuer ID shown above that key list |
 | `ASC_KEY_P8_BASE64` | the downloaded `AuthKey_<id>.p8`, `base64 -i AuthKey_<id>.p8 \| pbcopy` |
 
-The API key lets Xcode create and download the App Store provisioning profile
-itself (`-allowProvisioningUpdates`); no profile secret is needed. Signing
+Signing is **manual** (bd med-w6gx.12): the archive runs with
+`CODE_SIGN_STYLE=Manual`, the `Apple Distribution` identity from the `.p12` and
+the App Store profile from the secret, and gets no Apple account at all; the
+export is manual too (`ios/ExportOptions.plist`) and uses the API key only to
+upload. So CI never creates a certificate or a profile. (Automatic signing on
+an ephemeral runner minted a fresh *Apple Development* certificate on every
+run until the account hit its certificate limit.) The profile and the
+certificate expire after a year: renew both, then update the secrets. A new
+capability on the App ID (e.g. HealthKit) invalidates the profile — re-generate
+it (Profiles → the profile → Edit → Save) and update the secret. Signing
 material goes into a throwaway keychain on the runner and is deleted at the
 end of the job. Secrets are bound only to the dispatch-gated signing steps, never
 job-wide, so PR and push builds cannot read them. Optional hardening: move them
 into a GitHub environment with required reviewers.
+
+### Cleaning up leaked certificates (once)
+
+Earlier runs each left an *Apple Development* certificate behind. Developer
+portal → Certificates: revoke every **Apple Development** certificate created
+by CI (one per dispatched run, created on those run dates, by the API key
+rather than by you); keep the **Apple Distribution** certificate in
+`IOS_DIST_CERT_P12_BASE64` and any development certificate of your own Mac.
+Revoking a development certificate does not affect TestFlight or App Store
+builds. Then create the App Store profile above and add
+`IOS_APPSTORE_PROFILE_BASE64`.
 
 ## Shipping a build
 
@@ -171,7 +191,8 @@ Apple fetches it through its CDN
 (`https://app-site-association.cdn-apple.com/a/v1/<host>`), which can lag by
 hours after the first deploy. If an archive fails on the Associated Domains
 entitlement, enable *Associated Domains* on the App ID (developer portal →
-Identifiers).
+Identifiers), then re-generate the App Store profile and update
+`IOS_APPSTORE_PROFILE_BASE64` (signing is manual, see Owner setup).
 
 ### Findings
 
