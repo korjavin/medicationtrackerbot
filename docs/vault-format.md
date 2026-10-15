@@ -77,6 +77,9 @@ have to survive a round-trip — the importer is free to re-mint them.
   `intake-<medId>-<slotUnixSeconds>`, a scheduled session's is
   `session-<groupId>-<localDate>`, a rotation's is `rotation-<groupId>` — derived from
   content, so a device that already has that slot converges by LWW instead of double-logging.
+  An Apple Health bp reading / weight log (`source: "apple_health"` with a `source_id`)
+  is re-minted as `bp-hk-<uuid>` / `weight-hk-<uuid>` for the same reason: the next
+  Health scan finds it instead of adding it again.
 
 ## `data` keys
 

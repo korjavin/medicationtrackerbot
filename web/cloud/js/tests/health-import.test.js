@@ -189,6 +189,13 @@ describe('Apple Health import', () => {
             expect(afterImport).toHaveBeenCalledTimes(1);
             expect(desc()).toMatch(/^Last imported .* · 1 reading so far$/);
             expect(healthStatusText(storage)).toBe(desc());
+
+            // Off and on again is the manual rescan: it starts from no anchor.
+            await flip(false);
+            const before = health.calls.length;
+            await flip(true);
+            await new Promise((r) => setTimeout(r, 0));
+            expect(health.calls.slice(before).map((c) => c.anchor)).toEqual([null, null]);
         });
 
         it('flips back with a message when this device has no Health store', async () => {
