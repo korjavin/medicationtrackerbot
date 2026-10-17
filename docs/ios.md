@@ -155,63 +155,105 @@ in `PrivacyInfo.xcprivacy`.
 ### Reviewer access
 
 Accounts are invite-only and unlock only with a passkey bound to the
-account's own subdomain, so there is no username/password to hand over.
-Two existing paths give a reviewer access on their own device, no new server
-code:
+account's own subdomain, so there is no username/password to hand over. The
+reviewer gets **fresh, unused invite links** and signs up their own account
+with their own passkey. No new server code, and no shared account:
 
-1. **Seeded demo account** — the reviewer redeems the demo account's Emergency
-   Kit (`/recover`) and creates their own passkey on it, then sees seeded data.
-   A redeemed code is **burned**: the app makes the redeemer save a new kit. So
-   each review round needs a fresh code, which the owner makes from their own
-   passkey on the demo account (Settings → Devices & connectors → Emergency
-   Kit).
-2. **Fresh account** — an unclaimed invite link (Settings → Devices &
-   connectors → Invite a friend, or `cloud admin invite`); claiming it creates
-   the reviewer's own empty account. Valid `CLOUD_CLAIM_TTL` days (default 14);
-   `cloud admin reset-claim <sub>` re-issues an expired, unclaimed one. This is
-   the one to test **account deletion** on, so the demo account survives.
+- A claim link is single-use: claiming it again returns
+  `409 claim already used or expired`.
+- A pre-claimed demo account would hold the owner's passkey, which the
+  reviewer cannot use. Its Emergency Kit code is burned on first use, so a
+  second device or a resubmission would be locked out.
+- Device transfer needs an unlocked device to start it, and its slot lives
+  10 minutes.
 
-Both need iCloud Keychain on the review device (passkeys).
+**Never** put a recovery code, the owner's account, or a claim URL in this
+repo. Claim URLs go only into the private ASC review notes. The accounts start
+empty; that is fine, and there is no demo-data seeding.
 
-**Preparing the demo account (owner, before each submission):**
+#### Mint the links (owner, just before submitting)
 
-1. Create an invite, claim it on your own device (this passkey is how you
-   regenerate the kit later), save the Emergency Kit.
-2. Seed it: Settings → Backup & import → import
-   [`tests/fixtures/vault-v1.json`](../tests/fixtures/vault-v1.json) (every
-   domain, mid-2026 dates), then log a few entries for today and add a
-   medication with a reminder in the next hour, so Today, charts and
-   reminders all have content.
-3. Settings → Devices & connectors → Emergency Kit → regenerate; copy the
-   Account ID and recovery code into ASC (below). Do this again before every
-   resubmission.
-4. Make a second invite link for the fresh-account path.
-5. After review: Settings → Devices & connectors → revoke the reviewer's
-   passkeys.
+Run the operator command in the **real production container**, never a
+throwaway container or a copy of the DB. Use Portainer's exec (Containers →
+`medtracker-cloud` → Console, or the Docker exec API through Portainer), not
+SSH:
 
-**ASC → App Review Information:** Sign-in required: on; User name: the demo
-account address (`<sub>.<base>`); Password: the recovery code; Notes:
+```bash
+./cloud admin invite      # run 4 times: 1 sacrificial + 3 for the reviewer
+```
+
+Each run prints `subdomain:`, `expires:` and `claim URL:`. Note each link's
+subdomain and expiry somewhere private.
+
+1. **Dry run, sacrificial link (#0):** claim it end-to-end on your own device:
+   open the link, create the passkey, save the kit, see the empty Today
+   screen. Then remove it: `echo <sub> | ./cloud admin delete <sub>`. This
+   proves the claim path on prod without spending a reviewer link.
+2. **Check the 3 reviewer links without spending them:** for each one,
+   `POST https://<sub>.<base>/api/webauthn/register/begin` with
+   `{"claim_token":"<token from the #claim= fragment>"}` returns `200`
+   (the token is valid and unclaimed; begin does not consume it). `403` means
+   expired or wrong; `409 already_claimed` means it was used.
+3. Put the 3 links in the ASC notes (below) as **A** (main), **B** (account
+   deletion test) and **C** (spare).
+
+Claimed accounts do not expire. Only an **unclaimed** link does, after
+`CLOUD_CLAIM_TTL` days (default 14). That is a default, not a review SLA:
+
+- **Review delayed:** if the submission is still waiting a few days before
+  the earliest `expires:`, run `./cloud admin reset-claim <sub>` for each
+  unclaimed link. It prints a new URL with a fresh TTL and kills the old one,
+  so update the ASC notes with the new URLs.
+- **Resubmission:** run `./cloud admin list`. Keep A if it is claimed (the
+  reviewer can sign in to it again). Reset-claim or re-mint any link that is
+  unclaimed or close to expiry. Mint a new spare if C was used.
+- **Reviewer contact:** put a phone number and email in ASC → App Review
+  Information → Contact Information that you answer within a day, so a
+  reviewer stuck on a link can get a new one.
+
+**Cleanup, after the review is final (not while it is open):** find the
+reviewer subdomains in `./cloud admin list`. Remove a claimed one with
+`echo <sub> | ./cloud admin delete <sub>` and an unclaimed one with
+`./cloud admin revoke <sub>`. Keep A until the app is approved and no
+resubmission is pending.
+
+**ASC → App Review Information:** Sign-in required: **on**, because the app
+needs an account. ASC demands both fields, so fill them as pointers: User name
+= account A's address (`<sub>.<base>`); Password = `passkey - see notes`.
+Notes (fill in the links):
 
 ```text
 Med Tracker is an invite-only, end-to-end encrypted health log. Sign-in uses
-passkeys only (no passwords), so please use the steps below on a device with
-iCloud Keychain turned on.
+passkeys only (no passwords), so there is no demo username/password. Instead,
+here are fresh invite links that create your own account. Please use a device
+with iCloud Keychain turned on.
 
-Demo account with sample data:
-1. Open the app, enter the account address from "User name", tap Continue.
-2. Tap "Recover with your Emergency Kit".
-3. Enter Account ID: <ACCOUNT ID> and the recovery code from "Password".
-4. Create a passkey when asked (Face ID). The app then shows a new Emergency
-   Kit: tap "Download Emergency Kit", save it anywhere, tick "I saved my
-   Emergency Kit", and continue. You are now in the demo account.
+Sign up:
+1. Open the app and paste invite link A: <LINK A>
+2. Create a passkey when asked (Face ID creates it). Save the Emergency Kit:
+   tap "Download Emergency Kit", save it anywhere, tick "I saved my Emergency
+   Kit", and continue. The account starts empty.
 
-Fresh account (please use this one to test account deletion):
-open the app and paste this invite link: <INVITE LINK>
-Then create a passkey and save the Emergency Kit as above.
+Suggested walkthrough:
+- Add a medication, then record a dose from Today.
+- Record a blood pressure reading (Vitals).
+- Open the history of both to see the entries.
+- Enable reminders: Settings > Notifications > Enable, then "Send test".
+
+Link B: <LINK B> - a second account; please use it to test account deletion
+so account A stays available.
+Link C: <LINK C> - spare. Use it only if account A becomes unreachable
+(for example the app was reinstalled on a device without the same iCloud
+Keychain). After a reinstall on the same device, open the app, enter
+account A's address and sign in with the same passkey instead.
+Each link works once. If a link fails, contact us at the details in Contact
+Information and we will send a new one the same day.
 
 Native features:
 - Apple Health (read-only): Settings > Apple Health. Blood pressure, weight,
-  sleep and workouts are imported into the encrypted vault. The app never
+  sleep and workouts are imported into the encrypted vault. The import only
+  finds data that is already in this device's Health app, so add a blood
+  pressure or weight sample in Health first if it is empty. The app never
   writes to Health and never uses Health data for advertising.
 - Reminders: Settings > Notifications > Enable, then "Send test". Medication
   reminders are scheduled on the device as local notifications.
@@ -226,6 +268,11 @@ asks for explicit consent before any data is sent to an AI provider.
 Med Tracker is a personal log, not a medical device, and does not give
 medical advice.
 ```
+
+Once on-device local mode ships (epic `med-o7zq`, the first-run "Only on this
+device" button), add one line to the notes so the reviewer can test both modes:
+`No-account mode: on first run tap "Only on this device"; data stays on the
+device.` Until then, leave it out: the button does not exist yet.
 
 ### Submission checklist
 
@@ -248,13 +295,15 @@ Owner only:
       install it and run the device checks in this file (shell, notifications,
       Health).
 - [ ] App Privacy filled in as above; privacy policy and support URLs set.
-- [ ] Screenshots (6.9" iPhone at least) from a TestFlight install on the demo
-      account; description ends with the medical disclaimer.
-- [ ] Demo account prepared and App Review Information filled in as above,
-      with a fresh recovery code and invite link.
+- [ ] Screenshots (6.9" iPhone at least) from a TestFlight install on your
+      own account; description ends with the medical disclaimer.
+- [ ] Reviewer links minted and checked per *Reviewer access* (sacrificial
+      #0 claimed and deleted, A/B/C return `200` from register/begin, expiries
+      noted). App Review Information filled in as above, contact details set.
 - [ ] Export compliance: answers match `ITSAppUsesNonExemptEncryption: false`.
-- [ ] Select the build, submit for review. After approval or rejection:
-      revoke the reviewer's passkeys; regenerate the kit before resubmitting.
+- [ ] Select the build, submit for review. While it waits, renew unclaimed
+      links before they expire. On resubmission, re-check the links. After
+      the review is final, clean up the reviewer accounts.
 
 ## Downloads and printing (bd med-w6gx.11)
 
