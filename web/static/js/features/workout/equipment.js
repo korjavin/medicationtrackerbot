@@ -60,8 +60,10 @@ const WORKOUT_EQUIPMENT_IMPLEMENTS = ['barbell', 'dumbbell', 'kettlebell', 'othe
 // Implements with a row icon (a WGIcons name each); 'other' gets none.
 const WORKOUT_EQUIPMENT_ICON_IMPLEMENTS = ['barbell', 'dumbbell', 'kettlebell'];
 
-async function loadWorkoutEquipment() {
-    const container = document.getElementById('workout-equipment-list');
+// `target` (med-i7kw): another list host, e.g. the session's Manage
+// equipment sheet; default = the Equipment tab's list.
+async function loadWorkoutEquipment(target) {
+    const container = target || document.getElementById('workout-equipment-list');
     if (!container) return;
 
     if (typeof window.cachedFetch !== 'function') {
@@ -209,15 +211,16 @@ function _renderWorkoutEquipment(container, items, locState) {
         if (group) group.items.push(item);
         else portable.push(item);
     });
+    const gymActions = container.dataset.gymActions !== 'off';
     const sections = groups.map((g) => _buildWorkoutEquipmentGroup(
-        doc, g.loc, g.items, String(g.loc.id) === String(locState.activeId)));
-    sections.push(_buildWorkoutEquipmentGroup(doc, null, portable, false));
+        doc, g.loc, g.items, String(g.loc.id) === String(locState.activeId), gymActions));
+    sections.push(_buildWorkoutEquipmentGroup(doc, null, portable, false, gymActions));
     container.replaceChildren(...sections);
 }
 
 // One gym section: header (name, active badge, rename/delete for a real gym)
 // plus its rows. `loc` null is the Portable / everywhere group.
-function _buildWorkoutEquipmentGroup(doc, loc, items, isActive) {
+function _buildWorkoutEquipmentGroup(doc, loc, items, isActive, gymActions) {
     const section = doc.createElement('section');
     section.className = 'wg-equipment-group';
     section.dataset.locationId = loc ? String(loc.id) : '';
@@ -235,7 +238,10 @@ function _buildWorkoutEquipmentGroup(doc, loc, items, isActive) {
         header.appendChild(badge);
     }
     // A pending optimistic gym carries a local_ id the API would reject.
-    if (loc && !_isPendingEquipmentRow(loc)) {
+    // Gym actions live on the Equipment tab only (the session's Manage sheet
+    // marks its host data-gym-actions="off": the share modal would open
+    // under the session takeover).
+    if (loc && !_isPendingEquipmentRow(loc) && gymActions) {
         const actions = doc.createElement('div');
         actions.className = 'wg-equipment-row__actions wg-equipment-group__actions';
         actions.appendChild(_buildEquipmentIconBtn(doc, 'share-location', `Share ${loc.name || 'gym'}`, 'share', () => {
@@ -572,7 +578,9 @@ function fillEquipmentLoadsFromGenerator() {
     document.getElementById('workout-equipment-loads').value = loads.join(', ');
 }
 
-function showAddWorkoutEquipmentModal() {
+// `locationId` (med-i7kw): preselect this gym instead of the active one
+// (the session picker adds for the session's gym; null = Portable).
+function showAddWorkoutEquipmentModal(locationId) {
     window.WorkoutEdit.editingEquipmentId = null;
     document.getElementById('workout-equipment-modal-title').textContent = 'Add Equipment';
     window.ModalManager.workoutEquipment.open();
@@ -589,7 +597,7 @@ function showAddWorkoutEquipmentModal() {
     const plates = document.getElementById('workout-equipment-plates');
     if (plates) plates.replaceChildren();
     _addEquipmentPlateRow('', '');
-    return _fillEquipmentLocationSelect(undefined);
+    return _fillEquipmentLocationSelect(undefined, locationId);
 }
 
 // med-8j5w.2: the editor's Location select. Hidden (and left unloaded) until a
@@ -598,7 +606,7 @@ function showAddWorkoutEquipmentModal() {
 // which defaults to the active gym). A dangling id preselects Portable — it
 // already reads as portable. The save sends location_id only when the user
 // changed the pick, so a failed read or an untouched dangling id is preserved.
-async function _fillEquipmentLocationSelect(current) {
+async function _fillEquipmentLocationSelect(current, newItemLocationId) {
     const select = document.getElementById('workout-equipment-location');
     const field = document.getElementById('workout-equipment-location-field');
     if (!select) return;
@@ -626,7 +634,8 @@ async function _fillEquipmentLocationSelect(current) {
     portable.value = '';
     portable.textContent = 'Portable / everywhere';
     select.appendChild(portable);
-    const want = current === undefined ? state.activeId : current;
+    const want = current !== undefined ? current
+        : (newItemLocationId !== undefined ? newItemLocationId : state.activeId);
     const live = want !== null && want !== undefined
         && state.locations.some((l) => String(l.id) === String(want));
     select.value = live ? String(want) : '';
@@ -806,6 +815,7 @@ async function saveWorkoutEquipmentItem() {
             catch (_) { /* the reload covers it */ }
         }
         closeWorkoutEquipmentModal();
+        _refreshOpenSessionGear();
         await loadWorkoutEquipment();
     } else {
         if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
@@ -839,6 +849,7 @@ async function _deleteWorkoutEquipmentApi(id) {
     }
     if (result || result === true) {
         if (handle) { try { await handle.commit(null); } catch (_) { /* the reload covers it */ } }
+        _refreshOpenSessionGear();
         loadWorkoutEquipment();
     } else {
         if (handle) { try { await handle.rollback(); } catch (_) { /* best-effort */ } }
@@ -878,8 +889,17 @@ async function _writeWorkoutLocations(mutator, method, url, body, failMessage) {
         fresh = await apiCall(WORKOUT_LOCATIONS_URL, 'GET', null, { suppressWriteAlert: true });
     } catch (_) { /* commit keeps the projection; the next load reconciles */ }
     if (handle) { try { await handle.commit(Array.isArray(fresh) ? fresh : null); } catch (_) { /* reload covers it */ } }
+    _refreshOpenSessionGear();
     await loadWorkoutEquipment();
     return true;
+}
+
+// Local writes never reach the open session's remote-change listener
+// (sessions.js): re-solve its strips and repaint its equipment sheets.
+function _refreshOpenSessionGear() {
+    if (window.WorkoutSessions && typeof window.WorkoutSessions.refreshGear === 'function') {
+        window.WorkoutSessions.refreshGear();
+    }
 }
 
 // The app's own name dialog (safePrompt), never the native prompt(): trimmed,
@@ -1002,9 +1022,7 @@ async function setWorkoutActiveLocation(locationId) {
         return false;
     }
     if (handle) { try { await handle.commit(result); } catch (_) { /* best-effort */ } }
-    if (window.WorkoutSessions && typeof window.WorkoutSessions.refreshGear === 'function') {
-        window.WorkoutSessions.refreshGear();
-    }
+    _refreshOpenSessionGear();
     return true;
 }
 

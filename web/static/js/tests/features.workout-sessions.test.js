@@ -2874,6 +2874,138 @@ describe('features/workout/sessions.js — plate-loading chip (med-v75c.2)', () 
       await openSwapSession(window, { session: chipSession({ status: 'completed' }) });
       expect(firstCard(document).querySelector('.wg-plates__swap')).toBeNull();
     });
+
+    // med-i7kw (kit W4b): Manage equipment / Add equipment open the shared
+    // Equipment editor over the live session; the picker and strip re-solve.
+    describe('manage / add equipment from the picker', () => {
+      // A stateful inventory fake: the editor's POST/PUT land in `world.inv`
+      // and every read (editor list, strip gear) reads it back.
+      async function openManageSession(window, { inventory, logs, lib }) {
+        installApiCache(window);
+        const world = { inv: structuredClone(inventory), writes: [] };
+        const sess = chipSession();
+        const api = vi.fn(async (endpoint, method, body) => {
+          const url = String(endpoint);
+          if (url.startsWith('/api/workout/equipment')) {
+            if (method === 'POST') {
+              const item = { ...body, id: 50 };
+              item.loads_kg = item.kind === 'plated' ? achievableLoads(item) : item.loads_kg;
+              world.inv.push(item);
+              world.writes.push({ url, method, body });
+              return structuredClone(item);
+            }
+            if (method === 'PUT') {
+              const id = Number(url.split('/').pop());
+              world.inv = world.inv.map((e) => {
+                if (e.id !== id) return e;
+                const next = { ...e, ...body };
+                if (next.kind === 'plated') next.loads_kg = achievableLoads(next);
+                return next;
+              });
+              world.writes.push({ url, method, body });
+              return true;
+            }
+            return structuredClone(world.inv);
+          }
+          if (url.startsWith('/api/workout/sessions/details')) return { session: sess, logs };
+          if (url.includes('/api/workout/exercises?variant_id=')) return ROWS;
+          if (url === '/api/workout/exercise-library') return lib;
+          return [];
+        });
+        window.apiCall = api;
+        window.apiCallDirect = api;
+        window.WorkoutEquipment.list = async () => structuredClone(world.inv);
+        window.WorkoutGroups.loadEquipmentDomain = async () => ({
+          loadingFor, nearestLoads, equipmentForExercise, pickNearestLoad,
+        });
+        await window.showWorkoutSessionModal(sess.id);
+        await drainSwap();
+        return world;
+      }
+
+      const shown = (document, id) => !document.getElementById(id).classList.contains('hidden');
+
+      it('Manage equipment → edit an item over the session → back: the strip re-solves with the new plates', async () => {
+        const { window, document } = env;
+        // 98 kg needs 45/side; the 8kg bar tops out at 33.25/side without a 20.
+        const world = await openManageSession(window, {
+          inventory: [BAR8], logs: [chipLog({ weight_kg: 98 })], lib: libFor(3),
+        });
+        expect(firstCard(document).querySelector('.wg-plates__delta')).not.toBeNull();
+
+        firstCard(document).querySelector('.wg-plates__swap').click();
+        await drainSwap();
+        const link = sheetOf(document).querySelector('.wg-equip-foot .wg-link');
+        expect(link.textContent).toBe('Manage equipment');
+        link.click();
+        await drainSwap();
+
+        expect(shown(document, 'workout-session-equip-manage-sheet')).toBe(true);
+        const list = document.getElementById('workout-session-equip-manage-list');
+        await vi.waitFor(() => expect(list.querySelectorAll('.wg-equipment-row')).toHaveLength(1));
+        list.querySelector('.wg-equipment-row__edit').click();
+        await drainSwap();
+
+        // The shared editor stacks over the session (later in the DOM at the same z).
+        const modal = document.getElementById('workout-equipment-modal');
+        const session = document.getElementById('workout-session-modal');
+        expect(shown(document, 'workout-equipment-modal')).toBe(true);
+        expect(document.getElementById('workout-equipment-modal-title').textContent).toBe('Edit Equipment');
+        expect(session.compareDocumentPosition(modal) & window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+        document.getElementById('workout-equipment-plate-add').click();
+        const rows = document.querySelectorAll('#workout-equipment-plates [data-plate-row]');
+        rows[rows.length - 1].querySelector('[data-plate-kg]').value = '20';
+        rows[rows.length - 1].querySelector('[data-plate-count]').value = '2';
+        document.getElementById('workout-equipment-save-btn').click();
+
+        await vi.waitFor(() => expect(shown(document, 'workout-equipment-modal')).toBe(false));
+        expect(world.writes).toHaveLength(1);
+        expect(world.writes[0].url).toBe('/api/workout/equipment/3');
+        expect(world.writes[0].body.plates).toContainEqual({ kg: 20, count: 2 });
+
+        // Back closes the Manage sheet onto the picker; the session stays open.
+        window.ModalManager.closeTop();
+        expect(shown(document, 'workout-session-equip-manage-sheet')).toBe(false);
+        expect(shown(document, 'workout-session-equip-sheet')).toBe(true);
+        expect(shown(document, 'workout-session-modal')).toBe(true);
+        await vi.waitFor(() => {
+          const chip = firstCard(document).querySelector('.wg-workouts-session-exercise__plates');
+          expect(chip.querySelector('.wg-plates__delta')).toBeNull();
+          expect(chip.querySelector('.wg-plates__text').textContent).toContain('20');
+        });
+        expect(firstCard(document).querySelector('.wg-ex__name').textContent).toBe('Bench press');
+      });
+
+      it('empty inventory: Add equipment → save → the picker lists the new item', async () => {
+        const { window, document } = env;
+        const world = await openManageSession(window, {
+          inventory: [], logs: [chipLog()], lib: libFor(null),
+        });
+
+        firstCard(document).querySelector('.wg-plates__swap').click();
+        await drainSwap();
+        expect(sheetOf(document).querySelector('.wg-empty__title').textContent).toBe('No equipment yet');
+        expect(sheetOf(document).querySelector('.wg-equip-foot')).toBeNull();
+        const add = sheetOf(document).querySelector('.wg-empty__acts .wg-btn');
+        expect(add.textContent).toBe('Add equipment');
+        add.click();
+        await drainSwap();
+
+        expect(shown(document, 'workout-equipment-modal')).toBe(true);
+        expect(document.getElementById('workout-equipment-modal-title').textContent).toBe('Add Equipment');
+        document.getElementById('workout-equipment-name').value = 'Hex DBs';
+        document.getElementById('workout-equipment-loads').value = '10, 12';
+        document.getElementById('workout-equipment-save-btn').click();
+
+        await vi.waitFor(() => expect(choiceNamed(document, 'Hex DBs')).toBeTruthy());
+        expect(world.writes[0].method).toBe('POST');
+        expect(shown(document, 'workout-equipment-modal')).toBe(false);
+        expect(shown(document, 'workout-session-equip-sheet')).toBe(true);
+        expect(shown(document, 'workout-session-modal')).toBe(true);
+        expect(choiceNamed(document, 'Hex DBs').querySelector('.wg-choice__sub').textContent).toBe('fixed · 10–12 kg');
+      });
+    });
   });
 });
 
