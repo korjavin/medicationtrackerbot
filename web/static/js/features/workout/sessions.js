@@ -1468,13 +1468,14 @@ async function _refreshSessionEquipSheets() {
     const st = window.WorkoutSessionsState;
     if (!st.equipPickerLog || !_isSessionSheetShown(SESSION_EQUIP_PICKER_ID)) return;
     await _sessionPlateGear();
-    if (_isSessionSheetShown(SESSION_EQUIP_PICKER_ID)) await _openSessionEquipPicker(st.equipPickerLog);
+    if (_isSessionSheetShown(SESSION_EQUIP_PICKER_ID)) await _openSessionEquipPicker(st.equipPickerLog, true);
 }
 
 // _openSessionEquipPicker (kit W4b): a bottom sheet over the session with
 // Auto (clear the override) and the inventory at the session's gym; the
-// current choice is pressed and one tap picks + closes.
-async function _openSessionEquipPicker(log) {
+// current choice is pressed and one tap picks + closes. `refreshOnly`: a
+// repaint of the open sheet, never a (re)open.
+async function _openSessionEquipPicker(log, refreshOnly) {
     const gear = _sessionPlateGearSync();
     const target = _sessionEquipTarget(log, gear);
     if (!target) return;
@@ -1500,11 +1501,15 @@ async function _openSessionEquipPicker(log) {
 
     const doc = document;
     const el = _sessionEl;
-    window.WorkoutSessionsState.equipPickerLog = log;
+    // Re-checked after the gym read: the session (or the sheet, for a
+    // refresh) may have closed meanwhile.
+    if (!window.WorkoutSessionsState.data) return;
     let sheet = doc.getElementById(SESSION_EQUIP_PICKER_ID);
     // Already open: a gear refresh repaints it in place (med-i7kw), never
     // re-stacking it above the Manage sheet or the editor.
     const shown = !!sheet && !sheet.classList.contains('hidden');
+    if (refreshOnly && !shown) return;
+    window.WorkoutSessionsState.equipPickerLog = log;
     if (!sheet) {
         sheet = doc.createElement('mt-modal');
         sheet.id = SESSION_EQUIP_PICKER_ID;
