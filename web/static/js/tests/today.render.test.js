@@ -73,8 +73,8 @@ function disabledState() {
 }
 
 const MISSED = { scheduledAt: at(8, 20), names: ['Allopurinol'], ids: [3], intakeIds: ['i-31'] };
-const LATER = { scheduledAt: at(21, 30), names: ['Candecor', 'Lercanidipin', 'Metformin'], ids: [4, 5, 6] };
-const WORKOUT_TODAY = { id: 7, scheduled_date: '2026-04-20', scheduled_time: '16:00', group_name: 'Daily split', status: 'pending', is_today: true };
+const LATER = { scheduledAt: at(15, 30), names: ['Candecor', 'Lercanidipin', 'Metformin'], ids: [4, 5, 6] };
+const WORKOUT_TODAY = { id: 7, scheduled_date: '2026-04-20', scheduled_time: '15:00', group_name: 'Daily split', status: 'pending', is_today: true };
 
 function busyState() {
     const s = baseState();
@@ -131,7 +131,7 @@ describe('Today v2 — Next up', () => {
         expect(rows[1].querySelector('.wg-row__lead--sun')).not.toBeNull();
         expect(rows[1].querySelector('[data-action="start-workout"]').classList.contains('wg-btn--primary')).toBe(true);
         expect(rows[2].querySelector('.wg-row__title').textContent).toBe('3 medications');
-        expect(rows[2].querySelector('.wg-row__meta').textContent).toContain('21:30');
+        expect(rows[2].querySelector('.wg-row__meta').textContent).toContain('15:30');
         expect(rows[2].querySelector('[data-action="take"]').classList.contains('wg-btn--primary')).toBe(false);
 
         const sun = primaries(root);
@@ -145,7 +145,7 @@ describe('Today v2 — Next up', () => {
     it('a later scheduled dose sorts ahead of a later workout and takes the sun', () => {
         const s = busyState();
         s.missedDoses = { value: [], deeplink: 'meds', status: 'ok' };
-        s.nextMed = { value: { scheduledAt: at(15, 0), names: ['Aspirin'], ids: [1] }, deeplink: 'meds', status: 'ok' };
+        s.nextMed = { value: { scheduledAt: at(14, 30), names: ['Aspirin'], ids: [1] }, deeplink: 'meds', status: 'ok' };
         env.render(s, root, { now: NOW });
         expect(nextKinds(root)).toEqual(['med', 'workout']);
         expect(primaries(root).map((b) => b.getAttribute('data-action'))).toEqual(['take']);
@@ -302,6 +302,33 @@ describe('Today v2 — Next up', () => {
         expect(primaries(root).length).toBe(0);
     });
 
+    it('a dose more than 2h out stays on Meds: no row, no Add medication CTA, a quiet hint (med-h20s)', () => {
+        const s = baseState();
+        s.nextMed = { value: { scheduledAt: at(22, 0), names: ['Aspirin'], ids: [1] }, deeplink: 'meds', status: 'ok' };
+        env.render(s, root, { now: NOW });
+        const nextUp = root.querySelector('[data-section="next-up"]');
+        expect(nextKinds(root)).toEqual([]);
+        expect(nextUp.querySelector('.wg-empty')).toBeNull();
+        expect(nextUp.querySelector('.wg-hint').textContent).toBe('Nothing due in the next 2 hours');
+
+        // A workout still shows; the far dose does not.
+        s.nextWorkout = { value: { ...WORKOUT_TODAY, scheduled_time: '20:00' }, deeplink: 'workouts', status: 'ok' };
+        env.render(s, root, { now: NOW });
+        expect(nextKinds(root)).toEqual(['workout']);
+
+        // The repaint tick brings the dose in once it is 2h away; 1h59m out is a Take.
+        s.nextWorkout = baseState().nextWorkout;
+        env.render(s, root, { now: new Date(2026, 3, 20, 20, 1) });
+        expect(nextKinds(root)).toEqual(['med']);
+        expect(primaries(root).map((b) => b.getAttribute('data-action'))).toEqual(['take']);
+        expect(root.querySelector('[data-next="med"] .wg-row__meta').textContent).toContain('22:00');
+
+        // A missed dose ignores the horizon.
+        s.missedDoses = { value: [MISSED], deeplink: 'meds', status: 'ok' };
+        env.render(s, root, { now: NOW });
+        expect(nextKinds(root)).toEqual(['med-missed']);
+    });
+
     it('first run: with nothing scheduled the goal card owns the single primary (T4)', () => {
         const s = baseState();
         s.goalLine = env.aggregate({ features: { gamification: true } }, { gamification_goal_line: goalLinePayload({ status: 'no_goal' }) }, NOW).goalLine;
@@ -321,13 +348,13 @@ describe('Today v2 — Next up', () => {
         const bootstrap = {
             features: { medication: true, bp: false, weight: false, food: false, workout: false, health: false, gamification: false },
             medications: [{ id: 'm1', name: 'Allopurinol' }, { id: 'm2', name: 'Candecor' }, { id: 'm3', name: 'Metformin' }],
-            next_intake: { scheduled_at: at(21, 30), medication_names: ['Metformin'], medication_ids: ['m3'] },
+            next_intake: { scheduled_at: at(15, 30), medication_names: ['Metformin'], medication_ids: ['m3'] },
             intake_history: [
                 { id: 'i1', medication_id: 'm1', scheduled_at: at(8, 20), status: 'PENDING' },
                 { id: 'i2', medication_id: 'm2', scheduled_at: at(8, 20), status: 'PENDING' },
                 { id: 'i3', medication_id: 'm1', scheduled_at: at(12, 0), status: 'TAKEN' },
                 { id: 'i4', medication_id: 'm2', scheduled_at: at(13, 0), status: 'PENDING', snoozed_until: at(14, 30) },
-                { id: 'i5', medication_id: 'm3', scheduled_at: at(21, 30), status: 'PENDING' }
+                { id: 'i5', medication_id: 'm3', scheduled_at: at(15, 30), status: 'PENDING' }
             ]
         };
         const state = env.aggregate(bootstrap, {}, NOW);
