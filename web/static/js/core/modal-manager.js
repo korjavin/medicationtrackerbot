@@ -190,6 +190,10 @@ const ModalManager = {
 
     workoutEquipment: {
         open() {
+            // Last in the body: same z-index as the session takeover, so DOM
+            // order decides — it also opens over the session (med-i7kw).
+            const modal = document.getElementById('workout-equipment-modal');
+            if (modal) document.body.appendChild(modal);
             ModalManager.open('workout-equipment-modal');
         },
         close() {

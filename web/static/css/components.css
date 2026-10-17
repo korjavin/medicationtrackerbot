@@ -328,6 +328,7 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
 .wg-plates__txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.wg-plates__src{font:600 10.5px/1.25 var(--wg-font-ui);letter-spacing:.02em;color:var(--wg-fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.wg-plates__src b{font-weight:600;color:var(--wg-fg-2)}
 .wg-plates__swap{position:relative;flex-shrink:0;width:32px;height:32px;margin:-4px -4px -4px 0;display:grid;place-items:center;border:0;border-radius:var(--wg-r-sm);background:rgba(255,255,255,.05);color:var(--wg-fg-3);cursor:pointer}.wg-plates__swap::before{content:"";position:absolute;inset:-6px}.wg-plates__swap:hover{background:rgba(255,255,255,.09);color:var(--wg-fg-1)}
 .wg-plates--none{background:transparent;border:1px dashed var(--wg-line-strong);padding:7px 9px}
+.wg-equip-foot{display:flex;justify-content:center;padding:4px 0 8px}
 .wg-sethead,.wg-set{display:grid;grid-template-columns:30px minmax(0,1fr) minmax(0,1fr) 56px;align-items:center;gap:8px}
 .wg-sethead{padding:0 2px;font:600 10px/1 var(--wg-font-ui);letter-spacing:.14em;text-transform:uppercase;color:var(--wg-fg-3)}.wg-sethead>:not(:first-child){text-align:center}
 .wg-set{padding:6px 2px;border-radius:14px}

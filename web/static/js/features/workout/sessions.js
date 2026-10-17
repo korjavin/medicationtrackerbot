@@ -1086,6 +1086,7 @@ function refreshSessionPlateGear() {
             .forEach((el) => el.remove());
         _maybeAttachSuggestChip(entry, meta, mono, log, index);
     });
+    _refreshSessionEquipSheets();
 }
 
 // A remote write (another device, the MCP connector, a sync pull) touching
@@ -1377,17 +1378,104 @@ function _sessionEquipPlanLabel() {
     return window.WorkoutSessionsState.planLabel || 'plan';
 }
 
-function _closeSessionEquipPicker() {
+const SESSION_EQUIP_PICKER_ID = 'workout-session-equip-sheet';
+const SESSION_EQUIP_MANAGE_ID = 'workout-session-equip-manage-sheet';
+const SESSION_EQUIP_MANAGE_LIST_ID = 'workout-session-equip-manage-list';
+
+function _sessionEl(tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
+}
+
+function _closeSessionSheet(id) {
     const mm = window.ModalManager;
-    if (mm && typeof mm.close === 'function') { mm.close('workout-session-equip-sheet'); return; }
-    const node = document.getElementById('workout-session-equip-sheet');
+    if (mm && typeof mm.close === 'function') { mm.close(id); return; }
+    const node = document.getElementById(id);
     if (node) node.classList.add('hidden');
+}
+
+function _closeSessionEquipPicker() {
+    _closeSessionSheet(SESSION_EQUIP_PICKER_ID);
+}
+
+function _isSessionSheetShown(id) {
+    const node = document.getElementById(id);
+    return !!node && !node.classList.contains('hidden');
+}
+
+// The shared Equipment editor's Add, preselecting the session's gym (its
+// stamped location; unstamped = the active gym). It stacks over the session
+// and the sheets; a save refreshes them through refreshSessionPlateGear.
+function _addSessionEquipment() {
+    const data = window.WorkoutSessionsState.data;
+    const stamped = data && Object.prototype.hasOwnProperty.call(data, 'location_id') ? data.location_id : undefined;
+    if (window.WorkoutEquipment && typeof window.WorkoutEquipment.openAdd === 'function') {
+        window.WorkoutEquipment.openAdd(stamped);
+    }
+}
+
+// _openSessionEquipManage (kit W4b "Manage equipment", med-i7kw): the
+// Equipment tab's inventory list in a sheet over the picker — the session
+// stays open underneath. Rows open the shared editor above it; Close / Back
+// returns to the picker.
+function _openSessionEquipManage() {
+    const doc = document;
+    const el = _sessionEl;
+    let sheet = doc.getElementById(SESSION_EQUIP_MANAGE_ID);
+    if (!sheet) {
+        sheet = doc.createElement('mt-modal');
+        sheet.id = SESSION_EQUIP_MANAGE_ID;
+        sheet.className = 'hidden wg-modal wg-sheet wg-workouts-equip-sheet';
+        sheet.setAttribute('aria-label', 'Manage equipment');
+    }
+    doc.body.appendChild(sheet); // above the picker
+    const head = el('header', 'wg-sheethead');
+    const titles = el('div', 'wg-sheethead__titles');
+    titles.append(el('div', 'wg-eyebrow', 'Your workout stays open'), el('div', 'wg-sheethead__title', 'Equipment'));
+    const acts = el('div', 'wg-sheethead__acts');
+    const add = _wgBtn('', 'wg-btn--ghost wg-btn--icon', _addSessionEquipment);
+    add.setAttribute('aria-label', 'Add equipment');
+    add.appendChild(_wgIco('plus'));
+    const close = _wgBtn('', 'wg-btn--ghost wg-btn--icon', () => _closeSessionSheet(SESSION_EQUIP_MANAGE_ID));
+    close.setAttribute('aria-label', 'Close');
+    close.appendChild(_wgIco('x'));
+    acts.append(add, close);
+    head.append(titles, acts);
+    const list = el('div');
+    list.id = SESSION_EQUIP_MANAGE_LIST_ID;
+    list.dataset.gymActions = 'off';
+    const body = el('div', 'wg-sheet__body');
+    body.appendChild(list);
+    sheet.replaceChildren(el('div', 'wg-sheet__grab'), head, body);
+
+    const mm = window.ModalManager;
+    if (mm && typeof mm.open === 'function') mm.open(sheet.id);
+    else sheet.classList.remove('hidden');
+    if (window.WorkoutEquipment && typeof window.WorkoutEquipment.load === 'function') {
+        window.WorkoutEquipment.load(list);
+    }
+}
+
+// After a gear refresh (an equipment write, a gym switch, a remote change)
+// repaint whichever equipment sheet is open over the session, in place.
+async function _refreshSessionEquipSheets() {
+    if (_isSessionSheetShown(SESSION_EQUIP_MANAGE_ID)
+        && window.WorkoutEquipment && typeof window.WorkoutEquipment.load === 'function') {
+        window.WorkoutEquipment.load(document.getElementById(SESSION_EQUIP_MANAGE_LIST_ID));
+    }
+    const st = window.WorkoutSessionsState;
+    if (!st.equipPickerLog || !_isSessionSheetShown(SESSION_EQUIP_PICKER_ID)) return;
+    await _sessionPlateGear();
+    if (_isSessionSheetShown(SESSION_EQUIP_PICKER_ID)) await _openSessionEquipPicker(st.equipPickerLog, true);
 }
 
 // _openSessionEquipPicker (kit W4b): a bottom sheet over the session with
 // Auto (clear the override) and the inventory at the session's gym; the
-// current choice is pressed and one tap picks + closes.
-async function _openSessionEquipPicker(log) {
+// current choice is pressed and one tap picks + closes. `refreshOnly`: a
+// repaint of the open sheet, never a (re)open.
+async function _openSessionEquipPicker(log, refreshOnly) {
     const gear = _sessionPlateGearSync();
     const target = _sessionEquipTarget(log, gear);
     if (!target) return;
@@ -1412,20 +1500,23 @@ async function _openSessionEquipPicker(log) {
         ? null : String(target.row.equipment_id);
 
     const doc = document;
-    const el = (tag, cls, text) => {
-        const n = doc.createElement(tag);
-        if (cls) n.className = cls;
-        if (text !== undefined) n.textContent = text;
-        return n;
-    };
-    let sheet = doc.getElementById('workout-session-equip-sheet');
+    const el = _sessionEl;
+    // Re-checked after the gym read: the session (or the sheet, for a
+    // refresh) may have closed meanwhile.
+    if (!window.WorkoutSessionsState.data) return;
+    let sheet = doc.getElementById(SESSION_EQUIP_PICKER_ID);
+    // Already open: a gear refresh repaints it in place (med-i7kw), never
+    // re-stacking it above the Manage sheet or the editor.
+    const shown = !!sheet && !sheet.classList.contains('hidden');
+    if (refreshOnly && !shown) return;
+    window.WorkoutSessionsState.equipPickerLog = log;
     if (!sheet) {
         sheet = doc.createElement('mt-modal');
-        sheet.id = 'workout-session-equip-sheet';
+        sheet.id = SESSION_EQUIP_PICKER_ID;
         sheet.className = 'hidden wg-modal wg-sheet wg-workouts-equip-sheet';
         sheet.setAttribute('aria-label', 'Equipment');
     }
-    doc.body.appendChild(sheet); // last in the body: above the session takeover
+    if (!shown) doc.body.appendChild(sheet); // last in the body: above the session takeover
 
     const head = el('header', 'wg-sheethead');
     const titles = el('div', 'wg-sheethead__titles');
@@ -1460,8 +1551,13 @@ async function _openSessionEquipPicker(log) {
         const empty = el('div', 'wg-empty');
         const ico = el('span', 'wg-empty__icon');
         ico.appendChild(_wgIco('box', 'wg-ico--lg'));
+        const emptyActs = el('div', 'wg-empty__acts');
+        const add = _wgBtn('', '', _addSessionEquipment);
+        add.append(_wgIco('plus', 'wg-ico--sm'), 'Add equipment');
+        emptyActs.appendChild(add);
         empty.append(ico, el('p', 'wg-empty__title', gymName ? `No equipment at ${gymName}` : 'No equipment yet'),
-            el('p', 'wg-empty__body', 'Add the bars, dumbbells and plates you have in Workouts → Equipment, and the strip will work out every load for you.'));
+            el('p', 'wg-empty__body', 'Add the bars, dumbbells and plates you have here, and the strip will work out every load for you. Your workout stays open.'),
+            emptyActs);
         body.appendChild(empty);
     } else {
         // What Auto resolves to: the override cleared (a plan row then
@@ -1486,8 +1582,16 @@ async function _openSessionEquipPicker(log) {
         });
         section.append(sHead, list);
         body.appendChild(section);
+        const foot = el('div', 'wg-equip-foot');
+        const manage = el('button', 'wg-link', 'Manage equipment');
+        manage.type = 'button';
+        manage.appendChild(_wgIco('chev-r', 'wg-ico--sm'));
+        manage.addEventListener('click', _openSessionEquipManage);
+        foot.appendChild(manage);
+        body.appendChild(foot);
     }
     sheet.replaceChildren(el('div', 'wg-sheet__grab'), head, body);
+    if (shown) return;
 
     const mm = window.ModalManager;
     if (mm && typeof mm.open === 'function') {
@@ -2325,6 +2429,9 @@ async function closeWorkoutSessionModal() {
     // here; the Add-exercise sub-modal must go with it or it floats, overlay-less,
     // over whatever tab shows next.
     window.ModalManager.workoutAddExerciseToSession.close();
+    // Same for the equipment picker and its Manage sheet (med-i7kw).
+    if (_isSessionSheetShown(SESSION_EQUIP_MANAGE_ID)) _closeSessionSheet(SESSION_EQUIP_MANAGE_ID);
+    if (_isSessionSheetShown(SESSION_EQUIP_PICKER_ID)) _closeSessionEquipPicker();
     window.ModalManager.workoutSession.close();
     // The rest timer and clock stop on minimise (best-effort timer; the view
     // — current exercise — is kept for a re-open of the same session).
@@ -2335,6 +2442,7 @@ async function closeWorkoutSessionModal() {
     window.WorkoutSessionsState.targetStatus = null;
     window.WorkoutSessionsState.plateGear = null;
     window.WorkoutSessionsState.plateGearPromise = null;
+    window.WorkoutSessionsState.equipPickerLog = null;
 }
 
 async function saveWorkoutSessionDetails(opts) {
