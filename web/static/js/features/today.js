@@ -19,6 +19,7 @@
     const WEIGHT_STALE_MS = 7 * 24 * 60 * 60 * 1000; // weight is stale after a week
     const SLEEP_RECENT_MS = 2 * 24 * 60 * 60 * 1000; // sleep entry older than ~2d is stale
     const OVERDUE_GRACE_MS = 5 * 60 * 1000; // next med treated as overdue after 5 min
+    const MED_LOOKAHEAD_MS = 2 * 60 * 60 * 1000; // Next up shows a future dose only within 2h; earlier it lives on Meds
     const MIN_TREND_POINTS = 2;
 
     function cell(value, deeplink, status, meta) {
@@ -642,7 +643,8 @@
         const med = state && state.nextMed;
         const medAt = med && med.value ? Date.parse(med.value.scheduledAt) : NaN;
         if (med && med.value && !historySlots.has(medAt)
-            && (med.status === 'ok' || (med.status === 'overdue' && !historyKnown))) {
+            && ((med.status === 'ok' && !(medAt - nowMs > MED_LOOKAHEAD_MS))
+                || (med.status === 'overdue' && !historyKnown))) {
             items.push({ kind: med.status === 'overdue' ? 'med-missed' : 'med', value: med.value, at: medAt });
         }
         const wo = state && state.nextWorkout;
@@ -771,6 +773,15 @@
         section.appendChild(head);
 
         const items = nextUpItems(state, nowMs);
+        const nm = state && state.nextMed;
+        if (items.length === 0 && nm && nm.status === 'ok' && nm.value) {
+            // The only dose is beyond the lookahead: the user has meds, so no
+            // "Add medication" CTA — a repaint tick brings the dose in at 2h.
+            const card = el('div', 'wg-card wg-card--flush');
+            card.appendChild(el('p', 'wg-hint', 'Nothing due in the next 2 hours'));
+            section.appendChild(card);
+            return { node: section, hasPrimary: false };
+        }
         if (items.length === 0) {
             const actions = [];
             if (medsOn) actions.push({ label: 'Add medication', icon: 'pill', onClick: h.onAddMedication });
