@@ -2975,6 +2975,14 @@ describe('features/workout/sessions.js — plate-loading chip (med-v75c.2)', () 
           expect(chip.querySelector('.wg-plates__text').textContent).toContain('20');
         });
         expect(firstCard(document).querySelector('.wg-ex__name').textContent).toBe('Bench press');
+
+        // Minimising the session takes its equipment sheets with it.
+        sheetOf(document).querySelector('.wg-equip-foot .wg-link').click();
+        await drainSwap();
+        expect(shown(document, 'workout-session-equip-manage-sheet')).toBe(true);
+        await window.closeWorkoutSessionModal();
+        expect(shown(document, 'workout-session-equip-manage-sheet')).toBe(false);
+        expect(shown(document, 'workout-session-equip-sheet')).toBe(false);
       });
 
       it('empty inventory: Add equipment → save → the picker lists the new item', async () => {

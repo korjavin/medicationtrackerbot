@@ -2424,6 +2424,9 @@ async function closeWorkoutSessionModal() {
     // here; the Add-exercise sub-modal must go with it or it floats, overlay-less,
     // over whatever tab shows next.
     window.ModalManager.workoutAddExerciseToSession.close();
+    // Same for the equipment picker and its Manage sheet (med-i7kw).
+    if (_isSessionSheetShown(SESSION_EQUIP_MANAGE_ID)) _closeSessionSheet(SESSION_EQUIP_MANAGE_ID);
+    if (_isSessionSheetShown(SESSION_EQUIP_PICKER_ID)) _closeSessionEquipPicker();
     window.ModalManager.workoutSession.close();
     // The rest timer and clock stop on minimise (best-effort timer; the view
     // — current exercise — is kept for a re-open of the same session).
@@ -2434,6 +2437,7 @@ async function closeWorkoutSessionModal() {
     window.WorkoutSessionsState.targetStatus = null;
     window.WorkoutSessionsState.plateGear = null;
     window.WorkoutSessionsState.plateGearPromise = null;
+    window.WorkoutSessionsState.equipPickerLog = null;
 }
 
 async function saveWorkoutSessionDetails(opts) {
