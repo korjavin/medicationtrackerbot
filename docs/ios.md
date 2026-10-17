@@ -217,8 +217,9 @@ reviewer subdomains in `./cloud admin list`. Remove a claimed one with
 `./cloud admin revoke <sub>`. Keep A until the app is approved and no
 resubmission is pending.
 
-**ASC → App Review Information:** Sign-in required: **off**, because there is
-no username or password to enter; the notes explain the passkey sign-up.
+**ASC → App Review Information:** Sign-in required: **on**, because the app
+needs an account. ASC demands both fields, so fill them as pointers: User name
+= account A's address (`<sub>.<base>`); Password = `passkey - see notes`.
 Notes (fill in the links):
 
 ```text
