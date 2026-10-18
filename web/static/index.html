@@ -1126,8 +1126,7 @@
                     </div>
                 </section>
 
-                <!-- Restore in local mode is bd med-o7zq.6. -->
-                <section class="wg-section wg-cloud-only">
+                <section class="wg-section">
                     <div class="wg-section__head"><span class="wg-eyebrow">Restore</span></div>
                     <div class="wg-card wg-vstack">
                         <!-- Import sniffs magic bytes, not the extension; accept only
@@ -1146,6 +1145,23 @@
                         <button id="importexport-import-btn" type="button" class="wg-btn wg-btn--danger-ghost wg-btn--block">Replace my data with this backup</button>
                         <p id="importexport-import-progress" class="wg-hint" role="status" aria-live="polite" hidden></p>
                     </div>
+                </section>
+
+                <!-- Local-only mode (bd med-o7zq.6): settings.js bindLocalMoveToCloud.
+                     The move is the backup file plus the new account's Restore;
+                     nothing is handed between the two origins. -->
+                <section id="importexport-local-move-group" class="wg-section wg-local-only">
+                    <div class="wg-section__head"><span class="wg-eyebrow">Move to a cloud account</span></div>
+                    <div class="wg-card wg-vstack">
+                        <ol class="wg-hint">
+                            <li>Download a backup above and save it to Files. Set a passphrase if it includes API keys.</li>
+                            <li>Open your invite and create the account.</li>
+                            <li>In the new account, open Settings → Backup &amp; import → Restore and choose the file. The account starts empty, so replacing its data loses nothing.</li>
+                        </ol>
+                        <p class="wg-hint">Your records stay on this iPhone until you erase them. To come back, choose Only on this device on the start screen. Erase this copy only once the cloud account shows all your records, ideally on a second device.</p>
+                        <button id="importexport-local-move-btn" type="button" class="wg-btn wg-btn--block">I have an invite</button>
+                    </div>
+                    <p id="importexport-local-move-error" class="wg-hint" role="alert" hidden></p>
                 </section>
 
                 <!-- Mi Band .nxk ingestion: the server parses the backup and seals

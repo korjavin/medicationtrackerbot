@@ -297,6 +297,11 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
                 await Notifications.shared.remove(vault: LocalOrigin.host)
                 replyHandler(true, nil)
             }
+        case "local.leave" where local:
+            // Settings → Backup → Move to a cloud account (bd med-o7zq.6): the
+            // invite screen, as Switch account. The origin's data stays.
+            replyHandler(true, nil)
+            forget()
         // notifications.* and health.* stay open in local mode: its reminders
         // and Apple Health import use them (bd med-o7zq.9).
         case let op? where op.hasPrefix("notifications."):

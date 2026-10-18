@@ -641,8 +641,8 @@ IndexedDB never mixes with an account's. Cloud mode is unchanged.
   schedule upload, and no relay socket is opened. Privacy rows:
   `local-*` in `web/cloud/js/privacy-manifest.js`.
 - **Bridge:** in local mode only the main frame of `wgapp://local` reaches
-  `wgNative` (an account origin does not); `setEgressHosts` and `local.reset`
-  exist only there, `notifications.*` and `health.*` serve both modes.
+  `wgNative` (an account origin does not); `setEgressHosts`, `local.reset`
+  and `local.leave` exist only there, `notifications.*` and `health.*` serve both modes.
   The scheme is app-bound (`"wgapp:"` in `WKAppBoundDomains`), so the shell
   keeps `limitsNavigationsToAppBoundDomains` on in both modes.
 - **Backup flag:** WebKit excludes a new origin's data dir from backup for its
@@ -664,6 +664,17 @@ IndexedDB never mixes with an account's. Cloud mode is unchanged.
   last export, and only once something is stored, a toast suggests exporting
   a backup file (*Back up* opens Settings → Backup & import). Checked at boot
   and on every return to the front.
+- **Backup, restore, move to cloud** (bd med-o7zq.6, `local-policy.js`
+  `LOCAL_VAULT`): Settings → Backup & import exports the same vault v1 file
+  as the cloud (`recordsToVault`, pinned against `tests/fixtures/vault-v1.json`
+  in `cloud.local-mode.test.js`) and restores one, replace-only, into the
+  on-device store; a restore drops the Apple Health anchors so the next run
+  re-reads the whole history. *Move to a cloud account* is that file, not a
+  hand-off between origins: *I have an invite* sends `local.leave` (the shell's
+  *Switch account*), the user claims the invite and restores the file in the
+  new account's Settings. The local records stay until the user erases them;
+  nothing prompts to. A cloud restore whose upload failed says so before the
+  reload (`importAll` → `{ synced }`), so the other copy is kept until then.
 - **One vault at a time** (bd med-o7zq.9): the shell's open vault is `local`
   or the account host. Each reminder carries it (`userInfo.vault`, id
   `wg-<n>-<vault>`); switching mode or account removes every pending reminder

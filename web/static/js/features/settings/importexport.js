@@ -233,8 +233,11 @@
 
         // Typed confirm (kit S3): the confirm button stays disabled until the
         // phrase matches, so a stray tap can't wipe the vault.
+        const local = document.documentElement.classList.contains('wg-local-vault');
         const confirmed = await safeConfirm(
-            'Everything stored now is replaced by this backup, on every device. This cannot be undone.',
+            local
+                ? 'Everything stored on this iPhone is replaced by this backup. This cannot be undone.'
+                : 'Everything stored now is replaced by this backup, on every device. This cannot be undone.',
             null,
             { title: 'Replace all your data?', confirmLabel: 'Replace my data', destructive: true, typedConfirm: REPLACE_PHRASE }
         );
@@ -242,10 +245,19 @@
 
         setImportBusy(true);
         try {
-            await window.CloudVault.importAll(json);
+            const result = await window.CloudVault.importAll(json);
             // Clear busy BEFORE reload — otherwise beforeUnloadGuard would
             // prompt on our own intended navigation.
             setImportBusy(false);
+            // Cloud: applied here, but the upload failed (it retries on the next
+            // open). Say so, so a user moving from another device keeps that
+            // copy and the file for now (bd med-o7zq.6).
+            if (result && result.synced === false) {
+                await safeAlert(
+                    'Your backup is restored on this device, but uploading it to your account has not finished. It retries when you are online. Keep the backup file, and any other copy of your records, until your account shows them on another device.',
+                    { title: 'Not uploaded yet' }
+                );
+            }
             // Full refresh so every section re-renders from the restored vault
             // (simplest correct path — same as post-bootstrap reload).
             location.reload();

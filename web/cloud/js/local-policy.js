@@ -24,9 +24,9 @@ import {
   scheduleReminderRecompute, recomputeAndPush, onLocalScheduleResult,
 } from './reminders.js';
 import { hostsFromIntegrations } from './egress-hosts.js';
-import { readAllLocalRecords } from './sync.js';
-import { recordsToVault } from '../../domain/vault.js';
-import { startHealthImport, runHealthImport } from './health-import.js';
+import { readAllLocalRecords, replaceAllRecords } from './sync.js';
+import { recordsToVault, vaultToRecords, managedTypesForImport } from '../../domain/vault.js';
+import { startHealthImport, runHealthImport, resetHealthAnchors } from './health-import.js';
 import { clearLocalVault } from './account-delete.js';
 
 // Settings → Notifications fires this on the document once iOS permission is
@@ -181,15 +181,42 @@ export async function nudgeLocalBackup({ win, now = Date.now() }) {
   return true;
 }
 
-// The Settings → Backup export (importexport.js reads window.CloudVault): the
-// same recordsToVault conversion as cloud-boot.js, over the on-device store.
-// Import and move-to-cloud are bd med-o7zq.6.
+// Settings → Backup (importexport.js reads window.CloudVault): the same
+// recordsToVault / vaultToRecords conversion as cloud-boot.js, over the
+// on-device store. Moving to a cloud account (bd med-o7zq.6) is this export,
+// then the account's own Restore of the file: openCloudAccount only hands the
+// user to the shell's invite screen, and this origin keeps its data.
 export const LOCAL_VAULT = {
   async exportAll({ includeSecrets = true, win = globalThis.window } = {}) {
     const records = await readAllLocalRecords();
     const json = JSON.stringify(recordsToVault(records, { now: Date.now(), includeSecrets }), null, 2);
     markBackupNudge(win, Date.now()); // an export restarts the reminder's week
     return json;
+  },
+  // Replace-only, like the cloud's importAll: everything the file manages is
+  // replaced, records it does not (the secrets of a secrets-free file) stay.
+  // No account cursor, pending queue or snapshot here. vaultToRecords throws on
+  // a foreign or unknown-version file before anything is touched. The Health
+  // import stops first (the page reloads after) so none of its writes or
+  // anchors land around the replace; the anchors are then dropped, since they
+  // describe the replaced records.
+  async importAll(json, { win = globalThis.window } = {}) {
+    const vault = typeof json === 'string' ? JSON.parse(json) : json;
+    const records = vaultToRecords(vault, { now: Date.now() });
+    const managed = managedTypesForImport(vault);
+    await stopHealthImport();
+    const survive = (await readAllLocalRecords())
+      .filter((r) => !r.deleted && !managed.has(r.recordType));
+    await replaceAllRecords([...records, ...survive]);
+    resetHealthAnchors(win.localStorage);
+  },
+  // Settings → Backup → Move to a cloud account: the shell leaves local mode
+  // for its invite screen. Nothing here is erased; choosing "Only on this
+  // device" again reopens it.
+  async openCloudAccount({ win = globalThis.window } = {}) {
+    const native = win.LocalNotifications && win.LocalNotifications.__native;
+    if (!native || native.platform !== 'ios') throw new Error('Open the app on your iPhone to use an invite.');
+    await native.call('local.leave');
   },
   // The last device schedule outcome (keepLocalRemindersFresh), null before
   // the first: Settings → Notifications reads it with the iOS permission.
