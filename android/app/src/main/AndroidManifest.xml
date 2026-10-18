@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Lets WebView track connectivity, so navigator.onLine is real (offline check 3). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- getUserMedia in the WebView (barcode / photo); granted per request in onPermissionRequest. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
