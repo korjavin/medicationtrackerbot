@@ -1430,6 +1430,18 @@ describe('Architecture – Wandergeek tokens', () => {
         expect(tokenValue('--wg-section-label-pad-top')).toBe('18px');
     });
 
+    it('disables double-tap zoom globally, keeping the specific touch-action rules (med-wfe6)', () => {
+        const css = fs.readFileSync(CSS_PATH, 'utf8');
+        const kit = fs.readFileSync(path.join(REPO_ROOT, 'web/static/css/components.css'), 'utf8');
+        const root = /^\*,\s*\*::before,\s*\*::after\s*\{([^}]*)\}/m.exec(css);
+        expect(root).not.toBeNull();
+        expect(root[1]).toContain('touch-action: manipulation');
+        // must precede every other touch-action rule so they win the cascade
+        expect(css.indexOf('touch-action: manipulation')).toBeLessThan(css.indexOf('touch-action: pinch-zoom'));
+        expect(css).toContain('touch-action: none');
+        expect(kit).toContain('.wg-swipe--host{position:relative;overflow:hidden;touch-action:pan-y}');
+    });
+
     it('locks document scroll while a modal is open (med-o7zq.18)', () => {
         const css = fs.readFileSync(CSS_PATH, 'utf8');
         const lock = /body:has\(#modal-overlay:not\(\.hidden\)\),\s*body:has\(mt-modal:not\(\.hidden\)\)\s*\{([^}]*)\}/.exec(css);
