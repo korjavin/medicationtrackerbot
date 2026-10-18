@@ -132,7 +132,13 @@ export function createAttestClient({
   // (challenge_invalid), or a key the server or the shell does not have
   // (install_unknown / no_key → enroll a key first). Anything else goes back
   // to the caller, whose error mapping reads the body.
-  async function request(method, pathAndQuery, body, signal) {
+  async function request(method, rawPathAndQuery, body, signal) {
+    // Sign exactly what goes on the wire: fetch serialises the URL (WHATWG),
+    // escaping what encodeURIComponent leaves alone — ' → %27 in the query —
+    // and the server hashes that RequestURI. Signing the raw string would
+    // fail every such request with assertion_invalid.
+    const u = new URL(rawPathAndQuery, origin);
+    const pathAndQuery = u.pathname + u.search;
     for (let attempt = 0; ; attempt += 1) {
       const out = await signedRequest(method, pathAndQuery, body, signal);
       let { code } = out.res ? await errorCode(out.res) : { code: '' };

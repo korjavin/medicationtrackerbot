@@ -2,7 +2,8 @@
 // med-o7zq): what local-boot.js injects into installApiShim in place of the
 // cloud's server-backed effects. In local mode nothing leaves the device except
 // calls to the providers the user configured with their own key (BYOK AI,
-// their own food DB) and, only if the user turns it on, the trial AI. The iOS shell enforces that with its CSP (connect-src
+// their own food DB) and, only if the user turns it on, the free trial (AI and
+// food database). The iOS shell enforces that with its CSP (connect-src
 // 'self' + the hosts registered here, ios/App/LocalOrigin.swift); this module
 // makes the app stop asking for anything else:
 //
@@ -157,9 +158,9 @@ async function attestStatus(win) {
   }
 }
 
-// The anonymous trial AI (bd med-o7zq.16) this document's CSP admits: the
-// local-trial.js transport while it is on, else null. Set by
-// registerLocalEgress, read by LOCAL_VAULT.trial.
+// The anonymous trial (bd med-o7zq.16: AI; med-o7zq.20: food) this document's
+// CSP admits: the local-trial.js transport while it is on, else null. Set by
+// registerLocalEgress, read by LOCAL_VAULT.trial and LOCAL_FOOD_DB.
 let localTrial = null;
 let lastEgress = null;
 

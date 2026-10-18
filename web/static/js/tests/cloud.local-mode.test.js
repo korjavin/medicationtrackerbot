@@ -956,6 +956,29 @@ describe('local-only mode food database through the trial (med-o7zq.20)', () => 
         expect(foodGets().map((r) => r.url)).toEqual([`https://${TRIAL_BASE}/api/attest/food/search?q=oats&limit=20`]);
     });
 
+    // fetch serialises the URL (WHATWG): ' goes out as %27, which
+    // encodeURIComponent leaves alone. The server hashes the RequestURI it
+    // received, so the signed digest must be over the URL actually fetched.
+    it.each([
+        ["McDonald's", 'an apostrophe'],
+        ['café crème', 'a non-ASCII term'],
+    ])('on: a search for %s (%s) signs the URL actually fetched', async (term) => {
+        const { createHash } = await import('node:crypto');
+        const { window, document } = env;
+        foodReply = () => new Response(JSON.stringify({ results: [{ name: 'Big meal', kcal100g: 250 }] }), { status: 200 });
+        await trialOn();
+        window.FoodLog.addSheet.open();
+        await settle();
+        await window.FoodLog.addSheet.runSearch(term, false);
+        await vi.waitFor(() => expect(document.getElementById('food-add-results').textContent).toContain('Big meal'));
+        expect(foodGets()).toHaveLength(1);
+        const wire = new URL(foodGets()[0].url);
+        const sent = wire.pathname + wire.search;
+        expect(sent).not.toContain("'");
+        const digest = createHash('sha256').update(`${sent}\n`).digest('base64');
+        expect(window.Attest.assert).toHaveBeenCalledWith('c1', digest);
+    });
+
     it('on: today\'s lookups spent (429 install-day) says the lookups are paused, and asks no more', async () => {
         const { window, document } = env;
         foodReply = () => new Response(JSON.stringify({

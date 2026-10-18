@@ -108,7 +108,8 @@ async function runCloudFoodSearch(query, requestId, { barcode } = {}) {
         const myRequestId = window.FoodProducts._nextRequestId();
 
         // No remote food DB (no BYO url in the vault, no operator
-        // CLOUD_FOOD_DB_URL) means search() can only ever return the local
+        // CLOUD_FOOD_DB_URL, local mode's trial off or paused) means
+        // search() can only ever return the local
         // results we already rendered. Say so instead of silently reporting
         // zero matches — the user typed a query and deserves to know the
         // database is missing, not that their food doesn't exist (med-1j1).

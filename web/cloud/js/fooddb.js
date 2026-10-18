@@ -10,7 +10,8 @@
 // the served page as a <meta name="medtracker-food-db-url"> tag (a
 // CSP-safe carrier — the origin's script-src 'self' blocks inline scripts;
 // see internal/cloudserver/router.go's injectCloudBoot + CLOUD_FOOD_DB_URL
-// in docs/environment.md). Neither set = remote search disabled: search()
+// in docs/environment.md) — or, in iOS local mode, the trial port below.
+// Neither available = remote search disabled: search()
 // returns [] rather than throwing, so a local-only lookup still succeeds,
 // but remoteConfigured() reports false so callers can tell "no food DB" from
 // "no matches" — a user who typed a query and got nothing deserves to know
@@ -135,7 +136,8 @@ export function createFoodDbClient({ settingsDomain, operatorFoodDb = SAME_ORIGI
   }
 
   // Whether any remote food DB is reachable at all: a BYO url/domain in the
-  // vault, or the operator's CLOUD_FOOD_DB_URL default. False means search()
+  // vault, or the operator's DB through the operatorFoodDb port (the cloud's
+  // CLOUD_FOOD_DB_URL default; local mode's trial). False means search()
   // can only ever return local results, which the UI must say out loud.
   async function remoteConfigured() {
     return (await baseURL()) !== null;

@@ -764,7 +764,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in',
     activationNote: 'you add a provider key in Settings → AI & integrations; its host name is handed to the app shell for the CSP, never to a server',
     byo: 'The only kind there is in this mode',
-    evidence: ['web/cloud/js/local-policy.js:231', 'web/cloud/js/local-policy.js:191', 'ios/App/LocalOrigin.swift:38'],
+    evidence: ['web/cloud/js/local-policy.js:232', 'web/cloud/js/local-policy.js:192', 'ios/App/LocalOrigin.swift:38'],
     code: { go: [], hosts: [] },
     docSignal: null,
     userCopy: {
@@ -789,7 +789,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in-consent',
     activationNote: 'you turn on the trial in Settings → AI & integrations and accept the trial consent; off by default, and off means no request to our server at all',
     byo: 'Add your own AI key and requests go phone-direct to your provider, never through the operator',
-    evidence: ['web/cloud/js/local-policy.js:238', 'web/cloud/js/local-trial.js:105', 'ios/App/Attest.swift:67', 'internal/cloudserver/attest.go:353', 'internal/appattest/devicecheck.go:65'],
+    evidence: ['web/cloud/js/local-policy.js:239', 'web/cloud/js/local-trial.js:105', 'ios/App/Attest.swift:67', 'internal/cloudserver/attest.go:353', 'internal/appattest/devicecheck.go:65'],
     code: { go: ['internal/cloudserver/attest.go'], hosts: ['api.devicecheck.apple.com'] },
     docSignal: null,
     userCopy: {
@@ -814,7 +814,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in-consent',
     activationNote: 'the same free-trial switch and consent as the trial AI (one enrollment per install, which spends the device\'s one trial grant); off means no request to our server at all',
     byo: 'Set your own food-DB endpoint in Settings → AI & integrations and lookups go phone-direct to it, never through the operator',
-    evidence: ['web/cloud/js/fooddb.js:95', 'web/cloud/js/local-policy.js:203', 'web/cloud/js/local-trial.js:209', 'internal/cloudserver/attest.go:504', 'internal/cloudserver/food_proxy.go:93'],
+    evidence: ['web/cloud/js/fooddb.js:96', 'web/cloud/js/local-policy.js:204', 'web/cloud/js/local-trial.js:215', 'internal/cloudserver/attest.go:504', 'internal/cloudserver/food_proxy.go:93'],
     code: { go: ['internal/cloudserver/attest.go', 'internal/cloudserver/food_proxy.go'], hosts: [] },
     docSignal: null,
     userCopy: {
