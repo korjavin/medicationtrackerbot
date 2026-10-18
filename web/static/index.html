@@ -1956,12 +1956,16 @@
                 <button type="button" id="food-add-close-btn" class="wg-btn wg-btn--ghost wg-btn--icon" aria-label="Close"><i class="wg-ico" data-icon="x"></i></button>
             </div>
         </header>
+        <!-- Pinned above the scroller so the query stays on screen while the
+             results scroll (med-o7zq.21); add-sheet.js hides it off the home view. -->
+        <div class="wg-food-add__search" id="food-add-search-bar">
+            <div class="wg-affix">
+                <i class="wg-ico wg-affix__lead" data-icon="search"></i>
+                <input type="search" id="food-add-search" class="wg-input wg-input--text" placeholder="Search your foods and the database" autocomplete="off" aria-label="Search foods">
+            </div>
+        </div>
         <div class="wg-sheet__body">
             <div class="wg-food-add__pane" data-pane="home">
-                <div class="wg-affix">
-                    <i class="wg-ico wg-affix__lead" data-icon="search"></i>
-                    <input type="search" id="food-add-search" class="wg-input wg-input--text" placeholder="Search your foods and the database" autocomplete="off" aria-label="Search foods">
-                </div>
                 <div class="wg-actions wg-actions--4" id="food-add-tiles">
                     <button type="button" id="food-add-scan-btn" class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="barcode"></i></span><span class="wg-action__label">Scan</span></button>
                     <button type="button" id="food-add-photo-btn" class="wg-action"><span class="wg-action__icon"><i class="wg-ico" data-icon="camera"></i></span><span class="wg-action__label">Photo</span></button>

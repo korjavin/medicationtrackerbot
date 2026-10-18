@@ -154,6 +154,8 @@
         document.querySelectorAll('#food-add-sheet .wg-food-add__pane').forEach((pane) => {
             pane.classList.toggle('hidden', pane.dataset.pane !== view);
         });
+        const bar = $('food-add-search-bar');
+        if (bar) bar.classList.toggle('hidden', view !== 'home');
         renderHead();
         renderFoot();
     }
@@ -394,6 +396,9 @@
             list.appendChild(more);
         }
         list.classList.toggle('hidden', !list.children.length);
+        // Typing reclaims the tiles' height for results; clearing brings them back.
+        const tiles = $('food-add-tiles');
+        if (tiles) tiles.classList.toggle('hidden', searching);
         if (recent) recent.classList.toggle('hidden', searching || !(($('food-add-recent') || {}).children || []).length);
     }
 

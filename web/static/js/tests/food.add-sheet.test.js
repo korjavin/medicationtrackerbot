@@ -132,6 +132,47 @@ describe('Food Add sheet', () => {
         expect(sheet().classList.contains('hidden')).toBe(true);
     });
 
+    it('the search field is pinned above the scrolling body; typing hides the tiles, clearing brings them back; off-home views hide the search', async () => {
+        const { window, document } = env;
+        window.CloudFoodSearch.search = vi.fn(async () => Array.from({ length: 35 }, (_, i) => ({
+            id: `p-${i}`, name: `Oat product ${i}`, carbs_100g: 60, protein_100g: 12, fat_100g: 7, energy_kcal_100g: 360,
+        })));
+        window.FoodLog.addSheet.open();
+        await settle();
+
+        const search = document.getElementById('food-add-search');
+        const bar = document.getElementById('food-add-search-bar');
+        const body = sheet().querySelector('.wg-sheet__body');
+        expect(body.contains(search)).toBe(false);
+        expect(bar.contains(search)).toBe(true);
+        expect(bar.compareDocumentPosition(body) & window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(bar.previousElementSibling.tagName).toBe('HEADER');
+
+        const tiles = document.getElementById('food-add-tiles');
+        const recent = document.getElementById('food-add-recent-section');
+        expect(tiles.classList.contains('hidden')).toBe(false);
+        expect(recent.classList.contains('hidden')).toBe(false);
+
+        search.value = 'oat';
+        await window.FoodLog.addSheet.runSearch('oat', false);
+        expect(document.querySelectorAll('#food-add-results .wg-food-add__result').length).toBeLessThanOrEqual(30);
+        expect(document.querySelectorAll('#food-add-results .wg-food-add__result').length).toBeGreaterThan(0);
+        expect(tiles.classList.contains('hidden')).toBe(true);
+        expect(recent.classList.contains('hidden')).toBe(true);
+
+        search.value = '';
+        search.dispatchEvent(new window.Event('input', { bubbles: true }));
+        expect(tiles.classList.contains('hidden')).toBe(false);
+        expect(recent.classList.contains('hidden')).toBe(false);
+
+        search.value = 'oat';
+        window.FoodLog.addSheet.openDescribe();
+        expect(bar.classList.contains('hidden')).toBe(true);
+        window.FoodLog.addSheet.back();
+        expect(bar.classList.contains('hidden')).toBe(false);
+        expect(search.value).toBe('oat');
+    });
+
     it('a scanned barcode with no match opens the manual form prefilled with it', async () => {
         const { window, document } = env;
         window.FoodLog.addSheet.open();
