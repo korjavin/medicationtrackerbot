@@ -79,8 +79,18 @@ struct FirstRunView: View {
     @State private var text = ""
     @State private var error: String?
     @State private var scanning = false
+    /// "Only on this device" tapped: the local intro replaces this screen until Back.
+    @State private var localIntro = false
 
     var body: some View {
+        if localIntro {
+            LocalIntroView(shell: shell) { localIntro = false }
+        } else {
+            invite
+        }
+    }
+
+    private var invite: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Med Tracker").font(.largeTitle.bold())
             Text("Open your account with your invite link, your account address, or the QR code on your Emergency Kit. Accounts are by invitation only.")
@@ -104,6 +114,15 @@ struct FirstRunView: View {
                 Button { scan() } label: { Label("Scan QR code", systemImage: "qrcode.viewfinder") }
                     .buttonStyle(.bordered)
             }
+            // Local mode (bd med-o7zq.5): secondary to the invite, no account at all.
+            VStack(alignment: .leading, spacing: 6) {
+                Text("No invite? Use Med Tracker without an account.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Button("Only on this device") { localIntro = true }
+                    .buttonStyle(.bordered)
+            }
+            .padding(.top, 8)
             Spacer()
             // App Store packaging (bd med-w6gx.8): same wording as the store description.
             Text("Med Tracker is a personal log, not a medical device, and does not give medical advice. Talk to your doctor before changing a treatment.")
@@ -138,6 +157,39 @@ struct FirstRunView: View {
                 error = "Allow camera access for Med Tracker in Settings to scan a QR code."
             }
         }
+    }
+}
+
+/// Local mode's onboarding (bd med-o7zq.5): what "only on this device" means
+/// for the user's data, before the choice is stored. Honest on purpose — this
+/// can be someone's only medication history.
+struct LocalIntroView: View {
+    @ObservedObject var shell: Shell
+    let back: () -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Only on this device").font(.largeTitle.bold())
+                Label("No account and no sign-in. Your records are stored only on this iPhone, and nothing is sent to our servers.",
+                      systemImage: "iphone")
+                Label("They are included in this iPhone's own backup (iCloud or your computer). Med Tracker keeps no other copy and cannot recover them for you.",
+                      systemImage: "externaldrive")
+                Label("Deleting the app, or losing or resetting the iPhone without a backup, deletes them for good. Export a backup file regularly in Settings → Backup & import.",
+                      systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+                Label("AI and food search work only with providers you add with your own key. Voice, Telegram and the shared food database need an account.",
+                      systemImage: "key")
+                Button("Start") { shell.openLocal() }
+                    .buttonStyle(.borderedProminent)
+                    .padding(.top, 8)
+                Button("Back", action: back)
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(Color(uiColor: Shell.screen).ignoresSafeArea())
+        .preferredColorScheme(.dark)
     }
 }
 

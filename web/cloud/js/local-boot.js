@@ -70,6 +70,12 @@ window.MedTrackerCloudReady = (async function boot() {
         const records = localRecordsPort();
         policy.keepLocalRemindersFresh({ ctx: LOCAL_CTX, records, win: window });
         policy.startLocalHealthImport({ ctx: LOCAL_CTX, records, win: window });
+        const nudge = () => policy.nudgeLocalBackup({ win: window })
+            .catch((e) => console.error('[local] backup reminder failed', e));
+        nudge();
+        window.document.addEventListener('visibilitychange', () => {
+            if (window.document.visibilityState === 'visible') nudge();
+        });
         const realApiCallDirect = window.apiCallDirect;
         window.apiCallDirect = (endpoint, method, body, opts) => (
             endpoint.startsWith('/api/')
