@@ -7,10 +7,16 @@ window.wgSpikeRun = (op, id, args) => {
   const done = (out) => { window.__wgSpikeDone = { id, text: JSON.stringify(out, null, 1) }; };
   const err = (e) => ({ error: String(e && e.name) + ': ' + String(e && e.message) });
   const prfSalt = () => ({ prf: { eval: { first: new Uint8Array(32).fill(7) } } });
+  // The origin the authenticator signed: https://<host>, or android:apk-key-hash:…
+  // in FOR_APP mode — which the server's WebAuthn config must then accept.
+  const clientOrigin = (cred) => {
+    try { return JSON.parse(new TextDecoder().decode(cred.response.clientDataJSON)).origin; } catch (e) { return 'unreadable: ' + e; }
+  };
   const prfBytes = (cred) => {
     const prf = cred.getClientExtensionResults().prf || null;
     return { prfEnabled: prf ? (prf.enabled === undefined ? null : prf.enabled) : null,
-             prfFirstBytes: prf && prf.results && prf.results.first ? prf.results.first.byteLength : 0 };
+             prfFirstBytes: prf && prf.results && prf.results.first ? prf.results.first.byteLength : 0,
+             clientDataOrigin: clientOrigin(cred) };
   };
 
   // WebAuthn and the file chooser want a user gesture, which an injected

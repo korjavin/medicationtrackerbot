@@ -20,9 +20,11 @@ object SpikeText {
      * into a bead.
      */
     fun redact(s: String, base: String): String {
-        if (base.isEmpty()) return s
+        // The FOR_APP WebAuthn origin carries the signing-cert hash: a fingerprint, never committed.
+        val noCert = s.replace(Regex("android:apk-key-hash:[A-Za-z0-9_\\-+/=]+"), "android:apk-key-hash:<cert>")
+        if (base.isEmpty()) return noCert
         val re = Regex("([A-Za-z0-9-]+)\\." + Regex.escape(base), RegexOption.IGNORE_CASE)
-        return re.replace(s) { m -> "<sub-${tag(m.groupValues[1].lowercase())}>.<base>" }
+        return re.replace(noCert) { m -> "<sub-${tag(m.groupValues[1].lowercase())}>.<base>" }
             .replace(base, "<base>", ignoreCase = true)
     }
 

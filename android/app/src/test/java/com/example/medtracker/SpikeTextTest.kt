@@ -26,5 +26,9 @@ class SpikeTextTest {
         assertEquals(tags[0] == tags[1], false)
         assertEquals(SpikeText.redact("alice.example.org", "example.org"), SpikeText.redact("ALICE.example.org", "example.org"))
         assertEquals("no base", SpikeText.redact("no base", ""))
+        assertEquals(
+            "\"clientDataOrigin\": \"android:apk-key-hash:<cert>\"",
+            SpikeText.redact("\"clientDataOrigin\": \"android:apk-key-hash:Xy-z_09AbC\"", ""),
+        )
     }
 }

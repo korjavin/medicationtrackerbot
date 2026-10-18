@@ -122,6 +122,16 @@ shell bead (med-nt9p.5) replaces all of it.
   a button at the bottom of the page — tap it (WebAuthn and the chooser need
   a user gesture).
 
+- **Origin caveat.** In `FOR_APP` mode the authenticator may sign
+  `clientDataJSON` with the app's origin, `android:apk-key-hash:<cert hash>`,
+  instead of `https://<sub>.<base>` (third-party reports; Android's docs do
+  not say). The server's WebAuthn config (`rpForRequest`,
+  `internal/cloudserver/webauthn.go`) accepts only the https origin, so the
+  app's **own** claim/unlock would then fail server verification even though
+  the platform works. Every passkey result therefore logs `clientDataOrigin`
+  (the cert hash redacted to `<cert>`); the probe ops never touch the server
+  and decide platform support on their own.
+
 ### Owner prerequisites
 
 1. `ANDROID_DEBUG_KEYSTORE_BASE64` secret and the `ANDROID_PACKAGE` variable
@@ -155,7 +165,11 @@ and before any *Clear storage*, and paste it into the bead.
 2. **Claim B in the app (1, 2).** Paste B's invite link → *Open* → finish the
    claim. Expect `tap` lines `webauthn.create … ok:true` and
    `webauthn.get … ok:true, prfFirst:true`, and the app unlocked. Note the
-   passkey sheet's provider (Google Password Manager or another) for check 7.
+   passkey sheet's provider (Google Password Manager or another) for check 7,
+   and `clientDataOrigin`. If it is `android:apk-key-hash:<cert>` and the claim
+   fails after the passkey sheet, that is the server-origin gap (Origin caveat
+   above), not a platform failure: record it and go on to step 3; the claim
+   is retried once the server accepts the app origin. Same for step 9.
 3. **Probe on B (1, 2).** *Passkey create + PRF* → tap the page button
    (creates "Android spike - delete me"; delete it in Password Manager
    afterwards) → *Passkey get + PRF* → tap. Expect `ok: true` on both and
@@ -195,7 +209,11 @@ and before any *Clear storage*, and paste it into the bead.
 | 6 | JS → Kotlin reply round trip | `bridge.reply.pong: true` | NO-GO for the bridge bead (med-nt9p.6) — architect |
 | 7 | Versions; passkey provider | recorded | record only |
 
-GO = 1–4 and 6 pass.
+GO = 1–4 and 6 pass. If the probes pass (`ok:true`, `prfFirstBytes: 32`)
+but `clientDataOrigin` is the app origin, 1–2 are a platform pass with a
+server prerequisite: the architect files the additive server change (accept
+`android:apk-key-hash:` origins derived from `ANDROID_CERT_SHA256S`, the
+server half of med-nt9p.14) and steps 2 and 9 are re-run on it.
 
 ### Results
 
@@ -203,7 +221,7 @@ Pending a device run — nothing below has been observed yet.
 
 | # | Check | Result |
 |---|-------|--------|
-| 1 | Passkey create + get on an arbitrary subdomain | pending device run |
+| 1 | Passkey create + get on an arbitrary subdomain (+ `clientDataOrigin`) | pending device run |
 | 2 | PRF (claim, probe, cold unlock of a Chrome-made passkey) | pending device run |
 | 3 | Service Worker registers, controls, offline relaunch | pending device run |
 | 4 | IndexedDB + non-extractable key across kill and APK update | pending device run |
