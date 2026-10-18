@@ -85,18 +85,25 @@ final class Notifications: NSObject, UNUserNotificationCenterDelegate {
     }
 
     // MARK: UNUserNotificationCenterDelegate
+    // Completion-handler variants, not the async ones: a nonisolated async
+    // delegate method makes the ObjC thunk call UIKit's completion handler on a
+    // Swift-concurrency thread, and UIKit aborts (bd med-w6gx.19). Both hop to
+    // the main actor and complete there.
 
     /// A reminder due while the app is open still shows, like a Web Push does.
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        [.banner, .list, .sound]
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                            withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        Task { @MainActor in completionHandler([.banner, .list, .sound]) }
     }
 
     /// A tap opens the reminder's section.
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                            withCompletionHandler completionHandler: @escaping () -> Void) {
         let raw = response.notification.request.content.userInfo["section"] as? String ?? "today"
-        await MainActor.run {
+        Task { @MainActor in
             let section = Notifications.sections.contains(raw) ? raw : "today"
             if let onOpen { onOpen(section) } else { pending = section }
+            completionHandler()
         }
     }
 }
