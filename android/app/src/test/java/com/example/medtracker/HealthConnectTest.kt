@@ -5,8 +5,6 @@ import androidx.health.connect.client.records.SleepSessionRecord
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
-import java.time.Instant
-import java.time.ZoneId
 import java.time.ZoneOffset
 
 // The HealthKit codes healthimport.js reads (SLEEP_PHASE, WORKOUT_NAMES, STRENGTH_TYPES).
@@ -31,14 +29,10 @@ class HealthConnectTest {
 
     @Test
     fun zoneName() {
-        val at = Instant.parse("2026-07-01T06:00:00Z")
-        val berlin = ZoneId.of("Europe/Berlin")
-        assertEquals("Etc/GMT-2", HealthConnect.zoneName(ZoneOffset.ofHours(2), at, berlin))
-        assertEquals("Etc/GMT+5", HealthConnect.zoneName(ZoneOffset.ofHours(-5), at, berlin))
-        assertEquals("UTC", HealthConnect.zoneName(ZoneOffset.UTC, at, berlin))
-        val kolkata = ZoneId.of("Asia/Kolkata")
-        assertEquals("Asia/Kolkata", HealthConnect.zoneName(ZoneOffset.ofHoursMinutes(5, 30), at, kolkata))
-        assertNull(HealthConnect.zoneName(ZoneOffset.ofHoursMinutes(5, 30), at, berlin))
-        assertNull(HealthConnect.zoneName(null, at, berlin))
+        assertEquals("Etc/GMT-2", HealthConnect.zoneName(ZoneOffset.ofHours(2)))
+        assertEquals("Etc/GMT+5", HealthConnect.zoneName(ZoneOffset.ofHours(-5)))
+        assertEquals("UTC", HealthConnect.zoneName(ZoneOffset.UTC))
+        assertEquals("+05:30", HealthConnect.zoneName(ZoneOffset.ofHoursMinutes(5, 30)))
+        assertNull(HealthConnect.zoneName(null))
     }
 }

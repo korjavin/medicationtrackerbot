@@ -272,8 +272,8 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
   without stages; `source` is the writing app's package. A page answers every
   session overlapping the new ones ± 48 h with that `{from, to}` window, as
   Health.swift does. `tz` is `Etc/GMT±h` for a whole-hour end offset (the
-  page needs only the offset), else this device's zone when it has that
-  offset, else omitted (UTC).
+  page needs only the offset), else the `+05:30` offset form — from the
+  session's own offset, never this device's zone, so rescans agree.
 - **Workouts:** `ExerciseSessionRecord`; `activity` is the
   `HKWorkoutActivityType` raw value (a small map in `hkActivity`; unmapped →
   3000, shown as "Workout") so the page's name table and strength rule apply.

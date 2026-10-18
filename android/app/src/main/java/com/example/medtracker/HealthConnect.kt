@@ -29,7 +29,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Duration
 import java.time.Instant
-import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.temporal.ChronoUnit
 import java.util.UUID
@@ -231,7 +230,7 @@ class HealthConnect(private val activity: Activity) {
         val out = JSONArray()
         for (s in readAll(SleepSessionRecord::class, TimeRangeFilter.between(from, to))) {
             if (s !is SleepSessionRecord) continue
-            val tz = zoneName(s.endZoneOffset, s.endTime)
+            val tz = zoneName(s.endZoneOffset)
             val parts = if (s.stages.isEmpty()) {
                 listOf(Triple(s.metadata.id, s.startTime to s.endTime, 1))
             } else {
@@ -303,17 +302,19 @@ class HealthConnect(private val activity: Activity) {
         }
 
         /**
-         * The night's zone for the page (it needs only the offset at the night's
-         * end): a fixed Etc/GMT zone for whole-hour offsets, so every device
-         * names it alike; else this device's zone when it has that offset then.
+         * The night's zone for the page, from the session's own end offset (the
+         * page needs only that offset) — never this device's zone, so every
+         * device and every rescan names it alike: Etc/GMT∓h for whole hours
+         * (any Intl), else the "+05:30" offset form (Intl offset zones; a
+         * WebView without them falls back to UTC, the no-tz default).
          */
-        fun zoneName(offset: ZoneOffset?, at: Instant, system: ZoneId = ZoneId.systemDefault()): String? {
+        fun zoneName(offset: ZoneOffset?): String? {
             if (offset == null) return null
             val h = offset.totalSeconds / 3600
             if (offset.totalSeconds % 3600 == 0 && h in -12..14) {
                 return if (h == 0) "UTC" else "Etc/GMT" + (if (h > 0) "-" else "+") + abs(h) // POSIX sign: Etc/GMT-2 is UTC+2
             }
-            return system.id.takeIf { system.rules.getOffset(at) == offset }
+            return offset.id
         }
 
         /**
