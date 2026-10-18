@@ -169,9 +169,10 @@ and before any *Clear storage*, and paste it into the bead.
    `webauthn.get … ok:true, prfFirst:true`, and the app unlocked. Note the
    passkey sheet's provider (Google Password Manager or another) for check 7,
    and `clientDataOrigin`. If it is `android:apk-key-hash:<cert>` and the claim
-   fails after the passkey sheet, that is the server-origin gap (Origin caveat
-   above), not a platform failure: record it and go on to step 3; the claim
-   is retried once the server accepts the app origin. Same for step 9.
+   fails after the passkey sheet with an origin error, the APK's signing cert
+   is missing from the cloud's `ANDROID_CERT_SHA256S` (Origin caveat above),
+   not a platform failure: record it, fix the env, and go on to step 3. Same
+   for step 9.
 3. **Probe on B (1, 2).** *Passkey create + PRF* → tap the page button
    (creates "Android spike - delete me"; delete it in Password Manager
    afterwards) → *Passkey get + PRF* → tap. Expect `ok: true` on both and
@@ -203,7 +204,7 @@ and before any *Clear storage*, and paste it into the bead.
 
 | # | Check | GO when | On failure |
 |---|-------|---------|------------|
-| 1 | Passkey create + get on an arbitrary subdomain | steps 2, 3, 9 `ok:true` | **NO-GO** — stop, back to the architect; med-nt9p.14 (Credential Manager bridge) becomes active |
+| 1 | Passkey create + get on an arbitrary subdomain | steps 2, 3, 9 `ok:true` | **NO-GO** — stop, back to the architect (a Credential Manager bridge would be the fallback) |
 | 2 | PRF in the WebView | `prfFirst:true` on the claim and the cold unlock of A; probe `prfFirstBytes: 32` | **NO-GO** — same as 1 |
 | 3 | Service Worker | worker activated, controlled after relaunch, offline relaunch renders | NO-GO for this design — architect |
 | 4 | IndexedDB + non-extractable key survive kill and APK update | steps 6 and 8 values true, warm unlock without a prompt | NO-GO for this design — architect |
@@ -213,13 +214,15 @@ and before any *Clear storage*, and paste it into the bead.
 
 GO = 1–4 and 6 pass. If the probes pass (`ok:true`, `prfFirstBytes: 32`)
 but `clientDataOrigin` is the app origin, 1–2 are a platform pass with a
-server prerequisite: the architect files the additive server change (accept
-`android:apk-key-hash:` origins derived from `ANDROID_CERT_SHA256S`, the
-server half of med-nt9p.14) and steps 2 and 9 are re-run on it.
+server prerequisite — the additive server change (accept
+`android:apk-key-hash:` origins derived from `ANDROID_CERT_SHA256S`,
+med-nt9p.14, now in place) — and steps 2 and 9 are re-run on it.
 
 ### Results
 
-Pending a device run — nothing below has been observed yet.
+The first device run (2026-10-18) passed the platform probes and confirmed the
+app origin; its write-up lands here with the re-run of steps 2 and 9
+(med-nt9p.4). Until then the table is unfilled.
 
 | # | Check | Result |
 |---|-------|--------|
