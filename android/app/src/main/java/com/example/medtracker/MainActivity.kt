@@ -160,6 +160,7 @@ class MainActivity : Activity() {
             "Run checks (3, 4, 5 camera, 6)" to { run("checks") },
             "Passkey create + PRF" to { run("create") },
             "Passkey get + PRF" to { run("get") },
+            "Passkey get after 120 s" to { run("get-wait") },
             "File chooser (5)" to { run("file") },
             "Reload page" to { web.reload() },
             "Copy report" to { copyReport() },
@@ -304,7 +305,7 @@ class MainActivity : Activity() {
                         log("$op on $host:\n${done.optString("text")}")
                         panel.visibility = View.VISIBLE
                     }
-                    System.currentTimeMillis() - start > 180_000 -> log("$op on $host: no result in 3 min")
+                    System.currentTimeMillis() - start > 300_000 -> log("$op on $host: no result in 5 min")
                     else -> poll(op, host, id, start)
                 }
             }
