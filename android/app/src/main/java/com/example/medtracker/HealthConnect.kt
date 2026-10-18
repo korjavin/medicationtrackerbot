@@ -34,6 +34,7 @@ import kotlin.reflect.KClass
  *   health.query {type, anchor?, limit?} → {samples, anchor, returned, more}
  *
  * Kinds: "bp" {uuid, start, systolic, diastolic} and "weight" {uuid, start, kg}.
+ * The page stores these as `source: 'apple_health'` on purpose: healthsource.js derives the stable -hk- recordId only for that value — do not "fix" it to a Health Connect source.
  * "sleep" and "workout" (med-nt9p.9) answer an empty page for now.
  *
  * Anchor = "hc1:" + a Health Connect Changes token. No anchor (or an expired
