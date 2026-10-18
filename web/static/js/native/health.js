@@ -28,7 +28,10 @@
     foundation.registerImpl('Health', 'web', {
         isSupported: function () { return false; },
     });
-    foundation.registerImpl('Health', 'ios', {
+    // The Android shell (bd med-nt9p.6) answers the same ops with the same
+    // impl (Health Connect); until its Kotlin side lands (med-nt9p.8) they
+    // reject "unsupported: <op>".
+    var shell = {
         isSupported: function () { return true; },
         requestAuthorization: function (types) {
             return foundation.call('health.authorize', { types: types });
@@ -36,5 +39,7 @@
         query: function (args) {
             return foundation.call('health.query', args);
         },
-    });
+    };
+    foundation.registerImpl('Health', 'ios', shell);
+    foundation.registerImpl('Health', 'android', shell);
 })();

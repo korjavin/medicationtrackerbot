@@ -69,9 +69,88 @@ describe('native/local-notifications.js', () => {
         expect(sent).toEqual([{ op: 'ping', args: {} }, { op: 'nope', args: { a: 1 } }]);
     });
 
-    it('registerImpl still rejects platforms other than web and ios', () => {
+    it('registerImpl still rejects platforms other than web, ios and android', () => {
         const { w } = load();
-        expect(() => w.LocalNotifications.__native.registerImpl('LocalNotifications', 'android', {})).toThrow(/must be "web" or "ios"/);
+        expect(() => w.LocalNotifications.__native.registerImpl('LocalNotifications', 'capacitor', {})).toThrow(/must be "web", "ios" or "android"/);
+    });
+});
+
+// bd med-nt9p.6: inside the Android shell WebView injects the wgNative
+// WebMessageListener as window.wgNative — postMessage(string) out, message
+// events back. The fake answers like MainActivity.kt onBridge.
+function loadAndroid({ ios = false } = {}) {
+    dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://acct.example.test/', runScripts: 'outside-only' });
+    const w = dom.window;
+    const sent = [];
+    const bridge = new w.EventTarget();
+    bridge.postMessage = (data) => {
+        const msg = JSON.parse(data);
+        sent.push(msg);
+        const reply = msg.op === 'ping' ? { id: msg.id, result: 'pong' }
+            : msg.op === 'silent' ? { id: msg.id } : { id: msg.id, error: 'unsupported: ' + msg.op };
+        // Out of order on purpose: replies are matched by id, not arrival.
+        setTimeout(() => bridge.dispatchEvent(new w.MessageEvent('message', { data: JSON.stringify(reply) })), msg.op === 'ping' ? 5 : 0);
+    };
+    w.wgNative = bridge;
+    if (ios) w.webkit = { messageHandlers: { wgNative: { postMessage: () => Promise.resolve('ios') } } };
+    for (const f of FILES) w.eval(fs.readFileSync(f, 'utf8'));
+    return { w, sent };
+}
+
+describe('native/ android platform', () => {
+    it('android: window.wgNative selects android; the shared impls report supported', () => {
+        const { w } = loadAndroid();
+        const native = w.LocalNotifications.__native;
+        expect(native.platform).toBe('android');
+        expect(w.LocalNotifications.isSupported()).toBe(true);
+        expect(w.Health.isSupported()).toBe(true);
+        // The same impl objects as ios, not copies.
+        expect(w.LocalNotifications).toBe(native.getImpl('LocalNotifications', 'ios'));
+        expect(w.Health).toBe(native.getImpl('Health', 'ios'));
+        for (const cap of ['MediaCapture', 'Barcode', 'Bluetooth']) {
+            expect(w[cap]).toBe(native.getImpl(cap, 'web'));
+        }
+    });
+
+    it('android: call() correlates replies by id — result resolves, error rejects', async () => {
+        const { w, sent } = loadAndroid();
+        const call = w.LocalNotifications.__native.call;
+        const ping = call('ping');
+        const nope = call('nope', { a: 1 });
+        const silent = call('silent');
+        await expect(nope).rejects.toThrow('unsupported: nope');
+        await expect(silent).resolves.toBeNull();
+        await expect(ping).resolves.toBe('pong');
+        expect(sent.map((m) => m.op)).toEqual(['ping', 'nope', 'silent']);
+        expect(sent[1].args).toEqual({ a: 1 });
+        expect(new Set(sent.map((m) => m.id)).size).toBe(3);
+    });
+
+    it('android: the notifications.* and health.* ops go over the same bridge', async () => {
+        const { w, sent } = loadAndroid();
+        await w.LocalNotifications.permission().catch(() => {});
+        await w.Health.query({ type: 'bp' }).catch(() => {});
+        expect(sent.map((m) => [m.op, m.args])).toEqual([['notifications.permission', {}], ['health.query', { type: 'bp' }]]);
+    });
+
+    it('ios detection stays first when both bridges are present', () => {
+        const { w } = loadAndroid({ ios: true });
+        expect(w.LocalNotifications.__native.platform).toBe('ios');
+    });
+
+    it('a window.wgNative without the WebMessageListener surface leaves the platform web', () => {
+        dom = new JSDOM('<!doctype html><html><body><div id="wgNative"></div></body></html>', { url: 'https://acct.example.test/', runScripts: 'outside-only' });
+        for (const f of FILES) dom.window.eval(fs.readFileSync(f, 'utf8'));
+        expect(dom.window.LocalNotifications.__native.platform).toBe('web');
+        expect(dom.window.LocalNotifications.isSupported()).toBe(false);
+    });
+
+    it('an <iframe name="wgNative"> (a WindowProxy with postMessage + addEventListener) leaves the platform web', () => {
+        dom = new JSDOM('<!doctype html><html><body><iframe name="wgNative"></iframe></body></html>', { url: 'https://acct.example.test/', runScripts: 'outside-only' });
+        expect(typeof dom.window.wgNative.postMessage).toBe('function'); // the clobber is real
+        for (const f of FILES) dom.window.eval(fs.readFileSync(f, 'utf8'));
+        expect(dom.window.LocalNotifications.__native.platform).toBe('web');
+        expect(dom.window.LocalNotifications.isSupported()).toBe(false);
     });
 });
 

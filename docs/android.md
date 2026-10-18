@@ -153,7 +153,9 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
   `cacheDir/downloads` and asks *Save to device* (`ACTION_CREATE_DOCUMENT`,
   temp file deleted after the copy) or *Share* (FileProvider; the file stays
   until the next download or launch — Android gives no "sheet closed" signal).
-  http(s) attachments go to the system DownloadManager with the page's cookies.
+  https attachments go to the system DownloadManager, with the WebView's
+  cookies only when the host is the account host itself; cleartext http is
+  refused (`AccountUrl.download`, unit-tested).
   `window.print()` prints the page (`createPrintDocumentAdapter`); the
   offscreen-iframe print in `web/cloud/js/print-doc.js` sends the frame's
   document, which prints from its own offscreen WebView (no CSP, no script, no
@@ -162,8 +164,6 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
   when images are accepted and the camera permission is allowed (asked on
   first use). `getUserMedia` camera/mic is granted only to the account
   origin, after the Android runtime prompt.
-- **Not yet:** the native/ `android` platform (med-nt9p.6), so the web
-  app's "Add to Home Screen" nag still shows inside the app until then.
 
 ### The bridge global: `window.wgNative`
 
@@ -177,7 +177,15 @@ strings `{op, args, id}`; when `id` is present the reply posted back to
 `wgNative.onmessage` is `{id, result}` or `{id, error}` (`"forbidden"` for
 any other origin or a subframe, `"unsupported: <op>"` for an unknown op).
 Ops now: `ping` → `"pong"`; `chrome` `{top, bottom}` (the colour report, no
-reply). Capability ops come with med-nt9p.6.
+reply). On the page side `native/index.js` selects the `android` platform
+when `window.wgNative` has `postMessage` + `addEventListener` and is neither a
+Window nor a DOM node (an `<iframe name=wgNative>` must not clobber it; iOS is
+checked first) and `__native.call(op, args)` does the id-correlated round trip;
+`window.LocalNotifications` and `window.Health` install the same impls as on
+iOS, so they report `isSupported()` and the passkey shell's
+Add-to-Home-Screen step is skipped. Their `notifications.*` / `health.*` ops
+reject `"unsupported: <op>"` until med-nt9p.7 / med-nt9p.8 add them to
+`onBridge`.
 
 ### Device check (CI debug APK)
 

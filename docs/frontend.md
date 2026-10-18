@@ -169,15 +169,20 @@ register themselves at script-load time and replace the stub.
 **Platforms** — `native/index.js` is the only place that decides the platform
 (`__native.platform`): `'ios'` when the iOS app shell's `wgNative` reply handler
 exists (`window.webkit.messageHandlers.wgNative`, [`ios/App/Shell.swift`](../ios/App/Shell.swift)),
-`'web'` otherwise. `registerImpl(capability, 'web' | 'ios', impl)` keeps both and
-installs the running platform's impl, falling back to web's — so on web every
-global is exactly the web impl. ios impls reach Swift with
-`__native.call(op, args)`: a promise of the Swift reply, rejected with its error
-string; Swift answers only the account host's main frame. Feature code branches
+else `'android'` when the Android app shell's `WebMessageListener` is injected
+as `window.wgNative` (`postMessage` + `addEventListener`, [docs/android.md](android.md#the-bridge-global-windowwgnative)),
+`'web'` otherwise. `registerImpl(capability, 'web' | 'ios' | 'android', impl)` keeps
+them all and installs the running platform's impl, falling back to web's — so on
+web every global is exactly the web impl. `LocalNotifications` and `Health`
+register the same impl object for `ios` and `android` (same ops); `Attest` is
+ios-only. Shell impls reach native code with `__native.call(op, args)`: a promise
+of the native reply, rejected with its error string (on android `call` correlates
+`{op, args, id}` JSON messages with their `{id, result | error}` replies); the
+shell answers only the account host's main frame. Feature code branches
 on a capability's `isSupported()`, never on the platform. The passkey shell
 (`web/cloud/signup.html`) loads `native/index.js` + `native/local-notifications.js`
 too: `push.js` `isStandalone()` treats a supported `LocalNotifications` as the
-installed app, so the iOS app never shows the Add-to-Home-Screen steps.
+installed app, so neither the iOS nor the Android app shows the Add-to-Home-Screen steps.
 
 **Capability probes** — where a capability may be absent, the check is exposed
 as a method so feature code never re-derives it:
