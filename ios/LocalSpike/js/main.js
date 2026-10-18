@@ -206,7 +206,10 @@ async function checkBridge() {
     // backup (before == reverted == false): check 10 is invalid otherwise.
     const clean = has('before=false set=true reverted=false (reverted == before)') && !has('REVERT MISMATCH') && !has('before=true');
     set('12', clean ? 'PASS' : 'INFO',
-      `${clean ? 'set ok, reverted, origin dir NOT excluded from backup' : 'origin dir excluded from backup or revert failed — check 10 invalid until fixed'}; see native section below`);
+      `${clean ? 'set ok, reverted, origin dir NOT excluded from backup'
+        : has('before=true')
+          ? 'origin dir excluded from backup (left by an older build) — delete the app, reinstall, run again from step 1 (docs/ios.md step 7)'
+          : 'revert failed — check 10 invalid, stop and report'}; see native section below`);
   } catch (e) {
     set('7', 'INFO', `native report unavailable: ${errText(e)}`);
   }

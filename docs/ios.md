@@ -696,8 +696,13 @@ med-w6gx.2 results above were on `https` origins and do not carry over.
    reinstall from TestFlight, reopen: same check.
 7. **Backup flag (12), before step 5:** the native Report's `#12` line must
    read `before=false set=true reverted=false (reverted == before)` — the
-   origin directory is left in the backup. If it shows `before=true` or
-   `REVERT MISMATCH`, stop and report: the backup → restore check is invalid.
+   origin directory is left in the backup. `before=true` is the flag left
+   behind by the build-62 probe, and the probe keeps it on purpose: save the
+   reports so far (the update check 3 already counts), delete the app (it
+   holds only spike data), reinstall the same build from TestFlight and run
+   again from step 1. The fresh container has no flag, so `#12` then reads
+   `before=false`. Only `REVERT MISMATCH`, or `before=true` again on a fresh
+   install, is a stop-and-report: the backup → restore check is invalid.
 8. Paste the reports (Share or the native Report) into the bead; the table
    below is filled from them.
 
