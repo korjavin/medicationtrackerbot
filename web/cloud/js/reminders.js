@@ -266,8 +266,24 @@ function scheduleLocalNotifications(entries, pref, opts) {
   const items = localNotificationItems(entries, pref, undefined, opts);
   localChain = localChain
     .then(() => withTimeout(local.schedule(items), LOCAL_SCHEDULE_TIMEOUT_MS))
-    .catch((e) => console.error('[reminders] local notification schedule failed', e));
+    .then((scheduled) => recordLocalSchedule({ ok: true, items: items.length, scheduled }))
+    .catch((e) => {
+      recordLocalSchedule({ ok: false, items: items.length, error: (e && e.message) || String(e) });
+      console.error('[reminders] local notification schedule failed', e);
+    });
   return localChain;
+}
+
+// The outcome of the last device schedule, for local mode's Settings card
+// (bd med-o7zq.9): { ok: true, items, scheduled } (scheduled = the count the
+// shell replied, ios/App/Notifications.swift schedule) or { ok: false, items,
+// error }. One listener (local-policy.js); the cloud sets none.
+let localScheduleListener = null;
+function recordLocalSchedule(result) {
+  try { localScheduleListener?.({ ...result, at: Date.now() }); } catch { /* a UI listener never fails the schedule */ }
+}
+export function onLocalScheduleResult(fn) {
+  localScheduleListener = fn;
 }
 
 // scheduleReminderRecompute debounces recomputeAndPush per ctx (keyed by

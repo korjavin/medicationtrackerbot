@@ -10,8 +10,8 @@
 // shell serves the assets from the bundle), start any sync, pending queue or
 // relay, or tell a server anything. What it injects in place of the cloud's
 // server-backed effects — reminders on the device only, no RxNav, BYOK hosts
-// to the shell — is local-policy.js (bd med-o7zq.3); Health import and
-// notification ownership are med-o7zq.9.
+// to the shell, Apple Health into the local store — is local-policy.js (bd
+// med-o7zq.3, med-o7zq.9).
 
 // installApiShim's ctx keys the per-account caches (reminder debounce); there is
 // one local "account" per origin and no key material.
@@ -67,7 +67,9 @@ window.MedTrackerCloudReady = (async function boot() {
         // imports can resolve before the parser reaches core/api.js, whose own
         // `window.apiCallDirect = ...` would then overwrite this wrapper.
         await domReady;
-        policy.keepLocalRemindersFresh({ ctx: LOCAL_CTX, records: localRecordsPort(), win: window });
+        const records = localRecordsPort();
+        policy.keepLocalRemindersFresh({ ctx: LOCAL_CTX, records, win: window });
+        policy.startLocalHealthImport({ ctx: LOCAL_CTX, records, win: window });
         const realApiCallDirect = window.apiCallDirect;
         window.apiCallDirect = (endpoint, method, body, opts) => (
             endpoint.startsWith('/api/')

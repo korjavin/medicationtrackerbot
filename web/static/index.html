@@ -499,6 +499,13 @@
                  stays in the document. A row hides when every section of its
                  page is hidden (hideEmptySettingsRows). -->
             <div class="wg-settings-home">
+                <!-- Local-only mode indicator (bd med-o7zq.9). -->
+                <div class="wg-list wg-local-only">
+                    <div class="wg-setting" id="settings-local-mode">
+                        <span class="wg-row__lead"><i class="wg-ico" data-icon="device"></i></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">On this device only</span><span class="wg-setting__desc">No account. Your data is stored only on this iPhone; Backup &amp; import keeps a copy.</span></span>
+                    </div>
+                </div>
                 <div class="wg-list">
                     <button type="button" class="wg-setting" data-settings-open="features">
                         <span class="wg-row__lead"><i class="wg-ico" data-icon="eye"></i></span>
@@ -599,6 +606,18 @@
                         </div>
                     </div>
                     <div id="cloud-reminder-delivery-status" class="wg-settings-webpush-status wg-settings-hidden"></div>
+                </div>
+            </section>
+
+            <!-- Local-only mode (bd med-o7zq.9): settings.js bindLocalNotifications. -->
+            <section class="wg-section wg-local-only">
+                <div class="wg-section__head"><span class="wg-eyebrow">Notifications</span></div>
+                <div class="wg-card wg-vstack">
+                    <p id="local-notify-state" class="wg-settings-webpush-status" role="status" aria-live="polite">Checking notification permission…</p>
+                    <div class="wg-hstack">
+                        <button id="local-notify-enable" type="button" class="wg-btn wg-btn--sm" hidden>Allow notifications</button>
+                        <button id="local-notify-test" type="button" class="wg-btn wg-btn--sm" hidden>Send test notification</button>
+                    </div>
                 </div>
             </section>
 
@@ -1157,6 +1176,17 @@
                         </button>
                     </div>
                     <p id="importexport-inbox-unopenable-note" class="wg-hint" role="status" hidden></p>
+                </section>
+
+                <!-- Local-only mode (bd med-o7zq.9): settings.js bindLocalErase. -->
+                <section id="importexport-local-erase-group" class="wg-section wg-local-only">
+                    <div class="wg-list">
+                        <button id="importexport-local-erase-btn" type="button" class="wg-setting wg-setting--danger">
+                            <span class="wg-row__lead wg-row__lead--danger"><i class="wg-ico" data-icon="trash"></i></span>
+                            <span class="wg-setting__body"><span class="wg-setting__title">Erase data on this device</span><span class="wg-setting__desc">Deletes every record, setting and reminder stored here. A cloud account on this iPhone is not touched.</span></span>
+                        </button>
+                    </div>
+                    <p id="importexport-local-erase-error" class="wg-hint" role="alert" hidden></p>
                 </section>
             </section>
 
