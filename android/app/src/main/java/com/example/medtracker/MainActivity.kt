@@ -80,6 +80,7 @@ class MainActivity : Activity() {
         requestWindowFeature(Window.FEATURE_NO_TITLE)
         // Edge to edge on Android 14 too (targetSdk 35+ only enforces it from 15):
         // layoutBars owns the bar and keyboard insets on every version.
+        @Suppress("DEPRECATION")
         window.setDecorFitsSystemWindows(false)
         @Suppress("DEPRECATION")
         window.statusBarColor = Color.TRANSPARENT
