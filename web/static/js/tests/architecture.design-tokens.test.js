@@ -1435,7 +1435,7 @@ describe('Architecture – Wandergeek tokens', () => {
         const lock = /body:has\(#modal-overlay:not\(\.hidden\)\),\s*body:has\(mt-modal:not\(\.hidden\)\)\s*\{([^}]*)\}/.exec(css);
         expect(lock).not.toBeNull();
         expect(lock[1]).toContain('overflow: hidden');
-        expect(lock[1]).toContain('touch-action: none');
+        expect(lock[1]).toContain('touch-action: pinch-zoom');
         const kit = fs.readFileSync(path.join(REPO_ROOT, 'web/static/css/components.css'), 'utf8');
         expect(/\.wg-sheet__body\{[^}]*overscroll-behavior:contain/.test(kit)).toBe(true);
     });

@@ -976,7 +976,7 @@ h3 {
 body:has(#modal-overlay:not(.hidden)),
 body:has(mt-modal:not(.hidden)) {
     overflow: hidden;
-    touch-action: none;
+    touch-action: pinch-zoom;
 }
 
 /* The Mi-Band modal's paper-white positioning block used to live here; it now
