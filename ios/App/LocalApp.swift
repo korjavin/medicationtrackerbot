@@ -16,13 +16,14 @@ final class LocalApp: NSObject, WKURLSchemeHandler {
             return
         }
         var body: Data?
-        if url.host?.lowercased() == LocalOrigin.host, let rel = LocalOrigin.file(for: url.path.isEmpty ? "/" : url.path) {
+        let rel = url.host?.lowercased() == LocalOrigin.host ? LocalOrigin.file(for: url.path) : nil
+        if let rel {
             let file = root.appendingPathComponent(rel).standardizedFileURL
             if file.path.hasPrefix(root.path + "/") { body = try? Data(contentsOf: file) }
         }
         let hosts = LocalOrigin.validHosts(UserDefaults.standard.array(forKey: LocalOrigin.hostsKey)) ?? []
         let headers = [
-            "Content-Type": body == nil ? "text/plain" : LocalOrigin.mime(url.path == "/" ? "/index.html" : url.path),
+            "Content-Type": body == nil ? "text/plain" : LocalOrigin.mime(rel ?? ""), // MIME of the file served
             "Content-Security-Policy": LocalOrigin.csp(hosts),
             "X-Content-Type-Options": "nosniff",
             "Cache-Control": "no-store",

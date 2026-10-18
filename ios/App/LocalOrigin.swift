@@ -23,6 +23,7 @@ enum LocalOrigin {
     /// document, /static/ and /domain/ their trees, everything else the cloud
     /// shell tree (/js/…, /css/…, /vendor/…). nil: no such file may exist.
     static func file(for path: String) -> String? {
+        let path = path.isEmpty ? "/" : path // a bare wgapp://local is the root
         let parts = path.split(separator: "/", omittingEmptySubsequences: false)
         guard path.hasPrefix("/"), !parts.contains(where: { $0 == ".." || $0 == "." }) else { return nil }
         if path == "/" { return "index.html" }

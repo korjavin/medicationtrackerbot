@@ -603,7 +603,8 @@ IndexedDB never mixes with an account's. Cloud mode is unchanged.
   (`internal/cloudserver/router.go`): the `medtracker-build-id` meta and a
   classic `<script src="/js/local-boot.js">` (the local entry, bd med-o7zq.2;
   `web/cloud/js/local-boot.js`, which must run before every web/static script,
-  as `cloud-boot.js` does). No food-DB URL, no trial flags, no
+  as `cloud-boot.js` does; **after med-o7zq.2** — until it merges the file is
+  absent, CI warns, and local mode boots to a broken page). No food-DB URL, no trial flags, no
   `update-check.js`, no Service Worker.
 - **Serving:** [`LocalApp.swift`](../ios/App/LocalApp.swift), a
   `WKURLSchemeHandler` for `wgapp`, routes like an account host: `/` → the
@@ -615,7 +616,8 @@ IndexedDB never mixes with an account's. Cloud mode is unchanged.
 - **CSP:** every response carries cmd/cloud's policy with `connect-src 'self'`
   plus `https://<host>` for each BYOK provider host the page registered —
   never a wildcard. The header is sent before the page can read its own
-  settings, so the shell keeps a native mirror: the page calls the bridge op
+  settings, so the shell keeps a native mirror: the page (**after
+  med-o7zq.2/.3** — no web code calls it yet, so the list stays empty) calls the bridge op
   `setEgressHosts` with `{hosts: [...]}` (same rules as `PUT
   /api/egress-hosts`: at most 8 bare lowercase DNS names; an invalid list is
   rejected whole and the stored one kept). The reply is `{changed}`; a change
@@ -633,7 +635,9 @@ IndexedDB never mixes with an account's. Cloud mode is unchanged.
   builds turn it on in iPhone Settings → Med Tracker → *Local mode*. *Switch
   account* leaves local mode too; the origin's data is kept either way.
 
-### Device check (TestFlight)
+### Device check (TestFlight, after med-o7zq.2)
+
+Cannot pass before the local entry (bd med-o7zq.2) has merged.
 
 1. Fresh install, airplane mode, Settings → Med Tracker → *Local mode* on →
    open the app: the app renders from the bundle with no network.

@@ -156,8 +156,9 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
 
     // MARK: WKNavigationDelegate
 
-    /// Only the account host and the base domain load in the app; any other
-    /// link opens in Safari (or the app owning its scheme: mailto:, tel:, …).
+    /// Only the account host and the base domain load in the app — in local
+    /// mode only wgapp://local, and any other wgapp URL is cancelled; any
+    /// other link opens in Safari (or the app owning its scheme: mailto:, tel:, …).
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
         guard let url = action.request.url else { return .cancel }
         switch url.scheme?.lowercased() {

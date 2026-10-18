@@ -33,6 +33,8 @@ func route(_ path: String, _ want: String?) {
     precondition(got == want, "\(path): got \(got ?? "nil"), want \(want ?? "nil")")
 }
 route("/", "index.html")
+route("", "index.html") // wgapp://local without the slash
+precondition(LocalOrigin.mime(LocalOrigin.file(for: "")!).hasPrefix("text/html"))
 route("/static/js/core/utils.js", "static/js/core/utils.js")
 route("/domain/bp.js", "domain/bp.js")
 route("/js/apishim.js", "cloud/js/apishim.js")
