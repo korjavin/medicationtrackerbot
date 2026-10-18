@@ -117,11 +117,16 @@ func AttestConfigFromEnv() (AttestConfig, error) {
 
 // AttestAPI serves /api/attest/*.
 type AttestAPI struct {
-	cfg        AttestConfig
-	store      *cloudstore.Repo
-	trial      *TrialProxyAPI
-	ipLimiter  *rateLimiter
-	mu         sync.Mutex
+	cfg       AttestConfig
+	store     *cloudstore.Repo
+	trial     *TrialProxyAPI
+	ipLimiter *rateLimiter
+	mu        sync.Mutex
+	// grantMu serializes DeviceCheck query → insert → bit write: DeviceCheck
+	// tokens differ per call, so two keys from one device racing would both
+	// read bit0 unset. ponytail: one global lock (enrollment is rare and one
+	// instance runs); a multi-instance deploy needs a DB-level lease instead.
+	grantMu    sync.Mutex
 	challenges map[string]time.Time
 	mux        *http.ServeMux
 }
@@ -263,6 +268,8 @@ func (a *AttestAPI) enroll(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_unavailable"})
 		return
 	}
+	a.grantMu.Lock()
+	defer a.grantMu.Unlock()
 	// DeviceCheck bit0 = "this device already had its trial", set at first
 	// grant. Fail CLOSED: the trial is optional, BYOK is unaffected.
 	bit0, bit1, _, err := a.cfg.AppAttest.QueryBits(ctx, req.DeviceToken)
@@ -341,7 +348,9 @@ func (a *AttestAPI) chat(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_budget_unavailable"})
 			return
 		}
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "assertion_invalid"})
+		// Distinct from assertion_invalid: the client's recovery is to enroll
+		// a new key (a lost enroll response needs none — just call this route).
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "install_unknown"})
 		return
 	}
 	// The stored key is only ever one VerifyAttestation returned (enroll), so
@@ -370,6 +379,8 @@ func (a *AttestAPI) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	clampMaxTokens(payload, a.trial.cfg.Provider)
+	// One completion: the token cap is per choice, so n would multiply the bill.
+	delete(payload, "n")
 	subject := cloudstore.AttestSubject(keyID)
 	if !a.trial.rateLimit(w, a.trial.limiter, subject) {
 		return

@@ -789,7 +789,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in-consent',
     activationNote: 'you turn on the trial in Settings → AI & integrations and accept the trial consent; off by default, and off means no request to our server at all',
     byo: 'Add your own AI key and requests go phone-direct to your provider, never through the operator',
-    evidence: ['internal/cloudserver/attest.go:318', 'internal/appattest/devicecheck.go:65'],
+    evidence: ['internal/cloudserver/attest.go:325', 'internal/appattest/devicecheck.go:65'],
     code: { go: ['internal/cloudserver/attest.go'], hosts: ['api.devicecheck.apple.com'] },
     docSignal: null,
     userCopy: {

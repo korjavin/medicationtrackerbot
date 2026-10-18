@@ -249,7 +249,7 @@ func (e *attestEnv) chat(k *ecdsa.PrivateKey, counter uint32, chal, body, signed
 	})
 }
 
-const attestChatBody = `{"model":"x","max_tokens":5000,"messages":[{"role":"user","content":"hi"}]}`
+const attestChatBody = `{"model":"x","n":8,"max_tokens":5000,"messages":[{"role":"user","content":"hi"}]}`
 
 func wantErr(t *testing.T, rec *httptest.ResponseRecorder, status int, code string) {
 	t.Helper()
@@ -281,6 +281,18 @@ func TestAttestEnroll(t *testing.T) {
 	}
 	// Second key on the same device: bit0 already set.
 	wantErr(t, e.enroll(attestKey(t), attestTestAppID, e.challenge(), "tok-1"), http.StatusForbidden, "trial_already_used")
+	// Two new keys from one device racing: exactly one grant.
+	var wg sync.WaitGroup
+	codes := make([]int, 2)
+	for i := range codes {
+		k, c := attestKey(t), e.challenge()
+		wg.Add(1)
+		go func() { defer wg.Done(); codes[i] = e.enroll(k, attestTestAppID, c, "tok-race").Code }()
+	}
+	wg.Wait()
+	if (codes[0] == 200) == (codes[1] == 200) {
+		t.Fatalf("concurrent same-device enroll: %v", codes)
+	}
 	wantErr(t, e.enroll(attestKey(t), "OTHER.ai.example.app", e.challenge(), "tok-2"), http.StatusUnauthorized, "attestation_invalid")
 
 	e.dc.setFail(true)
@@ -306,11 +318,12 @@ func TestAttestChat(t *testing.T) {
 	}
 	var fwd map[string]any
 	_ = json.Unmarshal([]byte(e.lastBody.Load().(string)), &fwd)
-	if fwd["model"] != "trial-model" || fwd["max_tokens"] != float64(attestMaxTokens) {
+	if fwd["model"] != "trial-model" || fwd["max_tokens"] != float64(attestMaxTokens) || fwd["n"] != nil {
 		t.Fatalf("forwarded: %v", fwd)
 	}
 	next := rec.Header().Get("X-Attest-Challenge")
 	wantErr(t, e.chat(k, 2, chal, attestChatBody, attestChatBody), http.StatusBadRequest, "challenge_invalid")
+	wantErr(t, e.chat(attestKey(t), 1, e.challenge(), attestChatBody, attestChatBody), http.StatusUnauthorized, "install_unknown")
 	wantErr(t, e.chat(k, 2, next, `{"messages":[]}`, attestChatBody), http.StatusUnauthorized, "assertion_invalid")
 	wantErr(t, e.chat(k, 1, e.challenge(), attestChatBody, attestChatBody), http.StatusUnauthorized, "assertion_invalid") // counter replay
 	stream := `{"stream":true,"messages":[]}`
