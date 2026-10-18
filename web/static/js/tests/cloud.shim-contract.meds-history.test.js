@@ -284,8 +284,11 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
             // Only the still-due med is offered.
             expect([...list.querySelectorAll('.med-confirm-check')].map((c) => c.textContent)).toEqual([expect.stringContaining('Metformin')]);
 
+            // The post-confirm repaint (loadMeds / loadHistory) would outlive
+            // the env teardown; the state below is read from the shim directly.
+            const refresh = vi.spyOn(window, 'refreshMedsAfterMutation').mockImplementation(() => {});
             document.getElementById('med-confirm-action-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
-            await waitFor(async () => (await stateOf(window)).a === 'TAKEN');
+            await waitFor(() => refresh.mock.calls.length > 0);
 
             expect(await stateOf(window)).toEqual({ a: 'TAKEN', b: 'TAKEN', stockA: 4, stockB: 5 });
         } finally {
