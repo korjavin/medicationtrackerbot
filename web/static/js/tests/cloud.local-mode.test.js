@@ -862,6 +862,8 @@ describe('local-only mode food database through the trial (med-o7zq.20)', () => 
         vi.stubGlobal('fetch', recorder);
         env = loadFrontendEnv();
         env.window.fetch = recorder;
+        // fooddb.js decodes product names with the global document (the page's).
+        vi.stubGlobal('document', env.document);
         env.window.safeToast = vi.fn();
         const bridge = vi.fn(async (op) => (op === 'setEgressHosts' ? { changed: false } : null));
         const notifications = { isSupported: () => false, __native: { platform: 'ios', call: bridge } };
