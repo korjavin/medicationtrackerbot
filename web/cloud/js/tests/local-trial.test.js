@@ -138,6 +138,33 @@ describe('createAttestClient', () => {
     expect(attest.assert.mock.calls[0][0]).toBe('Q0gy');
   });
 
+  it('a late install_unknown for a request signed before an enrollment finished re-signs, never enrolls again', async () => {
+    const attest = fakeAttest();
+    let releaseLate;
+    const late = new Promise((resolve) => { releaseLate = resolve; });
+    // Keyed by body, not arrival order: each request's first try is refused
+    // (the second one only once the first has finished), its retry served.
+    const tries = { '{"a":1}': 0, '{"b":2}': 0 };
+    let n = 0;
+    const fetchImpl = vi.fn(async (url, init) => {
+      const path = new URL(url).pathname;
+      n += 1;
+      if (path === '/api/attest/challenge') return reply(200, { challenge: `Q0g${n}` });
+      if (path === '/api/attest/enroll') return reply(200, { remaining: 200, daily: 50 }, { 'X-Attest-Challenge': 'Q0hh' });
+      tries[init.body] += 1;
+      if (tries[init.body] > 1) return reply(200, { ok: 1 });
+      if (init.body === '{"b":2}') await late;
+      return reply(401, { error: 'install_unknown' });
+    });
+    const client = createAttestClient({ attest, base: BASE, fetchImpl });
+    const first = client.post(CHAT, '{"a":1}');
+    const second = client.post(CHAT, '{"b":2}');
+    expect((await first).status).toBe(200);
+    releaseLate();
+    expect((await second).status).toBe(200);
+    expect(attest.enroll).toHaveBeenCalledTimes(1);
+  });
+
   it('hands a failed challenge fetch back as is (trial_not_configured)', async () => {
     const attest = fakeAttest();
     const { fetchImpl } = fakeServer({

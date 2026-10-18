@@ -73,7 +73,10 @@ export function createAttestClient({
   // no_key retry must share one enrollment. Two would mint two keys, and the
   // second meets DeviceCheck bit0 — trial_already_used for an install that
   // was just granted. Each caller gets its own clone of the one response.
+  // `granted` counts successful enrollments: a request signed before one
+  // finished re-signs with the new key instead of enrolling yet another.
   let enrolling = null;
+  let granted = 0;
   function enroll() {
     if (!enrolling) enrolling = doEnroll().finally(() => { enrolling = null; });
     return enrolling.then((res) => res.clone());
@@ -83,7 +86,7 @@ export function createAttestClient({
     const got = await takeChallenge();
     if (got.res) return got.res;
     const reply = await attest.enroll(got.challenge);
-    return send('/api/attest/enroll', {
+    const res = await send('/api/attest/enroll', {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         key_id: reply.keyId,
@@ -92,20 +95,23 @@ export function createAttestClient({
         device_token: reply.deviceToken,
       }),
     });
+    if (res.ok) granted += 1;
+    return res;
   }
 
   async function signedPost(pathAndQuery, body, signal) {
     // A pending enrollment decides which key signs: wait for it.
     if (enrolling) await enrolling.catch(() => {});
+    const gen = granted;
     const got = await takeChallenge();
-    if (got.res) return { res: got.res };
+    if (got.res) return { res: got.res, gen };
     const digest = new Uint8Array(await subtle.digest('SHA-256', new TextEncoder().encode(`${pathAndQuery}\n${body}`)));
     let signed;
     try {
       signed = await attest.assert(got.challenge, b64(digest));
     } catch (e) {
       challenge = got.challenge; // unused: still good for the enroll
-      if (/no_key/.test(String(e && e.message))) return { needsKey: true };
+      if (/no_key/.test(String(e && e.message))) return { needsKey: true, gen };
       throw e;
     }
     const res = await send(pathAndQuery, {
@@ -118,7 +124,7 @@ export function createAttestClient({
       body,
       signal,
     });
-    return { res };
+    return { res, gen };
   }
 
   // One retry, for what a fresh attempt fixes: a challenge that expired
@@ -135,7 +141,9 @@ export function createAttestClient({
         if (out.res) return out.res;
         throw Object.assign(new Error('The app has no trial key.'), { code: 'no_key' });
       }
-      if (code === 'install_unknown') {
+      // An enrollment that succeeded after this attempt was signed already
+      // gave the shell a granted key: re-sign with it, never mint another.
+      if (code === 'install_unknown' && out.gen === granted) {
         const enrolled = await enroll();
         if (!enrolled.ok) return enrolled;
       }
