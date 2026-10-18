@@ -1,0 +1,153 @@
+name: Android
+
+# No local Android builds (epic med-nt9p): every build, signing and Play upload
+# runs here. Runs ONLY on android/ or this file, or by hand. See docs/android.md.
+# deploy.yml ignores android/** and this file, so Android-only merges never redeploy.
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'android/**'
+      - '.github/workflows/android.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'android/**'
+      - '.github/workflows/android.yml'
+  # Any branch: spike branches ship to Play internal testing from here.
+  workflow_dispatch:
+    inputs:
+      release_status:
+        description: "Play release status (draft until the app's first review clears)"
+        type: choice
+        options: [completed, draft]
+        default: completed
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Only PR runs are superseded; a push must never cancel an in-flight release dispatch.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # The package is public once on Play, so it may show in these (public)
+      # logs. The base domain must not: nothing here reads CLOUD_BASE_DOMAIN,
+      # and the step that first needs it must mask it without echoing it.
+      # Release secrets are NOT job-level: only the dispatch-gated steps get them.
+      ANDROID_PACKAGE: ${{ vars.ANDROID_PACKAGE }}
+      ANDROID_VERSION_CODE: ${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # No committed wrapper: nothing is built locally, so the runner's pinned
+      # Gradle is the only one that ever runs.
+      - uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
+        with:
+          gradle-version: '8.10.2'
+
+      # A stable debug key keeps the debug APK's certificate — and so its
+      # asset-links fingerprint in ANDROID_CERT_SHA256S — the same on every run.
+      # Without it (PRs, before owner setup) Gradle mints a throwaway key: the
+      # APK still installs, passkeys just won't bind to it. PR code never gets
+      # the key: its fingerprint is trusted by the production asset links.
+      - name: Install debug keystore
+        if: github.event_name != 'pull_request'
+        env:
+          ANDROID_DEBUG_KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$ANDROID_DEBUG_KEYSTORE_BASE64" ]; then
+            echo "::notice::ANDROID_DEBUG_KEYSTORE_BASE64 not set — debug APK signed with a per-run key (see docs/android.md)"
+            exit 0
+          fi
+          mkdir -p "$HOME/.android"
+          echo "$ANDROID_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
+
+      - name: Build debug APK and run unit tests
+        working-directory: android
+        run: gradle --no-daemon assembleDebug testDebugUnitTest
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: medtracker-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      # Release only on a manual dispatch, and only once its inputs exist —
+      # until the owner adds them, the run stays green on the build above.
+      # Signing needs the keystore; the Play upload also needs the service
+      # account, so the first AAB (uploaded by hand in Play Console) can be
+      # built before the API access exists.
+      - name: Check release inputs
+        id: release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+          ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+          ANDROID_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.ANDROID_PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          missing=""
+          for v in ANDROID_PACKAGE ANDROID_UPLOAD_KEYSTORE_BASE64 ANDROID_UPLOAD_KEYSTORE_PASSWORD ANDROID_UPLOAD_KEY_ALIAS ANDROID_UPLOAD_KEY_PASSWORD; do
+            [ -n "${!v}" ] || missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "::notice::Release AAB and Play upload skipped — missing:$missing (see docs/android.md)"
+            echo "sign=false" >> "$GITHUB_OUTPUT"
+            echo "upload=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "sign=true" >> "$GITHUB_OUTPUT"
+          if [ -z "$ANDROID_PLAY_SERVICE_ACCOUNT_JSON" ]; then
+            echo "::notice::Play upload skipped — missing: ANDROID_PLAY_SERVICE_ACCOUNT_JSON (the signed AAB is still a run artifact; see docs/android.md)"
+            echo "upload=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "upload=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build signed release AAB
+        if: github.event_name == 'workflow_dispatch' && steps.release.outputs.sign == 'true'
+        working-directory: android
+        env:
+          ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+          ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+        run: |
+          export ANDROID_UPLOAD_KEYSTORE="$RUNNER_TEMP/upload.jks"
+          echo "$ANDROID_UPLOAD_KEYSTORE_BASE64" | base64 --decode > "$ANDROID_UPLOAD_KEYSTORE"
+          trap 'rm -f "$ANDROID_UPLOAD_KEYSTORE"' EXIT
+          gradle --no-daemon bundleRelease
+
+      # Kept for the first, manual Play Console upload of a new app.
+      - name: Upload release AAB
+        if: github.event_name == 'workflow_dispatch' && steps.release.outputs.sign == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: medtracker-release-aab
+          path: android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload to Play internal testing
+        if: github.event_name == 'workflow_dispatch' && steps.release.outputs.upload == 'true'
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.ANDROID_PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: ${{ vars.ANDROID_PACKAGE }}
+          releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
+          track: internal
+          status: ${{ inputs.release_status }}
