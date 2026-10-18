@@ -91,9 +91,11 @@ describe('local-only mode boot + records port (med-o7zq.2)', () => {
         bps = await window.apiCall('/api/bp?days=60');
         expect(bps).toHaveLength(0);
 
-        // Weight (an edit is a replace: POST ?replaces=<id>)
+        // Weight (an edit is what handleWeightSubmit does: POST ?replaces=<id>,
+        // then DELETE the replaced row)
         const w = await window.apiCall('/api/weight', 'POST', { weight: 80 });
         const w2 = await window.apiCall(`/api/weight?replaces=${w.id}`, 'POST', { weight: 79.5 });
+        await window.apiCall(`/api/weight/${w.id}`, 'DELETE');
         let ws = await window.apiCall('/api/weight?days=0&limit=1000');
         expect(ws.map((r) => r.weight)).toEqual([79.5]);
         await window.apiCall(`/api/weight/${w2.id}`, 'DELETE');
