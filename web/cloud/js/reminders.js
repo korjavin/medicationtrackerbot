@@ -186,12 +186,22 @@ export function remindersDomain(ctx, { records: recordsOverride } = {}) {
   return createRemindersDomain({ records: recordsOverride || recordsPort(ctx), now: () => Date.now() });
 }
 
+// opts.relay === false is local-only mode (bd med-o7zq.3, local-policy.js):
+// there is no relay, so nothing is uploaded and the device's own scheduler is
+// the only delivery. The delivery channel is ignored there (an imported cloud
+// vault may say "telegram only", which would schedule nothing), and the bodies
+// follow the verbosity pref, because the lock screen is the only place they
+// show: generic (the default) carries no medication or tracker names.
 export async function recomputeAndPush(ctx, opts = {}) {
   const domain = remindersDomain(ctx, opts);
   const [entries, pref] = await Promise.all([
     computeReminderEntries(ctx, opts),
     domain.getDeliveryPref(),
   ]);
+  if (opts.relay === false) {
+    await scheduleLocalNotifications(entries, { delivery: 'webpush' }, { generic: pref.verbosity === 'generic' });
+    return;
+  }
   // The relay upload is started first and never waits on the device: a slow
   // or hung bridge call must not delay Telegram or the other devices.
   const local = scheduleLocalNotifications(entries, pref);
@@ -213,7 +223,9 @@ const KIND_SECTION = { medication: 'meds', low_stock: 'meds', bp: 'bp', weight: 
 // right after them: the device-side twin of the relay's dry-queue warning
 // (same lapse semantics — the next open refreshes all of it). Telegram-only
 // delivery schedules nothing on the device, as it sends no Web Push on the web.
-export function localNotificationItems(entries, pref = {}, nowUnix = Math.floor(Date.now() / 1000)) {
+// generic: bodies are the entries' name-free genericText (local-only mode's
+// lock-screen privacy pref); otherwise the full text, as in cloud mode.
+export function localNotificationItems(entries, pref = {}, nowUnix = Math.floor(Date.now() / 1000), { generic = false } = {}) {
   if (pref.delivery === 'telegram') return [];
   const items = entries
     .filter((e) => e.fireAtUnix > nowUnix)
@@ -222,7 +234,7 @@ export function localNotificationItems(entries, pref = {}, nowUnix = Math.floor(
     .map((e) => ({
       fireAtUnix: e.fireAtUnix,
       title: 'Med Tracker',
-      body: (e.pushText || e.text || '').replace(/\*\*/g, ''),
+      body: ((generic ? e.genericText : e.pushText) || e.text || '').replace(/\*\*/g, ''),
       section: KIND_SECTION[e.kind] || 'today',
     }));
   if (items.length) {
@@ -246,12 +258,12 @@ function withTimeout(promise, ms) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-function scheduleLocalNotifications(entries, pref) {
+function scheduleLocalNotifications(entries, pref, opts) {
   const local = globalThis.LocalNotifications;
   let supported = false;
   try { supported = local?.isSupported?.() === true; } catch { /* native/ stub: not registered */ }
   if (!supported) return Promise.resolve();
-  const items = localNotificationItems(entries, pref);
+  const items = localNotificationItems(entries, pref, undefined, opts);
   localChain = localChain
     .then(() => withTimeout(local.schedule(items), LOCAL_SCHEDULE_TIMEOUT_MS))
     .catch((e) => console.error('[reminders] local notification schedule failed', e));

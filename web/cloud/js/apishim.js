@@ -159,8 +159,12 @@ function debugOnce(key, ...args) {
 //   opts.effects  overrides the reminder relay side effects
 //                 (scheduleReminderRecompute, sendTestPush, cancelMedRefire,
 //                 cancelReminderRefire); omitted keys keep the cloud ones.
+//   opts.rxnorm   the drug-name lookup port; null turns it off (the domain's
+//                 no-op), which local mode does: the RxNav proxy is the
+//                 operator's (bd med-o7zq.3, local-policy.js).
 export function createApiRouter(ctx, {
   records: recordsOverride, recordsPort: portFactory, effects, win, now: nowOverride, timeZone: timeZoneOverride, origin,
+  rxnorm = createRxnormPort(),
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
   const records = recordsOverride || (portFactory ? portFactory(origin) : recordsPort(ctx, origin));
@@ -199,7 +203,7 @@ export function createApiRouter(ctx, {
     vitals = createVitalsDomain({ records, now, timeZone });
     reminders = createRemindersDomain({ records, now });
     medications = createMedicationsDomain({
-      records, now, timeZone, rxnorm: createRxnormPort(),
+      records, now, timeZone, rxnorm,
     });
     intake = createIntakeDomain({ records, now, timeZone });
     tzplan = createTzPlanDomain({ records, now, timeZone });
@@ -652,6 +656,20 @@ export function createApiRouter(ctx, {
     if (path === '/api/settings/trial-consent') {
       if (method === 'GET') return settings.getTrialConsent();
       if (method === 'PATCH') return settings.setTrialConsent(body);
+    }
+
+    // Reminder delivery pref (bd med-o7zq.3): the /api seam local-only mode's
+    // lock-screen text choice uses (Settings → Reminders & notifications).
+    // Cloud Settings binds the same record through reminders.js directly. A
+    // change reschedules at once: the schedule is a replace-all of bodies
+    // computed up front.
+    if (path === '/api/settings/reminder-delivery') {
+      if (method === 'GET') return reminders.getDeliveryPref();
+      if (method === 'PUT') {
+        const pref = await reminders.setDeliveryPref(body || {});
+        scheduleReminderRecompute(ctx, { records, timeZone }, 0);
+        return pref;
+      }
     }
 
     // The Telegram agent glossary note (bd med-vcv.4): Settings' full-replace
@@ -1476,11 +1494,11 @@ export function createApiRouter(ctx, {
 // now/timeZone are forwarded straight to createApiRouter (both routers, so the
 // two agree on the clock) — the same test-only override it documents, reachable
 // from the shim-contract harness so a suite can pin the wall clock.
-// recordsPort/effects are createApiRouter's local-mode swaps, forwarded to both
-// routers; registerEgress replaces the server-side egress allowlist upload
-// (local mode has no server to tell — the scheme handler serves its own CSP).
+// recordsPort/effects/rxnorm are createApiRouter's local-mode swaps, forwarded
+// to both routers; registerEgress replaces the server-side egress allowlist
+// upload (local mode tells the iOS shell instead, which serves its own CSP).
 export function installApiShim(ctx, {
-  records, recordsPort: portFactory, effects, registerEgress = registerEgressHosts,
+  records, recordsPort: portFactory, effects, rxnorm, registerEgress = registerEgressHosts,
   win, now: nowOverride, timeZone: timeZoneOverride,
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
@@ -1497,8 +1515,9 @@ export function installApiShim(ctx, {
   //
   // A test's injected `records` port carries its own origin and is shared by
   // both, which keeps the harness a drop-in swap.
+  // rxnorm: undefined takes the router's default port; null turns it off.
   const shared = {
-    recordsPort: portFactory, effects, now: nowOverride, timeZone: timeZoneOverride, win,
+    recordsPort: portFactory, effects, rxnorm, now: nowOverride, timeZone: timeZoneOverride, win,
   };
   const shimCall = createApiRouter(ctx, { records, origin: ORIGIN_UI, ...shared });
   const bgCall = records ? shimCall : createApiRouter(ctx, { origin: ORIGIN_EXTERNAL, ...shared });

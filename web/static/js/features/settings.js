@@ -700,6 +700,28 @@ function bindRerunOnboarding() {
     });
 }
 
+// Local-only mode's lock-screen reminder text (bd med-o7zq.3): the
+// verbosity half of the vault's reminder delivery pref, through the shim
+// (GET/PUT /api/settings/reminder-delivery), which reschedules on a change.
+// The select is its own optimistic state; a failed save puts it back.
+let _localReminderTextBound = false; // module-state: bind the select once across repeated loadSettings() calls
+async function bindLocalReminderText() {
+    const sel = document.getElementById('local-reminder-verbosity');
+    if (!sel) return;
+    const pref = await apiCall('/api/settings/reminder-delivery', 'GET');
+    if (pref && pref.verbosity) sel.value = pref.verbosity;
+    sel.dataset.saved = sel.value;
+    if (_localReminderTextBound) return;
+    _localReminderTextBound = true;
+    sel.addEventListener('change', async () => {
+        sel.disabled = true;
+        const res = await apiCall('/api/settings/reminder-delivery', 'PUT', { verbosity: sel.value });
+        if (res && res.verbosity) sel.dataset.saved = res.verbosity;
+        sel.value = sel.dataset.saved;
+        sel.disabled = false;
+    });
+}
+
 // Load settings (BP reminders status, etc.)
 async function loadSettings() {
     // Ungated: the first-run overlay ships in the server, cloud, and mobile
@@ -722,6 +744,8 @@ async function loadSettings() {
         bindDeleteAccount();
         bindCloudInvite();
     }
+    // Local-only mode (web/cloud/js/local-boot.js sets the class).
+    if (document.documentElement.classList.contains('wg-local-vault')) bindLocalReminderText();
     const applyBundle = async (rawBundle) => {
         const bundle = window.AuthBootstrap.normalizeSettingsBundle(rawBundle);
         window.SettingsState.applyBootstrapFeatures(bundle.featureSettings);
@@ -923,9 +947,11 @@ function hideEmptySettingsRows() {
 }
 
 // A section counts as hidden when any of its gating mechanisms has hidden it:
-// the wg-settings-hidden / hidden class toggles or the [hidden] attribute.
+// the wg-settings-hidden / hidden class toggles, the [hidden] attribute, or the
+// local-only mode classes (styles.css, bd med-o7zq.3).
 function isSettingsSectionHidden(s) {
-    return s.matches('.wg-settings-hidden, .hidden, [hidden]');
+    return s.matches('.wg-settings-hidden, .hidden, [hidden], '
+        + ':root.wg-local-vault .wg-cloud-only, :root:not(.wg-local-vault) .wg-local-only');
 }
 
 function setSettingsSummary(name, text) {

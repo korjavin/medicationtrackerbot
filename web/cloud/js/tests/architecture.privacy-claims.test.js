@@ -260,6 +260,7 @@ describe('privacy manifest is well-formed (med-yor.4)', () => {
         expect(Object.keys(ACTIVATION), `${entry.id}.activation`).toContain(entry.activation);
         expect(Object.keys(OPERATOR_VISIBILITY), `${entry.id}.operatorVisibility`).toContain(entry.operatorVisibility);
         expect(Array.isArray(entry.code?.go) && Array.isArray(entry.code?.hosts), `${entry.id}.code must be {go:[], hosts:[]}`).toBe(true);
+        expect([undefined, 'local'], `${entry.id}.mode`).toContain(entry.mode);
       });
 
       // THE hole the old convention had: an entry with no machine-checkable
@@ -389,7 +390,9 @@ describe('docs and in-app copy are generated from the manifest (med-yor.4)', () 
   it('the in-app privacy page is derived, not hand-written', () => {
     const src = fs.readFileSync(path.join(REPO_ROOT, 'web/cloud/js/privacy.js'), 'utf8');
     expect(src, 'privacy.js must derive PRIVACY_ITEMS from the manifest').toContain('PRIVACY_MANIFEST');
-    const withCopy = PRIVACY_MANIFEST.filter((e) => e.userCopy);
+    // The iOS local-mode rows (mode: 'local') are not the cloud account's page.
+    const withCopy = PRIVACY_MANIFEST.filter((e) => e.userCopy && e.mode !== 'local');
+    expect(PRIVACY_MANIFEST.some((e) => e.mode === 'local')).toBe(true);
     expect(PRIVACY_ITEMS.length).toBe(withCopy.length);
     expect(PRIVACY_ITEMS.map((i) => i.id)).toEqual(withCopy.map((e) => e.id));
   });
