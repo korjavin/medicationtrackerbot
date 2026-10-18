@@ -744,12 +744,31 @@ async function refreshLocalNotifyState() {
     }
     enable.hidden = permission !== 'default';
     test.hidden = permission !== 'granted';
-    state.textContent = {
-        granted: 'Reminders are on for this iPhone.',
-        denied: `Reminders are off: notifications are blocked for Med Tracker. Turn them on in ${IOS_NOTIFICATION_SETTINGS}.`,
-        default: 'Reminders are off until you allow notifications.',
-        unsupported: 'Reminders need the Med Tracker iPhone app.',
-    }[permission] || 'Could not read the notification permission. Reopen the app and try again.';
+    const [text, tone] = localNotifyText(permission, window.CloudVault?.lastReminderSchedule?.() || null);
+    state.textContent = text;
+    state.classList.toggle('status-success', tone === 'success');
+    state.classList.toggle('status-error', tone === 'error');
+}
+
+// "On" needs both the iOS permission and a device schedule that took
+// (local-policy.js lastReminderSchedule: { ok, items, scheduled } or
+// { ok: false, error }). Returns [text, tone].
+function localNotifyText(permission, last) {
+    const retry = 'Reopen the app to try again.';
+    if (permission === 'granted') {
+        if (!last) return ['Notifications are allowed. Scheduling reminders…', null];
+        if (!last.ok) return [`Reminders couldn't be scheduled: ${last.error}. ${retry}`, 'error'];
+        if (last.items > 0 && !(last.scheduled > 0)) {
+            return [`Reminders couldn't be scheduled: iOS accepted none of them. ${retry}`, 'error'];
+        }
+        return ['Reminders are on for this iPhone.', 'success'];
+    }
+    if (permission === 'denied') {
+        return [`Reminders are off: notifications are blocked for Med Tracker. Turn them on in ${IOS_NOTIFICATION_SETTINGS}.`, 'error'];
+    }
+    if (permission === 'default') return ['Reminders are off until you allow notifications.', null];
+    if (permission === 'unsupported') return ['Reminders need the Med Tracker iPhone app.', null];
+    return [`Could not read the notification permission. ${retry}`, 'error'];
 }
 
 async function bindLocalNotifications() {
@@ -783,6 +802,8 @@ async function bindLocalNotifications() {
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') refreshLocalNotifyState();
         });
+        // local-policy.js SCHEDULED_EVENT: every device schedule attempt.
+        document.addEventListener('wg:local-reminders-scheduled', () => { refreshLocalNotifyState(); });
     }
     await refreshLocalNotifyState();
 }

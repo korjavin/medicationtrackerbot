@@ -386,8 +386,19 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         vi.stubGlobal('fetch', recorder);
         env = loadFrontendEnv();
         env.window.fetch = recorder;
+        // Mirrors the shell's real contract. window.LocalNotifications is
+        // web/static/js/native/local-notifications.js (ios impl), each method one
+        // wgNative op answered in ios/App/Notifications.swift handle():
+        //   permission() / requestPermission() → notifications.permission /
+        //     .requestPermission → 'granted' | 'denied' | 'default'
+        //   schedule(items) → notifications.schedule {items} → Int, how many it
+        //     added (0 without permission; it adds at most 64)
+        //   test() → notifications.test → true
+        // __native.call is native/index.js call(op, args), answered in
+        // ios/App/Shell.swift: setEgressHosts {hosts} → {changed},
+        // local.reset → true.
         bridge = vi.fn(async (op) => (op === 'setEgressHosts' ? { changed: false } : true));
-        schedule = vi.fn(async () => 0);
+        schedule = vi.fn(async (items) => (permission === 'granted' ? Math.min(items.length, 64) : 0));
         permission = 'default';
         const notifications = {
             isSupported: () => true,
@@ -459,6 +470,36 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         await window.refreshLocalNotifyState();
         expect(state.textContent).toContain('iOS Settings');
         expect(enable.hidden).toBe(true);
+        expect(offDevice()).toEqual([]);
+    });
+
+    it('a failed device schedule shows on the card, and "on" waits for one that took', async () => {
+        const { window, document } = env;
+        permission = 'granted';
+        await window.bindLocalNotifications();
+        const state = document.getElementById('local-notify-state');
+        const front = () => document.dispatchEvent(new window.Event('visibilitychange'));
+
+        // The bridge rejects (a UNUserNotificationCenter add threw).
+        schedule.mockRejectedValueOnce(new Error('The operation couldn’t be completed'));
+        front();
+        await vi.waitFor(() => expect(state.textContent).toContain("Reminders couldn't be scheduled: The operation couldn’t be completed"));
+        expect(state.classList.contains('status-error')).toBe(true);
+
+        // Granted, reminders to set, but iOS took none of them.
+        await window.apiCall('/api/medications', 'POST', {
+            name: 'Metformin', dosage: '500mg', schedule: JSON.stringify({ type: 'daily', times: ['09:00'] }),
+        });
+        cancelReminderRecompute({ accountId: 'local' });
+        schedule.mockResolvedValueOnce(0);
+        front();
+        await vi.waitFor(() => expect(state.textContent).toContain('iOS accepted none of them'));
+
+        // The next schedule takes: now it is on.
+        front();
+        await vi.waitFor(() => expect(state.textContent).toBe('Reminders are on for this iPhone.'));
+        expect(state.classList.contains('status-success')).toBe(true);
+        expect(state.classList.contains('status-error')).toBe(false);
         expect(offDevice()).toEqual([]);
     });
 

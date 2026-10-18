@@ -20,7 +20,9 @@
 //               sets before the body parses.
 //
 // Privacy disclosure: the local-* rows in privacy-manifest.js.
-import { scheduleReminderRecompute, recomputeAndPush } from './reminders.js';
+import {
+  scheduleReminderRecompute, recomputeAndPush, onLocalScheduleResult,
+} from './reminders.js';
 import { hostsFromIntegrations } from './egress-hosts.js';
 import { readAllLocalRecords } from './sync.js';
 import { recordsToVault } from '../../domain/vault.js';
@@ -31,6 +33,10 @@ import { clearLocalVault } from './account-delete.js';
 // granted, so the schedule lands now instead of on the next open. settings.js
 // is a classic script and spells the name out; the integration test pins both.
 const RESCHEDULE_EVENT = 'wg:local-reminders-reschedule';
+// Fired on the document after every device schedule attempt (detail: the
+// result, as lastReminderSchedule returns it); settings.js spells it out too.
+const SCHEDULED_EVENT = 'wg:local-reminders-scheduled';
+let lastSchedule = null;
 
 function localNotifications() {
   const local = globalThis.LocalNotifications;
@@ -59,10 +65,23 @@ export const LOCAL_EFFECTS = {
 // keep reminders running") is the only refill, so every open and every return
 // to the front reschedules, as cloud-boot.js does. Not the debounced
 // scheduler: a quick close would drop its timer (bd med-9y9). Never on the web.
+//
+// Every outcome — each device schedule (reminders.js), or a recompute that
+// failed before reaching it — is kept for Settings → Notifications
+// (LOCAL_VAULT.lastReminderSchedule) and announced as SCHEDULED_EVENT, so a
+// failure is on screen, not only in the console.
 export function keepLocalRemindersFresh({ ctx, records, win }) {
   if (!localNotifications()) return;
+  const publish = (result) => {
+    lastSchedule = result;
+    win.document.dispatchEvent(new win.CustomEvent(SCHEDULED_EVENT, { detail: result }));
+  };
+  onLocalScheduleResult(publish);
   const run = () => recomputeAndPush(ctx, { records, relay: false })
-    .catch((e) => console.error('[local] reminder reschedule failed', e));
+    .catch((e) => {
+      publish({ ok: false, error: (e && e.message) || String(e), at: Date.now() });
+      console.error('[local] reminder reschedule failed', e);
+    });
   run();
   win.document.addEventListener('visibilitychange', () => {
     if (win.document.visibilityState === 'visible') run();
@@ -110,6 +129,11 @@ export const LOCAL_VAULT = {
   async exportAll({ includeSecrets = true } = {}) {
     const records = await readAllLocalRecords();
     return JSON.stringify(recordsToVault(records, { now: Date.now(), includeSecrets }), null, 2);
+  },
+  // The last device schedule outcome (keepLocalRemindersFresh), null before
+  // the first: Settings → Notifications reads it with the iOS permission.
+  lastReminderSchedule() {
+    return lastSchedule;
   },
   // Settings → Backup → Erase data on this device (bd med-o7zq.9). Everything
   // here is this origin's own storage — the records, the frontend caches,

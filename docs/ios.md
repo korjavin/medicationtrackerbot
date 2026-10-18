@@ -663,7 +663,11 @@ IndexedDB never mixes with an account's. Cloud mode is unchanged.
 - **Notifications** (local mode): Settings → Reminders & notifications →
   Notifications shows the iOS permission state, asks for it (*Allow
   notifications*), says where to turn it on when it is denied, and sends a
-  test. Allowing it reschedules at once.
+  test. Allowing it reschedules at once. It says "on" only when the
+  permission is granted AND the last device schedule took; a failed schedule
+  (bridge error, the 10 s timeout, or iOS adding none of the reminders) is
+  shown there with its reason (`reminders.js` → `local-policy.js`
+  `lastReminderSchedule` / `wg:local-reminders-scheduled`).
 - **Apple Health** (local mode): the same Settings row and import run as the
   cloud (`health-import.js`), writing into the on-device store with no flush,
   then rescheduling reminders (`startLocalHealthImport`).
