@@ -842,10 +842,14 @@ const IMPORT_BUMP_RECORD_ID = '__vault_import_bump__';
 // fired (peers stuck on stale data for up to SNAPSHOT_THRESHOLD ops). So set a
 // durable forceSnapshotPending marker first and drive the actual work through
 // tryForceSnapshot, which pullOnOpen also re-runs (before any pull) every open
-// until the snapshot lands.
+// until the snapshot lands. Resolves true only when the snapshot is on the
+// server (marker cleared, no recorded error): tryForceSnapshot swallows
+// offline and rejected uploads, so its return says nothing (bd med-o7zq.6).
 export async function forceSnapshot(ctx) {
   await markForceSnapshotPending();
   await tryForceSnapshot(ctx);
+  const meta = await readMeta();
+  return !meta.forceSnapshotPending && !meta.snapshotError;
 }
 
 // Set the durable marker BEFORE the destructive replaceAllRecords. Between the

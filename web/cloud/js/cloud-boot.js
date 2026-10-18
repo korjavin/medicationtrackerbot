@@ -219,8 +219,7 @@ window.MedTrackerCloudReady = (async function boot() {
             // import (bd med-o7zq.6): a move from another device must not be
             // called done while the only durable copy is still elsewhere.
             try {
-                await forceSnapshot(ctx);
-                return { synced: true };
+                return { synced: await forceSnapshot(ctx) };
             } catch (err) {
                 console.warn('[cloud] import applied locally; sync to other devices deferred', err);
                 return { synced: false };
