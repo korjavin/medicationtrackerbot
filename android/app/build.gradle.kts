@@ -10,6 +10,8 @@ val appPackage = providers.environmentVariable("ANDROID_PACKAGE").orNull?.takeIf
     ?: "com.example.medtracker"
 val versionCodeEnv = providers.environmentVariable("ANDROID_VERSION_CODE").orNull?.toIntOrNull() ?: 1
 val uploadKeystore = providers.environmentVariable("ANDROID_UPLOAD_KEYSTORE").orNull
+// CI decodes the stable debug key here; unset (PRs, local) keeps the default debug key.
+val debugKeystore = providers.environmentVariable("ANDROID_DEBUG_KEYSTORE").orNull?.takeIf { it.isNotBlank() }
 
 android {
     // The code package; applicationId (the Play identity) comes from the env.
@@ -29,6 +31,15 @@ android {
     // ~/.android/debug.keystore, which CI fills from a secret so the debug
     // certificate (and its asset-links fingerprint) is stable across runs.
     signingConfigs {
+        // Explicit path: AGP's ~/.android lookup is not reliable on the runner.
+        if (debugKeystore != null) {
+            getByName("debug") {
+                storeFile = file(debugKeystore)
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
         if (uploadKeystore != null) {
             create("upload") {
                 storeFile = file(uploadKeystore)
