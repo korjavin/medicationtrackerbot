@@ -22,6 +22,10 @@ on:
         type: choice
         options: [completed, draft]
         default: completed
+      publish_apk_release:
+        description: "Also publish the upload-key-signed APK as a GitHub pre-release (friends' sideload link)"
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -130,7 +134,7 @@ jobs:
           export ANDROID_UPLOAD_KEYSTORE="$RUNNER_TEMP/upload.jks"
           echo "$ANDROID_UPLOAD_KEYSTORE_BASE64" | base64 --decode > "$ANDROID_UPLOAD_KEYSTORE"
           trap 'rm -f "$ANDROID_UPLOAD_KEYSTORE"' EXIT
-          gradle --no-daemon bundleRelease
+          gradle --no-daemon bundleRelease assembleRelease
 
       # Kept for the first, manual Play Console upload of a new app.
       - name: Upload release AAB
@@ -139,6 +143,17 @@ jobs:
         with:
           name: medtracker-release-aab
           path: android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 7
+
+      # The same release build as an installable APK (signed with the upload
+      # key); the optional release job below publishes it for friends.
+      - name: Upload release APK
+        if: github.event_name == 'workflow_dispatch' && steps.release.outputs.sign == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: medtracker-release-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 7
 
@@ -151,3 +166,26 @@ jobs:
           releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
           track: internal
           status: ${{ inputs.release_status }}
+
+  # Friends' sideload link. Separate job so only this one gets contents: write,
+  # and only on a dispatch that asked for it; PR/push runs never reach it.
+  release-apk:
+    needs: build
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_apk_release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: medtracker-release-apk
+      - name: Publish GitHub pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: android-v0.1.${{ github.run_number }}
+        run: |
+          gh release create "$TAG" app-release.apk#medtracker.apk \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "Android $TAG (sideload)" \
+            --notes "Sideload build, not from Play. Install steps: docs/android.md (Friends: install the APK)."

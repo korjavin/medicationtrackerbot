@@ -230,3 +230,70 @@ Pending a device run — nothing below has been observed yet.
 | 7 | Android build, WebView version, passkey landed in GPM? | pending device run |
 
 **Verdict:** pending device run.
+
+## Reviewer access (bd med-nt9p.12)
+
+The app is invite-only and unlocks only with a passkey bound to the account's
+own subdomain, so there is no username or password to hand over. Reuse the
+iOS runbook in [ios.md → Reviewer access](ios.md#reviewer-access) unchanged:
+mint a sacrificial link plus three fresh ones with `./cloud admin invite` in
+the real production container (Portainer exec), dry-run the sacrificial one,
+check the other three with `register/begin`, re-mint or `reset-claim` on delay
+or resubmission, clean up after the review is final. Claim URLs, recovery
+codes and the owner's account never go in this repo.
+
+**Play Console → App content → App access** ("All or some functionality is
+restricted"; add instructions). Suggested wording, with the links filled in
+privately:
+
+> Med Tracker is invite-only; accounts have no password. Open the app, paste
+> invite link A into the first-run screen and create a passkey on this device
+> (Google Password Manager; a screen lock is required). The account starts
+> empty. Link B is for testing account deletion (Settings → Account &
+> privacy → Delete my account); link C is a spare, for a new device or a
+> reinstall. Suggested walk-through: add a medication, record a dose and a
+> blood-pressure reading, open History, enable reminders. Health Connect
+> import needs data in the reviewer device's Health Connect. Contact for a new
+> link: <phone/email answered within a day>.
+
+Links expire 14 days after minting if unclaimed; mint just before
+submission.
+
+## Friends: install the APK
+
+Before (or without) Play, friends sideload the release build. It is signed
+with the **upload key**, so that key's SHA-256 must be listed in
+`ANDROID_CERT_SHA256S` on the cloud (next to the debug key and Play's App
+Signing key), or passkeys will not bind to the app:
+`keytool -list -v -keystore upload.jks | grep SHA256`. Never commit it.
+
+Owner, per build: Actions → **Android** → Run workflow → pick the branch →
+tick *publish_apk_release*. Needs the upload-key secrets (without them the run
+skips the release build and names what is missing). The run publishes a GitHub
+pre-release `android-v0.1.<run>` with `medtracker.apk`; send friends its link
+and an invite from `./cloud admin invite`.
+
+Friend, on an Android 14+ phone:
+
+1. Open the release link and download `medtracker.apk`.
+2. Allow *Install unknown apps* for the browser or Files app when prompted,
+   then open the APK and install.
+3. Open Med Tracker, paste the invite link, create the passkey.
+
+A Play install and this APK share the package but not the signature:
+uninstall one before installing the other (the vault is on the server and
+unlocks again with the passkey, but local-mode data would be lost). Updating
+means installing the newer release over the old one.
+
+## Known limitations
+
+- **OEM background killers.** Xiaomi, Huawei, Oppo, Samsung and others may kill
+  the app or drop its exact alarms; reminders can then arrive late or not at
+  all. Allow unrestricted battery use and, where offered, autostart for the app
+  (see dontkillmyapp.com for the per-vendor steps).
+- **No Google Play services, no passkey PRF.** The vault key derives from the
+  passkey PRF, which the Credential Manager provides only with Google Play
+  services and a passkey provider (Google Password Manager or another).
+  Devices without them (some de-Googled and Huawei phones) cannot create or
+  unlock an account in the app.
+- Minimum Android 14 (API 34).
