@@ -112,23 +112,32 @@ function localNotificationsSupported() {
     }
 }
 
-const IOS_NOTIFICATION_SETTINGS = 'iOS Settings → Med Tracker → Notifications';
+// Device wording comes off the capability (native/local-notifications.js);
+// the fallbacks are the iOS copy, so iOS and fixtures without `copy` are unchanged.
+function nativeCopy() {
+    const c = window.LocalNotifications?.copy;
+    return {
+        os: c?.os || 'iOS',
+        device: c?.device || 'iPhone',
+        settingsPath: c?.settingsPath || 'iOS Settings → Med Tracker → Notifications',
+    };
+}
 
 async function toggleLocalNotifications(toggleBtn, status) {
     if (toggleBtn.dataset.subscribed === '1') {
         // An app cannot revoke its own permission; iOS Settings can.
-        applyWebpushStatus(status, `To turn reminders off on this iPhone, use ${IOS_NOTIFICATION_SETTINGS}.`, 'muted');
+        applyWebpushStatus(status, `To turn reminders off on this ${nativeCopy().device}, use ${nativeCopy().settingsPath}.`, 'muted');
         return;
     }
     const permission = await window.LocalNotifications.requestPermission();
     if (permission !== 'granted') {
-        applyWebpushStatus(status, `Notifications are off for Med Tracker. Turn them on in ${IOS_NOTIFICATION_SETTINGS}.`, 'error');
+        applyWebpushStatus(status, `Notifications are off for Med Tracker. Turn them on in ${nativeCopy().settingsPath}.`, 'error');
         return;
     }
     const ctx = window.MedTrackerCloud?.ctx;
     if (ctx) {
         const { recomputeAndPush } = await loadCloudRemindersModule();
-        // Schedules this iPhone's reminders now; a failed relay upload (offline)
+        // Schedules this device's reminders now; a failed relay upload (offline)
         // does not unschedule them, so it is not this toggle's failure.
         await recomputeAndPush(ctx).catch(() => {});
     }
@@ -759,15 +768,15 @@ function localNotifyText(permission, last) {
         if (!last) return ['Notifications are allowed. Scheduling reminders…', null];
         if (!last.ok) return [`Reminders couldn't be scheduled: ${last.error}. ${retry}`, 'error'];
         if (last.items > 0 && !(last.scheduled > 0)) {
-            return [`Reminders couldn't be scheduled: iOS accepted none of them. ${retry}`, 'error'];
+            return [`Reminders couldn't be scheduled: ${nativeCopy().os} accepted none of them. ${retry}`, 'error'];
         }
-        return ['Reminders are on for this iPhone.', 'success'];
+        return [`Reminders are on for this ${nativeCopy().device}.`, 'success'];
     }
     if (permission === 'denied') {
-        return [`Reminders are off: notifications are blocked for Med Tracker. Turn them on in ${IOS_NOTIFICATION_SETTINGS}.`, 'error'];
+        return [`Reminders are off: notifications are blocked for Med Tracker. Turn them on in ${nativeCopy().settingsPath}.`, 'error'];
     }
     if (permission === 'default') return ['Reminders are off until you allow notifications.', null];
-    if (permission === 'unsupported') return ['Reminders need the Med Tracker iPhone app.', null];
+    if (permission === 'unsupported') return [`Reminders need the Med Tracker ${nativeCopy().device} app.`, null];
     return [`Could not read the notification permission. ${retry}`, 'error'];
 }
 

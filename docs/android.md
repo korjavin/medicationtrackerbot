@@ -131,6 +131,12 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
 - **Switch account:** long-press the launcher icon → *Switch account*; also on
   the load-error screen. WebView data is per origin and is kept, so switching
   back still finds offline data and warm unlock.
+- **Use another invite** (bd med-nt9p.20): while the page is a ceremony
+  (`/unlock`, `/claim`, `/recover` — `AccountUrl.isCeremony`), a native bar
+  below the page offers "Not your account? Use another invite"; after a
+  confirmation it does Switch account. A bad or already-claimed invite
+  otherwise has no way back (the host is stored the moment the link parses).
+  Passive: a returning user unlocks as before.
 - **Chrome:** edge to edge; the bands behind the status and navigation bars
   take the page's own background colour at its top and bottom edge (a
   document-start script, [`assets/chrome.js`](../android/app/src/main/assets/chrome.js),
@@ -178,15 +184,91 @@ strings `{op, args, id}`; when `id` is present the reply posted back to
 `wgNative.onmessage` is `{id, result}` or `{id, error}` (`"forbidden"` for
 any other origin or a subframe, `"unsupported: <op>"` for an unknown op).
 Ops now: `ping` → `"pong"`; `chrome` `{top, bottom}` (the colour report, no
-reply). On the page side `native/index.js` selects the `android` platform
+reply); `health.authorize` / `health.query` (below). On the page side `native/index.js` selects the `android` platform
 when `window.wgNative` has `postMessage` + `addEventListener` and is neither a
 Window nor a DOM node (an `<iframe name=wgNative>` must not clobber it; iOS is
 checked first) and `__native.call(op, args)` does the id-correlated round trip;
 `window.LocalNotifications` and `window.Health` install the same impls as on
 iOS, so they report `isSupported()` and the passkey shell's
-Add-to-Home-Screen step is skipped. Their `notifications.*` / `health.*` ops
-reject `"unsupported: <op>"` until med-nt9p.7 / med-nt9p.8 add them to
-`onBridge`.
+Add-to-Home-Screen step is skipped. Their `notifications.*` and `health.*`
+ops are answered (below).
+
+### Reminders: local notifications (bd med-nt9p.7)
+
+WebView has no Web Push, so reminders are exact local alarms from the
+client-computed horizon — the twin of iOS
+([`Notifications.kt`](../android/app/src/main/java/com/example/medtracker/Notifications.kt),
+[`ios/App/Notifications.swift`](../ios/App/Notifications.swift)). No web or
+server change, no FCM. The page (`web/cloud/js/reminders.js`) sends the same
+replace-all list it sends on iOS — at most 64 rows `{fireAtUnix, title, body,
+section}`, the last one the "Open the app to keep reminders running" notice.
+
+- **Ops:** `notifications.permission` / `requestPermission` → `granted`
+  only when **both** grants exist, else `default` (or `denied` once the
+  notification prompt was refused); `schedule {items}` → how many alarms are
+  armed; `test` → one notification now.
+- **Enable** (Settings → Notifications) walks both system grants: the
+  `POST_NOTIFICATIONS` prompt (or the app's notification settings once it was
+  refused), then *Alarms & reminders* (`ACTION_REQUEST_SCHEDULE_EXACT_ALARM`;
+  `SCHEDULE_EXACT_ALARM` is off by default for new installs on Android 14+).
+  The reply waits until the user is back from each screen. `USE_EXACT_ALARM`
+  is not used (Play keeps it for alarm and calendar apps).
+- **Schedule** cancels the previous alarms, stores the rows in app-private
+  storage (plaintext, like iOS's pending requests; capped at 200) and arms
+  **one** `setExactAndAllowWhileIdle` alarm at the next row; when it fires it
+  posts every row now due and arms the next. Doze rate-limits allow-while-idle
+  alarms per app, so same-time reminders share one wake and a late wake still
+  posts what it missed (rows missed by over an hour, e.g. while the phone was
+  off, are dropped). Without both grants it stores the rows and arms nothing;
+  granting *Alarms & reminders* later arms them, as do a reboot and an app
+  update (alarms survive neither). Notifications post on the high-importance
+  **Reminders** channel; switching that channel off counts as `denied`, and
+  Enable opens its settings.
+- **Tap** opens the reminder's section (`/?tab=<section>`, stable ids), in the
+  open page or by loading the account on it. Switching account clears the
+  previous account's alarms; the newly opened page schedules its own.
+- **Not in v1:** Confirm/Snooze actions. The web copy around the toggle still
+  says iPhone/iOS Settings.
+
+### Health Connect import (bd med-nt9p.8)
+
+The twin of the Apple Health import ([ios.md](ios.md)): Health Connect → the
+page → the encrypted vault, like a hand-entered reading. READ-ONLY; Health
+Connect is part of the Android 14 framework, so there is no provider app to
+install. [`HealthConnect.kt`](../android/app/src/main/java/com/example/medtracker/HealthConnect.kt)
+answers the same `health.authorize {types}` / `health.query {type, anchor,
+limit}` ops as `ios/App/Health.swift` with the same sample shapes (`bp`
+`{uuid, start, systolic, diastolic}`, `weight` `{uuid, start, kg}`), so
+`web/cloud/js/health-import.js` and `web/domain/healthimport.js` run unchanged
+(same `-hk-<uuid>` record ids and `source: 'apple_health'` marker — the
+existing shapes, which every client already reads). The Settings row reads its
+name ("Health Connect") and access hint off the capability
+(`window.Health.label` / `accessHint`, `native/health.js`).
+
+- **Permissions:** `READ_BLOOD_PRESSURE` and `READ_WEIGHT` only — the Play
+  declaration must list exactly these. `health.authorize` requests the missing
+  ones (a runtime permission dialog on Android 14) and answers `true` whenever
+  Health Connect exists, `false` when it doesn't (work profile, no service);
+  like HealthKit, a denied type just returns no samples.
+- **Anchor:** `hc1:` + a Health Connect Changes token. No anchor reads the
+  last **30 days** (`READ_HEALTH_DATA_HISTORY` for older data is out of v1)
+  and starts a token; later queries return only upserts since it. An expired
+  token (unused for 30 days) re-reads the 30 days; known readings are skipped
+  by id. `sleep` / `workout` answer an empty page until med-nt9p.9; their
+  permissions are not requested yet, but `authorize` still answers `true` and
+  the page records all four kinds as asked (`wg.health.asked`), so .9 must
+  request the new permissions itself (e.g. on query) — the web re-ask path
+  will not fire.
+- **Foreground only:** reads run only when the page asks (unlock, return to
+  the app); no background reads, no background permission.
+- **Rationale screen:** `PermissionsRationaleActivity` answers Health
+  Connect's `ACTION_SHOW_PERMISSIONS_RATIONALE` and Android 14's
+  `VIEW_PERMISSION_USAGE` (activity alias), and links the privacy policy
+  ([privacy-policy.md](privacy-policy.md)).
+- **Device check:** Settings → Health Connect on, allow both types; add a BP
+  reading and a weight in Health Connect (or a fitness app) → they appear in
+  Vitals; add one more and reopen the app → only the new one is added; deny a
+  type → no samples, no error.
 
 ### Device check (CI debug APK)
 
@@ -198,7 +280,9 @@ a test invite: claim it in the app and unlock with a Google Password Manager
 passkey; kill and reopen (back on the account, no first run); airplane mode,
 kill, reopen (renders from the Service Worker); open an external link (leaves
 the app); long-press the icon → *Switch account* (first run; reopening the
-same account finds its data); bad address → 404 screen → Switch account.
+same account finds its data); bad address → 404 screen → Switch account; paste an already-claimed or garbage
+invite → "Not your account? Use another invite" under the page → confirm →
+first run → a valid invite claims (also after kill + relaunch while stuck).
 
 ## Spike (med-nt9p.4): passkey PRF, Service Worker, IndexedDB in Android System WebView
 
@@ -416,7 +500,9 @@ means installing the newer release over the old one.
 - **OEM background killers.** Xiaomi, Huawei, Oppo, Samsung and others may kill
   the app or drop its exact alarms; reminders can then arrive late or not at
   all. Allow unrestricted battery use and, where offered, autostart for the app
-  (see dontkillmyapp.com for the per-vendor steps).
+  (see dontkillmyapp.com for the per-vendor steps). A force-stop (Settings →
+  Force stop, or some OEM "clean" buttons) cancels every alarm until the app
+  is opened again.
 - **No Google Play services, no passkey PRF.** The vault key derives from the
   passkey PRF, which the Credential Manager provides only with Google Play
   services and a passkey provider (Google Password Manager or another).

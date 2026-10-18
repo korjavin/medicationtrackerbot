@@ -46,6 +46,10 @@ struct RootView: View {
                         // The safe-area bands, in the page's own top/bottom colours.
                         VStack(spacing: 0) { shell.top; shell.bottom }.ignoresSafeArea()
                     }
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        // Below the page, not over it: the ceremony's own buttons stay clear.
+                        if shell.onCeremony { CeremonyExitBar(shell: shell) }
+                    }
                     .overlay {
                         if let error = shell.loadError { LoadErrorView(shell: shell, message: error) }
                     }
@@ -254,6 +258,29 @@ struct LockView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(uiColor: Shell.screen).ignoresSafeArea())
         .preferredColorScheme(.dark)
+    }
+}
+
+/// The exit from a claim/unlock/recover page (bd med-w6gx.21): an invalid,
+/// expired or already-claimed invite otherwise leaves no way back to first-run.
+/// Passive — only a confirmed tap forgets the account; website data stays.
+struct CeremonyExitBar: View {
+    @ObservedObject var shell: Shell
+    @State private var confirming = false
+
+    var body: some View {
+        Button("Not your account? Use another invite") { confirming = true }
+            .font(.callout)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
+            .tint(.white)
+            .background(Color(uiColor: Shell.screen))
+            .confirmationDialog("Use another invite?", isPresented: $confirming, titleVisibility: .visible) {
+                Button("Use another invite", role: .destructive) { shell.forget() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Med Tracker goes back to the first screen, where you can paste or scan another invite. Records already on this iPhone are kept. To keep using Med Tracker without an account, choose \"Only on this device\" there again.")
+            }
     }
 }
 

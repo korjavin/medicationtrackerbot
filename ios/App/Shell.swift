@@ -29,6 +29,10 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     /// reminders, their taps and the bridge all follow this.
     private var vault: String? { local ? LocalOrigin.host : host }
     @Published private(set) var loadError: String?
+    /// The committed page is an account ceremony (/unlock, /claim, /recover):
+    /// RootView offers "Use another invite" (bd med-w6gx.21) — a bad or
+    /// already-claimed invite has no exit of its own there.
+    @Published private(set) var onCeremony = false
     /// Behind the status bar and the home indicator: the page's own colours at its top and bottom edge.
     @Published private(set) var top = Color(uiColor: Shell.screen)
     @Published private(set) var bottom = Color(uiColor: Shell.screen)
@@ -226,6 +230,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     private func reopen() {
         lastURL = nil
         committedHost = nil
+        onCeremony = false
         loadError = nil
         deferredURL = nil
         deferredReminder = nil
@@ -322,6 +327,8 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         committedHost = webView.url?.host?.lowercased()
+        // The ceremony pages leave by full navigation (location.href = '/'), so a commit sees every change.
+        onCeremony = !local && AccountURL.isCeremony(webView.url, base: base)
     }
 
     private var showingAccount: Bool {

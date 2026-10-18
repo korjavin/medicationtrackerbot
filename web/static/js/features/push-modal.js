@@ -15,7 +15,7 @@
 // previous modal's data.
 //
 // Public surface:
-//   - PushModalState.openMedConfirm({ ids, names, scheduled, mode, intakeIds })
+//   - PushModalState.openMedConfirm({ ids, names, scheduled, mode, intakeIds, additive })
 //   - PushModalState.openWorkoutStart({ sessionId })
 //   - PushModalState.clear()
 //   - PushModalState.getMedConfirmIds()
@@ -23,6 +23,7 @@
 //   - PushModalState.getMedConfirmScheduled()
 //   - PushModalState.getMedConfirmMode()
 //   - PushModalState.getMedConfirmIntakeIds()
+//   - PushModalState.getMedConfirmAdditive() (reminder tap: confirm never reverts, med-9d1a)
 //   - PushModalState.getWorkoutSessionId()
 
 window.PushModalState = (function () {
@@ -32,10 +33,11 @@ window.PushModalState = (function () {
         medConfirmScheduled: null,
         medConfirmMode: 'confirm',
         medConfirmIntakeIds: [],
+        medConfirmAdditive: false,
         workoutSessionId: null,
     }; // module-state: push-modal coordination; invariants documented above
 
-    function openMedConfirm({ ids, names, scheduled, mode, intakeIds } = {}) {
+    function openMedConfirm({ ids, names, scheduled, mode, intakeIds, additive } = {}) {
         // Opening the med modal clears any prior workout pending — the two
         // share the same modal slot in production (ModalManager.workoutStart
         // closes when ModalManager.medConfirm opens), so a stale workout
@@ -45,6 +47,7 @@ window.PushModalState = (function () {
         _state.medConfirmScheduled = scheduled == null ? null : scheduled;
         _state.medConfirmMode = mode || 'confirm';
         _state.medConfirmIntakeIds = Array.isArray(intakeIds) ? intakeIds.slice() : [];
+        _state.medConfirmAdditive = additive === true;
         _state.workoutSessionId = null;
     }
 
@@ -55,6 +58,7 @@ window.PushModalState = (function () {
         _state.medConfirmScheduled = null;
         _state.medConfirmMode = 'confirm';
         _state.medConfirmIntakeIds = [];
+        _state.medConfirmAdditive = false;
     }
 
     function clear() {
@@ -63,6 +67,7 @@ window.PushModalState = (function () {
         _state.medConfirmScheduled = null;
         _state.medConfirmMode = 'confirm';
         _state.medConfirmIntakeIds = [];
+        _state.medConfirmAdditive = false;
         _state.workoutSessionId = null;
     }
 
@@ -71,6 +76,7 @@ window.PushModalState = (function () {
     function getMedConfirmScheduled() { return _state.medConfirmScheduled; }
     function getMedConfirmMode() { return _state.medConfirmMode; }
     function getMedConfirmIntakeIds() { return _state.medConfirmIntakeIds; }
+    function getMedConfirmAdditive() { return _state.medConfirmAdditive; }
     function getWorkoutSessionId() { return _state.workoutSessionId; }
 
     function _resetForTesting() {
@@ -79,6 +85,7 @@ window.PushModalState = (function () {
         _state.medConfirmScheduled = null;
         _state.medConfirmMode = 'confirm';
         _state.medConfirmIntakeIds = [];
+        _state.medConfirmAdditive = false;
         _state.workoutSessionId = null;
     }
 
@@ -91,6 +98,7 @@ window.PushModalState = (function () {
         getMedConfirmScheduled,
         getMedConfirmMode,
         getMedConfirmIntakeIds,
+        getMedConfirmAdditive,
         getWorkoutSessionId,
         _resetForTesting,
     };

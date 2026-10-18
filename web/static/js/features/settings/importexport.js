@@ -242,8 +242,12 @@
 
         // Typed confirm (kit S3): the confirm button stays disabled until the
         // phrase matches, so a stray tap can't wipe the vault.
+        // Nothing to replace (probe says exactly `false`) → no confirm. Any other
+        // outcome (true, missing probe, throw) keeps the confirm: fail closed.
+        let empty = false;
+        try { empty = (await window.CloudVault.hasUserContent?.()) === false; } catch { /* fail closed */ }
         const local = document.documentElement.classList.contains('wg-local-vault');
-        const confirmed = await safeConfirm(
+        const confirmed = empty || await safeConfirm(
             local
                 ? 'Everything stored on this iPhone is replaced by this backup. This cannot be undone.'
                 : 'Everything stored now is replaced by this backup, on every device. This cannot be undone.',

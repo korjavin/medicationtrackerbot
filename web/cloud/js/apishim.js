@@ -762,6 +762,7 @@ export function createApiRouter(ctx, {
           medicationIds: (body && body.medication_ids) || [],
           intakeIds: (body && body.intake_ids) || [],
           takenAt: body && body.taken_at,
+          additive: !!(body && body.additive === true),
         }),
       };
       const action = intakeActions[path];

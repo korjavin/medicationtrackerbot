@@ -548,6 +548,23 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         expect(offDevice()).toEqual([]);
     });
 
+    it('uses the capability copy: the Android shell gets Android wording, no iPhone/iOS', async () => {
+        const { window, document } = env;
+        window.LocalNotifications.copy = {
+            os: 'Android',
+            device: 'phone',
+            settingsPath: 'Android Settings → Apps → Med Tracker → Notifications (and Alarms & reminders)',
+        };
+        permission = 'denied';
+        await window.bindLocalNotifications();
+        const text = document.getElementById('local-notify-state').textContent;
+        expect(text).toContain('Android Settings → Apps');
+        expect(text).not.toMatch(/iOS|iPhone/);
+        permission = 'granted';
+        await window.refreshLocalNotifyState();
+        expect(document.getElementById('local-notify-state').textContent).not.toMatch(/iOS|iPhone/);
+    });
+
     it('right after Allow the card says "Scheduling…", not the pre-permission outcome', async () => {
         const { window, document } = env;
         await window.apiCall('/api/medications', 'POST', {

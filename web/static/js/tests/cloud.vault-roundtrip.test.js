@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  recordsToVault, vaultToRecords, VAULT_MANAGED_TYPES, managedTypesForImport,
+  recordsToVault, vaultToRecords, VAULT_MANAGED_TYPES, managedTypesForImport, hasUserContent,
 } from '../../../../web/domain/vault.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -540,5 +540,27 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
       .filter((r) => r.recordType === 'workoutsession' && r.recordId === 'session-10-2026-07-07');
     expect(slot).toHaveLength(1);
     expect(slot[0].deleted).toBe(false);
+  });
+});
+
+describe('hasUserContent (restore skips the confirm only when nothing is at stake)', () => {
+  const live = (recordType, recordId = 'x') => ({ recordType, recordId, deleted: false });
+  it('tombstones only -> false', () => {
+    expect(hasUserContent([{ recordType: 'medication', recordId: '1', deleted: true }])).toBe(false);
+  });
+  it('settings / features / reminder prefs only -> false', () => {
+    expect(hasUserContent([live('settings'), live('features'), live('medreminderpref')])).toBe(false);
+  });
+  it('one live medication -> true', () => {
+    expect(hasUserContent([live('settings'), live('medication', '1')])).toBe(true);
+  });
+  it('one live sleep row -> true', () => {
+    expect(hasUserContent([live('sleep', 'sleep-hk-2026-01-01')])).toBe(true);
+  });
+  it.each(['equipment', 'location', 'exerciselibrary'])('one live %s row -> true', (t) => {
+    expect(hasUserContent([live(t, '1')])).toBe(true);
+  });
+  it('empty -> false', () => {
+    expect(hasUserContent([])).toBe(false);
   });
 });

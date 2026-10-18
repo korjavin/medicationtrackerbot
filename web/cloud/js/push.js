@@ -420,8 +420,7 @@ function renderLocalNotificationsNote(app, onExit) {
   app.innerHTML = `
     <section class="wizard-step">
       <h1>Reminders</h1>
-      <p>This app sends reminders as iPhone notifications once your account is open.
-         Turn them on in Settings → Notifications, or allow Med Tracker in iOS Settings.</p>
+      <p>${window.LocalNotifications?.copy?.pushNote || 'This app sends reminders as iPhone notifications once your account is open. Turn them on in Settings → Notifications, or allow Med Tracker in iOS Settings.'}</p>
       <button id="push-back" class="wg-btn">Back</button>
     </section>`;
   app.querySelector('#push-back').addEventListener('click', onExit);

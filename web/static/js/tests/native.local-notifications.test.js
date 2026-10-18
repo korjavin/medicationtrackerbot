@@ -112,6 +112,16 @@ describe('native/ android platform', () => {
         }
     });
 
+    it('names the OS in reminder copy: iOS wording on ios (unchanged), Android wording in the Android shell', () => {
+        const ios = load({ ios: true }).w.LocalNotifications.copy;
+        expect(ios.settingsPath).toBe('iOS Settings → Med Tracker → Notifications');
+        expect(ios.pushNote).toBe('This app sends reminders as iPhone notifications once your account is open. Turn them on in Settings → Notifications, or allow Med Tracker in iOS Settings.');
+        const android = loadAndroid().w.LocalNotifications.copy;
+        expect(android.os).toBe('Android');
+        expect(android.settingsPath).toContain('Alarms & reminders');
+        expect(`${android.pushNote} ${android.settingsPath} ${android.device}`).not.toMatch(/iOS|iPhone/);
+    });
+
     it('android: call() correlates replies by id — result resolves, error rejects', async () => {
         const { w, sent } = loadAndroid();
         const call = w.LocalNotifications.__native.call;

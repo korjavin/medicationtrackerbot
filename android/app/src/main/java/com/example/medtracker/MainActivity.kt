@@ -1,6 +1,7 @@
 package com.example.medtracker
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.ShortcutInfo
@@ -70,9 +71,14 @@ class MainActivity : Activity() {
     private lateinit var input: EditText
     private lateinit var firstRunMessage: TextView
     private lateinit var errorView: View
+    private lateinit var ceremonyBar: Button
     private lateinit var errorMessage: TextView
 
     private val files by lazy { Files(this) { host } }
+    private val notifications by lazy { Notifications(this) { host } }
+
+    /** window.Health's health.* ops (bd med-nt9p.8). */
+    private val health by lazy { HealthConnect(this) }
 
     private val back = OnBackInvokedCallback { web.goBack() }
     private var backRegistered = false
@@ -96,12 +102,19 @@ class MainActivity : Activity() {
         adoptSpikeAccount()
         host = prefs.getString(HOST_KEY, null)?.takeIf { AccountUrl.isAccountHost(it, base) }
         // A restored activity keeps its launch intent: only a fresh shortcut launch switches.
-        if (intent?.action == ACTION_SWITCH && savedInstanceState == null) forget() else reopen()
+        if (intent?.action == ACTION_SWITCH && savedInstanceState == null) forget()
+        else reopen(Notifications.tappedSection(intent, host)?.let { sectionUrl(it) } ?: home)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (intent.action == ACTION_SWITCH) forget()
+        Notifications.tappedSection(intent, host)?.let { openSection(it) }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        notifications.onResume()
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -109,10 +122,28 @@ class MainActivity : Activity() {
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
-        if (!files.onRequestPermissionsResult(requestCode)) super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (!files.onRequestPermissionsResult(requestCode) && !notifications.onRequestPermissionsResult(requestCode) &&
+            !health.onRequestPermissionsResult(requestCode)
+        ) {
+            super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        }
     }
 
+    /** A reminder tap (bd med-nt9p.7): switch the open page to the section, or load the account on it. */
+    private fun openSection(section: String) {
+        val url = sectionUrl(section) ?: return
+        if (!showingAccount || web.progress < 100) return load(url)
+        // No switchTab (the unlock page): load the section URL, the deep-link router opens it after unlock.
+        web.evaluateJavascript("typeof window.switchTab === 'function' ? (window.switchTab('$section'), true) : false") {
+            if (it != "true") load(url)
+        }
+    }
+
+    /** The deep-link router reads ?tab= (section ids are Notifications.SECTIONS only). */
+    private fun sectionUrl(section: String) = home?.let { "$it?tab=$section" }
+
     override fun onDestroy() {
+        health.close()
         web.destroy()
         files.destroy()
         super.onDestroy()
@@ -131,6 +162,7 @@ class MainActivity : Activity() {
             else "That isn't an account link. Use your invite link or your account address (yourname.$base)."
             return
         }
+        if (h != host) Notifications.clear(this)
         prefs.edit().putString(HOST_KEY, h).apply()
         host = h
         input.setText("")
@@ -140,6 +172,7 @@ class MainActivity : Activity() {
 
     /** Switch account: back to first run. WebView data is per origin and kept. */
     private fun forget() {
+        Notifications.clear(this)
         prefs.edit().remove(HOST_KEY).apply()
         host = null
         reopen()
@@ -149,6 +182,7 @@ class MainActivity : Activity() {
         showingAccount = false
         lastUrl = null
         clearHistory = true
+        setCeremony(false)
         errorView.visibility = View.GONE
         if (url == null) {
             web.loadUrl("about:blank")
@@ -255,7 +289,11 @@ class MainActivity : Activity() {
             updateBack()
         }
 
-        override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) = updateBack()
+        override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
+            // The ceremony pages leave by full navigation, so every commit is seen here.
+            setCeremony(AccountUrl.isCeremony(url, base))
+            updateBack()
+        }
 
         /**
          * Offline with a Service Worker in control never gets here: the worker answers.
@@ -325,7 +363,9 @@ class MainActivity : Activity() {
                 cssColor(args.optString("bottom"))?.let { bottomColor = it }
                 updateChrome()
             }
-            else -> answer(null, "unsupported: $op")
+            "health.authorize", "health.query" -> health.handle(op, msg.optJSONObject("args")) { r, e -> answer(r, e) }
+            else -> if (op.startsWith("notifications.")) notifications.handle(op, msg.optJSONObject("args")) { r, e -> answer(r, e) }
+                else answer(null, "unsupported: $op")
         }
     }
 
@@ -339,6 +379,8 @@ class MainActivity : Activity() {
         bottomBand = View(this)
         root.addView(topBand, FrameLayout.LayoutParams(MATCH_PARENT, 0, Gravity.TOP))
         root.addView(bottomBand, FrameLayout.LayoutParams(MATCH_PARENT, 0, Gravity.BOTTOM))
+        ceremonyBar = button("Not your account? Use another invite") { confirmUseAnotherInvite() }.apply { visibility = View.GONE; maxLines = 1; minHeight = 0; minimumHeight = 0; setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f) }
+        root.addView(ceremonyBar, FrameLayout.LayoutParams(MATCH_PARENT, CEREMONY_BAR_DP.dp, Gravity.BOTTOM))
         firstRun = buildFirstRun()
         errorView = buildError()
         root.addView(firstRun, MATCH_PARENT, MATCH_PARENT)
@@ -355,12 +397,34 @@ class MainActivity : Activity() {
         val sys = bars.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
         val ime = bars.getInsets(WindowInsets.Type.ime())
         val bottom = maxOf(sys.bottom, ime.bottom)
+        // The exit bar sits below the page, not over it: the ceremony's own buttons stay clear.
+        val barH = if (ceremonyBar.visibility == View.VISIBLE) CEREMONY_BAR_DP.dp else 0
+        ceremonyBar.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, CEREMONY_BAR_DP.dp, Gravity.BOTTOM).apply {
+            setMargins(sys.left, 0, sys.right, bottom)
+        }
         web.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT).apply {
-            setMargins(sys.left, sys.top, sys.right, bottom)
+            setMargins(sys.left, sys.top, sys.right, bottom + barH)
         }
         topBand.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, sys.top, Gravity.TOP)
         bottomBand.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, sys.bottom, Gravity.BOTTOM)
         for (v in listOf(firstRun, errorView)) v.setPadding(sys.left, sys.top, sys.right, bottom)
+    }
+
+    private fun setCeremony(on: Boolean) {
+        val v = if (on) View.VISIBLE else View.GONE
+        if (ceremonyBar.visibility == v) return
+        ceremonyBar.visibility = v
+        layoutBars()
+    }
+
+    /** Native confirmation, then Switch account (bd med-nt9p.20); website data stays. */
+    private fun confirmUseAnotherInvite() {
+        AlertDialog.Builder(this)
+            .setTitle("Use another invite?")
+            .setMessage("Med Tracker goes back to the first screen, where you can paste or scan another invite. Data already on this phone is kept.")
+            .setPositiveButton("Use another invite") { _, _ -> forget() }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     /** Bands and bar icons follow the page, or the theme while a native screen is up. */
@@ -380,6 +444,8 @@ class MainActivity : Activity() {
         )
         updateBack()
     }
+
+    private val Int.dp get() = (this * resources.displayMetrics.density).toInt()
 
     private fun isLight(c: Int) = Color.luminance(c) > 0.5f
 
@@ -461,6 +527,8 @@ class MainActivity : Activity() {
     private companion object {
         /** The page-facing bridge global, window.wgNative — med-nt9p.6 and .19 detect the Android shell by it. */
         const val BRIDGE = "wgNative"
+        /** One fixed line, so the page margin never disagrees with the bar. */
+        const val CEREMONY_BAR_DP = 44
         const val HOST_KEY = "accountHost"
         const val ACTION_SWITCH = "com.example.medtracker.SWITCH_ACCOUNT"
         /** --wg-bg-screen: the bands' colour until the page reports its own. */

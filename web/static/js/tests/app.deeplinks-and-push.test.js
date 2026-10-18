@@ -385,7 +385,7 @@ describe('handleDeepLinks – push-action query params', () => {
 
       expect(apiSpy).toHaveBeenCalledWith('/api/medications?archived=true');
       expect(modalSpy).toHaveBeenCalledWith(
-        [2, 9], ['Aspirin', 'Magnesium'], '2026-03-01T08:00:00.000Z', 'confirm', [],
+        [2, 9], ['Aspirin', 'Magnesium'], '2026-03-01T08:00:00.000Z', 'confirm', [], { additive: true },
       );
       expect(switchTabSpy).not.toHaveBeenCalled();
     } finally {
