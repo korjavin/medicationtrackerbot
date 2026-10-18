@@ -364,6 +364,55 @@ describe('handleDeepLinks – push-action query params', () => {
     }
   });
 
+  // bd med-9d1a — the cloud reminder deeplink carries ids + slot only (names
+  // are PII); the page resolves them from the vault before opening the sheet.
+  const DOSE_URL = 'https://example.test/?action=medication_confirm&ids=2%2C9%2C5&scheduled=2026-03-01T08%3A00%3A00.000Z';
+
+  it('a names-less dose link opens the take sheet with the live meds named', async () => {
+    const { window, cleanup } = loadFrontendEnv({ url: DOSE_URL });
+
+    try {
+      const apiSpy = vi.spyOn(window, 'apiCall').mockResolvedValue([
+        { id: 2, name: 'Aspirin' },
+        { id: 9, name: 'Magnesium' },
+        { id: 5, name: 'Old', archived: true },
+      ]);
+      const modalSpy = vi.spyOn(window, 'showMedicationConfirmModal').mockImplementation(() => {});
+      const switchTabSpy = vi.spyOn(window, 'switchTab').mockImplementation(() => {});
+
+      window.handleDeepLinks();
+      await vi.advanceTimersByTimeAsync(510);
+
+      expect(apiSpy).toHaveBeenCalledWith('/api/medications?archived=true');
+      expect(modalSpy).toHaveBeenCalledWith(
+        [2, 9], ['Aspirin', 'Magnesium'], '2026-03-01T08:00:00.000Z', 'confirm', [],
+      );
+      expect(switchTabSpy).not.toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('a dose link whose meds were all deleted lands on Meds with a toast', async () => {
+    const { window, cleanup } = loadFrontendEnv({ url: DOSE_URL });
+
+    try {
+      vi.spyOn(window, 'apiCall').mockResolvedValue([{ id: 7, name: 'Other' }]);
+      const modalSpy = vi.spyOn(window, 'showMedicationConfirmModal').mockImplementation(() => {});
+      const switchTabSpy = vi.spyOn(window, 'switchTab').mockImplementation(() => {});
+      const toastSpy = vi.spyOn(window, 'safeToast').mockImplementation(() => null);
+
+      window.handleDeepLinks();
+      await vi.advanceTimersByTimeAsync(510);
+
+      expect(modalSpy).not.toHaveBeenCalled();
+      expect(switchTabSpy).toHaveBeenCalledWith('meds');
+      expect(toastSpy).toHaveBeenCalledWith('That medication is no longer in your list.', 'info');
+    } finally {
+      cleanup();
+    }
+  });
+
   it('?action=workout_start routes to handlePushAction and cleans URL', async () => {
     const { window, cleanup } = loadFrontendEnv({
       url: 'https://example.test/?action=workout_start&session_id=42'

@@ -391,9 +391,27 @@ async function decodePush(data) {
       title: payload.title || GENERIC_NOTIFICATION.title,
       body: payload.body || GENERIC_NOTIFICATION.body,
       kind: payload.kind || '',
+      // The tap target (med-9d1a); absent on payloads from older clients.
+      url: reminderOpenUrl(payload.url),
     };
   } catch {
     return GENERIC_NOTIFICATION;
+  }
+}
+
+// A notification tap may only open the app's own root with the query keys the
+// reminder deeplink uses (web/cloud/js/reminder-deeplink.js) — never an
+// arbitrary string out of a payload. Anything else opens '/'.
+const REMINDER_URL_KEYS = new Set(['tab', 'action', 'ids', 'scheduled']);
+function reminderOpenUrl(raw) {
+  if (typeof raw !== 'string' || !raw.startsWith('/?')) return '/';
+  try {
+    const u = new URL(raw, self.location.origin);
+    if (u.origin !== self.location.origin || u.pathname !== '/' || u.hash) return '/';
+    for (const key of u.searchParams.keys()) if (!REMINDER_URL_KEYS.has(key)) return '/';
+    return '/?' + u.searchParams.toString();
+  } catch {
+    return '/';
   }
 }
 
@@ -472,6 +490,7 @@ self.addEventListener('push', (event) => {
       return self.registration.showNotification(n.title, {
         body: n.body,
         actions: NOTIFICATION_ACTIONS[n.kind] || [],
+        data: { url: n.url || '/' },
       });
     })
   );
@@ -535,8 +554,18 @@ self.addEventListener('notificationclick', (event) => {
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
       const client = clients.find((c) => 'focus' in c);
       if (!route) {
-        if (client) return client.focus();
-        return self.clients.openWindow ? self.clients.openWindow('/') : undefined;
+        // A body tap opens the reminder's own target (med-9d1a): a dose's take
+        // sheet, or its section. Warm tab → the page navigates once unlocked
+        // (cloud-boot.js); cold start → the URL carries it to handleDeepLinks.
+        // KNOWN LIMIT: a cold start on a LOCKED app goes / → /unlock → / and
+        // unlock forwards only the hash, so the query is lost and the app opens
+        // on its default tab — same as the ?reminder_action cold path below.
+        const url = reminderOpenUrl(event.notification.data && event.notification.data.url);
+        if (client) {
+          if (url !== '/') client.postMessage({ type: 'reminder-open', url });
+          return client.focus();
+        }
+        return self.clients.openWindow ? self.clients.openWindow(url) : undefined;
       }
       // An open tab may still be locked, so the page — not the SW — decides
       // whether it can apply the action now or must wait for unlock. A cold

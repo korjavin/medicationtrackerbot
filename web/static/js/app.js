@@ -726,14 +726,42 @@ window.reloadCurrentTab = reloadCurrentTab;
 
 /* Push Notification Modals */
 
+// The live medications among ids, in ids order, or null when the list can't be
+// read (then the caller opens the sheet as before rather than calling a med gone).
+async function resolvePushMedications(ids) {
+    let meds = null;
+    try {
+        meds = await apiCall('/api/medications?archived=true');
+    } catch (_) { /* fall back to the in-memory list */ }
+    if (!Array.isArray(meds)) meds = Array.isArray(medications) && medications.length ? medications : null;
+    if (!meds) return null;
+    const byId = new Map(meds.map((m) => [String(m.id), m]));
+    return ids.map((id) => byId.get(String(id))).filter((m) => m && !m.archived);
+}
+
 function handlePushAction(action, params) {
     if (action === 'medication_confirm') {
-        const ids = params.get('ids') ? params.get('ids').split(',').map(Number) : [];
-        const names = params.get('names') ? params.get('names').split(',') : [];
+        let ids = params.get('ids') ? params.get('ids').split(',').map(Number) : [];
+        let names = params.get('names') ? params.get('names').split(',') : [];
         const scheduled = params.get('scheduled');
         const intakeIds = params.get('intake_ids') ? params.get('intake_ids').split(',').map(Number) : [];
 
-        setTimeout(() => {
+        setTimeout(async () => {
+            // A cloud reminder deeplink carries ids only (bd med-9d1a — names
+            // are PII and the vault has them): resolve them here, dropping meds
+            // deleted or archived since the reminder was scheduled.
+            if (ids.length && !names.length) {
+                const live = await resolvePushMedications(ids);
+                if (live && !live.length) {
+                    switchTab('meds');
+                    safeToast('That medication is no longer in your list.', 'info');
+                    return;
+                }
+                if (live) {
+                    ids = live.map((m) => Number(m.id));
+                    names = live.map((m) => m.name);
+                }
+            }
             showMedicationConfirmModal(ids, names, scheduled, 'confirm', intakeIds);
         }, 500);
     } else if (action === 'workout_start') {

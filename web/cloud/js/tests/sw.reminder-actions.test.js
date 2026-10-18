@@ -61,10 +61,10 @@ async function firePush(self, listeners, data) {
     await waited;
 }
 
-async function fireNotificationClick(self, listeners, action) {
+async function fireNotificationClick(self, listeners, action, data) {
     const handler = listeners.get('notificationclick')[0];
     let waited;
-    handler({ action, notification: { close: vi.fn() }, waitUntil: (p) => { waited = p; } });
+    handler({ action, notification: { close: vi.fn(), data }, waitUntil: (p) => { waited = p; } });
     await waited;
 }
 
@@ -202,6 +202,60 @@ describe('cloud sw.js — reminder notification actions', () => {
         await fireNotificationClick(self, listeners, 'weight_dontbug');
 
         expect(self.clients.openWindow).toHaveBeenCalledWith('/?reminder_action=weight_dontbug');
+    });
+
+    // bd med-9d1a — a body tap opens the reminder's own deeplink, sealed in
+    // the NK ciphertext by push.js (reminder-deeplink.js).
+    const DOSE_URL = '/?action=medication_confirm&ids=2%2C9&scheduled=2026-01-01T09%3A00%3A00.000Z';
+
+    it('a medication reminder carries its sealed deeplink on the notification', async () => {
+        const packed = await sealPush(nk, { title: 'Med Tracker', body: 'Time to take: A', kind: 'medication', url: DOSE_URL });
+        await firePush(self, listeners, { arrayBuffer: () => packed });
+
+        const [, opts] = self.registration.showNotification.mock.calls[0];
+        expect(opts.data).toEqual({ url: DOSE_URL });
+    });
+
+    it('a payload from an older client (no url) opens the app root', async () => {
+        const packed = await sealPush(nk, { title: 'Med Tracker', body: 'Time to take: A', kind: 'medication' });
+        await firePush(self, listeners, { arrayBuffer: () => packed });
+
+        const [, opts] = self.registration.showNotification.mock.calls[0];
+        expect(opts.data).toEqual({ url: '/' });
+    });
+
+    it('a cold-start body tap opens the dose deeplink', async () => {
+        self.clients.matchAll.mockResolvedValue([]);
+
+        await fireNotificationClick(self, listeners, '', { url: DOSE_URL });
+
+        expect(self.clients.openWindow).toHaveBeenCalledWith(DOSE_URL);
+    });
+
+    it('a warm body tap hands the deeplink to the open tab and focuses it', async () => {
+        const client = { focus: vi.fn(), postMessage: vi.fn() };
+        self.clients.matchAll.mockResolvedValue([client]);
+
+        await fireNotificationClick(self, listeners, '', { url: '/?tab=bp' });
+
+        expect(client.postMessage).toHaveBeenCalledWith({ type: 'reminder-open', url: '/?tab=bp' });
+        expect(client.focus).toHaveBeenCalled();
+        expect(self.clients.openWindow).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        'https://evil.example/?tab=bp',
+        '//evil.example/?tab=bp',
+        '/settings?tab=bp',
+        '/?tab=bp&next=https://evil.example',
+        '/?tab=bp#x',
+        'javascript:void(0)',
+    ])('a foreign or off-shape url (%s) never reaches openWindow', async (url) => {
+        self.clients.matchAll.mockResolvedValue([]);
+
+        await fireNotificationClick(self, listeners, '', { url });
+
+        expect(self.clients.openWindow).toHaveBeenCalledWith('/');
     });
 
     it('an unknown action is treated as a plain click, not a route', async () => {

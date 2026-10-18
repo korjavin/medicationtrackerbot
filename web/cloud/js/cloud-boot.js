@@ -98,12 +98,21 @@ function installReminderActionHandler(shimCall) {
         console.error('[cloud-boot] reminder action url parse failed', e);
     }
 
-    // Warm tab: the SW postMessages the route it resolved.
+    // Warm tab: the SW postMessages the route it resolved — or, for a body tap
+    // (med-9d1a), the reminder's deeplink, which the page routes exactly as a
+    // cold start's URL. Same-origin root + query only (sw.js reminderOpenUrl).
     if (navigator.serviceWorker) {
         navigator.serviceWorker.addEventListener('message', (event) => {
             if (event.data && event.data.type === 'reminder-action') apply(event.data.route);
+            if (event.data && event.data.type === 'reminder-open') openReminderUrl(event.data.url);
         });
     }
+}
+
+function openReminderUrl(url) {
+    if (typeof url !== 'string' || !url.startsWith('/?')) return;
+    window.history.replaceState({}, '', url);
+    if (typeof window.handleDeepLinks === 'function') window.handleDeepLinks();
 }
 
 window.MedTrackerCloudReady = (async function boot() {

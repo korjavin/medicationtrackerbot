@@ -8,6 +8,7 @@
 import { encryptPushPayload, toBase64 } from './crypto.js';
 import { getOrCreateNK, hasRichNotifications, disableRichNotifications } from './sync.js';
 import { openDb } from './localdb.js';
+import { reminderDeeplink } from './reminder-deeplink.js';
 
 const REMINDERS_KEY = 'demoReminders';
 
@@ -343,7 +344,10 @@ async function pushScheduleInner(ctx, reminders, pref = {}) {
       // buttons without the relay learning what sort of reminder this is.
       // `pushText` (goal-aware weigh-in body) exists ONLY here, inside the NK
       // ciphertext — never on tg_text, which reaches the relay in plaintext.
-      const plaintext = new TextEncoder().encode(JSON.stringify({ title: 'Med Tracker', body: r.pushText || r.text, kind: r.kind }));
+      // `url` (the tap target, med-9d1a) is sealed here too, so the relay never
+      // sees which meds or section a reminder points at. An older SW picks only
+      // title/body/kind and ignores it.
+      const plaintext = new TextEncoder().encode(JSON.stringify({ title: 'Med Tracker', body: r.pushText || r.text, kind: r.kind, url: reminderDeeplink(r) }));
       entry.ct = toBase64(await encryptPushPayload(nk, plaintext));
     }
     if (needsText) {
