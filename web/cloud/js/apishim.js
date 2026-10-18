@@ -27,7 +27,7 @@ import {
 } from '../../domain/paginate.js';
 import { createGamificationNarrator } from './gamification-narrator.js';
 import { recordsPort, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL } from './sync.js';
-import { scheduleReminderRecompute, sendTestPush, cancelMedRefire, cancelReminderRefire } from './reminders.js';
+import * as cloudReminders from './reminders.js';
 import { createRxnormPort } from './rxnorm.js';
 import { createAIClient } from './aiclient.js';
 import { createFoodDbClient } from './fooddb.js';
@@ -150,11 +150,23 @@ function debugOnce(key, ...args) {
 // what lets a test drive the router across a date boundary deterministically.
 // opts.timeZone stands in for the DEVICE zone specifically: a settings.timezone
 // the user pinned in Settings still wins over it (bd med-7ujt).
+//
+// Local-only mode (bd med-o7zq.2, web/cloud/js/local-boot.js) swaps the two
+// things that assume an account, without touching the route table:
+//   opts.recordsPort(origin) builds the per-origin records port in place of
+//                 sync.js's recordsPort(ctx, origin) — the real durable store
+//                 (localRecordsPort), so the gamification memo stays valid.
+//   opts.effects  overrides the reminder relay side effects
+//                 (scheduleReminderRecompute, sendTestPush, cancelMedRefire,
+//                 cancelReminderRefire); omitted keys keep the cloud ones.
 export function createApiRouter(ctx, {
-  records: recordsOverride, win, now: nowOverride, timeZone: timeZoneOverride, origin,
+  records: recordsOverride, recordsPort: portFactory, effects, win, now: nowOverride, timeZone: timeZoneOverride, origin,
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
-  const records = recordsOverride || recordsPort(ctx, origin);
+  const records = recordsOverride || (portFactory ? portFactory(origin) : recordsPort(ctx, origin));
+  const {
+    scheduleReminderRecompute, sendTestPush, cancelMedRefire, cancelReminderRefire,
+  } = { ...cloudReminders, ...effects };
   // Gamification read-path memo signal (med-90w.2). Only valid when the real
   // sync-backed port is in use — a test recordsOverride is a fake NOT tracked by
   // getRecordsChangeCount, so pass null there to keep those reads always-fresh.
@@ -1464,8 +1476,12 @@ export function createApiRouter(ctx, {
 // now/timeZone are forwarded straight to createApiRouter (both routers, so the
 // two agree on the clock) — the same test-only override it documents, reachable
 // from the shim-contract harness so a suite can pin the wall clock.
+// recordsPort/effects are createApiRouter's local-mode swaps, forwarded to both
+// routers; registerEgress replaces the server-side egress allowlist upload
+// (local mode has no server to tell — the scheme handler serves its own CSP).
 export function installApiShim(ctx, {
-  records, win, now: nowOverride, timeZone: timeZoneOverride,
+  records, recordsPort: portFactory, effects, registerEgress = registerEgressHosts,
+  win, now: nowOverride, timeZone: timeZoneOverride,
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
   // Two routers over the same records store, differing only in the origin they
@@ -1481,13 +1497,11 @@ export function installApiShim(ctx, {
   //
   // A test's injected `records` port carries its own origin and is shared by
   // both, which keeps the harness a drop-in swap.
-  const clock = { now: nowOverride, timeZone: timeZoneOverride };
-  const shimCall = createApiRouter(ctx, {
-    records, win, origin: ORIGIN_UI, ...clock,
-  });
-  const bgCall = records ? shimCall : createApiRouter(ctx, {
-    win, origin: ORIGIN_EXTERNAL, ...clock,
-  });
+  const shared = {
+    recordsPort: portFactory, effects, now: nowOverride, timeZone: timeZoneOverride, win,
+  };
+  const shimCall = createApiRouter(ctx, { records, origin: ORIGIN_UI, ...shared });
+  const bgCall = records ? shimCall : createApiRouter(ctx, { origin: ORIGIN_EXTERNAL, ...shared });
   // Snapshotted on purpose — every use below reads integrations or a product
   // search, never the wall clock, so these survive a buildDomains() rebuild when
   // the pinned settings.timezone resolves (bd med-7ujt). Anything TIME-sensitive
@@ -1564,7 +1578,7 @@ export function installApiShim(ctx, {
   const boundFetch = typeof targetWindow.fetch === 'function'
     ? targetWindow.fetch.bind(targetWindow) : undefined;
   let lastEgressHosts = null; // comma-joined last-registered set, for change detection
-  registerEgressHosts({ settings, fetchImpl: boundFetch })
+  registerEgress({ settings, fetchImpl: boundFetch })
     .then((hosts) => { if (hosts) lastEgressHosts = hosts.join(','); })
     .catch((e) => console.error('[cloud egress] initial register failed', e));
 
@@ -1575,7 +1589,7 @@ export function installApiShim(ctx, {
   async function offlineAwareApiCall(endpoint, method = 'GET', body = null, opts = {}) {
     const result = await shimCall(endpoint, method, body, opts);
     if (method === 'PATCH' && String(endpoint).split('?')[0] === '/api/settings/integrations') {
-      registerEgressHosts({ settings, fetchImpl: boundFetch })
+      registerEgress({ settings, fetchImpl: boundFetch })
         .then((hosts) => {
           if (!hosts) return;
           const key = hosts.join(',');

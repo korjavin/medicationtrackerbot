@@ -175,7 +175,7 @@ const ALLOWED_GLOBALS = new Set([
     // does not scan web/cloud/) so the regex guard never sees them; the
     // entries exist for documentation, mirroring __MEDTRACKER_BOOTSTRAP__.
     'window.__MEDTRACKER_CLOUD__',      // cloud-boot.js — set synchronously before any other script; feature modules branch on it to take the cloud path on the E2EE cloud origin
-    'window.MedTrackerCloudReady',      // cloud-boot.js — Promise that resolves once the async warm-unlock + installApiShim(ctx) + pullOnOpen(ctx) sequence finishes (or rejects/redirects to /unlock on failure); checkAuth() awaits this before calling apiCall('/api/bootstrap')
+    'window.MedTrackerCloudReady',      // cloud-boot.js (and web/cloud/js/local-boot.js, the iOS local-only entry, med-o7zq.2) — Promise that resolves once the async warm-unlock + installApiShim(ctx) + pullOnOpen(ctx) sequence finishes (or rejects/redirects to /unlock on failure); checkAuth() awaits this before calling apiCall('/api/bootstrap')
     'window.CloudFoodAI',               // apishim.js (installApiShim) — createFoodAIDomain instance wired to the browser aiclient.js; photo.js/log.js call parseMealFromPhoto/parseMealFromDescription directly in cloud mode instead of POSTing /api/food/log/from-{photo,description} (C2c Task 4)
     'window.CloudWorkoutSheetAI',       // apishim.js (installApiShim) — createWorkoutSheetAIDomain instance wired to the browser aiclient.js; workout/scan.js calls parseSheetFromPhoto/logSheetAsSession directly in cloud mode (med-qj4.9)
     'window.CloudFoodSearch',           // apishim.js (installApiShim) — { search(q, opts) } over the same food domain instance the shim uses; products.js's cloud branch replaces the NDJSON stream with two local/remote calls into this (C2c Task 4)

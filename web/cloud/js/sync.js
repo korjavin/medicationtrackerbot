@@ -1328,6 +1328,12 @@ export function startReconnectAutoDrain(ctx, { onAuthExpired } = {}) {
 // (web/domain/'s storage port).
 export async function listRecords(ctx, recordType) {
   await bootstrapIfNeeded(ctx);
+  return listLocalRecords(recordType);
+}
+
+// The storage half of listRecords — no bootstrap, so the local-only port
+// (localRecordsPort below) can share the memo without any sync network.
+async function listLocalRecords(recordType) {
   const cached = recordsMemo.get(recordType);
   // Callers always get a .slice() (shallow copy): the domain layer sorts/reverses
   // its input in place, which would otherwise corrupt the cached array.
@@ -1359,6 +1365,10 @@ export async function listRecords(ctx, recordType) {
 // recordId, and IDBKeyRange.bound over it is the primary-key range.
 export async function listRecordsInRange(ctx, recordType, fromId, toId) {
   await bootstrapIfNeeded(ctx);
+  return listLocalRecordsInRange(recordType, fromId, toId);
+}
+
+async function listLocalRecordsInRange(recordType, fromId, toId) {
   const records = await withStore('records', 'readonly', (store) => (
     reqToPromise(store.getAll(IDBKeyRange.bound(fromId, toId)))
   ));
@@ -1378,6 +1388,10 @@ export async function listRecordsInRange(ctx, recordType, fromId, toId) {
 // last-write-wins order in whatever loop it feeds.
 export async function listRawRecords(ctx, recordType) {
   await bootstrapIfNeeded(ctx);
+  return listLocalRawRecords(recordType);
+}
+
+async function listLocalRawRecords(recordType) {
   const records = await withStore('records', 'readonly', (store) => (
     reqToPromise(store.index('recordType').getAll(recordType))
   ));
@@ -1423,30 +1437,13 @@ export async function isSyncWedged() {
 export async function writeRecord(ctx, recordType, record, origin = ORIGIN_EXTERNAL, { flush = true, ifAbsent = false } = {}) {
   await bootstrapIfNeeded(ctx);
   const meta = await readMeta();
-  let stamped = record;
-  let wrote = true;
-  // Atomic w.r.t. replaceAllRecords' clear (see withRecordsLock): the record
-  // and its 'pending' row must both be visible, or neither, when a concurrent
-  // bootstrap snapshots what to preserve.
-  await withRecordsLock(async () => {
-    const existing = await getRecord(record.recordId);
-    if (ifAbsent && existing) {
-      stamped = existing;
-      wrote = false;
-      return;
-    }
-    stamped = {
-      ...record,
-      clientTs: ifAbsent ? record.clientTs : nextClientTs(existing, record.clientTs, meta.clockSkewMs),
-      recordType,
-    };
-    await putRecord(stamped);
-    await markPending(record.recordId, recordType);
+  const { stamped, wrote } = await stampAndPut(recordType, record, {
+    ifAbsent, skewMs: meta.clockSkewMs, pending: true,
   });
   // Nothing changed — no op to push, nothing to repaint.
   if (!wrote) return stamped;
   // Local-first (med-eas.77): the write is already durable in 'pending'
-  // (markPending, above) and apiCall returns the LOCAL stamped record, never a
+  // (stampAndPut's markPending) and apiCall returns the LOCAL stamped record, never a
   // server ack — so the eager oplog push must NOT be awaited or the confirm
   // flow perceives the /api/sync/ops round-trip as latency. Fire it in the
   // background: flushPending keeps the pending row on any transient failure and
@@ -1457,6 +1454,32 @@ export async function writeRecord(ctx, recordType, record, origin = ORIGIN_EXTER
   if (flush) flushPending(ctx).catch(() => {});
   notifyRecordsChanged([recordType], origin);
   return stamped;
+}
+
+// The storage half of writeRecord, shared with localRecordsPort. Atomic w.r.t.
+// replaceAllRecords' clear (see withRecordsLock): the record and its 'pending'
+// row must both be visible, or neither, when a concurrent bootstrap snapshots
+// what to preserve. The lock is also what makes putIfAbsent atomic: nothing can
+// land a row between the absence check and the put.
+async function stampAndPut(recordType, record, { ifAbsent, skewMs, pending }) {
+  let stamped = record;
+  let wrote = true;
+  await withRecordsLock(async () => {
+    const existing = await getRecord(record.recordId);
+    if (ifAbsent && existing) {
+      stamped = existing;
+      wrote = false;
+      return;
+    }
+    stamped = {
+      ...record,
+      clientTs: ifAbsent ? record.clientTs : nextClientTs(existing, record.clientTs, skewMs),
+      recordType,
+    };
+    await putRecord(stamped);
+    if (pending) await markPending(record.recordId, recordType);
+  });
+  return { stamped, wrote };
 }
 
 // Storage port handed to web/domain/'s createXDomain() factories: the generic
@@ -1490,6 +1513,27 @@ export function recordsPort(ctx, origin = ORIGIN_EXTERNAL, { deferFlush = false 
     // tombstoned slot is a deliberate delete, not something to re-fill.
     putIfAbsent: (recordType, record) => writeRecord(ctx, recordType, record, origin, { flush, ifAbsent: true }),
     del: (recordType, recordId) => writeRecord(ctx, recordType, { recordId, clientTs: Date.now(), deleted: true }, origin, { flush }),
+  };
+}
+
+// localRecordsPort is recordsPort for local-only mode (bd med-o7zq.2, the iOS
+// "Only on this device" origin): the same IndexedDB store, memo, lock, clientTs
+// ordering (no server clock, so no skew correction), putIfAbsent semantics and
+// repaint notifications — but no account: no bootstrap, no 'pending' rows, no
+// oplog flush, so nothing here ever touches the network.
+export function localRecordsPort(origin = ORIGIN_EXTERNAL) {
+  const write = async (recordType, record, ifAbsent) => {
+    const { stamped, wrote } = await stampAndPut(recordType, record, { ifAbsent, skewMs: 0, pending: false });
+    if (wrote) notifyRecordsChanged([recordType], origin);
+    return stamped;
+  };
+  return {
+    list: (recordType) => listLocalRecords(recordType),
+    listRange: (recordType, fromId, toId) => listLocalRecordsInRange(recordType, fromId, toId),
+    listRaw: (recordType) => listLocalRawRecords(recordType),
+    put: (recordType, record) => write(recordType, record, false),
+    putIfAbsent: (recordType, record) => write(recordType, record, true),
+    del: (recordType, recordId) => write(recordType, { recordId, clientTs: Date.now(), deleted: true }, false),
   };
 }
 
