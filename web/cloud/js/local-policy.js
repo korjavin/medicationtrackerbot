@@ -28,8 +28,9 @@ import { startHealthImport, runHealthImport } from './health-import.js';
 import { clearLocalVault } from './account-delete.js';
 
 // Settings → Notifications fires this on the document once iOS permission is
-// granted, so the schedule lands now instead of on the next open.
-export const RESCHEDULE_EVENT = 'wg:local-reminders-reschedule';
+// granted, so the schedule lands now instead of on the next open. settings.js
+// is a classic script and spells the name out; the integration test pins both.
+const RESCHEDULE_EVENT = 'wg:local-reminders-reschedule';
 
 function localNotifications() {
   const local = globalThis.LocalNotifications;
