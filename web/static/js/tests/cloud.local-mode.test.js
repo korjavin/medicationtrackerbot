@@ -141,6 +141,33 @@ describe('local-only mode boot + records port (med-o7zq.2)', () => {
     });
 });
 
+describe('local-boot apiCallDirect ordering (med-o7zq.2)', () => {
+    beforeEach(deleteDb);
+
+    it('wraps the apiCallDirect core/api.js assigns later in the parse, not an earlier one', async () => {
+        let onReady;
+        const win = {
+            location: { origin: 'wgapp://local' },
+            document: {
+                readyState: 'loading',
+                addEventListener(type, cb) { if (type === 'DOMContentLoaded') onReady = cb; },
+            },
+        };
+        const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
+        run(win, (spec) => MODULES[spec]());
+        // The imports resolve while the parser is still in the body scripts...
+        await vi.waitFor(() => expect(win.offlineAwareApiCall).toBeTypeOf('function'));
+        // ...then core/api.js runs and assigns its own apiCallDirect.
+        const network = vi.fn(async () => 'network');
+        win.apiCallDirect = network;
+        onReady();
+        await win.MedTrackerCloudReady;
+        expect(await win.apiCallDirect('/api/bp?days=60')).toEqual([]);
+        expect(await win.apiCallDirect('/static/x.json')).toBe('network');
+        expect(network).toHaveBeenCalledTimes(1);
+    });
+});
+
 describe('localRecordsPort contract (med-o7zq.2)', () => {
     beforeEach(deleteDb);
 
