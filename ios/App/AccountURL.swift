@@ -25,6 +25,16 @@ enum AccountURL {
         return parts.url
     }
 
+    /// An account's ceremony page (claim, unlock, recover — the server's set in
+    /// internal/cloudserver/router.go), where a bad invite can strand the user;
+    /// the shell offers its "Use another invite" exit there (bd med-w6gx.21).
+    static func isCeremony(_ url: URL?, base: String) -> Bool {
+        guard let url, url.scheme?.lowercased() == "https",
+              let host = url.host?.lowercased(), isAccountHost(host, base: base.lowercased())
+        else { return false }
+        return ["/unlock", "/claim", "/recover"].contains(url.path)
+    }
+
     /// Exactly one DNS label under base: what the webcredentials wildcard and
     /// the WKAppBoundDomains entry cover.
     static func isAccountHost(_ host: String, base: String) -> Bool {
