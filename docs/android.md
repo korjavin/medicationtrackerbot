@@ -5,7 +5,7 @@ the twin of the iOS app ([ios.md](ios.md)). It is **never built locally**:
 every build, signing and Play upload runs on a GitHub-hosted ubuntu runner via
 [`.github/workflows/android.yml`](../.github/workflows/android.yml).
 
-- `android/` is a plain Gradle project (AGP 8.7, Kotlin 2.0, JDK 17,
+- `android/` is a plain Gradle project (AGP 8.9, targetSdk 36, Kotlin 2.0, JDK 17,
   minSdk 34). There is no committed Gradle wrapper: the runner pins the Gradle
   version (`gradle/actions/setup-gradle`), and nothing else ever builds it.
 - **Triggers:** PRs/pushes touching `android/**` or `android.yml` build a

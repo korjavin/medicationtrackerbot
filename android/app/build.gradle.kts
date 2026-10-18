@@ -16,12 +16,12 @@ val debugKeystore = providers.environmentVariable("ANDROID_DEBUG_KEYSTORE").orNu
 android {
     // The code package; applicationId (the Play identity) comes from the env.
     namespace = "com.example.medtracker"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = appPackage
         minSdk = 34
-        targetSdk = 35
+        targetSdk = 36
         versionCode = versionCodeEnv
         versionName = "0.1.$versionCodeEnv"
     }
