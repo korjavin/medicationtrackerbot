@@ -6,7 +6,8 @@
 // the platform-native window.BarcodeDetector when present; for
 // image/canvas/blob sources, falls back to
 // window.ZXing.BrowserMultiFormatReader if no barcode was found (the legacy
-// "Use Photo" path in features/food/scanner.js).
+// "Use Photo" path in features/food/scanner.js). Video sources use ZXing on a
+// canvas copy of the current frame when BarcodeDetector is absent (WebKit).
 // Returns { format, rawValue } on success or null when nothing was decoded
 // (= "cancel" for our purposes — the user picked an image without a barcode,
 // or a live frame had no readable code).
@@ -209,11 +210,8 @@
     // createBinaryBitmap does internally minus that element sniffing, and all
     // three classes are public exports of vendor/zxing.min.js.
     function tryZXingOnCanvas(canvas) {
+        if (!zxingAvailable()) return Promise.resolve(null);
         var Z = window.ZXing;
-        if (!Z || !Z.BrowserMultiFormatReader || !Z.HTMLCanvasElementLuminanceSource ||
-            !Z.HybridBinarizer || !Z.BinaryBitmap) {
-            return Promise.resolve(null);
-        }
         var reader = new Z.BrowserMultiFormatReader();
         return Promise.resolve()
             .then(function () {
@@ -222,6 +220,35 @@
             })
             .then(toDecoded)
             .catch(function () { return null; });
+    }
+
+    function zxingAvailable() {
+        var Z = window.ZXing;
+        return !!(Z && Z.BrowserMultiFormatReader && Z.HTMLCanvasElementLuminanceSource &&
+            Z.HybridBinarizer && Z.BinaryBitmap);
+    }
+
+    // WebKit (Safari, the iOS WKWebView shell) has no BarcodeDetector, so the
+    // live loop decodes each frame with ZXing over a canvas instead (bd
+    // med-o7zq.17). The frame is downscaled to <=640px on the long side so a
+    // multi-format decode stays well inside the scanner's 200 ms loop period;
+    // one canvas is reused across frames.
+    var LIVE_FRAME_MAX = 640;
+    var liveCanvas = null;
+
+    function zxingFromVideoFrame(video) {
+        var vw = video.videoWidth, vh = video.videoHeight;
+        if (!vw || !vh || !zxingAvailable()) return Promise.resolve(null);
+        var scale = Math.min(1, LIVE_FRAME_MAX / Math.max(vw, vh));
+        if (!liveCanvas) liveCanvas = window.document.createElement('canvas');
+        liveCanvas.width = Math.round(vw * scale);
+        liveCanvas.height = Math.round(vh * scale);
+        try {
+            liveCanvas.getContext('2d').drawImage(video, 0, 0, liveCanvas.width, liveCanvas.height);
+        } catch (_) {
+            return Promise.resolve(null);
+        }
+        return tryZXingOnCanvas(liveCanvas);
     }
 
     function decodeStill(still, formats) {
@@ -244,11 +271,13 @@
             )));
         }
 
-        // Video sources: BarcodeDetector only — ZXing.decodeFromImageElement
-        // can't read live frames. Image/canvas/blob sources: BarcodeDetector
+        // Video sources: BarcodeDetector when the platform has one, else ZXing
+        // on the current frame painted to a canvas — never both per frame,
+        // the loop runs 5x/sec. Image/canvas/blob sources: BarcodeDetector
         // first, ZXing fallback when nothing was decoded.
         if (isVideoElement(source)) {
-            return tryBarcodeDetector(source, formats);
+            if (window.BarcodeDetector) return tryBarcodeDetector(source, formats);
+            return zxingFromVideoFrame(source);
         }
 
         if (isImageElement(source) || isCanvasElement(source)) {
@@ -268,10 +297,11 @@
 
     // The browser has no full-screen scanner UI of its own — feature code owns
     // the in-app video modal and drives scan({ source: video }) itself.
-    // Probed at call time, not module load: BarcodeDetector is installed late
-    // by both test harnesses and some browsers (origin trials, polyfills).
+    // Live scan works with either decoder: BarcodeDetector, or the bundled
+    // ZXing on canvas frames (WebKit). Probed at call time, not module load:
+    // both globals can be installed late (test harnesses, polyfills).
     function supportsLiveScan() {
-        return !!window.BarcodeDetector;
+        return !!window.BarcodeDetector || zxingAvailable();
     }
 
     var impl = {

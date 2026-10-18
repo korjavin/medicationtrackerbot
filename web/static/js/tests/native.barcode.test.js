@@ -40,6 +40,20 @@ function makeFakeVideo(window) {
     const v = window.document.createElement('video');
     return v;
 }
+// The ZXing exports tryZXingOnCanvas assembles a BinaryBitmap from.
+function makeCanvasZXing(decodeBitmap) {
+    const luminanceArgs = [];
+    function FakeReader() { this.decodeBitmap = decodeBitmap; }
+    return {
+        luminanceArgs,
+        zxing: {
+            BrowserMultiFormatReader: FakeReader,
+            HTMLCanvasElementLuminanceSource: function (canvas) { luminanceArgs.push(canvas); },
+            HybridBinarizer: function (source) { this.source = source; },
+            BinaryBitmap: function (binarizer) { this.binarizer = binarizer; },
+        },
+    };
+}
 function makeFakeImage(window) {
     const i = window.document.createElement('img');
     return i;
@@ -321,13 +335,76 @@ describe('native/web/barcode.js — web impl', () => {
         expect(await env.window.Barcode.scan({ source: blob })).toBeNull();
     });
 
-    it('supportsLiveScan() follows window.BarcodeDetector presence, probed at call time', () => {
+    it('supportsLiveScan() is true with either decoder and false only when both are absent, probed at call time', () => {
         env = loadEnv();
         expect(env.window.Barcode.supportsLiveScan()).toBe(false);
         env.window.BarcodeDetector = function () {};
         expect(env.window.Barcode.supportsLiveScan()).toBe(true);
         delete env.window.BarcodeDetector;
         expect(env.window.Barcode.supportsLiveScan()).toBe(false);
+        env.window.ZXing = makeCanvasZXing(vi.fn()).zxing;
+        expect(env.window.Barcode.supportsLiveScan()).toBe(true);
+        delete env.window.ZXing;
+        expect(env.window.Barcode.supportsLiveScan()).toBe(false);
+    });
+
+    // bd med-o7zq.17: WebKit (Safari, the iOS shell) has no BarcodeDetector,
+    // so the live loop paints the current frame to a canvas and hands it to
+    // ZXing. Before the fix supportsLiveScan() was false there and the
+    // scanner never opened the camera — a black modal on every iPhone.
+    describe('live video frames without BarcodeDetector (WebKit)', () => {
+        function makeVideo(window, w, h) {
+            const v = window.document.createElement('video');
+            Object.defineProperty(v, 'videoWidth', { configurable: true, value: w });
+            Object.defineProperty(v, 'videoHeight', { configurable: true, value: h });
+            return v;
+        }
+
+        it('decodes the frame through ZXing on a canvas', async () => {
+            const decodeBitmap = vi.fn(() => ({ text: '4006381333931', format: 'EAN_13' }));
+            const { zxing, luminanceArgs } = makeCanvasZXing(decodeBitmap);
+            env = loadEnv({ barcodeDetector: undefined, zxing });
+            const drawImage = vi.fn();
+            env.window.HTMLCanvasElement.prototype.getContext = vi.fn(() => ({ drawImage }));
+            const video = makeVideo(env.window, 1280, 720);
+
+            const result = await env.window.Barcode.scan({ source: video, formats: ['ean_13'] });
+
+            expect(result).toEqual({ format: 'EAN_13', rawValue: '4006381333931' });
+            // Downscaled to <=640 on the long side to keep the decode fast.
+            expect(drawImage).toHaveBeenCalledWith(video, 0, 0, 640, 360);
+            expect(String(luminanceArgs[0].tagName).toUpperCase()).toBe('CANVAS');
+            expect(luminanceArgs[0].width).toBe(640);
+        });
+
+        it('returns null before the video has dimensions', async () => {
+            const decodeBitmap = vi.fn();
+            env = loadEnv({ barcodeDetector: undefined, zxing: makeCanvasZXing(decodeBitmap).zxing });
+            env.window.HTMLCanvasElement.prototype.getContext = vi.fn(() => ({ drawImage: vi.fn() }));
+            expect(await env.window.Barcode.scan({ source: makeVideo(env.window, 0, 0) })).toBeNull();
+            expect(decodeBitmap).not.toHaveBeenCalled();
+        });
+
+        it('returns null when neither decoder is present', async () => {
+            env = loadEnv({ barcodeDetector: undefined });
+            const drawImage = vi.fn();
+            env.window.HTMLCanvasElement.prototype.getContext = vi.fn(() => ({ drawImage }));
+            expect(await env.window.Barcode.scan({ source: makeVideo(env.window, 640, 480) })).toBeNull();
+            expect(env.window.Barcode.supportsLiveScan()).toBe(false);
+            expect(drawImage).not.toHaveBeenCalled();
+        });
+
+        it('does not consult ZXing for video when BarcodeDetector is present', async () => {
+            const detect = vi.fn().mockResolvedValue([]);
+            const ctor = vi.fn(function () { this.detect = detect; });
+            const decodeBitmap = vi.fn(() => ({ text: 'x', format: 'QR_CODE' }));
+            env = loadEnv({ barcodeDetector: ctor, zxing: makeCanvasZXing(decodeBitmap).zxing });
+            env.window.HTMLCanvasElement.prototype.getContext = vi.fn(() => ({ drawImage: vi.fn() }));
+            const video = makeVideo(env.window, 640, 480);
+            expect(await env.window.Barcode.scan({ source: video })).toBeNull();
+            expect(detect).toHaveBeenCalledWith(video);
+            expect(decodeBitmap).not.toHaveBeenCalled();
+        });
     });
 
     it('rejects a Response object as an unsupported source (not a Blob)', async () => {
