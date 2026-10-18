@@ -81,7 +81,7 @@ describe('local-only mode boot + records port (med-o7zq.2)', () => {
         const { window } = env;
 
         // BP
-        const bp = await window.apiCall('/api/bp', 'POST', { systolic: 118, diastolic: 76, pulse: 64 });
+        const bp = await window.apiCall('/api/bp', 'POST', { systolic: 118, diastolic: 76, pulse: 64, measured_at: new Date().toISOString() });
         expect(bp.id).toBeTruthy();
         await window.apiCall(`/api/bp/${bp.id}`, 'PUT', { systolic: 150, diastolic: 95, pulse: 64 });
         let bps = await window.apiCall('/api/bp?days=60');
@@ -134,7 +134,7 @@ describe('local-only mode boot + records port (med-o7zq.2)', () => {
     });
 
     it('serves apiCallDirect /api/* reads from the local store too', async () => {
-        await env.window.apiCall('/api/bp', 'POST', { systolic: 120, diastolic: 80, pulse: 60 });
+        await env.window.apiCall('/api/bp', 'POST', { systolic: 120, diastolic: 80, pulse: 60, measured_at: new Date().toISOString() });
         const direct = await env.window.apiCallDirect('/api/bp?days=60');
         expect(direct).toHaveLength(1);
         expect(fetched.filter((u) => u.includes('/api/'))).toEqual([]);
