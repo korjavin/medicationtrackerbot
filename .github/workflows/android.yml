@@ -39,6 +39,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      sign: ${{ steps.release.outputs.sign }}
     env:
       # The package is public once on Play, so it may show in these (public)
       # logs. The base domain must not: nothing here reads CLOUD_BASE_DOMAIN,
@@ -171,7 +173,8 @@ jobs:
   # and only on a dispatch that asked for it; PR/push runs never reach it.
   release-apk:
     needs: build
-    if: github.event_name == 'workflow_dispatch' && inputs.publish_apk_release
+    # !cancelled(): a Play upload failure later in build must not block the sideload link.
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.publish_apk_release && needs.build.outputs.sign == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
