@@ -248,20 +248,22 @@ class HealthConnect(private val activity: Activity) {
         return out
     }
 
-    /** Heart rate, energy and distance from the session's own app over its window — Health.swift's workout statistics. */
+    /** Active duration, heart rate, energy and distance from the session's own app over its window — Health.swift's workout statistics. */
     private suspend fun workout(w: ExerciseSessionRecord, granted: Set<String>): JSONObject {
         val o = JSONObject().put("uuid", uuid(w.metadata.id)).put("start", w.startTime.toEpochMilli())
             .put("end", w.endTime.toEpochMilli()).put("activity", hkActivity(w.exerciseType))
             .put("duration", Duration.between(w.startTime, w.endTime).toMillis() / 1000.0)
         val metrics = buildSet<AggregateMetric<*>> {
+            add(ExerciseSessionRecord.EXERCISE_DURATION_TOTAL) // without pauses, like HKWorkout.duration
             if (HealthPermission.getReadPermission(HeartRateRecord::class) in granted) add(HeartRateRecord.BPM_AVG)
             if (HealthPermission.getReadPermission(TotalCaloriesBurnedRecord::class) in granted) add(TotalCaloriesBurnedRecord.ENERGY_TOTAL)
             if (HealthPermission.getReadPermission(DistanceRecord::class) in granted) add(DistanceRecord.DISTANCE_TOTAL)
         }
-        if (metrics.isEmpty() || !w.endTime.isAfter(w.startTime)) return o
+        if (!w.endTime.isAfter(w.startTime)) return o
         val a = client.aggregate(
             AggregateRequest(metrics, TimeRangeFilter.between(w.startTime, w.endTime), setOf(w.metadata.dataOrigin))
         )
+        a[ExerciseSessionRecord.EXERCISE_DURATION_TOTAL]?.let { o.put("duration", it.toMillis() / 1000.0) }
         a[HeartRateRecord.BPM_AVG]?.let { o.put("hr", it) }
         a[TotalCaloriesBurnedRecord.ENERGY_TOTAL]?.let { o.put("energy", it.inKilocalories) }
         a[DistanceRecord.DISTANCE_TOTAL]?.let { o.put("distance", it.inMeters) }

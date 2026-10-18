@@ -277,7 +277,8 @@ the capability (`window.Health.label` / `accessHint`, `native/health.js`).
 - **Workouts:** `ExerciseSessionRecord`; `activity` is the
   `HKWorkoutActivityType` raw value (a small map in `hkActivity`; unmapped →
   3000, shown as "Workout") so the page's name table and strength rule apply.
-  `hr` (average bpm), `energy` (total kcal) and `distance` (m) aggregate the
+  `duration` (active, pauses excluded), `hr` (average bpm), `energy` (total
+  kcal) and `distance` (m) aggregate the
   session's own app over its window, each only when its permission is granted.
   Note: `energy` is *total* calories, iOS reads *active* energy.
 - **Foreground only:** reads run only when the page asks (unlock, return to
