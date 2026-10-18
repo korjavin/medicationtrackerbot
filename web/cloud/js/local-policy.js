@@ -23,6 +23,10 @@
 //               same trial switch (bd med-o7zq.20): LOCAL_FOOD_DB below sends
 //               fooddb.js's lookups through local-trial.js to the attest
 //               routes while it is on; off, it is unavailable and says why.
+//   voice       the call trigger only while the same trial switch is on (bd
+//               med-o7zq.23): window.CloudVoiceLLM becomes a responder whose
+//               start() mints the call through local-trial.js, and
+//               api.elevenlabs.io joins the host list with the base domain.
 //   UI          features that need our server carry .wg-cloud-only and hide
 //               under :root.wg-local-vault (styles.css), which local-boot.js
 //               sets before the body parses.
@@ -38,6 +42,7 @@ import { startHealthImport, runHealthImport, resetHealthAnchors } from './health
 import { clearLocalVault } from './account-delete.js';
 import { setTrialTransport } from './aiclient.js';
 import { createLocalTrial } from './local-trial.js';
+import { createVoiceLLMResponder } from './voice-llm-responder.js';
 
 // Settings → Notifications fires this on the document once iOS permission is
 // granted, so the schedule lands now instead of on the next open. settings.js
@@ -163,20 +168,51 @@ async function attestStatus(win) {
 // registerLocalEgress, read by LOCAL_VAULT.trial and LOCAL_FOOD_DB.
 let localTrial = null;
 let lastEgress = null;
+// apishim's window.CloudVoiceLLM (the account relay, whose device leg is this
+// origin's /api/voice-llm/device — nothing answers it here), put back when the
+// trial goes off.
+let defaultVoice = null;
+
+// The operator's ElevenLabs host: the voice SDK talks to it phone-direct
+// (https + wss) once our server minted the call's signed URL.
+const ELEVENLABS_HOST = 'api.elevenlabs.io';
+
+// Anonymous calls' turns are answered by our server (voice_llm_relay.go
+// anonTurn), so no request frame should reach this leg; one that does fails
+// like a missing key.
+const NO_AI = {
+  chatStream: () => Promise.reject(Object.assign(new Error('no AI key in on-device mode'), { code: 'no_api_key' })),
+  usesTrial: () => true,
+};
 
 function useLocalTrial(base, attest, win) {
+  if (!win.CloudVoiceLLM?.localTrial) defaultVoice = win.CloudVoiceLLM;
+  // styles.css shows the call trigger under :root.wg-local-trial.
+  win.document.documentElement.classList.toggle('wg-local-trial', !!base);
   if (!base) {
     localTrial = null;
     foodParked = null;
     setTrialTransport(null);
+    if (win.CloudVoiceLLM?.localTrial) {
+      win.CloudVoiceLLM.stop();
+      win.CloudVoiceLLM = defaultVoice;
+    }
     return;
   }
   if (localTrial && localTrial.base === base) return;
   foodParked = null;
-  localTrial = createLocalTrial({
+  const trial = createLocalTrial({
     attest, base, fetchImpl: win.fetch.bind(win), storage: win.localStorage,
   });
-  setTrialTransport(localTrial);
+  localTrial = trial;
+  setTrialTransport(trial);
+  win.CloudVoiceLLM?.stop?.();
+  // elevenlabs-call.js takes the signed URL from start() when localTrial is set.
+  win.CloudVoiceLLM = Object.assign(createVoiceLLMResponder({
+    aiClient: NO_AI,
+    url: `wss://${base}/api/attest/voice/device`,
+    mint: () => trial.voiceStart(),
+  }), { localTrial: true });
 }
 
 // The operator food-DB port (fooddb.js) for local mode: the trial transport
@@ -236,10 +272,14 @@ export async function registerLocalEgress({ settings, win }) {
   const hosts = hostsFromIntegrations(await settings.readIntegrationsUnmasked());
   const attest = await attestStatus(win);
   const trialOn = !!attest && (await settings.getTrialConsent())?.anon === true;
-  if (trialOn && !hosts.includes(attest.base)) hosts.push(attest.base);
+  if (trialOn) {
+    for (const host of [attest.base, ELEVENLABS_HOST]) if (!hosts.includes(host)) hosts.push(host);
+  }
   const reply = await native.call('setEgressHosts', { hosts });
   const changed = !!(reply && reply.changed);
   if (!changed) {
+    // The call bar's "turn on the free trial" hint, where the trial exists.
+    win.document.documentElement.classList.toggle('wg-local-trial-off', !!attest && !trialOn);
     useLocalTrial(trialOn ? attest.base : null, win.Attest, win);
     if (trialOn && !attest.attested && !localTrial.state()) {
       localTrial.enroll().catch((e) => console.warn('[local] trial enrollment failed', e));

@@ -33,10 +33,13 @@ enum LocalOrigin {
     }
 
     /// cspPolicy (router.go) with connect-src scoped to 'self' plus the
-    /// registered BYOK hosts only — never a wildcard `https:`/`wss:`, the
-    /// same invariant as the account app document. Hosts are pre-validated.
+    /// registered hosts only — never a wildcard `https:`/`wss:`, the same
+    /// invariant as the account app document. Each host is listed as https://
+    /// AND wss:// (the trial voice SDK and relay leg open sockets, bd
+    /// med-o7zq.23), like router.go buildConnectSrc: never relying on CSP3's
+    /// https→wss scheme matching in WebKit. Hosts are pre-validated.
     static func csp(_ hosts: [String]) -> String {
-        let connect = (["'self'"] + hosts.map { "https://" + $0 }).joined(separator: " ")
+        let connect = (["'self'"] + hosts.flatMap { ["https://" + $0, "wss://" + $0] }).joined(separator: " ")
         return "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; worker-src 'self'; "
             + "media-src 'self'; connect-src \(connect); object-src 'none'; base-uri 'none'; "
             + "frame-ancestors 'none'; form-action 'none'"

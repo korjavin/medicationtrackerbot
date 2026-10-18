@@ -539,6 +539,24 @@
         if (window.CloudVoiceLLM) window.CloudVoiceLLM.stop();
     }
 
+    // iOS local mode's anonymous trial (bd med-o7zq.23, web/cloud/js/
+    // local-policy.js): there the responder's start() mints the call itself —
+    // { call, signedUrl, remainingSeconds, dailyRemainingSeconds } from one
+    // attested request — so the signed URL comes from it, and the trial
+    // switch already was the consent.
+    function localTrialVoice() {
+        return Boolean(window.CloudVoiceLLM && window.CloudVoiceLLM.localTrial);
+    }
+
+    // The call's grant ran out (the server ended the relay leg): which budget
+    // ended it decides the copy. Each call is charged up to 2 minutes at start
+    // (TRIAL_ANON_VOICE_CALL_MAX_SECONDS); below 30 s nothing is granted.
+    function trialTimeUpCopy(minted) {
+        if (!(minted.remainingSeconds >= 30)) return 'Free voice minutes used up — add your own keys in a cloud account to keep calling.';
+        if (!(minted.dailyRemainingSeconds >= 30)) return 'Today\u2019s free voice minutes are used up — call again tomorrow.';
+        return 'Call time is up — each free call lasts up to 2 minutes. Call again to keep talking.';
+    }
+
     // openVoiceLLMLeg → the call token, or null to call without the relay.
     // The leg must be up before the signed URL is minted, so the agent's first
     // LLM turn finds it. Bot mode has no relay. Best-effort on purpose: an
@@ -580,7 +598,7 @@
     async function refreshReadiness() {
         let ready = false;
         try {
-            ready = trialVoiceAvailable()
+            ready = localTrialVoice() || trialVoiceAvailable()
                 || Boolean(window.CloudElevenLabs && await window.CloudElevenLabs.hasKey());
         } catch (_) { /* unreadable key = not set up */ }
         voiceReady = ready;
@@ -593,7 +611,9 @@
         if (typeof window.switchTab === 'function') window.switchTab('settings');
         const settings = window.SettingsView;
         if (settings && typeof settings.openSettingsPage === 'function') settings.openSettingsPage('integrations');
-        const key = document.getElementById('integrations-elevenlabs-api-key');
+        // Local mode has no ElevenLabs key field: the free-trial switch instead.
+        const local = document.documentElement.classList.contains('wg-local-vault');
+        const key = document.getElementById(local ? 'integrations-local-trial' : 'integrations-elevenlabs-api-key');
         if (key && typeof key.scrollIntoView === 'function') key.scrollIntoView({ block: 'center' });
     }
 
@@ -626,7 +646,8 @@
         const muteBtn = card.querySelector('.wg-callbar__mute');
         const photoBtn = card.querySelector('.wg-callbar__photo');
         const offline = !live && isOffline();
-        const setup = state === 'idle' && !offline && voiceReady === false;
+        // The local trial's responder can land after the bar mounted.
+        const setup = state === 'idle' && !offline && voiceReady === false && !localTrialVoice();
         if (btn) {
             btn.disabled = state === 'connecting' || offline;
             btn.dataset.action = setup ? 'voice-setup' : 'call-agent';
@@ -855,6 +876,18 @@
         setState('idle', '');
     }
 
+    // The trial call's time ran out: the relay leg is gone and its later turns
+    // only speak the used-up sentence, so hang up and say why.
+    async function endTrialCall(minted) {
+        cancelConnect();
+        const conv = activeConversation;
+        activeConversation = null;
+        if (conv && typeof conv.endSession === 'function') {
+            try { await conv.endSession(); } catch (_) { /* ignore */ }
+        }
+        setState('error', trialTimeUpCopy(minted || {}));
+    }
+
     async function startCall(card) {
         if (callInFlight()) return;
         activeCard = card;
@@ -870,12 +903,25 @@
             setState('error', 'Connection timed out — allow microphone access and try again.');
         }, CONNECT_TIMEOUT_MS);
         try {
-            const call = await openVoiceLLMLeg(live);
-            if (!live()) return;
-            const [signedUrl, sdk] = await Promise.all([
-                fetchSignedURL(),
-                loadSDK(),
-            ]);
+            let call;
+            let signedUrl;
+            let sdk;
+            if (localTrialVoice()) {
+                let minted;
+                [minted, sdk] = await Promise.all([
+                    window.CloudVoiceLLM.start({ onExhausted: () => { if (live()) endTrialCall(minted); } }),
+                    loadSDK(),
+                ]);
+                if (!live()) return;
+                ({ call, signedUrl } = minted);
+            } else {
+                call = await openVoiceLLMLeg(live);
+                if (!live()) return;
+                [signedUrl, sdk] = await Promise.all([
+                    fetchSignedURL(),
+                    loadSDK(),
+                ]);
+            }
             const Conversation = sdk && sdk.Conversation;
             if (!Conversation || typeof Conversation.startSession !== 'function') {
                 throw new Error('ElevenLabs SDK missing Conversation.startSession');
@@ -1014,6 +1060,14 @@
         add(end);
 
         after = null;
+        // Local mode (bd med-o7zq.23): shown by styles.css only while the free
+        // trial is available but off, i.e. where the trigger is hidden.
+        if (document.documentElement.classList.contains('wg-local-vault')) {
+            const hint = document.createElement('p');
+            hint.className = 'wg-hint wg-callbar__trial-hint';
+            hint.textContent = 'Turn on the free trial in Settings → AI & integrations to call the agent.';
+            add(hint);
+        }
         const error = document.createElement('p');
         error.className = 'wg-hint wg-callbar__error';
         error.setAttribute('role', 'alert');

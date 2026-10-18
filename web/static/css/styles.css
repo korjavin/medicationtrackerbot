@@ -2789,6 +2789,20 @@ input.wg-stepper__val::-webkit-inner-spin-button {
     color: var(--wg-danger-fg);
 }
 
+/* Local mode with the free trial off but available (local-policy.js sets
+   .wg-local-trial-off, bd med-o7zq.23): in place of the call trigger, after
+   the bar's other buttons. */
+.wg-callbar__trial-hint {
+    display: none;
+    flex-basis: 100%;
+    order: 1;
+    margin: 0;
+}
+
+:root.wg-local-trial-off .wg-callbar__trial-hint {
+    display: block;
+}
+
 .wg-callbar__mute[aria-pressed="true"] {
     color: var(--wg-danger-fg);
     border-color: var(--wg-danger-line);
@@ -7366,9 +7380,12 @@ body:has(.wg-callbar--dock) .wg-toasts {
    mode yet) is .wg-cloud-only; local-mode copy is .wg-local-only. The voice
    call trigger and the gym share button are built in JS, so they are named
    here instead of carrying the class. settings.js isSettingsSectionHidden
-   mirrors these selectors. */
+   mirrors the class selectors. The call trigger shows only while the free
+   trial is on (local-policy.js sets .wg-local-trial, bd med-o7zq.23); its
+   Send photo needs the user's own ElevenLabs key, which needs an account. */
 :root.wg-local-vault .wg-cloud-only,
-:root.wg-local-vault .wg-callbar__call,
+:root.wg-local-vault:not(.wg-local-trial) .wg-callbar__call,
+:root.wg-local-vault .wg-callbar__photo,
 :root.wg-local-vault .wg-equipment-row__share-location,
 :root:not(.wg-local-vault) .wg-local-only {
     display: none !important;

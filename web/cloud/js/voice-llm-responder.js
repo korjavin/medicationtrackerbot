@@ -26,14 +26,26 @@ const START_TIMEOUT_MS = 5000;
 // the call is gone or another leg took it — redialing can never succeed.
 export const STATUS_UNKNOWN_CALL = 4404;
 export const STATUS_REPLACED = 4409;
+// voiceStatusBudget: an anonymous trial call's grant ran out (bd med-o7zq.22).
+// The server sends {"type":"budget_exhausted"} first, then closes with it.
+export const STATUS_BUDGET = 4429;
 
 // createVoiceLLMResponder → { start(): Promise<callToken>, stop(), usesTrialAI() }.
 // start() dials the device leg and resolves with the hello's call token (the
 // value elevenlabs-call.js passes as customLlmExtraBody.call), then serves
 // requests until stop(). A blip mid-call redials with ?call=<token> to reclaim.
-export function createVoiceLLMResponder({ aiClient, url, now = () => Date.now() }) {
+//
+// With `mint` (iOS local mode's anonymous trial, bd med-o7zq.23) the server
+// mints the call instead of the first attach: start({ onExhausted }) awaits
+// mint() → { call, signedUrl, ... }, dials url?call=<call>, and resolves with
+// the mint's result. onExhausted runs once when the call's grant runs out
+// (the budget_exhausted frame or close 4429). Without mint (cloud) start()
+// is unchanged.
+export function createVoiceLLMResponder({ aiClient, url, mint, now = () => Date.now() }) {
   let ws = null;
   let token = null;
+  let epoch = 0; // bumped by every stop(): a mint that outlived one is dropped
+  let onExhausted = null;
   let stopped = true;
   let pendingStart = null;
   let reconnectTimer = null;
@@ -114,7 +126,16 @@ export function createVoiceLLMResponder({ aiClient, url, now = () => Date.now() 
       serve(sock, f.id, f.body);
     } else if (f.type === 'cancel' && f.id) {
       turns.get(f.id)?.abort();
+    } else if (f.type === 'budget_exhausted') {
+      exhausted();
     }
+  }
+
+  function exhausted() {
+    const cb = onExhausted;
+    if (pendingStart) fail('voice trial budget exhausted');
+    else stop(); // expected, not a lost leg: no warning
+    if (cb) cb();
   }
 
   function fail(reason) {
@@ -136,6 +157,7 @@ export function createVoiceLLMResponder({ aiClient, url, now = () => Date.now() 
       abortTurns();
       if (stopped) return;
       const code = ev && ev.code;
+      if (code === STATUS_BUDGET) { exhausted(); return; }
       if (!token) { fail(`voice relay closed before hello (${code})`); return; }
       if (code === STATUS_UNKNOWN_CALL || code === STATUS_REPLACED) { fail(`voice relay call ended (${code})`); return; }
       clearTimeout(reconnectTimer);
@@ -146,8 +168,21 @@ export function createVoiceLLMResponder({ aiClient, url, now = () => Date.now() 
 
   // start() always opens a fresh call: whatever leg a previous call left is
   // closed first, so one tab never holds two.
-  function start() {
+  function start(opts = {}) {
+    if (!mint) return dial();
     stop();
+    const e = epoch;
+    return mint().then(async (minted) => {
+      if (e !== epoch) throw new Error('voice relay stopped');
+      await dial(minted.call);
+      onExhausted = opts.onExhausted || null;
+      return minted;
+    });
+  }
+
+  function dial(minted) {
+    stop();
+    token = minted || null;
     stopped = false;
     reconnectDelay = RECONNECT_MIN_MS;
     return new Promise((resolve, reject) => {
@@ -165,6 +200,8 @@ export function createVoiceLLMResponder({ aiClient, url, now = () => Date.now() 
   }
 
   function stop() {
+    epoch += 1;
+    onExhausted = null;
     stopped = true;
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
