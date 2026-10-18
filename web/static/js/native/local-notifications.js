@@ -24,7 +24,7 @@
         isSupported: function () { return false; },
     });
     // The Android shell (bd med-nt9p.6) answers the same ops with the same
-    // impl; until its Kotlin side lands (med-nt9p.7) they reject "unsupported: <op>".
+    // impl (android/.../Notifications.kt, bd med-nt9p.7).
     var shell = {
         isSupported: function () { return true; },
         permission: function () { return foundation.call('notifications.permission'); },
