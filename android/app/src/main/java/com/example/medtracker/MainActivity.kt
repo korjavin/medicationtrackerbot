@@ -1,17 +1,14 @@
 package com.example.medtracker
 
-import android.Manifest
 import android.app.Activity
-import android.content.ClipData
-import android.content.ClipboardManager
+import android.content.ActivityNotFoundException
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.graphics.Typeface
+import android.content.pm.ShortcutInfo
+import android.content.pm.ShortcutManager
+import android.graphics.Color
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
+import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -19,13 +16,12 @@ import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.view.Window
 import android.view.WindowInsets
-import android.webkit.ConsoleMessage
-import android.webkit.PermissionRequest
+import android.view.WindowInsetsController
+import android.view.inputmethod.EditorInfo
 import android.webkit.RenderProcessGoneDetail
-import android.webkit.ValueCallback
-import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
@@ -34,349 +30,428 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import android.widget.Toast
-import androidx.webkit.JavaScriptReplyProxy
-import androidx.webkit.ScriptHandler
+import android.window.OnBackInvokedCallback
+import android.window.OnBackInvokedDispatcher
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import org.json.JSONObject
-import org.json.JSONTokener
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.UUID
 
-// GO/NO-GO spike (bd med-nt9p.4), twin of the iOS spike med-w6gx.2.
-// Throwaway: the shell bead (med-nt9p.5) replaces this file. One Android System
-// WebView on an account origin the tester pastes at runtime (no domain is ever
-// built in), with passkeys enabled for the app, a scoped WebMessageListener
-// bridge, camera and file-chooser plumbing, and a native panel that runs the
-// checks in assets/spike-checks.js. The procedure is in docs/android.md.
+/**
+ * The shell (bd med-nt9p.5), twin of ios/App/Shell.swift: one Android System
+ * WebView on the account origin https://<sub>.<base>/, exactly like the PWA.
+ * The app remembers only the account host; the vault, Service Worker and
+ * IndexedDB live in WebView storage, per origin. The base domain comes from
+ * the build (BuildConfig.BASE_DOMAIN), the account from the invite at runtime.
+ */
 class MainActivity : Activity() {
-    private val prefs by lazy { getSharedPreferences("spike", MODE_PRIVATE) }
-    /** Fresh per process: an IndexedDB marker from another launchId proves the data survived a kill. */
-    private val launchId = UUID.randomUUID().toString()
-    private val main = Handler(Looper.getMainLooper())
+    private val base = BuildConfig.BASE_DOMAIN
+    private val prefs by lazy { getSharedPreferences("shell", MODE_PRIVATE) }
+    private var host: String? = null
+    /** In memory only: Try again must keep an invite link's #claim= fragment. */
+    private var lastUrl: String? = null
+    /** A page of this account finished loading: later load failures leave it usable. */
+    private var showingAccount = false
+    private var loadFailed = false
+    /** Set by open/forget: the previous account's pages must not stay reachable by Back. */
+    private var clearHistory = false
+    private var topColor = SCREEN
+    private var bottomColor = SCREEN
+    private var bars = WindowInsets.CONSUMED
+
+    private lateinit var root: FrameLayout
     private lateinit var web: WebView
-    private lateinit var panel: View
-    private lateinit var logView: TextView
-    private lateinit var urlField: EditText
-    /** The base domain the bridge and tap script are bound to; from the tester's input, never the build. */
-    private var base = ""
-    private var tapScript: ScriptHandler? = null
-    private var pendingPermission: PermissionRequest? = null
-    private var fileCallback: ValueCallback<Array<Uri>>? = null
-    private var runSeq = 0
+    private lateinit var topBand: View
+    private lateinit var bottomBand: View
+    private lateinit var firstRun: View
+    private lateinit var input: EditText
+    private lateinit var firstRunMessage: TextView
+    private lateinit var errorView: View
+    private lateinit var errorMessage: TextView
+
+    private val back = OnBackInvokedCallback { web.goBack() }
+    private var backRegistered = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestWindowFeature(Window.FEATURE_NO_TITLE)
-        WebView.setWebContentsDebuggingEnabled(true) // chrome://inspect from a desktop, spike only
-
-        web = WebView(this)
-        web.settings.javaScriptEnabled = true
-        web.settings.domStorageEnabled = true
-        web.settings.mediaPlaybackRequiresUserGesture = false
-        val webauthn = if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION)) {
-            WebSettingsCompat.setWebAuthenticationSupport(web.settings, WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP)
-            "for-app (read back ${WebSettingsCompat.getWebAuthenticationSupport(web.settings)})"
-        } else {
-            "UNSUPPORTED by this WebView"
-        }
-        web.webViewClient = object : WebViewClient() {
-            override fun onPageFinished(view: WebView, url: String) = onLoaded(url)
-
-            override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-                if (request.isForMainFrame) log("load failed: ${error.errorCode} ${error.description}")
-            }
-
-            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
-                log("render process gone (crash=${detail.didCrash()}); recreating")
-                recreate()
-                return true
-            }
-        }
-        web.webChromeClient = object : WebChromeClient() {
-            override fun onPermissionRequest(request: PermissionRequest) = onWebPermission(request)
-
-            override fun onShowFileChooser(view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
-                fileCallback?.onReceiveValue(null)
-                fileCallback = callback
-                log("onShowFileChooser accept=${params.acceptTypes.joinToString()}")
-                return try {
-                    startActivityForResult(params.createIntent(), REQ_FILE)
-                    true
-                } catch (e: Exception) {
-                    fileCallback = null
-                    log("file chooser failed: $e")
-                    false
-                }
-            }
-
-            override fun onConsoleMessage(m: ConsoleMessage): Boolean {
-                if (m.messageLevel() == ConsoleMessage.MessageLevel.ERROR) log("console error: ${m.message().take(300)}")
-                return false
-            }
-        }
-
+        // Edge to edge on Android 14 too (targetSdk 35+ only enforces it from 15):
+        // layoutBars owns the bar and keyboard insets on every version.
+        @Suppress("DEPRECATION")
+        window.setDecorFitsSystemWindows(false)
+        @Suppress("DEPRECATION")
+        window.statusBarColor = Color.TRANSPARENT
+        @Suppress("DEPRECATION")
+        window.navigationBarColor = Color.TRANSPARENT
+        window.isNavigationBarContrastEnforced = false // the band shows the page colour, not a scrim
+        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
         setContentView(buildUi())
-        prefs.getString("base", null)?.let { bind(it) }
-        val wv = WebViewCompat.getCurrentWebViewPackage(this)
-        val app = packageManager.getPackageInfo(packageName, 0)
-        log(
-            "launch ${launchId.take(8)} Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT}, " +
-                "${Build.DISPLAY}, patch ${Build.VERSION.SECURITY_PATCH}) ${Build.MANUFACTURER} ${Build.MODEL}; " +
-                "WebView ${wv?.packageName} ${wv?.versionName}; app ${app.versionName} (${app.longVersionCode}); webauthn $webauthn"
-        )
+        publishShortcut()
 
-        val last = prefs.getString("lastUrl", null)
-        if (last != null && base.isNotEmpty()) web.loadUrl(last) else panel.visibility = View.VISIBLE
+        adoptSpikeAccount()
+        host = prefs.getString(HOST_KEY, null)?.takeIf { AccountUrl.isAccountHost(it, base) }
+        // A restored activity keeps its launch intent: only a fresh shortcut launch switches.
+        if (intent?.action == ACTION_SWITCH && savedInstanceState == null) forget() else reopen()
     }
 
-    // MARK: UI — a plain panel over the web view, opened by the "Spike" button.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.action == ACTION_SWITCH) forget()
+    }
+
+    override fun onDestroy() {
+        web.destroy()
+        super.onDestroy()
+    }
+
+    // MARK: account
+
+    private val home get() = host?.let { "https://$it/" }
+
+    /** First-run submit: open the account, or say why not. */
+    private fun open(raw: String) {
+        val url = AccountUrl.parse(raw, base)
+        val h = url?.let { Uri.parse(it).host }
+        if (url == null || h == null) {
+            firstRunMessage.text = if (base.isEmpty()) "This build has no service configured."
+            else "That isn't an account link. Use your invite link or your account address (yourname.$base)."
+            return
+        }
+        prefs.edit().putString(HOST_KEY, h).apply()
+        host = h
+        input.setText("")
+        firstRunMessage.text = ""
+        reopen(url) // the claim link keeps its #fragment for the page; only the host is stored
+    }
+
+    /** Switch account: back to first run. WebView data is per origin and kept. */
+    private fun forget() {
+        prefs.edit().remove(HOST_KEY).apply()
+        host = null
+        reopen()
+    }
+
+    private fun reopen(url: String? = home) {
+        showingAccount = false
+        lastUrl = null
+        clearHistory = true
+        errorView.visibility = View.GONE
+        if (url == null) {
+            web.loadUrl("about:blank")
+            firstRun.visibility = View.VISIBLE
+        } else {
+            firstRun.visibility = View.GONE
+            load(url)
+        }
+        updateChrome()
+    }
+
+    private fun load(url: String) {
+        errorView.visibility = View.GONE
+        lastUrl = url
+        web.loadUrl(url)
+        updateChrome()
+    }
+
+    private fun retry() {
+        (lastUrl ?: home)?.let { load(it) }
+    }
+
+    private fun showError(message: String) {
+        errorMessage.text = message
+        errorView.visibility = View.VISIBLE
+        updateChrome()
+    }
+
+    private fun isInside(h: String?): Boolean {
+        val l = h?.lowercase() ?: return false
+        return host != null && (l == host || l == base)
+    }
+
+    /** The spike (bd med-nt9p.4) kept the last URL: adopt its account so testers skip first run. */
+    private fun adoptSpikeAccount() {
+        val spike = getSharedPreferences("spike", MODE_PRIVATE)
+        val last = spike.getString("lastUrl", null)
+        if (last != null && !prefs.contains(HOST_KEY)) {
+            AccountUrl.parse(last, base)?.let { Uri.parse(it).host }?.let { prefs.edit().putString(HOST_KEY, it).apply() }
+        }
+        if (spike.all.isNotEmpty()) deleteSharedPreferences("spike")
+    }
+
+    /** Long-press the launcher icon → Switch account: the twin of iOS Settings → Switch account. */
+    private fun publishShortcut() {
+        val switch = ShortcutInfo.Builder(this, "switch-account")
+            .setShortLabel("Switch account")
+            .setIntent(Intent(ACTION_SWITCH, null, this, MainActivity::class.java))
+            .build()
+        runCatching { getSystemService(ShortcutManager::class.java).setDynamicShortcuts(listOf(switch)) }
+    }
+
+    // MARK: web view
+
+    private fun makeWebView(): WebView {
+        val w = WebView(this)
+        w.settings.javaScriptEnabled = true
+        w.settings.domStorageEnabled = true
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION)) {
+            WebSettingsCompat.setWebAuthenticationSupport(w.settings, WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP)
+        }
+        w.setBackgroundColor(Color.TRANSPARENT)
+        w.webViewClient = Client()
+        if (base.isNotEmpty()) {
+            val rules = setOf("https://*.$base")
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+                WebViewCompat.addWebMessageListener(w, BRIDGE, rules) { _, message, origin, isMainFrame, reply ->
+                    onBridge(message.data, origin, isMainFrame) { reply.postMessage(it) }
+                }
+            }
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                WebViewCompat.addDocumentStartJavaScript(w, assets.open("chrome.js").bufferedReader().use { it.readText() }, rules)
+            }
+        }
+        return w
+    }
+
+    private inner class Client : WebViewClient() {
+        /** Only the account host and the base domain load in the app; anything else opens outside it. */
+        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+            val uri = request.url
+            when (uri.scheme?.lowercase()) {
+                "http", "https" -> if (isInside(uri.host) || !request.isForMainFrame) return false
+                "blob", "data", "about" -> return false
+            }
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE))
+            } catch (e: ActivityNotFoundException) {
+            }
+            return true
+        }
+
+        override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+            loadFailed = false
+        }
+
+        override fun onPageFinished(view: WebView, url: String?) {
+            if (clearHistory) {
+                clearHistory = false
+                view.clearHistory()
+            }
+            if (!loadFailed && host != null && url?.let { Uri.parse(it).host?.lowercase() } == host) showingAccount = true
+            updateBack()
+        }
+
+        override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) = updateBack()
+
+        /**
+         * Offline with a Service Worker in control never gets here: the worker answers.
+         * Unlike WKWebView, WebView replaces the page with its own error page, so a
+         * later failure gets the screen too, and Try again reloads that URL.
+         */
+        override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+            if (!request.isForMainFrame) return
+            loadFailed = true
+            if (showingAccount) lastUrl = request.url.toString()
+            showError(error.description?.toString()?.takeIf { it.isNotBlank() } ?: "The page could not be loaded.")
+        }
+
+        /** An HTTP error before any page of this account showed — a mistyped or deleted account is a 404. */
+        override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
+            // Once the account showed, the server's own error page stays (Back leaves it).
+            if (!request.isForMainFrame || response.statusCode < 400 || showingAccount) return
+            loadFailed = true
+            val h = request.url.host?.lowercase()
+            showError(
+                if (response.statusCode == 404 && h == host) "There is no account at $host."
+                else response.reasonPhrase?.takeIf { it.isNotBlank() } ?: "The server answered ${response.statusCode}."
+            )
+        }
+
+        /** Renderer crash or kill: a fresh WebView on the same URL (it keeps the fragment). */
+        override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+            val url = runCatching { view.url }.getOrNull()?.takeIf { it != "about:blank" }
+            root.removeView(view)
+            view.destroy()
+            web = makeWebView()
+            root.addView(web, 0)
+            layoutBars()
+            showingAccount = false
+            when {
+                url != null -> load(url)
+                host == null -> web.loadUrl("about:blank")
+                else -> retry()
+            }
+            return true
+        }
+    }
+
+    /**
+     * The wgNative bridge (bd med-nt9p.5): WebMessageListener injected as
+     * window.wgNative on the `https` subdomains of base. Only the account's own
+     * top-level page is answered. Messages are JSON {op, args, id}; replies
+     * {id, result} or {id, error}. Capability ops (native/ android platform,
+     * med-nt9p.6) add cases here.
+     */
+    private fun onBridge(data: String?, origin: Uri, isMainFrame: Boolean, reply: (String) -> Unit) {
+        val msg = runCatching { JSONObject(data ?: "") }.getOrNull() ?: return
+        val id = msg.opt("id")
+        fun answer(result: Any?, error: String? = null) {
+            if (id == null) return
+            reply(JSONObject().put("id", id).apply { if (error != null) put("error", error) else put("result", result) }.toString())
+        }
+        if (!isMainFrame || origin.scheme != "https" || origin.host?.lowercase() != host) {
+            answer(null, "forbidden")
+            return
+        }
+        when (val op = msg.optString("op")) {
+            "ping" -> answer("pong")
+            "chrome" -> {
+                val args = msg.optJSONObject("args") ?: return
+                cssColor(args.optString("top"))?.let { topColor = it }
+                cssColor(args.optString("bottom"))?.let { bottomColor = it }
+                updateChrome()
+            }
+            else -> answer(null, "unsupported: $op")
+        }
+    }
+
+    // MARK: chrome — edge to edge, the page's colours behind the system bars
 
     private fun buildUi(): View {
-        val root = FrameLayout(this)
-        root.addView(web, MATCH_PARENT, MATCH_PARENT)
-
-        urlField = EditText(this).apply {
-            hint = "Paste an invite link or https://<account>/"
-            maxLines = 3
-        }
-        logView = TextView(this).apply {
-            setTextIsSelectable(true)
-            textSize = 11f
-            typeface = Typeface.MONOSPACE
-            text = prefs.getString("log", "")
-        }
-        val column = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(32, 32, 32, 32)
-            addView(urlField)
-        }
-        val actions = listOf<Pair<String, () -> Unit>>(
-            "Open" to { open(urlField.text.toString()) },
-            "Run checks (3, 4, 5 camera, 6)" to { run("checks") },
-            "Passkey create + PRF" to { run("create") },
-            "Passkey get + PRF" to { run("get") },
-            "Passkey get after 120 s" to { run("get-wait") },
-            "File chooser (5)" to { run("file") },
-            "Reload page" to { web.reload() },
-            "Copy report" to { copyReport() },
-            "Clear report" to { prefs.edit().remove("log").apply(); logView.text = "" },
-            "Close panel" to { panel.visibility = View.GONE },
-        )
-        for ((label, action) in actions) {
-            column.addView(Button(this).apply { text = label; isAllCaps = false; setOnClickListener { action() } })
-        }
-        column.addView(logView)
-
-        val bg = TypedValue().also { theme.resolveAttribute(android.R.attr.colorBackground, it, true) }
-        panel = ScrollView(this).apply {
-            setBackgroundColor(bg.data)
-            visibility = View.GONE
-            addView(column)
-        }
-        root.addView(panel, MATCH_PARENT, MATCH_PARENT)
-
-        val toggle = Button(this).apply {
-            text = "Spike"
-            isAllCaps = false
-            alpha = 0.7f
-            setOnClickListener { panel.visibility = if (panel.visibility == View.VISIBLE) View.GONE else View.VISIBLE }
-        }
-        root.addView(toggle, FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.END or Gravity.CENTER_VERTICAL))
-
-        // targetSdk 35 draws edge to edge: keep everything clear of the system bars and keyboard.
-        root.setOnApplyWindowInsetsListener { v, insets ->
-            val b = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.ime())
-            v.setPadding(b.left, b.top, b.right, b.bottom)
+        root = FrameLayout(this)
+        web = makeWebView()
+        root.addView(web)
+        topBand = View(this)
+        bottomBand = View(this)
+        root.addView(topBand, FrameLayout.LayoutParams(MATCH_PARENT, 0, Gravity.TOP))
+        root.addView(bottomBand, FrameLayout.LayoutParams(MATCH_PARENT, 0, Gravity.BOTTOM))
+        firstRun = buildFirstRun()
+        errorView = buildError()
+        root.addView(firstRun, MATCH_PARENT, MATCH_PARENT)
+        root.addView(errorView, MATCH_PARENT, MATCH_PARENT)
+        root.setOnApplyWindowInsetsListener { _, insets ->
+            bars = insets
+            layoutBars()
             WindowInsets.CONSUMED
         }
         return root
     }
 
-    @Deprecated("Activity back handling is enough for a spike")
-    override fun onBackPressed() {
-        when {
-            panel.visibility == View.VISIBLE -> panel.visibility = View.GONE
-            web.canGoBack() -> web.goBack()
-            else -> super.onBackPressed()
+    private fun layoutBars() {
+        val sys = bars.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+        val ime = bars.getInsets(WindowInsets.Type.ime())
+        val bottom = maxOf(sys.bottom, ime.bottom)
+        web.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT).apply {
+            setMargins(sys.left, sys.top, sys.right, bottom)
         }
+        topBand.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, sys.top, Gravity.TOP)
+        bottomBand.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, sys.bottom, Gravity.BOTTOM)
+        for (v in listOf(firstRun, errorView)) v.setPadding(sys.left, sys.top, sys.right, bottom)
     }
 
-    // MARK: navigation
-
-    private fun open(raw: String) {
-        val line = raw.lines().map { it.trim() }.firstOrNull { it.isNotEmpty() } ?: return
-        val uri = Uri.parse(if ("://" in line) line else "https://$line")
-        val newBase = uri.host?.let { SpikeText.baseOf(it) }
-        if (uri.scheme != "https" || newBase == null) {
-            log("open: not an https account URL (https://<sub>.<base>/…)")
-            return
-        }
-        bind(newBase)
-        urlField.setText("")
-        panel.visibility = View.GONE
-        log("open ${strip(uri)}${if (uri.fragment != null) " (+ #fragment)" else ""}")
-        web.loadUrl(uri.toString())
+    /** Bands and bar icons follow the page, or the theme while a native screen is up. */
+    private fun updateChrome() {
+        val native = firstRun.visibility == View.VISIBLE || errorView.visibility == View.VISIBLE
+        val themeBg = TypedValue().also { theme.resolveAttribute(android.R.attr.colorBackground, it, true) }.data
+        val top = if (native) themeBg else topColor
+        val bottom = if (native) themeBg else bottomColor
+        root.setBackgroundColor(top)
+        topBand.setBackgroundColor(top)
+        bottomBand.setBackgroundColor(bottom)
+        val light = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+        val lightNav = WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
+        window.insetsController?.setSystemBarsAppearance(
+            (if (isLight(top)) light else 0) or (if (isLight(bottom)) lightNav else 0),
+            light or lightNav,
+        )
+        updateBack()
     }
 
-    private fun onLoaded(url: String) {
-        val uri = Uri.parse(url)
-        val clean = strip(uri) // never keep or log a #claim= token
-        log("loaded $clean")
-        // Unredacted on purpose, in the app's own sandbox: the relaunch needs the real origin.
-        if (isAccountHost(uri.host ?: "")) prefs.edit().putString("lastUrl", clean).apply()
+    private fun isLight(c: Int) = Color.luminance(c) > 0.5f
+
+    /** Back walks the web view's history while the page shows, then leaves the app. */
+    private fun updateBack() {
+        val want = firstRun.visibility != View.VISIBLE && errorView.visibility != View.VISIBLE && web.canGoBack()
+        if (want == backRegistered) return
+        if (want) onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, back)
+        else onBackInvokedDispatcher.unregisterOnBackInvokedCallback(back)
+        backRegistered = want
     }
 
-    private fun strip(uri: Uri) = uri.buildUpon().fragment(null).clearQuery().build().toString()
+    // MARK: native screens
 
-    private fun isAccountHost(host: String): Boolean {
-        if (base.isEmpty() || !host.lowercase().endsWith(".$base")) return false
-        val label = host.dropLast(base.length + 1)
-        return label.isNotEmpty() && '.' !in label
-    }
-
-    /**
-     * Binds the wgSpike bridge and the WebAuthn tap to every https subdomain of base: both
-     * apply to navigations after the call, so this runs before the load.
-     */
-    private fun bind(newBase: String) {
-        if (newBase == base) return
-        val rules = setOf("https://*.$newBase")
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
-            if (base.isNotEmpty()) WebViewCompat.removeWebMessageListener(web, BRIDGE)
-            WebViewCompat.addWebMessageListener(web, BRIDGE, rules) { _, message, origin, isMainFrame, reply ->
-                onBridge(message.data, origin, isMainFrame, reply)
+    private fun buildFirstRun(): View {
+        input = EditText(this).apply {
+            hint = if (base.isEmpty()) "Invite link" else "Invite link or yourname.$base"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            imeOptions = EditorInfo.IME_ACTION_GO
+            setOnEditorActionListener { _, action, _ ->
+                (action == EditorInfo.IME_ACTION_GO).also { if (it) open(text.toString()) }
             }
-        } else {
-            log("WEB_MESSAGE_LISTENER unsupported by this WebView")
         }
-        tapScript?.remove()
-        tapScript = if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
-            WebViewCompat.addDocumentStartJavaScript(web, asset("spike-tap.js"), rules)
-        } else {
-            log("DOCUMENT_START_SCRIPT unsupported: no webauthn tap")
-            null
-        }
-        base = newBase
-        prefs.edit().putString("base", newBase).apply()
+        firstRunMessage = TextView(this)
+        return screen(
+            "Med Tracker",
+            TextView(this).apply {
+                text = "Med Tracker is invite-only. Paste your invite link or your account address, " +
+                    "or scan the QR code from your invite or your Emergency Kit."
+            },
+            input,
+            button("Open") { open(input.text.toString()) },
+            button("Scan QR code") { scan() },
+            firstRunMessage,
+        )
     }
 
-    private fun onBridge(data: String?, origin: Uri, isMainFrame: Boolean, reply: JavaScriptReplyProxy) {
-        val msg = try {
-            JSONObject(data ?: "")
-        } catch (e: Exception) {
-            log("bridge: unparseable message")
-            return
-        }
-        when (msg.optString("op")) {
-            "ping" -> reply.postMessage(
-                JSONObject().put("pong", true).put("launchId", launchId.take(8))
-                    .put("origin", origin.toString()).put("mainFrame", isMainFrame).toString()
-            )
-            "log" -> log("tap $msg")
-            else -> log("bridge: unknown op ${msg.optString("op")}")
-        }
+    private fun buildError(): View {
+        errorMessage = TextView(this)
+        return screen(
+            "Can't open your account",
+            errorMessage,
+            button("Try again") { retry() },
+            button("Switch account") { forget() },
+        ).apply { visibility = View.GONE }
     }
 
-    // MARK: checks — evaluated on the loaded page; the result is polled, so it
-    // arrives even when the bridge does not.
-
-    private fun run(op: String) {
-        panel.visibility = View.GONE
-        val id = ++runSeq
-        val host = Uri.parse(web.url ?: "").host ?: "?"
-        val args = JSONObject().put("launchId", launchId)
-            .put("versionCode", packageManager.getPackageInfo(packageName, 0).longVersionCode)
-        log("$op on $host: started${if (op != "checks") " — tap the button on the page" else ""}")
-        web.evaluateJavascript(asset("spike-checks.js") + "\nwgSpikeRun(${JSONObject.quote(op)}, $id, $args);", null)
-        poll(op, host, id, System.currentTimeMillis())
-    }
-
-    private fun poll(op: String, host: String, id: Int, start: Long) {
-        main.postDelayed({
-            web.evaluateJavascript("JSON.stringify(window.__wgSpikeDone || null)") { raw ->
-                val done = runCatching { JSONObject(JSONTokener(raw).nextValue() as String) }.getOrNull()
-                when {
-                    done != null && done.optInt("id") == id -> {
-                        log("$op on $host:\n${done.optString("text")}")
-                        panel.visibility = View.VISIBLE
-                    }
-                    System.currentTimeMillis() - start > 300_000 -> log("$op on $host: no result in 5 min")
-                    else -> poll(op, host, id, start)
-                }
-            }
-        }, 500)
-    }
-
-    // MARK: camera + file chooser
-
-    private fun onWebPermission(request: PermissionRequest) {
-        val host = request.origin.host ?: ""
-        if (PermissionRequest.RESOURCE_VIDEO_CAPTURE !in request.resources || !isAccountHost(host)) {
-            log("web permission denied: ${request.resources.joinToString()} for $host")
-            request.deny()
-            return
+    private fun screen(title: String, vararg views: View): View {
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = (24 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad, pad, pad)
+            addView(TextView(this@MainActivity).apply {
+                text = title
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 24f)
+            })
+            for (v in views) addView(v, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = pad / 2 })
         }
-        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-            grantCamera(request)
-        } else {
-            pendingPermission?.deny()
-            pendingPermission = request
-            requestPermissions(arrayOf(Manifest.permission.CAMERA), REQ_CAMERA)
+        val bg = TypedValue().also { theme.resolveAttribute(android.R.attr.colorBackground, it, true) }.data
+        return ScrollView(this).apply {
+            setBackgroundColor(bg)
+            isFillViewport = true
+            clipToPadding = false
+            addView(column)
         }
     }
 
-    private fun grantCamera(request: PermissionRequest) {
-        log("onPermissionRequest: camera granted to ${request.origin.host}")
-        request.grant(arrayOf(PermissionRequest.RESOURCE_VIDEO_CAPTURE))
+    private fun button(label: String, action: () -> Unit) =
+        Button(this).apply { text = label; isAllCaps = false; setOnClickListener { action() } }
+
+    /** Play services' scanner: no camera permission here; any failure falls back to paste. */
+    private fun scan() {
+        val options = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
+        GmsBarcodeScanning.getClient(this, options).startScan()
+            .addOnSuccessListener { code -> open(code.rawValue ?: "") }
+            .addOnFailureListener { firstRunMessage.text = "Scanning isn't available on this phone. Paste the link instead." }
     }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        if (requestCode != REQ_CAMERA) return
-        val request = pendingPermission ?: return
-        pendingPermission = null
-        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
-            grantCamera(request)
-        } else {
-            log("camera permission refused")
-            request.deny()
-        }
-    }
-
-    @Deprecated("startActivityForResult is enough for a spike")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        if (requestCode != REQ_FILE) return
-        val uris = WebChromeClient.FileChooserParams.parseResult(resultCode, data)
-        log("file chooser returned ${uris?.size ?: 0} file(s)")
-        fileCallback?.onReceiveValue(uris)
-        fileCallback = null
-    }
-
-    // MARK: report
-
-    /** Redacted before storing, so the persisted log never holds a raw base or account host. */
-    private fun log(s: String) {
-        val line = "[${SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())}] ${SpikeText.redact(s, base)}\n"
-        val text = (prefs.getString("log", "") + line).takeLast(60_000)
-        prefs.edit().putString("log", text).apply()
-        if (::logView.isInitialized) logView.text = text
-    }
-
-    private fun copyReport() {
-        val text = prefs.getString("log", "") ?: ""
-        getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("spike report", text))
-        Toast.makeText(this, "Report copied (${text.length} chars)", Toast.LENGTH_SHORT).show()
-    }
-
-    private fun asset(name: String) = assets.open(name).bufferedReader().use { it.readText() }
 
     private companion object {
-        const val BRIDGE = "wgSpike"
-        const val REQ_CAMERA = 1
-        const val REQ_FILE = 2
+        /** The page-facing bridge global, window.wgNative — med-nt9p.6 and .19 detect the Android shell by it. */
+        const val BRIDGE = "wgNative"
+        const val HOST_KEY = "accountHost"
+        const val ACTION_SWITCH = "com.example.medtracker.SWITCH_ACCOUNT"
+        /** --wg-bg-screen: the bands' colour until the page reports its own. */
+        val SCREEN = Color.rgb(0x13, 0x2D, 0x29)
     }
 }
