@@ -76,12 +76,26 @@ jobs:
             echo "::notice::ANDROID_DEBUG_KEYSTORE_BASE64 not set — debug APK signed with a per-run key (see docs/android.md)"
             exit 0
           fi
-          mkdir -p "$HOME/.android"
-          echo "$ANDROID_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
+          echo "$ANDROID_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/debug.keystore"
+          echo "ANDROID_DEBUG_KEYSTORE=$RUNNER_TEMP/debug.keystore" >> "$GITHUB_ENV"
 
       - name: Build debug APK and run unit tests
         working-directory: android
         run: gradle --no-daemon assembleDebug testDebugUnitTest
+
+      # Proves the APK is signed by the secret's key. Prints MATCH/MISMATCH only.
+      - name: Verify debug APK signing key
+        if: env.ANDROID_DEBUG_KEYSTORE != ''
+        run: |
+          apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          want=$(keytool -list -v -keystore "$ANDROID_DEBUG_KEYSTORE" -storepass android -alias androiddebugkey | sed -n 's/^ *SHA256: *//p' | tr -d ':' | tr 'A-F' 'a-f')
+          got=$("$apksigner" verify --print-certs android/app/build/outputs/apk/debug/*.apk | sed -n 's/.*certificate SHA-256 digest: *//p' | head -1 | tr 'A-F' 'a-f')
+          if [ -n "$want" ] && [ "$want" = "$got" ]; then
+            echo "Debug APK signing key: MATCH"
+          else
+            echo "::error::Debug APK signing key: MISMATCH"
+            exit 1
+          fi
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
