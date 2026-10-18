@@ -36,6 +36,21 @@ object AccountUrl {
         return uri.scheme?.lowercase() == "https" && uri.host != null
     }
 
+    /**
+     * An account's ceremony page (the server's set in internal/cloudserver/router.go), where a
+     * bad invite can strand the user; the shell offers "Use another invite" there (bd med-nt9p.20).
+     */
+    fun isCeremony(url: String?, base: String): Boolean {
+        val uri = try {
+            URI(url ?: return false)
+        } catch (e: Exception) {
+            return false
+        }
+        val host = uri.host?.lowercase() ?: return false
+        return uri.scheme?.lowercase() == "https" && isAccountHost(host, base.lowercase()) &&
+            uri.path in setOf("/unlock", "/claim", "/recover")
+    }
+
     /** Exactly one DNS label under base: what the asset links and the bridge rules cover. */
     fun isAccountHost(host: String, base: String): Boolean {
         if (base.isEmpty() || !host.endsWith(".$base")) return false
