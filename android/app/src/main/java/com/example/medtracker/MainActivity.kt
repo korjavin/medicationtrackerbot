@@ -93,7 +93,8 @@ class MainActivity : Activity() {
 
         adoptSpikeAccount()
         host = prefs.getString(HOST_KEY, null)?.takeIf { AccountUrl.isAccountHost(it, base) }
-        if (intent?.action == ACTION_SWITCH) forget() else reopen()
+        // A restored activity keeps its launch intent: only a fresh shortcut launch switches.
+        if (intent?.action == ACTION_SWITCH && savedInstanceState == null) forget() else reopen()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -160,7 +161,6 @@ class MainActivity : Activity() {
     }
 
     private fun showError(message: String) {
-        if (showingAccount) return // a page of this account already showing stays usable
         errorMessage.text = message
         errorView.visibility = View.VISIBLE
         updateChrome()
@@ -245,16 +245,22 @@ class MainActivity : Activity() {
 
         override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) = updateBack()
 
-        /** Offline with a Service Worker in control never gets here: the worker answers. */
+        /**
+         * Offline with a Service Worker in control never gets here: the worker answers.
+         * Unlike WKWebView, WebView replaces the page with its own error page, so a
+         * later failure gets the screen too, and Try again reloads that URL.
+         */
         override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
             if (!request.isForMainFrame) return
             loadFailed = true
+            if (showingAccount) lastUrl = request.url.toString()
             showError(error.description?.toString()?.takeIf { it.isNotBlank() } ?: "The page could not be loaded.")
         }
 
         /** An HTTP error before any page of this account showed — a mistyped or deleted account is a 404. */
         override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
-            if (!request.isForMainFrame || response.statusCode < 400) return
+            // Once the account showed, the server's own error page stays (Back leaves it).
+            if (!request.isForMainFrame || response.statusCode < 400 || showingAccount) return
             loadFailed = true
             val h = request.url.host?.lowercase()
             showError(

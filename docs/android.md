@@ -125,7 +125,9 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
   "Can't open your account" screen (Try again / Switch account) appears only
   when the very first load fails with nothing cached, or the host answers an
   HTTP error (a mistyped or deleted account is a 404). Try again keeps an
-  invite link's `#claim=` fragment (in memory only).
+  invite link's `#claim=` fragment (in memory only). Unlike WKWebView, WebView
+  replaces the page on a failed navigation, so a later page load that fails
+  with no Service Worker answer gets the same screen (Try again reloads it).
 - **Switch account:** long-press the launcher icon → *Switch account*; also on
   the load-error screen. WebView data is per origin and is kept, so switching
   back still finds offline data and warm unlock.
