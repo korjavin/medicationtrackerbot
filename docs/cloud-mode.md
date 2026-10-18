@@ -265,7 +265,7 @@ account inbox keypair (ECDH) — public half on server, private half in vault
      - `findOrCreateScheduledSession` probes the raw slot (`listRaw`, a READ — the body it mints is a real wall-clock write and must keep guard 1's skew correction, which `putIfAbsent`'s verbatim stamp would drop) and returns null on a tombstone: a Telegram Snooze/Skip tap on the already-sent reminder no-ops instead of minting a fresh body that guard 2 would promote above the tombstone, and `startSession`'s med-gmyf re-key mints an ad-hoc session (same as for a day already finished).
      - The reminder horizon reads the **raw** session rows (`recordsPort.listRaw`, the one reader that needs them) and treats a tombstone at `session-<groupId>-<date>` as that day suppressed. Before, `sessionStatusByKey` saw only live rows, so a deleted day read as "not materialized yet": the card skipped it while Telegram kept asking about it, and tapping Snooze/Skip re-materialized the slot.
 
-     Deleting is therefore a **one-way door for that day**, including a day already completed and deleted from history: nothing re-materializes the slot, so the card, the horizon and the Telegram buttons all stay silent for it until the next occurrence. A vault export drops tombstones (`web/domain/vault.js`), so an export/import round trip does bring the day back.
+     Deleting is therefore a **one-way door for that day**, including a day already completed and deleted from history: nothing re-materializes the slot, so the card, the horizon and the Telegram buttons all stay silent for it until the next occurrence. A vault export carries tombstones at these slot ids (`TOMBSTONED_SLOT_TYPES` in `web/domain/vault.js`), so the day stays deleted across an export/import round trip.
 
      Materializers: `web/domain/workout.js`'s `getNext` (the day's session) and `web/domain/medintake.js`'s `materializeDueDoses` (dose targets) both use `putIfAbsent`. Two paths tombstone an intake slot and both now stick, where the sweep used to promote a floored placeholder over them and hand the dose back (bd med-j2ku): `deleteFutureIntakes` (future `PENDING` only) and `medications.js`'s `cancelPendingIntakesForMedication`, which archiving a med runs over **any** `PENDING` dose, today's already-due slot included — so un-archiving the same day no longer restores that dose (the next day's slots have their own ids and materialize normally). Same second consequence as sessions, fixed for the **push path** (bd med-x7x2): the reminder horizon reads the **raw** intake rows too (`recordsPort.listRaw`, `web/cloud/js/reminders.js`) and drops any forecast target whose deterministic `intake-<medId>-<slotUnix>` id is tombstoned. Before, it suppressed a slot only on a `TAKEN`/`SKIPPED` intake and skipped tombstones outright, so a deleted future dose was still pushed as "Time to take" and tapping Confirm on it recorded nothing — the tombstoned slot is filtered out of the exact-id lookup and a once-daily med has no in-band fallback. That tap is now only reachable for a push already in flight when the dose was deleted; it stays a no-op (`materializeDueDoses` creates nothing over the tombstone) and reports no confirmation. **Unlike sessions, a deleted dose is not yet a one-way door in the app:** `medintake.js`'s forecast readers still work off live rows only, so `upcomingDoses` and `nextIntake` keep listing a tombstoned slot, and `triggerNextIntake` mints a real wall-clock row over it (a plain `putIntake`, not `putIfAbsent`) — the same shape of resurrection med-j2ku closed for the sweep. See [Incident: a stale tab erased a finished workout](#incident-a-stale-tab-erased-a-finished-workout-bd-med-9a87).
 
@@ -280,6 +280,29 @@ account inbox keypair (ECDH) — public half on server, private half in vault
 - **Cross-device wake** (bd med-eas.9): pulls run on unlock (`pullOnOpen`), on `visibilitychange`→visible / `online` (`startReconnectAutoDrain`), and on a content-free `sync-ready` SSE event. `SyncAPI.PostOps` and `PostSnapshot` (`internal/cloudserver/sync.go`) call `InboxBroker.NotifySync` after a durable write; the event rides the existing `GET /api/inbox/events` stream with its own coalescing slot, separate from `inbox-ready` (`internal/cloudserver/inbox_events.go`). The tab hands it to `requestDrain` (`web/cloud/js/sync.js`), the same single-slot drain guard as the visibility/online path and `reauthenticate`, and also runs one on stream `open` to catch wakes missed across a reconnect. Pulled records repaint via `notifyRecordsChanged(…, ORIGIN_EXTERNAL)` → the cloud-write tab refresh, or the "new data" banner while editing. The writing tab is woken too, because a credential id is not a device id; that echo costs one empty `GET /api/sync/ops`. Because a wake can land between an importer's bump op and its forced snapshot, `pullTail` records a pulled bump's seq (`sync_meta.importBumpSeq`) and re-bootstraps from the first snapshot at or above it that this device hasn't loaded, even when the cursor has already reached that seq, then repaints every tag. Wake-triggered drains (and a rerun coalesced only from wakes) never retry a stranded import (`requestDrain(ctx, { wake: true })`): that retry posts a bump whose own echo would start the next retry; and a device that pulled a bump holds its own threshold compaction until the import snapshot lands, so it cannot bury the import under its pre-import vault. Nothing new leaves the vault: the stream is same-origin, the event carries no data, and the server already sees oplog append times.
 - Local layer stays Dexie/IndexedDB (already vendored); plaintext lives only in memory and IndexedDB on the user's device, cloud copy is authoritative.
 - **Account deletion is a verified local wipe** (med-d5t.8 / med-yor.3): the client's `clearLocalVault()` awaits `deleteDatabase` on **both** `medtracker-cloud` (encrypted mirror + LDK material) and Dexie's `MedTrackerDB` (the shared frontend's plaintext caches), resolving only on `onsuccess`, and the flow runs it **twice**: once *before* `DELETE /api/account` — a blocked delete (another open tab) fails while the account is still intact, so plaintext can never be stranded no matter what the user does next (the cloud copy is authoritative; an erased mirror re-syncs if they abort at the passkey prompt) — and once *after*, the load-bearing erase that catches anything background sync re-created during the ceremony. Navigation happens only once the post-delete wipe is confirmed; a blocked wipe surfaces a recoverable "close other tabs" error instead of a false success, and a post-delete retry skips the (now-impossible) re-auth ceremony, re-runs only the wipe, and must happen in the same tab — the deleted account's subdomain serves 404s, so no page on that origin can ever run again. Push unsubscribe (browser-side only — the server rows are already cascaded) and SW unregister are best-effort. The pre-delete safety export warns before writing plaintext provider keys, same as Settings → Import/Export. Related invariant: every open of `medtracker-cloud` auto-closes on `versionchange` — page code via `localdb.js`'s `openDb()`, and the service worker's per-push `readNK` open directly — so a live handle never blocks the deletion (or a future schema bump); any new open of that DB must do the same.
+
+### Importers and derived writers — checklist
+
+Lessons from the Apple Health imports (PRs #1053, #1055); the reference code is
+`web/domain/healthimport.js`, `web/domain/vault.js` and `web/domain/healthsource.js`.
+Any new importer or derived writer answers each of these:
+
+- **Tombstones survive export, restore and rescan.** A deleted slot must stay
+  deleted after a vault round trip and a full re-read of the source — add the
+  type and id shape to `TOMBSTONED_SLOT_TYPES` / `SLOT_ID_SHAPE` (`vault.js`).
+- **Dedupe on `source_id`, not only on the recordId.** An older client restores
+  rows under fresh ids but keeps `source_id`; the import must count those as
+  present (`healthimport.js`).
+- **Bodies are device-independent at `clientTs: 0`.** Two devices deriving the
+  same slot must write byte-identical bodies — no device time zone, clock or
+  local-only derived field (imported weights store no `weight_trend`).
+- **Ordering is deterministic, with explicit tie-breaks** (longest span, then
+  smaller UUID; sources by name), so every device picks the same winner.
+- **Deleting an alias tombstones the canonical id** (`healthsource.js`), or a
+  rescan re-creates the row the user just deleted.
+- **The `putIfAbsent` floor beats content-derived stamps.** Write once at
+  `clientTs: 0` (rule 12) so edits and deletes always outrank it; a stamp
+  derived from the content is no floor and reopens the LWW race.
 
 ### Incident: a stale tab erased a finished workout (bd med-9a87)
 
@@ -339,6 +362,16 @@ The countermeasure is a two-layer reconcile. The load-bearing half is `ensurePus
 Server side needs nothing new: the relay already disables a subscription on a 410/404 from the push service (`Relay.send` → `Repo.Disable`), and `Repo.List` skips disabled rows, so a dead endpoint is never retried forever.
 
 Remaining platform caveat: iOS web push requires the installed (home-screen) PWA and has occasional delivery quirks.
+
+**Troubleshooting: a desktop push that "never arrives".** When the server reports
+a successful send, `Notification.permission === 'granted'`, and
+`navigator.serviceWorker.ready.then(r => r.showNotification('x'))` hangs and never
+resolves, the OS is blocking the browser's notifications (macOS System Settings →
+Notifications → the browser, or a Focus mode). It is not a code bug; fix the OS
+setting. If `serviceWorker.ready` itself never resolves, look at the SW
+registration instead. The cloud SW (`web/cloud/sw.js`) falls back to a generic
+notification on any decrypt failure, so getting nothing at all also points to the
+OS.
 
 **Per-account VAPID keys** (implemented, see `docs/plans/completed/2026-07-05-cloud-c2-push-vapid-per-account.md`): each account gets its own VAPID keypair, generated server-side at invite provisioning. Push services bind a subscription to the `applicationServerKey` used at `subscribe()` time and reject sends signed with a different key — so a relay bug that misrouted account A's payload to account B's endpoint gets rejected by Apple/Google themselves, a third enforcement layer on top of RFC 8291 per-subscription encryption and NK app-layer encryption. The VAPID *subject* stays service-wide (it identifies the relay operator per RFC 8292, never the user — a per-user subject would leak identity to Google/Apple): `VAPID_SUBJECT` env, defaulting to `mailto:noreply@<CLOUD_BASE_DOMAIN>`, with `https://<CLOUD_BASE_DOMAIN>` substituted for Apple endpoints. Key rotation is unsupported by design — push services bind subscriptions to the subscribe-time key, so rotating would orphan every subscription for that account.
 

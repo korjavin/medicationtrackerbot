@@ -32,3 +32,15 @@ and encrypted local state. A framework would add bundle size and build
 complexity for little benefit. The cloud vault/oplog path and the
 four-layer local-first architecture (SW → IndexedDB → SyncManager → SWR
 DataStore) are straightforward to implement with vanilla JS and Dexie.js.
+
+## Gotchas
+
+SQLite UPSERT behaviour that `internal/cloudstore` relies on:
+
+- **`RowsAffected() == 0` means the conflict path wrote nothing** — `ON CONFLICT
+  DO NOTHING` hit, or a guarded `INSERT … SELECT … WHERE` matched nothing. Check
+  it to tell a new row from a no-op (`AppendFeedback` in
+  `internal/cloudstore/feedback.go`, `internal/cloudstore/tg.go`).
+- **A SELECT-then-write is a TOCTOU race.** Wrap it in one transaction
+  (`WithTx`, `internal/store/db/tx.go`) or make the write itself decide, as
+  `AppendFeedback` does with `DO NOTHING` + `RowsAffected`.

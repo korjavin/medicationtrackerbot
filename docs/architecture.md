@@ -311,6 +311,9 @@ bring-your-own alternative at all**.
 
 ## 9. Conventions
 
+- **The Android/Capacitor build is frozen.** It is gone from `master`: no
+  feature work and no revival (`window.Capacitor` is banned, CLAUDE.md rule
+  10); the iOS app is a separate Swift shell ([ios.md](ios.md)). bd `med-2ue`.
 - **Logging.** `log/slog` with contextual args (`slog.Error("msg", "error",
   err)`), never `log.Printf`. Never log message content, provider keys, claim
   or recovery secrets, raw push endpoints (fingerprint them —

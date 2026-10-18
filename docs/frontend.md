@@ -426,6 +426,19 @@ loadSWR({ cacheKey, fetchFn })     ← Layer 4 (data-store.js)
               └── Failure → keep showing cached data (no error shown)
 ```
 
+## UI conventions
+
+- **Modal actions live in the header**, above a focused mobile keyboard: the
+  primary (Save / Log) and an icon-only close X, no body footer row; flow
+  sheets dock their primary in `.wg-sheet__foot`. Enforced by
+  `modals.header-actions.test.js`.
+- **One button system:** `.wg-btn` plus its variants, primary actions
+  (Add / Record / Log) are `.wg-btn--primary`. Enforced by
+  `architecture.no-legacy-buttons.test.js`.
+- **Tabs** are `data-tab` attributes plus CSS state (`.active`,
+  `aria-pressed` on `.wg-seg` strips), never text or `onclick` parsing —
+  `web/static/js/features/tab-controller.js`.
+
 ## Testing posture
 
 The frontend test suite (`web/static/js/tests/*.test.js`, run via `pnpm test`) is **integration-first**. Most tests should boot the real app shell through `web/static/js/tests/helpers/frontend-harness.js` (which mounts `index.html` under jsdom and loads the production scripts in their real order) and assert on observable DOM, store state, or API call shape — not on internal helper call counts.
@@ -437,6 +450,17 @@ Rules for adding tests:
 - **Do not add coverage-driven tests.** Files named `*-branches`, `*-edges`, `*-characterization`, `*-extended`, or otherwise written to lift coverage numbers (rather than to pin a real user-visible behavior) are not added. The 2026-05 prune removed the existing ones; they made the suite brittle without catching regressions the integration suites already caught.
 - **No standalone "pin defect #N" or task-stamp files.** A regression for a fixed bug is added as one more `it()` in the owning feature suite, not as `<feature>.<defect-name>-removed.test.js` or `<view>.task<N>.test.js`. The pinned assertion travels with the rest of the feature's coverage and stays discoverable when the feature is rewritten.
 - **Parameterize structurally identical suites.** When several modal/section tests differ only by selectors and ids (the original 11 `modals.*.header-actions.test.js` files were the canonical example), collapse them into one `describe.each([...])` table. The consolidated `modals.header-actions.test.js` is the reference.
+- **Never run vitest / `pnpm test` locally** — CI is the frontend gate
+  (`.claude/hooks/no-local-frontend-tests.py` and `.codex/hooks.json` block
+  it). One plain-`node` run of one test file, with the `vitest` import shimmed,
+  is allowed as a final check; a shim edit-run loop is not.
+- **A green feature suite is not green CI.** The repo-wide
+  `architecture.*.test.js` guards catch what feature suites miss — new
+  `window.*` globals (`globals`), unannotated top-level `let`/`var` and
+  module-state names that must be unique across classic scripts, which share
+  one global lexical scope the harness's per-file `eval` hides
+  (`no-module-state`), and API reads without an offline-aware primitive
+  (`offline-coverage`).
 - **Architecture tests stay narrow.** `architecture.*.test.js` files pin invariants the human reviewer cannot eyeball (globals allowlist, design-token usage, MCP coverage, etc.). They are not a place to assert feature behavior.
 
 File-naming conventions that survived the prune:

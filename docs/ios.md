@@ -14,6 +14,40 @@ GitHub-hosted macOS runner via [`.github/workflows/ios.yml`](../.github/workflow
   redeploy production.
 - Build number = the workflow run number, so every upload is unique.
 
+## Owner decisions & testing
+
+- **Shape:** a thin Swift WKWebView shell over the remote account origin, not
+  Capacitor and not a local bundle (passkeys are bound to the account
+  subdomain; `window.Capacitor` is banned by CLAUDE.md rule 10). See
+  [The shell](#the-shell-bd-med-w6gx3).
+- **Product:** free (no in-app purchase), invite-only, iOS 18+, HealthKit
+  read-only in v1.
+- **No local iOS builds.** Every build comes from
+  [`.github/workflows/ios.yml`](../.github/workflows/ios.yml) and goes to
+  TestFlight.
+- **Zero impact on the web.** Changes outside `ios/` are additive and inert on
+  the web (behind the `ios` platform of `web/static/js/native/`), and get a
+  breakage review before merge (CLAUDE.md rule 15).
+- **Device testing** is done by the owner on their own iPhone via TestFlight
+  (the owner is Admin in App Store Connect).
+- **Crash logs:** App Store Connect → TestFlight → Crashes (or Feedback).
+
+### App Store justification
+
+Guideline 4.2 (minimum functionality) rejects thin web wrappers, so the app
+must justify being an app. The owner's floor is the Apple Health (HealthKit)
+integration as core native value. Native capabilities today:
+
+- **Apple Health import** of blood pressure, weight, sleep and workouts
+  ([Apple Health import](#apple-health-import-bd-med-w6gx6)).
+- **Local notifications** for reminders, offline, no Web Push
+  ([Reminders as local notifications](#reminders-as-local-notifications-bd-med-w6gx5)).
+- **Native share sheet and print** for downloads and printouts
+  ([Downloads and printing](#downloads-and-printing-bd-med-w6gx11)).
+- **Passkeys** through the system sheet (Associated Domains).
+
+The App Review notes lead with these, before reviewer access.
+
 ## Owner setup (GitHub → Settings → Secrets and variables → Actions)
 
 Until **all** of these exist, a dispatch logs a notice naming what is missing,
