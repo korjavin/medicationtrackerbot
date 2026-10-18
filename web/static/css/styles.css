@@ -6998,6 +6998,13 @@ body:has(.wg-callbar--dock) .wg-toasts {
     gap: var(--space-md);
 }
 
+/* Search field pinned between the sheet header and the scrolling body
+   (med-o7zq.21); horizontal padding matches the body's. */
+.wg-food-add__search {
+    flex-shrink: 0;
+    padding: 0 var(--space-lg) var(--space-md);
+}
+
 .wg-food-add__total {
     display: flex;
     align-items: baseline;
