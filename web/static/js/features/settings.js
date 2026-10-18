@@ -836,6 +836,32 @@ function bindLocalErase() {
     });
 }
 
+// Local-only mode's move to a cloud account (bd med-o7zq.6): the shell opens
+// its invite screen (local-policy.js openCloudAccount). This origin's data is
+// not touched, so the confirm only makes sure the backup came first.
+let _localMoveBound = false; // module-state: bind the button once across repeated loadSettings() calls
+function bindLocalMoveToCloud() {
+    const btn = document.getElementById('importexport-local-move-btn');
+    const errorEl = document.getElementById('importexport-local-move-error');
+    if (!btn || !errorEl || _localMoveBound) return;
+    _localMoveBound = true;
+    btn.addEventListener('click', async () => {
+        const ok = await safeConfirm(
+            'Download a backup first: the new account is filled from that file. Your records stay on this iPhone.',
+            null,
+            { title: 'Open an invite?', confirmLabel: 'Continue' },
+        );
+        if (!ok) return;
+        errorEl.hidden = true;
+        try {
+            await window.CloudVault.openCloudAccount();
+        } catch (e) {
+            errorEl.textContent = e.message || 'The invite screen could not be opened.';
+            errorEl.hidden = false;
+        }
+    });
+}
+
 // Load settings (BP reminders status, etc.)
 async function loadSettings() {
     // Ungated: the first-run overlay ships in the server, cloud, and mobile
@@ -863,6 +889,7 @@ async function loadSettings() {
         bindLocalReminderText();
         bindLocalNotifications();
         bindLocalErase();
+        bindLocalMoveToCloud();
     }
     const applyBundle = async (rawBundle) => {
         const bundle = window.AuthBootstrap.normalizeSettingsBundle(rawBundle);

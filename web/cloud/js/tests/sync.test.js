@@ -1880,13 +1880,34 @@ describe('full-vault import snapshots in a constant 2 requests, not per-record o
       throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
     }));
 
-    await forceSnapshot(ctx);
+    expect(await forceSnapshot(ctx)).toBe('synced');
 
     // Constant, NOT proportional to the 1500 records — proves no per-op fallback.
     expect(opsPosts).toBe(1);
     expect(snapshotPosts).toBe(1);
     // Import recovered the device: the wedge is cleared so writes sync again.
     expect((await getSyncStatus(ctx)).wedged).toBe(false);
+  });
+
+  // bd med-o7zq.6: importAll reports whether the import reached the account,
+  // and if not whether it retries by itself — every failure here resolves.
+  it('says why the import is not on the server: offline retries, 401 waits for re-auth, a 413 never lands', async () => {
+    await replaceAllRecords([{ recordId: 'bp-1', recordType: 'bp', clientTs: 1, deleted: false, systolic: 118 }]);
+    await seedMeta({ localLastSeq: 10 });
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    expect(await forceSnapshot(ctx)).toBe('retrying');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 503 })));
+    expect(await forceSnapshot(ctx)).toBe('retrying');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 401 })));
+    expect(await forceSnapshot(ctx)).toBe('auth');
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      const u = String(url);
+      if (u === '/api/sync/ops' && init?.method === 'POST') {
+        return new Response(JSON.stringify({ assigned: [11] }), { status: 200 });
+      }
+      return new Response('{}', { status: 413 });
+    }));
+    expect(await forceSnapshot(ctx)).toBe('rejected');
   });
 
   // bd med-eas.9 — a sync-ready wake lets a peer pull the importer's bump op

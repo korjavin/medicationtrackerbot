@@ -19,11 +19,19 @@ import { localRecordsPort } from '../../../cloud/js/sync.js';
 import { openDb } from '../../../cloud/js/localdb.js';
 import { cancelReminderRecompute } from '../../../cloud/js/reminders.js';
 import { allowConsoleNoise } from './helpers/setup.js';
+import { recordsToVault, vaultToRecords } from '../../../domain/vault.js';
 
 const LOCAL_BOOT_SRC = readFileSync(
     fileURLToPath(new URL('../../../cloud/js/local-boot.js', import.meta.url)),
     'utf8',
 ).replace(/\bimport\(/g, '__imp(');
+
+// The shared golden vault (docs/vault-format.md): what every runtime's
+// importer pins, so a backup from the local bundle is the same format.
+const VAULT_FIXTURE = JSON.parse(readFileSync(
+    fileURLToPath(new URL('../../../../tests/fixtures/vault-v1.json', import.meta.url)),
+    'utf8',
+));
 
 const MODULES = {
     '/js/apishim.js': () => import('../../../cloud/js/apishim.js'),
@@ -177,6 +185,37 @@ describe('local-only mode boot + records port (med-o7zq.2)', () => {
         await window.CloudVault.exportAll({ includeSecrets: false, win: window });
         expect(Number(window.localStorage.getItem(KEY))).toBeGreaterThanOrEqual(before);
         expect(fetched.filter((u) => u.includes('/api/'))).toEqual([]);
+    });
+
+    // bd med-o7zq.6: restore into local mode, and the local bundle's export is
+    // the one vault format — what a move to a cloud account imports there.
+    it('restores the golden vault fixture, and its local export is what the cloud importer reads', async () => {
+        const { window } = env;
+        await window.apiCall('/api/weight', 'POST', { weight: 99 }); // replaced by the restore
+        cancelReminderRecompute({ accountId: 'local' });
+        await window.CloudVault.importAll(JSON.stringify(VAULT_FIXTURE), { win: window });
+        const json = await window.CloudVault.exportAll({ win: window });
+        const exported = JSON.parse(json);
+        const now = Date.parse(exported.exported_at);
+        expect(exported.data).toEqual(recordsToVault(vaultToRecords(VAULT_FIXTURE, { now }), { now }).data);
+        const weights = (await window.apiCall('/api/weight?days=0&limit=1000')).map((r) => r.weight);
+        expect(weights.sort()).toEqual(VAULT_FIXTURE.data.weight.logs.map((r) => r.weight).sort());
+        // The cloud's importAll runs this same conversion on the file.
+        expect(vaultToRecords(exported, { now }).length).toBe(vaultToRecords(VAULT_FIXTURE, { now }).length);
+        // Restoring its own export again changes nothing.
+        await window.CloudVault.importAll(json, { win: window });
+        expect(JSON.parse(await window.CloudVault.exportAll({ win: window })).data).toEqual(exported.data);
+        expect(fetched.filter((u) => u.includes('/api/'))).toEqual([]);
+        expect(await pendingRows()).toEqual([]);
+    });
+
+    it('rejects a file that is not a v1 vault before anything is replaced', async () => {
+        const { window } = env;
+        await window.apiCall('/api/weight', 'POST', { weight: 80 });
+        cancelReminderRecompute({ accountId: 'local' });
+        await expect(window.CloudVault.importAll(JSON.stringify({ ...VAULT_FIXTURE, version: 2 }), { win: window }))
+            .rejects.toThrow(/v1 backup/);
+        expect((await window.apiCall('/api/weight?days=0&limit=1000')).map((r) => r.weight)).toEqual([80]);
     });
 });
 
@@ -388,12 +427,14 @@ describe('local-only mode egress + side-effect policy (med-o7zq.3)', () => {
             document.getElementById('health-import-miband').parentElement,
             document.getElementById('importexport-nxk-group'),
             document.getElementById('importexport-reset-sync-group'),
-            document.getElementById('importexport-import-btn').closest('section'),
             document.getElementById('integrations-elevenlabs-api-key').closest('section'),
             document.getElementById('workout-group-share-btn'),
         ];
         for (const el of hidden) expect(shown(el), el.id || el.className).toBe(false);
         expect(shown(document.getElementById('local-reminder-verbosity').closest('section'))).toBe(true);
+        // Restore and the move to a cloud account work here (bd med-o7zq.6).
+        expect(shown(document.getElementById('importexport-import-btn').closest('section'))).toBe(true);
+        expect(shown(document.getElementById('importexport-local-move-group'))).toBe(true);
         // The settings home hides a row whose page has nothing left to show.
         expect(window.isSettingsSectionHidden(document.getElementById('importexport-nxk-group'))).toBe(true);
         expect(window.isSettingsSectionHidden(document.getElementById('local-reminder-verbosity').closest('section'))).toBe(false);
@@ -583,6 +624,66 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         expect(window.localStorage.getItem('wg.health.anchors')).toBeNull();
         expect(bridge).toHaveBeenCalledWith('local.reset');
         expect(replace).toHaveBeenCalledWith('/');
+        expect(offDevice()).toEqual([]);
+    });
+
+    it('restore replaces the records the file carries and re-reads Apple Health from the start', async () => {
+        const { window } = env;
+        // The boot import has finished: its tally is written last.
+        await vi.waitFor(() => expect(JSON.parse(window.localStorage.getItem('wg.health.last'))?.total).toBe(1));
+        await window.apiCall('/api/weight', 'POST', { weight: 80 });
+        const backup = await window.CloudVault.exportAll({ includeSecrets: false, win: window });
+        await window.apiCall('/api/weight', 'POST', { weight: 70 });
+        cancelReminderRecompute({ accountId: 'local' });
+        expect(JSON.parse(window.localStorage.getItem('wg.health.anchors'))).toEqual({ bp: 'a1' });
+        const tally = window.localStorage.getItem('wg.health.last');
+        expect(JSON.parse(tally).total).toBe(1);
+
+        await window.CloudVault.importAll(backup, { win: window });
+        expect((await window.apiCall('/api/weight?days=0&limit=1000')).map((r) => r.weight)).toEqual([80]);
+        expect(await window.apiCall('/api/bp?days=60')).toHaveLength(1);
+        // The anchors described the replaced records; the on/off choice and the
+        // Settings row's tally ("N readings so far") stay.
+        expect(JSON.parse(window.localStorage.getItem('wg.health.anchors'))).toEqual({});
+        expect(window.localStorage.getItem('wg.health.enabled')).toBe('true');
+        expect(window.localStorage.getItem('wg.health.last')).toBe(tally);
+        expect(offDevice()).toEqual([]);
+    });
+
+    it('a restore that fails leaves the records and anchors as they were and Apple Health importing', async () => {
+        const { window, document } = env;
+        // The boot import has finished: its tally is written last.
+        await vi.waitFor(() => expect(JSON.parse(window.localStorage.getItem('wg.health.last'))?.total).toBe(1));
+        await window.apiCall('/api/weight', 'POST', { weight: 80 });
+        const backup = await window.CloudVault.exportAll({ includeSecrets: false, win: window });
+        await window.apiCall('/api/weight', 'POST', { weight: 70 });
+        cancelReminderRecompute({ accountId: 'local' });
+        const anchors = window.localStorage.getItem('wg.health.anchors');
+
+        // The store refuses the replace (quota, a blocked database).
+        const clear = vi.spyOn(globalThis.IDBObjectStore.prototype, 'clear')
+            .mockImplementationOnce(() => { throw new DOMException('Quota exceeded', 'QuotaExceededError'); });
+        await expect(window.CloudVault.importAll(backup, { win: window })).rejects.toThrow(/Quota/);
+        clear.mockRestore();
+        expect((await window.apiCall('/api/weight?days=0&limit=1000')).map((r) => r.weight).sort()).toEqual([70, 80]);
+        expect(window.localStorage.getItem('wg.health.anchors')).toBe(anchors);
+
+        // Coming back to the front still imports.
+        const calls = window.Health.query.mock.calls.length;
+        await vi.waitFor(() => {
+            document.dispatchEvent(new window.Event('visibilitychange'));
+            expect(window.Health.query.mock.calls.length).toBeGreaterThan(calls);
+        });
+        expect(offDevice()).toEqual([]);
+    });
+
+    it('Move to a cloud account hands over to the shell\'s invite screen and keeps the records', async () => {
+        const { window } = env;
+        await window.apiCall('/api/weight', 'POST', { weight: 80 });
+        cancelReminderRecompute({ accountId: 'local' });
+        await window.CloudVault.openCloudAccount({ win: window });
+        expect(bridge).toHaveBeenCalledWith('local.leave');
+        expect((await localRecordsPort().list('weight')).map((r) => r.weight)).toEqual([80]);
         expect(offDevice()).toEqual([]);
     });
 

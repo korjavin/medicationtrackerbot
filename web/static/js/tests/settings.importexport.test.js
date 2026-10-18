@@ -257,6 +257,33 @@ describe('Settings → Import/Export section', () => {
         expect(downloads).toHaveLength(1);
     });
 
+    // bd med-o7zq.6: a cloud import not yet on the server says why, and promises
+    // a retry only where one happens (sync.js forceSnapshot outcomes).
+    it('import says honestly why the backup is not in the account yet', async () => {
+        const { window, document } = env;
+        window.safeAlert = vi.fn(async () => {});
+        const input = document.getElementById('importexport-import-file');
+        const shown = {};
+        for (const upload of ['synced', 'retrying', 'auth', 'rejected', undefined]) {
+            window.safeAlert.mockClear();
+            window.CloudVault = { exportAll: vi.fn(), importAll: vi.fn(async () => (upload ? { upload } : undefined)) };
+            setFile(window, input, 'backup.json', JSON.stringify(SAMPLE_VAULT));
+            await window.SettingsImportExport.import();
+            shown[upload] = window.safeAlert.mock.calls.map((c) => c[0]);
+        }
+        expect(shown.synced).toEqual([]);
+        expect(shown.undefined).toEqual([]); // local mode: nothing to upload
+        expect(shown.retrying).toHaveLength(1);
+        expect(shown.retrying[0]).toMatch(/retries by itself/);
+        expect(shown.auth[0]).toMatch(/Sign in again with your passkey/);
+        expect(shown.auth[0]).not.toMatch(/retries by itself/);
+        expect(shown.rejected[0]).toMatch(/will not finish by itself/);
+        expect(shown.rejected[0]).not.toMatch(/retries by itself/);
+        for (const msg of [shown.retrying[0], shown.auth[0], shown.rejected[0]]) {
+            expect(msg).toMatch(/Keep the backup file/);
+        }
+    });
+
     it('import dispatches to CloudVault.importAll and never touches apiCall', async () => {
         const { window, document } = env;
         window.apiCall = vi.fn();

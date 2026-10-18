@@ -842,10 +842,20 @@ const IMPORT_BUMP_RECORD_ID = '__vault_import_bump__';
 // fired (peers stuck on stale data for up to SNAPSHOT_THRESHOLD ops). So set a
 // durable forceSnapshotPending marker first and drive the actual work through
 // tryForceSnapshot, which pullOnOpen also re-runs (before any pull) every open
-// until the snapshot lands.
+// until the snapshot lands. tryForceSnapshot swallows every failure, so the
+// outcome is read back from the sync state (bd med-o7zq.6):
+//   'synced'    the snapshot is on the server;
+//   'rejected'  a permanent 4xx (too large, over quota): it never lands on
+//               its own;
+//   'auth'      the session expired: it lands after a passkey re-auth;
+//   'retrying'  offline or a transient error: the next open retries.
 export async function forceSnapshot(ctx) {
   await markForceSnapshotPending();
   await tryForceSnapshot(ctx);
+  const meta = await readMeta();
+  if (meta.snapshotError) return 'rejected';
+  if (!meta.forceSnapshotPending) return 'synced';
+  return authExpired ? 'auth' : 'retrying';
 }
 
 // Set the durable marker BEFORE the destructive replaceAllRecords. Between the

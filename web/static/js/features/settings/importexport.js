@@ -27,6 +27,15 @@
     // The phrase the typed confirm asks for before a replace-import.
     const REPLACE_PHRASE = 'replace my data';
 
+    // Why a cloud import is not on the server yet (CloudVault.importAll's
+    // `upload`, sync.js forceSnapshot). 'synced' and the local vault (no
+    // upload) say nothing.
+    const NOT_UPLOADED = {
+        retrying: 'The upload retries by itself the next time you open the app while online.',
+        auth: 'Your sign-in has expired, so the upload is paused. Sign in again with your passkey and it resumes.',
+        rejected: 'The server refused it: the backup is too large for your account or the account is over its storage limit. It will not finish by itself. Free up space or ask the operator, then restore the file again.',
+    };
+
     function beforeUnloadGuard(e) {
         // Native "Leave site?" confirmation — both forms are needed across browsers.
         e.preventDefault();
@@ -233,8 +242,11 @@
 
         // Typed confirm (kit S3): the confirm button stays disabled until the
         // phrase matches, so a stray tap can't wipe the vault.
+        const local = document.documentElement.classList.contains('wg-local-vault');
         const confirmed = await safeConfirm(
-            'Everything stored now is replaced by this backup, on every device. This cannot be undone.',
+            local
+                ? 'Everything stored on this iPhone is replaced by this backup. This cannot be undone.'
+                : 'Everything stored now is replaced by this backup, on every device. This cannot be undone.',
             null,
             { title: 'Replace all your data?', confirmLabel: 'Replace my data', destructive: true, typedConfirm: REPLACE_PHRASE }
         );
@@ -242,10 +254,20 @@
 
         setImportBusy(true);
         try {
-            await window.CloudVault.importAll(json);
+            const result = await window.CloudVault.importAll(json);
             // Clear busy BEFORE reload — otherwise beforeUnloadGuard would
             // prompt on our own intended navigation.
             setImportBusy(false);
+            // Cloud: applied here, but not on the server yet. Say why and what
+            // happens next, so a user moving from another device keeps that
+            // copy and the file for now (bd med-o7zq.6).
+            const why = result && NOT_UPLOADED[result.upload];
+            if (why) {
+                await safeAlert(
+                    `Your backup is restored on this device, but it is not in your account yet. ${why} Keep the backup file, and any other copy of your records, until your account shows them on another device.`,
+                    { title: 'Not uploaded yet' }
+                );
+            }
             // Full refresh so every section re-renders from the restored vault
             // (simplest correct path — same as post-bootstrap reload).
             location.reload();
