@@ -831,3 +831,143 @@ describe('local-only mode anonymous trial opt-in (med-o7zq.16)', () => {
         expect(document.getElementById('integrations-local-trial').classList.contains('hidden')).toBe(true);
     });
 });
+
+// bd med-o7zq.20 — the operator's food database rides the same trial switch:
+// fooddb.js's operator lookups go through local-trial.js to the base domain's
+// attest-gated GET /api/attest/food/* routes. Off, nothing is asked and the
+// Add sheet says why.
+describe('local-only mode food database through the trial (med-o7zq.20)', () => {
+    const TRIAL_BASE = 'trial-base.example.test';
+    const EAN = '4600000000001';
+    const settle = async (n = 5) => {
+        for (let i = 0; i < n; i++) await new Promise((r) => setTimeout(r, 0));
+    };
+    let env;
+    let fetched;
+    let foodReply;
+
+    beforeEach(async () => {
+        await deleteDb();
+        fetched = [];
+        foodReply = () => new Response('{}', { status: 404 });
+        const recorder = vi.fn(async (url, init = {}) => {
+            fetched.push({ url: String(url), method: init.method || 'GET', headers: init.headers || {} });
+            const u = String(url);
+            if (u === `https://${TRIAL_BASE}/api/attest/challenge`) {
+                return new Response(JSON.stringify({ challenge: 'c1', expires_in: 300 }), { status: 200 });
+            }
+            if (u.startsWith(`https://${TRIAL_BASE}/api/attest/food/`)) return foodReply(u);
+            return createMockResponse({ status: 503, json: {} });
+        });
+        vi.stubGlobal('fetch', recorder);
+        env = loadFrontendEnv();
+        env.window.fetch = recorder;
+        env.window.safeToast = vi.fn();
+        const bridge = vi.fn(async (op) => (op === 'setEgressHosts' ? { changed: false } : null));
+        const notifications = { isSupported: () => false, __native: { platform: 'ios', call: bridge } };
+        env.window.LocalNotifications = notifications;
+        vi.stubGlobal('LocalNotifications', notifications);
+        env.window.Attest = {
+            isSupported: () => true,
+            status: vi.fn(async () => ({ supported: true, base: TRIAL_BASE, attested: true })),
+            enroll: vi.fn(),
+            assert: vi.fn(async (challenge, digest) => ({ keyId: 'key-1', assertion: `sig:${challenge}:${digest}` })),
+        };
+        const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
+        run(env.window, (spec) => MODULES[spec]());
+        await env.window.MedTrackerCloudReady;
+        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] }));
+    });
+
+    afterEach(async () => {
+        // The trial transport is module state: leave it off for the next test.
+        await env.window.apiCall('/api/settings/trial-consent', 'PATCH', { anon: false });
+        await env.window.CloudVault.trial.apply();
+        const { setTrialTransport } = await import('../../../cloud/js/aiclient.js');
+        setTrialTransport(null);
+        env.cleanup();
+        vi.unstubAllGlobals();
+    });
+
+    async function trialOn() {
+        await env.window.apiCall('/api/settings/trial-consent', 'PATCH', { anon: true });
+        await env.window.CloudVault.trial.apply();
+        expect(await env.window.CloudVault.trial.status()).toMatchObject({ on: true });
+    }
+
+    async function scan(code) {
+        env.window.FoodLog.addSheet.open();
+        await settle();
+        expect(env.window.handleDecodedValue(code)).toBe(true);
+    }
+
+    const toServer = () => fetched.filter(({ url }) => url.startsWith('/api/')
+        || (/^https?:/.test(url) && new URL(url).hostname === TRIAL_BASE));
+    const foodGets = () => fetched.filter(({ url, method }) => method === 'GET'
+        && url.startsWith(`https://${TRIAL_BASE}/api/attest/food/`));
+    const OFF_COPY = 'No food database in device-only mode. Turn on the free trial in Settings → AI & integrations, or add your own food DB.';
+
+    it('off: an unknown barcode says the food database is missing, opens the manual form, and asks no server', async () => {
+        const { window, document } = env;
+        await scan(EAN);
+        await vi.waitFor(() => expect(window.safeToast).toHaveBeenCalledWith(OFF_COPY, 'info'));
+        expect(document.getElementById('food-modal').classList.contains('hidden')).toBe(false);
+        expect(document.getElementById('food-barcode').value).toBe(EAN);
+
+        // A text search that misses locally says the same, not "Nothing found".
+        window.FoodLog.addSheet.open();
+        await settle();
+        await window.FoodLog.addSheet.runSearch('oats', false);
+        await vi.waitFor(() => expect(document.getElementById('food-add-search-status').textContent).toBe(OFF_COPY));
+        expect(toServer()).toEqual([]);
+        expect(window.Attest.assert).not.toHaveBeenCalled();
+    });
+
+    it('on: a scan is one signed GET of the barcode route, and the product is picked', async () => {
+        const { createHash } = await import('node:crypto');
+        const { window, document } = env;
+        foodReply = () => new Response(JSON.stringify({
+            name: 'Choco bar', barcode: EAN, kcal100g: 500, carbs: 60, protein: 6, fat: 25,
+        }), { status: 200, headers: { 'X-Attest-Challenge': 'c2' } });
+        await trialOn();
+        await scan(EAN);
+        await vi.waitFor(() => expect(document.getElementById('food-add-search').value).toBe('Choco bar'));
+
+        const path = `/api/attest/food/barcode/${EAN}`;
+        expect(foodGets().map((r) => r.url)).toEqual([`https://${TRIAL_BASE}${path}`]);
+        const digest = createHash('sha256').update(`${path}\n`).digest('base64');
+        expect(window.Attest.assert).toHaveBeenCalledWith('c1', digest);
+        expect(foodGets()[0].headers).toEqual({
+            'X-Attest-Key-Id': 'key-1', 'X-Attest-Challenge': 'c1', 'X-Attest-Assertion': `sig:c1:${digest}`,
+        });
+        expect(document.getElementById('food-modal').classList.contains('hidden')).toBe(true);
+    });
+
+    it('on: a text search after a local miss is one GET of the search route and renders its results', async () => {
+        const { window, document } = env;
+        foodReply = () => new Response(JSON.stringify({ results: [{ name: 'Rolled oats', kcal100g: 370 }] }), { status: 200 });
+        await trialOn();
+        window.FoodLog.addSheet.open();
+        await settle();
+        await window.FoodLog.addSheet.runSearch('oats', false);
+        await vi.waitFor(() => expect(document.getElementById('food-add-results').textContent).toContain('Rolled oats'));
+        expect(foodGets().map((r) => r.url)).toEqual([`https://${TRIAL_BASE}/api/attest/food/search?q=oats&limit=20`]);
+    });
+
+    it('on: today\'s lookups spent (429 install-day) says the lookups are paused, and asks no more', async () => {
+        const { window, document } = env;
+        foodReply = () => new Response(JSON.stringify({
+            error: 'trial_budget_exhausted', scope: 'install-day', resets_at: new Date(Date.now() + 3600e3).toISOString(),
+        }), { status: 429 });
+        await trialOn();
+        window.FoodLog.addSheet.open();
+        await settle();
+        await window.FoodLog.addSheet.runSearch('oats', false);
+        const status = document.getElementById('food-add-search-status');
+        await vi.waitFor(() => expect(status.textContent).toBe('Food lookups paused until tomorrow.'));
+
+        await scan(EAN);
+        await vi.waitFor(() => expect(window.safeToast).toHaveBeenCalledWith('Food lookups paused until tomorrow.', 'info'));
+        expect(foodGets()).toHaveLength(1);
+    });
+});

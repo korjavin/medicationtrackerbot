@@ -162,9 +162,12 @@ function debugOnce(key, ...args) {
 //   opts.rxnorm   the drug-name lookup port; null turns it off (the domain's
 //                 no-op), which local mode does: the RxNav proxy is the
 //                 operator's (bd med-o7zq.3, local-policy.js).
+//   opts.operatorFoodDb  fooddb.js's operator food-DB port; omitted keeps the
+//                 cloud's same-origin one (local mode: LOCAL_FOOD_DB, bd
+//                 med-o7zq.20).
 export function createApiRouter(ctx, {
   records: recordsOverride, recordsPort: portFactory, effects, win, now: nowOverride, timeZone: timeZoneOverride, origin,
-  rxnorm = createRxnormPort(),
+  rxnorm = createRxnormPort(), operatorFoodDb,
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
   const records = recordsOverride || (portFactory ? portFactory(origin) : recordsPort(ctx, origin));
@@ -207,7 +210,7 @@ export function createApiRouter(ctx, {
     });
     intake = createIntakeDomain({ records, now, timeZone });
     tzplan = createTzPlanDomain({ records, now, timeZone });
-    foodDb = createFoodDbClient({ settingsDomain: settings });
+    foodDb = createFoodDbClient({ settingsDomain: settings, operatorFoodDb });
     food = createFoodDomain({
       records, now, timeZone, foodDb,
     });
@@ -1494,11 +1497,12 @@ export function createApiRouter(ctx, {
 // now/timeZone are forwarded straight to createApiRouter (both routers, so the
 // two agree on the clock) — the same test-only override it documents, reachable
 // from the shim-contract harness so a suite can pin the wall clock.
-// recordsPort/effects/rxnorm are createApiRouter's local-mode swaps, forwarded
-// to both routers; registerEgress replaces the server-side egress allowlist
-// upload (local mode tells the iOS shell instead, which serves its own CSP).
+// recordsPort/effects/rxnorm/operatorFoodDb are createApiRouter's local-mode
+// swaps, forwarded to both routers; registerEgress replaces the server-side
+// egress allowlist upload (local mode tells the iOS shell instead, which
+// serves its own CSP).
 export function installApiShim(ctx, {
-  records, recordsPort: portFactory, effects, rxnorm, registerEgress = registerEgressHosts,
+  records, recordsPort: portFactory, effects, rxnorm, operatorFoodDb, registerEgress = registerEgressHosts,
   win, now: nowOverride, timeZone: timeZoneOverride,
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
@@ -1517,7 +1521,7 @@ export function installApiShim(ctx, {
   // both, which keeps the harness a drop-in swap.
   // rxnorm: undefined takes the router's default port; null turns it off.
   const shared = {
-    recordsPort: portFactory, effects, rxnorm, now: nowOverride, timeZone: timeZoneOverride, win,
+    recordsPort: portFactory, effects, rxnorm, operatorFoodDb, now: nowOverride, timeZone: timeZoneOverride, win,
   };
   const shimCall = createApiRouter(ctx, { records, origin: ORIGIN_UI, ...shared });
   const bgCall = records ? shimCall : createApiRouter(ctx, { origin: ORIGIN_EXTERNAL, ...shared });
@@ -1541,8 +1545,11 @@ export function installApiShim(ctx, {
   targetWindow.CloudWorkoutSheetAI = workoutSheetAI;
   // remoteConfigured lets products.js distinguish "no food DB configured" from
   // "no matches" — without it an unconfigured operator renders as an empty
-  // result set and the user blames the search (med-1j1).
-  targetWindow.CloudFoodSearch = { search: food.search, remoteConfigured: foodDb.remoteConfigured };
+  // result set and the user blames the search (med-1j1). remoteHint says why
+  // (local mode: the trial is off, or today's lookups are spent).
+  targetWindow.CloudFoodSearch = {
+    search: food.search, remoteConfigured: foodDb.remoteConfigured, remoteHint: foodDb.remoteHint,
+  };
   // Voice: elevenlabs-call.js's fetchSignedURL() branches on
   // window.__MEDTRACKER_CLOUD__ to mint the signed URL browser-direct here
   // (BYO ElevenLabs key from the vault; never crosses /api).

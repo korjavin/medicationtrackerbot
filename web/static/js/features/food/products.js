@@ -108,9 +108,14 @@ async function runCloudFoodSearch(query, requestId, { barcode } = {}) {
         // database is missing, not that their food doesn't exist (med-1j1).
         if (typeof window.CloudFoodSearch.remoteConfigured === 'function'
             && !(await window.CloudFoodSearch.remoteConfigured())) {
+            // remoteHint: local mode says why (the trial is off, or today's
+            // lookups are spent).
+            const hint = typeof window.CloudFoodSearch.remoteHint === 'function'
+                ? await window.CloudFoodSearch.remoteHint().catch(() => '')
+                : '';
             if (myRequestId !== window.FoodProducts._getRequestId()) return;
             renderFoodAutocomplete(local, false, null);
-            setFoodSearchStatus('error', 'Food database not configured. Add one in Settings → Integrations.');
+            setFoodSearchStatus('error', hint || 'Food database not configured. Add one in Settings → Integrations.');
             return;
         }
 

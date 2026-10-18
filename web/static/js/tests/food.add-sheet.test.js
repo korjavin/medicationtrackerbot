@@ -146,6 +146,25 @@ describe('Food Add sheet', () => {
         expect(document.getElementById('food-barcode').value).toBe('4600000000001');
         expect(document.getElementById('food-modal-more').open).toBe(true);
         expect(posts()).toHaveLength(0);
+        // No food database to ask: the miss says why, not "No product found".
+        expect(window.safeToast).toHaveBeenCalledWith('Barcode lookup needs the food database. Add one in Settings → Integrations.', 'info');
+    });
+
+    it('a miss with a food database configured keeps "No product found"; a remoteHint replaces the not-configured copy', async () => {
+        const { window } = env;
+        window.CloudFoodSearch.remoteConfigured = vi.fn(async () => true);
+        window.FoodLog.addSheet.open();
+        await settle();
+        window.handleDecodedValue('4600000000002');
+        await settle(10);
+        expect(window.safeToast).toHaveBeenCalledWith('No product found for that barcode. Enter it once and it will be found next time.', 'info');
+
+        window.CloudFoodSearch.remoteConfigured = vi.fn(async () => false);
+        window.CloudFoodSearch.remoteHint = vi.fn(async () => 'Food lookups paused until tomorrow.');
+        window.FoodLog.addSheet.open();
+        await settle();
+        await window.FoodLog.addSheet.runSearch('oats', true);
+        expect(env.document.getElementById('food-add-search-status').textContent).toBe('Food lookups paused until tomorrow.');
     });
 
     it('Esc closes the sheet', async () => {

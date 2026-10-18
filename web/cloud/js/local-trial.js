@@ -11,6 +11,8 @@
 //
 // Only ever installed when the user turned the trial on (local-policy.js
 // registerLocalEgress): off, nothing here runs and nothing reaches our server.
+// The same switch covers the operator's food database (foodGet, bd
+// med-o7zq.20).
 
 const STATE_KEY = 'wg:local-trial';
 
@@ -200,6 +202,12 @@ export function createLocalTrial({ attest, base, fetchImpl, storage }) {
         return Promise.resolve(new Response(JSON.stringify({ error: 'trial_already_used' }), { status: 403 }));
       }
       return client.post(trialPath.replace('/api/trial/', '/api/attest/trial/'), init.body, init.signal);
+    },
+    // fooddb.js (local-policy.js LOCAL_FOOD_DB, bd med-o7zq.20): the
+    // cloud's same-origin /api/food/* path, re-pointed at the attest route.
+    // Same key and challenge as the AI; its own daily cap on the server.
+    foodGet(path, signal) {
+      return client.get(path.replace('/api/food/', '/api/attest/food/'), signal);
     },
     async enroll() {
       const res = await client.enroll();
