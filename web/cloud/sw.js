@@ -555,11 +555,12 @@ self.addEventListener('notificationclick', (event) => {
       const client = clients.find((c) => 'focus' in c);
       if (!route) {
         // A body tap opens the reminder's own target (med-9d1a): a dose's take
-        // sheet, or its section. Warm tab → the page navigates once unlocked
+        // sheet, or its section. Warm unlocked tab → the page navigates
         // (cloud-boot.js); cold start → the URL carries it to handleDeepLinks.
-        // KNOWN LIMIT: a cold start on a LOCKED app goes / → /unlock → / and
-        // unlock forwards only the hash, so the query is lost and the app opens
-        // on its default tab — same as the ?reminder_action cold path below.
+        // KNOWN LIMIT: a LOCKED app loses it — a warm locked tab has no
+        // listener (it is installed after unlock), and a cold start goes
+        // / → /unlock → / with unlock forwarding only the hash — so it opens on
+        // its default tab, same as the ?reminder_action paths below.
         const url = reminderOpenUrl(event.notification.data && event.notification.data.url);
         if (client) {
           if (url !== '/') client.postMessage({ type: 'reminder-open', url });
