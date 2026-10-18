@@ -20,11 +20,10 @@ every build, signing and Play upload runs on a GitHub-hosted ubuntu runner via
   build uses the placeholder `com.example.medtracker` (forks, unconfigured
   runs). The package and the base domain are never committed; the package
   may appear in the (public) Actions logs — it is public once on Play. The
-  base domain must not: the workflow's first step masks `CLOUD_BASE_DOMAIN`
-  and passes it to Gradle (`BuildConfig.BASE_DOMAIN`). A step's own `env:`
-  block is printed before its script runs, so that one step header shows the
-  variable's value; a `CLOUD_BASE_DOMAIN` **secret** with the same value is
-  preferred when set and is masked from the start.
+  base domain must not: the workflow reads it from the `CLOUD_BASE_DOMAIN`
+  **secret** (a step's `env:` block is printed before its script runs, so the
+  same-named variable deploy.yml uses would show there), masks it and passes
+  it to Gradle (`BuildConfig.BASE_DOMAIN`).
 
 ## Owner setup (GitHub → Settings → Secrets and variables → Actions)
 
@@ -38,12 +37,11 @@ account the signed AAB is kept as a run artifact but not uploaded to Play.
 | Name | Value |
 |------|-------|
 | `ANDROID_PACKAGE` | the Play app's package name (Play Console app record, bd med-nt9p.1) |
-| `CLOUD_BASE_DOMAIN` | the deployment's base domain (shared with deploy.yml and ios.yml); the shell accepts only accounts one label under it. Optionally also add it as a secret of the same name to keep it out of the mask step's header |
-
 **Secrets:**
 
 | Name | How to get it |
 |------|---------------|
+| `CLOUD_BASE_DOMAIN` | the deployment's base domain — the same value as the `CLOUD_BASE_DOMAIN` *variable*, kept as a secret here so it never shows in the logs. The shell accepts only accounts one label under it; without it the app builds but its first run says no service is configured |
 | `ANDROID_DEBUG_KEYSTORE_BASE64` | the stable debug key for master-push and dispatch APKs (below). PR runs never get it (its fingerprint is trusted by production asset links), so a PR APK is signed with a throwaway key — it installs, but passkeys won't bind to it; same for every run until this secret exists |
 | `ANDROID_UPLOAD_KEYSTORE_BASE64` | the Play **upload** keystore (below), `base64 -w0 upload.jks` |
 | `ANDROID_UPLOAD_KEYSTORE_PASSWORD` | that keystore's store password |

@@ -78,6 +78,13 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestWindowFeature(Window.FEATURE_NO_TITLE)
+        // Edge to edge on Android 14 too (targetSdk 35+ only enforces it from 15):
+        // layoutBars owns the bar and keyboard insets on every version.
+        window.setDecorFitsSystemWindows(false)
+        @Suppress("DEPRECATION")
+        window.statusBarColor = Color.TRANSPARENT
+        @Suppress("DEPRECATION")
+        window.navigationBarColor = Color.TRANSPARENT
         window.isNavigationBarContrastEnforced = false // the band shows the page colour, not a scrim
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
         setContentView(buildUi())

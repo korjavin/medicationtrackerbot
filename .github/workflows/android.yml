@@ -43,23 +43,24 @@ jobs:
       sign: ${{ steps.release.outputs.sign }}
     env:
       # The package is public once on Play, so it may show in these (public)
-      # logs. The base domain must not: only the first step below reads it, and
-      # it masks it before anything else runs.
+      # logs. The base domain must not: only the first step below reads it, from
+      # a secret, and re-exports it masked.
       # Release secrets are NOT job-level: only the dispatch-gated steps get them.
       ANDROID_PACKAGE: ${{ vars.ANDROID_PACKAGE }}
       ANDROID_VERSION_CODE: ${{ github.run_number }}
     steps:
       # The shell's base domain (BuildConfig.BASE_DOMAIN, app/build.gradle.kts).
-      # Every later step header shows it as ***. A step's own env block is
-      # printed before its script runs, so a CLOUD_BASE_DOMAIN *secret* (masked
-      # from the start) wins over the variable; with only the variable this
-      # one header shows it. Unset (forks): the app says no service is configured.
+      # A SECRET, not the CLOUD_BASE_DOMAIN variable deploy.yml/ios.yml read: a
+      # step's env block is printed before its script runs, so a variable's
+      # value would show in this header; a secret is masked from the start.
+      # Every later step header shows it as ***. Unset (forks, before owner
+      # setup): the app builds, and its first run says no service is configured.
       - name: Mask base domain
         env:
-          D: ${{ secrets.CLOUD_BASE_DOMAIN || vars.CLOUD_BASE_DOMAIN }}
+          D: ${{ secrets.CLOUD_BASE_DOMAIN }}
         run: |
           if [ -z "$D" ]; then
-            echo "::notice::CLOUD_BASE_DOMAIN unset — the app's first run will say no service is configured (see docs/android.md)"
+            echo "::notice::CLOUD_BASE_DOMAIN secret unset — the app's first run will say no service is configured (see docs/android.md)"
             exit 0
           fi
           echo "::add-mask::$D"
