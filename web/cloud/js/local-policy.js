@@ -125,7 +125,9 @@ export function startLocalHealthImport({ ctx, records, win }) {
       current = pass.catch(() => null); // its failure is startHealthImport's to log
       return pass;
     },
-    afterImport: () => (stopped ? null : recomputeAndPush(ctx, { records, relay: false })),
+    afterImport: async () => {
+      if (!stopped) await recomputeAndPush(ctx, { records, relay: false });
+    },
   });
 }
 
