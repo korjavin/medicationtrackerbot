@@ -90,6 +90,7 @@ jobs:
           apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
           want=$(keytool -list -v -keystore "$ANDROID_DEBUG_KEYSTORE" -storepass android -alias androiddebugkey | sed -n 's/^ *SHA256: *//p' | tr -d ':' | tr 'A-F' 'a-f')
           got=$("$apksigner" verify --print-certs android/app/build/outputs/apk/debug/*.apk | sed -n 's/.*certificate SHA-256 digest: *//p' | head -1 | tr 'A-F' 'a-f')
+          echo "digest lengths: keystore=${#want} apk=${#got}"
           if [ -n "$want" ] && [ "$want" = "$got" ]; then
             echo "Debug APK signing key: MATCH"
           else
