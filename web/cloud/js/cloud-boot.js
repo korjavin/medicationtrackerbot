@@ -174,6 +174,15 @@ window.MedTrackerCloudReady = (async function boot() {
             const records = await readAllRawRecords(ctx);
             return JSON.stringify(recordsToVault(records, { now: Date.now(), includeSecrets }), null, 2);
         },
+        // readAllLiveRecords bootstraps first, so a freshly claimed second
+        // device sees the server's data, not a stale empty local store.
+        async hasUserContent() {
+            const [{ readAllLiveRecords }, { hasUserContent }] = await Promise.all([
+                import('/js/sync.js'),
+                import('/domain/vault.js'),
+            ]);
+            return hasUserContent(await readAllLiveRecords(ctx));
+        },
         async importAll(json) {
             const [{ replaceAllRecords, forceSnapshot, markForceSnapshotPending, readAllLiveRecords, isBootstrapped, dropPendingForTypes }, { vaultToRecords, managedTypesForImport }] = await Promise.all([
                 import('/js/sync.js'),

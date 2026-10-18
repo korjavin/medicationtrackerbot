@@ -187,6 +187,37 @@ describe('Settings → Import/Export section', () => {
         expect(opts).toMatchObject({ destructive: true, typedConfirm: 'replace my data' });
     });
 
+    // med-eyos: an empty target vault has nothing to lose, so no typed confirm;
+    // anything but an explicit `false` from the probe keeps it (fail closed).
+    describe('empty-vault restore skips the typed confirm', () => {
+        async function run(probe) {
+            const { window, document } = env;
+            window.CloudVault = { exportAll: vi.fn(), importAll: vi.fn(async () => {}), ...(probe ? { hasUserContent: probe } : {}) };
+            setFile(window, document.getElementById('importexport-import-file'), 'backup.json', JSON.stringify(SAMPLE_VAULT));
+            await window.SettingsImportExport.import();
+            return window;
+        }
+        it('probe false: imports with no dialog', async () => {
+            const window = await run(vi.fn(async () => false));
+            expect(window.safeConfirm).not.toHaveBeenCalled();
+            expect(window.CloudVault.importAll).toHaveBeenCalledTimes(1);
+        });
+        it('probe true: typed confirm, cancel aborts', async () => {
+            env.window.safeConfirm = vi.fn(async () => false);
+            const window = await run(vi.fn(async () => true));
+            expect(window.safeConfirm).toHaveBeenCalledTimes(1);
+            expect(window.CloudVault.importAll).not.toHaveBeenCalled();
+        });
+        it('probe rejects: confirm still asked', async () => {
+            const window = await run(vi.fn(async () => { throw new Error('boom'); }));
+            expect(window.safeConfirm).toHaveBeenCalledTimes(1);
+        });
+        it('probe missing/undefined: confirm still asked', async () => {
+            const window = await run(vi.fn(async () => undefined));
+            expect(window.safeConfirm).toHaveBeenCalledTimes(1);
+        });
+    });
+
     it('export passes includeSecrets:false through to CloudVault', async () => {
         const { window, document } = env;
         document.getElementById('importexport-include-secrets').checked = false;
