@@ -1,6 +1,8 @@
 // Self-check for AccountURL and LocalOrigin, run by .github/workflows/ios.yml:
 //   swiftc App/AccountURL.swift App/LocalOrigin.swift Tests/main.swift -o <bin> && <bin>
 // Not part of the app target (project.yml sources only App/).
+import Foundation
+
 let base = "app.example.com"
 
 func check(_ input: String, _ want: String?, base: String = base) {
