@@ -7,7 +7,7 @@ import WebKit
 ///
 /// Opened only from iOS Settings → Med Tracker → Local mode diagnostic; the
 /// shell's normal path never creates it. Its own WKWebView loads the bundled
-/// test page (ios/LocalSpike/) from a WKURLSchemeHandler on `app://local/`
+/// test page (ios/LocalSpike/) from a WKURLSchemeHandler on `wgapp://local/`
 /// in the default website data store — a separate origin from any account —
 /// with the CSP sent as a response header. The page runs the checks; this
 /// side adds what only native can see (where WebKit put the origin's data,
@@ -24,8 +24,10 @@ final class LocalSpike: NSObject, ObservableObject, WKNavigationDelegate, WKScri
         + "media-src 'self' blob: mediastream:; connect-src 'self' https://api.openai.com https://api.anthropic.com; "
         + "object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
 
-    /// setURLSchemeHandler raises for a scheme WebKit handles itself.
-    let scheme = WKWebView.handlesURLScheme("app") ? "wgapp" : "app"
+    /// Must match the "wgapp:" WKAppBoundDomains entry (ios/project.yml): a
+    /// trailing colon makes WebKit treat it as an app-bound scheme, so the page
+    /// loads under the app-bound limit and keeps its script message handlers.
+    let scheme = "wgapp"
     /// Fresh per process (static: reopening the diagnostic is not a relaunch):
     /// the page's IndexedDB history shows which launches wrote it.
     static let launch = String(UUID().uuidString.prefix(8))
@@ -191,7 +193,7 @@ final class LocalSpike: NSObject, ObservableObject, WKNavigationDelegate, WKScri
         let info = Bundle.main.infoDictionary ?? [:]
         var out = [
             "native · build \(info["CFBundleVersion"] ?? "?") · iOS \(UIDevice.current.systemVersion) · launch \(launch)",
-            "scheme \(scheme)://local (WKWebView.handlesURLScheme(\"app\") = \(WKWebView.handlesURLScheme("app"))), app-bound limit \(appBound ? "on" : "off")",
+            "scheme \(scheme)://local, app-bound limit \(appBound ? "on" : "off")",
         ]
         out += log
         out += dataScan()
@@ -230,24 +232,33 @@ final class LocalSpike: NSObject, ObservableObject, WKNavigationDelegate, WKScri
         return lines
     }
 
+    /// Sets the flag, reads it back, then restores the value read before the
+    /// test (on build 62 the revert did not stick: a later launch read
+    /// before=true). Every read and write uses a fresh URL, so no cached
+    /// resource value can stand in for the file system.
     private func excludeFromBackupProbe(_ dir: URL) -> String {
-        func flag() -> String {
+        func flag() -> Bool? {
             let fresh = URL(fileURLWithPath: dir.path) // no cached resource values
-            guard let v = try? fresh.resourceValues(forKeys: [.isExcludedFromBackupKey]) else { return "unreadable" }
-            return "\(v.isExcludedFromBackup ?? false)"
+            return (try? fresh.resourceValues(forKeys: [.isExcludedFromBackupKey]))?.isExcludedFromBackup
         }
-        let before = flag()
-        var url = dir
-        var values = URLResourceValues()
+        func write(_ value: Bool) throws {
+            var fresh = URL(fileURLWithPath: dir.path)
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = value
+            try fresh.setResourceValues(values)
+        }
+        func show(_ v: Bool?) -> String { v.map { "\($0)" } ?? "unreadable" }
+        guard let before = flag() else { return "before=unreadable, probe skipped" }
         do {
-            values.isExcludedFromBackup = true
-            try url.setResourceValues(values)
+            try write(true)
             let set = flag()
-            values.isExcludedFromBackup = false
-            try url.setResourceValues(values)
-            return "before=\(before) set=\(set) reverted=\(flag())"
+            try write(before)
+            let reverted = flag()
+            return "before=\(before) set=\(show(set)) reverted=\(show(reverted)) "
+                + (reverted == before ? "(reverted == before)" : "REVERT MISMATCH")
         } catch {
-            return "before=\(before) setResourceValues FAILED: \(error.localizedDescription)"
+            try? write(before)
+            return "before=\(before) setResourceValues FAILED: \(error.localizedDescription); reverted=\(show(flag()))"
         }
     }
 
