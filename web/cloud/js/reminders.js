@@ -18,6 +18,7 @@ import { createSettingsDomain } from '../../domain/settings.js';
 import { createGamificationDomain } from '../../domain/gamification.js';
 import { recordsPort } from './sync.js';
 import { pushSchedule, sendTestPush } from './push.js';
+import { KIND_SECTION } from './reminder-deeplink.js';
 
 export { sendTestPush };
 
@@ -217,7 +218,6 @@ export async function recomputeAndPush(ctx, opts = {}) {
 // still serves Telegram and the account's other devices.
 const LOCAL_NOTIFICATION_CAP = 64; // iOS keeps at most 64 pending local notifications
 const LAPSE_TEXT = 'Open the app to keep reminders running'; // sw.js STALE_SYNC_WARNING's words
-const KIND_SECTION = { medication: 'meds', low_stock: 'meds', bp: 'bp', weight: 'weight', workout: 'workouts' };
 
 // The earliest reminders that fit the cap, the last slot kept for a lapse notice
 // right after them: the device-side twin of the relay's dry-queue warning

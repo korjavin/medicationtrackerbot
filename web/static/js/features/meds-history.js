@@ -626,6 +626,9 @@ async function confirmSelectedMedications() {
         if (selectedIntakeIds.length > 0) {
             body.intake_ids = selectedIntakeIds;
         }
+        // A reminder-tap sheet lists only the meds the reminder named, so a
+        // slot-mate missing from it was not "unchecked" — never revert it.
+        if (window.PushModalState.getMedConfirmAdditive()) body.additive = true;
         // "Time taken" row: sent only when the user picked a time; otherwise
         // the domain stamps now.
         const timeInput = document.getElementById('med-confirm-datetime');

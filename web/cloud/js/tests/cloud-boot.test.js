@@ -269,7 +269,7 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
 
   // Boot far enough to reach the post-unlock inbox block, with a fake SW
   // collecting every `message` listener. `inbox` overrides the inbox.js surface.
-  async function bootInbox(inbox = {}) {
+  async function bootInbox(inbox = {}, setupWindow) {
     const handlers = [];
     fakeServiceWorker(handlers);
     let pollersStarted = 0;
@@ -284,6 +284,7 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
     let recomputes = 0;
     let debounced = 0;
     await runBoot({
+      setupWindow,
       modules: {
         'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
         'apishim.js': { installApiShim: () => () => Promise.resolve(null) },
@@ -357,6 +358,26 @@ describe('cloud-boot inbox wake (med-5fo)', () => {
     await flush();
     expect(drains).toBe(2);
     expect(acks).toEqual(['ack']); // no other SW message may ack or drain
+  });
+
+  // bd med-9d1a — a warm notification body tap: the SW hands over the reminder
+  // deeplink and the (unlocked) page routes it exactly like a cold-start URL.
+  it('routes a reminder-open deeplink through handleDeepLinks, ignoring off-shape urls', async () => {
+    const replaced = [];
+    let routed = 0;
+    const { dispatch } = await bootInbox({}, (window) => {
+      window.history = { replaceState: (_s, _t, url) => replaced.push(url) };
+      window.handleDeepLinks = () => { routed += 1; };
+    });
+
+    dispatch({ type: 'reminder-open', url: 'https://evil.example/?tab=bp' });
+    dispatch({ type: 'reminder-open', url: 42 });
+    expect(replaced).toEqual([]);
+    expect(routed).toBe(0);
+
+    dispatch({ type: 'reminder-open', url: '/?action=medication_confirm&ids=2&scheduled=2026-01-01T09%3A00%3A00.000Z' });
+    expect(replaced).toEqual(['/?action=medication_confirm&ids=2&scheduled=2026-01-01T09%3A00%3A00.000Z']);
+    expect(routed).toBe(1);
   });
 
   // med-2yl: both network steps used to be awaited AHEAD of the poller and the
