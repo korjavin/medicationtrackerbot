@@ -180,6 +180,15 @@ type attestEnv struct {
 	lastBody atomic.Value
 	food     *FoodProxyAPI
 	foodHits atomic.Int32 // requests the fake FastFoodDB received
+	// Anonymous voice (med-o7zq.22): off until a test sets the ElevenLabs
+	// config on trial and the Voice* budgets on attest.
+	attest    *AttestAPI
+	trial     *TrialProxyAPI
+	relay     *VoiceLLMRelayAPI
+	upHits    atomic.Int32
+	mintFail  atomic.Bool
+	mintCalls atomic.Int32
+	mintQuery atomic.Value // last get_signed_url query string
 }
 
 // newAttestEnv wires the attest API over a fake OpenAI upstream; trialCfg, if
@@ -192,13 +201,30 @@ func newAttestEnv(t *testing.T, lifetime, daily, global int, trialCfg ...TrialCo
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		e.lastBody.Store(string(b))
+		e.upHits.Add(1)
 		if s := e.upstream.Load(); s != 0 {
 			w.WriteHeader(int(s))
+			return
+		}
+		if strings.Contains(string(b), `"stream":true`) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte("data: {\"model\":\"trial-model\",\"choices\":[{\"delta\":{\"content\":\"spoken answer\"}}]}\n\ndata: [DONE]\n\n"))
 			return
 		}
 		_, _ = w.Write([]byte(`{"model":"trial-model","choices":[{"message":{"content":"ok"}}]}`))
 	}))
 	t.Cleanup(up.Close)
+	// Fake ElevenLabs get_signed_url (the shape trial_proxy_test.go's fake answers).
+	el := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		e.mintCalls.Add(1)
+		e.mintQuery.Store(r.URL.RawQuery)
+		if e.mintFail.Load() || r.Header.Get("xi-api-key") != "xi-trial" {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write([]byte(`{"signed_url":"wss://api.elevenlabs.io/v1/convai/conversation?conversation_signature=sig"}`))
+	}))
+	t.Cleanup(el.Close)
 	tc := TrialConfig{
 		OpenAIAPIKey: "sk-trial", OpenAIURL: up.URL, OpenAIModel: "trial-model",
 		VisionAPIKey: "sk-trial", VisionURL: up.URL, VisionModel: "trial-vision-model",
@@ -208,6 +234,8 @@ func newAttestEnv(t *testing.T, lifetime, daily, global int, trialCfg ...TrialCo
 		tc = trialCfg[0]
 	}
 	trial := NewTrialProxyAPI(e.store, "test-session-secret-at-least-32-bytes-long", tc)
+	trial.elevenLabsSignedURLBase = el.URL
+	e.trial = trial
 	foodUp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		e.foodHits.Add(1)
 		w.Header().Set("Content-Type", "application/json")
@@ -220,7 +248,11 @@ func newAttestEnv(t *testing.T, lifetime, daily, global int, trialCfg ...TrialCo
 		DeviceCheck: appattest.DeviceCheckConfig{KeyID: "K", TeamID: "T", PrivateKey: attestKey(t), BaseURL: dcSrv.URL},
 	}}
 	mux := http.NewServeMux()
-	NewAttestAPI(e.store, trial, e.food, cfg).RegisterRoutes(mux)
+	e.attest = NewAttestAPI(e.store, trial, e.food, cfg)
+	e.relay = NewVoiceLLMRelayAPI(e.store, "test-session-secret-at-least-32-bytes-long")
+	e.attest.SetVoiceRelay(e.relay)
+	e.attest.RegisterRoutes(mux)
+	e.relay.RegisterRoutes(mux)
 	e.h = New("localhost", e.store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
 	return e
 }

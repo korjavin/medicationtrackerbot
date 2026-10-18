@@ -336,7 +336,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in-consent',
     activationNote: 'the `voice` consent scope, separate again',
     byo: 'With your own ElevenLabs key the operator does not mint the signed URL or see the audio; the answer relay still applies (voice-llm-relay)',
-    evidence: ['internal/cloudserver/trial_proxy.go:100', 'internal/cloudserver/trial_proxy.go:54'],
+    evidence: ['internal/cloudserver/trial_proxy.go:167', 'internal/cloudserver/trial_proxy.go:54'],
     code: { go: ['internal/cloudserver/trial_proxy.go'], hosts: ['api.elevenlabs.io'] },
     docSignal: null,
     userCopy: {
@@ -358,9 +358,9 @@ export const PRIVACY_MANIFEST = [
     activationNote: 'whenever a voice call runs; trial users already consented via the `voice` scope, with your own AI key there is no extra prompt; with only an ElevenLabs key (no AI key) the call asks for the `voice` consent first, because the trial AI answers',
     byo: 'Your AI key never leaves your browser; the relay cannot be end-to-end encrypted because ElevenLabs is the sender and speaks plaintext',
     evidence: [
-      'internal/cloudserver/voice_llm_relay.go:41',
-      'internal/cloudserver/voice_llm_relay.go:106',
-      'internal/cloudserver/voice_llm_relay.go:471',
+      'internal/cloudserver/voice_llm_relay.go:44',
+      'internal/cloudserver/voice_llm_relay.go:134',
+      'internal/cloudserver/voice_llm_relay.go:556',
       'web/cloud/js/voice-llm-responder.js:34',
     ],
     code: { go: ['internal/cloudserver/voice_llm_relay.go'], hosts: [] },
@@ -757,8 +757,8 @@ export const PRIVACY_MANIFEST = [
     mode: 'local',
     feature: 'iOS local mode — network',
     boundary: 'not-a-carve-out',
-    data: 'Nothing, except the requests to the AI provider and food database you added with your own key (the same calls as the BYO rows above) and, only if you turn on the free trial, the anonymous trial AI and the operator\'s food-database lookups (the local-trial and local-food rows below)',
-    destination: 'Only those providers, plus our server while the free trial is on. The app\'s CSP admits no other host, and every other server feature (sync, push relay, Telegram, MCP, voice, sharing, feedback, RxNav drug lookups, Mi Band import) is off; with the trial off, so is the operator\'s food database',
+    data: 'Nothing, except the requests to the AI provider and food database you added with your own key (the same calls as the BYO rows above) and, only if you turn on the free trial, the anonymous trial AI, the operator\'s food-database lookups and trial voice calls (the local-trial, local-food and local-voice rows below)',
+    destination: 'Only those providers, plus our server (and, for trial voice calls, the operator\'s ElevenLabs account) while the free trial is on. The app\'s CSP admits no other host, and every other server feature (sync, push relay, Telegram, MCP, voice with your own ElevenLabs key, sharing, feedback, RxNav drug lookups, Mi Band import) is off; with the trial off, so are the operator\'s food database and voice calls',
     operatorVisibility: 'none',
     retention: 'Per each provider\'s own policy',
     activation: 'opt-in',
@@ -770,7 +770,7 @@ export const PRIVACY_MANIFEST = [
     userCopy: {
       category: 'leaves',
       title: 'On-device mode: only the providers you add',
-      detail: 'In on-device mode the app talks to no server of ours unless you turn on the free trial (AI and food database). Otherwise the only requests that leave the phone go to the AI provider or food database you added with your own key, and the app blocks every other host. Medication names are not checked against RxNav, and voice, Telegram and sharing need a cloud account.',
+      detail: 'In on-device mode the app talks to no server of ours unless you turn on the free trial (AI, food database and voice calls). Otherwise the only requests that leave the phone go to the AI provider or food database you added with your own key, and the app blocks every other host. Medication names are not checked against RxNav, and voice with your own ElevenLabs key, Telegram and sharing need a cloud account.',
     },
   },
   {
@@ -789,7 +789,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in-consent',
     activationNote: 'you turn on the trial in Settings → AI & integrations and accept the trial consent; off by default, and off means no request to our server at all',
     byo: 'Add your own AI key and requests go phone-direct to your provider, never through the operator',
-    evidence: ['web/cloud/js/local-policy.js:239', 'web/cloud/js/local-trial.js:105', 'ios/App/Attest.swift:67', 'internal/cloudserver/attest.go:353', 'internal/appattest/devicecheck.go:65'],
+    evidence: ['web/cloud/js/local-policy.js:239', 'web/cloud/js/local-trial.js:105', 'ios/App/Attest.swift:67', 'internal/cloudserver/attest.go:501', 'internal/appattest/devicecheck.go:65'],
     code: { go: ['internal/cloudserver/attest.go'], hosts: ['api.devicecheck.apple.com'] },
     docSignal: null,
     userCopy: {
@@ -814,13 +814,38 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in-consent',
     activationNote: 'the same free-trial switch and consent as the trial AI (one enrollment per install, which spends the device\'s one trial grant); off means no request to our server at all',
     byo: 'Set your own food-DB endpoint in Settings → AI & integrations and lookups go phone-direct to it, never through the operator',
-    evidence: ['web/cloud/js/fooddb.js:96', 'web/cloud/js/local-policy.js:204', 'web/cloud/js/local-trial.js:215', 'internal/cloudserver/attest.go:504', 'internal/cloudserver/food_proxy.go:93'],
+    evidence: ['web/cloud/js/fooddb.js:96', 'web/cloud/js/local-policy.js:204', 'web/cloud/js/local-trial.js:215', 'internal/cloudserver/attest.go:652', 'internal/cloudserver/food_proxy.go:93'],
     code: { go: ['internal/cloudserver/attest.go', 'internal/cloudserver/food_proxy.go'], hosts: [] },
     docSignal: null,
     userCopy: {
       category: 'visible',
       title: 'On-device mode: the free trial food database, if you turn it on',
       detail: 'If you turn on the free trial in on-device mode, food searches and scanned barcodes go through our server to the operator\'s food database. Our server keeps no search terms or barcodes — only how many lookups this anonymous install made today, up to a daily limit. With the trial off, nothing is looked up and the app says so. Add your own food database to keep lookups off our server.',
+    },
+  },
+  {
+    // bd med-o7zq.22 (server half; the client bead med-o7zq.23 adds its
+    // evidence lines and final copy). Same App Attest enrollment and the same
+    // trial switch as local-trial; POST /api/attest/voice/start mints the
+    // operator's ElevenLabs signed URL, the relay answers the turns itself.
+    id: 'local-voice',
+    mode: 'local',
+    feature: 'iOS local mode — anonymous trial voice calls (operator\'s ElevenLabs and AI keys, no account)',
+    boundary: 'carve-out',
+    data: 'Your voice audio, the transcript and the agent conversation — including tool results the agent reads from the records on this phone (blood pressure, weight, workouts, medications, food, sleep, notes) — and the agent\'s answers; plus the App Attest proof that identifies the app install',
+    destination: 'Audio and transcript: the operator\'s ElevenLabs account, phone-direct after our server mints the call. The agent\'s answers: ElevenLabs sends each turn to the operator\'s server, which has the operator\'s trial AI account write the answer',
+    operatorVisibility: 'transient',
+    retention: 'Not stored by the app (turns transit memory only and are never logged); ElevenLabs retention applies to the audio and transcript. Stored per install: voice call seconds (lifetime and per day) next to the local-trial install record',
+    activation: 'opt-in-consent',
+    activationNote: 'the same single free-trial switch and consent as the trial AI and food database; off means no request to our server or to ElevenLabs at all',
+    byo: 'None in this mode: voice with your own ElevenLabs key needs a cloud account',
+    evidence: ['internal/cloudserver/attest.go:239', 'internal/cloudserver/voice_llm_relay.go:771', 'internal/cloudserver/trial_proxy.go:167'],
+    code: { go: ['internal/cloudserver/attest.go', 'internal/cloudserver/voice_llm_relay.go', 'internal/cloudserver/trial_proxy.go'], hosts: ['api.elevenlabs.io'] },
+    docSignal: null,
+    userCopy: {
+      category: 'visible',
+      title: 'On-device mode: free trial voice calls, if you turn them on',
+      detail: 'If you turn on the free trial in on-device mode, voice calls run on the operator\'s ElevenLabs account: your voice audio and its transcript go to it, and the agent\'s answers are written by the operator\'s AI provider account through our server, which receives each turn and the health data the agent reads from this phone to answer you. Our server keeps no call content — only how many seconds of calls this anonymous install has used, up to a small free allowance.',
     },
   },
   {

@@ -272,7 +272,11 @@ func main() {
 	if !cfg.attest.Configured {
 		slog.Info("anonymous trial disabled", "reason", "APP_ATTEST_APP_ID/DEVICECHECK_* unset")
 	}
-	cloudserver.NewAttestAPI(store, trialProxyAPI, foodProxyAPI, cfg.attest).RegisterRoutes(apiMux)
+	attestAPI := cloudserver.NewAttestAPI(store, trialProxyAPI, foodProxyAPI, cfg.attest)
+	// Anonymous voice (med-o7zq.22): calls live in the voice relay, whose
+	// anonymous turns the trial proxy answers.
+	attestAPI.SetVoiceRelay(voiceLLMRelayAPI)
+	attestAPI.RegisterRoutes(apiMux)
 	foodProxyAPI.RegisterRoutes(apiMux)
 	rxnavProxyAPI.RegisterRoutes(apiMux)
 	cloudserver.NewEgressAPI(store, cfg.sessionSecret).RegisterRoutes(apiMux)

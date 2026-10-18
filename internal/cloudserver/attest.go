@@ -39,6 +39,8 @@ const (
 	attestChatPath      = "/api/attest/trial/openai/chat/completions"
 	attestFoodSearch    = "/api/attest/food/search"
 	attestFoodBarcode   = "/api/attest/food/barcode/"
+	attestVoiceStart    = "/api/attest/voice/start"
+	attestVoiceDevice   = "/api/attest/voice/device"
 
 	attestChallengeTTL = 5 * time.Minute
 	// attestMaxChallenges bounds the in-memory challenge map (the challenge
@@ -61,6 +63,18 @@ const (
 	// they have their own per-install daily cap and never touch the AI budget.
 	attestDefaultFoodDaily = 1000
 
+	// Anonymous voice (bd med-o7zq.22), in seconds of call time. OFF by
+	// default: lifetime 0 until the operator sets
+	// TRIAL_ANON_VOICE_LIFETIME_SECONDS (the others only apply then).
+	attestDefaultVoiceLifetime    = 0
+	attestDefaultVoiceDaily       = 300
+	attestDefaultVoiceGlobalDaily = 7200
+	// The per-call grant ceiling; keep the shared trial agent's
+	// max_duration_seconds (TRIAL_VOICE_MAX_CALL_SECONDS) at or below it.
+	attestDefaultVoiceCallMax = 120
+	// attestVoiceFloorSeconds: no call is granted below it.
+	attestVoiceFloorSeconds = 30
+
 	// localAppOrigin is the iOS local-mode page origin (ios/App/LocalOrigin.swift
 	// scheme "wgapp", host "local"); it calls these routes cross-origin.
 	localAppOrigin = "wgapp://local"
@@ -69,11 +83,31 @@ const (
 // AttestConfig is the anonymous trial's env config. Configured is false unless
 // all four Apple vars are set; the routes then answer 503 trial_not_configured.
 type AttestConfig struct {
-	AppAttest  appattest.Config
-	Lifetime   int // TRIAL_ANON_LIFETIME_REQUESTS
-	Daily      int // TRIAL_ANON_DAILY; 0 disables the per-install daily cap
-	FoodDaily  int // TRIAL_ANON_FOOD_DAILY; 0 disables the per-install daily food cap
-	Configured bool
+	AppAttest appattest.Config
+	Lifetime  int // TRIAL_ANON_LIFETIME_REQUESTS
+	Daily     int // TRIAL_ANON_DAILY; 0 disables the per-install daily cap
+	FoodDaily int // TRIAL_ANON_FOOD_DAILY; 0 disables the per-install daily food cap
+	// Voice budgets in seconds (TRIAL_ANON_VOICE_*): VoiceLifetime 0 disables
+	// anonymous voice; VoiceDaily / VoiceGlobal 0 disable that cap.
+	VoiceLifetime int
+	VoiceDaily    int
+	VoiceGlobal   int
+	VoiceCallMax  int
+	Configured    bool
+}
+
+// envSeconds reads a non-negative integer env var; the error names the
+// variable only.
+func envSeconds(name string, def int, rule string) (int, error) {
+	v := os.Getenv(name)
+	if v == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return def, errors.New(name + " must be " + rule)
+	}
+	return n, nil
 }
 
 // AttestConfigFromEnv loads APP_ATTEST_* / DEVICECHECK_* / TRIAL_ANON_*. With
@@ -101,6 +135,19 @@ func AttestConfigFromEnv() (AttestConfig, error) {
 			return cfg, errors.New("TRIAL_ANON_FOOD_DAILY must be a non-negative integer (0 disables the per-install daily food cap)")
 		}
 		cfg.FoodDaily = n
+	}
+	var err error
+	if cfg.VoiceLifetime, err = envSeconds("TRIAL_ANON_VOICE_LIFETIME_SECONDS", attestDefaultVoiceLifetime, "a non-negative integer (unset or 0 = anonymous voice off)"); err != nil {
+		return cfg, err
+	}
+	if cfg.VoiceDaily, err = envSeconds("TRIAL_ANON_VOICE_DAILY_SECONDS", attestDefaultVoiceDaily, "a non-negative integer (0 disables the per-install daily voice cap)"); err != nil {
+		return cfg, err
+	}
+	if cfg.VoiceGlobal, err = envSeconds("TRIAL_ANON_VOICE_GLOBAL_DAILY_SECONDS", attestDefaultVoiceGlobalDaily, "a non-negative integer (0 disables the global daily voice cap)"); err != nil {
+		return cfg, err
+	}
+	if cfg.VoiceCallMax, err = envSeconds("TRIAL_ANON_VOICE_CALL_MAX_SECONDS", attestDefaultVoiceCallMax, "an integer of at least 30"); err != nil || cfg.VoiceCallMax < attestVoiceFloorSeconds {
+		return cfg, errors.New("TRIAL_ANON_VOICE_CALL_MAX_SECONDS must be an integer of at least 30")
 	}
 	env := os.Getenv("APP_ATTEST_ENV")
 	switch env {
@@ -136,6 +183,7 @@ type AttestAPI struct {
 	store     *cloudstore.Repo
 	trial     *TrialProxyAPI
 	food      *FoodProxyAPI
+	voice     *VoiceLLMRelayAPI // nil until SetVoiceRelay: the voice routes 503
 	ipLimiter *rateLimiter
 	mu        sync.Mutex
 	// grantMu serializes DeviceCheck query → insert → bit write: DeviceCheck
@@ -157,7 +205,107 @@ func NewAttestAPI(store *cloudstore.Repo, trial *TrialProxyAPI, food *FoodProxyA
 	a.mux.HandleFunc("POST "+attestChatPath, a.chat)
 	a.mux.HandleFunc("GET "+attestFoodSearch, a.foodLookup)
 	a.mux.HandleFunc("GET "+attestFoodBarcode+"{code}", a.foodLookup)
+	a.mux.HandleFunc("POST "+attestVoiceStart, a.voiceStart)
+	a.mux.HandleFunc("GET "+attestVoiceDevice, a.voiceDevice)
 	return a
+}
+
+// SetVoiceRelay enables anonymous voice (bd med-o7zq.22): calls are minted
+// in relay and their turns answered by this API's trial proxy.
+func (a *AttestAPI) SetVoiceRelay(relay *VoiceLLMRelayAPI) {
+	a.voice = relay
+	relay.trial = a.trial
+}
+
+// voiceConfigured is the anonymous voice master switch (App Attest is already
+// checked by ServeHTTP): a relay, a voice budget, the operator's ElevenLabs
+// agent AND trial AI (the relay answers the turns with it).
+func (a *AttestAPI) voiceConfigured(w http.ResponseWriter) bool {
+	if a.voice != nil && a.cfg.VoiceLifetime > 0 && a.trial.cfg.TrialVoiceConfigured() && a.trial.cfg.TrialAIConfigured() {
+		return true
+	}
+	writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "voice_not_configured"})
+	return false
+}
+
+// voiceStart is the attested POST /api/attest/voice/start (empty body; the
+// assertion binds the URI like the food routes). One transaction CHARGES the
+// whole grant; then the signed URL is minted with the operator key (never
+// logged) and the call is pre-registered in the relay. The charge is refunded
+// only when no signed URL reached the client (mint failure, lost relay race):
+// once it has, the ElevenLabs session can run to the agent's own
+// max_duration_seconds whatever the device leg does, so an early hang-up or a
+// dropped leg is never refunded.
+func (a *AttestAPI) voiceStart(w http.ResponseWriter, r *http.Request) {
+	if !a.voiceConfigured(w) {
+		return
+	}
+	q, ok := a.assertHeaders(w, r)
+	if !ok || !a.verifyAssertion(w, r, q, nil) {
+		return
+	}
+	keyID := q.keyID
+	if a.voice.HasAnonCall(keyID) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "call_in_progress"})
+		return
+	}
+	// The ElevenLabs mint is a short upstream call: lift the unauth deadline.
+	extendTrialDeadlines(w)
+	now := time.Now().UTC()
+	grant, scope, remaining, dayRemaining, err := a.store.ReserveAttestVoice(r.Context(), keyID, q.counter, now,
+		a.cfg.VoiceLifetime, a.cfg.VoiceDaily, a.cfg.VoiceGlobal, a.cfg.VoiceCallMax, attestVoiceFloorSeconds)
+	if errors.Is(err, cloudstore.ErrAttestCounter) {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "assertion_invalid"})
+		return
+	}
+	if err != nil {
+		slog.Error("attest voice budget check failed", "error", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_budget_unavailable"})
+		return
+	}
+	w.Header().Set("X-Trial-Voice-Remaining", strconv.Itoa(remaining))
+	if scope != "" {
+		slog.Warn("attest voice budget exhausted", "install", keyID, "scope", scope)
+		resp := map[string]any{"error": "trial_budget_exhausted", "scope": scope}
+		if scope != cloudstore.AttestScopeVoice {
+			resp["resets_at"] = now.Truncate(24 * time.Hour).Add(24 * time.Hour).Format(time.RFC3339)
+		}
+		writeJSON(w, http.StatusTooManyRequests, resp)
+		return
+	}
+	refund := func(seconds int) {
+		if err := a.store.RefundAttestVoice(context.Background(), keyID, now, seconds); err != nil {
+			slog.Error("attest voice refund failed", "install", keyID, "seconds", seconds, "error", err)
+		}
+	}
+	signedURL, err := a.trial.mintTrialSignedURL(r.Context(), "install", keyID, true)
+	if err != nil {
+		refund(grant)
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
+		return
+	}
+	call, ok := a.voice.MintAnonCall(keyID, time.Duration(grant)*time.Second)
+	if !ok {
+		// A concurrent start for this install won the relay slot; this signed
+		// URL never left the server, so no ElevenLabs session can use it.
+		refund(grant)
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "call_in_progress"})
+		return
+	}
+	slog.Info("attest voice start", "install", keyID, "granted_seconds", grant)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"signed_url": signedURL, "call": call, "granted_seconds": grant,
+		"remaining_seconds": remaining, "daily_remaining_seconds": dayRemaining,
+	})
+}
+
+// voiceDevice is the anonymous call's device leg (WebSocket upgrade, token in
+// ?call=); the relay checks the token.
+func (a *AttestAPI) voiceDevice(w http.ResponseWriter, r *http.Request) {
+	if !a.voiceConfigured(w) {
+		return
+	}
+	a.voice.AnonDeviceSocket(w, r)
 }
 
 // RegisterRoutes mounts the whole prefix (CORS preflight included). The router
