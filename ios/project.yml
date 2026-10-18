@@ -25,6 +25,10 @@ targets:
       # <bundle>/LocalSpike and served by ios/App/LocalSpike.swift.
       - path: LocalSpike
         type: folder
+      # Local mode (bd med-o7zq.4): the web app, copied from web/ by
+      # bundle-web.sh before `xcodegen generate`, served by App/LocalApp.swift.
+      - path: LocalApp
+        type: folder
     settings:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -67,10 +71,11 @@ targets:
         NSHealthUpdateUsageDescription: Med Tracker only reads from Apple Health and never writes to it.
         # Service Workers only run on app-bound domains (max 10); the wildcard
         # entry covers every account subdomain (spike med-w6gx.2, check 3).
-        # "wgapp:" (trailing colon) is an app-bound SCHEME for the local-mode
-        # diagnostic (ios/App/LocalSpike.swift, bd med-o7zq.10): without it
-        # WebKit refuses the load under the app-bound limit and, with the
-        # limit off, drops the page's script message handlers.
+        # "wgapp:" (trailing colon) is an app-bound SCHEME: local mode's
+        # wgapp://local/ (App/LocalOrigin.swift, bd med-o7zq.4) and its
+        # diagnostic (App/LocalSpike.swift, bd med-o7zq.10). Without it WebKit
+        # refuses the load under the app-bound limit and, with the limit off,
+        # drops the page's script message handlers.
         WKAppBoundDomains:
           - "$(WG_BASE_DOMAIN)"
           - "*.$(WG_BASE_DOMAIN)"

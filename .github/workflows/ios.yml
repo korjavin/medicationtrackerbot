@@ -1,18 +1,26 @@
 name: iOS
 
 # macOS minutes cost ~10x Linux and mobile CI was removed once for spend
-# (med-2ue): this runs ONLY on ios/ or this file, or by hand. See docs/ios.md.
+# (med-2ue): this runs ONLY on ios/, this file, or the web app the build
+# bundles for local mode (bd med-o7zq.4), or by hand. See docs/ios.md.
+# deploy.yml ignores ios/** and this file, so iOS-only merges never redeploy.
 on:
   push:
     branches: [master]
     paths:
       - 'ios/**'
       - '.github/workflows/ios.yml'
+      - 'web/static/**'
+      - 'web/cloud/**'
+      - 'web/domain/**'
   pull_request:
     branches: [master]
     paths:
       - 'ios/**'
       - '.github/workflows/ios.yml'
+      - 'web/static/**'
+      - 'web/cloud/**'
+      - 'web/domain/**'
   # Any branch: spike branches ship to TestFlight from here.
   workflow_dispatch:
 
@@ -38,6 +46,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Before xcodegen: project.yml carries ios/LocalApp as a folder.
+      - name: Bundle the web app for local mode
+        run: ios/bundle-web.sh "${{ github.run_number }}"
+
       - name: Generate Xcode project
         working-directory: ios
         run: |
@@ -45,10 +57,10 @@ jobs:
           xcodegen generate
           xcodebuild -version
 
-      - name: Check first-run link parsing
+      - name: Check first-run link parsing and local-origin routing
         working-directory: ios
         run: |
-          swiftc App/AccountURL.swift Tests/main.swift -o "$RUNNER_TEMP/accounturl-check"
+          swiftc App/AccountURL.swift App/LocalOrigin.swift Tests/main.swift -o "$RUNNER_TEMP/accounturl-check"
           "$RUNNER_TEMP/accounturl-check"
 
       - name: Build (unsigned, simulator)
@@ -69,6 +81,21 @@ jobs:
           find LocalSpike -name '*.js' ! -name boot.js -print0 | while IFS= read -r -d '' f; do
             node --input-type=module --check < "$f" || { echo "::error file=ios/$f::syntax error"; exit 1; }
           done
+
+      # The local app's entry points are in the built bundle, and its
+      # document loads the local entry, not cloud-boot.js.
+      - name: Check local-mode bundle
+        working-directory: ios/build/sim/Build/Products/Debug-iphonesimulator/MedTracker.app/LocalApp
+        run: |
+          for f in index.html cloud/js/apishim.js domain/bp.js static/js/core/utils.js static/vendor/dexie.min.js; do
+            test -f "$f" || { echo "::error::LocalApp/$f missing from the app bundle"; exit 1; }
+          done
+          grep -q 'src="/js/local-boot.js"' index.html
+          if grep -q 'cloud-boot.js' index.html; then echo "::error::local index.html loads cloud-boot.js"; exit 1; fi
+          test ! -e static/js/tests && test ! -e cloud/js/tests
+          # The entry itself comes from bd med-o7zq.2; until it lands local mode
+          # (a test-build Settings toggle) boots to a broken page. Make this an error once it has landed.
+          test -f cloud/js/local-boot.js || echo "::warning::LocalApp/cloud/js/local-boot.js missing (bd med-o7zq.2 not merged): local mode cannot boot"
 
       # TestFlight only on a manual dispatch, and only once every signing input
       # exists — until the owner adds them, the run stays green on the build above.

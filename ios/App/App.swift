@@ -33,7 +33,7 @@ struct RootView: View {
                     spike.stop()
                     self.spike = nil
                 }
-            } else if shell.host == nil {
+            } else if shell.host == nil && !shell.local {
                 FirstRunView(shell: shell)
             } else {
                 WebView(webView: shell.webView)
@@ -51,6 +51,8 @@ struct RootView: View {
             if now == .active {
                 shell.applySettings()
                 openSpikeIfRequested()
+            } else if now == .background {
+                shell.didEnterBackground()
             }
         }
         .onAppear(perform: openSpikeIfRequested)

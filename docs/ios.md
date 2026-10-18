@@ -6,10 +6,11 @@ GitHub-hosted macOS runner via [`.github/workflows/ios.yml`](../.github/workflow
 
 - `ios/project.yml` is an [XcodeGen](https://github.com/yonaskolb/XcodeGen) spec;
   the runner generates the `.xcodeproj` from it. Nothing generated is committed.
-- **Triggers:** PRs/pushes touching `ios/**` or `ios.yml` run an unsigned
-  simulator build only. `workflow_dispatch` (any branch) also archives, signs
-  and uploads to TestFlight. Web/Go changes never start it (macOS minutes cost
-  ~10x Linux).
+- **Triggers:** PRs/pushes touching `ios/**`, `ios.yml`, or the web app the
+  build bundles for local mode (`web/static/**`, `web/cloud/**`,
+  `web/domain/**`) run an unsigned simulator build only. `workflow_dispatch`
+  (any branch) also archives, signs and uploads to TestFlight. Go-only changes
+  never start it (macOS minutes cost ~10x Linux).
 - `deploy.yml` ignores `ios/**` and `ios.yml`, so an iOS-only merge does not
   redeploy production.
 - Build number = the workflow run number, so every upload is unique.
@@ -587,6 +588,64 @@ a Web Push subscription.
 10. Edit that med's time → only the new time fires (pending notifications are
     replaced).
 
+## Local mode: the bundled app on `wgapp://local/` (bd med-o7zq.4)
+
+Local mode (epic `med-o7zq`) runs the web app with no account: the shell's one
+web view loads the copy bundled in the app from its own origin, so its
+IndexedDB never mixes with an account's. Cloud mode is unchanged.
+
+- **Bundle:** [`ios/bundle-web.sh`](../ios/bundle-web.sh) runs in `ios.yml`
+  before `xcodegen generate` and copies `web/static`, `web/cloud` and
+  `web/domain` from the checked-out revision into `ios/LocalApp/` (git-ignored;
+  test suites and Go files left out). It writes `index.html` from
+  `web/static/index.html` with the `?v=` fingerprints set to `ios-<run number>`
+  and, after `<head>`, only what the local entry needs of `injectCloudBoot`
+  (`internal/cloudserver/router.go`): the `medtracker-build-id` meta and a
+  classic `<script src="/js/local-boot.js">` (the local entry, bd med-o7zq.2;
+  `web/cloud/js/local-boot.js`, which must run before every web/static script,
+  as `cloud-boot.js` does; **after med-o7zq.2** — until it merges the file is
+  absent, CI warns, and local mode boots to a broken page). No food-DB URL, no trial flags, no
+  `update-check.js`, no Service Worker.
+- **Serving:** [`LocalApp.swift`](../ios/App/LocalApp.swift), a
+  `WKURLSchemeHandler` for `wgapp`, routes like an account host: `/` → the
+  local `index.html`, `/static/*` → `web/static`, `/domain/*` → `web/domain`
+  (so `apishim.js`'s `../../domain/` imports resolve), everything else →
+  `web/cloud` (`/js/*`, `/css/*`, `/vendor/*`). Routing, MIME types and the
+  rest are in [`LocalOrigin.swift`](../ios/App/LocalOrigin.swift), checked by
+  `ios/Tests/main.swift` in CI.
+- **CSP:** every response carries cmd/cloud's policy with `connect-src 'self'`
+  plus `https://<host>` for each BYOK provider host the page registered —
+  never a wildcard. The header is sent before the page can read its own
+  settings, so the shell keeps a native mirror: the page (**after
+  med-o7zq.2/.3** — no web code calls it yet, so the list stays empty) calls the bridge op
+  `setEgressHosts` with `{hosts: [...]}` (same rules as `PUT
+  /api/egress-hosts`: at most 8 bare lowercase DNS names; an invalid list is
+  rejected whole and the stored one kept). The reply is `{changed}`; a change
+  applies on the next document load, so the page reloads when it is `true`.
+- **Bridge:** in local mode only the main frame of `wgapp://local` reaches
+  `wgNative` (an account origin does not); `setEgressHosts` exists only there.
+  The scheme is app-bound (`"wgapp:"` in `WKAppBoundDomains`), so the shell
+  keeps `limitsNavigationsToAppBoundDomains` on in both modes.
+- **Backup flag:** WebKit excludes a new origin's data dir from backup for its
+  first 24 h (spike step 7, bd med-o7zq.11). In local mode the shell clears
+  `isExcludedFromBackup` on that dir and its parents up to `WebsiteData` at
+  launch, after each page load and on going to the background.
+- **Mode:** persisted in `UserDefaults` `wgLocalMode`; it wins over a stored
+  account host. Until the first-run button (bd med-o7zq.5) sets it, test
+  builds turn it on in iPhone Settings → Med Tracker → *Local mode*. *Switch
+  account* leaves local mode too; the origin's data is kept either way.
+
+### Device check (TestFlight, after med-o7zq.2)
+
+Cannot pass before the local entry (bd med-o7zq.2) has merged.
+
+1. Fresh install, airplane mode, Settings → Med Tracker → *Local mode* on →
+   open the app: the app renders from the bundle with no network.
+2. Safari Web Inspector (Mac): no failed module or asset loads; the main
+   document's response has the `Content-Security-Policy` header; a `fetch` to
+   a host not registered via `setEgressHosts` is refused by CSP.
+3. Kill and reopen: still local, data still there.
+
 ## Spike: passkey PRF, Service Worker, IndexedDB in WKWebView (bd med-w6gx.2)
 
 The GO/NO-GO gate for the remote-origin design. Its throwaway diagnostic panel
@@ -647,7 +706,7 @@ med-w6gx.2 results above were on `https` origins and do not carry over.
   can decide and shows a PASS/FAIL/MANUAL/INFO table; the native side adds the
   data-directory scan (7, 12) and the bridge's view of the origin (8). No
   private WebKit API, no Service Worker. The shell's normal path never creates
-  any of it; it is throwaway and goes with med-o7zq.4.
+  any of it; it is throwaway, kept until checks 10 and 11 have run (release gate), and shares the `wgapp://local` origin with local mode (separate database).
 - **Why `wgapp:` is in `WKAppBoundDomains`** (bd med-o7zq.10): once Info.plist
   lists app-bound domains, WebKit refuses a non-app-bound load under the limit
   (`WKErrorDomain` 13) and drops script message handlers from any web view
@@ -703,7 +762,7 @@ med-w6gx.2 results above were on `https` origins and do not carry over.
    (`includeOriginInBackupIfNecessary`, `defaultBackupExclusionPeriod`). Build
    73 read `excluded=true` on a fresh install for that reason, not a build-62
    leftover. A backup inside that window drops the origin's data, so local mode
-   must clear it (med-o7zq.4 carries this over). The spike, at diagnostic start
+   must clear it (it does: see *Local mode* above). The spike, at diagnostic start
    and on every native scan, sets `isExcludedFromBackup` back to false on the
    origin dir and on any excluded parent up to `WebsiteData`, reads it back,
    and appends each dir's first sighting per launch (`found=`, `cleared

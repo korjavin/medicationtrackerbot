@@ -5,7 +5,9 @@ import WebKit
 /// The shell (bd med-w6gx.3): one WKWebView on the account origin
 /// https://<sub>.<base>/, exactly like the PWA. The app remembers only the
 /// account host; everything else (vault, Service Worker, IndexedDB) lives in the
-/// persistent default website data store, per origin.
+/// persistent default website data store, per origin. Local mode (bd
+/// med-o7zq.4) puts the same web view on the bundled app at wgapp://local/
+/// instead (LocalApp.swift): no account, data only in that origin.
 @MainActor
 final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMessageHandler, WKScriptMessageHandlerWithReply {
     static let hostKey = "wgAccountHost"
@@ -17,6 +19,8 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     let base = (Bundle.main.object(forInfoDictionaryKey: "WGBaseDomain") as? String ?? "").lowercased()
     let webView: WKWebView
     @Published private(set) var host: String?
+    /// Local mode, from the persisted choice (LocalOrigin.modeKey); wins over a stored host.
+    @Published private(set) var local = UserDefaults.standard.bool(forKey: LocalOrigin.modeKey)
     @Published private(set) var loadError: String?
     /// Behind the status bar and the home indicator: the page's own colours at its top and bottom edge.
     @Published private(set) var top = Color(uiColor: Shell.screen)
@@ -36,6 +40,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         config.userContentController.addUserScript(
             WKUserScript(source: Shell.pageJS, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .page))
         Downloads.shared.install(on: config)
+        config.setURLSchemeHandler(LocalApp.shared, forURLScheme: LocalOrigin.scheme)
         webView = WKWebView(frame: .zero, configuration: config)
         super.init()
         config.userContentController.add(self, contentWorld: .page, name: "wgChrome")
@@ -60,6 +65,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         defaults.removeObject(forKey: "wgSpikeLog")
         host = defaults.string(forKey: Shell.hostKey).flatMap { AccountURL.isAccountHost($0, base: base) ? $0 : nil }
         applySettings()
+        if local { LocalOrigin.includeInBackup() } // a dir an earlier launch created
         retry()
         Notifications.shared.onOpen = { [weak self] section in self?.openSection(section) }
     }
@@ -67,12 +73,17 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     /// A notification tap (bd med-w6gx.5): switch the open app to the section,
     /// or load the account on it (the deep-link router reads ?tab=).
     func openSection(_ section: String) {
-        guard let host else { return }
+        guard let home else { return }
         if showingAccount, !webView.isLoading {
             webView.evaluateJavaScript("window.switchTab && window.switchTab('\(section)')")
-        } else if let url = URL(string: "https://\(host)/?tab=\(section)") {
+        } else if let url = URL(string: "?tab=\(section)", relativeTo: home)?.absoluteURL {
             load(url)
         }
+    }
+
+    /// The page this mode opens on: the bundled app, or the account's root.
+    private var home: URL? {
+        local ? LocalOrigin.home : host.flatMap { URL(string: "https://\($0)/") }
     }
 
     /// First-run submit. Returns the message to show, or nil once the account is opening.
@@ -89,25 +100,46 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     }
 
     func retry() {
-        if let url = lastURL ?? host.flatMap({ URL(string: "https://\($0)/") }) { load(url) }
+        if let url = lastURL ?? home { load(url) }
     }
 
-    /// Back to first-run. Website data is kept: it is per origin, so returning to
-    /// this account later still finds its offline data and warm unlock.
+    /// Back to first-run, leaving local mode too. Website data is kept: it is
+    /// per origin, so returning to this account (or to local mode) later still
+    /// finds its data.
     func forget() {
         UserDefaults.standard.removeObject(forKey: Shell.hostKey)
+        UserDefaults.standard.set(false, forKey: LocalOrigin.modeKey)
         host = nil
-        lastURL = nil
-        committedHost = nil
-        loadError = nil
-        webView.loadHTMLString("", baseURL: nil) // stop the old account's page
+        local = false
+        reopen()
     }
 
     /// Runs at launch and whenever the app becomes active.
     func applySettings() {
-        guard UserDefaults.standard.bool(forKey: Shell.forgetKey) else { return }
-        UserDefaults.standard.set(false, forKey: Shell.forgetKey)
-        forget()
+        let defaults = UserDefaults.standard
+        if defaults.bool(forKey: Shell.forgetKey) {
+            defaults.set(false, forKey: Shell.forgetKey)
+            forget()
+        }
+        let wantLocal = defaults.bool(forKey: LocalOrigin.modeKey)
+        if wantLocal != local {
+            local = wantLocal
+            reopen()
+        }
+    }
+
+    /// The app went to the background, where backups run: no new origin dir
+    /// of the local app may stay excluded from them.
+    func didEnterBackground() {
+        if local { LocalOrigin.includeInBackup() }
+    }
+
+    /// Mode or account changed: open the new home, or stop the old page.
+    private func reopen() {
+        lastURL = nil
+        committedHost = nil
+        loadError = nil
+        if let home { load(home) } else { webView.loadHTMLString("", baseURL: nil) }
     }
 
     private func load(_ url: URL) {
@@ -116,15 +148,17 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         webView.load(URLRequest(url: url))
     }
 
+    /// An account page: never in local mode, whatever host is still stored.
     private func isInside(_ h: String?) -> Bool {
-        guard let h = h?.lowercased() else { return false }
+        guard !local, let h = h?.lowercased() else { return false }
         return h == host || h == base
     }
 
     // MARK: WKNavigationDelegate
 
-    /// Only the account host and the base domain load in the app; any other
-    /// link opens in Safari (or the app owning its scheme: mailto:, tel:, …).
+    /// Only the account host and the base domain load in the app — in local
+    /// mode only wgapp://local, and any other wgapp URL is cancelled; any
+    /// other link opens in Safari (or the app owning its scheme: mailto:, tel:, …).
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
         guard let url = action.request.url else { return .cancel }
         switch url.scheme?.lowercased() {
@@ -138,6 +172,13 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             }
             // Subframes stay with WebKit: the app-bound limit already blocks foreign ones.
             if action.targetFrame?.isMainFrame == false { return .allow }
+        case LocalOrigin.scheme:
+            guard local, url.host?.lowercased() == LocalOrigin.host else { return .cancel }
+            if action.targetFrame == nil {
+                webView.load(action.request)
+                return .cancel
+            }
+            return Downloads.policy(for: action)
         case "blob", "data", "about":
             return Downloads.policy(for: action)
         default:
@@ -171,6 +212,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         loadError = nil
+        if local { LocalOrigin.includeInBackup() }
     }
 
     /// Offline with a Service Worker in control never gets here: the worker
@@ -187,7 +229,10 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         committedHost = webView.url?.host?.lowercased()
     }
 
-    private var showingAccount: Bool { host != nil && committedHost == host }
+    private var showingAccount: Bool {
+        guard let committedHost else { return false }
+        return committedHost == (local ? LocalOrigin.host : host)
+    }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         if webView.url == nil { retry() } else { webView.reload() } // reload keeps the current URL and fragment
@@ -209,9 +254,13 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     func userContentController(_ userContentController: WKUserContentController,
                                didReceive message: WKScriptMessage,
                                replyHandler: @escaping (Any?, String?) -> Void) {
-        // Only the account's own top-level page reaches native capabilities.
+        // Only the account's own top-level page — in local mode only the
+        // bundled app's — reaches native capabilities.
         let origin = message.frameInfo.securityOrigin
-        guard message.frameInfo.isMainFrame, origin.protocol == "https", origin.host.lowercased() == host else {
+        let mine = local
+            ? origin.protocol == LocalOrigin.scheme && origin.host.lowercased() == LocalOrigin.host
+            : origin.protocol == "https" && origin.host.lowercased() == host
+        guard message.frameInfo.isMainFrame, mine else {
             replyHandler(nil, "forbidden")
             return
         }
@@ -219,6 +268,9 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         switch body["op"] as? String {
         case "ping":
             replyHandler("pong", nil)
+        case "setEgressHosts" where local:
+            let (reply, error) = LocalOrigin.setEgressHosts(body["args"] as? [String: Any] ?? [:])
+            replyHandler(reply, error)
         case let op? where op.hasPrefix("notifications."):
             Notifications.shared.handle(op, args: body["args"] as? [String: Any] ?? [:], reply: replyHandler)
         case let op? where op.hasPrefix("health."):

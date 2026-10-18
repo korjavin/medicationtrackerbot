@@ -3,3 +3,5 @@
 App/Info.plist
 App/MedTracker.entitlements
 build/
+# Copied from web/ by bundle-web.sh on the CI runner.
+LocalApp/
