@@ -762,7 +762,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in',
     activationNote: 'you add a provider key in Settings → AI & integrations; its host name is handed to the app shell for the CSP, never to a server',
     byo: 'The only kind there is in this mode',
-    evidence: ['web/cloud/js/local-policy.js:55', 'ios/App/LocalOrigin.swift:38'],
+    evidence: ['web/cloud/js/local-policy.js:71', 'ios/App/LocalOrigin.swift:38'],
     code: { go: [], hosts: [] },
     docSignal: null,
     userCopy: {

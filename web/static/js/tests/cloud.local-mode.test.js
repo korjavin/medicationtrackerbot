@@ -308,6 +308,13 @@ describe('local-only mode egress + side-effect policy (med-o7zq.3)', () => {
         expect((await window.apiCall('/api/medications'))[0].rxcui || '').toBe('');
     });
 
+    it('coming back to the front refills the device schedule (the lapse notice\'s promise)', async () => {
+        schedule.mockClear();
+        env.document.dispatchEvent(new env.window.Event('visibilitychange'));
+        await vi.waitFor(() => expect(schedule).toHaveBeenCalledTimes(1));
+        expect(offDevice()).toEqual([]);
+    });
+
     it('the lock-screen text pref reschedules: Detailed names the medication', async () => {
         const { window } = env;
         await window.apiCall('/api/medications', 'POST', {
