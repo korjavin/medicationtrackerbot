@@ -35,6 +35,10 @@ struct RootView: View {
                 }
             } else if shell.host == nil && !shell.local {
                 FirstRunView(shell: shell)
+            } else if shell.concealed {
+                // The web view leaves the window: its page goes hidden, so no
+                // visibility-triggered work (Health import, reminders) runs.
+                LockView(shell: shell)
             } else {
                 WebView(webView: shell.webView)
                     .ignoresSafeArea(.keyboard) // WKWebView handles the keyboard itself
@@ -47,15 +51,25 @@ struct RootView: View {
                     }
             }
         }
+        .overlay {
+            // Before the app-switcher snapshot (taken after inactive): no data in it.
+            if phase != .active && shell.local && shell.lock.on {
+                Color(uiColor: Shell.screen).ignoresSafeArea()
+            }
+        }
         .onChange(of: phase) { _, now in
             if now == .active {
                 shell.applySettings()
+                shell.didBecomeActive()
                 openSpikeIfRequested()
             } else if now == .background {
                 shell.didEnterBackground()
             }
         }
-        .onAppear(perform: openSpikeIfRequested)
+        .onAppear {
+            if phase == .active { shell.didBecomeActive() } // the lock prompts once either way
+            openSpikeIfRequested()
+        }
     }
 
     private func openSpikeIfRequested() {
@@ -166,6 +180,8 @@ struct FirstRunView: View {
 struct LocalIntroView: View {
     @ObservedObject var shell: Shell
     let back: () -> Void
+    @State private var lock = false
+    @State private var error: String?
 
     var body: some View {
         ScrollView {
@@ -180,7 +196,17 @@ struct LocalIntroView: View {
                     .foregroundStyle(.orange)
                 Label("AI and food search work only with providers you add with your own key. Voice, Telegram and the shared food database need an account.",
                       systemImage: "key")
-                Button("Start") { shell.openLocal() }
+                // Optional lock (bd med-o7zq.8); also iPhone Settings → Med Tracker → Lock.
+                if DeviceAuth.available {
+                    Toggle("Lock with \(DeviceAuth.method)", isOn: $lock)
+                    Text("Asks for \(DeviceAuth.method) or your passcode each time you open Med Tracker. It hides the app; it does not encrypt your records, and reminders on the Lock Screen still show.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                if let error {
+                    Text(error).font(.callout).foregroundStyle(.orange)
+                }
+                Button("Start") { start() }
                     .buttonStyle(.borderedProminent)
                     .padding(.top, 8)
                 Button("Back", action: back)
@@ -188,6 +214,45 @@ struct LocalIntroView: View {
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .background(Color(uiColor: Shell.screen).ignoresSafeArea())
+        .preferredColorScheme(.dark)
+        .onAppear { lock = shell.lock.on } // still on from an earlier stay in local mode
+    }
+
+    private func start() {
+        guard lock else {
+            shell.openLocal()
+            return
+        }
+        Task {
+            if await shell.enableLock() {
+                error = nil
+                shell.openLocal()
+            } else {
+                error = "The lock was not turned on. Try again, or switch it off to continue without it."
+            }
+        }
+    }
+}
+
+/// Local mode's lock screen (bd med-o7zq.8). A cancelled prompt lands here and
+/// stays: only the button asks again.
+struct LockView: View {
+    @ObservedObject var shell: Shell
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "lock.fill").font(.largeTitle)
+            Text("Med Tracker is locked").font(.title2.bold())
+            Text("Unlock with \(DeviceAuth.method) to see your records.")
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Button("Unlock") { shell.unlock() }
+                .buttonStyle(.borderedProminent)
+                .disabled(shell.lock.state == .unlocking)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(uiColor: Shell.screen).ignoresSafeArea())
         .preferredColorScheme(.dark)
     }

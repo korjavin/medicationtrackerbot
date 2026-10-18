@@ -57,10 +57,10 @@ jobs:
           xcodegen generate
           xcodebuild -version
 
-      - name: Check first-run link parsing and local-origin routing
+      - name: Check first-run link parsing, local-origin routing and the local lock
         working-directory: ios
         run: |
-          swiftc App/AccountURL.swift App/LocalOrigin.swift Tests/main.swift -o "$RUNNER_TEMP/accounturl-check"
+          swiftc App/AccountURL.swift App/LocalOrigin.swift App/LocalLock.swift Tests/main.swift -o "$RUNNER_TEMP/accounturl-check"
           "$RUNNER_TEMP/accounturl-check"
 
       - name: Build (unsigned, simulator)

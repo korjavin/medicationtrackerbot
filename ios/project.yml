@@ -69,6 +69,8 @@ targets:
         # Read-only, but App Store upload validation rejects a HealthKit app
         # without the update string too (seen on the med-w6gx.6 dispatch).
         NSHealthUpdateUsageDescription: Med Tracker only reads from Apple Health and never writes to it.
+        # Local mode's optional lock (bd med-o7zq.8, App/LocalLock.swift).
+        NSFaceIDUsageDescription: Unlock Med Tracker when you turn on its lock.
         # Service Workers only run on app-bound domains (max 10); the wildcard
         # entry covers every account subdomain (spike med-w6gx.2, check 3).
         # "wgapp:" (trailing colon) is an app-bound SCHEME: local mode's
