@@ -93,6 +93,9 @@ jobs:
           grep -q 'src="/js/local-boot.js"' index.html
           if grep -q 'cloud-boot.js' index.html; then echo "::error::local index.html loads cloud-boot.js"; exit 1; fi
           test ! -e static/js/tests && test ! -e cloud/js/tests
+          # The entry itself comes from bd med-o7zq.2; until it lands local mode
+          # (a test-build Settings toggle) boots to a broken page. Make this an error once it has landed.
+          test -f cloud/js/local-boot.js || echo "::warning::LocalApp/cloud/js/local-boot.js missing (bd med-o7zq.2 not merged): local mode cannot boot"
 
       # TestFlight only on a manual dispatch, and only once every signing input
       # exists — until the owner adds them, the run stays green on the build above.
