@@ -661,8 +661,9 @@ IndexedDB never mixes with an account's. Cloud mode is unchanged.
   Settings opens on an *On this device only* row in local mode.
 - **Lock** (bd med-o7zq.8, [`LocalLock.swift`](../ios/App/LocalLock.swift)):
   optional, off by default; opted into on the local intro (*Lock with Face
-  ID*, shown when the phone has a passcode; *Start* turns it on only after a
-  successful check) or iPhone Settings → Med Tracker → *Lock*. Local mode
+  ID*, shown when the phone has a passcode and starting on when a lock is
+  still on from an earlier stay; *Start* turns it on, or that one off, only
+  after a successful check) or iPhone Settings → Med Tracker → *Lock*. Local mode
   only — an account has its passkey unlock. A UI lock, not encryption, and
   Lock Screen reminders still show (their text is Settings → Reminder text);
   both are said where it is turned on. `LocalAuthentication`
@@ -676,8 +677,8 @@ IndexedDB never mixes with an account's. Cloud mode is unchanged.
   waits for the unlock), every load is deferred (launch, Try again, mode
   switch, content-process restart; a mode switch blanks the old page first),
   a notification tap is kept and opened after the unlock, any share or print
-  sheet is dismissed (its temp file deleted), and every bridge op answers
-  `locked`. Whenever the lock is on and the app is not active, a plain cover
+  sheet is dismissed (its temp file deleted) and a download or print that
+  finishes meanwhile is dropped, and every bridge op answers `locked`. Whenever the lock is on and the app is not active, a plain cover
   is drawn over the window, so the app-switcher snapshot shows no data.
   Turning it off in Settings applies only after the next successful unlock
   in local mode; turning it on applies at once. With the passcode removed

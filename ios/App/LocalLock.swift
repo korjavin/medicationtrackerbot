@@ -11,7 +11,7 @@ import LocalAuthentication
 /// ios/Tests/main.swift.
 struct LocalLock {
     enum State { case locked, unlocking, unlocked }
-    /// iPhone Settings → Med Tracker → Face ID lock: what the user asks for.
+    /// iPhone Settings → Med Tracker → Lock: what the user asks for.
     static let settingKey = "wgLocalLock"
     /// Whether the lock is in force. Turning it off takes an unlock, so the
     /// setting alone never lowers this.
@@ -73,10 +73,10 @@ struct LocalLock {
         }
     }
 
-    /// Onboarding's opt-in, after a successful check — which also unlocks a
-    /// lock still on from an earlier stay in local mode.
-    mutating func enable() {
-        on = true
+    /// Onboarding's choice, after a successful check — which also unlocks a
+    /// lock still on from an earlier stay in local mode, so it may turn it off.
+    mutating func confirmed(on: Bool) {
+        self.on = on
         state = .unlocked
         attempt += 1
     }

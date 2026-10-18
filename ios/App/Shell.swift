@@ -60,6 +60,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         config.setURLSchemeHandler(LocalApp.shared, forURLScheme: LocalOrigin.scheme)
         webView = WKWebView(frame: .zero, configuration: config)
         super.init()
+        Downloads.shared.held = { [weak self] in self?.concealed ?? false }
         config.userContentController.add(self, contentWorld: .page, name: "wgChrome")
         // Its presence is what makes web/static/js/native/index.js pick the 'ios' platform.
         config.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: "wgNative")
@@ -204,11 +205,14 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         }
     }
 
-    /// Local onboarding's opt-in: on only after the phone confirmed its owner.
-    func enableLock() async -> Bool {
-        guard await DeviceAuth.check(reason: "Turn on the lock for Med Tracker") == .ok else { return false }
-        UserDefaults.standard.set(true, forKey: LocalLock.settingKey)
-        lock.enable()
+    /// Local onboarding's choice: turning the lock on, or off while it is
+    /// still on, applies only after the phone confirmed its owner.
+    func setLock(_ on: Bool) async -> Bool {
+        guard on || lock.on else { return true }
+        let reason = on ? "Turn on the lock for Med Tracker" : "Turn off the lock for Med Tracker"
+        guard await DeviceAuth.check(reason: reason) == .ok else { return false }
+        UserDefaults.standard.set(on, forKey: LocalLock.settingKey)
+        lock.confirmed(on: on)
         return true
     }
 

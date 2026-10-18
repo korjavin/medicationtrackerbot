@@ -220,16 +220,14 @@ struct LocalIntroView: View {
     }
 
     private func start() {
-        guard lock else {
-            shell.openLocal()
-            return
-        }
         Task {
-            if await shell.enableLock() {
+            if await shell.setLock(lock) {
                 error = nil
                 shell.openLocal()
             } else {
-                error = "The lock was not turned on. Try again, or switch it off to continue without it."
+                error = lock
+                    ? "The lock was not turned on. Try again, or switch it off to continue without it."
+                    : "The lock is still on. Try again, or switch it on to continue with it."
             }
         }
     }
@@ -322,6 +320,8 @@ final class Downloads: NSObject, WKDownloadDelegate, WKScriptMessageHandler, WKN
     static let shared = Downloads()
     private var destinations: [WKDownload: URL] = [:]
     private var printView: WKWebView? // retained until its document finished loading and printed
+    /// Shell's lock holds (bd med-o7zq.8): nothing the hidden page finishes may show over it.
+    var held: @MainActor () -> Bool = { false }
 
     /// All downloads live here; swept at launch for any file a killed app left behind.
     private let root = FileManager.default.temporaryDirectory.appendingPathComponent("wg-downloads", isDirectory: true)
@@ -363,6 +363,10 @@ final class Downloads: NSObject, WKDownloadDelegate, WKScriptMessageHandler, WKN
 
     func downloadDidFinish(_ download: WKDownload) {
         guard let url = destinations.removeValue(forKey: download) else { return }
+        if held() {
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+            return
+        }
         let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
         sheet.completionWithItemsHandler = { _, _, _, _ in
             // The file can hold a recovery code or a full vault export: delete it now,
@@ -408,7 +412,10 @@ final class Downloads: NSObject, WKDownloadDelegate, WKScriptMessageHandler, WKN
     }
 
     private func present(_ formatter: UIPrintFormatter?) {
-        guard let formatter else { return }
+        guard let formatter, !held() else {
+            printView = nil
+            return
+        }
         let controller = UIPrintInteractionController.shared
         controller.printFormatter = formatter
         controller.present(animated: true) { [weak self] _, _, _ in
