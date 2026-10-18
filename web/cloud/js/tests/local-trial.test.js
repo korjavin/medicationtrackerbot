@@ -71,6 +71,21 @@ describe('createAttestClient', () => {
     expect(calls[2].init.headers['X-Attest-Challenge']).toBe('Q0gy');
   });
 
+  it('get() signs SHA256(pathAndQuery ‖ "\\n") and sends no body (the attest food routes)', async () => {
+    const attest = fakeAttest();
+    const FOOD = '/api/attest/food/search?q=yogurt';
+    const { fetchImpl, calls } = fakeServer({
+      '/api/attest/challenge': [() => reply(200, { challenge: 'Q0gx' })],
+      '/api/attest/food/search': [() => reply(200, { products: [] })],
+    });
+    const res = await createAttestClient({ attest, base: BASE, fetchImpl }).get(FOOD);
+    expect(res.status).toBe(200);
+    expect(attest.assert.mock.calls[0][1]).toBe(createHash('sha256').update(`${FOOD}\n`).digest('base64'));
+    expect(calls[1].init.method).toBe('GET');
+    expect(calls[1].init.body).toBeUndefined();
+    expect(calls[1].init.headers['X-Attest-Assertion']).toBe('QVNT');
+  });
+
   it('retries once with a fresh challenge on challenge_invalid', async () => {
     const attest = fakeAttest();
     const { fetchImpl, calls } = fakeServer({

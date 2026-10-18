@@ -78,7 +78,12 @@ func (a *FoodProxyAPI) Barcode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	barcode := strings.TrimPrefix(r.URL.Path, "/api/food/barcode/")
+	a.barcode(w, r, strings.TrimPrefix(r.URL.Path, "/api/food/barcode/"))
+}
+
+// barcode is shared with the anonymous attest route (attest.go), whose path
+// prefix differs.
+func (a *FoodProxyAPI) barcode(w http.ResponseWriter, r *http.Request, barcode string) {
 	if barcode == "" {
 		http.Error(w, "missing barcode", http.StatusBadRequest)
 		return

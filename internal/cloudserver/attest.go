@@ -37,6 +37,8 @@ const (
 	attestChallengePath = "/api/attest/challenge"
 	attestEnrollPath    = "/api/attest/enroll"
 	attestChatPath      = "/api/attest/trial/openai/chat/completions"
+	attestFoodSearch    = "/api/attest/food/search"
+	attestFoodBarcode   = "/api/attest/food/barcode/"
 
 	attestChallengeTTL = 5 * time.Minute
 	// attestMaxChallenges bounds the in-memory challenge map (the challenge
@@ -55,6 +57,9 @@ const (
 
 	attestDefaultLifetime = 200
 	attestDefaultDaily    = 50
+	// Food lookups hit the operator's own FastFoodDB (no per-request bill), so
+	// they have their own per-install daily cap and never touch the AI budget.
+	attestDefaultFoodDaily = 1000
 
 	// localAppOrigin is the iOS local-mode page origin (ios/App/LocalOrigin.swift
 	// scheme "wgapp", host "local"); it calls these routes cross-origin.
@@ -67,6 +72,7 @@ type AttestConfig struct {
 	AppAttest  appattest.Config
 	Lifetime   int // TRIAL_ANON_LIFETIME_REQUESTS
 	Daily      int // TRIAL_ANON_DAILY; 0 disables the per-install daily cap
+	FoodDaily  int // TRIAL_ANON_FOOD_DAILY; 0 disables the per-install daily food cap
 	Configured bool
 }
 
@@ -74,7 +80,7 @@ type AttestConfig struct {
 // none of the Apple vars set it returns an unconfigured config and no error.
 // Errors name the env var only, never its value.
 func AttestConfigFromEnv() (AttestConfig, error) {
-	cfg := AttestConfig{Lifetime: attestDefaultLifetime, Daily: attestDefaultDaily}
+	cfg := AttestConfig{Lifetime: attestDefaultLifetime, Daily: attestDefaultDaily, FoodDaily: attestDefaultFoodDaily}
 	if v := os.Getenv("TRIAL_ANON_LIFETIME_REQUESTS"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n <= 0 {
@@ -88,6 +94,13 @@ func AttestConfigFromEnv() (AttestConfig, error) {
 			return cfg, errors.New("TRIAL_ANON_DAILY must be a non-negative integer (0 disables the per-install daily cap)")
 		}
 		cfg.Daily = n
+	}
+	if v := os.Getenv("TRIAL_ANON_FOOD_DAILY"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return cfg, errors.New("TRIAL_ANON_FOOD_DAILY must be a non-negative integer (0 disables the per-install daily food cap)")
+		}
+		cfg.FoodDaily = n
 	}
 	env := os.Getenv("APP_ATTEST_ENV")
 	switch env {
@@ -122,6 +135,7 @@ type AttestAPI struct {
 	cfg       AttestConfig
 	store     *cloudstore.Repo
 	trial     *TrialProxyAPI
+	food      *FoodProxyAPI
 	ipLimiter *rateLimiter
 	mu        sync.Mutex
 	// grantMu serializes DeviceCheck query → insert → bit write: DeviceCheck
@@ -134,12 +148,15 @@ type AttestAPI struct {
 }
 
 // NewAttestAPI builds the routes; trial supplies the provider config, the
-// per-subject burst limiter and the shared upstream proxy.
-func NewAttestAPI(store *cloudstore.Repo, trial *TrialProxyAPI, cfg AttestConfig) *AttestAPI {
-	a := &AttestAPI{cfg: cfg, store: store, trial: trial, ipLimiter: newRateLimiter(attestIPRatePerMin, time.Minute), challenges: map[string]time.Time{}, mux: http.NewServeMux()}
+// per-subject burst limiter and the shared upstream proxy; food supplies the
+// operator FastFoodDB proxy (bd med-o7zq.19).
+func NewAttestAPI(store *cloudstore.Repo, trial *TrialProxyAPI, food *FoodProxyAPI, cfg AttestConfig) *AttestAPI {
+	a := &AttestAPI{cfg: cfg, store: store, trial: trial, food: food, ipLimiter: newRateLimiter(attestIPRatePerMin, time.Minute), challenges: map[string]time.Time{}, mux: http.NewServeMux()}
 	a.mux.HandleFunc("POST "+attestChallengePath, a.challenge)
 	a.mux.HandleFunc("POST "+attestEnrollPath, a.enroll)
 	a.mux.HandleFunc("POST "+attestChatPath, a.chat)
+	a.mux.HandleFunc("GET "+attestFoodSearch, a.foodLookup)
+	a.mux.HandleFunc("GET "+attestFoodBarcode+"{code}", a.foodLookup)
 	return a
 }
 
@@ -154,7 +171,7 @@ func (a *AttestAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.Set("Access-Control-Expose-Headers", "X-Attest-Challenge, X-Trial-Remaining, Retry-After")
 		h.Add("Vary", "Origin")
 		if r.Method == http.MethodOptions {
-			h.Set("Access-Control-Allow-Methods", "POST")
+			h.Set("Access-Control-Allow-Methods", "GET, POST")
 			h.Set("Access-Control-Allow-Headers", "Content-Type, X-Attest-Key-Id, X-Attest-Challenge, X-Attest-Assertion")
 			h.Set("Access-Control-Max-Age", "600")
 			w.WriteHeader(http.StatusNoContent)
@@ -162,7 +179,9 @@ func (a *AttestAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	if !a.cfg.Configured || !a.trial.cfg.TrialAIConfigured() {
+	// Challenge, enroll and food need only App Attest; chat also checks the AI
+	// trial config. One enrollment serves both.
+	if !a.cfg.Configured {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_not_configured"})
 		return
 	}
@@ -332,39 +351,12 @@ func (a *AttestAPI) enrolled(w http.ResponseWriter, used int) {
 // live challenge, an enrolled key) runs under a short read deadline BEFORE the
 // up-to-12-MiB body is read under the long upstream deadline.
 func (a *AttestAPI) chat(w http.ResponseWriter, r *http.Request) {
-	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(attestUnauthReadTimeout))
-	a.setNextChallenge(w)
-	keyID := r.Header.Get("X-Attest-Key-Id")
-	challenge := a.consumeChallenge(r.Header.Get("X-Attest-Challenge"))
-	if challenge == nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "challenge_invalid"})
+	if !a.trial.cfg.TrialAIConfigured() {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_not_configured"})
 		return
 	}
-	assertion, err := base64.StdEncoding.DecodeString(r.Header.Get("X-Attest-Assertion"))
-	if err != nil || len(assertion) == 0 || len(assertion) > maxAttestAssertionBytes || keyID == "" {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "assertion_invalid"})
-		return
-	}
-	ctx := r.Context()
-	in, err := a.store.AttestInstall(ctx, keyID)
-	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			slog.Error("attest chat lookup failed", "error", err)
-			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_budget_unavailable"})
-			return
-		}
-		// Distinct from assertion_invalid: the client's recovery is to enroll
-		// a new key (a lost enroll response needs none — just call this route).
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "install_unknown"})
-		return
-	}
-	// The stored key is only ever one VerifyAttestation returned (enroll), so
-	// VerifyAssertion's trust in its curve holds.
-	parsed, err := x509.ParsePKIXPublicKey(in.PublicKey)
-	pub, isEC := parsed.(*ecdsa.PublicKey)
-	if err != nil || !isEC {
-		slog.Error("attest chat stored key unreadable")
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_budget_unavailable"})
+	q, ok := a.assertHeaders(w, r)
+	if !ok {
 		return
 	}
 	extendTrialDeadlines(w)
@@ -372,14 +364,10 @@ func (a *AttestAPI) chat(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	reqHash := sha256.Sum256(append([]byte(r.URL.RequestURI()+"\n"), body...))
-	clientDataHash := sha256.Sum256(append(append([]byte{}, challenge...), reqHash[:]...))
-	counter, err := appattest.VerifyAssertion(assertion, pub, clientDataHash[:], a.cfg.AppAttest, in.Counter)
-	if err != nil {
-		slog.Info("attest chat assertion rejected", "reason", err)
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "assertion_invalid"})
+	if !a.verifyAssertion(w, r, q, body) {
 		return
 	}
+	keyID, counter, ctx := q.keyID, q.counter, r.Context()
 	payload, ok := decodeTrialPayload(w, body)
 	if !ok {
 		return
@@ -431,6 +419,122 @@ func (a *AttestAPI) chat(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Trial-Remaining", strconv.Itoa(remaining+1))
 	}}
 	a.trial.proxyChat(rw, r, "install", keyID, payload, r.URL.Query().Get("vision") == "1", false, maxTokens)
+}
+
+// attested is one assertion-gated request: what the headers carried and,
+// after verifyAssertion, the new counter.
+type attested struct {
+	keyID     string
+	challenge []byte
+	assertion []byte
+	install   *cloudstore.AttestInstall
+	pub       *ecdsa.PublicKey
+	counter   uint32
+}
+
+// assertHeaders runs everything checkable from the headers alone (a live
+// challenge, a well-formed assertion, an enrolled key) under the short
+// unauthenticated read deadline, and puts the next challenge on the response.
+// false means the error response has been written.
+func (a *AttestAPI) assertHeaders(w http.ResponseWriter, r *http.Request) (*attested, bool) {
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(attestUnauthReadTimeout))
+	a.setNextChallenge(w)
+	q := &attested{keyID: r.Header.Get("X-Attest-Key-Id")}
+	q.challenge = a.consumeChallenge(r.Header.Get("X-Attest-Challenge"))
+	if q.challenge == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "challenge_invalid"})
+		return nil, false
+	}
+	var err error
+	q.assertion, err = base64.StdEncoding.DecodeString(r.Header.Get("X-Attest-Assertion"))
+	if err != nil || len(q.assertion) == 0 || len(q.assertion) > maxAttestAssertionBytes || q.keyID == "" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "assertion_invalid"})
+		return nil, false
+	}
+	q.install, err = a.store.AttestInstall(r.Context(), q.keyID)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			slog.Error("attest install lookup failed", "error", err)
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_budget_unavailable"})
+			return nil, false
+		}
+		// Distinct from assertion_invalid: the client's recovery is to enroll
+		// a new key (a lost enroll response needs none — just call this route).
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "install_unknown"})
+		return nil, false
+	}
+	// The stored key is only ever one VerifyAttestation returned (enroll), so
+	// VerifyAssertion's trust in its curve holds.
+	parsed, err := x509.ParsePKIXPublicKey(q.install.PublicKey)
+	pub, isEC := parsed.(*ecdsa.PublicKey)
+	if err != nil || !isEC {
+		slog.Error("attest stored key unreadable")
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_budget_unavailable"})
+		return nil, false
+	}
+	q.pub = pub
+	return q, true
+}
+
+// verifyAssertion checks the assertion over clientDataHash =
+// SHA256(challenge || SHA256(pathAndQuery || "\n" || body)) — this
+// single-use challenge, this exact request URI (query included) and this
+// exact body (empty for a GET) — and records the new counter on q. The
+// counter is committed only by the store's compare-and-set afterwards.
+func (a *AttestAPI) verifyAssertion(w http.ResponseWriter, r *http.Request, q *attested, body []byte) bool {
+	reqHash := sha256.Sum256(append([]byte(r.URL.RequestURI()+"\n"), body...))
+	clientDataHash := sha256.Sum256(append(append([]byte{}, q.challenge...), reqHash[:]...))
+	counter, err := appattest.VerifyAssertion(q.assertion, q.pub, clientDataHash[:], a.cfg.AppAttest, q.install.Counter)
+	if err != nil {
+		slog.Info("attest assertion rejected", "reason", err)
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "assertion_invalid"})
+		return false
+	}
+	q.counter = counter
+	return true
+}
+
+// foodLookup is the assertion-gated food lookup on the operator FastFoodDB
+// (bd med-o7zq.19): GET /api/attest/food/search?q= and
+// /api/attest/food/barcode/<code>. The assertion binds the request URI, so
+// the query or barcode is signed. Own per-install daily cap (FoodDaily), no
+// lifetime, global or refund: the AI budget is untouched.
+// PRIVACY: search terms and barcodes transit in memory to the operator's food
+// DB and are NEVER logged (health-adjacent); only a daily count is stored.
+func (a *AttestAPI) foodLookup(w http.ResponseWriter, r *http.Request) {
+	if a.food == nil || a.food.foodDBURL == "" {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "food_not_configured"})
+		return
+	}
+	q, ok := a.assertHeaders(w, r)
+	if !ok || !a.verifyAssertion(w, r, q, nil) {
+		return
+	}
+	now := time.Now().UTC()
+	allowed, err := a.store.ConsumeAttestFoodRequest(r.Context(), q.keyID, q.counter, now, a.cfg.FoodDaily)
+	if errors.Is(err, cloudstore.ErrAttestCounter) {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "assertion_invalid"})
+		return
+	}
+	if err != nil {
+		// Fails CLOSED like the chat budget.
+		slog.Error("attest food budget check failed", "error", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_budget_unavailable"})
+		return
+	}
+	if !allowed {
+		slog.Warn("attest food budget exhausted", "install", q.keyID, "scope", cloudstore.AttestScopeInstallDay)
+		writeJSON(w, http.StatusTooManyRequests, map[string]any{
+			"error": "trial_budget_exhausted", "scope": cloudstore.AttestScopeInstallDay,
+			"resets_at": now.Truncate(24 * time.Hour).Add(24 * time.Hour).Format(time.RFC3339),
+		})
+		return
+	}
+	if code := r.PathValue("code"); code != "" {
+		a.food.barcode(w, r, code)
+		return
+	}
+	a.food.Search(w, r)
 }
 
 // clampMaxTokens returns the anonymous output cap n = min(client values,

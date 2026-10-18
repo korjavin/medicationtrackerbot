@@ -145,13 +145,22 @@ threat model: [cloud-mode.md → Anonymous trial](cloud-mode.md#anonymous-trial-
 3. Set in the stack env: `APP_ATTEST_APP_ID=<TEAMID>.<bundle id>`,
    `DEVICECHECK_KEY_ID`, `DEVICECHECK_TEAM_ID`,
    `DEVICECHECK_PRIVATE_KEY_FILE=/app/data/secrets/devicecheck.p8`; optionally
-   `TRIAL_ANON_LIFETIME_REQUESTS` (200) and `TRIAL_ANON_DAILY` (50). Redeploy.
+   `TRIAL_ANON_LIFETIME_REQUESTS` (200), `TRIAL_ANON_DAILY` (50) and
+   `TRIAL_ANON_FOOD_DAILY` (1000; the food routes also need `CLOUD_FOOD_DB_URL`). Redeploy.
    An unreadable or malformed key refuses to start, naming the variable only.
 4. Verify: `curl -X POST https://<CLOUD_BASE_DOMAIN>/api/attest/challenge`
    returns `{"challenge":…}` (503 `trial_not_configured` = still off).
 
 Rotating the key: upload the new `.p8`, change `DEVICECHECK_KEY_ID`, redeploy.
 Existing installs keep working (DeviceCheck is only called at enrollment).
+
+### Android Digital Asset Links (optional)
+
+Set `ANDROID_PACKAGE` + `ANDROID_CERT_SHA256S` (see docs/environment.md) to
+serve `/.well-known/assetlinks.json` on every host. Google caches Digital Asset
+Links, so passkey/app-link verification can lag after the first deploy or a
+fingerprint change; check the file with
+`curl https://<sub>.<CLOUD_BASE_DOMAIN>/.well-known/assetlinks.json`.
 
 ### Telegram manager bot (optional, C3a)
 

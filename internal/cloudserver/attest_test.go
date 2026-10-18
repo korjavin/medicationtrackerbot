@@ -178,6 +178,8 @@ type attestEnv struct {
 	dc       *attestFakeDC
 	upstream atomic.Int32 // status the fake provider answers (0 = 200)
 	lastBody atomic.Value
+	food     *FoodProxyAPI
+	foodHits atomic.Int32 // requests the fake FastFoodDB received
 }
 
 // newAttestEnv wires the attest API over a fake OpenAI upstream; trialCfg, if
@@ -206,12 +208,19 @@ func newAttestEnv(t *testing.T, lifetime, daily, global int, trialCfg ...TrialCo
 		tc = trialCfg[0]
 	}
 	trial := NewTrialProxyAPI(e.store, "test-session-secret-at-least-32-bytes-long", tc)
-	cfg := AttestConfig{Configured: true, Lifetime: lifetime, Daily: daily, AppAttest: appattest.Config{
+	foodUp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		e.foodHits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"path":` + strconv.Quote(r.URL.Path) + `,"q":` + strconv.Quote(r.URL.Query().Get("q")) + `}`))
+	}))
+	t.Cleanup(foodUp.Close)
+	e.food = NewFoodProxyAPI(e.store, "test-session-secret-at-least-32-bytes-long", foodUp.URL, "")
+	cfg := AttestConfig{Configured: true, Lifetime: lifetime, Daily: daily, FoodDaily: attestDefaultFoodDaily, AppAttest: appattest.Config{
 		AppID: attestTestAppID, Roots: e.ca.pool,
 		DeviceCheck: appattest.DeviceCheckConfig{KeyID: "K", TeamID: "T", PrivateKey: attestKey(t), BaseURL: dcSrv.URL},
 	}}
 	mux := http.NewServeMux()
-	NewAttestAPI(e.store, trial, cfg).RegisterRoutes(mux)
+	NewAttestAPI(e.store, trial, e.food, cfg).RegisterRoutes(mux)
 	e.h = New("localhost", e.store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
 	return e
 }
@@ -413,7 +422,7 @@ func TestAttestRouting(t *testing.T) {
 	// Unconfigured: every /api/attest/* route 503s, nothing else moves.
 	store := setupStore(t)
 	mux := http.NewServeMux()
-	NewAttestAPI(store, NewTrialProxyAPI(store, "s", TrialConfig{RatePerMinute: 1}), AttestConfig{}).RegisterRoutes(mux)
+	NewAttestAPI(store, NewTrialProxyAPI(store, "s", TrialConfig{RatePerMinute: 1}), nil, AttestConfig{}).RegisterRoutes(mux)
 	h := New("localhost", store, testFS(), testAppFS(), testDomainFS(), mux, "", false, false)
 	for _, p := range []string{attestChallengePath, attestEnrollPath, attestChatPath} {
 		req := httptest.NewRequest(http.MethodPost, p, nil)
@@ -561,5 +570,103 @@ func TestAttestChatVisionIsSigned(t *testing.T) {
 	_ = json.Unmarshal([]byte(e.lastBody.Load().(string)), &fwd)
 	if fwd["model"] != "trial-vision-model" {
 		t.Fatalf("vision model not used: %v", fwd["model"])
+	}
+}
+
+// foodGet sends an attested GET to path, signing signedPath with an empty
+// body: clientDataHash = SHA256(challenge || SHA256(signedPath || "\n")).
+func (e *attestEnv) foodGet(host string, k *ecdsa.PrivateKey, counter uint32, chal, path, signedPath string) *httptest.ResponseRecorder {
+	raw, _ := base64.StdEncoding.DecodeString(chal)
+	rh := sha256.Sum256([]byte(signedPath + "\n"))
+	cdh := sha256.Sum256(append(raw, rh[:]...))
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.Host = host
+	req.Header.Set("X-Attest-Key-Id", attestKeyID(e.t, k))
+	req.Header.Set("X-Attest-Challenge", chal)
+	req.Header.Set("X-Attest-Assertion", fakeAssertion(e.t, k, counter, cdh[:]))
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, req)
+	return rec
+}
+
+// Food lookups need App Attest only (not the AI trial), are bound to the
+// exact query/barcode, and never spend the AI budget (bd med-o7zq.19).
+func TestAttestFood(t *testing.T) {
+	e := newAttestEnv(t, 3, 0, 0, TrialConfig{RatePerMinute: 1000}) // AI trial unconfigured
+	k := attestKey(t)
+	rec := e.enroll(k, attestTestAppID, e.challenge(), "tok")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("enroll with AI unconfigured: %d %s", rec.Code, rec.Body.String())
+	}
+	wantErr(t, e.chat(k, 1, rec.Header().Get("X-Attest-Challenge"), attestChatBody, attestChatBody), http.StatusServiceUnavailable, "trial_not_configured")
+
+	bc := attestFoodBarcode + "4006381333931"
+	rec = e.foodGet("localhost", k, 1, e.challenge(), bc, bc)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"/api/v1/food/barcode/4006381333931"`) || rec.Header().Get("X-Attest-Challenge") == "" {
+		t.Fatalf("barcode: %d %s", rec.Code, rec.Body.String())
+	}
+	srch := attestFoodSearch + "?q=apple"
+	rec = e.foodGet("localhost", k, 2, rec.Header().Get("X-Attest-Challenge"), srch, srch)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"q":"apple"`) || rec.Header().Get("X-Trial-Remaining") != "" {
+		t.Fatalf("search: %d %s %v", rec.Code, rec.Body.String(), rec.Header())
+	}
+
+	used := e.foodHits.Load()
+	chal := e.challenge()
+	e.foodGet("localhost", k, 3, chal, bc, bc)
+	wantErr(t, e.foodGet("localhost", k, 4, chal, bc, bc), http.StatusBadRequest, "challenge_invalid") // replayed challenge
+	wantErr(t, e.foodGet("localhost", k, 5, "bogus", bc, bc), http.StatusBadRequest, "challenge_invalid")
+	wantErr(t, e.foodGet("localhost", k, 5, e.challenge(), attestFoodBarcode+"1111", bc), http.StatusUnauthorized, "assertion_invalid")
+	wantErr(t, e.foodGet("localhost", k, 5, e.challenge(), attestFoodSearch+"?q=other", srch), http.StatusUnauthorized, "assertion_invalid")
+	wantErr(t, e.foodGet("localhost", attestKey(t), 1, e.challenge(), bc, bc), http.StatusUnauthorized, "install_unknown")
+	wantErr(t, e.foodGet("localhost", k, 3, e.challenge(), bc, bc), http.StatusUnauthorized, "assertion_invalid") // reused counter
+	if n := e.foodHits.Load(); n != used+1 {
+		t.Fatalf("upstream hits after rejects: %d, want %d", n, used+1)
+	}
+
+	// 1000/day: fill the day to the cap through the store, request 1001 → 429.
+	ctx := context.Background()
+	keyID := attestKeyID(t, k)
+	now := time.Now().UTC()
+	for c := uint32(10); c < 10+attestDefaultFoodDaily-3; c++ {
+		if ok, err := e.store.ConsumeAttestFoodRequest(ctx, keyID, c, now, attestDefaultFoodDaily); !ok || err != nil {
+			t.Fatalf("seed %d: %v %v", c, ok, err)
+		}
+	}
+	rec = e.foodGet("localhost", k, 5000, e.challenge(), bc, bc)
+	wantErr(t, rec, http.StatusTooManyRequests, "trial_budget_exhausted")
+	if !strings.Contains(rec.Body.String(), `"scope":"install-day"`) || !strings.Contains(rec.Body.String(), `"resets_at"`) {
+		t.Fatalf("cap: %s", rec.Body.String())
+	}
+	// The AI budget did not move: lifetime unused, global SUM still empty.
+	if in, err := e.store.AttestInstall(ctx, keyID); err != nil || in.Used != 0 {
+		t.Fatalf("lifetime used by food: %+v %v", in, err)
+	}
+	if ok, scope, err := e.store.ConsumeTrialRequest(ctx, "acct", now, 0, 1); !ok || err != nil {
+		t.Fatalf("global budget spent by food: %v %s %v", ok, scope, err)
+	}
+
+	// Food DB unset: 503 food_not_configured, no upstream call.
+	e.food.foodDBURL = ""
+	hits := e.foodHits.Load()
+	wantErr(t, e.foodGet("localhost", k, 6000, e.challenge(), bc, bc), http.StatusServiceUnavailable, "food_not_configured")
+	if e.foodHits.Load() != hits {
+		t.Fatal("upstream called with the food DB unset")
+	}
+
+	// Account hosts never answer the anonymous food routes.
+	account, _ := setupInvite(t, e.store)
+	if rec := e.foodGet(account.Subdomain+".localhost", k, 7000, e.challenge(), bc, bc); rec.Code != http.StatusNotFound {
+		t.Fatalf("account host: %d", rec.Code)
+	}
+
+	// CORS preflight from the iOS local origin lists GET.
+	req := httptest.NewRequest(http.MethodOptions, bc, nil)
+	req.Host = "localhost"
+	req.Header.Set("Origin", localAppOrigin)
+	rec = httptest.NewRecorder()
+	e.h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent || !strings.Contains(rec.Header().Get("Access-Control-Allow-Methods"), "GET") {
+		t.Fatalf("preflight: %d %v", rec.Code, rec.Header())
 	}
 }

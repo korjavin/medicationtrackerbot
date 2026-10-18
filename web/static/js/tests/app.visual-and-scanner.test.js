@@ -118,7 +118,9 @@ describe('app.js charts, scanner and visualization helpers', () => {
         configurable: true,
         value: { getUserMedia: vi.fn() }
       });
+      // Live scan needs a decoder: BarcodeDetector or the bundled ZXing.
       window.BarcodeDetector = undefined;
+      window.ZXing = undefined;
       await window.startFoodScanner();
       expect(status.innerText).toContain('Live scan is unavailable');
 
@@ -142,6 +144,57 @@ describe('app.js charts, scanner and visualization helpers', () => {
       window.closeFoodScannerModal();
       expect(modal.classList.contains('hidden')).toBe(true);
       expect(stopSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      cleanup();
+    }
+  });
+
+  // bd med-o7zq.17: WebKit (Safari, the iOS shell) has no BarcodeDetector.
+  // The scanner used to bail before opening the camera, leaving an empty
+  // black video; now the live loop decodes frames with ZXing on a canvas.
+  it('live-scans with ZXing when BarcodeDetector is absent and routes the EAN into the Add sheet', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true });
+      window.BarcodeDetector = undefined;
+      const decodeBitmap = vi.fn(() => ({ text: '4006381333931', format: 'EAN_13' }));
+      window.ZXing = {
+        BrowserMultiFormatReader: function () { this.decodeBitmap = decodeBitmap; },
+        HTMLCanvasElementLuminanceSource: function () {},
+        HybridBinarizer: function () {},
+        BinaryBitmap: function () {},
+      };
+      const drawImage = vi.fn();
+      window.HTMLCanvasElement.prototype.getContext = vi.fn(() => ({ drawImage }));
+
+      const video = document.getElementById('food-scanner-video');
+      Object.defineProperty(video, 'readyState', { configurable: true, value: 4 });
+      Object.defineProperty(video, 'videoWidth', { configurable: true, value: 640 });
+      Object.defineProperty(video, 'videoHeight', { configurable: true, value: 480 });
+      video.play = vi.fn().mockResolvedValue(undefined);
+      video.pause = vi.fn();
+      const stream = { getTracks: () => [{ stop: vi.fn() }] };
+      const openSpy = vi.spyOn(window.MediaCapture, 'openCameraStream').mockResolvedValue(stream);
+      const onScan = vi.spyOn(window.FoodLog.addSheet, 'onScan').mockResolvedValue(undefined);
+      const status = document.getElementById('food-scanner-status');
+      // Record every status write: the decode can land (and close the modal)
+      // before startFoodScanner's promise settles.
+      const statuses = [];
+      Object.defineProperty(status, 'innerText', {
+        configurable: true,
+        get() { return statuses[statuses.length - 1] || ''; },
+        set(v) { statuses.push(v); },
+      });
+
+      expect(window.Barcode.supportsLiveScan()).toBe(true);
+      await window.startFoodScanner();
+
+      expect(openSpy).toHaveBeenCalledWith({ facingMode: 'environment' });
+      expect(statuses).toContain('Point camera at barcode or QR.');
+      await vi.waitFor(() => expect(onScan).toHaveBeenCalledWith('4006381333931', '4006381333931'));
+      expect(drawImage).toHaveBeenCalledWith(video, 0, 0, 640, 480);
+      window.stopFoodScanner();
     } finally {
       cleanup();
     }

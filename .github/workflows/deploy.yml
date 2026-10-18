@@ -13,6 +13,9 @@ on:
       # iOS-only merges must not redeploy production (bd med-w6gx.9).
       - 'ios/**'
       - '.github/workflows/ios.yml'
+      # Android-only merges must not redeploy production (bd med-nt9p.3).
+      - 'android/**'
+      - '.github/workflows/android.yml'
   pull_request:
     branches:
       - master

@@ -33,6 +33,7 @@ async function errorCode(res) {
 //   enroll()                         → Response of POST /api/attest/enroll
 //                                      (or of the challenge fetch, when that failed)
 //   post(pathAndQuery, body, signal) → Response of the signed POST
+//   get(pathAndQuery, signal)        → Response of the signed GET (empty body)
 // Every response goes to onResponse(res, pathAndQuery) first.
 //
 // The signed input (attest.go chat): clientDataHash = SHA256(challenge ‖
@@ -47,7 +48,7 @@ export function createAttestClient({
   let challenge = '';
 
   async function send(pathAndQuery, init) {
-    const res = await fetchImpl(origin + pathAndQuery, { ...init, method: 'POST' });
+    const res = await fetchImpl(origin + pathAndQuery, { method: 'POST', ...init });
     const next = res.headers.get('X-Attest-Challenge');
     if (next) challenge = next;
     await onResponse(res, pathAndQuery);
@@ -99,7 +100,7 @@ export function createAttestClient({
     return res;
   }
 
-  async function signedPost(pathAndQuery, body, signal) {
+  async function signedRequest(method, pathAndQuery, body, signal) {
     // A pending enrollment decides which key signs: wait for it.
     if (enrolling) await enrolling.catch(() => {});
     const gen = granted;
@@ -114,26 +115,24 @@ export function createAttestClient({
       if (/no_key/.test(String(e && e.message))) return { needsKey: true, gen };
       throw e;
     }
-    const res = await send(pathAndQuery, {
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Attest-Key-Id': signed.keyId,
-        'X-Attest-Challenge': got.challenge,
-        'X-Attest-Assertion': signed.assertion,
-      },
-      body,
-      signal,
-    });
-    return { res, gen };
+    const headers = {
+      'X-Attest-Key-Id': signed.keyId,
+      'X-Attest-Challenge': got.challenge,
+      'X-Attest-Assertion': signed.assertion,
+    };
+    const init = method === 'GET'
+      ? { method, headers, signal }
+      : { method, headers: { 'Content-Type': 'application/json', ...headers }, body, signal };
+    return { res: await send(pathAndQuery, init), gen };
   }
 
   // One retry, for what a fresh attempt fixes: a challenge that expired
   // (challenge_invalid), or a key the server or the shell does not have
   // (install_unknown / no_key → enroll a key first). Anything else goes back
   // to the caller, whose error mapping reads the body.
-  async function post(pathAndQuery, body, signal) {
+  async function request(method, pathAndQuery, body, signal) {
     for (let attempt = 0; ; attempt += 1) {
-      const out = await signedPost(pathAndQuery, body, signal);
+      const out = await signedRequest(method, pathAndQuery, body, signal);
       let { code } = out.res ? await errorCode(out.res) : { code: '' };
       if (out.needsKey) code = 'install_unknown';
       const retry = attempt === 0 && (code === 'challenge_invalid' || code === 'install_unknown');
@@ -150,7 +149,12 @@ export function createAttestClient({
     }
   }
 
-  return { enroll, post };
+  return {
+    enroll,
+    post: (pathAndQuery, body, signal) => request('POST', pathAndQuery, body, signal),
+    // An empty body: the digest is SHA256(pathAndQuery ‖ "\n") (attest.go food routes).
+    get: (pathAndQuery, signal) => request('GET', pathAndQuery, '', signal),
+  };
 }
 
 function readState(storage) {
