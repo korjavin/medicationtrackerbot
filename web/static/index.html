@@ -429,7 +429,7 @@
                 </div>
                 <!-- Cross-link to Settings → Backup & import (med-xso6.24);
                      health.js bindMiBandImportRow. -->
-                <div class="wg-list wg-health-import">
+                <div class="wg-list wg-health-import wg-cloud-only">
                     <button type="button" class="wg-row" id="health-import-miband">
                         <span class="wg-row__lead"><i class="wg-ico" data-icon="download"></i></span>
                         <span class="wg-row__body"><span class="wg-row__title">Import Mi Band backup</span><span class="wg-row__meta">.nxk · Settings → Backup &amp; import</span></span>
@@ -599,6 +599,21 @@
                         </div>
                     </div>
                     <div id="cloud-reminder-delivery-status" class="wg-settings-webpush-status wg-settings-hidden"></div>
+                </div>
+            </section>
+
+            <!-- Local-only mode (bd med-o7zq.3): settings.js bindLocalReminderText. -->
+            <section class="wg-section wg-local-only">
+                <div class="wg-section__head"><span class="wg-eyebrow">Lock screen</span></div>
+                <div class="wg-card wg-vstack">
+                    <div class="wg-field">
+                        <label for="local-reminder-verbosity" class="wg-label">Reminder text</label>
+                        <select id="local-reminder-verbosity" class="wg-input wg-select">
+                            <option value="generic" selected>Generic (no names)</option>
+                            <option value="detailed">Detailed (includes names)</option>
+                        </select>
+                        <p class="wg-hint">iOS shows reminders on the lock screen and in Notification Center, where anyone holding your phone can read them, even while it is locked. Generic says only that a reminder is due; Detailed adds medication and tracker names.</p>
+                    </div>
                 </div>
             </section>
 
@@ -892,6 +907,7 @@
 
             <section id="settings-integrations" class="wg-settings-integrations">
                 <p class="wg-hint">Stored in your vault. Saved keys show as <span class="wg-mono-display">***</span> and stay unchanged unless you re-enter them. Empty a field to clear a saved value.</p>
+                <p class="wg-hint wg-local-only">On this device, AI and food search reach only the providers you add here. Voice, Telegram, the trial AI and the shared food database are available with a cloud account.</p>
 
                 <section class="wg-section">
                     <div class="wg-section__head"><span class="wg-eyebrow">OpenAI</span></div>
@@ -977,7 +993,7 @@
                     </div>
                 </section>
 
-                <section class="wg-section">
+                <section class="wg-section wg-cloud-only">
                     <div class="wg-section__head"><span class="wg-eyebrow">ElevenLabs voice agent</span></div>
                     <div class="wg-card wg-vstack">
                         <div class="wg-field">
@@ -1091,7 +1107,8 @@
                     </div>
                 </section>
 
-                <section class="wg-section">
+                <!-- Restore in local mode is bd med-o7zq.6. -->
+                <section class="wg-section wg-cloud-only">
                     <div class="wg-section__head"><span class="wg-eyebrow">Restore</span></div>
                     <div class="wg-card wg-vstack">
                         <!-- Import sniffs magic bytes, not the extension; accept only
@@ -1114,7 +1131,7 @@
 
                 <!-- Mi Band .nxk ingestion: the server parses the backup and seals
                      the vitals to the account inbox. Also reachable from Vitals. -->
-                <section id="importexport-nxk-group" class="wg-section">
+                <section id="importexport-nxk-group" class="wg-section wg-cloud-only">
                     <div class="wg-section__head"><span class="wg-eyebrow">Import</span></div>
                     <div class="wg-card wg-vstack">
                         <input type="file" id="importexport-nxk-file" accept=".nxk,.sqlite" hidden>
@@ -1132,7 +1149,7 @@
                 <!-- Reset local sync: rebuilds this device from the server's
                      compacted snapshot; the escape hatch when sync wedges after a
                      failed import. -->
-                <section id="importexport-reset-sync-group" class="wg-section">
+                <section id="importexport-reset-sync-group" class="wg-section wg-cloud-only">
                     <div class="wg-list">
                         <button id="importexport-reset-sync-btn" type="button" class="wg-setting wg-setting--danger">
                             <span class="wg-row__lead wg-row__lead--danger"><i class="wg-ico" data-icon="refresh"></i></span>
@@ -1290,7 +1307,7 @@
             </section>
 
             <div class="wg-list" id="workout-group-tools" hidden>
-                <button type="button" class="wg-row" id="workout-group-share-btn"><span class="wg-row__lead"><i class="wg-ico" data-icon="qr"></i></span><span class="wg-row__body"><span class="wg-row__title">Share plan</span><span class="wg-row__meta">Link or QR</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+                <button type="button" class="wg-row wg-cloud-only" id="workout-group-share-btn"><span class="wg-row__lead"><i class="wg-ico" data-icon="qr"></i></span><span class="wg-row__body"><span class="wg-row__title">Share plan</span><span class="wg-row__meta">Link or QR</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
                 <button type="button" class="wg-row" id="workout-group-print-btn"><span class="wg-row__lead"><i class="wg-ico" data-icon="printer"></i></span><span class="wg-row__body"><span class="wg-row__title">Print plan sheet</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
                 <button type="button" class="wg-row" id="workout-group-scan-btn" hidden><span class="wg-row__lead"><i class="wg-ico" data-icon="camera"></i></span><span class="wg-row__body"><span class="wg-row__title">Scan filled sheet</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
                 <button type="button" class="wg-setting wg-setting--danger" id="workout-group-delete-btn"><span class="wg-setting__body"><span class="wg-setting__title">Delete plan</span></span></button>

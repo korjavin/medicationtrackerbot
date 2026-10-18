@@ -616,12 +616,27 @@ IndexedDB never mixes with an account's. Cloud mode is unchanged.
 - **CSP:** every response carries cmd/cloud's policy with `connect-src 'self'`
   plus `https://<host>` for each BYOK provider host the page registered —
   never a wildcard. The header is sent before the page can read its own
-  settings, so the shell keeps a native mirror: the page (**after
-  med-o7zq.2/.3** — no web code calls it yet, so the list stays empty) calls the bridge op
+  settings, so the shell keeps a native mirror: the page
+  (`web/cloud/js/local-policy.js` `registerLocalEgress`) calls the bridge op
   `setEgressHosts` with `{hosts: [...]}` (same rules as `PUT
   /api/egress-hosts`: at most 8 bare lowercase DNS names; an invalid list is
-  rejected whole and the stored one kept). The reply is `{changed}`; a change
-  applies on the next document load, so the page reloads when it is `true`.
+  rejected whole and the stored one kept) at boot and after each Settings →
+  AI & integrations save. The reply is `{changed}`; a change applies on the
+  next document load, so at boot the page reloads when it is `true`, and after
+  a save a toast asks for the reload. `api.elevenlabs.io` (always allowed in
+  cloud) is left out: voice needs the server's voice relay and is off here.
+- **Egress and side effects** (bd med-o7zq.3, `web/cloud/js/local-policy.js`):
+  nothing leaves the phone except calls to the providers the user added with
+  their own key. Reminders are computed on the device and go to the iOS
+  scheduler only (no relay upload, no Telegram re-fire calls; the lock-screen
+  text is generic unless Settings → Reminders & notifications → Reminder text
+  says Detailed); RxNav lookups are off (`rxnorm: null`); trial AI and the
+  operator food DB are off because the bundle carries no trial / food-DB meta.
+  `local-boot.js` puts `wg-local-vault` on `<html>`, and `styles.css` hides
+  `.wg-cloud-only` (Mi Band import, voice, plan/gym sharing, restore and sync
+  reset) and shows `.wg-local-only`. Cloud-only modules (Telegram, MCP, push,
+  feedback, devices, update check) are never loaded. Privacy rows:
+  `local-*` in `web/cloud/js/privacy-manifest.js`.
 - **Bridge:** in local mode only the main frame of `wgapp://local` reaches
   `wgNative` (an account origin does not); `setEgressHosts` exists only there.
   The scheme is app-bound (`"wgapp:"` in `WKAppBoundDomains`), so the shell

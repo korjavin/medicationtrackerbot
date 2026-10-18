@@ -85,7 +85,7 @@ export const PRIVACY_MANIFEST = [
     operatorVisibility: 'ciphertext',
     retention: 'Stored until you delete the account; the operator holds no key to it, ever',
     activation: 'always-on',
-    activationNote: 'the default and only storage path',
+    activationNote: 'the default and only storage path for a cloud account (iOS local mode keeps the records on the phone instead — see the local-mode rows)',
     byo: 'n/a — the DEK is generated in your browser and never leaves your devices',
     evidence: ['web/cloud/js/crypto.js:1', 'internal/cloudserver/sync.go:1'],
     code: { go: [], hosts: [] },
@@ -128,7 +128,7 @@ export const PRIVACY_MANIFEST = [
     feature: 'Decrypted mirror on your device + warm unlock',
     boundary: 'on-device',
     data: 'Every record you have synced, decrypted, in this browser\'s IndexedDB — plus a cached device key that reopens the vault with no passkey prompt',
-    destination: 'Nowhere. It never leaves the device',
+    destination: 'Nowhere through the app. In the iPhone app the phone\'s own device backup (iCloud or a computer) can include it, under Apple\'s security model',
     operatorVisibility: 'none',
     retention: 'Until you sign out, delete the account, or clear site data on that browser; there is no idle auto-lock',
     activation: 'on-device',
@@ -140,7 +140,7 @@ export const PRIVACY_MANIFEST = [
     userCopy: {
       category: 'device',
       title: 'A readable copy lives on this device',
-      detail: 'So the app works offline, your records are decrypted and kept in this browser\'s storage, and once a device is unlocked it stays unlocked — reopening the app does not ask for your passkey again, and there is no idle auto-lock. That is convenient on your own phone and a real risk on a shared or borrowed computer: anyone who can open this browser profile can read everything. Sign out or delete the account to clear it, and think twice before unlocking on a machine you do not control.',
+      detail: 'So the app works offline, your records are decrypted and kept in this browser\'s storage, and once a device is unlocked it stays unlocked — reopening the app does not ask for your passkey again, and there is no idle auto-lock. That is convenient on your own phone and a real risk on a shared or borrowed computer: anyone who can open this browser profile can read everything. Sign out or delete the account to clear it, and think twice before unlocking on a machine you do not control. In the iPhone app the phone\'s own backup (iCloud or a computer) can include this copy, protected the way Apple protects that backup.',
     },
   },
 
@@ -720,6 +720,76 @@ export const PRIVACY_MANIFEST = [
       category: 'visible',
       title: 'Feedback you send to the Telegram bot',
       detail: 'Sending feedback through the bot is not the same as sending it from inside the app. Telegram delivers it in the clear, the server reads your text and downloads any voice note or screenshot to package it, and it then copies your original message straight into the developer\'s Telegram chat — so both the operator and the developer see the contents. Your name is not attached, but nothing about this path is encrypted before it reaches the server. Use the in-app feedback form if you would rather the operator could not read it.',
+    },
+  },
+
+  // ==========================================================================
+  // iOS local mode (bd med-o7zq.3): the "Only on this device" app — no
+  // account, no server. `mode: 'local'` keeps these rows out of the cloud
+  // app's "What can the operator see?" page (privacy.js); the generated doc
+  // table carries them.
+  // ==========================================================================
+  {
+    id: 'local-records',
+    mode: 'local',
+    feature: 'iOS local mode — your records on the phone',
+    boundary: 'on-device',
+    data: 'Every record you keep, plus your provider keys and settings (BYOK AI, food database), readable in the app\'s on-device storage',
+    destination: 'Nowhere through the app. The phone\'s own device backup (iCloud or a computer) can include it, under Apple\'s security model',
+    operatorVisibility: 'none',
+    retention: 'Until you delete the app or its data; a backup keeps its copy per Apple\'s backup retention',
+    activation: 'on-device',
+    activationNote: 'you chose "Only on this device"; there is no account and no sync',
+    byo: 'n/a',
+    evidence: ['web/cloud/js/local-boot.js:1', 'web/cloud/js/sync.js:1524', 'ios/App/LocalOrigin.swift:122'],
+    code: { go: [], hosts: [] },
+    docSignal: null,
+    userCopy: {
+      category: 'device',
+      title: 'On-device mode: your records live on this phone',
+      detail: 'In on-device mode there is no account and nothing is synced: your records, provider keys and settings are stored readable in the app on this phone, protected by the phone\'s lock. The phone\'s own backup (iCloud or a computer) can include them, protected the way Apple protects that backup — but do not count on it: deleting the app deletes them, so export a backup regularly.',
+    },
+  },
+  {
+    id: 'local-egress',
+    mode: 'local',
+    feature: 'iOS local mode — network',
+    boundary: 'not-a-carve-out',
+    data: 'Nothing, except the requests to the AI provider and food database you added with your own key (the same calls as the BYO rows above)',
+    destination: 'Only those providers. The app\'s CSP admits no other host, and every server feature (sync, push relay, Telegram, MCP, voice, sharing, feedback, trial AI, the operator\'s food database, RxNav drug lookups, Mi Band import) is off',
+    operatorVisibility: 'none',
+    retention: 'Per each provider\'s own policy',
+    activation: 'opt-in',
+    activationNote: 'you add a provider key in Settings → AI & integrations; its host name is handed to the app shell for the CSP, never to a server',
+    byo: 'The only kind there is in this mode',
+    evidence: ['web/cloud/js/local-policy.js:55', 'ios/App/LocalOrigin.swift:38'],
+    code: { go: [], hosts: [] },
+    docSignal: null,
+    userCopy: {
+      category: 'leaves',
+      title: 'On-device mode: only the providers you add',
+      detail: 'In on-device mode the app talks to no server of ours. The only requests that leave the phone go to the AI provider or food database you added with your own key, and the app blocks every other host. Medication names are not checked against RxNav, and voice, Telegram, sharing and the trial AI need a cloud account.',
+    },
+  },
+  {
+    id: 'local-notifications',
+    mode: 'local',
+    feature: 'iOS local mode — reminder text on the lock screen',
+    boundary: 'on-device',
+    data: 'The text of each scheduled reminder: generic by default ("Medication time"), medication and tracker names only if you choose Detailed',
+    destination: 'The phone\'s notification scheduler, then the lock screen and Notification Center, readable by anyone holding the phone',
+    operatorVisibility: 'none',
+    retention: 'Until the reminder fires or is replaced by the next schedule',
+    activation: 'opt-in',
+    activationNote: 'you allow notifications; Settings → Reminders & notifications → Reminder text picks Generic or Detailed',
+    byo: 'n/a',
+    evidence: ['web/cloud/js/reminders.js:189', 'web/cloud/js/reminders.js:237'],
+    code: { go: [], hosts: [] },
+    docSignal: null,
+    userCopy: {
+      category: 'device',
+      title: 'On-device mode: reminders on the lock screen',
+      detail: 'Reminders are scheduled on the phone itself, and iOS shows them on the lock screen and in Notification Center, where anyone holding the phone can read them even while it is locked. The default text only says a reminder is due; choose Detailed in Settings → Reminders & notifications to include medication and tracker names.',
     },
   },
 ];

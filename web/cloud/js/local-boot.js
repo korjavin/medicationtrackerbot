@@ -8,48 +8,64 @@
 //
 // What this entry does NOT do, on purpose: register a Service Worker (the
 // shell serves the assets from the bundle), start any sync, pending queue or
-// relay, or tell a server its egress hosts. Reminder relay effects are no-ops
-// here; local notification scheduling, Health import and the full egress
-// policy are med-o7zq.3/.9, built on the effects/registerEgress seams below.
+// relay, or tell a server anything. What it injects in place of the cloud's
+// server-backed effects — reminders on the device only, no RxNav, BYOK hosts
+// to the shell — is local-policy.js (bd med-o7zq.3); Health import and
+// notification ownership are med-o7zq.9.
 
 // installApiShim's ctx keys the per-account caches (reminder debounce); there is
 // one local "account" per origin and no key material.
 const LOCAL_CTX = { accountId: 'local' };
 
-// The reminder relay is the cloud server's blind push relay; there is none here.
-const LOCAL_EFFECTS = {
-    scheduleReminderRecompute() {},
-    cancelMedRefire() {},
-    cancelReminderRefire() {},
-    async sendTestPush() {
-        throw new Error('Test notifications are not available on this device yet.');
-    },
-};
+// The capability marker the page reads through CSS (styles.css: .wg-cloud-only
+// hides, .wg-local-only shows under :root.wg-local-vault). Set now, before the
+// body parses, so a server-only control never paints for a frame.
+window.document.documentElement.classList.add('wg-local-vault');
 
 window.MedTrackerCloudReady = (async function boot() {
+    // Every classic body script has run by DOMContentLoaded: core/api.js (whose
+    // apiCallDirect is wrapped below) and native/index.js (the shell bridge).
+    const domReady = window.document.readyState === 'loading'
+        ? new Promise((resolve) => {
+            window.document.addEventListener('DOMContentLoaded', resolve, { once: true });
+        })
+        : Promise.resolve();
     try {
-        const [{ installApiShim }, { localRecordsPort }] = await Promise.all([
+        const [{ installApiShim }, { localRecordsPort }, policy] = await Promise.all([
             import('/js/apishim.js'),
             import('/js/sync.js'),
+            import('/js/local-policy.js'),
         ]);
+        // The shell sends the CSP before the page can read its own settings, so
+        // it keeps a mirror of the BYOK hosts and a change applies on the next
+        // document load. At boot a change means this document's CSP is already
+        // stale: reload once (the next load's list matches). After a Settings
+        // save apishim's toast asks the user to reload instead.
+        let firstEgress = true;
+        const registerEgress = async ({ settings }) => {
+            await domReady;
+            const first = firstEgress;
+            firstEgress = false;
+            const res = await policy.registerLocalEgress({ settings, win: window });
+            if (!res) return null;
+            if (first && res.changed) window.location.reload();
+            return res.hosts;
+        };
         const shimCall = installApiShim(LOCAL_CTX, {
             recordsPort: localRecordsPort,
-            effects: LOCAL_EFFECTS,
-            registerEgress: async () => null,
+            effects: policy.LOCAL_EFFECTS,
+            rxnorm: null,
+            registerEgress,
             win: window,
         });
+        window.CloudVault = policy.LOCAL_VAULT;
         // Same bypass routing as cloud-boot.js (see its med-1iv note): the
         // feature modules that call window.apiCallDirect directly must reach the
         // shim too, or their /api/* reads go to the network. cloud-boot.js is
         // safely late because of the async warm unlock; with no unlock here the
         // imports can resolve before the parser reaches core/api.js, whose own
-        // `window.apiCallDirect = ...` would then overwrite this wrapper. Every
-        // classic body script has run by DOMContentLoaded, so wait for it.
-        if (window.document.readyState === 'loading') {
-            await new Promise((resolve) => {
-                window.document.addEventListener('DOMContentLoaded', resolve, { once: true });
-            });
-        }
+        // `window.apiCallDirect = ...` would then overwrite this wrapper.
+        await domReady;
         const realApiCallDirect = window.apiCallDirect;
         window.apiCallDirect = (endpoint, method, body, opts) => (
             endpoint.startsWith('/api/')

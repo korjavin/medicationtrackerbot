@@ -51,8 +51,10 @@ export const PRIVACY_CATEGORIES = [
 // manifest renders here, in manifest order. An egress path with no copy is
 // impossible: the manifest guard requires `userCopy` on every entry (or an
 // explicit `userCopyCoveredBy` pointing at the sibling row that names it).
+// This page is the cloud account's, so the iOS local-mode rows (`mode:
+// 'local'`) stay out of it.
 export const PRIVACY_ITEMS = PRIVACY_MANIFEST
-  .filter((entry) => entry.userCopy)
+  .filter((entry) => entry.userCopy && entry.mode !== 'local')
   .map((entry) => ({
     id: entry.id,
     category: entry.userCopy.category,

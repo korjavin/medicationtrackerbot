@@ -1537,6 +1537,13 @@ export function localRecordsPort(origin = ORIGIN_EXTERNAL) {
   };
 }
 
+// Every record, tombstones included, with no bootstrap: readAllRawRecords for
+// local-only mode, where there is no account to bootstrap (vault export,
+// local-policy.js; bd med-o7zq.3).
+export function readAllLocalRecords() {
+  return readAllRecords();
+}
+
 // --- NK (push notification key) provisioning (Task 6, docs/cloud-crypto.md
 // "The push key (NK)") -------------------------------------------------
 

@@ -7334,6 +7334,19 @@ body:has(.wg-callbar--dock) .wg-toasts {
     display: none !important;
 }
 
+/* Local-only mode (bd med-o7zq.3): web/cloud/js/local-boot.js sets
+   .wg-local-vault on <html>. What needs our server (or is not built for local
+   mode yet) is .wg-cloud-only; local-mode copy is .wg-local-only. The voice
+   call trigger and the gym share button are built in JS, so they are named
+   here instead of carrying the class. settings.js isSettingsSectionHidden
+   mirrors these selectors. */
+:root.wg-local-vault .wg-cloud-only,
+:root.wg-local-vault .wg-callbar__call,
+:root.wg-local-vault .wg-equipment-row__share-location,
+:root:not(.wg-local-vault) .wg-local-only {
+    display: none !important;
+}
+
 /* Settings v2 (med-xso6.23, kit S1/S2). The home is grouped .wg-list rows
    (kit .wg-setting); each row's page body sits in the [hidden]
    .wg-settings-pages store and moves into a pushed WGPage while open. */

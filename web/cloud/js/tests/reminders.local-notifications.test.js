@@ -25,11 +25,11 @@ function fakeRecords(seed = {}) {
 
 // The relay upload (push.js pushSchedule) is mocked: what it sends is pinned by
 // the push.* suites; here it only has to keep being called.
-const seed = (delivery) => ({
+const seed = (delivery, verbosity = 'detailed') => ({
   medication: [
     { recordId: 2, deleted: false, name: 'A', dosage: '10mg', schedule: '{"type":"daily","times":["09:00","21:00"]}' },
   ],
-  reminderdeliverypref: [{ recordId: 'reminderdeliverypref', deleted: false, delivery, verbosity: 'detailed' }],
+  reminderdeliverypref: [{ recordId: 'reminderdeliverypref', deleted: false, delivery, verbosity }],
 });
 
 describe('recomputeAndPush hands the horizon to LocalNotifications in the iOS app', () => {
@@ -112,5 +112,24 @@ describe('localNotificationItems', () => {
 
   it('nothing due: nothing scheduled, no lapse notice', () => {
     expect(localNotificationItems([{ fireAtUnix: NOW_UNIX - 1, kind: 'bp', text: 'x' }], {}, NOW_UNIX)).toEqual([]);
+  });
+
+  // bd med-o7zq.3 — local-only mode: no relay, the device is the only channel,
+  // and the lock-screen body follows the verbosity pref.
+  it('relay: false (local mode): never uploads, ignores Telegram-only, generic bodies carry no names', async () => {
+    const schedule = vi.fn(async () => 0);
+    globalThis.LocalNotifications = { isSupported: () => true, schedule };
+    await recomputeAndPush(ctx, { records: fakeRecords(seed('telegram', 'generic')), timeZone: 'UTC', relay: false });
+    expect(pushSchedule).not.toHaveBeenCalled();
+    const meds = schedule.mock.calls[0][0].filter((i) => i.section === 'meds');
+    expect(meds.length).toBeGreaterThan(0);
+    for (const i of meds) {
+      expect(i.body).toContain('Medication time');
+      expect(i.body).not.toContain('A');
+    }
+
+    await recomputeAndPush(ctx, { records: fakeRecords(seed('telegram', 'detailed')), timeZone: 'UTC', relay: false });
+    expect(schedule.mock.calls[1][0].find((i) => i.section === 'meds').body).toContain('Time to take: A');
+    expect(pushSchedule).not.toHaveBeenCalled();
   });
 });
