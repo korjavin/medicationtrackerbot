@@ -358,6 +358,90 @@ func TestWebAuthnLogin_RejectsBadOrigin(t *testing.T) {
 	}
 }
 
+// Example fingerprints only (bytes 0x00..0x1f, and SHA-256 of ""), never a
+// real signing cert.
+const (
+	testAndroidFP     = "00:01:02:03:04:05:06:07:08:09:0A:0B:0C:0D:0E:0F:10:11:12:13:14:15:16:17:18:19:1A:1B:1C:1D:1E:1F"
+	testAndroidOrigin = "android:apk-key-hash:AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+	otherAndroidFP    = "e3:b0:c4:42:98:fc:1c:14:9a:fb:f4:c8:99:6f:b9:24:27:ae:41:e4:64:9b:93:4c:a4:95:99:1b:78:52:b8:55"
+	otherAndroidOrig  = "android:apk-key-hash:47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU"
+)
+
+func TestSetAndroidAppOrigins_Conversion(t *testing.T) {
+	api := NewWebAuthnAPI(nil, "x")
+	// Blank, non-hex, short (20-byte SHA-1-sized) entries are skipped; case and
+	// whitespace don't matter; one canonical unpadded origin per valid cert.
+	api.SetAndroidAppOrigins(" , zz:11, 01:02:03:04:05:06:07:08:09:0A:0B:0C:0D:0E:0F:10:11:12:13:14, " + testAndroidFP + " ," + otherAndroidFP)
+	want := []string{testAndroidOrigin, otherAndroidOrig}
+	if len(api.appOrigins) != len(want) {
+		t.Fatalf("appOrigins = %q, want %q", api.appOrigins, want)
+	}
+	for i, o := range want {
+		if api.appOrigins[i] != o || len(strings.TrimPrefix(o, "android:apk-key-hash:")) != 43 || strings.Contains(o, "=") {
+			t.Fatalf("appOrigins[%d] = %q, want %q (43 chars, no padding)", i, api.appOrigins[i], o)
+		}
+	}
+	api.SetAndroidAppOrigins("")
+	if len(api.appOrigins) != 0 {
+		t.Fatalf("empty env must clear app origins, got %q", api.appOrigins)
+	}
+}
+
+// androidCeremony runs register then login on a fresh account, both signed
+// with origin (empty = the account's own http://<host>), against a server
+// configured with certSHA256s (empty = setter not called). When registration is rejected, the credential is registered
+// over the account's own origin instead, so the login origin check still runs.
+func androidCeremony(t *testing.T, certSHA256s, origin string) (regCode, loginCode int) {
+	t.Helper()
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+	h, api := newTestWebAuthnHandler(store)
+	if certSHA256s != "" {
+		api.SetAndroidAppOrigins(certSHA256s)
+	}
+	if origin == "" {
+		origin = "http://" + host
+	}
+
+	rp := virtualwebauthn.RelyingParty{Name: "Med Tracker Cloud", ID: host, Origin: origin}
+	authenticator := virtualwebauthn.NewAuthenticator()
+	cred := virtualwebauthn.NewCredential(virtualwebauthn.KeyTypeEC2)
+	opts, challengeCookie := beginRegistration(t, h, host, claimToken)
+	regCode = finishRegistration(t, h, host, challengeCookie, virtualwebauthn.CreateAttestationResponse(rp, authenticator, cred, *opts)).Code
+	if regCode == http.StatusOK {
+		authenticator.AddCredential(cred)
+	} else {
+		authenticator, cred = registerCredential(t, h, host, claimToken)
+	}
+
+	loginOpts, loginChallengeCookie := beginLogin(t, h, host)
+	loginCode = finishLogin(t, h, host, loginChallengeCookie, virtualwebauthn.CreateAssertionResponse(rp, authenticator, cred, *loginOpts)).Code
+	return regCode, loginCode
+}
+
+func TestWebAuthn_AndroidAppOrigin(t *testing.T) {
+	cases := []struct {
+		name, certs, origin string
+		want                int
+	}{
+		{"app origin accepted with setter", testAndroidFP, testAndroidOrigin, http.StatusOK},
+		{"app origin rejected without setter", "", testAndroidOrigin, http.StatusBadRequest},
+		{"other cert hash rejected with setter", testAndroidFP, otherAndroidOrig, http.StatusBadRequest},
+		{"padded variant rejected", testAndroidFP, testAndroidOrigin + "=", http.StatusBadRequest},
+		{"case-changed variant rejected", testAndroidFP, strings.ToLower(testAndroidOrigin), http.StatusBadRequest},
+		{"https origin still accepted with setter", testAndroidFP, "", http.StatusOK},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reg, login := androidCeremony(t, tc.certs, tc.origin)
+			if reg != tc.want || login != tc.want {
+				t.Fatalf("register/finish = %d, login/finish = %d, want %d", reg, login, tc.want)
+			}
+		})
+	}
+}
+
 func TestRequireSession_RejectsMissingOrInvalidCookie(t *testing.T) {
 	store := setupStore(t)
 	protected := RequireSession(store, "test-session-secret-at-least-32-bytes-long", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

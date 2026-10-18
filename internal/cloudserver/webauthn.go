@@ -63,6 +63,40 @@ type WebAuthnAPI struct {
 	// begin+finish, which also carry the signup-claim and device-enrollment
 	// tokens) per client IP. Shared by AccountAPI's re-auth route too.
 	limiter *rateLimiter
+	// appOrigins are extra exact-match WebAuthn origins for the Android shell
+	// ("android:apk-key-hash:<b64url cert sha256>", bd med-nt9p.14). Empty
+	// unless SetAndroidAppOrigins was given a valid fingerprint.
+	appOrigins []string
+}
+
+// SetAndroidAppOrigins accepts the Android WebView shell's WebAuthn origin.
+// In WEB_AUTHENTICATION_SUPPORT_FOR_APP mode the platform signs
+// clientDataJSON.origin as "android:apk-key-hash:" + base64url (no padding) of
+// the signing cert's SHA-256, not the page's https origin. certSHA256s is the
+// same comma-separated colon-hex list as SetAndroidAssetLinks; each valid
+// 32-byte fingerprint becomes one exact-match origin, an invalid one is
+// skipped with a warning. The RP ID (rpIdHash) still binds every ceremony to
+// the account subdomain; only the accepted origin set widens. Call before
+// serving: rpForRequest reads appOrigins unlocked.
+func (a *WebAuthnAPI) SetAndroidAppOrigins(certSHA256s string) {
+	a.appOrigins = nil
+	for _, fp := range splitCertFingerprints(certSHA256s) {
+		if o, ok := androidAppOrigin(fp); ok {
+			a.appOrigins = append(a.appOrigins, o)
+		} else {
+			slog.Warn("cloudserver: skipping invalid ANDROID_CERT_SHA256S fingerprint", "fingerprint", fp)
+		}
+	}
+}
+
+// androidAppOrigin converts one colon-hex SHA-256 cert fingerprint into its
+// canonical "android:apk-key-hash:<b64url>" WebAuthn origin.
+func androidAppOrigin(fp string) (string, bool) {
+	raw, err := hex.DecodeString(strings.ReplaceAll(fp, ":", ""))
+	if err != nil || len(raw) != sha256.Size {
+		return "", false
+	}
+	return "android:apk-key-hash:" + base64.RawURLEncoding.EncodeToString(raw), true
 }
 
 // NewWebAuthnAPI builds the WebAuthn handlers. sessionSecret mints the HMAC
@@ -214,13 +248,15 @@ func toWebAuthnCredentials(stored []cloudstore.Credential) []webauthn.Credential
 
 // rpForRequest builds a per-subdomain webauthn.WebAuthn scoped to r's host —
 // see docs/cloud-crypto.md "RP ID": the per-user instance host gives
-// per-account credential isolation for free.
-func rpForRequest(r *http.Request) (*webauthn.WebAuthn, error) {
+// per-account credential isolation for free. The Android shell's app origins
+// (SetAndroidAppOrigins) are appended as exact-match strings; RPID unchanged.
+func (a *WebAuthnAPI) rpForRequest(r *http.Request) (*webauthn.WebAuthn, error) {
 	rpID := stripPort(r.Host)
+	origins := append([]string{schemeForHost(rpID) + "://" + r.Host}, a.appOrigins...)
 	return webauthn.New(&webauthn.Config{
 		RPID:          rpID,
 		RPDisplayName: "Med Tracker Cloud",
-		RPOrigins:     []string{schemeForHost(rpID) + "://" + r.Host},
+		RPOrigins:     origins,
 	})
 }
 
@@ -326,7 +362,7 @@ func (a *WebAuthnAPI) RegisterBegin(w http.ResponseWriter, r *http.Request) {
 		gate, sessionCredentialID = gateSession, session.CredentialID
 	}
 
-	wa, err := rpForRequest(r)
+	wa, err := a.rpForRequest(r)
 	if err != nil {
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
@@ -408,7 +444,7 @@ func (a *WebAuthnAPI) RegisterFinish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wa, err := rpForRequest(r)
+	wa, err := a.rpForRequest(r)
 	if err != nil {
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
@@ -504,7 +540,7 @@ func (a *WebAuthnAPI) LoginBegin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wa, err := rpForRequest(r)
+	wa, err := a.rpForRequest(r)
 	if err != nil {
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
@@ -556,7 +592,7 @@ func (a *WebAuthnAPI) LoginFinish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wa, err := rpForRequest(r)
+	wa, err := a.rpForRequest(r)
 	if err != nil {
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
@@ -629,7 +665,7 @@ func (a *WebAuthnAPI) BeginReauth(w http.ResponseWriter, r *http.Request, cookie
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
 	}
-	wa, err := rpForRequest(r)
+	wa, err := a.rpForRequest(r)
 	if err != nil {
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
@@ -678,7 +714,7 @@ func (a *WebAuthnAPI) VerifyReauth(w http.ResponseWriter, r *http.Request, cooki
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return false
 	}
-	wa, err := rpForRequest(r)
+	wa, err := a.rpForRequest(r)
 	if err != nil {
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return false
