@@ -18,6 +18,7 @@ import { loadFrontendEnv, createMockResponse } from './helpers/frontend-harness.
 import { localRecordsPort } from '../../../cloud/js/sync.js';
 import { openDb } from '../../../cloud/js/localdb.js';
 import { cancelReminderRecompute } from '../../../cloud/js/reminders.js';
+import { allowConsoleNoise } from './helpers/setup.js';
 
 const LOCAL_BOOT_SRC = readFileSync(
     fileURLToPath(new URL('../../../cloud/js/local-boot.js', import.meta.url)),
@@ -480,7 +481,9 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         const state = document.getElementById('local-notify-state');
         const front = () => document.dispatchEvent(new window.Event('visibilitychange'));
 
-        // The bridge rejects (a UNUserNotificationCenter add threw).
+        // The bridge rejects (a UNUserNotificationCenter add threw); reminders.js
+        // also logs it.
+        allowConsoleNoise();
         schedule.mockRejectedValueOnce(new Error('The operation couldn’t be completed'));
         front();
         await vi.waitFor(() => expect(state.textContent).toContain("Reminders couldn't be scheduled: The operation couldn’t be completed"));
