@@ -3,6 +3,10 @@
 `cmd/cloud` is the production service. Every variable below is read from the
 process environment.
 
+Operator-side bounds the owner configures at the provider (for example a
+duration cap on the ElevenLabs agent) get a docs note next to the variable, or
+nothing — not a startup `WARN` log or runtime banner.
+
 ## Cloud service (`cmd/cloud`)
 
 See [docs/cloud-deployment.md](cloud-deployment.md) for the full self-hosted deployment guide.

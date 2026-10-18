@@ -128,5 +128,10 @@ Kept for rationale and provenance. **Never cite as current behavior.**
    incomplete one.
 4. **Do not add a "how it used to work" comparison** to a normative doc. If the
    history is worth keeping, it belongs in `archive/` or a plan.
-5. **Promoting a proposal?** Move its row from *Proposals* to *Normative* in
+5. **Point at the code, don't restate it.** Name the file, function or test
+   that owns a behaviour instead of paraphrasing it, and strip fossils of past
+   pivots (bot mode, the mobile shell, "now…"/"replaces the older…" phrasing,
+   plan and incident ids in model-facing text). When a doc and the code
+   disagree, fix the doc.
+6. **Promoting a proposal?** Move its row from *Proposals* to *Normative* in
    the same commit that ships the code, and update its own status banner.

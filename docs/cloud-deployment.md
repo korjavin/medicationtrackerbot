@@ -553,6 +553,17 @@ is for.
 structured `slog` lines already carry what you need, and this section says which
 to grep. Do not fill this gap with yaml.
 
+### Prod access: the Portainer API, not SSH
+
+Production operations (logs, admin commands, one-off containers such as a
+restore drill) go through Portainer's docker API proxy: container `exec`,
+`logs`, and `create`/`start`/`DELETE` for one-off containers. SSH to the host is
+a last resort. The Portainer URL and API key live in kv `secrets/portainer`.
+
+Minting an invite on prod = `exec` `./cloud admin invite` in the cloud app
+container; the output is the claim URL plus a terminal QR
+([`cmd/cloud/admin.go`](../cmd/cloud/admin.go), §4 above).
+
 ### Health endpoints
 
 | Endpoint | Means | Use it for |
