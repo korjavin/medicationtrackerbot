@@ -49,7 +49,8 @@ describe('Settings v2 home (kit S1, med-xso6.23)', () => {
     it('renders the everyday and connected groups as .wg-list of .wg-setting rows', () => {
         const { document, cleanup } = loadSettingsView();
         try {
-            const groups = Array.from(document.querySelectorAll('.wg-settings-home > .wg-list'));
+            // The local-mode indicator (med-o7zq.9) is a row with no page.
+            const groups = Array.from(document.querySelectorAll('.wg-settings-home > .wg-list:not(.wg-local-only)'));
             expect(groups.map((g) => Array.from(g.querySelectorAll('[data-settings-open]')).map((r) => r.dataset.settingsOpen)))
                 .toEqual([
                     ['features', 'targets', 'notifications', 'units'],
