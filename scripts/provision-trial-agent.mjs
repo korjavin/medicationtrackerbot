@@ -44,14 +44,20 @@ const agentId = process.env.TRIAL_ELEVENLABS_AGENT_ID || '';
 const apiKey = process.env.TRIAL_ELEVENLABS_API_KEY || '';
 const llmURL = process.env.TRIAL_VOICE_LLM_URL || '';
 // ElevenLabs-side per-call cap on the SHARED trial agent (bd med-o7zq.22): the
-// one duration lever on account trial calls, and a backstop under the
-// server's anonymous minute budget. BYO agents never get it.
-const maxCallRaw = process.env.TRIAL_VOICE_MAX_CALL_SECONDS || '600';
+// hard backstop under the server's anonymous voice budget, which charges each
+// call its whole grant — keep it at or below TRIAL_ANON_VOICE_CALL_MAX_SECONDS
+// (default 120) so one anonymous session never outlasts what it paid for. It
+// also caps account trial calls. BYO agents never get it.
+const maxCallRaw = process.env.TRIAL_VOICE_MAX_CALL_SECONDS || '120';
 const maxDurationSeconds = Number(maxCallRaw);
 if (!/^[1-9][0-9]*$/.test(maxCallRaw)) {
   console.error('TRIAL_VOICE_MAX_CALL_SECONDS must be a positive integer (seconds). Refusing.');
   process.exit(2);
 }
+// An abandoned trial session (app gone, phone in a pocket) ends after this
+// much user silence instead of running to the cap: turn.silence_end_call_timeout
+// (ElevenLabs default -1 = never; https://elevenlabs.io/docs/api-reference/agents/update).
+const SILENCE_END_CALL_SECONDS = 30;
 
 if (!apply) {
   // Dry run is a payload preview, so it deliberately needs no credentials and
@@ -65,7 +71,7 @@ if (!apply) {
   for (const spec of TOOL_SPECS) console.log(JSON.stringify(toolBody(spec)));
   console.log('\n--- agent PATCH body (tool ids resolved at apply time) ---');
   const previewURL = llmURL || '<TRIAL_VOICE_LLM_URL>';
-  console.log(JSON.stringify(buildAgentConfig(TOOL_SPECS.map((s) => `<id:${s.name}>`), { llmURL: previewURL, maxDurationSeconds }), null, 2));
+  console.log(JSON.stringify(buildAgentConfig(TOOL_SPECS.map((s) => `<id:${s.name}>`), { llmURL: previewURL, maxDurationSeconds, silenceEndCallSeconds: SILENCE_END_CALL_SECONDS }), null, 2));
   console.log('\nDry run — nothing was sent. Re-run with --apply to push this.');
   process.exit(0);
 }
@@ -106,7 +112,7 @@ try {
     console.error(`Resolved only ${toolIds.length}/${TOOL_SPECS.length} tool ids — refusing to wire a partial agent.`);
     process.exit(1);
   }
-  await patchAgent(apiKey, agentId, buildAgentConfig(toolIds, { llmURL, maxDurationSeconds }));
+  await patchAgent(apiKey, agentId, buildAgentConfig(toolIds, { llmURL, maxDurationSeconds, silenceEndCallSeconds: SILENCE_END_CALL_SECONDS }));
   console.log(`\nAgent ${agentId} updated: ${toolIds.length} tools, TOOLSET_VERSION ${TOOLSET_VERSION}.`);
 } catch (err) {
   // A 404 here means TRIAL_ELEVENLABS_AGENT_ID does not exist under this key —

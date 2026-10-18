@@ -108,12 +108,16 @@ describe('scripts/provision-trial-agent.mjs', () => {
   });
 
   it('caps the shared trial agent per call; BYO configs stay uncapped (bd med-o7zq.22)', () => {
-    expect(buildAgentConfig([], { llmURL: LLM_URL }).conversation_config).not.toHaveProperty('conversation');
-    expect(buildAgentConfig([], { llmURL: LLM_URL, maxDurationSeconds: 300 }).conversation_config.conversation)
-      .toEqual({ max_duration_seconds: 300 });
+    const byo = buildAgentConfig([], { llmURL: LLM_URL }).conversation_config;
+    expect(byo).not.toHaveProperty('conversation');
+    expect(byo.turn).not.toHaveProperty('silence_end_call_timeout');
+    const capped = buildAgentConfig([], { llmURL: LLM_URL, maxDurationSeconds: 300, silenceEndCallSeconds: 30 }).conversation_config;
+    expect(capped.conversation).toEqual({ max_duration_seconds: 300 });
+    expect(capped.turn.silence_end_call_timeout).toBe(30);
     const dflt = run([], { TRIAL_VOICE_LLM_URL: LLM_URL });
     expect(dflt.status, dflt.stderr).toBe(0);
-    expect(dflt.stdout).toContain('"max_duration_seconds": 600');
+    expect(dflt.stdout).toContain('"max_duration_seconds": 120');
+    expect(dflt.stdout).toContain('"silence_end_call_timeout": 30');
     const set = run([], { TRIAL_VOICE_LLM_URL: LLM_URL, TRIAL_VOICE_MAX_CALL_SECONDS: '120' });
     expect(set.stdout).toContain('"max_duration_seconds": 120');
     const bad = run([], { TRIAL_VOICE_MAX_CALL_SECONDS: '0' });

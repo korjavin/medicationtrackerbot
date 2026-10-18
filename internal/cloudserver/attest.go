@@ -12,7 +12,6 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"math"
 	"net/http"
 	"os"
 	"strconv"
@@ -64,14 +63,16 @@ const (
 	// they have their own per-install daily cap and never touch the AI budget.
 	attestDefaultFoodDaily = 1000
 
-	// Anonymous voice (bd med-o7zq.22), in seconds of call wall time.
-	attestDefaultVoiceLifetime    = 600
+	// Anonymous voice (bd med-o7zq.22), in seconds of call time. OFF by
+	// default: lifetime 0 until the operator sets
+	// TRIAL_ANON_VOICE_LIFETIME_SECONDS (the others only apply then).
+	attestDefaultVoiceLifetime    = 0
 	attestDefaultVoiceDaily       = 300
 	attestDefaultVoiceGlobalDaily = 7200
-	attestDefaultVoiceCallMax     = 600
-	// attestVoiceFloorSeconds is the minimum billing increment: no call is
-	// granted (or settled) below it, which bounds signed-URL farming to
-	// lifetime/30 mints per install.
+	// The per-call grant ceiling; keep the shared trial agent's
+	// max_duration_seconds (TRIAL_VOICE_MAX_CALL_SECONDS) at or below it.
+	attestDefaultVoiceCallMax = 120
+	// attestVoiceFloorSeconds: no call is granted below it.
 	attestVoiceFloorSeconds = 30
 
 	// localAppOrigin is the iOS local-mode page origin (ios/App/LocalOrigin.swift
@@ -136,7 +137,7 @@ func AttestConfigFromEnv() (AttestConfig, error) {
 		cfg.FoodDaily = n
 	}
 	var err error
-	if cfg.VoiceLifetime, err = envSeconds("TRIAL_ANON_VOICE_LIFETIME_SECONDS", attestDefaultVoiceLifetime, "a non-negative integer (0 disables anonymous voice)"); err != nil {
+	if cfg.VoiceLifetime, err = envSeconds("TRIAL_ANON_VOICE_LIFETIME_SECONDS", attestDefaultVoiceLifetime, "a non-negative integer (unset or 0 = anonymous voice off)"); err != nil {
 		return cfg, err
 	}
 	if cfg.VoiceDaily, err = envSeconds("TRIAL_ANON_VOICE_DAILY_SECONDS", attestDefaultVoiceDaily, "a non-negative integer (0 disables the per-install daily voice cap)"); err != nil {
@@ -228,11 +229,13 @@ func (a *AttestAPI) voiceConfigured(w http.ResponseWriter) bool {
 }
 
 // voiceStart is the attested POST /api/attest/voice/start (empty body; the
-// assertion binds the URI like the food routes). One transaction reserves
-// grant seconds up front; then the signed URL is minted with the operator key
-// (never returned beyond the URL itself, never logged) and the call is
-// pre-registered in the relay. Mint failure refunds the whole reservation.
-// The relay settles the call on reap: charged = clamp(used, floor, grant).
+// assertion binds the URI like the food routes). One transaction CHARGES the
+// whole grant; then the signed URL is minted with the operator key (never
+// logged) and the call is pre-registered in the relay. The charge is refunded
+// only when no signed URL reached the client (mint failure, lost relay race):
+// once it has, the ElevenLabs session can run to the agent's own
+// max_duration_seconds whatever the device leg does, so an early hang-up or a
+// dropped leg is never refunded.
 func (a *AttestAPI) voiceStart(w http.ResponseWriter, r *http.Request) {
 	if !a.voiceConfigured(w) {
 		return
@@ -281,13 +284,10 @@ func (a *AttestAPI) voiceStart(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
 		return
 	}
-	call, ok := a.voice.MintAnonCall(keyID, time.Duration(grant)*time.Second, func(used time.Duration) {
-		charged := min(max(int(math.Ceil(used.Seconds())), attestVoiceFloorSeconds), grant)
-		refund(grant - charged)
-		slog.Info("attest voice settled", "install", keyID, "granted_seconds", grant, "charged_seconds", charged)
-	})
+	call, ok := a.voice.MintAnonCall(keyID, time.Duration(grant)*time.Second)
 	if !ok {
-		// A concurrent start for this install won the relay slot.
+		// A concurrent start for this install won the relay slot; this signed
+		// URL never left the server, so no ElevenLabs session can use it.
 		refund(grant)
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "call_in_progress"})
 		return

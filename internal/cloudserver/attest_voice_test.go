@@ -18,10 +18,11 @@ import (
 // App Attest/DeviceCheck, fake OpenAI upstream (SSE when stream:true), fake
 // ElevenLabs get_signed_url.
 
-// voiceOn turns anonymous voice on with the default budgets.
+// voiceOn turns anonymous voice on: a 600 s lifetime (the default is off),
+// no daily cap, the default global and per-call budgets.
 func (e *attestEnv) voiceOn() {
 	e.trial.cfg.ElevenLabsAPIKey, e.trial.cfg.ElevenLabsAgentID = "xi-trial", "agent_trial"
-	e.attest.cfg.VoiceLifetime, e.attest.cfg.VoiceDaily = attestDefaultVoiceLifetime, 0
+	e.attest.cfg.VoiceLifetime, e.attest.cfg.VoiceDaily = 600, 0
 	e.attest.cfg.VoiceGlobal, e.attest.cfg.VoiceCallMax = attestDefaultVoiceGlobalDaily, attestDefaultVoiceCallMax
 }
 
@@ -61,20 +62,27 @@ func (e *attestEnv) voiceTurn(call string) *httptest.ResponseRecorder {
 		`{"model":"m","n":3,"stream":true,"messages":[{"role":"user","content":"hi"}],"elevenlabs_extra_body":{"call":"`+call+`"}}`, nil)
 }
 
-// settleAt reaps a detached call as if its last detach came `used` after the
-// mint (instead of waiting out real minutes); used 0 keeps the real detach.
-func (e *attestEnv) settleAt(token string, used time.Duration) {
+// reapNow ends a detached call's grace at once and reaps it.
+func (e *attestEnv) reapNow(token string) {
 	c := e.relay.lookup(token)
 	if c == nil {
 		e.t.Fatal("call not in the relay")
 	}
 	c.mu.Lock()
-	if c.anon.attached && used > 0 {
-		c.anon.lastDetach = c.anon.mintedAt.Add(used)
-	}
 	c.expires = time.Now().Add(-time.Second)
 	c.mu.Unlock()
 	e.relay.reap(c)
+}
+
+// waitReaped waits until install k has no call in the relay.
+func (e *attestEnv) waitReaped(k *ecdsa.PrivateKey) {
+	deadline := time.Now().Add(relayTestDeadline)
+	for e.relay.HasAnonCall(attestKeyID(e.t, k)) {
+		if time.Now().After(deadline) {
+			e.t.Fatal("call never reaped")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 }
 
 func dialAnonVoice(ctx context.Context, srv *httptest.Server, call string) (*websocket.Conn, error) {
@@ -127,12 +135,12 @@ func TestAttestVoiceStartAndSettle(t *testing.T) {
 	e.voiceOn()
 
 	rec, out := e.voiceStart(k, 2)
-	if rec.Code != http.StatusOK || out.Call == "" || !strings.HasPrefix(out.SignedURL, "wss://") || out.Granted != 600 || out.Remaining != 0 ||
-		rec.Header().Get("X-Trial-Voice-Remaining") != "0" || rec.Header().Get("X-Attest-Challenge") == "" {
+	if rec.Code != http.StatusOK || out.Call == "" || !strings.HasPrefix(out.SignedURL, "wss://") || out.Granted != 120 || out.Remaining != 480 ||
+		rec.Header().Get("X-Trial-Voice-Remaining") != "480" || rec.Header().Get("X-Attest-Challenge") == "" {
 		t.Fatalf("start: %d %s %v", rec.Code, rec.Body.String(), rec.Header())
 	}
-	if used := e.voiceUsed(k); used != 600 {
-		t.Fatalf("reserved = %d", used)
+	if used := e.voiceUsed(k); used != 120 {
+		t.Fatalf("charged = %d", used)
 	}
 	// One live call per install.
 	rec, _ = e.voiceStart(k, 3)
@@ -213,19 +221,60 @@ func TestAttestVoiceStartAndSettle(t *testing.T) {
 		t.Fatal("voice turns spent the AI global budget")
 	}
 
-	// Hang up; settled at 90 s → 510 left, and a new call can start.
+	// Hang up early: the ElevenLabs session may outlive the leg, so nothing is
+	// refunded; a new call can start on what is left.
 	_ = device.Close(websocket.StatusNormalClosure, "")
 	waitLegDetached(t, c)
-	e.settleAt(out.Call, 90*time.Second)
-	if used := e.voiceUsed(k); used != 90 {
-		t.Fatalf("settled = %d, want 90", used)
+	e.reapNow(out.Call)
+	if used := e.voiceUsed(k); used != 120 {
+		t.Fatalf("after hang-up = %d, want the full 120", used)
 	}
 	if e.relay.lookup(out.Call) != nil {
-		t.Fatal("settled call still resolves")
+		t.Fatal("reaped call still resolves")
 	}
 	rec, out = e.voiceStart(k, 4)
-	if rec.Code != http.StatusOK || out.Granted != 510 || out.Remaining != 0 {
+	if rec.Code != http.StatusOK || out.Granted != 120 || out.Remaining != 360 {
 		t.Fatalf("restart: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// The attach-then-drop re-mint loop: every start is charged its whole grant,
+// so the starts an install can get add up to at most its lifetime budget
+// (each ElevenLabs session is then capped by the agent's max_duration_seconds,
+// which is kept at or below the per-call grant).
+func TestAttestVoiceRemintLoopStaysInBudget(t *testing.T) {
+	e := newAttestEnv(t, 50, 0, 0)
+	e.voiceOn()
+	e.attest.cfg.VoiceLifetime = 500 // 120 × 4 + a 20 s tail under the floor
+	e.relay.grace = 10 * time.Millisecond
+	srv := httptest.NewServer(e.h)
+	t.Cleanup(srv.Close)
+	ctx, cancel := context.WithTimeout(t.Context(), relayTestDeadline)
+	defer cancel()
+	k := attestKey(t)
+	e.enrolled(k, "tok-loop")
+	granted, starts := 0, 0
+	for counter := uint32(1); ; counter++ {
+		rec, out := e.voiceStart(k, counter)
+		if rec.Code == http.StatusTooManyRequests {
+			wantErr(t, rec, http.StatusTooManyRequests, "trial_budget_exhausted")
+			break
+		}
+		if rec.Code != http.StatusOK || starts > 10 {
+			t.Fatalf("start %d: %d %s", starts, rec.Code, rec.Body.String())
+		}
+		starts++
+		granted += out.Granted
+		device, err := dialAnonVoice(ctx, srv, out.Call)
+		if err != nil {
+			t.Fatal(err)
+		}
+		readVoiceFrame(t, ctx, device) // hello
+		_ = device.Close(websocket.StatusNormalClosure, "")
+		e.waitReaped(k)
+	}
+	if starts != 4 || granted != 480 || e.voiceUsed(k) != 480 {
+		t.Fatalf("loop: %d starts, %d s granted, %d s charged; want 4 / 480 / 480", starts, granted, e.voiceUsed(k))
 	}
 }
 
@@ -238,22 +287,22 @@ func TestAttestVoiceBudgets(t *testing.T) {
 	e.enrolled(k1, "tok-b1")
 	e.enrolled(k2, "tok-b2")
 
-	// Daily caps the grant; never attached → reaped after the attach window,
-	// charged exactly the 30 s floor.
+	// The per-call max caps the grant; daily 100 caps the next one. Never
+	// attached → reaped after the attach window and charged in full.
 	rec, out := e.voiceStart(k1, 1)
-	if rec.Code != http.StatusOK || out.Granted != 300 || out.Remaining != 300 || out.DailyRemaining != 0 {
+	if rec.Code != http.StatusOK || out.Granted != 120 || out.Remaining != 480 || out.DailyRemaining != 180 {
+		t.Fatalf("call-max grant: %d %s", rec.Code, rec.Body.String())
+	}
+	e.waitReaped(k1)
+	if used := e.voiceUsed(k1); used != 120 {
+		t.Fatalf("never-attached call charged %d, want the full 120", used)
+	}
+	e.attest.cfg.VoiceDaily = 150
+	rec, out = e.voiceStart(k1, 2)
+	if rec.Code != http.StatusOK || out.Granted != 30 || out.DailyRemaining != 0 {
 		t.Fatalf("daily grant: %d %s", rec.Code, rec.Body.String())
 	}
-	deadline := time.Now().Add(relayTestDeadline)
-	for e.voiceUsed(k1) != 30 {
-		if time.Now().After(deadline) {
-			t.Fatalf("never-attached call charged %d", e.voiceUsed(k1))
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	for e.relay.HasAnonCall(attestKeyID(t, k1)) {
-		time.Sleep(5 * time.Millisecond)
-	}
+	e.waitReaped(k1)
 
 	scopeOf := func(rec *httptest.ResponseRecorder) map[string]string {
 		var body map[string]string
@@ -263,21 +312,20 @@ func TestAttestVoiceBudgets(t *testing.T) {
 		}
 		return body
 	}
-	// voice-day: 40 a day, 30 spent.
-	e.attest.cfg.VoiceDaily = 40
-	rec, _ = e.voiceStart(k1, 2)
+	// voice-day: 150 a day, all spent.
+	rec, _ = e.voiceStart(k1, 3)
 	if b := scopeOf(rec); b["scope"] != cloudstore.AttestScopeVoiceDay || b["resets_at"] == "" {
 		t.Fatalf("voice-day: %v", b)
 	}
-	// global: shared across installs (k1's 30 today).
-	e.attest.cfg.VoiceDaily, e.attest.cfg.VoiceGlobal = 0, 50
+	// global: shared across installs (k1's 150 today).
+	e.attest.cfg.VoiceDaily, e.attest.cfg.VoiceGlobal = 0, 170
 	rec, _ = e.voiceStart(k2, 1)
 	if b := scopeOf(rec); b["scope"] != cloudstore.TrialScopeGlobal || b["resets_at"] == "" {
 		t.Fatalf("global: %v", b)
 	}
 	// voice (lifetime): no resets_at.
-	e.attest.cfg.VoiceGlobal, e.attest.cfg.VoiceLifetime = 0, 50
-	rec, _ = e.voiceStart(k1, 3)
+	e.attest.cfg.VoiceGlobal, e.attest.cfg.VoiceLifetime = 0, 170
+	rec, _ = e.voiceStart(k1, 4)
 	if b := scopeOf(rec); b["scope"] != cloudstore.AttestScopeVoice || b["resets_at"] != "" || rec.Header().Get("X-Trial-Voice-Remaining") != "20" {
 		t.Fatalf("lifetime: %v %v", b, rec.Header())
 	}
@@ -314,13 +362,9 @@ func TestAttestVoiceBudgetTimer(t *testing.T) {
 	}
 	readVoiceFrame(t, ctx, device) // hello
 
-	// The grant runs out (fired by hand, the mint moved 600 s back, instead of
-	// waiting 600 s).
+	// The grant runs out (fired by hand instead of waiting 120 s).
 	c := e.relay.lookup(out.Call)
 	c.anon.timer.Stop()
-	c.mu.Lock()
-	c.anon.mintedAt = c.anon.mintedAt.Add(-600 * time.Second)
-	c.mu.Unlock()
 	go e.relay.exhaustAnon(c)
 	if f := readVoiceFrame(t, ctx, device); f.Type != "budget_exhausted" {
 		t.Fatalf("frame = %+v", f)
@@ -336,9 +380,9 @@ func TestAttestVoiceBudgetTimer(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantCloseCode(t, ctx, again, voiceStatusBudget)
-	// Settled at the real detach (past mint + grant): no refund.
-	e.settleAt(out.Call, 0)
-	if used := e.voiceUsed(k); used != 600 {
+	// Reaped: no refund.
+	e.reapNow(out.Call)
+	if used := e.voiceUsed(k); used != 120 {
 		t.Fatalf("exhausted call refunded: used %d", used)
 	}
 }
@@ -372,23 +416,32 @@ func TestAttestVoiceRouting(t *testing.T) {
 			t.Fatalf("account host %s: %d", m[1], rec.Code)
 		}
 	}
-	// Voice on but trial AI off (the relay answers turns with it): 503.
-	e.trial.cfg.OpenAIAPIKey = ""
 	k := attestKey(t)
 	e.enrolled(k, "tok-r1")
+	// DEFAULT OFF: ElevenLabs + trial AI configured (as in prod) but no
+	// TRIAL_ANON_VOICE_* set → the default lifetime 0 → 503, nothing charged.
+	e.attest.cfg.VoiceLifetime = attestDefaultVoiceLifetime
 	rec, _ := e.voiceStart(k, 1)
+	wantErr(t, rec, http.StatusServiceUnavailable, "voice_not_configured")
+	if used := e.voiceUsed(k); used != 0 {
+		t.Fatalf("default-off charged %d", used)
+	}
+	// Voice on but trial AI off (the relay answers turns with it): 503.
+	e.attest.cfg.VoiceLifetime = 600
+	e.trial.cfg.OpenAIAPIKey = ""
+	rec, _ = e.voiceStart(k, 2)
 	wantErr(t, rec, http.StatusServiceUnavailable, "voice_not_configured")
 }
 
 func TestAttestConfigFromEnvVoice(t *testing.T) {
 	cfg, err := AttestConfigFromEnv()
-	if err != nil || cfg.VoiceLifetime != 600 || cfg.VoiceDaily != 300 || cfg.VoiceGlobal != 7200 || cfg.VoiceCallMax != 600 {
-		t.Fatalf("voice defaults: %+v %v", cfg, err)
+	if err != nil || cfg.VoiceLifetime != 0 || cfg.VoiceDaily != 300 || cfg.VoiceGlobal != 7200 || cfg.VoiceCallMax != 120 {
+		t.Fatalf("voice defaults (off): %+v %v", cfg, err)
 	}
-	t.Setenv("TRIAL_ANON_VOICE_LIFETIME_SECONDS", "0")
+	t.Setenv("TRIAL_ANON_VOICE_LIFETIME_SECONDS", "600")
 	t.Setenv("TRIAL_ANON_VOICE_DAILY_SECONDS", "0")
-	if cfg, err := AttestConfigFromEnv(); err != nil || cfg.VoiceLifetime != 0 || cfg.VoiceDaily != 0 {
-		t.Fatalf("zeros: %+v %v", cfg, err)
+	if cfg, err := AttestConfigFromEnv(); err != nil || cfg.VoiceLifetime != 600 || cfg.VoiceDaily != 0 {
+		t.Fatalf("set: %+v %v", cfg, err)
 	}
 	for name, v := range map[string]string{"TRIAL_ANON_VOICE_GLOBAL_DAILY_SECONDS": "-1", "TRIAL_ANON_VOICE_CALL_MAX_SECONDS": "29"} {
 		t.Run(name, func(t *testing.T) {

@@ -34,6 +34,8 @@ import (
 //	device -> server  {"id":n,"type":"chunk","data":"<sse>"}   written verbatim
 //	device -> server  {"id":n,"type":"end"}
 //	device -> server  {"id":n,"type":"error","message":"..."}
+//	server -> device  {"type":"budget_exhausted"}              anonymous call's grant ran out;
+//	                                                           the leg is then closed with 4429
 //
 // ponytail: in-memory call table — a process restart drops every live call;
 // the user hangs up and calls again, same as the fallback sentence says.
@@ -72,25 +74,16 @@ const (
 // → Voice): minted by the attested POST /api/attest/voice/start, the device
 // leg attaches with the token alone (GET /api/attest/voice/device?call=), and
 // the relay answers their turns itself through the trial proxy — no request
-// frame ever goes to the device. The relay never touches money: it reports
-// the call's wall time to the minting side's settle func once, on reap.
-//
-// ponytail: settlement lives in memory like the call table — a process crash
-// loses the refund and the install keeps its full reservation charged.
+// frame ever goes to the device. The relay never touches money: the minting
+// side charged the whole grant up front, because the ElevenLabs session the
+// signed URL opened can outlive the leg (see docs/cloud-mode.md, threat model).
 const voiceAnonAttachWindow = 60 * time.Second
 
 type anonVoice struct {
-	keyID    string
-	mintedAt time.Time
-	grant    time.Duration
-	settle   func(used time.Duration)
-	timer    *time.Timer
-	once     sync.Once
-
+	keyID string
+	timer *time.Timer
 	// Guarded by the call's mu.
-	attached   bool
-	lastDetach time.Time
-	exhausted  bool
+	exhausted bool
 }
 
 type voiceFrame struct {
@@ -191,7 +184,6 @@ func (c *voiceCall) attachAnon(conn *websocket.Conn) bool {
 		return false
 	}
 	c.attachLocked(conn)
-	c.anon.attached = true
 	return true
 }
 
@@ -217,11 +209,7 @@ func (c *voiceCall) detach(conn *websocket.Conn, grace time.Duration) bool {
 	c.failWaitersLocked(conn)
 	c.conn = nil
 	c.ready = make(chan struct{})
-	now := time.Now()
-	c.expires = now.Add(grace)
-	if c.anon != nil {
-		c.anon.lastDetach = now
-	}
+	c.expires = time.Now().Add(grace)
 	return true
 }
 
@@ -365,13 +353,12 @@ func (a *VoiceLLMRelayAPI) RevokeAccount(accountID string) {
 
 func (a *VoiceLLMRelayAPI) reap(c *voiceCall) {
 	a.mu.Lock()
-	gone := a.calls[c.token] == c && c.expired(time.Now())
-	if gone {
+	defer a.mu.Unlock()
+	if a.calls[c.token] == c && c.expired(time.Now()) {
 		delete(a.calls, c.token)
-	}
-	a.mu.Unlock()
-	if gone && c.anon != nil {
-		c.settleAnon()
+		if c.anon != nil {
+			c.anon.timer.Stop()
+		}
 	}
 }
 
@@ -381,26 +368,6 @@ func newVoiceCallToken() string {
 		panic("voice llm relay: crypto/rand failed: " + err.Error())
 	}
 	return base64.RawURLEncoding.EncodeToString(b)
-}
-
-// settleAnon reports the call's used wall time once: mint → last detach, or
-// nothing when no leg ever attached. A call the budget timer ended was closed
-// by the relay at mint + grant, so it reports (at least) the whole grant. The
-// minting side clamps it to its floor and the grant.
-func (c *voiceCall) settleAnon() {
-	v := c.anon
-	v.once.Do(func() {
-		c.mu.Lock()
-		if v.timer != nil {
-			v.timer.Stop()
-		}
-		var used time.Duration
-		if v.attached {
-			used = v.lastDetach.Sub(v.mintedAt)
-		}
-		c.mu.Unlock()
-		v.settle(used)
-	})
 }
 
 // HasAnonCall reports whether install keyID has a call in the table (live,
@@ -424,9 +391,9 @@ func (a *VoiceLLMRelayAPI) hasCallLocked(subject string) bool {
 
 // MintAnonCall pre-registers an anonymous trial call for install keyID with a
 // grant of call time. It must be attached within attachWindow; at mintedAt +
-// grant the budget timer ends it (budget_exhausted + close 4429). settle runs
-// once, on reap. ("", false) when the install already has a call.
-func (a *VoiceLLMRelayAPI) MintAnonCall(keyID string, grant time.Duration, settle func(used time.Duration)) (string, bool) {
+// grant the budget timer ends it (budget_exhausted + close 4429). ("", false)
+// when the install already has a call.
+func (a *VoiceLLMRelayAPI) MintAnonCall(keyID string, grant time.Duration) (string, bool) {
 	subject := cloudstore.AttestSubject(keyID)
 	now := time.Now()
 	a.mu.Lock()
@@ -440,7 +407,7 @@ func (a *VoiceLLMRelayAPI) MintAnonCall(keyID string, grant time.Duration, settl
 		ready:     make(chan struct{}),
 		expires:   now.Add(a.attachWindow), // pending attach ages out like a grace
 		waiters:   make(map[int64]*voiceWaiter),
-		anon:      &anonVoice{keyID: keyID, mintedAt: now, grant: grant, settle: settle},
+		anon:      &anonVoice{keyID: keyID},
 	}
 	a.calls[c.token] = c
 	c.anon.timer = time.AfterFunc(grant, func() { a.exhaustAnon(c) })
@@ -824,9 +791,9 @@ func (a *VoiceLLMRelayAPI) anonTurn(w http.ResponseWriter, r *http.Request, call
 		speak(voiceMinutesUp(lang))
 		return
 	case !attached:
-		// The leg is the meter: no AI answer while it is not attached (never
-		// attached, or within the grace after a drop), so an unattached call
-		// buys nothing past its floor.
+		// No AI answer while the leg is not attached (never attached, or
+		// within the grace after a drop): a session without the app is not
+		// a call the trial pays AI for.
 		outcome = "no_device"
 		speak(voiceRetry(lang))
 		return

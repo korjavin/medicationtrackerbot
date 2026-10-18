@@ -119,11 +119,13 @@ must be set when you run it — `--apply` refuses without it. The variable is re
 only by this script, not by the server. After deploying the relay, set it and
 re-run `pnpm trial:agent --apply` once.
 
-`TRIAL_VOICE_MAX_CALL_SECONDS` (default 600, script-only like the URL) sets
+`TRIAL_VOICE_MAX_CALL_SECONDS` (default 120, script-only like the URL) sets
 the shared agent's ElevenLabs-side per-call cap (`max_duration_seconds`) — the
-only duration lever on account trial calls, and the backstop under the
-anonymous voice minute budget. BYO agents never get it. After deploying
-med-o7zq.22, run `pnpm trial:agent --apply` once so the live agent carries it.
+only duration lever on account trial calls, and the hard backstop under the
+anonymous voice budget (keep it ≤ `TRIAL_ANON_VOICE_CALL_MAX_SECONDS`). The
+script also sets `turn.silence_end_call_timeout` to 30 s so abandoned sessions
+end on their own. BYO agents get neither. After deploying med-o7zq.22, run
+`pnpm trial:agent --apply` once so the live agent carries them.
 
 **Re-run it after every `TOOLSET_VERSION` bump.** This does not happen
 automatically on deploy. BYO users reprovision themselves on their next voice
@@ -153,9 +155,10 @@ threat model: [cloud-mode.md → Anonymous trial](cloud-mode.md#anonymous-trial-
    `DEVICECHECK_PRIVATE_KEY_FILE=/app/data/secrets/devicecheck.p8`; optionally
    `TRIAL_ANON_LIFETIME_REQUESTS` (200), `TRIAL_ANON_DAILY` (50) and
    `TRIAL_ANON_FOOD_DAILY` (1000; the food routes also need `CLOUD_FOOD_DB_URL`), and
-   the anonymous voice budgets in seconds `TRIAL_ANON_VOICE_LIFETIME_SECONDS` (600),
+   the anonymous voice budgets in seconds — voice stays OFF until
+   `TRIAL_ANON_VOICE_LIFETIME_SECONDS` is set (proposed 600) — then
    `TRIAL_ANON_VOICE_DAILY_SECONDS` (300), `TRIAL_ANON_VOICE_GLOBAL_DAILY_SECONDS` (7200),
-   `TRIAL_ANON_VOICE_CALL_MAX_SECONDS` (600; voice also needs `TRIAL_ELEVENLABS_*` and
+   `TRIAL_ANON_VOICE_CALL_MAX_SECONDS` (120, ≥ the agent's `TRIAL_VOICE_MAX_CALL_SECONDS`; voice also needs `TRIAL_ELEVENLABS_*` and
    trial AI, else 503 `voice_not_configured`). Redeploy.
    An unreadable or malformed key refuses to start, naming the variable only.
 4. Verify: `curl -X POST https://<CLOUD_BASE_DOMAIN>/api/attest/challenge`

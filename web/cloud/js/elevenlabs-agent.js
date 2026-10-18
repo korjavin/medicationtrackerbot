@@ -364,10 +364,13 @@ export async function ensureTools(key, onEvent) {
 // ever enters an ElevenLabs secret store. Required: a silent fallback to
 // ElevenLabs' built-in LLM is exactly what this replaces.
 //
-// maxDurationSeconds (bd med-o7zq.22) sets ElevenLabs' own per-call cap
-// (conversation.max_duration_seconds). Only the shared trial agent's script
-// passes it (TRIAL_VOICE_MAX_CALL_SECONDS); BYO agents stay uncapped.
-export function buildAgentConfig(toolIds, { llmURL, maxDurationSeconds } = {}) {
+// maxDurationSeconds and silenceEndCallSeconds (bd med-o7zq.22) set
+// ElevenLabs' own per-call cap (conversation.max_duration_seconds) and the
+// end-the-call-after-user-silence timeout (turn.silence_end_call_timeout;
+// ElevenLabs default -1 = never), both per the agents API reference
+// https://elevenlabs.io/docs/api-reference/agents/update. Only the shared trial
+// agent's script passes them; BYO agents keep ElevenLabs' defaults.
+export function buildAgentConfig(toolIds, { llmURL, maxDurationSeconds, silenceEndCallSeconds } = {}) {
   if (!llmURL) throw new Error('buildAgentConfig: llmURL (voice LLM relay URL) is required');
   return {
     conversation_config: {
@@ -401,6 +404,7 @@ export function buildAgentConfig(toolIds, { llmURL, maxDurationSeconds } = {}) {
           message: 'One moment…',
           disable_until_first_user_message: true,
         },
+        ...(silenceEndCallSeconds ? { silence_end_call_timeout: silenceEndCallSeconds } : {}),
       },
       tts: { voice_id: VOICE_ID, model_id: TTS_MODEL_ID },
       ...(maxDurationSeconds ? { conversation: { max_duration_seconds: maxDurationSeconds } } : {}),
