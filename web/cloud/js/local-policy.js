@@ -94,8 +94,11 @@ export function keepLocalRemindersFresh({ ctx, records, win }) {
   });
 }
 
-// Set by startLocalHealthImport; LOCAL_VAULT.eraseDevice awaits it.
+// Set by startLocalHealthImport. LOCAL_VAULT.eraseDevice awaits the stop;
+// importAll stops around its replace and resumes when the replace fails (on
+// success the page reloads and a fresh importer starts).
 let stopHealthImport = async () => {};
+let resumeHealthImport = () => {};
 
 // Apple Health import (bd med-o7zq.9): the cloud's Settings row and run loop,
 // writing into the on-device store with nothing to flush, then rescheduling
@@ -115,6 +118,7 @@ export function startLocalHealthImport({ ctx, records, win }) {
     stopped = true;
     await current;
   };
+  resumeHealthImport = () => { stopped = false; };
   return startHealthImport(ctx, {
     health,
     storage: win.localStorage,
@@ -197,17 +201,22 @@ export const LOCAL_VAULT = {
   // replaced, records it does not (the secrets of a secrets-free file) stay.
   // No account cursor, pending queue or snapshot here. vaultToRecords throws on
   // a foreign or unknown-version file before anything is touched. The Health
-  // import stops first (the page reloads after) so none of its writes or
-  // anchors land around the replace; the anchors are then dropped, since they
-  // describe the replaced records.
+  // import stops right before the replace (the page reloads after) so none of
+  // its writes or anchors land around it — and resumes if the replace fails;
+  // the anchors are then reset, since they describe the replaced records.
   async importAll(json, { win = globalThis.window } = {}) {
     const vault = typeof json === 'string' ? JSON.parse(json) : json;
     const records = vaultToRecords(vault, { now: Date.now() });
     const managed = managedTypesForImport(vault);
     await stopHealthImport();
-    const survive = (await readAllLocalRecords())
-      .filter((r) => !r.deleted && !managed.has(r.recordType));
-    await replaceAllRecords([...records, ...survive]);
+    try {
+      const survive = (await readAllLocalRecords())
+        .filter((r) => !r.deleted && !managed.has(r.recordType));
+      await replaceAllRecords([...records, ...survive]);
+    } catch (e) {
+      resumeHealthImport();
+      throw e;
+    }
     resetHealthAnchors(win.localStorage);
   },
   // Settings → Backup → Move to a cloud account: the shell leaves local mode

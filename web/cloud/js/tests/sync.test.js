@@ -1880,7 +1880,7 @@ describe('full-vault import snapshots in a constant 2 requests, not per-record o
       throw new Error(`unexpected fetch: ${u} ${init?.method || 'GET'}`);
     }));
 
-    expect(await forceSnapshot(ctx)).toBe(true);
+    expect(await forceSnapshot(ctx)).toBe('synced');
 
     // Constant, NOT proportional to the 1500 records — proves no per-op fallback.
     expect(opsPosts).toBe(1);
@@ -1889,13 +1889,17 @@ describe('full-vault import snapshots in a constant 2 requests, not per-record o
     expect((await getSyncStatus(ctx)).wedged).toBe(false);
   });
 
-  // bd med-o7zq.6: importAll reports whether the import reached the account;
-  // an offline or rejected upload resolves (it is retried) but is not landed.
-  it('resolves false while the import is not on the server: offline, or the snapshot rejected', async () => {
+  // bd med-o7zq.6: importAll reports whether the import reached the account,
+  // and if not whether it retries by itself — every failure here resolves.
+  it('says why the import is not on the server: offline retries, 401 waits for re-auth, a 413 never lands', async () => {
     await replaceAllRecords([{ recordId: 'bp-1', recordType: 'bp', clientTs: 1, deleted: false, systolic: 118 }]);
     await seedMeta({ localLastSeq: 10 });
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
-    expect(await forceSnapshot(ctx)).toBe(false);
+    expect(await forceSnapshot(ctx)).toBe('retrying');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 503 })));
+    expect(await forceSnapshot(ctx)).toBe('retrying');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 401 })));
+    expect(await forceSnapshot(ctx)).toBe('auth');
     vi.stubGlobal('fetch', vi.fn(async (url, init) => {
       const u = String(url);
       if (u === '/api/sync/ops' && init?.method === 'POST') {
@@ -1903,7 +1907,7 @@ describe('full-vault import snapshots in a constant 2 requests, not per-record o
       }
       return new Response('{}', { status: 413 });
     }));
-    expect(await forceSnapshot(ctx)).toBe(false);
+    expect(await forceSnapshot(ctx)).toBe('rejected');
   });
 
   // bd med-eas.9 — a sync-ready wake lets a peer pull the importer's bump op

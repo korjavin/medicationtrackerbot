@@ -58,13 +58,13 @@ export function isHealthImportEnabled(storage = globalThis.localStorage) {
     return readJSON(storage, ENABLED_KEY, false) === true;
 }
 
-// Forget how far this iPhone's Health store was read, keeping the on/off
-// choice: after a replace-import the records no longer match the anchors, and
-// the next run re-reads the whole history (putIfAbsent absorbs what is there).
+// Forget how far this iPhone's Health store was read — the switch-on rescan
+// below, kept apart from the on/off choice and the Settings row's tally: after
+// a replace-import the records no longer match the anchors, and the next run
+// re-reads the whole history (putIfAbsent absorbs what is there).
 export function resetHealthAnchors(storage = globalThis.localStorage) {
-    for (const key of [ANCHORS_KEY, LAST_KEY, SLEEP_PENDING_KEY]) {
-        try { storage.removeItem(key); } catch { /* storage blocked: nothing kept */ }
-    }
+    writeJSON(storage, ANCHORS_KEY, {});
+    try { storage.removeItem(SLEEP_PENDING_KEY); } catch { /* storage blocked: nothing kept */ }
 }
 
 function timeZone() {

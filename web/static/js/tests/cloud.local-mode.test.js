@@ -629,19 +629,51 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
 
     it('restore replaces the records the file carries and re-reads Apple Health from the start', async () => {
         const { window } = env;
-        await vi.waitFor(async () => expect(await window.apiCall('/api/bp?days=60')).toHaveLength(1));
+        // The boot import has finished: its tally is written last.
+        await vi.waitFor(() => expect(JSON.parse(window.localStorage.getItem('wg.health.last'))?.total).toBe(1));
         await window.apiCall('/api/weight', 'POST', { weight: 80 });
         const backup = await window.CloudVault.exportAll({ includeSecrets: false, win: window });
         await window.apiCall('/api/weight', 'POST', { weight: 70 });
         cancelReminderRecompute({ accountId: 'local' });
-        expect(window.localStorage.getItem('wg.health.anchors')).not.toBeNull();
+        expect(JSON.parse(window.localStorage.getItem('wg.health.anchors'))).toEqual({ bp: 'a1' });
+        const tally = window.localStorage.getItem('wg.health.last');
+        expect(JSON.parse(tally).total).toBe(1);
 
         await window.CloudVault.importAll(backup, { win: window });
         expect((await window.apiCall('/api/weight?days=0&limit=1000')).map((r) => r.weight)).toEqual([80]);
         expect(await window.apiCall('/api/bp?days=60')).toHaveLength(1);
-        // The anchors described the replaced records; the on/off choice stays.
-        expect(window.localStorage.getItem('wg.health.anchors')).toBeNull();
+        // The anchors described the replaced records; the on/off choice and the
+        // Settings row's tally ("N readings so far") stay.
+        expect(JSON.parse(window.localStorage.getItem('wg.health.anchors'))).toEqual({});
         expect(window.localStorage.getItem('wg.health.enabled')).toBe('true');
+        expect(window.localStorage.getItem('wg.health.last')).toBe(tally);
+        expect(offDevice()).toEqual([]);
+    });
+
+    it('a restore that fails leaves the records and anchors as they were and Apple Health importing', async () => {
+        const { window, document } = env;
+        // The boot import has finished: its tally is written last.
+        await vi.waitFor(() => expect(JSON.parse(window.localStorage.getItem('wg.health.last'))?.total).toBe(1));
+        await window.apiCall('/api/weight', 'POST', { weight: 80 });
+        const backup = await window.CloudVault.exportAll({ includeSecrets: false, win: window });
+        await window.apiCall('/api/weight', 'POST', { weight: 70 });
+        cancelReminderRecompute({ accountId: 'local' });
+        const anchors = window.localStorage.getItem('wg.health.anchors');
+
+        // The store refuses the replace (quota, a blocked database).
+        const clear = vi.spyOn(globalThis.IDBObjectStore.prototype, 'clear')
+            .mockImplementationOnce(() => { throw new DOMException('Quota exceeded', 'QuotaExceededError'); });
+        await expect(window.CloudVault.importAll(backup, { win: window })).rejects.toThrow(/Quota/);
+        clear.mockRestore();
+        expect((await window.apiCall('/api/weight?days=0&limit=1000')).map((r) => r.weight).sort()).toEqual([70, 80]);
+        expect(window.localStorage.getItem('wg.health.anchors')).toBe(anchors);
+
+        // Coming back to the front still imports.
+        const calls = window.Health.query.mock.calls.length;
+        await vi.waitFor(() => {
+            document.dispatchEvent(new window.Event('visibilitychange'));
+            expect(window.Health.query.mock.calls.length).toBeGreaterThan(calls);
+        });
         expect(offDevice()).toEqual([]);
     });
 

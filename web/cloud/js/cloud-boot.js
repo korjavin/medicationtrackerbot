@@ -215,14 +215,15 @@ window.MedTrackerCloudReady = (async function boot() {
             // report "Import failed" and skip the reload while the old data is
             // already gone, leaving the user staring at pre-import UI over
             // post-import data.
-            // `synced` tells importexport.js whether the account now holds the
-            // import (bd med-o7zq.6): a move from another device must not be
-            // called done while the only durable copy is still elsewhere.
+            // `upload` tells importexport.js whether the account now holds the
+            // import, and if not why (sync.js forceSnapshot; bd med-o7zq.6): a
+            // move from another device must not be called done while the only
+            // durable copy is still elsewhere.
             try {
-                return { synced: await forceSnapshot(ctx) };
+                return { upload: await forceSnapshot(ctx) };
             } catch (err) {
                 console.warn('[cloud] import applied locally; sync to other devices deferred', err);
-                return { synced: false };
+                return { upload: 'retrying' };
             }
         },
         async resetLocalSync() {
