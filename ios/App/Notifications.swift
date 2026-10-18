@@ -11,12 +11,10 @@ final class Notifications: NSObject, UNUserNotificationCenterDelegate {
     static let shared = Notifications()
     /// iOS keeps at most 64 pending local notifications per app.
     static let cap = 64
-    /// The sections a tap may open (stable section ids, CLAUDE.md rule 6).
-    static let sections: Set<String> = ["today", "meds", "bp", "weight", "workouts", "health"]
-
     private let center = UNUserNotificationCenter.current()
-    /// Set by Shell: (section, vault the reminder belongs to — nil from builds
-    /// before bd med-o7zq.9). A tap that launched the app waits here until it is.
+    /// Set by Shell: (path to open, ReminderPath-sanitized; vault the reminder
+    /// belongs to — nil from builds before bd med-o7zq.9). A tap that launched
+    /// the app waits here until it is.
     var onOpen: ((String, String?) -> Void)? {
         didSet { if let tap = pending, let onOpen { pending = nil; onOpen(tap.0, tap.1) } }
     }
@@ -54,7 +52,7 @@ final class Notifications: NSObject, UNUserNotificationCenterDelegate {
             case "notifications.test":
                 guard let owner, owner == vault else { reply(nil, "stale"); return }
                 do {
-                    try await add(id: "wg-test", after: 1, body: "Test notification", section: "today", vault: owner)
+                    try await add(id: "wg-test", after: 1, body: "Test notification", url: ReminderPath.fallback, vault: owner)
                     reply(true, nil)
                 } catch { reply(nil, error.localizedDescription) }
             default:
@@ -86,7 +84,7 @@ final class Notifications: NSObject, UNUserNotificationCenterDelegate {
             guard let at = (item["fireAtUnix"] as? NSNumber)?.doubleValue, at > now,
                   let body = item["body"] as? String else { continue }
             try await add(id: "wg-\(i)", after: at - now, title: item["title"] as? String, body: body,
-                          section: item["section"] as? String ?? "today", vault: owner)
+                          url: item["url"] as? String ?? ReminderPath.legacy(item["section"]), vault: owner)
             count += 1
         }
         return count
@@ -102,13 +100,14 @@ final class Notifications: NSObject, UNUserNotificationCenterDelegate {
         center.removeDeliveredNotifications(withIdentifiers: delivered.map(\.request.identifier))
     }
 
-    private func add(id: String, after seconds: TimeInterval, title: String? = nil, body: String, section: String,
+    private func add(id: String, after seconds: TimeInterval, title: String? = nil, body: String, url: String,
                      vault owner: String) async throws {
         let content = UNMutableNotificationContent()
         content.title = title ?? "Med Tracker"
         content.body = body
         content.sound = .default
-        content.userInfo = ["section": section, "vault": owner]
+        // The url carries opaque ids, never names; it is sanitized on tap.
+        content.userInfo = ["url": url, "vault": owner]
         // An interval, not calendar components: fireAtUnix is an instant, so a
         // time-zone change on the phone does not move it.
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, seconds), repeats: false)
@@ -129,15 +128,14 @@ final class Notifications: NSObject, UNUserNotificationCenterDelegate {
         Task { @MainActor in completionHandler([.banner, .list, .sound]) }
     }
 
-    /// A tap opens the reminder's section.
+    /// A tap opens the reminder's url (bd med-w6gx.20): a dose's take sheet, else its section.
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
         let info = response.notification.request.content.userInfo
-        let raw = info["section"] as? String ?? "today"
+        let path = ReminderPath.sanitize(info["url"] as? String ?? ReminderPath.legacy(info["section"]))
         let vault = info["vault"] as? String
         Task { @MainActor in
-            let section = Notifications.sections.contains(raw) ? raw : "today"
-            if let onOpen { onOpen(section, vault) } else { pending = (section, vault) }
+            if let onOpen { onOpen(path, vault) } else { pending = (path, vault) }
             completionHandler()
         }
     }

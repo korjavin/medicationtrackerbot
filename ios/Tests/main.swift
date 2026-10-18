@@ -1,5 +1,5 @@
-// Self-check for AccountURL, LocalOrigin and LocalLock, run by .github/workflows/ios.yml:
-//   swiftc App/AccountURL.swift App/LocalOrigin.swift App/LocalLock.swift Tests/main.swift -o <bin> && <bin>
+// Self-check for AccountURL, LocalOrigin, LocalLock and ReminderPath, run by .github/workflows/ios.yml:
+//   swiftc App/AccountURL.swift App/LocalOrigin.swift App/LocalLock.swift App/ReminderPath.swift Tests/main.swift -o <bin> && <bin>
 // Not part of the app target (project.yml sources only App/).
 import Foundation
 
@@ -124,3 +124,24 @@ fresh.background()
 fresh.confirmed(on: false)
 precondition(!fresh.on && !fresh.holds(local: true), "onboarding's check may turn a lock left on off")
 print("LocalLock: ok")
+
+// ReminderPath (bd med-w6gx.20): a tap opens only what sw.js reminderOpenUrl would.
+func tap(_ raw: String?, _ want: String) {
+    let got = ReminderPath.sanitize(raw)
+    precondition(got == want, "\(raw.debugDescription): got \(got), want \(want)")
+}
+let dose = "/?action=medication_confirm&ids=2%2C5&scheduled=2026-01-01T09%3A00%3A00.000Z" // reminderDeeplink's shape
+tap(dose, dose)
+tap("/?action=medication_confirm&ids=2,5&scheduled=2026-01-01T09:00:00.000Z",
+    "/?action=medication_confirm&ids=2,5&scheduled=2026-01-01T09:00:00.000Z")
+tap("/?tab=meds", "/?tab=meds")
+tap("/?tab=bp", "/?tab=bp")
+for bad in [nil, "", "/?", "/", "?tab=meds", "https://evil.com/?tab=meds", "//evil.com/?tab=meds", "/x?tab=meds",
+            "/?tab=meds#claim=x", "/?tab=meds#", "/?tab=meds&next=https://evil.com", "/?reminder_action=bp_snooze",
+            "/?tab=me\"ds", "/?tab=meds');alert(1)//\n", "javascript:alert(1)"] as [String?] {
+    tap(bad, "/?tab=today")
+}
+precondition(ReminderPath.legacy("meds") == "/?tab=meds" && ReminderPath.legacy("workouts") == "/?tab=workouts")
+precondition(ReminderPath.legacy("settings") == "/?tab=today" && ReminderPath.legacy(nil) == "/?tab=today")
+precondition(ReminderPath.legacy(42) == "/?tab=today")
+print("ReminderPath: ok")

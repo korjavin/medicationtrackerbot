@@ -8,7 +8,10 @@
 //   permission()        → 'granted' | 'denied' | 'default'
 //   requestPermission() → the same, after the iOS prompt (asked once)
 //   schedule(items)     → replace-all of the pending reminders; items are
-//                         {fireAtUnix, title, body, section}, at most 64 (iOS cap)
+//                         {fireAtUnix, title, body, section, url}, at most 64 (iOS cap);
+//                         url is the tap target (bd med-w6gx.20, reminderDeeplink:
+//                         '/?action=medication_confirm&ids=..&scheduled=..' or
+//                         '/?tab=<section>'), section the fallback of older shells
 //   test()              → one notification a second from now
 //
 // Load order: after native/index.js.

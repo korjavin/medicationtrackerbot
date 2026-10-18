@@ -47,7 +47,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     }
     /// What the lock held back: a load and a notification tap, run on unlock.
     private var deferredURL: URL?
-    private var deferredSection: (String, String?)?
+    private var deferredReminder: (String, String?)?
 
     /// The lock holds: the page is out of the window, loads wait, the bridge says "locked".
     var concealed: Bool { lock.holds(local: local) }
@@ -90,22 +90,28 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         applySettings()
         if local { LocalOrigin.includeInBackup() } // a dir an earlier launch created
         retry()
-        Notifications.shared.onOpen = { [weak self] section, vault in self?.openSection(section, of: vault) }
+        Notifications.shared.onOpen = { [weak self] path, vault in self?.openReminder(path, of: vault) }
     }
 
-    /// A notification tap (bd med-w6gx.5): switch the open app to the section,
-    /// or load the account on it (the deep-link router reads ?tab=). A tap on
-    /// another vault's reminder — delivered before a mode or account switch —
-    /// is ignored (bd med-o7zq.9); untagged ones predate the tag.
-    func openSection(_ section: String, of owner: String?) {
+    /// A notification tap (bd med-w6gx.5, med-w6gx.20): hand the open page the
+    /// reminder's deeplink (the take sheet for a dose, else its section) as
+    /// cloud-boot.js does for a Web Push tap, or load the vault on it — the
+    /// deep-link router reads either. A tap on another vault's reminder —
+    /// delivered before a mode or account switch — is ignored (bd med-o7zq.9);
+    /// untagged ones predate the tag.
+    func openReminder(_ raw: String, of owner: String?) {
         guard owner == nil || owner == vault, let home else { return }
         if concealed {
-            deferredSection = (section, owner)
+            deferredReminder = (raw, owner)
             return
         }
-        if showingAccount, !webView.isLoading {
-            webView.evaluateJavaScript("window.switchTab && window.switchTab('\(section)')")
-        } else if let url = URL(string: "?tab=\(section)", relativeTo: home)?.absoluteURL {
+        let path = ReminderPath.sanitize(raw)
+        if showingAccount, !webView.isLoading,
+           let json = try? JSONSerialization.data(withJSONObject: path, options: .fragmentsAllowed),
+           let quoted = String(data: json, encoding: .utf8) {
+            webView.evaluateJavaScript(
+                "history.replaceState({}, '', \(quoted)); window.handleDeepLinks && window.handleDeepLinks()")
+        } else if let url = URL(string: path, relativeTo: home)?.absoluteURL {
             load(url)
         }
     }
@@ -202,9 +208,9 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
                 deferredURL = nil
                 load(url)
             }
-            if let tap = deferredSection {
-                deferredSection = nil
-                openSection(tap.0, of: tap.1)
+            if let tap = deferredReminder {
+                deferredReminder = nil
+                openReminder(tap.0, of: tap.1)
             }
         }
     }
@@ -227,7 +233,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         onCeremony = false
         loadError = nil
         deferredURL = nil
-        deferredSection = nil
+        deferredReminder = nil
         if concealed { webView.loadHTMLString("", baseURL: nil) } // the old page must not run behind the lock
         if let home { load(home) } else { webView.loadHTMLString("", baseURL: nil) }
     }

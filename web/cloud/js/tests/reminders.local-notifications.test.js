@@ -70,6 +70,12 @@ describe('recomputeAndPush hands the horizon to LocalNotifications in the iOS ap
     for (const i of meds) {
       expect(i.fireAtUnix).toBeGreaterThan(NOW_UNIX);
       expect(i.body).not.toContain('**');
+      // bd med-w6gx.20: the tap opens the take sheet for that slot (ids only, no names).
+      const q = new URLSearchParams(i.url.slice(2));
+      expect(i.url.startsWith('/?')).toBe(true);
+      expect(q.get('action')).toBe('medication_confirm');
+      expect(q.get('ids')).toBe('2');
+      expect(q.get('scheduled')).toBe(new Date(i.fireAtUnix * 1000).toISOString());
     }
     expect(items[items.length - 1].body).toBe('Open the app to keep reminders running');
   });
@@ -123,10 +129,10 @@ describe('localNotificationItems', () => {
     for (let i = 100; i >= -5; i -= 1) entries.push({ fireAtUnix: NOW_UNIX + i * 60, kind: i % 2 ? 'bp' : 'workout', text: `r${i}` });
     const items = localNotificationItems(entries, { delivery: 'webpush' }, NOW_UNIX);
     expect(items).toHaveLength(64);
-    expect(items[0]).toEqual({ fireAtUnix: NOW_UNIX + 60, title: 'Med Tracker', body: 'r1', section: 'bp' });
+    expect(items[0]).toEqual({ fireAtUnix: NOW_UNIX + 60, title: 'Med Tracker', body: 'r1', section: 'bp', url: '/?tab=bp' });
     expect(items[62].fireAtUnix).toBe(NOW_UNIX + 63 * 60);
-    expect(items[63]).toMatchObject({ fireAtUnix: NOW_UNIX + 64 * 60, section: 'today' });
-    expect(items.find((i) => i.body === 'r2').section).toBe('workouts');
+    expect(items[63]).toMatchObject({ fireAtUnix: NOW_UNIX + 64 * 60, section: 'today', url: '/?tab=today' });
+    expect(items.find((i) => i.body === 'r2')).toMatchObject({ section: 'workouts', url: '/?tab=workouts' });
   });
 
   it('nothing due: nothing scheduled, no lapse notice', () => {
