@@ -557,6 +557,9 @@ describe('hasUserContent (restore skips the confirm only when nothing is at stak
   it('one live sleep row -> true', () => {
     expect(hasUserContent([live('sleep', 'sleep-hk-2026-01-01')])).toBe(true);
   });
+  it.each(['equipment', 'location', 'exerciselibrary'])('one live %s row -> true', (t) => {
+    expect(hasUserContent([live(t, '1')])).toBe(true);
+  });
   it('empty -> false', () => {
     expect(hasUserContent([])).toBe(false);
   });

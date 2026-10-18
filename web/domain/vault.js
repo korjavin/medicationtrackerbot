@@ -95,7 +95,7 @@ export const VAULT_MANAGED_TYPES = new Set([
 const NON_CONTENT_TYPES = new Set([
   'settings', 'features', 'taborder', 'foodtargets', 'integrations', 'apitokens',
   'medreminderpref', 'bpreminderpref', 'weightreminderpref', 'weightunitpref',
-  'tzplan', 'tzhistory', 'exerciselibrary', 'equipment', 'location', 'activelocation',
+  'tzplan', 'tzhistory', 'activelocation',
   'gamificationtargets', 'gamificationmode',
 ]);
 export const USER_CONTENT_TYPES = new Set([...VAULT_MANAGED_TYPES].filter((t) => !NON_CONTENT_TYPES.has(t)));
