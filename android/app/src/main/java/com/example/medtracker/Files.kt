@@ -10,7 +10,12 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Environment
+import android.os.Bundle
+import android.os.CancellationSignal
+import android.os.ParcelFileDescriptor
+import android.print.PageRange
 import android.print.PrintAttributes
+import android.print.PrintDocumentAdapter
 import android.print.PrintManager
 import android.provider.MediaStore
 import android.util.Base64
@@ -150,8 +155,35 @@ class Files(private val activity: Activity, private val accountHost: () -> Strin
 
     private fun print(view: WebView) {
         val name = view.title?.takeIf { it.isNotBlank() } ?: "Med Tracker"
-        activity.getSystemService(PrintManager::class.java)
-            .print(name, view.createPrintDocumentAdapter(name), PrintAttributes.Builder().build())
+        val inner = view.createPrintDocumentAdapter(name)
+        // An offscreen print view lives exactly as long as its print job.
+        val adapter = if (view !== printView) inner else object : PrintDocumentAdapter() {
+            override fun onStart() = inner.onStart()
+            override fun onLayout(
+                oldAttributes: PrintAttributes?, newAttributes: PrintAttributes,
+                cancellationSignal: CancellationSignal?, callback: PrintDocumentAdapter.LayoutResultCallback, extras: Bundle?,
+            ) = inner.onLayout(oldAttributes, newAttributes, cancellationSignal, callback, extras)
+            override fun onWrite(
+                pages: Array<PageRange>, destination: ParcelFileDescriptor,
+                cancellationSignal: CancellationSignal?, callback: PrintDocumentAdapter.WriteResultCallback,
+            ) = inner.onWrite(pages, destination, cancellationSignal, callback)
+            override fun onFinish() {
+                inner.onFinish()
+                releasePrintView(view)
+            }
+        }
+        runCatching { activity.getSystemService(PrintManager::class.java).print(name, adapter, PrintAttributes.Builder().build()) }
+            .onFailure { releasePrintView(view) }
+    }
+
+    private fun releasePrintView(view: WebView) {
+        if (printView === view) printView = null
+        view.destroy()
+    }
+
+    /** MainActivity.onDestroy: a print view still waiting for its job. */
+    fun destroy() {
+        printView?.let { releasePrintView(it) }
     }
 
     /**

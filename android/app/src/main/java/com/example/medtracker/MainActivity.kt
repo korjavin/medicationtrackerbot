@@ -114,6 +114,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         web.destroy()
+        files.destroy()
         super.onDestroy()
     }
 
