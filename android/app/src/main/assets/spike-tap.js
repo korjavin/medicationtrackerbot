@@ -28,18 +28,22 @@
           if (op !== 'get' || !e || e.name !== 'NotReadableError') throw e;
           post(Object.assign({}, ev, { event: 'webauthn.get.first', ok: false, error: String(e.name) + ': ' + String(e.message) }));
           let last = e;
+          const t0 = Date.now();
           cred = null;
           for (let i = 0; i < RETRY_MS.length && !cred; i++) {
             await sleep(RETRY_MS[i]);
-            const r = { event: 'webauthn.get.retry', attempt: i + 1, delayMs: RETRY_MS[i], allowCredentials: ev.allowCredentials };
+            const r = { event: 'webauthn.get.retry', attempt: i + 1, delayMs: RETRY_MS[i], sinceFirstFailMs: 0, allowCredentials: ev.allowCredentials };
             try {
               cred = await orig(opts);
+              r.sinceFirstFailMs = Date.now() - t0;
               let prf = null;
               try { prf = cred.getClientExtensionResults().prf || null; } catch (_) {}
               post(Object.assign(r, { ok: true, prfFirst: !!(prf && prf.results && prf.results.first), clientDataOrigin: clientOrigin(cred) }));
             } catch (e2) {
+              r.sinceFirstFailMs = Date.now() - t0;
               last = e2;
               post(Object.assign(r, { ok: false, error: String(e2 && e2.name) + ': ' + String(e2 && e2.message) }));
+              if (!e2 || e2.name !== 'NotReadableError') throw e2; // cancel etc. ends the call
             }
           }
           if (!cred) throw last;

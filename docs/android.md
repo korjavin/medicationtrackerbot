@@ -201,8 +201,8 @@ and before any *Clear storage*, and paste it into the bead.
 probe `get` fails `NotReadableError`, the spike now retries it after 1, 3, 8,
 20 and 45 s (about 77 s) and the claim completes on the first success. In the
 report, read the `webauthn.get.first` line and each `webauthn.get.retry` line
-(`attempt`, `delayMs`, `ok`, `error` or `prfFirst`, `allowCredentials`).
-Record the first `delayMs` with `ok:true`: that is the propagation delay. All
+(`attempt`, `delayMs`, `sinceFirstFailMs`, `ok`, `error` or `prfFirst`,
+`allowCredentials`). Record the first `sinceFirstFailMs` with `ok:true`: that is the propagation delay. All
 five failing with `allowCredentials:1` points to allowCredentials never
 working in FOR_APP mode, not a delay.
 
