@@ -115,6 +115,29 @@ describe('createAttestClient', () => {
     expect(calls.map((c) => c.path)).toEqual(['/api/attest/challenge', '/api/attest/enroll', CHAT]);
   });
 
+  it('a request during the first enrollment waits for it: one key, one enroll POST', async () => {
+    const attest = fakeAttest();
+    let release;
+    attest.enroll.mockImplementationOnce(() => new Promise((resolve) => {
+      release = () => resolve({ keyId: 'KEY', attestation: 'QVRU', deviceToken: 'REVW' });
+    }));
+    const { fetchImpl, calls } = fakeServer({
+      '/api/attest/challenge': [() => reply(200, { challenge: 'Q0gx' })],
+      '/api/attest/enroll': [() => reply(200, { remaining: 200, daily: 50 }, { 'X-Attest-Challenge': 'Q0gy' })],
+      [CHAT]: [() => reply(200, { ok: 1 })],
+    });
+    const client = createAttestClient({ attest, base: BASE, fetchImpl });
+    const enrolled = client.enroll();
+    const posted = client.post(CHAT, '{}');
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    release();
+    expect((await enrolled).status).toBe(200);
+    expect((await posted).status).toBe(200);
+    expect(attest.enroll).toHaveBeenCalledTimes(1);
+    expect(calls.map((c) => c.path)).toEqual(['/api/attest/challenge', '/api/attest/enroll', CHAT]);
+    expect(attest.assert.mock.calls[0][0]).toBe('Q0gy');
+  });
+
   it('hands a failed challenge fetch back as is (trial_not_configured)', async () => {
     const attest = fakeAttest();
     const { fetchImpl } = fakeServer({

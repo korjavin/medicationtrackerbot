@@ -69,7 +69,17 @@ export function createAttestClient({
     return { challenge: body.challenge };
   }
 
-  async function enroll() {
+  // Single-flight: the boot-time enroll and a request's install_unknown /
+  // no_key retry must share one enrollment. Two would mint two keys, and the
+  // second meets DeviceCheck bit0 — trial_already_used for an install that
+  // was just granted. Each caller gets its own clone of the one response.
+  let enrolling = null;
+  function enroll() {
+    if (!enrolling) enrolling = doEnroll().finally(() => { enrolling = null; });
+    return enrolling.then((res) => res.clone());
+  }
+
+  async function doEnroll() {
     const got = await takeChallenge();
     if (got.res) return got.res;
     const reply = await attest.enroll(got.challenge);
@@ -85,6 +95,8 @@ export function createAttestClient({
   }
 
   async function signedPost(pathAndQuery, body, signal) {
+    // A pending enrollment decides which key signs: wait for it.
+    if (enrolling) await enrolling.catch(() => {});
     const got = await takeChallenge();
     if (got.res) return { res: got.res };
     const digest = new Uint8Array(await subtle.digest('SHA-256', new TextEncoder().encode(`${pathAndQuery}\n${body}`)));
@@ -180,7 +192,7 @@ export function createLocalTrial({ attest, base, fetchImpl, storage }) {
     async enroll() {
       const res = await client.enroll();
       if (res.ok) {
-        const body = await res.json().catch(() => ({}));
+        const body = await res.clone().json().catch(() => ({}));
         writeState(storage, { daily: body.daily, used: false });
       }
       return res;

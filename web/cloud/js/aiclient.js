@@ -474,8 +474,9 @@ export function createAIClient({ settingsDomain }) {
   // missing record all refuse before any trial transmission. BYO calls never
   // reach this (useTrial is false), so consent is never even read.
   // Local mode's anonymous trial has one switch, the `anon` scope, and it
-  // covers meal parsing only: Telegram, the narrator and voice (`tg`, `voice`)
-  // are not offered there, so their scopes never pass.
+  // covers every `ai`-scope call (meal and activity text, meal and
+  // workout-sheet photos, exercise names): Telegram, the narrator and voice
+  // (`tg`, `voice`) are not offered there, so their scopes never pass.
   async function ensureTrialConsent(requested) {
     const scope = trialTransport && requested === 'ai' ? 'anon' : requested;
     const consent = await settingsDomain.getTrialConsent();
@@ -763,9 +764,10 @@ export function createAIClient({ settingsDomain }) {
     if (rest) onChunk(rest);
   }
 
-  // usesTrial: true when text calls would go to the trial proxy (no vault key,
-  // trial offered) — lets the voice call ask for `voice` consent up front
-  // instead of failing the first relayed turn.
+  // usesTrial: true when the voice relay's text turns would use the account
+  // trial proxy (no vault key, trial offered) — lets the voice call ask for
+  // `voice` consent up front instead of failing the first relayed turn. Local
+  // mode's attest transport never serves voice, so it reports false there.
   async function usesTrial() {
     const { text } = await credentials();
     return !text.apiKey && !trialTransport && trialAIAvailable();
