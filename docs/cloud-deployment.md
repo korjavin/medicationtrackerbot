@@ -124,6 +124,34 @@ automatically on deploy. BYO users reprovision themselves on their next voice
 call; trial users keep whatever the shared agent was last given, which is how
 the voice surface silently drifted apart before (#817).
 
+### Anonymous trial for iOS local mode (optional, App Attest + DeviceCheck)
+
+Off unless all of `APP_ATTEST_APP_ID`, `DEVICECHECK_KEY_ID`, `DEVICECHECK_TEAM_ID`
+and `DEVICECHECK_PRIVATE_KEY_FILE` are set (and trial AI is configured); the
+routes then answer 503 and the app offers "add your own key". Protocol and
+threat model: [cloud-mode.md → Anonymous trial](cloud-mode.md#anonymous-trial-ios-local-mode--app-attest--devicecheck).
+
+1. Apple side (once): enable App Attest on the App ID, create a DeviceCheck key
+   (Developer → Keys), note its Key ID and the Team ID, download the `.p8`.
+2. Put the `.p8` **in the `cloud_data` volume**, not in env and not in git
+   (`*.p8` is gitignored): the gitops stack has no host bind for secrets, and
+   prod is operated through the Portainer API, which can upload into a running
+   container: `PUT /api/endpoints/<id>/docker/containers/medtracker-cloud/archive?path=/app/data/secrets`
+   with a tar holding `devicecheck.p8` (create `secrets/` first the same way).
+   The entrypoint runs as uid 1000 and owns `/app/data`; make the file
+   `0600` for uid 1000. Litestream replicates only `cloud.db`, so the key is
+   not shipped to the backup bucket — keep the original in the secret store.
+3. Set in the stack env: `APP_ATTEST_APP_ID=<TEAMID>.<bundle id>`,
+   `DEVICECHECK_KEY_ID`, `DEVICECHECK_TEAM_ID`,
+   `DEVICECHECK_PRIVATE_KEY_FILE=/app/data/secrets/devicecheck.p8`; optionally
+   `TRIAL_ANON_LIFETIME_REQUESTS` (200) and `TRIAL_ANON_DAILY` (50). Redeploy.
+   An unreadable or malformed key refuses to start, naming the variable only.
+4. Verify: `curl -X POST https://<CLOUD_BASE_DOMAIN>/api/attest/challenge`
+   returns `{"challenge":…}` (503 `trial_not_configured` = still off).
+
+Rotating the key: upload the new `.p8`, change `DEVICECHECK_KEY_ID`, redeploy.
+Existing installs keep working (DeviceCheck is only called at enrollment).
+
 ### Telegram manager bot (optional, C3a)
 
 One-time operator setup enables one-tap managed-bot provisioning for users

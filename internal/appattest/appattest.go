@@ -25,7 +25,8 @@
 //
 // # Capturing a real attestation for testdata
 //
-// The CI tests use a fake chain (see fake_test.go). To pin a real production
+// The CI tests use fakes (fakeCA in appattest_test.go, fakeDeviceCheck in
+// devicecheck_test.go). To pin a real production
 // attestation, log on a TestFlight build the base64 key id, the base64
 // attestation object returned by DCAppAttestService.attestKey and the
 // base64 challenge that was hashed into clientDataHash, then write

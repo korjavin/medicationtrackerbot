@@ -222,41 +222,16 @@ func (a *TrialProxyAPI) ChatCompletions(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_not_configured"})
 		return
 	}
-	key, baseURL, model := a.cfg.OpenAIAPIKey, a.cfg.OpenAIURL, a.cfg.OpenAIModel
-	if r.URL.Query().Get("vision") == "1" {
-		key, baseURL, model = a.cfg.VisionAPIKey, a.cfg.VisionURL, a.cfg.VisionModel
-	}
-	// cmd/cloud's http.Server deadlines (15s read / 45s write) would kill the
-	// slow vision path before the 90s upstream timeout — extend both for this
-	// route. Best effort: unsupported writers (tests) just keep the defaults.
-	rc := http.NewResponseController(w)
-	deadline := time.Now().Add(trialUpstreamTimout + 15*time.Second)
-	_ = rc.SetReadDeadline(deadline)
-	_ = rc.SetWriteDeadline(deadline)
-
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxTrialBodyBytes+1))
-	if err != nil {
-		http.Error(w, "failed to read body", http.StatusBadRequest)
+	extendTrialDeadlines(w)
+	body, ok := readTrialBody(w, r)
+	if !ok {
 		return
 	}
-	if len(body) > maxTrialBodyBytes {
-		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "body_too_large"})
+	payload, ok := decodeTrialPayload(w, body)
+	if !ok {
 		return
 	}
-
-	// Decode to force the model and read the stream flag; RawMessage keeps
-	// every other field byte-identical to what the client sent.
-	var payload map[string]json.RawMessage
-	// A JSON `null` body unmarshals successfully into a nil map — reject it
-	// too, or payload["model"] below panics.
-	if err := json.Unmarshal(body, &payload); err != nil || payload == nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
-		return
-	}
-	var stream bool
-	if raw, has := payload["stream"]; has {
-		_ = json.Unmarshal(raw, &stream)
-	}
+	stream := trialStreamRequested(payload)
 	// The body is parsed before the gates so streaming (voice) turns can draw
 	// on their own limiter; the daily budget still counts every request.
 	limiter := a.limiter
@@ -270,9 +245,68 @@ func (a *TrialProxyAPI) ChatCompletions(w http.ResponseWriter, r *http.Request) 
 	if !a.consumeBudget(w, r, account.ID) {
 		return
 	}
+	a.proxyChat(w, r, "account", account.ID, payload, r.URL.Query().Get("vision") == "1", stream)
+}
+
+// extendTrialDeadlines: cmd/cloud's http.Server deadlines (15s read / 45s
+// write) would kill the slow vision path before the 90s upstream timeout —
+// extend both for the chat routes. Best effort: unsupported writers (tests)
+// just keep the defaults.
+func extendTrialDeadlines(w http.ResponseWriter) {
+	rc := http.NewResponseController(w)
+	deadline := time.Now().Add(trialUpstreamTimout + 15*time.Second)
+	_ = rc.SetReadDeadline(deadline)
+	_ = rc.SetWriteDeadline(deadline)
+}
+
+// readTrialBody reads the request body under maxTrialBodyBytes.
+func readTrialBody(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxTrialBodyBytes+1))
+	if err != nil {
+		http.Error(w, "failed to read body", http.StatusBadRequest)
+		return nil, false
+	}
+	if len(body) > maxTrialBodyBytes {
+		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "body_too_large"})
+		return nil, false
+	}
+	return body, true
+}
+
+// decodeTrialPayload decodes to a RawMessage map so the proxy can force the
+// model and read the stream flag while every other field stays byte-identical
+// to what the client sent.
+func decodeTrialPayload(w http.ResponseWriter, body []byte) (map[string]json.RawMessage, bool) {
+	var payload map[string]json.RawMessage
+	// A JSON `null` body unmarshals successfully into a nil map — reject it
+	// too, or payload["model"] below panics.
+	if err := json.Unmarshal(body, &payload); err != nil || payload == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+		return nil, false
+	}
+	return payload, true
+}
+
+func trialStreamRequested(payload map[string]json.RawMessage) bool {
+	var stream bool
+	if raw, has := payload["stream"]; has {
+		_ = json.Unmarshal(raw, &stream)
+	}
+	return stream
+}
+
+// proxyChat is the upstream half shared by the session route and the
+// anonymous attest route (attest.go): every gate (session or assertion,
+// limiter, budget) already ran. logKey/subject name the caller in logs
+// ("account" for sessions, "install" for attest).
+func (a *TrialProxyAPI) proxyChat(w http.ResponseWriter, r *http.Request, logKey, subject string, payload map[string]json.RawMessage, vision, stream bool) {
 	if a.cfg.Provider == TrialProviderAnthropic {
-		a.anthropicChat(w, r, account.ID, payload, r.URL.Query().Get("vision") == "1", stream)
+		a.anthropicChat(w, r, logKey, subject, payload, vision, stream)
 		return
+	}
+	key, baseURL, model := a.cfg.OpenAIAPIKey, a.cfg.OpenAIURL, a.cfg.OpenAIModel
+	if vision {
+		key, baseURL, model = a.cfg.VisionAPIKey, a.cfg.VisionURL, a.cfg.VisionModel
 	}
 	if stream {
 		// ElevenLabs' per-caller id has no business at the operator's provider,
@@ -306,7 +340,7 @@ func (a *TrialProxyAPI) ChatCompletions(w http.ResponseWriter, r *http.Request) 
 		// TrialConfigFromEnv now rejects at boot — but a 502 that logs nothing
 		// cost three rounds of diagnosis once, so never again.
 		// SECURITY INVARIANT: err embeds the URL — log a fixed string only.
-		slog.Warn("trial chat proxy bad upstream url", "account", account.ID, "vision", baseURL == a.cfg.VisionURL)
+		slog.Warn("trial chat proxy bad upstream url", logKey, subject, "vision", baseURL == a.cfg.VisionURL)
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
 		return
 	}
@@ -315,12 +349,12 @@ func (a *TrialProxyAPI) ChatCompletions(w http.ResponseWriter, r *http.Request) 
 
 	resp, err := a.client.Do(req)
 	if err != nil {
-		slog.Warn("trial chat proxy upstream failed", "account", account.ID)
+		slog.Warn("trial chat proxy upstream failed", logKey, subject)
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
 		return
 	}
 	defer resp.Body.Close()
-	slog.Info("trial chat proxy", "account", account.ID, "status", resp.StatusCode)
+	slog.Info("trial chat proxy", logKey, subject, "status", resp.StatusCode)
 
 	if resp.StatusCode != http.StatusOK {
 		// Upstream error bodies can echo request auth context — sanitize.
@@ -349,7 +383,7 @@ func (a *TrialProxyAPI) ChatCompletions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if stream {
-		relayOpenAIStream(r.Context(), w, account.ID, resp.Body)
+		relayOpenAIStream(r.Context(), w, subject, resp.Body)
 		return
 	}
 	// SECURITY INVARIANT: the upstream 200 echoes the forced trial model in

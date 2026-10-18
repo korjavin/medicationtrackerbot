@@ -45,3 +45,6 @@ mcpeval-report.md
 .beads/issues.jsonl
 .beads/interactions.jsonl
 /cloud
+
+# DeviceCheck / App Store Connect private keys (med-o7zq.15) — never commit
+*.p8

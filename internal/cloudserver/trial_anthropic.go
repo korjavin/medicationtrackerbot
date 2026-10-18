@@ -219,9 +219,16 @@ func toAnthropicRequest(payload map[string]json.RawMessage, model string) (map[s
 		}
 	}
 
+	// A smaller client max_tokens wins (the anonymous attest route clamps it,
+	// attest.go); our account clients send none.
+	maxTokens := trialAnthropicMaxTokens
+	var clientMax int
+	if json.Unmarshal(payload["max_tokens"], &clientMax) == nil && clientMax > 0 && clientMax < maxTokens {
+		maxTokens = clientMax
+	}
 	req := map[string]any{
 		"model":      model,
-		"max_tokens": trialAnthropicMaxTokens,
+		"max_tokens": maxTokens,
 		"messages":   out,
 		// Top-level automatic caching: a moving breakpoint on the last
 		// cacheable block, so the growing transcript (ElevenLabs and tg-agent
@@ -377,7 +384,7 @@ func anthropicRejectsSchema(r io.Reader) bool {
 // non-stream callers keep the model default. ElevenLabs replays tool_calls
 // without our anthropic_content round-trip, so that tool_use history carries
 // no thinking blocks — the API accepts history without them.
-func (a *TrialProxyAPI) anthropicChat(w http.ResponseWriter, r *http.Request, accountID string, payload map[string]json.RawMessage, vision, stream bool) {
+func (a *TrialProxyAPI) anthropicChat(w http.ResponseWriter, r *http.Request, logKey, accountID string, payload map[string]json.RawMessage, vision, stream bool) {
 	model := a.cfg.AnthropicModel
 	if vision {
 		model = a.cfg.AnthropicVisionModel
@@ -408,7 +415,7 @@ func (a *TrialProxyAPI) anthropicChat(w http.ResponseWriter, r *http.Request, ac
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.cfg.AnthropicURL+"/messages", bytes.NewReader(upstreamBody))
 	if err != nil {
 		// SECURITY INVARIANT: err embeds the URL — log a fixed string only.
-		slog.Warn("trial chat proxy bad upstream url", "account", accountID, "provider", "anthropic")
+		slog.Warn("trial chat proxy bad upstream url", logKey, accountID, "provider", "anthropic")
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
 		return
 	}
@@ -418,14 +425,14 @@ func (a *TrialProxyAPI) anthropicChat(w http.ResponseWriter, r *http.Request, ac
 
 	resp, err := a.client.Do(req)
 	if err != nil {
-		slog.Warn("trial chat proxy upstream failed", "account", accountID, "provider", "anthropic")
+		slog.Warn("trial chat proxy upstream failed", logKey, accountID, "provider", "anthropic")
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		slog.Info("trial chat proxy", "account", accountID, "provider", "anthropic", "status", resp.StatusCode)
+		slog.Info("trial chat proxy", logKey, accountID, "provider", "anthropic", "status", resp.StatusCode)
 		// Same sanitize-and-502 + upstream_status contract as the OpenAI path.
 		errCode := "upstream_error"
 		if resp.StatusCode == http.StatusBadRequest && sentResponseFormat && anthropicRejectsSchema(resp.Body) {
@@ -443,7 +450,7 @@ func (a *TrialProxyAPI) anthropicChat(w http.ResponseWriter, r *http.Request, ac
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
 		return
 	}
-	slog.Info("trial chat proxy", "account", accountID, "provider", "anthropic", "status", resp.StatusCode,
+	slog.Info("trial chat proxy", logKey, accountID, "provider", "anthropic", "status", resp.StatusCode,
 		"stop_reason", ar.StopReason, "cache_read_tokens", ar.Usage.CacheReadInputTokens)
 	writeJSON(w, http.StatusOK, fromAnthropicResponse(ar))
 }
