@@ -5,7 +5,7 @@
 // (window.Attest, web/static/js/native/attest.js).
 //
 // createAttestClient is the transport alone — challenge reuse, enrollment,
-// signed POSTs — with nothing trial-specific in it, so another attest-gated
+// signed POSTs and GETs — with nothing trial-specific in it, so another attest-gated
 // route can reuse it. createLocalTrial puts aiclient's trial transport
 // (setTrialTransport) and the Settings state on top.
 //
