@@ -131,6 +131,12 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
 - **Switch account:** long-press the launcher icon → *Switch account*; also on
   the load-error screen. WebView data is per origin and is kept, so switching
   back still finds offline data and warm unlock.
+- **Use another invite** (bd med-nt9p.20): while the page is a ceremony
+  (`/unlock`, `/claim`, `/recover` — `AccountUrl.isCeremony`), a native bar
+  below the page offers "Not your account? Use another invite"; after a
+  confirmation it does Switch account. A bad or already-claimed invite
+  otherwise has no way back (the host is stored the moment the link parses).
+  Passive: a returning user unlocks as before.
 - **Chrome:** edge to edge; the bands behind the status and navigation bars
   take the page's own background colour at its top and bottom edge (a
   document-start script, [`assets/chrome.js`](../android/app/src/main/assets/chrome.js),
@@ -274,7 +280,9 @@ a test invite: claim it in the app and unlock with a Google Password Manager
 passkey; kill and reopen (back on the account, no first run); airplane mode,
 kill, reopen (renders from the Service Worker); open an external link (leaves
 the app); long-press the icon → *Switch account* (first run; reopening the
-same account finds its data); bad address → 404 screen → Switch account.
+same account finds its data); bad address → 404 screen → Switch account; paste an already-claimed or garbage
+invite → "Not your account? Use another invite" under the page → confirm →
+first run → a valid invite claims (also after kill + relaunch while stuck).
 
 ## Spike (med-nt9p.4): passkey PRF, Service Worker, IndexedDB in Android System WebView
 

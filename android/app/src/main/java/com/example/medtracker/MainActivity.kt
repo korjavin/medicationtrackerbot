@@ -1,6 +1,7 @@
 package com.example.medtracker
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.ShortcutInfo
@@ -70,6 +71,7 @@ class MainActivity : Activity() {
     private lateinit var input: EditText
     private lateinit var firstRunMessage: TextView
     private lateinit var errorView: View
+    private lateinit var ceremonyBar: Button
     private lateinit var errorMessage: TextView
 
     private val files by lazy { Files(this) { host } }
@@ -180,6 +182,7 @@ class MainActivity : Activity() {
         showingAccount = false
         lastUrl = null
         clearHistory = true
+        setCeremony(false)
         errorView.visibility = View.GONE
         if (url == null) {
             web.loadUrl("about:blank")
@@ -286,7 +289,11 @@ class MainActivity : Activity() {
             updateBack()
         }
 
-        override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) = updateBack()
+        override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
+            // The ceremony pages leave by full navigation, so every commit is seen here.
+            setCeremony(AccountUrl.isCeremony(url, base))
+            updateBack()
+        }
 
         /**
          * Offline with a Service Worker in control never gets here: the worker answers.
@@ -372,6 +379,8 @@ class MainActivity : Activity() {
         bottomBand = View(this)
         root.addView(topBand, FrameLayout.LayoutParams(MATCH_PARENT, 0, Gravity.TOP))
         root.addView(bottomBand, FrameLayout.LayoutParams(MATCH_PARENT, 0, Gravity.BOTTOM))
+        ceremonyBar = button("Not your account? Use another invite") { confirmUseAnotherInvite() }.apply { visibility = View.GONE; maxLines = 1; minHeight = 0; minimumHeight = 0; setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f) }
+        root.addView(ceremonyBar, FrameLayout.LayoutParams(MATCH_PARENT, CEREMONY_BAR_DP.dp, Gravity.BOTTOM))
         firstRun = buildFirstRun()
         errorView = buildError()
         root.addView(firstRun, MATCH_PARENT, MATCH_PARENT)
@@ -388,12 +397,34 @@ class MainActivity : Activity() {
         val sys = bars.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
         val ime = bars.getInsets(WindowInsets.Type.ime())
         val bottom = maxOf(sys.bottom, ime.bottom)
+        // The exit bar sits below the page, not over it: the ceremony's own buttons stay clear.
+        val barH = if (ceremonyBar.visibility == View.VISIBLE) CEREMONY_BAR_DP.dp else 0
+        ceremonyBar.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, CEREMONY_BAR_DP.dp, Gravity.BOTTOM).apply {
+            setMargins(sys.left, 0, sys.right, bottom)
+        }
         web.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT).apply {
-            setMargins(sys.left, sys.top, sys.right, bottom)
+            setMargins(sys.left, sys.top, sys.right, bottom + barH)
         }
         topBand.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, sys.top, Gravity.TOP)
         bottomBand.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, sys.bottom, Gravity.BOTTOM)
         for (v in listOf(firstRun, errorView)) v.setPadding(sys.left, sys.top, sys.right, bottom)
+    }
+
+    private fun setCeremony(on: Boolean) {
+        val v = if (on) View.VISIBLE else View.GONE
+        if (ceremonyBar.visibility == v) return
+        ceremonyBar.visibility = v
+        layoutBars()
+    }
+
+    /** Native confirmation, then Switch account (bd med-nt9p.20); website data stays. */
+    private fun confirmUseAnotherInvite() {
+        AlertDialog.Builder(this)
+            .setTitle("Use another invite?")
+            .setMessage("Med Tracker goes back to the first screen, where you can paste or scan another invite. Data already on this phone is kept.")
+            .setPositiveButton("Use another invite") { _, _ -> forget() }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     /** Bands and bar icons follow the page, or the theme while a native screen is up. */
@@ -413,6 +444,8 @@ class MainActivity : Activity() {
         )
         updateBack()
     }
+
+    private val Int.dp get() = (this * resources.displayMetrics.density).toInt()
 
     private fun isLight(c: Int) = Color.luminance(c) > 0.5f
 
@@ -494,6 +527,8 @@ class MainActivity : Activity() {
     private companion object {
         /** The page-facing bridge global, window.wgNative — med-nt9p.6 and .19 detect the Android shell by it. */
         const val BRIDGE = "wgNative"
+        /** One fixed line, so the page margin never disagrees with the bar. */
+        const val CEREMONY_BAR_DP = 44
         const val HOST_KEY = "accountHost"
         const val ACTION_SWITCH = "com.example.medtracker.SWITCH_ACCOUNT"
         /** --wg-bg-screen: the bands' colour until the page reports its own. */

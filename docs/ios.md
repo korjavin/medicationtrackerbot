@@ -526,6 +526,15 @@ changes for it.
 - **Switch account:** iOS Settings → Med Tracker → *Switch account*, then return
   to the app; also on the load-error screen. Website data is per origin and is
   kept, so switching back still finds offline data and warm unlock.
+- **Use another invite** (bd med-w6gx.21): while the committed page is a
+  ceremony (`/unlock`, `/claim`, `/recover` — `AccountURL.isCeremony`), a
+  native bar under the page offers "Not your account? Use another invite";
+  after a confirmation it does Switch account. An invalid, expired or
+  already-claimed invite otherwise leaves no way back (the host is stored the
+  moment the link parses, so relaunch reopens `/unlock`). The bar is passive:
+  a returning user unlocks as before. Coming from local mode (Move to a cloud
+  account), the user picks "Only on this device" again to return; its data
+  is kept.
 - **Chrome:** the page sits inside the safe area; the status-bar and
   home-indicator bands take the page's own background colour at its top and
   bottom edge (a page script reports it), the status bar is light, and the page
@@ -581,6 +590,15 @@ a Web Push subscription.
    header does not scroll behind the status bar or an open sheet.
 6. Settings → Med Tracker → Switch account on → back in the app: first-run.
    Scan the Emergency Kit QR → the same account opens.
+   **Use another invite** (med-w6gx.21), no reinstall in any of these:
+   a. Fresh install → paste an already-claimed invite → the "already claimed"
+      page shows "Not your account? Use another invite" under it → tap →
+      confirm → first-run → scan a valid invite QR → claims.
+   b. Same with an expired or garbage `#claim=` token.
+   c. Kill and relaunch while stuck on `/unlock` → the bar is still there.
+   d. Local mode: Settings → Backup → Move to a cloud account → bad invite →
+      the bar → "Only on this device" → local data intact.
+   e. A returning user at `/unlock` ignores the bar and unlocks as before.
 7. Claiming in the app goes from the Emergency Kit (and Telegram, when
    offered) straight into the app: no "Add to your Home Screen" step.
 8. Settings → Notifications → Enable → iOS asks → Allow; Send test → a

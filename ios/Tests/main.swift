@@ -25,6 +25,20 @@ check("https://u:p@abc.app.example.com/", nil)
 check("https://abc.app.example.com:8443/", nil)
 check("javascript:alert(1)", nil)
 check("https://abc.app.example.com/", nil, base: "")
+for (u, want) in [("https://abc.app.example.com/unlock", true),
+                  ("https://abc.app.example.com/unlock#claim=TOKEN", true),
+                  ("https://ABC.app.example.com/claim?x=1#slot.tk", true),
+                  ("https://abc.app.example.com/recover#kit", true),
+                  ("https://abc.app.example.com/", false),
+                  ("https://abc.app.example.com/?tab=meds", false),
+                  ("https://abc.app.example.com/unlocked", false),
+                  ("https://app.example.com/unlock", false),
+                  ("https://evil.com/unlock", false),
+                  ("http://abc.app.example.com/unlock", false),
+                  ("wgapp://local/unlock", false)] {
+    precondition(AccountURL.isCeremony(URL(string: u), base: base) == want, "isCeremony \(u)")
+}
+precondition(!AccountURL.isCeremony(nil, base: base))
 print("AccountURL: ok")
 
 // LocalOrigin (bd med-o7zq.4): request routing, CSP, the bridge's host list.
