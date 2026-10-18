@@ -15,7 +15,7 @@
 // previous modal's data.
 //
 // Public surface:
-//   - PushModalState.openMedConfirm({ ids, names, scheduled, mode, intakeIds })
+//   - PushModalState.openMedConfirm({ ids, names, scheduled, mode, intakeIds, additive })
 //   - PushModalState.openWorkoutStart({ sessionId })
 //   - PushModalState.clear()
 //   - PushModalState.getMedConfirmIds()
