@@ -177,10 +177,16 @@ window.MedTrackerCloudReady = (async function boot() {
         // readAllLiveRecords bootstraps first, so a freshly claimed second
         // device sees the server's data, not a stale empty local store.
         async hasUserContent() {
-            const [{ readAllLiveRecords }, { hasUserContent }] = await Promise.all([
+            const [{ readAllLiveRecords, pullOnOpen, getSyncStatus }, { hasUserContent }] = await Promise.all([
                 import('/js/sync.js'),
                 import('/domain/vault.js'),
             ]);
+            // Bootstrap restores only the snapshot; pull the op tail too, and
+            // refuse a verdict (undefined → confirm shown) if we could not reach
+            // the server, since the account may hold data we have not seen.
+            await pullOnOpen(ctx);
+            const st = await getSyncStatus(ctx);
+            if (st.offline || st.authExpired) return undefined;
             return hasUserContent(await readAllLiveRecords(ctx));
         },
         async importAll(json) {
