@@ -2,7 +2,7 @@
 // med-o7zq): what local-boot.js injects into installApiShim in place of the
 // cloud's server-backed effects. In local mode nothing leaves the device except
 // calls to the providers the user configured with their own key (BYOK AI,
-// their own food DB). The iOS shell enforces that with its CSP (connect-src
+// their own food DB) and, only if the user turns it on, the trial AI. The iOS shell enforces that with its CSP (connect-src
 // 'self' + the hosts registered here, ios/App/LocalOrigin.swift); this module
 // makes the app stop asking for anything else:
 //
@@ -13,8 +13,12 @@
 //               rxnorm: null and a med save simply carries no rxcui.
 //   egress      BYOK hosts go to the shell (bridge op setEgressHosts), never
 //               to a server.
-//   trial AI, operator food DB: already off, since the bundled index.html
-//               carries no trial / food-DB meta (ios/bundle-web.sh).
+//   trial AI    off unless the user turns on the anonymous trial (bd
+//               med-o7zq.16): then, and only then, our server's base domain
+//               joins the shell's host list and local-trial.js signs each
+//               request with App Attest. The account trial's meta flag stays
+//               out of the bundle (ios/bundle-web.sh).
+//   food DB     the operator's is off: no food-DB meta in the bundle.
 //   UI          features that need our server carry .wg-cloud-only and hide
 //               under :root.wg-local-vault (styles.css), which local-boot.js
 //               sets before the body parses.
@@ -28,6 +32,8 @@ import { readAllLocalRecords, replaceAllRecords } from './sync.js';
 import { recordsToVault, vaultToRecords, managedTypesForImport } from '../../domain/vault.js';
 import { startHealthImport, runHealthImport, resetHealthAnchors } from './health-import.js';
 import { clearLocalVault } from './account-delete.js';
+import { setTrialTransport } from './aiclient.js';
+import { createLocalTrial } from './local-trial.js';
 
 // Settings → Notifications fires this on the document once iOS permission is
 // granted, so the schedule lands now instead of on the next open. settings.js
@@ -135,18 +141,69 @@ export function startLocalHealthImport({ ctx, records, win }) {
   });
 }
 
+// The shell's App Attest support (window.Attest, ios/App/Attest.swift):
+// { supported, base, attested }, or null where there is none (the web, the
+// Simulator, a stub, a locked shell).
+async function attestStatus(win) {
+  try {
+    if (win.Attest?.isSupported?.() !== true) return null;
+    const status = await win.Attest.status();
+    return status && status.supported === true && status.base ? status : null;
+  } catch {
+    return null;
+  }
+}
+
+// The anonymous trial AI (bd med-o7zq.16) this document's CSP admits: the
+// local-trial.js transport while it is on, else null. Set by
+// registerLocalEgress, read by LOCAL_VAULT.trial.
+let localTrial = null;
+let lastEgress = null;
+
+function useLocalTrial(base, attest, win) {
+  if (!base) {
+    localTrial = null;
+    setTrialTransport(null);
+    return;
+  }
+  if (localTrial && localTrial.base === base) return;
+  localTrial = createLocalTrial({
+    attest, base, fetchImpl: win.fetch.bind(win), storage: win.localStorage,
+  });
+  setTrialTransport(localTrial);
+}
+
 // registerLocalEgress is installApiShim's registerEgress in local mode: the
 // same BYOK hostnames the cloud PUTs to /api/egress-hosts, handed to the iOS
 // shell instead. The shell's reply says whether the stored list changed; the
 // new CSP applies on the next document load (local-boot.js reloads). Resolves
 // to { hosts, changed },
 // or null where there is no shell to tell (the web, tests).
+//
+// The trial AI's host — our server's base domain — joins the list only while
+// the user has it on (the `anon` trial consent: one switch in Settings → AI &
+// integrations for the AI and, later, the food database, bd med-o7zq.20) and
+// the shell supports App Attest. Off, the CSP admits no server of ours and
+// nothing here talks to one. The transport is installed
+// only once this document's CSP carries the host (no change pending a
+// reload), and a first enrollment runs then, so Settings can show the count.
 export async function registerLocalEgress({ settings, win }) {
   const native = win.LocalNotifications && win.LocalNotifications.__native;
   if (!native || native.platform !== 'ios') return null;
+  lastEgress = { settings, win };
   const hosts = hostsFromIntegrations(await settings.readIntegrationsUnmasked());
+  const attest = await attestStatus(win);
+  const trialOn = !!attest && (await settings.getTrialConsent())?.anon === true;
+  if (trialOn && !hosts.includes(attest.base)) hosts.push(attest.base);
   const reply = await native.call('setEgressHosts', { hosts });
-  return { hosts, changed: !!(reply && reply.changed) };
+  const changed = !!(reply && reply.changed);
+  if (!changed) {
+    useLocalTrial(trialOn ? attest.base : null, win.Attest, win);
+    if (trialOn && !attest.attested && !localTrial.state()) {
+      localTrial.enroll().catch((e) => console.warn('[local] trial enrollment failed', e));
+    }
+  }
+  return { hosts, changed };
 }
 
 // Export reminder (bd med-o7zq.5): the on-device store is the user's only
@@ -226,6 +283,21 @@ export const LOCAL_VAULT = {
     const native = win.LocalNotifications && win.LocalNotifications.__native;
     if (!native || native.platform !== 'ios') throw new Error('Open the app on your iPhone to use an invite.');
     await native.call('local.leave');
+  },
+  // Settings → AI & integrations → the free trial row (bd med-o7zq.16).
+  trial: {
+    // null where there is no App Attest (the web, the Simulator, old
+    // devices): the row stays hidden. Else { on, remaining?, daily?, used? }.
+    async status({ win = globalThis.window } = {}) {
+      if (!(await attestStatus(win))) return null;
+      return { on: !!localTrial, ...(localTrial ? localTrial.state() : {}) };
+    },
+    // After Settings changed the `anon` trial consent: hand the shell the new
+    // host list, and reload when the CSP has to change with it.
+    async apply({ win = globalThis.window } = {}) {
+      const res = lastEgress ? await registerLocalEgress(lastEgress) : null;
+      if (res && res.changed) win.location.reload();
+    },
   },
   // The last device schedule outcome (keepLocalRemindersFresh), null before
   // the first: Settings → Notifications reads it with the iOS permission.

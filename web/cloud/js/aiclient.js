@@ -41,6 +41,16 @@ function trialLimitError() {
 // `scope` says whose budget ran out — the account's own share, or the operator's
 // pool across everyone.
 function trialBudgetError(scope) {
+  // Local mode's anonymous trial (bd med-o7zq.16): an install's lifetime
+  // allowance (`install`) never comes back; its daily one (`install-day`) does.
+  if (scope === 'install' || scope === 'install-day') {
+    const err = new Error(scope === 'install'
+      ? "You've used all your free trial AI requests — add your own OpenAI key in Settings → AI & integrations to keep going."
+      : "You've used today's free trial AI requests — they reset tomorrow, or add your own OpenAI key in Settings → AI & integrations to keep going now.");
+    err.code = 'trial_budget_exhausted';
+    err.scope = scope;
+    return err;
+  }
   const whose = scope === 'global'
     ? "The shared AI budget for this server is used up for today"
     : "You've used your AI allowance for today";
@@ -58,6 +68,14 @@ function trialBudgetUnavailableError() {
   return err;
 }
 
+// Local mode's anonymous trial: Apple's DeviceCheck says this iPhone already
+// had its trial (an earlier install of the app). Reinstalling does not reset it.
+function trialAlreadyUsedError() {
+  const err = new Error('This iPhone has already used its free trial AI — add your own OpenAI key in Settings → AI & integrations to keep going.');
+  err.code = 'trial_already_used';
+  return err;
+}
+
 // Skipping key setup is not consent (bd med-yor.2): trial transmission is
 // refused until the user explicitly allowed the scope in the trialconsent
 // vault record. Interactive UI paths catch this code and run the disclosure
@@ -69,7 +87,24 @@ function trialConsentRequiredError(scope) {
   return err;
 }
 
+// Local mode's anonymous trial (bd med-o7zq.16): local-policy.js installs a
+// transport ({ post(trialPath, init) → Response }, web/cloud/js/local-trial.js)
+// when the user turned the trial on; it signs each request with App Attest and
+// sends it to our server's base-domain attest route. Unset everywhere else, so
+// the cloud path below (meta tag, same-origin fetch) is unchanged.
+let trialTransport = null;
+
+export function setTrialTransport(transport) {
+  trialTransport = transport || null;
+}
+
+// The fetch the trial paths use: the installed transport, else the page's own.
+function trialFetch(endpoint, init) {
+  return trialTransport ? trialTransport.post(endpoint, init) : fetch(endpoint, init);
+}
+
 function trialAIAvailable() {
+  if (trialTransport) return true;
   if (typeof document === 'undefined') return false;
   return document.querySelector('meta[name="medtracker-trial-ai"]')?.content === '1';
 }
@@ -184,7 +219,7 @@ async function fetchModelIds(base, apiKey) {
   return ids;
 }
 
-async function postChatCompletion(endpoint, apiKey, body) {
+async function postChatCompletion(endpoint, apiKey, body, send = fetch) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   let res;
@@ -192,7 +227,7 @@ async function postChatCompletion(endpoint, apiKey, body) {
   try {
     const headers = { 'Content-Type': 'application/json' };
     if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-    res = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal });
+    res = await send(endpoint, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal });
     text = await res.text();
   } finally {
     clearTimeout(timer);
@@ -216,7 +251,7 @@ async function postChatCompletion(endpoint, apiKey, body) {
 // assistant message OBJECT (content + tool_calls) verbatim instead of
 // JSON-parsing the content, because a tool-calling turn may carry tool_calls and
 // no content at all (bd med-vcv.2). Same fetch + error contract.
-async function postChatRaw(endpoint, apiKey, body) {
+async function postChatRaw(endpoint, apiKey, body, send = fetch) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   let res;
@@ -224,7 +259,7 @@ async function postChatRaw(endpoint, apiKey, body) {
   try {
     const headers = { 'Content-Type': 'application/json' };
     if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-    res = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal });
+    res = await send(endpoint, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal });
     text = await res.text();
   } finally {
     clearTimeout(timer);
@@ -327,7 +362,8 @@ function mapTrialError(err) {
   if (code === 'trial_not_configured') return noKeyError();
   if (code === 'trial_rate_limit') return trialLimitError();
   if (code === 'trial_budget_exhausted') return trialBudgetError(scope);
-  if (code === 'trial_budget_unavailable') return trialBudgetUnavailableError();
+  if (code === 'trial_budget_unavailable' || code === 'trial_unavailable') return trialBudgetUnavailableError();
+  if (code === 'trial_already_used') return trialAlreadyUsedError();
   if (err.status) {
     // response_format_unsupported is a handled case — the caller retries
     // without response_format and usually recovers, so don't surface a red
@@ -348,7 +384,7 @@ function mapTrialError(err) {
 async function postTrialChatCompletion(vision, body) {
   const { model: _serverForced, ...rest } = body;
   try {
-    return await postChatCompletion(`/api/trial/openai/chat/completions${vision ? '?vision=1' : ''}`, '', rest);
+    return await postChatCompletion(`/api/trial/openai/chat/completions${vision ? '?vision=1' : ''}`, '', rest, trialFetch);
   } catch (err) {
     throw mapTrialError(err);
   }
@@ -361,7 +397,7 @@ async function postTrialChatCompletion(vision, body) {
 async function postTrialChatRaw(body) {
   const { model: _serverForced, ...rest } = body;
   try {
-    return await postChatRaw('/api/trial/openai/chat/completions', '', rest);
+    return await postChatRaw('/api/trial/openai/chat/completions', '', rest, trialFetch);
   } catch (err) {
     throw mapTrialError(err);
   }
@@ -437,7 +473,11 @@ export function createAIClient({ settingsDomain }) {
   // Only a literal `true` passes — null (never asked), false (declined), or a
   // missing record all refuse before any trial transmission. BYO calls never
   // reach this (useTrial is false), so consent is never even read.
-  async function ensureTrialConsent(scope) {
+  // Local mode's anonymous trial has one switch, the `anon` scope, and it
+  // covers meal parsing only: Telegram, the narrator and voice (`tg`, `voice`)
+  // are not offered there, so their scopes never pass.
+  async function ensureTrialConsent(requested) {
+    const scope = trialTransport && requested === 'ai' ? 'anon' : requested;
     const consent = await settingsDomain.getTrialConsent();
     if (!consent || consent[scope] !== true) throw trialConsentRequiredError(scope);
   }
@@ -685,7 +725,8 @@ export function createAIClient({ settingsDomain }) {
   async function chatStream({ body, signal, onChunk }) {
     const { text } = await credentials();
     const useTrial = !text.apiKey;
-    if (useTrial && !trialAIAvailable()) throw noKeyError();
+    // The attest route answers no stream (stream_unsupported): no voice trial in local mode.
+    if (useTrial && (trialTransport || !trialAIAvailable())) throw noKeyError();
     if (useTrial) await ensureTrialConsent('voice');
     // ElevenLabs-only fields an OpenAI-compatible provider may 400 on; the
     // rest of the request goes through untouched.
@@ -727,7 +768,7 @@ export function createAIClient({ settingsDomain }) {
   // instead of failing the first relayed turn.
   async function usesTrial() {
     const { text } = await credentials();
-    return !text.apiKey && trialAIAvailable();
+    return !text.apiKey && !trialTransport && trialAIAvailable();
   }
 
   return { parseMealFromDescription, parseActivityFromDescription, parseMealFromImage, parseWorkoutSheetImage, classifyExercises, chat, chatStream, usesTrial, listModels };

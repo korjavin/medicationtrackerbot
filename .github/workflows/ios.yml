@@ -178,6 +178,12 @@ jobs:
             CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
             WG_BASE_DOMAIN="${CLOUD_BASE_DOMAIN}" | tail -n 50
           test "${PIPESTATUS[0]}" -eq 0
+          # App Attest (bd med-o7zq.16): the signed app must carry it, or the
+          # anonymous trial fails on device only.
+          codesign -d --entitlements - --xml build/MedTracker.xcarchive/Products/Applications/MedTracker.app \
+            | grep -q 'com.apple.developer.devicecheck.appattest-environment' \
+            || { echo "::error::the signed app lacks the App Attest entitlement (App ID capability / profile)"; exit 1; }
+          echo "App Attest entitlement present"
           OPTS="$RUNNER_TEMP/ExportOptions.plist"
           cp ExportOptions.plist "$OPTS"
           /usr/libexec/PlistBuddy -c "Add :teamID string $IOS_TEAM_ID" \

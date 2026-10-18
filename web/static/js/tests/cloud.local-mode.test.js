@@ -729,3 +729,105 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         expect(replace).toHaveBeenCalledWith('/');
     });
 });
+
+// bd med-o7zq.16 — the anonymous trial is one opt-in switch (the `anon` trial
+// consent). Off, our server's base domain is not in the shell's CSP host list
+// and nothing calls it; on, it is, and aiclient gets the attest transport.
+describe('local-only mode anonymous trial opt-in (med-o7zq.16)', () => {
+    const TRIAL_BASE = 'trial-base.example.test';
+    let env;
+    let fetched;
+    let bridge;
+
+    beforeEach(async () => {
+        await deleteDb();
+        fetched = [];
+        const recorder = vi.fn(async (url) => {
+            fetched.push(String(url));
+            return createMockResponse({ status: 503, json: {} });
+        });
+        vi.stubGlobal('fetch', recorder);
+        env = loadFrontendEnv();
+        env.window.fetch = recorder;
+        // The shell: setEgressHosts {hosts} → {changed} (Shell.swift); no
+        // device reminders here. window.Attest is native/attest.js's ios impl,
+        // answered by ios/App/Attest.swift; an attested key, so no enrollment
+        // runs at boot.
+        bridge = vi.fn(async (op) => (op === 'setEgressHosts' ? { changed: false } : null));
+        const notifications = { isSupported: () => false, __native: { platform: 'ios', call: bridge } };
+        env.window.LocalNotifications = notifications;
+        vi.stubGlobal('LocalNotifications', notifications);
+        env.window.Attest = {
+            isSupported: () => true,
+            status: vi.fn(async () => ({ supported: true, base: TRIAL_BASE, attested: true })),
+            enroll: vi.fn(),
+            assert: vi.fn(),
+        };
+        const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
+        run(env.window, (spec) => MODULES[spec]());
+        await env.window.MedTrackerCloudReady;
+        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] }));
+    });
+
+    afterEach(async () => {
+        const { setTrialTransport } = await import('../../../cloud/js/aiclient.js');
+        setTrialTransport(null);
+        env.cleanup();
+        vi.unstubAllGlobals();
+    });
+
+    const toBase = () => fetched.filter((u) => /^https?:/.test(u) && new URL(u).hostname === TRIAL_BASE);
+
+    it('off by default: the base domain is absent from the host list and never called', async () => {
+        const { window } = env;
+        expect(await window.CloudVault.trial.status()).toEqual({ on: false });
+        for (const [op, args] of bridge.mock.calls) {
+            if (op === 'setEgressHosts') expect(args.hosts).not.toContain(TRIAL_BASE);
+        }
+        // Without a key or the trial, meal parsing asks for a key, sends nothing.
+        await expect(window.CloudFoodAI.parseMealFromDescription('two eggs')).rejects.toMatchObject({ code: 'no_api_key' });
+        expect(toBase()).toEqual([]);
+        expect(window.Attest.enroll).not.toHaveBeenCalled();
+    });
+
+    it('the Settings switch runs the local consent, adds the base domain, and turning it off removes it', async () => {
+        const { window, document } = env;
+        await window.SettingsIntegrations._renderLocalTrial();
+        const section = document.getElementById('integrations-local-trial');
+        expect(section.classList.contains('hidden')).toBe(false);
+        expect(document.getElementById('integrations-local-trial-toggle').checked).toBe(false);
+
+        const turningOn = window.SettingsIntegrations._setLocalTrial(true);
+        const modal = await vi.waitFor(() => {
+            const el = document.querySelector('.wg-trial-consent-modal[data-trial-consent-scope="anon"]');
+            expect(el).not.toBeNull();
+            return el;
+        });
+        // Local copy: through our server, what it keeps, per install, reinstall forfeits.
+        expect(modal.textContent).toMatch(/through our server/i);
+        expect(modal.textContent).toMatch(/App Attest/);
+        expect(modal.textContent).toMatch(/per install/i);
+        expect(modal.textContent).toMatch(/reinstalling the app gives up the rest/i);
+        modal.querySelector('[data-trial-consent-choice="allow"]').click();
+        await turningOn;
+
+        expect((await window.apiCall('/api/settings/trial-consent')).anon).toBe(true);
+        expect(bridge).toHaveBeenLastCalledWith('setEgressHosts', { hosts: [TRIAL_BASE] });
+        expect(await window.CloudVault.trial.status()).toMatchObject({ on: true });
+        expect(document.getElementById('integrations-local-trial-toggle').checked).toBe(true);
+
+        await window.SettingsIntegrations._setLocalTrial(false);
+        expect((await window.apiCall('/api/settings/trial-consent')).anon).toBe(false);
+        expect(bridge).toHaveBeenLastCalledWith('setEgressHosts', { hosts: [] });
+        expect(await window.CloudVault.trial.status()).toEqual({ on: false });
+        expect(toBase()).toEqual([]);
+    });
+
+    it('stays hidden where the shell has no App Attest (the Simulator)', async () => {
+        const { window, document } = env;
+        window.Attest.status = vi.fn(async () => ({ supported: false, base: TRIAL_BASE, attested: false }));
+        expect(await window.CloudVault.trial.status()).toBeNull();
+        await window.SettingsIntegrations._renderLocalTrial();
+        expect(document.getElementById('integrations-local-trial').classList.contains('hidden')).toBe(true);
+    });
+});

@@ -164,6 +164,7 @@ register themselves at script-load time and replace the stub.
 | `window.Bluetooth` | Web Bluetooth heart rate (HR slice) | `navigator.bluetooth` GATT + 0x2A37 parse (med-byks.1) |
 | `window.LocalNotifications` | Device-scheduled notifications (`isSupported`; ios: `permission`, `requestPermission`, `schedule` replace-all, `test`) | web: unsupported; ios: the app shell (`native/local-notifications.js`; reminders hand-off, [docs/ios.md](ios.md#reminders-as-local-notifications-bd-med-w6gx5)) |
 | `window.Health` | Apple Health read (`isSupported`; ios adds `requestAuthorization`, `query` — see `native/health.js`) | web: unsupported; ios: the app shell (`native/health.js`) |
+| `window.Attest` | App Attest + DeviceCheck for local mode's anonymous trial AI (`isSupported`; ios adds `status`, `enroll`, `assert` — see `native/attest.js`; only caller `web/cloud/js/local-trial.js`) | web: unsupported; ios: the app shell, local mode only (`native/attest.js`, `ios/App/Attest.swift`) |
 
 **Platforms** — `native/index.js` is the only place that decides the platform
 (`__native.platform`): `'ios'` when the iOS app shell's `wgNative` reply handler

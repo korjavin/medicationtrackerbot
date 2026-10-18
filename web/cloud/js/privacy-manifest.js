@@ -764,7 +764,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in',
     activationNote: 'you add a provider key in Settings → AI & integrations; its host name is handed to the app shell for the CSP, never to a server',
     byo: 'The only kind there is in this mode',
-    evidence: ['web/cloud/js/local-policy.js:71', 'ios/App/LocalOrigin.swift:38'],
+    evidence: ['web/cloud/js/local-policy.js:190', 'ios/App/LocalOrigin.swift:38'],
     code: { go: [], hosts: [] },
     docSignal: null,
     userCopy: {
@@ -789,7 +789,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in-consent',
     activationNote: 'you turn on the trial in Settings → AI & integrations and accept the trial consent; off by default, and off means no request to our server at all',
     byo: 'Add your own AI key and requests go phone-direct to your provider, never through the operator',
-    evidence: ['internal/cloudserver/attest.go:334', 'internal/appattest/devicecheck.go:65'],
+    evidence: ['web/cloud/js/local-policy.js:197', 'web/cloud/js/local-trial.js:87', 'ios/App/Attest.swift:67', 'internal/cloudserver/attest.go:334', 'internal/appattest/devicecheck.go:65'],
     code: { go: ['internal/cloudserver/attest.go'], hosts: ['api.devicecheck.apple.com'] },
     docSignal: null,
     userCopy: {

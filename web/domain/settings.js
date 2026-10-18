@@ -46,14 +46,16 @@ const TG_PREFS_TYPE = 'tgprefs';
 const TG_PREFS_RECORD_ID = 'tgprefs';
 const TG_PREFS_MAX_CHARS = 4096;
 // Explicit durable consent for the operator's trial AI/voice providers
-// (bd med-yor.2). Three independent scopes; null = never asked, and only a
+// (bd med-yor.2). Independent scopes — `anon` (bd med-o7zq.16) is iOS local
+// mode's one switch for the anonymous trial services through our server (the
+// AI now, the operator's food database later); null = never asked, and only a
 // literal `true` passes the client-side trial gate — skipping key setup is
 // not consent. Deliberately NOT in vault.js's VAULT_MANAGED_TYPES: like `nk`
 // and `voiceprovisioning` it survives import untouched, so consent never
 // travels in backups (a fresh account asks fresh consent).
 const TRIALCONSENT_RECORD_TYPE = 'trialconsent';
 const TRIALCONSENT_RECORD_ID = 'trialconsent';
-const TRIALCONSENT_SCOPES = ['ai', 'voice', 'tg'];
+const TRIALCONSENT_SCOPES = ['ai', 'voice', 'tg', 'anon'];
 
 // SECRET_MASK mirrors secretMask in settings_integrations_handlers.go: GET
 // returns this sentinel for non-empty secret fields (never the raw key), and
@@ -319,7 +321,7 @@ export function createSettingsDomain({ records, now, timeZone }) {
   // getTrialConsent / setTrialConsent back the trial-provider consent gate:
   // aiclient.js / elevenlabs-call.js refuse trial transmission unless the
   // relevant scope reads exactly `true`. setTrialConsent merges a partial
-  // {ai?, voice?, tg?} of booleans over the existing record — non-boolean
+  // {ai?, voice?, tg?, anon?} of booleans over the existing record — non-boolean
   // values are ignored, so a malformed patch can never widen consent.
   async function getTrialConsent() {
     const all = await records.list(TRIALCONSENT_RECORD_TYPE);
