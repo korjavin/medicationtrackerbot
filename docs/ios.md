@@ -694,15 +694,23 @@ med-w6gx.2 results above were on `https` origins and do not carry over.
    few hours, open the diagnostic: the launch history must still be there. Also
    iPhone Settings → General → iPhone Storage → Med Tracker → *Offload App*,
    reinstall from TestFlight, reopen: same check.
-7. **Backup flag (12), before step 5:** the native Report's `#12` line must
-   read `before=false set=true reverted=false (reverted == before)` — the
-   origin directory is left in the backup. `before=true` is the flag left
-   behind by the build-62 probe, and the probe keeps it on purpose: save the
-   reports so far (the update check 3 already counts), delete the app (it
-   holds only spike data), reinstall the same build from TestFlight and run
-   again from step 1. The fresh container has no flag, so `#12` then reads
-   `before=false`. Only `REVERT MISMATCH`, or `before=true` again on a fresh
-   install, is a stop-and-report: the backup → restore check is invalid.
+7. **Backup flag (12):** nothing to do on the device beyond opening the
+   diagnostic — the build clears the flag itself; the report carries the
+   result. Background (bd med-o7zq.11): on iOS WebKit excludes a *new* origin
+   directory from backup when it first writes the origin's `origin` file
+   (`NetworkStorageManager::writeOriginToFileIfNecessary`) and includes it
+   again only on a storage access 24 h later
+   (`includeOriginInBackupIfNecessary`, `defaultBackupExclusionPeriod`). Build
+   73 read `excluded=true` on a fresh install for that reason, not a build-62
+   leftover. A backup inside that window drops the origin's data, so local mode
+   must clear it (med-o7zq.4 carries this over). The spike, at diagnostic start
+   and on every native scan, sets `isExcludedFromBackup` back to false on the
+   origin dir and on any excluded parent up to `WebsiteData`, reads it back,
+   and appends each dir's first sighting per launch (`found=`, `cleared
+   ok`/`FAILED`) to a history file in Application Support. The Report's `#12`
+   lines are that history plus `#12 now:`; the page's #12 is PASS when nothing
+   is excluded now and no clear failed. A FAIL there makes the backup →
+   restore check (step 5) invalid.
 8. Paste the reports (Share or the native Report) into the bead; the table
    below is filled from them.
 
@@ -729,6 +737,6 @@ Pending a device run — nothing below has been observed yet.
 | 9 | BYOK fetch + CORS preflight to OpenAI / Anthropic; a successful request | auto + step 4 | pending device run |
 | 10 | Real backup → restore keeps IndexedDB | step 5 | pending device run |
 | 11 | Eviction under storage pressure / offload; `storage.persisted()` | step 6 | pending device run |
-| 12 | `isExcludedFromBackup` settable on the origin's data dir (set, read back, reverted to the value before; must end `false`) | auto (native) + step 7 | pending device run |
+| 12 | `isExcludedFromBackup` on the origin's data dir and parents: WebKit's exclusion of a new origin is cleared every launch; must read `false` now, per-launch history | auto (native) | pending device run |
 
 **Verdict:** pending device run.

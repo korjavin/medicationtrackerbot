@@ -11,7 +11,7 @@ import WebKit
 /// in the default website data store — a separate origin from any account —
 /// with the CSP sent as a response header. The page runs the checks; this
 /// side adds what only native can see (where WebKit put the origin's data,
-/// its file protection class, whether isExcludedFromBackup applies) and how
+/// its file protection class, its isExcludedFromBackup flag — cleared) and how
 /// the bridge sees the origin. No private WebKit API, no Service Worker.
 /// Procedure and results: docs/ios.md.
 @MainActor
@@ -47,6 +47,7 @@ final class LocalSpike: NSObject, ObservableObject, WKNavigationDelegate, WKScri
         config.allowsInlineMediaPlayback = true
         config.setURLSchemeHandler(self, forURLScheme: scheme)
         config.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: "wgSpike")
+        guardBackupFlag("launch start") // before the page touches storage
         let view = WKWebView(frame: .zero, configuration: config)
         view.isInspectable = true // Safari Web Inspector from a Mac
         view.navigationDelegate = self
@@ -200,66 +201,126 @@ final class LocalSpike: NSObject, ObservableObject, WKNavigationDelegate, WKScri
         return redact(out.joined(separator: "\n"))
     }
 
-    /// Checks 7 and 12: every IndexedDB directory under Library (Caches
-    /// included — that is not backed up), this origin's directory, and whether
-    /// isExcludedFromBackup can be set on it (set, read back, reverted: the
-    /// backup → restore run needs it included).
-    private func dataScan() -> [String] {
-        let fm = FileManager.default
-        guard let library = fm.urls(for: .libraryDirectory, in: .userDomainMask).first,
-              let walk = fm.enumerator(at: library, includingPropertiesForKeys: nil) else {
-            return ["#7 cannot enumerate Library"]
-        }
-        var lines = ["#7 IndexedDB dirs (path · dir protection · file: protection · excludedFromBackup · bytes):"]
+    /// This origin's data directories: salted-hash layout (<dir>/origin names
+    /// the origin) or the legacy <scheme>_<host>_<port> one.
+    private func originDirs() -> [URL] {
+        guard let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first,
+              let walk = FileManager.default.enumerator(at: library, includingPropertiesForKeys: nil) else { return [] }
         var ours: [URL] = []
         let schemeBytes = Data(scheme.utf8), hostBytes = Data("local".utf8)
         for case let url as URL in walk {
             let name = url.lastPathComponent
-            if name == "IndexedDB" {
-                lines.append("  " + describe(url))
-            } else if name == "origin", let d = try? Data(contentsOf: url),
-                      d.range(of: schemeBytes) != nil, d.range(of: hostBytes) != nil {
-                ours.append(url.deletingLastPathComponent()) // salted-hash layout: <dir>/origin names the origin
+            if name == "origin", let d = try? Data(contentsOf: url),
+               d.range(of: schemeBytes) != nil, d.range(of: hostBytes) != nil {
+                ours.append(url.deletingLastPathComponent())
             } else if name.hasPrefix("\(scheme)_local") {
-                ours.append(url) // legacy layout: <scheme>_<host>_<port>
+                ours.append(url)
             }
         }
-        if ours.isEmpty { lines.append("#7 our origin dir: not found (the page has not written yet? reopen Report)") }
-        for dir in ours {
-            lines.append("#7 our origin dir: " + describe(dir))
-            lines.append("#12 " + relative(dir) + ": " + excludeFromBackupProbe(dir))
-        }
-        return lines
+        return ours
     }
 
-    /// Sets the flag, reads it back, then restores the value read before the
-    /// test (on build 62 the revert did not stick: a later launch read
-    /// before=true). Every read and write uses a fresh URL, so no cached
-    /// resource value can stand in for the file system.
-    private func excludeFromBackupProbe(_ dir: URL) -> String {
-        func flag() -> Bool? {
-            let fresh = URL(fileURLWithPath: dir.path) // no cached resource values
-            return (try? fresh.resourceValues(forKeys: [.isExcludedFromBackupKey]))?.isExcludedFromBackup
+    /// Checks 7 and 12: every IndexedDB directory under Library (Caches
+    /// included — that is not backed up), this origin's directory, and the
+    /// backup-flag history.
+    private func dataScan() -> [String] {
+        guard let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first,
+              let walk = FileManager.default.enumerator(at: library, includingPropertiesForKeys: nil) else {
+            return ["#7 cannot enumerate Library"]
         }
-        func write(_ value: Bool) throws {
-            var fresh = URL(fileURLWithPath: dir.path)
-            var values = URLResourceValues()
-            values.isExcludedFromBackup = value
-            try fresh.setResourceValues(values)
+        guardBackupFlag("page scan") // first: the history keeps the value WebKit left
+        var lines = ["#7 IndexedDB dirs (path · dir protection · file: protection · excludedFromBackup · bytes):"]
+        for case let url as URL in walk where url.lastPathComponent == "IndexedDB" {
+            lines.append("  " + describe(url))
         }
-        func show(_ v: Bool?) -> String { v.map { "\($0)" } ?? "unreadable" }
-        guard let before = flag() else { return "before=unreadable, probe skipped" }
-        do {
-            try write(true)
-            let set = flag()
-            try write(before)
-            let reverted = flag()
-            return "before=\(before) set=\(show(set)) reverted=\(show(reverted)) "
-                + (reverted == before ? "(reverted == before)" : "REVERT MISMATCH")
-        } catch {
-            try? write(before)
-            return "before=\(before) setResourceValues FAILED: \(error.localizedDescription); reverted=\(show(flag()))"
+        let ours = originDirs()
+        if ours.isEmpty { lines.append("#7 our origin dir: not found (the page has not written yet? reopen Report)") }
+        for dir in ours { lines.append("#7 our origin dir: " + describe(dir)) }
+        return lines + backupFlagReport(ours)
+    }
+
+    // MARK: check 12 — isExcludedFromBackup on the origin's data dir
+
+    /// Root cause (bd med-o7zq.11): on iOS WebKit itself excludes a new
+    /// origin's directory from backup when it first writes the `origin` file
+    /// (NetworkStorageManager::writeOriginToFileIfNecessary) and includes it
+    /// again only on a storage access 24 h later
+    /// (includeOriginInBackupIfNecessary, defaultBackupExclusionPeriod). A
+    /// backup in that window drops the data. So at launch and on every scan an
+    /// excluded dir of ours (or a parent up to WebsiteData) is set back to
+    /// false. Each dir's first sighting per launch, and every clear, goes to a
+    /// history file in Application Support that outlives the launch.
+    private static var seen: Set<String> = []
+    private static let history = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+        .appendingPathComponent("wg-spike-backup-flag.log")
+
+    /// The origin dir, then its parents up to and including WebsiteData.
+    private func flagChain(_ dir: URL) -> [URL] {
+        var chain = [dir]
+        var d = dir
+        while !["WebsiteData", "Library"].contains(d.lastPathComponent), d.pathComponents.count > 2 {
+            d = d.deletingLastPathComponent()
+            chain.append(d)
         }
+        return chain
+    }
+
+    private static func excluded(_ dir: URL) -> Bool? {
+        let fresh = URL(fileURLWithPath: dir.path) // no cached resource values
+        return (try? fresh.resourceValues(forKeys: [.isExcludedFromBackupKey]))?.isExcludedFromBackup
+    }
+
+    private func label(_ dir: URL, _ origin: URL) -> String {
+        dir == origin ? "origin" : relative(dir).replacingOccurrences(of: "~/Library/WebKit/", with: "")
+    }
+
+    private func guardBackupFlag(_ stage: String) {
+        var parts: [String] = []
+        let ours = originDirs()
+        for origin in ours {
+            for dir in flagChain(origin) {
+                let found = LocalSpike.excluded(dir)
+                let first = LocalSpike.seen.insert(dir.path).inserted
+                guard first || found != false else { continue }
+                var part = "\(label(dir, origin)) found=\(found.map { "\($0)" } ?? "unreadable")"
+                if found == true {
+                    do {
+                        var fresh = URL(fileURLWithPath: dir.path)
+                        var values = URLResourceValues()
+                        values.isExcludedFromBackup = false
+                        try fresh.setResourceValues(values)
+                        part += LocalSpike.excluded(dir) == false ? " cleared ok" : " cleared FAILED (still excluded)"
+                    } catch {
+                        part += " cleared FAILED (\(error.localizedDescription))"
+                    }
+                }
+                parts.append(part)
+            }
+        }
+        if ours.isEmpty, LocalSpike.seen.insert("none " + stage).inserted { parts.append("origin dir not created yet") }
+        guard !parts.isEmpty, let file = LocalSpike.history else { return }
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        let line = "\(Date().ISO8601Format()) build \(build) launch \(launch) \(stage): " + parts.joined(separator: "; ") + "\n"
+        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let h = try? FileHandle(forWritingTo: file) {
+            _ = try? h.seekToEnd()
+            try? h.write(contentsOf: Data(line.utf8))
+            try? h.close()
+        } else {
+            try? Data(line.utf8).write(to: file)
+        }
+    }
+
+    /// The history (last 40 lines) and the flag as it reads now; the page
+    /// grades #12 from the "#12 now:" line and any "cleared FAILED".
+    private func backupFlagReport(_ ours: [URL]) -> [String] {
+        let text = LocalSpike.history.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+        let past = text.split(separator: "\n").suffix(40).map { "  " + $0 }
+        let now = ours.flatMap { o in
+            flagChain(o).map { "\(label($0, o)) excluded=\(LocalSpike.excluded($0).map { "\($0)" } ?? "unreadable")" }
+        }
+        return ["#12 backup-flag history (each launch: found = flag at first sighting; cleared ok/FAILED):"] + past
+            + ["#12 now: " + (now.isEmpty ? "origin dir not found" : now.joined(separator: "; "))]
     }
 
     private func describe(_ dir: URL) -> String {
