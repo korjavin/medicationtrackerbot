@@ -38,6 +38,7 @@
     max-width: var(--wg-modal-max-w-compact);
     max-height: 85vh;
     overflow-y: auto;
+    overscroll-behavior: contain;
     z-index: var(--z-confirm);
     font-family: var(--wg-font-ui);
     color: var(--wg-fg-1);

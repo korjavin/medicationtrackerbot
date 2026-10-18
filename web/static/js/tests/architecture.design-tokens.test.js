@@ -1429,4 +1429,14 @@ describe('Architecture – Wandergeek tokens', () => {
         expect(tokenValue('--wg-card-pad')).toBe('14px');
         expect(tokenValue('--wg-section-label-pad-top')).toBe('18px');
     });
+
+    it('locks document scroll while a modal is open (med-o7zq.18)', () => {
+        const css = fs.readFileSync(CSS_PATH, 'utf8');
+        const lock = /body:has\(#modal-overlay:not\(\.hidden\)\),\s*body:has\(mt-modal:not\(\.hidden\)\)\s*\{([^}]*)\}/.exec(css);
+        expect(lock).not.toBeNull();
+        expect(lock[1]).toContain('overflow: hidden');
+        expect(lock[1]).toContain('touch-action: pinch-zoom');
+        const kit = fs.readFileSync(path.join(REPO_ROOT, 'web/static/css/components.css'), 'utf8');
+        expect(/\.wg-sheet__body\{[^}]*overscroll-behavior:contain/.test(kit)).toBe(true);
+    });
 });
