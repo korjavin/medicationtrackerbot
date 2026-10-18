@@ -19,7 +19,6 @@ import android.print.PrintDocumentAdapter
 import android.print.PrintManager
 import android.provider.MediaStore
 import android.util.Base64
-import android.webkit.CookieManager
 import android.webkit.MimeTypeMap
 import android.webkit.PermissionRequest
 import android.webkit.URLUtil
@@ -87,10 +86,13 @@ class Files(private val activity: Activity, private val accountHost: () -> Strin
 
     // MARK: downloads
 
-    /** https attachments: the system download manager; cookies only to the account host. blob:/data: come through files.js. */
+    /**
+     * https attachments: the system download manager, never with the WebView's
+     * cookies (it re-sends request headers across redirects, to any host).
+     * blob:/data: come through files.js.
+     */
     private fun download(url: String, ua: String?, disposition: String?, mime: String?) {
-        val rule = AccountUrl.download(url, accountHost())
-        if (rule == AccountUrl.Download.REFUSE) {
+        if (!AccountUrl.isDownloadable(url)) {
             if (url.startsWith("http:", ignoreCase = true)) toast("This download isn't secure, so it was blocked.")
             return
         }
@@ -100,9 +102,6 @@ class Files(private val activity: Activity, private val accountHost: () -> Strin
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, URLUtil.guessFileName(url, disposition, mime))
         ua?.let { req.addRequestHeader("User-Agent", it) }
-        if (rule == AccountUrl.Download.WITH_COOKIES) {
-            CookieManager.getInstance().getCookie(url)?.let { req.addRequestHeader("Cookie", it) }
-        }
         runCatching { activity.getSystemService(DownloadManager::class.java).enqueue(req) }
             .onFailure { toast("The download could not start.") }
     }

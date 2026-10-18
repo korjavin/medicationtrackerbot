@@ -153,9 +153,10 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
   `cacheDir/downloads` and asks *Save to device* (`ACTION_CREATE_DOCUMENT`,
   temp file deleted after the copy) or *Share* (FileProvider; the file stays
   until the next download or launch — Android gives no "sheet closed" signal).
-  https attachments go to the system DownloadManager, with the WebView's
-  cookies only when the host is the account host itself; cleartext http is
-  refused (`AccountUrl.download`, unit-tested).
+  https attachments go to the system DownloadManager **without** the WebView's
+  cookies (DownloadManager re-sends request headers across redirects, to any
+  host); cleartext http is refused (`AccountUrl.isDownloadable`, unit-tested).
+  The app's own files are built in the page and take the blob path above.
   `window.print()` prints the page (`createPrintDocumentAdapter`); the
   offscreen-iframe print in `web/cloud/js/print-doc.js` sends the frame's
   document, which prints from its own offscreen WebView (no CSP, no script, no
