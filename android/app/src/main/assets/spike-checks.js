@@ -24,7 +24,7 @@ window.wgSpikeRun = (op, id, args) => {
   const tapThen = (label, fn) => new Promise((res, rej) => {
     const btn = document.createElement('button');
     btn.textContent = label;
-    btn.setAttribute('style', 'position:fixed;left:16px;right:16px;bottom:96px;z-index:2147483647;padding:16px;font-size:18px');
+    btn.style.cssText = 'position:fixed;left:16px;right:16px;bottom:96px;z-index:2147483647;padding:16px;font-size:18px'; // CSSOM, not a style attribute: page CSP is style-src 'self'
     btn.onclick = () => { btn.remove(); try { Promise.resolve(fn()).then(res, rej); } catch (e) { rej(e); } };
     document.body.appendChild(btn);
   });
@@ -70,6 +70,15 @@ window.wgSpikeRun = (op, id, args) => {
              keyFromEarlierRun, keyExtractable: key.extractable, keyUsable: back === 'spike' };
   };
 
+  const doGet = async () => {
+    const id = window.__wgSpikeCredId;
+    const a = await navigator.credentials.get({ publicKey: {
+      rpId: location.hostname, challenge: crypto.getRandomValues(new Uint8Array(32)),
+      userVerification: 'required', allowCredentials: id ? [{ type: 'public-key', id }] : [],
+      extensions: prfSalt() } });
+    return Object.assign({ ok: true, usedCreatedCredential: !!id }, prfBytes(a));
+  };
+
   const ops = {
     async checks() {
       const out = {};
@@ -113,13 +122,21 @@ window.wgSpikeRun = (op, id, args) => {
     }),
 
     // After a create in this page: asks for that credential; else a discoverable get.
-    get: () => tapThen('Spike: tap to get a passkey', async () => {
-      const id = window.__wgSpikeCredId;
-      const a = await navigator.credentials.get({ publicKey: {
-        rpId: location.hostname, challenge: crypto.getRandomValues(new Uint8Array(32)),
-        userVerification: 'required', allowCredentials: id ? [{ type: 'public-key', id }] : [],
-        extensions: prfSalt() } });
-      return Object.assign({ ok: true, usedCreatedCredential: !!id }, prfBytes(a));
+    // allowCredentials length is logged by spike-tap.js on every get.
+    get: () => tapThen('Spike: tap to get a passkey', () => doGet()),
+
+    // Same get, after a 120 s countdown (still a tap at the end: WebAuthn needs the gesture).
+    'get-wait': () => new Promise((res, rej) => {
+      const note = document.createElement('div');
+      note.style.cssText = 'position:fixed;left:16px;right:16px;bottom:160px;z-index:2147483647;padding:8px;background:#fff;color:#000';
+      document.body.appendChild(note);
+      let left = 120;
+      const t = setInterval(() => {
+        note.textContent = 'Spike: get button in ' + left + ' s';
+        if (left-- > 0) return;
+        clearInterval(t); note.remove();
+        tapThen('Spike: tap to get a passkey (waited 120 s)', () => doGet()).then(res, rej);
+      }, 1000);
     }),
 
     file: () => tapThen('Spike: tap to open the file chooser', () => new Promise((res) => {

@@ -197,6 +197,20 @@ and before any *Clear storage*, and paste it into the bead.
    *Open* → unlock with the passkey made in Chrome. Expect
    `tap webauthn.get … ok:true, prfFirst:true` and the vault's data.
 
+**Step 2b: read the retry lines (med-nt9p.18).** If the claim's immediate PRF
+probe `get` fails `NotReadableError`, the spike now retries it after 1, 3, 8,
+20 and 45 s (about 77 s) and the claim completes on the first success. In the
+report, read the `webauthn.get.first` line and each `webauthn.get.retry` line
+(`attempt`, `delayMs`, `ok`, `error` or `prfFirst`, `allowCredentials`).
+Record the first `delayMs` with `ok:true`: that is the propagation delay. All
+five failing with `allowCredentials:1` points to allowCredentials never
+working in FOR_APP mode, not a delay.
+
+**Step 3b: long-delay get.** After step 3's create, tap *Passkey get after 120 s*,
+wait for the countdown, tap the page button. Compare with step 3's immediate
+get: both log `webauthn.get … allowCredentials:1`. Immediate fail and 120 s
+pass means delay; both fail means allowCredentials in FOR_APP mode.
+
 ### GO / NO-GO criteria
 
 | # | Check | GO when | On failure |
