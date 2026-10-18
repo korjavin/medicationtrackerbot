@@ -82,9 +82,12 @@ precondition(lock.activate(local: true, setting: true) == nil, "no prompt loop a
 attempt = lock.begin()!
 precondition(lock.begin() == nil, "one prompt at a time")
 lock.background()
-lock.finish(attempt, .ok, setting: true)
-precondition(lock.holds(local: true), "a prompt from before the background must not unlock")
+let stale = attempt
 attempt = lock.activate(local: true, setting: true)!
+lock.finish(stale, .failed, setting: true)
+precondition(lock.state == .unlocking, "a prompt from before the background must not end the current one")
+lock.finish(stale, .ok, setting: true)
+precondition(lock.state == .unlocking, "a prompt from before the background must not unlock")
 lock.finish(attempt, .ok, setting: true)
 precondition(!lock.holds(local: true), "unlocked")
 lock.background()

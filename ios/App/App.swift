@@ -225,9 +225,10 @@ struct LocalIntroView: View {
                 error = nil
                 shell.openLocal()
             } else {
-                error = lock
-                    ? "The lock was not turned on. Try again, or switch it off to continue without it."
-                    : "The lock is still on. Try again, or switch it on to continue with it."
+                // A lock already on needs the check either way; a new one can just be switched off.
+                error = shell.lock.on
+                    ? "The lock is on from before, and changing it or opening Med Tracker needs \(DeviceAuth.method). Try again."
+                    : "The lock was not turned on. Try again, or switch it off to continue without it."
             }
         }
     }
