@@ -156,15 +156,50 @@ strings `{op, args, id}`; when `id` is present the reply posted back to
 `wgNative.onmessage` is `{id, result}` or `{id, error}` (`"forbidden"` for
 any other origin or a subframe, `"unsupported: <op>"` for an unknown op).
 Ops now: `ping` → `"pong"`; `chrome` `{top, bottom}` (the colour report, no
-reply). On the page side `native/index.js` selects the `android` platform
+reply); `health.authorize` / `health.query` (below). On the page side `native/index.js` selects the `android` platform
 when `window.wgNative` has `postMessage` + `addEventListener` and is neither a
 Window nor a DOM node (an `<iframe name=wgNative>` must not clobber it; iOS is
 checked first) and `__native.call(op, args)` does the id-correlated round trip;
 `window.LocalNotifications` and `window.Health` install the same impls as on
 iOS, so they report `isSupported()` and the passkey shell's
-Add-to-Home-Screen step is skipped. Their `notifications.*` / `health.*` ops
-reject `"unsupported: <op>"` until med-nt9p.7 / med-nt9p.8 add them to
-`onBridge`.
+Add-to-Home-Screen step is skipped. Their `notifications.*` ops reject
+`"unsupported: <op>"` until med-nt9p.7 adds them to `onBridge`.
+
+### Health Connect import (bd med-nt9p.8)
+
+The twin of the Apple Health import ([ios.md](ios.md)): Health Connect → the
+page → the encrypted vault, like a hand-entered reading. READ-ONLY; Health
+Connect is part of the Android 14 framework, so there is no provider app to
+install. [`HealthConnect.kt`](../android/app/src/main/java/com/example/medtracker/HealthConnect.kt)
+answers the same `health.authorize {types}` / `health.query {type, anchor,
+limit}` ops as `ios/App/Health.swift` with the same sample shapes (`bp`
+`{uuid, start, systolic, diastolic}`, `weight` `{uuid, start, kg}`), so
+`web/cloud/js/health-import.js` and `web/domain/healthimport.js` run unchanged
+(same `-hk-<uuid>` record ids and `source: 'apple_health'` marker — the
+existing shapes, which every client already reads). The Settings row reads its
+name ("Health Connect") and access hint off the capability
+(`window.Health.label` / `accessHint`, `native/health.js`).
+
+- **Permissions:** `READ_BLOOD_PRESSURE` and `READ_WEIGHT` only — the Play
+  declaration must list exactly these. `health.authorize` requests the missing
+  ones (a runtime permission dialog on Android 14) and answers `true` whenever
+  Health Connect exists, `false` when it doesn't (work profile, no service);
+  like HealthKit, a denied type just returns no samples.
+- **Anchor:** `hc1:` + a Health Connect Changes token. No anchor reads the
+  last **30 days** (`READ_HEALTH_DATA_HISTORY` for older data is out of v1)
+  and starts a token; later queries return only upserts since it. An expired
+  token (unused for 30 days) re-reads the 30 days; known readings are skipped
+  by id. `sleep` / `workout` answer an empty page until med-nt9p.9.
+- **Foreground only:** reads run only when the page asks (unlock, return to
+  the app); no background reads, no background permission.
+- **Rationale screen:** `PermissionsRationaleActivity` answers Health
+  Connect's `ACTION_SHOW_PERMISSIONS_RATIONALE` and Android 14's
+  `VIEW_PERMISSION_USAGE` (activity alias), and links the privacy policy
+  ([privacy-policy.md](privacy-policy.md)).
+- **Device check:** Settings → Health Connect on, allow both types; add a BP
+  reading and a weight in Health Connect (or a fitness app) → they appear in
+  Vitals; add one more and reopen the app → only the new one is added; deny a
+  type → no samples, no error.
 
 ### Device check (CI debug APK)
 

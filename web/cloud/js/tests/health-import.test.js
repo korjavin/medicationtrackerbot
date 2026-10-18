@@ -391,6 +391,20 @@ describe('Apple Health import', () => {
             expect(desc()).toMatch(/nothing yet\. Check access in Settings → Health/);
         });
 
+        // bd med-nt9p.8: the Android shell's capability names Health Connect.
+        it('takes the store name and access hint from the capability', async () => {
+            const health = { ...fakeHealth({}), label: 'Health Connect', accessHint: 'Health Connect → App permissions' };
+            health.requestAuthorization = vi.fn(async () => false);
+            await startHealthImport({}, { health, storage, doc: document, run: vi.fn(async () => null) });
+            expect(document.querySelector('#health-import-row .wg-setting__title').textContent).toBe('Health Connect');
+            expect(toggle().getAttribute('aria-label')).toBe('Import from Health Connect');
+            await flip(true);
+            expect(desc()).toBe('Health Connect is not available on this device.');
+            storage.setItem('wg.health.enabled', 'true');
+            storage.setItem('wg.health.last', JSON.stringify({ checkedAt: Date.now(), total: 0 }));
+            expect(healthStatusText(storage, health)).toMatch(/nothing yet\. Check access in Health Connect → App permissions\.$/);
+        });
+
         it('a toggle switched on by an older build asks once for the new kinds', async () => {
             storage.setItem('wg.health.enabled', 'true');
             const health = fakeHealth({});

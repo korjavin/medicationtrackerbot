@@ -72,6 +72,9 @@ class MainActivity : Activity() {
     private lateinit var errorView: View
     private lateinit var errorMessage: TextView
 
+    /** window.Health's health.* ops (bd med-nt9p.8). */
+    private val health by lazy { HealthConnect(this) }
+
     private val back = OnBackInvokedCallback { web.goBack() }
     private var backRegistered = false
 
@@ -102,7 +105,12 @@ class MainActivity : Activity() {
         if (intent.action == ACTION_SWITCH) forget()
     }
 
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+        if (!health.onRequestPermissionsResult(requestCode)) super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+    }
+
     override fun onDestroy() {
+        health.close()
         web.destroy()
         super.onDestroy()
     }
@@ -313,6 +321,7 @@ class MainActivity : Activity() {
                 cssColor(args.optString("bottom"))?.let { bottomColor = it }
                 updateChrome()
             }
+            "health.authorize", "health.query" -> health.handle(op, msg.optJSONObject("args")) { r, e -> answer(r, e) }
             else -> answer(null, "unsupported: $op")
         }
     }
