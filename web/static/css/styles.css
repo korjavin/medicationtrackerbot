@@ -36,6 +36,13 @@
  *   - No inline style assignments in JS — use CSS classes
  */
 
+/* Double-tap zoom off everywhere (med-wfe6); pan + pinch-zoom stay. First in
+   the file at specificity 0 so .wg-swipe--host (pan-y), .wg-grip (none) and
+   the modal scroll lock (pinch-zoom) keep winning. */
+*, *::before, *::after {
+    touch-action: manipulation;
+}
+
 :root {
     /* Base surface/text palette */
     --bg-color: #fff;

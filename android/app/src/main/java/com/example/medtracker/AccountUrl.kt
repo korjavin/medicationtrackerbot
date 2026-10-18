@@ -26,6 +26,16 @@ object AccountUrl {
         return "https://$host$path" + (uri.rawQuery?.let { "?$it" } ?: "") + (uri.rawFragment?.let { "#$it" } ?: "")
     }
 
+    /** A WebView attachment download (Files.download): https with a host only, never cleartext. */
+    fun isDownloadable(url: String): Boolean {
+        val uri = try {
+            URI(url)
+        } catch (e: Exception) {
+            return false
+        }
+        return uri.scheme?.lowercase() == "https" && uri.host != null
+    }
+
     /** Exactly one DNS label under base: what the asset links and the bridge rules cover. */
     fun isAccountHost(host: String, base: String): Boolean {
         if (base.isEmpty() || !host.endsWith(".$base")) return false

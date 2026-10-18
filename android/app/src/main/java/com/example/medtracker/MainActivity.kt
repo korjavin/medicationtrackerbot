@@ -72,6 +72,9 @@ class MainActivity : Activity() {
     private lateinit var errorView: View
     private lateinit var errorMessage: TextView
 
+    private val files by lazy { Files(this) { host } }
+    private val notifications by lazy { Notifications(this) { host } }
+
     /** window.Health's health.* ops (bd med-nt9p.8). */
     private val health by lazy { HealthConnect(this) }
 
@@ -97,21 +100,50 @@ class MainActivity : Activity() {
         adoptSpikeAccount()
         host = prefs.getString(HOST_KEY, null)?.takeIf { AccountUrl.isAccountHost(it, base) }
         // A restored activity keeps its launch intent: only a fresh shortcut launch switches.
-        if (intent?.action == ACTION_SWITCH && savedInstanceState == null) forget() else reopen()
+        if (intent?.action == ACTION_SWITCH && savedInstanceState == null) forget()
+        else reopen(Notifications.tappedSection(intent, host)?.let { sectionUrl(it) } ?: home)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (intent.action == ACTION_SWITCH) forget()
+        Notifications.tappedSection(intent, host)?.let { openSection(it) }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        notifications.onResume()
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (!files.onActivityResult(requestCode, resultCode, data)) super.onActivityResult(requestCode, resultCode, data)
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
-        if (!health.onRequestPermissionsResult(requestCode)) super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (!files.onRequestPermissionsResult(requestCode) && !notifications.onRequestPermissionsResult(requestCode) &&
+            !health.onRequestPermissionsResult(requestCode)
+        ) {
+            super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        }
     }
+
+    /** A reminder tap (bd med-nt9p.7): switch the open page to the section, or load the account on it. */
+    private fun openSection(section: String) {
+        val url = sectionUrl(section) ?: return
+        if (!showingAccount || web.progress < 100) return load(url)
+        // No switchTab (the unlock page): load the section URL, the deep-link router opens it after unlock.
+        web.evaluateJavascript("typeof window.switchTab === 'function' ? (window.switchTab('$section'), true) : false") {
+            if (it != "true") load(url)
+        }
+    }
+
+    /** The deep-link router reads ?tab= (section ids are Notifications.SECTIONS only). */
+    private fun sectionUrl(section: String) = home?.let { "$it?tab=$section" }
 
     override fun onDestroy() {
         health.close()
         web.destroy()
+        files.destroy()
         super.onDestroy()
     }
 
@@ -128,6 +160,7 @@ class MainActivity : Activity() {
             else "That isn't an account link. Use your invite link or your account address (yourname.$base)."
             return
         }
+        if (h != host) Notifications.clear(this)
         prefs.edit().putString(HOST_KEY, h).apply()
         host = h
         input.setText("")
@@ -137,6 +170,7 @@ class MainActivity : Activity() {
 
     /** Switch account: back to first run. WebView data is per origin and kept. */
     private fun forget() {
+        Notifications.clear(this)
         prefs.edit().remove(HOST_KEY).apply()
         host = null
         reopen()
@@ -209,6 +243,7 @@ class MainActivity : Activity() {
         }
         w.setBackgroundColor(Color.TRANSPARENT)
         w.webViewClient = Client()
+        files.install(w, if (base.isEmpty()) emptySet() else setOf("https://*.$base"))
         if (base.isNotEmpty()) {
             val rules = setOf("https://*.$base")
             if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
@@ -322,7 +357,8 @@ class MainActivity : Activity() {
                 updateChrome()
             }
             "health.authorize", "health.query" -> health.handle(op, msg.optJSONObject("args")) { r, e -> answer(r, e) }
-            else -> answer(null, "unsupported: $op")
+            else -> if (op.startsWith("notifications.")) notifications.handle(op, msg.optJSONObject("args")) { r, e -> answer(r, e) }
+                else answer(null, "unsupported: $op")
         }
     }
 

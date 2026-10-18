@@ -33,6 +33,20 @@ class AccountUrlTest {
     }
 
     @Test
+    fun download() {
+        fun check(url: String, want: Boolean) = assertEquals(url, want, AccountUrl.isDownloadable(url))
+        check("https://abc.app.example.com/export", true)
+        check("HTTPS://other.example.org/f.pdf", true)
+        check("http://abc.app.example.com/export", false) // cleartext never
+        check("http://other.example.org/f.pdf", false)
+        check("ftp://abc.app.example.com/f", false)
+        check("blob:https://abc.app.example.com/uuid", false)
+        check("data:text/plain;base64,aGk=", false)
+        check("https:///nohost", false)
+        check("not a url", false)
+    }
+
+    @Test
     fun color() {
         assertEquals(0xFF132D29.toInt(), cssColor("rgb(19, 45, 41)"))
         assertEquals(0xFFFFFFFF.toInt(), cssColor("rgba(255, 255, 255, 0.5)"))

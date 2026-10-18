@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider roots (Files.kt): the download being shared, camera shots. -->
+<paths>
+    <cache-path name="downloads" path="downloads/" />
+    <cache-path name="photos" path="photos/" />
+</paths>

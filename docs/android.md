@@ -141,8 +141,30 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
 - **Storage:** the same script calls `navigator.storage.persist()`, as on iOS.
 - **Renderer crash or kill** (`onRenderProcessGone`): a fresh WebView reloads
   the current URL.
-- **Not yet:** downloads/share, print, file chooser and camera
-  (med-nt9p.10).
+- **Downloads, print, files, camera** (med-nt9p.10,
+  [`Files.kt`](../android/app/src/main/java/com/example/medtracker/Files.kt), twin
+  of iOS [Downloads and printing](ios.md#downloads-and-printing-bd-med-w6gx11)).
+  No web code changes. A document-start script,
+  [`assets/files.js`](../android/app/src/main/assets/files.js), catches
+  `<a download>` of a `blob:`/`data:` URL (it keeps each `createObjectURL`
+  Blob, so a URL revoked right after `click()` still works) and posts it as a
+  base64 data URL over a second listener, **`window.wgFiles`** (download and
+  print only; capability ops stay on `wgNative`). The shell writes it to
+  `cacheDir/downloads` and asks *Save to device* (`ACTION_CREATE_DOCUMENT`,
+  temp file deleted after the copy) or *Share* (FileProvider; the file stays
+  until the next download or launch — Android gives no "sheet closed" signal).
+  https attachments go to the system DownloadManager **without** the WebView's
+  cookies (DownloadManager re-sends request headers across redirects, to any
+  host); cleartext http is refused (`AccountUrl.isDownloadable`, unit-tested).
+  The app's own files are built in the page and take the blob path above.
+  `window.print()` prints the page (`createPrintDocumentAdapter`); the
+  offscreen-iframe print in `web/cloud/js/print-doc.js` sends the frame's
+  document, which prints from its own offscreen WebView (no CSP, no script, no
+  network), as on iOS. `<input type=file>` opens the system picker (accept
+  types mapped to MIME, unknown extensions lift the filter), plus the camera
+  when images are accepted and the camera permission is allowed (asked on
+  first use). `getUserMedia` camera/mic is granted only to the account
+  origin, after the Android runtime prompt.
 
 ### The bridge global: `window.wgNative`
 
@@ -162,8 +184,45 @@ Window nor a DOM node (an `<iframe name=wgNative>` must not clobber it; iOS is
 checked first) and `__native.call(op, args)` does the id-correlated round trip;
 `window.LocalNotifications` and `window.Health` install the same impls as on
 iOS, so they report `isSupported()` and the passkey shell's
-Add-to-Home-Screen step is skipped. Their `notifications.*` ops reject
-`"unsupported: <op>"` until med-nt9p.7 adds them to `onBridge`.
+Add-to-Home-Screen step is skipped. Their `notifications.*` and `health.*`
+ops are answered (below).
+
+### Reminders: local notifications (bd med-nt9p.7)
+
+WebView has no Web Push, so reminders are exact local alarms from the
+client-computed horizon — the twin of iOS
+([`Notifications.kt`](../android/app/src/main/java/com/example/medtracker/Notifications.kt),
+[`ios/App/Notifications.swift`](../ios/App/Notifications.swift)). No web or
+server change, no FCM. The page (`web/cloud/js/reminders.js`) sends the same
+replace-all list it sends on iOS — at most 64 rows `{fireAtUnix, title, body,
+section}`, the last one the "Open the app to keep reminders running" notice.
+
+- **Ops:** `notifications.permission` / `requestPermission` → `granted`
+  only when **both** grants exist, else `default` (or `denied` once the
+  notification prompt was refused); `schedule {items}` → how many alarms are
+  armed; `test` → one notification now.
+- **Enable** (Settings → Notifications) walks both system grants: the
+  `POST_NOTIFICATIONS` prompt (or the app's notification settings once it was
+  refused), then *Alarms & reminders* (`ACTION_REQUEST_SCHEDULE_EXACT_ALARM`;
+  `SCHEDULE_EXACT_ALARM` is off by default for new installs on Android 14+).
+  The reply waits until the user is back from each screen. `USE_EXACT_ALARM`
+  is not used (Play keeps it for alarm and calendar apps).
+- **Schedule** cancels the previous alarms, stores the rows in app-private
+  storage (plaintext, like iOS's pending requests; capped at 200) and arms
+  **one** `setExactAndAllowWhileIdle` alarm at the next row; when it fires it
+  posts every row now due and arms the next. Doze rate-limits allow-while-idle
+  alarms per app, so same-time reminders share one wake and a late wake still
+  posts what it missed (rows missed by over an hour, e.g. while the phone was
+  off, are dropped). Without both grants it stores the rows and arms nothing;
+  granting *Alarms & reminders* later arms them, as do a reboot and an app
+  update (alarms survive neither). Notifications post on the high-importance
+  **Reminders** channel; switching that channel off counts as `denied`, and
+  Enable opens its settings.
+- **Tap** opens the reminder's section (`/?tab=<section>`, stable ids), in the
+  open page or by loading the account on it. Switching account clears the
+  previous account's alarms; the newly opened page schedules its own.
+- **Not in v1:** Confirm/Snooze actions. The web copy around the toggle still
+  says iPhone/iOS Settings.
 
 ### Health Connect import (bd med-nt9p.8)
 
@@ -433,7 +492,9 @@ means installing the newer release over the old one.
 - **OEM background killers.** Xiaomi, Huawei, Oppo, Samsung and others may kill
   the app or drop its exact alarms; reminders can then arrive late or not at
   all. Allow unrestricted battery use and, where offered, autostart for the app
-  (see dontkillmyapp.com for the per-vendor steps).
+  (see dontkillmyapp.com for the per-vendor steps). A force-stop (Settings →
+  Force stop, or some OEM "clean" buttons) cancels every alarm until the app
+  is opened again.
 - **No Google Play services, no passkey PRF.** The vault key derives from the
   passkey PRF, which the Credential Manager provides only with Google Play
   services and a passkey provider (Google Password Manager or another).
