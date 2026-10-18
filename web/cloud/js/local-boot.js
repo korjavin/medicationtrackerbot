@@ -36,10 +36,20 @@ window.MedTrackerCloudReady = (async function boot() {
             recordsPort: localRecordsPort,
             effects: LOCAL_EFFECTS,
             registerEgress: async () => null,
+            win: window,
         });
         // Same bypass routing as cloud-boot.js (see its med-1iv note): the
         // feature modules that call window.apiCallDirect directly must reach the
-        // shim too, or their /api/* reads go to the network.
+        // shim too, or their /api/* reads go to the network. cloud-boot.js is
+        // safely late because of the async warm unlock; with no unlock here the
+        // imports can resolve before the parser reaches core/api.js, whose own
+        // `window.apiCallDirect = ...` would then overwrite this wrapper. Every
+        // classic body script has run by DOMContentLoaded, so wait for it.
+        if (window.document.readyState === 'loading') {
+            await new Promise((resolve) => {
+                window.document.addEventListener('DOMContentLoaded', resolve, { once: true });
+            });
+        }
         const realApiCallDirect = window.apiCallDirect;
         window.apiCallDirect = (endpoint, method, body, opts) => (
             endpoint.startsWith('/api/')
