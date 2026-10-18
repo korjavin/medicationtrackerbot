@@ -25,7 +25,8 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Only PR runs are superseded; a push must never cancel an in-flight release dispatch.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -35,18 +36,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      # Non-secret config lives in repo variables so the package and domain stay
-      # out of this public tree; the build works without them. Release secrets
-      # are NOT job-level: only the dispatch-gated steps below get them.
+      # The package is public once on Play, so it may show in these (public)
+      # logs. The base domain must not: nothing here reads CLOUD_BASE_DOMAIN,
+      # and the step that first needs it must mask it without echoing it.
+      # Release secrets are NOT job-level: only the dispatch-gated steps get them.
       ANDROID_PACKAGE: ${{ vars.ANDROID_PACKAGE }}
-      CLOUD_BASE_DOMAIN: ${{ vars.CLOUD_BASE_DOMAIN }}
       ANDROID_VERSION_CODE: ${{ github.run_number }}
     steps:
-      - name: Mask deployment config
-        run: |
-          [ -z "$ANDROID_PACKAGE" ] || echo "::add-mask::${ANDROID_PACKAGE}"
-          [ -z "$CLOUD_BASE_DOMAIN" ] || echo "::add-mask::${CLOUD_BASE_DOMAIN}"
-
       - uses: actions/checkout@v4
 
       - uses: actions/setup-java@v4
@@ -62,9 +58,11 @@ jobs:
 
       # A stable debug key keeps the debug APK's certificate — and so its
       # asset-links fingerprint in ANDROID_CERT_SHA256S — the same on every run.
-      # Without it (forks, before owner setup) Gradle mints a throwaway key:
-      # the APK still installs, passkeys just won't bind to it.
+      # Without it (PRs, before owner setup) Gradle mints a throwaway key: the
+      # APK still installs, passkeys just won't bind to it. PR code never gets
+      # the key: its fingerprint is trusted by the production asset links.
       - name: Install debug keystore
+        if: github.event_name != 'pull_request'
         env:
           ANDROID_DEBUG_KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
         run: |
@@ -103,7 +101,7 @@ jobs:
           ANDROID_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.ANDROID_PLAY_SERVICE_ACCOUNT_JSON }}
         run: |
           missing=""
-          for v in ANDROID_PACKAGE CLOUD_BASE_DOMAIN ANDROID_UPLOAD_KEYSTORE_BASE64 ANDROID_UPLOAD_KEYSTORE_PASSWORD ANDROID_UPLOAD_KEY_ALIAS ANDROID_UPLOAD_KEY_PASSWORD; do
+          for v in ANDROID_PACKAGE ANDROID_UPLOAD_KEYSTORE_BASE64 ANDROID_UPLOAD_KEYSTORE_PASSWORD ANDROID_UPLOAD_KEY_ALIAS ANDROID_UPLOAD_KEY_PASSWORD; do
             [ -n "${!v}" ] || missing="$missing $v"
           done
           if [ -n "$missing" ]; then

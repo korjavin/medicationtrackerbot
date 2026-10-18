@@ -18,7 +18,10 @@ every build, signing and Play upload runs on a GitHub-hosted ubuntu runner via
 - versionCode = the workflow run number, so every upload is unique.
 - The applicationId comes from the `ANDROID_PACKAGE` variable; without it the
   build uses the placeholder `com.example.medtracker` (forks, unconfigured
-  runs). The package and the base domain are never committed.
+  runs). The package and the base domain are never committed; the package
+  may appear in the (public) Actions logs — it is public once on Play — but
+  the workflow does not read `CLOUD_BASE_DOMAIN` yet, and the shell bead that
+  bakes it in must mask it without echoing it first.
 
 ## Owner setup (GitHub → Settings → Secrets and variables → Actions)
 
@@ -32,13 +35,12 @@ account the signed AAB is kept as a run artifact but not uploaded to Play.
 | Name | Value |
 |------|-------|
 | `ANDROID_PACKAGE` | the Play app's package name (Play Console app record, bd med-nt9p.1) |
-| `CLOUD_BASE_DOMAIN` | already set for deploy verification; the app accepts accounts at `<sub>.<it>` |
 
 **Secrets:**
 
 | Name | How to get it |
 |------|---------------|
-| `ANDROID_DEBUG_KEYSTORE_BASE64` | the stable debug key for PR/push APKs (below). Optional: without it each run signs with a throwaway key — the APK installs, but passkeys won't bind to it |
+| `ANDROID_DEBUG_KEYSTORE_BASE64` | the stable debug key for master-push and dispatch APKs (below). PR runs never get it (its fingerprint is trusted by production asset links), so a PR APK is signed with a throwaway key — it installs, but passkeys won't bind to it; same for every run until this secret exists |
 | `ANDROID_UPLOAD_KEYSTORE_BASE64` | the Play **upload** keystore (below), `base64 -w0 upload.jks` |
 | `ANDROID_UPLOAD_KEYSTORE_PASSWORD` | that keystore's store password |
 | `ANDROID_UPLOAD_KEY_ALIAS` | the key alias inside it (`upload` if made with the command below) |
@@ -75,7 +77,9 @@ steps, never job-wide.
 
 ## Shipping a build
 
-- **Sideload (spike, friends' phones):** open the PR's or master's Android run →
+- **Sideload (spike, friends' phones):** for a passkey-capable APK, dispatch
+  the workflow on the branch (Actions → **Android** → Run workflow) or take
+  master's run; a PR run's APK uses a throwaway key. Open the run →
   Artifacts → `medtracker-debug-apk`, unzip, install the APK (allow *Install
   unknown apps* for the browser/files app). A debug APK and a Play install share
   the package but not the signature — uninstall one to switch to the other.
