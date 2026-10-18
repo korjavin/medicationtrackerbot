@@ -968,6 +968,17 @@ h3 {
     z-index: var(--z-overlay);
 }
 
+/* Scroll lock (med-o7zq.18): while any modal/sheet/page is open the document
+   must not pan behind it (iOS chains touches from fixed layers to the page).
+   touch-action:none on body only blocks pans whose nearest scroller is the
+   document, so inner scrollers keep working. mt-modal covers overlay:false
+   sub-modals, WGPage pages and dialogs. */
+body:has(#modal-overlay:not(.hidden)),
+body:has(mt-modal:not(.hidden)) {
+    overflow: hidden;
+    touch-action: none;
+}
+
 /* The Mi-Band modal's paper-white positioning block used to live here; it now
    rides the generic `.wg-modal` shell like every other workout modal, and an
    id-level background would have out-specified it. */
@@ -2379,6 +2390,7 @@ svg.chart-svg {
     max-width: var(--wg-modal-max-w);
     max-height: 85vh;
     overflow-y: auto;
+    overscroll-behavior: contain;
     z-index: var(--z-modal);
     padding: var(--wg-card-pad);
     font-family: var(--wg-font-ui);
@@ -2401,6 +2413,7 @@ svg.chart-svg {
 .wg-page {
     position: fixed;
     inset: 0;
+    overscroll-behavior: contain;
     z-index: var(--z-modal);
     display: flex;
     flex-direction: column;
