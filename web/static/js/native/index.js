@@ -42,8 +42,15 @@
     // docs/android.md); 'web' everywhere else, where everything below behaves
     // exactly as before. ios is checked first.
     var bridge = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.wgNative;
-    var androidBridge = !bridge && window.wgNative && typeof window.wgNative.postMessage === 'function'
-        && typeof window.wgNative.addEventListener === 'function' ? window.wgNative : null;
+    // Named-property globals can clobber window.wgNative on the web: an
+    // <iframe name=wgNative> yields a WindowProxy (it has postMessage and
+    // addEventListener) and an element with that id yields a DOM node. The
+    // injected listener object is neither, so both stay 'web'.
+    var injected = window.wgNative;
+    var androidBridge = !bridge && injected && typeof injected.postMessage === 'function'
+        && typeof injected.addEventListener === 'function'
+        && injected.window !== injected
+        && !(typeof Node === 'function' && injected instanceof Node) ? injected : null;
     var current = bridge ? 'ios' : (androidBridge ? 'android' : 'web');
 
     // android: a WebMessageListener has no reply promise, so call()

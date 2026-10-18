@@ -144,6 +144,14 @@ describe('native/ android platform', () => {
         expect(dom.window.LocalNotifications.__native.platform).toBe('web');
         expect(dom.window.LocalNotifications.isSupported()).toBe(false);
     });
+
+    it('an <iframe name="wgNative"> (a WindowProxy with postMessage + addEventListener) leaves the platform web', () => {
+        dom = new JSDOM('<!doctype html><html><body><iframe name="wgNative"></iframe></body></html>', { url: 'https://acct.example.test/', runScripts: 'outside-only' });
+        expect(typeof dom.window.wgNative.postMessage).toBe('function'); // the clobber is real
+        for (const f of FILES) dom.window.eval(fs.readFileSync(f, 'utf8'));
+        expect(dom.window.LocalNotifications.__native.platform).toBe('web');
+        expect(dom.window.LocalNotifications.isSupported()).toBe(false);
+    });
 });
 
 // bd med-w6gx.5: the ios scheduling ops are thin bridge calls; the web impl has

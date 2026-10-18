@@ -157,8 +157,9 @@ strings `{op, args, id}`; when `id` is present the reply posted back to
 any other origin or a subframe, `"unsupported: <op>"` for an unknown op).
 Ops now: `ping` → `"pong"`; `chrome` `{top, bottom}` (the colour report, no
 reply). On the page side `native/index.js` selects the `android` platform
-when `window.wgNative` has `postMessage` + `addEventListener` (iOS is checked
-first) and `__native.call(op, args)` does the id-correlated round trip;
+when `window.wgNative` has `postMessage` + `addEventListener` and is neither a
+Window nor a DOM node (an `<iframe name=wgNative>` must not clobber it; iOS is
+checked first) and `__native.call(op, args)` does the id-correlated round trip;
 `window.LocalNotifications` and `window.Health` install the same impls as on
 iOS, so they report `isSupported()` and the passkey shell's
 Add-to-Home-Screen step is skipped. Their `notifications.*` / `health.*` ops
