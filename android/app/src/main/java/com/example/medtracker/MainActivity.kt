@@ -372,8 +372,8 @@ class MainActivity : Activity() {
         bottomBand = View(this)
         root.addView(topBand, FrameLayout.LayoutParams(MATCH_PARENT, 0, Gravity.TOP))
         root.addView(bottomBand, FrameLayout.LayoutParams(MATCH_PARENT, 0, Gravity.BOTTOM))
-        ceremonyBar = button("Not your account? Use another invite") { confirmUseAnotherInvite() }.apply { visibility = View.GONE }
-        root.addView(ceremonyBar, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
+        ceremonyBar = button("Not your account? Use another invite") { confirmUseAnotherInvite() }.apply { visibility = View.GONE; maxLines = 1; minHeight = 0; minimumHeight = 0; setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f) }
+        root.addView(ceremonyBar, FrameLayout.LayoutParams(MATCH_PARENT, CEREMONY_BAR_DP.dp, Gravity.BOTTOM))
         firstRun = buildFirstRun()
         errorView = buildError()
         root.addView(firstRun, MATCH_PARENT, MATCH_PARENT)
@@ -391,12 +391,8 @@ class MainActivity : Activity() {
         val ime = bars.getInsets(WindowInsets.Type.ime())
         val bottom = maxOf(sys.bottom, ime.bottom)
         // The exit bar sits below the page, not over it: the ceremony's own buttons stay clear.
-        ceremonyBar.measure(
-            View.MeasureSpec.makeMeasureSpec(root.width.coerceAtLeast(1), View.MeasureSpec.AT_MOST),
-            View.MeasureSpec.UNSPECIFIED,
-        )
-        val barH = if (ceremonyBar.visibility == View.VISIBLE) ceremonyBar.measuredHeight else 0
-        ceremonyBar.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM).apply {
+        val barH = if (ceremonyBar.visibility == View.VISIBLE) CEREMONY_BAR_DP.dp else 0
+        ceremonyBar.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, CEREMONY_BAR_DP.dp, Gravity.BOTTOM).apply {
             setMargins(sys.left, 0, sys.right, bottom)
         }
         web.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT).apply {
@@ -441,6 +437,8 @@ class MainActivity : Activity() {
         )
         updateBack()
     }
+
+    private val Int.dp get() = (this * resources.displayMetrics.density).toInt()
 
     private fun isLight(c: Int) = Color.luminance(c) > 0.5f
 
@@ -522,6 +520,8 @@ class MainActivity : Activity() {
     private companion object {
         /** The page-facing bridge global, window.wgNative — med-nt9p.6 and .19 detect the Android shell by it. */
         const val BRIDGE = "wgNative"
+        /** One fixed line, so the page margin never disagrees with the bar. */
+        const val CEREMONY_BAR_DP = 44
         const val HOST_KEY = "accountHost"
         const val ACTION_SWITCH = "com.example.medtracker.SWITCH_ACCOUNT"
         /** --wg-bg-screen: the bands' colour until the page reports its own. */
