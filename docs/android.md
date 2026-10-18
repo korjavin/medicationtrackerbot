@@ -141,8 +141,30 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
 - **Storage:** the same script calls `navigator.storage.persist()`, as on iOS.
 - **Renderer crash or kill** (`onRenderProcessGone`): a fresh WebView reloads
   the current URL.
-- **Not yet:** downloads/share, print, file chooser and camera
-  (med-nt9p.10).
+- **Downloads, print, files, camera** (med-nt9p.10,
+  [`Files.kt`](../android/app/src/main/java/com/example/medtracker/Files.kt), twin
+  of iOS [Downloads and printing](ios.md#downloads-and-printing-bd-med-w6gx11)).
+  No web code changes. A document-start script,
+  [`assets/files.js`](../android/app/src/main/assets/files.js), catches
+  `<a download>` of a `blob:`/`data:` URL (it keeps each `createObjectURL`
+  Blob, so a URL revoked right after `click()` still works) and posts it as a
+  base64 data URL over a second listener, **`window.wgFiles`** (download and
+  print only; capability ops stay on `wgNative`). The shell writes it to
+  `cacheDir/downloads` and asks *Save to device* (`ACTION_CREATE_DOCUMENT`,
+  temp file deleted after the copy) or *Share* (FileProvider; the file stays
+  until the next download or launch — Android gives no "sheet closed" signal).
+  https attachments go to the system DownloadManager **without** the WebView's
+  cookies (DownloadManager re-sends request headers across redirects, to any
+  host); cleartext http is refused (`AccountUrl.isDownloadable`, unit-tested).
+  The app's own files are built in the page and take the blob path above.
+  `window.print()` prints the page (`createPrintDocumentAdapter`); the
+  offscreen-iframe print in `web/cloud/js/print-doc.js` sends the frame's
+  document, which prints from its own offscreen WebView (no CSP, no script, no
+  network), as on iOS. `<input type=file>` opens the system picker (accept
+  types mapped to MIME, unknown extensions lift the filter), plus the camera
+  when images are accepted and the camera permission is allowed (asked on
+  first use). `getUserMedia` camera/mic is granted only to the account
+  origin, after the Android runtime prompt.
 
 ### The bridge global: `window.wgNative`
 
