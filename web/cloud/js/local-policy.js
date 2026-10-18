@@ -33,7 +33,7 @@ import {
 } from './reminders.js';
 import { hostsFromIntegrations } from './egress-hosts.js';
 import { readAllLocalRecords, replaceAllRecords } from './sync.js';
-import { recordsToVault, vaultToRecords, managedTypesForImport } from '../../domain/vault.js';
+import { recordsToVault, vaultToRecords, managedTypesForImport, hasUserContent } from '../../domain/vault.js';
 import { startHealthImport, runHealthImport, resetHealthAnchors } from './health-import.js';
 import { clearLocalVault } from './account-delete.js';
 import { setTrialTransport } from './aiclient.js';
@@ -290,6 +290,9 @@ export async function nudgeLocalBackup({ win, now = Date.now() }) {
 // then the account's own Restore of the file: openCloudAccount only hands the
 // user to the shell's invite screen, and this origin keeps its data.
 export const LOCAL_VAULT = {
+  async hasUserContent() {
+    return hasUserContent(await readAllLocalRecords());
+  },
   async exportAll({ includeSecrets = true, win = globalThis.window } = {}) {
     const records = await readAllLocalRecords();
     const json = JSON.stringify(recordsToVault(records, { now: Date.now(), includeSecrets }), null, 2);

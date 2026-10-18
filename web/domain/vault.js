@@ -90,6 +90,22 @@ export const VAULT_MANAGED_TYPES = new Set([
   'gamificationjournal', 'gamificationexperiment', 'gamificationtargets', 'gamificationmode',
 ]);
 
+// Settings / preference / catalog types: present on a vault that holds no user
+// content (first-run wizard choices, toggles, seeded catalogs).
+const NON_CONTENT_TYPES = new Set([
+  'settings', 'features', 'taborder', 'foodtargets', 'integrations', 'apitokens',
+  'medreminderpref', 'bpreminderpref', 'weightreminderpref', 'weightunitpref',
+  'tzplan', 'tzhistory', 'activelocation',
+  'gamificationtargets', 'gamificationmode',
+]);
+export const USER_CONTENT_TYPES = new Set([...VAULT_MANAGED_TYPES].filter((t) => !NON_CONTENT_TYPES.has(t)));
+
+// True when any LIVE record is user content. Tombstones never count. Callers
+// that skip a destructive confirm on `false` must fail closed on errors.
+export function hasUserContent(records) {
+  return records.some((r) => !r.deleted && USER_CONTENT_TYPES.has(r.recordType));
+}
+
 // Record types whose rows are lazily materialized into deterministic recordIds
 // (intake-<medId>-<slot>, session-<groupId>-<date>) via putIfAbsent: for these,
 // a tombstone is a suppression signal ("deliberately deleted, do not
