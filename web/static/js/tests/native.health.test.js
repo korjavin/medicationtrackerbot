@@ -55,6 +55,20 @@ describe('native/health.js', () => {
         ]);
     });
 
+    // bd med-nt9p.8: the Settings copy names the store the shell reads.
+    it('names the store: Apple Health on iOS, Health Connect in the Android shell', () => {
+        const ios = load({ ios: true }).Health;
+        expect([ios.label, ios.accessHint]).toEqual(['Apple Health', 'Settings → Health → Data Access & Devices']);
+        dom.window.close();
+        dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://acct.example.test/', runScripts: 'outside-only' });
+        const w = dom.window;
+        w.wgNative = new w.EventTarget();
+        w.wgNative.postMessage = () => {};
+        for (const f of ['index.js', 'health.js']) w.eval(fs.readFileSync(path.join(NATIVE, f), 'utf8'));
+        expect(w.Health.__native.platform).toBe('android');
+        expect([w.Health.label, w.Health.accessHint]).toEqual(['Health Connect', 'Health Connect → App permissions']);
+    });
+
     it('web: has no query surface, so nothing can reach HealthKit', () => {
         const w = load();
         expect(w.Health.query).toBeUndefined();

@@ -1,9 +1,10 @@
-// window.Health — Apple Health (HealthKit) read access (bd med-w6gx.4).
+// window.Health — Apple Health (HealthKit) / Health Connect read access (bd med-w6gx.4).
 //
-// Only the iOS app shell has it. The web impl reports unsupported, so feature
+// Only the iOS and Android app shells have it. The web impl reports unsupported, so feature
 // code branches on isSupported(), never on the platform.
 //
-// ios (bd med-w6gx.6), answered by ios/App/Health.swift:
+// ios (bd med-w6gx.6), answered by ios/App/Health.swift, and android (bd
+// med-nt9p.8, Health Connect: bp and weight), by android/.../HealthConnect.kt:
 //   requestAuthorization(types) → Promise<boolean>: shows the Health read
 //     sheet for `types` (e.g. ['bp', 'weight']); false when this device has no
 //     Health data store. HealthKit never says whether read access was granted
@@ -28,10 +29,15 @@
     foundation.registerImpl('Health', 'web', {
         isSupported: function () { return false; },
     });
-    // The Android shell (bd med-nt9p.6) answers the same ops with the same
-    // impl (Health Connect); until its Kotlin side lands (med-nt9p.8) they
-    // reject "unsupported: <op>".
+    // The Android shell (bd med-nt9p.8) answers the same ops with the same
+    // impl, from Health Connect (android/.../HealthConnect.kt). `label` and
+    // `accessHint` name the store and where its read access is managed, for
+    // the Settings copy (web/cloud/js/health-import.js): feature code reads
+    // the copy off the capability, never the platform.
+    var android = foundation.platform === 'android';
     var shell = {
+        label: android ? 'Health Connect' : 'Apple Health',
+        accessHint: android ? 'Health Connect → App permissions' : 'Settings → Health → Data Access & Devices',
         isSupported: function () { return true; },
         requestAuthorization: function (types) {
             return foundation.call('health.authorize', { types: types });

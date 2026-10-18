@@ -1,16 +1,18 @@
-// Apple Health import (bd med-w6gx.6) — iOS app shell only.
+// Apple Health import (bd med-w6gx.6) — iOS app shell; the Android shell
+// answers the same window.Health ops from Health Connect (bd med-nt9p.8).
 //
 // cloud-boot.js imports this only when window.Health.isSupported() (the
-// native/ ios platform), so on the web nothing here loads or runs. It owns:
-//   - the Settings → "Apple Health" toggle row (mounted, like feedback-ui.js,
+// native/ ios or android platform), so on the web nothing here loads or runs. It owns:
+//   - the Settings → "Apple Health" (or "Health Connect") toggle row (mounted, like feedback-ui.js,
 //     into the Settings home; no index.html change);
 //   - the import run: an anchored query per kind through window.Health
 //     (CLAUDE.md rule 10), mapped into the vault by web/domain/healthimport.js.
 //     Runs at unlock and whenever the app comes back to the foreground; no
 //     background delivery in v1.
 //
-// Device-local state lives in localStorage on purpose: HealthKit anchors and
-// the on/off choice belong to this iPhone's Health store, not to the vault.
+// Device-local state lives in localStorage on purpose: HealthKit anchors (on
+// Android, Health Connect change tokens) and the on/off choice belong to this
+// device's Health store, not to the vault.
 // Losing them only costs a re-scan, which the deterministic recordIds absorb.
 // Data path: Health → this page → the encrypted vault, same as a hand-entered
 // reading; nothing new leaves the device.
@@ -145,11 +147,17 @@ function formatWhen(ms) {
     return new Date(ms).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 }
 
-export function healthStatusText(storage = globalThis.localStorage) {
+// The store's name and where its read access is managed come from the
+// capability (native/health.js): Apple Health on iOS, Health Connect on Android.
+function healthLabel(health) {
+    return (health && health.label) || 'Apple Health';
+}
+
+export function healthStatusText(storage = globalThis.localStorage, health = globalThis.Health) {
     if (!isHealthImportEnabled(storage)) return 'Import blood pressure, weight, sleep and workouts';
     const last = readJSON(storage, LAST_KEY, {});
     if (!last.checkedAt) return 'Importing…';
-    if (!last.total) return `Checked ${formatWhen(last.checkedAt)} · nothing yet. Check access in Settings → Health → Data Access & Devices.`;
+    if (!last.total) return `Checked ${formatWhen(last.checkedAt)} · nothing yet. Check access in ${(health && health.accessHint) || 'Settings → Health → Data Access & Devices'}.`;
     return `Last imported ${formatWhen(last.addedAt || last.checkedAt)} · ${last.total} reading${last.total === 1 ? '' : 's'} so far`;
 }
 
@@ -169,7 +177,7 @@ export function startHealthImport(ctx, {
     let inFlight = null;
     const refresh = () => {
         const desc = doc.getElementById(ROW_ID)?.querySelector('.wg-setting__desc');
-        if (desc) desc.textContent = healthStatusText(storage);
+        if (desc) desc.textContent = healthStatusText(storage, health);
     };
     const importNow = () => {
         if (inFlight) return inFlight;
@@ -183,7 +191,7 @@ export function startHealthImport(ctx, {
         return inFlight;
     };
 
-    mountHealthRow(doc, storage, async (on) => {
+    mountHealthRow(doc, storage, health, async (on) => {
         if (!on) {
             writeJSON(storage, ENABLED_KEY, false);
             refresh();
@@ -197,7 +205,7 @@ export function startHealthImport(ctx, {
         }
         if (!available) {
             const desc = doc.getElementById(ROW_ID)?.querySelector('.wg-setting__desc');
-            if (desc) desc.textContent = 'Apple Health is not available on this device.';
+            if (desc) desc.textContent = `${healthLabel(health)} is not available on this device.`;
             return false;
         }
         writeJSON(storage, ENABLED_KEY, true);
@@ -229,7 +237,7 @@ export function startHealthImport(ctx, {
 
 // The Settings home row: a kit toggle row in its own .wg-list group.
 // onToggle(on) resolves false to flip the switch back.
-function mountHealthRow(doc, storage, onToggle) {
+function mountHealthRow(doc, storage, health, onToggle) {
     const home = doc.querySelector('#settings-view .wg-settings-home');
     if (!home || doc.getElementById(ROW_ID)) return;
 
@@ -250,10 +258,10 @@ function mountHealthRow(doc, storage, onToggle) {
     body.className = 'wg-setting__body';
     const title = doc.createElement('span');
     title.className = 'wg-setting__title';
-    title.textContent = 'Apple Health';
+    title.textContent = healthLabel(health);
     const desc = doc.createElement('span');
     desc.className = 'wg-setting__desc';
-    desc.textContent = healthStatusText(storage);
+    desc.textContent = healthStatusText(storage, health);
     body.append(title, desc);
 
     const toggle = doc.createElement('label');
@@ -263,7 +271,7 @@ function mountHealthRow(doc, storage, onToggle) {
     input.id = TOGGLE_ID;
     input.className = 'wg-toggle__input';
     input.setAttribute('role', 'switch');
-    input.setAttribute('aria-label', 'Import from Apple Health');
+    input.setAttribute('aria-label', `Import from ${healthLabel(health)}`);
     input.checked = isHealthImportEnabled(storage);
     input.addEventListener('change', async () => {
         const want = input.checked;

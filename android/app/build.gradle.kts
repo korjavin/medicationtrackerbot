@@ -83,5 +83,8 @@ dependencies {
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
     // FileProvider: downloads to share, camera shots for the file chooser (Files.kt).
     implementation("androidx.core:core:1.13.1")
+    // Health Connect read import (bd med-nt9p.8); coroutines for its suspend API.
+    implementation("androidx.health.connect:connect-client:1.1.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     testImplementation("junit:junit:4.13.2")
 }

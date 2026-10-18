@@ -77,6 +77,9 @@ class MainActivity : Activity() {
     private val files by lazy { Files(this) { host } }
     private val notifications by lazy { Notifications(this) { host } }
 
+    /** window.Health's health.* ops (bd med-nt9p.8). */
+    private val health by lazy { HealthConnect(this) }
+
     private val back = OnBackInvokedCallback { web.goBack() }
     private var backRegistered = false
 
@@ -119,7 +122,9 @@ class MainActivity : Activity() {
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
-        if (!files.onRequestPermissionsResult(requestCode) && !notifications.onRequestPermissionsResult(requestCode)) {
+        if (!files.onRequestPermissionsResult(requestCode) && !notifications.onRequestPermissionsResult(requestCode) &&
+            !health.onRequestPermissionsResult(requestCode)
+        ) {
             super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         }
     }
@@ -138,6 +143,7 @@ class MainActivity : Activity() {
     private fun sectionUrl(section: String) = home?.let { "$it?tab=$section" }
 
     override fun onDestroy() {
+        health.close()
         web.destroy()
         files.destroy()
         super.onDestroy()
@@ -357,6 +363,7 @@ class MainActivity : Activity() {
                 cssColor(args.optString("bottom"))?.let { bottomColor = it }
                 updateChrome()
             }
+            "health.authorize", "health.query" -> health.handle(op, msg.optJSONObject("args")) { r, e -> answer(r, e) }
             else -> if (op.startsWith("notifications.")) notifications.handle(op, msg.optJSONObject("args")) { r, e -> answer(r, e) }
                 else answer(null, "unsupported: $op")
         }
