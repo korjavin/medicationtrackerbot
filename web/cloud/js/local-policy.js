@@ -181,8 +181,8 @@ function useLocalTrial(base, attest, win) {
 // The operator food-DB port (fooddb.js) for local mode: the trial transport
 // while it is on, else unavailable — no request at all — with the reason as
 // hint(). Answers that say "not now" park it in memory: today's lookups spent
-// (429 install-day) until resets_at, the operator having no food DB (503
-// food_not_configured) for an hour.
+// (429 install-day) until resets_at, the operator having no food DB or no
+// trial at all (503 food_not_configured / trial_not_configured) for an hour.
 export const FOOD_OFF_COPY = 'No food database in device-only mode. Turn on the free trial in Settings → AI & integrations, or add your own food DB.';
 export const FOOD_PAUSED_COPY = 'Food lookups paused until tomorrow.';
 const FOOD_USED_COPY = 'The free trial was already used on this iPhone. Add your own food DB in Settings → AI & integrations.';
@@ -206,7 +206,7 @@ export const LOCAL_FOOD_DB = {
       const now = Date.now();
       if (body.error === 'trial_budget_exhausted' && body.scope === 'install-day') {
         foodParked = { hint: FOOD_PAUSED_COPY, until: Date.parse(body.resets_at) || now + 24 * 3600e3 };
-      } else if (body.error === 'food_not_configured') {
+      } else if (body.error === 'food_not_configured' || body.error === 'trial_not_configured') {
         foodParked = { hint: FOOD_OFF_COPY, until: now + 3600e3 };
       }
     }
