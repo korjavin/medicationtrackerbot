@@ -22,9 +22,10 @@ every build, signing and Play upload runs on a GitHub-hosted ubuntu runner via
 
 ## Owner setup (GitHub → Settings → Secrets and variables → Actions)
 
-The debug APK builds with none of these. Until **all** the release ones exist,
-a dispatch logs a notice naming what is missing, skips the Play upload and
-stays green.
+The debug APK builds with none of these. On a dispatch, each missing input is
+named in a notice and its step skipped while the run stays green: without the
+variables or upload-key secrets no release AAB is built; without the service
+account the signed AAB is kept as a run artifact but not uploaded to Play.
 
 **Variables** (not secret):
 
@@ -80,7 +81,10 @@ steps, never job-wide.
   the package but not the signature — uninstall one to switch to the other.
 - **Play internal testing:** Actions → **Android** → Run workflow → pick the
   branch. Google requires the **first** AAB of a new app to be uploaded by hand
-  in Play Console; after that every green dispatch lands in Test and release →
-  Internal testing. While the app has never passed review, Play only accepts
+  in Play Console: dispatch once the upload-key secrets exist (the service
+  account is not needed yet), download the run's `medtracker-release-aab`
+  artifact and upload it in Test and release → Internal testing. After that,
+  with `ANDROID_PLAY_SERVICE_ACCOUNT_JSON` set, every green dispatch lands there
+  by itself. While the app has never passed review, Play only accepts
   draft releases — dispatch with `release_status: draft` and roll the draft
   out in the Console.

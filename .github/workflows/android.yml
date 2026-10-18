@@ -87,8 +87,11 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # Play upload only on a manual dispatch, and only once every input
-      # exists — until the owner adds them, the run stays green on the build above.
+      # Release only on a manual dispatch, and only once its inputs exist —
+      # until the owner adds them, the run stays green on the build above.
+      # Signing needs the keystore; the Play upload also needs the service
+      # account, so the first AAB (uploaded by hand in Play Console) can be
+      # built before the API access exists.
       - name: Check release inputs
         id: release
         if: github.event_name == 'workflow_dispatch'
@@ -100,18 +103,25 @@ jobs:
           ANDROID_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.ANDROID_PLAY_SERVICE_ACCOUNT_JSON }}
         run: |
           missing=""
-          for v in ANDROID_PACKAGE CLOUD_BASE_DOMAIN ANDROID_UPLOAD_KEYSTORE_BASE64 ANDROID_UPLOAD_KEYSTORE_PASSWORD ANDROID_UPLOAD_KEY_ALIAS ANDROID_UPLOAD_KEY_PASSWORD ANDROID_PLAY_SERVICE_ACCOUNT_JSON; do
+          for v in ANDROID_PACKAGE CLOUD_BASE_DOMAIN ANDROID_UPLOAD_KEYSTORE_BASE64 ANDROID_UPLOAD_KEYSTORE_PASSWORD ANDROID_UPLOAD_KEY_ALIAS ANDROID_UPLOAD_KEY_PASSWORD; do
             [ -n "${!v}" ] || missing="$missing $v"
           done
           if [ -n "$missing" ]; then
-            echo "::notice::Play upload skipped — missing:$missing (see docs/android.md)"
-            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Release AAB and Play upload skipped — missing:$missing (see docs/android.md)"
+            echo "sign=false" >> "$GITHUB_OUTPUT"
+            echo "upload=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "sign=true" >> "$GITHUB_OUTPUT"
+          if [ -z "$ANDROID_PLAY_SERVICE_ACCOUNT_JSON" ]; then
+            echo "::notice::Play upload skipped — missing: ANDROID_PLAY_SERVICE_ACCOUNT_JSON (the signed AAB is still a run artifact; see docs/android.md)"
+            echo "upload=false" >> "$GITHUB_OUTPUT"
           else
-            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "upload=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build signed release AAB
-        if: github.event_name == 'workflow_dispatch' && steps.release.outputs.ready == 'true'
+        if: github.event_name == 'workflow_dispatch' && steps.release.outputs.sign == 'true'
         working-directory: android
         env:
           ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
@@ -124,8 +134,18 @@ jobs:
           trap 'rm -f "$ANDROID_UPLOAD_KEYSTORE"' EXIT
           gradle --no-daemon bundleRelease
 
+      # Kept for the first, manual Play Console upload of a new app.
+      - name: Upload release AAB
+        if: github.event_name == 'workflow_dispatch' && steps.release.outputs.sign == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: medtracker-release-aab
+          path: android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Upload to Play internal testing
-        if: github.event_name == 'workflow_dispatch' && steps.release.outputs.ready == 'true'
+        if: github.event_name == 'workflow_dispatch' && steps.release.outputs.upload == 'true'
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.ANDROID_PLAY_SERVICE_ACCOUNT_JSON }}
