@@ -757,20 +757,20 @@ export const PRIVACY_MANIFEST = [
     mode: 'local',
     feature: 'iOS local mode — network',
     boundary: 'not-a-carve-out',
-    data: 'Nothing, except the requests to the AI provider and food database you added with your own key (the same calls as the BYO rows above) and, only if you turn it on, the anonymous trial AI (the local-trial row below)',
-    destination: 'Only those providers, plus our server while the trial AI is on. The app\'s CSP admits no other host, and every other server feature (sync, push relay, Telegram, MCP, voice, sharing, feedback, the operator\'s food database, RxNav drug lookups, Mi Band import) is off',
+    data: 'Nothing, except the requests to the AI provider and food database you added with your own key (the same calls as the BYO rows above) and, only if you turn on the free trial, the anonymous trial AI and the operator\'s food-database lookups (the local-trial and local-food rows below)',
+    destination: 'Only those providers, plus our server while the free trial is on. The app\'s CSP admits no other host, and every other server feature (sync, push relay, Telegram, MCP, voice, sharing, feedback, RxNav drug lookups, Mi Band import) is off; with the trial off, so is the operator\'s food database',
     operatorVisibility: 'none',
     retention: 'Per each provider\'s own policy',
     activation: 'opt-in',
     activationNote: 'you add a provider key in Settings → AI & integrations; its host name is handed to the app shell for the CSP, never to a server',
     byo: 'The only kind there is in this mode',
-    evidence: ['web/cloud/js/local-policy.js:190', 'ios/App/LocalOrigin.swift:38'],
+    evidence: ['web/cloud/js/local-policy.js:232', 'web/cloud/js/local-policy.js:192', 'ios/App/LocalOrigin.swift:38'],
     code: { go: [], hosts: [] },
     docSignal: null,
     userCopy: {
       category: 'leaves',
       title: 'On-device mode: only the providers you add',
-      detail: 'In on-device mode the app talks to no server of ours unless you turn on the free trial AI. Otherwise the only requests that leave the phone go to the AI provider or food database you added with your own key, and the app blocks every other host. Medication names are not checked against RxNav, and voice, Telegram and sharing need a cloud account.',
+      detail: 'In on-device mode the app talks to no server of ours unless you turn on the free trial (AI and food database). Otherwise the only requests that leave the phone go to the AI provider or food database you added with your own key, and the app blocks every other host. Medication names are not checked against RxNav, and voice, Telegram and sharing need a cloud account.',
     },
   },
   {
@@ -789,7 +789,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in-consent',
     activationNote: 'you turn on the trial in Settings → AI & integrations and accept the trial consent; off by default, and off means no request to our server at all',
     byo: 'Add your own AI key and requests go phone-direct to your provider, never through the operator',
-    evidence: ['web/cloud/js/local-policy.js:197', 'web/cloud/js/local-trial.js:103', 'ios/App/Attest.swift:67', 'internal/cloudserver/attest.go:334', 'internal/appattest/devicecheck.go:65'],
+    evidence: ['web/cloud/js/local-policy.js:239', 'web/cloud/js/local-trial.js:105', 'ios/App/Attest.swift:67', 'internal/cloudserver/attest.go:353', 'internal/appattest/devicecheck.go:65'],
     code: { go: ['internal/cloudserver/attest.go'], hosts: ['api.devicecheck.apple.com'] },
     docSignal: null,
     userCopy: {
@@ -799,9 +799,10 @@ export const PRIVACY_MANIFEST = [
     },
   },
   {
-    // bd med-o7zq.19 (server half; the client bead med-o7zq.20 points the
-    // evidence at the real client lines and finalises userCopy). Same App
-    // Attest enrollment as local-trial; GET /api/attest/food/* on the base domain.
+    // bd med-o7zq.19 (server half) + med-o7zq.20 (client: fooddb.js's
+    // operator port → local-policy.js LOCAL_FOOD_DB → local-trial.js foodGet).
+    // Same App Attest enrollment as local-trial; GET /api/attest/food/* on the
+    // base domain.
     id: 'local-food',
     mode: 'local',
     feature: 'iOS local mode — anonymous trial food database (operator\'s food DB, no account)',
@@ -813,13 +814,13 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in-consent',
     activationNote: 'the same free-trial switch and consent as the trial AI (one enrollment per install, which spends the device\'s one trial grant); off means no request to our server at all',
     byo: 'Set your own food-DB endpoint in Settings → AI & integrations and lookups go phone-direct to it, never through the operator',
-    evidence: ['internal/cloudserver/attest.go:504', 'internal/cloudserver/food_proxy.go:93'],
+    evidence: ['web/cloud/js/fooddb.js:96', 'web/cloud/js/local-policy.js:204', 'web/cloud/js/local-trial.js:215', 'internal/cloudserver/attest.go:504', 'internal/cloudserver/food_proxy.go:93'],
     code: { go: ['internal/cloudserver/attest.go', 'internal/cloudserver/food_proxy.go'], hosts: [] },
     docSignal: null,
     userCopy: {
       category: 'visible',
       title: 'On-device mode: the free trial food database, if you turn it on',
-      detail: 'If you turn on the free trial in on-device mode, food searches and scanned barcodes go through our server to the operator\'s food database. Our server keeps no search terms or barcodes — only how many lookups this anonymous install made today. Add your own food database to keep lookups off our server.',
+      detail: 'If you turn on the free trial in on-device mode, food searches and scanned barcodes go through our server to the operator\'s food database. Our server keeps no search terms or barcodes — only how many lookups this anonymous install made today, up to a daily limit. With the trial off, nothing is looked up and the app says so. Add your own food database to keep lookups off our server.',
     },
   },
   {

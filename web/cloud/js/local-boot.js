@@ -56,6 +56,7 @@ window.MedTrackerCloudReady = (async function boot() {
             recordsPort: localRecordsPort,
             effects: policy.LOCAL_EFFECTS,
             rxnorm: null,
+            operatorFoodDb: policy.LOCAL_FOOD_DB,
             registerEgress,
             win: window,
         });

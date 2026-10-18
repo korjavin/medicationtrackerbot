@@ -11,6 +11,8 @@
 //
 // Only ever installed when the user turned the trial on (local-policy.js
 // registerLocalEgress): off, nothing here runs and nothing reaches our server.
+// The same switch covers the operator's food database (foodGet, bd
+// med-o7zq.20).
 
 const STATE_KEY = 'wg:local-trial';
 
@@ -130,7 +132,13 @@ export function createAttestClient({
   // (challenge_invalid), or a key the server or the shell does not have
   // (install_unknown / no_key → enroll a key first). Anything else goes back
   // to the caller, whose error mapping reads the body.
-  async function request(method, pathAndQuery, body, signal) {
+  async function request(method, rawPathAndQuery, body, signal) {
+    // Sign exactly what goes on the wire: fetch serialises the URL (WHATWG),
+    // escaping what encodeURIComponent leaves alone — ' → %27 in the query —
+    // and the server hashes that RequestURI. Signing the raw string would
+    // fail every such request with assertion_invalid.
+    const u = new URL(rawPathAndQuery, origin);
+    const pathAndQuery = u.pathname + u.search;
     for (let attempt = 0; ; attempt += 1) {
       const out = await signedRequest(method, pathAndQuery, body, signal);
       let { code } = out.res ? await errorCode(out.res) : { code: '' };
@@ -200,6 +208,12 @@ export function createLocalTrial({ attest, base, fetchImpl, storage }) {
         return Promise.resolve(new Response(JSON.stringify({ error: 'trial_already_used' }), { status: 403 }));
       }
       return client.post(trialPath.replace('/api/trial/', '/api/attest/trial/'), init.body, init.signal);
+    },
+    // fooddb.js (local-policy.js LOCAL_FOOD_DB, bd med-o7zq.20): the
+    // cloud's same-origin /api/food/* path, re-pointed at the attest route.
+    // Same key and challenge as the AI; its own daily cap on the server.
+    foodGet(path, signal) {
+      return client.get(path.replace('/api/food/', '/api/attest/food/'), signal);
     },
     async enroll() {
       const res = await client.enroll();

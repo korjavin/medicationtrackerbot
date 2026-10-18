@@ -265,11 +265,20 @@
         try { return !!(await s.remoteConfigured()); } catch (_) { return false; }
     }
 
+    // Why the food database cannot be asked (local mode: the trial is off, or
+    // today's lookups are spent), '' when nothing more specific is known.
+    async function remoteHint() {
+        const s = window.CloudFoodSearch;
+        if (!s || typeof s.remoteHint !== 'function') return '';
+        try { return (await s.remoteHint()) || ''; } catch (_) { return ''; }
+    }
+
     async function runSearch(q, remote) {
         const seq = ++st.searchSeq;
         if (remote && !(await remoteConfigured())) {
+            const hint = await remoteHint();
             if (seq !== st.searchSeq) return;
-            setSearchStatus('Food database not configured. Add one in Settings → Integrations.');
+            setSearchStatus(hint || 'Food database not configured. Add one in Settings → Integrations.');
             return;
         }
         setSearchStatus(remote ? 'Searching the food database…' : 'Searching…');
@@ -282,10 +291,13 @@
             setSearchStatus('Search failed. Try again.');
             return;
         }
+        // A lookup the server refused (today's food lookups spent) came back
+        // empty: say that, not "Nothing found".
+        const hint = remote && !(Array.isArray(found) && found.length) ? await remoteHint() : '';
         if (seq !== st.searchSeq) return;
         st.results = Array.isArray(found) ? found : [];
         st.remoteSearched = !!remote;
-        setSearchStatus(st.results.length ? '' : (remote ? 'Nothing found.' : 'No saved foods match.'));
+        setSearchStatus(st.results.length ? '' : (hint || (remote ? 'Nothing found.' : 'No saved foods match.')));
         renderResults();
         if (!remote && st.results.length === 0) runSearch(q, true);
     }
@@ -453,10 +465,14 @@
         } catch (e) {
             console.error('Barcode lookup failed', e);
         }
+        // A miss without a food database to ask is not "no product": say why.
+        const missCopy = hit ? '' : ((await remoteConfigured())
+            ? 'No product found for that barcode. Enter it once and it will be found next time.'
+            : (await remoteHint()) || 'Barcode lookup needs the food database. Add one in Settings → Integrations.');
         if (seq !== st.searchSeq) return;
         if (!hit) {
             setSearchStatus('');
-            safeToast('No product found for that barcode. Enter it once and it will be found next time.', 'info');
+            safeToast(missCopy, 'info');
             openManual({ barcode: numeric });
             return;
         }

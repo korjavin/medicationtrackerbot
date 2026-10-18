@@ -98,19 +98,27 @@ async function runCloudFoodSearch(query, requestId, { barcode } = {}) {
         }
     }
 
+    // remoteHint: local mode says why no remote lookup can run (the trial is
+    // off, or today's lookups are spent); '' otherwise.
+    const remoteHint = () => (typeof window.CloudFoodSearch.remoteHint === 'function'
+        ? window.CloudFoodSearch.remoteHint().catch(() => '')
+        : Promise.resolve(''));
+
     const loadMoreCallback = async () => {
         const myRequestId = window.FoodProducts._nextRequestId();
 
         // No remote food DB (no BYO url in the vault, no operator
-        // CLOUD_FOOD_DB_URL) means search() can only ever return the local
+        // CLOUD_FOOD_DB_URL, local mode's trial off or paused) means
+        // search() can only ever return the local
         // results we already rendered. Say so instead of silently reporting
         // zero matches — the user typed a query and deserves to know the
         // database is missing, not that their food doesn't exist (med-1j1).
         if (typeof window.CloudFoodSearch.remoteConfigured === 'function'
             && !(await window.CloudFoodSearch.remoteConfigured())) {
+            const hint = await remoteHint();
             if (myRequestId !== window.FoodProducts._getRequestId()) return;
             renderFoodAutocomplete(local, false, null);
-            setFoodSearchStatus('error', 'Food database not configured. Add one in Settings → Integrations.');
+            setFoodSearchStatus('error', hint || 'Food database not configured. Add one in Settings → Integrations.');
             return;
         }
 
@@ -125,7 +133,15 @@ async function runCloudFoodSearch(query, requestId, { barcode } = {}) {
             renderFoodAutocomplete(local, false, null);
             return;
         }
+        // This very lookup may have been refused (today's lookups spent):
+        // say so, not "Found 0 result(s)".
+        const refused = await remoteHint();
         if (myRequestId !== window.FoodProducts._getRequestId()) return;
+        if (refused) {
+            renderFoodAutocomplete(merged, false, null);
+            setFoodSearchStatus('error', refused);
+            return;
+        }
 
         if (barcode) {
             const remoteMatch = merged.find(p => p.barcode === barcode);

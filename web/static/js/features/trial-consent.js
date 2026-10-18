@@ -49,7 +49,7 @@
         anon: {
             title: 'Try the AI and food database without your own keys?',
             data: 'What you ask the AI to read — meal and activity descriptions, meal photos, workout-sheet photos with your plan’s exercise names, and exercise names to tag — and the barcodes and food names you look up will be sent through our server: AI requests to the operator’s AI provider account (OpenAI or Anthropic, the operator’s choice), lookups to the operator’s food database. Our server keeps no prompts, photos or searches.',
-            transit: 'To count the trial without an account, our server stores an anonymous install id from Apple’s App Attest and how many requests it has used, and Apple’s DeviceCheck keeps a mark that this iPhone had its trial. You get a limited number of free AI requests per install of the app; reinstalling the app gives up the rest, and the trial does not start again.',
+            transit: 'To count the trial without an account, our server stores an anonymous install id from Apple’s App Attest and how many requests it has used, and Apple’s DeviceCheck keeps a mark that this iPhone had its trial. You get a limited number of free AI requests per install of the app, and a daily allowance of food lookups; reinstalling the app gives up the rest, and the trial does not start again.',
             alternative: 'Alternative: add your own keys in Settings → AI & integrations, and this data goes only to your own providers, never through our server.',
         },
     };

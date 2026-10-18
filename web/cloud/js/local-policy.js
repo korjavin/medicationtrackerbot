@@ -2,7 +2,8 @@
 // med-o7zq): what local-boot.js injects into installApiShim in place of the
 // cloud's server-backed effects. In local mode nothing leaves the device except
 // calls to the providers the user configured with their own key (BYOK AI,
-// their own food DB) and, only if the user turns it on, the trial AI. The iOS shell enforces that with its CSP (connect-src
+// their own food DB) and, only if the user turns it on, the free trial (AI and
+// food database). The iOS shell enforces that with its CSP (connect-src
 // 'self' + the hosts registered here, ios/App/LocalOrigin.swift); this module
 // makes the app stop asking for anything else:
 //
@@ -18,7 +19,10 @@
 //               joins the shell's host list and local-trial.js signs each
 //               request with App Attest. The account trial's meta flag stays
 //               out of the bundle (ios/bundle-web.sh).
-//   food DB     the operator's is off: no food-DB meta in the bundle.
+//   food DB     no food-DB meta in the bundle. The operator's DB rides the
+//               same trial switch (bd med-o7zq.20): LOCAL_FOOD_DB below sends
+//               fooddb.js's lookups through local-trial.js to the attest
+//               routes while it is on; off, it is unavailable and says why.
 //   UI          features that need our server carry .wg-cloud-only and hide
 //               under :root.wg-local-vault (styles.css), which local-boot.js
 //               sets before the body parses.
@@ -154,24 +158,62 @@ async function attestStatus(win) {
   }
 }
 
-// The anonymous trial AI (bd med-o7zq.16) this document's CSP admits: the
-// local-trial.js transport while it is on, else null. Set by
-// registerLocalEgress, read by LOCAL_VAULT.trial.
+// The anonymous trial (bd med-o7zq.16: AI; med-o7zq.20: food) this document's
+// CSP admits: the local-trial.js transport while it is on, else null. Set by
+// registerLocalEgress, read by LOCAL_VAULT.trial and LOCAL_FOOD_DB.
 let localTrial = null;
 let lastEgress = null;
 
 function useLocalTrial(base, attest, win) {
   if (!base) {
     localTrial = null;
+    foodParked = null;
     setTrialTransport(null);
     return;
   }
   if (localTrial && localTrial.base === base) return;
+  foodParked = null;
   localTrial = createLocalTrial({
     attest, base, fetchImpl: win.fetch.bind(win), storage: win.localStorage,
   });
   setTrialTransport(localTrial);
 }
+
+// The operator food-DB port (fooddb.js) for local mode: the trial transport
+// while it is on, else unavailable — no request at all — with the reason as
+// hint(). Answers that say "not now" park it in memory: today's lookups spent
+// (429 install-day) until resets_at, the operator having no food DB or no
+// trial at all (503 food_not_configured / trial_not_configured) for an hour.
+export const FOOD_OFF_COPY = 'No food database in device-only mode. Turn on the free trial in Settings → AI & integrations, or add your own food DB.';
+export const FOOD_PAUSED_COPY = 'Food lookups paused until tomorrow.';
+const FOOD_USED_COPY = 'The free trial was already used on this iPhone. Add your own food DB in Settings → AI & integrations.';
+let foodParked = null; // { hint, until }
+
+export const LOCAL_FOOD_DB = {
+  hint() {
+    if (!localTrial) return FOOD_OFF_COPY;
+    if (localTrial.state()?.used) return FOOD_USED_COPY;
+    if (foodParked && Date.now() < foodParked.until) return foodParked.hint;
+    return '';
+  },
+  available() {
+    return LOCAL_FOOD_DB.hint() === '';
+  },
+  async get(pathAndQuery, signal) {
+    if (!LOCAL_FOOD_DB.available()) return null;
+    const res = await localTrial.foodGet(pathAndQuery, signal);
+    if (res.status === 429 || res.status === 503) {
+      const body = await res.clone().json().catch(() => ({}));
+      const now = Date.now();
+      if (body.error === 'trial_budget_exhausted' && body.scope === 'install-day') {
+        foodParked = { hint: FOOD_PAUSED_COPY, until: Date.parse(body.resets_at) || now + 24 * 3600e3 };
+      } else if (body.error === 'food_not_configured' || body.error === 'trial_not_configured') {
+        foodParked = { hint: FOOD_OFF_COPY, until: now + 3600e3 };
+      }
+    }
+    return res;
+  },
+};
 
 // registerLocalEgress is installApiShim's registerEgress in local mode: the
 // same BYOK hostnames the cloud PUTs to /api/egress-hosts, handed to the iOS
@@ -182,7 +224,7 @@ function useLocalTrial(base, attest, win) {
 //
 // The trial AI's host — our server's base domain — joins the list only while
 // the user has it on (the `anon` trial consent: one switch in Settings → AI &
-// integrations for the AI and, later, the food database, bd med-o7zq.20) and
+// integrations for the AI and the food database, bd med-o7zq.20) and
 // the shell supports App Attest. Off, the CSP admits no server of ours and
 // nothing here talks to one. The transport is installed
 // only once this document's CSP carries the host (no change pending a
