@@ -32,7 +32,15 @@ func TestReserveAttestVoice(t *testing.T) {
 	if _, scope, _, _, _ := r.ReserveAttestVoice(ctx, "k1", 2, now, 600, 300, 0, 600, 30); scope != AttestScopeVoiceDay {
 		t.Fatalf("daily scope = %q", scope)
 	}
-	// Settle at 90 s across midnight: the refund lands on the reservation day.
+	// Settle at 90 s: the refund lands on the reservation day's row
+	// (reservedAt), so a call across midnight frees the day it was charged to.
+	if err := r.RefundAttestVoice(ctx, "k1", now, 210); err != nil {
+		t.Fatal(err)
+	}
+	// The day row moved too: 300 - 90 left today.
+	if grant, _, _, _, _ := r.ReserveAttestVoice(ctx, "k1", 4, now, 1000, 300, 0, 600, 30); grant != 210 {
+		t.Fatalf("daily left after refund = %d, want 210", grant)
+	}
 	if err := r.RefundAttestVoice(ctx, "k1", now, 210); err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +52,7 @@ func TestReserveAttestVoice(t *testing.T) {
 		t.Fatalf("global scope = %q", scope)
 	}
 	// Lifetime first: 100 lifetime - 90 used < 30.
-	if _, scope, _, _, _ := r.ReserveAttestVoice(ctx, "k1", 3, now, 100, 0, 0, 600, 30); scope != AttestScopeVoice {
+	if _, scope, _, _, _ := r.ReserveAttestVoice(ctx, "k1", 5, now, 100, 0, 0, 600, 30); scope != AttestScopeVoice {
 		t.Fatalf("lifetime scope = %q", scope)
 	}
 	// A refund never goes below zero.

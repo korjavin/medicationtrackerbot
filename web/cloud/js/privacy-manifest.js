@@ -360,7 +360,7 @@ export const PRIVACY_MANIFEST = [
     evidence: [
       'internal/cloudserver/voice_llm_relay.go:42',
       'internal/cloudserver/voice_llm_relay.go:141',
-      'internal/cloudserver/voice_llm_relay.go:591',
+      'internal/cloudserver/voice_llm_relay.go:589',
       'web/cloud/js/voice-llm-responder.js:34',
     ],
     code: { go: ['internal/cloudserver/voice_llm_relay.go'], hosts: [] },
@@ -839,7 +839,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in-consent',
     activationNote: 'the same single free-trial switch and consent as the trial AI and food database; off means no request to our server or to ElevenLabs at all',
     byo: 'None in this mode: voice with your own ElevenLabs key needs a cloud account',
-    evidence: ['internal/cloudserver/attest.go:236', 'internal/cloudserver/voice_llm_relay.go:806', 'internal/cloudserver/trial_proxy.go:160'],
+    evidence: ['internal/cloudserver/attest.go:236', 'internal/cloudserver/voice_llm_relay.go:804', 'internal/cloudserver/trial_proxy.go:160'],
     code: { go: ['internal/cloudserver/attest.go', 'internal/cloudserver/voice_llm_relay.go', 'internal/cloudserver/trial_proxy.go'], hosts: ['api.elevenlabs.io'] },
     docSignal: null,
     userCopy: {

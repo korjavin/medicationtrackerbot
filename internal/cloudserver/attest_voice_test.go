@@ -62,14 +62,14 @@ func (e *attestEnv) voiceTurn(call string) *httptest.ResponseRecorder {
 }
 
 // settleAt reaps a detached call as if its last detach came `used` after the
-// mint (instead of waiting out real minutes).
+// mint (instead of waiting out real minutes); used 0 keeps the real detach.
 func (e *attestEnv) settleAt(token string, used time.Duration) {
 	c := e.relay.lookup(token)
 	if c == nil {
 		e.t.Fatal("call not in the relay")
 	}
 	c.mu.Lock()
-	if c.anon.attached {
+	if c.anon.attached && used > 0 {
 		c.anon.lastDetach = c.anon.mintedAt.Add(used)
 	}
 	c.expires = time.Now().Add(-time.Second)
@@ -160,6 +160,12 @@ func TestAttestVoiceStartAndSettle(t *testing.T) {
 		t.Fatal("an account attached an anonymous call")
 	}
 
+	// No leg attached yet: the leg is the meter, so no AI answer.
+	hits := e.upHits.Load()
+	if turn := e.voiceTurn(out.Call); turn.Code != http.StatusOK || !strings.Contains(turn.Body.String(), voiceRetry("en")) || e.upHits.Load() != hits {
+		t.Fatalf("unattached turn: %d %q", turn.Code, turn.Body.String())
+	}
+
 	device, err := dialAnonVoice(ctx, srv, out.Call)
 	if err != nil {
 		t.Fatal(err)
@@ -196,7 +202,7 @@ func TestAttestVoiceStartAndSettle(t *testing.T) {
 	e.upstream.Store(0)
 	// Stream limiter exhausted: spoken retry, no upstream call.
 	e.trial.streamLimiter = newRateLimiter(0, time.Minute)
-	hits := e.upHits.Load()
+	hits = e.upHits.Load()
 	if turn := e.voiceTurn(out.Call); turn.Code != http.StatusOK || !strings.Contains(turn.Body.String(), voiceRetry("en")) || e.upHits.Load() != hits {
 		t.Fatalf("stream-limited turn: %d %q", turn.Code, turn.Body.String())
 	}
@@ -308,9 +314,13 @@ func TestAttestVoiceBudgetTimer(t *testing.T) {
 	}
 	readVoiceFrame(t, ctx, device) // hello
 
-	// The grant runs out (fired by hand instead of waiting 600 s).
+	// The grant runs out (fired by hand, the mint moved 600 s back, instead of
+	// waiting 600 s).
 	c := e.relay.lookup(out.Call)
 	c.anon.timer.Stop()
+	c.mu.Lock()
+	c.anon.mintedAt = c.anon.mintedAt.Add(-600 * time.Second)
+	c.mu.Unlock()
 	go e.relay.exhaustAnon(c)
 	if f := readVoiceFrame(t, ctx, device); f.Type != "budget_exhausted" {
 		t.Fatalf("frame = %+v", f)
@@ -326,8 +336,8 @@ func TestAttestVoiceBudgetTimer(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantCloseCode(t, ctx, again, voiceStatusBudget)
-	// Settled: no refund.
-	e.settleAt(out.Call, time.Second)
+	// Settled at the real detach (past mint + grant): no refund.
+	e.settleAt(out.Call, 0)
 	if used := e.voiceUsed(k); used != 600 {
 		t.Fatalf("exhausted call refunded: used %d", used)
 	}

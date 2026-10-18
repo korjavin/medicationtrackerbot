@@ -383,8 +383,9 @@ func newVoiceCallToken() string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
-// settleAnon reports the call's used wall time once: the whole grant when it
-// ran out, nothing when no leg ever attached, else mint → last detach. The
+// settleAnon reports the call's used wall time once: mint → last detach, or
+// nothing when no leg ever attached. A call the budget timer ended was closed
+// by the relay at mint + grant, so it reports (at least) the whole grant. The
 // minting side clamps it to its floor and the grant.
 func (c *voiceCall) settleAnon() {
 	v := c.anon
@@ -394,10 +395,7 @@ func (c *voiceCall) settleAnon() {
 			v.timer.Stop()
 		}
 		var used time.Duration
-		switch {
-		case v.exhausted:
-			used = v.grant
-		case v.attached:
+		if v.attached {
 			used = v.lastDetach.Sub(v.mintedAt)
 		}
 		c.mu.Unlock()
@@ -818,12 +816,19 @@ func (a *VoiceLLMRelayAPI) anonTurn(w http.ResponseWriter, r *http.Request, call
 		writeVoiceFallback(func(s string) error { n, err := io.WriteString(w, s); rec.n += n; return err }, text)
 	}
 	call.mu.Lock()
-	exhausted := call.anon.exhausted
+	exhausted, attached := call.anon.exhausted, call.conn != nil
 	call.mu.Unlock()
 	switch {
 	case exhausted:
 		outcome = "budget_exhausted"
 		speak(voiceMinutesUp(lang))
+		return
+	case !attached:
+		// The leg is the meter: no AI answer while it is not attached (never
+		// attached, or within the grace after a drop), so an unattached call
+		// buys nothing past its floor.
+		outcome = "no_device"
+		speak(voiceRetry(lang))
 		return
 	case a.trial == nil:
 		speak(voiceRetry(lang))
