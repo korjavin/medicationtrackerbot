@@ -3,7 +3,9 @@ import UIKit
 import WebKit
 
 /// Local-mode GO/NO-GO diagnostic (bd med-o7zq.1). Throwaway, like the
-/// med-w6gx.2 spike: the bundling bead (med-o7zq.4) replaces it.
+/// med-w6gx.2 spike; kept until the release-gate checks (10 backup → restore,
+/// 11 eviction) have run. Same origin as local mode (LocalOrigin), so its
+/// IndexedDB lives next to the app's (separate database names).
 ///
 /// Opened only from iOS Settings → Med Tracker → Local mode diagnostic; the
 /// shell's normal path never creates it. Its own WKWebView loads the bundled
@@ -96,15 +98,7 @@ final class LocalSpike: NSObject, ObservableObject, WKNavigationDelegate, WKScri
 
     func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {} // answered synchronously
 
-    static func mime(_ path: String) -> String {
-        switch (path as NSString).pathExtension {
-        case "html": return "text/html; charset=utf-8"
-        case "js": return "text/javascript; charset=utf-8"
-        case "css": return "text/css; charset=utf-8"
-        case "json": return "application/json"
-        default: return "application/octet-stream"
-        }
-    }
+    static func mime(_ path: String) -> String { LocalOrigin.mime(path) }
 
     private func env() -> Data? {
         let info = Bundle.main.infoDictionary ?? [:]
@@ -201,24 +195,8 @@ final class LocalSpike: NSObject, ObservableObject, WKNavigationDelegate, WKScri
         return redact(out.joined(separator: "\n"))
     }
 
-    /// This origin's data directories: salted-hash layout (<dir>/origin names
-    /// the origin) or the legacy <scheme>_<host>_<port> one.
-    private func originDirs() -> [URL] {
-        guard let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first,
-              let walk = FileManager.default.enumerator(at: library, includingPropertiesForKeys: nil) else { return [] }
-        var ours: [URL] = []
-        let schemeBytes = Data(scheme.utf8), hostBytes = Data("local".utf8)
-        for case let url as URL in walk {
-            let name = url.lastPathComponent
-            if name == "origin", let d = try? Data(contentsOf: url),
-               d.range(of: schemeBytes) != nil, d.range(of: hostBytes) != nil {
-                ours.append(url.deletingLastPathComponent())
-            } else if name.hasPrefix("\(scheme)_local") {
-                ours.append(url)
-            }
-        }
-        return ours
-    }
+    /// This origin's data directories (the same origin as local mode).
+    private func originDirs() -> [URL] { LocalOrigin.dataDirs() }
 
     /// Checks 7 and 12: every IndexedDB directory under Library (Caches
     /// included — that is not backed up), this origin's directory, and the
@@ -254,16 +232,7 @@ final class LocalSpike: NSObject, ObservableObject, WKNavigationDelegate, WKScri
     private static let history = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
         .appendingPathComponent("wg-spike-backup-flag.log")
 
-    /// The origin dir, then its parents up to and including WebsiteData.
-    private func flagChain(_ dir: URL) -> [URL] {
-        var chain = [dir]
-        var d = dir
-        while !["WebsiteData", "Library"].contains(d.lastPathComponent), d.pathComponents.count > 2 {
-            d = d.deletingLastPathComponent()
-            chain.append(d)
-        }
-        return chain
-    }
+    private func flagChain(_ dir: URL) -> [URL] { LocalOrigin.flagChain(dir) }
 
     private static func excluded(_ dir: URL) -> Bool? {
         let fresh = URL(fileURLWithPath: dir.path) // no cached resource values
