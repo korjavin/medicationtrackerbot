@@ -278,7 +278,7 @@ func (a *AttestAPI) voiceStart(w http.ResponseWriter, r *http.Request) {
 			slog.Error("attest voice refund failed", "install", keyID, "seconds", seconds, "error", err)
 		}
 	}
-	signedURL, err := a.trial.mintTrialSignedURL(r.Context(), "install", keyID)
+	signedURL, err := a.trial.mintTrialSignedURL(r.Context(), "install", keyID, true)
 	if err != nil {
 		refund(grant)
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})

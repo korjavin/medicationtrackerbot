@@ -390,9 +390,9 @@ func (a *VoiceLLMRelayAPI) hasCallLocked(subject string) bool {
 }
 
 // MintAnonCall pre-registers an anonymous trial call for install keyID with a
-// grant of call time. It must be attached within attachWindow; at mintedAt +
-// grant the budget timer ends it (budget_exhausted + close 4429). ("", false)
-// when the install already has a call.
+// grant of call time. It must be attached within attachWindow; grant after
+// the mint the budget timer ends it (budget_exhausted + close 4429).
+// ("", false) when the install already has a call.
 func (a *VoiceLLMRelayAPI) MintAnonCall(keyID string, grant time.Duration) (string, bool) {
 	subject := cloudstore.AttestSubject(keyID)
 	now := time.Now()

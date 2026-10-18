@@ -124,7 +124,7 @@ func waitLegDetached(t *testing.T, c *voiceCall) {
 	}
 }
 
-func TestAttestVoiceStartAndSettle(t *testing.T) {
+func TestAttestVoiceStartAndHangUp(t *testing.T) {
 	e := newAttestEnv(t, 50, 0, 0)
 	k := attestKey(t)
 	e.enrolled(k, "tok-v1")
@@ -141,6 +141,10 @@ func TestAttestVoiceStartAndSettle(t *testing.T) {
 	}
 	if used := e.voiceUsed(k); used != 120 {
 		t.Fatalf("charged = %d", used)
+	}
+	// Single-use signature: one charged start opens one ElevenLabs session.
+	if q, _ := e.mintQuery.Load().(string); q != "agent_id=agent_trial&include_conversation_id=true" {
+		t.Fatalf("mint query = %q", q)
 	}
 	// One live call per install.
 	rec, _ = e.voiceStart(k, 3)
@@ -168,7 +172,7 @@ func TestAttestVoiceStartAndSettle(t *testing.T) {
 		t.Fatal("an account attached an anonymous call")
 	}
 
-	// No leg attached yet: the leg is the meter, so no AI answer.
+	// No leg attached yet: no AI answer (the leg gates answers; the start already paid).
 	hits := e.upHits.Load()
 	if turn := e.voiceTurn(out.Call); turn.Code != http.StatusOK || !strings.Contains(turn.Body.String(), voiceRetry("en")) || e.upHits.Load() != hits {
 		t.Fatalf("unattached turn: %d %q", turn.Code, turn.Body.String())

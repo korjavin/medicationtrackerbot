@@ -141,7 +141,7 @@ func (a *TrialProxyAPI) ElevenLabsSignedURL(w http.ResponseWriter, r *http.Reque
 	if !a.rateLimit(w, a.limiter, account.ID) {
 		return
 	}
-	signedURL, err := a.mintTrialSignedURL(r.Context(), "account", account.ID)
+	signedURL, err := a.mintTrialSignedURL(r.Context(), "account", account.ID, false)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
 		return
@@ -157,11 +157,21 @@ var errTrialMint = errors.New("trial elevenlabs mint failed")
 // anonymous voice start (attest.go); logKey/subject name the caller in logs
 // as in proxyChat. Any failure is errTrialMint (the caller answers 502
 // upstream_error). The signed URL is a live credential: never logged.
-func (a *TrialProxyAPI) mintTrialSignedURL(ctx context.Context, logKey, subject string) (string, error) {
+//
+// singleUse adds include_conversation_id=true, which per ElevenLabs makes the
+// conversation_signature unusable after its first conversation
+// (https://elevenlabs.io/docs/api-reference/conversations/get-signed-url) —
+// without it one URL can open sessions for its whole validity window. The
+// anonymous start needs that (one charged start = one session); the account
+// route keeps its request unchanged.
+func (a *TrialProxyAPI) mintTrialSignedURL(ctx context.Context, logKey, subject string, singleUse bool) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		a.elevenLabsSignedURLBase+"?agent_id="+url.QueryEscape(a.cfg.ElevenLabsAgentID), nil)
+	u := a.elevenLabsSignedURLBase + "?agent_id=" + url.QueryEscape(a.cfg.ElevenLabsAgentID)
+	if singleUse {
+		u += "&include_conversation_id=true"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		// SECURITY INVARIANT: err embeds the URL — log a fixed string only.
 		slog.Warn("trial elevenlabs mint bad upstream url", logKey, subject)

@@ -156,7 +156,7 @@ threat model: [cloud-mode.md → Anonymous trial](cloud-mode.md#anonymous-trial-
    `TRIAL_ANON_LIFETIME_REQUESTS` (200), `TRIAL_ANON_DAILY` (50) and
    `TRIAL_ANON_FOOD_DAILY` (1000; the food routes also need `CLOUD_FOOD_DB_URL`), and
    the anonymous voice budgets in seconds — voice stays OFF until
-   `TRIAL_ANON_VOICE_LIFETIME_SECONDS` is set (proposed 600) — then
+   `TRIAL_ANON_VOICE_LIFETIME_SECONDS` is set (recommended, owner-approved: 600) — then
    `TRIAL_ANON_VOICE_DAILY_SECONDS` (300), `TRIAL_ANON_VOICE_GLOBAL_DAILY_SECONDS` (7200),
    `TRIAL_ANON_VOICE_CALL_MAX_SECONDS` (120, ≥ the agent's `TRIAL_VOICE_MAX_CALL_SECONDS`; voice also needs `TRIAL_ELEVENLABS_*` and
    trial AI, else 503 `voice_not_configured`). Redeploy.

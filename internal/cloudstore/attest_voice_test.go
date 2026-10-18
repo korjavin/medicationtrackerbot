@@ -10,7 +10,7 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
-// bd med-o7zq.22: voice seconds reserved up front, refunded on settle; the
+// bd med-o7zq.22: voice seconds charged up front, refundable (mint failure); the
 // AI budget (trial_usage) is never touched.
 func TestReserveAttestVoice(t *testing.T) {
 	ctx := context.Background()
@@ -32,7 +32,7 @@ func TestReserveAttestVoice(t *testing.T) {
 	if _, scope, _, _, _ := r.ReserveAttestVoice(ctx, "k1", 2, now, 600, 300, 0, 600, 30); scope != AttestScopeVoiceDay {
 		t.Fatalf("daily scope = %q", scope)
 	}
-	// Settle at 90 s: the refund lands on the reservation day's row
+	// A partial refund (store contract) lands on the reservation day's row
 	// (reservedAt), so a call across midnight frees the day it was charged to.
 	if err := r.RefundAttestVoice(ctx, "k1", now, 210); err != nil {
 		t.Fatal(err)

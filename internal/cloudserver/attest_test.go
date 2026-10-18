@@ -188,6 +188,7 @@ type attestEnv struct {
 	upHits    atomic.Int32
 	mintFail  atomic.Bool
 	mintCalls atomic.Int32
+	mintQuery atomic.Value // last get_signed_url query string
 }
 
 // newAttestEnv wires the attest API over a fake OpenAI upstream; trialCfg, if
@@ -216,6 +217,7 @@ func newAttestEnv(t *testing.T, lifetime, daily, global int, trialCfg ...TrialCo
 	// Fake ElevenLabs get_signed_url (the shape trial_proxy_test.go's fake answers).
 	el := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		e.mintCalls.Add(1)
+		e.mintQuery.Store(r.URL.RawQuery)
 		if e.mintFail.Load() || r.Header.Get("xi-api-key") != "xi-trial" {
 			w.WriteHeader(http.StatusInternalServerError)
 			return

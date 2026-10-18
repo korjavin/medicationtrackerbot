@@ -157,9 +157,9 @@ const (
 // commits even when the budget refuses), then grant = min(lifetime left,
 // daily left, global left, callMax) seconds. grant >= floor is charged UP
 // FRONT to the lifetime and per-install daily counters (the global budget is
-// the daily rows' SUM) — the reservation the caller later settles with
-// RefundAttestVoice. grant < floor charges nothing, returns grant 0 and names
-// the binding scope (lifetime first). daily/global <= 0 disable that scope.
+// the daily rows' SUM). The caller gives it back with RefundAttestVoice only
+// when the call never got a signed URL out. grant < floor charges nothing,
+// returns grant 0 and names the binding scope (lifetime first). daily/global <= 0 disable that scope.
 // remainingLifetime / remainingDay are the seconds left after the reservation
 // (remainingDay never exceeds remainingLifetime).
 func (r *Repo) ReserveAttestVoice(ctx context.Context, keyID string, newCounter uint32, now time.Time, lifetime, daily, global, callMax, floor int) (grant int, scope string, remainingLifetime, remainingDay int, err error) {
