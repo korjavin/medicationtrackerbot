@@ -157,7 +157,8 @@ class Files(private val activity: Activity, private val accountHost: () -> Strin
         val name = view.title?.takeIf { it.isNotBlank() } ?: "Med Tracker"
         val inner = view.createPrintDocumentAdapter(name)
         // An offscreen print view lives exactly as long as its print job.
-        val adapter = if (view !== printView) inner else object : PrintDocumentAdapter() {
+        val offscreen = view === printView
+        val adapter = if (!offscreen) inner else object : PrintDocumentAdapter() {
             override fun onStart() = inner.onStart()
             override fun onLayout(
                 oldAttributes: PrintAttributes?, newAttributes: PrintAttributes,
@@ -173,7 +174,10 @@ class Files(private val activity: Activity, private val accountHost: () -> Strin
             }
         }
         runCatching { activity.getSystemService(PrintManager::class.java).print(name, adapter, PrintAttributes.Builder().build()) }
-            .onFailure { releasePrintView(view) }
+            .onFailure {
+                if (offscreen) releasePrintView(view) // never the app's own WebView
+                toast("Printing isn't available.")
+            }
     }
 
     private fun releasePrintView(view: WebView) {
