@@ -25,7 +25,21 @@
     });
     // The Android shell (bd med-nt9p.6) answers the same ops with the same
     // impl; until its Kotlin side lands (med-nt9p.7) they reject "unsupported: <op>".
+    // `copy` names the OS for the reminder copy (settings.js, cloud/js/push.js):
+    // feature code reads it off the capability, never the platform.
+    var android = foundation.platform === 'android';
     var shell = {
+        copy: android ? {
+            os: 'Android',
+            device: 'phone',
+            settingsPath: 'Android Settings → Apps → Med Tracker → Notifications (and Alarms & reminders)',
+            pushNote: 'This app sends reminders as Android notifications once your account is open. Turn them on in Settings → Notifications, or allow Med Tracker under Android Settings → Apps → Notifications and Alarms & reminders.',
+        } : {
+            os: 'iOS',
+            device: 'iPhone',
+            settingsPath: 'iOS Settings → Med Tracker → Notifications',
+            pushNote: 'This app sends reminders as iPhone notifications once your account is open. Turn them on in Settings → Notifications, or allow Med Tracker in iOS Settings.',
+        },
         isSupported: function () { return true; },
         permission: function () { return foundation.call('notifications.permission'); },
         requestPermission: function () { return foundation.call('notifications.requestPermission'); },
