@@ -60,7 +60,7 @@ struct LocalLock {
     }
 
     mutating func finish(_ attempt: Int, _ result: DeviceAuth.Result, setting: Bool) {
-        guard attempt == self.attempt, state == .unlocking else { return }
+        guard state == .unlocking else { return }
         switch result {
         case .ok:
             state = .unlocked
