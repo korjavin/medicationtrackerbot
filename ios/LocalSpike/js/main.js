@@ -202,14 +202,15 @@ async function checkBridge() {
     nativeText = await bridge.postMessage({ op: 'native' });
     const has = (needle) => nativeText.includes(needle);
     set('7', 'INFO', !has('our origin dir: not found') ?'origin dir found — see native section below' : 'origin dir NOT found — see native section below');
-    // PASS only when the flag is settable AND the origin dir is left in the
-    // backup (before == reverted == false): check 10 is invalid otherwise.
-    const clean = has('before=false set=true reverted=false (reverted == before)') && !has('REVERT MISMATCH') && !has('before=true');
-    set('12', clean ? 'PASS' : 'INFO',
-      `${clean ? 'set ok, reverted, origin dir NOT excluded from backup'
-        : has('before=true')
-          ? 'origin dir excluded from backup (left by an older build) — delete the app, reinstall, run again from step 1 (docs/ios.md step 7)'
-          : 'revert failed — check 10 invalid, stop and report'}; see native section below`);
+    // Native clears the flag WebKit sets on a new origin dir (bd med-o7zq.11).
+    // PASS only when nothing in the chain is excluded now and no clear
+    // failed: check 10 is invalid otherwise. Owner just sends the report.
+    const now = (nativeText.split('\n').find((l) => l.startsWith('#12 now: ')) || '').slice(9);
+    const clean = now.includes('origin excluded=false') && !now.includes('excluded=true')
+      && !now.includes('unreadable') && !has('cleared FAILED');
+    set('12', clean ? 'PASS' : 'FAIL',
+      `${clean ? 'origin dir and parents in the backup now' : 'origin dir (or a parent) still excluded from backup, or a clear failed'}`
+      + `${has('found=true cleared ok') ? '; WebKit had excluded it, cleared on a launch (history below)' : ''}; see native section below`);
   } catch (e) {
     set('7', 'INFO', `native report unavailable: ${errText(e)}`);
   }
