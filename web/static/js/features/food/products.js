@@ -98,6 +98,12 @@ async function runCloudFoodSearch(query, requestId, { barcode } = {}) {
         }
     }
 
+    // remoteHint: local mode says why no remote lookup can run (the trial is
+    // off, or today's lookups are spent); '' otherwise.
+    const remoteHint = () => (typeof window.CloudFoodSearch.remoteHint === 'function'
+        ? window.CloudFoodSearch.remoteHint().catch(() => '')
+        : Promise.resolve(''));
+
     const loadMoreCallback = async () => {
         const myRequestId = window.FoodProducts._nextRequestId();
 
@@ -108,11 +114,7 @@ async function runCloudFoodSearch(query, requestId, { barcode } = {}) {
         // database is missing, not that their food doesn't exist (med-1j1).
         if (typeof window.CloudFoodSearch.remoteConfigured === 'function'
             && !(await window.CloudFoodSearch.remoteConfigured())) {
-            // remoteHint: local mode says why (the trial is off, or today's
-            // lookups are spent).
-            const hint = typeof window.CloudFoodSearch.remoteHint === 'function'
-                ? await window.CloudFoodSearch.remoteHint().catch(() => '')
-                : '';
+            const hint = await remoteHint();
             if (myRequestId !== window.FoodProducts._getRequestId()) return;
             renderFoodAutocomplete(local, false, null);
             setFoodSearchStatus('error', hint || 'Food database not configured. Add one in Settings → Integrations.');
@@ -130,7 +132,15 @@ async function runCloudFoodSearch(query, requestId, { barcode } = {}) {
             renderFoodAutocomplete(local, false, null);
             return;
         }
+        // This very lookup may have been refused (today's lookups spent):
+        // say so, not "Found 0 result(s)".
+        const refused = await remoteHint();
         if (myRequestId !== window.FoodProducts._getRequestId()) return;
+        if (refused) {
+            renderFoodAutocomplete(merged, false, null);
+            setFoodSearchStatus('error', refused);
+            return;
+        }
 
         if (barcode) {
             const remoteMatch = merged.find(p => p.barcode === barcode);
