@@ -47,6 +47,7 @@ type Handler struct {
 	// 404s it, same as an unmounted route.
 	feedbackReader http.Handler
 	aasa           []byte // apple-app-site-association JSON; nil = route off, see SetAppleAppSiteAssociation
+	assetLinks     []byte // assetlinks.json; nil = route off, see SetAndroidAssetLinks
 
 	landingRaw   []byte // web/cloud/index.html verbatim, used to build landingIndex
 	landingIndex []byte // landingRaw + "request an invite" contact line; nil = serve the raw shell file (today's behavior), see SetRequestInviteEmail
@@ -328,7 +329,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// assets, /api/*) keeps 'self'.
 	setSecurityHeaders(w, false, nil)
 	if host == h.baseDomain {
-		if h.serveAASA(w, r) {
+		if h.serveAASA(w, r) || h.serveAssetLinks(w, r) {
 			return
 		}
 		if h.landingIndex != nil && (r.URL.Path == "/" || r.URL.Path == "/index.html") {
@@ -409,7 +410,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.serveAASA(w, r) {
+	if h.serveAASA(w, r) || h.serveAssetLinks(w, r) {
 		return
 	}
 

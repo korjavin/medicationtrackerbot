@@ -37,6 +37,8 @@ services:
       - REQUEST_INVITE_EMAIL=${REQUEST_INVITE_EMAIL:-}
       - IOS_TEAM_ID=${IOS_TEAM_ID:-}
       - IOS_BUNDLE_ID=${IOS_BUNDLE_ID:-}
+      - ANDROID_PACKAGE=${ANDROID_PACKAGE:-}
+      - ANDROID_CERT_SHA256S=${ANDROID_CERT_SHA256S:-}
       # age X25519 recipient pubkey for the cloud feedback channel (bd med-dni).
       # Unset = feedback disabled: no meta tag reaches the browser and
       # POST /api/feedback returns 503. Public key only, never a secret.

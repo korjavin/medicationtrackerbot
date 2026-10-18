@@ -153,6 +153,14 @@ threat model: [cloud-mode.md → Anonymous trial](cloud-mode.md#anonymous-trial-
 Rotating the key: upload the new `.p8`, change `DEVICECHECK_KEY_ID`, redeploy.
 Existing installs keep working (DeviceCheck is only called at enrollment).
 
+### Android Digital Asset Links (optional)
+
+Set `ANDROID_PACKAGE` + `ANDROID_CERT_SHA256S` (see docs/environment.md) to
+serve `/.well-known/assetlinks.json` on every host. Google caches Digital Asset
+Links, so passkey/app-link verification can lag after the first deploy or a
+fingerprint change; check the file with
+`curl https://<sub>.<CLOUD_BASE_DOMAIN>/.well-known/assetlinks.json`.
+
 ### Telegram manager bot (optional, C3a)
 
 One-time operator setup enables one-tap managed-bot provisioning for users

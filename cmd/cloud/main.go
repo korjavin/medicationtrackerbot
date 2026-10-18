@@ -330,6 +330,7 @@ func main() {
 	router.SetRequestInviteEmail(cfg.requestInviteEmail)
 	router.SetFeedbackRecipient(cfg.feedbackAgeRecipient)
 	router.SetAppleAppSiteAssociation(os.Getenv("IOS_TEAM_ID"), os.Getenv("IOS_BUNDLE_ID"))
+	router.SetAndroidAssetLinks(os.Getenv("ANDROID_PACKAGE"), os.Getenv("ANDROID_CERT_SHA256S"))
 	// Base-domain web-feedback reader (bd med-rbl). Mounted unconditionally: it
 	// only ever answers a live capability token, and tokens exist only if the
 	// manager bot minted one for a queued item.
