@@ -149,3 +149,54 @@ describe('native/index.js — full module load wires real impls', () => {
         }
     });
 });
+
+describe('native/index.js — permissions.query shim (med-o7zq.25)', () => {
+    // iOS WKWebView on wgapp:// rejects permissions.query({name:'microphone'})
+    // after a granted getUserMedia, which killed the voice call. The shim turns
+    // that rejection into a 'prompt' status for microphone/camera only.
+    let env;
+    afterEach(() => { if (env) env.cleanup(); env = null; });
+
+    function loadWithQuery(query) {
+        env = makeWindow();
+        Object.defineProperty(env.window.navigator, 'permissions', { value: { query }, configurable: true });
+        env.evalFile(NATIVE_INDEX_JS);
+        return env.window.navigator.permissions;
+    }
+
+    it('rejecting query resolves a prompt stub for microphone', async () => {
+        const perms = loadWithQuery(() => Promise.reject(new TypeError('Permissions::query does not support this API')));
+        const mic = await perms.query({ name: 'microphone' });
+        expect(mic.name).toBe('microphone');
+        expect(mic.state).toBe('prompt');
+        expect(mic.onchange).toBeNull();
+        expect(mic.dispatchEvent()).toBe(false);
+        expect(() => { mic.addEventListener('change', () => {}); mic.removeEventListener('change', () => {}); }).not.toThrow();
+    });
+
+    it('synchronously throwing query resolves a prompt stub for camera', async () => {
+        const perms = loadWithQuery(() => { throw new TypeError('unsupported'); });
+        expect((await perms.query({ name: 'camera' })).state).toBe('prompt');
+    });
+
+    it('working query passes its result through unchanged', async () => {
+        const real = { name: 'microphone', state: 'denied' };
+        const perms = loadWithQuery(() => Promise.resolve(real));
+        expect(await perms.query({ name: 'microphone' })).toBe(real);
+    });
+
+    it('non-device names keep the original rejection', async () => {
+        const err = new TypeError('nope');
+        const perms = loadWithQuery(() => Promise.reject(err));
+        await expect(perms.query({ name: 'notifications' })).rejects.toBe(err);
+    });
+
+    it('provides permissions.query when navigator.permissions is missing', async () => {
+        env = makeWindow();
+        Object.defineProperty(env.window.navigator, 'permissions', { value: undefined, configurable: true });
+        env.evalFile(NATIVE_INDEX_JS);
+        const perms = env.window.navigator.permissions;
+        expect((await perms.query({ name: 'microphone' })).state).toBe('prompt');
+        await expect(perms.query({ name: 'geolocation' })).rejects.toHaveProperty('name', 'TypeError');
+    });
+});

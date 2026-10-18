@@ -91,6 +91,45 @@
         return Promise.resolve(bridge.postMessage({ op: op, args: args || {} }));
     }
 
+    // permissions.query shim (med-o7zq.25). The vendored voice SDK awaits
+    // navigator.permissions.query({name:'microphone'}) right after a granted
+    // getUserMedia (and LiveKit queries camera/microphone on track restart).
+    // The iOS WKWebView serving the app from wgapp:// rejects that query, so the
+    // call died with the mic granted. For those two names only, a throw or
+    // rejection resolves a 'prompt' status: the SDK only checks for 'denied',
+    // and getUserMedia stays the real gate. A working query passes through
+    // unchanged, so browsers see no difference.
+    (function () {
+        var nav = window.navigator;
+        if (!nav) return;
+        var perms = nav.permissions;
+        if (!perms) {
+            perms = {};
+            try { Object.defineProperty(nav, 'permissions', { value: perms, configurable: true }); } catch (e) { return; }
+        }
+        var real = typeof perms.query === 'function' ? perms.query.bind(perms) : null;
+        function promptStatus(name) {
+            return {
+                name: name, state: 'prompt', onchange: null,
+                addEventListener: function () {}, removeEventListener: function () {},
+                dispatchEvent: function () { return false; },
+            };
+        }
+        var shimmed = function (desc) {
+            var name = desc && desc.name;
+            var device = name === 'microphone' || name === 'camera';
+            var result;
+            try {
+                if (!real) throw new TypeError('navigator.permissions.query is unavailable');
+                result = Promise.resolve(real(desc));
+            } catch (e) {
+                result = Promise.reject(e);
+            }
+            return device ? result.catch(function () { return promptStatus(name); }) : result;
+        };
+        try { Object.defineProperty(perms, 'query', { value: shimmed, configurable: true, writable: true }); } catch (e) { /* frozen: leave the platform's */ }
+    })();
+
     // Per-capability impl registry. Populated by the impl files via
     // registerImpl(). Splitting the wiring step from the file load lets the
     // impl files run in any order after index.js, and lets tests reach an

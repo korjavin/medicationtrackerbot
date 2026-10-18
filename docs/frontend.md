@@ -184,6 +184,13 @@ on a capability's `isSupported()`, never on the platform. The passkey shell
 too: `push.js` `isStandalone()` treats a supported `LocalNotifications` as the
 installed app, so neither the iOS nor the Android app shows the Add-to-Home-Screen steps.
 
+**`permissions.query` shim** — `native/index.js` also wraps
+`navigator.permissions.query` (med-o7zq.25): for `microphone`/`camera` only, a
+throw or rejection resolves a `{state: 'prompt'}` stub instead, because the iOS
+WKWebView on `wgapp://` rejects the query the vendored voice SDK makes right
+after a granted `getUserMedia`. A working query passes through unchanged;
+`getUserMedia` stays the real gate.
+
 **Capability probes** — where a capability may be absent, the check is exposed
 as a method so feature code never re-derives it:
 
