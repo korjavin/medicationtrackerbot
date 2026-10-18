@@ -282,7 +282,7 @@ class MainActivity : Activity() {
 
     /**
      * The wgNative bridge (bd med-nt9p.5): WebMessageListener injected as
-     * window.wgNative on https://*.<base> pages. Only the account's own
+     * window.wgNative on the `https` subdomains of base. Only the account's own
      * top-level page is answered. Messages are JSON {op, args, id}; replies
      * {id, result} or {id, error}. Capability ops (native/ android platform,
      * med-nt9p.6) add cases here.
