@@ -1523,13 +1523,16 @@ function _buildMedConfirmChoice(index, name, med, mode) {
     return btn;
 }
 
-function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', intakeIds = []) {
+// opts.additive: the reminder-tap sheet (app.js handlePushAction, med-9d1a) —
+// its confirm only marks pending doses taken, never reverts a slot-mate.
+function showMedicationConfirmModal(ids, names, scheduledAt, mode = 'confirm', intakeIds = [], opts = {}) {
     window.PushModalState.openMedConfirm({
         ids,
         names,
         scheduled: scheduledAt,
         mode,
         intakeIds,
+        additive: !!(opts && opts.additive),
     });
 
     window.ModalManager.medConfirm.open();

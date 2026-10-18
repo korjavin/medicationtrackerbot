@@ -240,6 +240,79 @@ describe('cloud shim contract — intake state machine (web/domain/medintake.js)
         }
     });
 
+    // bd med-9d1a — a reminder tap carries ids + slot only (no intake ids), and
+    // the slot is already past. Its confirm must be ADDITIVE: the sheet lists
+    // only the reminder's meds, so a slot-mate taken before the tap is absent
+    // without having been unchecked and must never revert to PENDING.
+    const waitFor = async (pred) => {
+        for (let i = 0; i < 100 && !(await pred()); i++) await new Promise((r) => setTimeout(r, 20));
+    };
+    const reminderTapEnv = (statusB, statusA = 'PENDING') => {
+        const slotIso = new Date(Math.floor((Date.now() - HOUR_MS) / 60000) * 60000).toISOString();
+        env = loadCloudShimFrontendEnv({
+            url: `https://acct.example.test/?action=medication_confirm&ids=1%2C2&scheduled=${encodeURIComponent(slotIso)}`,
+            seedRecords: {
+                medication: [
+                    seedMedication({ recordId: 1, name: 'Metformin', inventory_count: 5 }),
+                    seedMedication({ recordId: 2, name: 'Aspirin', inventory_count: 5 })
+                ],
+                intake: [
+                    seedIntake({ recordId: 'intake-a', medication_id: 1, scheduled_at: slotIso, status: statusA, taken_at: statusA === 'TAKEN' ? slotIso : null }),
+                    seedIntake({ recordId: 'intake-b', medication_id: 2, scheduled_at: slotIso, status: statusB, taken_at: statusB === 'TAKEN' ? slotIso : null })
+                ]
+            }
+        });
+        return slotIso;
+    };
+    const stateOf = async (window) => {
+        const meds = await window.apiCall('/api/medications');
+        const history = await window.apiCall('/api/history?days=2');
+        const status = (medId) => history.find((h) => h.medication_id === medId).status;
+        const stock = (medId) => meds.find((m) => String(m.id) === String(medId)).inventory_count;
+        return { a: status(1), b: status(2), stockA: stock(1), stockB: stock(2) };
+    };
+
+    it('a reminder-tap confirm takes the pending dose and never reverts a TAKEN slot-mate', async () => {
+        reminderTapEnv('TAKEN');
+        const { window, document } = env;
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+        try {
+            window.handleDeepLinks();
+            const list = document.getElementById('med-confirm-list');
+            await waitFor(() => list.querySelectorAll('.med-confirm-check').length > 0);
+
+            // Only the still-due med is offered.
+            expect([...list.querySelectorAll('.med-confirm-check')].map((c) => c.textContent)).toEqual([expect.stringContaining('Metformin')]);
+
+            document.getElementById('med-confirm-action-btn').dispatchEvent(new window.Event('click', { bubbles: true }));
+            await waitFor(async () => (await stateOf(window)).a === 'TAKEN');
+
+            expect(await stateOf(window)).toEqual({ a: 'TAKEN', b: 'TAKEN', stockA: 4, stockB: 5 });
+        } finally {
+            delete globalThis.fetch;
+        }
+    });
+
+    it('a reminder tap for a slot already fully logged opens no sheet and changes nothing', async () => {
+        reminderTapEnv('TAKEN', 'TAKEN');
+        const { window, document } = env;
+        globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+        try {
+            const toast = vi.spyOn(window, 'safeToast').mockImplementation(() => null);
+            const modal = vi.spyOn(window, 'showMedicationConfirmModal');
+
+            window.handleDeepLinks();
+            await waitFor(() => toast.mock.calls.length > 0);
+
+            expect(toast).toHaveBeenCalledWith('Already logged — nothing left to take for this reminder.', 'info');
+            expect(modal).not.toHaveBeenCalled();
+            expect(document.querySelectorAll('#med-confirm-list .med-confirm-check').length).toBe(0);
+            expect(await stateOf(window)).toEqual({ a: 'TAKEN', b: 'TAKEN', stockA: 5, stockB: 5 });
+        } finally {
+            delete globalThis.fetch;
+        }
+    });
+
     it('confirm-schedule by intake_id only (no scheduled_at) sends no cancel-refire POST', async () => {
         env = loadCloudShimFrontendEnv({
             seedRecords: {

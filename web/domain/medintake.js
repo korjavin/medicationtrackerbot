@@ -444,7 +444,12 @@ export function createIntakeDomain({ records, now, timeZone }) {
   // path). A slot still in the future is confirm-or-create and additive.
   // takenAt (optional, the take sheet's "Time taken") back-dates taken_at;
   // clientTs stays now so the write still wins LWW.
-  async function confirmSchedule({ scheduledAt, medicationIds = [], intakeIds = [], takenAt } = {}) {
+  // additive (bd med-9d1a): never run the revert pass. A reminder-tap sheet
+  // lists only the meds the reminder named — a slot-mate taken before the
+  // reminder was rebuilt is absent from it without having been "unchecked",
+  // so reverting it would flip a real dose back to PENDING (+1 stock) and
+  // invite a double dose.
+  async function confirmSchedule({ scheduledAt, medicationIds = [], intakeIds = [], takenAt, additive = false } = {}) {
     const nowMs = now();
     const takenMs = takenAt ? Date.parse(takenAt) : NaN;
     const takenIso = new Date(Number.isFinite(takenMs) ? takenMs : nowMs).toISOString();
@@ -512,7 +517,7 @@ export function createIntakeDomain({ records, now, timeZone }) {
     // Taking an upcoming slot early is additive: a med already taken early
     // drops out of the forecast, so it is absent from the next bucket's ids
     // without having been "unchecked" — never revert it.
-    if (scheduledAtMs > nowMs) return { status: 'confirmed' };
+    if (additive || scheduledAtMs > nowMs) return { status: 'confirmed' };
 
     const medSet = new Set(medicationIds);
     const intakesAfter = await loadIntakes();

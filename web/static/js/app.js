@@ -739,6 +739,25 @@ async function resolvePushMedications(ids) {
     return ids.map((id) => byId.get(String(id))).filter((m) => m && !m.archived);
 }
 
+// The meds whose dose at the slot is already logged (TAKEN or SKIPPED) — a
+// reminder tap after the dose was taken elsewhere must not offer it again.
+// An unreadable history or an unmaterialized slot counts as still due.
+async function loggedAtSlot(meds, scheduled) {
+    const slotMs = Date.parse(scheduled);
+    const logged = new Set();
+    if (!Number.isFinite(slotMs)) return logged;
+    const days = Math.min(30, Math.max(1, Math.ceil((Date.now() - slotMs) / 86400000) + 1));
+    for (const m of meds) {
+        let logs = null;
+        try {
+            logs = await apiCall(`/api/history?days=${days}&med_id=${encodeURIComponent(m.id)}`);
+        } catch (_) { /* treat as still due */ }
+        if (Array.isArray(logs) && logs.some((l) => l && Date.parse(l.scheduled_at) === slotMs
+            && (l.status === 'TAKEN' || l.status === 'SKIPPED'))) logged.add(m);
+    }
+    return logged;
+}
+
 function handlePushAction(action, params) {
     if (action === 'medication_confirm') {
         let ids = params.get('ids') ? params.get('ids').split(',').map(Number) : [];
@@ -749,8 +768,13 @@ function handlePushAction(action, params) {
         setTimeout(async () => {
             // A cloud reminder deeplink carries ids only (bd med-9d1a — names
             // are PII and the vault has them): resolve them here, dropping meds
-            // deleted or archived since the reminder was scheduled.
-            if (ids.length && !names.length) {
+            // deleted or archived since the reminder was scheduled, and those
+            // already logged for this slot. Its confirm is ADDITIVE: the sheet
+            // lists only the reminder's meds, so a slot-mate taken before the
+            // tap is absent without having been unchecked and must never be
+            // reverted (medintake.js confirmSchedule).
+            const fromReminder = ids.length > 0 && !names.length;
+            if (fromReminder) {
                 const live = await resolvePushMedications(ids);
                 if (live && !live.length) {
                     switchTab('meds');
@@ -758,11 +782,17 @@ function handlePushAction(action, params) {
                     return;
                 }
                 if (live) {
-                    ids = live.map((m) => Number(m.id));
-                    names = live.map((m) => m.name);
+                    const logged = await loggedAtSlot(live, scheduled);
+                    const due = live.filter((m) => !logged.has(m));
+                    if (!due.length) {
+                        safeToast('Already logged — nothing left to take for this reminder.', 'info');
+                        return;
+                    }
+                    ids = due.map((m) => Number(m.id));
+                    names = due.map((m) => m.name);
                 }
             }
-            showMedicationConfirmModal(ids, names, scheduled, 'confirm', intakeIds);
+            showMedicationConfirmModal(ids, names, scheduled, 'confirm', intakeIds, { additive: fromReminder });
         }, 500);
     } else if (action === 'workout_start') {
         // Coerce to Number — cached workout_next.session.id is numeric, and
