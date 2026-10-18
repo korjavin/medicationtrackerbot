@@ -145,6 +145,39 @@ describe('local-only mode boot + records port (med-o7zq.2)', () => {
         expect(direct).toHaveLength(1);
         expect(fetched.filter((u) => u.includes('/api/'))).toEqual([]);
     });
+
+    // bd med-o7zq.5: the on-device store is the only copy outside the
+    // iPhone's backup, so a weekly toast suggests exporting one.
+    it('reminds to export a backup at most weekly, only once there is data; an export restarts the week', async () => {
+        const { window } = env;
+        const { nudgeLocalBackup, BACKUP_NUDGE_MS } = await import('../../../cloud/js/local-policy.js');
+        const KEY = 'wg:local-backup-nudge-at';
+        const toast = vi.fn();
+        window.safeToast = toast;
+        window.switchTab = vi.fn();
+        window.SettingsView = { openSettingsPage: vi.fn() };
+
+        // The boot started the week.
+        const start = Number(window.localStorage.getItem(KEY));
+        expect(start).toBeGreaterThan(0);
+        const due = start + BACKUP_NUDGE_MS;
+        expect(await nudgeLocalBackup({ win: window, now: due })).toBe(false); // nothing stored yet
+
+        await window.apiCall('/api/weight', 'POST', { weight: 80 });
+        expect(await nudgeLocalBackup({ win: window, now: due - 1 })).toBe(false);
+        expect(await nudgeLocalBackup({ win: window, now: due })).toBe(true);
+        expect(await nudgeLocalBackup({ win: window, now: due + 1 })).toBe(false); // next one a week on
+        expect(toast).toHaveBeenCalledTimes(1);
+        expect(toast.mock.calls[0][0]).toContain('only on this iPhone');
+        toast.mock.calls[0][2].action.onClick();
+        expect(window.switchTab).toHaveBeenCalledWith('settings');
+        expect(window.SettingsView.openSettingsPage).toHaveBeenCalledWith('backup');
+
+        const before = Date.now();
+        await window.CloudVault.exportAll({ includeSecrets: false, win: window });
+        expect(Number(window.localStorage.getItem(KEY))).toBeGreaterThanOrEqual(before);
+        expect(fetched.filter((u) => u.includes('/api/'))).toEqual([]);
+    });
 });
 
 describe('local-boot apiCallDirect ordering (med-o7zq.2)', () => {

@@ -109,6 +109,14 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         return nil
     }
 
+    /// First-run "Only on this device" (bd med-o7zq.5), after the local intro:
+    /// the same persisted choice as the Settings toggle.
+    func openLocal() {
+        UserDefaults.standard.set(true, forKey: LocalOrigin.modeKey)
+        local = true
+        reopen()
+    }
+
     func retry() {
         if let url = lastURL ?? home { load(url) }
     }

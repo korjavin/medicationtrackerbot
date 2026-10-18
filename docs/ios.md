@@ -304,10 +304,11 @@ Med Tracker is a personal log, not a medical device, and does not give
 medical advice.
 ```
 
-Once on-device local mode ships (epic `med-o7zq`, the first-run "Only on this
-device" button), add one line to the notes so the reviewer can test both modes:
-`No-account mode: on first run tap "Only on this device"; data stays on the
-device.` Until then, leave it out: the button does not exist yet.
+When a build with on-device local mode is submitted (epic `med-o7zq`; the
+first-run "Only on this device" button is bd med-o7zq.5), add one line to the
+notes so the reviewer can test both modes: `No-account mode: on first run tap
+"Only on this device"; data stays on the device.` Leave it out of a
+submission that is cloud-only.
 
 ### Submission checklist
 
@@ -649,10 +650,20 @@ IndexedDB never mixes with an account's. Cloud mode is unchanged.
   `isExcludedFromBackup` on that dir and its parents up to `WebsiteData` at
   launch, after each page load and on going to the background.
 - **Mode:** persisted in `UserDefaults` `wgLocalMode`; it wins over a stored
-  account host. Until the first-run button (bd med-o7zq.5) sets it, test
-  builds turn it on in iPhone Settings → Med Tracker → *Local mode*. *Switch
+  account host. Set by the first-run screen's secondary button *Only on this
+  device* (bd med-o7zq.5; the invite form stays primary), after a native intro
+  (`LocalIntroView` in `App.swift`): records only on this iPhone and in its
+  own backup, no other copy, deleting the app loses them, export regularly,
+  BYOK only. *Start* stores the choice; *Back* returns to the invite form.
+  iPhone Settings → Med Tracker → *Local mode* is the same switch. *Switch
   account* leaves local mode too; the origin's data is kept either way.
-  Settings opens on an *On this device only* row in local mode.
+  Settings opens on an *On this device only* row in local mode. The Face ID
+  opt-in joins the intro with bd med-o7zq.8.
+- **Export reminder** (bd med-o7zq.5, `local-policy.js` `nudgeLocalBackup`):
+  at most once a week, counted from the first open, the last reminder or the
+  last export, and only once something is stored, a toast suggests exporting
+  a backup file (*Back up* opens Settings → Backup & import). Checked at boot
+  and on every return to the front.
 - **One vault at a time** (bd med-o7zq.9): the shell's open vault is `local`
   or the account host. Each reminder carries it (`userInfo.vault`, id
   `wg-<n>-<vault>`); switching mode or account removes every pending reminder
@@ -680,8 +691,9 @@ IndexedDB never mixes with an account's. Cloud mode is unchanged.
 
 ### Device check (TestFlight)
 
-1. Fresh install, airplane mode, Settings → Med Tracker → *Local mode* on →
-   open the app: the app renders from the bundle with no network.
+1. Fresh install, airplane mode, open the app → *Only on this device* → read
+   the intro → *Start*: the app renders from the bundle with no network.
+   (*Back* on the intro returns to the invite form.)
 2. Safari Web Inspector (Mac): no failed module or asset loads; the main
    document's response has the `Content-Security-Policy` header; a `fetch` to
    a host not registered via `setEgressHosts` is refused by CSP.

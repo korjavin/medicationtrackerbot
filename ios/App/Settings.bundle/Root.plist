@@ -10,7 +10,7 @@
 			<key>Title</key>
 			<string>Account</string>
 			<key>FooterText</key>
-			<string>Turn on and return to Med Tracker to open a different account. Data stored on this iPhone is kept.</string>
+			<string>Turn on and return to Med Tracker to open a different account or leave local mode. Data stored on this iPhone is kept.</string>
 		</dict>
 		<dict>
 			<key>Type</key>
@@ -52,7 +52,7 @@
 			<key>Type</key>
 			<string>PSGroupSpecifier</string>
 			<key>FooterText</key>
-			<string>Test build only. Opens the app with no account; its data stays on this iPhone only. Turn off to go back to your account.</string>
+			<string>No account: your data is stored only on this iPhone and in its backup. Turn off to go back to your account. Data on either side is kept.</string>
 		</dict>
 		<dict>
 			<key>Type</key>

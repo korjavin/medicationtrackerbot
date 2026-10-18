@@ -145,13 +145,51 @@ export async function registerLocalEgress({ settings, win }) {
   return { hosts, changed: !!(reply && reply.changed) };
 }
 
+// Export reminder (bd med-o7zq.5): the on-device store is the user's only
+// copy outside the iPhone's own backup, so at most once a week — counted from
+// the first open, the last reminder or the last export — a toast suggests
+// exporting a backup file. Checked at boot and on every return to the front.
+// The timestamp is per-viewer localStorage on purpose: losing it only makes
+// the next reminder come a week later.
+const BACKUP_NUDGE_KEY = 'wg:local-backup-nudge-at';
+export const BACKUP_NUDGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+function markBackupNudge(win, now) {
+  try { win.localStorage.setItem(BACKUP_NUDGE_KEY, String(now)); } catch { /* storage blocked */ }
+}
+
+// Resolves true when it showed the reminder.
+export async function nudgeLocalBackup({ win, now = Date.now() }) {
+  let since;
+  try { since = Number(win.localStorage.getItem(BACKUP_NUDGE_KEY)); } catch { return false; }
+  if (!since) {
+    markBackupNudge(win, now);
+    return false;
+  }
+  if (now - since < BACKUP_NUDGE_MS) return false;
+  if (!(await readAllLocalRecords()).some((r) => !r.deleted)) return false; // nothing to lose yet
+  markBackupNudge(win, now);
+  win.safeToast('Your records are stored only on this iPhone. Export a backup file to keep a copy somewhere else.', 'info', {
+    action: {
+      label: 'Back up',
+      onClick: () => {
+        if (typeof win.switchTab === 'function') win.switchTab('settings');
+        win.SettingsView?.openSettingsPage?.('backup');
+      },
+    },
+  });
+  return true;
+}
+
 // The Settings → Backup export (importexport.js reads window.CloudVault): the
 // same recordsToVault conversion as cloud-boot.js, over the on-device store.
 // Import and move-to-cloud are bd med-o7zq.6.
 export const LOCAL_VAULT = {
-  async exportAll({ includeSecrets = true } = {}) {
+  async exportAll({ includeSecrets = true, win = globalThis.window } = {}) {
     const records = await readAllLocalRecords();
-    return JSON.stringify(recordsToVault(records, { now: Date.now(), includeSecrets }), null, 2);
+    const json = JSON.stringify(recordsToVault(records, { now: Date.now(), includeSecrets }), null, 2);
+    markBackupNudge(win, Date.now()); // an export restarts the reminder's week
+    return json;
   },
   // The last device schedule outcome (keepLocalRemindersFresh), null before
   // the first: Settings → Notifications reads it with the iOS permission.
