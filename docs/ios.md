@@ -151,11 +151,11 @@ server or to its AI/voice providers, so the types they carry are declared.
 
   | ASC type | From (manifest ids) |
   |----------|---------------------|
-  | Health & Fitness → Health | `vault` (incl. Apple Health imports), `trial-ai`, `trial-chat`, `trial-voice`, `voice-llm-relay`, `mcp-hosted`, `telegram-relay`, `rxnav` |
+  | Health & Fitness → Health | `vault` (incl. Apple Health imports), `trial-ai`, `trial-chat`, `trial-voice`, `voice-llm-relay`, `mcp-hosted`, `telegram-relay`, `rxnav`, `local-voice` |
   | Health & Fitness → Fitness | `vault`, `nxk-import`, the same AI/voice/MCP rows |
   | Identifiers → User ID | `account-existence` (account subdomain), `telegram-relay` (chat id) |
   | User Content → Photos or Videos | `trial-ai` (meal photos) |
-  | User Content → Audio Data | `trial-voice`, `feedback` (voice notes) |
+  | User Content → Audio Data | `trial-voice`, `local-voice`, `feedback` (voice notes) |
   | User Content → Customer Support | `feedback`, `feedback-telegram` |
   | User Content → Other User Content | `trial-ai` (meal text), `trial-chat`, `food-operator` (search terms) |
 

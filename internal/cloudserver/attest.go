@@ -82,10 +82,10 @@ const (
 // AttestConfig is the anonymous trial's env config. Configured is false unless
 // all four Apple vars are set; the routes then answer 503 trial_not_configured.
 type AttestConfig struct {
-	AppAttest  appattest.Config
-	Lifetime   int // TRIAL_ANON_LIFETIME_REQUESTS
-	Daily      int // TRIAL_ANON_DAILY; 0 disables the per-install daily cap
-	FoodDaily  int // TRIAL_ANON_FOOD_DAILY; 0 disables the per-install daily food cap
+	AppAttest appattest.Config
+	Lifetime  int // TRIAL_ANON_LIFETIME_REQUESTS
+	Daily     int // TRIAL_ANON_DAILY; 0 disables the per-install daily cap
+	FoodDaily int // TRIAL_ANON_FOOD_DAILY; 0 disables the per-install daily food cap
 	// Voice budgets in seconds (TRIAL_ANON_VOICE_*): VoiceLifetime 0 disables
 	// anonymous voice; VoiceDaily / VoiceGlobal 0 disable that cap.
 	VoiceLifetime int

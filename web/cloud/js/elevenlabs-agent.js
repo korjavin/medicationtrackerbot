@@ -363,7 +363,11 @@ export async function ensureTools(key, onEvent) {
 // authenticates by the per-call token in custom_llm_extra_body, and no AI key
 // ever enters an ElevenLabs secret store. Required: a silent fallback to
 // ElevenLabs' built-in LLM is exactly what this replaces.
-export function buildAgentConfig(toolIds, { llmURL } = {}) {
+//
+// maxDurationSeconds (bd med-o7zq.22) sets ElevenLabs' own per-call cap
+// (conversation.max_duration_seconds). Only the shared trial agent's script
+// passes it (TRIAL_VOICE_MAX_CALL_SECONDS); BYO agents stay uncapped.
+export function buildAgentConfig(toolIds, { llmURL, maxDurationSeconds } = {}) {
   if (!llmURL) throw new Error('buildAgentConfig: llmURL (voice LLM relay URL) is required');
   return {
     conversation_config: {
@@ -399,6 +403,7 @@ export function buildAgentConfig(toolIds, { llmURL } = {}) {
         },
       },
       tts: { voice_id: VOICE_ID, model_id: TTS_MODEL_ID },
+      ...(maxDurationSeconds ? { conversation: { max_duration_seconds: maxDurationSeconds } } : {}),
       language_presets: Object.fromEntries(
         Object.entries(FIRST_MESSAGE_TRANSLATIONS).map(([lang, text]) => [
           lang, {
