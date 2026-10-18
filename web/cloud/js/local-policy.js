@@ -287,16 +287,18 @@ export const LOCAL_VAULT = {
   // Settings → AI & integrations → the free trial row (bd med-o7zq.16).
   trial: {
     // null where there is no App Attest (the web, the Simulator, old
-    // devices): the row stays hidden. Else { on, remaining?, daily?, used? }.
-    async status({ win = globalThis.window } = {}) {
-      if (!(await attestStatus(win))) return null;
+    // devices) or before the shell was told anything: the row stays hidden.
+    // Else { on, remaining?, daily?, used? }. The window is the one
+    // registerLocalEgress ran for.
+    async status() {
+      if (!lastEgress || !(await attestStatus(lastEgress.win))) return null;
       return { on: !!localTrial, ...(localTrial ? localTrial.state() : {}) };
     },
     // After Settings changed the `anon` trial consent: hand the shell the new
     // host list, and reload when the CSP has to change with it.
-    async apply({ win = globalThis.window } = {}) {
+    async apply() {
       const res = lastEgress ? await registerLocalEgress(lastEgress) : null;
-      if (res && res.changed) win.location.reload();
+      if (res && res.changed) lastEgress.win.location.reload();
     },
   },
   // The last device schedule outcome (keepLocalRemindersFresh), null before
