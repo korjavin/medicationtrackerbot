@@ -474,6 +474,32 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         expect(offDevice()).toEqual([]);
     });
 
+    it('right after Allow the card says "Scheduling…", not the pre-permission outcome', async () => {
+        const { window, document } = env;
+        await window.apiCall('/api/medications', 'POST', {
+            name: 'Metformin', dosage: '500mg', schedule: JSON.stringify({ type: 'daily', times: ['09:00'] }),
+        });
+        cancelReminderRecompute({ accountId: 'local' });
+        // Before permission: reminders to set, iOS takes none of them.
+        schedule.mockClear();
+        document.dispatchEvent(new window.Event('visibilitychange'));
+        await vi.waitFor(() => expect(schedule).toHaveBeenCalled());
+        await window.bindLocalNotifications();
+        const state = document.getElementById('local-notify-state');
+        expect(state.textContent).toContain('until you allow');
+
+        // The rescheduling after Allow is held until released.
+        let release;
+        schedule.mockImplementationOnce((items) => new Promise((resolve) => { release = () => resolve(items.length); }));
+        document.getElementById('local-notify-enable').click();
+        await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+        await vi.waitFor(() => expect(state.textContent).toContain('Scheduling reminders'));
+        expect(state.textContent).not.toContain('accepted none');
+        expect(state.classList.contains('status-error')).toBe(false);
+        release();
+        await vi.waitFor(() => expect(state.textContent).toBe('Reminders are on for this iPhone.'));
+    });
+
     it('a failed device schedule shows on the card, and "on" waits for one that took', async () => {
         const { window, document } = env;
         permission = 'granted';
@@ -525,5 +551,47 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         expect(bridge).toHaveBeenCalledWith('local.reset');
         expect(replace).toHaveBeenCalledWith('/');
         expect(offDevice()).toEqual([]);
+    });
+
+    it('erase waits out an Apple Health import in flight, and none starts after it', async () => {
+        const { window, document } = env;
+        // The boot import has landed; the next one blocks inside Health until released.
+        await vi.waitFor(async () => expect(await window.apiCall('/api/bp?days=60')).toHaveLength(1));
+        let open;
+        const gate = new Promise((resolve) => { open = resolve; });
+        const health = window.Health;
+        health.query.mockImplementation(async ({ type }) => {
+            if (type !== 'bp') return { samples: [], anchor: 'a2', returned: 0, more: false };
+            await gate;
+            const samples = [{ uuid: '66666666-7777-4888-9999-aaaaaaaaaaaa', start: Date.now() - 1000, systolic: 130, diastolic: 85 }];
+            return { samples, anchor: 'a2', returned: 1, more: false };
+        });
+        // Coming to the front starts that import, once the boot one has finished.
+        await vi.waitFor(() => {
+            document.dispatchEvent(new window.Event('visibilitychange'));
+            expect(health.query).toHaveBeenCalledWith(expect.objectContaining({ type: 'bp', anchor: 'a1' }));
+        });
+        cancelReminderRecompute({ accountId: 'local' });
+
+        const replace = vi.fn();
+        const erased = window.CloudVault.eraseDevice({
+            win: {
+                localStorage: window.localStorage,
+                sessionStorage: window.sessionStorage,
+                LocalNotifications: window.LocalNotifications,
+                location: { replace },
+            },
+        });
+        open(); // the import finishes its writes while erase waits for it
+        await erased;
+        expect(await localRecordsPort().listRaw('bp')).toEqual([]);
+        expect(window.localStorage.getItem('wg.health.anchors')).toBeNull();
+
+        const calls = health.query.mock.calls.length;
+        document.dispatchEvent(new window.Event('visibilitychange'));
+        await new Promise((resolve) => { setTimeout(resolve, 50); });
+        expect(health.query.mock.calls.length).toBe(calls);
+        expect(await localRecordsPort().listRaw('bp')).toEqual([]);
+        expect(replace).toHaveBeenCalledWith('/');
     });
 });
