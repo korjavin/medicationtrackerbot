@@ -184,9 +184,45 @@ Window nor a DOM node (an `<iframe name=wgNative>` must not clobber it; iOS is
 checked first) and `__native.call(op, args)` does the id-correlated round trip;
 `window.LocalNotifications` and `window.Health` install the same impls as on
 iOS, so they report `isSupported()` and the passkey shell's
-Add-to-Home-Screen step is skipped. Their `notifications.*` / `health.*` ops
-reject `"unsupported: <op>"` until med-nt9p.7 / med-nt9p.8 add them to
-`onBridge`.
+Add-to-Home-Screen step is skipped. Their `health.*` ops reject `"unsupported: <op>"` until med-nt9p.8 adds
+them to `onBridge`; `notifications.*` are answered (below).
+
+### Reminders: local notifications (bd med-nt9p.7)
+
+WebView has no Web Push, so reminders are exact local alarms from the
+client-computed horizon — the twin of iOS
+([`Notifications.kt`](../android/app/src/main/java/com/example/medtracker/Notifications.kt),
+[`ios/App/Notifications.swift`](../ios/App/Notifications.swift)). No web or
+server change, no FCM. The page (`web/cloud/js/reminders.js`) sends the same
+replace-all list it sends on iOS — at most 64 rows `{fireAtUnix, title, body,
+section}`, the last one the "Open the app to keep reminders running" notice.
+
+- **Ops:** `notifications.permission` / `requestPermission` → `granted`
+  only when **both** grants exist, else `default` (or `denied` once the
+  notification prompt was refused); `schedule {items}` → how many alarms are
+  armed; `test` → one notification now.
+- **Enable** (Settings → Notifications) walks both system grants: the
+  `POST_NOTIFICATIONS` prompt (or the app's notification settings once it was
+  refused), then *Alarms & reminders* (`ACTION_REQUEST_SCHEDULE_EXACT_ALARM`;
+  `SCHEDULE_EXACT_ALARM` is off by default for new installs on Android 14+).
+  The reply waits until the user is back from each screen. `USE_EXACT_ALARM`
+  is not used (Play keeps it for alarm and calendar apps).
+- **Schedule** cancels the previous alarms, stores the rows in app-private
+  storage (plaintext, like iOS's pending requests; capped at 200) and arms
+  **one** `setExactAndAllowWhileIdle` alarm at the next row; when it fires it
+  posts every row now due and arms the next. Doze rate-limits allow-while-idle
+  alarms per app, so same-time reminders share one wake and a late wake still
+  posts what it missed (rows missed by over an hour, e.g. while the phone was
+  off, are dropped). Without both grants it stores the rows and arms nothing;
+  granting *Alarms & reminders* later arms them, as do a reboot and an app
+  update (alarms survive neither). Notifications post on the high-importance
+  **Reminders** channel; switching that channel off counts as `denied`, and
+  Enable opens its settings.
+- **Tap** opens the reminder's section (`/?tab=<section>`, stable ids), in the
+  open page or by loading the account on it. Switching account clears the
+  previous account's alarms; the newly opened page schedules its own.
+- **Not in v1:** Confirm/Snooze actions. The web copy around the toggle still
+  says iPhone/iOS Settings.
 
 ### Device check (CI debug APK)
 
@@ -416,7 +452,9 @@ means installing the newer release over the old one.
 - **OEM background killers.** Xiaomi, Huawei, Oppo, Samsung and others may kill
   the app or drop its exact alarms; reminders can then arrive late or not at
   all. Allow unrestricted battery use and, where offered, autostart for the app
-  (see dontkillmyapp.com for the per-vendor steps).
+  (see dontkillmyapp.com for the per-vendor steps). A force-stop (Settings →
+  Force stop, or some OEM "clean" buttons) cancels every alarm until the app
+  is opened again.
 - **No Google Play services, no passkey PRF.** The vault key derives from the
   passkey PRF, which the Credential Manager provides only with Google Play
   services and a passkey provider (Google Password Manager or another).
