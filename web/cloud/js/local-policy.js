@@ -24,6 +24,12 @@ import { scheduleReminderRecompute, recomputeAndPush } from './reminders.js';
 import { hostsFromIntegrations } from './egress-hosts.js';
 import { readAllLocalRecords } from './sync.js';
 import { recordsToVault } from '../../domain/vault.js';
+import { startHealthImport, runHealthImport } from './health-import.js';
+import { clearLocalVault } from './account-delete.js';
+
+// Settings → Notifications fires this on the document once iOS permission is
+// granted, so the schedule lands now instead of on the next open.
+export const RESCHEDULE_EVENT = 'wg:local-reminders-reschedule';
 
 function localNotifications() {
   const local = globalThis.LocalNotifications;
@@ -60,6 +66,26 @@ export function keepLocalRemindersFresh({ ctx, records, win }) {
   win.document.addEventListener('visibilitychange', () => {
     if (win.document.visibilityState === 'visible') run();
   });
+  win.document.addEventListener(RESCHEDULE_EVENT, run);
+}
+
+// Apple Health import (bd med-o7zq.9): the cloud's Settings row and run loop,
+// writing into the on-device store with nothing to flush, then rescheduling
+// the device's reminders. Only inside the iOS shell (window.Health).
+export function startLocalHealthImport({ ctx, records, win }) {
+  const health = win.Health;
+  try {
+    if (health?.isSupported?.() !== true) return null;
+  } catch {
+    return null; // native/ stub: not registered
+  }
+  return startHealthImport(ctx, {
+    health,
+    storage: win.localStorage,
+    doc: win.document,
+    run: (opts) => runHealthImport(ctx, { ...opts, records, flush: async () => {} }),
+    afterImport: () => recomputeAndPush(ctx, { records, relay: false }),
+  });
 }
 
 // registerLocalEgress is installApiShim's registerEgress in local mode: the
@@ -83,5 +109,20 @@ export const LOCAL_VAULT = {
   async exportAll({ includeSecrets = true } = {}) {
     const records = await readAllLocalRecords();
     return JSON.stringify(recordsToVault(records, { now: Date.now(), includeSecrets }), null, 2);
+  },
+  // Settings → Backup → Erase data on this device (bd med-o7zq.9). Everything
+  // here is this origin's own storage — the records, the frontend caches,
+  // localStorage (Health anchors, UI state) — so no other origin, and no cloud
+  // account on this phone, is touched. Then the shell drops this vault's
+  // pending and delivered reminders and the BYOK host mirror, and the app
+  // starts over empty. Throws, before anything is reported done, when the
+  // records could not be erased.
+  async eraseDevice({ win = globalThis.window } = {}) {
+    await clearLocalVault();
+    try { win.localStorage.clear(); } catch { /* storage blocked: nothing kept there */ }
+    try { win.sessionStorage.clear(); } catch { /* same */ }
+    const native = win.LocalNotifications && win.LocalNotifications.__native;
+    if (native && native.platform === 'ios') await native.call('local.reset').catch(() => {});
+    win.location.replace('/');
   },
 };

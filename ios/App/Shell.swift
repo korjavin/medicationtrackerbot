@@ -18,9 +18,16 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
 
     let base = (Bundle.main.object(forInfoDictionaryKey: "WGBaseDomain") as? String ?? "").lowercased()
     let webView: WKWebView
-    @Published private(set) var host: String?
+    @Published private(set) var host: String? {
+        didSet { Notifications.shared.vault = vault }
+    }
     /// Local mode, from the persisted choice (LocalOrigin.modeKey); wins over a stored host.
-    @Published private(set) var local = UserDefaults.standard.bool(forKey: LocalOrigin.modeKey)
+    @Published private(set) var local = UserDefaults.standard.bool(forKey: LocalOrigin.modeKey) {
+        didSet { Notifications.shared.vault = vault }
+    }
+    /// The vault the shell has open (bd med-o7zq.9): one at a time, so
+    /// reminders, their taps and the bridge all follow this.
+    private var vault: String? { local ? LocalOrigin.host : host }
     @Published private(set) var loadError: String?
     /// Behind the status bar and the home indicator: the page's own colours at its top and bottom edge.
     @Published private(set) var top = Color(uiColor: Shell.screen)
@@ -64,16 +71,19 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         defaults.removeObject(forKey: "wgSpikeLastURL")
         defaults.removeObject(forKey: "wgSpikeLog")
         host = defaults.string(forKey: Shell.hostKey).flatMap { AccountURL.isAccountHost($0, base: base) ? $0 : nil }
+        Notifications.shared.vault = vault // observers don't run in init; a switch in applySettings must see the old vault
         applySettings()
         if local { LocalOrigin.includeInBackup() } // a dir an earlier launch created
         retry()
-        Notifications.shared.onOpen = { [weak self] section in self?.openSection(section) }
+        Notifications.shared.onOpen = { [weak self] section, vault in self?.openSection(section, of: vault) }
     }
 
     /// A notification tap (bd med-w6gx.5): switch the open app to the section,
-    /// or load the account on it (the deep-link router reads ?tab=).
-    func openSection(_ section: String) {
-        guard let home else { return }
+    /// or load the account on it (the deep-link router reads ?tab=). A tap on
+    /// another vault's reminder — delivered before a mode or account switch —
+    /// is ignored (bd med-o7zq.9); untagged ones predate the tag.
+    func openSection(_ section: String, of owner: String?) {
+        guard owner == nil || owner == vault, let home else { return }
         if showingAccount, !webView.isLoading {
             webView.evaluateJavaScript("window.switchTab && window.switchTab('\(section)')")
         } else if let url = URL(string: "?tab=\(section)", relativeTo: home)?.absoluteURL {
@@ -271,6 +281,16 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         case "setEgressHosts" where local:
             let (reply, error) = LocalOrigin.setEgressHosts(body["args"] as? [String: Any] ?? [:])
             replyHandler(reply, error)
+        case "local.reset" where local:
+            // The page has erased its own storage (local-policy.js eraseDevice);
+            // the shell's share of this vault is its reminders and host mirror.
+            UserDefaults.standard.removeObject(forKey: LocalOrigin.hostsKey)
+            Task {
+                await Notifications.shared.remove(vault: LocalOrigin.host)
+                replyHandler(true, nil)
+            }
+        // notifications.* and health.* stay open in local mode: its reminders
+        // and Apple Health import use them (bd med-o7zq.9).
         case let op? where op.hasPrefix("notifications."):
             Notifications.shared.handle(op, args: body["args"] as? [String: Any] ?? [:], reply: replyHandler)
         case let op? where op.hasPrefix("health."):

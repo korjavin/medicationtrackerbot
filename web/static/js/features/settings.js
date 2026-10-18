@@ -722,6 +722,99 @@ async function bindLocalReminderText() {
     });
 }
 
+// Local-only mode's notification permission (bd med-o7zq.9): local-policy.js
+// hands the device's reminders to the iOS scheduler, which drops them all
+// until the user allows notifications, so the page says which state it is in
+// and asks. Once allowed, the schedule is rebuilt right away
+// (local-policy.js RESCHEDULE_EVENT); coming back from iOS Settings refreshes
+// the state.
+let _localNotificationsBound = false; // module-state: bind the buttons once across repeated loadSettings() calls
+async function refreshLocalNotifyState() {
+    const state = document.getElementById('local-notify-state');
+    const enable = document.getElementById('local-notify-enable');
+    const test = document.getElementById('local-notify-test');
+    if (!state || !enable || !test) return;
+    let permission = 'unsupported';
+    if (localNotificationsSupported()) {
+        try {
+            permission = await window.LocalNotifications.permission();
+        } catch (e) {
+            permission = 'unknown';
+        }
+    }
+    enable.hidden = permission !== 'default';
+    test.hidden = permission !== 'granted';
+    state.textContent = {
+        granted: 'Reminders are on for this iPhone.',
+        denied: `Reminders are off: notifications are blocked for Med Tracker. Turn them on in ${IOS_NOTIFICATION_SETTINGS}.`,
+        default: 'Reminders are off until you allow notifications.',
+        unsupported: 'Reminders need the Med Tracker iPhone app.',
+    }[permission] || 'Could not read the notification permission. Reopen the app and try again.';
+}
+
+async function bindLocalNotifications() {
+    const enable = document.getElementById('local-notify-enable');
+    const test = document.getElementById('local-notify-test');
+    const state = document.getElementById('local-notify-state');
+    if (!enable || !test || !state) return;
+    if (!_localNotificationsBound) {
+        _localNotificationsBound = true;
+        enable.addEventListener('click', async () => {
+            enable.disabled = true;
+            try {
+                const permission = await window.LocalNotifications.requestPermission();
+                if (permission === 'granted') document.dispatchEvent(new CustomEvent('wg:local-reminders-reschedule'));
+            } catch (e) {
+                console.error('[settings] notification permission request failed', e);
+            }
+            enable.disabled = false;
+            await refreshLocalNotifyState();
+        });
+        test.addEventListener('click', async () => {
+            test.disabled = true;
+            try {
+                await window.LocalNotifications.test();
+                state.textContent = 'Test sent. It shows in a moment.';
+            } catch (e) {
+                state.textContent = e.message || 'The test notification could not be sent.';
+            }
+            test.disabled = false;
+        });
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') refreshLocalNotifyState();
+        });
+    }
+    await refreshLocalNotifyState();
+}
+
+// Local-only mode's destructive reset (bd med-o7zq.9): window.CloudVault is
+// local-policy.js LOCAL_VAULT, whose eraseDevice wipes only this origin and
+// reloads the empty app. A failure stays on screen: nothing claims "erased".
+let _localEraseBound = false; // module-state: bind the button once across repeated loadSettings() calls
+function bindLocalErase() {
+    const btn = document.getElementById('importexport-local-erase-btn');
+    const errorEl = document.getElementById('importexport-local-erase-error');
+    if (!btn || !errorEl || _localEraseBound) return;
+    _localEraseBound = true;
+    btn.addEventListener('click', async () => {
+        const ok = await safeConfirm(
+            'This deletes every record, setting and reminder stored in the app on this iPhone. It cannot be undone. Download a backup first if you want to keep anything.',
+            null,
+            { title: 'Erase data on this device?', confirmLabel: 'Erase', destructive: true, typedConfirm: 'erase' },
+        );
+        if (!ok) return;
+        btn.disabled = true;
+        errorEl.hidden = true;
+        try {
+            await window.CloudVault.eraseDevice();
+        } catch (e) {
+            errorEl.textContent = `The erase did not finish: ${e.message || 'the data could not be deleted.'} Try again.`;
+            errorEl.hidden = false;
+            btn.disabled = false;
+        }
+    });
+}
+
 // Load settings (BP reminders status, etc.)
 async function loadSettings() {
     // Ungated: the first-run overlay ships in the server, cloud, and mobile
@@ -745,7 +838,11 @@ async function loadSettings() {
         bindCloudInvite();
     }
     // Local-only mode (web/cloud/js/local-boot.js sets the class).
-    if (document.documentElement.classList.contains('wg-local-vault')) bindLocalReminderText();
+    if (document.documentElement.classList.contains('wg-local-vault')) {
+        bindLocalReminderText();
+        bindLocalNotifications();
+        bindLocalErase();
+    }
     const applyBundle = async (rawBundle) => {
         const bundle = window.AuthBootstrap.normalizeSettingsBundle(rawBundle);
         window.SettingsState.applyBootstrapFeatures(bundle.featureSettings);

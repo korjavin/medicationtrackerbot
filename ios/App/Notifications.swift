@@ -15,18 +15,33 @@ final class Notifications: NSObject, UNUserNotificationCenterDelegate {
     static let sections: Set<String> = ["today", "meds", "bp", "weight", "workouts", "health"]
 
     private let center = UNUserNotificationCenter.current()
-    /// Set by Shell; a tap that launched the app waits here until it is.
-    var onOpen: ((String) -> Void)? {
-        didSet { if let section = pending, let onOpen { pending = nil; onOpen(section) } }
+    /// Set by Shell: (section, vault the reminder belongs to — nil from builds
+    /// before bd med-o7zq.9). A tap that launched the app waits here until it is.
+    var onOpen: ((String, String?) -> Void)? {
+        didSet { if let tap = pending, let onOpen { pending = nil; onOpen(tap.0, tap.1) } }
     }
-    private var pending: String?
+    private var pending: (String, String?)?
+
+    /// The vault the shell has open: "local" or the account host, nil on
+    /// first-run (Shell sets it; bd med-o7zq.9). Every reminder carries it.
+    /// A change drops the pending schedule — the newly opened page sends its
+    /// own — so only the active vault's reminders fire, and a schedule call
+    /// still in flight from the previous page adds nothing.
+    var vault: String? {
+        didSet {
+            if oldValue != nil, oldValue != vault { center.removeAllPendingNotificationRequests() }
+        }
+    }
 
     /// Before the app finishes launching, so a tap that cold-starts it is delivered.
     func install() {
         center.delegate = self
     }
 
+    /// The bridge checked the caller is the open vault's page; `owner` pins
+    /// that vault for the whole call.
     func handle(_ op: String, args: [String: Any], reply: @escaping (Any?, String?) -> Void) {
+        let owner = vault
         Task {
             switch op {
             case "notifications.permission":
@@ -35,10 +50,11 @@ final class Notifications: NSObject, UNUserNotificationCenterDelegate {
                 _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
                 reply(await permission(), nil)
             case "notifications.schedule":
-                do { reply(try await schedule(args["items"] as? [[String: Any]] ?? []), nil) } catch { reply(nil, error.localizedDescription) }
+                do { reply(try await schedule(args["items"] as? [[String: Any]] ?? [], for: owner), nil) } catch { reply(nil, error.localizedDescription) }
             case "notifications.test":
+                guard let owner, owner == vault else { reply(nil, "stale"); return }
                 do {
-                    try await add(id: "wg-test", after: 1, body: "Test notification", section: "today")
+                    try await add(id: "wg-test", after: 1, body: "Test notification", section: "today", vault: owner)
                     reply(true, nil)
                 } catch { reply(nil, error.localizedDescription) }
             default:
@@ -56,32 +72,49 @@ final class Notifications: NSObject, UNUserNotificationCenterDelegate {
     }
 
     /// Replaces every pending reminder; returns how many are now scheduled.
-    private func schedule(_ items: [[String: Any]]) async throws -> Int {
+    /// Every check of `owner == vault` sits right before the request it
+    /// guards, on the main actor: a vault switch between awaits stops the rest.
+    private func schedule(_ items: [[String: Any]], for owner: String?) async throws -> Int {
+        guard let owner, owner == vault else { return 0 } // the page that asked is gone
         center.removeAllPendingNotificationRequests()
         // Without permission iOS refuses each add; the page re-schedules once it is granted.
         guard await permission() == "granted" else { return 0 }
         let now = Date().timeIntervalSince1970
         var count = 0
         for (i, item) in items.prefix(Notifications.cap).enumerated() {
+            guard owner == vault else { break }
             guard let at = (item["fireAtUnix"] as? NSNumber)?.doubleValue, at > now,
                   let body = item["body"] as? String else { continue }
             try await add(id: "wg-\(i)", after: at - now, title: item["title"] as? String, body: body,
-                          section: item["section"] as? String ?? "today")
+                          section: item["section"] as? String ?? "today", vault: owner)
             count += 1
         }
         return count
     }
 
-    private func add(id: String, after seconds: TimeInterval, title: String? = nil, body: String, section: String) async throws {
+    /// Local mode's erase (bridge op local.reset): this vault's pending and
+    /// delivered notifications go, any other vault's stay.
+    func remove(vault owner: String) async {
+        let mine = { (c: UNNotificationContent) in c.userInfo["vault"] as? String == owner }
+        let queued = await center.pendingNotificationRequests().filter { mine($0.content) }
+        center.removePendingNotificationRequests(withIdentifiers: queued.map(\.identifier))
+        let delivered = await center.deliveredNotifications().filter { mine($0.request.content) }
+        center.removeDeliveredNotifications(withIdentifiers: delivered.map(\.request.identifier))
+    }
+
+    private func add(id: String, after seconds: TimeInterval, title: String? = nil, body: String, section: String,
+                     vault owner: String) async throws {
         let content = UNMutableNotificationContent()
         content.title = title ?? "Med Tracker"
         content.body = body
         content.sound = .default
-        content.userInfo = ["section": section]
+        content.userInfo = ["section": section, "vault": owner]
         // An interval, not calendar components: fireAtUnix is an instant, so a
         // time-zone change on the phone does not move it.
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, seconds), repeats: false)
-        try await center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
+        // Per vault: a delivered reminder of one vault is never replaced or
+        // removed by the same slot of another's.
+        try await center.add(UNNotificationRequest(identifier: "\(id)-\(owner)", content: content, trigger: trigger))
     }
 
     // MARK: UNUserNotificationCenterDelegate
@@ -99,10 +132,12 @@ final class Notifications: NSObject, UNUserNotificationCenterDelegate {
     /// A tap opens the reminder's section.
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
-        let raw = response.notification.request.content.userInfo["section"] as? String ?? "today"
+        let info = response.notification.request.content.userInfo
+        let raw = info["section"] as? String ?? "today"
+        let vault = info["vault"] as? String
         Task { @MainActor in
             let section = Notifications.sections.contains(raw) ? raw : "today"
-            if let onOpen { onOpen(section) } else { pending = section }
+            if let onOpen { onOpen(section, vault) } else { pending = (section, vault) }
             completionHandler()
         }
     }

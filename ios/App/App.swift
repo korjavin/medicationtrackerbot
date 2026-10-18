@@ -147,10 +147,11 @@ struct LoadErrorView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Text("Can't open your account").font(.title2.bold())
+            Text(shell.local ? "Can't open Med Tracker" : "Can't open your account").font(.title2.bold())
             Text(message).foregroundStyle(.secondary).multilineTextAlignment(.center)
             Button("Try again") { shell.retry() }.buttonStyle(.borderedProminent)
-            Button("Switch account") { shell.forget() }
+            // Leaving local mode keeps its data: it is back on the next switch.
+            Button(shell.local ? "Use an account instead" : "Switch account") { shell.forget() }
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

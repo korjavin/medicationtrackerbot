@@ -640,7 +640,8 @@ IndexedDB never mixes with an account's. Cloud mode is unchanged.
   schedule upload, and no relay socket is opened. Privacy rows:
   `local-*` in `web/cloud/js/privacy-manifest.js`.
 - **Bridge:** in local mode only the main frame of `wgapp://local` reaches
-  `wgNative` (an account origin does not); `setEgressHosts` exists only there.
+  `wgNative` (an account origin does not); `setEgressHosts` and `local.reset`
+  exist only there, `notifications.*` and `health.*` serve both modes.
   The scheme is app-bound (`"wgapp:"` in `WKAppBoundDomains`), so the shell
   keeps `limitsNavigationsToAppBoundDomains` on in both modes.
 - **Backup flag:** WebKit excludes a new origin's data dir from backup for its
@@ -651,6 +652,27 @@ IndexedDB never mixes with an account's. Cloud mode is unchanged.
   account host. Until the first-run button (bd med-o7zq.5) sets it, test
   builds turn it on in iPhone Settings → Med Tracker → *Local mode*. *Switch
   account* leaves local mode too; the origin's data is kept either way.
+  Settings opens on an *On this device only* row in local mode.
+- **One vault at a time** (bd med-o7zq.9): the shell's open vault is `local`
+  or the account host. Each reminder carries it (`userInfo.vault`, id
+  `wg-<n>-<vault>`); switching mode or account removes every pending reminder
+  (the newly opened page schedules its own), a schedule call still running
+  from the previous page adds nothing, and a tap on another vault's
+  delivered reminder is ignored. Switching is navigation between the two
+  origins' own stores: nothing is merged or copied.
+- **Notifications** (local mode): Settings → Reminders & notifications →
+  Notifications shows the iOS permission state, asks for it (*Allow
+  notifications*), says where to turn it on when it is denied, and sends a
+  test. Allowing it reschedules at once.
+- **Apple Health** (local mode): the same Settings row and import run as the
+  cloud (`health-import.js`), writing into the on-device store with no flush,
+  then rescheduling reminders (`startLocalHealthImport`).
+- **Erase:** Settings → Backup & import → *Erase data on this device* (typed
+  confirm) deletes this origin's databases, caches and local/session storage
+  (`clearLocalVault`, so only `wgapp://local`), then `local.reset` makes the
+  shell drop local mode's pending and delivered reminders and the BYOK host
+  mirror, and the app reloads empty. An account's data on the phone is not
+  touched.
 
 ### Device check (TestFlight)
 
@@ -660,6 +682,14 @@ IndexedDB never mixes with an account's. Cloud mode is unchanged.
    document's response has the `Content-Security-Policy` header; a `fetch` to
    a host not registered via `setEgressHosts` is refused by CSP.
 3. Kill and reopen: still local, data still there.
+4. Settings → Reminders & notifications → *Allow notifications* → Allow; add
+   a med due in two minutes: it fires; tapping it opens Meds in local mode.
+5. With a reminder pending in local mode, switch *Local mode* off (back to
+   the account): only the account's reminders remain pending; tapping a
+   local reminder delivered earlier does nothing.
+6. Apple Health on, airplane mode: a Health BP reading appears in BP.
+7. Erase data on this device: the app reopens empty; switching to the
+   account shows its data untouched.
 
 ## Spike: passkey PRF, Service Worker, IndexedDB in WKWebView (bd med-w6gx.2)
 

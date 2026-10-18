@@ -365,3 +365,121 @@ describe('local-only mode egress + side-effect policy (med-o7zq.3)', () => {
         expect(window.isSettingsSectionHidden(document.getElementById('local-reminder-verbosity').closest('section'))).toBe(false);
     });
 });
+
+describe('local-only mode native integration (med-o7zq.9)', () => {
+    let env;
+    let fetched;
+    let bridge;
+    let schedule;
+    let permission;
+    const HEALTH_UUID = '11111111-2222-4333-8444-555555555555';
+
+    const offDevice = () => fetched.filter((u) => u.startsWith('/api/') || /^[a-z][a-z0-9+.-]*:/i.test(u));
+
+    beforeEach(async () => {
+        await deleteDb();
+        fetched = [];
+        const recorder = vi.fn(async (url) => {
+            fetched.push(String(url));
+            return createMockResponse({ status: 503, json: {} });
+        });
+        vi.stubGlobal('fetch', recorder);
+        env = loadFrontendEnv();
+        env.window.fetch = recorder;
+        bridge = vi.fn(async (op) => (op === 'setEgressHosts' ? { changed: false } : true));
+        schedule = vi.fn(async () => 0);
+        permission = 'default';
+        const notifications = {
+            isSupported: () => true,
+            schedule,
+            test: vi.fn(async () => {}),
+            permission: vi.fn(async () => permission),
+            requestPermission: vi.fn(async () => {
+                permission = 'granted';
+                return permission;
+            }),
+            __native: { platform: 'ios', call: bridge },
+        };
+        env.window.LocalNotifications = notifications;
+        vi.stubGlobal('LocalNotifications', notifications);
+        // The shell's Health (native/health.js ios impl): one BP reading on the
+        // first anchored page, nothing after.
+        const start = Date.now() - 60 * 60 * 1000;
+        env.window.Health = {
+            isSupported: () => true,
+            requestAuthorization: vi.fn(async () => true),
+            query: vi.fn(async ({ type, anchor }) => {
+                const samples = type === 'bp' && !anchor
+                    ? [{ uuid: HEALTH_UUID, start, systolic: 121, diastolic: 79 }]
+                    : [];
+                return { samples, anchor: 'a1', returned: samples.length, more: false };
+            }),
+        };
+        env.window.localStorage.setItem('wg.health.enabled', 'true');
+        env.window.localStorage.setItem('wg.health.asked', JSON.stringify(['bp', 'weight', 'sleep', 'workout']));
+        const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
+        run(env.window, (spec) => MODULES[spec]());
+        await env.window.MedTrackerCloudReady;
+        await vi.waitFor(() => expect(schedule).toHaveBeenCalled());
+    });
+
+    afterEach(() => {
+        cancelReminderRecompute({ accountId: 'local' });
+        env.cleanup();
+        vi.unstubAllGlobals();
+    });
+
+    it('Apple Health readings land in the on-device store with nothing sent anywhere', async () => {
+        const { window, document } = env;
+        await vi.waitFor(async () => expect(await window.apiCall('/api/bp?days=60')).toHaveLength(1));
+        expect((await window.apiCall('/api/bp?days=60'))[0]).toMatchObject({ systolic: 121, diastolic: 79 });
+        expect(document.getElementById('health-import-row')).toBeTruthy();
+        expect(offDevice()).toEqual([]);
+        expect(await pendingRows()).toEqual([]);
+    });
+
+    it('asks for notification permission, then schedules; a denial says where to turn it on', async () => {
+        const { window, document } = env;
+        await window.bindLocalNotifications();
+        const state = document.getElementById('local-notify-state');
+        const enable = document.getElementById('local-notify-enable');
+        const test = document.getElementById('local-notify-test');
+        expect(state.textContent).toContain('until you allow');
+        expect(enable.hidden).toBe(false);
+        expect(test.hidden).toBe(true);
+
+        schedule.mockClear();
+        enable.click();
+        await vi.waitFor(() => expect(schedule).toHaveBeenCalled());
+        await vi.waitFor(() => expect(state.textContent).toContain('on for this iPhone'));
+        expect(enable.hidden).toBe(true);
+        expect(test.hidden).toBe(false);
+
+        permission = 'denied';
+        await window.refreshLocalNotifyState();
+        expect(state.textContent).toContain('iOS Settings');
+        expect(enable.hidden).toBe(true);
+        expect(offDevice()).toEqual([]);
+    });
+
+    it('erase wipes this origin\'s records and storage, then the shell\'s share, and starts over', async () => {
+        const { window } = env;
+        await window.apiCall('/api/weight', 'POST', { weight: 80 });
+        cancelReminderRecompute({ accountId: 'local' });
+        window.localStorage.setItem('wg.health.anchors', JSON.stringify({ bp: 'a1' }));
+        const replace = vi.fn();
+        await window.CloudVault.eraseDevice({
+            win: {
+                localStorage: window.localStorage,
+                sessionStorage: window.sessionStorage,
+                LocalNotifications: window.LocalNotifications,
+                location: { replace },
+            },
+        });
+        expect(await localRecordsPort().listRaw('weight')).toEqual([]);
+        expect(window.localStorage.getItem('wg.health.anchors')).toBeNull();
+        expect(bridge).toHaveBeenCalledWith('local.reset');
+        expect(replace).toHaveBeenCalledWith('/');
+        expect(offDevice()).toEqual([]);
+    });
+});
