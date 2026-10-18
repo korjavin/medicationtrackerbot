@@ -641,16 +641,26 @@ med-w6gx.2 results above were on `https` origins and do not carry over.
 
 - **What runs:** [`ios/App/LocalSpike.swift`](../ios/App/LocalSpike.swift)
   opens its own WKWebView (default website data store, app-bound limit on like
-  the shell) on `app://local/`, served from the bundled test page
+  the shell) on `wgapp://local/`, served from the bundled test page
   [`ios/LocalSpike/`](../ios/LocalSpike/) with the CSP as a response header.
   The page ([`js/main.js`](../ios/LocalSpike/js/main.js)) runs every check it
   can decide and shows a PASS/FAIL/MANUAL/INFO table; the native side adds the
   data-directory scan (7, 12) and the bridge's view of the origin (8). No
   private WebKit API, no Service Worker. The shell's normal path never creates
   any of it; it is throwaway and goes with med-o7zq.4.
+- **Why `wgapp:` is in `WKAppBoundDomains`** (bd med-o7zq.10): once Info.plist
+  lists app-bound domains, WebKit refuses a non-app-bound load under the limit
+  (`WKErrorDomain` 13) and drops script message handlers from any web view
+  that is not app-bound, so check 8 failed on build 62. An entry ending in a
+  colon is an app-bound *scheme*
+  (`WebsiteDataStoreCocoa.mm`, `initializeAppBoundDomains`), so
+  [`ios/project.yml`](../ios/project.yml) lists `wgapp:` next to the two
+  account-domain entries and the scheme name in `LocalSpike.swift` is fixed to
+  match. The cloud shell is unchanged.
 - **Open it:** iPhone Settings → Med Tracker → *Local mode diagnostic* on →
-  back to the app. *Close* (top left) turns it off again. *App-bound* reloads
-  without the app-bound limit if the page fails to load with it.
+  back to the app. *Close* (top left) turns it off again. *App-bound* (keep it
+  ON) reloads without the app-bound limit, only to compare if the page fails
+  to load with it.
 - **Get the report out:** the page's *Share report* (that is check 4) or
   *Copy report*; or the native *Report* button (Copy / share), which also
   carries the page's report when the bridge works. Account host names are
@@ -661,10 +671,15 @@ med-w6gx.2 results above were on `https` origins and do not carry over.
 ### Owner run on the device
 
 1. Fresh install of the build (or the update over an existing one) → open the
-   diagnostic → wait for "Automatic checks done" → tap *Test camera* (allow) →
-   *Share report* (the share sheet must open: check 4) → save the report.
+   diagnostic with *App-bound* ON: the page must load and #8 must show the
+   bridge origin (`wgapp`, `local`) → wait for "Automatic checks done" → tap
+   *Test camera* (allow) → *Share report* (the share sheet must open: check 4)
+   → save the report, and the native *Report* too.
 2. **Kill/relaunch (2, 2k):** swipe the app away, reopen, open the diagnostic:
    #2 and #2k turn PASS and list the earlier launch.
+   - **2a. Quick kill:** on a launch, wait for the line "Launch … persisted"
+     (shown only after the IndexedDB transaction completes), kill the app
+     within 5 seconds, relaunch: #2 must list that launch.
 3. **Update (2):** dispatch a new build, install it over this one from
    TestFlight, open the diagnostic: #2 lists launches from the older build number.
 4. **BYOK (9):** the dummy-key probes run by themselves; for a *successful*
@@ -679,7 +694,11 @@ med-w6gx.2 results above were on `https` origins and do not carry over.
    few hours, open the diagnostic: the launch history must still be there. Also
    iPhone Settings → General → iPhone Storage → Med Tracker → *Offload App*,
    reinstall from TestFlight, reopen: same check.
-7. Paste the reports (Share or the native Report) into the bead; the table
+7. **Backup flag (12), before step 5:** the native Report's `#12` line must
+   read `before=false set=true reverted=false (reverted == before)` — the
+   origin directory is left in the backup. If it shows `before=true` or
+   `REVERT MISMATCH`, stop and report: the backup → restore check is invalid.
+8. Paste the reports (Share or the native Report) into the bead; the table
    below is filled from them.
 
 **GO** needs 1, 2, 2k, 3, 6, 8, 10 PASS and IndexedDB not evicted (11).
@@ -694,7 +713,7 @@ Pending a device run — nothing below has been observed yet.
 | # | Check | How | Result |
 |---|-------|-----|--------|
 | 1 | `isSecureContext`, `crypto.subtle` AES-GCM (+ PBKDF2) | auto | pending device run |
-| 2 | IndexedDB records survive kill/relaunch and a TestFlight update | auto + steps 2–3 | pending device run |
+| 2 | IndexedDB records survive kill/relaunch (incl. a kill right after "persisted") and a TestFlight update | auto + steps 2, 2a, 3 | pending device run |
 | 2k | Non-extractable AES key stored in IndexedDB still decrypts | auto + step 2 | pending device run |
 | 3 | ES modules: nested static, root-relative `/static/`, `../../domain/`, dynamic `import()`, JS MIME | auto | pending device run |
 | 4 | Blob download → share sheet (med-w6gx.11 path) | step 1 | pending device run |
@@ -705,6 +724,6 @@ Pending a device run — nothing below has been observed yet.
 | 9 | BYOK fetch + CORS preflight to OpenAI / Anthropic; a successful request | auto + step 4 | pending device run |
 | 10 | Real backup → restore keeps IndexedDB | step 5 | pending device run |
 | 11 | Eviction under storage pressure / offload; `storage.persisted()` | step 6 | pending device run |
-| 12 | `isExcludedFromBackup` settable on the origin's data dir (set, read back, reverted) | auto (native) | pending device run |
+| 12 | `isExcludedFromBackup` settable on the origin's data dir (set, read back, reverted to the value before; must end `false`) | auto (native) + step 7 | pending device run |
 
 **Verdict:** pending device run.

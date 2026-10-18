@@ -112,10 +112,13 @@ async function checkIndexedDB() {
       keyError = e;
     }
   }
-  const t = db.transaction(['launches', 'kv'], 'readwrite');
+  // 'strict': complete fires only once the write is flushed to disk. Only
+  // then say "persisted" — owner step 2a kills the app right after seeing it.
+  const t = db.transaction(['launches', 'kv'], 'readwrite', { durability: 'strict' });
   t.objectStore('launches').add(me);
   if (fresh) t.objectStore('kv').put(sealed, 'sealed');
   await done(t);
+  $('persist').textContent = `Launch ${me.launch} persisted (IndexedDB transaction complete, ${new Date().toISOString()}).`;
   const after = await req(db.transaction('launches').objectStore('launches').getAll());
   const wrote = after.some((r) => r.launch === me.launch);
   const prior = before.filter((r) => r.launch !== me.launch);
@@ -199,7 +202,11 @@ async function checkBridge() {
     nativeText = await bridge.postMessage({ op: 'native' });
     const has = (needle) => nativeText.includes(needle);
     set('7', 'INFO', !has('our origin dir: not found') ?'origin dir found — see native section below' : 'origin dir NOT found — see native section below');
-    set('12', has('#12') && has('set=true') && has('reverted=false') ? 'PASS' : 'INFO', 'see native section below');
+    // PASS only when the flag is settable AND the origin dir is left in the
+    // backup (before == reverted == false): check 10 is invalid otherwise.
+    const clean = has('before=false set=true reverted=false (reverted == before)') && !has('REVERT MISMATCH') && !has('before=true');
+    set('12', clean ? 'PASS' : 'INFO',
+      `${clean ? 'set ok, reverted, origin dir NOT excluded from backup' : 'origin dir excluded from backup or revert failed — check 10 invalid until fixed'}; see native section below`);
   } catch (e) {
     set('7', 'INFO', `native report unavailable: ${errText(e)}`);
   }

@@ -67,6 +67,11 @@ targets:
         NSHealthUpdateUsageDescription: Med Tracker only reads from Apple Health and never writes to it.
         # Service Workers only run on app-bound domains (max 10); the wildcard
         # entry covers every account subdomain (spike med-w6gx.2, check 3).
+        # "wgapp:" (trailing colon) is an app-bound SCHEME for the local-mode
+        # diagnostic (ios/App/LocalSpike.swift, bd med-o7zq.10): without it
+        # WebKit refuses the load under the app-bound limit and, with the
+        # limit off, drops the page's script message handlers.
         WKAppBoundDomains:
           - "$(WG_BASE_DOMAIN)"
           - "*.$(WG_BASE_DOMAIN)"
+          - "wgapp:"
