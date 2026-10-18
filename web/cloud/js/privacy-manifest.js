@@ -743,7 +743,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'on-device',
     activationNote: 'you chose "Only on this device"; there is no account and no sync',
     byo: 'n/a',
-    evidence: ['web/cloud/js/local-boot.js:1', 'web/cloud/js/sync.js:1524', 'ios/App/LocalOrigin.swift:122'],
+    evidence: ['web/cloud/js/local-boot.js:1', 'web/cloud/js/sync.js:1524', 'ios/App/LocalOrigin.swift:125'],
     code: { go: [], hosts: [] },
     docSignal: null,
     userCopy: {
@@ -764,7 +764,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in',
     activationNote: 'you add a provider key in Settings → AI & integrations; its host name is handed to the app shell for the CSP, never to a server',
     byo: 'The only kind there is in this mode',
-    evidence: ['web/cloud/js/local-policy.js:232', 'web/cloud/js/local-policy.js:192', 'ios/App/LocalOrigin.swift:38'],
+    evidence: ['web/cloud/js/local-policy.js:273', 'web/cloud/js/local-policy.js:281', 'web/cloud/js/local-policy.js:233', 'ios/App/LocalOrigin.swift:41'],
     code: { go: [], hosts: [] },
     docSignal: null,
     userCopy: {
@@ -789,7 +789,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in-consent',
     activationNote: 'you turn on the trial in Settings → AI & integrations and accept the trial consent; off by default, and off means no request to our server at all',
     byo: 'Add your own AI key and requests go phone-direct to your provider, never through the operator',
-    evidence: ['web/cloud/js/local-policy.js:239', 'web/cloud/js/local-trial.js:105', 'ios/App/Attest.swift:67', 'internal/cloudserver/attest.go:501', 'internal/appattest/devicecheck.go:65'],
+    evidence: ['web/cloud/js/local-policy.js:281', 'web/cloud/js/local-trial.js:105', 'ios/App/Attest.swift:67', 'internal/cloudserver/attest.go:501', 'internal/appattest/devicecheck.go:65'],
     code: { go: ['internal/cloudserver/attest.go'], hosts: ['api.devicecheck.apple.com'] },
     docSignal: null,
     userCopy: {
@@ -814,7 +814,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in-consent',
     activationNote: 'the same free-trial switch and consent as the trial AI (one enrollment per install, which spends the device\'s one trial grant); off means no request to our server at all',
     byo: 'Set your own food-DB endpoint in Settings → AI & integrations and lookups go phone-direct to it, never through the operator',
-    evidence: ['web/cloud/js/fooddb.js:96', 'web/cloud/js/local-policy.js:204', 'web/cloud/js/local-trial.js:215', 'internal/cloudserver/attest.go:652', 'internal/cloudserver/food_proxy.go:93'],
+    evidence: ['web/cloud/js/fooddb.js:96', 'web/cloud/js/local-policy.js:245', 'web/cloud/js/local-trial.js:236', 'internal/cloudserver/attest.go:652', 'internal/cloudserver/food_proxy.go:93'],
     code: { go: ['internal/cloudserver/attest.go', 'internal/cloudserver/food_proxy.go'], hosts: [] },
     docSignal: null,
     userCopy: {
@@ -824,9 +824,11 @@ export const PRIVACY_MANIFEST = [
     },
   },
   {
-    // bd med-o7zq.22 (server half; the client bead med-o7zq.23 adds its
-    // evidence lines and final copy). Same App Attest enrollment and the same
-    // trial switch as local-trial; POST /api/attest/voice/start mints the
+    // bd med-o7zq.22 (server half) + med-o7zq.23 (client: local-policy.js
+    // swaps window.CloudVoiceLLM for a minting responder and adds the hosts,
+    // local-trial.js voiceStart signs the start, elevenlabs-call.js takes the
+    // signed URL from it). Same App Attest enrollment and the same trial
+    // switch as local-trial; POST /api/attest/voice/start mints the
     // operator's ElevenLabs signed URL, the relay answers the turns itself.
     id: 'local-voice',
     mode: 'local',
@@ -839,13 +841,13 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in-consent',
     activationNote: 'the same single free-trial switch and consent as the trial AI and food database; off means no request to our server or to ElevenLabs at all',
     byo: 'None in this mode: voice with your own ElevenLabs key needs a cloud account',
-    evidence: ['internal/cloudserver/attest.go:239', 'internal/cloudserver/voice_llm_relay.go:771', 'internal/cloudserver/trial_proxy.go:167'],
+    evidence: ['web/cloud/js/local-trial.js:246', 'web/cloud/js/local-policy.js:281', 'web/cloud/js/local-policy.js:216', 'web/cloud/js/voice-llm-responder.js:171', 'web/static/js/features/elevenlabs-call.js:911', 'internal/cloudserver/attest.go:239', 'internal/cloudserver/voice_llm_relay.go:771', 'internal/cloudserver/trial_proxy.go:167'],
     code: { go: ['internal/cloudserver/attest.go', 'internal/cloudserver/voice_llm_relay.go', 'internal/cloudserver/trial_proxy.go'], hosts: ['api.elevenlabs.io'] },
     docSignal: null,
     userCopy: {
       category: 'visible',
       title: 'On-device mode: free trial voice calls, if you turn them on',
-      detail: 'If you turn on the free trial in on-device mode, voice calls run on the operator\'s ElevenLabs account: your voice audio and its transcript go to it, and the agent\'s answers are written by the operator\'s AI provider account through our server, which receives each turn and the health data the agent reads from this phone to answer you. Our server keeps no call content — only how many seconds of calls this anonymous install has used, up to a small free allowance.',
+      detail: 'If you turn on the free trial in on-device mode, voice calls run on the operator\'s ElevenLabs account: your voice audio and its transcript go to it, and the agent\'s answers are written by the operator\'s AI provider account through our server, which receives each turn and the health data the agent reads from this phone to answer you. You get 10 free minutes of calls per install, up to 5 a day; each call uses up to 2 minutes of them when it starts. Our server keeps no call content — only how many seconds of calls this anonymous install has used. With the trial off, the app calls neither our server nor ElevenLabs.',
     },
   },
   {

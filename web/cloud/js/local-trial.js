@@ -12,7 +12,7 @@
 // Only ever installed when the user turned the trial on (local-policy.js
 // registerLocalEgress): off, nothing here runs and nothing reaches our server.
 // The same switch covers the operator's food database (foodGet, bd
-// med-o7zq.20).
+// med-o7zq.20) and trial voice calls (voiceStart, bd med-o7zq.23).
 
 const STATE_KEY = 'wg:local-trial';
 
@@ -165,6 +165,26 @@ export function createAttestClient({
   };
 }
 
+const VOICE_START = '/api/attest/voice/start';
+
+// voiceStart's refusals, by the server's machine-readable error (and the
+// budget's scope). Never err.status: the call bar maps a 503 to its own copy.
+const VOICE_COPY = {
+  voice_not_configured: 'Voice calls are not available on this server.',
+  trial_not_configured: 'Voice calls are not available on this server.',
+  'voice:voice': 'Free voice minutes used up on this iPhone. Add your own keys in a cloud account to keep calling.',
+  'voice:voice-day': 'Free voice calls paused until tomorrow.',
+  'voice:global': 'The free voice line is busy today — try again tomorrow.',
+  // One call per install: the last one is still in the server's 30 s grace.
+  call_in_progress: 'Your last call is still ending — try again in a minute.',
+  trial_already_used: 'The free trial was already used on this iPhone.',
+};
+
+function voiceError(code, status) {
+  const message = VOICE_COPY[code] || `Could not start the call${status ? ` (${status})` : ''}.`;
+  return Object.assign(new Error(message), { code: code || 'voice_start_failed' });
+}
+
 function readState(storage) {
   try {
     return JSON.parse(storage.getItem(STATE_KEY)) || null;
@@ -180,8 +200,9 @@ function writeState(storage, patch) {
 }
 
 // createLocalTrial — aiclient's trial transport plus what Settings shows:
-// { remaining, daily, used } from the last responses (X-Trial-Remaining, the
-// enroll body, trial_already_used). That memo is a per-device convenience
+// { remaining, daily, used, voiceRemaining } from the last responses
+// (X-Trial-Remaining, the enroll body, trial_already_used, the voice start
+// body's remaining_seconds). That memo is a per-device convenience
 // (localStorage): the server's counters are the truth, a lost memo only
 // hides the count until the next request.
 export function createLocalTrial({ attest, base, fetchImpl, storage }) {
@@ -214,6 +235,31 @@ export function createLocalTrial({ attest, base, fetchImpl, storage }) {
     // Same key and challenge as the AI; its own daily cap on the server.
     foodGet(path, signal) {
       return client.get(path.replace('/api/food/', '/api/attest/food/'), signal);
+    },
+    // A trial voice call (bd med-o7zq.23; server: attest.go voiceStart). One
+    // signed POST with an empty body mints the operator's ElevenLabs signed URL
+    // (single-use) and the relay call token, and charges the call's whole grant
+    // up front. Resolves { call, signedUrl, grantedSeconds, remainingSeconds,
+    // dailyRemainingSeconds }; throws an Error whose message is the copy to
+    // show. The counters ride in the body: X-Trial-Voice-Remaining is not a
+    // CORS-exposed header.
+    async voiceStart(signal) {
+      if (readState(storage)?.used) throw voiceError('trial_already_used');
+      const res = await client.post(VOICE_START, '', signal);
+      const body = await res.clone().json().catch(() => null);
+      if (res.ok && body && typeof body.signed_url === 'string' && typeof body.call === 'string') {
+        writeState(storage, { voiceRemaining: body.remaining_seconds });
+        return {
+          call: body.call,
+          signedUrl: body.signed_url,
+          grantedSeconds: body.granted_seconds,
+          remainingSeconds: body.remaining_seconds,
+          dailyRemainingSeconds: body.daily_remaining_seconds,
+        };
+      }
+      const code = body?.error || '';
+      if (code === 'trial_budget_exhausted' && body.scope === 'voice') writeState(storage, { voiceRemaining: 0 });
+      throw voiceError(code === 'trial_budget_exhausted' ? `voice:${body.scope}` : code, res.status);
     },
     async enroll() {
       const res = await client.enroll();

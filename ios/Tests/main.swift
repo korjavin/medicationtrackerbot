@@ -60,8 +60,8 @@ route("/static/", nil)
 route("relative.js", nil)
 
 let csp = LocalOrigin.csp(["api.openai.com"])
-precondition(csp.contains("connect-src 'self' https://api.openai.com;"), csp)
-precondition(!csp.contains("https:;") && !csp.contains("https: ") && !csp.contains("wss:"), "wildcard in \(csp)")
+precondition(csp.contains("connect-src 'self' https://api.openai.com wss://api.openai.com;"), csp)
+precondition(!csp.contains("https:;") && !csp.contains("https: ") && !csp.contains("wss:;") && !csp.contains("wss: "), "wildcard in \(csp)")
 precondition(LocalOrigin.csp([]).contains("connect-src 'self';"))
 precondition(csp.contains("script-src 'self';") && csp.contains("object-src 'none'"))
 

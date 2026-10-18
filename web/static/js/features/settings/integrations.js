@@ -270,6 +270,14 @@
         } else if (status.on) {
             text = 'Free trial on.';
         }
+        // Voice seconds left after the last call's up-front charge (bd
+        // med-o7zq.23); below 30 s the server grants no call.
+        const voice = status.voiceRemaining;
+        if (status.on && typeof voice === 'number') {
+            text += voice < 30
+                ? ' Voice minutes used up.'
+                : ' Voice: ' + Math.max(1, Math.floor(voice / 60)) + ' min left (each call uses up to 2 min).';
+        }
         if (note) {
             note.textContent = text;
             note.hidden = !text;

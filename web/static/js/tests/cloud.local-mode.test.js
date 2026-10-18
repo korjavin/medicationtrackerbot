@@ -825,11 +825,16 @@ describe('local-only mode anonymous trial opt-in (med-o7zq.16)', () => {
         expect(modal.textContent).toMatch(/App Attest/);
         expect(modal.textContent).toMatch(/per install/i);
         expect(modal.textContent).toMatch(/reinstalling the app gives up the rest/i);
+        // Voice (bd med-o7zq.23): what goes where, and the minutes.
+        expect(modal.textContent).toMatch(/voice calls/i);
+        expect(modal.textContent).toMatch(/ElevenLabs account/);
+        expect(modal.textContent).toMatch(/10 free minutes of voice calls per install/);
+        expect(modal.textContent).toMatch(/each call uses up to 2 minutes/);
         modal.querySelector('[data-trial-consent-choice="allow"]').click();
         await turningOn;
 
         expect((await window.apiCall('/api/settings/trial-consent')).anon).toBe(true);
-        expect(bridge).toHaveBeenLastCalledWith('setEgressHosts', { hosts: [TRIAL_BASE] });
+        expect(bridge).toHaveBeenLastCalledWith('setEgressHosts', { hosts: [TRIAL_BASE, 'api.elevenlabs.io'] });
         expect(await window.CloudVault.trial.status()).toMatchObject({ on: true });
         expect(document.getElementById('integrations-local-trial-toggle').checked).toBe(true);
 
@@ -1011,5 +1016,222 @@ describe('local-only mode food database through the trial (med-o7zq.20)', () => 
         await scan(EAN);
         await vi.waitFor(() => expect(window.safeToast).toHaveBeenCalledWith('Food lookups paused until tomorrow.', 'info'));
         expect(foodGets()).toHaveLength(1);
+    });
+});
+
+// bd med-o7zq.23 — trial voice calls ride the same switch: the call trigger
+// shows only while it is on, one signed POST /api/attest/voice/start mints
+// the call (signed URL + relay token), the device leg dials the base domain
+// with the token, and the SDK gets both. The real elevenlabs-call.js runs in
+// the page with a stubbed SDK; the relay leg's WebSocket is stubbed.
+describe('local-only mode trial voice calls (med-o7zq.23)', () => {
+    const TRIAL_BASE = 'trial-base.example.test';
+    const START = '/api/attest/voice/start';
+    const SIGNED = 'wss://api.elevenlabs.io/v1/convai/conversation?conversation_signature=sig-1';
+    const ELEVENLABS_SRC = readFileSync(
+        fileURLToPath(new URL('../features/elevenlabs-call.js', import.meta.url)),
+        'utf8',
+    ).replace('sdkPromise = import(SDK_URL).catch((err) => {', 'sdkPromise = Promise.resolve(window.__fakeSDK).catch((err) => {');
+    // The trial-off hint's two rules (the trigger's gate is in localModeCss).
+    function hintCss() {
+        const start = STYLES_CSS.indexOf('.wg-callbar__trial-hint {');
+        const last = STYLES_CSS.indexOf(':root.wg-local-trial-off .wg-callbar__trial-hint {');
+        return STYLES_CSS.slice(start, STYLES_CSS.indexOf('}', last) + 1);
+    }
+
+    class FakeSocket {
+        constructor(url) {
+            this.url = url;
+            this.readyState = FakeSocket.OPEN;
+            FakeSocket.instances.push(this);
+        }
+
+        send() {}
+
+        close() { this.readyState = 3; }
+
+        recv(frame) { this.onmessage({ data: JSON.stringify(frame) }); }
+
+        fireClose(code) { this.readyState = 3; this.onclose({ code }); }
+    }
+    FakeSocket.OPEN = 1;
+
+    let env;
+    let fetched;
+    let bridge;
+    let startReply;
+    let conv;
+    let startSession;
+
+    beforeEach(async () => {
+        await deleteDb();
+        fetched = [];
+        FakeSocket.instances = [];
+        vi.stubGlobal('WebSocket', FakeSocket);
+        startReply = () => new Response(JSON.stringify({
+            signed_url: SIGNED, call: 'tok-1', granted_seconds: 120, remaining_seconds: 480, daily_remaining_seconds: 180,
+        }), { status: 200 });
+        const recorder = vi.fn(async (url, init = {}) => {
+            fetched.push({ url: String(url), method: init.method || 'GET', headers: init.headers || {} });
+            const u = String(url);
+            if (u === `https://${TRIAL_BASE}/api/attest/challenge`) {
+                return new Response(JSON.stringify({ challenge: 'c1', expires_in: 300 }), { status: 200 });
+            }
+            if (u === `https://${TRIAL_BASE}${START}`) return startReply();
+            return createMockResponse({ status: 503, json: {} });
+        });
+        vi.stubGlobal('fetch', recorder);
+        env = loadFrontendEnv();
+        env.window.fetch = recorder;
+        bridge = vi.fn(async (op) => (op === 'setEgressHosts' ? { changed: false } : null));
+        const notifications = { isSupported: () => false, __native: { platform: 'ios', call: bridge } };
+        env.window.LocalNotifications = notifications;
+        vi.stubGlobal('LocalNotifications', notifications);
+        env.window.Attest = {
+            isSupported: () => true,
+            status: vi.fn(async () => ({ supported: true, base: TRIAL_BASE, attested: true })),
+            enroll: vi.fn(),
+            assert: vi.fn(async (challenge, digest) => ({ keyId: 'key-1', assertion: `sig:${challenge}:${digest}` })),
+        };
+        const style = env.document.createElement('style');
+        style.textContent = localModeCss() + hintCss();
+        env.document.head.appendChild(style);
+        const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
+        run(env.window, (spec) => MODULES[spec]());
+        await env.window.MedTrackerCloudReady;
+        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] }));
+        conv = { endSession: vi.fn(async () => {}), setMicMuted: vi.fn() };
+        startSession = vi.fn(async (opts) => { opts.onConnect(); return conv; });
+        env.window.__fakeSDK = { Conversation: { startSession } };
+        env.window.eval(ELEVENLABS_SRC);
+    });
+
+    afterEach(async () => {
+        await env.window.apiCall('/api/settings/trial-consent', 'PATCH', { anon: false });
+        await env.window.CloudVault.trial.apply();
+        const { setTrialTransport } = await import('../../../cloud/js/aiclient.js');
+        setTrialTransport(null);
+        env.cleanup();
+        vi.unstubAllGlobals();
+    });
+
+    async function trialOn() {
+        await env.window.apiCall('/api/settings/trial-consent', 'PATCH', { anon: true });
+        await env.window.CloudVault.trial.apply();
+        expect(await env.window.CloudVault.trial.status()).toMatchObject({ on: true });
+    }
+
+    function mountBar() {
+        const bar = env.document.createElement('div');
+        bar.className = 'wg-callbar';
+        env.document.body.appendChild(bar);
+        env.window.WGCallAgent.mountCard(bar);
+        return bar;
+    }
+
+    const shown = (el) => env.window.getComputedStyle(el).display !== 'none';
+    const toOffDevice = () => fetched.filter(({ url }) => url.startsWith('/api/')
+        || (/^https?:/.test(url) && [TRIAL_BASE, 'api.elevenlabs.io'].includes(new URL(url).hostname)));
+    const starts = () => fetched.filter(({ url }) => url === `https://${TRIAL_BASE}${START}`);
+
+    async function tapCallAndAttach(bar) {
+        bar.querySelector('.wg-callbar__call').click();
+        const sock = await vi.waitFor(() => {
+            expect(FakeSocket.instances).toHaveLength(1);
+            return FakeSocket.instances[0];
+        });
+        sock.recv({ type: 'hello', call: 'tok-1' });
+        await vi.waitFor(() => expect(startSession).toHaveBeenCalledTimes(1));
+        return sock;
+    }
+
+    it('off: no call trigger, the hint says how to turn it on, and neither host is admitted or called', async () => {
+        const bar = mountBar();
+        expect(env.document.documentElement.classList.contains('wg-local-trial')).toBe(false);
+        expect(shown(bar.querySelector('.wg-callbar__call'))).toBe(false);
+        const hint = bar.querySelector('.wg-callbar__trial-hint');
+        expect(hint.textContent).toBe('Turn on the free trial in Settings → AI & integrations to call the agent.');
+        expect(shown(hint)).toBe(true);
+        for (const [op, args] of bridge.mock.calls) {
+            if (op === 'setEgressHosts') {
+                expect(args.hosts).not.toContain(TRIAL_BASE);
+                expect(args.hosts).not.toContain('api.elevenlabs.io');
+            }
+        }
+        expect(env.window.CloudVoiceLLM.localTrial).toBeUndefined();
+        expect(toOffDevice()).toEqual([]);
+        expect(FakeSocket.instances).toEqual([]);
+    });
+
+    it('on: one signed start, the device leg with its token, and the SDK gets the signed URL and the token', async () => {
+        const { createHash } = await import('node:crypto');
+        // Mounted before the trial responder lands (boot race): it repaints.
+        const bar = mountBar();
+        await vi.waitFor(() => expect(bar.querySelector('.wg-callbar__call').dataset.action).toBe('voice-setup'));
+        await trialOn();
+        expect(bridge).toHaveBeenLastCalledWith('setEgressHosts', { hosts: [TRIAL_BASE, 'api.elevenlabs.io'] });
+        expect(shown(bar.querySelector('.wg-callbar__call'))).toBe(true);
+        expect(shown(bar.querySelector('.wg-callbar__trial-hint'))).toBe(false);
+        await vi.waitFor(() => expect(bar.querySelector('.wg-callbar__label').textContent).toBe('Call agent'));
+        expect(bar.querySelector('.wg-callbar__call').dataset.action).toBe('call-agent');
+
+        const sock = await tapCallAndAttach(bar);
+        expect(starts()).toHaveLength(1);
+        expect(starts()[0].method).toBe('POST');
+        const digest = createHash('sha256').update(`${START}\n`).digest('base64');
+        expect(env.window.Attest.assert).toHaveBeenCalledWith('c1', digest);
+        expect(starts()[0].headers).toMatchObject({
+            'X-Attest-Key-Id': 'key-1', 'X-Attest-Challenge': 'c1', 'X-Attest-Assertion': `sig:c1:${digest}`,
+        });
+        expect(sock.url).toBe(`wss://${TRIAL_BASE}/api/attest/voice/device?call=tok-1`);
+        expect(startSession.mock.calls[0][0]).toMatchObject({ signedUrl: SIGNED, customLlmExtraBody: { call: 'tok-1' } });
+        expect(bar.dataset.state).toBe('in_call');
+        // No account route, no second mint.
+        expect(fetched.filter(({ url }) => url.startsWith('/api/'))).toEqual([]);
+
+        // The grant runs out (frame, then close 4429): the call ends with why.
+        sock.recv({ type: 'budget_exhausted' });
+        sock.fireClose(4429);
+        await vi.waitFor(() => expect(conv.endSession).toHaveBeenCalled());
+        await vi.waitFor(() => expect(bar.querySelector('.wg-callbar__error').textContent)
+            .toBe('Call time is up — each free call lasts up to 2 minutes. Call again to keep talking.'));
+        expect(FakeSocket.instances).toHaveLength(1); // no redial
+
+        await env.window.SettingsIntegrations._renderLocalTrial();
+        expect(env.document.getElementById('integrations-local-trial-status').textContent)
+            .toContain('Voice: 8 min left (each call uses up to 2 min).');
+    });
+
+    it('on: a 4429 close on the last minutes ends the session with the minutes-used-up copy', async () => {
+        startReply = () => new Response(JSON.stringify({
+            signed_url: SIGNED, call: 'tok-1', granted_seconds: 60, remaining_seconds: 0, daily_remaining_seconds: 0,
+        }), { status: 200 });
+        await trialOn();
+        const bar = mountBar();
+        const sock = await tapCallAndAttach(bar);
+        sock.fireClose(4429);
+        await vi.waitFor(() => expect(conv.endSession).toHaveBeenCalled());
+        await vi.waitFor(() => expect(bar.querySelector('.wg-callbar__error').textContent)
+            .toBe('Free voice minutes used up — add your own keys in a cloud account to keep calling.'));
+        await env.window.SettingsIntegrations._renderLocalTrial();
+        expect(env.document.getElementById('integrations-local-trial-status').textContent).toContain('Voice minutes used up.');
+    });
+
+    it.each([
+        [429, { error: 'trial_budget_exhausted', scope: 'voice' }, 'Free voice minutes used up on this iPhone. Add your own keys in a cloud account to keep calling.'],
+        [429, { error: 'trial_budget_exhausted', scope: 'voice-day', resets_at: '2026-10-19T00:00:00Z' }, 'Free voice calls paused until tomorrow.'],
+        [429, { error: 'trial_budget_exhausted', scope: 'global', resets_at: '2026-10-19T00:00:00Z' }, 'The free voice line is busy today — try again tomorrow.'],
+        [503, { error: 'voice_not_configured' }, 'Voice calls are not available on this server.'],
+        [409, { error: 'call_in_progress' }, 'Your last call is still ending — try again in a minute.'],
+    ])('on: a %i %j start shows its copy and opens no session', async (status, body, copy) => {
+        startReply = () => new Response(JSON.stringify(body), { status });
+        await trialOn();
+        const bar = mountBar();
+        bar.querySelector('.wg-callbar__call').click();
+        await vi.waitFor(() => expect(bar.querySelector('.wg-callbar__error').textContent).toBe(copy));
+        expect(bar.dataset.state).toBe('error');
+        expect(starts()).toHaveLength(1);
+        expect(FakeSocket.instances).toEqual([]);
+        expect(startSession).not.toHaveBeenCalled();
     });
 });

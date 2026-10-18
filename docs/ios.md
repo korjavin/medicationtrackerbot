@@ -639,8 +639,9 @@ IndexedDB never mixes with an account's. Cloud mode is unchanged.
   rest are in [`LocalOrigin.swift`](../ios/App/LocalOrigin.swift), checked by
   `ios/Tests/main.swift` in CI.
 - **CSP:** every response carries cmd/cloud's policy with `connect-src 'self'`
-  plus `https://<host>` for each BYOK provider host the page registered —
-  never a wildcard. The header is sent before the page can read its own
+  plus `https://<host>` and `wss://<host>` for each host the page registered —
+  never a wildcard (both schemes per host, like `router.go` lists
+  `wss://api.elevenlabs.io`: WebKit's CSP3 https→wss matching is not relied on). The header is sent before the page can read its own
   settings, so the shell keeps a native mirror: the page
   (`web/cloud/js/local-policy.js` `registerLocalEgress`) calls the bridge op
   `setEgressHosts` with `{hosts: [...]}` (same rules as `PUT
@@ -649,7 +650,8 @@ IndexedDB never mixes with an account's. Cloud mode is unchanged.
   AI & integrations save. The reply is `{changed}`; a change applies on the
   next document load, so the page reloads when it is `true` (once: the next
   load's list matches). `api.elevenlabs.io` (always allowed in
-  cloud) is left out: voice needs the server's voice relay and is off here.
+  cloud) is in the list only while the anonymous trial is on (voice calls,
+  below).
 - **Egress and side effects** (bd med-o7zq.3, `web/cloud/js/local-policy.js`):
   nothing leaves the phone except calls to the providers the user added with
   their own key. Reminders are computed on the device and go to the iOS
@@ -658,13 +660,25 @@ IndexedDB never mixes with an account's. Cloud mode is unchanged.
   says Detailed); RxNav lookups are off (`rxnorm: null`); the account trial
   and the operator food DB are off because the bundle carries no trial /
   food-DB meta. The **anonymous trial** (bd med-o7zq.16) is the one opt-in
-  exception: Settings → AI & integrations → "Try the AI and food database
-  without your own keys" is the `anon` trial consent; while it is on (and the
-  shell supports App Attest) `registerLocalEgress` adds the base domain to
-  `setEgressHosts` and installs `web/cloud/js/local-trial.js` as aiclient's
-  trial transport, which signs each request with `attest.assert`
-  ([cloud-mode.md → Anonymous trial](cloud-mode.md)). Off, the base domain
-  is not in the CSP.
+  exception: Settings → AI & integrations → "Try the AI, food database and
+  voice calls without your own keys" is the `anon` trial consent; while it is
+  on (and the shell supports App Attest) `registerLocalEgress` adds the base
+  domain and `api.elevenlabs.io` to `setEgressHosts`, installs
+  `web/cloud/js/local-trial.js` as aiclient's trial transport, which signs
+  each request with `attest.assert`, and swaps `window.CloudVoiceLLM` for a
+  responder that mints each voice call through it (bd med-o7zq.23;
+  [cloud-mode.md → Anonymous trial](cloud-mode.md)); `<html>` then carries
+  `wg-local-trial`, which shows the call trigger. Off, neither host is in the
+  CSP and the call bar says to turn the trial on.
+  **Microphone:** a call uses WebKit's default per-origin capture prompt on
+  `wgapp://local` (`NSMicrophoneUsageDescription` is in `project.yml`); there
+  is no `WKUIDelegate` media-capture handler. If TestFlight shows WebKit
+  refusing capture on the custom scheme, add
+  `webView(_:requestMediaCapturePermissionFor:initiatedByFrame:type:decisionHandler:)`
+  in `Shell.swift`, granting only the local origin's main frame `.microphone`.
+  **Face ID lock:** no voice-specific plumbing — a call cannot start while
+  locked (`attest.assert` is refused like every bridge op), and a lock
+  mid-call behaves as backgrounding does in the cloud shell.
   `local-boot.js` puts `wg-local-vault` on `<html>`, and `styles.css` hides
   `.wg-cloud-only` (Mi Band import, voice, plan/gym sharing, restore and sync
   reset) and shows `.wg-local-only`. Telegram, feedback, devices and the
