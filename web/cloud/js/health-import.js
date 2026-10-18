@@ -2,7 +2,7 @@
 // answers the same window.Health ops from Health Connect (bd med-nt9p.8).
 //
 // cloud-boot.js imports this only when window.Health.isSupported() (the
-// native/ ios platform), so on the web nothing here loads or runs. It owns:
+// native/ ios or android platform), so on the web nothing here loads or runs. It owns:
 //   - the Settings → "Apple Health" (or "Health Connect") toggle row (mounted, like feedback-ui.js,
 //     into the Settings home; no index.html change);
 //   - the import run: an anchored query per kind through window.Health
@@ -10,8 +10,9 @@
 //     Runs at unlock and whenever the app comes back to the foreground; no
 //     background delivery in v1.
 //
-// Device-local state lives in localStorage on purpose: HealthKit anchors and
-// the on/off choice belong to this iPhone's Health store, not to the vault.
+// Device-local state lives in localStorage on purpose: HealthKit anchors (on
+// Android, Health Connect change tokens) and the on/off choice belong to this
+// device's Health store, not to the vault.
 // Losing them only costs a re-scan, which the deterministic recordIds absorb.
 // Data path: Health → this page → the encrypted vault, same as a hand-entered
 // reading; nothing new leaves the device.

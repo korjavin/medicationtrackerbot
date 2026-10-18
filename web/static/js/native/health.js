@@ -1,6 +1,6 @@
-// window.Health — Apple Health (HealthKit) read access (bd med-w6gx.4).
+// window.Health — Apple Health (HealthKit) / Health Connect read access (bd med-w6gx.4).
 //
-// Only the iOS app shell has it. The web impl reports unsupported, so feature
+// Only the iOS and Android app shells have it. The web impl reports unsupported, so feature
 // code branches on isSupported(), never on the platform.
 //
 // ios (bd med-w6gx.6), answered by ios/App/Health.swift, and android (bd

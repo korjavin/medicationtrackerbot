@@ -1,7 +1,7 @@
 # Med Tracker — Privacy Policy
 
-Effective 2026-10-15. This policy covers the Med Tracker web app and the Med
-Tracker iOS app, which opens the same web app. "The operator" is whoever runs
+Effective 2026-10-18. This policy covers the Med Tracker web app and the Med
+Tracker iOS and Android apps, which open the same web app. "The operator" is whoever runs
 the Med Tracker service your account lives on.
 
 ## The short version

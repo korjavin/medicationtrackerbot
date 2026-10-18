@@ -189,7 +189,11 @@ name ("Health Connect") and access hint off the capability
   last **30 days** (`READ_HEALTH_DATA_HISTORY` for older data is out of v1)
   and starts a token; later queries return only upserts since it. An expired
   token (unused for 30 days) re-reads the 30 days; known readings are skipped
-  by id. `sleep` / `workout` answer an empty page until med-nt9p.9.
+  by id. `sleep` / `workout` answer an empty page until med-nt9p.9; their
+  permissions are not requested yet, but `authorize` still answers `true` and
+  the page records all four kinds as asked (`wg.health.asked`), so .9 must
+  request the new permissions itself (e.g. on query) — the web re-ask path
+  will not fire.
 - **Foreground only:** reads run only when the page asks (unlock, return to
   the app); no background reads, no background permission.
 - **Rationale screen:** `PermissionsRationaleActivity` answers Health

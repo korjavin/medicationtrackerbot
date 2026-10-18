@@ -550,7 +550,8 @@ window.MedTrackerCloudReady = (async function boot() {
             })
             .catch((e) => console.error('[cloud-boot] inbox poller install failed', e));
 
-        // Apple Health import (bd med-w6gx.6): only inside the iOS app shell,
+        // Apple Health import (bd med-w6gx.6): only inside the iOS (or Android,
+        // Health Connect: bd med-nt9p.8) app shell,
         // where native/health.js installs the ios impl. On the web isSupported()
         // is false and the module is never even fetched.
         let healthSupported = false;
