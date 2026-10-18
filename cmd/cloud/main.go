@@ -45,6 +45,7 @@ type config struct {
 	feedbackAgeRecipient string
 	feedbackAdminChatID  int64
 	trial                cloudserver.TrialConfig
+	attest               cloudserver.AttestConfig
 }
 
 func loadConfig() (config, error) {
@@ -122,6 +123,12 @@ func loadConfig() (config, error) {
 		return cfg, err
 	}
 	cfg.trial = trial
+
+	attest, err := cloudserver.AttestConfigFromEnv()
+	if err != nil {
+		return cfg, err
+	}
+	cfg.attest = attest
 
 	if warnHours := os.Getenv("CLOUD_DRY_QUEUE_WARN_HOURS"); warnHours != "" {
 		hours, err := strconv.Atoi(warnHours)
@@ -260,6 +267,12 @@ func main() {
 	voiceLLMRelayAPI := cloudserver.NewVoiceLLMRelayAPI(store, cfg.sessionSecret)
 	voiceLLMRelayAPI.RegisterRoutes(apiMux)
 	trialProxyAPI.RegisterRoutes(apiMux)
+	// Anonymous iOS-local trial (med-o7zq.15): always mounted so the client gets
+	// 503 trial_not_configured, the same code as the account trial being off.
+	if !cfg.attest.Configured {
+		slog.Info("anonymous trial disabled", "reason", "APP_ATTEST_APP_ID/DEVICECHECK_* unset")
+	}
+	cloudserver.NewAttestAPI(store, trialProxyAPI, cfg.attest).RegisterRoutes(apiMux)
 	foodProxyAPI.RegisterRoutes(apiMux)
 	rxnavProxyAPI.RegisterRoutes(apiMux)
 	cloudserver.NewEgressAPI(store, cfg.sessionSecret).RegisterRoutes(apiMux)

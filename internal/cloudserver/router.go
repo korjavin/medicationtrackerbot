@@ -382,7 +382,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// The voice LLM relay's completion endpoint (med-h849.1) is the same
 		// kind of capability: auth is the per-call token in the body, never the
 		// Host, and the shared trial agent needs one fixed URL. Exact path only.
-		if strings.HasPrefix(r.URL.Path, "/api/s/") || r.URL.Path == voiceLLMCompletionsPath {
+		// The anonymous iOS trial (med-o7zq.15) has no account either: its
+		// subject is the App Attest key id, so it lives here and only here.
+		if strings.HasPrefix(r.URL.Path, "/api/s/") || r.URL.Path == voiceLLMCompletionsPath || strings.HasPrefix(r.URL.Path, attestPathPrefix) {
 			if h.api == nil {
 				http.NotFound(w, r)
 				return
@@ -431,7 +433,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if strings.HasPrefix(r.URL.Path, "/api/") {
-		if h.api == nil {
+		// Base-domain only: an account host must not answer the anonymous trial.
+		if h.api == nil || strings.HasPrefix(r.URL.Path, attestPathPrefix) {
 			http.NotFound(w, r)
 			return
 		}

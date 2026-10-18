@@ -42,7 +42,19 @@ TRIAL_ELEVENLABS_AGENT_ID=agent_...# Operator's shared ElevenLabs agent minted f
 TRIAL_VOICE_LLM_URL=https://<base-domain>/api/voice-llm    # Base URL the shared trial ElevenLabs agent uses as its custom LLM (`<url>/chat/completions` = `/api/voice-llm/chat/completions` on the base domain, the voice relay in internal/cloudserver/voice_llm_relay.go). Read by `pnpm trial:agent --apply` (scripts/provision-trial-agent.mjs) only — not by cmd/cloud. BYO agents point at the account subdomain automatically
 TRIAL_RATE_PER_MIN=10              # Per-account sliding-window limit shared across all trial routes (default: 10). Smooths bursts; bounds no spend. Streaming (`stream:true`, voice) turns use a separate fixed 60/min per-account limiter; the daily budgets count both.
 TRIAL_DAILY_PER_ACCOUNT=100        # Per-account DAILY cap on trial AI requests, persisted in cloud.db (default: 100; 0 disables)
-TRIAL_DAILY_GLOBAL=500             # Cross-account DAILY cap on trial AI requests, persisted in cloud.db (default: 500; 0 disables)
+TRIAL_DAILY_GLOBAL=500             # Cross-account DAILY cap on trial AI requests, persisted in cloud.db (default: 500; 0 disables). Also covers anonymous iOS installs (one shared budget)
+# Anonymous trial for iOS local mode (bd med-o7zq.15; docs/cloud-mode.md → Anonymous trial). Base-domain
+# POST /api/attest/{challenge,enroll,trial/openai/chat/completions}. Live only when all four Apple vars below
+# are set AND trial AI is configured. None of the four set (or trial AI off) → those routes return 503
+# trial_not_configured. A partial set of the four is an error: cmd/cloud refuses to start (the error names
+# the vars, never values).
+APP_ATTEST_APP_ID=TEAMID.bundle.id # App ID "<TEAMID>.<bundle id>" whose SHA256 is the attestation rpIdHash
+APP_ATTEST_ENV=production          # production (default; TestFlight + App Store builds) or development (Xcode-run builds only). Also picks the DeviceCheck host
+DEVICECHECK_KEY_ID=...             # DeviceCheck key id (Apple Developer → Keys)
+DEVICECHECK_TEAM_ID=...            # Apple team id that owns the key
+DEVICECHECK_PRIVATE_KEY_FILE=/app/data/secrets/devicecheck.p8  # PATH to the .p8 (PKCS#8 EC). A file, never the PEM inline; never committed (*.p8 is gitignored). See docs/cloud-deployment.md
+TRIAL_ANON_LIFETIME_REQUESTS=200   # Lifetime trial requests per install (default: 200; must be positive). Refunded when the upstream call fails
+TRIAL_ANON_DAILY=50                # Per-install DAILY cap, in trial_usage like accounts (default: 50; 0 disables)
 MANAGER_BOT_TOKEN=...              # Optional. BotFather token for the operator's manager bot with "Bot Management Mode" enabled. Enables one-tap managed-bot provisioning + BYO Telegram linking (C3a). Unset = Telegram fully disabled (wizard step + webhook routes skipped). See docs/cloud-deployment.md. NOTE: child bot tokens are sealed with a key derived from SESSION_SECRET — rotating SESSION_SECRET orphans stored tokens (users must re-link).
 CLOUD_TG_API_BASE_URL=...          # Optional. Overrides the Telegram Bot API root (default https://api.telegram.org). Set to http://telegram-bot-api:8081 (+ TELEGRAM_API_ID/HASH) to enable the local Bot API proxy for large-file/Mi Band imports; see docs/cloud-deployment.md.
 CLOUD_INTERNAL_WEBHOOK_BASE=...     # Optional. Internal docker-network origin the local Bot API proxy delivers child-bot webhooks to (default http://cloud:8080). Only used when CLOUD_TG_API_BASE_URL is set — the proxy can't reach the public host in --local mode. Override if you changed PORT. See docs/cloud-deployment.md.

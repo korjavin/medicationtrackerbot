@@ -1248,41 +1248,44 @@ const (
 // tested first: "you have used your share today" is more actionable than "the
 // shared pool is empty", and the caller relays the scope to the user.
 func (r *Repo) ConsumeTrialRequest(ctx context.Context, accountID string, now time.Time, perAccountLimit, globalLimit int) (allowed bool, scope string, err error) {
-	day := now.UTC().Format("2006-01-02")
 	err = r.db.WithTx(ctx, func(tx storedb.TX) error {
-		if perAccountLimit > 0 {
-			var used int
-			row := tx.QueryRowContext(ctx, `SELECT requests FROM trial_usage WHERE day = ? AND account_id = ?`, day, accountID)
-			if txErr := row.Scan(&used); txErr != nil && !errors.Is(txErr, sql.ErrNoRows) {
-				return txErr
-			}
-			if used >= perAccountLimit {
-				scope = TrialScopeAccount
-				return nil
-			}
-		}
-		if globalLimit > 0 {
-			var total int
-			if txErr := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(requests), 0) FROM trial_usage WHERE day = ?`, day).Scan(&total); txErr != nil {
-				return txErr
-			}
-			if total >= globalLimit {
-				scope = TrialScopeGlobal
-				return nil
-			}
-		}
-		_, txErr := tx.ExecContext(ctx,
-			`INSERT INTO trial_usage (day, account_id, requests) VALUES (?, ?, 1)
-			 ON CONFLICT(day, account_id) DO UPDATE SET requests = requests + 1`,
-			day, accountID)
-		if txErr != nil {
-			return txErr
-		}
-		allowed = true
-		return nil
+		var txErr error
+		scope, txErr = consumeTrialDay(ctx, tx, accountID, now, perAccountLimit, globalLimit, TrialScopeAccount)
+		return txErr
 	})
 	if err != nil {
 		return false, "", err
 	}
-	return allowed, scope, nil
+	return scope == "", scope, nil
+}
+
+// consumeTrialDay is ConsumeTrialRequest's body inside a caller's tx: it
+// returns the refusing scope (subjectScope for the per-subject cap,
+// TrialScopeGlobal for the shared one) or "" after recording the request.
+func consumeTrialDay(ctx context.Context, tx storedb.TX, subject string, now time.Time, perSubjectLimit, globalLimit int, subjectScope string) (string, error) {
+	day := now.UTC().Format("2006-01-02")
+	if perSubjectLimit > 0 {
+		var used int
+		row := tx.QueryRowContext(ctx, `SELECT requests FROM trial_usage WHERE day = ? AND account_id = ?`, day, subject)
+		if err := row.Scan(&used); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return "", err
+		}
+		if used >= perSubjectLimit {
+			return subjectScope, nil
+		}
+	}
+	if globalLimit > 0 {
+		var total int
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(requests), 0) FROM trial_usage WHERE day = ?`, day).Scan(&total); err != nil {
+			return "", err
+		}
+		if total >= globalLimit {
+			return TrialScopeGlobal, nil
+		}
+	}
+	_, err := tx.ExecContext(ctx,
+		`INSERT INTO trial_usage (day, account_id, requests) VALUES (?, ?, 1)
+		 ON CONFLICT(day, account_id) DO UPDATE SET requests = requests + 1`,
+		day, subject)
+	return "", err
 }
