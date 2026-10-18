@@ -26,7 +26,7 @@ Per passkey `i`: `PRF_i = PRF(credential_i, salt_kek)` → HKDF → `KEK_i` → 
 
 **Registration caveat**: some authenticators do not return PRF *outputs* during `create()` (only `enabled: true`). The enrollment ceremony therefore always follows registration with an immediate `get()` on the new credential to obtain the output. Never rely on PRF-at-creation.
 
-**RP ID**: the per-user instance host (`amber-falcon-8k3q9x.app.<cloud-domain>`), giving per-account credential isolation for free. Consequence: the cloud domain is effectively permanent — a future domain migration would need WebAuthn Related Origin Requests as the escape hatch. `residentKey: "required"`, `userVerification: "required"` on all ceremonies.
+**RP ID**: the per-user instance host (`amber-falcon-8k3q9x.app.<cloud-domain>`), giving per-account credential isolation for free. Consequence: the cloud domain is effectively permanent — a future domain migration would need WebAuthn Related Origin Requests as the escape hatch. `residentKey: "required"`, `userVerification: "required"` on all ceremonies. Accepted origins are the instance host's https origin plus, only when `ANDROID_CERT_SHA256S` is set, one exact-match `android:apk-key-hash:<base64url cert SHA-256>` per Android signing cert — the origin the Android WebView shell signs into `clientDataJSON` (bd med-nt9p.14); the RP ID (and so `rpIdHash`) stays the instance host either way.
 
 ## Key hierarchy
 

@@ -17,12 +17,7 @@ const assetLinksPath = "/.well-known/assetlinks.json"
 // subdomain: the RP ID is the per-account subdomain, and the content is
 // identical and public.
 func (h *Handler) SetAndroidAssetLinks(pkg, certSHA256s string) {
-	var fps []string
-	for _, fp := range strings.Split(certSHA256s, ",") {
-		if fp = strings.ToUpper(strings.TrimSpace(fp)); fp != "" {
-			fps = append(fps, fp)
-		}
-	}
+	fps := splitCertFingerprints(certSHA256s)
 	if pkg == "" || len(fps) == 0 {
 		return
 	}
@@ -37,6 +32,19 @@ func (h *Handler) SetAndroidAssetLinks(pkg, certSHA256s string) {
 			"sha256_cert_fingerprints": fps,
 		},
 	}})
+}
+
+// splitCertFingerprints splits ANDROID_CERT_SHA256S: comma-separated,
+// trimmed, uppercased, blanks dropped. Shared with SetAndroidAppOrigins so the
+// asset-links file and the WebAuthn app origins read the env the same way.
+func splitCertFingerprints(certSHA256s string) []string {
+	var fps []string
+	for _, fp := range strings.Split(certSHA256s, ",") {
+		if fp = strings.ToUpper(strings.TrimSpace(fp)); fp != "" {
+			fps = append(fps, fp)
+		}
+	}
+	return fps
 }
 
 // serveAssetLinks writes the file and reports whether it handled the request.

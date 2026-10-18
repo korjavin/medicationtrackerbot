@@ -122,15 +122,17 @@ shell bead (med-nt9p.5) replaces all of it.
   a button at the bottom of the page — tap it (WebAuthn and the chooser need
   a user gesture).
 
-- **Origin caveat.** In `FOR_APP` mode the authenticator may sign
-  `clientDataJSON` with the app's origin, `android:apk-key-hash:<cert hash>`,
-  instead of `https://<sub>.<base>` (third-party reports; Android's docs do
-  not say). The server's WebAuthn config (`rpForRequest`,
-  `internal/cloudserver/webauthn.go`) accepts only the https origin, so the
-  app's **own** claim/unlock would then fail server verification even though
-  the platform works. Every passkey result therefore logs `clientDataOrigin`
-  (the cert hash redacted to `<cert>`); the probe ops never touch the server
-  and decide platform support on their own.
+- **Origin caveat — confirmed, resolved (bd med-nt9p.14).** In `FOR_APP`
+  mode the WebView signs `clientDataJSON` with the app's origin,
+  `android:apk-key-hash:<base64url cert SHA-256>`, never
+  `https://<sub>.<base>` (confirmed on the first device run: every create and
+  get). The server's WebAuthn config (`rpForRequest`,
+  `internal/cloudserver/webauthn.go`) now also accepts, by exact match, one
+  such origin per fingerprint in `ANDROID_CERT_SHA256S`, on every ceremony;
+  the RP ID stays the account subdomain. A build signed with a cert missing
+  from that list still fails server verification. Every passkey result logs
+  `clientDataOrigin` (the cert hash redacted to `<cert>`); the probe ops never
+  touch the server and decide platform support on their own.
 
 ### Owner prerequisites
 
