@@ -242,7 +242,7 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         const { window } = env;
 
         const consent = await window.apiCall('/api/settings/trial-consent', 'GET');
-        expect(consent).toEqual({ ai: null, voice: null, tg: null, updated_at: 0 });
+        expect(consent).toEqual({ ai: null, voice: null, tg: null, anon: null, updated_at: 0 });
     });
 
     it('trial-consent PATCH then GET round-trips, and a partial patch preserves other scopes', async () => {
@@ -270,7 +270,7 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         });
 
         const consent = await window.apiCall('/api/settings/trial-consent', 'GET');
-        expect(consent).toEqual({ ai: null, voice: null, tg: null, updated_at: expect.any(Number) });
+        expect(consent).toEqual({ ai: null, voice: null, tg: null, anon: null, updated_at: expect.any(Number) });
         expect(consent.extra).toBeUndefined();
     });
 

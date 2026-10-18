@@ -926,7 +926,21 @@
 
             <section id="settings-integrations" class="wg-settings-integrations">
                 <p class="wg-hint">Stored in your vault. Saved keys show as <span class="wg-mono-display">***</span> and stay unchanged unless you re-enter them. Empty a field to clear a saved value.</p>
-                <p class="wg-hint wg-local-only">On this device, AI and food search reach only the providers you add here. Voice, Telegram, the trial AI and the shared food database are available with a cloud account.</p>
+                <p class="wg-hint wg-local-only">On this device, AI and food search reach only the providers you add here, and the free trial only if you turn it on. Voice and Telegram need a cloud account.</p>
+
+                <!-- Local mode's anonymous trial AI (bd med-o7zq.16,
+                     integrations.js renderLocalTrial): shown only where the
+                     shell supports App Attest. -->
+                <section id="integrations-local-trial" class="wg-section wg-local-only hidden">
+                    <div class="wg-section__head"><span class="wg-eyebrow">Free trial</span></div>
+                    <div class="wg-card wg-vstack">
+                        <div class="wg-setting wg-setting--bare">
+                            <span class="wg-setting__body"><span class="wg-setting__title">Try the AI and food database without your own keys</span><span class="wg-setting__desc">Requests go through our server to the operator&rsquo;s providers. A limited number of free AI requests per install.</span></span>
+                            <label class="wg-toggle"><input type="checkbox" role="switch" id="integrations-local-trial-toggle" class="wg-toggle__input" aria-label="Try the AI and food database without your own keys"></label>
+                        </div>
+                        <p id="integrations-local-trial-status" class="wg-hint" hidden></p>
+                    </div>
+                </section>
 
                 <section class="wg-section">
                     <div class="wg-section__head"><span class="wg-eyebrow">OpenAI</span></div>
@@ -2604,6 +2618,7 @@
     <script src="/static/js/native/web/bluetooth.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/native/local-notifications.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/native/health.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/native/attest.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <!-- First-run guided setup (mobile Phase 2c). state.js attaches the
          sessionStorage step tracker onto window.WGFirstRun.state;
          index.js attaches the mount/dismiss/isActive surface. Either

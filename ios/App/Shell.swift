@@ -343,7 +343,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
 
     /// web/static/js/native/index.js `call(op, args)` posts {op, args}; the reply
     /// resolves its promise, an error string rejects it. Capabilities add ops
-    /// here (notifications.* med-w6gx.5, health.* med-w6gx.6).
+    /// here (notifications.* med-w6gx.5, health.* med-w6gx.6, attest.* med-o7zq.16).
     func userContentController(_ userContentController: WKUserContentController,
                                didReceive message: WKScriptMessage,
                                replyHandler: @escaping (Any?, String?) -> Void) {
@@ -382,6 +382,15 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             // invite screen, as Switch account. The origin's data stays.
             replyHandler(true, nil)
             forget()
+        // The anonymous trial AI (bd med-o7zq.16): local mode only — an account
+        // has its own trial — and, like every op here, never while locked.
+        case let op? where local && op.hasPrefix("attest."):
+            let args = body["args"] as? [String: Any] ?? [:]
+            let base = self.base
+            Task {
+                do { replyHandler(try await Attest.handle(op, args, base: base), nil) }
+                catch { replyHandler(nil, error.localizedDescription) }
+            }
         // notifications.* and health.* stay open in local mode: its reminders
         // and Apple Health import use them (bd med-o7zq.9).
         case let op? where op.hasPrefix("notifications."):

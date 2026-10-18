@@ -631,8 +631,16 @@ IndexedDB never mixes with an account's. Cloud mode is unchanged.
   their own key. Reminders are computed on the device and go to the iOS
   scheduler only, on every write, open and return to the front (no relay upload, no Telegram re-fire calls; the lock-screen
   text is generic unless Settings → Reminders & notifications → Reminder text
-  says Detailed); RxNav lookups are off (`rxnorm: null`); trial AI and the
-  operator food DB are off because the bundle carries no trial / food-DB meta.
+  says Detailed); RxNav lookups are off (`rxnorm: null`); the account trial
+  and the operator food DB are off because the bundle carries no trial /
+  food-DB meta. The **anonymous trial** (bd med-o7zq.16) is the one opt-in
+  exception: Settings → AI & integrations → "Try the AI and food database
+  without your own keys" is the `anon` trial consent; while it is on (and the
+  shell supports App Attest) `registerLocalEgress` adds the base domain to
+  `setEgressHosts` and installs `web/cloud/js/local-trial.js` as aiclient's
+  trial transport, which signs each request with `attest.assert`
+  ([cloud-mode.md → Anonymous trial](cloud-mode.md)). Off, the base domain
+  is not in the CSP.
   `local-boot.js` puts `wg-local-vault` on `<html>`, and `styles.css` hides
   `.wg-cloud-only` (Mi Band import, voice, plan/gym sharing, restore and sync
   reset) and shows `.wg-local-only`. Telegram, feedback, devices and the
@@ -642,8 +650,10 @@ IndexedDB never mixes with an account's. Cloud mode is unchanged.
   schedule upload, and no relay socket is opened. Privacy rows:
   `local-*` in `web/cloud/js/privacy-manifest.js`.
 - **Bridge:** in local mode only the main frame of `wgapp://local` reaches
-  `wgNative` (an account origin does not); `setEgressHosts`, `local.reset`
-  and `local.leave` exist only there, `notifications.*` and `health.*` serve both modes.
+  `wgNative` (an account origin does not); `setEgressHosts`, `local.reset`,
+  `local.leave` and `attest.*` (`ios/App/Attest.swift`: `status`, `enroll`,
+  `assert`; entitlement `com.apple.developer.devicecheck.appattest-environment`,
+  checked on the signed archive in `ios.yml`) exist only there, `notifications.*` and `health.*` serve both modes.
   The scheme is app-bound (`"wgapp:"` in `WKAppBoundDomains`), so the shell
   keeps `limitsNavigationsToAppBoundDomains` on in both modes.
 - **Backup flag:** WebKit excludes a new origin's data dir from backup for its

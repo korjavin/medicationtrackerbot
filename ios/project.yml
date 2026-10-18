@@ -44,6 +44,10 @@ targets:
         # Apple Health, read-only (bd med-w6gx.6, ios/App/Health.swift).
         com.apple.developer.healthkit: true
         com.apple.developer.healthkit.access: []
+        # App Attest for local mode's anonymous trial AI (bd med-o7zq.16,
+        # App/Attest.swift); the App ID has the capability and the App Store
+        # profile carries it.
+        com.apple.developer.devicecheck.appattest-environment: production
     info:
       path: App/Info.plist
       properties:

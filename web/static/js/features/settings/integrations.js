@@ -235,11 +235,64 @@
             _trialConsent = prev;
             renderTrialConsentRows();
             if (typeof safeToast === 'function') safeToast('Failed to update trial consent', 'error');
-            return;
+            return false;
         }
         if (handle) { try { await handle.commit(fresh); } catch (_) { /* best-effort */ } }
         _trialConsent = fresh;
         renderTrialConsentRows();
+        return true;
+    }
+
+    // Local mode's anonymous trial AI (bd med-o7zq.16). window.CloudVault.trial
+    // (web/cloud/js/local-policy.js) exists only in local mode; its status()
+    // is null where the shell has no App Attest (the Simulator, old devices),
+    // and the row stays hidden. On = the `anon` trial consent (one switch for
+    // the AI and, from bd med-o7zq.20, the food database): turning it on is
+    // the consent ceremony (local-mode copy in trial-consent.js), turning it
+    // off revokes it; either way trial.apply() re-scopes the shell's CSP and
+    // reloads the page when it changed. Enrollment runs after that reload.
+    async function renderLocalTrial() {
+        const section = document.getElementById('integrations-local-trial');
+        const trial = window.CloudVault && window.CloudVault.trial;
+        if (!section || !trial) return;
+        let status = null;
+        try { status = await trial.status(); } catch (_) { status = null; }
+        section.classList.toggle('hidden', !status);
+        if (!status) return;
+        const toggle = document.getElementById('integrations-local-trial-toggle');
+        const note = document.getElementById('integrations-local-trial-status');
+        if (toggle) toggle.checked = status.on === true;
+        let text = '';
+        if (status.on && (status.used || status.remaining === 0)) {
+            text = 'AI trial used — add your own key below to keep using the AI.';
+        } else if (status.on && typeof status.remaining === 'number') {
+            text = status.remaining + ' free AI requests left' + (status.daily ? ' (up to ' + status.daily + ' a day).' : '.');
+        } else if (status.on) {
+            text = 'Free trial on.';
+        }
+        if (note) {
+            note.textContent = text;
+            note.hidden = !text;
+        }
+    }
+
+    async function setLocalTrial(on) {
+        const trial = window.CloudVault && window.CloudVault.trial;
+        const toggle = document.getElementById('integrations-local-trial-toggle');
+        if (!trial || !toggle) return;
+        toggle.disabled = true;
+        try {
+            const ok = on
+                ? (window.TrialConsent ? await window.TrialConsent.request('anon') : false) === true
+                : await setTrialConsentScope('anon', false);
+            if (ok) await trial.apply();
+        } catch (e) {
+            console.error('[settings] trial toggle failed', e);
+            if (typeof safeToast === 'function') safeToast('Could not change the free trial — try again', 'error');
+        } finally {
+            toggle.disabled = false;
+            await renderLocalTrial();
+        }
     }
 
     async function loadTrialConsent() {
@@ -457,6 +510,7 @@
             // Fire-and-forget: consent rows repaint when the GET lands; the
             // integrations payload itself doesn't wait on it.
             loadTrialConsent();
+            renderLocalTrial();
 
             const tgMount = document.getElementById('telegram-settings-mount');
             if (tgMount && !_telegramMounted) {
@@ -533,6 +587,11 @@
             loadBtn.addEventListener('click', () => { chooseModel(cfg); });
         }
         document.querySelectorAll('#settings-integrations .wg-secret').forEach(bindSecretField);
+        const trialToggle = document.getElementById('integrations-local-trial-toggle');
+        if (trialToggle && !trialToggle.dataset.integrationsBound) {
+            trialToggle.dataset.integrationsBound = '1';
+            trialToggle.addEventListener('change', () => { setLocalTrial(trialToggle.checked); });
+        }
     }
 
     if (document.readyState === 'loading') {
@@ -567,6 +626,9 @@
         _loadModels: (scope) => loadModels(MODEL_LOADERS.find((c) => c.scope === scope)),
         _chooseModel: (scope) => chooseModel(MODEL_LOADERS.find((c) => c.scope === scope)),
         syncTelegramRow,
+        // Returns the in-flight promise, like _loadModels.
+        _renderLocalTrial: renderLocalTrial,
+        _setLocalTrial: setLocalTrial,
         _resetTelegramMounted: () => { _telegramMounted = false; },
         _setTelegramLoader: (loader) => { _telegramModuleLoader = loader; }
     };

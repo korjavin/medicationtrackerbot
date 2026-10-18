@@ -196,6 +196,7 @@ const ALLOWED_GLOBALS = new Set([
     'window.Bluetooth',                 // native/index.js — Web Bluetooth abstraction, HR slice (isSupported, requestHeartRateDevice, subscribeHeartRate, unsubscribe); web impl owns the only navigator.bluetooth call site (med-byks.1, pulling med-byks.3 forward)
     'window.LocalNotifications',        // native/index.js — device-scheduled notifications (isSupported); web impl reports unsupported, ios impl (iOS app shell, bd med-w6gx.4) drives UNUserNotificationCenter over the wgNative bridge
     'window.Health',                    // native/index.js — Apple Health read access (isSupported); web impl reports unsupported, ios impl (iOS app shell, bd med-w6gx.4) reaches HealthKit over the wgNative bridge
+    'window.Attest',                    // native/index.js — App Attest + DeviceCheck for local mode's anonymous trial AI (isSupported); web impl reports unsupported, ios impl (iOS app shell, bd med-o7zq.16) reaches ios/App/Attest.swift over the wgNative bridge; web/cloud/js/local-trial.js is its only caller
     'window.LiveHR',                   // features/live-hr.js — experimental live-HR card on the Vitals screen (med-byks.1 POC): refresh() re-evaluates flag + Bluetooth support; talks to window.Bluetooth only, persists nothing
 ]);
 
