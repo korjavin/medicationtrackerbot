@@ -54,3 +54,9 @@ android {
         jvmTarget = "17"
     }
 }
+
+dependencies {
+    // >= 1.12: WebSettingsCompat.setWebAuthenticationSupport (passkeys in WebView).
+    implementation("androidx.webkit:webkit:1.12.1")
+    testImplementation("junit:junit:4.13.2")
+}
