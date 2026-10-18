@@ -33,6 +33,26 @@ class AccountUrlTest {
     }
 
     @Test
+    fun download() {
+        val me = "abc.app.example.com"
+        fun check(url: String, want: AccountUrl.Download, host: String? = me) =
+            assertEquals(url, want, AccountUrl.download(url, host))
+        check("https://abc.app.example.com/export", AccountUrl.Download.WITH_COOKIES)
+        check("https://ABC.app.example.com/export", AccountUrl.Download.WITH_COOKIES)
+        check("http://abc.app.example.com/export", AccountUrl.Download.REFUSE) // cleartext never
+        check("http://other.example.org/f.pdf", AccountUrl.Download.REFUSE)
+        check("ftp://abc.app.example.com/f", AccountUrl.Download.REFUSE)
+        check("blob:https://abc.app.example.com/uuid", AccountUrl.Download.REFUSE)
+        check("https://other.example.org/f.pdf", AccountUrl.Download.PLAIN)
+        check("https://xyz.app.example.com/f", AccountUrl.Download.PLAIN) // another account
+        check("https://app.example.com/f", AccountUrl.Download.PLAIN)
+        check("https://abc.app.example.com.evil.com/f", AccountUrl.Download.PLAIN)
+        check("https://u:p@abc.app.example.com/f", AccountUrl.Download.PLAIN)
+        check("https://abc.app.example.com/f", AccountUrl.Download.PLAIN, host = null)
+        check("not a url", AccountUrl.Download.REFUSE)
+    }
+
+    @Test
     fun color() {
         assertEquals(0xFF132D29.toInt(), cssColor("rgb(19, 45, 41)"))
         assertEquals(0xFFFFFFFF.toInt(), cssColor("rgba(255, 255, 255, 0.5)"))

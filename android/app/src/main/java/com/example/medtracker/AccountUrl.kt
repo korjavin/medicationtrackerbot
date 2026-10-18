@@ -26,6 +26,24 @@ object AccountUrl {
         return "https://$host$path" + (uri.rawQuery?.let { "?$it" } ?: "") + (uri.rawFragment?.let { "#$it" } ?: "")
     }
 
+    enum class Download { REFUSE, PLAIN, WITH_COOKIES }
+
+    /**
+     * A WebView attachment download (Files.download): https only, and the
+     * WebView's cookies go only to the account host itself.
+     */
+    fun download(url: String, accountHost: String?): Download {
+        val uri = try {
+            URI(url)
+        } catch (e: Exception) {
+            return Download.REFUSE
+        }
+        val host = uri.host?.lowercase() ?: return Download.REFUSE
+        if (uri.scheme?.lowercase() != "https") return Download.REFUSE
+        val own = accountHost != null && host == accountHost.lowercase() && uri.rawUserInfo == null
+        return if (own) Download.WITH_COOKIES else Download.PLAIN
+    }
+
     /** Exactly one DNS label under base: what the asset links and the bridge rules cover. */
     fun isAccountHost(host: String, base: String): Boolean {
         if (base.isEmpty() || !host.endsWith(".$base")) return false

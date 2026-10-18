@@ -87,16 +87,22 @@ class Files(private val activity: Activity, private val accountHost: () -> Strin
 
     // MARK: downloads
 
-    /** http(s) attachments: the system download manager, with the page's cookies. blob:/data: come through files.js. */
+    /** https attachments: the system download manager; cookies only to the account host. blob:/data: come through files.js. */
     private fun download(url: String, ua: String?, disposition: String?, mime: String?) {
+        val rule = AccountUrl.download(url, accountHost())
+        if (rule == AccountUrl.Download.REFUSE) {
+            if (url.startsWith("http:", ignoreCase = true)) toast("This download isn't secure, so it was blocked.")
+            return
+        }
         val uri = Uri.parse(url)
-        if (uri.scheme != "https" && uri.scheme != "http") return
         val req = DownloadManager.Request(uri)
             .setMimeType(mime)
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, URLUtil.guessFileName(url, disposition, mime))
         ua?.let { req.addRequestHeader("User-Agent", it) }
-        CookieManager.getInstance().getCookie(url)?.let { req.addRequestHeader("Cookie", it) }
+        if (rule == AccountUrl.Download.WITH_COOKIES) {
+            CookieManager.getInstance().getCookie(url)?.let { req.addRequestHeader("Cookie", it) }
+        }
         runCatching { activity.getSystemService(DownloadManager::class.java).enqueue(req) }
             .onFailure { toast("The download could not start.") }
     }
