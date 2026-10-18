@@ -96,23 +96,6 @@ describe('recomputeAndPush hands the horizon to LocalNotifications in the iOS ap
     expect(schedule).toHaveBeenCalledTimes(2);
     expect(pushSchedule).toHaveBeenCalledTimes(2);
   });
-});
-
-describe('localNotificationItems', () => {
-  it('keeps the earliest 63 future reminders plus a lapse notice a minute after the last', () => {
-    const entries = [];
-    for (let i = 100; i >= -5; i -= 1) entries.push({ fireAtUnix: NOW_UNIX + i * 60, kind: i % 2 ? 'bp' : 'workout', text: `r${i}` });
-    const items = localNotificationItems(entries, { delivery: 'webpush' }, NOW_UNIX);
-    expect(items).toHaveLength(64);
-    expect(items[0]).toEqual({ fireAtUnix: NOW_UNIX + 60, title: 'Med Tracker', body: 'r1', section: 'bp' });
-    expect(items[62].fireAtUnix).toBe(NOW_UNIX + 63 * 60);
-    expect(items[63]).toMatchObject({ fireAtUnix: NOW_UNIX + 64 * 60, section: 'today' });
-    expect(items.find((i) => i.body === 'r2').section).toBe('workouts');
-  });
-
-  it('nothing due: nothing scheduled, no lapse notice', () => {
-    expect(localNotificationItems([{ fireAtUnix: NOW_UNIX - 1, kind: 'bp', text: 'x' }], {}, NOW_UNIX)).toEqual([]);
-  });
 
   // bd med-o7zq.3 — local-only mode: no relay, the device is the only channel,
   // and the lock-screen body follows the verbosity pref.
@@ -131,5 +114,22 @@ describe('localNotificationItems', () => {
     await recomputeAndPush(ctx, { records: fakeRecords(seed('telegram', 'detailed')), timeZone: 'UTC', relay: false });
     expect(schedule.mock.calls[1][0].find((i) => i.section === 'meds').body).toContain('Time to take: A');
     expect(pushSchedule).not.toHaveBeenCalled();
+  });
+});
+
+describe('localNotificationItems', () => {
+  it('keeps the earliest 63 future reminders plus a lapse notice a minute after the last', () => {
+    const entries = [];
+    for (let i = 100; i >= -5; i -= 1) entries.push({ fireAtUnix: NOW_UNIX + i * 60, kind: i % 2 ? 'bp' : 'workout', text: `r${i}` });
+    const items = localNotificationItems(entries, { delivery: 'webpush' }, NOW_UNIX);
+    expect(items).toHaveLength(64);
+    expect(items[0]).toEqual({ fireAtUnix: NOW_UNIX + 60, title: 'Med Tracker', body: 'r1', section: 'bp' });
+    expect(items[62].fireAtUnix).toBe(NOW_UNIX + 63 * 60);
+    expect(items[63]).toMatchObject({ fireAtUnix: NOW_UNIX + 64 * 60, section: 'today' });
+    expect(items.find((i) => i.body === 'r2').section).toBe('workouts');
+  });
+
+  it('nothing due: nothing scheduled, no lapse notice', () => {
+    expect(localNotificationItems([{ fireAtUnix: NOW_UNIX - 1, kind: 'bp', text: 'x' }], {}, NOW_UNIX)).toEqual([]);
   });
 });
