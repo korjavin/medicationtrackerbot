@@ -1,6 +1,6 @@
 # Med Tracker — Privacy Policy
 
-Effective 2026-10-18. This policy covers the Med Tracker web app and the Med
+Effective 2026-10-15. This policy covers the Med Tracker web app and the Med
 Tracker iOS app, which opens the same web app. "The operator" is whoever runs
 the Med Tracker service your account lives on.
 
@@ -55,20 +55,6 @@ integrations.
   the developer.
 
 Data sent to a third party is then governed by that party's privacy policy.
-
-## Only on this device (iOS app, no account)
-
-If you choose **Only on this device** on the first screen, there is no
-account and nothing is synced: your records are stored only in the app's
-storage on your iPhone, protected by iOS data protection, and the operator
-never receives them. They are included in your iPhone's own backup (iCloud
-or your computer), like other app data; the operator keeps no other copy and
-cannot recover them. Deleting the app, or losing the iPhone without a
-backup, deletes them — export a copy regularly under Settings → Backup &
-import. In this mode only your own AI key and your own food database reach
-outside the device; the operator's AI, voice, Telegram, food and drug lookup
-features are off. **Settings → Backup & import → Erase data on this device**
-deletes everything stored in this mode.
 
 ## Apple Health (iOS app)
 
