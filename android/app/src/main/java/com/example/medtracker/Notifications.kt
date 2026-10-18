@@ -125,15 +125,18 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
             val posted = s.getLong(POSTED, 0)
             val rows = rows(context)
             var last = posted
+            // Its own id per posted reminder, so none replaces another still in the shade.
+            var id = s.getInt(NEXT_ID, 1)
             for (i in 0 until rows.length()) {
                 val row = rows.optJSONObject(i) ?: continue
                 val at = row.optLong("fireAtUnix")
                 // Due (the alarm may wake a little early), not posted yet, not stale after a long power-off.
                 if (at > now + SLACK || at <= posted || at < now - STALE) continue
-                post(context, h, (at % Int.MAX_VALUE).toInt() xor i, row)
+                post(context, h, id, row)
+                id = id % 1_000_000 + 1
                 last = maxOf(last, at)
             }
-            s.edit().putLong(POSTED, last).commit()
+            s.edit().putLong(POSTED, last).putInt(NEXT_ID, id).commit()
             arm(context)
         }
     }
@@ -156,7 +159,9 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
         private const val ACTION_TAP = "com.example.medtracker.OPEN_REMINDER"
         private const val CHANNEL = "reminders"
         private const val PERMISSION_REQUEST = 7001
-        private const val TEST_ID = 0x7e57
+        /** Outside the reminders' ids (1..1_000_000). */
+        private const val TEST_ID = 0
+        private const val NEXT_ID = "nextId"
         private const val HOST = "host"
         private const val ROWS = "rows"
         private const val ASKED = "askedPermission"

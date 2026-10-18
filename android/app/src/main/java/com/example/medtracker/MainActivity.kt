@@ -117,8 +117,12 @@ class MainActivity : Activity() {
 
     /** A reminder tap (bd med-nt9p.7): switch the open page to the section, or load the account on it. */
     private fun openSection(section: String) {
-        if (showingAccount && web.progress == 100) web.evaluateJavascript("window.switchTab && window.switchTab('$section')", null)
-        else sectionUrl(section)?.let { load(it) }
+        val url = sectionUrl(section) ?: return
+        if (!showingAccount || web.progress < 100) return load(url)
+        // No switchTab (the unlock page): load the section URL, the deep-link router opens it after unlock.
+        web.evaluateJavascript("typeof window.switchTab === 'function' ? (window.switchTab('$section'), true) : false") {
+            if (it != "true") load(url)
+        }
     }
 
     /** The deep-link router reads ?tab= (section ids are Notifications.SECTIONS only). */
