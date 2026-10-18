@@ -272,7 +272,7 @@ func main() {
 	if !cfg.attest.Configured {
 		slog.Info("anonymous trial disabled", "reason", "APP_ATTEST_APP_ID/DEVICECHECK_* unset")
 	}
-	cloudserver.NewAttestAPI(store, trialProxyAPI, cfg.attest).RegisterRoutes(apiMux)
+	cloudserver.NewAttestAPI(store, trialProxyAPI, foodProxyAPI, cfg.attest).RegisterRoutes(apiMux)
 	foodProxyAPI.RegisterRoutes(apiMux)
 	rxnavProxyAPI.RegisterRoutes(apiMux)
 	cloudserver.NewEgressAPI(store, cfg.sessionSecret).RegisterRoutes(apiMux)
