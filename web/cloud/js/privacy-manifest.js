@@ -9,7 +9,9 @@
 //     the block between the GENERATED markers; the guard test fails if the
 //     committed doc drifts from what the manifest renders).
 //   * Settings → "What can the operator see?" — web/cloud/js/privacy.js derives
-//     PRIVACY_ITEMS from every entry's `userCopy`.
+//     PRIVACY_ITEMS from every non-local entry's `userCopy`. Rows with
+//     `mode: 'local'` (iOS local mode, no account) are not a cloud account's,
+//     so they are disclosed in the generated doc table only.
 //   * docs/cloud-mode.md → "Metadata leakage summary" — cross-checked 1:1
 //     against every entry's `docSignal` by tests/privacy.drift.test.js.
 //

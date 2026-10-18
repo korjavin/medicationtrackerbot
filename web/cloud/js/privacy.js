@@ -5,7 +5,8 @@
 // SOURCE OF TRUTH (bd med-yor.4): the items below are DERIVED from
 // ./privacy-manifest.js — this file only owns the section framing and the
 // rendering. Do not add a hand-written item here; add a manifest entry with
-// `userCopy` and it appears automatically. That is what closed the old hole
+// `userCopy` and it appears automatically, unless it is a `mode: 'local'` row
+// (iOS local mode; disclosed in docs/cloud-mode.md's generated table only). That is what closed the old hole
 // where a `docSignal: null` item escaped every machine check: the manifest
 // requires user-facing copy on every entry and is itself coverage-checked
 // against the real egress call sites by

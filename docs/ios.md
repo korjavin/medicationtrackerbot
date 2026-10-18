@@ -603,8 +603,7 @@ IndexedDB never mixes with an account's. Cloud mode is unchanged.
   (`internal/cloudserver/router.go`): the `medtracker-build-id` meta and a
   classic `<script src="/js/local-boot.js">` (the local entry, bd med-o7zq.2;
   `web/cloud/js/local-boot.js`, which must run before every web/static script,
-  as `cloud-boot.js` does; **after med-o7zq.2** — until it merges the file is
-  absent, CI warns, and local mode boots to a broken page). No food-DB URL, no trial flags, no
+  as `cloud-boot.js` does). No food-DB URL, no trial flags, no
   `update-check.js`, no Service Worker.
 - **Serving:** [`LocalApp.swift`](../ios/App/LocalApp.swift), a
   `WKURLSchemeHandler` for `wgapp`, routes like an account host: `/` → the
@@ -634,8 +633,11 @@ IndexedDB never mixes with an account's. Cloud mode is unchanged.
   operator food DB are off because the bundle carries no trial / food-DB meta.
   `local-boot.js` puts `wg-local-vault` on `<html>`, and `styles.css` hides
   `.wg-cloud-only` (Mi Band import, voice, plan/gym sharing, restore and sync
-  reset) and shows `.wg-local-only`. Cloud-only modules (Telegram, MCP, push,
-  feedback, devices, update check) are never loaded. Privacy rows:
+  reset) and shows `.wg-local-only`. Telegram, feedback, devices and the
+  update check are never loaded. `push.js` and `mcp-responder.js` are loaded
+  (apishim and reminders.js import them statically) but never started or
+  called: `LOCAL_EFFECTS` replaces the push effects, `relay: false` skips the
+  schedule upload, and no relay socket is opened. Privacy rows:
   `local-*` in `web/cloud/js/privacy-manifest.js`.
 - **Bridge:** in local mode only the main frame of `wgapp://local` reaches
   `wgNative` (an account origin does not); `setEgressHosts` exists only there.
@@ -650,9 +652,7 @@ IndexedDB never mixes with an account's. Cloud mode is unchanged.
   builds turn it on in iPhone Settings → Med Tracker → *Local mode*. *Switch
   account* leaves local mode too; the origin's data is kept either way.
 
-### Device check (TestFlight, after med-o7zq.2)
-
-Cannot pass before the local entry (bd med-o7zq.2) has merged.
+### Device check (TestFlight)
 
 1. Fresh install, airplane mode, Settings → Med Tracker → *Local mode* on →
    open the app: the app renders from the bundle with no network.
