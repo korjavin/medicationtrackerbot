@@ -186,11 +186,16 @@ section}`, the last one the "Open the app to keep reminders running" notice.
   The reply waits until the user is back from each screen. `USE_EXACT_ALARM`
   is not used (Play keeps it for alarm and calendar apps).
 - **Schedule** cancels the previous alarms, stores the rows in app-private
-  storage (plaintext, like iOS's pending requests) and arms one
-  `setExactAndAllowWhileIdle` per future row (capped at 200). Without both
-  grants it stores them and arms none; granting *Alarms & reminders* later
-  re-arms them, as do a reboot and an app update (alarms do not survive
-  either). Notifications post on the high-importance **Reminders** channel.
+  storage (plaintext, like iOS's pending requests; capped at 200) and arms
+  **one** `setExactAndAllowWhileIdle` alarm at the next row; when it fires it
+  posts every row now due and arms the next. Doze rate-limits allow-while-idle
+  alarms per app, so same-time reminders share one wake and a late wake still
+  posts what it missed (rows missed by over an hour, e.g. while the phone was
+  off, are dropped). Without both grants it stores the rows and arms nothing;
+  granting *Alarms & reminders* later arms them, as do a reboot and an app
+  update (alarms survive neither). Notifications post on the high-importance
+  **Reminders** channel; switching that channel off counts as `denied`, and
+  Enable opens its settings.
 - **Tap** opens the reminder's section (`/?tab=<section>`, stable ids), in the
   open page or by loading the account on it. Switching account clears the
   previous account's alarms; the newly opened page schedules its own.

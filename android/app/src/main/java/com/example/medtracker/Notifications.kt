@@ -25,10 +25,13 @@ import org.json.JSONObject
  * replace-all: every app open and every reminder-affecting edit sends the
  * full, already-capped list (the page appends the "Open the app…" notice).
  *
- * Each row is an exact alarm (AlarmManager.setExactAndAllowWhileIdle); the
- * rows persist in app-private storage, plaintext like iOS's pending requests,
- * because alarms are dropped on reboot and when the exact-alarm grant is
- * revoked — [Rearm] re-arms them from there.
+ * The rows persist in app-private storage, plaintext like iOS's pending
+ * requests. One exact alarm (AlarmManager.setExactAndAllowWhileIdle) is armed
+ * at a time, for the next row: when it fires, [Fire] posts every row now due
+ * and arms the next. Doze rate-limits allow-while-idle alarms per app, so one
+ * alarm per instant (several meds at 08:00 are one wake) and a late wake still
+ * posts all it missed. Alarms are dropped on reboot, app update and a revoked
+ * grant — [Rearm] arms again from the stored rows.
  */
 class Notifications(private val activity: Activity, private val host: () -> String?) {
     private val waiting = mutableListOf<(String) -> Unit>()
@@ -49,7 +52,7 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
             }
             "notifications.test" -> {
                 val h = host() ?: return reply(null, "stale")
-                if (!manager(activity).areNotificationsEnabled()) return reply(null, "Notifications are off for Med Tracker.")
+                if (!notifying(activity)) return reply(null, "Notifications are off for Med Tracker.")
                 post(activity, h, TEST_ID, JSONObject().put("body", "Test notification").put("section", "today"))
                 reply(true, null)
             }
@@ -59,22 +62,27 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
 
     /**
      * Enable walks both system grants: the notification permission (the
-     * runtime prompt, or the app's notification settings once it was refused),
-     * then Alarms & reminders — off by default on Android 14. The reply waits
-     * for the user to come back from each screen.
+     * runtime prompt, or the app's / the Reminders channel's notification
+     * settings once refused), then Alarms & reminders — off by default on
+     * Android 14. The reply waits for the user to come back from each screen.
      */
     private fun step() {
-        val enabled = manager(activity).areNotificationsEnabled()
+        val enabled = notifying(activity)
         if (!enabled && stage < 1) {
             stage = 1
             val prefs = store(activity)
+            val pkg = activity.packageName
             val granted = activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-            if (!granted && (!prefs.getBoolean(ASKED, false) ||
-                    activity.shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS))) {
-                prefs.edit().putBoolean(ASKED, true).apply()
-                activity.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), PERMISSION_REQUEST)
-            } else {
-                open(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, activity.packageName))
+            when {
+                !granted && (!prefs.getBoolean(ASKED, false) ||
+                    activity.shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)) -> {
+                    prefs.edit().putBoolean(ASKED, true).apply()
+                    activity.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), PERMISSION_REQUEST)
+                }
+                // Allowed for the app, but the Reminders channel was switched off.
+                manager(activity).areNotificationsEnabled() -> open(Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, pkg).putExtra(Settings.EXTRA_CHANNEL_ID, CHANNEL))
+                else -> open(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, pkg))
             }
             return
         }
@@ -108,19 +116,29 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
         if (waiting.isNotEmpty()) step()
     }
 
-    /** Fires one reminder row: posts its notification. Not exported — only our alarms reach it. */
+    /** The alarm: posts the rows now due, then arms the next. Not exported — only our alarm reaches it. */
     class Fire : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            val i = intent.getIntExtra(EXTRA_INDEX, -1)
             val s = store(context)
             val h = s.getString(HOST, null) ?: return
-            val row = rows(context).optJSONObject(i) ?: return
-            if (row.optLong("fireAtUnix") != intent.getLongExtra(EXTRA_AT, -1)) return // a replaced schedule's alarm
-            post(context, h, (row.optLong("fireAtUnix") % Int.MAX_VALUE).toInt() xor i, row)
+            val now = System.currentTimeMillis() / 1000
+            val posted = s.getLong(POSTED, 0)
+            val rows = rows(context)
+            var last = posted
+            for (i in 0 until rows.length()) {
+                val row = rows.optJSONObject(i) ?: continue
+                val at = row.optLong("fireAtUnix")
+                // Due (the alarm may wake a little early), not posted yet, not stale after a long power-off.
+                if (at > now + SLACK || at <= posted || at < now - STALE) continue
+                post(context, h, (at % Int.MAX_VALUE).toInt() xor i, row)
+                last = maxOf(last, at)
+            }
+            s.edit().putLong(POSTED, last).commit()
+            arm(context)
         }
     }
 
-    /** Boot, app update and the exact-alarm grant clear or allow alarms: re-arm the stored rows. */
+    /** Boot, app update and the exact-alarm grant clear or allow alarms: arm again from the stored rows. */
     class Rearm : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.action) {
@@ -142,8 +160,11 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
         private const val HOST = "host"
         private const val ROWS = "rows"
         private const val ASKED = "askedPermission"
-        private const val EXTRA_INDEX = "index"
-        private const val EXTRA_AT = "fireAtUnix"
+        /** The last posted row's fireAtUnix: a re-armed alarm never posts a row twice. */
+        private const val POSTED = "postedThrough"
+        private const val SLACK = 5L
+        /** Rows missed by more than this (the phone was off) are dropped, not posted late. */
+        private const val STALE = 3600L
 
         private fun store(c: Context) = c.getSharedPreferences("reminders", Context.MODE_PRIVATE)
         private fun manager(c: Context) = c.getSystemService(NotificationManager::class.java)
@@ -152,14 +173,25 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
 
         /** 'granted' needs both grants; until then 'default', or 'denied' once notifications were refused. */
         fun permission(c: Context): String = when {
-            !manager(c).areNotificationsEnabled() -> if (store(c).getBoolean(ASKED, false)) "denied" else "default"
+            !notifying(c) -> if (store(c).getBoolean(ASKED, false) || manager(c).areNotificationsEnabled()) "denied" else "default"
             !alarms(c).canScheduleExactAlarms() -> "default"
             else -> "granted"
         }
 
-        /** Replaces every pending reminder; returns how many are now armed. */
+        /** Notifications allowed for the app and its Reminders channel not switched off. */
+        private fun notifying(c: Context): Boolean {
+            val nm = manager(c)
+            channel(nm)
+            return nm.areNotificationsEnabled() &&
+                nm.getNotificationChannel(CHANNEL)?.importance != NotificationManager.IMPORTANCE_NONE
+        }
+
+        /** Idempotent: an existing channel keeps the user's changes. */
+        private fun channel(nm: NotificationManager) =
+            nm.createNotificationChannel(NotificationChannel(CHANNEL, "Reminders", NotificationManager.IMPORTANCE_HIGH))
+
+        /** Replaces every pending reminder; returns how many are now scheduled. */
         fun schedule(c: Context, host: String, items: JSONArray): Int {
-            disarm(c)
             val now = System.currentTimeMillis() / 1000
             val keep = JSONArray()
             for (i in 0 until items.length()) {
@@ -177,42 +209,33 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
 
         /** Account switch: the previous account's reminders go; the new page sends its own. */
         fun clear(c: Context) {
-            disarm(c)
-            store(c).edit().remove(HOST).remove(ROWS).commit()
+            store(c).edit().remove(HOST).remove(ROWS).remove(POSTED).commit()
+            arm(c)
         }
 
-        private fun alarm(c: Context, i: Int, at: Long, flags: Int): PendingIntent? =
-            PendingIntent.getBroadcast(c, i, Intent(c, Fire::class.java).putExtra(EXTRA_INDEX, i).putExtra(EXTRA_AT, at),
-                flags or PendingIntent.FLAG_IMMUTABLE)
-
-        private fun disarm(c: Context) {
-            val rows = rows(c)
-            for (i in 0 until rows.length()) alarm(c, i, 0, PendingIntent.FLAG_NO_CREATE)?.let {
-                alarms(c).cancel(it)
-                it.cancel()
-            }
-        }
-
-        /** Arms the stored future rows; without both grants nothing (posting would fail). */
+        /**
+         * (Re)arms the one alarm at the next unposted row — in the past after a
+         * reboot, so missed rows post at once. Returns how many rows are still
+         * to come; 0 without both grants (posting would fail; [Rearm] retries).
+         */
         private fun arm(c: Context): Int {
+            val pi = PendingIntent.getBroadcast(c, 0, Intent(c, Fire::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            alarms(c).cancel(pi)
             if (permission(c) != "granted") return 0
             val rows = rows(c)
             val now = System.currentTimeMillis() / 1000
-            var count = 0
-            for (i in 0 until rows.length()) {
-                val at = rows.optJSONObject(i)?.optLong("fireAtUnix") ?: continue
-                if (at <= now) continue
-                val pi = alarm(c, i, at, PendingIntent.FLAG_UPDATE_CURRENT) ?: continue
-                // An instant, not a wall-clock time: a time-zone change does not move it.
-                runCatching { alarms(c).setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at * 1000, pi) }
-                    .onSuccess { count++ }
-            }
-            return count
+            val floor = maxOf(store(c).getLong(POSTED, 0), now - STALE)
+            val due = (0 until rows.length()).mapNotNull { rows.optJSONObject(it)?.optLong("fireAtUnix") }.filter { it > floor }
+            val next = due.minOrNull() ?: return 0
+            // An instant, not a wall-clock time: a time-zone change does not move it.
+            val armed = runCatching { alarms(c).setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next * 1000, pi) }.isSuccess
+            return if (armed) due.count { it > now } else 0
         }
 
         private fun post(c: Context, host: String, id: Int, row: JSONObject) {
             val nm = manager(c)
-            nm.createNotificationChannel(NotificationChannel(CHANNEL, "Reminders", NotificationManager.IMPORTANCE_HIGH))
+            channel(nm)
             val section = row.optString("section").takeIf { it in SECTIONS } ?: "today"
             // The URL is the intent's identity, so each section keeps its own tap target.
             val tap = Intent(ACTION_TAP, Uri.parse("https://$host/?tab=$section"), c, MainActivity::class.java)
