@@ -1165,12 +1165,15 @@ describe('local-only mode trial voice calls (med-o7zq.23)', () => {
 
     it('on: one signed start, the device leg with its token, and the SDK gets the signed URL and the token', async () => {
         const { createHash } = await import('node:crypto');
+        // Mounted before the trial responder lands (boot race): it repaints.
+        const bar = mountBar();
+        await vi.waitFor(() => expect(bar.querySelector('.wg-callbar__call').dataset.action).toBe('voice-setup'));
         await trialOn();
         expect(bridge).toHaveBeenLastCalledWith('setEgressHosts', { hosts: [TRIAL_BASE, 'api.elevenlabs.io'] });
-        const bar = mountBar();
         expect(shown(bar.querySelector('.wg-callbar__call'))).toBe(true);
         expect(shown(bar.querySelector('.wg-callbar__trial-hint'))).toBe(false);
-        expect(bar.querySelector('.wg-callbar__label').textContent).toBe('Call agent');
+        await vi.waitFor(() => expect(bar.querySelector('.wg-callbar__label').textContent).toBe('Call agent'));
+        expect(bar.querySelector('.wg-callbar__call').dataset.action).toBe('call-agent');
 
         const sock = await tapCallAndAttach(bar);
         expect(starts()).toHaveLength(1);

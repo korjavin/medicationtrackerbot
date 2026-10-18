@@ -176,6 +176,8 @@ let defaultVoice = null;
 // The operator's ElevenLabs host: the voice SDK talks to it phone-direct
 // (https + wss) once our server minted the call's signed URL.
 const ELEVENLABS_HOST = 'api.elevenlabs.io';
+// elevenlabs-call.js (a classic script) spells the name out.
+const VOICE_CHANGED_EVENT = 'wg:voice-llm-changed';
 
 // Anonymous calls' turns are answered by our server (voice_llm_relay.go
 // anonTurn), so no request frame should reach this leg; one that does fails
@@ -213,6 +215,9 @@ function useLocalTrial(base, attest, win) {
     url: `wss://${base}/api/attest/voice/device`,
     mint: () => trial.voiceStart(),
   }), { localTrial: true });
+  // The call bar may have mounted (and read "Set up voice agent") before this
+  // ran: elevenlabs-call.js re-reads its readiness on this event.
+  win.document.dispatchEvent(new win.CustomEvent(VOICE_CHANGED_EVENT));
 }
 
 // The operator food-DB port (fooddb.js) for local mode: the trial transport

@@ -764,7 +764,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in',
     activationNote: 'you add a provider key in Settings → AI & integrations; its host name is handed to the app shell for the CSP, never to a server',
     byo: 'The only kind there is in this mode',
-    evidence: ['web/cloud/js/local-policy.js:268', 'web/cloud/js/local-policy.js:276', 'web/cloud/js/local-policy.js:228', 'ios/App/LocalOrigin.swift:41'],
+    evidence: ['web/cloud/js/local-policy.js:273', 'web/cloud/js/local-policy.js:281', 'web/cloud/js/local-policy.js:233', 'ios/App/LocalOrigin.swift:41'],
     code: { go: [], hosts: [] },
     docSignal: null,
     userCopy: {
@@ -789,7 +789,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in-consent',
     activationNote: 'you turn on the trial in Settings → AI & integrations and accept the trial consent; off by default, and off means no request to our server at all',
     byo: 'Add your own AI key and requests go phone-direct to your provider, never through the operator',
-    evidence: ['web/cloud/js/local-policy.js:276', 'web/cloud/js/local-trial.js:105', 'ios/App/Attest.swift:67', 'internal/cloudserver/attest.go:501', 'internal/appattest/devicecheck.go:65'],
+    evidence: ['web/cloud/js/local-policy.js:281', 'web/cloud/js/local-trial.js:105', 'ios/App/Attest.swift:67', 'internal/cloudserver/attest.go:501', 'internal/appattest/devicecheck.go:65'],
     code: { go: ['internal/cloudserver/attest.go'], hosts: ['api.devicecheck.apple.com'] },
     docSignal: null,
     userCopy: {
@@ -814,7 +814,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in-consent',
     activationNote: 'the same free-trial switch and consent as the trial AI (one enrollment per install, which spends the device\'s one trial grant); off means no request to our server at all',
     byo: 'Set your own food-DB endpoint in Settings → AI & integrations and lookups go phone-direct to it, never through the operator',
-    evidence: ['web/cloud/js/fooddb.js:96', 'web/cloud/js/local-policy.js:240', 'web/cloud/js/local-trial.js:236', 'internal/cloudserver/attest.go:652', 'internal/cloudserver/food_proxy.go:93'],
+    evidence: ['web/cloud/js/fooddb.js:96', 'web/cloud/js/local-policy.js:245', 'web/cloud/js/local-trial.js:236', 'internal/cloudserver/attest.go:652', 'internal/cloudserver/food_proxy.go:93'],
     code: { go: ['internal/cloudserver/attest.go', 'internal/cloudserver/food_proxy.go'], hosts: [] },
     docSignal: null,
     userCopy: {
@@ -841,7 +841,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in-consent',
     activationNote: 'the same single free-trial switch and consent as the trial AI and food database; off means no request to our server or to ElevenLabs at all',
     byo: 'None in this mode: voice with your own ElevenLabs key needs a cloud account',
-    evidence: ['web/cloud/js/local-trial.js:246', 'web/cloud/js/local-policy.js:276', 'web/cloud/js/local-policy.js:214', 'web/cloud/js/voice-llm-responder.js:171', 'web/static/js/features/elevenlabs-call.js:909', 'internal/cloudserver/attest.go:239', 'internal/cloudserver/voice_llm_relay.go:771', 'internal/cloudserver/trial_proxy.go:167'],
+    evidence: ['web/cloud/js/local-trial.js:246', 'web/cloud/js/local-policy.js:281', 'web/cloud/js/local-policy.js:216', 'web/cloud/js/voice-llm-responder.js:171', 'web/static/js/features/elevenlabs-call.js:911', 'internal/cloudserver/attest.go:239', 'internal/cloudserver/voice_llm_relay.go:771', 'internal/cloudserver/trial_proxy.go:167'],
     code: { go: ['internal/cloudserver/attest.go', 'internal/cloudserver/voice_llm_relay.go', 'internal/cloudserver/trial_proxy.go'], hosts: ['api.elevenlabs.io'] },
     docSignal: null,
     userCopy: {

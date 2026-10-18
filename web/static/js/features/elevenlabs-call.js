@@ -723,6 +723,8 @@
     }
 
     window.addEventListener('scroll', () => { if (activeCard) updateDock(); }, { capture: true, passive: true });
+    // Local mode installs its trial responder after boot (local-policy.js).
+    document.addEventListener('wg:voice-llm-changed', () => refreshReadiness());
     window.addEventListener('online', () => applyState(activeCard, activeState, activeMessage));
     window.addEventListener('offline', () => applyState(activeCard, activeState, activeMessage));
     if (window.AppStore && typeof window.AppStore.subscribe === 'function') {
