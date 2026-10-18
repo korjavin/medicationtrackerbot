@@ -23,11 +23,15 @@
     foundation.registerImpl('LocalNotifications', 'web', {
         isSupported: function () { return false; },
     });
-    foundation.registerImpl('LocalNotifications', 'ios', {
+    // The Android shell (bd med-nt9p.6) answers the same ops with the same
+    // impl; until its Kotlin side lands (med-nt9p.7) they reject "unsupported: <op>".
+    var shell = {
         isSupported: function () { return true; },
         permission: function () { return foundation.call('notifications.permission'); },
         requestPermission: function () { return foundation.call('notifications.requestPermission'); },
         schedule: function (items) { return foundation.call('notifications.schedule', { items: items }); },
         test: function () { return foundation.call('notifications.test'); },
-    });
+    };
+    foundation.registerImpl('LocalNotifications', 'ios', shell);
+    foundation.registerImpl('LocalNotifications', 'android', shell);
 })();
