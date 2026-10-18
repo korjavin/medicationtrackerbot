@@ -565,8 +565,14 @@ a Web Push subscription.
 - **Permission:** Settings → Notifications → Enable asks iOS (once); Disable
   points to iOS Settings, since an app cannot revoke its own permission.
   Send test posts a local notification a second later.
-- **Tap:** opens the reminder's section (meds, bp, weight, workouts, else
-  today): `switchTab` on the open app, `/?tab=<section>` on a cold start.
+- **Tap** (bd med-w6gx.20): opens the reminder's `url`, the same
+  `reminderDeeplink` a Web Push carries — a dose's take sheet
+  (`/?action=medication_confirm&ids=…&scheduled=…`), else its section
+  (`/?tab=<section>`). `ReminderPath.swift` allowlists it like `sw.js`
+  `reminderOpenUrl` (root, keys tab/action/ids/scheduled, no fragment; else
+  `/?tab=today`); a reminder without a url (older page or build) maps its
+  `section`. The open app gets `history.replaceState` + `handleDeepLinks()`,
+  a cold start loads the path.
 - **Not in v1:** Confirm/Snooze buttons on the notification; a cold start onto
   a locked vault lands on Today after unlock (`/unlock` drops the query).
 
@@ -586,7 +592,7 @@ a Web Push subscription.
 8. Settings → Notifications → Enable → iOS asks → Allow; Send test → a
    notification arrives within seconds, also with the app open.
 9. Add a med due in ~3 minutes, kill the app, airplane mode → the reminder
-   fires; tapping it opens Meds.
+   fires; tapping it opens the take sheet for that dose.
 10. Edit that med's time → only the new time fires (pending notifications are
     replaced).
 

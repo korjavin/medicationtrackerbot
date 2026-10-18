@@ -18,7 +18,7 @@ import { createSettingsDomain } from '../../domain/settings.js';
 import { createGamificationDomain } from '../../domain/gamification.js';
 import { recordsPort } from './sync.js';
 import { pushSchedule, sendTestPush } from './push.js';
-import { KIND_SECTION } from './reminder-deeplink.js';
+import { KIND_SECTION, reminderDeeplink } from './reminder-deeplink.js';
 
 export { sendTestPush };
 
@@ -235,10 +235,11 @@ export function localNotificationItems(entries, pref = {}, nowUnix = Math.floor(
       fireAtUnix: e.fireAtUnix,
       title: 'Med Tracker',
       body: ((generic ? e.genericText : e.pushText) || e.text || '').replace(/\*\*/g, ''),
-      section: KIND_SECTION[e.kind] || 'today',
+      section: KIND_SECTION[e.kind] || 'today', // for shells before bd med-w6gx.20, which ignore url
+      url: reminderDeeplink(e), // the tap target: the take sheet for a dose, else the section
     }));
   if (items.length) {
-    items.push({ fireAtUnix: items[items.length - 1].fireAtUnix + 60, title: 'Med Tracker', body: LAPSE_TEXT, section: 'today' });
+    items.push({ fireAtUnix: items[items.length - 1].fireAtUnix + 60, title: 'Med Tracker', body: LAPSE_TEXT, section: 'today', url: '/?tab=today' });
   }
   return items;
 }
