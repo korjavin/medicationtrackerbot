@@ -4,6 +4,12 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Lets WebView track connectivity, so navigator.onLine is real offline. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- getUserMedia in the WebView and the file chooser's camera (Files.kt); asked at first use. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- CAMERA would otherwise make Play hide the app from phones without one. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
         android:label="Med Tracker"
@@ -14,6 +20,16 @@
         <meta-data
             android:name="com.google.mlkit.vision.DEPENDENCIES"
             android:value="barcode_ui" />
+        <!-- Downloads to share and camera shots for the page (Files.kt): cache files only. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
         <!-- configChanges: rotation/theme must not recreate the activity and its WebView. -->
         <activity
             android:name=".MainActivity"
