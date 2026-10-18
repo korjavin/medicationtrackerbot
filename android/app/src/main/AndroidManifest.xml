@@ -2,21 +2,23 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- Lets WebView track connectivity, so navigator.onLine is real (offline check 3). -->
+    <!-- Lets WebView track connectivity, so navigator.onLine is real offline. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- getUserMedia in the WebView (barcode / photo); granted per request in onPermissionRequest. -->
-    <uses-permission android:name="android.permission.CAMERA" />
-    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
         android:label="Med Tracker"
         android:allowBackup="false"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.DeviceDefault.DayNight">
+        <!-- First-run QR: fetch the Play services scanner module at install, not on first tap. -->
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="barcode_ui" />
         <!-- configChanges: rotation/theme must not recreate the activity and its WebView. -->
         <activity
             android:name=".MainActivity"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode|density"
+            android:windowSoftInputMode="adjustResize"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

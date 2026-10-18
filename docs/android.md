@@ -19,9 +19,12 @@ every build, signing and Play upload runs on a GitHub-hosted ubuntu runner via
 - The applicationId comes from the `ANDROID_PACKAGE` variable; without it the
   build uses the placeholder `com.example.medtracker` (forks, unconfigured
   runs). The package and the base domain are never committed; the package
-  may appear in the (public) Actions logs — it is public once on Play — but
-  the workflow does not read `CLOUD_BASE_DOMAIN` yet, and the shell bead that
-  bakes it in must mask it without echoing it first.
+  may appear in the (public) Actions logs — it is public once on Play. The
+  base domain must not: the workflow's first step masks `CLOUD_BASE_DOMAIN`
+  and passes it to Gradle (`BuildConfig.BASE_DOMAIN`). A step's own `env:`
+  block is printed before its script runs, so that one step header shows the
+  variable's value; a `CLOUD_BASE_DOMAIN` **secret** with the same value is
+  preferred when set and is masked from the start.
 
 ## Owner setup (GitHub → Settings → Secrets and variables → Actions)
 
@@ -35,6 +38,7 @@ account the signed AAB is kept as a run artifact but not uploaded to Play.
 | Name | Value |
 |------|-------|
 | `ANDROID_PACKAGE` | the Play app's package name (Play Console app record, bd med-nt9p.1) |
+| `CLOUD_BASE_DOMAIN` | the deployment's base domain (shared with deploy.yml and ios.yml); the shell accepts only accounts one label under it. Optionally also add it as a secret of the same name to keep it out of the mask step's header |
 
 **Secrets:**
 
@@ -93,14 +97,88 @@ steps, never job-wide.
   draft releases — dispatch with `release_status: draft` and roll the draft
   out in the Console.
 
+## The shell (bd med-nt9p.5)
+
+One Android System WebView on the account origin `https://<sub>.<base>/`,
+exactly like the PWA — no bundled web code
+([`MainActivity.kt`](../android/app/src/main/java/com/example/medtracker/MainActivity.kt),
+twin of [`ios/App/Shell.swift`](../ios/App/Shell.swift)). Nothing outside
+`android/` (and `android.yml`) changes for it. JavaScript, DOM storage and
+Service Workers are on; passkeys use `WEB_AUTHENTICATION_SUPPORT_FOR_APP`;
+remote debugging (`chrome://inspect`) is on only in debug builds.
+
+- **First run** (invite-only, no signup): paste an invite/claim link, a device
+  hand-off link or the account address, or *Scan QR code* — the `cloud admin
+  invite` QR or the Emergency Kit QR (only its first line, the account URL, is
+  read; the recovery code is never touched). The scanner is Google Play
+  services' code scanner: no camera permission, no bundled model; where it is
+  unavailable the screen says so and pasting still works.
+  [`AccountUrl.kt`](../android/app/src/main/java/com/example/medtracker/AccountUrl.kt)
+  accepts only `https` hosts exactly one label under `CLOUD_BASE_DOMAIN`
+  (baked in by CI, never committed); `AccountUrlTest` runs the same cases as
+  `ios/Tests/main.swift` in CI. The app stores the account **host** only,
+  never the claim fragment, and opens `https://<host>/` on every later launch.
+  A spike install's last account is adopted once, then the spike's data is
+  deleted.
+- **Navigation:** the account host and the base domain load in the app; every
+  other link (and `mailto:`/`tel:`) opens in the browser or its own app.
+  `target=_blank` / `window.open` load in the same WebView.
+- **Offline:** a cold start offline is answered by the Service Worker; a native
+  "Can't open your account" screen (Try again / Switch account) appears only
+  when the very first load fails with nothing cached, or the host answers an
+  HTTP error (a mistyped or deleted account is a 404). Try again keeps an
+  invite link's `#claim=` fragment (in memory only).
+- **Switch account:** long-press the launcher icon → *Switch account*; also on
+  the load-error screen. WebView data is per origin and is kept, so switching
+  back still finds offline data and warm unlock.
+- **Chrome:** edge to edge; the bands behind the status and navigation bars
+  take the page's own background colour at its top and bottom edge (a
+  document-start script, [`assets/chrome.js`](../android/app/src/main/assets/chrome.js),
+  reports it over the bridge; it reads styles and sets none — the page CSP is
+  `style-src 'self'`), bar icons are light or dark to match, and the keyboard
+  shrinks the page instead of covering it. Back walks the WebView history,
+  then leaves the app.
+- **Storage:** the same script calls `navigator.storage.persist()`, as on iOS.
+- **Renderer crash or kill** (`onRenderProcessGone`): a fresh WebView reloads
+  the current URL.
+- **Not yet:** downloads/share, print, file chooser and camera
+  (med-nt9p.10); the native/ `android` platform (med-nt9p.6), so the web
+  app's "Add to Home Screen" nag still shows inside the app until then.
+
+### The bridge global: `window.wgNative`
+
+The shell registers one `WebMessageListener` named **`wgNative`**, scoped to
+`https://*.<base>`; WebView injects it as `window.wgNative` (with
+`postMessage` and `onmessage`). Its presence is how web code detects the
+Android shell — the twin of `window.webkit.messageHandlers.wgNative` on iOS —
+and what med-nt9p.6 (`native/` android platform) and med-nt9p.19 gate on.
+Only the stored account host's main frame is answered. Messages are JSON
+strings `{op, args, id}`; when `id` is present the reply posted back to
+`wgNative.onmessage` is `{id, result}` or `{id, error}` (`"forbidden"` for
+any other origin or a subframe, `"unsupported: <op>"` for an unknown op).
+Ops now: `ping` → `"pong"`; `chrome` `{top, bottom}` (the colour report, no
+reply). Capability ops come with med-nt9p.6.
+
+### Device check (CI debug APK)
+
+Needs med-nt9p.14 deployed (server accepts the app's `android:apk-key-hash`
+origin) and med-nt9p.19 (claim PRF-probe fix) for the claim to finish; a
+claim failure before those is not a shell bug. Dispatch the workflow on the
+branch (a PR run's APK has a throwaway key), install the debug APK, then with
+a test invite: claim it in the app and unlock with a Google Password Manager
+passkey; kill and reopen (back on the account, no first run); airplane mode,
+kill, reopen (renders from the Service Worker); open an external link (leaves
+the app); long-press the icon → *Switch account* (first run; reopening the
+same account finds its data); bad address → 404 screen → Switch account.
+
 ## Spike (med-nt9p.4): passkey PRF, Service Worker, IndexedDB in Android System WebView
 
 The GO/NO-GO gate for the remote-origin design, twin of the iOS spike
-med-w6gx.2 ([ios.md](ios.md)). The debug APK carries a throwaway diagnostic:
-[`MainActivity.kt`](../android/app/src/main/java/com/example/medtracker/MainActivity.kt)
-plus [`assets/spike-checks.js`](../android/app/src/main/assets/spike-checks.js)
-and [`assets/spike-tap.js`](../android/app/src/main/assets/spike-tap.js). The
-shell bead (med-nt9p.5) replaces all of it.
+med-w6gx.2 ([ios.md](ios.md)). The spike app (a diagnostic `MainActivity.kt`
+plus `assets/spike-checks.js` and `assets/spike-tap.js`) was replaced by the
+shell (med-nt9p.5); it lives in git history (commit `83888b7f`), and the
+re-run below uses an APK built from that commit — dispatch `android.yml` on a
+branch at it, or reuse an earlier run's `medtracker-debug-apk` artifact.
 
 - One WebView with `WEB_AUTHENTICATION_SUPPORT_FOR_APP` (androidx.webkit
   1.12), JavaScript + DOM storage on, remote debugging on (`chrome://inspect`).

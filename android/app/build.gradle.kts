@@ -8,6 +8,11 @@ plugins {
 // and unconfigured runs compiling.
 val appPackage = providers.environmentVariable("ANDROID_PACKAGE").orNull?.takeIf { it.isNotBlank() }
     ?: "com.example.medtracker"
+// The deployment's base domain is never committed either (owner rule 4): CI
+// passes the CLOUD_BASE_DOMAIN repo variable, masked. Unset (forks) builds an
+// app whose first run says it has no service configured.
+val baseDomain = providers.environmentVariable("CLOUD_BASE_DOMAIN").orNull?.trim()?.lowercase()
+    ?.takeIf { Regex("[a-z0-9-]+(\\.[a-z0-9-]+)+").matches(it) } ?: ""
 val versionCodeEnv = providers.environmentVariable("ANDROID_VERSION_CODE").orNull?.toIntOrNull() ?: 1
 val uploadKeystore = providers.environmentVariable("ANDROID_UPLOAD_KEYSTORE").orNull
 // CI decodes the stable debug key here; unset (PRs, local) keeps the default debug key.
@@ -24,6 +29,11 @@ android {
         targetSdk = 36
         versionCode = versionCodeEnv
         versionName = "0.1.$versionCodeEnv"
+        buildConfigField("String", "BASE_DOMAIN", "\"$baseDomain\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     // Release is signed with the Play upload key only on the dispatch path,
@@ -69,5 +79,7 @@ android {
 dependencies {
     // >= 1.12: WebSettingsCompat.setWebAuthenticationSupport (passkeys in WebView).
     implementation("androidx.webkit:webkit:1.12.1")
+    // QR first run: Play services' scanner UI — no camera permission, no bundled model.
+    implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
     testImplementation("junit:junit:4.13.2")
 }
