@@ -126,10 +126,11 @@ Store Connect (ASC) by the owner from this section.
   | `NSMicrophoneUsageDescription` | voice assistant, voice notes in feedback |
   | `NSHealthShareUsageDescription` | Apple Health read import |
   | `NSHealthUpdateUsageDescription` | demanded by upload validation; says the app never writes |
+  | `NSFaceIDUsageDescription` | local mode's optional lock (`LocalAuthentication`) |
 
   Local notifications need no Info.plist string (iOS asks at runtime). Photo
   picking goes through the system picker, which needs no permission; passkeys
-  use the system sheet, so no Face ID string.
+  use the system sheet (the Face ID string is for local mode's lock only).
 - **Privacy manifest:** `ios/App/PrivacyInfo.xcprivacy` — no tracking, the
   `UserDefaults` required-reason API (`CA92.1`, the stored account host), and
   the collected types below. Keep it in step with the label.
@@ -657,8 +658,33 @@ IndexedDB never mixes with an account's. Cloud mode is unchanged.
   BYOK only. *Start* stores the choice; *Back* returns to the invite form.
   iPhone Settings → Med Tracker → *Local mode* is the same switch. *Switch
   account* leaves local mode too; the origin's data is kept either way.
-  Settings opens on an *On this device only* row in local mode. The Face ID
-  opt-in joins the intro with bd med-o7zq.8.
+  Settings opens on an *On this device only* row in local mode.
+- **Lock** (bd med-o7zq.8, [`LocalLock.swift`](../ios/App/LocalLock.swift)):
+  optional, off by default; opted into on the local intro (*Lock with Face
+  ID*, shown when the phone has a passcode and starting on when a lock is
+  still on from an earlier stay; *Start* turns it on, or that one off, only
+  after a successful check) or iPhone Settings → Med Tracker → *Lock*. Local mode
+  only — an account has its passkey unlock. A UI lock, not encryption, and
+  Lock Screen reminders still show (their text is Settings → Reminder text);
+  both are said where it is turned on. `LocalAuthentication`
+  `.deviceOwnerAuthentication` (biometrics, passcode fallback). States
+  locked / unlocking / unlocked: it locks at launch and on going to the
+  background (not on inactive — Control Center and the Face ID sheet itself
+  pass through inactive), and prompts once on the next activation; a cancel
+  leaves the lock screen with an *Unlock* button and no re-prompt. While it
+  holds: the web view is out of the window (the page is hidden, so the
+  `visibilitychange` work — Health import, reminder refresh, backup nudge —
+  waits for the unlock), every load is deferred (launch, Try again, mode
+  switch, content-process restart; a mode switch blanks the old page first),
+  a notification tap is kept and opened after the unlock, any share or print
+  sheet is dismissed (its temp file deleted) and a download or print that
+  finishes meanwhile is dropped, and every bridge op answers `locked`. Whenever the lock is on and the app is not active, a plain cover
+  is drawn over the window, so the app-switcher snapshot shows no data.
+  Turning it off in Settings applies only after the next successful unlock
+  in local mode; turning it on applies at once. With the passcode removed
+  from the phone, the lock lets the user in (nothing to check against; it
+  must not strand the only copy of their records). The lifecycle is checked
+  in CI by `ios/Tests/main.swift`.
 - **Export reminder** (bd med-o7zq.5, `local-policy.js` `nudgeLocalBackup`):
   at most once a week, counted from the first open, the last reminder or the
   last export, and only once something is stored, a toast suggests exporting
@@ -720,6 +746,14 @@ IndexedDB never mixes with an account's. Cloud mode is unchanged.
 6. Apple Health on, airplane mode: a Health BP reading appears in BP.
 7. Erase data on this device: the app reopens empty; switching to the
    account shows its data untouched.
+8. Lock (fresh install): *Only on this device* → *Lock with Face ID* on →
+   *Start* → Face ID → the app opens. Then: the app switcher shows the plain
+   cover; returning from the background, killing and reopening, and tapping a
+   reminder each ask for Face ID first (the tap then opens its section);
+   cancel → lock screen, no second prompt until *Unlock*; Safari Web
+   Inspector on the hidden page: `window.webkit.messageHandlers.wgNative`
+   calls reject with `locked`. Settings → Med Tracker → *Lock* off → back in
+   the app: still asks once, then stays open on the next return.
 
 ## Spike: passkey PRF, Service Worker, IndexedDB in WKWebView (bd med-w6gx.2)
 

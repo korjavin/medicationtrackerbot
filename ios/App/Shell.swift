@@ -37,6 +37,16 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     /// Host of the last committed page: WKWebView.url already names the
     /// provisional one while a load is in flight.
     private var committedHost: String?
+    /// Local mode's optional lock (bd med-o7zq.8, LocalLock.swift).
+    @Published private(set) var lock = LocalLock(on: UserDefaults.standard.bool(forKey: LocalLock.onKey)) {
+        didSet { UserDefaults.standard.set(lock.on, forKey: LocalLock.onKey) }
+    }
+    /// What the lock held back: a load and a notification tap, run on unlock.
+    private var deferredURL: URL?
+    private var deferredSection: (String, String?)?
+
+    /// The lock holds: the page is out of the window, loads wait, the bridge says "locked".
+    var concealed: Bool { lock.holds(local: local) }
 
     override init() {
         let config = WKWebViewConfiguration()
@@ -50,6 +60,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         config.setURLSchemeHandler(LocalApp.shared, forURLScheme: LocalOrigin.scheme)
         webView = WKWebView(frame: .zero, configuration: config)
         super.init()
+        Downloads.shared.held = { [weak self] in self?.concealed ?? false }
         config.userContentController.add(self, contentWorld: .page, name: "wgChrome")
         // Its presence is what makes web/static/js/native/index.js pick the 'ios' platform.
         config.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: "wgNative")
@@ -84,6 +95,10 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     /// is ignored (bd med-o7zq.9); untagged ones predate the tag.
     func openSection(_ section: String, of owner: String?) {
         guard owner == nil || owner == vault, let home else { return }
+        if concealed {
+            deferredSection = (section, owner)
+            return
+        }
         if showingAccount, !webView.isLoading {
             webView.evaluateJavaScript("window.switchTab && window.switchTab('\(section)')")
         } else if let url = URL(string: "?tab=\(section)", relativeTo: home)?.absoluteURL {
@@ -147,9 +162,58 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     }
 
     /// The app went to the background, where backups run: no new origin dir
-    /// of the local app may stay excluded from them.
+    /// of the local app may stay excluded from them. The lock closes here, not
+    /// on inactive (Control Center, the Face ID sheet itself); RootView covers
+    /// the window on inactive so the app-switcher snapshot shows no data.
     func didEnterBackground() {
         if local { LocalOrigin.includeInBackup() }
+        lock.background()
+        if concealed {
+            // A share or print sheet would stay over the lock screen (a vault
+            // export in it); closing it deletes the temp file.
+            let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+            scene?.windows.first?.rootViewController?.dismiss(animated: false)
+            UIPrintInteractionController.shared.dismiss(animated: false)
+        }
+    }
+
+    /// The app became active (after applySettings): the lock prompts once per
+    /// launch or return from the background.
+    func didBecomeActive() {
+        let setting = UserDefaults.standard.bool(forKey: LocalLock.settingKey)
+        if let attempt = lock.activate(local: local, setting: setting) { authenticate(attempt) }
+    }
+
+    /// The lock screen's Unlock button.
+    func unlock() {
+        if let attempt = lock.begin() { authenticate(attempt) }
+    }
+
+    private func authenticate(_ attempt: Int) {
+        Task {
+            let result = await DeviceAuth.check(reason: "Unlock Med Tracker")
+            lock.finish(attempt, result, setting: UserDefaults.standard.bool(forKey: LocalLock.settingKey))
+            guard !concealed else { return }
+            if let url = deferredURL {
+                deferredURL = nil
+                load(url)
+            }
+            if let tap = deferredSection {
+                deferredSection = nil
+                openSection(tap.0, of: tap.1)
+            }
+        }
+    }
+
+    /// Local onboarding's choice: turning the lock on, or off while it is
+    /// still on, applies only after the phone confirmed its owner.
+    func setLock(_ on: Bool) async -> Bool {
+        guard on || lock.on else { return true }
+        let reason = on ? "Turn on the lock for Med Tracker" : "Turn off the lock for Med Tracker"
+        guard await DeviceAuth.check(reason: reason) == .ok else { return false }
+        UserDefaults.standard.set(on, forKey: LocalLock.settingKey)
+        lock.confirmed(on: on)
+        return true
     }
 
     /// Mode or account changed: open the new home, or stop the old page.
@@ -157,12 +221,19 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         lastURL = nil
         committedHost = nil
         loadError = nil
+        deferredURL = nil
+        deferredSection = nil
+        if concealed { webView.loadHTMLString("", baseURL: nil) } // the old page must not run behind the lock
         if let home { load(home) } else { webView.loadHTMLString("", baseURL: nil) }
     }
 
     private func load(_ url: URL) {
         loadError = nil
         lastURL = url
+        if concealed {
+            deferredURL = url
+            return
+        }
         webView.load(URLRequest(url: url))
     }
 
@@ -253,6 +324,10 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        if concealed, let url = webView.url {
+            deferredURL = url
+            return
+        }
         if webView.url == nil { retry() } else { webView.reload() } // reload keeps the current URL and fragment
     }
 
@@ -280,6 +355,11 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             : origin.protocol == "https" && origin.host.lowercased() == host
         guard message.frameInfo.isMainFrame, mine else {
             replyHandler(nil, "forbidden")
+            return
+        }
+        // A page still running behind the lock gets no native capability.
+        guard !concealed else {
+            replyHandler(nil, "locked")
             return
         }
         let body = message.body as? [String: Any] ?? [:]

@@ -1,5 +1,5 @@
-// Self-check for AccountURL and LocalOrigin, run by .github/workflows/ios.yml:
-//   swiftc App/AccountURL.swift App/LocalOrigin.swift Tests/main.swift -o <bin> && <bin>
+// Self-check for AccountURL, LocalOrigin and LocalLock, run by .github/workflows/ios.yml:
+//   swiftc App/AccountURL.swift App/LocalOrigin.swift App/LocalLock.swift Tests/main.swift -o <bin> && <bin>
 // Not part of the app target (project.yml sources only App/).
 import Foundation
 
@@ -70,3 +70,43 @@ precondition(defaults.array(forKey: LocalOrigin.hostsKey) as? [String] == ["api.
 precondition(LocalOrigin.mime("/js/a.js").hasPrefix("text/javascript") && LocalOrigin.mime("/vendor/q.mjs").hasPrefix("text/javascript"))
 precondition(LocalOrigin.mime("/static/fonts/x.woff2") == "font/woff2")
 print("LocalOrigin: ok")
+
+// LocalLock (bd med-o7zq.8): the lock's lifecycle without LocalAuthentication.
+var lock = LocalLock(on: true)
+precondition(lock.holds(local: true) && !lock.holds(local: false), "cold launch: locked, local mode only")
+var attempt = lock.activate(local: true, setting: true)!
+precondition(lock.activate(local: true, setting: true) == nil, "the prompt's own inactive -> active must not prompt again")
+lock.finish(attempt, .failed, setting: true)
+precondition(lock.holds(local: true) && lock.state == .locked, "cancel stays locked")
+precondition(lock.activate(local: true, setting: true) == nil, "no prompt loop after a cancel")
+attempt = lock.begin()!
+precondition(lock.begin() == nil, "one prompt at a time")
+lock.background()
+let stale = attempt
+attempt = lock.activate(local: true, setting: true)!
+lock.finish(stale, .failed, setting: true)
+precondition(lock.state == .unlocking, "a prompt from before the background must not end the current one")
+lock.finish(stale, .ok, setting: true)
+precondition(lock.state == .unlocking, "a prompt from before the background must not unlock")
+lock.finish(attempt, .ok, setting: true)
+precondition(!lock.holds(local: true), "unlocked")
+lock.background()
+precondition(lock.holds(local: true), "the background locks again")
+precondition(lock.activate(local: true, setting: false) != nil && lock.on, "turning off waits for an unlock")
+lock.finish(lock.attempt, .ok, setting: false)
+precondition(!lock.on && !lock.holds(local: true), "off after the unlock")
+lock.background()
+precondition(!lock.holds(local: true), "off: the background does not lock")
+precondition(lock.activate(local: true, setting: true) == nil && lock.on, "turning on needs no prompt")
+lock.background()
+precondition(lock.activate(local: false, setting: false) == nil && lock.on, "no turning off from an account's mode")
+attempt = lock.activate(local: true, setting: true)!
+lock.finish(attempt, .notInteractive, setting: true)
+precondition(lock.activate(local: true, setting: true) != nil, "not frontmost yet: ask on the next activation")
+var fresh = LocalLock(on: true)
+fresh.confirmed(on: true)
+precondition(!fresh.holds(local: true) && fresh.on, "onboarding's check unlocks")
+fresh.background()
+fresh.confirmed(on: false)
+precondition(!fresh.on && !fresh.holds(local: true), "onboarding's check may turn a lock left on off")
+print("LocalLock: ok")
