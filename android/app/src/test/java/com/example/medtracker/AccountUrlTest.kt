@@ -54,4 +54,17 @@ class AccountUrlTest {
         assertEquals(null, cssColor("transparent"))
         assertEquals(null, cssColor(""))
     }
+
+    @Test
+    fun ceremonyPages() {
+        fun check(url: String?, want: Boolean) = assertEquals(url, want, AccountUrl.isCeremony(url, "example.com"))
+        check("https://alice.example.com/unlock", true)
+        check("https://alice.example.com/claim#claim=x", true)
+        check("https://alice.example.com/recover", true)
+        check("https://alice.example.com/", false)
+        check("https://alice.example.com/unlock/x", false)
+        check("https://evil.com/unlock", false)
+        check("http://alice.example.com/unlock", false)
+        check(null, false)
+    }
 }
