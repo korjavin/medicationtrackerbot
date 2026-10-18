@@ -145,7 +145,8 @@ threat model: [cloud-mode.md → Anonymous trial](cloud-mode.md#anonymous-trial-
 3. Set in the stack env: `APP_ATTEST_APP_ID=<TEAMID>.<bundle id>`,
    `DEVICECHECK_KEY_ID`, `DEVICECHECK_TEAM_ID`,
    `DEVICECHECK_PRIVATE_KEY_FILE=/app/data/secrets/devicecheck.p8`; optionally
-   `TRIAL_ANON_LIFETIME_REQUESTS` (200) and `TRIAL_ANON_DAILY` (50). Redeploy.
+   `TRIAL_ANON_LIFETIME_REQUESTS` (200), `TRIAL_ANON_DAILY` (50) and
+   `TRIAL_ANON_FOOD_DAILY` (1000; the food routes also need `CLOUD_FOOD_DB_URL`). Redeploy.
    An unreadable or malformed key refuses to start, naming the variable only.
 4. Verify: `curl -X POST https://<CLOUD_BASE_DOMAIN>/api/attest/challenge`
    returns `{"challenge":…}` (503 `trial_not_configured` = still off).

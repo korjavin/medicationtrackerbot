@@ -799,6 +799,30 @@ export const PRIVACY_MANIFEST = [
     },
   },
   {
+    // bd med-o7zq.19 (server half; the client bead med-o7zq.20 points the
+    // evidence at the real client lines and finalises userCopy). Same App
+    // Attest enrollment as local-trial; GET /api/attest/food/* on the base domain.
+    id: 'local-food',
+    mode: 'local',
+    feature: 'iOS local mode — anonymous trial food database (operator\'s food DB, no account)',
+    boundary: 'carve-out',
+    data: 'Food search terms and scanned barcodes',
+    destination: 'The operator, then the operator\'s food-DB instance',
+    operatorVisibility: 'transient',
+    retention: 'Search terms and barcodes are not stored or logged by the app (memory only, in transit); mind the operator\'s HTTP access logs — the term travels in the query string. Stored per install: a daily lookup count next to the local-trial install record',
+    activation: 'opt-in-consent',
+    activationNote: 'the same free-trial switch and consent as the trial AI (one enrollment per install, which spends the device\'s one trial grant); off means no request to our server at all',
+    byo: 'Set your own food-DB endpoint in Settings → AI & integrations and lookups go phone-direct to it, never through the operator',
+    evidence: ['internal/cloudserver/attest.go:504', 'internal/cloudserver/food_proxy.go:93'],
+    code: { go: ['internal/cloudserver/attest.go', 'internal/cloudserver/food_proxy.go'], hosts: [] },
+    docSignal: null,
+    userCopy: {
+      category: 'visible',
+      title: 'On-device mode: the free trial food database, if you turn it on',
+      detail: 'If you turn on the free trial in on-device mode, food searches and scanned barcodes go through our server to the operator\'s food database. Our server keeps no search terms or barcodes — only how many lookups this anonymous install made today. Add your own food database to keep lookups off our server.',
+    },
+  },
+  {
     id: 'local-notifications',
     mode: 'local',
     feature: 'iOS local mode — reminder text on the lock screen',

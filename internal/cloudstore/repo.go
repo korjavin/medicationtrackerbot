@@ -1276,7 +1276,8 @@ func consumeTrialDay(ctx context.Context, tx storedb.TX, subject string, now tim
 	}
 	if globalLimit > 0 {
 		var total int
-		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(requests), 0) FROM trial_usage WHERE day = ?`, day).Scan(&total); err != nil {
+		// Anonymous food lookups (attest-food:*) are not AI spend.
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(requests), 0) FROM trial_usage WHERE day = ? AND account_id NOT LIKE '`+attestFoodSubjectPrefix+`%'`, day).Scan(&total); err != nil {
 			return "", err
 		}
 		if total >= globalLimit {

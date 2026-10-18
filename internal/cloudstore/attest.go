@@ -114,3 +114,32 @@ func (r *Repo) RefundAttestRequest(ctx context.Context, keyID string) error {
 	_, err := r.db.ExecContext(ctx, `UPDATE attest_installs SET used = used - 1 WHERE key_id = ? AND used > 0`, keyID)
 	return err
 }
+
+// AttestFoodSubject is the trial_usage subject of an install's food lookups
+// (bd med-o7zq.19). The global trial SUM excludes this prefix, so food calls
+// never spend the AI budget.
+func AttestFoodSubject(keyID string) string { return attestFoodSubjectPrefix + keyID }
+
+const attestFoodSubjectPrefix = "attest-food:"
+
+// ConsumeAttestFoodRequest, in ONE transaction: the same assertion-counter
+// compare-and-set as ConsumeAttestRequest (ErrAttestCounter; the advance
+// commits even when the cap refuses), then the per-install daily food cap
+// (daily <= 0 disables it) and the count. No lifetime, no global, no refund.
+func (r *Repo) ConsumeAttestFoodRequest(ctx context.Context, keyID string, newCounter uint32, now time.Time, daily int) (allowed bool, err error) {
+	err = r.db.WithTx(ctx, func(tx storedb.TX) error {
+		res, txErr := tx.ExecContext(ctx,
+			`UPDATE attest_installs SET counter = ?, last_seen_at = ? WHERE key_id = ? AND counter < ?`,
+			newCounter, now.Unix(), keyID, newCounter)
+		if txErr != nil {
+			return txErr
+		}
+		if n, _ := res.RowsAffected(); n != 1 {
+			return ErrAttestCounter
+		}
+		scope, txErr := consumeTrialDay(ctx, tx, AttestFoodSubject(keyID), now, daily, 0, AttestScopeInstallDay)
+		allowed = txErr == nil && scope == ""
+		return txErr
+	})
+	return allowed && err == nil, err
+}
