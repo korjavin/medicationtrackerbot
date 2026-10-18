@@ -239,7 +239,7 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Binds the wgSpike bridge and the WebAuthn tap to https://*.<base>: both
+     * Binds the wgSpike bridge and the WebAuthn tap to every https subdomain of base: both
      * apply to navigations after the call, so this runs before the load.
      */
     private fun bind(newBase: String) {
