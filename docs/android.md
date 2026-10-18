@@ -230,45 +230,68 @@ section}`, the last one the "Open the app to keep reminders running" notice.
 - **Not in v1:** Confirm/Snooze actions. The web copy around the toggle still
   says iPhone/iOS Settings.
 
-### Health Connect import (bd med-nt9p.8)
+### Health Connect import (bd med-nt9p.8, med-nt9p.9)
 
 The twin of the Apple Health import ([ios.md](ios.md)): Health Connect → the
 page → the encrypted vault, like a hand-entered reading. READ-ONLY; Health
 Connect is part of the Android 14 framework, so there is no provider app to
 install. [`HealthConnect.kt`](../android/app/src/main/java/com/example/medtracker/HealthConnect.kt)
 answers the same `health.authorize {types}` / `health.query {type, anchor,
-limit}` ops as `ios/App/Health.swift` with the same sample shapes (`bp`
-`{uuid, start, systolic, diastolic}`, `weight` `{uuid, start, kg}`), so
-`web/cloud/js/health-import.js` and `web/domain/healthimport.js` run unchanged
-(same `-hk-<uuid>` record ids and `source: 'apple_health'` marker — the
-existing shapes, which every client already reads). The Settings row reads its
-name ("Health Connect") and access hint off the capability
-(`window.Health.label` / `accessHint`, `native/health.js`).
+limit}` (and `{type: 'sleep', from, to}`) ops as `ios/App/Health.swift` with
+the same sample shapes (`bp` `{uuid, start, systolic, diastolic}`, `weight`
+`{uuid, start, kg}`, `sleep` `{uuid, start, end, value, source, tz?}`,
+`workout` `{uuid, start, end, activity, duration, hr?, energy?, distance?}`),
+so `web/cloud/js/health-import.js` and `web/domain/healthimport.js` run
+unchanged (same `-hk-<uuid>` / `sleep-hk-<day>` record ids and `source:
+'apple_health'` marker — the existing shapes, which every client already
+reads). The Settings row reads its name ("Health Connect") and access hint off
+the capability (`window.Health.label` / `accessHint`, `native/health.js`).
 
-- **Permissions:** `READ_BLOOD_PRESSURE` and `READ_WEIGHT` only — the Play
-  declaration must list exactly these. `health.authorize` requests the missing
-  ones (a runtime permission dialog on Android 14) and answers `true` whenever
-  Health Connect exists, `false` when it doesn't (work profile, no service);
-  like HealthKit, a denied type just returns no samples.
+- **Permissions:** `READ_BLOOD_PRESSURE`, `READ_WEIGHT`, `READ_SLEEP`,
+  `READ_EXERCISE`, and a workout's totals `READ_HEART_RATE`,
+  `READ_TOTAL_CALORIES_BURNED`, `READ_DISTANCE` — the Play declaration must
+  list exactly these. `health.authorize` requests the missing ones (a runtime
+  permission dialog on Android 14) and answers `true` whenever Health Connect
+  exists, `false` when it doesn't (work profile, no service); like HealthKit, a
+  denied type just returns no samples.
+- **Upgrade from the .8 build:** it answered `authorize` for sleep/workout
+  without asking, and the page recorded all four kinds as asked
+  (`wg.health.asked`), so the web re-ask never fires. The shell keeps its own
+  record of requested kinds (SharedPreferences `health`/`asked`); the first
+  `query` of a kind it never requested asks, in one dialog, for every such
+  kind. On a fresh install `authorize` records them, so this never re-asks.
 - **Anchor:** `hc1:` + a Health Connect Changes token. No anchor reads the
   last **30 days** (`READ_HEALTH_DATA_HISTORY` for older data is out of v1)
   and starts a token; later queries return only upserts since it. An expired
   token (unused for 30 days) re-reads the 30 days; known readings are skipped
-  by id. `sleep` / `workout` answer an empty page until med-nt9p.9; their
-  permissions are not requested yet, but `authorize` still answers `true` and
-  the page records all four kinds as asked (`wg.health.asked`), so .9 must
-  request the new permissions itself (e.g. on query) — the web re-ask path
-  will not fire.
+  by id.
+- **Sleep:** each `SleepSessionRecord` becomes HealthKit-style
+  `HKCategoryValueSleepAnalysis` samples, one per stage (sleeping/unknown → 1
+  asleep, awake/awake-in-bed → 2, light → 3 core, deep → 4, REM → 5;
+  out-of-bed dropped, like inBed), or one "asleep" sample for a session
+  without stages; `source` is the writing app's package. A page answers every
+  session overlapping the new ones ± 48 h with that `{from, to}` window, as
+  Health.swift does. `tz` is `Etc/GMT±h` for a whole-hour end offset (the
+  page needs only the offset), else this device's zone when it has that
+  offset, else omitted (UTC).
+- **Workouts:** `ExerciseSessionRecord`; `activity` is the
+  `HKWorkoutActivityType` raw value (a small map in `hkActivity`; unmapped →
+  3000, shown as "Workout") so the page's name table and strength rule apply.
+  `hr` (average bpm), `energy` (total kcal) and `distance` (m) aggregate the
+  session's own app over its window, each only when its permission is granted.
+  Note: `energy` is *total* calories, iOS reads *active* energy.
 - **Foreground only:** reads run only when the page asks (unlock, return to
   the app); no background reads, no background permission.
 - **Rationale screen:** `PermissionsRationaleActivity` answers Health
   Connect's `ACTION_SHOW_PERMISSIONS_RATIONALE` and Android 14's
   `VIEW_PERMISSION_USAGE` (activity alias), and links the privacy policy
   ([privacy-policy.md](privacy-policy.md)).
-- **Device check:** Settings → Health Connect on, allow both types; add a BP
+- **Device check:** Settings → Health Connect on, allow all types; add a BP
   reading and a weight in Health Connect (or a fitness app) → they appear in
   Vitals; add one more and reopen the app → only the new one is added; deny a
-  type → no samples, no error.
+  type → no samples, no error. A night and a workout recorded by a fitness
+  app → the sleep day and the workout appear (sleep ~3 h after waking, once
+  settled); updating from a .8 build shows one dialog for the new types.
 
 ### Device check (CI debug APK)
 
