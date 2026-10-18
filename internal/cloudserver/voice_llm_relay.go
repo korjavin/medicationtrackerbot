@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
 )
 
 // Voice LLM relay (bd med-h849): ElevenLabs' custom-LLM hop POSTs every voice
@@ -63,7 +64,34 @@ const (
 const (
 	voiceStatusUnknownCall websocket.StatusCode = 4404
 	voiceStatusReplaced    websocket.StatusCode = 4409
+	// voiceStatusBudget ends an anonymous trial call whose minute grant ran out.
+	voiceStatusBudget websocket.StatusCode = 4429
 )
+
+// Anonymous trial calls (bd med-o7zq.22, docs/cloud-mode.md → Anonymous trial
+// → Voice): minted by the attested POST /api/attest/voice/start, the device
+// leg attaches with the token alone (GET /api/attest/voice/device?call=), and
+// the relay answers their turns itself through the trial proxy — no request
+// frame ever goes to the device. The relay never touches money: it reports
+// the call's wall time to the minting side's settle func once, on reap.
+//
+// ponytail: settlement lives in memory like the call table — a process crash
+// loses the refund and the install keeps its full reservation charged.
+const voiceAnonAttachWindow = 60 * time.Second
+
+type anonVoice struct {
+	keyID    string
+	mintedAt time.Time
+	grant    time.Duration
+	settle   func(used time.Duration)
+	timer    *time.Timer
+	once     sync.Once
+
+	// Guarded by the call's mu.
+	attached   bool
+	lastDetach time.Time
+	exhausted  bool
+}
 
 type voiceFrame struct {
 	ID      int64           `json:"id,omitempty"`
@@ -79,11 +107,15 @@ type VoiceLLMRelayAPI struct {
 	store         mcpRelayStore
 	sessionSecret string
 	badCalls      *rateLimiter
+	// trial answers anonymous calls' turns (SetVoiceRelay wires it); nil = no
+	// anonymous calls are ever minted.
+	trial *TrialProxyAPI
 
 	// Overridable in tests.
 	grace        time.Duration
 	noDeviceWait time.Duration
 	turnTimeout  time.Duration
+	attachWindow time.Duration // anonymous calls: mint → first attach
 
 	mu    sync.Mutex
 	calls map[string]*voiceCall
@@ -98,6 +130,7 @@ func NewVoiceLLMRelayAPI(store mcpRelayStore, sessionSecret string) *VoiceLLMRel
 		grace:         voiceCallGrace,
 		noDeviceWait:  voiceNoDeviceWait,
 		turnTimeout:   voiceTurnTimeout,
+		attachWindow:  voiceAnonAttachWindow,
 		calls:         make(map[string]*voiceCall),
 	}
 }
@@ -132,6 +165,8 @@ type voiceCall struct {
 	expires time.Time       // set on detach; zero while attached
 	nextID  int64
 	waiters map[int64]*voiceWaiter
+
+	anon *anonVoice // non-nil for an anonymous trial call; set at mint, never changed
 }
 
 func (c *voiceCall) expired(now time.Time) bool {
@@ -145,6 +180,22 @@ func (c *voiceCall) expired(now time.Time) bool {
 func (c *voiceCall) attach(conn *websocket.Conn) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.attachLocked(conn)
+}
+
+// attachAnon attaches conn to an anonymous call unless its grant ran out.
+func (c *voiceCall) attachAnon(conn *websocket.Conn) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.anon.exhausted {
+		return false
+	}
+	c.attachLocked(conn)
+	c.anon.attached = true
+	return true
+}
+
+func (c *voiceCall) attachLocked(conn *websocket.Conn) {
 	if old := c.conn; old != nil {
 		c.failWaitersLocked(old)
 		// Graceful close blocks on the handshake; never under c.mu.
@@ -166,7 +217,11 @@ func (c *voiceCall) detach(conn *websocket.Conn, grace time.Duration) bool {
 	c.failWaitersLocked(conn)
 	c.conn = nil
 	c.ready = make(chan struct{})
-	c.expires = time.Now().Add(grace)
+	now := time.Now()
+	c.expires = now.Add(grace)
+	if c.anon != nil {
+		c.anon.lastDetach = now
+	}
 	return true
 }
 
@@ -260,12 +315,8 @@ func (a *VoiceLLMRelayAPI) attachLeg(accountID, token string, conn *websocket.Co
 			return nil
 		}
 	} else {
-		b := make([]byte, voiceCallTokenBytes)
-		if _, err := rand.Read(b); err != nil {
-			panic("voice llm relay: crypto/rand failed: " + err.Error())
-		}
 		c = &voiceCall{
-			token:     base64.RawURLEncoding.EncodeToString(b),
+			token:     newVoiceCallToken(),
 			accountID: accountID,
 			ready:     make(chan struct{}),
 			waiters:   make(map[int64]*voiceWaiter),
@@ -314,10 +365,110 @@ func (a *VoiceLLMRelayAPI) RevokeAccount(accountID string) {
 
 func (a *VoiceLLMRelayAPI) reap(c *voiceCall) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.calls[c.token] == c && c.expired(time.Now()) {
+	gone := a.calls[c.token] == c && c.expired(time.Now())
+	if gone {
 		delete(a.calls, c.token)
 	}
+	a.mu.Unlock()
+	if gone && c.anon != nil {
+		c.settleAnon()
+	}
+}
+
+func newVoiceCallToken() string {
+	b := make([]byte, voiceCallTokenBytes)
+	if _, err := rand.Read(b); err != nil {
+		panic("voice llm relay: crypto/rand failed: " + err.Error())
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// settleAnon reports the call's used wall time once: the whole grant when it
+// ran out, nothing when no leg ever attached, else mint → last detach. The
+// minting side clamps it to its floor and the grant.
+func (c *voiceCall) settleAnon() {
+	v := c.anon
+	v.once.Do(func() {
+		c.mu.Lock()
+		if v.timer != nil {
+			v.timer.Stop()
+		}
+		var used time.Duration
+		switch {
+		case v.exhausted:
+			used = v.grant
+		case v.attached:
+			used = v.lastDetach.Sub(v.mintedAt)
+		}
+		c.mu.Unlock()
+		v.settle(used)
+	})
+}
+
+// HasAnonCall reports whether install keyID has a call in the table (live,
+// pending attach, or within grace): one call per install at a time.
+func (a *VoiceLLMRelayAPI) HasAnonCall(keyID string) bool {
+	subject := cloudstore.AttestSubject(keyID)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.hasCallLocked(subject)
+}
+
+// ponytail: linear scan of the live-call table, fine at one instance's call counts.
+func (a *VoiceLLMRelayAPI) hasCallLocked(subject string) bool {
+	for _, c := range a.calls {
+		if c.accountID == subject {
+			return true
+		}
+	}
+	return false
+}
+
+// MintAnonCall pre-registers an anonymous trial call for install keyID with a
+// grant of call time. It must be attached within attachWindow; at mintedAt +
+// grant the budget timer ends it (budget_exhausted + close 4429). settle runs
+// once, on reap. ("", false) when the install already has a call.
+func (a *VoiceLLMRelayAPI) MintAnonCall(keyID string, grant time.Duration, settle func(used time.Duration)) (string, bool) {
+	subject := cloudstore.AttestSubject(keyID)
+	now := time.Now()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.hasCallLocked(subject) {
+		return "", false
+	}
+	c := &voiceCall{
+		token:     newVoiceCallToken(),
+		accountID: subject,
+		ready:     make(chan struct{}),
+		expires:   now.Add(a.attachWindow), // pending attach ages out like a grace
+		waiters:   make(map[int64]*voiceWaiter),
+		anon:      &anonVoice{keyID: keyID, mintedAt: now, grant: grant, settle: settle},
+	}
+	a.calls[c.token] = c
+	c.anon.timer = time.AfterFunc(grant, func() { a.exhaustAnon(c) })
+	time.AfterFunc(a.attachWindow+time.Millisecond, func() { a.reap(c) })
+	slog.Info("voice llm relay: anon call minted", "account_id", subject, "call", endpointFingerprint(c.token), "grant_seconds", int(grant.Seconds()))
+	return c.token, true
+}
+
+// exhaustAnon ends an anonymous call whose grant ran out: later turns speak
+// the minutes-used-up sentence until the call is reaped (no refund).
+func (a *VoiceLLMRelayAPI) exhaustAnon(c *voiceCall) {
+	c.mu.Lock()
+	c.anon.exhausted = true
+	conn := c.conn
+	if conn == nil {
+		c.expires = time.Now().Add(a.grace)
+	}
+	c.mu.Unlock()
+	slog.Info("voice llm relay: anon budget exhausted", "account_id", c.accountID, "call", endpointFingerprint(c.token))
+	if conn == nil {
+		time.AfterFunc(a.grace+time.Millisecond, func() { a.reap(c) })
+		return
+	}
+	// The leg's detach (serveDeviceLeg) starts the grace and the reap.
+	_ = writeDeviceFrame(context.Background(), conn, voiceFrame{Type: "budget_exhausted"})
+	_ = conn.Close(voiceStatusBudget, "voice budget exhausted")
 }
 
 func writeVoiceFrame(ctx context.Context, conn *websocket.Conn, f voiceFrame) error {
@@ -358,6 +509,43 @@ func (a *VoiceLLMRelayAPI) DeviceSocket(w http.ResponseWriter, r *http.Request) 
 		conn.Close(voiceStatusUnknownCall, "unknown or expired call")
 		return
 	}
+	a.serveDeviceLeg(r, conn, call)
+}
+
+// AnonDeviceSocket is the device leg of an anonymous trial call (served under
+// /api/attest/voice/device by AttestAPI, which already ran the trial gates).
+// No session: the token the attested start minted is the capability, as it
+// is for ElevenLabs' side. It only attaches anonymous calls (an account
+// call's token answers 4404 here, and an anonymous token 4404s on the session
+// route because its subject is never an account id).
+func (a *VoiceLLMRelayAPI) AnonDeviceSocket(w http.ResponseWriter, r *http.Request) {
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{OriginPatterns: []string{localAppOrigin}})
+	if err != nil {
+		return
+	}
+	defer conn.CloseNow()
+	conn.SetReadLimit(voiceMaxFrameBytes)
+
+	token := r.URL.Query().Get("call")
+	a.mu.Lock()
+	call := a.calls[token]
+	if call == nil || call.anon == nil || call.expired(time.Now()) {
+		a.mu.Unlock()
+		conn.Close(voiceStatusUnknownCall, "unknown or expired call")
+		return
+	}
+	attached := call.attachAnon(conn)
+	a.mu.Unlock()
+	if !attached {
+		conn.Close(voiceStatusBudget, "voice budget exhausted")
+		return
+	}
+	a.serveDeviceLeg(r, conn, call)
+}
+
+// serveDeviceLeg runs an attached leg until it drops: hello, keepalive, and
+// the read loop dispatching chunk/end/error frames.
+func (a *VoiceLLMRelayAPI) serveDeviceLeg(r *http.Request, conn *websocket.Conn, call *voiceCall) {
 	// Detach on every exit path (a failed hello included), so even a call that
 	// never got a working leg ages out through the grace + reap.
 	defer func() {
@@ -440,6 +628,10 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusOK)
 		writeVoiceFallback(func(s string) error { _, err := io.WriteString(w, s); return err }, voiceHangUp(lang))
+		return
+	}
+	if call.anon != nil {
+		a.anonTurn(w, r, call, payload, lang, len(body), start)
 		return
 	}
 	forward, err := json.Marshal(payload)
@@ -604,6 +796,89 @@ func (a *VoiceLLMRelayAPI) ChatCompletions(w http.ResponseWriter, r *http.Reques
 		}
 	}
 }
+
+// anonTurn answers one turn of an anonymous trial call with the operator's
+// trial AI directly (no device frame). Same contract as the forwarded path:
+// always HTTP 200 SSE ending in [DONE] — the provider's stream relayed by
+// proxyChat, or a spoken sentence (minutes used up; retry on a rate limit or
+// any upstream failure). Not counted as a trial AI request: the call's minute
+// budget bounds these turns. Content is never logged.
+func (a *VoiceLLMRelayAPI) anonTurn(w http.ResponseWriter, r *http.Request, call *voiceCall, payload map[string]json.RawMessage, lang string, reqBytes int, start time.Time) {
+	rec := &anonTurnWriter{ResponseWriter: w}
+	outcome := "error"
+	defer func() {
+		slog.Info("voice llm relay: turn", "account_id", call.accountID, "call", endpointFingerprint(call.token),
+			"request_bytes", reqBytes, "response_bytes", rec.n,
+			"duration_ms", time.Since(start).Milliseconds(), "outcome", outcome)
+	}()
+	speak := func(text string) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusOK)
+		writeVoiceFallback(func(s string) error { n, err := io.WriteString(w, s); rec.n += n; return err }, text)
+	}
+	call.mu.Lock()
+	exhausted := call.anon.exhausted
+	call.mu.Unlock()
+	switch {
+	case exhausted:
+		outcome = "budget_exhausted"
+		speak(voiceMinutesUp(lang))
+		return
+	case a.trial == nil:
+		speak(voiceRetry(lang))
+		return
+	case !a.trial.streamLimiter.Allow(call.accountID):
+		outcome = "rate_limited"
+		speak(voiceRetry(lang))
+		return
+	}
+	extendTrialDeadlines(w)
+	maxTokens := clampMaxTokens(payload, a.trial.cfg.Provider)
+	delete(payload, "n")
+	payload["stream"] = json.RawMessage("true")
+	a.trial.proxyChat(rec, r, "install", call.anon.keyID, payload, false, true, maxTokens)
+	if rec.failed || !rec.wrote {
+		outcome = "upstream_error"
+		speak(voiceRetry(lang))
+		return
+	}
+	outcome = "ok"
+}
+
+// anonTurnWriter passes a 200 stream through and swallows any other answer
+// (proxyChat's sanitized JSON 502), so anonTurn can speak instead.
+type anonTurnWriter struct {
+	http.ResponseWriter
+	wrote, failed bool
+	n             int
+}
+
+func (t *anonTurnWriter) WriteHeader(code int) {
+	if t.wrote {
+		return
+	}
+	t.wrote = true
+	if code != http.StatusOK {
+		t.failed = true
+		return
+	}
+	t.ResponseWriter.WriteHeader(code)
+}
+
+func (t *anonTurnWriter) Write(b []byte) (int, error) {
+	if !t.wrote {
+		t.WriteHeader(http.StatusOK)
+	}
+	if t.failed {
+		return len(b), nil
+	}
+	n, err := t.ResponseWriter.Write(b)
+	t.n += n
+	return n, err
+}
+
+func (t *anonTurnWriter) Unwrap() http.ResponseWriter { return t.ResponseWriter }
 
 // writeVoiceFallback speaks one fixed sentence and ends the stream.
 func writeVoiceFallback(write func(string) error, text string) {

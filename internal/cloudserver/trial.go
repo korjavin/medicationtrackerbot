@@ -54,11 +54,12 @@ type TrialConfig struct {
 	RatePerMinute int
 	// Persisted daily budgets for the AI chat proxy (bd med-d5t.5). The
 	// per-minute limiter bounds burst rate; these bound the operator's bill.
-	// <= 0 disables that scope. Voice mints are deliberately NOT metered here:
-	// once a signed URL is minted the browser talks to ElevenLabs directly, so a
-	// mint cap bounds how many calls start, never how long they run. That is
-	// tracked separately rather than papered over with a number that implies a
-	// cost ceiling it cannot deliver.
+	// <= 0 disables that scope. ACCOUNT voice mints are deliberately NOT
+	// metered here: once a signed URL is minted the browser talks to ElevenLabs
+	// directly, so a mint cap bounds how many calls start, never how long they
+	// run. (The anonymous iOS-local voice trial is metered in call seconds by
+	// its own relay-side budget, attest.go / AttestConfig.Voice*; the shared
+	// agent's max_duration_seconds, set by `pnpm trial:agent`, caps any call.)
 	DailyPerAccount int
 	DailyGlobal     int
 }

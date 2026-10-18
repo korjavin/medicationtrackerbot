@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -140,41 +141,52 @@ func (a *TrialProxyAPI) ElevenLabsSignedURL(w http.ResponseWriter, r *http.Reque
 	if !a.rateLimit(w, a.limiter, account.ID) {
 		return
 	}
+	signedURL, err := a.mintTrialSignedURL(r.Context(), "account", account.ID)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]string{"signed_url": signedURL})
+}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+var errTrialMint = errors.New("trial elevenlabs mint failed")
+
+// mintTrialSignedURL asks ElevenLabs for a conversation signed URL for the
+// operator's shared trial agent. Shared by the account route above and the
+// anonymous voice start (attest.go); logKey/subject name the caller in logs
+// as in proxyChat. Any failure is errTrialMint (the caller answers 502
+// upstream_error). The signed URL is a live credential: never logged.
+func (a *TrialProxyAPI) mintTrialSignedURL(ctx context.Context, logKey, subject string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		a.elevenLabsSignedURLBase+"?agent_id="+url.QueryEscape(a.cfg.ElevenLabsAgentID), nil)
 	if err != nil {
 		// SECURITY INVARIANT: err embeds the URL — log a fixed string only.
-		slog.Warn("trial elevenlabs mint bad upstream url", "account", account.ID)
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
-		return
+		slog.Warn("trial elevenlabs mint bad upstream url", logKey, subject)
+		return "", errTrialMint
 	}
 	req.Header.Set("xi-api-key", a.cfg.ElevenLabsAPIKey)
 
 	resp, err := a.client.Do(req)
 	if err != nil {
-		slog.Warn("trial elevenlabs mint upstream failed", "account", account.ID)
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
-		return
+		slog.Warn("trial elevenlabs mint upstream failed", logKey, subject)
+		return "", errTrialMint
 	}
 	defer resp.Body.Close()
-	slog.Info("trial elevenlabs mint", "account", account.ID, "status", resp.StatusCode)
+	slog.Info("trial elevenlabs mint", logKey, subject, "status", resp.StatusCode)
 
 	if resp.StatusCode != http.StatusOK {
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
-		return
+		return "", errTrialMint
 	}
 	var payload struct {
 		SignedURL string `json:"signed_url"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&payload); err != nil || payload.SignedURL == "" {
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
-		return
+		return "", errTrialMint
 	}
-	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, map[string]string{"signed_url": payload.SignedURL})
+	return payload.SignedURL, nil
 }
 
 // upstreamRejectsSchema reports whether the upstream error body complains
