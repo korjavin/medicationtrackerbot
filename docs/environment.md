@@ -45,8 +45,9 @@ TRIAL_DAILY_PER_ACCOUNT=100        # Per-account DAILY cap on trial AI requests,
 TRIAL_DAILY_GLOBAL=500             # Cross-account DAILY cap on trial AI requests, persisted in cloud.db (default: 500; 0 disables). Also covers anonymous iOS installs (one shared budget)
 # Anonymous trial for iOS local mode (bd med-o7zq.15; docs/cloud-mode.md → Anonymous trial). Base-domain
 # POST /api/attest/{challenge,enroll,trial/openai/chat/completions}. Live only when all four Apple vars below
-# are set AND trial AI is configured; otherwise those routes return 503 trial_not_configured. A partial set of
-# the four refuses to start (the error names the vars, never values).
+# are set AND trial AI is configured. None of the four set (or trial AI off) → those routes return 503
+# trial_not_configured. A partial set of the four is an error: cmd/cloud refuses to start (the error names
+# the vars, never values).
 APP_ATTEST_APP_ID=TEAMID.bundle.id # App ID "<TEAMID>.<bundle id>" whose SHA256 is the attestation rpIdHash
 APP_ATTEST_ENV=production          # production (default; TestFlight + App Store builds) or development (Xcode-run builds only). Also picks the DeviceCheck host
 DEVICECHECK_KEY_ID=...             # DeviceCheck key id (Apple Developer → Keys)

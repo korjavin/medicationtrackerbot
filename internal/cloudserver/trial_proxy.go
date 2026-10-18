@@ -245,7 +245,7 @@ func (a *TrialProxyAPI) ChatCompletions(w http.ResponseWriter, r *http.Request) 
 	if !a.consumeBudget(w, r, account.ID) {
 		return
 	}
-	a.proxyChat(w, r, "account", account.ID, payload, r.URL.Query().Get("vision") == "1", stream)
+	a.proxyChat(w, r, "account", account.ID, payload, r.URL.Query().Get("vision") == "1", stream, 0)
 }
 
 // extendTrialDeadlines: cmd/cloud's http.Server deadlines (15s read / 45s
@@ -298,10 +298,12 @@ func trialStreamRequested(payload map[string]json.RawMessage) bool {
 // proxyChat is the upstream half shared by the session route and the
 // anonymous attest route (attest.go): every gate (session or assertion,
 // limiter, budget) already ran. logKey/subject name the caller in logs
-// ("account" for sessions, "install" for attest).
-func (a *TrialProxyAPI) proxyChat(w http.ResponseWriter, r *http.Request, logKey, subject string, payload map[string]json.RawMessage, vision, stream bool) {
+// ("account" for sessions, "install" for attest). maxTokens > 0 overrides the
+// anthropic adapter's max_tokens (attest only; the OpenAI path takes the cap
+// in the payload); 0 keeps the account route unchanged.
+func (a *TrialProxyAPI) proxyChat(w http.ResponseWriter, r *http.Request, logKey, subject string, payload map[string]json.RawMessage, vision, stream bool, maxTokens int) {
 	if a.cfg.Provider == TrialProviderAnthropic {
-		a.anthropicChat(w, r, logKey, subject, payload, vision, stream)
+		a.anthropicChat(w, r, logKey, subject, payload, vision, stream, maxTokens)
 		return
 	}
 	key, baseURL, model := a.cfg.OpenAIAPIKey, a.cfg.OpenAIURL, a.cfg.OpenAIModel

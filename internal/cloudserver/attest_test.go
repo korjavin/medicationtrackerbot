@@ -129,10 +129,11 @@ func fakeAssertion(t *testing.T, k *ecdsa.PrivateKey, counter uint32, clientData
 }
 
 type attestFakeDC struct {
-	mu    sync.Mutex
-	bits  map[string][2]bool
-	fail  bool
-	calls int
+	mu         sync.Mutex
+	bits       map[string][2]bool
+	fail       bool
+	failUpdate bool // only the bit write fails (enroll rollback path)
+	calls      int
 }
 
 func (f *attestFakeDC) state(token string) ([2]bool, int) {
@@ -152,7 +153,7 @@ func (f *attestFakeDC) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
-	if f.fail || !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+	if f.fail || (f.failUpdate && r.URL.Path == "/v1/update_two_bits") || !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
@@ -179,7 +180,9 @@ type attestEnv struct {
 	lastBody atomic.Value
 }
 
-func newAttestEnv(t *testing.T, lifetime, daily, global int) *attestEnv {
+// newAttestEnv wires the attest API over a fake OpenAI upstream; trialCfg, if
+// given, replaces the trial config (e.g. the anthropic provider).
+func newAttestEnv(t *testing.T, lifetime, daily, global int, trialCfg ...TrialConfig) *attestEnv {
 	t.Helper()
 	e := &attestEnv{t: t, store: setupStore(t), ca: newAttestCA(t), dc: &attestFakeDC{bits: map[string][2]bool{}}}
 	dcSrv := httptest.NewServer(e.dc)
@@ -194,11 +197,15 @@ func newAttestEnv(t *testing.T, lifetime, daily, global int) *attestEnv {
 		_, _ = w.Write([]byte(`{"model":"trial-model","choices":[{"message":{"content":"ok"}}]}`))
 	}))
 	t.Cleanup(up.Close)
-	trial := NewTrialProxyAPI(e.store, "test-session-secret-at-least-32-bytes-long", TrialConfig{
+	tc := TrialConfig{
 		OpenAIAPIKey: "sk-trial", OpenAIURL: up.URL, OpenAIModel: "trial-model",
-		VisionAPIKey: "sk-trial", VisionURL: up.URL, VisionModel: "trial-model",
+		VisionAPIKey: "sk-trial", VisionURL: up.URL, VisionModel: "trial-vision-model",
 		RatePerMinute: 1000, DailyGlobal: global,
-	})
+	}
+	if len(trialCfg) > 0 {
+		tc = trialCfg[0]
+	}
+	trial := NewTrialProxyAPI(e.store, "test-session-secret-at-least-32-bytes-long", tc)
 	cfg := AttestConfig{Configured: true, Lifetime: lifetime, Daily: daily, AppAttest: appattest.Config{
 		AppID: attestTestAppID, Roots: e.ca.pool,
 		DeviceCheck: appattest.DeviceCheckConfig{KeyID: "K", TeamID: "T", PrivateKey: attestKey(t), BaseURL: dcSrv.URL},
@@ -240,10 +247,16 @@ func (e *attestEnv) enroll(k *ecdsa.PrivateKey, appID, chal, token string) *http
 
 // chat signs signedBody but sends body (equal unless a test forges it).
 func (e *attestEnv) chat(k *ecdsa.PrivateKey, counter uint32, chal, body, signedBody string) *httptest.ResponseRecorder {
+	return e.chatAt(k, counter, chal, attestChatPath, attestChatPath, body, signedBody)
+}
+
+// chatAt posts to path but signs signedPath — the client's clientDataHash
+// input SHA256(challenge || SHA256(pathAndQuery || "\n" || body)).
+func (e *attestEnv) chatAt(k *ecdsa.PrivateKey, counter uint32, chal, path, signedPath, body, signedBody string) *httptest.ResponseRecorder {
 	raw, _ := base64.StdEncoding.DecodeString(chal)
-	bh := sha256.Sum256([]byte(signedBody))
-	cdh := sha256.Sum256(append(raw, bh[:]...))
-	return e.do("localhost", attestChatPath, body, map[string]string{
+	rh := sha256.Sum256([]byte(signedPath + "\n" + signedBody))
+	cdh := sha256.Sum256(append(raw, rh[:]...))
+	return e.do("localhost", path, body, map[string]string{
 		"X-Attest-Key-Id": attestKeyID(e.t, k), "X-Attest-Challenge": chal,
 		"X-Attest-Assertion": fakeAssertion(e.t, k, counter, cdh[:]),
 	})
@@ -300,6 +313,17 @@ func TestAttestEnroll(t *testing.T) {
 	wantErr(t, e.enroll(k3, attestTestAppID, e.challenge(), "tok-3"), http.StatusServiceUnavailable, "trial_unavailable")
 	if _, err := e.store.AttestInstall(context.Background(), attestKeyID(t, k3)); err == nil {
 		t.Fatal("row stored despite DeviceCheck outage")
+	}
+
+	// The bit write fails after the insert: the row is rolled back, 503.
+	e.dc.setFail(false)
+	e.dc.mu.Lock()
+	e.dc.failUpdate = true
+	e.dc.mu.Unlock()
+	k4 := attestKey(t)
+	wantErr(t, e.enroll(k4, attestTestAppID, e.challenge(), "tok-4"), http.StatusServiceUnavailable, "trial_unavailable")
+	if _, err := e.store.AttestInstall(context.Background(), attestKeyID(t, k4)); err == nil {
+		t.Fatal("row kept after the DeviceCheck bit write failed")
 	}
 
 	big := `{"key_id":"` + strings.Repeat("A", maxAttestEnrollBytes) + `"}`
@@ -455,15 +479,87 @@ func TestAttestConfigFromEnv(t *testing.T) {
 }
 
 func TestAttestClampMaxTokens(t *testing.T) {
-	p := map[string]json.RawMessage{"messages": json.RawMessage(`[{"role":"user","content":"hi"}]`), "max_completion_tokens": json.RawMessage(`300`)}
-	clampMaxTokens(p, TrialProviderAnthropic)
-	areq, err := toAnthropicRequest(p, "m")
-	if err != nil || areq["max_tokens"] != 300 {
-		t.Fatalf("anthropic: %v %v", areq["max_tokens"], err)
+	p := map[string]json.RawMessage{"max_completion_tokens": json.RawMessage(`300`)}
+	if n := clampMaxTokens(p, TrialProviderAnthropic); n != 300 {
+		t.Fatalf("anthropic n = %d", n)
 	}
 	p = map[string]json.RawMessage{}
 	clampMaxTokens(p, TrialProviderOpenAI)
 	if string(p["max_completion_tokens"]) != "1024" || p["max_tokens"] != nil {
 		t.Fatalf("openai default: %v", p)
+	}
+}
+
+// The anthropic adapter gets the anonymous cap via proxyChat; the account
+// route keeps its fixed max_tokens even when a client sends a smaller one.
+func TestAttestAnthropicCapIsAttestOnly(t *testing.T) {
+	f := newFakeMessagesAPI(t)
+	reply := `{"id":"m","model":"` + anthModel + `","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{}}`
+	f.replies = []string{reply, reply}
+	cfg := anthropicTrialCfg(f.srv.URL)
+	cfg.RatePerMinute = 1000
+	e := newAttestEnv(t, 5, 0, 0, cfg)
+	k := attestKey(t)
+	e.enroll(k, attestTestAppID, e.challenge(), "tok")
+	if rec := e.chat(k, 1, e.challenge(), attestChatBody, attestChatBody); rec.Code != http.StatusOK {
+		t.Fatalf("attest anthropic: %d %s", rec.Code, rec.Body.String())
+	}
+	if f.bodies[0]["max_tokens"] != float64(attestMaxTokens) {
+		t.Fatalf("attest max_tokens = %v", f.bodies[0]["max_tokens"])
+	}
+
+	h, _, host, claim := newTrialTestHandlerAPI(t, anthropicTrialCfg(f.srv.URL))
+	session := registerAndGetSession(t, h, host, claim)
+	rec := postTrialChat(h, host, "/api/trial/openai/chat/completions", `{"max_tokens":300,"messages":[{"role":"user","content":"hi"}]}`, session)
+	if rec.Code != http.StatusOK || f.bodies[1]["max_tokens"] != float64(trialAnthropicMaxTokens) {
+		t.Fatalf("account route max_tokens = %v (status %d)", f.bodies[1]["max_tokens"], rec.Code)
+	}
+}
+
+// bodyProbe records whether the handler read the request body.
+type bodyProbe struct{ read atomic.Bool }
+
+func (b *bodyProbe) Read(p []byte) (int, error) { b.read.Store(true); return 0, io.EOF }
+
+// Unauthenticated input is rejected from the headers alone: the (up to
+// 12 MiB) body is never read for a bogus challenge or an unenrolled key.
+func TestAttestChatRejectsBeforeReadingBody(t *testing.T) {
+	e := newAttestEnv(t, 5, 0, 0)
+	for _, c := range []struct {
+		name, chal, code string
+		status           int
+	}{
+		{"bogus challenge", "bogus", "challenge_invalid", http.StatusBadRequest},
+		{"unenrolled key", e.challenge(), "install_unknown", http.StatusUnauthorized},
+	} {
+		probe := &bodyProbe{}
+		req := httptest.NewRequest(http.MethodPost, attestChatPath, probe)
+		req.Host = "localhost"
+		req.Header.Set("X-Attest-Key-Id", attestKeyID(t, attestKey(t)))
+		req.Header.Set("X-Attest-Challenge", c.chal)
+		req.Header.Set("X-Attest-Assertion", base64.StdEncoding.EncodeToString([]byte("x")))
+		rec := httptest.NewRecorder()
+		e.h.ServeHTTP(rec, req)
+		wantErr(t, rec, c.status, c.code)
+		if probe.read.Load() {
+			t.Fatalf("%s: body was read", c.name)
+		}
+	}
+}
+
+// ?vision=1 is inside the signed input: flipping it after signing fails.
+func TestAttestChatVisionIsSigned(t *testing.T) {
+	e := newAttestEnv(t, 5, 0, 0)
+	k := attestKey(t)
+	e.enroll(k, attestTestAppID, e.challenge(), "tok")
+	vision := attestChatPath + "?vision=1"
+	wantErr(t, e.chatAt(k, 1, e.challenge(), vision, attestChatPath, attestChatBody, attestChatBody), http.StatusUnauthorized, "assertion_invalid")
+	if rec := e.chatAt(k, 2, e.challenge(), vision, vision, attestChatBody, attestChatBody); rec.Code != http.StatusOK {
+		t.Fatalf("signed vision: %d %s", rec.Code, rec.Body.String())
+	}
+	var fwd map[string]any
+	_ = json.Unmarshal([]byte(e.lastBody.Load().(string)), &fwd)
+	if fwd["model"] != "trial-vision-model" {
+		t.Fatalf("vision model not used: %v", fwd["model"])
 	}
 }

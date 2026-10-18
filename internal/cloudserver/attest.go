@@ -48,6 +48,8 @@ const (
 	// A real assertion is ~100 bytes of CBOR.
 	maxAttestAssertionBytes = 4 << 10
 	attestIPRatePerMin      = 60
+	// Read deadline while the request is still unauthenticated (headers only).
+	attestUnauthReadTimeout = 10 * time.Second
 	// Anonymous output cap: the operator pays and the client is unknown.
 	attestMaxTokens = 1024
 
@@ -227,6 +229,7 @@ func (a *AttestAPI) challenge(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *AttestAPI) enroll(w http.ResponseWriter, r *http.Request) {
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(attestUnauthReadTimeout))
 	raw, err := io.ReadAll(io.LimitReader(r.Body, maxAttestEnrollBytes+1))
 	if err != nil || len(raw) > maxAttestEnrollBytes {
 		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "body_too_large"})
@@ -320,15 +323,17 @@ func (a *AttestAPI) enrolled(w http.ResponseWriter, used int) {
 }
 
 // chat is the assertion-gated trial chat proxy. clientDataHash =
-// SHA256(challenge || SHA256(body)) binds the assertion to this exact body and
-// this single-use challenge (redeemable only here, so method/route are implied).
+// SHA256(challenge || SHA256(pathAndQuery || "\n" || body)) binds the
+// assertion to this single-use challenge, this route including ?vision=1, and
+// this exact body. pathAndQuery is the request URI as sent, e.g.
+// "/api/attest/trial/openai/chat/completions?vision=1".
+//
+// Order matters for availability: everything checkable from the headers (a
+// live challenge, an enrolled key) runs under a short read deadline BEFORE the
+// up-to-12-MiB body is read under the long upstream deadline.
 func (a *AttestAPI) chat(w http.ResponseWriter, r *http.Request) {
-	extendTrialDeadlines(w)
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(attestUnauthReadTimeout))
 	a.setNextChallenge(w)
-	body, ok := readTrialBody(w, r)
-	if !ok {
-		return
-	}
 	keyID := r.Header.Get("X-Attest-Key-Id")
 	challenge := a.consumeChallenge(r.Header.Get("X-Attest-Challenge"))
 	if challenge == nil {
@@ -362,8 +367,13 @@ func (a *AttestAPI) chat(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_budget_unavailable"})
 		return
 	}
-	bodyHash := sha256.Sum256(body)
-	clientDataHash := sha256.Sum256(append(append([]byte{}, challenge...), bodyHash[:]...))
+	extendTrialDeadlines(w)
+	body, ok := readTrialBody(w, r)
+	if !ok {
+		return
+	}
+	reqHash := sha256.Sum256(append([]byte(r.URL.RequestURI()+"\n"), body...))
+	clientDataHash := sha256.Sum256(append(append([]byte{}, challenge...), reqHash[:]...))
 	counter, err := appattest.VerifyAssertion(assertion, pub, clientDataHash[:], a.cfg.AppAttest, in.Counter)
 	if err != nil {
 		slog.Info("attest chat assertion rejected", "reason", err)
@@ -378,7 +388,7 @@ func (a *AttestAPI) chat(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "stream_unsupported"})
 		return
 	}
-	clampMaxTokens(payload, a.trial.cfg.Provider)
+	maxTokens := clampMaxTokens(payload, a.trial.cfg.Provider)
 	// One completion: the token cap is per choice, so n would multiply the bill.
 	delete(payload, "n")
 	subject := cloudstore.AttestSubject(keyID)
@@ -420,15 +430,15 @@ func (a *AttestAPI) chat(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("X-Trial-Remaining", strconv.Itoa(remaining+1))
 	}}
-	a.trial.proxyChat(rw, r, "install", keyID, payload, r.URL.Query().Get("vision") == "1", false)
+	a.trial.proxyChat(rw, r, "install", keyID, payload, r.URL.Query().Get("vision") == "1", false, maxTokens)
 }
 
-// clampMaxTokens forces the anonymous output cap n = min(client values,
-// attestMaxTokens) onto whichever of max_tokens / max_completion_tokens the
-// client sent; with neither, onto the field the provider path reads
-// (anthropic: max_tokens, honoured by toAnthropicRequest; OpenAI:
-// max_completion_tokens, the current name).
-func clampMaxTokens(payload map[string]json.RawMessage, provider string) {
+// clampMaxTokens returns the anonymous output cap n = min(client values,
+// attestMaxTokens). On the OpenAI path it is forced onto whichever of
+// max_tokens / max_completion_tokens the client sent (with neither, onto
+// max_completion_tokens, the current name); the anthropic path takes n via
+// proxyChat's maxTokens (toAnthropicRequest drops both fields).
+func clampMaxTokens(payload map[string]json.RawMessage, provider string) int {
 	n := attestMaxTokens
 	for _, k := range []string{"max_tokens", "max_completion_tokens"} {
 		var c int
@@ -436,16 +446,18 @@ func clampMaxTokens(payload map[string]json.RawMessage, provider string) {
 			n = c
 		}
 	}
+	if provider == TrialProviderAnthropic {
+		return n
+	}
 	v := json.RawMessage(strconv.Itoa(n))
 	_, hasMax := payload["max_tokens"]
-	_, hasCompletion := payload["max_completion_tokens"]
-	anthropic := provider == TrialProviderAnthropic
-	if hasMax || anthropic {
+	if hasMax {
 		payload["max_tokens"] = v
 	}
-	if hasCompletion || (!anthropic && !hasMax) {
+	if _, has := payload["max_completion_tokens"]; has || !hasMax {
 		payload["max_completion_tokens"] = v
 	}
+	return n
 }
 
 // refundWriter calls onStatus once with the status the proxy answers, before

@@ -219,16 +219,9 @@ func toAnthropicRequest(payload map[string]json.RawMessage, model string) (map[s
 		}
 	}
 
-	// A smaller client max_tokens wins (the anonymous attest route clamps it,
-	// attest.go); our account clients send none.
-	maxTokens := trialAnthropicMaxTokens
-	var clientMax int
-	if json.Unmarshal(payload["max_tokens"], &clientMax) == nil && clientMax > 0 && clientMax < maxTokens {
-		maxTokens = clientMax
-	}
 	req := map[string]any{
 		"model":      model,
-		"max_tokens": maxTokens,
+		"max_tokens": trialAnthropicMaxTokens,
 		"messages":   out,
 		// Top-level automatic caching: a moving breakpoint on the last
 		// cacheable block, so the growing transcript (ElevenLabs and tg-agent
@@ -384,7 +377,7 @@ func anthropicRejectsSchema(r io.Reader) bool {
 // non-stream callers keep the model default. ElevenLabs replays tool_calls
 // without our anthropic_content round-trip, so that tool_use history carries
 // no thinking blocks — the API accepts history without them.
-func (a *TrialProxyAPI) anthropicChat(w http.ResponseWriter, r *http.Request, logKey, accountID string, payload map[string]json.RawMessage, vision, stream bool) {
+func (a *TrialProxyAPI) anthropicChat(w http.ResponseWriter, r *http.Request, logKey, accountID string, payload map[string]json.RawMessage, vision, stream bool, maxTokens int) {
 	model := a.cfg.AnthropicModel
 	if vision {
 		model = a.cfg.AnthropicVisionModel
@@ -393,6 +386,9 @@ func (a *TrialProxyAPI) anthropicChat(w http.ResponseWriter, r *http.Request, lo
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 		return
+	}
+	if maxTokens > 0 {
+		areq["max_tokens"] = maxTokens // attest route's cap; 0 = account route, unchanged
 	}
 	_, sentResponseFormat := areq["output_config"]
 	if stream {

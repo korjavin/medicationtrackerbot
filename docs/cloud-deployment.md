@@ -127,8 +127,9 @@ the voice surface silently drifted apart before (#817).
 ### Anonymous trial for iOS local mode (optional, App Attest + DeviceCheck)
 
 Off unless all of `APP_ATTEST_APP_ID`, `DEVICECHECK_KEY_ID`, `DEVICECHECK_TEAM_ID`
-and `DEVICECHECK_PRIVATE_KEY_FILE` are set (and trial AI is configured); the
-routes then answer 503 and the app offers "add your own key". Protocol and
+and `DEVICECHECK_PRIVATE_KEY_FILE` are set (and trial AI is configured). With
+none of them set the routes answer 503 and the app offers "add your own key";
+a partial set refuses to start. Protocol and
 threat model: [cloud-mode.md → Anonymous trial](cloud-mode.md#anonymous-trial-ios-local-mode--app-attest--devicecheck).
 
 1. Apple side (once): enable App Attest on the App ID, create a DeviceCheck key

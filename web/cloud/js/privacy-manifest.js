@@ -757,8 +757,8 @@ export const PRIVACY_MANIFEST = [
     mode: 'local',
     feature: 'iOS local mode — network',
     boundary: 'not-a-carve-out',
-    data: 'Nothing, except the requests to the AI provider and food database you added with your own key (the same calls as the BYO rows above)',
-    destination: 'Only those providers. The app\'s CSP admits no other host, and every server feature (sync, push relay, Telegram, MCP, voice, sharing, feedback, trial AI, the operator\'s food database, RxNav drug lookups, Mi Band import) is off',
+    data: 'Nothing, except the requests to the AI provider and food database you added with your own key (the same calls as the BYO rows above) and, only if you turn it on, the anonymous trial AI (the local-trial row below)',
+    destination: 'Only those providers, plus our server while the trial AI is on. The app\'s CSP admits no other host, and every other server feature (sync, push relay, Telegram, MCP, voice, sharing, feedback, the operator\'s food database, RxNav drug lookups, Mi Band import) is off',
     operatorVisibility: 'none',
     retention: 'Per each provider\'s own policy',
     activation: 'opt-in',
@@ -770,7 +770,7 @@ export const PRIVACY_MANIFEST = [
     userCopy: {
       category: 'leaves',
       title: 'On-device mode: only the providers you add',
-      detail: 'In on-device mode the app talks to no server of ours. The only requests that leave the phone go to the AI provider or food database you added with your own key, and the app blocks every other host. Medication names are not checked against RxNav, and voice, Telegram, sharing and the trial AI need a cloud account.',
+      detail: 'In on-device mode the app talks to no server of ours unless you turn on the free trial AI. Otherwise the only requests that leave the phone go to the AI provider or food database you added with your own key, and the app blocks every other host. Medication names are not checked against RxNav, and voice, Telegram and sharing need a cloud account.',
     },
   },
   {
@@ -789,7 +789,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in-consent',
     activationNote: 'you turn on the trial in Settings → AI & integrations and accept the trial consent; off by default, and off means no request to our server at all',
     byo: 'Add your own AI key and requests go phone-direct to your provider, never through the operator',
-    evidence: ['internal/cloudserver/attest.go:325', 'internal/appattest/devicecheck.go:65'],
+    evidence: ['internal/cloudserver/attest.go:334', 'internal/appattest/devicecheck.go:65'],
     code: { go: ['internal/cloudserver/attest.go'], hosts: ['api.devicecheck.apple.com'] },
     docSignal: null,
     userCopy: {
