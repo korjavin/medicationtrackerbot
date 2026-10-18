@@ -59,9 +59,8 @@ describe('local-only mode boot + records port (med-o7zq.2)', () => {
         await deleteDb();
         fetched = [];
         // Everything that could leave the device — sync.js and the domain ports
-        // use the global fetch, the feature modules the window's. Non-sync calls
-        // (e.g. the RxNav lookup on a med save, med-o7zq.3's policy) degrade on
-        // a 503 the way they do offline.
+        // use the global fetch, the feature modules the window's. A 503 is what
+        // any stray call would meet offline (med-o7zq.3 pins that there is none).
         const recorder = vi.fn(async (url) => {
             fetched.push(String(url));
             return createMockResponse({ status: 503, json: {} });
@@ -258,6 +257,9 @@ describe('local-only mode egress + side-effect policy (med-o7zq.3)', () => {
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
         await env.window.MedTrackerCloudReady;
+        // Boot reschedules the device's reminders (the lapse-notice refill);
+        // let it land before the test reads the schedule or tears the db down.
+        await vi.waitFor(() => expect(schedule).toHaveBeenCalled());
     });
 
     afterEach(() => {
@@ -291,6 +293,7 @@ describe('local-only mode egress + side-effect policy (med-o7zq.3)', () => {
 
         // Reminder scheduling: the horizon goes to the device scheduler, with
         // name-free bodies by default.
+        schedule.mockClear();
         await window.apiCall('/api/bp/reminder/toggle', 'POST', { enabled: true });
         await vi.waitFor(() => expect(schedule).toHaveBeenCalled(), { timeout: 5000 });
         const medItems = schedule.mock.calls.at(-1)[0].filter((i) => i.section === 'meds');

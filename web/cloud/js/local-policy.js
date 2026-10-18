@@ -6,8 +6,9 @@
 // 'self' + the hosts registered here, ios/App/LocalOrigin.swift); this module
 // makes the app stop asking for anything else:
 //
-//   reminders   computed on the device and handed to the iOS scheduler only;
-//               no relay upload, no Telegram re-fire calls.
+//   reminders   computed on the device and handed to the iOS scheduler only,
+//               on every write, open and return to the front; no relay
+//               upload, no Telegram re-fire calls.
 //   RxNav       off (the lookup is the operator's proxy) — installApiShim gets
 //               rxnorm: null and a med save simply carries no rxcui.
 //   egress      BYOK hosts go to the shell (bridge op setEgressHosts), never
@@ -19,7 +20,7 @@
 //               sets before the body parses.
 //
 // Privacy disclosure: the local-* rows in privacy-manifest.js.
-import { scheduleReminderRecompute } from './reminders.js';
+import { scheduleReminderRecompute, recomputeAndPush } from './reminders.js';
 import { hostsFromIntegrations } from './egress-hosts.js';
 import { readAllLocalRecords } from './sync.js';
 import { recordsToVault } from '../../domain/vault.js';
@@ -47,10 +48,25 @@ export const LOCAL_EFFECTS = {
   },
 };
 
+// The phone holds at most 64 reminders, and their last one ("Open the app to
+// keep reminders running") is the only refill, so every open and every return
+// to the front reschedules, as cloud-boot.js does. Not the debounced
+// scheduler: a quick close would drop its timer (bd med-9y9). Never on the web.
+export function keepLocalRemindersFresh({ ctx, records, win }) {
+  if (!localNotifications()) return;
+  const run = () => recomputeAndPush(ctx, { records, relay: false })
+    .catch((e) => console.error('[local] reminder reschedule failed', e));
+  run();
+  win.document.addEventListener('visibilitychange', () => {
+    if (win.document.visibilityState === 'visible') run();
+  });
+}
+
 // registerLocalEgress is installApiShim's registerEgress in local mode: the
 // same BYOK hostnames the cloud PUTs to /api/egress-hosts, handed to the iOS
 // shell instead. The shell's reply says whether the stored list changed; the
-// new CSP applies on the next document load. Resolves to { hosts, changed },
+// new CSP applies on the next document load (local-boot.js reloads). Resolves
+// to { hosts, changed },
 // or null where there is no shell to tell (the web, tests).
 export async function registerLocalEgress({ settings, win }) {
   const native = win.LocalNotifications && win.LocalNotifications.__native;

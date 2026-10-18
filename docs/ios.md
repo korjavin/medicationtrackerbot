@@ -622,13 +622,13 @@ IndexedDB never mixes with an account's. Cloud mode is unchanged.
   /api/egress-hosts`: at most 8 bare lowercase DNS names; an invalid list is
   rejected whole and the stored one kept) at boot and after each Settings →
   AI & integrations save. The reply is `{changed}`; a change applies on the
-  next document load, so at boot the page reloads when it is `true`, and after
-  a save a toast asks for the reload. `api.elevenlabs.io` (always allowed in
+  next document load, so the page reloads when it is `true` (once: the next
+  load's list matches). `api.elevenlabs.io` (always allowed in
   cloud) is left out: voice needs the server's voice relay and is off here.
 - **Egress and side effects** (bd med-o7zq.3, `web/cloud/js/local-policy.js`):
   nothing leaves the phone except calls to the providers the user added with
   their own key. Reminders are computed on the device and go to the iOS
-  scheduler only (no relay upload, no Telegram re-fire calls; the lock-screen
+  scheduler only, on every write, open and return to the front (no relay upload, no Telegram re-fire calls; the lock-screen
   text is generic unless Settings → Reminders & notifications → Reminder text
   says Detailed); RxNav lookups are off (`rxnorm: null`); trial AI and the
   operator food DB are off because the bundle carries no trial / food-DB meta.

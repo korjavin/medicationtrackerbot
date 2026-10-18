@@ -776,7 +776,7 @@ export const PRIVACY_MANIFEST = [
     mode: 'local',
     feature: 'iOS local mode — reminder text on the lock screen',
     boundary: 'on-device',
-    data: 'The text of each scheduled reminder: generic by default ("Medication time"), medication and tracker names only if you choose Detailed',
+    data: 'The text of each scheduled reminder: generic by default ("Medication time"); with Detailed, the full text — medication and tracker names, workout plans, your weight and goal, the weekly summary',
     destination: 'The phone\'s notification scheduler, then the lock screen and Notification Center, readable by anyone holding the phone',
     operatorVisibility: 'none',
     retention: 'Until the reminder fires or is replaced by the next schedule',
@@ -789,7 +789,7 @@ export const PRIVACY_MANIFEST = [
     userCopy: {
       category: 'device',
       title: 'On-device mode: reminders on the lock screen',
-      detail: 'Reminders are scheduled on the phone itself, and iOS shows them on the lock screen and in Notification Center, where anyone holding the phone can read them even while it is locked. The default text only says a reminder is due; choose Detailed in Settings → Reminders & notifications to include medication and tracker names.',
+      detail: 'Reminders are scheduled on the phone itself, and iOS shows them on the lock screen and in Notification Center, where anyone holding the phone can read them even while it is locked. The default text only says a reminder is due; choose Detailed in Settings → Reminders & notifications to see the full text — medication and tracker names, workout plans, your weight and goal, and the weekly summary.',
     },
   },
 ];

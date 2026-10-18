@@ -107,9 +107,10 @@ to prevent.** Three activation classes for the rows that leave the device:
    including the plaintext record-type tag on every synced op.
 
 Two further row kinds appear in the table: paths marked *not a carve-out*, which
-are named so their strong wording is auditable rather than assumed, and one
-marked *stays on your device*, which never leaves the device but is readable by
-anyone holding it. The `How it is turned on` column states each row's class.
+are named so their strong wording is auditable rather than assumed, and rows
+marked *stays on your device*, which never leave the device but are readable by
+anyone holding it. The rows titled *iOS local mode* describe the iPhone app's
+"Only on this device" mode (no account, no server; `web/cloud/js/local-policy.js`). The `How it is turned on` column states each row's class.
 Third-party retention for each destination is in
 [cloud-operations-security.md §5](cloud-operations-security.md#5-subprocessors--who-sees-what);
 the metadata-only signals are also in
@@ -117,7 +118,9 @@ the metadata-only signals are also in
 
 **This table is generated.** Its source is the privacy/egress manifest at
 `web/cloud/js/privacy-manifest.js`, which is also what
-`web/cloud/js/privacy.js` renders into Settings → *What can the operator see?*.
+`web/cloud/js/privacy.js` renders into Settings → *What can the operator see?*
+(every row except the local-mode ones, `mode: 'local'`, which are not a cloud
+account's).
 Edit the manifest and run `pnpm privacy:docs`; editing the table by hand fails
 CI. `web/cloud/js/tests/architecture.privacy-claims.test.js` additionally
 derives the set of things that MUST be disclosed from the code — every
@@ -157,7 +160,7 @@ upstream host, or plaintext path fails CI until a manifest entry claims it.
 | **Feedback sent to the Telegram bot** | Your message text and any voice note or screenshot, in plaintext on the operator's server; the original message is then copied verbatim into the developer's Telegram admin chat | The operator's server (plaintext), Telegram, and the developer's admin chat. The queued copy is encrypted server-side to the developer's key. Operator sees: plaintext in transit | The admin-chat copy stays in that Telegram chat; the queued ciphertext waits until the developer drains it | **Only on your action** — when you tap "Send feedback" in the manager bot and send the next message | n/a — use the in-app feedback form for the browser-encrypted path | `internal/cloudserver/feedback_telegram.go:168`, `internal/cloudserver/feedback_telegram.go:185`, `internal/cloudserver/feedback_telegram.go:280` |
 | **iOS local mode — your records on the phone** — *stays on your device* | Every record you keep, plus your provider keys and settings (BYOK AI, food database), readable in the app's on-device storage | Nowhere through the app. The phone's own device backup (iCloud or a computer) can include it, under Apple's security model. Operator sees: nothing — never touches the operator | Until you delete the app or its data; a backup keeps its copy per Apple's backup retention | **On-device, inherent to offline use** — you chose "Only on this device"; there is no account and no sync | n/a | `web/cloud/js/local-boot.js:1`, `web/cloud/js/sync.js:1524`, `ios/App/LocalOrigin.swift:122` |
 | **iOS local mode — network** — *not a carve-out* | Nothing, except the requests to the AI provider and food database you added with your own key (the same calls as the BYO rows above) | Only those providers. The app's CSP admits no other host, and every server feature (sync, push relay, Telegram, MCP, voice, sharing, feedback, trial AI, the operator's food database, RxNav drug lookups, Mi Band import) is off. Operator sees: nothing — never touches the operator | Per each provider's own policy | **Opt-in** — you add a provider key in Settings → AI & integrations; its host name is handed to the app shell for the CSP, never to a server | The only kind there is in this mode | `web/cloud/js/local-policy.js:55`, `ios/App/LocalOrigin.swift:38` |
-| **iOS local mode — reminder text on the lock screen** — *stays on your device* | The text of each scheduled reminder: generic by default ("Medication time"), medication and tracker names only if you choose Detailed | The phone's notification scheduler, then the lock screen and Notification Center, readable by anyone holding the phone. Operator sees: nothing — never touches the operator | Until the reminder fires or is replaced by the next schedule | **Opt-in** — you allow notifications; Settings → Reminders & notifications → Reminder text picks Generic or Detailed | n/a | `web/cloud/js/reminders.js:189`, `web/cloud/js/reminders.js:237` |
+| **iOS local mode — reminder text on the lock screen** — *stays on your device* | The text of each scheduled reminder: generic by default ("Medication time"); with Detailed, the full text — medication and tracker names, workout plans, your weight and goal, the weekly summary | The phone's notification scheduler, then the lock screen and Notification Center, readable by anyone holding the phone. Operator sees: nothing — never touches the operator | Until the reminder fires or is replaced by the next schedule | **Opt-in** — you allow notifications; Settings → Reminders & notifications → Reminder text picks Generic or Detailed | n/a | `web/cloud/js/reminders.js:189`, `web/cloud/js/reminders.js:237` |
 
 <!-- END GENERATED privacy-boundary-table -->
 

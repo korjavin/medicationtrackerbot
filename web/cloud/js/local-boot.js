@@ -38,17 +38,18 @@ window.MedTrackerCloudReady = (async function boot() {
         ]);
         // The shell sends the CSP before the page can read its own settings, so
         // it keeps a mirror of the BYOK hosts and a change applies on the next
-        // document load. At boot a change means this document's CSP is already
-        // stale: reload once (the next load's list matches). After a Settings
-        // save apishim's toast asks the user to reload instead.
-        let firstEgress = true;
+        // document load: this document's CSP is stale, so reload — at boot and
+        // after a Settings save alike (the app shell has no reload control of
+        // its own). The next load's list matches, so it reloads once. null
+        // skips apishim's "reload to apply" toast.
         const registerEgress = async ({ settings }) => {
             await domReady;
-            const first = firstEgress;
-            firstEgress = false;
             const res = await policy.registerLocalEgress({ settings, win: window });
             if (!res) return null;
-            if (first && res.changed) window.location.reload();
+            if (res.changed) {
+                window.location.reload();
+                return null;
+            }
             return res.hosts;
         };
         const shimCall = installApiShim(LOCAL_CTX, {
@@ -66,6 +67,7 @@ window.MedTrackerCloudReady = (async function boot() {
         // imports can resolve before the parser reaches core/api.js, whose own
         // `window.apiCallDirect = ...` would then overwrite this wrapper.
         await domReady;
+        policy.keepLocalRemindersFresh({ ctx: LOCAL_CTX, records: localRecordsPort(), win: window });
         const realApiCallDirect = window.apiCallDirect;
         window.apiCallDirect = (endpoint, method, body, opts) => (
             endpoint.startsWith('/api/')
