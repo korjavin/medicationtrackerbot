@@ -141,6 +141,15 @@ export default async function smoke(ctx) {
     r.relaunchUrl = new URL(page.url()).pathname;
     await sleep(2000);
   });
+  // bd med-nt9p.36: the relaunch shot showed Today empty below the header. Wait for the content
+  // (and record what was there) so an empty shot is a failed step, not a silent screenshot.
+  await ctx.step('relaunch Today renders content', async () => {
+    try {
+      await page.waitForFunction(() => document.getElementById('today-content')?.childElementCount > 0, null, { timeout: 20_000 });
+    } finally {
+      r.relaunchTodayChildren = await page.evaluate(() => document.getElementById('today-content')?.childElementCount ?? -1);
+    }
+  });
   await ctx.shot('relaunch-today');
 }
 
