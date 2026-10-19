@@ -278,7 +278,8 @@ window.MedTrackerCloudReady = (async function boot() {
             const { getUnopenableCount } = await import('/js/inbox.js');
             return getUnopenableCount();
         },
-        // The iOS app's way out of the account (bd med-o7zq.30/.32/.33/.34):
+        // The iOS and Android apps' way out of the account (bd med-o7zq.30/.32/.33/.34,
+        // Android bd med-nt9p.32.13/.15):
         // the shell forgets the account host. After a delete (no opts) it shows
         // its native first-run; Settings → Account "Use this iPhone without an
         // account" passes { then: 'local' } and the shell opens local mode
@@ -286,16 +287,17 @@ window.MedTrackerCloudReady = (async function boot() {
         // whose "Only on this device" starts local mode). Nothing is erased —
         // the account stays on the server and this origin keeps its data, so
         // opening the account address again resumes it. A shell built before
-        // the account.leave op answers "unsupported: …": point at the iOS
-        // Settings toggle that does the same.
+        // the account.leave op answers "unsupported: …": point at the shell's
+        // own Switch account (LocalNotifications.copy, per platform).
         async leaveAccount(opts) {
             const native = window.LocalNotifications && window.LocalNotifications.__native;
-            if (!native || native.platform !== 'ios') throw new Error('Open the app on your iPhone to use it without an account.');
+            if (!native || (native.platform !== 'ios' && native.platform !== 'android')) throw new Error('Open the app on your iPhone to use it without an account.');
             try {
                 await native.call('account.leave', opts);
             } catch (e) {
                 if (/unsupported/.test(String(e && e.message))) {
-                    throw new Error('Update Med Tracker, or open iOS Settings → Med Tracker → Switch account, then choose Only on this device.');
+                    const copy = window.LocalNotifications.copy;
+                    throw new Error((copy && copy.leaveFallback) || 'Update Med Tracker, or open iOS Settings → Med Tracker → Switch account, then choose Only on this device.');
                 }
                 throw e;
             }

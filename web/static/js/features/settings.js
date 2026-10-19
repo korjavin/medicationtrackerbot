@@ -656,8 +656,8 @@ function bindDeleteAccount() {
             // the databases. This is the load-bearing verified erase.
             await mod.clearLocalVault();
             // The subdomain is gone; send the user somewhere that still exists.
-            // In the iOS app that is its own first-run (bd med-o7zq.33): the
-            // base-domain page has no way back into the app. A shell without
+            // In the iOS/Android app that is its own first-run (bd med-o7zq.33,
+            // med-nt9p.32.15): the base-domain page has no way back into the app. A shell without
             // the account.leave op rejects, so fall back to the redirect.
             const leave = nativeLeaveAccount();
             if (leave) {
@@ -679,25 +679,47 @@ function bindDeleteAccount() {
     });
 }
 
-// The iOS app's way back to its native first-run (bd med-o7zq.32/.33):
-// CloudVault.leaveAccount (cloud-boot.js) → bridge op account.leave → the
-// shell's Switch account. Only the iOS shell has the op; elsewhere null.
+// The app shell's way back to its native first-run (bd med-o7zq.32/.33,
+// Android bd med-nt9p.32.15): CloudVault.leaveAccount (cloud-boot.js) → bridge
+// op account.leave → the shell's Switch account. A shell older than the op
+// rejects it; on the web this is null.
 function nativeLeaveAccount() {
     const vault = window.CloudVault;
     if (typeof vault?.leaveAccount !== 'function') return null;
-    if (window.LocalNotifications?.__native?.platform !== 'ios') return null;
+    const platform = window.LocalNotifications?.__native?.platform;
+    if (platform !== 'ios' && platform !== 'android') return null;
     return (opts) => vault.leaveAccount(opts);
 }
 
-// Settings → Account "Use this iPhone without an account" (bd med-o7zq.32):
+// Does this shell answer `op`? The Android shell lists its ops (bridge op
+// shell.ops, bd med-nt9p.32.13); an older shell rejects the probe, which reads
+// as "no". One probe per page.
+let _shellOps = null; // module-state: the memoised shell.ops promise
+function nativeHas(op) {
+    const native = window.LocalNotifications?.__native;
+    if (typeof native?.call !== 'function') return Promise.resolve(false);
+    if (!_shellOps) _shellOps = Promise.resolve().then(() => native.call('shell.ops')).then((ops) => (Array.isArray(ops) ? ops : []), () => []);
+    return _shellOps.then((ops) => ops.includes(op));
+}
+
+// Settings → Account "Use this iPhone/phone without an account" (bd med-o7zq.32):
 // straight into local mode (bd med-o7zq.34; a shell older than that ignores
 // `then` and shows its first-run instead). Nothing is erased: the account
 // stays on the server, this origin keeps its data, and opening the account
-// address again resumes it.
+// address again resumes it. On Android the row waits for shell.ops to list
+// account.leave, so a shell without the op never shows it.
 let _leaveAccountBound = false; // module-state: bind the button once across repeated loadSettings() calls
 function bindLeaveAccount() {
     const leave = nativeLeaveAccount();
     if (!leave) return;
+    if (window.LocalNotifications.__native.platform === 'android') {
+        nativeHas('account.leave').then((has) => { if (has) showLeaveAccount(leave); });
+        return;
+    }
+    showLeaveAccount(leave);
+}
+
+function showLeaveAccount(leave) {
     document.querySelector('.wg-settings-leave-account')?.classList.remove('wg-settings-hidden');
     const btn = document.getElementById('settings-leave-account-btn');
     if (!btn || _leaveAccountBound) return;
@@ -706,10 +728,11 @@ function bindLeaveAccount() {
         if (btn.disabled) return;
         btn.disabled = true;
         try {
+            const device = nativeCopy().device;
             const ok = await safeConfirm(
-                'Med Tracker will close this account on this iPhone and switch to Only on this device, which keeps your records on the phone. Nothing is deleted on the server: the account and its data stay, and you can open it again with your account address.',
+                `Med Tracker will close this account on this ${device} and switch to Only on this device, which keeps your records on the phone. Nothing is deleted on the server: the account and its data stay, and you can open it again with your account address.`,
                 null,
-                { title: 'Use this iPhone without an account?', confirmLabel: 'Continue' },
+                { title: `Use this ${device} without an account?`, confirmLabel: 'Continue' },
             );
             if (ok) await leave({ then: 'local' });
         } catch (e) {
