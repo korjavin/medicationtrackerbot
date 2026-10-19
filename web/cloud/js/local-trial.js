@@ -85,10 +85,17 @@ export function createAttestClient({
     return enrolling.then((res) => res.clone());
   }
 
-  async function doEnroll() {
+  // Trial pass (bd med-o7zq.26): a fresh grant's body carries the device
+  // bucket's pass, which the shell keeps in the Keychain; the shell's enroll
+  // reply hands it back after a reinstall, and the server binds the new key
+  // to the same bucket — one shared budget, nothing resets. A pass the server
+  // refuses (trial_pass_invalid) is dropped and the enroll runs once more
+  // without it.
+  async function doEnroll(withPass = true) {
     const got = await takeChallenge();
     if (got.res) return got.res;
     const reply = await attest.enroll(got.challenge);
+    const pass = withPass && typeof reply.pass === 'string' ? reply.pass : '';
     const res = await send('/api/attest/enroll', {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -96,9 +103,20 @@ export function createAttestClient({
         attestation: reply.attestation,
         challenge: got.challenge,
         device_token: reply.deviceToken,
+        ...(pass ? { pass } : {}),
       }),
     });
-    if (res.ok) granted += 1;
+    if (res.ok) {
+      granted += 1;
+      const body = await res.clone().json().catch(() => null);
+      // A Keychain failure costs only the rejoin after a reinstall.
+      if (typeof body?.pass === 'string' && body.pass) await attest.setPass(body.pass).catch(() => {});
+      return res;
+    }
+    if (pass && (await errorCode(res)).code === 'trial_pass_invalid') {
+      await attest.setPass('').catch(() => {});
+      return doEnroll(false);
+    }
     return res;
   }
 

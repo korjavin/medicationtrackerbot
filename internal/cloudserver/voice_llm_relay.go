@@ -370,8 +370,9 @@ func newVoiceCallToken() string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
-// HasAnonCall reports whether install keyID has a call in the table (live,
-// pending attach, or within grace): one call per install at a time.
+// HasAnonCall reports whether trial bucket keyID (bd med-o7zq.26: the
+// device's budget, shared by its installs) has a call in the table (live,
+// pending attach, or within grace): one call per bucket at a time.
 func (a *VoiceLLMRelayAPI) HasAnonCall(keyID string) bool {
 	subject := cloudstore.AttestSubject(keyID)
 	a.mu.Lock()
@@ -389,10 +390,10 @@ func (a *VoiceLLMRelayAPI) hasCallLocked(subject string) bool {
 	return false
 }
 
-// MintAnonCall pre-registers an anonymous trial call for install keyID with a
+// MintAnonCall pre-registers an anonymous trial call for trial bucket keyID with a
 // grant of call time. It must be attached within attachWindow; grant after
 // the mint the budget timer ends it (budget_exhausted + close 4429).
-// ("", false) when the install already has a call.
+// ("", false) when the bucket already has a call.
 func (a *VoiceLLMRelayAPI) MintAnonCall(keyID string, grant time.Duration) (string, bool) {
 	subject := cloudstore.AttestSubject(keyID)
 	now := time.Now()

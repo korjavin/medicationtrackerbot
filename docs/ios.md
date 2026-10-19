@@ -690,7 +690,9 @@ IndexedDB never mixes with an account's. Cloud mode is unchanged.
 - **Bridge:** in local mode only the main frame of `wgapp://local` reaches
   `wgNative` (an account origin does not); `setEgressHosts`, `local.reset`,
   `local.leave` and `attest.*` (`ios/App/Attest.swift`: `status`, `enroll`,
-  `assert`; entitlement `com.apple.developer.devicecheck.appattest-environment`,
+  `assert`, `setPass` — the anonymous trial's pass in the Keychain,
+  `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not iCloud-synced, so a
+  reinstall rejoins the same trial budget (bd med-o7zq.26); entitlement `com.apple.developer.devicecheck.appattest-environment`,
   checked on the signed archive in `ios.yml`) exist only there, `notifications.*` and `health.*` serve both modes.
   The scheme is app-bound (`"wgapp:"` in `WKAppBoundDomains`), so the shell
   keeps `limitsNavigationsToAppBoundDomains` on in both modes.

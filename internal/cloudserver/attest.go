@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"crypto/x509"
 	"database/sql"
 	"encoding/base64"
@@ -15,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -244,8 +246,9 @@ func (a *AttestAPI) voiceStart(w http.ResponseWriter, r *http.Request) {
 	if !ok || !a.verifyAssertion(w, r, q, nil) {
 		return
 	}
-	keyID := q.keyID
-	if a.voice.HasAnonCall(keyID) {
+	keyID, bucket := q.keyID, q.install.BucketID
+	// One call per bucket: two installs of one device share the minutes.
+	if a.voice.HasAnonCall(bucket) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "call_in_progress"})
 		return
 	}
@@ -284,7 +287,7 @@ func (a *AttestAPI) voiceStart(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "upstream_error"})
 		return
 	}
-	call, ok := a.voice.MintAnonCall(keyID, time.Duration(grant)*time.Second)
+	call, ok := a.voice.MintAnonCall(bucket, time.Duration(grant)*time.Second)
 	if !ok {
 		// A concurrent start for this install won the relay slot; this signed
 		// URL never left the server, so no ElevenLabs session can use it.
@@ -407,8 +410,11 @@ func (a *AttestAPI) enroll(w http.ResponseWriter, r *http.Request) {
 		Attestation string `json:"attestation"`
 		Challenge   string `json:"challenge"`
 		DeviceToken string `json:"device_token"`
+		// Pass is the trial pass of an earlier install on this device (bd
+		// med-o7zq.26, from the iOS Keychain): the key rejoins that bucket.
+		Pass string `json:"pass"`
 	}
-	if json.Unmarshal(raw, &req) != nil || req.KeyID == "" || req.DeviceToken == "" {
+	if json.Unmarshal(raw, &req) != nil || req.KeyID == "" || (req.DeviceToken == "" && req.Pass == "") {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
 		return
 	}
@@ -431,26 +437,11 @@ func (a *AttestAPI) enroll(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	// Idempotent re-enroll: the key is already granted, no DeviceCheck call.
 	if in, err := a.store.AttestInstall(ctx, req.KeyID); err == nil {
-		a.enrolled(w, in.Used)
+		a.enrolled(w, in.Used, "")
 		return
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		slog.Error("attest enroll lookup failed", "error", err)
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_unavailable"})
-		return
-	}
-	a.grantMu.Lock()
-	defer a.grantMu.Unlock()
-	// DeviceCheck bit0 = "this device already had its trial", set at first
-	// grant. Fail CLOSED: the trial is optional, BYOK is unaffected.
-	bit0, bit1, _, err := a.cfg.AppAttest.QueryBits(ctx, req.DeviceToken)
-	if err != nil {
-		slog.Warn("attest enroll devicecheck query failed", "error", err)
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_unavailable"})
-		return
-	}
-	if bit0 {
-		slog.Info("attest enroll refused: device already had its trial")
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "trial_already_used"})
 		return
 	}
 	der, err := x509.MarshalPKIXPublicKey(pub)
@@ -458,10 +449,36 @@ func (a *AttestAPI) enroll(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_unavailable"})
 		return
 	}
-	if err := a.store.InsertAttestInstall(ctx, cloudstore.AttestInstall{KeyID: req.KeyID, PublicKey: der, Env: env, CreatedAt: time.Now().UTC()}); err != nil {
+	install := cloudstore.AttestInstall{KeyID: req.KeyID, PublicKey: der, Env: env, CreatedAt: time.Now().UTC()}
+	if req.Pass != "" {
+		a.rejoin(w, r, install, req.Pass)
+		return
+	}
+	a.grantMu.Lock()
+	defer a.grantMu.Unlock()
+	// DeviceCheck bit0 = "this device had its trial", set at the first grant;
+	// bit1 = "and a second, pass-less one" (bd med-o7zq.26: a wiped phone, or
+	// an install from before trial passes). Fail CLOSED: the trial is
+	// optional, BYOK is unaffected.
+	bit0, bit1, _, err := a.cfg.AppAttest.QueryBits(ctx, req.DeviceToken)
+	if err != nil {
+		slog.Warn("attest enroll devicecheck query failed", "error", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_unavailable"})
+		return
+	}
+	if bit0 && bit1 {
+		slog.Info("attest enroll refused: device already had its trial")
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "trial_already_used"})
+		return
+	}
+	// A fresh bucket. Its pass goes out in this response only; the server
+	// keeps the secret's SHA-256.
+	pass, hash := newTrialPass(req.KeyID)
+	install.PassHash = hash
+	if err := a.store.InsertAttestInstall(ctx, install); err != nil {
 		// A concurrent enroll of the same key won the insert.
 		if in, lerr := a.store.AttestInstall(ctx, req.KeyID); lerr == nil {
-			a.enrolled(w, in.Used)
+			a.enrolled(w, in.Used, "")
 			return
 		}
 		slog.Error("attest enroll insert failed", "error", err)
@@ -470,7 +487,7 @@ func (a *AttestAPI) enroll(w http.ResponseWriter, r *http.Request) {
 	}
 	// Crash between the insert and this write leaves a row with the bit unset:
 	// at worst one extra trial on reinstall (accepted, docs/cloud-mode.md).
-	if err := a.cfg.AppAttest.UpdateBits(ctx, req.DeviceToken, true, bit1); err != nil {
+	if err := a.cfg.AppAttest.UpdateBits(ctx, req.DeviceToken, true, bit0 || bit1); err != nil {
 		slog.Warn("attest enroll devicecheck update failed", "error", err)
 		if derr := a.store.DeleteAttestInstall(context.WithoutCancel(ctx), req.KeyID); derr != nil {
 			slog.Error("attest enroll rollback failed", "error", derr)
@@ -478,15 +495,90 @@ func (a *AttestAPI) enroll(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_unavailable"})
 		return
 	}
-	slog.Info("attest enroll granted", "env", env)
-	a.enrolled(w, 0)
+	slog.Info("attest enroll granted", "env", env, "second_grant", bit0)
+	a.enrolled(w, 0, pass)
 }
 
-func (a *AttestAPI) enrolled(w http.ResponseWriter, used int) {
+// rejoin binds a freshly attested key to the bucket its trial pass names (bd
+// med-o7zq.26): the reinstall shares that bucket's counters, nothing resets,
+// and DeviceCheck is not asked. A pass that opens no bucket is refused like
+// any other invalid attest input (the per-IP limit applies; each try costs a
+// genuine attestation); the client drops it and enrolls without one.
+// SECURITY: the pass is never logged.
+func (a *AttestAPI) rejoin(w http.ResponseWriter, r *http.Request, install cloudstore.AttestInstall, pass string) {
+	ctx := r.Context()
+	bucket, err := a.passBucket(ctx, pass)
+	if err != nil {
+		slog.Error("attest enroll pass lookup failed", "error", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_unavailable"})
+		return
+	}
+	if bucket == "" {
+		slog.Info("attest enroll rejected", "reason", "trial pass invalid")
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "trial_pass_invalid"})
+		return
+	}
+	install.BucketID = bucket
+	err = a.store.InsertAttestInstall(ctx, install)
+	in, lerr := a.store.AttestInstall(ctx, install.KeyID)
+	// err with a readable row: a concurrent enroll of the same key won the insert.
+	if lerr != nil {
+		slog.Error("attest enroll rejoin failed", "error", errors.Join(err, lerr))
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_unavailable"})
+		return
+	}
+	slog.Info("attest enroll rejoined", "env", install.Env)
+	a.enrolled(w, in.Used, "")
+}
+
+// trialPassBytes is the trial pass secret's size (256 bits of crypto/rand).
+const trialPassBytes = 32
+
+// newTrialPass mints a bucket's pass "<bucketID>.<secret>" (secret raw
+// base64url) and the secret's SHA-256, the only part the server stores.
+func newTrialPass(bucketID string) (pass string, hash []byte) {
+	secret := make([]byte, trialPassBytes)
+	_, _ = rand.Read(secret) // never fails (crypto/rand, Go 1.24+)
+	sum := sha256.Sum256(secret)
+	return bucketID + "." + base64.RawURLEncoding.EncodeToString(secret), sum[:]
+}
+
+// passBucket is the bucket a trial pass opens, "" when it opens none (unknown
+// bucket, a bucket without a pass, a wrong or malformed secret). The hash
+// compare is constant-time.
+func (a *AttestAPI) passBucket(ctx context.Context, pass string) (string, error) {
+	i := strings.LastIndexByte(pass, '.')
+	if i <= 0 {
+		return "", nil
+	}
+	secret, err := base64.RawURLEncoding.DecodeString(pass[i+1:])
+	if err != nil || len(secret) != trialPassBytes {
+		return "", nil
+	}
+	want, err := a.store.AttestBucketPassHash(ctx, pass[:i])
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	got := sha256.Sum256(secret)
+	if subtle.ConstantTimeCompare(got[:], want) != 1 {
+		return "", nil
+	}
+	return pass[:i], nil
+}
+
+// enrolled answers a granted key. pass is set only for a fresh bucket.
+func (a *AttestAPI) enrolled(w http.ResponseWriter, used int, pass string) {
 	remaining := max(a.cfg.Lifetime-used, 0)
 	w.Header().Set("X-Trial-Remaining", strconv.Itoa(remaining))
 	a.setNextChallenge(w)
-	writeJSON(w, http.StatusOK, map[string]int{"remaining": remaining, "daily": a.cfg.Daily})
+	resp := map[string]any{"remaining": remaining, "daily": a.cfg.Daily}
+	if pass != "" {
+		resp["pass"] = pass
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // chat is the assertion-gated trial chat proxy. clientDataHash =
@@ -527,8 +619,8 @@ func (a *AttestAPI) chat(w http.ResponseWriter, r *http.Request) {
 	maxTokens := clampMaxTokens(payload, a.trial.cfg.Provider)
 	// One completion: the token cap is per choice, so n would multiply the bill.
 	delete(payload, "n")
-	subject := cloudstore.AttestSubject(keyID)
-	if !a.trial.rateLimit(w, a.trial.limiter, subject) {
+	// The burst limiter, like every budget, is the bucket's (bd med-o7zq.26).
+	if !a.trial.rateLimit(w, a.trial.limiter, cloudstore.AttestSubject(q.install.BucketID)) {
 		return
 	}
 	now := time.Now().UTC()
