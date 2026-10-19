@@ -501,7 +501,7 @@ focused input sits inside the visual viewport) → rotated with the sheet open
 (portrait lock: expected unchanged) → Back (the first hides the keyboard) closes
 the sheet → one Back on Today leaves the app → cold relaunch reopens the vault
 from the warm cache. The Back steps record PASS/FAIL and the press counts
-(`results.smoke.backPressesToCloseSheet`, `backPressesToLeave`) without
+(`results.smoke.backPressesToCloseSheet`, `backPressesToLeave`, and `backTrail`: the page path after each Back on Today) without
 stopping the scenario.
 
 **Agent how-to.**

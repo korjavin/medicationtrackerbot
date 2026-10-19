@@ -13,6 +13,7 @@ import android.graphics.Paint
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.provider.Settings
 import android.text.InputType
 import android.util.TypedValue
@@ -70,6 +71,8 @@ class MainActivity : Activity() {
     private var loadFailed = false
     /** Set by open/forget: the previous account's pages must not stay reachable by Back. */
     private var clearHistory = false
+    /** Until then the first-run field's keyboard is still owed a hide (bd med-nt9p.34). */
+    private var hideImeUntil = 0L
     private var topColor = SCREEN
     private var bottomColor = SCREEN
     private var bars = WindowInsets.CONSUMED
@@ -181,7 +184,10 @@ class MainActivity : Activity() {
         input.setText("")
         firstRunMessage.text = ""
         // Found by the emulator harness (bd med-nt9p.23): the keyboard stayed up over the
-        // page or the error screen, so the first Back only closed it.
+        // page or the error screen, so the first Back only closed it. A show still animating
+        // cancels this hide (bd med-nt9p.34): the insets listener repeats it when the IME lands.
+        // ponytail: 5 s window; a web field focused that fast after Open would lose its keyboard once.
+        hideImeUntil = SystemClock.uptimeMillis() + 5_000
         window.insetsController?.hide(WindowInsets.Type.ime())
         reopen(url) // the claim link keeps its #fragment for the page; only the host is stored
     }
@@ -316,7 +322,11 @@ class MainActivity : Activity() {
 
         override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
             // The ceremony pages leave by full navigation, so every commit is seen here.
-            setCeremony(AccountUrl.isCeremony(url, base))
+            val ceremony = AccountUrl.isCeremony(url, base)
+            // Leaving /unlock, /claim or /recover for the app (bd med-nt9p.33): Back on Today
+            // must leave the app, not reopen the spent ceremony ("invite already claimed").
+            if (!ceremony && ceremonyBar.visibility == View.VISIBLE) clearHistory = true
+            setCeremony(ceremony)
             updateBack()
         }
 
@@ -413,6 +423,9 @@ class MainActivity : Activity() {
         root.addView(errorView, MATCH_PARENT, MATCH_PARENT)
         root.setOnApplyWindowInsetsListener { _, insets ->
             bars = insets
+            if (insets.isVisible(WindowInsets.Type.ime()) && firstRun.visibility != View.VISIBLE &&
+                SystemClock.uptimeMillis() < hideImeUntil
+            ) window.insetsController?.hide(WindowInsets.Type.ime())
             layoutBars()
             WindowInsets.CONSUMED
         }
