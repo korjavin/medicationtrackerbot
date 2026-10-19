@@ -83,11 +83,15 @@ slots (`intake-<med>-<slot>`, `session-<group>-<date>`, `-hk-` rows,
 milestones), and secrets — `integrations` / `apitokens` land only when the
 receiver has none, and are then whole rows (no per-key union). Re-minted leaf
 ids never collide, so a leaf row on both sides lands twice; merge is meant for
-two vaults with separate histories, not for a backup of the same one. Ids that
-the export renumbers can collide across unrelated vaults: `foodproduct-<n>` for
-native products (synthetic 1..n on export), `tzhistory-<n>` / `tzplanhistory-<n>`,
-and bot-era small numeric ids. The receiver's row is kept and the file's
-references (a food log's `product_id`) then point at it.
+two vaults with separate histories, not for a backup of the same one. Ids the
+import numbers 1..n per file — `foodproduct-<n>` (a native product exports as a
+synthetic 1..n), `tzhistory-<n>`, `tzplanhistory-<n>` — are not identity: when
+the receiver holds that id with another body (or a tombstone), the file's row
+moves to the next free number and its food logs' `product_id` follow it; an
+equal body is the same row and the receiver's copy wins. Ids the vault carries
+verbatim (medication, workout and tracker ids) are minted from the clock plus
+randomness, so separate histories do not share them; bot-era small numeric ids
+are the exception and are not remapped.
 
 - **FK-parent records carry a numeric `id`** and are referenced by numeric id:
   `medication`, `food product`, workout `group`/`variant`/`exercise`/`library`,

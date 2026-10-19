@@ -116,7 +116,8 @@ export function hasUserContent(records) {
 // them under a fresh id), as healthimport.js importSamples does. Rows with
 // different ids are all kept, so the same item created on both sides doubles.
 // When it adds a weight row, every manual weight trend is rewalked.
-export function mergeRecords(existing, incoming) {
+export function mergeRecords(existing, rawIncoming) {
+  const incoming = renumberCollisions(existing, rawIncoming);
   const taken = new Map();
   for (const r of existing) {
     taken.set(r.recordId, r);
@@ -134,6 +135,41 @@ export function mergeRecords(existing, incoming) {
   const chain = out.filter((r) => r.recordType === 'weight' && !r.deleted).sort(compareChain);
   const trends = new Map(weightTrendChain(chain).map((t, i) => [chain[i], t]));
   return out.map((r) => (trends.has(r) && !isHealthWeight(r) ? { ...r, weight_trend: trends.get(r) } : r));
+}
+
+// Ids the vault does not carry, so vaultToRecords numbers them 1..n per file
+// (a native foodproduct exports as a synthetic 1..n): the same id in two
+// separate histories is two different things. An incoming one that meets a
+// receiver row with another body (or a tombstone) moves to the next free
+// number, and the file's food logs follow their product. An equal body is the
+// same row: it keeps its id and the receiver's copy wins.
+const RENUMBERED_ID = /^(foodproduct|tzhistory|tzplanhistory)-(\d+)$/;
+
+function sameBody(a, b) {
+  if (!!a.deleted !== !!b.deleted) return false;
+  const ka = Object.keys(a).filter((k) => !META_FIELDS.has(k));
+  const kb = Object.keys(b).filter((k) => !META_FIELDS.has(k));
+  return ka.length === kb.length && ka.every((k) => JSON.stringify(a[k]) === JSON.stringify(b[k]));
+}
+
+function renumberCollisions(existing, incoming) {
+  const mine = new Map(existing.map((r) => [r.recordId, r]));
+  const top = {};
+  for (const r of [...existing, ...incoming]) {
+    const m = RENUMBERED_ID.exec(String(r.recordId));
+    if (m) top[m[1]] = Math.max(top[m[1]] || 0, Number(m[2]));
+  }
+  const moved = new Map();
+  const out = incoming.map((r) => {
+    const m = RENUMBERED_ID.exec(String(r.recordId));
+    const here = m && mine.get(r.recordId);
+    if (!here || sameBody(here, r)) return r;
+    const recordId = `${m[1]}-${top[m[1]] += 1}`;
+    moved.set(r.recordId, recordId);
+    return { ...r, recordId };
+  });
+  if (moved.size === 0) return out;
+  return out.map((r) => (r.recordType === 'foodlog' && moved.has(r.product_id) ? { ...r, product_id: moved.get(r.product_id) } : r));
 }
 
 // Record types whose rows are lazily materialized into deterministic recordIds

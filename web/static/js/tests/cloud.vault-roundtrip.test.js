@@ -652,6 +652,36 @@ describe('mergeRecords (merge import: union by recordId, receiver wins, bd med-o
     expect(out['weight-2'].clientTs).toBe(theirs.clientTs);
   });
 
+  it('a renumbered foodproduct id from another history moves, and its logs follow it', () => {
+    const vault = (name, kcal) => ({
+      format: 'medtracker-vault', version: 1,
+      data: { food: {
+        products: [{ id: 1, name, calories: kcal }],
+        logs: [{ eaten_at: '2026-07-01T12:00:00Z', product_id: 1, weight: 100, calories: kcal }],
+      } },
+    });
+    const mine = vaultToRecords(vault('Oats', 380), { now: NOW });
+    const theirs = vaultToRecords(vault('Rice', 130), { now: NOW + 1 });
+    const out = mergeRecords(mine, theirs);
+    const products = byId(out.filter((r) => r.recordType === 'foodproduct'));
+    const logs = out.filter((r) => r.recordType === 'foodlog');
+    expect(logs).toHaveLength(2);
+    expect(logs.map((l) => products[l.product_id].name).sort()).toEqual(['Oats', 'Rice']);
+    for (const l of logs) expect(products[l.product_id].calories).toBe(l.calories);
+    expect(products['foodproduct-1'].name).toBe('Oats');
+    // A file product with the receiver's body is the same row: no move, no copy.
+    const same = mergeRecords(mine, vaultToRecords(vault('Oats', 380), { now: NOW + 1 }));
+    expect(same.filter((r) => r.recordType === 'foodproduct')).toEqual([products['foodproduct-1']]);
+  });
+
+  it('renumbered tz history from another history appends under fresh indices', () => {
+    const mine = [row('tzhistory', 'tzhistory-1', { tz: 'Europe/Berlin' })];
+    const out = mergeRecords(mine, [row('tzhistory', 'tzhistory-1', { tz: 'Asia/Tokyo' }), row('tzhistory', 'tzhistory-2', { tz: 'UTC' })]);
+    expect(out.map((r) => [r.recordId, r.tz])).toEqual([
+      ['tzhistory-1', 'Europe/Berlin'], ['tzhistory-3', 'Asia/Tokyo'], ['tzhistory-2', 'UTC'],
+    ]);
+  });
+
   it('into an empty vault, merge lands exactly what a replace would', () => {
     const incoming = vaultToRecords(fixture, { now: NOW });
     expect(mergeRecords([], incoming)).toEqual(incoming);
