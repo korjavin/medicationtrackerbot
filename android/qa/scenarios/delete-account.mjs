@@ -53,7 +53,8 @@ async function unlock(ctx, page, r) {
 export default async function deleteAccount(ctx) {
   const { shell, pkg, sleep, device, LOCAL_ORIGIN } = ctx;
   const r = (ctx.results.deleteAccount = {});
-  await shell(`pm clear ${pkg}`);
+  // No pm clear: the run's emulator is fresh, and right after one the launcher ANRs over the first run
+  // (runs 39326281141, 39327638865).
 
   let page = await ctx.step('invite opens the signup wizard (soft authenticator)', () => ctx.openClaim({ softAuthn: true }));
   await claimAccount(ctx, page);
