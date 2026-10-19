@@ -29,6 +29,12 @@ targets:
       # bundle-web.sh before `xcodegen generate`, served by App/LocalApp.swift.
       - path: LocalApp
         type: folder
+    # Visual QA (bd med-y5xx.2): `xcodebuild test -only-testing:MedTrackerUITests`.
+    # The archive action stays the app alone, in Release, so the Debug-only
+    # QA hook (Shell.swift `-wgQAScene`) never ships.
+    scheme:
+      testTargets:
+        - MedTrackerUITests
     settings:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -86,3 +92,31 @@ targets:
           - "$(WG_BASE_DOMAIN)"
           - "*.$(WG_BASE_DOMAIN)"
           - "wgapp:"
+  # Visual QA on the Simulator (bd med-y5xx.2, docs/design/ios-visual-testing.md):
+  # one screenshot per scene of tests/visual/scenes.json, with the real keyboard.
+  MedTrackerUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - UITests
+    dependencies:
+      - target: MedTracker
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.medtracker.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic
+        # The copy below reads outside the target's declared inputs.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+    # A script, not a resource: the scene list comes from the driver bead and
+    # the bundle must still build without it (the test then fails, saying so).
+    postBuildScripts:
+      - name: Copy tests/visual/scenes.json
+        basedOnDependencyAnalysis: false
+        script: |
+          src="$SRCROOT/../tests/visual/scenes.json"
+          if [ -f "$src" ]; then
+            cp "$src" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/scenes.json"
+          else
+            echo "warning: tests/visual/scenes.json missing; VisualQATests will fail"
+          fi

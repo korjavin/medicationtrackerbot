@@ -80,6 +80,9 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         webView.scrollView.backgroundColor = .clear
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.scrollView.bounces = false
+        #if DEBUG
+        webView.isInspectable = true // Safari Web Inspector on the Simulator (bd med-y5xx.2); never in the Release archive
+        #endif
 
         let defaults = UserDefaults.standard
         // Spike builds (med-w6gx.2) kept the last URL: adopt its account so testers skip first-run.
@@ -122,8 +125,15 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
 
     /// The page this mode opens on: the bundled app, or the account's root.
     private var home: URL? {
-        local ? LocalOrigin.home : host.flatMap { URL(string: "https://\($0)/") }
+        local ? Shell.localHome : host.flatMap { URL(string: "https://\($0)/") }
     }
+
+    #if DEBUG
+    /// Visual QA scene (bd med-y5xx.2, LocalOrigin.qaHome): Debug builds only.
+    private static let localHome = LocalOrigin.qaHome(scene: UserDefaults.standard.string(forKey: LocalOrigin.qaSceneKey)) ?? LocalOrigin.home
+    #else
+    private static let localHome = LocalOrigin.home
+    #endif
 
     /// First-run submit. Returns the message to show, or nil once the account is opening.
     func open(_ raw: String) -> String? {

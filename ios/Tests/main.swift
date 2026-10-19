@@ -1,5 +1,5 @@
 // Self-check for AccountURL, LocalOrigin, LocalLock and ReminderPath, run by .github/workflows/ios.yml:
-//   swiftc App/AccountURL.swift App/LocalOrigin.swift App/LocalLock.swift App/ReminderPath.swift Tests/main.swift -o <bin> && <bin>
+//   swiftc -D DEBUG App/AccountURL.swift App/LocalOrigin.swift App/LocalLock.swift App/ReminderPath.swift Tests/main.swift -o <bin> && <bin>
 // Not part of the app target (project.yml sources only App/).
 import Foundation
 
@@ -83,6 +83,12 @@ precondition(defaults.array(forKey: LocalOrigin.hostsKey) as? [String] == ["api.
 
 precondition(LocalOrigin.mime("/js/a.js").hasPrefix("text/javascript") && LocalOrigin.mime("/vendor/q.mjs").hasPrefix("text/javascript"))
 precondition(LocalOrigin.mime("/static/fonts/x.woff2") == "font/woff2")
+// Visual QA scene (bd med-y5xx.2): compiled with -D DEBUG, like the Debug app.
+precondition(LocalOrigin.qaHome(scene: "food-add-sheet-keyboard")?.absoluteString == "wgapp://local/?qa=food-add-sheet-keyboard")
+precondition(LocalOrigin.qaHome(scene: "today")?.host == LocalOrigin.host)
+for bad: String? in [nil, "", "Today", "a b", "a&b=c", "a#b", "../x", "x/y", String(repeating: "a", count: 65)] {
+    precondition(LocalOrigin.qaHome(scene: bad) == nil, "accepted \(String(describing: bad))")
+}
 print("LocalOrigin: ok")
 
 // LocalLock (bd med-o7zq.8): the lock's lifecycle without LocalAuthentication.

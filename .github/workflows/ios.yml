@@ -60,16 +60,26 @@ jobs:
       - name: Check first-run link parsing, local-origin routing, the local lock and reminder paths
         working-directory: ios
         run: |
-          swiftc App/AccountURL.swift App/LocalOrigin.swift App/LocalLock.swift App/ReminderPath.swift Tests/main.swift -o "$RUNNER_TEMP/accounturl-check"
+          swiftc -D DEBUG App/AccountURL.swift App/LocalOrigin.swift App/LocalLock.swift App/ReminderPath.swift Tests/main.swift -o "$RUNNER_TEMP/accounturl-check"
           "$RUNNER_TEMP/accounturl-check"
 
+      # build-for-testing: the app plus the MedTrackerUITests bundle (bd
+      # med-y5xx.2), so the visual-QA target compiles on every iOS PR.
       - name: Build (unsigned, simulator)
         working-directory: ios
         run: |
-          xcodebuild build -project MedTracker.xcodeproj -scheme MedTracker \
+          xcodebuild build-for-testing -project MedTracker.xcodeproj -scheme MedTracker \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO | tail -n 50
           test "${PIPESTATUS[0]}" -eq 0
+
+      # The archive step's "no QA hook" check greps for this marker; prove the
+      # Debug build carries it, so that check cannot pass vacuously.
+      - name: Check the Debug build carries the visual-QA hook
+        working-directory: ios/build/sim/Build/Products/Debug-iphonesimulator/MedTracker.app
+        run: |
+          grep -qF 'wgapp://local/?qa=' MedTracker MedTracker.debug.dylib 2>/dev/null \
+            || { echo "::error::QA hook marker not found in the Debug binary; update the archive check in this file"; exit 1; }
 
       # Local-mode diagnostic (bd med-o7zq.1): a broken page only shows on the
       # phone, so check the bundle carries it and its scripts parse.
@@ -184,6 +194,11 @@ jobs:
             | grep -q 'com.apple.developer.devicecheck.appattest-environment' \
             || { echo "::error::the signed app lacks the App Attest entitlement (App ID capability / profile)"; exit 1; }
           echo "App Attest entitlement present"
+          # The visual-QA hook (bd med-y5xx.2) is #if DEBUG: the Release archive must not carry it.
+          # Same marker the build job finds in the Debug binary.
+          if grep -qF 'wgapp://local/?qa=' build/MedTracker.xcarchive/Products/Applications/MedTracker.app/MedTracker; then
+            echo "::error::the archive carries the Debug-only -wgQAScene hook"; exit 1
+          fi
           OPTS="$RUNNER_TEMP/ExportOptions.plist"
           cp ExportOptions.plist "$OPTS"
           /usr/libexec/PlistBuddy -c "Add :teamID string $IOS_TEAM_ID" \

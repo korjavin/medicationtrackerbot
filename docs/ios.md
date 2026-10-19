@@ -819,6 +819,16 @@ IndexedDB never mixes with an account's. Cloud mode is unchanged.
   shell drop local mode's pending and delivered reminders and the BYOK host
   mirror, and the app reloads empty. An account's data on the phone is not
   touched.
+- **Visual QA hook** (bd med-y5xx.2, [design](design/ios-visual-testing.md)):
+  Debug builds only (`#if DEBUG` in `Shell.swift` / `LocalOrigin.qaHome`),
+  launch argument `-wgQAScene <name>` opens local mode on
+  `wgapp://local/?qa=<name>` and the web view is `isInspectable`. The
+  TestFlight archive is Release; its step in `ios.yml` fails if the binary
+  carries the hook. `ios/UITests/VisualQATests.swift` (target
+  `MedTrackerUITests`, compiled by the build job's `build-for-testing`)
+  launches each scene of `tests/visual/scenes.json` with `-wgLocalMode 1
+  -wgLocalLockOn 0 -wgQAScene <name>`, waits for `#wg-qa-ready`, runs the
+  scene's native steps and attaches `<scene>.png` + `<scene>.json`.
 
 ### Device check (TestFlight)
 
