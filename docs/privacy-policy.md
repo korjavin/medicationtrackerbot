@@ -1,7 +1,7 @@
 # Med Tracker — Privacy Policy
 
-Effective 2026-10-15. This policy covers the Med Tracker web app and the Med
-Tracker iOS app, which opens the same web app. "The operator" is whoever runs
+Effective 2026-10-18. This policy covers the Med Tracker web app and the Med
+Tracker iOS and Android apps, which open the same web app. "The operator" is whoever runs
 the Med Tracker service your account lives on.
 
 ## The short version
@@ -18,7 +18,7 @@ the Med Tracker service your account lives on.
 
 | Data | Where | Who can read it |
 |---|---|---|
-| Your health records (medications and doses, blood pressure, weight, food, workouts, sleep, vitals, diary notes, and anything imported from Apple Health) | Encrypted on your device, synced to the server | Only your unlocked devices. The server holds ciphertext. |
+| Your health records (medications and doses, blood pressure, weight, food, workouts, sleep, vitals, diary notes, and anything imported from Apple Health or Health Connect) | Encrypted on your device, synced to the server | Only your unlocked devices. The server holds ciphertext. |
 | A decrypted copy for offline use | On your device only | Your device |
 | Account address, creation date, passkey public keys, which kind of record each sync item is (never its contents), sync times, sizes and IP addresses | Server | The operator (operational metadata) |
 | Reminder fire times (and an encrypted payload) | Server push relay | The operator sees the times only |
@@ -77,6 +77,15 @@ weight, sleep and workouts and stores them in your encrypted vault, like a
 reading you typed in. It never writes to Apple Health. Health data is never
 used for advertising or sold, and leaves your vault only through the optional
 features above, when you use them.
+
+## Health Connect (Android app)
+
+If you switch on Health Connect in Settings, the app **reads** blood pressure
+and weight from Health Connect, only while the app is open, and stores them in
+your encrypted vault, like a reading you typed in. It never writes to Health
+Connect. Health data is never used for advertising or sold, and leaves your
+vault only through the optional features above, when you use them. You can
+withdraw access at any time in Health Connect → App permissions.
 
 ## Notifications (iOS app)
 
