@@ -101,6 +101,8 @@ struct FirstRunView: View {
     @State private var localIntro = false
     /// Local mode's origin still has data on this iPhone.
     @State private var resumable = false
+    /// A local → cloud move is pending (bd med-o7zq.35): the stash waits for the new account.
+    @State private var moving = false
 
     var body: some View {
         if localIntro {
@@ -116,6 +118,9 @@ struct FirstRunView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Med Tracker").font(.largeTitle.bold())
+                if moving {
+                    Text("Your records are ready to move: paste or scan your invite.")
+                }
                 // Local mode was left (Switch account, "I have an invite") or its
                 // flag was lost, but its records are still here: offer them first,
                 // without hiding the invite form (bd med-o7zq.31).
@@ -172,7 +177,9 @@ struct FirstRunView: View {
         .background(Color(uiColor: Shell.screen).ignoresSafeArea())
         .preferredColorScheme(.dark)
         .onAppear {
-            resumable = LocalOrigin.offersResume(host: shell.host, local: shell.local, dataDirs: LocalOrigin.dataDirs().count)
+            moving = shell.move.exists
+            // While a move is pending the records are on their way to the account; Continue here would drop the stash.
+            resumable = !moving && LocalOrigin.offersResume(host: shell.host, local: shell.local, dataDirs: LocalOrigin.dataDirs().count)
         }
         .sheet(isPresented: $scanning) {
             QRScanner { payload in

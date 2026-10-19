@@ -24,8 +24,16 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     }
     /// Local mode, from the persisted choice (LocalOrigin.modeKey); wins over a stored host.
     @Published private(set) var local = UserDefaults.standard.bool(forKey: LocalOrigin.modeKey) {
-        didSet { Notifications.shared.vault = vault }
+        didSet {
+            Notifications.shared.vault = vault
+            // Entering local mode again (Start, Continue on this iPhone,
+            // account.leave {then: "local"}) abandons a pending move; the next
+            // move stashes afresh (bd med-o7zq.35).
+            if local { move.clear() }
+        }
     }
+    /// The local → cloud move's stash (bd med-o7zq.35, Move.swift).
+    let move = Move(dir: Move.appDir)
     /// The vault the shell has open (bd med-o7zq.9): one at a time, so
     /// reminders, their taps and the bridge all follow this.
     private var vault: String? { local ? LocalOrigin.host : host }
@@ -398,6 +406,8 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         switch body["op"] as? String {
         case "ping":
             replyHandler("pong", nil)
+        case "shell.ops":
+            replyHandler(LocalOrigin.ops(local: local), nil)
         case "setEgressHosts" where local:
             let (reply, error) = LocalOrigin.setEgressHosts(body["args"] as? [String: Any] ?? [:])
             replyHandler(reply, error)
@@ -405,6 +415,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             // The page has erased its own storage (local-policy.js eraseDevice);
             // the shell's share of this vault is its reminders and host mirror.
             UserDefaults.standard.removeObject(forKey: LocalOrigin.hostsKey)
+            move.clear()
             Task {
                 await Notifications.shared.remove(vault: LocalOrigin.host)
                 replyHandler(true, nil)
@@ -423,6 +434,27 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             let args = body["args"] as? [String: Any] ?? [:]
             replyHandler(true, nil)
             forget(thenLocal: args["then"] as? String == "local")
+        // The local → cloud move (bd med-o7zq.35, twin of Android med-nt9p.32.17):
+        // the local page stashes its vault v1 JSON before local.leave; the new
+        // account takes it and clears it once imported, so a failed import
+        // retries on the next open. Errors never carry the contents or the path.
+        // ponytail: synchronous file I/O on the main thread; move it off if a 64 MB vault ever janks.
+        case "move.stash" where local:
+            do {
+                try move.stash((body["args"] as? [String: Any])?["vault"])
+                replyHandler(true, nil)
+            } catch {
+                replyHandler(nil, (error as? Move.Failure)?.message ?? "write failed")
+            }
+        case "move.take" where !local:
+            do {
+                if let vault = try move.take() { replyHandler(["vault": vault], nil) } else { replyHandler(NSNull(), nil) }
+            } catch {
+                replyHandler(nil, "read failed")
+            }
+        case "move.clear" where !local:
+            move.clear()
+            replyHandler(true, nil)
         // The anonymous trial AI (bd med-o7zq.16): local mode only — an account
         // has its own trial — and, like every op here, never while locked.
         case let op? where local && op.hasPrefix("attest."):
