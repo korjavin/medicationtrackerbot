@@ -31,9 +31,10 @@ export default async function localSmoke(ctx) {
     const p = await ctx.launchLocal('today');
     watchNet(p);
     // Playwright attaches only after the launch's first boot, so replay an empty-store first boot
-    // under the listener: our own 404 document (no app, no open IndexedDB) wipes the origin's
-    // storage, then /?qa=today boots on it, seeds, reloads and runs the scene — all observed.
-    await p.goto(`${LOCAL_ORIGIN}/qa-wipe`, { waitUntil: 'load', timeout: 30_000 });
+    // under the listener: a same-origin document with no app (the QA bundle's scenes.json shown as
+    // text; a 404 has no body and becomes Chromium's error page) wipes the origin's storage, then
+    // /?qa=today boots on it, seeds, reloads and runs the scene — all observed.
+    await p.goto(`${LOCAL_ORIGIN}/qa/scenes.json`, { waitUntil: 'load', timeout: 30_000 });
     r.wiped = await p.evaluate(async () => {
       localStorage.clear();
       sessionStorage.clear();
