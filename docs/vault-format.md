@@ -547,6 +547,7 @@ only guard.
 | `miband_gps_tracks` | **Legacy bot exports carry it** nested under `workouts.miband[].gps`; **cloud import drops it** (`vaultToRecords`). It was 44% of a real vault (~77 MiB / 168 tracks) and no code renders a route, yet it rode in every cloud snapshot and was structured-cloned on every `records.list()`. Accepted loss: GPS tracks do not survive a cloud round-trip. |
 | `workout_schedule_snapshots` | **write-only table.** In the deleted Go store no reader ever consumed it — no handler, no MCP op, no frontend. Nothing can read the data, so carrying it would preserve nothing. |
 | cloud-only `voiceprovisioning` | plumbing with no `/api` route |
+| cloud-only `firstrun` (onboarding done) | **derived on import** instead (bd med-suu2): `vaultToRecords` emits `firstrun = { first_run_complete: true }` at `clientTs: 0` when the file holds user content (`hasUserContent`), so a restore never re-shows onboarding and a blank file never marks it done. Not vault-managed, so the replace keeps a destination's existing flag. Exporting it instead would change the v1 shape and still miss every older backup. |
 | tombstones for non-derived-slot types | delete-by-absence: a missing row stays missing after the replace-only import, so only `intake` / `workoutsession` and Apple Health `bp` / `weight` / `miband` / `sleep` (`-hk-`) tombstones are carried (see [`tombstones`](#tombstones)) |
 
 Also never exported: **derived fields** recomputed on read — bp `category`, weight

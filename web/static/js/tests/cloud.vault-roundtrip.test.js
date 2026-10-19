@@ -385,9 +385,24 @@ describe('cloud vault round-trip (web/domain/vault.js)', () => {
     });
   });
 
-  it('every produced record type is vault-managed (preserving nk/plumbing on import is the shell shim job)', () => {
+  it('every produced record type is vault-managed except the floored firstrun flag (preserving nk/plumbing on import is the shell shim job)', () => {
     const records = vaultToRecords(fixture, { now: NOW });
-    for (const r of records) expect(VAULT_MANAGED_TYPES.has(r.recordType)).toBe(true);
+    for (const r of records.filter((x) => x.recordType !== 'firstrun')) expect(VAULT_MANAGED_TYPES.has(r.recordType)).toBe(true);
+    expect(VAULT_MANAGED_TYPES.has('firstrun')).toBe(false);
+  });
+
+  // bd med-suu2: a restored vault is an onboarded user; a blank one is not.
+  it('a vault with user content marks onboarding done at the clientTs floor; a blank vault does not', () => {
+    const flags = (v) => vaultToRecords(v, { now: NOW }).filter((r) => r.recordType === 'firstrun');
+    expect(flags(fixture)).toEqual([
+      { recordType: 'firstrun', recordId: 'firstrun', clientTs: 0, deleted: false, first_run_complete: true },
+    ]);
+    const blank = { format: 'medtracker-vault', version: 1, exported_at: '2026-07-08T12:00:00Z', data: {} };
+    expect(flags(blank)).toEqual([]);
+    // Settings-only (what a fresh install exports) is not content either.
+    expect(flags({ ...blank, data: { settings: fixture.data.settings } })).toEqual([]);
+    // Export never carries it: the vault shape is unchanged.
+    expect(recordsToVault(vaultToRecords(fixture, { now: NOW }), { now: NOW }).data).not.toHaveProperty('firstrun');
   });
 
   it('rejects a non-vault file BEFORE the destructive replace (mirrors bot-mode validateVault)', () => {
