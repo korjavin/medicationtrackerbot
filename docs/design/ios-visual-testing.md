@@ -1,0 +1,332 @@
+# Design: iOS autonomous visual testing
+
+**Epic:** iOS autonomous visual testing (label `ios`) · **Date:** 2026-10-19 · **Status:** proposal, MVP tasks filed
+**Owner ask:** agents must be able to screenshot, compare and test the iOS app without the owner's phone.
+
+## Problem
+
+The only device test today is the owner installing a TestFlight build and sending
+screenshots. bd `med-pe9g` (food sheet under the keyboard) burned three TestFlight
+rounds because every hypothesis was tested by a human: the first two fixes targeted
+the sheet's keyboard dock; the real cause was iOS focus-zoom on a 14px input
+(PR #1115, `docs/ios.md → Keyboard and focus zoom`). Nothing in CI could have
+shown it: Vitest + jsdom has no layout, zoom, keyboard or `visualViewport`, and
+the macOS job only compiles the app.
+
+The owner expects "a million" more of these: workout pages, charts, settings,
+sheets. They are all **layout** bugs, which means they are all visible in a
+screenshot taken on a real WebKit with a real keyboard at a real iPhone width.
+That is what this design produces, as CI artifacts an agent can read.
+
+## Goals / non-goals
+
+- An agent can get a full screenshot matrix of the app on the iOS Simulator for
+  any branch with one `gh` command, read the PNGs, and file beads with evidence.
+- A developer agent can verify an iOS layout fix on the Simulator before the
+  owner is asked for anything.
+- Cheap Linux checks catch the pure-CSS share of the bugs on every PR.
+- Not a goal: replacing the owner's phone for native-only paths (list at the end),
+  pixel-exact goldens across OS updates, or testing cloud mode in the Simulator
+  (needs a passkey + account; local mode exercises the same web UI).
+
+## Tiers
+
+| Tier | Where | Trigger | Catches | Misses |
+|---|---|---|---|---|
+| 0. Static iOS-hazard lint | ubuntu, Vitest architecture test | every web PR | `100vh`, fixed-bottom without `env(safe-area-inset-bottom)`, `user-scalable=no`, inputs styled under 16px | anything dynamic |
+| 1. Playwright WebKit, iPhone emulation | ubuntu | every PR touching `web/**` (path filter) | CSS layout at iPhone widths, horizontal overflow, clipped headers, chart overflow, modal stacking, DOM probes | focus-zoom, the keyboard, `visualViewport` panning, safe-area bands, rubber-band, WKWebView-only behaviour, iOS fonts |
+| 2. iOS Simulator, XCUITest | `macos-26` | opt-in: PR label `ios-visual`, `workflow_dispatch`, nightly on master | everything in tier 1 **plus** focus-zoom, real keyboard, visual viewport, safe areas, the native first-run screens, the shell's bands | Face ID, App Attest, push, camera, Watch data |
+| 3. Owner's phone | TestFlight | after tiers pass | native-only paths | — |
+
+Tier 2 is the MVP; it is the only tier that would have caught `med-pe9g`. Tiers
+0 and 1 are cheap follow-ups that reuse the tier-2 scene driver.
+
+## Tier 2: the Simulator matrix (MVP)
+
+### Pieces
+
+1. **QA bundle** — `QA=1 ios/bundle-web.sh <id>` additionally copies
+   `tests/visual/driver.js` to `ios/LocalApp/qa/driver.js`,
+   `tests/fixtures/vault-v1.json` to `ios/LocalApp/qa/vault-v1.json`, and adds
+   `<script src="/qa/driver.js">` to the local `index.html` (CSP is
+   `script-src 'self'`, so no CSP change). Without `QA=1` nothing changes:
+   `/qa/*` is simply a 404 on `wgapp://local`, and the TestFlight archive is
+   built without it.
+2. **In-page QA driver** (`tests/visual/driver.js`, classic script, runs after
+   the app boots): reads `?qa=<scene>` from `location.search`, and
+   - **seeds** the vault once: if the local store holds no user content
+     (`hasUserContent` in `web/domain/vault.js`), it fetches `/qa/vault-v1.json`,
+     shifts every ISO date by `(today − exported_at)` so Today / Food / charts
+     show data, and imports it through the same path as Settings → Backup &
+     import (`SettingsImportExport.import` with a `DataTransfer`-built file on
+     `#importexport-import-file`, auto-confirming the in-page dialog), or, if
+     that proves brittle, through `vaultToRecords` + the local records port;
+   - **navigates** to the scene with the app's own entry points
+     (`switchTab`, `handleDeepLinks` with `#bp`-style hashes,
+     `openSettingsPage`, clicking `#add-food-inline-btn`,
+     `activateTabGroup` for sub-tabs) and waits for the scene's `ready`
+     predicate (an element visible, a chart canvas with width > 0);
+   - runs **probes** and publishes the result: a visually hidden but
+     accessible node `<div role="status" id="wg-qa-ready" aria-label="<json>">`
+     where the JSON is `{scene, ok, probes: {...}}`. XCUITest and Playwright
+     both wait for that node; XCUITest reads the label as the probe report.
+   - Probes (all pure DOM arithmetic, no screenshots):
+     `scale = visualViewport.scale` (must be 1), `hOverflow =
+     documentElement.scrollWidth − innerWidth` (must be 0), `clippedTop` =
+     any `.wg-sheet__header, .wg-appbar, .wg-pagebar` with `top < 0`,
+     `canvasOverflow` = any `canvas` wider than its parent,
+     `focusUnderKeyboard` = the focused element's bottom beyond
+     `visualViewport.height + offsetTop`, `bottomNavCovered` =
+     `.wg-tabbar` bottom beyond `innerHeight`.
+   - `window.__wgQA` is the one new global (CLAUDE.md rule 4: allowlist entry
+     with justification; it only exists in the QA bundle).
+3. **Shell hook** (`ios/App/Shell.swift`, `#if DEBUG` only): when the launch
+   argument `-wgQAScene <name>` is present, `home` becomes
+   `wgapp://local/?qa=<name>`; `webView.isInspectable = true` under the same
+   `#if DEBUG`. Local mode itself needs no change: `UserDefaults` reads launch
+   arguments, so `-wgLocalMode 1` opens the bundled app, and `-wgLocalLockOn 0`
+   keeps the lock off. The simulator build is `Debug`; `xcodebuild archive` is
+   `Release`, so none of this ships.
+4. **UI test target** (`ios/project.yml` → `MedTrackerUITests`,
+   `type: bundle.ui-testing`, `ios/UITests/VisualQATests.swift`). One test per
+   scene, generated from the scene list in `tests/visual/scenes.json` (the
+   same file the driver reads; the Swift side reads it from the test bundle).
+   For each scene: `app.launchArguments = ["-wgLocalMode","1","-wgQAScene",
+   name]`, `app.launch()`, wait for `app.webViews.otherElements["wg-qa-ready"]`
+   (XCUITest exposes WKWebView DOM as accessibility elements), perform the
+   scene's **native steps** (`typeText` into `app.webViews.textFields[...]`
+   brings up the real keyboard; `app.keyboards.firstMatch.waitForExistence`
+   before the shot), then `XCUIScreen.main.screenshot()` as an attachment with
+   `lifetime = .keepAlways`, named `<scene>.png`, plus the probe JSON as a
+   `.json` attachment. Native-only scenes (first-run, local intro) launch
+   without `-wgLocalMode` and tap SwiftUI buttons by label.
+5. **Workflow** — a second job `visual` in `.github/workflows/ios.yml`:
+   - `on.workflow_dispatch.inputs.visual` (boolean), `pull_request.types:
+     [opened, synchronize, labeled]` with `if: contains(labels, 'ios-visual')`,
+     and `schedule` nightly on master. The existing `build` job is untouched.
+   - Steps: checkout → `QA=1 ios/bundle-web.sh` → `xcodegen generate` →
+     `defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool
+     false` (otherwise the software keyboard may never appear) → for each
+     device in the matrix: `xcrun simctl boot`, `simctl status_bar <udid>
+     override --time 9:41 --batteryState charged --batteryLevel 100 --wifiBars
+     3 --cellularBars 4`, `simctl ui <udid> appearance dark`, `xcodebuild test
+     -scheme MedTracker -only-testing:MedTrackerUITests -destination
+     'platform=iOS Simulator,id=<udid>' -resultBundlePath
+     build/<device>.xcresult CODE_SIGNING_ALLOWED=NO` → `xcrun xcresulttool
+     export attachments --path build/<device>.xcresult --output-path
+     shots/<device>` → compare step (below) → `actions/upload-artifact`
+     named `ios-visual` (`retention-days: 90`) → `$GITHUB_STEP_SUMMARY` table.
+   - Devices: `iPhone 16e` (390×844, the smallest current width) and
+     `iPhone 17 Pro Max` (440×956). The owner's phone is an iPhone 11-class
+     414×896 on iOS 18.7, which the iOS 26 runtime shipped with Xcode 26 does
+     not simulate; see the owner decision on installing the iOS 18 runtime.
+   - Appearance: the app is dark in both system appearances
+     (`project.yml`, `UIStatusBarStyle`), so there is no light/dark axis. The
+     axes are **scene × device × keyboard state**.
+6. **Compare step** (`tests/visual/compare.mjs`, `pixelmatch` + `pngjs`, two
+   small dev deps): downloads the latest successful master artifact of this
+   workflow (`gh run download` with `actions: read`), diffs each
+   `<device>/<scene>.png`, writes `diff/<device>/<scene>.png` and
+   `summary.json` (`changedRatio` per scene) and `summary.md`. No goldens in
+   git: the reference is always master's last run. First run on a branch with
+   no master artifact just reports "no reference". Probe failures become
+   `::warning` annotations with the scene name; the job stays green (a
+   screenshot run is evidence for an agent, not a gate — see owner decisions).
+
+### Scenes (MVP, 15)
+
+`tests/visual/scenes.json` is the source of truth. Steps are the driver's
+unless marked *native*. Every scene starts from a fresh launch of the seeded
+vault, so order does not matter and one failure does not poison the rest.
+
+| # | Scene | Steps | Why |
+|---|---|---|---|
+| 1 | `native-firstrun` | *native*: launch with no args on a fresh install, screenshot | SwiftUI invite screen, Only-on-this-device button, disclaimer footer at small heights |
+| 2 | `native-local-intro` | *native*: tap "Only on this device", screenshot | long ScrollView with the lock toggle |
+| 3 | `today` | `switchTab('today')` | hero, next-up, vitals strip, tab bar over the home indicator |
+| 4 | `food-log` | `switchTab('food')` | daynav, macros card, meal rows |
+| 5 | `food-add-sheet` | 4 + click `#add-food-inline-btn` | sheet at rest: header, width, corners |
+| 6 | `food-add-sheet-keyboard` | 5 + *native*: tap `#food-add-search`, type the fixture product's first letters, wait for keyboard | the `med-pe9g` bug: zoom, header, list under the keyboard |
+| 7 | `food-add-sheet-keyboard-empty` | 6 + *native*: clear the field | the third `med-pe9g` screenshot (sheet vanished) |
+| 8 | `meds-schedule` | `switchTab('medications')`, sub-tab `schedule` | schedule rows, time chips |
+| 9 | `workouts-plans` | `switchTab('workouts')`, sub-tab `groups` | plan cards, rotation rows ("scaling on workout pages") |
+| 10 | `workouts-stats` | sub-tab `stats` | `wg-workout-chart` canvas width in a narrow view |
+| 11 | `workout-session-log` | open the fixture's session → per-set logging | number inputs + *native* numeric keyboard on the set row |
+| 12 | `health-bp` | `handleDeepLinks('#bp')` | `wg-bp-chart`, range chips, reading list |
+| 13 | `health-vitals` | `handleDeepLinks('#health')` | sleep/steps charts stacked |
+| 14 | `settings-home` | `switchTab('settings')` | grouped rows, pagebar back |
+| 15 | `settings-backup` | `openSettingsPage('backup')` | file inputs, long copy, local-only rows |
+
+Phase 2 adds: `journey`, `meds-history` with the take-dose sheet, `weight`,
+`settings-targets` (number fields at 15px — focus-zoom regression check), an
+in-page `safeConfirm` dialog, the BYOK key form, landscape is out
+(portrait-only app).
+
+### Runtime and cost
+
+`macos-26` is billed at 10× Linux. Per run: `brew install xcodegen` ~1 min
+(cache the bottle), `xcodebuild test` builds the app + UI test bundle ~4–6
+min, simulator boot ~1 min per device, 15 scenes × ~8 s (launch, seed on the
+first scene, settle, shot) ≈ 2 min per device, export + compare + upload ~1
+min. **≈ 12–16 min per run, ≈ $1–1.5** at list price. Hence opt-in only; the
+nightly master run is the one unconditional spend (~$40/month).
+
+### Flake risks and mitigations
+
+- **Software keyboard does not show** (hardware keyboard connected): the
+  `defaults write` above, plus `app.keyboards.firstMatch.waitForExistence(5)`
+  and a probe `keyboardShown` so a keyboard scene without a keyboard is a
+  reported failure, not a silent wrong screenshot.
+- **First launch slow / seed still running**: the ready node is published only
+  after the seed's `datastore:changed` settles; XCUITest waits up to 30 s.
+- **Time-dependent text** ("Now" chip, relative days, status bar): status bar
+  is overridden; in-page time is left as diff noise in MVP (threshold
+  `changedRatio > 0.5 %` to flag), Phase 2 freezes `Date` from the driver.
+- **Simulator boot hangs** on the runner: `simctl bootstatus -b` with a
+  timeout; `timeout-minutes: 40` on the job; `cancel-in-progress` already set.
+- **Accessibility ids drift**: the driver uses app entry points, not CSS
+  paths, and the only selectors XCUITest needs are the search field and the
+  set-row input; scenes.json carries them in one place.
+- **xcresult format changes** across Xcode: `xcresulttool export attachments`
+  is the Xcode 16+ API; pin by asserting the export produced ≥ 1 PNG.
+
+## Tier 1: Playwright WebKit on Linux (follow-up, P2)
+
+- `tests/visual/playwright/`: `playwright@1.56` (same version as `e2e/`),
+  `npx playwright install --with-deps webkit`. A ~20-line static server over
+  the `QA=1` bundle with the same routing as `LocalOrigin.file(for:)`
+  (`/` → index.html, `/static/*`, `/domain/*`, else `cloud/*`).
+- An `addInitScript` stub for `window.webkit.messageHandlers.wgNative.postMessage`
+  (answers `ping` → `pong`, `notifications.*` → ok, `health.*` → unsupported),
+  so `native/index.js` picks the `ios` platform and the page takes the same
+  code paths as in the shell, including `noFocusZoom`.
+- `devices['iPhone 14']`-style descriptors for the same two widths, dark
+  `colorScheme`, screenshots per scene via `?qa=<scene>` and the same ready
+  node; probes read from the node's `aria-label`.
+- Runs in a new `visual-web.yml` on `ubuntu-latest` with the `frontend-tests`
+  path filter; artifact `web-visual`. Linux WebKit renders with different
+  fonts, so its images are never diffed against tier 2, only against its own
+  master run.
+- Honest limits: it can type into the search field but there is no keyboard,
+  no `visualViewport` shrink, no focus-zoom, no safe-area insets (the shell's
+  bands) — it would **not** have caught `med-pe9g`. It catches overflow,
+  clipping, chart widths and stacking at iPhone widths in ~3 Linux minutes.
+
+## Tier 0: static iOS-hazard lint (follow-up, P2)
+
+`web/static/js/tests/architecture.ios-hazards.test.js`, same shape as the
+other architecture tests (scan `web/static/css`, `web/cloud/css`,
+`web/static/index.html`), no allowlist unless a rule needs one:
+
+- no `100vh` / `100svh` in sheet and overlay rules (use `100dvh` with the
+  visual-viewport dock), reported with file:line;
+- `position: fixed` + `bottom: 0` only together with
+  `env(safe-area-inset-bottom)` in the same rule or its token;
+- the viewport meta never carries `user-scalable=no` or `maximum-scale` in
+  markup (the iOS-only cap is applied at runtime by `noFocusZoom`);
+- input selectors (`input`, `select`, `textarea`, `.wg-input*`) whose
+  resolved `font-size` token is under 16px get a comment pointing at
+  `noFocusZoom` — informational, since the runtime cap makes it safe.
+
+## The review step: from PNGs to beads
+
+Automated probes cover the measurable half. The other half is an agent reading
+the images. A **visual QA pass** is a reviewer agent (opus-class is enough;
+it reads images) with this checklist, applied to every scene × device:
+
+1. Header or app bar clipped at the top, or sitting under the status bar.
+2. Any horizontal scroll or a row whose right edge is cut (chips, chart
+   legends, long med names).
+3. Content under the keyboard or under the home-indicator band; the tab bar
+   overlapping content; a sheet's primary button hidden behind the keyboard.
+4. Page wider than the screen (zoomed): the sheet's side margins disappear.
+5. Chart canvas wider than its card, axis labels overlapping, legend wrapping
+   onto the plot.
+6. Text truncated mid-word, two-line labels in single-line chips.
+7. Touch targets visibly under 44pt (tiny close buttons, chevrons).
+8. Sheet taller than the screen with no visible scroll affordance.
+9. Dialog or toast off-screen or behind the keyboard.
+10. Empty state where the seeded fixture should have shown data (a seeding or
+    routing bug, not a layout bug — file it anyway).
+
+Each finding becomes a bead: `bd create "<scene> on <device>: <symptom>"
+--type bug --labels ios,visual --parent <epic> -p 2` with the artifact path,
+run URL and the scene name in the description, and the PNG saved under the
+scratchpad like the `med-pe9g` shots. Group by root cause, not by scene:
+the three `med-pe9g` screenshots were one bead.
+
+## How the orchestrator uses it
+
+- **Get a matrix for a branch:** `gh workflow run ios.yml --ref <branch> -f
+  visual=true`, then `gh run watch <id>` (or `gh run list --workflow ios.yml
+  --branch <branch>`), then `gh run download <id> -n ios-visual -D
+  <scratchpad>/ios-visual/<id>`. Read `summary.md` first (probe failures and
+  the biggest diffs), then the PNGs.
+- **On a PR:** add the `ios-visual` label; the artifact lands on the PR's
+  run and the job summary shows the table. The job never blocks merge.
+- **Developer verification of an iOS layout fix** (replaces "ask the owner
+  for a TestFlight round"): label the PR, wait for green, download, read the
+  scene(s) the bead names and their master diffs, attach the before/after
+  PNGs to the PR description. Only then does the orchestrator consider the
+  bead done; the owner's phone is asked for only if the fix touches something
+  in the list below.
+- **Nightly master run** gives the reviewer agent a standing matrix to audit
+  (a `/orchestrate` grooming task: "run the visual QA pass on last night's
+  artifact and file what you see").
+
+### What still needs the owner's device
+
+- Face ID / Touch ID for the local lock (the Simulator can enrol a face, but
+  only from the Simulator app's menu, not from `simctl`).
+- App Attest / DeviceCheck (no Simulator support — the anonymous trial path).
+- Push: no APNs delivery to a Simulator; `simctl push` only injects a payload.
+  Local notifications **do** work in the Simulator and are covered.
+- Camera and microphone (barcode scan, meal photo, voice): no capture device.
+- Apple Watch data in HealthKit (manual Health entries work in the Simulator;
+  the Watch-sourced sleep and workout overlap rules do not).
+- Share sheet into real Files/iCloud, iCloud backup → restore, storage
+  eviction, TestFlight update-in-place, third-party keyboards, real device
+  performance.
+
+## Staging
+
+- **MVP (filed as P1):** QA driver + fixture seeding; shell hooks + UI test
+  target; the `visual` job with two devices and the artifact; the compare
+  step; the runbook + checklist in `docs/`.
+- **Phase 2 (P2):** Playwright WebKit tier; static hazard lint; frozen in-page
+  clock and masked regions for quieter diffs; the extra scenes.
+- **Phase 3 (P3):** the same driver on the Android shell with
+  `reactivecircus/android-emulator-runner` on ubuntu (cheap); Dynamic Type /
+  larger text axis if the owner wants it.
+
+## Decisions for the owner
+
+1. **Spend:** opt-in (label / dispatch) plus one nightly master run, ≈ $1–1.5
+   per run on `macos-26`. Alternative: no nightly, agents dispatch on demand.
+2. **Reference images:** compare against master's latest artifact (no files in
+   git, 90-day retention) — recommended — or commit goldens (git LFS, needs a
+   policy for updating them on every intended UI change).
+3. **Debug-only QA hooks in the shell** (`#if DEBUG` launch argument and
+   `isInspectable`): acceptable, given the TestFlight archive is Release and
+   never carries them?
+4. **Your phone's width:** add the iOS 18 runtime to the runner (+3–5 min and
+   a multi-GB download per run, or a cached install) to simulate an iPhone
+   11-class 414pt screen, or accept 390pt + 440pt as the bracket.
+5. **Gate or evidence:** the job stays green on probe failures and diffs (MVP).
+   Should probe failures (`scale ≠ 1`, horizontal overflow) fail the job once
+   the baseline is clean?
+
+### Defaults taken (2026-10-19)
+
+Defaulted by the orchestrator while the owner was away; the owner may revisit
+any of them.
+
+1. **Spend:** opt-in only — PR label `ios-visual` plus `workflow_dispatch`.
+   The nightly master run is deferred.
+2. **Reference images:** master's latest `ios-visual` artifact; no goldens in git.
+3. **Debug-only QA hooks:** acceptable (`#if DEBUG` launch argument and
+   `isInspectable`; the Release archive never carries them).
+4. **Devices:** 390pt (`iPhone 16e`) + 440pt (`iPhone 17 Pro Max`) on the
+   runner's default runtime; the iOS 18 runtime (414pt) is deferred.
+5. **Gate or evidence:** evidence only — probe failures and diffs never fail
+   the job in the MVP.
