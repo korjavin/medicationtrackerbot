@@ -194,18 +194,21 @@ class MainActivity : Activity() {
         }
     }
 
-    /** Every startActivity lands here: this app's own screens, except a link opened in the browser. */
+    /**
+     * Every startActivity lands here: this app's own screens, except a link opened in the browser.
+     * Marked only once the launch went through: a failed one (callers catch it) exempts nothing.
+     */
     override fun startActivityForResult(intent: Intent, requestCode: Int, options: Bundle?) {
-        if (!intent.hasCategory(Intent.CATEGORY_BROWSABLE)) outbound = true
         super.startActivityForResult(intent, requestCode, options)
+        if (!intent.hasCategory(Intent.CATEGORY_BROWSABLE)) outbound = true
     }
 
     /** PrintManager.print opens the print screen through here. */
     override fun startIntentSender(
         intent: IntentSender, fillInIntent: Intent?, flagsMask: Int, flagsValues: Int, extraFlags: Int, options: Bundle?,
     ) {
-        outbound = true
         super.startIntentSender(intent, fillInIntent, flagsMask, flagsValues, extraFlags, options)
+        outbound = true
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
