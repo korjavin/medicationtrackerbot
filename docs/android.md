@@ -803,7 +803,10 @@ records, the warm-unlock key — cloud mode's posture is unchanged), the shared
 `Local Storage` leveldb (all origins write it), and every other prefs file
 (`shell` = account host, `diag` = PII log, `reminders`, `health` anchors). So
 a restore loses UI prefs and Health Connect anchors; the import re-reads from
-scratch on missing anchors, as after an iOS restore. Never widen the rules to
+scratch on missing anchors, as after an iOS restore. The `wgLocalMode` flag
+lives in `shell` too, so a restored phone opens on first run: *Only on this
+device* → **Start** finds the restored records (Start never wipes the local
+origin). Never widen the rules to
 `app_webview` or `shared_prefs`.
 
 Limits the copy states: Google's cloud backup needs the phone's backup
@@ -814,7 +817,7 @@ device-to-device transfer has no cap. The weekly export nudge stays.
 `pm clear`), run once per rule section (local transport with
 `is_encrypted=true` = cloud backup, `is_device_transfer=true` = D2D): a cloud
 session writes an IndexedDB db + Local Storage key on the account origin (the
-shell writes its prefs), the bundled local app (`--ez wgLocalApp true`)
+shell writes its prefs), the bundled local app (`--ez wgLocalMode true`)
 writes a marker on the local origin; the scenario checks all of these exist,
 then `bmgr backupnow` → the backup set (the transport's tar under
 `com.android.localtransport/files/1/_full/<pkg>`): every tar entry on the

@@ -3,8 +3,8 @@
 // → pm clear → bmgr restore, once per rule section (cloud backup, device transfer). PASS = the
 // local marker is back AND nothing of the account origin, Local Storage or any prefs file but
 // wg_trial.xml is in the backup set or the restored data dir.
-// Local data comes from the bundled local app (bd med-nt9p.32.2, the debug-only wgLocalApp launch
-// extra) until the shell's local-mode switch (bd med-nt9p.32.4) lands. Not in `all`: it ends with pm clear.
+// Local data comes from the bundled local app (bd med-nt9p.32.4, the debug-only wgLocalMode launch
+// extra, persisted like the first-run Start). Not in `all`: it ends with pm clear.
 
 const MARK = `qa-backup-${Date.now()}`;
 const LOCAL_DIR = 'https_appassets.androidplatform.net_0.indexeddb.leveldb';
@@ -54,7 +54,7 @@ export default async function localBackup(ctx) {
   const local = async () => {
     await shell(`am force-stop ${pkg}`);
     await ctx.sleep(2000); // the dead process's devtools socket must go before attaching
-    await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity --ez wgLocalApp true`);
+    await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity --ez wgLocalMode true`);
     const page = await ctx.attachPage();
     if (!page || !page.url().startsWith('https://appassets.androidplatform.net/')) throw new Error(`not on the local origin: ${page?.url()}`);
     // The bundled app has opened its own IndexedDB (localdb) by then: same leveldb dir as the marker.
