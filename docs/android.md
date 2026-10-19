@@ -480,8 +480,11 @@ the same way.
   As on iOS only lost ready content fails a scene (one retry each, from
   a fresh `pm clear`; `firstError` keeps attempt 1's failure); the probes are
   findings. First full run 39257278592: every scene shot, all passing on
-  retry; the Settings-page scenes lose their page on a seeded cold start
-  (bd med-nt9p.39). The scenario fails at the end if any scene did.
+  retry; the Settings-page scenes lost their page on a seeded cold start
+  (bd med-nt9p.39: WebView landed the app's own `history.back()` 3-4 s late
+  and it popped the page pushed meanwhile; `MessengerAdapter.historyPush` /
+  `historyBack` now hold pushes until it lands — run 39265321642 passes every
+  scene on attempt 1). The scenario fails at the end if any scene did.
 
 ### Local cloud on the runner (bd med-nt9p.24)
 
