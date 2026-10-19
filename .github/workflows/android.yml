@@ -209,6 +209,16 @@ jobs:
           trap 'rm -f "$ANDROID_UPLOAD_KEYSTORE"' EXIT
           gradle --no-daemon bundleRelease assembleRelease
 
+      # bd med-nt9p.32.6: the QA driver (QA=1, android-qa.yml only) never reaches a shipped build.
+      - name: Release APK and AAB carry no QA driver
+        if: github.event_name == 'workflow_dispatch' && steps.release.outputs.sign == 'true'
+        run: |
+          for f in android/app/build/outputs/apk/release/app-release.apk android/app/build/outputs/bundle/release/app-release.aab; do
+            list=$(unzip -l "$f")
+            grep -qE ' (base/)?assets/web/index\.html$' <<<"$list" || { echo "::error::no local bundle in $f"; exit 1; }
+            if grep -qE ' (base/)?assets/web/cloud/qa/' <<<"$list"; then echo "::error::QA driver in $f"; exit 1; fi
+          done
+
       # Kept for the first, manual Play Console upload of a new app.
       - name: Upload release AAB
         if: github.event_name == 'workflow_dispatch' && steps.release.outputs.sign == 'true'

@@ -6,8 +6,10 @@ import { _android as android } from 'playwright';
 import { mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-// smoke last: it claims the run's one invite (bd med-nt9p.25).
-const SCENARIOS = ['firstrun', 'native-dark', 'native-fontscale', 'back-exit', 'claim-page', 'not-found', 'external-link', 'authn-probe', 'smoke'];
+// smoke last: it claims the run's one invite (bd med-nt9p.25). local-smoke (bd med-nt9p.32.6) is the
+// passkey-free full-app run; local-visual (one shot per scene) and the other local-* run on their own.
+const SCENARIOS = ['firstrun', 'native-dark', 'native-fontscale', 'back-exit', 'claim-page', 'not-found', 'external-link', 'authn-probe', 'local-smoke', 'smoke'];
+const LOCAL_ORIGIN = 'https://appassets.androidplatform.net';
 const [want = 'all', out = 'out'] = process.argv.slice(2);
 const pkg = process.env.QA_PKG || 'com.example.medtracker';
 const inputs = {
@@ -46,6 +48,8 @@ const ctx = {
   log,
   pkg,
   inputs,
+  out,
+  LOCAL_ORIGIN,
   claimUrl: process.env.QA_CLAIM_URL,
   results,
   applyInputs,
@@ -57,6 +61,27 @@ const ctx = {
     await device.screenshot({ path: join(shotsDir, file) });
     shots.push(file);
     log('shot', file);
+  },
+  /**
+   * Device screenshot once two frames a second apart match (cap `cap` s): the software-GPU
+   * emulator paints seconds behind the DOM. Not for a focused field (the caret blinks: hits the cap).
+   * Writes `file` (default screenshots/<scenario>-<name>.png); returns the seconds it waited.
+   */
+  async stableShot(name, { file, cap = 15 } = {}) {
+    const path = file || join(shotsDir, `${ctx.scenario}-${name}.png`);
+    await ctx.sleep(700);
+    let last = await device.screenshot();
+    let n = 0;
+    for (; n < cap; n++) {
+      await ctx.sleep(1000);
+      const next = await device.screenshot();
+      if (next.equals(last)) break;
+      last = next;
+    }
+    writeFileSync(path, last);
+    shots.push(path.slice(path.lastIndexOf('/') + 1));
+    log('shot', path, `stable after ${n}s`);
+    return n;
   },
   /** One reported step; a failure is recorded and rethrown, so the scenario stops there. */
   async step(name, fn) {
@@ -79,6 +104,41 @@ const ctx = {
     await shell(`am force-stop ${pkg}`);
     await shell(`am start -W -a com.example.medtracker.SWITCH_ACCOUNT -n ${pkg}/com.example.medtracker.MainActivity${softAuthn ? ' --ez qaSoftAuthn true' : ''}`);
     await ctx.waitFor({ text: 'Open' });
+  },
+  /**
+   * Cold start in local mode (bd med-nt9p.32.6) with the debug-only extras of bd med-nt9p.32.4:
+   * `--ez wgLocalMode true` (extra: false relaunches on the persisted pref alone) and, with a
+   * scene, `--es wgQAScene <scene>` (the QA driver seeds the golden vault, navigates and publishes
+   * #wg-qa-ready). Returns the page once the ready node is attached (scene) or the bottom nav shows.
+   */
+  async launchLocal(scene, { extra = true } = {}) {
+    await shell(`am force-stop ${pkg}`);
+    await ctx.sleep(2000); // the dead process's devtools socket must go before attaching
+    const extras = `${extra ? ' --ez wgLocalMode true' : ''}${scene ? ` --es wgQAScene ${scene}` : ''}`;
+    await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity${extras}`);
+    const page = await ctx.attachPage();
+    if (!page) throw new Error('no WebView page (see the run log)');
+    await page.waitForURL((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`), { timeout: 30_000 });
+    await ctx.waitLocalReady(page, scene);
+    return page;
+  },
+  /** The local app is up: #wg-qa-ready attached (scene; the first one seeds + reloads) or the bottom nav visible. */
+  async waitLocalReady(page, scene) {
+    if (scene) await page.locator('#wg-qa-ready').waitFor({ state: 'attached', timeout: 90_000 });
+    else await page.locator('.wg-tabbar').first().waitFor({ state: 'visible', timeout: 60_000 });
+  },
+  /** A real touch on a DOM element (so the IME opens like a finger's tap): CSS rect → the WebView's screen bounds. */
+  async tapElement(page, selector) {
+    const rect = await page.evaluate((s) => {
+      const b = document.querySelector(s).getBoundingClientRect();
+      return { x: b.left + b.width / 2, y: b.top + b.height / 2, w: innerWidth };
+    }, selector);
+    const { bounds } = await device.info({ clazz: 'android.webkit.WebView' });
+    const k = bounds.width / rect.w;
+    await device.input.tap({ x: Math.round(bounds.x + rect.x * k), y: Math.round(bounds.y + rect.y * k) });
+  },
+  async imeShown() {
+    return /mInputShown=true|mIsInputViewShown=true|isInputViewShown=true/.test(await shell('dumpsys input_method'));
   },
   /**
    * Wait for a selector, dismissing system "<app> isn't responding" dialogs on the way: the

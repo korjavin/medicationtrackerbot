@@ -76,9 +76,9 @@ export default async function smoke(ctx) {
   });
   r.keyboardUpFromFocus = (await page.evaluate(() => innerHeight)) < before - 100;
   await ctx.step('tap systolic → keyboard up', async () => {
-    await tapElement(ctx, page, '#bp-systolic');
+    await ctx.tapElement(page, '#bp-systolic');
     const end = Date.now() + 10_000;
-    const up = async () => (await page.evaluate(() => innerHeight)) < before - 100 || imeShown(ctx);
+    const up = async () => (await page.evaluate(() => innerHeight)) < before - 100 || ctx.imeShown();
     while (Date.now() < end && !(await up())) await sleep(500);
     r.keyboard = await page.evaluate(() => {
       const el = document.activeElement;
@@ -270,19 +270,4 @@ async function waitForVault(page) {
   if (!(await page.evaluate(() => Boolean(window.MedTrackerCloud && window.MedTrackerCloud.ctx)))) {
     throw new Error('boot resolved without an unlocked vault');
   }
-}
-
-// A real touch (so the IME opens like a finger's tap): CSS rect → the WebView's on-screen bounds.
-async function tapElement(ctx, page, selector) {
-  const rect = await page.evaluate((s) => {
-    const b = document.querySelector(s).getBoundingClientRect();
-    return { x: b.left + b.width / 2, y: b.top + b.height / 2, w: innerWidth };
-  }, selector);
-  const { bounds } = await ctx.device.info({ clazz: 'android.webkit.WebView' });
-  const k = bounds.width / rect.w;
-  await ctx.device.input.tap({ x: Math.round(bounds.x + rect.x * k), y: Math.round(bounds.y + rect.y * k) });
-}
-
-async function imeShown(ctx) {
-  return /mInputShown=true|mIsInputViewShown=true|isInputViewShown=true/.test(await ctx.shell('dumpsys input_method'));
 }

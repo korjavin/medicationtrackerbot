@@ -12,7 +12,7 @@ on:
       scenario:
         description: "Scenario (android/qa/scenarios/<name>.mjs), or all of them"
         type: choice
-        options: [all, firstrun, native-dark, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe, smoke, local-spike, local-app, local-backup]
+        options: [all, firstrun, native-dark, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe, smoke, local-smoke, local-visual, local-spike, local-app, local-backup]
         default: all
       font_scale:
         description: "System font scale applied before each scenario"
@@ -42,7 +42,7 @@ permissions:
 jobs:
   qa:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45 # local-visual: ~20 cold starts
     env:
       CLOUD_BASE_DOMAIN: qa.test # public placeholder, NOT the deployment's base
       QA_PKG: com.example.medtracker # ANDROID_PACKAGE stays unset → build.gradle.kts placeholder
@@ -66,7 +66,7 @@ jobs:
       - name: Bundle the web app for local mode (QA=1)
         env:
           WG_BUNDLE_OUT: android/app/src/main/assets/web
-          WG_BUNDLE_PREFIX: android
+          WG_BUNDLE_PREFIX: android-qa # distinct from android.yml's line: this bundle never ships
           QA: '1'
         run: ios/bundle-web.sh "${{ github.run_number }}"
 
