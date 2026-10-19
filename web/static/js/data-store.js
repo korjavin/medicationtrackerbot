@@ -19,6 +19,11 @@
     // Keys whose tag invalidation arrived while an optimistic write was
     // pending: evicted once the last handle on the key settles (bd med-va47).
     const deferredEvict = new Set();
+    // Per-key tail of the applyOptimistic read→mutate→write sections. Two
+    // overlapping writes on one key (deleteWithUndo's handle for the next
+    // row + the flushed delete's own _deleteXApi re-apply) otherwise both
+    // read the same prior and the later write resurrects the other's row.
+    const optimisticLocks = new Map();
     const keyToTags = new Map();
     const tagToKeys = new Map();
     // tag → Set<prefix>. Lets `invalidateByTag(tag)` evict every concrete
@@ -142,6 +147,21 @@
                 return { commit: async () => {}, rollback: async () => {} };
             }
 
+            const before = optimisticLocks.get(key) || Promise.resolve();
+            let release;
+            const mine = new Promise((r) => { release = r; });
+            const tail = before.then(() => mine);
+            optimisticLocks.set(key, tail);
+            await before;
+            try {
+                return await this._applyOptimisticLocked(key, mutator, tags);
+            } finally {
+                release();
+                if (optimisticLocks.get(key) === tail) optimisticLocks.delete(key);
+            }
+        },
+
+        async _applyOptimisticLocked(key, mutator, tags) {
             let prior = null;
             try {
                 prior = await this.getCached(key);
@@ -220,7 +240,10 @@
                     } finally {
                         decrementPending();
                     }
-                    await flushDeferredEvict();
+                    // ponytail: a rollback drops a held-back invalidation
+                    // rather than evicting — evicting would make Undo wait on
+                    // a refetch. The next SWR load still revalidates.
+                    if (!pendingOptimistic.has(key)) deferredEvict.delete(key);
                     self.requestTabRefresh(tags, 'optimistic-rollback');
                 }
             };

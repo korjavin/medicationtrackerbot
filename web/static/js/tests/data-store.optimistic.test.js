@@ -471,4 +471,21 @@ describe('DataStore.applyOptimistic', () => {
       cleanup();
     }
   });
+
+  it('overlapping applyOptimistic calls on one key compose instead of losing an update (med-va47)', async () => {
+    const { window, cacheMap, cleanup } = loadDataStoreEnv({
+      initialCache: { bp: [{ id: 1 }, { id: 2 }, { id: 3 }] }
+    });
+
+    try {
+      const without = (id) => (prev) => prev.filter((r) => r.id !== id);
+      await Promise.all([
+        window.DataStore.applyOptimistic('bp', without(1), ['bp']),
+        window.DataStore.applyOptimistic('bp', without(2), ['bp'])
+      ]);
+      expect(cacheMap.get('bp')).toEqual([{ id: 3 }]);
+    } finally {
+      cleanup();
+    }
+  });
 });
