@@ -19,6 +19,11 @@
     // Keys whose tag invalidation arrived while an optimistic write was
     // pending: evicted once the last handle on the key settles (bd med-va47).
     const deferredEvict = new Set();
+    // key → mutators of its still-pending applyOptimistic handles, in apply
+    // order. A refresh asked for while a handle is pending (deferredEvict)
+    // fetches anyway and replays these over the server payload, so another
+    // write's refresh lands now instead of after the Undo window (bd med-z075).
+    const pendingMutators = new Map();
     // Per-key tail of the applyOptimistic read→mutate→write sections. Two
     // overlapping writes on one key (deleteWithUndo's handle for the next
     // row + the flushed delete's own _deleteXApi re-apply) otherwise both
@@ -162,10 +167,15 @@
             // (the caller's POST hasn't reached the server yet) and write
             // stale data into the cache, flickering the screen between
             // optimistic → stale → real.
+            const entry = { mutator };
             const decrementPending = () => {
                 const c = (pendingOptimistic.get(key) || 0) - 1;
                 if (c <= 0) pendingOptimistic.delete(key);
                 else pendingOptimistic.set(key, c);
+                const ms = pendingMutators.get(key) || [];
+                const i = ms.indexOf(entry);
+                if (i >= 0) ms.splice(i, 1);
+                if (ms.length === 0) pendingMutators.delete(key);
             };
             // Last handle settled → run the invalidation that was held back
             // while it was pending, before the refresh reads the cache.
@@ -186,6 +196,8 @@
                 const next = mutator(prior);
 
                 pendingOptimistic.set(key, (pendingOptimistic.get(key) || 0) + 1);
+                if (!pendingMutators.has(key)) pendingMutators.set(key, []);
+                pendingMutators.get(key).push(entry);
 
                 try {
                     if (hasValue(next)) {
@@ -394,7 +406,12 @@
             // detection treats null + bumped generation as a no-render signal.
             // Bump generation explicitly so that detection still fires (the
             // caller may have already snapshotted genBefore expecting a bump).
-            if ((pendingOptimistic.get(key) || 0) > 0) {
+            // Exception: an invalidation held back by that pending write
+            // (deferredEvict — e.g. a BP save committed during another row's
+            // delete Undo window) still fetches, and the pending mutators are
+            // replayed over the result so the held row stays gone.
+            const pending = (pendingOptimistic.get(key) || 0) > 0;
+            if (pending && !deferredEvict.has(key)) {
                 fetchGeneration.set(key, (fetchGeneration.get(key) || 0) + 1);
                 return null;
             }
@@ -416,8 +433,20 @@
                     // a value the authoritative source has already replaced.
                     return null;
                 }
-                await this.setCached(key, fresh);
-                return fresh;
+                let value = fresh;
+                const ms = pendingMutators.get(key);
+                if (ms && ms.length) {
+                    try {
+                        for (const m of ms) value = m.mutator(value);
+                    } catch (_e) {
+                        return null; // keep the optimistic cache as-is
+                    }
+                    if (!hasValue(value)) return null;
+                    // The held-back invalidation is satisfied by this payload.
+                    deferredEvict.delete(key);
+                }
+                await this.setCached(key, value);
+                return value;
             })().finally(() => {
                 // Only clear the slot if it still holds this request. An older
                 // abandoned fetch (evicted by clearCached/invalidateByTag) must

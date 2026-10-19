@@ -405,4 +405,58 @@ describe('features/bp.js — deleting rows never shows the offline state (med-va
         for (let n = -1; n !== loads.length;) { n = loads.length; await Promise.allSettled(loads); }
         expect(seen.some((t) => /No cached data|back online|Nothing to show/.test(t))).toBe(false);
     });
+
+    // bd med-z075: the save's invalidation is held back while the delete's
+    // handle is pending, and its GET used to be skipped too — the temp-id row
+    // (no server stats) stayed until the Undo window closed.
+    it("a reading saved during another row's Undo window lands with its server id and stats at once", async () => {
+        const { window, document } = env;
+        const day = (n) => new Date(Date.now() - n * 86400000).toISOString();
+        let server = [
+            { id: 1, systolic: 120, diastolic: 78, measured_at: day(2) },
+            { id: 2, systolic: 128, diastolic: 82, measured_at: day(1) }
+        ];
+        const cache = installApiCache(window, { bp: { readingsRes: server.slice(), goalRes: null, statsRes: { count: 2 } } });
+        window.apiCall = vi.fn(async (url, method, body) => {
+            if (method === 'DELETE') {
+                const id = Number(url.split('/').pop());
+                server = server.filter((r) => r.id !== id);
+                return { ok: true };
+            }
+            if (method === 'POST') {
+                const row = { ...body, id: 3 };
+                server = [row, ...server];
+                return row;
+            }
+            if (url.startsWith('/api/bp?')) return server.slice();
+            if (url === '/api/bp/stats') return { count: server.length };
+            return {};
+        });
+        const loads = [];
+        window.requestTabRefresh = () => { loads.push(window.loadBPReadings()); };
+
+        const list = document.getElementById('bp-list');
+        const ids = () => [...list.querySelectorAll('[data-reading-id]')].map((el) => el.dataset.readingId).sort();
+
+        await window.loadBPReadings();
+        const del = window.deleteBPReading('2');
+        await vi.waitFor(() => expect(ids()).toEqual(['1']));
+
+        const t = new Date(Date.now() - 3600000);
+        window.showBPRecordModal();
+        document.getElementById('bp-datetime').value = new Date(t.getTime() - t.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+        document.getElementById('bp-systolic').value = '131';
+        document.getElementById('bp-diastolic').value = '84';
+        await window.handleBPSubmit({ preventDefault() {} });
+
+        // Server id + server stats now; the held delete's row stays gone.
+        expect(window.apiCall.mock.calls.filter(([, m]) => m === 'DELETE')).toHaveLength(0);
+        expect(ids()).toEqual(['1', '3']);
+        expect(cache.get('bp').statsRes).toEqual({ count: 3 });
+
+        expect(await del.flush()).toBe('deleted');
+        for (let n = -1; n !== loads.length;) { n = loads.length; await Promise.allSettled(loads); }
+        expect(ids()).toEqual(['1', '3']);
+        expect(cache.get('bp').statsRes).toEqual({ count: 2 });
+    });
 });

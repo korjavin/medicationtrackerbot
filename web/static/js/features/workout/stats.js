@@ -830,7 +830,7 @@ async function loadWorkoutStatsTab() {
         onError: async (error, cached) => {
             console.error('Error loading stats:', error);
             if (!cached) {
-                container.replaceChildren(createOfflineEmptyState());
+                container.replaceChildren(createOfflineEmptyState({ reason: error }));
             }
         }
     });
