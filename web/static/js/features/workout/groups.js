@@ -79,7 +79,7 @@ async function loadWorkoutGroups() {
         onError: async (error, cached) => {
             console.error('Error loading workout groups:', error);
             if (!cached) {
-                container.replaceChildren(createOfflineEmptyState());
+                container.replaceChildren(createOfflineEmptyState({ reason: error }));
             }
         }
     });

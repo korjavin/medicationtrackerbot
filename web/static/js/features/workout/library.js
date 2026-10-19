@@ -57,7 +57,7 @@ async function loadExerciseLibrary() {
                 renderedSomething = true;
             } else if (container) {
                 renderedSomething = true;
-                container.replaceChildren(createOfflineEmptyState());
+                container.replaceChildren(createOfflineEmptyState({ reason: error }));
             }
         }
     });

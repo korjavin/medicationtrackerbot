@@ -68,14 +68,25 @@ function createEmptyState({ icon, title, body, actions, inline, tag = 'div' } = 
 /**
  * The offline cold-start state (no cache yet, network down) — one wording
  * for every surface. The "back online" copy shows only on a genuine network
- * miss: never in device-only mode (:root.wg-local-vault — there is no
- * "online" to come back to), and never while the browser reports itself
- * online. Otherwise a load that produced nothing gets a neutral line
+ * miss: the browser reports itself offline, or the caller passes the load's
+ * failure as `reason` and it is a network/5xx miss (captive portal, server
+ * down — navigator.onLine stays true there; bd med-z075). Never in
+ * device-only mode (:root.wg-local-vault — there is no "online" to come back
+ * to). Otherwise a load that produced nothing gets a neutral line
  * (bd med-va47).
  */
-function createOfflineEmptyState({ tag = 'div' } = {}) {
+function isNetworkMiss(reason) {
+    if (!reason) return false;
+    if (reason.name === 'OfflineNoCacheError') return true;
+    if (typeof reason.status === 'number' && reason.status >= 500) return true;
+    if (typeof window.isServerError === 'function' && window.isServerError(reason)) return true;
+    const msg = String(reason.message || '');
+    return msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg === 'Network request failed';
+}
+
+function createOfflineEmptyState({ tag = 'div', reason } = {}) {
     const local = document.documentElement.classList.contains('wg-local-vault');
-    if (local || navigator.onLine !== false) {
+    if (local || (navigator.onLine !== false && !isNetworkMiss(reason))) {
         return createEmptyState({ title: 'Nothing to show yet', inline: true, tag });
     }
     return createEmptyState({
