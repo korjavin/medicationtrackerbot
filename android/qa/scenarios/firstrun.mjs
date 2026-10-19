@@ -8,7 +8,7 @@ export default async function firstrun(ctx) {
     if (!page) throw new Error('no WebView page (see the run log)');
     ctx.log('webview url', page.url());
   }).catch(() => {});
-  await ctx.step('Open https://alice.qa.test/ shows the error screen', () => ctx.openAccount(undefined, { shotTyped: true }));
+  await ctx.step('Open https://down.qa.test/ (503) shows the error screen', () => ctx.openAccount(undefined, { shotTyped: true }));
   await ctx.shot('error');
   await ctx.step('Switch account returns to first run', async () => {
     await ctx.device.tap({ text: 'Switch account' });

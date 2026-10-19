@@ -1,6 +1,8 @@
 package com.example.medtracker
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 // The same cases as ios/Tests/main.swift (AccountURL), run by android.yml.
@@ -9,6 +11,18 @@ class AccountUrlTest {
 
     private fun check(input: String, want: String?, base: String = this.base) =
         assertEquals(input, want, AccountUrl.parse(input, base))
+
+    // bd med-nt9p.32.14: only the server's marked 404 forgets the account; a proxy's bare 404 does not.
+    @Test
+    fun accountGone() {
+        assertTrue(AccountUrl.accountGone(404, mapOf("X-Account-Gone" to "1")))
+        assertTrue(AccountUrl.accountGone(404, mapOf("content-type" to "text/plain", "x-account-gone" to "1")))
+        assertFalse(AccountUrl.accountGone(404, mapOf("Content-Type" to "text/plain")))
+        assertFalse(AccountUrl.accountGone(404, emptyMap()))
+        assertFalse(AccountUrl.accountGone(404, null))
+        assertFalse(AccountUrl.accountGone(404, mapOf("X-Account-Gone" to "0")))
+        assertFalse(AccountUrl.accountGone(503, mapOf("X-Account-Gone" to "1")))
+    }
 
     @Test
     fun parse() {

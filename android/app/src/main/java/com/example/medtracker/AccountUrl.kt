@@ -10,6 +10,14 @@ import java.net.URI
  * unit test runs on the CI runner without a device.
  */
 object AccountUrl {
+    /**
+     * The server's own "no such account" 404 (bd med-nt9p.32.14): cmd/cloud marks it with
+     * X-Account-Gone: 1 (internal/cloudserver/router.go, the unknown-subdomain branch). A bare 404
+     * — a proxy's while the server redeploys, or an older server — is not proof the account is gone.
+     */
+    fun accountGone(status: Int, headers: Map<String, String>?): Boolean =
+        status == 404 && headers.orEmpty().any { (k, v) -> k.equals("X-Account-Gone", ignoreCase = true) && v.trim() == "1" }
+
     /** The URL to open, or null when the input is not an account on this deployment. */
     fun parse(raw: String, base: String): String? {
         val b = base.lowercase()
