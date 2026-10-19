@@ -146,6 +146,13 @@ describe('Wandergeek material primitives', () => {
         expect(labelBlock[0]).toMatch(/background:\s*var\(--wg-sun\)/);
     });
 
+    it('section label packs dot + text at the start, never space-between (med-xyo1)', () => {
+        const blocks = extractClassBlocks(css, '.wg-section-label');
+        expect(blocks.length).toBeGreaterThan(0);
+        expect(blocks[0]).toMatch(/justify-content:\s*flex-start/);
+        expect(blocks[0]).not.toMatch(/justify-content:\s*space-between/);
+    });
+
     it('tab bar anchors to the viewport via position:fixed (it has no positioned ancestor at runtime)', () => {
         const blocks = extractClassBlocks(css, '.wg-tabbar');
         expect(blocks.some((b) => /position:\s*fixed\b/.test(b))).toBe(true);

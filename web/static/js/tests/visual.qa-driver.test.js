@@ -106,6 +106,36 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         expect(window.document.querySelectorAll('#wg-qa-ready')).toHaveLength(1);
     });
 
+    // med-m1x5: iOS WKWebView measures client rects from the visual viewport;
+    // the probe used to compare them with vv.offsetTop and flagged an on-screen
+    // sheet header. The page behind the open sheet doesn't count either.
+    it('clippedTop measures from the visible top in either rect space and ignores the page behind a sheet', async () => {
+        const { window } = env;
+        expect(await load('today')).toBeNull();
+        expect(await load('food-add-sheet')).toMatchObject({ ok: true });
+
+        const sheethead = window.document.querySelector('#food-add-sheet .wg-sheethead');
+        expect(sheethead).not.toBeNull();
+        let headTop = 50;
+        const rectFor = (el) => {
+            const fixedMarker = el.style.position === 'fixed';
+            let top = 0;
+            if (fixedMarker || el.classList.contains('wg-appbar')) top = -300; // layout top, panned away
+            else if (el === sheethead) top = headTop;
+            return { top, bottom: top + 40, left: 0, right: 100, width: 100, height: 40, x: 0, y: top };
+        };
+        vi.spyOn(window.HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () { return rectFor(this); });
+        // WebKit: rects relative to the visual viewport, panned 300px by the keyboard.
+        Object.defineProperty(window, 'visualViewport', {
+            configurable: true,
+            value: { offsetTop: 300, height: 400, scale: 1, addEventListener() {} },
+        });
+
+        expect(window.__wgQA.probe().probes.clippedTop).toEqual([]);
+        headTop = -10;
+        expect(window.__wgQA.probe().probes.clippedTop).toEqual(['header.wg-sheethead']);
+    });
+
     it('publishes a failed report for a scene the list does not have', async () => {
         expect(await load('no-such-scene')).toMatchObject({ scene: 'no-such-scene', ok: false });
         expect(env.window.CloudVault.importAll).not.toHaveBeenCalled();

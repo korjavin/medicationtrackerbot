@@ -100,6 +100,18 @@ describe('BP round-2 design parity', () => {
             expect(values).toContain(120);
         });
 
+        it('keeps a gap between the y tick labels and the plot edge (med-3r2y)', () => {
+            const { document, window } = env;
+            window.localStorage.setItem('mt-bp-range', '14');
+            window.renderBPChart(sampleReadings(30), {});
+
+            const svg = document.querySelector('#bpChart svg.wg-bp-chart');
+            const plotLeft = Number(svg.querySelector('line.wg-bp-chart__guide').getAttribute('x1'));
+            const yTicks = svg.querySelectorAll('text.wg-bp-chart__axis-tick[data-bp-axis="y"]');
+            // Labels are end-anchored, so x is their right edge.
+            yTicks.forEach((t) => expect(plotLeft - Number(t.getAttribute('x'))).toBeGreaterThanOrEqual(8));
+        });
+
         it('renders at least 2 x-axis date ticks spanning the plotted window', () => {
             const { document, window } = env;
             window.localStorage.setItem('mt-bp-range', '14');

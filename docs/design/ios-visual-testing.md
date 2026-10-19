@@ -90,10 +90,15 @@ Tier 2 is the MVP; it is the only tier that would have caught `med-pe9g`. Tiers
      `scale = visualViewport.scale` (must be 1), `hOverflow =
      documentElement.scrollWidth − innerWidth` (must be ≤ 0), `clippedTop` =
      any visible `.wg-sheet__header, .wg-sheethead, .wg-appbar, .wg-pagebar`
-     whose top is above `visualViewport.offsetTop` (the visible top, so a
-     keyboard-panned viewport counts), `canvasOverflow` = any `canvas` or chart `svg` (wider
+     whose top is above the visible top (a `position:fixed; top:0` marker's
+     top plus `visualViewport.offsetTop`, so it holds whether the engine
+     measures client rects from the layout viewport, as Chromium does, or the
+     visual one, as iOS WKWebView does; a keyboard-panned viewport counts).
+     While a sheet or page (`mt-modal`) is open only headers inside it count:
+     the page behind the scrim may be panned off by the keyboard (med-m1x5),
+     `canvasOverflow` = any `canvas` or chart `svg` (wider
      than 64px) wider than its parent, `focusUnderKeyboard` = the focused
-     element's bottom beyond `visualViewport.height + offsetTop`,
+     element's bottom beyond the visible top + `visualViewport.height`,
      `bottomNavCovered` = `.wg-tabbar` bottom beyond `innerHeight`, and
      `keyboardShown = visualViewport.height < innerHeight − 100`, which is
      reported but never fails `ok`.

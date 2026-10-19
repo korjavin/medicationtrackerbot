@@ -1418,7 +1418,8 @@ async function loadFoodIncompleteNudge() {
     nudge.classList.toggle('hidden', !dateStr);
     if (!dateStr) return;
     nudge.dataset.date = dateStr;
-    chip.textContent = `Was ${formatFoodDateLabel(dateStr)} (${formatFoodDateSubtitle(dateStr)}) logged incompletely? Tap to exclude it`;
+    // One human date, not the label plus a dd.mm.yyyy echo (med-2fn3).
+    chip.textContent = `Was ${formatFoodDateLabel(dateStr)} logged incompletely? Tap to exclude it`;
 }
 
 // Click handlers bound once by index.js; the nudge carries its date.
