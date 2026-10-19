@@ -68,7 +68,8 @@ export default async function localSmoke(ctx) {
       const b = el && el.getBoundingClientRect();
       const vv = window.visualViewport;
       const bottom = vv ? vv.offsetTop + vv.height : innerHeight;
-      return { focused: el && el.id, value: el && el.value, inputVisible: !!b && b.bottom <= bottom && b.top >= 0 };
+      // 3 digits auto-advance focus to diastolic (app.js): the typed value is systolic's.
+      return { focused: el && el.id, value: document.getElementById('bp-systolic').value, inputVisible: !!b && b.bottom <= bottom && b.top >= 0 };
     });
     r.keyboard.imeShown = await ctx.imeShown();
     await ctx.shot('bp-sheet-keyboard');
