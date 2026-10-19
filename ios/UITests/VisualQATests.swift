@@ -137,11 +137,16 @@ final class VisualQATests: XCTestCase {
                 (field ?? app).typeText(text)
                 typed = true
                 // The field's AX value lags the keystrokes: poll before failing.
+                // (An XCTNSPredicateExpectation on `value` never matched and
+                // stalled for minutes on CI.)
                 if let field {
-                    let landed = NSPredicate(format: "value CONTAINS %@", text)
-                    if XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: landed, object: field)], timeout: 3) != .completed {
-                        return "typed \"\(text)\" but the field shows \"\(field.value as? String ?? "")\""
+                    var shown = ""
+                    for _ in 0..<10 {
+                        shown = field.value as? String ?? ""
+                        if shown.contains(text) { break }
+                        Thread.sleep(forTimeInterval: 0.3)
                     }
+                    if !shown.contains(text) { return "typed \"\(text)\" but the field shows \"\(shown)\"" }
                 }
             } else if step["clear"] as? Bool == true {
                 guard let field else { return "clear without a tapped field" }
