@@ -54,25 +54,30 @@ export default async function smoke(ctx) {
 
   for (const [label, tab] of TABS) {
     await ctx.step(`tab ${label}`, async () => {
-      await page.evaluate((t) => window.switchTab(t), tab);
+      // Settings is not a tab in nav v2: the app-bar gear opens it.
+      if (tab === 'settings') await page.locator('[data-nav-to="settings"]:visible').first().click();
+      else await page.evaluate((t) => window.switchTab(t), tab);
       await sleep(1500);
+      if (!(await page.evaluate((id) => !!document.getElementById(id)?.offsetParent, `${tab}-view`))) throw new Error(`#${tab}-view not shown`);
     });
     await ctx.shot(`tab-${label}`);
   }
 
   await page.evaluate(() => window.switchTab('today'));
   const sheetOpen = () => page.evaluate(() => window.ModalManager._isVisible('bp-modal'));
-  r.imeUpBeforeSheet = await imeShown(ctx); // a keyboard left over from an earlier input is a finding
+  const before = await page.evaluate(() => innerHeight);
   await ctx.step('add-BP sheet opens', async () => {
     await page.evaluate(() => window.showBPRecordModal());
-    await sleep(800);
+    // Its programmatic focus() may raise the keyboard: let the resize settle before measuring the tap.
+    await sleep(2500);
     if (!(await sheetOpen())) throw new Error('bp-modal not visible');
   });
-  const before = await page.evaluate(() => innerHeight);
+  r.keyboardUpFromFocus = (await page.evaluate(() => innerHeight)) < before - 100;
   await ctx.step('tap systolic → keyboard up', async () => {
     await tapElement(ctx, page, '#bp-systolic');
     const end = Date.now() + 10_000;
-    while (Date.now() < end && !(await imeShown(ctx))) await sleep(500);
+    const up = async () => (await page.evaluate(() => innerHeight)) < before - 100 || imeShown(ctx);
+    while (Date.now() < end && !(await up())) await sleep(500);
     r.keyboard = await page.evaluate(() => {
       const el = document.activeElement;
       const b = el && el.getBoundingClientRect();
@@ -80,7 +85,7 @@ export default async function smoke(ctx) {
       const bottom = vv ? vv.offsetTop + vv.height : innerHeight;
       return { focused: el && el.id, innerHeight, visualHeight: vv && vv.height, inputBottom: b && b.bottom, inputVisible: !!b && b.bottom <= bottom && b.top >= 0 };
     });
-    r.keyboard.imeShown = await imeShown(ctx);
+    r.keyboard.imeShown = await up();
     r.keyboard.innerHeightBefore = before;
     if (!r.keyboard.imeShown) throw new Error(`no IME (${JSON.stringify(r.keyboard)})`);
   }).catch(() => {});
