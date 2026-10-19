@@ -400,7 +400,7 @@ screens, `device.screenshot()` for the full screen incl. bars and keyboard).
 stays the acceptance device.
 
 ```bash
-gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-dark, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe, local-smoke, smoke, local-visual, local-app, local-backup, local-spike
+gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-dark, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe, local-smoke, smoke, local-visual, local-app, local-backup, local-spike, local-to-cloud
 gh workflow run android-qa.yml --ref <branch> -f scenario=firstrun -f font_scale=1.3 -f dark=true -f landscape=true
 gh run download <run-id> -n android-qa-<scenario> -D /tmp/qa             # then Read the PNGs
 ```
@@ -1030,6 +1030,66 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
 7. Long-press → *Switch account* → a test account, then back to *Only on
    this device*: both data sets intact; no reminder of the other vault fires.
 8. *How to get an invite* opens the service landing page in the browser.
+9. Export → *Move to a cloud account* → claim a test invite → Restore the
+   file → *Switch account* → *Only on this device* → *Start*: the account
+   shows the records, and the local records are intact
+   ([Moving to a cloud account](#moving-to-a-cloud-account-bd-med-nt9p3210)).
+
+### Moving to a cloud account (bd med-nt9p.32.10)
+
+The upgrade from local mode is the file-based Move that iOS ships
+([ios.md → Backup, restore, move to cloud](ios.md#local-mode-the-bundled-app-on-wgapplocal-bd-med-o7zq4), bd med-o7zq.6), unchanged:
+vault format v1, no server change, no hand-off between origins.
+
+1. Local mode: Settings → Backup & import → **Download backup** (a
+   passphrase is optional; without one the API keys are in plain text and the
+   page asks first) → the shell's *Save to device* (Downloads) or *Share*.
+2. **Move to a cloud account → I have an invite → Continue**: the page sends
+   `local.leave`, the shell turns local mode off and shows first run.
+3. Paste or scan the invite, create the passkey, finish the wizard.
+4. In the new account: Settings → Backup & import → Restore → choose the
+   file → *Replace my data with this backup* (an empty account skips the
+   confirm). The restore waits for the snapshot upload; one that did not land
+   says why (*Not uploaded yet*) before the reload, so keep the file until the
+   account shows the records on another device.
+5. The local records stay: *Switch account* → *Only on this device* →
+   *Start* opens them again. Nothing prompts to erase them.
+
+Accounts are **invite-only** ([architecture.md](architecture.md), no
+self-serve signup): the intro ends with the three steps in one sentence and
+the *How to get an invite* link — the service landing page
+`https://<BuildConfig.BASE_DOMAIN>/`, the build's own address, never committed.
+The privacy policy has no contact e-mail (its contact is the issue tracker and
+in-app feedback), so the landing page is the invite contact for now. The
+page's *Move to a cloud account* card is shared web copy with no
+Android-specific string, so it is unchanged.
+
+**Emulator proof** — QA scenario `local-to-cloud` (not in `all`: it claims the
+run's one invite, which `smoke` takes there; no retry). `pm clear` → local
+mode seeded with the golden vault (`launchLocal('today', { softAuthn: true })`)
+→ Backup & import → Download backup → the file `Files.offer` wrote under
+`cache/downloads/` is read back (`run-as … base64`), gunzipped and checked
+against `tests/fixtures/vault-v1.json` (same `format`/`version`, every data
+section) and against the store's own counts → *Save to device* through
+DocumentsUI into Downloads (a finding) → *I have an invite* → first run →
+the runner's invite, claimed with the soft authenticator (`smoke`'s
+`claimAccount`) → the account's Restore: *Choose* opens the system picker and
+the saved file is tapped; where the picker cannot be driven the same bytes go
+into the input (`results.localToCloud.restorePicker` says which) → reload
+with no *Not uploaded yet* → the account's per-list counts equal the local
+store's (medications, intakes, BP, weight, food, diary, trackers, workouts,
+heart) → Switch account → *Only on this device* → *Start* → the local counts
+are unchanged. Screenshots at every step; `results.localToCloud` has the
+counts (`local`, `exportCounts`, `account`, `accountDiff`, `localAfter`).
+
+```bash
+gh workflow run android-qa.yml --ref <branch> -f scenario=local-to-cloud
+```
+
+| Run | Result |
+|---|---|
+| Emulator API 34 (run `39273862148`) | PASS, 16 steps: export 4.5 KB vault v1 (fixture shape, counts = store), saved to Downloads, *I have an invite* → first run, claim, Restore via the **system picker** (no injection), uploaded (no *Not uploaded yet*), account ⊇ local (`workouts.sessions` 1 → 2: the account materialized today's planned session), local unchanged after *Only on this device* → *Start* |
+| Owner phone | pending — release gate `med-nt9p.32.7`, check 9 below |
 
 ### Local mode: free trial (bd med-nt9p.32.8.4)
 
@@ -1110,6 +1170,10 @@ privately:
 
 Links expire 14 days after minting if unclaimed; mint just before
 submission.
+
+A reviewer without an invite can use **Only on this device** (no account,
+no passkey); its upgrade path to an account is
+[Moving to a cloud account](#moving-to-a-cloud-account-bd-med-nt9p3210).
 
 ## Friends: install the APK
 

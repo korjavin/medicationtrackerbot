@@ -634,6 +634,11 @@ class MainActivity : Activity() {
             text = "AI and food search work only with providers you add with your own key. " +
                 "Voice, Telegram and the shared food database need an account."
         },
+        TextView(this).apply {
+            // The file-based Move of bd med-nt9p.32.10 (Settings → Backup & import → Move to a cloud account).
+            text = "To move to an account later: export a backup file here, open your invite, " +
+                "then restore the file in the new account's Settings. Accounts are invite-only."
+        },
         *inviteLink(),
         button("Start") { openLocal() },
         button("Back") { showIntro(false) },
