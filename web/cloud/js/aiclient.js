@@ -71,7 +71,7 @@ function trialBudgetUnavailableError() {
 // Local mode's anonymous trial: Apple's DeviceCheck says this iPhone already
 // had its trial (an earlier install of the app). Reinstalling does not reset it.
 function trialAlreadyUsedError() {
-  const err = new Error('This iPhone has already used its free trial AI — add your own OpenAI key in Settings → AI & integrations to keep going.');
+  const err = new Error(`This ${globalThis.LocalNotifications?.copy?.device || 'iPhone'} has already used its free trial AI — add your own OpenAI key in Settings → AI & integrations to keep going.`);
   err.code = 'trial_already_used';
   return err;
 }

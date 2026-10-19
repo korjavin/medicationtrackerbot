@@ -106,6 +106,8 @@ class MainActivity : Activity() {
 
     /** window.Health's health.* ops (bd med-nt9p.8). */
     private val health by lazy { HealthConnect(this) }
+    /** window.Attest's attest.* ops, local mode only (bd med-nt9p.32.8.4). */
+    private val attest by lazy { Attest(this) }
 
     private val back = OnBackInvokedCallback { if (localIntro.visibility == View.VISIBLE) showIntro(false) else web.goBack() }
     private var backRegistered = false
@@ -176,6 +178,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         health.close()
+        attest.close()
         web.destroy()
         files.destroy()
         super.onDestroy()
@@ -468,6 +471,8 @@ class MainActivity : Activity() {
             }
             "diag.append" -> diag("page " + (msg.optJSONObject("args")?.optString("entry") ?: ""))
             "health.authorize", "health.query" -> health.handle(op, msg.optJSONObject("args")) { r, e -> answer(r, e) }
+            "attest.status", "attest.enroll", "attest.setPass", "attest.assert" ->
+                attest.handle(op, msg.optJSONObject("args")) { r, e -> answer(r, e) }
             else -> if (op.startsWith("notifications.")) notifications.handle(op, msg.optJSONObject("args")) { r, e -> answer(r, e) }
                 else answer(null, "unsupported: $op")
         }

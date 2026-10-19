@@ -112,6 +112,9 @@ type AttestConfig struct {
 	Configured    bool // iOS: App Attest + DeviceCheck
 	// AndroidConfigured: Play Integrity (bd med-nt9p.32.8.3).
 	AndroidConfigured bool
+	// AndroidRecall: PLAY_INTEGRITY_DEVICE_RECALL (bd med-nt9p.32.8.6) — the
+	// device-recall twin of the DeviceCheck bits. Off unless set.
+	AndroidRecall bool
 }
 
 // kindConfigured reports whether installs of kind can enroll and assert.
@@ -126,6 +129,17 @@ func (c AttestConfig) kindConfigured(kind string) bool {
 // All unset → Android stays off, no error. Errors name the var only.
 func androidAttestFromEnv(cfg *AttestConfig) error {
 	pkg, saFile, verdicts := os.Getenv("PLAY_INTEGRITY_PACKAGE_NAME"), os.Getenv("PLAY_INTEGRITY_SERVICE_ACCOUNT_FILE"), os.Getenv("PLAY_INTEGRITY_ACCEPT_APP_VERDICTS")
+	recall := false
+	if v := os.Getenv("PLAY_INTEGRITY_DEVICE_RECALL"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return errors.New("PLAY_INTEGRITY_DEVICE_RECALL must be 1/true or 0/false")
+		}
+		recall = b
+	}
+	if recall && (pkg == "" || saFile == "") {
+		return errors.New("PLAY_INTEGRITY_DEVICE_RECALL needs PLAY_INTEGRITY_PACKAGE_NAME and PLAY_INTEGRITY_SERVICE_ACCOUNT_FILE")
+	}
 	if pkg == "" && saFile == "" && verdicts == "" {
 		return nil
 	}
@@ -156,6 +170,7 @@ func androidAttestFromEnv(cfg *AttestConfig) error {
 	// cert, and the pin's encoding is unverified against live Google.
 	cfg.Android = playintegrity.Config{PackageName: pkg, ServiceAccount: sa, AcceptAppVerdicts: accept}
 	cfg.AndroidConfigured = true
+	cfg.AndroidRecall = recall
 	return nil
 }
 
@@ -608,10 +623,11 @@ func (a *AttestAPI) enroll(w http.ResponseWriter, r *http.Request) {
 // body {kind:"android", key_id, public_key (std base64 SPKI DER),
 // integrity_token, challenge, pass?}. The Play Integrity standard-request
 // token binds the challenge and the key through requestHash
-// (playintegrity.RequestHash). Then the iOS flow minus DeviceCheck: Android
-// has no per-device bits, so a pass-less enroll always founds a bucket — the
-// known gap, bounded by the per-IP limit, TRIAL_DAILY_GLOBAL and the global
-// voice cap (device recall is bd med-nt9p.32.8.6).
+// (playintegrity.RequestHash). Then the iOS flow, with Play Integrity device
+// recall standing in for DeviceCheck when PLAY_INTEGRITY_DEVICE_RECALL is on
+// (bd med-nt9p.32.8.6, see enrollAndroidRecall). With it off a pass-less
+// enroll always founds a bucket — the known gap, bounded by the per-IP limit,
+// TRIAL_DAILY_GLOBAL and the global voice cap.
 // SECURITY: the token, its verdict payload and the pass are never logged;
 // only the accepted app-verdict label (env, a fixed enum) is.
 func (a *AttestAPI) enrollAndroid(w http.ResponseWriter, r *http.Request, raw []byte) {
@@ -643,7 +659,7 @@ func (a *AttestAPI) enrollAndroid(w http.ResponseWriter, r *http.Request, raw []
 	ctx := r.Context()
 	// The decode is a Google round trip: lift the unauth deadline.
 	extendTrialDeadlines(w)
-	_, verdict, err := a.android.VerifyEnrollment(ctx, req.IntegrityToken, challenge, req.KeyID, der)
+	_, vd, err := a.android.VerifyEnrollment(ctx, req.IntegrityToken, challenge, req.KeyID, der)
 	switch {
 	case errors.Is(err, playintegrity.ErrUnavailable):
 		// Fail CLOSED like DeviceCheck: the trial is optional, BYOK is unaffected.
@@ -662,6 +678,13 @@ func (a *AttestAPI) enrollAndroid(w http.ResponseWriter, r *http.Request, raw []
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "attestation_invalid"})
 		return
 	}
+	if a.cfg.AndroidRecall {
+		// Held from the idempotent lookup through the recall write, so a
+		// concurrent enroll of the same key never answers 200 for a row a
+		// failed write is about to roll back. Flag off: no lock, as before.
+		a.grantMu.Lock()
+		defer a.grantMu.Unlock()
+	}
 	// Idempotent re-enroll: the key id is derived from the key, so a row with
 	// it is this key's.
 	if in, err := a.store.AttestInstall(ctx, req.KeyID); err == nil {
@@ -674,9 +697,14 @@ func (a *AttestAPI) enrollAndroid(w http.ResponseWriter, r *http.Request, raw []
 	}
 	// Env records the accepted app verdict, so a sideload-test-window grant
 	// (UNRECOGNIZED_VERSION) is visible in the row.
+	verdict := vd.AppRecognitionVerdict
 	install := cloudstore.AttestInstall{KeyID: req.KeyID, Kind: cloudstore.AttestKindAndroid, PublicKey: der, Env: verdict, CreatedAt: time.Now().UTC()}
 	if req.Pass != "" {
 		a.rejoin(w, r, install, req.Pass)
+		return
+	}
+	if a.cfg.AndroidRecall {
+		a.enrollAndroidRecall(w, r, install, vd.DeviceRecall, req.IntegrityToken)
 		return
 	}
 	pass, hash := newTrialPass(req.KeyID)
@@ -691,6 +719,54 @@ func (a *AttestAPI) enrollAndroid(w http.ResponseWriter, r *http.Request, raw []
 		return
 	}
 	slog.Info("attest enroll granted", "kind", cloudstore.AttestKindAndroid, "env", verdict)
+	a.enrolled(ctx, w, install.KeyID, 0, pass)
+}
+
+// enrollAndroidRecall is the pass-less Android grant with device recall on
+// (bd med-nt9p.32.8.6), the twin of the iOS DeviceCheck branch in enroll:
+// recall bitFirst = "this device had its trial", bitSecond = "and a second,
+// pass-less one"; bitThird is unused. Google keeps the bits per device across
+// reinstall and factory reset. The write only ever SETS bits (SetDeviceRecall
+// never sends false): the verdict's values may be a stale snapshot, and
+// clearing a held bit would reopen farming. Fail CLOSED: the trial is
+// optional, BYOK is unaffected. The caller holds a.grantMu.
+// SECURITY: the token is never logged.
+func (a *AttestAPI) enrollAndroidRecall(w http.ResponseWriter, r *http.Request, install cloudstore.AttestInstall, recall *playintegrity.DeviceRecall, token string) {
+	ctx := r.Context()
+	if recall == nil {
+		slog.Warn("device recall is on in env but not in the Play Integrity verdict: enable Device recall in Play Console (Protected with Play → Play Integrity API → Manage → Change responses)")
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_unavailable"})
+		return
+	}
+	if recall.First && recall.Second {
+		slog.Info("attest enroll refused: device already had its trial", "kind", cloudstore.AttestKindAndroid)
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "trial_already_used"})
+		return
+	}
+	pass, hash := newTrialPass(install.KeyID)
+	install.PassHash = hash
+	if err := a.store.InsertAttestInstall(ctx, install); err != nil {
+		if in, lerr := a.store.AttestInstall(ctx, install.KeyID); lerr == nil {
+			a.enrolled(ctx, w, in.KeyID, in.Used, "")
+			return
+		}
+		slog.Error("attest enroll insert failed", "error", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_unavailable"})
+		return
+	}
+	// Crash between the insert and this write leaves the bits unset: at worst
+	// one extra trial on reinstall (accepted, docs/cloud-mode.md). An
+	// unevaluated recall reads all false and Google refuses the write, so it
+	// rolls back here.
+	if err := a.android.SetDeviceRecall(ctx, token, playintegrity.DeviceRecall{First: true, Second: recall.First}); err != nil {
+		slog.Warn("attest android enroll: device recall write failed", "reason", err)
+		if derr := a.store.DeleteAttestInstall(context.WithoutCancel(ctx), install.KeyID); derr != nil {
+			slog.Error("attest enroll rollback failed", "error", derr)
+		}
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_unavailable"})
+		return
+	}
+	slog.Info("attest enroll granted", "kind", cloudstore.AttestKindAndroid, "env", install.Env, "second_grant", recall.First)
 	a.enrolled(ctx, w, install.KeyID, 0, pass)
 }
 

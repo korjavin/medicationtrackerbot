@@ -17,7 +17,11 @@ object LocalOrigin {
     /** Same cap as cmd/cloud's PUT /api/egress-hosts (internal/cloudserver/egress.go). */
     const val MAX_HOSTS = 8
     /** Bridge ops only the bundled app may call (bd med-nt9p.32.4); an account page gets "unsupported". */
-    val LOCAL_OPS = setOf("setEgressHosts", "local.reset", "local.leave")
+    val LOCAL_OPS = setOf(
+        "setEgressHosts", "local.reset", "local.leave",
+        // The anonymous trial (bd med-nt9p.32.8.4, Attest.kt): an account page never reaches it.
+        "attest.status", "attest.enroll", "attest.setPass", "attest.assert",
+    )
 
     /** The bridge's caller gate: only the open vault's own top-level https page (the account host, or HOST in local mode). */
     fun bridgeCaller(isMainFrame: Boolean, scheme: String?, host: String?, vault: String?): Boolean =

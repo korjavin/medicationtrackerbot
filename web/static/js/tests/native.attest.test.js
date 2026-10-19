@@ -69,4 +69,68 @@ describe('native/attest.js', () => {
         await expect(w.Attest.status()).rejects.toThrow('locked');
         await expect(w.Attest.assert('Q0g=', 'RA==')).rejects.toThrow('locked');
     });
+
+    it('ios: no consent-copy override (trial-consent.js keeps its iOS text)', () => {
+        const { w } = load({ reply: () => Promise.resolve(null) });
+        expect(w.Attest.copy).toBeUndefined();
+    });
+});
+
+// bd med-nt9p.32.8.4: the Android shell's WebMessageListener (window.wgNative),
+// answered by android/.../Attest.kt in local mode — the fake answers like
+// MainActivity.kt onBridge, by id.
+function loadAndroid(replies) {
+    dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://appassets.androidplatform.net/', runScripts: 'outside-only' });
+    const w = dom.window;
+    const sent = [];
+    const bridge = new w.EventTarget();
+    bridge.postMessage = (data) => {
+        const msg = JSON.parse(data);
+        sent.push(msg);
+        const reply = msg.op in replies ? { id: msg.id, result: replies[msg.op] } : { id: msg.id, error: 'unsupported: ' + msg.op };
+        setTimeout(() => bridge.dispatchEvent(new w.MessageEvent('message', { data: JSON.stringify(reply) })), 0);
+    };
+    w.wgNative = bridge;
+    for (const f of ['index.js', 'attest.js']) w.eval(fs.readFileSync(path.join(NATIVE, f), 'utf8'));
+    return { w, sent };
+}
+
+describe('native/attest.js on android', () => {
+    it('the same four ops over the bridge, with the Play Integrity enroll reply', async () => {
+        const replies = {
+            'attest.status': { supported: true, base: 'example.test', attested: false },
+            'attest.enroll': { kind: 'android', keyId: 'a2V5', publicKey: 'UEs=', integrityToken: 'play.token', pass: 'B.c2VjcmV0' },
+            'attest.setPass': null,
+            'attest.assert': { keyId: 'a2V5', assertion: 'AAAAAVM=' },
+        };
+        const { w, sent } = loadAndroid(replies);
+        expect(w.Attest.__native.platform).toBe('android');
+        expect(w.Attest.isSupported()).toBe(true);
+        await expect(w.Attest.status()).resolves.toEqual(replies['attest.status']);
+        await expect(w.Attest.enroll('Q0g=')).resolves.toEqual(replies['attest.enroll']);
+        await expect(w.Attest.assert('Q0g=', 'RA==')).resolves.toEqual(replies['attest.assert']);
+        await expect(w.Attest.setPass('')).resolves.toBeNull();
+        expect(sent.map((m) => [m.op, m.args])).toEqual([
+            ['attest.status', {}],
+            ['attest.enroll', { challenge: 'Q0g=' }],
+            ['attest.assert', { challenge: 'Q0g=', bodySha256: 'RA==' }],
+            ['attest.setPass', { pass: '' }],
+        ]);
+    });
+
+    it('an account page (not local mode) gets unsupported: the trial reads that as no attest', async () => {
+        const { w } = loadAndroid({});
+        await expect(w.Attest.status()).rejects.toThrow('unsupported: attest.status');
+    });
+
+    it('carries the Android consent copy: Play Integrity, never Apple or the iPhone', () => {
+        const { w } = loadAndroid({});
+        const transit = w.Attest.copy.trialTransit;
+        expect(transit).toMatch(/Google Play Integrity/);
+        expect(transit).toMatch(/Android Keystore/);
+        expect(transit).toMatch(/Google Play may keep a mark that this phone had its trial/);
+        expect(transit).toMatch(/each call uses its full length limit when it starts/);
+        expect(transit).not.toMatch(/iPhone|Apple|App Attest|DeviceCheck|keychain/i);
+        expect(transit).not.toMatch(/\d+ (free )?minutes/);
+    });
 });
