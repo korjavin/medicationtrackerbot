@@ -53,6 +53,20 @@ const RESCHEDULE_EVENT = 'wg:local-reminders-reschedule';
 const SCHEDULED_EVENT = 'wg:local-reminders-scheduled';
 let lastSchedule = null;
 
+// The app shell's bridge foundation (native/index.js) when this document runs
+// in the iOS or Android app, else null — an unknown platform is refused too.
+function shellNative(win) {
+  const native = win && win.LocalNotifications && win.LocalNotifications.__native;
+  return native && (native.platform === 'ios' || native.platform === 'android') ? native : null;
+}
+
+// The device the copy names, off the capability (native/local-notifications.js:
+// 'iPhone' or 'phone'); the fallback is the iOS copy, so fixtures without
+// `copy` read as before.
+function deviceName(win = globalThis) {
+  return win?.LocalNotifications?.copy?.device || 'iPhone';
+}
+
 function localNotifications() {
   const local = globalThis.LocalNotifications;
   try {
@@ -227,13 +241,13 @@ function useLocalTrial(base, attest, win) {
 // trial at all (503 food_not_configured / trial_not_configured) for an hour.
 export const FOOD_OFF_COPY = 'No food database in device-only mode. Turn on the free trial in Settings → AI & integrations, or add your own food DB.';
 export const FOOD_PAUSED_COPY = 'Food lookups paused until tomorrow.';
-const FOOD_USED_COPY = 'The free trial was already used on this iPhone. Add your own food DB in Settings → AI & integrations.';
+const foodUsedCopy = () => `The free trial was already used on this ${deviceName()}. Add your own food DB in Settings → AI & integrations.`;
 let foodParked = null; // { hint, until }
 
 export const LOCAL_FOOD_DB = {
   hint() {
     if (!localTrial) return FOOD_OFF_COPY;
-    if (localTrial.state()?.used) return FOOD_USED_COPY;
+    if (localTrial.state()?.used) return foodUsedCopy();
     if (foodParked && Date.now() < foodParked.until) return foodParked.hint;
     return '';
   },
@@ -257,10 +271,10 @@ export const LOCAL_FOOD_DB = {
 };
 
 // registerLocalEgress is installApiShim's registerEgress in local mode: the
-// same BYOK hostnames the cloud PUTs to /api/egress-hosts, handed to the iOS
-// shell instead. The shell's reply says whether the stored list changed; the
-// new CSP applies on the next document load (local-boot.js reloads). Resolves
-// to { hosts, changed },
+// same BYOK hostnames the cloud PUTs to /api/egress-hosts, handed to the app
+// shell (iOS or Android) instead. The shell's reply says whether the stored
+// list changed; the new CSP applies on the next document load (local-boot.js
+// reloads). Resolves to { hosts, changed },
 // or null where there is no shell to tell (the web, tests).
 //
 // The trial AI's host — our server's base domain — joins the list only while
@@ -285,8 +299,8 @@ export async function registerLocalEgress(args) {
 }
 
 async function registerLocalEgressNow({ settings, win }) {
-  const native = win.LocalNotifications && win.LocalNotifications.__native;
-  if (!native || native.platform !== 'ios') return null;
+  const native = shellNative(win);
+  if (!native) return null;
   lastEgress = { settings, win };
   const hosts = hostsFromIntegrations(await settings.readIntegrationsUnmasked());
   const attest = await attestStatus(win);
@@ -308,7 +322,7 @@ async function registerLocalEgressNow({ settings, win }) {
 }
 
 // Export reminder (bd med-o7zq.5): the on-device store is the user's only
-// copy outside the iPhone's own backup, so at most once a week — counted from
+// copy outside the phone's own backup, so at most once a week — counted from
 // the first open, the last reminder or the last export — a toast suggests
 // exporting a backup file. Checked at boot and on every return to the front.
 // The timestamp is per-viewer localStorage on purpose: losing it only makes
@@ -331,7 +345,7 @@ export async function nudgeLocalBackup({ win, now = Date.now() }) {
   if (now - since < BACKUP_NUDGE_MS) return false;
   if (!(await readAllLocalRecords()).some((r) => !r.deleted)) return false; // nothing to lose yet
   markBackupNudge(win, now);
-  win.safeToast('Your records are stored only on this iPhone. Export a backup file to keep a copy somewhere else.', 'info', {
+  win.safeToast(`Your records are stored only on this ${deviceName(win)}. Export a backup file to keep a copy somewhere else.`, 'info', {
     action: {
       label: 'Back up',
       onClick: () => {
@@ -384,8 +398,8 @@ export const LOCAL_VAULT = {
   // for its invite screen. Nothing here is erased; choosing "Only on this
   // device" again reopens it.
   async openCloudAccount({ win = globalThis.window } = {}) {
-    const native = win.LocalNotifications && win.LocalNotifications.__native;
-    if (!native || native.platform !== 'ios') throw new Error('Open the app on your iPhone to use an invite.');
+    const native = shellNative(win);
+    if (!native) throw new Error(`Open the app on your ${deviceName(win)} to use an invite.`);
     await native.call('local.leave');
   },
   // Settings → AI & integrations → the free trial row (bd med-o7zq.16).
@@ -453,8 +467,8 @@ export const LOCAL_VAULT = {
     await clearLocalVault();
     try { win.localStorage.clear(); } catch { /* storage blocked: nothing kept there */ }
     try { win.sessionStorage.clear(); } catch { /* same */ }
-    const native = win.LocalNotifications && win.LocalNotifications.__native;
-    if (native && native.platform === 'ios') await native.call('local.reset').catch(() => {});
+    const native = shellNative(win);
+    if (native) await native.call('local.reset').catch(() => {});
     win.location.replace('/');
   },
 };

@@ -10,7 +10,7 @@
 //     committed doc drifts from what the manifest renders).
 //   * Settings → "What can the operator see?" — web/cloud/js/privacy.js derives
 //     PRIVACY_ITEMS from every non-local entry's `userCopy`. Rows with
-//     `mode: 'local'` (iOS local mode, no account) are not a cloud account's,
+//     `mode: 'local'` (on-device mode in the iPhone and Android apps, no account) are not a cloud account's,
 //     so they are disclosed in the generated doc table only.
 //   * docs/cloud-mode.md → "Metadata leakage summary" — cross-checked 1:1
 //     against every entry's `docSignal` by tests/privacy.drift.test.js.
@@ -87,7 +87,7 @@ export const PRIVACY_MANIFEST = [
     operatorVisibility: 'ciphertext',
     retention: 'Stored until you delete the account; the operator holds no key to it, ever',
     activation: 'always-on',
-    activationNote: 'the default and only storage path for a cloud account (iOS local mode keeps the records on the phone instead — see the local-mode rows)',
+    activationNote: 'the default and only storage path for a cloud account (on-device mode in the iPhone and Android apps keeps the records on the phone instead — see the local-mode rows)',
     byo: 'n/a — the DEK is generated in your browser and never leaves your devices',
     evidence: ['web/cloud/js/crypto.js:1', 'internal/cloudserver/sync.go:1'],
     code: { go: [], hosts: [] },
@@ -726,51 +726,52 @@ export const PRIVACY_MANIFEST = [
   },
 
   // ==========================================================================
-  // iOS local mode (bd med-o7zq.3): the "Only on this device" app — no
-  // account, no server. `mode: 'local'` keeps these rows out of the cloud
+  // On-device mode (bd med-o7zq.3; Android bd med-nt9p.32): the "Only on this
+  // device" app on iPhone and Android — no account, no server. The free trial
+  // rows (App Attest) are the iPhone app's only. `mode: 'local'` keeps these rows out of the cloud
   // app's "What can the operator see?" page (privacy.js); the generated doc
   // table carries them.
   // ==========================================================================
   {
     id: 'local-records',
     mode: 'local',
-    feature: 'iOS local mode — your records on the phone',
+    feature: 'On-device mode (iPhone and Android apps) — your records on the phone',
     boundary: 'on-device',
     data: 'Every record you keep, plus your provider keys and settings (BYOK AI, food database), readable in the app\'s on-device storage',
-    destination: 'Nowhere through the app. The phone\'s own device backup (iCloud or a computer) can include it, under Apple\'s security model',
+    destination: 'Nowhere through the app. The phone\'s own backup can include it — iCloud or a computer on iPhone, under Apple\'s security model; Android device backup where the app allows it',
     operatorVisibility: 'none',
-    retention: 'Until you delete the app or its data; a backup keeps its copy per Apple\'s backup retention',
+    retention: 'Until you delete the app or its data; a backup keeps its copy per that backup\'s own retention (Apple\'s on iPhone, Google\'s on Android)',
     activation: 'on-device',
     activationNote: 'you chose "Only on this device"; there is no account and no sync',
     byo: 'n/a',
-    evidence: ['web/cloud/js/local-boot.js:1', 'web/cloud/js/sync.js:1524', 'ios/App/LocalOrigin.swift:125'],
+    evidence: ['web/cloud/js/local-boot.js:1', 'web/cloud/js/sync.js:1524', 'ios/App/LocalOrigin.swift:125', 'android/app/src/main/AndroidManifest.xml:35'],
     code: { go: [], hosts: [] },
     docSignal: null,
     userCopy: {
       category: 'device',
       title: 'On-device mode: your records live on this phone',
-      detail: 'In on-device mode there is no account and nothing is synced: your records, provider keys and settings are stored readable in the app on this phone, protected by the phone\'s lock. The phone\'s own backup (iCloud or a computer) can include them, protected the way Apple protects that backup — but do not count on it: deleting the app deletes them, so export a backup regularly.',
+      detail: 'In on-device mode there is no account and nothing is synced: your records, provider keys and settings are stored readable in the app on this phone, protected by the phone\'s lock. The phone\'s own backup can include them — on iPhone, iCloud or a computer, protected the way Apple protects that backup; on Android, the device backup where the app allows it — but do not count on it: deleting the app deletes them, so export a backup regularly.',
     },
   },
   {
     id: 'local-egress',
     mode: 'local',
-    feature: 'iOS local mode — network',
+    feature: 'On-device mode (iPhone and Android apps) — network',
     boundary: 'not-a-carve-out',
-    data: 'Nothing, except the requests to the AI provider and food database you added with your own key (the same calls as the BYO rows above) and, only if you turn on the free trial, the anonymous trial AI, the operator\'s food-database lookups and trial voice calls (the local-trial, local-food and local-voice rows below)',
+    data: 'Nothing, except the requests to the AI provider and food database you added with your own key (the same calls as the BYO rows above) and, only if you turn on the free trial (iPhone app only), the anonymous trial AI, the operator\'s food-database lookups and trial voice calls (the local-trial, local-food and local-voice rows below)',
     destination: 'Only those providers, plus our server (and, for trial voice calls, the operator\'s ElevenLabs account) while the free trial is on. The app\'s CSP admits no other host, and every other server feature (sync, push relay, Telegram, MCP, voice with your own ElevenLabs key, sharing, feedback, RxNav drug lookups, Mi Band import) is off; with the trial off, so are the operator\'s food database and voice calls',
     operatorVisibility: 'none',
     retention: 'Per each provider\'s own policy',
     activation: 'opt-in',
     activationNote: 'you add a provider key in Settings → AI & integrations; its host name is handed to the app shell for the CSP, never to a server',
     byo: 'The only kind there is in this mode',
-    evidence: ['web/cloud/js/local-policy.js:273', 'web/cloud/js/local-policy.js:281', 'web/cloud/js/local-policy.js:233', 'ios/App/LocalOrigin.swift:41'],
+    evidence: ['web/cloud/js/local-policy.js:287', 'web/cloud/js/local-policy.js:295', 'web/cloud/js/local-policy.js:247', 'ios/App/LocalOrigin.swift:41', 'android/app/src/main/java/com/example/medtracker/MainActivity.kt:382'],
     code: { go: [], hosts: [] },
     docSignal: null,
     userCopy: {
       category: 'leaves',
       title: 'On-device mode: only the providers you add',
-      detail: 'In on-device mode the app talks to no server of ours unless you turn on the free trial (AI, food database and voice calls). Otherwise the only requests that leave the phone go to the AI provider or food database you added with your own key, and the app blocks every other host. Medication names are not checked against RxNav, and voice with your own ElevenLabs key, Telegram and sharing need a cloud account.',
+      detail: 'In on-device mode the app talks to no server of ours unless you turn on the free trial (AI, food database and voice calls; iPhone app only). Otherwise the only requests that leave the phone go to the AI provider or food database you added with your own key, and the app blocks every other host. Medication names are not checked against RxNav, and voice with your own ElevenLabs key, Telegram and sharing need a cloud account.',
     },
   },
   {
@@ -780,7 +781,7 @@ export const PRIVACY_MANIFEST = [
     // names the host so this anchor is checked.
     id: 'local-trial',
     mode: 'local',
-    feature: 'iOS local mode — anonymous trial AI (operator\'s AI key, no account)',
+    feature: 'On-device mode (iPhone app only) — anonymous trial AI (operator\'s AI key, no account)',
     boundary: 'carve-out',
     data: 'The meal or activity description you typed, meal and workout-sheet PHOTOS (with the plan\'s exercise names) and exercise names to tag, in plaintext; plus an App Attest proof and a DeviceCheck token that identify the app install, not you',
     destination: 'The operator\'s server, then the operator\'s AI provider account (the same as the account trial AI); at enrollment the operator\'s server asks Apple DeviceCheck whether this device already had a trial',
@@ -789,7 +790,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in-consent',
     activationNote: 'you turn on the trial in Settings → AI & integrations and accept the trial consent; off by default, and off means no request to our server at all',
     byo: 'Add your own AI key and requests go phone-direct to your provider, never through the operator',
-    evidence: ['web/cloud/js/local-policy.js:281', 'web/cloud/js/local-trial.js:99', 'web/cloud/js/local-trial.js:113', 'ios/App/Attest.swift:90', 'ios/App/Attest.swift:75', 'internal/cloudserver/attest.go:593', 'internal/cloudserver/attest.go:508', 'internal/appattest/devicecheck.go:65'],
+    evidence: ['web/cloud/js/local-policy.js:295', 'web/cloud/js/local-trial.js:99', 'web/cloud/js/local-trial.js:113', 'ios/App/Attest.swift:90', 'ios/App/Attest.swift:75', 'internal/cloudserver/attest.go:593', 'internal/cloudserver/attest.go:508', 'internal/appattest/devicecheck.go:65'],
     code: { go: ['internal/cloudserver/attest.go'], hosts: ['api.devicecheck.apple.com'] },
     docSignal: null,
     userCopy: {
@@ -805,7 +806,7 @@ export const PRIVACY_MANIFEST = [
     // base domain.
     id: 'local-food',
     mode: 'local',
-    feature: 'iOS local mode — anonymous trial food database (operator\'s food DB, no account)',
+    feature: 'On-device mode (iPhone app only) — anonymous trial food database (operator\'s food DB, no account)',
     boundary: 'carve-out',
     data: 'Food search terms and scanned barcodes',
     destination: 'The operator, then the operator\'s food-DB instance',
@@ -814,7 +815,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in-consent',
     activationNote: 'the same free-trial switch and consent as the trial AI (one enrollment per install; a reinstall rejoins the device\'s trial with its keychain pass); off means no request to our server at all',
     byo: 'Set your own food-DB endpoint in Settings → AI & integrations and lookups go phone-direct to it, never through the operator',
-    evidence: ['web/cloud/js/fooddb.js:96', 'web/cloud/js/local-policy.js:245', 'web/cloud/js/local-trial.js:254', 'internal/cloudserver/attest.go:744', 'internal/cloudserver/food_proxy.go:93'],
+    evidence: ['web/cloud/js/fooddb.js:96', 'web/cloud/js/local-policy.js:259', 'web/cloud/js/local-trial.js:255', 'internal/cloudserver/attest.go:744', 'internal/cloudserver/food_proxy.go:93'],
     code: { go: ['internal/cloudserver/attest.go', 'internal/cloudserver/food_proxy.go'], hosts: [] },
     docSignal: null,
     userCopy: {
@@ -832,7 +833,7 @@ export const PRIVACY_MANIFEST = [
     // operator's ElevenLabs signed URL, the relay answers the turns itself.
     id: 'local-voice',
     mode: 'local',
-    feature: 'iOS local mode — anonymous trial voice calls (operator\'s ElevenLabs and AI keys, no account)',
+    feature: 'On-device mode (iPhone app only) — anonymous trial voice calls (operator\'s ElevenLabs and AI keys, no account)',
     boundary: 'carve-out',
     data: 'Your voice audio, the transcript and the agent conversation — including tool results the agent reads from the records on this phone (blood pressure, weight, workouts, medications, food, sleep, notes) — and the agent\'s answers; plus the App Attest proof that identifies the app install',
     destination: 'Audio and transcript: the operator\'s ElevenLabs account, phone-direct after our server mints the call. The agent\'s answers: ElevenLabs sends each turn to the operator\'s server, which has the operator\'s trial AI account write the answer',
@@ -841,7 +842,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in-consent',
     activationNote: 'the same single free-trial switch and consent as the trial AI and food database; off means no request to our server or to ElevenLabs at all',
     byo: 'None in this mode: voice with your own ElevenLabs key needs a cloud account',
-    evidence: ['web/cloud/js/local-trial.js:264', 'web/cloud/js/local-policy.js:281', 'web/cloud/js/local-policy.js:216', 'web/cloud/js/voice-llm-responder.js:171', 'web/static/js/features/elevenlabs-call.js:911', 'internal/cloudserver/attest.go:241', 'internal/cloudserver/voice_llm_relay.go:771', 'internal/cloudserver/trial_proxy.go:167'],
+    evidence: ['web/cloud/js/local-trial.js:265', 'web/cloud/js/local-policy.js:295', 'web/cloud/js/local-policy.js:230', 'web/cloud/js/voice-llm-responder.js:171', 'web/static/js/features/elevenlabs-call.js:911', 'internal/cloudserver/attest.go:241', 'internal/cloudserver/voice_llm_relay.go:771', 'internal/cloudserver/trial_proxy.go:167'],
     code: { go: ['internal/cloudserver/attest.go', 'internal/cloudserver/voice_llm_relay.go', 'internal/cloudserver/trial_proxy.go'], hosts: ['api.elevenlabs.io'] },
     docSignal: null,
     userCopy: {
@@ -853,7 +854,7 @@ export const PRIVACY_MANIFEST = [
   {
     id: 'local-notifications',
     mode: 'local',
-    feature: 'iOS local mode — reminder text on the lock screen',
+    feature: 'On-device mode (iPhone and Android apps) — reminder text on the lock screen',
     boundary: 'on-device',
     data: 'The text of each scheduled reminder: generic by default ("Medication time"); with Detailed, the full text — medication and tracker names, workout plans, your weight and goal, the weekly summary',
     destination: 'The phone\'s notification scheduler, then the lock screen and Notification Center, readable by anyone holding the phone',
@@ -862,13 +863,13 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in',
     activationNote: 'you allow notifications; Settings → Reminders & notifications → Reminder text picks Generic or Detailed',
     byo: 'n/a',
-    evidence: ['web/cloud/js/reminders.js:189', 'web/cloud/js/reminders.js:237'],
+    evidence: ['web/cloud/js/reminders.js:189', 'web/cloud/js/reminders.js:237', 'android/app/src/main/java/com/example/medtracker/Notifications.kt:29'],
     code: { go: [], hosts: [] },
     docSignal: null,
     userCopy: {
       category: 'device',
       title: 'On-device mode: reminders on the lock screen',
-      detail: 'Reminders are scheduled on the phone itself, and iOS shows them on the lock screen and in Notification Center, where anyone holding the phone can read them even while it is locked. The default text only says a reminder is due; choose Detailed in Settings → Reminders & notifications to see the full text — medication and tracker names, workout plans, your weight and goal, and the weekly summary.',
+      detail: 'Reminders are scheduled on the phone itself, and the phone (iOS or Android) shows them on the lock screen and in its notifications, where anyone holding the phone can read them even while it is locked. The default text only says a reminder is due; choose Detailed in Settings → Reminders & notifications to see the full text — medication and tracker names, workout plans, your weight and goal, and the weekly summary.',
     },
   },
 ];

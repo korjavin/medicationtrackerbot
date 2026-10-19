@@ -745,6 +745,51 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         expect(await localRecordsPort().listRaw('bp')).toEqual([]);
         expect(replace).toHaveBeenCalledWith('/');
     });
+
+    // bd med-nt9p.32.3: the Android shell answers the same bridge ops, so the
+    // gates take 'android' next to 'ios' and the copy names its device; any
+    // other platform (the web, an unknown one) is still refused.
+    it('the Android shell gets the same egress, move and erase ops, with "phone" copy', async () => {
+        const { window } = env;
+        const { nudgeLocalBackup } = await import('../../../cloud/js/local-policy.js');
+        const local = window.LocalNotifications;
+        local.__native.platform = 'android';
+        local.copy = { os: 'Android', device: 'phone' };
+        await window.apiCall('/api/weight', 'POST', { weight: 80 });
+        cancelReminderRecompute({ accountId: 'local' });
+        const toast = vi.fn();
+        window.safeToast = toast;
+        window.localStorage.setItem('wg:local-backup-nudge-at', '1');
+        expect(await nudgeLocalBackup({ win: window })).toBe(true);
+        expect(toast.mock.calls[0][0]).toContain('only on this phone.');
+        expect(toast.mock.calls[0][0]).not.toMatch(/iPhone/);
+        // The boot's registration (on 'ios') is the window trial.apply re-runs.
+        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] }));
+        bridge.mockClear();
+
+        await window.CloudVault.trial.apply();
+        expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] });
+        await window.CloudVault.openCloudAccount({ win: window });
+        expect(bridge).toHaveBeenCalledWith('local.leave');
+        const replace = vi.fn();
+        const win = () => ({
+            localStorage: window.localStorage, sessionStorage: window.sessionStorage,
+            LocalNotifications: local, location: { replace },
+        });
+        await window.CloudVault.eraseDevice({ win: win() });
+        expect(bridge).toHaveBeenCalledWith('local.reset');
+        expect(replace).toHaveBeenCalledWith('/');
+
+        for (const platform of ['web', 'windows']) {
+            local.__native.platform = platform;
+            bridge.mockClear();
+            await window.CloudVault.trial.apply();
+            await expect(window.CloudVault.openCloudAccount({ win: window })).rejects.toThrow('Open the app on your phone to use an invite.');
+            await window.CloudVault.eraseDevice({ win: win() });
+            expect(bridge).not.toHaveBeenCalled();
+        }
+        expect(offDevice()).toEqual([]);
+    });
 });
 
 // bd med-o7zq.16 — the anonymous trial is one opt-in switch (the `anon` trial
