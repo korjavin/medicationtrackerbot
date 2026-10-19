@@ -95,7 +95,7 @@ describe('app.js medication, history and intake flows', () => {
 
       const medsHtml = document.getElementById('med-list').innerHTML;
       expect(medsHtml).toContain('Soon Med');
-      expect(medsHtml).toContain('Weekly');
+      expect(medsHtml).toMatch(/(Sun|Mon|Tue|Wed|Thu|Fri|Sat) at \d\d:\d\d/); // weekly copy (med-aec1)
       expect(medsHtml).toContain('As Needed');
       expect(medsHtml).toContain('archived');
       expect(medsHtml).toContain('wg-chip--warn');

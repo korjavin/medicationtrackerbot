@@ -151,6 +151,15 @@ describe('WGSleepChart.render', () => {
         }
     });
 
+    it('places the HR label beside the bar, not over it (med-k6k0)', () => {
+        const svg = env.api.render({ stats: makeStats({ days: 1, withHR: true }) });
+        const label = svg.querySelector('text.wg-sleep-chart__hr-label');
+        const bar = svg.querySelector('rect.wg-sleep-chart__stage');
+        const barRight = Number(bar.getAttribute('x')) + Number(bar.getAttribute('width'));
+        expect(label.getAttribute('text-anchor')).toBe('start');
+        expect(Number(label.getAttribute('x'))).toBeGreaterThan(barRight);
+    });
+
     it('omits the HR line when every heart_rate_avg is zero', () => {
         const svg = env.api.render({ stats: makeStats({ days: 5, withHR: false }) });
         expect(svg.querySelectorAll('path.wg-sleep-chart__hr-line').length).toBe(0);

@@ -4193,23 +4193,29 @@ body:has(.wg-callbar--dock) .wg-toasts {
 /* Health summary tile row (Phase 8, Task 3). Grid of mono stat tiles — one
    per vital (sleep hours, steps, HR avg, SpO2 avg, stress avg) — on top of
    the Overview sub-tab. Trend arrow per tile is colored by a per-vital
-   "good direction" classifier (sun / alert / neutral / empty). */
+   "good direction" classifier (sun / alert / neutral / empty).
+   Flex-wrap, not a fixed grid: five tiles on a phone wrap 3 + 2 and the
+   second row stretches instead of leaving an empty sixth cell (med-k6k0). */
 .wg-health-summary {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+    display: flex;
+    flex-wrap: wrap;
     gap: var(--wg-health-summary-tile-gap);
     padding: var(--wg-health-summary-tile-pad);
     margin-bottom: var(--space-md);
 }
 
 .wg-health-summary__tile {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xs);
+    flex: 1 1 88px;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: baseline;
+    column-gap: var(--space-xs);
+    row-gap: var(--space-xs);
     min-width: 0;
 }
 
 .wg-health-summary__value {
+    grid-column: 1 / -1;
     font-size: var(--wg-health-summary-tile-value-size);
     line-height: 1.1;
 }
@@ -4221,6 +4227,13 @@ body:has(.wg-callbar--dock) .wg-toasts {
 .wg-health-summary__label {
     font-size: var(--wg-health-summary-tile-label-size);
     padding: 0;
+    display: block;
+}
+
+/* The tile is its own label: no section-label sun dot, which as a flex item
+   pushed the text to the far edge (med-k6k0). */
+.wg-health-summary__label::before {
+    content: none;
 }
 
 .wg-health-summary__trend {

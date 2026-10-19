@@ -88,7 +88,7 @@ window.MedicationUtils = (function () {
 
         if (schedule.type === 'daily') {
             const times = Array.isArray(schedule.times) ? schedule.times : [];
-            return `Daily: ${times.join(', ')}`;
+            return `Daily at ${times.join(', ')}`;
         }
 
         if (schedule.type === 'weekly') {
@@ -96,7 +96,7 @@ window.MedicationUtils = (function () {
             const days = Array.isArray(schedule.days) ? schedule.days : [];
             const times = Array.isArray(schedule.times) ? schedule.times : [];
             const dayNames = days.map((day) => daysMap[day]);
-            return `Weekly (${dayNames.join(', ')}): ${times.join(', ')}`;
+            return `${dayNames.join(', ')} at ${times.join(', ')}`;
         }
 
         return 'As Needed';

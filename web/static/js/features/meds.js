@@ -218,6 +218,25 @@ function _buildMedsInventoryTag(med) {
     return chip;
 }
 
+// Course dates as row copy: "since Sep 12", "until Oct 1", "Sep 12 – Oct 1";
+// '' when open on both ends. The editor stores a picked day as UTC midnight
+// and reads it back via split('T')[0], so format that date part as a
+// wall-clock day, never the instant (med-aec1).
+function _formatMedDay(iso) {
+    const parts = String(iso || '').split('T')[0].split('-').map(Number);
+    if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return '';
+    return new Date(parts[0], parts[1] - 1, parts[2]).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+
+function _formatMedDateRange(startIso, endIso) {
+    const start = _formatMedDay(startIso);
+    const end = _formatMedDay(endIso);
+    if (start && end) return `${start} – ${end}`;
+    if (start) return `since ${start}`;
+    if (end) return `until ${end}`;
+    return '';
+}
+
 // A schedule row (kit .wg-row): title "Name · dose", meta = schedule · dates ·
 // Rx plus status chips. Tap edits; swipe / overflow reveals Edit and Delete.
 // As-needed rows keep a per-row Log; scheduled rows log off-schedule doses
@@ -241,11 +260,8 @@ function _buildMedsRow(med, parsedSchedule, opts = {}) {
     const meta = _medsEl('span', 'wg-row__meta wg-meds-row__meta');
     meta.appendChild(_medsEl('span', 'wg-meds-row__schedule',
         window.MedicationUtils.getMedicationScheduleText(med, parsedSchedule)));
-    if (med.start_date || med.end_date) {
-        const start = med.start_date ? formatDate(med.start_date).split(' ')[0] : 'N/A';
-        const end = med.end_date ? formatDate(med.end_date).split(' ')[0] : 'N/A';
-        meta.appendChild(_medsEl('span', 'wg-meds-row__dates', `${start} – ${end}`));
-    }
+    const dates = _formatMedDateRange(med.start_date, med.end_date);
+    if (dates) meta.appendChild(_medsEl('span', 'wg-meds-row__dates', `· ${dates}`));
     if (med.normalized_name) {
         meta.appendChild(_medsEl('span', 'wg-meds-row__rx', `Rx ${med.normalized_name}`));
     }

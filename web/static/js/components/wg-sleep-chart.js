@@ -287,8 +287,12 @@
             svg.appendChild(inner);
 
             // Label only the last point (BP/weight chart convention) so labels never collide.
+            // It sits beside the bar, not above the dot: the dot rides inside the
+            // sleep bar, so a centred label would paint over the stage colours (med-k6k0).
             if (i === hrPoints.length - 1) {
-                svg.appendChild(makeText(p.x, p.y - 8, 'wg-sleep-chart__hr-label', p.val));
+                const label = makeText(p.x + barWidth / 2 + 3, p.y + 4, 'wg-sleep-chart__hr-label', p.val);
+                label.setAttribute('text-anchor', 'start');
+                svg.appendChild(label);
             }
         });
 

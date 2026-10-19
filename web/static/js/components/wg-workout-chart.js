@@ -337,6 +337,32 @@
             svg.appendChild(tick);
         }
 
+        if (variant === 'bars') {
+            // Bars sit in evenly spaced slots, one per bucket span (a week for
+            // weekly buckets), and each labelled slot carries its own bucket's
+            // start date. Interpolating x by timestamp instead left a lone
+            // bar clamped to the axis under labels that matched nothing
+            // (med-vohq). A missing week still keeps its empty slot.
+            const spanMs = data.every((d) => d.spanDays > 1) ? data[0].spanDays * 86400000 : 0;
+            const slotOf = (d, i) => (spanMs ? Math.round((d.date.getTime() - firstTime) / spanMs) : i);
+            const slotCount = slotOf(data[data.length - 1], data.length - 1) + 1;
+            const slot = plotW / slotCount;
+            const barW = Math.max(1, slot * 0.72);
+            const baseY = PAD_T + plotH;
+            const labelEvery = Math.ceil(slotCount / 6);
+            data.forEach((d, i) => {
+                const idx = slotOf(d, i);
+                const cx = PAD_L + slot * (idx + 0.5);
+                const y = yOf(d.value);
+                svg.appendChild(makeBar(cx - barW / 2, y, barW, Math.max(0, baseY - y)));
+                if (idx % labelEvery === 0) {
+                    const label = formatXTickLabel(d.date.getTime());
+                    if (label) svg.appendChild(makeAxisTick(cx, height - 8, label, 'x'));
+                }
+            });
+            return svg;
+        }
+
         // Round-2, Task 6 — x-axis date tick labels. 4 evenly-spaced ticks
         // span the visible time window; placed below the plot area.
         const xTickTimes = pickXTickTimes(firstTime, lastTime, 4);
@@ -344,23 +370,6 @@
             const label = formatXTickLabel(t);
             if (!label) continue;
             svg.appendChild(makeAxisTick(xOf(t), height - 8, label, 'x'));
-        }
-
-        if (variant === 'bars') {
-            // One rect per bucket, centred on the bucket's x. The slot is the
-            // plot split evenly; the gap is what's left after the bar.
-            const slot = plotW / data.length;
-            const barW = Math.max(1, slot * 0.72);
-            const baseY = PAD_T + plotH;
-            for (const d of data) {
-                const cx = xOf(d.date.getTime());
-                const y = yOf(d.value);
-                // Clamp so the first/last bar sits inside the plot instead of
-                // hanging half-off the y-axis.
-                const x = Math.max(PAD_L, Math.min(PAD_L + plotW - barW, cx - barW / 2));
-                svg.appendChild(makeBar(x, y, barW, Math.max(0, baseY - y)));
-            }
-            return svg;
         }
 
         const points = data.map((d) => [xOf(d.date.getTime()), yOf(d.value)]);
