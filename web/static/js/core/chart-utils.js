@@ -462,6 +462,8 @@ window.ChartUtils = (() => {
             if (schedule) requestAnimationFrame(refit);
         });
         ro.observe(node);
+        // Never mounted (brief export serializes detached SVGs): drop the observer.
+        requestAnimationFrame(() => { if (!current.isConnected) ro.disconnect(); });
         return node;
     }
 

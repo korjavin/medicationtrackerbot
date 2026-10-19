@@ -393,6 +393,7 @@ describe('WGBpChart.render', () => {
             constructor(cb) { observe = cb; }
             observe() {}
             unobserve() {}
+            disconnect() {}
         };
         env.window.requestAnimationFrame = (cb) => cb();
         const host = env.window.document.createElement('div');
