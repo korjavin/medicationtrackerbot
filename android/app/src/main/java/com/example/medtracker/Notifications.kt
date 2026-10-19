@@ -212,8 +212,13 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
             return arm(c)
         }
 
-        /** Account switch: the previous account's reminders go; the new page sends its own. */
+        /**
+         * Account or mode switch, local erase: the previous vault's reminders go — the scheduled
+         * rows and the ones already in the shade (their text and tap belong to that vault); the
+         * new page sends its own. Reminders are the app's only notifications.
+         */
         fun clear(c: Context) {
+            manager(c).cancelAll()
             store(c).edit().remove(HOST).remove(ROWS).remove(POSTED).commit()
             arm(c)
         }
