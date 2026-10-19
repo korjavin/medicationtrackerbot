@@ -187,12 +187,21 @@ documents, two different primitives, no sharing needed. That is the correct boun
 - **Cloud claim wizard — trial next to Telegram** (`med-w6sx`, **implemented**): the owner wanted the trial
   beside Telegram setup, not only in the skippable overlay. `cmd/cloud` injects the same `medtracker-trial-ai`
   meta into the passkey shell, and `signup.js renderTrialStep` (after Telegram, before install) offers
-  *Try the free trial* / *Use my own keys* / *Skip*. The shell cannot write the `trialconsent` vault record, so
-  it only stores the choice in `localStorage['wg-onboarding-trial-choice']` and says the details come when the
-  app opens. `enterApp` always opens the app in that same browser next, where `WGFirstRun.mount` shows the real
-  `TrialConsent.request('ai')` dialog at once for `trial` (then marks it `trial-asked`, asked once). Any recorded
-  choice makes this step open on the key form instead of the trial choice; a granted `ai` consent (read via
-  `GET /api/settings/trial-consent`, so another device's grant counts) skips the step. No choice on this
+  *Allow the free trial* / *Use my own keys* / *Skip*. It is the **one** trial question of the onboarding
+  (`med-nt9p.40` — it used to be followed by the app's consent dialog, so a "yes" was asked twice): it shows the
+  app's `ai` consent disclosure word for word (`trial-consent.js` `COPY.ai` + `ALTERNATIVE`;
+  `signup.install-step.test.js` pins the match), so *Allow* is the consent. The shell cannot write the
+  `trialconsent` vault record, so it stores `trial-allowed` in `localStorage['wg-onboarding-trial-choice']`.
+  `enterApp` opens the app in that same origin and browser storage next (`/claim`, `/unlock` and the app are all
+  on the account subdomain), where `WGFirstRun.mount` records the grant with `TrialConsent.grant('ai')` — no
+  dialog — and marks it `trial-asked`. `grant` never overwrites a decision the vault already holds (a later
+  answer, another device's); only a grant that cannot be read or stored falls back to the dialog. A legacy
+  `trial` value (a pre-`med-nt9p.40` shell that showed no disclosure) still gets the `TrialConsent.request('ai')`
+  dialog. Any recorded choice makes the overlay's AI step open on the key form instead of the trial choice; a
+  granted `ai` consent (read via `GET /api/settings/trial-consent`, so another device's grant counts) skips the
+  step. The wizard step is **not** shown in an iOS Safari tab: its install step ends in the Home Screen app, a
+  fresh storage container that cannot read the choice, so that app's overlay asks instead; nor where
+  `localStorage` is blocked, for the same reason. No choice on this
   browser → the overlay's trial choice as above.
 - **After a skip — trial stays discoverable** (`med-6xb9`, **implemented**): `SettingsIntegrations.trialOffer()`
   is true while no own OpenAI key is saved, a trial exists (local: `CloudVault.trial.status()` non-null; cloud:
