@@ -12,7 +12,7 @@ on:
       scenario:
         description: "Scenario (android/qa/scenarios/<name>.mjs), or all of them"
         type: choice
-        options: [all, firstrun, native-dark, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe, local-spike]
+        options: [all, firstrun, native-dark, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe, smoke, local-spike]
         default: all
       font_scale:
         description: "System font scale applied before each scenario"
@@ -61,9 +61,22 @@ jobs:
         with:
           gradle-version: '8.11.1'
 
-      - name: Build QA debug APK
+      - name: Build QA debug APK (+ release, to prove it has no QA hooks)
         working-directory: android
-        run: gradle --no-daemon assembleDebug
+        run: gradle --no-daemon assembleDebug assembleRelease
+
+      # bd med-nt9p.25: the soft authenticator is debug-source-set only. The unsigned release
+      # APK is built from the same tree as the AAB / publish_apk_release APK.
+      - name: Release APK carries no QA soft authenticator
+        working-directory: android/app/build/outputs/apk
+        run: |
+          unzip -l debug/app-debug.apk | grep -q 'assets/qa-softauthn.js' || { echo 'debug APK lacks the asset'; exit 1; }
+          rel=$(ls release/*.apk | head -1)
+          assets=$(unzip -l "$rel" | grep -c 'qa-softauthn' || true)
+          dex=$(unzip -p "$rel" 'classes*.dex' | grep -ac 'qaSoftAuthn\|qa-softauthn' || true)
+          echo "release $rel: qa-softauthn entries=$assets, dex mentions=$dex"
+          { echo "### Release APK QA-hook check"; echo; echo "\`$(basename "$rel")\`: qa-softauthn files **$assets**, dex mentions of qaSoftAuthn/qa-softauthn **$dex** (both must be 0)"; echo; } >> "$GITHUB_STEP_SUMMARY"
+          [ "$assets" = 0 ] && [ "$dex" = 0 ]
 
       # The local cloud the emulator reaches (bd med-nt9p.24, docs/android.md → Agent QA harness):
       # cmd/cloud on :8080 ← tlsfront on :443 (throwaway CA) ← emulator via 10.0.2.2.

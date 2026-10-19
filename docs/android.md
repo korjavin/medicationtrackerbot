@@ -399,7 +399,7 @@ screens, `device.screenshot()` for the full screen incl. bars and keyboard).
 stays the acceptance device.
 
 ```bash
-gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-dark, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe
+gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-dark, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe, smoke
 gh workflow run android-qa.yml --ref <branch> -f scenario=firstrun -f font_scale=1.3 -f dark=true -f landscape=true
 gh run download <run-id> -n android-qa-<scenario> -D /tmp/qa             # then Read the PNGs
 ```
@@ -422,7 +422,7 @@ workflow's `scenario` options. `ctx`: `device` (Playwright `AndroidDevice`),
 `shell(cmd)`, `shot(name)`, `step(name, fn)` (reported; a throw stops the
 scenario), `launch()` (cold start on first run), `openAccount(url)`,
 `inForeground()`, `attachPage()` (Playwright `page` on the shell's WebView, for
-DOM/console/CDP), `openLink(url)`, `openClaim()` (cold start → the run's
+DOM/console/CDP), `openLink(url)`, `openClaim({ softAuthn })` (cold start → the run's
 invite → `page` on the `/unlock` signup wizard), `claimUrl`, `results` (named
 findings for the summary), `log`. The dispatch inputs are re-applied after
 every scenario, so a scenario may change them freely.
@@ -464,6 +464,72 @@ authenticator cannot stand in for a passkey here. Part 3 (bd med-nt9p.25)
 therefore takes the debug-only soft-authenticator route. The probe stays in the
 suite (`results.authnProbe` in `qa-summary.json` and the step summary) so a
 WebView update that adds the domain shows up.
+
+### Unlocked account: the QA soft authenticator (bd med-nt9p.25)
+
+Every way into an unlocked vault is a WebAuthn ceremony, and Google Password
+Manager cannot run headless. So debug builds carry
+[`src/debug/assets/qa-softauthn.js`](../android/app/src/debug/assets/qa-softauthn.js):
+a document-start script that replaces `navigator.credentials.create/get` with a
+WebCrypto software authenticator the **unchanged** server verifies (ES256,
+`none` attestation, flags UP|UV|BE|BS, sign count 0, discoverable; PRF =
+HMAC-SHA256 over a per-credential secret with the spec's `"WebAuthn PRF" || 0x00
+|| salt` input; credentials in the origin's localStorage so a relaunch finds
+them). It also polyfills `PublicKeyCredential.parse*OptionsFromJSON`, which
+the emulator image's WebView 113 lacks. The web code has no QA branches.
+
+The gate is [`src/debug/.../DebugHooks.kt`](../android/app/src/debug/java/com/example/medtracker/DebugHooks.kt):
+injected only when `BuildConfig.DEBUG`, the build's base is the placeholder
+`qa.test` (the QA APK), **and** the launch intent carries `--ez qaSoftAuthn
+true`, which the harness sets with `adb shell am start` (a launcher tap never
+does; `MainActivity` is exported, so the base check is what stops another app
+from sending the extra to a real-deployment debug build); diag.xml then says
+`shell qa soft authenticator ON`. Release
+builds compile [`src/release`'s no-op twin](../android/app/src/release/java/com/example/medtracker/DebugHooks.kt)
+and have neither the code nor the asset; android-qa.yml builds the release APK
+alongside and fails unless it has 0 `qa-softauthn` files and 0 dex mentions
+(step summary: *Release APK QA-hook check*). The owner's sideloaded **debug**
+APK also carries the asset, inert: its base is the real deployment, not `qa.test`.
+
+**`smoke`** (the agent's default scenario; it claims the run's one invite, so
+`all` runs it last and it has no retry): soft-authenticator launch → invite → signup wizard →
+passkey → loss-ack → Emergency Kit (the native Save/Share dialog is
+screenshotted, dismissed with Back) → vault → onboarding wizard (screenshotted, Skip all) → Today, Meds, Vitals (`health`),
+Food, Settings → the add-BP sheet, a real tap on systolic → keyboard
+(`smoke-bp-sheet-keyboard.png`; `results.smoke.keyboard` says whether the
+focused input sits inside the visual viewport) → rotated with the sheet open
+(portrait lock: expected unchanged) → Back (the first hides the keyboard) closes
+the sheet → one Back on Today leaves the app → cold relaunch reopens the vault
+from the warm cache. The Back steps record PASS/FAIL and the press counts
+(`results.smoke.backPressesToCloseSheet`, `backPressesToLeave`) without
+stopping the scenario.
+
+**Agent how-to.**
+
+```bash
+B=<branch>   # android-qa.yml must exist on it (it is on master)
+gh workflow run android-qa.yml --ref $B -f scenario=smoke                    # defaults
+gh workflow run android-qa.yml --ref $B -f scenario=smoke -f font_scale=1.3
+gh workflow run android-qa.yml --ref $B -f scenario=smoke -f font_scale=2.0
+gh workflow run android-qa.yml --ref $B -f scenario=smoke -f dark=true
+gh workflow run android-qa.yml --ref $B -f scenario=smoke -f landscape=true
+gh run list --workflow android-qa.yml -L 5                                    # run ids
+gh run watch <run-id>
+gh run download <run-id> -n android-qa-smoke -D <empty-dir>                   # then Read the PNGs, delete after
+```
+
+One dispatch per combination, one at a time (the workflow's concurrency group is
+per ref and holds only one pending run — a third dispatch cancels the second). Read `qa-summary.json` first: `ok` (no scenario threw after its
+retry), `steps[]` (`ok`, `error`, `retried`), `results.smoke` (keyboard
+geometry, Back press counts, relaunch path), `screenshots[]` in order; then
+look at every screenshot yourself — a green run with a broken screen is still a
+finding. Emulator runs are **discovery, not sign-off**: WebView 113, software
+GPU, no Play sign-in; the owner's phone decides.
+
+Filing a finding: one bead under `med-nt9p` (`bd create … --parent med-nt9p`)
+with the screenshot name, the dispatch inputs (scenario, font_scale, dark,
+landscape, api_level), the run id, and the matching `logcat.txt` excerpt
+(`chromium` tag for page console lines) or `diag.xml` entry.
 
 ## Spike (med-nt9p.4): passkey PRF, Service Worker, IndexedDB in Android System WebView
 
