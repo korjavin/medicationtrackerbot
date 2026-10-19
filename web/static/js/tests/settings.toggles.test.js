@@ -979,6 +979,8 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                 await confirmDelete(window, document);
 
                 await vi.waitFor(() => expect(leaveAccount).toHaveBeenCalledTimes(1));
+                // No { then: 'local' }: a delete lands on the native first-run (bd med-o7zq.34).
+                expect(leaveAccount.mock.calls[0][0]).toBeUndefined();
                 expect(mod.clearLocalVault).toHaveBeenCalledTimes(2);
                 expect(baseDomainURL).not.toHaveBeenCalled();
             } finally {
@@ -1187,7 +1189,7 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             }
         });
 
-        it('confirms that nothing is deleted on the server, then leaves the account', async () => {
+        it('confirms that nothing is deleted on the server, then leaves the account for local mode', async () => {
             allowConsoleNoise();
             const { window, document, cleanup } = loadFrontendEnv();
             try {
@@ -1200,9 +1202,37 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                     if (!d) throw new Error('no dialog open');
                     return d;
                 });
+                expect(dialog.textContent).toMatch(/switch to Only on this device/);
                 expect(dialog.textContent).toMatch(/Nothing is deleted on the server/);
                 dialog.querySelector('.mt-confirm-modal__confirm').click();
-                await vi.waitFor(() => expect(leaveAccount).toHaveBeenCalledTimes(1));
+                // bd med-o7zq.34: straight into local mode, not the native first-run.
+                await vi.waitFor(() => expect(leaveAccount).toHaveBeenCalledWith({ then: 'local' }));
+                expect(leaveAccount).toHaveBeenCalledTimes(1);
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        // A shell without account.leave rejects; the row shows leaveAccount's
+        // own fallback message (iOS Settings → Switch account). A shell that
+        // has the op but predates { then } ignores it and shows its first-run.
+        it('a shell without account.leave shows the fallback message', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                const leaveAccount = await mount(window);
+                leaveAccount.mockRejectedValueOnce(new Error('Update Med Tracker, or open iOS Settings → Med Tracker → Switch account, then choose Only on this device.'));
+                const btn = document.getElementById('settings-leave-account-btn');
+                btn.click();
+                const confirm = await vi.waitFor(() => {
+                    const d = document.querySelector('mt-modal.mt-confirm-modal');
+                    if (!d) throw new Error('no dialog open');
+                    return d;
+                });
+                confirm.querySelector('.mt-confirm-modal__confirm').click();
+                await vi.waitFor(() => expect(document.body.textContent).toMatch(/Switch account, then choose Only on this device/));
+                expect(leaveAccount).toHaveBeenCalledWith({ then: 'local' });
             } finally {
                 delete window.__MEDTRACKER_CLOUD__;
                 cleanup();

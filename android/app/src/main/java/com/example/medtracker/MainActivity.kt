@@ -44,6 +44,7 @@ import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Space
@@ -123,7 +124,7 @@ class MainActivity : Activity() {
     /** Local mode's optional lock (bd med-nt9p.32.9); off unless the user turned it on. */
     private val lock by lazy { LocalLock(prefs.getBoolean(LocalLock.KEY, false)) }
     /** The lock holds: the page is out of the window, loads and taps wait, the bridge says "locked". */
-    private val concealed get() = lock.holds(local)
+    private val concealed get() = lock.holds(local) || DebugHooks.qaLock(this)
     /** What the lock held back, run on unlock. */
     private var deferredUrl: String? = null
     private var deferredSection: String? = null
@@ -817,10 +818,15 @@ class MainActivity : Activity() {
     /** Local mode's lock screen. A cancelled prompt lands here and stays: only the button asks again. */
     private fun buildLock(): View {
         unlockButton = button("Unlock") { lock.begin()?.let { authenticate(it) } }
+        // Same screen() as first run and the intro (colours, type, button); the launcher icon is the brand mark.
         return screen(
             "Med Tracker is locked",
-            TextView(this).apply { text = "Unlock with your fingerprint, face or screen lock to see your records." },
+            TextView(this).apply {
+                text = "Unlock with your fingerprint, face or screen lock to see your records."
+                gravity = Gravity.CENTER
+            },
             unlockButton,
+            centered = true,
         ).apply { visibility = View.GONE }
     }
 
@@ -914,14 +920,19 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun screen(title: String, vararg views: View): View {
+    private fun screen(title: String, vararg views: View, centered: Boolean = false): View {
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             val pad = (24 * resources.displayMetrics.density).toInt()
             setPadding(pad, pad, pad, pad)
+            if (centered) {
+                gravity = Gravity.CENTER
+                addView(ImageView(this@MainActivity).apply { setImageResource(R.mipmap.ic_launcher) }, 96.dp, 96.dp)
+            }
             addView(TextView(this@MainActivity).apply {
                 text = title
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 24f)
+                if (centered) gravity = Gravity.CENTER
             })
             for (v in views) addView(v, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = pad / 2 })
         }

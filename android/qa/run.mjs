@@ -8,7 +8,7 @@ import { join } from 'node:path';
 
 // smoke last: it claims the run's one invite (bd med-nt9p.25). local-smoke (bd med-nt9p.32.6) is the
 // passkey-free full-app run; local-visual (one shot per scene) and the other local-* run on their own.
-const SCENARIOS = ['firstrun', 'native-dark', 'native-fontscale', 'back-exit', 'claim-page', 'not-found', 'external-link', 'authn-probe', 'local-smoke', 'smoke'];
+const SCENARIOS = ['firstrun', 'native-dark', 'native-lock','native-fontscale', 'back-exit', 'claim-page', 'not-found', 'external-link', 'authn-probe', 'local-smoke', 'smoke'];
 const LOCAL_ORIGIN = 'https://appassets.androidplatform.net';
 const [want = 'all', out = 'out'] = process.argv.slice(2);
 const pkg = process.env.QA_PKG || 'com.example.medtracker';

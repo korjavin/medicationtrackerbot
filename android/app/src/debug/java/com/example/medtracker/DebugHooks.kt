@@ -41,5 +41,9 @@ internal object DebugHooks {
     fun qaScene(activity: Activity): String? =
         if (qa()) activity.intent?.getStringExtra("wgQAScene") else null
 
+    /** `--ez wgQALock true`: shows the native lock screen without a lock (android-qa native-lock). */
+    fun qaLock(activity: Activity): Boolean =
+        qa() && activity.intent?.getBooleanExtra("wgQALock", false) == true
+
     private fun qa() = BuildConfig.DEBUG && BuildConfig.BASE_DOMAIN == QA_BASE
 }
