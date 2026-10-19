@@ -1031,9 +1031,11 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   | op | does |
   |---|---|
   | `setEgressHosts {hosts}` | `LocalOrigin.validHosts` (≤ 8 bare DNS names, whole list or `invalid hosts`), stored under `wgLocalEgressHosts`; replies `{changed}` — the page reloads itself when true and the next document's CSP `connect-src` lists the hosts |
-  | `local.reset` | the page erased its storage: removes the host mirror, clears reminders, deletes the move stash, replies `true` |
+  | `local.reset` | the page erased its storage: removes the host mirror, clears reminders, deletes the move and leave stashes, replies `true` |
   | `local.leave` | replies `true`, then Switch account (first run) |
   | `move.stash {vault}` | the local → cloud move (bd med-nt9p.32.17, [`Move.kt`](../android/app/src/main/java/com/example/medtracker/Move.kt)): writes the vault v1 JSON string to `no_backup/move/vault.json` (temp file + rename, one stash at a time, replaces the old one); `invalid vault` when missing, empty or not a string, `too large` above 64 MB (UTF-8 bytes); replies `true` |
+  | `leave.take` | local pickup (bd med-o7zq.36.3): replies `{vault}` or `null`; does not delete (same as `move.take`) |
+  | `leave.clear` | deletes the leave stash, replies `true` |
   | `lock.status` | `{on, available}`: the lock's state, and whether the phone has a screen lock ([Lock](#local-mode-lock-bd-med-nt9p329)) |
   | `lock.set {on}` | the phone's own check, then the choice; `true` once applied, `false` when refused or cancelled |
 
@@ -1046,6 +1048,7 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   | `account.leave {then?}` | replies `true`, then forgets the account host (bd med-nt9p.32.13, iOS twin PR #1179): with `{then: "local"}` straight into local mode (Settings → Account *Use this phone without an account*), without args the first run (after an account delete). Nothing is erased: the account and its origin's WebView data stay |
   | `move.take` | the new account's pickup (bd med-nt9p.32.17): replies `{vault}` (the stashed string) or `null` when there is none; does not delete, so a failed import retries on the next open |
   | `move.clear` | deletes the stash once the page imported it, replies `true` |
+  | `leave.stash {vault}` | account → local (bd med-o7zq.36.3, a second `Move` over `no_backup/leave/vault.json`): same contract and errors as `move.stash` (`invalid vault`, `too large`, `write failed`), but **account mode only** |
 
   **The move stash** (`Move.kt`, `MoveTest`): the two origins share no
   storage, so the shell carries the local vault to the new account in one
@@ -1064,6 +1067,17 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   claims the run's invite) — mode gates, `invalid vault`, the file in the
   `run-as` listing after the stash, the hint, deleted on *Start*, and in the
   new account `move.take` returns the same string, `move.clear` deletes it.
+
+  **The leave stash** (account → local, bd med-o7zq.36.3): the mirror image in
+  `noBackupFilesDir/leave/vault.json`, a second `Move` instance with the same
+  plaintext/never-backed-up/no-leak rules and error strings. The account page
+  writes it (`leave.stash`, account mode only) just before
+  `account.leave {then: "local"}`; the local page picks it up (`leave.take`,
+  `leave.clear`, local mode only). It is deleted by `leave.clear`,
+  `local.reset` and opening an account (`open()`), and **kept** across
+  `setLocal(true)` and `forget(thenLocal)` (that is the hand-off) and across
+  `local.leave`. The `move.*` ops are unchanged. `move-ops` also covers it
+  (gates, stash, kept into local mode, take/clear, `local.reset`, `open()`).
 
   Both modes: `ping`, `chrome`, `diag.append`, `notifications.*`, `health.*`,
   and `shell.ops`, which replies the array of op names this shell answers in

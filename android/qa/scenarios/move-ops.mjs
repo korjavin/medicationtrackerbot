@@ -5,7 +5,9 @@
 // first run's hint → Only on this device → Start deletes it (an abandoned move) → local.leave shows
 // no stale hint → Start → stash again →
 // local.leave → the runner's invite → the account: move.stash refused, move.take returns the same
-// string and keeps the file, move.clear deletes it, move.take → null. results.moveOps has the checks.
+// string and keeps the file, move.clear deletes it, move.take → null. Then the leave.* mirror (bd
+// med-o7zq.36.3): gates, stash in the account, kept into local mode where take/clear work, deleted by
+// local.reset and by opening an account (seeded via run-as). results.moveOps has the checks.
 // Claims the run's one invite: not in `all` (smoke claims it there), no retry.
 import { claimAccount } from './smoke.mjs';
 
@@ -110,6 +112,66 @@ export default async function moveOps(ctx) {
     const none = await call(page, 'move.take');
     expect(none.ok && none.result === null, `take after clear: ${JSON.stringify(none)}`);
     r.ok = true;
+  });
+
+  // Account → local leave stash (bd med-o7zq.36.3): the same contract in the second dir, no_backup/leave/.
+  const leaveFiles = () => shell(`run-as ${pkg} sh -c 'ls no_backup/leave 2>/dev/null; true'`);
+  const seedLeave = () => shell(`run-as ${pkg} sh -c 'mkdir -p no_backup/leave && echo {} > no_backup/leave/vault.json'`);
+  await ctx.step('account: leave.stash gates and invalid vault, then stash', async () => {
+    const ops = await call(page, 'shell.ops');
+    expect(ops.ok && ops.result.includes('leave.stash'), `shell.ops ${JSON.stringify(ops)}`);
+    expect(!ops.result.includes('leave.take') && !ops.result.includes('leave.clear'), `account lists local ops: ${ops.result}`);
+    for (const op of ['leave.take', 'leave.clear']) {
+      const res = await call(page, op);
+      expect(!res.ok && res.error === `unsupported: ${op}`, `${op} in account mode: ${JSON.stringify(res)}`);
+    }
+    for (const args of [{}, { vault: 42 }, { vault: '' }]) {
+      const res = await call(page, 'leave.stash', args);
+      expect(!res.ok && res.error === 'invalid vault', `leave.stash ${JSON.stringify(args)}: ${JSON.stringify(res)}`);
+    }
+    expect((await leaveFiles()) === '', 'a rejected leave.stash wrote a file');
+    const res = await call(page, 'leave.stash', { vault });
+    expect(res.ok && res.result === true, `leave.stash: ${JSON.stringify(res)}`);
+    expect((await leaveFiles()) === 'vault.json', `leave files: ${await leaveFiles()}`);
+    expect((await stashFiles()) === '', 'leave.stash touched the move dir');
+  });
+  await ctx.step('account.leave {then: local}: the leave stash is kept, local takes and clears it', async () => {
+    await call(page, 'account.leave', { then: 'local' }).catch(() => {});
+    await sleep(2000);
+    page = await ctx.attachPage();
+    if (!page) throw new Error('no WebView page');
+    await page.waitForURL((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`), { timeout: 30_000 });
+    await ctx.waitLocalReady(page);
+    expect((await leaveFiles()) === 'vault.json', 'entering local mode deleted the leave stash');
+    const ops = await call(page, 'shell.ops');
+    expect(ops.ok && ops.result.includes('leave.take') && ops.result.includes('leave.clear') && !ops.result.includes('leave.stash'), `local shell.ops ${JSON.stringify(ops)}`);
+    const stash = await call(page, 'leave.stash', { vault: '{}' });
+    expect(!stash.ok && stash.error === 'unsupported: leave.stash', `leave.stash in local mode: ${JSON.stringify(stash)}`);
+    const took = await call(page, 'leave.take');
+    expect(took.ok && took.result && took.result.vault === vault, `leave.take: ${took.ok} ${took.error || took.result?.vault?.length}`);
+    expect((await leaveFiles()) === 'vault.json', 'leave.take deleted the stash');
+    const cleared = await call(page, 'leave.clear');
+    expect(cleared.ok && cleared.result === true, `leave.clear: ${JSON.stringify(cleared)}`);
+    expect((await leaveFiles()) === '', `leave.clear left: ${await leaveFiles()}`);
+    const none = await call(page, 'leave.take');
+    expect(none.ok && none.result === null, `leave.take after clear: ${JSON.stringify(none)}`);
+  });
+  await ctx.step('local.reset deletes the leave stash', async () => {
+    await seedLeave();
+    expect((await leaveFiles()) === 'vault.json', 'seed failed');
+    const res = await call(page, 'local.reset');
+    expect(res.ok && res.result === true, `local.reset: ${JSON.stringify(res)}`);
+    expect((await leaveFiles()) === '', `local.reset left: ${await leaveFiles()}`);
+  });
+  await ctx.step('local.leave keeps it; opening an account deletes it', async () => {
+    await seedLeave();
+    await call(page, 'local.leave').catch(() => {});
+    await ctx.waitFor({ text: 'Open' }, 60_000);
+    expect((await leaveFiles()) === 'vault.json', 'leaving local mode deleted the leave stash');
+    await ctx.openLink(ctx.claimUrl); // open() runs before the page loads
+    await sleep(2000);
+    expect((await leaveFiles()) === '', `open() left: ${await leaveFiles()}`);
+    r.leaveOk = true;
   });
   log('moveOps', JSON.stringify(r));
 }
