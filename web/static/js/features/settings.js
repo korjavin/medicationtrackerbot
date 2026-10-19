@@ -735,12 +735,33 @@ function showLeaveAccount(leave) {
         btn.disabled = true;
         try {
             const device = nativeCopy().device;
+            // bd med-o7zq.36: a shell with leave.stash carries a copy of the
+            // vault into local mode; an older one starts it empty.
+            const stash = await nativeHas('leave.stash');
+            const carry = stash
+                ? 'A copy of your records comes along.'
+                : 'Device-only mode starts empty; restore a backup file to bring your records.';
             const ok = await safeConfirm(
-                `Med Tracker will close this account on this ${device} and switch to Only on this device, which keeps your records on the phone. Nothing is deleted on the server: the account and its data stay, and you can open it again with your account address.`,
+                `Med Tracker will close this account on this ${device} and switch to Only on this device, which keeps your records on the phone. Nothing is deleted on the server: the account and its data stay, and you can open it again with your account address. ${carry}`,
                 null,
                 { title: `Use this ${device} without an account?`, confirmLabel: 'Continue' },
             );
-            if (ok) await leave({ then: 'local' });
+            if (!ok) return;
+            if (stash) {
+                try {
+                    const vault = await window.CloudVault.exportAll({ includeSecrets: true });
+                    await window.LocalNotifications.__native.call('leave.stash', { vault });
+                } catch (e) {
+                    // Never leave silently without the records.
+                    const go = await safeConfirm(
+                        `Your records could not be carried over (${e?.message || e}). Continue without them? Your account keeps them; a backup file can bring them here later.`,
+                        null,
+                        { title: 'Records not carried over', confirmLabel: 'Continue' },
+                    );
+                    if (!go) return;
+                }
+            }
+            await leave({ then: 'local' });
         } catch (e) {
             await safeAlert(e?.message || 'Couldn’t leave the account.');
         } finally {

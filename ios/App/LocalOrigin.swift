@@ -21,9 +21,10 @@ enum LocalOrigin {
     /// Bridge ops only the bundled app may call (Shell.swift `where local`).
     static let localOps = ["setEgressHosts", "local.reset", "local.leave",
                            "attest.status", "attest.enroll", "attest.setPass", "attest.assert",
-                           "move.stash"] // the local → cloud move (bd med-o7zq.35, Move.swift)
+                           "move.stash", // the local → cloud move (bd med-o7zq.35, Move.swift)
+                           "leave.take", "leave.clear"] // the account → local move (bd med-o7zq.36)
     /// Bridge ops only an account page may call (Shell.swift `where !local`).
-    static let accountOps = ["account.leave", "move.take", "move.clear"]
+    static let accountOps = ["account.leave", "move.take", "move.clear", "leave.stash"]
     /// Every other op the shell answers, in both modes.
     static let sharedOps = ["ping", "shell.ops", "health.authorize", "health.query",
                             "notifications.permission", "notifications.requestPermission",

@@ -1347,6 +1347,93 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                 cleanup();
             }
         });
+        // bd med-o7zq.36: a shell listing leave.stash gets a copy of the vault
+        // before the leave; an older shell leaves without one.
+        describe('carries the records (leave.stash)', () => {
+            const dialogMatching = (document, re) => vi.waitFor(() => {
+                const d = [...document.querySelectorAll('mt-modal.mt-confirm-modal')].find((m) => re.test(m.textContent));
+                if (!d) throw new Error(`no dialog matching ${re}`);
+                return d;
+            });
+            // ops: shell.ops answer (an Error rejects); stash: leave.stash outcome.
+            const setup = async (window, platform, { ops = ['shell.ops', 'account.leave', 'leave.stash'], stash, exportAll } = {}) => {
+                const order = [];
+                const call = vi.fn(async (op, args) => {
+                    if (op === 'shell.ops') { if (ops instanceof Error) throw ops; return ops; }
+                    if (op === 'leave.stash') { order.push(['leave.stash', args]); if (stash) throw stash; return null; }
+                    throw new Error(`unsupported: ${op}`);
+                });
+                const leaveAccount = await mount(window, { platform, call, copy: { device: platform === 'ios' ? 'iPhone' : 'phone' } });
+                leaveAccount.mockImplementation(async (opts) => { order.push(['leaveAccount', opts]); });
+                window.CloudVault.exportAll = vi.fn(async (opts) => {
+                    order.push(['exportAll', opts]);
+                    if (exportAll) throw exportAll;
+                    return { format: 'vault', records: [] };
+                });
+                return { call, leaveAccount, order };
+            };
+            const run = async (platform, opts, body) => {
+                allowConsoleNoise();
+                const { window, document, cleanup } = loadFrontendEnv();
+                try {
+                    const env = await setup(window, platform, opts);
+                    await vi.waitFor(() => expect(hidden(document)).toBe(false));
+                    const btn = document.getElementById('settings-leave-account-btn');
+                    btn.click();
+                    await body({ window, document, btn, ...env });
+                } finally {
+                    delete window.__MEDTRACKER_CLOUD__;
+                    cleanup();
+                }
+            };
+
+            for (const platform of ['ios', 'android']) {
+                describe(platform, () => {
+                    it('op listed: exportAll, then leave.stash({vault}), then leaveAccount', () => run(platform, {}, async ({ document, order }) => {
+                        const dialog = await dialogMatching(document, /without an account\?/);
+                        expect(dialog.textContent).toMatch(/switch to Only on this device/);
+                        expect(dialog.textContent).toMatch(/Nothing is deleted on the server/);
+                        expect(dialog.textContent).toMatch(/A copy of your records comes along\./);
+                        dialog.querySelector('.mt-confirm-modal__confirm').click();
+                        await vi.waitFor(() => expect(order).toHaveLength(3));
+                        expect(order).toEqual([
+                            ['exportAll', { includeSecrets: true }],
+                            ['leave.stash', { vault: { format: 'vault', records: [] } }],
+                            ['leaveAccount', { then: 'local' }],
+                        ]);
+                    }));
+
+                    for (const [name, ops] of [['op absent', ['shell.ops', 'account.leave']], ['shell.ops rejects', new Error('unsupported: shell.ops')]]) {
+                        if (platform === 'android' && ops instanceof Error) continue; // Android hides the row without shell.ops
+                        it(`${name}: leaves without exporting`, () => run(platform, { ops }, async ({ window, document, leaveAccount, call }) => {
+                            const dialog = await dialogMatching(document, /without an account\?/);
+                            expect(dialog.textContent).toMatch(/Device-only mode starts empty; restore a backup file to bring your records\./);
+                            dialog.querySelector('.mt-confirm-modal__confirm').click();
+                            await vi.waitFor(() => expect(leaveAccount).toHaveBeenCalledWith({ then: 'local' }));
+                            expect(window.CloudVault.exportAll).not.toHaveBeenCalled();
+                            expect(call).not.toHaveBeenCalledWith('leave.stash', expect.anything());
+                        }));
+                    }
+
+                    for (const [name, opts] of [['leave.stash rejects', { stash: new Error('too large') }], ['exportAll throws', { exportAll: new Error('too large') }]]) {
+                        it(`${name}: Cancel on the second dialog stays`, () => run(platform, opts, async ({ document, btn, leaveAccount }) => {
+                            (await dialogMatching(document, /without an account\?/)).querySelector('.mt-confirm-modal__confirm').click();
+                            const second = await dialogMatching(document, /could not be carried over/);
+                            expect(second.textContent).toMatch(/\(too large\)/);
+                            second.querySelector('.mt-confirm-modal__cancel').click();
+                            await vi.waitFor(() => expect(btn.disabled).toBe(false));
+                            expect(leaveAccount).not.toHaveBeenCalled();
+                        }));
+                        it(`${name}: Continue on the second dialog leaves`, () => run(platform, opts, async ({ document, leaveAccount }) => {
+                            (await dialogMatching(document, /without an account\?/)).querySelector('.mt-confirm-modal__confirm').click();
+                            const second = await dialogMatching(document, /could not be carried over/);
+                            second.querySelector('.mt-confirm-modal__confirm').click();
+                            await vi.waitFor(() => expect(leaveAccount).toHaveBeenCalledWith({ then: 'local' }));
+                        }));
+                    }
+                });
+            }
+        });
     });
 
     // med-4pz.4 — nudge a single-device account to add a second one, so a lost
