@@ -528,8 +528,12 @@
             loadTrialConsent();
             renderLocalTrial();
 
+            // Local mode has no server to link Telegram through, and telegram.js
+            // reads its status with a raw fetch the shim never sees (a 404 on
+            // the shell's origin, med-4mva): don't mount it; the row stays hidden.
             const tgMount = document.getElementById('telegram-settings-mount');
-            if (tgMount && !_telegramMounted) {
+            const local = document.documentElement.classList.contains('wg-local-vault');
+            if (tgMount && !_telegramMounted && !local) {
                 _telegramMounted = true;
                 _telegramModuleLoader()
                     .then(({ mountTelegram }) => mountTelegram(tgMount, {}))

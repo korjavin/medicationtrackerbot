@@ -251,10 +251,21 @@
 
         // Round-2, Task 2 — date tick labels on the x-axis. 4 evenly-spaced
         // ticks across the visible time window; placed below the plot.
-        const xTickTimes = pickXTickTimes(firstTime, lastTime, 4);
-        for (const t of xTickTimes) {
+        // A short window (two readings a day apart) puts several ticks on one
+        // date: one tick per date, the last date pinned to the window's end so
+        // the axis still spans the data (med-0rzu).
+        const xTicks = [];
+        for (const t of pickXTickTimes(firstTime, lastTime, 4)) {
             const label = formatXTickLabel(t);
             if (!label) continue;
+            const prev = xTicks[xTicks.length - 1];
+            if (prev && prev.label === label) {
+                if (xTicks.length > 1) prev.t = t;
+            } else {
+                xTicks.push({ t, label });
+            }
+        }
+        for (const { t, label } of xTicks) {
             const tick = makeAxisTick(xOf(t), height - 8, label, 'x');
             svg.appendChild(tick);
         }
