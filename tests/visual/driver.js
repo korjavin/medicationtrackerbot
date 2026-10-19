@@ -107,6 +107,11 @@
         } else if (step.click) {
             await until(() => firstVisible(step.click), STEP_MS, `click ${step.click}`);
             firstVisible(step.click).click();
+        } else if (step.tag) {
+            // A DOM id for a native `tap` (XCUITest finds web elements by id)
+            // on an element the app renders without one.
+            await until(() => firstVisible(step.tag), STEP_MS, `tag ${step.tag}`);
+            firstVisible(step.tag).id = step.id;
         } else if (step.settingsPage) {
             await until(() => window.SettingsView.openSettingsPage(step.settingsPage), STEP_MS, `settings page ${step.settingsPage}`);
         } else {
