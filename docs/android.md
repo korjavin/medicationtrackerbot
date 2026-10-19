@@ -117,7 +117,17 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
   `ios/Tests/main.swift` in CI. The app stores the account **host** only,
   never the claim fragment, and opens `https://<host>/` on every later launch.
   A spike install's last account is adopted once, then the spike's data is
-  deleted.
+  deleted. Below the buttons, as on iOS (bd med-nt9p.31): the "not a medical
+  device" footnote (same wording as `ios/App/App.swift` and the store listing)
+  and a *Privacy policy* link that opens `docs/privacy-policy.md` in the browser.
+- **Icon and splash** (bd med-nt9p.26): the launcher icon is an adaptive icon
+  whose foreground is the PWA's `web/static/icons/icon-512.png` (same bytes,
+  inset 1/6 so the maskable safe zone fits) on `#132D29` (`--wg-bg-screen`);
+  `icon-192.png` is the legacy `mipmap-xxxhdpi` fallback. `Theme.MedTracker`
+  (`res/values/themes.xml`, DayNight) paints the window and the Android 12+
+  splash in the same teal, so a cold start never flashes white; the native
+  screens still follow the system theme via `colorBackground`. A new icon means
+  replacing both PNGs from `web/static/icons`.
 - **Navigation:** the account host and the base domain load in the app; every
   other link (and `mailto:`/`tel:`) opens in the browser or its own app.
   `target=_blank` / `window.open` load in the same WebView.
