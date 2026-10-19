@@ -1,20 +1,31 @@
-// Tier 1 of docs/design/ios-visual-testing.md: the QA=1 local bundle in
-// Playwright WebKit at the two Simulator widths, on Linux. Evidence, not a gate:
-// probe failures are reported, never fatal; no screenshot at all is fatal.
+// Tier 1 of docs/design/ios-visual-testing.md. Evidence, not a gate: probe
+// failures are reported, never fatal; no screenshot at all is fatal.
 //
-//   QA=1 ios/bundle-web.sh ci && node tests/visual/playwright/run.mjs [outDir]
+//   local: the QA=1 local bundle in WebKit at the two Simulator widths, plus
+//          Chromium at desktop 1280x800 and Pixel 7.
+//     QA=1 ios/bundle-web.sh ci && node tests/visual/playwright/run.mjs [outDir]
+//   cloud: the real cmd/cloud (CLOUD_BIN) on *.localhost, one fresh account per
+//          device signed up with Chromium's virtual PRF authenticator; the
+//          driver is injected by addInitScript, never served by the cloud.
+//     CLOUD_BIN=/tmp/cloud node tests/visual/playwright/run.mjs [outDir] cloud
 //
 // What it cannot show (Linux WebKit is not WKWebView): focus-zoom, the software
 // keyboard and the visualViewport shrink/pan it causes, safe-area insets and
 // the shell's native bands, iOS fonts. med-pe9g would not have shown up here.
 import { createServer } from 'node:http';
+import { execFileSync, spawn } from 'node:child_process';
+import { createWriteStream } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, extname, resolve } from 'node:path';
-import { webkit, devices } from 'playwright';
+import { webkit, chromium, devices } from 'playwright';
 
 const repo = resolve(import.meta.dirname, '../../..');
 const root = join(repo, 'ios/LocalApp');
 const out = resolve(process.argv[2] || 'visual-web');
+const mode = process.argv[3] || 'local';
+await mkdir(out, { recursive: true });
 
 // LocalOrigin.file(for:) routing and mime(), plus the shell's CSP with no hosts.
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
@@ -41,8 +52,6 @@ const server = createServer(async (req, res) => {
     res.writeHead(404).end();
   }
 });
-await new Promise((r) => server.listen(0, '127.0.0.1', r));
-const base = `http://127.0.0.1:${server.address().port}`;
 
 // The iOS shell's wgNative reply handler (ios/App/Shell.swift), so
 // native/index.js picks 'ios' and the page takes the shell's code paths
@@ -60,9 +69,15 @@ function nativeStub() {
   Object.defineProperty(window, 'webkit', { configurable: true, value: { messageHandlers: { wgNative } } });
 }
 
-const DEVICES = {
-  'iphone-390': { ...devices['iPhone 13'], viewport: { width: 390, height: 844 }, screen: { width: 390, height: 844 }, deviceScaleFactor: 3 },
-  'iphone-440': { ...devices['iPhone 13'], viewport: { width: 440, height: 956 }, screen: { width: 440, height: 956 }, deviceScaleFactor: 3 },
+const DESKTOP = { viewport: { width: 1280, height: 800 }, screen: { width: 1280, height: 800 }, deviceScaleFactor: 1 };
+const DEVICES = mode === 'cloud' ? {
+  'cloud-desktop-1280': [chromium, DESKTOP],
+  'cloud-pixel-7': [chromium, devices['Pixel 7']],
+} : {
+  'iphone-390': [webkit, { ...devices['iPhone 13'], viewport: { width: 390, height: 844 }, screen: { width: 390, height: 844 }, deviceScaleFactor: 3 }],
+  'iphone-440': [webkit, { ...devices['iPhone 13'], viewport: { width: 440, height: 956 }, screen: { width: 440, height: 956 }, deviceScaleFactor: 3 }],
+  'desktop-1280': [chromium, DESKTOP],
+  'pixel-7': [chromium, devices['Pixel 7']],
 };
 
 const { scenes } = JSON.parse(await readFile(join(repo, 'tests/visual/scenes.json'), 'utf8'));
@@ -83,29 +98,124 @@ async function nativeSteps(page, steps) {
   await page.waitForTimeout(600); // the driver re-publishes 150 ms after focus/input
 }
 
-const browser = await webkit.launch();
+// --- cloud mode -----------------------------------------------------------
+// The real server on *.localhost (Chromium resolves it to loopback, and it is a
+// secure context, so WebAuthn and Secure cookies work over plain http — the
+// local dev loop of docs/cloud-mode.md). No external services: no food DB, no
+// Telegram, no trial keys.
+const PORT = process.env.CLOUD_PORT || '18080';
+const cloudEnv = { ...process.env, CLOUD_BASE_DOMAIN: 'localhost', PORT, CLOUD_DB_PATH: join(tmpdir(), `visual-cloud-${process.pid}.db`),
+  SESSION_SECRET: randomBytes(32).toString('base64') };
+async function startCloud() {
+  const bin = process.env.CLOUD_BIN;
+  if (!bin) throw new Error('CLOUD_BIN is required in cloud mode');
+  const log = createWriteStream(join(out, 'cloud-server.log'));
+  const proc = spawn(bin, [], { env: cloudEnv, stdio: ['ignore', 'pipe', 'pipe'] });
+  proc.stdout.pipe(log); proc.stderr.pipe(log);
+  for (let i = 0; i < 120; i++) {
+    if (proc.exitCode !== null) throw new Error(`cmd/cloud exited ${proc.exitCode} (see cloud-server.log)`);
+    try { await fetch(`http://localhost:${PORT}/`); return proc; } catch { await new Promise((r) => setTimeout(r, 500)); }
+  }
+  throw new Error('cmd/cloud did not start listening');
+}
+
+// `cloud admin invite` against the same DB; its claim URL is https://<sub>.localhost/#claim=<t>.
+function mintInvite() {
+  const text = execFileSync(process.env.CLOUD_BIN, ['admin', 'invite'], { env: cloudEnv, encoding: 'utf8' });
+  const m = /https:\/\/([a-z0-9-]+)\.localhost\/#claim=([a-f0-9]+)/.exec(text);
+  if (!m) throw new Error(`no claim URL in: ${text.slice(0, 200)}`);
+  return { origin: `http://${m[1]}.localhost:${PORT}`, token: m[2] };
+}
+
+// The signup wizard as a person runs it (e2e/vault-roundtrip.mjs's flow): claim
+// → PRF passkey → loss ack → emergency kit → vault open. The authenticator is
+// per page (CDP), so the cloud run keeps one page per device.
+async function cloudSignup(context, page) {
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('WebAuthn.enable');
+  await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', ctap2Version: 'ctap2_1', transport: 'internal',
+    hasResidentKey: true, hasUserVerification: true, hasPrf: true, isUserVerified: true, automaticPresenceSimulation: true } });
+  const { origin, token } = mintInvite();
+  await page.goto(`${origin}/#claim=${token}`, { waitUntil: 'domcontentloaded' });
+  await page.waitForURL(/\/unlock/, { timeout: 30000 });
+  await page.click('#create-passkey', { timeout: 30000 });
+  await page.check('#loss-ack-checkbox', { timeout: 30000 });
+  await page.click('#loss-ack-continue');
+  await page.locator('#kit-download').waitFor({ timeout: 30000 });
+  const download = page.waitForEvent('download').catch(() => null);
+  await page.click('#kit-download');
+  await download;
+  await page.check('#kit-saved-checkbox');
+  await page.click('#kit-continue');
+  const skip = page.locator('#install-skip');
+  await page.waitForFunction(() => Boolean(window.MedTrackerCloudReady) || document.querySelector('#install-skip'), null, { timeout: 60000 });
+  if (await skip.count()) await skip.click();
+  await page.waitForFunction(() => Boolean(window.MedTrackerCloudReady), null, { timeout: 60000 });
+  await page.evaluate(() => window.MedTrackerCloudReady);
+  if (!(await page.evaluate(() => Boolean(window.MedTrackerCloud && window.MedTrackerCloud.ctx)))) throw new Error('signup did not open the vault');
+  return origin;
+}
+
+// The driver, its scene list and the golden vault, injected rather than served:
+// the cloud never carries /qa/*. __wgQACloud lets the driver seed a non-local
+// vault (a fresh, empty test account only — the driver still refuses to import
+// over content).
+const driverInit = mode === 'cloud' ? [
+  'window.__wgQACloud = true;',
+  `window.__wgQAFiles = ${JSON.stringify({
+    '/qa/scenes.json': JSON.parse(await readFile(join(repo, 'tests/visual/scenes.json'), 'utf8')),
+    '/qa/vault-v1.json': JSON.parse(await readFile(join(repo, 'tests/fixtures/vault-v1.json'), 'utf8')),
+  })};`,
+  await readFile(join(repo, 'tests/visual/driver.js'), 'utf8'),
+].join('\n') : null;
+
+let base = null;
+let cloud = null;
+if (mode === 'cloud') cloud = await startCloud();
+else {
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  base = `http://127.0.0.1:${server.address().port}`;
+}
+
+const browsers = new Map();
 const rows = [];
 let shots = 0;
-for (const [device, desc] of Object.entries(DEVICES)) {
+for (const [device, [engine, desc]] of Object.entries(DEVICES)) {
+  if (!browsers.has(engine)) browsers.set(engine, await engine.launch());
+  const browser = browsers.get(engine);
   await mkdir(join(out, device), { recursive: true });
   // One context per device: the first scene seeds the vault (the driver
   // imports it and reloads), every later scene opens on the seeded store.
-  const context = await browser.newContext({ ...desc, colorScheme: 'dark', locale: 'en-US', timezoneId: 'Europe/Berlin' });
-  await context.addInitScript(nativeStub);
+  const context = await browser.newContext({ ...desc, colorScheme: 'dark', locale: 'en-US', timezoneId: 'Europe/Berlin', acceptDownloads: true });
+  if (mode === 'cloud') await context.addInitScript(driverInit);
+  else await context.addInitScript(nativeStub);
+  // One page per device, so the virtual authenticator (cloud) outlives scenes.
+  const page = await context.newPage();
+  let errors = [];
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  page.on('pageerror', (e) => errors.push(String(e && e.message || e)));
+  page.on('response', (r) => { if (r.status() >= 400) errors.push(`${r.status()} ${new URL(r.url()).pathname}`); });
+  let appBase = base;
+  if (mode === 'cloud') {
+    try {
+      appBase = await cloudSignup(context, page);
+    } catch (e) {
+      rows.push({ device, scene: 'signup', status: 'error', note: String(e.message || e).split('\n')[0] });
+      try { await page.screenshot({ path: join(out, device, 'signup.png') }); shots++; } catch { /* page gone */ }
+      await context.close();
+      continue;
+    }
+  }
   for (const scene of scenes) {
     if (nativeOnly(scene)) {
       rows.push({ device, scene: scene.name, status: 'skipped', note: 'native-only (SwiftUI screen, Simulator tier only)' });
       continue;
     }
-    const page = await context.newPage();
-    const errors = [];
-    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
-    page.on('pageerror', (e) => errors.push(String(e && e.message || e)));
-    page.on('response', (r) => { if (r.status() >= 400) errors.push(`${r.status()} ${new URL(r.url()).pathname}`); });
+    errors = [];
     const row = { device, scene: scene.name };
     let report = null;
     try {
-      await page.goto(`${base}/?qa=${encodeURIComponent(scene.name)}`);
+      await page.goto(`${appBase}/?qa=${encodeURIComponent(scene.name)}`);
       const ready = page.locator('#wg-qa-ready');
       await ready.waitFor({ state: 'attached', timeout: 90000 }); // survives the seed's reload
       if (scene.native && scene.native.length) await nativeSteps(page, scene.native);
@@ -132,19 +242,24 @@ for (const [device, desc] of Object.entries(DEVICES)) {
     if (pre) row.note = `${row.note ? row.note + '; ' : ''}${pre} console error(s)`;
     rows.push(row);
     console.log(`${device} ${scene.name}: ${row.status} ${row.note || ''}`);
-    await page.close();
   }
   await context.close();
 }
-await browser.close();
+for (const b of browsers.values()) await b.close();
 server.close();
+if (cloud) cloud.kill();
 
 const md = [
-  '## iOS visual — Playwright WebKit (Linux)', '',
+  mode === 'cloud' ? '## Web visual — cloud mode (cmd/cloud + Chromium)' : '## Web visual — QA local bundle (WebKit iPhone, Chromium desktop / Pixel 7)', '',
   'Evidence only: no focus-zoom, software keyboard, visualViewport shrink, safe areas or iOS fonts in this tier (see docs/design/ios-visual-testing.md).', '',
+  '| device | ok | probe | error | skipped |', '|---|---|---|---|---|',
+  ...Object.keys(DEVICES).map((d) => {
+    const n = (st) => rows.filter((r) => r.device === d && r.status === st).length;
+    return `| ${d} | ${n('ok')} | ${n('probe')} | ${n('error')} | ${n('skipped')} |`;
+  }), '',
   '| device | scene | status | notes |', '|---|---|---|---|',
   ...rows.map((r) => `| ${r.device} | ${r.scene} | ${r.status} | ${(r.note || '').replace(/\|/g, '\\|')} |`), '',
-  `${shots} screenshot(s) in artifact \`ios-visual-web\`.`,
+  `${shots} screenshot(s) in artifact \`${mode === 'cloud' ? 'visual-web-cloud' : 'ios-visual-web'}\`.`,
 ].join('\n');
 await writeFile(join(out, 'summary.md'), md + '\n');
 await writeFile(join(out, 'summary.json'), JSON.stringify(rows, null, 2));
