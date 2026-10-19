@@ -1,6 +1,7 @@
 package cloudserver
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
@@ -11,6 +12,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"encoding/pem"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -37,6 +39,17 @@ const androidTestPkg = "ai.example.app"
 
 type fakePlayIntegrity struct {
 	status atomic.Int32 // non-zero: decode answers this status
+	// deviceRecall:write (bd med-nt9p.32.8.6): recorded newValues;
+	// writeStatus non-zero answers that status.
+	mu          sync.Mutex
+	writes      []map[string]bool
+	writeStatus atomic.Int32
+}
+
+func (f *fakePlayIntegrity) recallWrites() []map[string]bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]map[string]bool(nil), f.writes...)
 }
 
 func (f *fakePlayIntegrity) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -67,6 +80,23 @@ func (f *fakePlayIntegrity) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"tokenPayloadExternal": payload})
+	case "/v1/" + androidTestPkg + "/deviceRecall:write":
+		var body struct {
+			Token     string          `json:"integrityToken"`
+			NewValues map[string]bool `json:"newValues"`
+		}
+		if r.Header.Get("Authorization") != "Bearer ya29.fake" || json.NewDecoder(r.Body).Decode(&body) != nil || body.Token == "" {
+			http.Error(w, "{}", http.StatusBadRequest)
+			return
+		}
+		f.mu.Lock()
+		f.writes = append(f.writes, body.NewValues)
+		f.mu.Unlock()
+		if s := f.writeStatus.Load(); s != 0 {
+			http.Error(w, `{"error":{"code":400,"status":"FAILED_PRECONDITION"}}`, int(s))
+			return
+		}
+		_, _ = w.Write([]byte("{}"))
 	default:
 		http.NotFound(w, r)
 	}
@@ -400,5 +430,121 @@ func TestAttestConfigFromEnvAndroid(t *testing.T) {
 	t.Setenv("PLAY_INTEGRITY_ACCEPT_APP_VERDICTS", "UNEVALUATED")
 	if _, err := AttestConfigFromEnv(); err == nil {
 		t.Fatal("UNEVALUATED accepted")
+	}
+}
+
+// withRecall is an androidToken mutator setting deviceIntegrity.deviceRecall.
+func withRecall(values map[string]any) func(p map[string]map[string]any) {
+	return func(p map[string]map[string]any) {
+		p["deviceIntegrity"]["deviceRecall"] = map[string]any{"values": values, "writeDates": map[string]any{}}
+	}
+}
+
+// Device recall, the DeviceCheck twin (bd med-nt9p.32.8.6).
+func TestAttestEnrollAndroidDeviceRecall(t *testing.T) {
+	ctx := context.Background()
+	both := map[string]any{"bitFirst": true, "bitSecond": true}
+	var logs bytes.Buffer
+	captureSlog(t, slog.NewTextHandler(&logs, nil))
+
+	// Flag off: the bits are ignored, nothing is written — today's behaviour.
+	e := newAndroidEnv(t, 3)
+	k := attestKey(t)
+	c := e.challenge()
+	if rec := e.enrollAndroid(k, c, androidToken(t, k, c, withRecall(both)), ""); rec.Code != http.StatusOK || passOf(rec) == "" {
+		t.Fatalf("flag off: %d %s", rec.Code, rec.Body.String())
+	}
+	if n := len(e.g.recallWrites()); n != 0 {
+		t.Fatalf("flag off wrote recall %d times", n)
+	}
+
+	e = newAndroidEnv(t, 3)
+	e.attest.cfg.AndroidRecall = true
+	noRow := func(name string, k *ecdsa.PrivateKey) {
+		t.Helper()
+		if _, err := e.store.AttestInstall(ctx, androidKeyID(t, k)); err == nil {
+			t.Fatalf("%s stored a row", name)
+		}
+		if _, err := e.store.AttestBucketPassHash(ctx, androidKeyID(t, k)); err == nil {
+			t.Fatalf("%s left a bucket", name)
+		}
+	}
+	// Flag on, recall absent from the verdict (Console opt-in missing): fail closed.
+	k = attestKey(t)
+	c = e.challenge()
+	wantErr(t, e.enrollAndroid(k, c, androidToken(t, k, c, nil), ""), http.StatusServiceUnavailable, "trial_unavailable")
+	noRow("absent", k)
+	if !strings.Contains(logs.String(), "enable Device recall in Play Console") {
+		t.Fatalf("no operator hint logged: %s", logs.String())
+	}
+	// Unevaluated ({}): grants, Google refuses the write, rolled back.
+	e.g.writeStatus.Store(http.StatusBadRequest)
+	c = e.challenge()
+	wantErr(t, e.enrollAndroid(k, c, androidToken(t, k, c, withRecall(map[string]any{})), ""), http.StatusServiceUnavailable, "trial_unavailable")
+	noRow("unevaluated", k)
+	e.g.writeStatus.Store(0)
+
+	// No bit set: the first grant, write {true,false,false}.
+	c = e.challenge()
+	rec := e.enrollAndroid(k, c, androidToken(t, k, c, withRecall(map[string]any{})), "")
+	pass := passOf(rec)
+	if rec.Code != http.StatusOK || pass == "" {
+		t.Fatalf("first grant: %d %s", rec.Code, rec.Body.String())
+	}
+	// bitFirst only: the second pass-less grant, write {true,true,bitThird}.
+	k2 := attestKey(t)
+	c = e.challenge()
+	if rec := e.enrollAndroid(k2, c, androidToken(t, k2, c, withRecall(map[string]any{"bitFirst": true, "bitThird": true})), ""); rec.Code != http.StatusOK || passOf(rec) == "" {
+		t.Fatalf("second grant: %d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(logs.String(), "second_grant=true") {
+		t.Fatalf("second grant not logged: %s", logs.String())
+	}
+	// Both bits: refused, nothing stored, nothing written.
+	k3 := attestKey(t)
+	c = e.challenge()
+	wantErr(t, e.enrollAndroid(k3, c, androidToken(t, k3, c, withRecall(both)), ""), http.StatusForbidden, "trial_already_used")
+	noRow("both bits", k3)
+	// A pass rejoin never touches recall, whatever the bits.
+	c = e.challenge()
+	if rec := e.enrollAndroid(k3, c, androidToken(t, k3, c, withRecall(both)), pass); rec.Code != http.StatusOK {
+		t.Fatalf("rejoin: %d %s", rec.Code, rec.Body.String())
+	}
+	got, _ := json.Marshal(e.g.recallWrites())
+	if want := `[{"bitFirst":true,"bitSecond":false,"bitThird":false},{"bitFirst":true,"bitSecond":false,"bitThird":false},{"bitFirst":true,"bitSecond":true,"bitThird":true}]`; string(got) != want {
+		t.Fatalf("writes = %s, want %s", got, want)
+	}
+	if strings.Contains(logs.String(), "ya29") || strings.Contains(logs.String(), pass) {
+		t.Fatal("a secret reached the log")
+	}
+}
+
+func TestAttestConfigFromEnvAndroidRecall(t *testing.T) {
+	t.Setenv("PLAY_INTEGRITY_DEVICE_RECALL", "1")
+	if _, err := AttestConfigFromEnv(); err == nil || !strings.Contains(err.Error(), "PLAY_INTEGRITY_DEVICE_RECALL") {
+		t.Fatalf("recall alone: %v", err)
+	}
+	t.Setenv("PLAY_INTEGRITY_DEVICE_RECALL", "yes please")
+	if _, err := AttestConfigFromEnv(); err == nil {
+		t.Fatal("bad value accepted")
+	}
+	t.Setenv("PLAY_INTEGRITY_DEVICE_RECALL", "0")
+	if cfg, err := AttestConfigFromEnv(); err != nil || cfg.AndroidRecall {
+		t.Fatalf("off alone: %+v %v", cfg.AndroidRecall, err)
+	}
+	rk, _ := rsa.GenerateKey(rand.Reader, 2048)
+	der, _ := x509.MarshalPKCS8PrivateKey(rk)
+	sa, _ := json.Marshal(map[string]string{"type": "service_account", "client_email": "v@example.iam.gserviceaccount.com",
+		"private_key": string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))})
+	saFile := filepath.Join(t.TempDir(), "sa.json")
+	_ = os.WriteFile(saFile, sa, 0o600)
+	t.Setenv("PLAY_INTEGRITY_PACKAGE_NAME", androidTestPkg)
+	t.Setenv("PLAY_INTEGRITY_SERVICE_ACCOUNT_FILE", saFile)
+	if cfg, err := AttestConfigFromEnv(); err != nil || !cfg.AndroidConfigured || cfg.AndroidRecall {
+		t.Fatalf("configured, recall 0: %+v %v", cfg.AndroidRecall, err)
+	}
+	t.Setenv("PLAY_INTEGRITY_DEVICE_RECALL", "true")
+	if cfg, err := AttestConfigFromEnv(); err != nil || !cfg.AndroidRecall {
+		t.Fatalf("configured, recall on: %+v %v", cfg.AndroidRecall, err)
 	}
 }

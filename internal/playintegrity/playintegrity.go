@@ -17,7 +17,11 @@
 //   - Payload fields checked (https://developer.android.com/google/play/integrity/verdicts):
 //     requestDetails.{requestPackageName, requestHash, timestampMillis},
 //     appIntegrity.{appRecognitionVerdict, packageName, certificateSha256Digest[]},
-//     deviceIntegrity.deviceRecognitionVerdict[].
+//     deviceIntegrity.deviceRecognitionVerdict[]; deviceIntegrity.deviceRecall
+//     is read, not checked (the caller decides, bd med-nt9p.32.8.6).
+//   - Device recall write: POST
+//     https://playintegrity.googleapis.com/v1/{packageName}/deviceRecall:write
+//     (https://developer.android.com/google/play/integrity/device-recall).
 //   - Service-account auth: OAuth2 JWT-bearer grant (RFC 7523), RS256 JWT
 //     {iss: client_email, scope, aud: token_uri, iat, exp} POSTed to token_uri
 //     (https://developers.google.com/identity/protocols/oauth2/service-account#httprest).
@@ -26,7 +30,7 @@
 // caller's challenge map is single-use, so a replayed token fails on the
 // consumed challenge. timestampMillis bounds how old a token may be.
 //
-// PRIVACY: Decode/VerifyEnrollment make outbound HTTP to
+// PRIVACY: Decode/VerifyEnrollment/WriteDeviceRecall make outbound HTTP to
 // playintegrity.googleapis.com and the service account's token_uri
 // (oauth2.googleapis.com). The privacy-claims guard scans only
 // internal/cloudserver, so the routes that call this package (bd
@@ -182,6 +186,17 @@ type Verdict struct {
 	AppPackageName        string
 	CertificateDigests    []string
 	DeviceVerdicts        []string
+	// DeviceRecall is deviceIntegrity.deviceRecall.values (bd
+	// med-nt9p.32.8.6): nil when the object is absent (the app is not opted
+	// in to device recall in Play Console); all false when it is present but
+	// unevaluated ({"values":{}}) or no bit was ever written.
+	DeviceRecall *DeviceRecall
+}
+
+// DeviceRecall holds the three app-defined device-recall bits Google keeps per
+// device (https://developer.android.com/google/play/integrity/device-recall).
+type DeviceRecall struct {
+	First, Second, Third bool
 }
 
 // Verifier decodes tokens and caches the service-account access token.
@@ -336,6 +351,13 @@ func (v *Verifier) Decode(ctx context.Context, token string) (*Verdict, error) {
 			} `json:"appIntegrity"`
 			DeviceIntegrity struct {
 				DeviceRecognitionVerdict []string `json:"deviceRecognitionVerdict"`
+				DeviceRecall             *struct {
+					Values struct {
+						BitFirst  bool `json:"bitFirst"`
+						BitSecond bool `json:"bitSecond"`
+						BitThird  bool `json:"bitThird"`
+					} `json:"values"`
+				} `json:"deviceRecall"`
 			} `json:"deviceIntegrity"`
 		} `json:"tokenPayloadExternal"`
 	}
@@ -343,6 +365,10 @@ func (v *Verifier) Decode(ctx context.Context, token string) (*Verdict, error) {
 		return nil, fmt.Errorf("%w: unreadable decode response", ErrUnavailable)
 	}
 	p := r.P
+	var recall *DeviceRecall
+	if dr := p.DeviceIntegrity.DeviceRecall; dr != nil {
+		recall = &DeviceRecall{First: dr.Values.BitFirst, Second: dr.Values.BitSecond, Third: dr.Values.BitThird}
+	}
 	return &Verdict{
 		RequestPackageName:    p.RequestDetails.RequestPackageName,
 		RequestHash:           p.RequestDetails.RequestHash,
@@ -351,7 +377,46 @@ func (v *Verifier) Decode(ctx context.Context, token string) (*Verdict, error) {
 		AppPackageName:        p.AppIntegrity.PackageName,
 		CertificateDigests:    p.AppIntegrity.CertificateSha256Digest,
 		DeviceVerdicts:        p.DeviceIntegrity.DeviceRecognitionVerdict,
+		DeviceRecall:          recall,
 	}, nil
+}
+
+// WriteDeviceRecall sets the device's three recall bits with the token the
+// device sent (bd med-nt9p.32.8.6): POST
+// {base}/v1/{packageName}/deviceRecall:write body {"integrityToken": token,
+// "newValues": {bitFirst, bitSecond, bitThird}}, same bearer and scope as
+// decodeIntegrityToken. All three bits are sent (the REST reference marks
+// them required). Google refuses the write when the token's recall is
+// unevaluated. Any non-200 is ErrUnavailable carrying the status only.
+func (v *Verifier) WriteDeviceRecall(ctx context.Context, token string, first, second, third bool) error {
+	if token == "" || v.cfg.PackageName == "" {
+		return ErrMalformed
+	}
+	bearer, err := v.accessToken(ctx)
+	if err != nil {
+		return err
+	}
+	base := v.cfg.BaseURL
+	if base == "" {
+		base = DefaultBaseURL
+	}
+	reqBody, _ := json.Marshal(map[string]any{
+		"integrityToken": token,
+		"newValues":      map[string]bool{"bitFirst": first, "bitSecond": second, "bitThird": third},
+	})
+	_, status, err := v.post(ctx, base+"/v1/"+url.PathEscape(v.cfg.PackageName)+"/deviceRecall:write", "application/json", bytes.NewReader(reqBody), bearer)
+	if err != nil {
+		return err
+	}
+	if status == http.StatusUnauthorized {
+		v.mu.Lock()
+		v.access = ""
+		v.mu.Unlock()
+	}
+	if status != http.StatusOK {
+		return fmt.Errorf("%w: device recall write status %d", ErrUnavailable, status)
+	}
+	return nil
 }
 
 var b64 = base64.RawURLEncoding
@@ -373,42 +438,42 @@ func RequestHash(challenge []byte, keyID string, pubDER []byte) string {
 }
 
 // VerifyEnrollment checks a standard-request token that binds challenge to the
-// app's Keystore P-256 key and returns that key and the accepted
-// appRecognitionVerdict. The caller must have issued challenge and consume it
+// app's Keystore P-256 key and returns that key and the verdict (the accepted
+// appRecognitionVerdict is vd.AppRecognitionVerdict). The caller must have issued challenge and consume it
 // (single use).
-func (v *Verifier) VerifyEnrollment(ctx context.Context, token string, challenge []byte, keyID string, pubDER []byte) (*ecdsa.PublicKey, string, error) {
+func (v *Verifier) VerifyEnrollment(ctx context.Context, token string, challenge []byte, keyID string, pubDER []byte) (*ecdsa.PublicKey, *Verdict, error) {
 	if len(challenge) == 0 {
-		return nil, "", ErrMalformed
+		return nil, nil, ErrMalformed
 	}
 	// Local checks first: never spend a Google call on a bad key.
 	// The key must be an ECDSA P-256 SPKI (ParsePKIXPublicKey rejects trailing data).
 	k, err := x509.ParsePKIXPublicKey(pubDER)
 	if err != nil {
-		return nil, "", ErrKey
+		return nil, nil, ErrKey
 	}
 	pub, ok := k.(*ecdsa.PublicKey)
 	if !ok || pub.Curve != elliptic.P256() {
-		return nil, "", ErrKey
+		return nil, nil, ErrKey
 	}
 	// The key id is derived, never chosen.
 	if subtle.ConstantTimeCompare([]byte(keyID), []byte(KeyID(pubDER))) != 1 {
-		return nil, "", ErrKey
+		return nil, nil, ErrKey
 	}
 	vd, err := v.Decode(ctx, token)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 	// requestDetails.requestPackageName: the token was requested by our app.
 	if vd.RequestPackageName != v.cfg.PackageName {
-		return nil, "", ErrPackage
+		return nil, nil, ErrPackage
 	}
 	// requestDetails.requestHash: binds this challenge and this key.
 	if subtle.ConstantTimeCompare([]byte(vd.RequestHash), []byte(RequestHash(challenge, keyID, pubDER))) != 1 {
-		return nil, "", ErrRequestHash
+		return nil, nil, ErrRequestHash
 	}
 	// requestDetails.timestampMillis: freshness, both directions.
 	if age := v.now().Sub(time.UnixMilli(vd.TimestampMillis)); vd.TimestampMillis <= 0 || age > MaxTokenAge || age < -MaxTokenAge {
-		return nil, "", ErrStale
+		return nil, nil, ErrStale
 	}
 	// appIntegrity.appRecognitionVerdict.
 	accept := v.cfg.AcceptAppVerdicts
@@ -416,23 +481,23 @@ func (v *Verifier) VerifyEnrollment(ctx context.Context, token string, challenge
 		accept = []string{VerdictPlayRecognized}
 	}
 	if !slices.Contains(accept, vd.AppRecognitionVerdict) {
-		return nil, "", ErrAppVerdict
+		return nil, nil, ErrAppVerdict
 	}
 	// appIntegrity.packageName: the app Play evaluated is ours.
 	if vd.AppPackageName != v.cfg.PackageName {
-		return nil, "", ErrPackage
+		return nil, nil, ErrPackage
 	}
 	// appIntegrity.certificateSha256Digest: optional signing-cert pin.
 	if len(v.cfg.CertDigests) > 0 && !slices.ContainsFunc(vd.CertificateDigests, func(d string) bool {
 		return slices.Contains(v.cfg.CertDigests, d)
 	}) {
-		return nil, "", ErrCertificate
+		return nil, nil, ErrCertificate
 	}
 	// deviceIntegrity.deviceRecognitionVerdict ∋ MEETS_DEVICE_INTEGRITY.
 	if !slices.Contains(vd.DeviceVerdicts, VerdictMeetsDeviceIntegrity) {
-		return nil, "", ErrDeviceVerdict
+		return nil, nil, ErrDeviceVerdict
 	}
-	return pub, vd.AppRecognitionVerdict, nil
+	return pub, vd, nil
 }
 
 // VerifyAssertion checks an Android Keystore assertion. Wire format:

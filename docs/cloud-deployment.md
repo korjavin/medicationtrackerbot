@@ -196,6 +196,13 @@ unreadable or malformed key file, refuses to start, naming the variable only.
 Rotating the key: upload the new JSON over the old file, redeploy. Existing
 Android installs keep working (Google is only called at enrollment).
 
+Device recall (optional, the DeviceCheck-bits twin): once Google approves the
+beta, turn on Device recall in Play Console (Protected with Play → Play
+Integrity API → Manage → Change responses), then set
+`PLAY_INTEGRITY_DEVICE_RECALL=1` and redeploy — never the other way round
+(on without the Console switch, pass-less Android enrolls answer 503;
+see [cloud-mode.md](cloud-mode.md#android--play-integrity)).
+
 ### Android Digital Asset Links (optional)
 
 Set `ANDROID_PACKAGE` + `ANDROID_CERT_SHA256S` (see docs/environment.md) to
