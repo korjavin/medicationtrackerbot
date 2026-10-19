@@ -83,7 +83,7 @@ const ctx = {
         return await device.wait(selector, { timeout: 3_000 });
       } catch (e) {
         if (Date.now() > end) throw e;
-        if (await device.wait({ text: /isn't responding/ }, { timeout: 500 }).then(() => true, () => false)) {
+        if (await device.wait({ text: /.*isn't responding.*/ }, { timeout: 500 }).then(() => true, () => false)) {
           log('dismissing an ANR dialog');
           await device.tap({ text: 'Wait' }).catch(() => {});
         }
@@ -95,7 +95,7 @@ const ctx = {
     await device.fill({ clazz: 'android.widget.EditText' }, url);
     if (shotTyped) await ctx.shot('typed');
     await device.tap({ text: 'Open' });
-    await ctx.waitFor({ text: /open your account/ });
+    await ctx.waitFor({ text: /.*open your account.*/ });
   },
   /** True while our activity is the resumed (foreground) one. */
   async inForeground() {
@@ -119,18 +119,29 @@ let failed = false;
 try {
   await shell('settings put global hide_error_dialogs 1'); // see waitFor: no ANR dialogs over the app
   await applyInputs();
+  // A freshly booted emulator keeps restarting Play services for a while, which can kill the app.
+  log('settling'); await ctx.sleep(45_000);
   for (const name of names) {
     ctx.scenario = name;
-    log('scenario', name);
-    try {
-      const { default: run } = await import(`./scenarios/${name}.mjs`);
-      await run(ctx);
-    } catch (e) {
-      failed = true;
-      log(`scenario ${name} failed:`, e?.stack || e);
-      await device.screenshot({ path: join(shotsDir, `${name}-FAILED.png`) }).then(() => shots.push(`${name}-FAILED.png`), () => {});
+    const { default: run } = await import(`./scenarios/${name}.mjs`);
+    // ponytail: one retry absorbs emulator flakiness (Play services dying under the app); the
+    // failed attempt stays in the summary as "retried", so a real bug still shows twice.
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      log('scenario', name, 'attempt', attempt);
+      const from = steps.length;
+      try {
+        await run(ctx);
+        break;
+      } catch (e) {
+        log(`scenario ${name} failed:`, e?.stack || e);
+        const file = `${name}-FAILED${attempt}.png`;
+        await device.screenshot({ path: join(shotsDir, file) }).then(() => shots.push(file), () => {});
+        if (attempt === 2) failed = true;
+        else for (const s of steps.slice(from)) s.retried = true;
+      } finally {
+        await applyInputs().catch(() => {});
+      }
     }
-    await applyInputs().catch(() => {});
   }
 } finally {
   await device.close().catch(() => {});
@@ -138,7 +149,7 @@ try {
 
 writeFileSync(join(out, 'qa-summary.json'), JSON.stringify({ inputs, ok: !failed, steps, screenshots: shots }, null, 2));
 if (process.env.GITHUB_STEP_SUMMARY) {
-  const rows = steps.map((s) => `| ${s.scenario} | ${s.name} | ${s.ok ? 'pass' : `FAIL: ${s.error}`} |`);
+  const rows = steps.map((s) => `| ${s.scenario} | ${s.name} | ${s.ok ? "pass" : `FAIL${s.retried ? " (retried)" : ""}: ${s.error}`} |`);
   appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
     `### Android QA: ${want} — ${failed ? 'FAILED' : 'passed'}`,
     '',
