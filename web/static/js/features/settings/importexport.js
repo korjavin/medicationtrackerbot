@@ -278,7 +278,8 @@
     //     → Promise<{ imported: boolean }>   (cancel and failure resolve, not reject)
     //
     // `json` is the vault v1 JSON string. `source` picks the copy: 'move'
-    // (the shell's move stash) has its own; anything else ('file', the
+    // (the shell's move stash) and 'leave' (local-policy.js pickupLeaveStash,
+    // the account → local stash) have their own; anything else ('file', the
     // Restore button) gets the backup-file copy. Asks the typed replace
     // confirm unless the account is provably empty, replaces the vault through
     // CloudVault.importAll, says when it is not uploaded yet, then awaits
@@ -296,6 +297,7 @@
     // restoreVault's body; doImport enters here already holding importInFlight.
     async function runRestore(json, { source = 'file', beforeReload } = {}) {
         const move = source === 'move';
+        const leave = source === 'leave';
         const device = window.LocalNotifications?.copy?.device || 'iPhone';
         importInFlight = true;
         // Typed confirm (kit S3): the confirm button stays disabled until the
@@ -308,11 +310,13 @@
         const confirmed = empty || await safeConfirm(
             move
                 ? `Your records from this ${device} replace everything stored in this account, on every device. This cannot be undone.`
+                : leave
+                ? `This ${device} already has records from using it without an account. Replace them with a copy of your account's records? Your account itself is not changed. The records now on this ${device} cannot be recovered.`
                 : local
                 ? `Everything stored on this ${device} is replaced by this backup. This cannot be undone.`
                 : 'Everything stored now is replaced by this backup, on every device. This cannot be undone.',
             null,
-            { title: 'Replace all your data?', confirmLabel: 'Replace my data', destructive: true, typedConfirm: REPLACE_PHRASE }
+            { title: leave ? `Replace the records on this ${device}?` : 'Replace all your data?', confirmLabel: 'Replace my data', destructive: true, typedConfirm: REPLACE_PHRASE }
         );
         if (!confirmed) {
             importInFlight = false;
@@ -331,6 +335,10 @@
             // Clear busy BEFORE reload — otherwise beforeUnloadGuard would
             // prompt on our own intended navigation.
             setImportBusy(false);
+            // But keep the re-entry guard until the reload (bd med-nt9p.32.20):
+            // an import started during the alert or beforeReload below would
+            // be reloaded out from under the user.
+            importInFlight = true;
             // Cloud: applied here, but not on the server yet. Say why and what
             // happens next, so a user moving from another device keeps that
             // copy and the file for now (bd med-o7zq.6).

@@ -803,7 +803,7 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
 
   async function boot({
     platform = 'android', ops = ['shell.ops', 'move.take', 'move.clear'], stash = { vault: VAULT },
-    content = false, confirm = true, importAll, warmUnlock = UNLOCKED,
+    content = false, confirm = true, importAll, warmUnlock = UNLOCKED, live,
   } = {}) {
     const { window } = env;
     const log = [];
@@ -826,8 +826,9 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
         pullOnOpen: () => pulled,
         startReconnectAutoDrain() {},
         getSyncStatus: async () => ({}),
-        readAllLiveRecords: async () => [],
+        readAllLiveRecords: async () => live || [],
       },
+      '/domain/vault.js': realVault,
     };
     const __imp = (spec) => {
       const key = spec.replace('/js/', '');
@@ -840,7 +841,8 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
     await window.MedTrackerCloudReady;
     // CloudVault is cloud-boot's own; swap the two calls restoreVault makes.
     if (window.CloudVault) {
-      window.CloudVault.hasUserContent = vi.fn(async () => { log.push('probe'); return content; });
+      // `live` set: the real probe over those account records instead.
+      if (!live) window.CloudVault.hasUserContent = vi.fn(async () => { log.push('probe'); return content; });
       window.CloudVault.importAll = vi.fn(async (json) => {
         log.push('importAll');
         return importAll ? importAll(json) : { upload: 'synced' };
@@ -869,6 +871,17 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
     expect(window.sessionStorage.getItem('wg-move-picked-up')).toBeNull();
     expect(log).not.toContain('importAll');
     expect(log).not.toContain('move.clear');
+  });
+
+  // A fresh account holds only what signup and the first run wrote (bd
+  // med-o7zq.37): the real probe finds nothing at stake, so no confirm.
+  it('stash + fresh account with only settings and onboarding records: no dialog', async () => {
+    const rec = (recordType) => ({ recordType, recordId: recordType, clientTs: 1, deleted: false });
+    const live = ['settings', 'features', 'integrations', 'taborder', 'firstrun'].map(rec);
+    const { window, log } = await boot({ live });
+    await vi.waitFor(() => expect(log).toContain('move.clear'));
+    expect(log).toEqual(['shell.ops', 'move.take', 'importAll', 'move.clear']);
+    expect(window.safeConfirm).not.toHaveBeenCalled();
   });
 
   it('works the same on an iOS shell that lists move.take', async () => {

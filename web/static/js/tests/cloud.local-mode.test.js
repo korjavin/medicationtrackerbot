@@ -1846,11 +1846,29 @@ describe('local-only mode leave stash pickup (med-o7zq.36.4)', () => {
         expect(await weights()).toEqual(FIXTURE_WEIGHTS);
     });
 
+    // A first run on this iPhone writes only settings and onboarding records
+    // (bd med-o7zq.37): nothing of the user's is at stake, so no confirm.
+    it('stash + a store with only first-run settings: restores without a dialog', async () => {
+        await boot();
+        await env.window.apiCall('/api/settings/features/weight', 'POST', { enabled: false });
+        await env.window.apiCall('/api/settings/integrations', 'PATCH', {});
+        await env.window.apiCall('/api/firstrun/complete', 'POST', {});
+        expect((await env.window.apiCall('/api/settings/features')).weight).toBe(false);
+        cancelReminderRecompute({ accountId: 'local' });
+        const { window } = await boot({ take: { vault: VAULT } });
+        expect(window.safeConfirm).not.toHaveBeenCalled();
+        expect(leaveOps()).toEqual(['leave.take', 'leave.clear']);
+        expect(await weights()).toEqual(FIXTURE_WEIGHTS);
+    });
+
     it('stash + records here: typed replace confirm; confirm replaces them', async () => {
         await seedWeight();
         const { window } = await boot({ take: { vault: VAULT } });
         expect(window.safeConfirm).toHaveBeenCalledTimes(1);
         expect(window.safeConfirm.mock.calls[0][2]).toMatchObject({ destructive: true, typedConfirm: 'replace my data' });
+        // The leave copy (bd med-o7zq.37), not the backup-file one.
+        expect(window.safeConfirm.mock.calls[0][0]).toBe('This iPhone already has records from using it without an account. Replace them with a copy of your account\'s records? Your account itself is not changed. The records now on this iPhone cannot be recovered.');
+        expect(window.safeConfirm.mock.calls[0][2].title).toBe('Replace the records on this iPhone?');
         expect(leaveOps()).toEqual(['leave.take', 'leave.clear']);
         expect(await weights()).toEqual(FIXTURE_WEIGHTS);
     });
