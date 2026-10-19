@@ -115,10 +115,11 @@
     // smaller than the layout one, dock() stands down (scale > 1) and a
     // sheet docked to the layout bottom runs past the screen: the header
     // above the top, the list under the keyboard (med-pe9g, TestFlight 178).
-    // maximum-scale=1 stops the focus zoom only; pinch-zoom stays (Safari
-    // ignores the limit for gestures, the iOS shell sets
-    // ignoresViewportScaleLimits). iOS only: Android Chrome would honour it
-    // for pinch too. -webkit-touch-callout exists only in iOS WebKit.
+    // maximum-scale=1 stops the focus zoom. In the iOS app it also stops
+    // double-tap and pinch zoom (the shell honours the cap, med-r6sh); Mobile
+    // Safari ignores the cap for gestures, so pinch-zoom stays there. iOS
+    // only: Android Chrome would honour it for pinch too.
+    // -webkit-touch-callout exists only in iOS WebKit.
     function noFocusZoom() {
         const meta = document.querySelector('meta[name="viewport"]');
         const ios = Boolean(window.CSS && window.CSS.supports && window.CSS.supports('-webkit-touch-callout', 'none'));
