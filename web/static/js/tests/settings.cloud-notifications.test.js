@@ -577,4 +577,21 @@ describe('cloud Notifications controls inside the iOS app (LocalNotifications)',
             cleanup();
         }
     });
+    it.each([[undefined, 'iPhone'], [{ device: 'phone' }, 'phone']])('Settings device words follow the shell copy %j', async (copy, word) => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            const local = shellLocal(window);
+            if (copy) local.copy = copy;
+            window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+            await window.loadSettings();
+            const words = [...document.querySelectorAll('[data-device-word]')];
+            expect(words.length).toBeGreaterThan(0);
+            words.forEach((el) => expect(el.textContent).toBe(word));
+            expect(document.querySelector('#settings-local-mode').textContent).toContain(`only on this ${word};`);
+        } finally {
+            cleanup();
+        }
+    });
 });

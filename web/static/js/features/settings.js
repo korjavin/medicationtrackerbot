@@ -123,6 +123,12 @@ function nativeCopy() {
     };
 }
 
+// Static index.html copy names the device in a [data-device-word] span (iOS default).
+function fillDeviceWords() {
+    const device = nativeCopy().device;
+    document.querySelectorAll('[data-device-word]').forEach((el) => { el.textContent = device; });
+}
+
 async function toggleLocalNotifications(toggleBtn, status) {
     if (toggleBtn.dataset.subscribed === '1') {
         // An app cannot revoke its own permission; iOS Settings can.
@@ -1031,6 +1037,7 @@ async function loadSettings() {
     await loadGamificationMode();
     // Hide any home row whose page sections are all hidden (e.g. a cloud-only
     // page in bot mode) so it never opens onto an empty page.
+    fillDeviceWords();
     hideEmptySettingsRows();
     refreshSettingsSummaries();
     refreshIntegrationsSummary();

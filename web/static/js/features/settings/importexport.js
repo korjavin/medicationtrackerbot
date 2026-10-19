@@ -276,7 +276,7 @@
         const local = document.documentElement.classList.contains('wg-local-vault');
         const confirmed = empty || await safeConfirm(
             local
-                ? 'Everything stored on this iPhone is replaced by this backup. This cannot be undone.'
+                ? `Everything stored on this ${window.LocalNotifications?.copy?.device || 'iPhone'} is replaced by this backup. This cannot be undone.`
                 : 'Everything stored now is replaced by this backup, on every device. This cannot be undone.',
             null,
             { title: 'Replace all your data?', confirmLabel: 'Replace my data', destructive: true, typedConfirm: REPLACE_PHRASE }
