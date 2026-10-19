@@ -16,6 +16,7 @@ const ALLOWED = [
   /^\.\/app_webview\/Default\/IndexedDB\/https_appassets\.androidplatform\.net_0\.indexeddb\.(leveldb|blob)(\/.*)?$/,
   /^\.\/shared_prefs\/wg_trial\.xml$/,
 ];
+const CANARIES = ['shared_prefs/diag.xml', 'shared_prefs/reminders.xml', 'shared_prefs/health.xml', 'files/qa-canary', 'databases/qa-canary'];
 // Android picks <cloud-backup> or <device-transfer> by the transport's flags. is_encrypted:
 // cloud-backup says disableIfNoEncryptionCapabilities.
 const MODES = [['cloud', 'is_encrypted=true'], ['d2d', 'is_device_transfer=true']];
@@ -75,9 +76,14 @@ export default async function localBackup(ctx) {
     m.cloudHost = cloudHost;
     // 2. Local origin: the data that must survive.
     await step('local session writes local-origin data', async () => putMarker(await local(), `local-${MARK}-${mode}`));
+    // Canaries for the stores this session does not fill (reminders need an unlocked vault):
+    // every excluded prefs file and the standard dirs, so an accidental include has something to copy.
+    for (const f of CANARIES) {
+      await shell(`run-as ${pkg} sh -c 'mkdir -p shared_prefs files databases; [ -e ${f} ] || echo "<map />" > ${f}'`);
+    }
     const before = await ls();
     await step('stores to leak exist before backup', async () => {
-      const missing = [`https_${cloudHost}_0.indexeddb.leveldb`, 'Local Storage', 'shared_prefs/shell.xml', LOCAL_DIR]
+      const missing = [`https_${cloudHost}_0.indexeddb.leveldb`, 'Local Storage', 'shared_prefs/shell.xml', LOCAL_DIR, ...CANARIES]
         .filter((want) => !before.includes(want));
       if (missing.length) throw new Error(`missing before backup (the leak check would prove nothing): ${missing.join(', ')}\n${before}`);
     });
@@ -102,7 +108,7 @@ export default async function localBackup(ctx) {
       let seen = 0;
       for (const f of files) {
         seen += Number(await shell(`grep -c '${LOCAL_DIR}' '${f}' || true`)) || 0;
-        const hits = await shell(`grep -c '${cloudHost.replace(/\./g, '\\.')}\\|Local Storage\\|Cookies\\|shell\\.xml\\|diag\\.xml\\|reminders\\.xml\\|health\\.xml' '${f}' || true`);
+        const hits = await shell(`grep -c '${cloudHost.replace(/\./g, '\\.')}\\|Local Storage\\|Cookies\\|shell\\.xml\\|diag\\.xml\\|reminders\\.xml\\|health\\.xml\\|qa-canary' '${f}' || true`);
         if (hits !== '0') throw new Error(`${f}: ${hits} hit(s) of the account host / Local Storage / Cookies / prefs`);
         m.entries = [...(m.entries || []), ...(await shell(`tar -tf '${f}' 2>&1`)).split('\n').filter(Boolean)];
       }
