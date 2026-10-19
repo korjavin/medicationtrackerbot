@@ -111,6 +111,9 @@
     async function runStep(step) {
         if (step.tab) {
             window.switchTab(step.tab);
+            // The view's own load restores its last sub-tab; a click before it
+            // lands is undone (workouts-stats shot showed Plans).
+            await settle();
         } else if (step.click) {
             await until(() => firstVisible(step.click), STEP_MS, `click ${step.click}`);
             firstVisible(step.click).click();

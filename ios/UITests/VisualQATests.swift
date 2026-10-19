@@ -119,9 +119,13 @@ final class VisualQATests: XCTestCase {
                 guard el.waitForExistence(timeout: 10) else { return "no web element \(selector)" }
                 el.tap()
                 field = el
+                dismissKeyboardTip(app)
             } else if let text = step["type"] as? String {
                 (field ?? app).typeText(text)
                 typed = true
+                if let shown = field?.value as? String, !shown.contains(text) {
+                    return "typed \"\(text)\" but the field shows \"\(shown)\""
+                }
             } else if step["clear"] as? Bool == true {
                 guard let field else { return "clear without a tapped field" }
                 let count = max((field.value as? String)?.count ?? 0, 32)
@@ -144,5 +148,13 @@ final class VisualQATests: XCTestCase {
             return "the software keyboard never appeared (hardware keyboard connected?)"
         }
         return nil
+    }
+
+    /// A device's first keyboard opens under the slide-to-type tip (seen on
+    /// the 440pt Simulator; the ContinuousPath defaults did not suppress it).
+    private func dismissKeyboardTip(_ app: XCUIApplication) {
+        guard app.keyboards.firstMatch.waitForExistence(timeout: 3) else { return }
+        let tip = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Speed up your typing'")).firstMatch
+        if tip.waitForExistence(timeout: 1) { app.buttons["Continue"].firstMatch.tap() }
     }
 }
