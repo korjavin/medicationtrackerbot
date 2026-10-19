@@ -256,8 +256,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Before the build, so both first boots (4-7 min each on a fresh device,
-      # run 39209916915) run in parallel with it; the wait step joins them.
+      # Before the build, so the first boots (4-7 min each on a fresh device,
+      # run 39209916915) overlap it. One device at a time: booting both at
+      # once left them so slow that the first scene took 9 min and scenes
+      # timed out (run 39215981748).
       - name: Create the simulators and start booting them
         run: |
           xcrun simctl list devicetypes runtimes
@@ -275,10 +277,11 @@ jobs:
             udid="$(xcrun simctl list devices available -j | jq -r --arg rt "$runtime" --arg n "$t" '.devices[$rt][]? | select(.name == $n) | .udid' | head -n 1)"
             [ -n "$udid" ] || udid="$(xcrun simctl create "QA $t" "$t" "$runtime")"
             echo "${t// /-}=$udid" >> "$RUNNER_TEMP/devices"
-            # Detached: CoreSimulator keeps booting after this step ends.
-            nohup xcrun simctl bootstatus "$udid" -b > "$RUNNER_TEMP/boot-$udid.log" 2>&1 < /dev/null &
           done
           cat "$RUNNER_TEMP/devices"
+          # Detached and serial: CoreSimulator keeps booting after this step ends.
+          nohup bash -c 'while IFS="=" read -r dev udid; do xcrun simctl bootstatus "$udid" -b < /dev/null; done < "$0"' \
+            "$RUNNER_TEMP/devices" > "$RUNNER_TEMP/boot.log" 2>&1 < /dev/null &
 
       - name: Bundle the web app with the QA driver
         run: QA=1 ios/bundle-web.sh "${{ github.run_number }}"
@@ -298,12 +301,11 @@ jobs:
         run: |
           start=$SECONDS
           while IFS='=' read -r dev udid; do
-            ( xcrun simctl bootstatus "$udid" -b < /dev/null | tail -n 1
-              echo "$dev booted, waited $((SECONDS - start))s after the build"
-              xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 --wifiBars 3 --cellularBars 4
-              xcrun simctl ui "$udid" appearance dark ) &
+            xcrun simctl bootstatus "$udid" -b < /dev/null | tail -n 1
+            echo "$dev booted, waited $((SECONDS - start))s after the build"
+            xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 --wifiBars 3 --cellularBars 4
+            xcrun simctl ui "$udid" appearance dark
           done < "$RUNNER_TEMP/devices"
-          wait
 
       - name: Run the scenes per device
         working-directory: ios

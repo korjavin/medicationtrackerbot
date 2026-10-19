@@ -184,8 +184,9 @@ Tier 2 is the MVP; it is the only tier that would have caught `med-pe9g`. Tiers
    shot Plans with `ok:true`, run 39214150540) is caught too: the driver
    redoes the steps once if a ready selector is gone after the settle, and
    every report (re-published on class/`hidden` mutations) re-checks them,
-   failing with `ready` and `probes.readyLost`. Both Simulators start
-   booting before the build and are joined after it.
+   failing with `ready` and `probes.readyLost`. The Simulators boot one
+   after the other in the background from before the build (booting both at
+   once left them too slow to run the scenes, run 39215981748).
 
 ### Scenes (MVP, 15)
 
