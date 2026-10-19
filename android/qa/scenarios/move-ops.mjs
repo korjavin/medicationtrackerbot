@@ -11,7 +11,8 @@ import { claimAccount } from './smoke.mjs';
 
 export const retry = false;
 
-const HINT = 'Your records are ready to move: paste or scan your invite.';
+// Waited for up to 60 s: the fresh emulator's launcher ANR dialog hid it from UiAutomator for 20 s (first run).
+const HINT = /^Your records are ready to move: paste or scan your invite\.$/;
 
 /** The page's own bridge call (native/index.js): {ok, result} or {ok: false, error}. */
 const call = (page, op, args) => page.evaluate(([o, a]) => window.LocalNotifications.__native.call(o, a)
@@ -53,7 +54,7 @@ export default async function moveOps(ctx) {
     });
     await ctx.step(`${label}: local.leave → first run with the hint`, async () => {
       await call(page, 'local.leave').catch(() => {}); // the page goes away right after the reply
-      await ctx.waitFor({ text: HINT }, 20_000);
+      await ctx.waitFor({ text: HINT }, 60_000);
     });
     await ctx.shot(`hint-${label}`);
   };
