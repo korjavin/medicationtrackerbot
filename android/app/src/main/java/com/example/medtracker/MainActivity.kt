@@ -241,6 +241,7 @@ class MainActivity : Activity() {
 
     private fun isInside(h: String?): Boolean {
         val l = h?.lowercase() ?: return false
+        if (local) return l == LocalOrigin.HOST // the bundled app navigates on its own origin only
         return host != null && (l == host || l == base)
     }
 
