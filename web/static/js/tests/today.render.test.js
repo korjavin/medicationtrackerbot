@@ -918,7 +918,9 @@ describe('Trackers card', () => {
         w.document.body.appendChild(root);
         toasts = [];
         w.SyncManager = { showToast: (message, type, opts) => { toasts.push({ message, opts }); return { root: null, dismiss() {} }; } };
-        const repaint = () => w.TodayDashboard.renderToday({ trackers: env.cacheMap.get('trackers') }, root, { now: NOW });
+        // A write still settling after teardown (env nulled) has nothing to repaint.
+        const mine = env;
+        const repaint = () => { if (env === mine) w.TodayDashboard.renderToday({ trackers: mine.cacheMap.get('trackers') }, root, { now: NOW }); };
         w.requestTabRefresh = repaint;
         repaint();
     }
