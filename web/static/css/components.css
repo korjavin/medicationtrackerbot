@@ -384,7 +384,9 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
 .wg-trk__val{font:500 22px/1 var(--wg-font-mono);letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .wg-trk__val small{margin-left:4px;font:500 var(--wg-fs-xs) var(--wg-font-ui);letter-spacing:0;color:var(--wg-fg-3)}
 .wg-trk__val--text{font-size:var(--wg-fs-lg);line-height:1.2;white-space:normal;color:var(--wg-fg-2)}
-.wg-trk__foot{display:flex;align-items:center;justify-content:space-between;gap:6px;min-width:0;margin-top:auto}
+.wg-trk__foot{display:flex;align-items:center;justify-content:space-between;gap:6px;min-width:0;flex-wrap:wrap;margin-top:auto}
+/* A long budget chip ("3 over this month") wraps under the slip row and may wrap itself — never past the tile edge (med-5uhd). */
+.wg-trk__foot>.wg-chip{flex-shrink:1;max-width:100%;height:auto;min-height:20px;padding-block:3px;line-height:1.2;white-space:normal}
 .wg-trk__more{position:absolute;top:0;right:0;width:44px;height:44px;display:grid;place-items:center;border:0;border-radius:0 14px 0 12px;background:transparent;color:var(--wg-fg-3);cursor:pointer}
 .wg-trk__more:hover{color:var(--wg-fg-1)}.wg-trk__more:focus-visible{outline:0;box-shadow:var(--wg-focus)}
 .wg-trk__limit .wg-meter__fill{background:var(--wg-fg-3)}

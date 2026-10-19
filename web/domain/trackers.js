@@ -21,6 +21,7 @@ const OPS = new Set(['atLeast', 'atMost']);
 const PERIODS = new Set(['day', 'week', 'month']);
 const MAX_NAME_RUNES = 60;
 const MAX_HISTORY_DAYS = 366;
+const EARLIER_LOGS = 5;
 
 function invalid(message) {
   const err = new Error(message);
@@ -217,6 +218,19 @@ export function createTrackersDomain({ records, now, timeZone }) {
       .sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
   }
 
+  // earlierLogs: the newest logs before today (at most EARLIER_LOGS), newest
+  // first — the log sheet's "Earlier" list, so a mis-tap found after the Undo
+  // toast (or after midnight) can still be removed via unlog.
+  function earlierLogs(tracker, logs, today) {
+    return logs
+      .filter((l) => l.trackerId === tracker.recordId && (tracker.kind === 'check'
+        ? l.done === true && isDay(l.date) && l.date < today
+        : !Number.isNaN(Date.parse(l.at)) && localDay(Date.parse(l.at), timeZone) < today))
+      .map(logView)
+      .sort((a, b) => String(b.at || b.date).localeCompare(String(a.at || a.date)))
+      .slice(0, EARLIER_LOGS);
+  }
+
   async function list() {
     const [trackers, logs] = await Promise.all([records.list(TRACKER), records.list(LOG)]);
     const today = localDay(now(), timeZone);
@@ -227,6 +241,7 @@ export function createTrackersDomain({ records, now, timeZone }) {
         ...trackerView(t),
         progress: progress(t, dayTotals(t, logs), today),
         todayLogs: todayLogs(t, logs, today),
+        earlierLogs: earlierLogs(t, logs, today),
         // The account-local day progress/todayLogs describe, and its zone:
         // a client holding a cached list can tell it went stale at midnight.
         day: today,

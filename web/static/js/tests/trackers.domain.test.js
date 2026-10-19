@@ -124,6 +124,34 @@ describe('trackers domain — check', () => {
   });
 });
 
+describe('trackers domain — earlierLogs (med-s00k)', () => {
+  it('count: the 5 newest logs before today, newest first; unlog removes one later', async () => {
+    const { d } = setup('2026-07-08T16:00:00Z');
+    const t = await d.create(WATER);
+    for (let i = 1; i <= 6; i += 1) await d.log(t.id, { at: `2026-07-0${8 - i}T16:00:00Z` });
+    const today = await d.log(t.id);
+    const [row] = await d.list();
+    expect(row.todayLogs.map((l) => l.id)).toEqual([today.id]);
+    expect(row.earlierLogs.map((l) => l.at.slice(0, 10))).toEqual(['2026-07-07', '2026-07-06', '2026-07-05', '2026-07-04', '2026-07-03']);
+    await d.unlog(t.id, row.earlierLogs[0].id);
+    expect((await d.list())[0].earlierLogs[0].at.slice(0, 10)).toBe('2026-07-06');
+  });
+
+  it('check: earlier done days only (not undone ones, not today); unlog writes done:false for that day', async () => {
+    const { d } = setup('2026-07-08T16:00:00Z');
+    const t = await d.create(STRETCH);
+    await d.setDay(t.id, '2026-07-05', true);
+    await d.setDay(t.id, '2026-07-06', true);
+    await d.setDay(t.id, '2026-07-06', false);
+    await d.setDay(t.id, '2026-07-07', true);
+    await d.log(t.id);
+    const [row] = await d.list();
+    expect(row.earlierLogs.map((l) => l.date)).toEqual(['2026-07-07', '2026-07-05']);
+    await d.unlog(t.id, row.earlierLogs[0].id);
+    expect((await d.list())[0].earlierLogs.map((l) => l.date)).toEqual(['2026-07-05']);
+  });
+});
+
 describe('trackers domain — period rollover in a non-UTC zone', () => {
   // Each case logs 5 just before the local boundary and 1 just after; "now"
   // is just after it. In UTC both logs land in the same day/week/month, so

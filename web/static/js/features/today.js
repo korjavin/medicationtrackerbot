@@ -1227,6 +1227,44 @@
         return res;
     }
 
+    // Earlier entry (med-s00k): the row leaves the sheet at once; the tile's
+    // totals / streak come from the server row once the delete lands (the
+    // log may sit outside the current period, so no local arithmetic).
+    // Undo re-logs it: count at its original time, check by its day.
+    async function unlogEarlier(t, log, quiet) {
+        const api = trackersApi();
+        if (!api) return null;
+        const tid = encodeURIComponent(t.id);
+        const without = (x) => ({ ...x, earlierLogs: (x.earlierLogs || []).filter((l) => l.id !== log.id) });
+        const res = await trackerWrite(patchTracker(t.id, without),
+            patchTracker(t.id, (x) => ({ ...without(x), earlierLogs: [log, ...without(x).earlierLogs] })),
+            () => api(`/api/trackers/${tid}/log/${encodeURIComponent(log.id)}`, 'DELETE'),
+            () => refreshTrackerRow(api, t.id));
+        if (res && !quiet) {
+            const what = t.kind === 'check' ? (trackerIsLimit(t) ? 'slip' : 'done day') : `+${fmtNum(log.amount)}`;
+            trackerToast(`Removed ${what}`, trackerEarlierLabel(log), () => relogEarlier(t, log));
+        }
+        return res;
+    }
+
+    async function relogEarlier(t, log) {
+        const api = trackersApi();
+        if (!api) return null;
+        const tid = encodeURIComponent(t.id);
+        return trackerWrite(patchTracker(t.id, (x) => ({ ...x, earlierLogs: [log, ...(x.earlierLogs || [])] })),
+            patchTracker(t.id, (x) => ({ ...x, earlierLogs: (x.earlierLogs || []).filter((l) => l.id !== log.id) })),
+            () => (t.kind === 'check'
+                ? api(`/api/trackers/${tid}/days/${encodeURIComponent(log.date)}`, 'PUT', { done: true })
+                : api(`/api/trackers/${tid}/log`, 'POST', { amount: log.amount, at: log.at })),
+            () => refreshTrackerRow(api, t.id));
+    }
+
+    // Settle patch: swap the tracker for the server's fresh row.
+    async function refreshTrackerRow(api, id) {
+        const fresh = await serverTrackerRow(api, id);
+        return fresh ? patchTracker(id, () => fresh) : null;
+    }
+
     // A log still carrying its provisional id has no server record to delete
     // yet; its tap / delete waits for the commit.
     function isProvisional(log) {
@@ -1554,28 +1592,30 @@
         } else {
             const list = el('div', 'wg-list');
             for (const log of logs) {
-                const row = el('div', 'wg-row');
-                row.setAttribute('data-log-id', log.id);
-                const rb = el('span', 'wg-row__body');
-                rb.appendChild(el('span', 'wg-row__title wg-row__title--mono',
-                    t.kind === 'check' ? (trackerIsLimit(t) ? 'Slip' : 'Done') : fmtTimeHM(log.at)));
-                row.appendChild(rb);
-                if (t.kind === 'count') {
-                    const v = el('span', 'wg-row__value', `+${fmtNum(log.amount)}`);
-                    if (t.unit) v.appendChild(el('small', null, unitText(t.unit, log.amount)));
-                    row.appendChild(v);
-                }
-                const trail = el('span', 'wg-row__trail');
-                if (!isProvisional(log)) trail.appendChild(btn(null, {
-                    ghost: true, iconOnly: true, icon: 'trash', aria: 'Delete', action: 'tracker-delete-log',
-                    onClick: () => unlogTracker(t, log),
-                }));
-                row.appendChild(trail);
-                list.appendChild(row);
+                list.appendChild(trackerLogRow(t, log,
+                    t.kind === 'check' ? (trackerIsLimit(t) ? 'Slip' : 'Done') : fmtTimeHM(log.at),
+                    () => unlogTracker(t, log)));
             }
             section.appendChild(list);
         }
         body.appendChild(section);
+
+        // Earlier entries (med-s00k): a mis-tap noticed after the Undo toast
+        // (or after midnight) is still removable here.
+        const earlier = Array.isArray(t.earlierLogs) ? t.earlierLogs : [];
+        if (earlier.length) {
+            const eSection = el('section', 'wg-section');
+            eSection.setAttribute('data-tracker-earlier', '');
+            const eHead = el('div', 'wg-section__head');
+            eHead.appendChild(el('span', 'wg-eyebrow', 'Earlier'));
+            eSection.appendChild(eHead);
+            const list = el('div', 'wg-list');
+            for (const log of earlier) {
+                list.appendChild(trackerLogRow(t, log, trackerEarlierLabel(log), () => unlogEarlier(t, log)));
+            }
+            eSection.appendChild(list);
+            body.appendChild(eSection);
+        }
         const links = el('div', 'wg-list');
         links.append(
             trackerLink('setting', 'history', 'History', 'Last 30 days and habit strength', 'tracker-history',
@@ -1597,6 +1637,35 @@
             }));
             sheet.appendChild(foot);
         }
+    }
+
+    function trackerLogRow(t, log, title, onDelete) {
+        const row = el('div', 'wg-row');
+        row.setAttribute('data-log-id', log.id);
+        const rb = el('span', 'wg-row__body');
+        rb.appendChild(el('span', 'wg-row__title wg-row__title--mono', title));
+        row.appendChild(rb);
+        if (t.kind === 'count') {
+            const v = el('span', 'wg-row__value', `+${fmtNum(log.amount)}`);
+            if (t.unit) v.appendChild(el('small', null, unitText(t.unit, log.amount)));
+            row.appendChild(v);
+        }
+        const trail = el('span', 'wg-row__trail');
+        if (!isProvisional(log)) trail.appendChild(btn(null, {
+            ghost: true, iconOnly: true, icon: 'trash', aria: 'Delete', action: 'tracker-delete-log', onClick: onDelete,
+        }));
+        row.appendChild(trail);
+        return row;
+    }
+
+    // "Sun, Apr 19 · 21:40" (count) / "Sun, Apr 19" (check day).
+    function trackerEarlierLabel(log) {
+        const ms = log.at ? Date.parse(log.at) : localDayMs(log.date);
+        let day;
+        try {
+            day = new Date(ms).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+        } catch (_) { day = String(log.date || log.at).slice(0, 10); }
+        return log.at ? `${day} · ${fmtTimeHM(log.at)}` : day;
     }
 
     function openTrackerSheet(t) {
