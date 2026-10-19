@@ -761,7 +761,6 @@
        0 without viewport-fit=cover, where Safari and the iOS shell already
        keep the page clear of the home indicator. */
     --wg-tabbar-h: calc(62px + env(safe-area-inset-bottom));
-    --wg-kb-h: 291px;
     /* The visual viewport's top + height; components/wg-sheet.js overwrites
        these with measured values (med-pe9g). The defaults = the layout viewport. */
     --wg-vv-top: 0px;

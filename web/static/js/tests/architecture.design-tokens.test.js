@@ -590,7 +590,7 @@ const WANDERGEEK_TOKENS = [
     '--wg-gloss-hi', '--wg-raised', '--wg-sunfill', '--wg-clayfill', '--wg-sagefill',
     '--wg-inset', '--wg-sh-raised', '--wg-sh-sun', '--wg-sh-inset', '--wg-sh-card',
     '--wg-sh-float', '--wg-focus', '--wg-ease', '--wg-dur-fast', '--wg-dur',
-    '--wg-tabbar-h', '--wg-kb-h',
+    '--wg-tabbar-h',
 ];
 
 /** Every --wg-* token css/components.css reads must be declared in :root. */
