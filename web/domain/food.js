@@ -243,20 +243,62 @@ function foodProductUniqueKey(p) {
   return `name:${(p.name || '').trim().toLowerCase()}`;
 }
 
+// cleanRemoteProducts tidies a food-DB text-search page before it is merged
+// behind the user's own products (bd med-43ma). Upstream rows are untouched;
+// this only shapes what the picker shows. Rules:
+//  1. Drop rows where kcal, carbs, protein and fat are ALL zero. The upstream
+//     (and fooddb.js's `|| 0` mapping) cannot tell "missing" from "explicit
+//     zero", so such a row is indistinguishable from an empty one and adds
+//     nothing to any total. A 0-kcal row with any macro set stays. The user's
+//     own products are never filtered, so a local "Water" stays.
+//  2. Collapse case-insensitive same-name rows only when their nutrition is
+//     effectively the same (kcal within 5 kcal or 5%, each macro within 1 g
+//     or 5%), keeping the row with the most non-zero nutrient fields (tie:
+//     one not in ALL CAPS, then the earlier, i.e. upstream's own order).
+//     Same name with clearly different numbers (fresh vs dried banana) are
+//     different products: all stay, so the user can pick the right one.
+//  3. Rank exact name matches, then prefix matches, then the rest; stable, so
+//     upstream relevance order holds within each tier.
+export function cleanRemoteProducts(products, query) {
+  const needle = (query || '').trim().toLowerCase();
+  const filled = (p) => [p.energy_kcal_100g, p.carbs_100g, p.protein_100g, p.fat_100g].filter((v) => v > 0).length;
+  const shouty = ({ name = '' }) => name === name.toUpperCase() && name !== name.toLowerCase();
+  const better = (a, b) => filled(a) > filled(b) || (filled(a) === filled(b) && shouty(b) && !shouty(a));
+  const near = (a, b, abs) => Math.abs(a - b) <= Math.max(abs, 0.05 * Math.max(a, b));
+  const same = (a, b) => near(a.energy_kcal_100g, b.energy_kcal_100g, 5)
+    && ['carbs_100g', 'protein_100g', 'fat_100g'].every((k) => near(a[k], b[k], 1));
+  const key = (p) => (p.name || '').trim().toLowerCase();
+  // A replaced duplicate keeps its slot, so upstream order holds.
+  const kept = [];
+  for (const p of products) {
+    if (!filled(p)) continue;
+    const i = kept.findIndex((k) => key(k) === key(p) && same(k, p));
+    if (i < 0) kept.push(p);
+    else if (better(p, kept[i])) kept[i] = p;
+  }
+  const tier = (p) => {
+    const name = key(p);
+    return name === needle ? 0 : name.startsWith(needle) ? 1 : 2;
+  };
+  return kept.sort((a, b) => tier(a) - tier(b));
+}
+
 // mergeProducts ports mergeFoodProducts (food_handlers.go:1087): base first,
-// dedup by barcode-else-name, capped at 50.
+// dedup by barcode-else-name, capped at 50. Among `extra` rows only a
+// barcode dedups: same-name remote rows reaching here are distinct products
+// cleanRemoteProducts chose to keep (fresh vs dried banana, med-43ma).
 export function mergeProducts(base, extra) {
   if (!extra.length) return base;
   const merged = [];
   const seen = new Set();
-  const add = (p) => {
+  const add = (p, isExtra) => {
     const key = foodProductUniqueKey(p);
     if (seen.has(key)) return;
-    seen.add(key);
+    if (!isExtra || key.startsWith('barcode:')) seen.add(key);
     merged.push(p);
   };
-  base.forEach(add);
-  extra.forEach(add);
+  base.forEach((p) => add(p, false));
+  extra.forEach((p) => add(p, true));
   return merged.slice(0, 50);
 }
 
@@ -761,6 +803,8 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     } catch {
       return local;
     }
+    // A barcode hit is the one product the user scanned: show it as-is.
+    if (!isBarcodeQuery(query)) apiProducts = cleanRemoteProducts(apiProducts, query);
     if (!apiProducts.length) return local;
     return mergeProducts(local, apiProducts);
   }
