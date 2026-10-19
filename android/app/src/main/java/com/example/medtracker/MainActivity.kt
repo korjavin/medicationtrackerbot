@@ -322,7 +322,11 @@ class MainActivity : Activity() {
 
         override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
             // The ceremony pages leave by full navigation, so every commit is seen here.
-            setCeremony(AccountUrl.isCeremony(url, base))
+            val ceremony = AccountUrl.isCeremony(url, base)
+            // Leaving /unlock, /claim or /recover for the app (bd med-nt9p.33): Back on Today
+            // must leave the app, not reopen the spent ceremony ("invite already claimed").
+            if (!ceremony && ceremonyBar.visibility == View.VISIBLE) clearHistory = true
+            setCeremony(ceremony)
             updateBack()
         }
 
