@@ -77,6 +77,57 @@ const REMINDER_ACTION_ROUTES = {
     weight_dontbug: '/api/weight/reminder/dontbug',
 };
 
+// Seamless local → cloud move, account side (bd med-nt9p.32.18, contract in
+// docs/android.md "move stash"). Before switching to this account the app
+// shell stashed the device-only vault (move.stash); this picks it up so the
+// user never opens Backup & import → Restore.
+// - Called ONLY from the post-unlock boot below: the passkey unlock of this
+//   account is the proof the user owns it, so a stash on the phone can never
+//   replace a locked (or someone else's) account's data.
+// - Inert on the web and on any shell whose shell.ops does not list move.take
+//   (older iOS/Android builds reject the probe → no pickup). Every bridge call
+//   is time-boxed so a shell that never answers cannot hold the boot.
+// - move.clear runs only after restoreVault replaced the vault (its
+//   beforeReload hook); a cancel or a failed import keeps the stash and the
+//   next open asks again.
+const MOVE_NOTICE_KEY = 'wg-move-picked-up';
+const MOVE_PROBE_MS = 5000;
+function withinMs(promise, ms) {
+    return Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve(null), ms))]);
+}
+async function pickUpMovedVault(win) {
+    // Wait for the page's scripts first: native/index.js (the bridge),
+    // settings.js (nativeHas) and importexport.js load after this file.
+    const doc = win.document;
+    if (doc && doc.readyState === 'loading') await new Promise((r) => doc.addEventListener('DOMContentLoaded', r, { once: true }));
+    const native = win.LocalNotifications && win.LocalNotifications.__native;
+    if (!native || (native.platform !== 'ios' && native.platform !== 'android')) return;
+    // The reload after a pickup lands here once more: say where the records went.
+    let moved = false;
+    try {
+        moved = win.sessionStorage.getItem(MOVE_NOTICE_KEY) === '1';
+        if (moved) win.sessionStorage.removeItem(MOVE_NOTICE_KEY);
+    } catch { /* storage blocked */ }
+    if (moved) win.safeToast(`Your records from this ${(win.LocalNotifications.copy && win.LocalNotifications.copy.device) || 'phone'} are in your account.`, 'success');
+    // nativeHas: features/settings.js, the one shell.ops probe per page.
+    if (typeof win.nativeHas !== 'function') return;
+    if ((await withinMs(win.nativeHas('move.take').catch(() => false), MOVE_PROBE_MS)) !== true) return;
+    const stash = await withinMs(native.call('move.take').catch(() => null), MOVE_PROBE_MS);
+    const vault = stash && stash.vault;
+    const restore = win.SettingsImportExport && win.SettingsImportExport.restoreVault;
+    if (typeof vault !== 'string' || !vault || typeof restore !== 'function') return;
+    // restoreVault reloads the page itself once the vault is replaced, and runs
+    // beforeReload only then. A failed clear only means the next open offers
+    // the same move again (behind the typed confirm: the account has content).
+    await restore(vault, {
+        source: 'move',
+        beforeReload: async () => {
+            try { win.sessionStorage.setItem(MOVE_NOTICE_KEY, '1'); } catch { /* storage blocked */ }
+            await withinMs(native.call('move.clear'), MOVE_PROBE_MS);
+        },
+    });
+}
+
 function installReminderActionHandler(shimCall) {
     const allowed = new Set(Object.values(REMINDER_ACTION_ROUTES));
     const apply = (route) => {
@@ -353,6 +404,12 @@ window.MedTrackerCloudReady = (async function boot() {
         // is already unlocked). The IIFE closes just before the outer catch.
         void (async () => {
         await pullOnOpen(ctx);
+        // The local → cloud move pickup (bd med-nt9p.32.18): after pullOnOpen,
+        // as importAll needs the bootstrapped cursor. Not awaited, so a slow
+        // shell or a pending confirm never holds the rest of the boot; it then
+        // runs alongside it exactly as a Settings → Restore would. A no-op on
+        // the web.
+        pickUpMovedVault(window).catch((e) => console.error('[cloud-boot] move pickup failed', e));
         // med-deq.2: the sync-status re-auth affordance lives in the unlock
         // shell, but a device with a warm LDK cache never sees that shell
         // (/unlock redirects straight back to /), so the real app must surface

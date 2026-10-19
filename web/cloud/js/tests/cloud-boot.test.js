@@ -1,7 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as realVault from '../../../domain/vault.js';
+import { loadFrontendEnv } from '../../../static/js/tests/helpers/frontend-harness.js';
+import { allowConsoleNoise } from '../../../static/js/tests/helpers/setup.js';
 
 // cloud-boot.js is a self-executing classic script (not an ES module) that
 // assigns window.MedTrackerCloudReady and issues dynamic import('/js/*.js')
@@ -781,5 +783,158 @@ describe('cloud-boot share-plan fragment across unlock (med-uo64.3)', () => {
       modules: { 'unlock.js': { warmUnlock: async () => null } },
     });
     expect(location.href).toBe('/unlock');
+  });
+});
+
+// bd med-nt9p.32.18: the local → cloud move pickup. The REAL cloud-boot.js body
+// runs in the frontend harness window, so the pickup goes through the real
+// settings.js nativeHas probe and the real importexport.js restoreVault; only
+// the bridge, the dialogs and CloudVault's probe/import are stubbed.
+describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
+  const VAULT = JSON.stringify({ format: 'medtracker-vault', version: 1, data: {} });
+  const UNLOCKED = async () => ({ accountId: 'a', kData: {}, kMac: {} });
+  let env;
+
+  beforeEach(() => {
+    allowConsoleNoise(); // location.reload is a jsdom "not implemented" error
+    env = loadFrontendEnv();
+  });
+  afterEach(() => env.cleanup());
+
+  async function boot({
+    platform = 'android', ops = ['shell.ops', 'move.take', 'move.clear'], stash = { vault: VAULT },
+    content = false, confirm = true, importAll, warmUnlock = UNLOCKED,
+  } = {}) {
+    const { window } = env;
+    const log = [];
+    const call = vi.fn(async (op) => {
+      log.push(op);
+      if (op === 'shell.ops') { if (!ops) throw new Error('unsupported: shell.ops'); return ops; }
+      if (op === 'move.take') return stash;
+      return true;
+    });
+    if (platform) window.LocalNotifications = { ...window.LocalNotifications, __native: { platform, call }, copy: { device: 'phone' } };
+    window.safeConfirm = vi.fn(async () => { log.push('confirm'); return confirm; });
+    window.safeAlert = vi.fn(async () => { log.push('alert'); });
+    window.safeToast = vi.fn();
+    let release;
+    const pulled = new Promise((r) => { release = r; });
+    const modules = {
+      'unlock.js': { warmUnlock },
+      'apishim.js': { installApiShim: () => async () => null },
+      'sync.js': {
+        pullOnOpen: () => pulled,
+        startReconnectAutoDrain() {},
+        getSyncStatus: async () => ({}),
+        readAllLiveRecords: async () => [],
+      },
+    };
+    const __imp = (spec) => {
+      const key = spec.replace('/js/', '');
+      return key in modules ? Promise.resolve(modules[key]) : Promise.reject(new Error(`unexpected import(${spec})`));
+    };
+    // eslint-disable-next-line no-new-func
+    new Function('window', 'document', 'location', 'navigator', '__imp', SRC)(
+      window, window.document, window.location, window.navigator, __imp,
+    );
+    await window.MedTrackerCloudReady;
+    // CloudVault is cloud-boot's own; swap the two calls restoreVault makes.
+    if (window.CloudVault) {
+      window.CloudVault.hasUserContent = vi.fn(async () => { log.push('probe'); return content; });
+      window.CloudVault.importAll = vi.fn(async (json) => {
+        log.push('importAll');
+        return importAll ? importAll(json) : { upload: 'synced' };
+      });
+    }
+    release();
+    return { window, call, log };
+  }
+  const settle = () => new Promise((r) => setTimeout(r, 50));
+
+  it('stash + empty account: imports with no dialog, then move.clear, then reload with a one-time toast', async () => {
+    const { window, log } = await boot();
+    await vi.waitFor(() => expect(log).toContain('move.clear'));
+    expect(log).toEqual(['shell.ops', 'move.take', 'probe', 'importAll', 'move.clear']);
+    expect(window.CloudVault.importAll).toHaveBeenCalledWith(VAULT);
+    expect(window.safeConfirm).not.toHaveBeenCalled();
+    expect(window.sessionStorage.getItem('wg-move-picked-up')).toBe('1');
+  });
+
+  it('after the reload: the toast shows once and nothing is imported again', async () => {
+    env.window.sessionStorage.setItem('wg-move-picked-up', '1');
+    const { window, log } = await boot({ stash: null });
+    await vi.waitFor(() => expect(log).toContain('move.take'));
+    await settle();
+    expect(window.safeToast).toHaveBeenCalledWith('Your records from this phone are in your account.', 'success');
+    expect(window.sessionStorage.getItem('wg-move-picked-up')).toBeNull();
+    expect(log).not.toContain('importAll');
+    expect(log).not.toContain('move.clear');
+  });
+
+  it('works the same on an iOS shell that lists move.take', async () => {
+    const { log } = await boot({ platform: 'ios' });
+    await vi.waitFor(() => expect(log).toContain('move.clear'));
+  });
+
+  it('stash + account with content: typed replace confirm first', async () => {
+    const { window, log } = await boot({ content: true });
+    await vi.waitFor(() => expect(log).toContain('move.clear'));
+    expect(log).toEqual(['shell.ops', 'move.take', 'probe', 'confirm', 'importAll', 'move.clear']);
+    expect(window.safeConfirm.mock.calls[0][2]).toMatchObject({ destructive: true, typedConfirm: 'replace my data' });
+  });
+
+  it('confirm cancelled: nothing imported, stash kept, the file steps hint shown', async () => {
+    const { window, log } = await boot({ content: true, confirm: false });
+    await vi.waitFor(() => expect(log).toContain('alert'));
+    await settle();
+    expect(log).not.toContain('importAll');
+    expect(log).not.toContain('move.clear');
+    expect(window.safeAlert.mock.calls[0][0]).toMatch(/Nothing was replaced.*export a backup/);
+  });
+
+  it('importAll rejects: never move.clear, the error is shown', async () => {
+    const { window, log } = await boot({ importAll: async () => { throw new Error('Sync not ready.'); } });
+    await vi.waitFor(() => expect(log).toContain('alert'));
+    await settle();
+    expect(log).not.toContain('move.clear');
+    expect(window.safeAlert.mock.calls[0][0]).toMatch(/Sync not ready\..*tries again/);
+    expect(window.sessionStorage.getItem('wg-move-picked-up')).toBeNull();
+  });
+
+  it('no stash: nothing else happens', async () => {
+    const { log } = await boot({ stash: null });
+    await vi.waitFor(() => expect(log).toContain('move.take'));
+    await settle();
+    expect(log).toEqual(['shell.ops', 'move.take']);
+  });
+
+  it('no shell (the web): no bridge call, no probe', async () => {
+    const { window, call } = await boot({ platform: null });
+    await settle();
+    expect(call).not.toHaveBeenCalled();
+    expect(window.CloudVault.hasUserContent).not.toHaveBeenCalled();
+  });
+
+  it('a shell without move.take, or one that rejects shell.ops: never asks for the stash', async () => {
+    for (const ops of [['shell.ops', 'account.leave'], null]) {
+      env.cleanup();
+      env = loadFrontendEnv();
+      const { log } = await boot({ ops });
+      await vi.waitFor(() => expect(log).toContain('shell.ops'));
+      await settle();
+      expect(log).toEqual(['shell.ops']);
+    }
+  });
+
+  // Owner invariant: only a passkey-unlocked account may take the stash.
+  it('locked vault or a failed unlock: move.take is never called', async () => {
+    for (const warmUnlock of [async () => null, async () => { throw new Error('ldk read failed'); }]) {
+      env.cleanup();
+      env = loadFrontendEnv();
+      const { call } = await boot({ warmUnlock });
+      await settle();
+      expect(call).not.toHaveBeenCalledWith('move.take');
+      expect(call).not.toHaveBeenCalledWith('move.clear');
+    }
   });
 });
