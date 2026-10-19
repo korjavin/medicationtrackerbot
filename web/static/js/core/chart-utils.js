@@ -436,12 +436,19 @@ window.ChartUtils = (() => {
         let width = Number((node.getAttribute('viewBox') || '').split(' ')[2]) || 0;
         if (!width) return node; // empty-state <div>, nothing to fit
         let pending = 0;
+        let refits = 0;
         const refit = () => {
             const next = pending;
             pending = 0;
             if (!next || !current.isConnected || Math.abs(next - width) < 2) return;
             const fresh = render({ ...(opts || {}), width: next });
             if (!fresh) return;
+            // The mount fit lands a frame after the first draw-in started, so
+            // its replay reads as the one entry animation; later refits
+            // (rotate, window resize) swap in fully drawn lines.
+            if (refits++ > 0) {
+                fresh.querySelectorAll('.chart-line-animated').forEach((p) => p.classList.remove('chart-line-animated'));
+            }
             ro.unobserve(current);
             current.replaceWith(fresh);
             current = fresh;

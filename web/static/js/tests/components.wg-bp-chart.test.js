@@ -396,6 +396,8 @@ describe('WGBpChart.render', () => {
             disconnect() {}
         };
         env.window.requestAnimationFrame = (cb) => cb();
+        // jsdom has no SVG geometry; give animateLine a length so it tags lines.
+        env.window.SVGElement.prototype.getTotalLength = () => 100;
         const host = env.window.document.createElement('div');
         env.window.document.body.appendChild(host);
         host.appendChild(env.api.render({ readings: sampleReadings() }));
@@ -404,6 +406,16 @@ describe('WGBpChart.render', () => {
         observe([{ contentRect: { width: 1230 } }]);
         expect(host.children).toHaveLength(1);
         expect(host.firstChild.getAttribute('viewBox')).toBe('0 0 1230 200');
+
+        // A same-width notification is a no-op; a later resize swaps in a
+        // chart whose lines don't replay the draw-in animation.
+        const fitted = host.firstChild;
+        observe([{ contentRect: { width: 1230.4 } }]);
+        expect(host.firstChild).toBe(fitted);
+        observe([{ contentRect: { width: 900 } }]);
+        expect(host.firstChild.getAttribute('viewBox')).toBe('0 0 900 200');
+        expect(host.firstChild.querySelector('.wg-bp-chart__sys')).not.toBeNull();
+        expect(host.firstChild.querySelector('.chart-line-animated')).toBeNull();
 
         // An explicit width (brief export) is never refitted.
         expect(env.api.render({ readings: sampleReadings(), width: 500 }).getAttribute('viewBox')).toBe('0 0 500 200');

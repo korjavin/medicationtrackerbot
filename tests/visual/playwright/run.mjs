@@ -186,7 +186,10 @@ for (const [device, [engine, desc]] of Object.entries(DEVICES)) {
   await mkdir(join(out, device), { recursive: true });
   // One context per device: the first scene seeds the vault (the driver
   // imports it and reloads), every later scene opens on the seeded store.
-  const context = await browser.newContext({ ...desc, colorScheme: 'dark', locale: 'en-US', timezoneId: 'Europe/Berlin', acceptDownloads: true });
+  // reducedMotion: the app's prefers-reduced-motion rules settle chart draw-ins
+  // and pulses, so a shot never catches a line mid-draw (med-ipps); it is a media
+  // emulation, so unlike injected screenshot styles the page CSP can't refuse it.
+  const context = await browser.newContext({ ...desc, colorScheme: 'dark', reducedMotion: 'reduce', locale: 'en-US', timezoneId: 'Europe/Berlin', acceptDownloads: true });
   if (mode === 'cloud') await context.addInitScript(driverInit);
   else await context.addInitScript(nativeStub);
   // One page per device, so the virtual authenticator (cloud) outlives scenes.
