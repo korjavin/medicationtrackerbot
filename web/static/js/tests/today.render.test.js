@@ -1181,6 +1181,44 @@ describe('Trackers card', () => {
         await vi.waitFor(() => expect(cached('tracker-w').todayLogs.map((l) => l.id).sort()).toEqual(['trackerlog-p1', 'trackerlog-p2']));
     });
 
+    it('log sheet: a mis-tap from an earlier day is removable later; the tile takes the server row; Undo re-logs it (med-s00k)', async () => {
+        const Y = { id: 'trackerlog-y', trackerId: 'tracker-r', at: at(21, 40, -1), amount: 1 };
+        const X = { id: 'trackerlog-x', trackerId: 'tracker-r', at: at(8, 0, -3), amount: 1 };
+        const READING = {
+            id: 'tracker-r', name: 'Reading', emoji: '', kind: 'count', unit: null, step: 1,
+            target: { op: 'atLeast', value: 1, period: 'month' }, progress: { total: 2, target: 1, met: true },
+            todayLogs: [], earlierLogs: [Y, X],
+        };
+        setup([READING]);
+        let serverRow = READING;
+        env.window.apiCall = vi.fn(async (url, method, body) => {
+            if (method === 'GET') return [serverRow];
+            if (method === 'DELETE') return true;
+            return { id: 'trackerlog-y2', trackerId: 'tracker-r', at: body.at, amount: body.amount };
+        });
+        tile('tracker-r').querySelector('[data-action="tracker-more"]').click();
+        const sheet = () => env.window.document.getElementById('today-tracker-sheet');
+        const earlier = () => sheet().querySelector('[data-tracker-earlier]');
+        expect(earlier().querySelectorAll('[data-log-id]')).toHaveLength(2);
+        const title = earlier().querySelector('[data-log-id="trackerlog-y"] .wg-row__title').textContent;
+        expect(title).toContain('Apr 19');
+        expect(title).toContain('21:40');
+
+        serverRow = { ...READING, progress: { total: 1, target: 1, met: true }, earlierLogs: [X] };
+        earlier().querySelector('[data-log-id="trackerlog-y"] [data-action="tracker-delete-log"]').click();
+        await vi.waitFor(() => expect(toasts.find((t) => t.message === 'Removed +1')).toBeTruthy());
+        expect(env.window.apiCall).toHaveBeenCalledWith('/api/trackers/tracker-r/log/trackerlog-y', 'DELETE');
+        await vi.waitFor(() => expect(cached('tracker-r').progress.total).toBe(1));
+        expect(tile('tracker-r').querySelector('.wg-trk__val').textContent).toBe('1/ 1 this month');
+        await vi.waitFor(() => expect(earlier().querySelectorAll('[data-log-id]')).toHaveLength(1));
+
+        serverRow = { ...READING, earlierLogs: [{ ...Y, id: 'trackerlog-y2' }, X] };
+        toasts.find((t) => t.message === 'Removed +1').opts.action.onClick();
+        await vi.waitFor(() => expect(cached('tracker-r').progress.total).toBe(2));
+        expect(env.window.apiCall).toHaveBeenCalledWith('/api/trackers/tracker-r/log', 'POST', { amount: 1, at: Y.at });
+        expect(cached('tracker-r').earlierLogs.map((l) => l.id)).toEqual(['trackerlog-y2', 'trackerlog-x']);
+    });
+
     // ---- create / edit / archive (TR2) and history (TR3), med-1vy5.3 ----
     const $ = (sel) => env.window.document.querySelector(sel);
     const editor = () => env.window.document.getElementById('today-tracker-editor');
