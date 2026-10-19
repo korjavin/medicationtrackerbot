@@ -591,9 +591,16 @@ cap. With the dock off and the sheet at the bottom of the full-height layout
 viewport, the header sat above the top of the screen with the keyboard closed,
 the list ran under the keyboard with the header panned away, and an emptied
 search left the sheet entirely below the visible area. `noFocusZoom()` adds
-`maximum-scale=1` to the viewport on iOS only, which stops the focus zoom. The
-shell sets `ignoresViewportScaleLimits`, so pinch-zoom works as in Safari:
-WebKit's focus zoom honours the page cap even with this on.
+`maximum-scale=1` to the viewport on iOS only, which stops the focus zoom.
+
+The shell does not set `ignoresViewportScaleLimits` (med-r6sh). With it on
+(PR #1115 to build 351) the app pinch-zoomed as in Safari, but the page was
+scalable again and a double-tap on a card (Settings → On this device only)
+zoomed it, `touch-action: manipulation` on `html, body` (PR #1177)
+notwithstanding. Honouring the cap makes the scroll view's minimum and maximum
+zoom equal, and WebKit turns double-tap gestures off for a page it cannot scale.
+The cost: no pinch-zoom in the app. Mobile Safari still ignores the cap for
+gestures, so pinch works there.
 
 jsdom cannot show any of this. It has no zoom, no keyboard and no visual
 viewport. The tests pin the viewport cap and the dock's arithmetic
@@ -613,7 +620,9 @@ viewport. The tests pin the viewport cap and the dock's arithmetic
    screen with its header fully visible.
 5. Repeat step 1 with a 15px field, for example a Settings
    number field. It must not zoom either.
-6. Pinch out on any page. The page still zooms, then pinch back.
+6. App: double-tap Settings → On this device only, and any other card. The
+   page must not zoom. Pinch does not zoom in the app either (Mobile Safari
+   still pinch-zooms).
 
 ### The native bridge (bd med-w6gx.4)
 
