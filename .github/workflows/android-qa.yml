@@ -12,7 +12,7 @@ on:
       scenario:
         description: "Scenario (android/qa/scenarios/<name>.mjs), or all of them"
         type: choice
-        options: [all, firstrun, native-dark, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe]
+        options: [all, firstrun, native-dark, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe, local-spike]
         default: all
       font_scale:
         description: "System font scale applied before each scenario"
@@ -115,7 +115,7 @@ jobs:
           cores: 4
           ram-size: 4096M
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back ${{ inputs.scenario == 'local-spike' && 'emulated' || 'none' }}
           script: bash android/qa/run.sh android/app/build/outputs/apk/debug/app-debug.apk ${{ inputs.scenario || 'all' }} qa-out
 
       - name: Collect server logs

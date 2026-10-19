@@ -27,7 +27,28 @@ let env = {};
 let nativeText = '';
 
 const $ = (id) => document.getElementById(id);
-const bridge = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.wgSpike;
+const iosBridge = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.wgSpike;
+// Android (bd med-nt9p.32.1, android/.../LocalSpikeActivity.kt): the WebMessageListener object
+// has no reply promise, so requests carry an id and the native reply echoes it.
+const androidSpike = !iosBridge && window.wgSpike && typeof window.wgSpike.postMessage === 'function' ? window.wgSpike : null;
+const pending = new Map();
+let seq = 0;
+if (androidSpike) {
+  androidSpike.addEventListener('message', (e) => {
+    const m = JSON.parse(e.data);
+    const p = pending.get(m.id);
+    if (!p) return;
+    pending.delete(m.id);
+    if (m.error) p.reject(new Error(m.error)); else p.resolve(m.value);
+  });
+}
+const bridge = iosBridge || (androidSpike && {
+  postMessage: (body) => new Promise((resolve, reject) => {
+    const id = ++seq;
+    pending.set(id, { resolve, reject });
+    androidSpike.postMessage(JSON.stringify({ ...body, id }));
+  }),
+});
 const errText = (e) => (e && (e.name || e.message) ? `${e.name || 'Error'}: ${e.message || ''}` : String(e));
 
 function set(id, status, detail) {
@@ -36,7 +57,7 @@ function set(id, status, detail) {
 }
 
 function reportText() {
-  const head = `wg local-mode spike · build ${env.build || '?'} (${env.version || '?'}) · iOS ${env.ios || '?'} · ${env.model || '?'} · origin ${location.origin} · ${new Date().toISOString()}` +
+  const head = `wg local-mode spike · build ${env.build || '?'} (${env.version || '?'}) · ${env.platform === 'android' ? `Android ${env.android} · WebView ${env.webview}` : `iOS ${env.ios || '?'}`} · ${env.model || '?'} · origin ${location.origin} · ${new Date().toISOString()}` +
     (env.error ? ` · /env.json FAILED (${env.error}): launch ids are per page load` : '');
   const rows = [...results].map(([id, r]) => `#${id} ${r.status} ${r.name} — ${r.detail}`);
   const viol = `CSP violations seen: ${(window.__wgViolations || []).join('; ') || 'none'}`;
@@ -192,8 +213,9 @@ async function checkBridge() {
   }
   try {
     const o = await bridge.postMessage({ op: 'origin' });
-    const ok = o && o.protocol === env.scheme && o.host === 'local' && o.mainFrame === true;
-    set('8', ok ? 'PASS' : 'FAIL', `reply received; native saw securityOrigin protocol="${o.protocol}" host="${o.host}" port=${o.port} mainFrame=${o.mainFrame}`);
+    const ok = o && o.protocol === env.scheme && o.host === (env.host || 'local') && o.mainFrame === true;
+    set('8', ok ? 'PASS' : 'FAIL', `reply received; native saw securityOrigin protocol="${o.protocol}" host="${o.host}" port=${o.port} mainFrame=${o.mainFrame}` +
+      (androidSpike ? `; document-start script ran=${window.__wgDocStart === true}` : ''));
   } catch (e) {
     set('8', 'FAIL', `postMessage rejected: ${errText(e)}`);
     return;
@@ -202,6 +224,10 @@ async function checkBridge() {
     nativeText = await bridge.postMessage({ op: 'native' });
     const has = (needle) => nativeText.includes(needle);
     set('7', 'INFO', !has('our origin dir: not found') ?'origin dir found — see native section below' : 'origin dir NOT found — see native section below');
+    if (androidSpike) {
+      set('12', 'INFO', 'n/a on Android: Auto Backup includes the origin dirs by dataExtractionRules instead (check 10)');
+      return;
+    }
     // Native clears the flag WebKit sets on a new origin dir (bd med-o7zq.11).
     // PASS only when nothing in the chain is excluded now and no clear
     // failed: check 10 is invalid otherwise. Owner just sends the report.
@@ -308,6 +334,27 @@ async function copy() {
   }
 }
 
+// ---- 13 (Android only) ----
+// The app's deep links are pushState'd ?tab= URLs: a reload must come back on this origin and
+// path, served by the shell (not the network). First load: push, reload, and stop here.
+function checkReload() {
+  const key = 'wgSpikeReload';
+  const before = sessionStorage.getItem(key);
+  if (!before) {
+    sessionStorage.setItem(key, location.origin);
+    history.pushState({}, '', '/?spike=reload');
+    location.reload();
+    return false;
+  }
+  sessionStorage.removeItem(key);
+  results.set('13', { name: 'history.pushState + reload keep the origin', status: 'pending', detail: '' });
+  set('13', before === location.origin && location.search === '?spike=reload' ? 'PASS' : 'FAIL',
+    `pushed /?spike=reload on ${before}, after reload ${location.href}`);
+  set('4', 'INFO', 'n/a on Android: blob downloads are the shell\'s Files.kt (bd med-nt9p.10); use Copy report');
+  history.replaceState({}, '', '/');
+  return true;
+}
+
 async function run(id, fn) {
   try { await fn(); } catch (e) { set(id, 'FAIL', errText(e)); }
 }
@@ -327,6 +374,7 @@ async function main() {
     env.launch = `page-${Math.random().toString(36).slice(2, 8)}`;
     $('status').textContent = `/env.json failed (${env.error || 'no launch id'}): relaunch results in #2 are per page load, not per process.`;
   }
+  if (androidSpike && !checkReload()) return;
   await run('1', checkCrypto);
   await run('3', checkModules);
   await run('6', checkCSP);

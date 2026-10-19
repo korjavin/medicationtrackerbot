@@ -76,6 +76,30 @@ android {
     }
 }
 
+// Local-mode spike (bd med-nt9p.32.1): the iOS spike page ios/LocalSpike, copied at build time
+// into the DEBUG variant's assets as localspike/ (LocalSpikeActivity serves it). Release never
+// gets it; nothing is committed under android/.
+abstract class LocalSpikeAssets : DefaultTask() {
+    @get:InputDirectory abstract val source: DirectoryProperty
+    @get:OutputDirectory abstract val out: DirectoryProperty
+
+    @TaskAction fun copy() {
+        val dir = out.get().asFile
+        dir.deleteRecursively()
+        source.get().asFile.copyRecursively(dir.resolve("localspike"))
+    }
+}
+
+val localSpikeAssets = tasks.register<LocalSpikeAssets>("localSpikeAssets") {
+    source.set(rootProject.layout.projectDirectory.dir("../ios/LocalSpike"))
+}
+
+androidComponents {
+    onVariants(selector().withBuildType("debug")) { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(localSpikeAssets, LocalSpikeAssets::out)
+    }
+}
+
 dependencies {
     // >= 1.12: WebSettingsCompat.setWebAuthenticationSupport (passkeys in WebView).
     implementation("androidx.webkit:webkit:1.12.1")
