@@ -30,6 +30,9 @@ jobs:
     timeout-minutes: 20
     # Same Playwright as e2e/ (1.56.0); the image carries WebKit and its deps.
     container: mcr.microsoft.com/playwright:v1.56.0-noble
+    defaults:
+      run:
+        shell: bash # container steps default to sh
     steps:
       - uses: actions/checkout@v4
 
