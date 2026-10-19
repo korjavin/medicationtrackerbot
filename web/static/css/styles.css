@@ -2636,7 +2636,9 @@ input.wg-stepper__val::-webkit-inner-spin-button {
     padding: var(--wg-section-label-pad-top) var(--space-xs) var(--space-sm);
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    /* Dot then label, packed at the start. space-between flung the ::before
+       dot to one edge and the label to the other (med-xyo1). */
+    justify-content: flex-start;
     gap: var(--space-sm);
     min-width: 0;
 }
@@ -2654,7 +2656,6 @@ input.wg-stepper__val::-webkit-inner-spin-button {
     height: 6px;
     background: var(--wg-sun);
     border-radius: 50%;
-    margin-right: var(--space-sm);
     box-shadow: 0 0 8px var(--wg-sun);
     flex-shrink: 0;
 }
