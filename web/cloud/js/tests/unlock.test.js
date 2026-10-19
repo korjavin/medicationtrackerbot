@@ -38,7 +38,7 @@ describe('unlock share-plan fragment (med-uo64.3)', () => {
   // Node 21+ ships navigator/location as getter-only globals — plain
   // assignment throws, so install fakes via defineProperty and restore
   // the original descriptors afterwards. Shared by both inner suites.
-  const GLOBAL_KEYS = ['document', 'location', 'navigator', 'indexedDB', 'fetch', 'PublicKeyCredential'];
+  const GLOBAL_KEYS = ['document', 'location', 'navigator', 'indexedDB', 'fetch', 'PublicKeyCredential', 'window', 'wgNative'];
   const savedDesc = {};
   for (const key of GLOBAL_KEYS) {
     savedDesc[key] = Object.getOwnPropertyDescriptor(globalThis, key);
@@ -439,6 +439,81 @@ describe('unlock share-plan fragment (med-uo64.3)', () => {
       expect(requested.userVerification).toBe('required');
       expect(requested.extensions).toBeUndefined();
       expect(urls).toEqual(['/api/webauthn/login/begin', '/api/webauthn/login/finish']);
+    });
+  });
+
+  // med-nt9p.19: inside the Android shell (window.wgNative) GPM only finds
+  // app-created passkeys by a discoverable get, so the server allowlist is
+  // dropped there and Credential Manager's transient NotReadableError is
+  // retried; on web/iOS the request is the server's, sent once.
+  describe('Android shell discoverable login', () => {
+    const ALLOW = [{ type: 'public-key', id: new Uint8Array([1, 2]).buffer }];
+    function install(getImpl) {
+      const calls = [];
+      setGlobal('PublicKeyCredential', { parseRequestOptionsFromJSON: () => ({ challenge: 'c', allowCredentials: ALLOW }) });
+      setGlobal('navigator', {
+        credentials: {
+          get: async (opts) => {
+            calls.push(opts.publicKey);
+            return getImpl(calls.length);
+          },
+        },
+      });
+      setGlobal('fetch', async (url) => {
+        const u = String(url);
+        if (u === '/api/webauthn/login/begin') return { ok: true, json: async () => ({ publicKey: {} }) };
+        if (u === '/api/webauthn/login/finish') return { ok: true, json: async () => ({ account_id: 'acct-9' }) };
+        throw new Error('unexpected fetch ' + u);
+      });
+      return calls;
+    }
+    const assertion = () => ({
+      rawId: new Uint8Array(4).buffer,
+      getClientExtensionResults: () => ({}),
+      toJSON: () => ({ id: 'cred-1', rawId: 'cred-1', response: {}, clientExtensionResults: {} }),
+    });
+    const notReadable = () => Object.assign(new Error('unknown error talking to the credential manager'), { name: 'NotReadableError' });
+
+    it('web: sends the server allowlist in a single get, and a NotReadableError is not retried', async () => {
+      setGlobal('window', globalThis);
+      const calls = install(() => { throw notReadable(); });
+      const { renewSession } = await import('../unlock.js');
+      await expect(renewSession()).rejects.toThrow(/credential manager/);
+      expect(calls).toHaveLength(1);
+      expect(calls[0].allowCredentials).toBe(ALLOW);
+    });
+
+    it('Android shell: sends allowCredentials: [] and retries a NotReadableError', async () => {
+      setGlobal('window', globalThis);
+      setGlobal('wgNative', { postMessage() {}, addEventListener() {} });
+      // One real 1 s backoff — cheaper to wait than to drive fake timers
+      // through the begin/finish fetch microtasks.
+      const calls = install((n) => { if (n === 1) throw notReadable(); return assertion(); });
+      const { renewSession } = await import('../unlock.js');
+      await expect(renewSession()).resolves.toEqual({ accountId: 'acct-9' });
+      expect(calls).toHaveLength(2);
+      expect(calls.every((c) => Array.isArray(c.allowCredentials) && c.allowCredentials.length === 0)).toBe(true);
+      expect(calls[0].challenge).toBe('c');
+    });
+
+    it('Android shell: any other error is not retried', async () => {
+      setGlobal('window', globalThis);
+      setGlobal('wgNative', { postMessage() {}, addEventListener() {} });
+      const calls = install(() => { throw Object.assign(new Error('cancelled'), { name: 'NotAllowedError' }); });
+      const { renewSession } = await import('../unlock.js');
+      await expect(renewSession()).rejects.toThrow('cancelled');
+      expect(calls).toHaveLength(1);
+    });
+
+    it('an <iframe name=wgNative>-style clobber (a Window) stays web', async () => {
+      setGlobal('window', globalThis);
+      const clobber = { postMessage() {}, addEventListener() {} };
+      clobber.window = clobber;
+      setGlobal('wgNative', clobber);
+      const calls = install(() => assertion());
+      const { renewSession } = await import('../unlock.js');
+      await renewSession();
+      expect(calls[0].allowCredentials).toBe(ALLOW);
     });
   });
 });
