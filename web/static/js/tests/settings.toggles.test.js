@@ -1408,6 +1408,55 @@ describe('Settings → Invite a friend (cloud mode)', () => {
         }
     });
 
+    // med-nyjw: the row lives on the pushed Devices page, a WGPage at the same
+    // z-index as the sheet, so the sheet must come after the page in the DOM
+    // or it opens behind it and the tap looks dead.
+    it('tapping the row on the Devices page opens the sheet above that page', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            enterCloudMode(window);
+            window.fetch = vi.fn().mockResolvedValue({
+                ok: true, status: 200, json: async () => ({ claim_url: CLAIM_URL })
+            });
+
+            await window.loadSettings();
+            const page = window.SettingsView.openSettingsPage('devices');
+            const row = page.el.querySelector('#settings-invite-btn');
+            expect(row).not.toBeNull();
+
+            row.click();
+
+            const modal = document.getElementById('invite-modal');
+            await vi.waitFor(() => expect(modal.classList.contains('hidden')).toBe(false));
+            expect(window.fetch).toHaveBeenCalledWith('/api/invite', { method: 'POST' });
+            expect(document.getElementById('invite-claim-url').textContent).toBe(CLAIM_URL);
+            expect(page.el.compareDocumentPosition(modal) & window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+            expect(row.disabled).toBe(false);
+        } finally {
+            delete window.__MEDTRACKER_CLOUD__;
+            cleanup();
+        }
+    });
+
+    it('shows an error toast when the server fails the mint', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            enterCloudMode(window);
+            window.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({}) });
+
+            await window.loadSettings();
+            await window.SettingsView.mintInvite();
+
+            expect(window.SyncManager.showToast).toHaveBeenCalledWith('Could not create an invite.', 'info');
+            expect(document.getElementById('invite-modal').classList.contains('hidden')).toBe(true);
+        } finally {
+            delete window.__MEDTRACKER_CLOUD__;
+            cleanup();
+        }
+    });
+
     it('shows the limit toast on 429 and leaves the modal closed', async () => {
         allowConsoleNoise();
         const { window, document, cleanup } = loadFrontendEnv();

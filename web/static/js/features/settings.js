@@ -323,7 +323,7 @@ async function showInviteModal(claimUrl) {
     const modal = document.getElementById('invite-modal');
     const urlEl = document.getElementById('invite-claim-url');
     const qrEl = document.getElementById('invite-qr');
-    if (!modal || !urlEl || !qrEl) return;
+    if (!modal || !urlEl || !qrEl) throw new Error('Could not show the invite.');
     urlEl.textContent = claimUrl;
     qrEl.replaceChildren();
     try {
@@ -336,6 +336,11 @@ async function showInviteModal(claimUrl) {
         // The QR is a convenience; the copyable URL is the actual payload.
         console.warn('invite QR render failed', e);
     }
+    // The invite row lives on the pushed Devices page, a WGPage appended to
+    // <body> at the same z-index as this sheet, so DOM order decides: left in
+    // place the sheet opened behind the page and the tap looked dead
+    // (med-nyjw). Last in the body puts it on top, like workoutEquipment.
+    document.body.appendChild(modal);
     // On the ModalManager stack (overlay + Back/Esc), like every sheet.
     window.ModalManager.open('invite-modal');
 }
