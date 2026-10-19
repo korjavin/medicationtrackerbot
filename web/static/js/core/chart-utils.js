@@ -418,7 +418,40 @@ window.ChartUtils = (() => {
         return sampled;
     }
 
+    /**
+     * Render a chart at its default coordinate width, then re-render it at
+     * the width it actually lays out to, so a desktop card gets a full-width
+     * chart with 1:1 text instead of a 358-wide one scaled up or capped
+     * (med-ipps). An explicit opts.width (e.g. the brief export) is honoured
+     * as-is; without ResizeObserver (jsdom) the first render stands.
+     *
+     * @param {(opts: object) => Element|null} render - the component renderer
+     * @param {object} opts - render options
+     * @returns {Element|null}
+     */
+    function fitToWidth(render, opts) {
+        const node = render(opts);
+        if (!node || (opts && Number.isFinite(opts.width)) || typeof ResizeObserver !== 'function') return node;
+        let current = node;
+        let width = Number((node.getAttribute('viewBox') || '').split(' ')[2]) || 0;
+        if (!width) return node; // empty-state <div>, nothing to fit
+        const ro = new ResizeObserver((entries) => {
+            const next = Math.round(entries[entries.length - 1].contentRect.width);
+            if (!next || Math.abs(next - width) < 2 || !current.isConnected) return;
+            const fresh = render({ ...(opts || {}), width: next });
+            if (!fresh) return;
+            ro.unobserve(current);
+            current.replaceWith(fresh);
+            current = fresh;
+            width = next;
+            ro.observe(fresh);
+        });
+        ro.observe(node);
+        return node;
+    }
+
     return {
+        fitToWidth,
         catmullRomSpline,
         calculateYAxisTicks,
         createGradient,

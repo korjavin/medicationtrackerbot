@@ -357,6 +357,15 @@ func (t *TelegramAPI) getMeWithRetry(ctx context.Context, budget, interval time.
 	}
 }
 
+// RegisterTelegramDisabledRoutes answers GET /api/telegram/status with
+// {"enabled":false} when no manager bot is running, so Settings reads "not
+// available" from a 200 instead of logging a 404 on every load (med-ipps).
+func RegisterTelegramDisabledRoutes(mux *http.ServeMux, store *cloudstore.Repo, sessionSecret string) {
+	mux.Handle("GET /api/telegram/status", RequireSession(store, sessionSecret, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{"enabled": false, "state": "none"})
+	})))
+}
+
 // RegisterAPIRoutes wires the session-authed /api/telegram/* endpoints onto
 // the subdomain apiMux. Only called when Telegram is enabled.
 func (t *TelegramAPI) RegisterAPIRoutes(mux *http.ServeMux) {

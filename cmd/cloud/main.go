@@ -313,6 +313,9 @@ func main() {
 			feedbackAPI.SetNotifier(tgAPI.NotifyFeedback)
 		}
 	}
+	if tgAPI == nil {
+		cloudserver.RegisterTelegramDisabledRoutes(apiMux, store, cfg.sessionSecret)
+	}
 
 	// Self-service account deletion (med-d5t.8). Registered after tgAPI is
 	// finalized so its teardown can tear down Telegram too. teardown composes the

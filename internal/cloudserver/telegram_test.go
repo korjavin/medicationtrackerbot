@@ -3134,3 +3134,31 @@ func TestChildWebhook_MedTapRefusedWhenIdentityLookupFails(t *testing.T) {
 		t.Fatalf("edits = %v, want the buttons left in place for a re-tap", tg.mu.edits)
 	}
 }
+
+// med-ipps: with no manager bot the status probe answers 200 enabled:false,
+// not a 404 the Settings page logs on every load.
+func TestTelegramDisabledStatus(t *testing.T) {
+	store := setupStore(t)
+	account, claimToken := setupInvite(t, store)
+	host := account.Subdomain + ".localhost"
+
+	apiMux := http.NewServeMux()
+	NewWebAuthnAPI(store, tgTestSecret).RegisterRoutes(apiMux)
+	RegisterTelegramDisabledRoutes(apiMux, store, tgTestSecret)
+	router := New("localhost", store, testFS(), testAppFS(), testDomainFS(), apiMux, "", false, false)
+	session := registerAndGetSession(t, router, host, claimToken)
+
+	rec := doReq(t, router, http.MethodGet, "http://"+host+"/api/telegram/status", host, session, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %q", rec.Code, rec.Body.String())
+	}
+	var s struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &s); err != nil || s.Enabled {
+		t.Fatalf("body %q, want enabled:false", rec.Body.String())
+	}
+	if rec := doReq(t, router, http.MethodGet, "http://"+host+"/api/telegram/status", host, nil, nil); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated status = %d, want 401", rec.Code)
+	}
+}

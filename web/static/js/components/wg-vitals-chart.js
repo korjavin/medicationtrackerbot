@@ -299,7 +299,7 @@
     }
 
     window.WGVitalsChart = {
-        render: renderVitalsChart,
+        render: (opts) => (window.ChartUtils && window.ChartUtils.fitToWidth ? window.ChartUtils.fitToWidth(renderVitalsChart, opts) : renderVitalsChart(opts)),
         DEFAULT_WIDTH,
         DEFAULT_HEIGHT,
     };

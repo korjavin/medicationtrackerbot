@@ -347,7 +347,6 @@
     /* Wandergeek — BP screen (Phase 3, Task 1). Dimensional tokens for the
        current-reading card, range selector, chart geometry, and guide-line
        strokes. Everything visual in features/bp.js reads from here. */
-    --wg-bp-chart-width: 358px;
     --wg-bp-chart-height: 200px;
     --wg-bp-chart-band-alpha: 0.18;
     --wg-bp-chart-guide-dasharray: var(--wg-chart-guide-dasharray);
@@ -407,7 +406,6 @@
     --wg-weight-goal-value-size: 16px;
     --wg-weight-goal-bar-height: 8px;
     --wg-weight-goal-delta-size: 11px;
-    --wg-weight-chart-width: 358px;
     --wg-weight-chart-height: 200px;
     --wg-weight-chart-line-stroke-width: 2px;
     --wg-weight-chart-goal-stroke-width: 1px;
@@ -491,7 +489,6 @@
     --wg-workouts-stats-tile-gap: 10px;
     --wg-workouts-stats-tile-value-size: 22px;
     --wg-workouts-stats-tile-label-size: 10.5px;
-    --wg-workouts-chart-width: 358px;
     --wg-workouts-chart-height: 200px;
     --wg-workouts-chart-line-stroke-width: 2px;
     --wg-workouts-chart-last-point-radius: 4px;
@@ -551,7 +548,6 @@
     --wg-health-summary-tile-value-size: 22px;
     --wg-health-summary-tile-label-size: 10.5px;
     --wg-health-summary-tile-trend-size: 11px;
-    --wg-health-chart-width: 358px;
     --wg-health-chart-height: 200px;
     --wg-health-chart-tall-height: 240px;
     --wg-health-chart-line-stroke-width: 2px;
@@ -809,33 +805,6 @@ h3 {
     font-size: var(--font-size-md);
     font-weight: var(--font-weight-bold);
     letter-spacing: -0.01em;
-}
-
-/* Legacy sub-tab look. Meds/Train/Health strips are kit .wg-seg now; this
-   rule's gap/padding/underline overrode the kit and clipped the Train strip
-   (med-fk62). */
-.food-tabs {
-    display: flex;
-    gap: var(--space-md);
-    margin-bottom: var(--space-xl);
-    border-bottom: 2px solid var(--hint-color);
-}
-
-.food-tab {
-    padding: var(--space-md) var(--space-xl);
-    min-height: 44px;
-    border: none;
-    background: none;
-    cursor: pointer;
-    color: var(--hint-color);
-    font-weight: var(--font-weight-medium);
-    border-bottom: 3px solid transparent;
-    transition: color 0.15s ease;
-}
-
-.food-tab.active {
-    color: var(--link-color);
-    border-bottom: 3px solid var(--link-color);
 }
 
 /* Sub-tab content visibility */
@@ -2890,7 +2859,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
 .wg-bp-chart {
     display: block;
     width: 100%;
-    max-width: var(--wg-bp-chart-width);
     height: auto;
     margin-inline: auto;
 }
@@ -2955,7 +2923,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
 .wg-weight-chart {
     display: block;
     width: 100%;
-    max-width: var(--wg-weight-chart-width);
     height: auto;
     margin-inline: auto;
 }
@@ -5721,7 +5688,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
 .wg-workout-chart {
     display: block;
     width: 100%;
-    max-width: var(--wg-workouts-chart-width);
     height: auto;
     margin-inline: auto;
 }
@@ -5861,7 +5827,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
 .wg-sleep-chart {
     display: block;
     width: 100%;
-    max-width: var(--wg-health-chart-width);
     height: auto;
     margin-inline: auto;
 }
@@ -6029,7 +5994,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
 .wg-steps-chart {
     display: block;
     width: 100%;
-    max-width: var(--wg-health-chart-width);
     height: auto;
     margin-inline: auto;
 }
@@ -6106,7 +6070,6 @@ body:has(.wg-callbar--dock) .wg-toasts {
 .wg-vitals-chart {
     display: block;
     width: 100%;
-    max-width: var(--wg-health-chart-width);
     height: auto;
     margin-inline: auto;
 }

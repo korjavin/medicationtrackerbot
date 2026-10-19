@@ -296,7 +296,7 @@
     }
 
     window.WGSleepChart = {
-        render: renderSleepChart,
+        render: (opts) => (window.ChartUtils && window.ChartUtils.fitToWidth ? window.ChartUtils.fitToWidth(renderSleepChart, opts) : renderSleepChart(opts)),
         DEFAULT_WIDTH,
         DEFAULT_HEIGHT,
     };

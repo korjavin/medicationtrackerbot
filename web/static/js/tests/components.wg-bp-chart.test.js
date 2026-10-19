@@ -384,15 +384,29 @@ describe('WGBpChart.render', () => {
         expect(xs[1]).toBe(wideXs[wideXs.length - 1]);
     });
 
-    it('caps the SVG width via .wg-bp-chart CSS so wider containers do not upscale it', () => {
-        // jsdom does not evaluate the stylesheet, so assert the CSS rule
-        // itself pins a max-width to --wg-bp-chart-width (358px). This
-        // guarantees a 900px or 1200px BP view column cannot stretch the
-        // SVG past its designed fidelity.
-        const cssPath = path.join(REPO_ROOT, 'web/static/css/styles.css');
-        const css = fs.readFileSync(cssPath, 'utf8');
-        const rule = css.match(/\.wg-bp-chart\s*\{[^}]*\}/);
-        expect(rule).not.toBeNull();
-        expect(rule[0]).toMatch(/max-width:\s*var\(--wg-bp-chart-width\)/);
+    // med-ipps: a 358px cap left a narrow chart centred in a 1250px desktop
+    // card. The chart now re-renders at the width it lays out to, so a wide
+    // card gets a full-width chart with unscaled text.
+    it('re-renders at the laid-out width once mounted, and drops the CSS cap', () => {
+        let observe;
+        env.window.ResizeObserver = class {
+            constructor(cb) { observe = cb; }
+            observe() {}
+            unobserve() {}
+        };
+        const host = env.window.document.createElement('div');
+        env.window.document.body.appendChild(host);
+        host.appendChild(env.api.render({ readings: sampleReadings() }));
+        expect(host.firstChild.getAttribute('viewBox')).toBe('0 0 358 200');
+
+        observe([{ contentRect: { width: 1230 } }]);
+        expect(host.children).toHaveLength(1);
+        expect(host.firstChild.getAttribute('viewBox')).toBe('0 0 1230 200');
+
+        // An explicit width (brief export) is never refitted.
+        expect(env.api.render({ readings: sampleReadings(), width: 500 }).getAttribute('viewBox')).toBe('0 0 500 200');
+
+        const css = fs.readFileSync(path.join(REPO_ROOT, 'web/static/css/styles.css'), 'utf8');
+        expect(css).not.toMatch(/--wg-(bp|weight|workouts|health)-chart-width/);
     });
 });

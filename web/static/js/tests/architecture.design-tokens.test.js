@@ -308,7 +308,6 @@ const WANDERGEEK_TOKENS = [
 
     // BP screen tokens (Phase 3, Task 1) — current-reading card, range
     // selector, chart geometry, averages, history row.
-    '--wg-bp-chart-width',
     '--wg-bp-chart-height',
     '--wg-bp-chart-band-alpha',
     '--wg-bp-chart-guide-dasharray',
@@ -367,7 +366,6 @@ const WANDERGEEK_TOKENS = [
     '--wg-weight-goal-value-size',
     '--wg-weight-goal-bar-height',
     '--wg-weight-goal-delta-size',
-    '--wg-weight-chart-width',
     '--wg-weight-chart-height',
     '--wg-weight-chart-line-stroke-width',
     '--wg-weight-chart-goal-stroke-width',
@@ -454,7 +452,6 @@ const WANDERGEEK_TOKENS = [
     '--wg-workouts-stats-tile-gap',
     '--wg-workouts-stats-tile-value-size',
     '--wg-workouts-stats-tile-label-size',
-    '--wg-workouts-chart-width',
     '--wg-workouts-chart-height',
     '--wg-workouts-chart-line-stroke-width',
     '--wg-workouts-chart-last-point-radius',
@@ -487,7 +484,6 @@ const WANDERGEEK_TOKENS = [
     '--wg-health-summary-tile-value-size',
     '--wg-health-summary-tile-label-size',
     '--wg-health-summary-tile-trend-size',
-    '--wg-health-chart-width',
     '--wg-health-chart-height',
     '--wg-health-chart-tall-height',
     '--wg-health-chart-line-stroke-width',

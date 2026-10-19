@@ -293,7 +293,7 @@
     }
 
     window.WGBpChart = {
-        render: renderBpChart,
+        render: (opts) => (window.ChartUtils && window.ChartUtils.fitToWidth ? window.ChartUtils.fitToWidth(renderBpChart, opts) : renderBpChart(opts)),
         DEFAULT_WIDTH,
         DEFAULT_HEIGHT,
     };

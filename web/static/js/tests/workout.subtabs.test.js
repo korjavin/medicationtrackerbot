@@ -39,7 +39,7 @@ describe('Workouts sub-tab strip (Phase 7, Task 2)', () => {
         const fs = await import('node:fs');
         const read = (f) => fs.readFileSync(new URL(`../../css/${f}`, import.meta.url), 'utf8');
         const selectors = read('styles.css').match(/[^{}]+(?=\{)/g).join(',');
-        expect(selectors).not.toMatch(/\.(workout|med|health)-tabs?(?![\w-])/);
+        expect(selectors).not.toMatch(/\.(workout|med|health|food)-tabs?(?![\w-])/); // food: med-ipps (blue underline on Log)
         expect(read('components.css')).toContain('.wg-seg--scroll .wg-seg__opt{flex:1 0 auto}');
     });
 
