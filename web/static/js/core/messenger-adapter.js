@@ -25,6 +25,8 @@
 //   onBack(handler)    → void   — registers the single back handler
 //   showBack()         → void   — reveals the in-app chevron
 //   hideBack()         → void   — hides the in-app chevron
+//   historyPush(state) → void   — history.pushState, held while an own Back is in flight
+//   historyBack()      → void   — history.back() whose popstate the app never sees
 //
 //   isPresent()        → false — no messenger host wraps the page.
 //
@@ -55,6 +57,62 @@
         function hasHistory() {
             return typeof window !== 'undefined' && window.history
                 && typeof window.history.pushState === 'function';
+        }
+
+        // The app's own history ops, one traversal at a time (bd med-nt9p.39).
+        // history.back() is async and Android WebView delivered its popstate
+        // ~3-4 s late on a cold start: an entry pushed in between (a Settings
+        // page, a dialog, the guard) was the one it popped, and the echo then
+        // ran the Back handler, so pages and dialogs closed by themselves.
+        // While one of our backs is in flight, later pushes and backs queue in
+        // order (two back() calls in one tick can collapse into one traversal,
+        // so a second one only starts after the first lands), and its popstate
+        // is swallowed here, before any app popstate listener.
+        // ponytail: a user Back landing while ours is in flight is taken for
+        // our echo (and ours for the user's); a sequence number in
+        // history.state would tell them apart if that shows up.
+        let backInFlight = false;
+        let queuedOps = []; // { push: state } | { back: true }
+        let backTimer = null;
+        const OWN_BACK_MAX_MS = 10000; // a back() that never fires popstate must not hold history forever
+
+        function startBack() {
+            backInFlight = true;
+            clearTimeout(backTimer);
+            backTimer = setTimeout(backLanded, OWN_BACK_MAX_MS);
+            window.history.back();
+        }
+
+        function backLanded() {
+            backInFlight = false;
+            clearTimeout(backTimer);
+            while (queuedOps.length && !backInFlight) {
+                const op = queuedOps.shift();
+                if (op.back) startBack();
+                else window.history.pushState(op.push, '');
+            }
+        }
+
+        function historyPush(state) {
+            if (backInFlight) queuedOps.push({ push: state });
+            else window.history.pushState(state, '');
+        }
+
+        function historyBack() {
+            if (!backInFlight) return startBack();
+            const last = queuedOps[queuedOps.length - 1];
+            // The entry to pop was never pushed: drop it instead.
+            if (last && !last.back) queuedOps.pop();
+            else queuedOps.push({ back: true });
+        }
+
+        if (hasHistory() && typeof window.addEventListener === 'function') {
+            // Capture + registered at load: runs before modal-history's and onPopstate.
+            window.addEventListener('popstate', (event) => {
+                if (!backInFlight) return;
+                event.stopImmediatePropagation();
+                backLanded();
+            }, true);
         }
 
         function invokeHandler() {
@@ -144,7 +202,7 @@
                 // instead of exiting to the previous site (bd med-z1n.2). Once
                 // per section visit; modal-history pushes its own entry on top.
                 if (!guardPushed && hasHistory()) {
-                    window.history.pushState({ wgSectionBack: true }, '');
+                    historyPush({ wgSectionBack: true });
                     guardPushed = true;
                 }
             },
@@ -157,9 +215,13 @@
                 // does nothing there (never pops a real page entry).
                 if (guardPushed && hasHistory()) {
                     guardPushed = false;
-                    window.history.back();
+                    historyBack();
                 }
             },
+
+            historyPush: historyPush,
+
+            historyBack: historyBack,
 
             isPresent: function () { return false; },
 
