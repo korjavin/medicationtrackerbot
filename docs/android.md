@@ -913,12 +913,13 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   `https://<BuildConfig.BASE_DOMAIN>/` (absent when the build has no base),
   the store footnote and the privacy link. The button opens a native intro
   (*Only on this device*: records only on this phone, nothing sent to our
-  servers; not in the phone's backup and no other copy; deleting the app
-  deletes them, export a backup file regularly; AI and food search need your
+  servers; Google backup / device transfer can include them, Google's backup
+  skips apps over 25 MB, no other copy; deleting the app deletes them, export
+  a backup file regularly; AI and food search need your
   own keys, voice/Telegram/shared food database need an account; the invite
   link again) with **Start** (stores `wgLocalMode=true`, clears reminders,
   opens the bundled app) and **Back** (system Back too). No biometric lock
-  yet (`.9`); the backup sentence changes with `.5`.
+  yet (`.9`).
 - **One vault at a time:** reminders (`Notifications`), their taps
   (`https://<vault>/?tab=…`), file grants and camera/mic (`Files`) and the
   bridge all follow the open vault: the account host, or the asset host in

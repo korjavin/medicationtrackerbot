@@ -617,11 +617,12 @@ class MainActivity : Activity() {
             text = "No account and no sign-in. Your records are stored only on this phone, and nothing is sent to our servers."
         },
         TextView(this).apply {
-            // allowBackup=false until bd med-nt9p.32.5 (privacy-manifest says the same).
-            text = "They are not included in your phone's backup. Med Tracker keeps no other copy and cannot recover them for you."
+            // Scoped Auto Backup, bd med-nt9p.32.5 (data_extraction_rules.xml; privacy-manifest local-records).
+            text = "Your phone's Google backup and a transfer to a new phone can include them, but Google's backup " +
+                "skips apps over 25 MB. Med Tracker keeps no other copy and cannot recover them for you."
         },
         TextView(this).apply {
-            text = "Deleting the app, or losing or resetting the phone, deletes them for good. " +
+            text = "Without a backup, deleting the app, or losing or resetting the phone, deletes them for good. " +
                 "Export a backup file regularly in Settings → Backup & import."
         },
         TextView(this).apply {
