@@ -1,10 +1,16 @@
 name: iOS visual (web)
 
-# Tier 1 of docs/design/ios-visual-testing.md: the QA=1 local bundle in
-# Playwright WebKit at 390 and 440pt iPhone widths, on Linux. Opt-in, like the
-# Simulator tier: PR label `ios-visual` or a manual dispatch.
+# Tier 1 of docs/design/ios-visual-testing.md, on Linux:
+#   local: the QA=1 local bundle in Playwright WebKit at 390 and 440pt iPhone
+#          widths, plus Chromium at desktop 1280x800 and Pixel 7.
+#   cloud: the real cmd/cloud on *.localhost, an account signed up through the
+#          real wizard with Chromium's virtual PRF authenticator, the golden
+#          vault imported through Settings → Backup, the same scenes from the
+#          account app (cloud apishim, server CSP), desktop + Pixel 7.
+# Runs on PR label `ios-visual`, a manual dispatch, or any PR touching shared
+# web CSS / components / the cloud shell.
 #
-# Evidence, not a gate: probe failures become warnings; the job fails only when
+# Evidence, not a gate: probe failures become warnings; a job fails only when
 # it produced no screenshot. Linux WebKit is not WKWebView: no focus-zoom, no
 # software keyboard or visualViewport shrink, no safe-area insets or shell
 # bands, different fonts. It catches overflow, clipping, chart widths and
@@ -24,11 +30,33 @@ permissions:
   contents: read
 
 jobs:
-  webkit:
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'ios-visual')
+  gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    # Same Playwright as e2e/ (1.56.0); the image carries WebKit and its deps.
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 0
+      - id: check
+        env:
+          LABELED: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'ios-visual') }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$LABELED" = true ]; then echo run=true >> "$GITHUB_OUTPUT"; exit 0; fi
+          if git diff --name-only "$BASE"...HEAD | grep -qE '^(web/static/css/|web/static/js/components/|web/cloud/|tests/visual/|\.github/workflows/visual-web\.yml$)'; then
+            echo run=true >> "$GITHUB_OUTPUT"
+          else
+            echo run=false >> "$GITHUB_OUTPUT"
+          fi
+
+  local:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # Same Playwright as e2e/ (1.56.0); the image carries WebKit, Chromium and their deps.
     container: mcr.microsoft.com/playwright:v1.56.0-noble
     defaults:
       run:
@@ -57,5 +85,46 @@ jobs:
         with:
           name: ios-visual-web
           path: visual-web
+          retention-days: 30
+          if-no-files-found: warn
+
+  cloud:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    container: mcr.microsoft.com/playwright:v1.56.0-noble
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build cmd/cloud
+        run: CGO_ENABLED=0 go build -o /tmp/cloud ./cmd/cloud
+
+      - name: Install Playwright
+        working-directory: tests/visual/playwright
+        run: npm install --no-audit --no-fund
+
+      - name: Sign up, import, screenshot the scenes
+        env:
+          HOME: /root
+          CLOUD_BIN: /tmp/cloud
+        run: node tests/visual/playwright/run.mjs visual-web-cloud cloud
+
+      - name: Job summary
+        if: always()
+        run: cat visual-web-cloud/summary.md >> "$GITHUB_STEP_SUMMARY" || echo "no summary" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: visual-web-cloud
+          path: visual-web-cloud
           retention-days: 30
           if-no-files-found: warn

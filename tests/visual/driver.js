@@ -2,7 +2,8 @@
 //
 // Bundled ONLY by `QA=1 ios/bundle-web.sh` (served at /qa/driver.js on
 // wgapp://local, loaded after every app script); the TestFlight archive and the
-// cloud never carry it. A classic script: on `?qa=<scene>` it seeds the golden
+// cloud never carry it (the web tier's cloud pass injects it with Playwright's
+// addInitScript, setting __wgQACloud and __wgQAFiles). A classic script: on `?qa=<scene>` it seeds the golden
 // vault into the empty local store, navigates to the scene with the app's own
 // entry points, waits for the scene's ready selectors, and publishes
 //   <div role="status" id="wg-qa-ready" aria-label="<json report>">
@@ -35,8 +36,9 @@
         // pending navigation that could override ours.
         await until(() => window.AppStore && window.AppStore.get('currentTab'), BOOT_MS, 'app boot');
         await sleep(0);
-        // Never import over a real vault: the QA bundle is local mode only.
-        if (!document.documentElement.classList.contains('wg-local-vault')) throw new Error('not local mode');
+        // Never import over a real vault: the QA bundle is local mode only; the
+        // cloud pass opts in for its fresh test account.
+        if (!document.documentElement.classList.contains('wg-local-vault') && !window.__wgQACloud) throw new Error('not local mode');
         if (!(await window.CloudVault.hasUserContent())) {
             await seed();
             return; // the import reloads the page; the next load runs the scene
@@ -213,6 +215,8 @@
     }
 
     async function getJSON(url) {
+        const files = window.__wgQAFiles; // injected (cloud pass): the cloud serves no /qa/*
+        if (files && files[url]) return files[url];
         const res = await window.fetch(url);
         if (!res.ok) throw new Error(`${url}: ${res.status}`);
         return res.json();
