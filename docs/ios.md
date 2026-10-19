@@ -186,7 +186,9 @@ in `PrivacyInfo.xcprivacy`.
 - **Account deletion** (guideline 5.1.1(v)): in the app, Settings → Account &
   privacy → Delete my account (passkey re-check, then `DELETE /api/account`,
   [`internal/cloudserver/account.go`](../internal/cloudserver/account.go)).
-  It is immediate; no web form needed.
+  It is immediate; no web form needed. Afterwards the app returns to its
+  native first-run via `account.leave` (bd med-o7zq.33); a shell without the
+  op gets the old redirect to the base domain.
 
 ### Reviewer access
 
@@ -535,14 +537,21 @@ changes for it.
   a returning user unlocks as before. Coming from local mode (Move to a cloud
   account), the user picks "Only on this device" again to return; its data
   is kept.
-- **Use only on this device from the account** (bd med-o7zq.30): the
-  account's first-run overlay (`WGFirstRun` welcome screen) shows *Use only on
-  this device* inside the iOS app. After a `safeConfirm` it calls
-  `CloudVault.leaveAccount()` → bridge op `account.leave` (account origin
-  only), which does Switch account: the native first-run, where *Only on this
-  device* starts local mode. Nothing is erased (account on the server, the
-  origin's website data on the phone). A shell without the op answers
-  `unsupported`; the page then points at iOS Settings → *Switch account*.
+- **Use this iPhone without an account** (bd med-o7zq.30, moved by
+  med-o7zq.32): Settings → Account shows the row inside the iOS app only
+  (account origin, `CloudVault.leaveAccount` present, platform `ios`). The
+  account's own first-run (`WGFirstRun` welcome) offers only *Get started* /
+  *Skip all* on every platform — choosing local belongs to the app's native
+  first-run. After a `safeConfirm` the row calls `CloudVault.leaveAccount()` →
+  bridge op `account.leave` (account origin only), which does Switch account:
+  the native first-run, where *Only on this device* starts local mode. Nothing
+  is erased (account on the server, the origin's website data on the phone).
+  A shell without the op answers `unsupported`; the page then points at iOS
+  Settings → *Switch account*.
+- **After account deletion** (bd med-o7zq.33): once the server delete and the
+  local wipe finish, the iOS app calls the same `leaveAccount()` and lands on
+  the native first-run instead of the base-domain page (which has no way back
+  into the app). If the op is missing it falls back to that redirect.
 - **Chrome:** the page sits inside the safe area; the status-bar and
   home-indicator bands take the page's own background colour at its top and
   bottom edge (a page script reports it), the status bar is light, and the page

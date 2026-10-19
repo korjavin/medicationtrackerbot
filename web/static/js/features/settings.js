@@ -656,6 +656,15 @@ function bindDeleteAccount() {
             // the databases. This is the load-bearing verified erase.
             await mod.clearLocalVault();
             // The subdomain is gone; send the user somewhere that still exists.
+            // In the iOS app that is its own first-run (bd med-o7zq.33): the
+            // base-domain page has no way back into the app. A shell without
+            // the account.leave op rejects, so fall back to the redirect.
+            const leave = nativeLeaveAccount();
+            if (leave) {
+                try { await leave(); return; } catch (e) {
+                    console.warn('[settings] account.leave after delete failed', e);
+                }
+            }
             window.location.href = mod.baseDomainURL();
         } catch (err) {
             // Past the server delete, only the local wipe can fail — be honest
@@ -666,6 +675,45 @@ function bindDeleteAccount() {
                 ? `Your account was deleted, but this device's local copy could not be erased. ${msg} Keep this tab open and press Delete again — once this tab closes, the app can no longer wipe this device.`
                 : msg;
             openBtn.disabled = false;
+        }
+    });
+}
+
+// The iOS app's way back to its native first-run (bd med-o7zq.32/.33):
+// CloudVault.leaveAccount (cloud-boot.js) → bridge op account.leave → the
+// shell's Switch account. Only the iOS shell has the op; elsewhere null.
+function nativeLeaveAccount() {
+    const vault = window.CloudVault;
+    if (typeof vault?.leaveAccount !== 'function') return null;
+    if (window.LocalNotifications?.__native?.platform !== 'ios') return null;
+    return () => vault.leaveAccount();
+}
+
+// Settings → Account "Use this iPhone without an account" (bd med-o7zq.32).
+// Nothing is erased: the account stays on the server, this origin keeps its
+// data, and opening the account address again resumes it.
+let _leaveAccountBound = false; // module-state: bind the button once across repeated loadSettings() calls
+function bindLeaveAccount() {
+    const leave = nativeLeaveAccount();
+    if (!leave) return;
+    document.querySelector('.wg-settings-leave-account')?.classList.remove('wg-settings-hidden');
+    const btn = document.getElementById('settings-leave-account-btn');
+    if (!btn || _leaveAccountBound) return;
+    _leaveAccountBound = true;
+    btn.addEventListener('click', async () => {
+        if (btn.disabled) return;
+        btn.disabled = true;
+        try {
+            const ok = await safeConfirm(
+                'Med Tracker will close this account on this iPhone and return to its start screen, where Only on this device keeps your records on the phone. Nothing is deleted on the server: the account and its data stay, and you can open it again with your account address.',
+                null,
+                { title: 'Use this iPhone without an account?', confirmLabel: 'Continue' },
+            );
+            if (ok) await leave();
+        } catch (e) {
+            await safeAlert(e?.message || 'Couldn’t leave the account.');
+        } finally {
+            btn.disabled = false;
         }
     });
 }
@@ -896,6 +944,7 @@ async function loadSettings() {
         bindCloudDevicesPage();
         await bindSecondDeviceNudge();
         await bindOperatorVisibility();
+        bindLeaveAccount();
         bindDeleteAccount();
         bindCloudInvite();
     }

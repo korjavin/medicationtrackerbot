@@ -164,61 +164,20 @@ describe('firstrun welcome screen', () => {
         } finally { cleanup(); }
     });
 
-    // bd med-o7zq.30: in the iOS app's account the welcome screen offers the
-    // way to device-only mode — confirm, then the shell leaves the account.
-    describe('"Use only on this device" (iOS account)', () => {
-        function setup({ platform = 'ios', leave = true, confirm = true } = {}) {
-            const flow = loadFlow({ bootstrap: { needs_first_run: true } });
-            const { window } = flow;
-            window.LocalNotifications = { __native: { platform } };
-            const leaveAccount = vi.fn().mockResolvedValue(undefined);
-            window.CloudVault = leave ? { leaveAccount } : { exportAll() {} };
-            window.safeConfirm = vi.fn().mockResolvedValue(confirm);
-            window.safeAlert = vi.fn().mockResolvedValue(undefined);
-            window.WGFirstRun.mount();
-            const btn = flow.document.querySelector('[data-firstrun-action="device-only"]');
-            return { ...flow, btn, leaveAccount };
+    // bd med-o7zq.32: the account's own first-run never offers device-only
+    // mode; that choice belongs to the app's native first-run (Settings ->
+    // Account keeps a way back). Exactly Get started / Skip on every platform.
+    it('offers exactly Get started and Skip all, even in the native app account', () => {
+        for (const platform of [null, 'ios', 'android']) {
+            const { window, document, cleanup } = loadFlow({ bootstrap: { needs_first_run: true } });
+            try {
+                if (platform) window.LocalNotifications = { __native: { platform } };
+                window.CloudVault = { leaveAccount: vi.fn() };
+                window.WGFirstRun.mount();
+                const actions = [...document.querySelectorAll('#wg-firstrun-overlay button[data-firstrun-action]')]
+                    .map(b => b.getAttribute('data-firstrun-action'));
+                expect(actions).toEqual(['advance', 'skip-all']);
+            } finally { cleanup(); }
         }
-        const tick = () => new Promise(resolve => setTimeout(resolve, 0));
-
-        it('leaves the account once the user confirms', async () => {
-            const { window, btn, leaveAccount, cleanup } = setup();
-            try {
-                expect(btn).not.toBeNull();
-                expect(btn.textContent).toBe('Use only on this device');
-                btn.click();
-                await tick();
-                expect(window.safeConfirm).toHaveBeenCalledTimes(1);
-                expect(window.safeConfirm.mock.calls[0][0]).toMatch(/Nothing is deleted/);
-                expect(leaveAccount).toHaveBeenCalledTimes(1);
-            } finally { cleanup(); }
-        });
-
-        it('stays put when the user cancels', async () => {
-            const { btn, leaveAccount, cleanup } = setup({ confirm: false });
-            try {
-                btn.click();
-                await tick();
-                expect(leaveAccount).not.toHaveBeenCalled();
-                expect(btn.disabled).toBe(false);
-            } finally { cleanup(); }
-        });
-
-        it('says why when the shell cannot leave', async () => {
-            const { window, btn, leaveAccount, cleanup } = setup();
-            try {
-                leaveAccount.mockRejectedValue(new Error('Update Med Tracker'));
-                btn.click();
-                await tick(); await tick();
-                expect(window.safeAlert).toHaveBeenCalledWith('Update Med Tracker');
-            } finally { cleanup(); }
-        });
-
-        it('is absent on the web and in device-only mode', () => {
-            for (const opts of [{ platform: 'web' }, { leave: false }]) {
-                const { btn, cleanup } = setup(opts);
-                try { expect(btn).toBeNull(); } finally { cleanup(); }
-            }
-        });
     });
 });
