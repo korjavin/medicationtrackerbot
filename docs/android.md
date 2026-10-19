@@ -37,6 +37,7 @@ account the signed AAB is kept as a run artifact but not uploaded to Play.
 | Name | Value |
 |------|-------|
 | `ANDROID_PACKAGE` | the Play app's package name (Play Console app record, bd med-nt9p.1) |
+| `ANDROID_PLAY_CLOUD_PROJECT_NUMBER` | the Google Cloud project number linked to the app for Play Integrity ([Play Integrity setup](#play-integrity-setup-owner)); becomes `BuildConfig.PLAY_CLOUD_PROJECT_NUMBER`. Unset (forks, QA): the local-mode free trial reports unsupported and its Settings row stays hidden |
 **Secrets:**
 
 | Name | How to get it |
@@ -895,7 +896,8 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   | `local.leave` | replies `true`, then Switch account (first run) |
 
   `notifications.*` and `health.*` answer in both modes; `account.leave` is
-  iOS-only (the web side never sends it on Android).
+  iOS-only (the web side never sends it on Android). The `attest.*` ops are
+  local-only too ([Free trial](#local-mode-free-trial-bd-med-nt9p3284)).
 - **QA extras (debug + `qa.test` base only, `DebugHooks`):**
   `--ez wgLocalMode true` enters local mode as Start does (persisted, no
   first-run tap); `--es wgQAScene <name>` opens `/?qa=<name>` (1–64 of
@@ -920,6 +922,43 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
 7. Long-press → *Switch account* → a test account, then back to *Only on
    this device*: both data sets intact; no reminder of the other vault fires.
 8. *How to get an invite* opens the service landing page in the browser.
+
+### Local mode: free trial (bd med-nt9p.32.8.4)
+
+The anonymous trial (AI, the operator's food database, voice calls) in local
+mode — the twin of iOS `Attest.swift`, in
+[`Attest.kt`](../android/app/src/main/java/com/example/medtracker/Attest.kt)
+(bytes in `AttestWire.kt`). The page side is unchanged: `local-policy.js`
+keys on `window.Attest` (`native/attest.js`'s android impl), `local-trial.js`
+sends the Android enroll body. Server: [cloud-mode.md → Android — Play
+Integrity](cloud-mode.md#android--play-integrity).
+
+| op (local mode only) | does |
+|---|---|
+| `attest.status` | `{supported, base, attested}`, no network. `supported`: Google Play services available **and** the build has `PLAY_CLOUD_PROJECT_NUMBER` **and** a base domain. `attested`: the current key was handed to the page by an enroll |
+| `attest.enroll {challenge}` | `{kind:"android", keyId, publicKey, integrityToken, pass?}`. The current AndroidKeyStore EC P-256 key (alias `wg-attest-<n>`, sign-only, SHA-256, no user auth) or a new one when none is usable; `keyId` = base64url-nopad(SHA256(SPKI DER)), `publicKey` the SPKI DER (std base64); the Play Integrity **standard** request's `requestHash` = base64url-nopad(SHA256(challenge ‖ keyId ‖ SPKI DER)). The token provider is prepared once per process, lazily in the first enroll (re-prepared once on `INTEGRITY_TOKEN_PROVIDER_INVALID`). A failure rejects with the Play error constant name only |
+| `attest.setPass {pass}` | stores the server's trial pass; `""` deletes it |
+| `attest.assert {challenge, bodySha256}` | `{keyId, assertion}`: counter + 1 is stored **before** signing; assertion = counterBE32 ‖ SHA256withECDSA(SHA256(challenge ‖ bodySha256) ‖ counterBE32). `no_key` when there is no usable key — the page enrolls again |
+
+- **State:** SharedPreferences `wg_trial` (pass, key alias, attested alias,
+  counter). Nothing is logged: the diagnostics log is user-copyable, and
+  neither the token nor the pass may reach it.
+- **Reinstall:** Keystore keys never restore, so a reinstall rejoins its
+  trial bucket only through the pass, i.e. once `shared_prefs/wg_trial.xml` is
+  in the Auto Backup include rules (bd med-nt9p.32.5 — still
+  `allowBackup=false`). Until then a reinstall founds a fresh bucket; the
+  Android consent copy (`Attest.copy.trialTransit`) promises no rejoin.
+- **Play-installed build:** the server accepts `PLAY_RECOGNIZED` by default,
+  which only a build installed from Play gets; a sideloaded CI APK reads
+  `UNRECOGNIZED_VERSION` and needs the server's
+  `PLAY_INTEGRITY_ACCEPT_APP_VERDICTS` window.
+- **QA / emulator:** android-qa.yml builds without the project number, so
+  `attest.status` answers `supported:false`: the trial row is hidden and there
+  is zero egress. Play Integrity cannot pass on the emulator anyway. The
+  `local-smoke` scenario (bd med-nt9p.32.6) should assert exactly that.
+- **Tests:** `AttestTest.kt` pins the derivations against the same vectors as
+  `internal/playintegrity/vectors_test.go`, the assertion layout and the
+  counter.
 
 ## Play Integrity setup (owner)
 

@@ -76,7 +76,7 @@ class LocalOriginTest {
         assertFalse(LocalOrigin.bridgeCaller(true, "http", acct, acct))
         assertFalse(LocalOrigin.bridgeCaller(true, "https", null, null))
         assertFalse(LocalOrigin.bridgeCaller(true, "https", "other.example.org", acct))
-        for (op in listOf("setEgressHosts", "local.reset", "local.leave")) {
+        for (op in listOf("setEgressHosts", "local.reset", "local.leave", "attest.status", "attest.enroll", "attest.setPass", "attest.assert")) {
             assertFalse(op, LocalOrigin.opAllowed(op, local = false))
             assertTrue(op, LocalOrigin.opAllowed(op, local = true))
         }

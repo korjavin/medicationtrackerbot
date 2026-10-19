@@ -1470,3 +1470,130 @@ describe('local-only mode trial pass across reinstalls (med-o7zq.26)', () => {
         expect(enrolls.map((b) => b.pass)).toEqual(['stale.secret', undefined]);
     });
 });
+
+// bd med-nt9p.32.8.4 — the Android shell's window.Attest (native/attest.js's
+// android impl over android/.../Attest.kt): the same trial, enrolled with a
+// Keystore key and a Play Integrity token. Only the enroll body and the
+// consent's "what our server keeps" sentence differ; after enrollment it is
+// the iOS path (challenge, signed requests, pass).
+describe('local-only mode trial in the Android shell (med-nt9p.32.8.4)', () => {
+    const TRIAL_BASE = 'trial-base.example.test';
+    const ENROLL = `https://${TRIAL_BASE}/api/attest/enroll`;
+    const TRANSIT = 'Android transit: an install id from a Keystore key, confirmed by Google Play Integrity.';
+    const settle = async (n = 5) => {
+        for (let i = 0; i < n; i++) await new Promise((r) => setTimeout(r, 0));
+    };
+    let env;
+    let fetched;
+    let enrolls;
+    let bridge;
+
+    beforeEach(async () => {
+        await deleteDb();
+        fetched = [];
+        enrolls = [];
+        const recorder = vi.fn(async (url, init = {}) => {
+            const u = String(url);
+            fetched.push({ url: u, method: init.method || 'GET', headers: init.headers || {} });
+            if (u === `https://${TRIAL_BASE}/api/attest/challenge`) {
+                return new Response(JSON.stringify({ challenge: 'c1', expires_in: 300 }), { status: 200 });
+            }
+            if (u === ENROLL) {
+                enrolls.push(JSON.parse(init.body));
+                return new Response(JSON.stringify({ remaining: 200, daily: 50, pass: 'bucket.secret' }), { status: 200 });
+            }
+            if (u.startsWith(`https://${TRIAL_BASE}/api/attest/food/`)) {
+                return new Response(JSON.stringify({ results: [{ name: 'Rolled oats', kcal100g: 370 }] }), { status: 200 });
+            }
+            return createMockResponse({ status: 503, json: {} });
+        });
+        vi.stubGlobal('fetch', recorder);
+        env = loadFrontendEnv();
+        env.window.fetch = recorder;
+        vi.stubGlobal('document', env.document);
+        env.window.safeToast = vi.fn();
+        bridge = vi.fn(async (op) => (op === 'setEgressHosts' ? { changed: false } : null));
+        const notifications = { isSupported: () => false, __native: { platform: 'android', call: bridge } };
+        env.window.LocalNotifications = notifications;
+        vi.stubGlobal('LocalNotifications', notifications);
+        // Attest.kt's reply shapes; no key handed out yet, so turning the trial on enrolls.
+        env.window.Attest = {
+            isSupported: () => true,
+            status: vi.fn(async () => ({ supported: true, base: TRIAL_BASE, attested: false })),
+            enroll: vi.fn(async () => ({ kind: 'android', keyId: 'akey-1', publicKey: 'UEs=', integrityToken: 'play.token' })),
+            assert: vi.fn(async (challenge, digest) => ({ keyId: 'akey-1', assertion: `sig:${challenge}:${digest}` })),
+            setPass: vi.fn(async () => null),
+            copy: { trialTransit: TRANSIT },
+        };
+        const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
+        run(env.window, (spec) => MODULES[spec]());
+        await env.window.MedTrackerCloudReady;
+        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] }));
+    });
+
+    afterEach(async () => {
+        await env.window.apiCall('/api/settings/trial-consent', 'PATCH', { anon: false });
+        await env.window.CloudVault.trial.apply();
+        const { setTrialTransport } = await import('../../../cloud/js/aiclient.js');
+        setTrialTransport(null);
+        env.cleanup();
+        vi.unstubAllGlobals();
+    });
+
+    const toBase = () => fetched.filter(({ url }) => /^https?:/.test(url) && new URL(url).hostname === TRIAL_BASE);
+
+    it('consent names Play Integrity, one Android enroll body, signed lookups, and off removes the host', async () => {
+        const { createHash } = await import('node:crypto');
+        const { window, document } = env;
+        expect(toBase()).toEqual([]);
+        await window.SettingsIntegrations._renderLocalTrial();
+        expect(document.getElementById('integrations-local-trial').classList.contains('hidden')).toBe(false);
+
+        const turningOn = window.SettingsIntegrations._setLocalTrial(true);
+        const modal = await vi.waitFor(() => {
+            const el = document.querySelector('.wg-trial-consent-modal[data-trial-consent-scope="anon"]');
+            expect(el).not.toBeNull();
+            return el;
+        });
+        expect(modal.textContent).toContain(TRANSIT);
+        expect(modal.textContent).toMatch(/through our server/i);
+        expect(modal.textContent).not.toMatch(/iPhone|App Attest|DeviceCheck|keychain/i);
+        modal.querySelector('[data-trial-consent-choice="allow"]').click();
+        await turningOn;
+        expect(bridge).toHaveBeenLastCalledWith('setEgressHosts', { hosts: [TRIAL_BASE, 'api.elevenlabs.io'] });
+
+        // One enrollment, the Play Integrity body (no Apple fields), and the pass is kept.
+        await vi.waitFor(() => expect(window.Attest.setPass).toHaveBeenCalledWith('bucket.secret'));
+        expect(window.Attest.enroll).toHaveBeenCalledTimes(1);
+        expect(enrolls).toEqual([{
+            key_id: 'akey-1', challenge: 'c1', kind: 'android', public_key: 'UEs=', integrity_token: 'play.token',
+        }]);
+        await vi.waitFor(async () => expect(await window.CloudVault.trial.status()).toMatchObject({ on: true, daily: 50 }));
+
+        // A food lookup is signed by the enrolled key, as on iOS.
+        window.FoodLog.addSheet.open();
+        await settle();
+        await window.FoodLog.addSheet.runSearch('oats', false);
+        await vi.waitFor(() => expect(document.getElementById('food-add-results').textContent).toContain('Rolled oats'));
+        const path = '/api/attest/food/search?q=oats&limit=20';
+        const gets = fetched.filter(({ url }) => url === `https://${TRIAL_BASE}${path}`);
+        expect(gets).toHaveLength(1);
+        const digest = createHash('sha256').update(`${path}\n`).digest('base64');
+        expect(gets[0].headers).toMatchObject({ 'X-Attest-Key-Id': 'akey-1', 'X-Attest-Assertion': `sig:c1:${digest}` });
+        expect(window.Attest.enroll).toHaveBeenCalledTimes(1);
+
+        await window.SettingsIntegrations._setLocalTrial(false);
+        expect(bridge).toHaveBeenLastCalledWith('setEgressHosts', { hosts: [] });
+        expect(await window.CloudVault.trial.status()).toEqual({ on: false });
+    });
+
+    it('no Play services or no Play Integrity project (emulator, QA, forks): the row is hidden and nothing is asked', async () => {
+        const { window, document } = env;
+        window.Attest.status = vi.fn(async () => ({ supported: false, base: TRIAL_BASE, attested: false }));
+        expect(await window.CloudVault.trial.status()).toBeNull();
+        await window.SettingsIntegrations._renderLocalTrial();
+        expect(document.getElementById('integrations-local-trial').classList.contains('hidden')).toBe(true);
+        expect(window.Attest.enroll).not.toHaveBeenCalled();
+        expect(toBase()).toEqual([]);
+    });
+});

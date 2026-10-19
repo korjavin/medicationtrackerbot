@@ -13,6 +13,10 @@ val appPackage = providers.environmentVariable("ANDROID_PACKAGE").orNull?.takeIf
 // app whose first run says it has no service configured.
 val baseDomain = providers.environmentVariable("CLOUD_BASE_DOMAIN").orNull?.trim()?.lowercase()
     ?.takeIf { Regex("[a-z0-9-]+(\\.[a-z0-9-]+)+").matches(it) } ?: ""
+// The Play Integrity cloud project (bd med-nt9p.32.8.4): the ANDROID_PLAY_CLOUD_PROJECT_NUMBER
+// repo variable, never committed. Unset (forks, QA) builds an app whose trial is unsupported.
+val playCloudProjectNumber = providers.environmentVariable("ANDROID_PLAY_CLOUD_PROJECT_NUMBER").orNull?.trim()
+    ?.takeIf { Regex("[0-9]{1,19}").matches(it) } ?: ""
 val versionCodeEnv = providers.environmentVariable("ANDROID_VERSION_CODE").orNull?.toIntOrNull() ?: 1
 val uploadKeystore = providers.environmentVariable("ANDROID_UPLOAD_KEYSTORE").orNull
 // CI decodes the stable debug key here; unset (PRs, local) keeps the default debug key.
@@ -30,6 +34,7 @@ android {
         versionCode = versionCodeEnv
         versionName = "0.1.$versionCodeEnv"
         buildConfigField("String", "BASE_DOMAIN", "\"$baseDomain\"")
+        buildConfigField("String", "PLAY_CLOUD_PROJECT_NUMBER", "\"$playCloudProjectNumber\"")
     }
 
     buildFeatures {
@@ -110,5 +115,9 @@ dependencies {
     // Health Connect read import (bd med-nt9p.8); coroutines for its suspend API.
     implementation("androidx.health.connect:connect-client:1.1.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    // Local mode's free trial (bd med-nt9p.32.8.4): Play Integrity standard requests, and
+    // GoogleApiAvailability for attest.status.
+    implementation("com.google.android.play:integrity:1.4.0")
+    implementation("com.google.android.gms:play-services-base:18.5.0")
     testImplementation("junit:junit:4.13.2")
 }
