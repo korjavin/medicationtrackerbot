@@ -17,6 +17,7 @@ import {
   toBase64,
 } from './crypto.js';
 import { establishLdkCache } from './unlock.js';
+import { prfProbe } from './passkey-get.js';
 import { isIOS, isMobile, isStandalone, iosInstallStepsHtml } from './push.js';
 import { downloadDoc, printDoc } from './print-doc.js';
 
@@ -152,14 +153,7 @@ async function startRegistration(app, claimToken) {
   // aborts here (register/finish is never called => no account is ever
   // claimed for it).
   const salt = await saltKek();
-  const prfAssertion = await navigator.credentials.get({
-    publicKey: {
-      challenge: crypto.getRandomValues(new Uint8Array(32)),
-      allowCredentials: [{ type: 'public-key', id: credential.rawId }],
-      userVerification: 'required',
-      extensions: { prf: { eval: { first: salt } } },
-    },
-  });
+  const prfAssertion = await prfProbe(credential.rawId, salt);
   const prfOutput = prfAssertion.getClientExtensionResults().prf?.results?.first;
   if (!prfOutput) {
     renderUnsupportedAuthenticator(app);

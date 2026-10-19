@@ -169,3 +169,108 @@ describe('wizard tail (Emergency Kit -> app)', () => {
     expect(globalThis.location.href).toBe('');
   });
 });
+
+// med-nt9p.19: the post-create PRF probe (shared with claim.js via
+// passkey-get.js prfProbe). Web/iOS: one get restricted to the new credential,
+// exactly as before. Android shell (window.wgNative): GPM files WebView-created
+// passkeys as app credentials that no allowlist get matches, so the probe is
+// discoverable and must come back with the credential just created.
+describe('post-create PRF probe', () => {
+  const RAW_ID = new Uint8Array([1, 2, 3, 4]).buffer;
+  let getCalls;
+
+  // Node exposes navigator as a getter-only global.
+  function setNavigator(value) {
+    Object.defineProperty(globalThis, 'navigator', { value, configurable: true, writable: true });
+  }
+
+  function install(getImpl) {
+    getCalls = [];
+    globalThis.window = globalThis;
+    globalThis.PublicKeyCredential = {
+      parseCreationOptionsFromJSON: () => ({ user: { id: new TextEncoder().encode('acct-1') } }),
+    };
+    setNavigator({
+      credentials: {
+        create: vi.fn(async () => ({ rawId: RAW_ID, toJSON: () => ({}) })),
+        get: vi.fn(async (opts) => {
+          getCalls.push(opts.publicKey);
+          return getImpl(getCalls.length);
+        }),
+      },
+    });
+    globalThis.fetch = beginResponse(200, { publicKey: {} });
+  }
+
+  // No PRF in the probe result → the unsupported-authenticator screen: the
+  // probe itself got through, nothing after it runs.
+  const noPrf = (rawId) => ({ rawId, getClientExtensionResults: () => ({}) });
+  const notReadable = () => Object.assign(new Error('credential manager'), { name: 'NotReadableError' });
+  const bridge = () => { globalThis.wgNative = { postMessage() {}, addEventListener() {} }; };
+
+  async function clickCreate() {
+    await runSignupWizard('tok123');
+    const app = dom.window.document.getElementById('app');
+    app.querySelector('#create-passkey').click();
+    return app;
+  }
+
+  afterEach(() => {
+    delete globalThis.window;
+    delete globalThis.wgNative;
+    delete globalThis.PublicKeyCredential;
+    delete globalThis.navigator;
+  });
+
+  it('web: one get restricted to the created credential', async () => {
+    install(() => noPrf(RAW_ID));
+    const app = await clickCreate();
+    await vi.waitFor(() => expect(app.textContent).toContain("can't be used yet"));
+    expect(getCalls).toHaveLength(1);
+    expect(getCalls[0].allowCredentials).toEqual([{ type: 'public-key', id: RAW_ID }]);
+    expect(getCalls[0].userVerification).toBe('required');
+    expect(getCalls[0].extensions.prf.eval.first).toBeInstanceOf(Uint8Array);
+  });
+
+  it('web: a NotReadableError is surfaced, not retried', async () => {
+    install(() => { throw notReadable(); });
+    const app = await clickCreate();
+    await vi.waitFor(() => expect(app.querySelector('.wizard-error')).not.toBeNull());
+    expect(getCalls).toHaveLength(1);
+  });
+
+  it('Android shell: discoverable probe, accepted when it returns the created credential', async () => {
+    install(() => noPrf(new Uint8Array([1, 2, 3, 4]).buffer));
+    bridge();
+    const app = await clickCreate();
+    await vi.waitFor(() => expect(app.textContent).toContain("can't be used yet"));
+    expect(getCalls).toHaveLength(1);
+    expect(getCalls[0].allowCredentials).toEqual([]);
+  });
+
+  it('Android shell: a different passkey from the discoverable probe fails clearly', async () => {
+    install(() => noPrf(new Uint8Array([9, 9, 9, 9]).buffer));
+    bridge();
+    const app = await clickCreate();
+    await vi.waitFor(() => expect(app.querySelector('.wizard-error')).not.toBeNull());
+    expect(app.querySelector('.wizard-error').textContent).toContain('choose the passkey you just created');
+    expect(app.textContent).not.toContain("can't be used yet");
+  });
+
+  it('Android shell: a NotReadableError is retried, then the probe proceeds', async () => {
+    install((n) => { if (n === 1) throw notReadable(); return noPrf(RAW_ID); });
+    bridge();
+    const app = await clickCreate();
+    // One real 1 s backoff.
+    await vi.waitFor(() => expect(app.textContent).toContain("can't be used yet"), { timeout: 3000 });
+    expect(getCalls).toHaveLength(2);
+  });
+
+  it('Android shell: any other error is not retried', async () => {
+    install(() => { throw Object.assign(new Error('dismissed'), { name: 'NotAllowedError' }); });
+    bridge();
+    const app = await clickCreate();
+    await vi.waitFor(() => expect(app.querySelector('.wizard-error')).not.toBeNull());
+    expect(getCalls).toHaveLength(1);
+  });
+});

@@ -14,6 +14,7 @@ import {
   toBase64Url,
 } from './crypto.js';
 import { openDb } from './localdb.js';
+import { getAssertion } from './passkey-get.js';
 
 const STORE_NAME = 'device';
 // v2 lives in its own slot: a pre-v2 shell reads only LDK_LEGACY_KEY, so it
@@ -106,7 +107,7 @@ async function loginCeremony(salt) {
 
   const options = { ...requestOptions, userVerification: 'required' };
   if (salt) options.extensions = { prf: { eval: { first: salt } } };
-  const assertion = await navigator.credentials.get({ publicKey: options });
+  const assertion = await getAssertion(options);
 
   const prfOutput = assertion.getClientExtensionResults().prf?.results?.first;
   if (salt && !prfOutput) throw new Error("This passkey doesn't support the security feature this app needs.");

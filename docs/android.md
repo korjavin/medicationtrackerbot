@@ -193,6 +193,26 @@ iOS, so they report `isSupported()` and the passkey shell's
 Add-to-Home-Screen step is skipped. Their `notifications.*` and `health.*`
 ops are answered (below).
 
+### Passkey gets are discoverable in the shell (bd med-nt9p.19)
+
+A passkey created inside the WebView (`FOR_APP` mode sets no web origin on
+the Credential Manager request) is filed by Google Password Manager as an
+**app** credential: GPM lists it under the bare account label, and no
+`get` carrying `allowCredentials` ever matches it (the sheet falls back to
+"another device", or Credential Manager throws `NotReadableError`), while a
+discoverable get finds it. Chrome-created passkeys are web credentials and
+match either way. So every `get` in the cloud shells goes through
+[`web/cloud/js/passkey-get.js`](../web/cloud/js/passkey-get.js), which, only
+when `window.wgNative` is the bridge (same detection as `native/index.js`),
+sends `allowCredentials: []` and retries `NotReadableError` (1 s, 2 s, 4 s).
+Callers: the post-create PRF probe in `signup.js` / `claim.js` (`prfProbe`,
+which then requires the returned `rawId` to be the one just created), cold
+unlock / session renewal (`unlock.js`) and account delete. The rpId is the
+account host, so the sheet lists only that account's passkeys; the server
+still verifies the asserted credential belongs to the account
+(`login/finish`, `DELETE /api/account`). On web and iOS the request is
+unchanged and sent once.
+
 ### Reminders: local notifications (bd med-nt9p.7)
 
 WebView has no Web Push, so reminders are exact local alarms from the

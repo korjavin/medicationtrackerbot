@@ -18,6 +18,7 @@ import {
 } from './crypto.js';
 import { renderUnsupportedAuthenticator } from './signup.js';
 import { establishLdkCache } from './unlock.js';
+import { prfProbe } from './passkey-get.js';
 
 export async function runClaimFlow() {
   const app = document.getElementById('app');
@@ -127,14 +128,7 @@ export async function enrollWithToken(app, { enrollmentToken, accountId, dek }) 
   // Probed before finish so an unsupported authenticator aborts here (finish
   // is never called => no enrollment token is ever redeemed for it).
   const salt = await saltKek();
-  const prfAssertion = await navigator.credentials.get({
-    publicKey: {
-      challenge: crypto.getRandomValues(new Uint8Array(32)),
-      allowCredentials: [{ type: 'public-key', id: credential.rawId }],
-      userVerification: 'required',
-      extensions: { prf: { eval: { first: salt } } },
-    },
-  });
+  const prfAssertion = await prfProbe(credential.rawId, salt);
   const prfOutput = prfAssertion.getClientExtensionResults().prf?.results?.first;
   if (!prfOutput) {
     renderUnsupportedAuthenticator(app);

@@ -95,6 +95,29 @@ describe('reauthAndDelete (med-d5t.8)', () => {
     await expect(reauthAndDelete()).rejects.toThrow(/could not start/i);
     expect(navigator.credentials.get).not.toHaveBeenCalled();
   });
+
+  // med-nt9p.19: the server allowlist goes out unchanged on web/iOS; inside
+  // the Android shell (window.wgNative) the re-auth get is discoverable. The
+  // DELETE still carries the assertion for the server to verify.
+  it('sends the server allowlist on web and allowCredentials: [] under the Android bridge', async () => {
+    stubFetch();
+    const allow = [{ type: 'public-key', id: 'c1' }];
+    globalThis.PublicKeyCredential.parseRequestOptionsFromJSON = (pk) => ({ ...pk, allowCredentials: allow });
+
+    await reauthAndDelete();
+    expect(navigator.credentials.get).toHaveBeenCalledTimes(1);
+    expect(navigator.credentials.get.mock.calls[0][0].publicKey.allowCredentials).toBe(allow);
+
+    globalThis.wgNative = { postMessage() {}, addEventListener() {} };
+    try {
+      await reauthAndDelete();
+    } finally {
+      delete globalThis.wgNative;
+    }
+    expect(navigator.credentials.get).toHaveBeenCalledTimes(2);
+    expect(navigator.credentials.get.mock.calls[1][0].publicKey).toMatchObject({ challenge: 'x', allowCredentials: [], userVerification: 'required' });
+    expect(fetchCalls.filter((c) => c.url === '/api/account' && c.method === 'DELETE')).toHaveLength(2);
+  });
 });
 
 describe('exportVaultToFile', () => {

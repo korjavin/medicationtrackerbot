@@ -7,6 +7,8 @@
 // (POST /api/account/reauth → DELETE /api/account with the assertion) is verified
 // there, not merely on the client.
 
+import { getAssertion } from './passkey-get.js';
+
 // exportVaultToFile downloads a plaintext JSON copy of the whole vault, so a
 // friend about to delete keeps their data without having to know to export
 // beforehand. The featured export (optional passphrase) still lives in Settings
@@ -52,9 +54,7 @@ export async function reauthAndDelete() {
   const requestOptions = PublicKeyCredential.parseRequestOptionsFromJSON(publicKey);
   let assertion;
   try {
-    assertion = await navigator.credentials.get({
-      publicKey: { ...requestOptions, userVerification: 'required' },
-    });
+    assertion = await getAssertion({ ...requestOptions, userVerification: 'required' });
   } catch (e) {
     // User dismissed the prompt, or no matching authenticator.
     throw new Error('Passkey verification was cancelled.');
