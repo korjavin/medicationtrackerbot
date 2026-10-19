@@ -422,6 +422,62 @@ export async function nudgeLocalBackup({ win, now = Date.now() }) {
   return true;
 }
 
+// The account → local move, local side (bd med-o7zq.36.4; contract in
+// docs/ios.md and docs/android.md "leave stash"). Settings → Account "Use this
+// <device> without an account" stashed the account's vault (leave.stash);
+// this boot picks it up through the same restoreVault as Settings → Restore,
+// so the typed replace confirm guards records already here. The shells keep
+// the page from loading while a local app lock is up (a 'locked' rejection is
+// just "no stash"), so the pickup only runs after an unlock.
+// - Inert on the web and on shells whose shell.ops lacks leave.take; every
+//   bridge call is time-boxed (same 5 s as cloud-boot.js's move pickup).
+// - A rejected or empty leave.take clears nothing: the next boot asks again.
+// - Once a vault was taken, leave.clear runs whatever restoreVault answers.
+const LEAVE_NOTICE_KEY = 'wg-leave-picked-up';
+const LEAVE_PROBE_MS = 5000;
+function withinMs(promise, ms) {
+  return Promise.race([promise, new Promise((resolve) => { setTimeout(() => resolve(null), ms); })]);
+}
+
+// The reload after a pickup lands here once more: say where the records went.
+export function showLeaveToastOnce({ win }) {
+  let picked = false;
+  try {
+    picked = win.sessionStorage.getItem(LEAVE_NOTICE_KEY) === '1';
+    if (picked) win.sessionStorage.removeItem(LEAVE_NOTICE_KEY);
+  } catch { /* storage blocked */ }
+  if (picked) win.safeToast(`Your records from your account are on this ${deviceName(win)}.`, 'success');
+}
+
+export async function pickupLeaveStash({ win }) {
+  const native = shellNative(win);
+  // nativeHas: features/settings.js, the one memoised shell.ops probe per page.
+  if (!native || typeof win.nativeHas !== 'function') return;
+  if ((await withinMs(win.nativeHas('leave.take').catch(() => false), LEAVE_PROBE_MS)) !== true) return;
+  const stash = await withinMs(native.call('leave.take').catch(() => null), LEAVE_PROBE_MS);
+  const vault = stash && stash.vault;
+  const restore = win.SettingsImportExport && win.SettingsImportExport.restoreVault;
+  if (typeof vault !== 'string' || !vault || typeof restore !== 'function') return;
+  const clear = () => withinMs(native.call('leave.clear').catch(() => null), LEAVE_PROBE_MS);
+  const r = await restore(vault, {
+    source: 'leave',
+    beforeReload: async () => {
+      try { win.sessionStorage.setItem(LEAVE_NOTICE_KEY, '1'); } catch { /* storage blocked */ }
+      await clear();
+    },
+  });
+  if (r && r.imported) return;
+  // ponytail: one-shot pickup; the account copy is the retry. restoreVault's
+  // busy answer looks like a cancel, so a pickup racing a manual restore is
+  // dropped too — add a busy flag to restoreVault if that ever matters.
+  await clear();
+  const device = deviceName(win);
+  await win.safeAlert(
+    `Your account's records were not copied to this ${device}. Your account is unchanged: open it again and choose Use this ${device} without an account to retry, or restore a backup file.`,
+    { title: 'Records not copied' },
+  );
+}
+
 // Settings → Backup (importexport.js reads window.CloudVault): the same
 // recordsToVault / vaultToRecords conversion as cloud-boot.js, over the
 // on-device store. Moving to a cloud account (bd med-o7zq.6) is this export,

@@ -850,6 +850,11 @@ mode, gated on the bridge platform being `ios` or `android`
   offline, paused until a passkey re-auth, or refused for size/quota and never
   landing by itself), so the other copy is kept until then. A failed local
   restore resumes the Health import; a successful one keeps its tally.
+  The account → local move (bd med-o7zq.36.4) needs no file: the local boot
+  takes the leave stash below and restores it through the same `restoreVault`
+  (typed replace confirm when records are already here), clears the stash
+  whatever the outcome (the account copy is the retry), and the reloaded app
+  toasts once that the account's records are on this iPhone.
 - **Move stash** (bd med-o7zq.35, twin of Android `Move.kt`, med-nt9p.32.17;
   the web side that calls it is med-nt9p.32.16/.18): the shell carries the
   vault v1 JSON across the two origins in one file,
@@ -949,11 +954,12 @@ mode, gated on the bridge platform being `ios` or `android`
    Inspector on the hidden page: `window.webkit.messageHandlers.wgNative`
    calls reject with `locked`. Settings → Med Tracker → *Lock* off → back in
    the app: still asks once, then stays open on the next return.
-9. Account → local (bd med-o7zq.36; end-to-end only with the web parts
-   med-o7zq.36.1 and .36.4): an account with records → Settings → Account →
-   *Use this iPhone without an account* → local mode shows the records →
-   *Switch account* → the account address → the account's records are still
-   there.
+9. Account → local (bd med-o7zq.36): an account with records → Settings →
+   Account → *Use this iPhone without an account* → local mode shows the
+   records and a one-time toast that they came from the account (with records
+   already in local mode: the typed replace confirm first; Cancel keeps them
+   and says how to retry) → *Switch account* → the account address → the
+   account's records are still there.
 
 ## Spike: passkey PRF, Service Worker, IndexedDB in WKWebView (bd med-w6gx.2)
 
