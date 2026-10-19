@@ -61,6 +61,8 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
+import java.io.IOException
 import java.time.Instant
 
 /**
@@ -149,6 +151,8 @@ class MainActivity : Activity() {
     private val health by lazy { HealthConnect(this) }
     /** window.Attest's attest.* ops, local mode only (bd med-nt9p.32.8.4). */
     private val attest by lazy { Attest(this) }
+    /** The local → cloud move's stash (bd med-nt9p.32.17): no-backup app storage, see Move.kt. */
+    private val move by lazy { Move(File(noBackupFilesDir, "move")) }
 
     private val back = OnBackInvokedCallback { if (localIntro.visibility == View.VISIBLE) showIntro(false) else web.goBack() }
     private var backRegistered = false
@@ -316,6 +320,8 @@ class MainActivity : Activity() {
     /** Every mode change clears the alarms (med-o7zq.9): no reminder of the other vault fires or opens it. */
     private fun setLocal(on: Boolean) {
         if (on != local) Notifications.clear(this)
+        // Entering local mode again abandons a pending move; the next move stashes afresh.
+        if (on) move.clear()
         prefs.edit().putBoolean(LocalOrigin.MODE_KEY, on).apply()
         local = on
     }
@@ -334,6 +340,8 @@ class MainActivity : Activity() {
         if (url == null) {
             web.loadUrl("about:blank")
             firstRun.visibility = View.VISIBLE
+            // Callers that explain why (an account gone) set their message after this.
+            firstRunMessage.text = if (move.exists) "Your records are ready to move: paste or scan your invite." else ""
         } else {
             firstRun.visibility = View.GONE
             load(url)
@@ -486,7 +494,7 @@ class MainActivity : Activity() {
             // The server says the stored account is gone (deleted here or elsewhere, or a typo): forget
             // it and say why on the first run (bd med-nt9p.32.14). A 404 without the server's marker
             // (a proxy's during a redeploy, an older server) keeps the error screen and Try again.
-            // reopen() keeps the message; the next open() clears it.
+            // Set after forget()'s reopen(), which resets the first-run message; the next open or reopen clears it.
             if (h != null && h == host && AccountUrl.accountGone(response.statusCode, response.responseHeaders)) {
                 forget()
                 firstRunMessage.text = "There is no account at $h."
@@ -573,7 +581,30 @@ class MainActivity : Activity() {
             // The page erased its own storage (local-policy.js); the shell's share is the host mirror and reminders.
             "local.reset" -> {
                 prefs.edit().remove(LocalOrigin.HOSTS_KEY).apply()
+                move.clear()
                 Notifications.clear(this)
+                answer(true)
+            }
+            // Local → cloud move (bd med-nt9p.32.17): the vault v1 JSON for the next account to pick up.
+            // Errors never carry the contents or the path.
+            // ponytail: synchronous file I/O on the main thread; move it off-thread if a 64 MB vault ever janks.
+            "move.stash" -> try {
+                move.stash(msg.optJSONObject("args")?.opt("vault"))
+                answer(true)
+            } catch (e: Move.Failure) {
+                answer(null, e.message)
+            } catch (e: IOException) {
+                answer(null, "write failed")
+            }
+            // The account side: {vault} or null. Not deleted here: the page clears it once imported,
+            // so a failed import retries on the next open.
+            "move.take" -> try {
+                answer(move.take()?.let { JSONObject().put("vault", it) } ?: JSONObject.NULL)
+            } catch (e: IOException) {
+                answer(null, "read failed")
+            }
+            "move.clear" -> {
+                move.clear()
                 answer(true)
             }
             // Settings → Backup → Move to a cloud account: the first run, as Switch account; the data stays.

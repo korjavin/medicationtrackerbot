@@ -407,7 +407,7 @@ screens, `device.screenshot()` for the full screen incl. bars and keyboard).
 stays the acceptance device.
 
 ```bash
-gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-dark, native-lock, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe, local-smoke, smoke, local-visual, local-app, local-backup, local-spike, local-to-cloud
+gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-dark, native-lock, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe, local-smoke, smoke, local-visual, local-app, local-backup, local-spike, local-to-cloud, move-ops
 gh workflow run android-qa.yml --ref <branch> -f scenario=firstrun -f font_scale=1.3 -f dark=true -f landscape=true
 gh run download <run-id> -n android-qa-<scenario> -D /tmp/qa             # then Read the PNGs
 ```
@@ -870,8 +870,10 @@ and `<device-transfer>`) and the same list in
 
 Everything else is **out**: every account origin's WebView data (decrypted
 records, the warm-unlock key — cloud mode's posture is unchanged), the shared
-`Local Storage` leveldb (all origins write it), and every other prefs file
-(`shell` = account host, `diag` = PII log, `reminders`, `health` anchors). So
+`Local Storage` leveldb (all origins write it), every other prefs file
+(`shell` = account host, `diag` = PII log, `reminders`, `health` anchors), and
+the local → cloud move stash (`no_backup/move/`, bd med-nt9p.32.17 — the
+platform never backs up `no_backup/` either). So
 a restore loses UI prefs and Health Connect anchors; the import re-reads from
 scratch on missing anchors, as after an iOS restore. The `wgLocalMode` flag
 lives in `shell` too, so a restored phone opens on first run: *Only on this
@@ -1001,7 +1003,9 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   page's *Move to a cloud account*, or the launcher *Switch account*
   shortcut) sets `wgLocalMode=false` and shows first run; each origin keeps
   its own WebView data, so *Only on this device* again (or the account
-  address) finds it.
+  address) finds it. The only thing carried across is the move stash
+  (`move.stash` → `move.take`, below): one file, never backed up, deleted
+  after the import or when local mode is entered again.
 - **Bridge:** `wgNative`, `wgFiles`, `chrome.js` and `files.js` are injected
   on `https://*.<base>` and `https://appassets.androidplatform.net`; a
   message is answered only from the open vault's top-level https page
@@ -1011,8 +1015,9 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   | op | does |
   |---|---|
   | `setEgressHosts {hosts}` | `LocalOrigin.validHosts` (≤ 8 bare DNS names, whole list or `invalid hosts`), stored under `wgLocalEgressHosts`; replies `{changed}` — the page reloads itself when true and the next document's CSP `connect-src` lists the hosts |
-  | `local.reset` | the page erased its storage: removes the host mirror, clears reminders, replies `true` |
+  | `local.reset` | the page erased its storage: removes the host mirror, clears reminders, deletes the move stash, replies `true` |
   | `local.leave` | replies `true`, then Switch account (first run) |
+  | `move.stash {vault}` | the local → cloud move (bd med-nt9p.32.17, [`Move.kt`](../android/app/src/main/java/com/example/medtracker/Move.kt)): writes the vault v1 JSON string to `no_backup/move/vault.json` (temp file + rename, one stash at a time, replaces the old one); `invalid vault` when missing, empty or not a string, `too large` above 64 MB (UTF-8 bytes); replies `true` |
   | `lock.status` | `{on, available}`: the lock's state, and whether the phone has a screen lock ([Lock](#local-mode-lock-bd-med-nt9p329)) |
   | `lock.set {on}` | the phone's own check, then the choice; `true` once applied, `false` when refused or cancelled |
 
@@ -1023,6 +1028,26 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   | op | does |
   |---|---|
   | `account.leave {then?}` | replies `true`, then forgets the account host (bd med-nt9p.32.13, iOS twin PR #1179): with `{then: "local"}` straight into local mode (Settings → Account *Use this phone without an account*), without args the first run (after an account delete). Nothing is erased: the account and its origin's WebView data stay |
+  | `move.take` | the new account's pickup (bd med-nt9p.32.17): replies `{vault}` (the stashed string) or `null` when there is none; does not delete, so a failed import retries on the next open |
+  | `move.clear` | deletes the stash once the page imported it, replies `true` |
+
+  **The move stash** (`Move.kt`, `MoveTest`): the two origins share no
+  storage, so the shell carries the local vault to the new account in one
+  app-private file, `noBackupFilesDir/move/vault.json`. It is plaintext in the
+  same app sandbox as the local origin's plaintext IndexedDB (the epic's
+  decision: no local encryption layer), so no new exposure; it never leaves the
+  device (no egress, no privacy-manifest row) and is **never backed up**:
+  `no_backup/` is excluded from every backup by the platform, and the Auto
+  Backup include-list never names it either. It is deleted by `move.clear`
+  (after the import), `local.reset`, and whenever local mode is entered again
+  (*Start*, `account.leave {then: "local"}`: the move was abandoned, the next
+  one stashes afresh); Switch account keeps it, since that is the hand-off.
+  While it exists the first run says *Your records are ready to move: paste or
+  scan your invite.* Its contents never reach the diagnostics log or an error
+  reply. Emulator proof at the bridge: QA scenario `move-ops` (not in `all`, it
+  claims the run's invite) — mode gates, `invalid vault`, the file in the
+  `run-as` listing after the stash, the hint, deleted on *Start*, and in the
+  new account `move.take` returns the same string, `move.clear` deletes it.
 
   Both modes: `ping`, `chrome`, `diag.append`, `notifications.*`, `health.*`,
   and `shell.ops`, which replies the array of op names this shell answers in
@@ -1034,7 +1059,8 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   first-run tap); `--es wgQAScene <name>` opens `/?qa=<name>` (1–64 of
   `[a-z0-9-]`, `LocalOrigin.qaHome`, else the root). Release compiles the
   no-op twin; `android-qa.yml`'s release check counts `wgQAScene` in its dex.
-  `LocalOriginTest` covers the scene parser and the bridge gating.
+  `LocalOriginTest` covers the scene parser and the bridge gating (including
+  the `move.*` ops and `shell.ops` per mode).
 
 ### Local mode: lock (bd med-nt9p.32.9)
 

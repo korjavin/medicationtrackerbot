@@ -4,7 +4,8 @@
      and the trial-pass prefs file. Everything else stays out by construction: every account
      origin's WebView data (decrypted records, warm-unlock key), Local Storage (one leveldb shared
      by all origins), and every other prefs file (shell = account host, diag = PII log, reminders,
-     health anchors). Paths are relative to the data dir; the dir names come from the spike's
+     health anchors), and the local → cloud move stash (no_backup/move/vault.json, Move.kt,
+     bd med-nt9p.32.17: plaintext records in transit, never backed up). Paths are relative to the data dir; the dir names come from the spike's
      run-as listing (bd med-nt9p.32.1). Never widen this to app_webview or shared_prefs. -->
 <data-extraction-rules>
     <cloud-backup disableIfNoEncryptionCapabilities="true">
