@@ -88,6 +88,13 @@ final class VisualQATests: XCTestCase {
                 report.name = "\(scene.name).json"
                 report.lifetime = .keepAlways
                 add(report)
+                // The driver re-checks the scene's ready selectors on every
+                // report: "ready" in failed means the shot shows another view.
+                if failure == nil,
+                   let obj = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+                   (obj["failed"] as? [String])?.contains("ready") == true {
+                    failure = "the scene's ready content was gone at the shot (probes.readyLost in \(scene.name).json)"
+                }
             }
         }
         if let failure { XCTFail("\(scene.name): \(failure)") }

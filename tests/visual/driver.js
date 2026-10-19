@@ -78,9 +78,15 @@
             await seed();
             return; // the import reloads the page; the next load runs the scene
         }
-        for (const step of def.steps || []) await runStep(step);
-        for (const sel of def.ready || []) await until(() => firstVisible(sel), STEP_MS, `ready ${sel}`);
-        await settle();
+        // A view's own load can still undo a step after the ready check passed
+        // (run 39214150540: workouts-stats shot Plans with ok:true), so check
+        // again once the store is quiet and redo the steps once.
+        for (let attempt = 0; ; attempt++) {
+            for (const step of def.steps || []) await runStep(step);
+            for (const sel of def.ready || []) await until(() => firstVisible(sel), STEP_MS, `ready ${sel}`);
+            await settle();
+            if (!lostReady(def).length || attempt >= 1) break;
+        }
         publish(report(def));
         watch(def);
     }
@@ -252,6 +258,10 @@
     let rev = 0;
     function report(def) {
         const { probes, failed } = probe();
+        // Every report re-checks the scene: a shot whose ready content is gone
+        // (the app switched away) is a failed scene, not a passing one.
+        probes.readyLost = lostReady(def);
+        if (probes.readyLost.length) failed.push('ready');
         return { scene: def.name, ok: failed.length === 0, rev: rev++, loads, failed, probes, paint: paintRect(def) };
     }
 
@@ -263,15 +273,22 @@
         const el = sel && firstVisible(sel);
         if (!el) return null;
         const r = el.getBoundingClientRect();
-        const vv = window.visualViewport || { offsetLeft: 0, offsetTop: 0, width: window.innerWidth, height: window.innerHeight, scale: 1 };
-        const x0 = Math.max(r.left, vv.offsetLeft);
-        const y0 = Math.max(r.top, vv.offsetTop);
-        const x1 = Math.min(r.right, vv.offsetLeft + vv.width);
-        const y1 = Math.min(r.bottom, vv.offsetTop + vv.height);
+        const vv = window.visualViewport;
+        const top = visibleTop(vv); // client rect space differs per engine (med-m1x5)
+        const width = vv ? vv.width : window.innerWidth;
+        const height = vv ? vv.height : window.innerHeight;
+        const x0 = Math.max(r.left, 0);
+        const y0 = Math.max(r.top, top);
+        const x1 = Math.min(r.right, width);
+        const y1 = Math.min(r.bottom, top + height);
         if (x1 - x0 < 4 || y1 - y0 < 4) return null;
-        const s = vv.scale || 1;
+        const s = (vv && vv.scale) || 1;
         const round = (n) => Math.round(n * s);
-        return { x: round(x0 - vv.offsetLeft), y: round(y0 - vv.offsetTop), w: round(x1 - x0), h: round(y1 - y0) };
+        return { x: round(x0), y: round(y0 - top), w: round(x1 - x0), h: round(y1 - y0) };
+    }
+
+    function lostReady(def) {
+        return (def.ready || []).filter((sel) => !firstVisible(sel));
     }
 
     function publish(r) {
@@ -304,6 +321,10 @@
             window.visualViewport.addEventListener('scroll', again);
         }
         ['focusin', 'focusout', 'input'].forEach((t) => document.addEventListener(t, again, true));
+        // Tab / sub-tab switches flip classes and [hidden]: re-check readiness.
+        if (window.MutationObserver) {
+            new window.MutationObserver(again).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class', 'hidden'] });
+        }
     }
 
     async function getJSON(url) {

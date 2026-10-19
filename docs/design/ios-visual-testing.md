@@ -180,8 +180,12 @@ Tier 2 is the MVP; it is the only tier that would have caught `med-pe9g`. Tiers
    the last ready element's rect in web view points, and XCUITest shoots
    only once that screen region holds content (≥ 0.5 % of its pixels off
    the region's median luminance), else the scene fails with the shot
-   attached. Both Simulators start booting before the build and are joined
-   after it.
+   attached. A view that undoes a step after the ready check (workouts-stats
+   shot Plans with `ok:true`, run 39214150540) is caught too: the driver
+   redoes the steps once if a ready selector is gone after the settle, and
+   every report (re-published on class/`hidden` mutations) re-checks them,
+   failing with `ready` and `probes.readyLost`. Both Simulators start
+   booting before the build and are joined after it.
 
 ### Scenes (MVP, 15)
 

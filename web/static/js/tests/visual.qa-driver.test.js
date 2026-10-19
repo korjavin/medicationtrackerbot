@@ -136,6 +136,21 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         expect(window.__wgQA.probe().probes.clippedTop).toEqual(['header.wg-sheethead']);
     });
 
+    // med-y5xx.11: a shot of another view must not pass (workouts-stats showed
+    // Plans with ok:true): the report re-checks the ready selectors.
+    it('re-publishes a failed report when the scene view goes away after ready', async () => {
+        const { window } = env;
+        expect(await load('today')).toBeNull();
+        expect(await load('today')).toMatchObject({ ok: true, failed: [] });
+
+        window.document.getElementById('today-view').classList.add('hidden');
+        await new Promise((r) => setTimeout(r, 400));
+        const report = JSON.parse(window.document.getElementById('wg-qa-ready').getAttribute('aria-label'));
+        expect(report).toMatchObject({ scene: 'today', ok: false });
+        expect(report.failed).toContain('ready');
+        expect(report.probes.readyLost).toContain('#today-view.active');
+    });
+
     it('publishes a failed report for a scene the list does not have', async () => {
         expect(await load('no-such-scene')).toMatchObject({ scene: 'no-such-scene', ok: false });
         expect(env.window.CloudVault.importAll).not.toHaveBeenCalled();
