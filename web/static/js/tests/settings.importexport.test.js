@@ -645,5 +645,26 @@ describe('Settings → Import/Export section', () => {
             await p;
             expect(document.getElementById('importexport-nxk-btn').disabled).toBe(false);
         });
+
+        // bd med-nt9p.32.20: the guard stays held from the replace through
+        // beforeReload to the reload, so a manual Restore can't start there.
+        it('restoreVault holds the guard through beforeReload: a Restore click then is ignored', async () => {
+            const { window, document } = env;
+            const d = deferred();
+            window.CloudVault = { exportAll: vi.fn(), importAll: vi.fn(async () => {}), hasUserContent: vi.fn(async () => false) };
+            const entered = vi.fn();
+            const restoring = window.SettingsImportExport.restoreVault(JSON.stringify(SAMPLE_VAULT), {
+                source: 'leave',
+                beforeReload: () => { entered(); return d.promise; },
+            });
+            await vi.waitFor(() => expect(entered).toHaveBeenCalled());
+
+            setFile(window, document.getElementById('importexport-import-file'), 'backup.json', JSON.stringify(SAMPLE_VAULT));
+            await window.SettingsImportExport.import();
+            expect(window.CloudVault.importAll).toHaveBeenCalledTimes(1);
+
+            d.resolve();
+            expect(await restoring).toEqual({ imported: true });
+        });
     });
 });
