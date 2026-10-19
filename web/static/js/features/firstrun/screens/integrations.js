@@ -154,7 +154,7 @@
         + 'exactly what it sends before it turns on.';
     const TRIAL_DECLINED = 'The free trial stays off. You can use your own keys, or skip for now.';
     const TRIAL_ERRORS = {
-        trial_already_used: 'The free trial was already used on this iPhone. You can use your own keys, or skip for now.',
+        trial_already_used: `The free trial was already used on this ${window.LocalNotifications?.copy?.device || 'iPhone'}. You can use your own keys, or skip for now.`,
         trial_not_configured: 'The free trial is not available right now. You can use your own keys, or skip for now.',
     };
     const TRIAL_FAILED = 'Couldn’t start the free trial. Check your connection and try again, use your own keys, or skip for now.';
