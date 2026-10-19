@@ -2860,6 +2860,10 @@ body:has(.wg-callbar--dock) .wg-toasts {
    all track the same --wg-* token. */
 .wg-sparkline {
     display: block;
+    /* The SVG carries fixed width/height attributes (150x22); cap it to its
+       container so narrow stat tiles scale it down by its viewBox (med-ghjr). */
+    max-width: 100%;
+    height: auto;
     color: var(--wg-mint-soft);
 }
 .wg-sparkline--sun { color: var(--wg-sun); }
@@ -6964,6 +6968,10 @@ body:has(.wg-callbar--dock) .wg-toasts {
 }
 
 .wg-food-incomplete-nudge__chip {
+    /* Share the row with the dismiss button instead of wrapping it onto a
+       line of its own (med-xs71). */
+    flex: 1 1 0;
+    min-width: 0;
     min-height: 44px;
     padding: var(--space-xs) var(--space-md);
     font-size: var(--font-size-sm);

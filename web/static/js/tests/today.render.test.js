@@ -310,6 +310,8 @@ describe('Today v2 — Next up', () => {
         expect(nextKinds(root)).toEqual([]);
         expect(nextUp.querySelector('.wg-empty')).toBeNull();
         expect(nextUp.querySelector('.wg-hint').textContent).toBe('Nothing due in the next 2 hours');
+        // A padded card, not the zero-padding flush shell (med-pdv8).
+        expect(nextUp.querySelector('.wg-hint').parentElement.classList.contains('wg-card--flush')).toBe(false);
 
         // A workout still shows; the far dose does not.
         s.nextWorkout = { value: { ...WORKOUT_TODAY, scheduled_time: '20:00' }, deeplink: 'workouts', status: 'ok' };
