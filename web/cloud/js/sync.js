@@ -296,10 +296,22 @@ export async function replaceAllRecords(records) {
 // and the row would later flush over the imported backup. importAll calls this
 // before replaceAllRecords so only non-managed pending (nk, reminder prefs)
 // stays queued. Held under withRecordsLock so it's atomic w.r.t. writeRecord.
-export async function dropPendingForTypes(types) {
+// `captured` (recordId -> clientTs, the rows a merge import read) narrows the
+// drop to pending writes the caller has already folded in: a write that landed
+// after that read is a new id or a newer clientTs, so it stays queued and
+// replaceAllRecords' overlay keeps it.
+export async function dropPendingForTypes(types, captured = null) {
   await withRecordsLock(async () => {
-    const stale = (await readPending()).filter((p) => types.has(p.recordType));
-    await clearPending(stale.map((p) => p.recordId));
+    const stale = [];
+    for (const p of await readPending()) {
+      if (!types.has(p.recordType)) continue;
+      if (captured) {
+        const r = await getRecord(p.recordId);
+        if (!r || !captured.has(p.recordId) || captured.get(p.recordId) !== r.clientTs) continue;
+      }
+      stale.push(p.recordId);
+    }
+    await clearPending(stale);
   });
 }
 

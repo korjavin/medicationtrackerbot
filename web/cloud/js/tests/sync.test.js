@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { deriveDataKeys, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, generateDEK, toBase64 } from '../crypto.js';
-import { listRecords, listRecordsInRange, readAllLiveRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, startReconnectAutoDrain, requestDrain, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
+import { listRecords, listRecordsInRange, readAllLiveRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, startReconnectAutoDrain, requestDrain, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL, dropPendingForTypes } from '../sync.js';
 import { openDb, cachedDb, dropCachedDb, onCachedDbDropped } from '../localdb.js';
 
 // reauthenticate() dynamic-imports unlock.js for the passkey ceremony; the real
@@ -2845,5 +2845,47 @@ describe('gamificationjournal merges grow-only fields on apply (med-ooeh)', () =
     await pull('note', { recordId: 'note-1', clientTs: 5001, deleted: false, text: 'theirs' });
 
     expect((await getRaw('note-1')).text).toBe('mine');
+  });
+});
+
+describe('dropPendingForTypes with a captured read keeps later writes (med-o7zq.38)', () => {
+  // A merge import reads the store, merges, then drops pending weight ops so
+  // the rewalked trend is not overlaid back. A write that lands after that read
+  // must stay queued, or replaceAllRecords would silently replace it.
+  const pendingIds = async () => {
+    const db = await openDb();
+    try {
+      return await new Promise((resolve, reject) => {
+        const req = db.transaction('pending', 'readonly').objectStore('pending').getAll();
+        req.onsuccess = () => resolve(req.result.map((p) => p.recordId).sort());
+        req.onerror = () => reject(req.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  beforeEach(async () => {
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline'); }));
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('drops only the pending rows the caller read, at the clientTs it read', async () => {
+    const ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
+    const first = await writeRecord(ctx, 'weight', { recordId: 'weight-1', weight: 80 });
+    await writeRecord(ctx, 'weight', { recordId: 'weight-2', weight: 81 });
+    // weight-2 was read at another clientTs (edited since); weight-3 not read.
+    const captured = new Map([['weight-1', first.clientTs], ['weight-2', 0]]);
+    await writeRecord(ctx, 'weight', { recordId: 'weight-3', weight: 82 });
+    await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hi' });
+    await dropPendingForTypes(new Set(['weight']), captured);
+    expect(await pendingIds()).toEqual(['note-1', 'weight-2', 'weight-3']);
+    await dropPendingForTypes(new Set(['weight']));
+    expect(await pendingIds()).toEqual(['note-1']);
   });
 });

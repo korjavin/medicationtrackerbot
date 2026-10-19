@@ -274,10 +274,12 @@ window.MedTrackerCloudReady = (async function boot() {
                 : [...records, ...(await readAllLiveRecords(ctx)).filter((r) => !VAULT_MANAGED_TYPES.has(r.recordType))];
             // A merge that adds a weight row rewalks every weight trend, and
             // the pending overlay would put a pending weight row's old trend
-            // back; the forced snapshot carries the rewalked row instead.
-            const hereIds = merge ? new Set(here.map((r) => r.recordId)) : null;
+            // back; the forced snapshot carries the rewalked row instead. Only
+            // the rows read above are dropped (`captured`): a weight write that
+            // lands meanwhile stays queued and the overlay keeps it.
+            const captured = merge ? new Map(here.map((r) => [r.recordId, r.clientTs])) : null;
             const dropTypes = merge
-                ? (toWrite.some((r) => r.recordType === 'weight' && !hereIds.has(r.recordId)) ? new Set(['weight']) : null)
+                ? (toWrite.some((r) => r.recordType === 'weight' && !captured.has(r.recordId)) ? new Set(['weight']) : null)
                 : VAULT_MANAGED_TYPES;
             // Refuse to wipe until the account cursor exists. Without it,
             // forceSnapshot can't propagate the import (null cursor → nothing to
@@ -300,7 +302,7 @@ window.MedTrackerCloudReady = (async function boot() {
             // marker would let the next open re-bootstrap the stale server
             // snapshot over the import (and the old data is already gone).
             await markForceSnapshotPending();
-            if (dropTypes) await dropPendingForTypes(dropTypes);
+            if (dropTypes) await dropPendingForTypes(dropTypes, captured);
             await replaceAllRecords(toWrite);
             // Past this line the import HAS happened locally. Propagation to the
             // server is retryable (forceSnapshotPending stays set, next pullOnOpen

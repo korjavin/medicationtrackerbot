@@ -576,7 +576,7 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
         replaceAllRecords: async (rows) => { calls.replaceAllRecords += 1; calls.replaced = rows; calls.order.push('replace'); },
         forceSnapshot: async () => { calls.forceSnapshot += 1; calls.order.push('snapshot'); },
         markForceSnapshotPending: async () => { calls.markForceSnapshotPending += 1; calls.order.push('mark'); },
-        dropPendingForTypes: async (types) => { calls.dropPendingForTypes.push(types); calls.order.push('drop'); },
+        dropPendingForTypes: async (types, captured) => { calls.dropPendingForTypes.push(types); calls.captured = captured; calls.order.push('drop'); },
         ...overrides,
       },
     };
@@ -718,6 +718,7 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
     });
     await window.CloudVault.importAll(VAULT_JSON, { mode: 'merge' });
     expect(sync.calls.dropPendingForTypes).toEqual([new Set(['weight'])]);
+    expect(sync.calls.captured).toEqual(new Map([['weight-1', 5]]));
     expect(sync.calls.order).toEqual(['mark', 'drop', 'replace', 'snapshot']);
     expect(sync.calls.replaced.find((r) => r.recordId === 'weight-1').weight_trend).toBe(98);
   });
