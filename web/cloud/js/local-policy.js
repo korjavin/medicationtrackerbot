@@ -467,6 +467,17 @@ export const LOCAL_VAULT = {
     if (!native) throw new Error(`Open the app on your ${deviceName(win)} to use an invite.`);
     await native.call('local.leave');
   },
+  // Settings home → Move to a cloud account (bd med-nt9p.32.16): the shell
+  // carries the vault across origins (move.stash, docs/android.md "move
+  // stash"); the new account picks it up with move.take. A rejected stash
+  // ('invalid vault', 'too large', an old shell) throws before the leave.
+  async moveToCloud({ win = globalThis.window } = {}) {
+    const native = shellNative(win);
+    if (!native) throw new Error(`Open the app on your ${deviceName(win)} to use an invite.`);
+    const vault = await LOCAL_VAULT.exportAll({ includeSecrets: true, win });
+    await native.call('move.stash', { vault });
+    await native.call('local.leave');
+  },
   // Settings → AI & integrations → the free trial row (bd med-o7zq.16).
   trial: {
     // null where there is no App Attest (the web, the Simulator, old

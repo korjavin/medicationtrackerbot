@@ -720,6 +720,78 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         expect(offDevice()).toEqual([]);
     });
 
+    // bd med-nt9p.32.16: the Settings-home row stashes the vault with the shell
+    // (move.stash) before leaving; a shell that does not list the op (every
+    // shell before it, iOS today) never shows the row.
+    const openDialog = (document) => vi.waitFor(() => {
+        const d = document.querySelector('mt-modal.mt-confirm-modal');
+        if (!d) throw new Error('no dialog open');
+        return d;
+    });
+    const withMoveOps = (stash) => bridge.mockImplementation(async (op, args) => {
+        if (op === 'shell.ops') return ['ping', 'shell.ops', 'move.stash', 'local.leave'];
+        if (op === 'move.stash') return stash(args);
+        return op === 'setEgressHosts' ? { changed: false } : true;
+    });
+    const moveOps = () => bridge.mock.calls.map(([op]) => op).filter((op) => op === 'move.stash' || op === 'local.leave');
+
+    it('Settings home Move row stays hidden when the shell does not list move.stash', async () => {
+        const { window, document } = env;
+        bridge.mockImplementation(async (op) => {
+            if (op === 'shell.ops') throw new Error('unsupported: shell.ops');
+            return op === 'setEgressHosts' ? { changed: false } : true;
+        });
+        window.bindLocalMoveRow();
+        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('shell.ops'));
+        await new Promise((r) => { setTimeout(r, 0); });
+        const row = document.getElementById('settings-local-move-btn');
+        expect(row.classList.contains('wg-settings-hidden')).toBe(true);
+        row.click();
+        await new Promise((r) => { setTimeout(r, 0); });
+        expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
+        expect(moveOps()).toEqual([]);
+    });
+
+    it('Settings home Move row: export → move.stash → local.leave, records kept', async () => {
+        const { window, document } = env;
+        await window.apiCall('/api/weight', 'POST', { weight: 80 });
+        cancelReminderRecompute({ accountId: 'local' });
+        let stashed = null;
+        withMoveOps(({ vault }) => { stashed = vault; return true; });
+        window.bindLocalMoveRow();
+        const row = document.getElementById('settings-local-move-btn');
+        await vi.waitFor(() => expect(row.classList.contains('wg-settings-hidden')).toBe(false));
+        row.click();
+        const dialog = await openDialog(document);
+        expect(dialog.textContent).toMatch(/Move to a cloud account\?/);
+        dialog.querySelector('.mt-confirm-modal__confirm').click();
+        await vi.waitFor(() => expect(moveOps()).toEqual(['move.stash', 'local.leave']));
+        const expected = JSON.parse(await window.CloudVault.exportAll({ win: window }));
+        expect(JSON.parse(stashed).data).toEqual(expected.data);
+        expect((await localRecordsPort().list('weight')).map((r) => r.weight)).toEqual([80]);
+        expect(offDevice()).toEqual([]);
+    });
+
+    it('Settings home Move row: a rejected stash shows the file steps and never leaves', async () => {
+        const { window, document } = env;
+        allowConsoleNoise();
+        withMoveOps(() => { throw new Error('too large'); });
+        window.bindLocalMoveRow();
+        const row = document.getElementById('settings-local-move-btn');
+        await vi.waitFor(() => expect(row.classList.contains('wg-settings-hidden')).toBe(false));
+        row.click();
+        (await openDialog(document)).querySelector('.mt-confirm-modal__confirm').click();
+        const alert = await vi.waitFor(() => {
+            const d = [...document.querySelectorAll('mt-modal.mt-confirm-modal')].find((m) => /too large/.test(m.textContent));
+            if (!d) throw new Error('no alert yet');
+            return d;
+        });
+        expect(alert.textContent).toMatch(/Download a backup/);
+        expect(moveOps()).toEqual(['move.stash']);
+        alert.querySelector('.mt-confirm-modal__cancel').click();
+        await vi.waitFor(() => expect(row.disabled).toBe(false));
+    });
+
     it('erase waits out an Apple Health import in flight, and none starts after it', async () => {
         const { window, document } = env;
         // The boot import has landed; the next one blocks inside Health until released.

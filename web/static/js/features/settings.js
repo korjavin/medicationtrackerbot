@@ -977,6 +977,44 @@ function bindLocalMoveToCloud() {
     });
 }
 
+// Settings home → Move to a cloud account (bd med-nt9p.32.16): the shell
+// stashes the vault and opens its invite screen; the new account restores it
+// by itself. Hidden unless the shell lists move.stash, so the web and older
+// shells keep only the Backup & import card (bindLocalMoveToCloud).
+let _localMoveRowBound = false; // module-state: bind the row once across repeated loadSettings() calls
+function bindLocalMoveRow() {
+    const btn = document.getElementById('settings-local-move-btn');
+    if (!btn || _localMoveRowBound) return;
+    _localMoveRowBound = true;
+    nativeHas('move.stash').then((has) => {
+        if (!has) return;
+        btn.classList.remove('wg-settings-hidden');
+        btn.addEventListener('click', () => moveToCloudAccount(btn));
+    });
+}
+
+async function moveToCloudAccount(btn) {
+    if (btn.disabled) return;
+    btn.disabled = true;
+    try {
+        const ok = await safeConfirm(
+            'Your records move with you. Paste or scan your invite on the next screen; the new account picks them up on its own.\n\nNothing is erased here: Only on this device brings you back.',
+            null,
+            { title: 'Move to a cloud account?', confirmLabel: 'Continue' },
+        );
+        if (!ok) return;
+        await window.CloudVault.moveToCloud({ win: window });
+    } catch (e) {
+        await safeAlert(
+            `Your records could not be prepared for the move: ${e?.message || 'unknown error'}.\n\n`
+            + 'Move them with a file instead: Settings → Backup & import → Download a backup, open your invite and create the account, then in the new account use Backup & import → Restore with that file.',
+            { title: 'Move to a cloud account' },
+        );
+    } finally {
+        btn.disabled = false;
+    }
+}
+
 // Load settings (BP reminders status, etc.)
 async function loadSettings() {
     // Ungated: the first-run overlay ships in the server, cloud, and mobile
@@ -1006,6 +1044,7 @@ async function loadSettings() {
         bindLocalNotifications();
         bindLocalErase();
         bindLocalMoveToCloud();
+        bindLocalMoveRow();
     }
     const applyBundle = async (rawBundle) => {
         const bundle = window.AuthBootstrap.normalizeSettingsBundle(rawBundle);
