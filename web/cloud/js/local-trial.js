@@ -103,6 +103,8 @@ export function createAttestClient({
         attestation: reply.attestation,
         challenge: got.challenge,
         device_token: reply.deviceToken,
+        // Android (Attest.kt): Play Integrity instead; its reply has no attestation/deviceToken, so both drop out.
+        ...(reply.kind === 'android' ? { kind: 'android', public_key: reply.publicKey, integrity_token: reply.integrityToken } : {}),
         ...(pass ? { pass } : {}),
       }),
     });

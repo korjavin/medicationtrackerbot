@@ -61,7 +61,10 @@
 
     function copyFor(scope) {
         const local = document.documentElement.classList.contains('wg-local-vault');
-        return local ? LOCAL_COPY[scope] : COPY[scope] && { ...COPY[scope], alternative: ALTERNATIVE };
+        if (!local) return COPY[scope] && { ...COPY[scope], alternative: ALTERNATIVE };
+        // The Android shell names its own attestation (bd med-nt9p.32.8.4); the iOS impl has no override.
+        const transit = window.Attest?.copy?.trialTransit;
+        return LOCAL_COPY[scope] && transit ? { ...LOCAL_COPY[scope], transit } : LOCAL_COPY[scope];
     }
 
     // Best-effort persist; resolves true only when the PATCH actually landed.
