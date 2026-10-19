@@ -42,6 +42,8 @@ scripts/ci-local.sh                   # optional: act-friendly CI subset locally
 docker compose -f docker-compose.cloud.yml up
 ```
 
+Device/visual checks — diff review can't see device bugs, so before merging a PR that changes `ios/`, `android/` or layout, run one on its head and look at the screenshots: label the PR `ios-visual` (iOS simulator + web; [runbook](docs/ios-visual-testing.md)), `gh workflow run android-qa.yml --ref <branch>` (emulator scenarios).
+
 Catalog/key tooling: `cmd/genvapid` (VAPID keys for the push relay), `cmd/openfoodfacts` (food-DB CSV import), `cmd/genexercisecatalog` (exercise-catalog regen).
 
 ## Code Layout
