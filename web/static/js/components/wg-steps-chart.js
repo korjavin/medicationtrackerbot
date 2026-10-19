@@ -234,7 +234,7 @@
     }
 
     window.WGStepsChart = {
-        render: renderStepsChart,
+        render: (opts) => (window.ChartUtils && window.ChartUtils.fitToWidth ? window.ChartUtils.fitToWidth(renderStepsChart, opts) : renderStepsChart(opts)),
         DEFAULT_WIDTH,
         DEFAULT_HEIGHT,
     };

@@ -378,7 +378,7 @@
     }
 
     window.WGWorkoutChart = {
-        render: renderWorkoutChart,
+        render: (opts) => (window.ChartUtils && window.ChartUtils.fitToWidth ? window.ChartUtils.fitToWidth(renderWorkoutChart, opts) : renderWorkoutChart(opts)),
         DEFAULT_WIDTH,
         DEFAULT_HEIGHT,
     };

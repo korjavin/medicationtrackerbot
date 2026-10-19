@@ -487,7 +487,7 @@
     }
 
     window.WGWeightChart = {
-        render: renderWeightChart,
+        render: (opts) => (window.ChartUtils && window.ChartUtils.fitToWidth ? window.ChartUtils.fitToWidth(renderWeightChart, opts) : renderWeightChart(opts)),
         DEFAULT_WIDTH,
         DEFAULT_HEIGHT,
     };

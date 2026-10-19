@@ -418,7 +418,64 @@ window.ChartUtils = (() => {
         return sampled;
     }
 
+    /**
+     * Render a chart at its default coordinate width, then re-render it at
+     * the width it actually lays out to, so a desktop card gets a full-width
+     * chart with 1:1 text instead of a 358-wide one scaled up or capped
+     * (med-ipps). An explicit opts.width (e.g. the brief export) is honoured
+     * as-is; without ResizeObserver (jsdom) the first render stands.
+     *
+     * @param {(opts: object) => Element|null} render - the component renderer
+     * @param {object} opts - render options
+     * @returns {Element|null}
+     */
+    function fitToWidth(render, opts) {
+        const node = render(opts);
+        if (!node || (opts && Number.isFinite(opts.width)) || typeof ResizeObserver !== 'function') return node;
+        let current = node;
+        let width = Number((node.getAttribute('viewBox') || '').split(' ')[2]) || 0;
+        if (!width) return node; // empty-state <div>, nothing to fit
+        let pending = 0;
+        let refits = 0;
+        const refit = () => {
+            const next = pending;
+            pending = 0;
+            if (!next || !current.isConnected || Math.abs(next - width) < 2) return;
+            const fresh = render({ ...(opts || {}), width: next });
+            if (!fresh) return;
+            // The mount fit lands a frame after the first draw-in started, so
+            // its replay reads as the one entry animation; later refits
+            // (rotate, window resize) swap in fully drawn lines.
+            if (refits++ > 0) {
+                fresh.querySelectorAll('.chart-line-animated').forEach((p) => p.classList.remove('chart-line-animated'));
+            }
+            ro.unobserve(current);
+            current.replaceWith(fresh);
+            current = fresh;
+            width = next;
+            ro.observe(fresh);
+        };
+        const ro = new ResizeObserver((entries) => {
+            // Removed (range change, refresh): stop observing so detached
+            // charts don't pile up. ponytail: a chart attached later than the
+            // first frame keeps its default width; callers all append synchronously.
+            if (!current.isConnected) { ro.disconnect(); return; }
+            const next = Math.round(entries[entries.length - 1].contentRect.width);
+            if (!next || Math.abs(next - width) < 2) return;
+            // Swap on the next frame: resizing inside the observer callback
+            // trips "ResizeObserver loop completed with undelivered notifications".
+            const schedule = !pending;
+            pending = next;
+            if (schedule) requestAnimationFrame(refit);
+        });
+        ro.observe(node);
+        // Never mounted (brief export serializes detached SVGs): drop the observer.
+        requestAnimationFrame(() => { if (!current.isConnected) ro.disconnect(); });
+        return node;
+    }
+
     return {
+        fitToWidth,
         catmullRomSpline,
         calculateYAxisTicks,
         createGradient,

@@ -245,7 +245,8 @@ nightly master run is the one unconditional spend (~$40/month).
   `unsupported`), so `native/index.js` picks the `ios` platform and the page
   takes the shell's code paths, including `noFocusZoom`.
 - Devices: the `iPhone 13` descriptor (mobile, touch, iOS UA, DPR 3) at
-  390×844 and 440×956, dark `colorScheme`. One browser context per device: the
+  390×844 and 440×956, dark `colorScheme`, `reducedMotion: 'reduce'` (chart
+  draw-ins settle, so shots are deterministic). One browser context per device: the
   first scene seeds the vault (the driver imports and reloads), later scenes
   open on the seeded store. Per scene: `/?qa=<scene>`, wait for
   `#wg-qa-ready`, a web stand-in for the scene's `native` steps (`tap` →
