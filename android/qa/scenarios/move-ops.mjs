@@ -4,8 +4,8 @@
 // refused, a bad vault is rejected, a stash lands in no_backup/move/vault.json → local.leave → the
 // first run's hint → Only on this device → Start deletes it (an abandoned move) → local.leave shows
 // no stale hint → Start → stash again →
-// local.leave → the runner's invite → the account: move.stash refused, move.take returns the same
-// string and keeps the file, move.clear deletes it, move.take → null. Then the leave.* mirror (bd
+// local.leave → the runner's invite → the account's pickup clears it (bd med-nt9p.32.18) → a seeded
+// stash: move.stash refused, move.take returns it and keeps the file, move.clear deletes it, → null. Then the leave.* mirror (bd
 // med-o7zq.36.3): gates, stash in the account, kept into local mode where take/clear work, deleted by
 // local.reset and by opening an account (seeded via run-as). results.moveOps has the checks.
 // Claims the run's one invite: not in `all` (smoke claims it there), no retry.
@@ -98,13 +98,18 @@ export default async function moveOps(ctx) {
   await claimAccount(ctx, page);
 
   await ctx.step('account: shell.ops, move.stash refused, take keeps, clear deletes', async () => {
+    // The post-unlock pickup (bd med-nt9p.32.18) imports and clears the stash by itself; the user
+    // path is local-to-cloud-seamless. Wait for it, then seed a stash to drive take/clear directly.
+    for (let i = 0; (await stashFiles()) !== '' && i < 120; i++) await sleep(2000);
+    expect((await stashFiles()) === '', 'the pickup did not clear the stash');
+    await shell(`run-as ${pkg} sh -c 'mkdir -p no_backup/move && echo {} > no_backup/move/vault.json'`);
     const ops = await call(page, 'shell.ops');
     expect(ops.ok && ops.result.includes('move.take') && ops.result.includes('move.clear'), `shell.ops ${JSON.stringify(ops)}`);
     expect(!ops.result.includes('move.stash'), `account lists move.stash: ${ops.result}`);
     const stash = await call(page, 'move.stash', { vault: '{}' });
     expect(!stash.ok && stash.error === 'unsupported: move.stash', `stash in account mode: ${JSON.stringify(stash)}`);
     const took = await call(page, 'move.take');
-    expect(took.ok && took.result && took.result.vault === vault, `take: ${took.ok} ${took.error || typeof took.result?.vault} ${took.result?.vault?.length}`);
+    expect(took.ok && took.result?.vault?.trim() === '{}', `take: ${took.ok} ${took.error || typeof took.result?.vault} ${took.result?.vault?.length}`);
     expect((await stashFiles()) === 'vault.json', 'take deleted the stash');
     const cleared = await call(page, 'move.clear');
     expect(cleared.ok && cleared.result === true, `clear: ${JSON.stringify(cleared)}`);

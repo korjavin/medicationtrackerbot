@@ -842,7 +842,10 @@ mode, gated on the bridge platform being `ios` or `android`
   hand-off between origins: *I have an invite* sends `local.leave` (the shell's
   *Switch account*), the user claims the invite and restores the file in the
   new account's Settings. The local records stay until the user erases them;
-  nothing prompts to. A cloud restore not yet on the server says why before
+  nothing prompts to. A shell that lists `move.stash` also gets Settings home →
+  *Move to a cloud account*, which carries the records without the file (the
+  move stash below; shared contract in
+  [android.md → Moving to a cloud account](android.md#moving-to-a-cloud-account-bd-med-nt9p3210)). A cloud restore not yet on the server says why before
   the reload (`importAll` → `{ upload }`, sync.js `forceSnapshot`: retrying
   offline, paused until a passkey re-auth, or refused for size/quota and never
   landing by itself), so the other copy is kept until then. A failed local
