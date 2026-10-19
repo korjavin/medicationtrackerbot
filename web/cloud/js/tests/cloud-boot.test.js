@@ -875,7 +875,7 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
 
   async function boot({
     platform = 'android', ops = ['shell.ops', 'move.take', 'move.clear'], stash = { vault: VAULT },
-    content = false, confirm = true, importAll, warmUnlock = UNLOCKED, live,
+    content = false, choice = 'replace', confirm = true, importAll, warmUnlock = UNLOCKED, live,
   } = {}) {
     const { window } = env;
     const log = [];
@@ -886,6 +886,7 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
       return true;
     });
     if (platform) window.LocalNotifications = { ...window.LocalNotifications, __native: { platform, call }, copy: { device: 'phone' } };
+    window.safeChoose = vi.fn(async () => { log.push('choose'); return choice; });
     window.safeConfirm = vi.fn(async () => { log.push('confirm'); return confirm; });
     window.safeAlert = vi.fn(async () => { log.push('alert'); });
     window.safeToast = vi.fn();
@@ -961,15 +962,29 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
     await vi.waitFor(() => expect(log).toContain('move.clear'));
   });
 
-  it('stash + account with content: typed replace confirm first', async () => {
+  // bd med-o7zq.38: an account with content offers Merge / Replace / Cancel.
+  it('stash + account with content: Replace, confirmed once, replaces the account', async () => {
     const { window, log } = await boot({ content: true });
     await vi.waitFor(() => expect(log).toContain('move.clear'));
-    expect(log).toEqual(['shell.ops', 'move.take', 'probe', 'confirm', 'importAll', 'move.clear']);
-    expect(window.safeConfirm.mock.calls[0][2]).toMatchObject({ destructive: true, typedConfirm: 'replace my data' });
+    expect(log).toEqual(['shell.ops', 'move.take', 'probe', 'choose', 'confirm', 'importAll', 'move.clear']);
+    expect(window.safeChoose.mock.calls[0][2]).toMatchObject({ title: 'Records already in your account' });
+    expect(window.safeConfirm.mock.calls[0][2]).toMatchObject({ destructive: true, confirmLabel: 'Replace' });
+    expect(window.safeConfirm.mock.calls[0][2].typedConfirm).toBeUndefined();
+    expect(window.CloudVault.importAll).toHaveBeenCalledWith(VAULT, { mode: 'replace' });
   });
 
-  it('confirm cancelled: nothing imported, stash kept, the file steps hint shown', async () => {
-    const { window, log } = await boot({ content: true, confirm: false });
+  it('stash + account with content: Merge imports with no confirm', async () => {
+    const { window, log } = await boot({ content: true, choice: 'merge' });
+    await vi.waitFor(() => expect(log).toContain('move.clear'));
+    expect(log).toEqual(['shell.ops', 'move.take', 'probe', 'choose', 'importAll', 'move.clear']);
+    expect(window.CloudVault.importAll).toHaveBeenCalledWith(VAULT, { mode: 'merge' });
+  });
+
+  it.each([
+    ['choice cancelled', { choice: null }],
+    ['Replace declined', { confirm: false }],
+  ])('%s: nothing imported, stash kept, the file steps hint shown', async (_, opts) => {
+    const { window, log } = await boot({ content: true, ...opts });
     await vi.waitFor(() => expect(log).toContain('alert'));
     await settle();
     expect(log).not.toContain('importAll');

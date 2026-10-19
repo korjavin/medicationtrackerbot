@@ -426,7 +426,7 @@ export async function nudgeLocalBackup({ win, now = Date.now() }) {
 // docs/ios.md and docs/android.md "leave stash"). Settings → Account "Use this
 // <device> without an account" stashed the account's vault (leave.stash);
 // this boot picks it up through the same restoreVault as Settings → Restore,
-// so the typed replace confirm guards records already here. The shells keep
+// so Merge / Replace / Cancel guards records already here. The shells keep
 // the page from loading while a local app lock is up (a 'locked' rejection is
 // just "no stash"), so the pickup only runs after an unlock.
 // - Inert on the web and on shells whose shell.ops lacks leave.take; every

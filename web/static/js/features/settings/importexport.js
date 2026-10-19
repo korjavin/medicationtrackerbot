@@ -280,9 +280,9 @@
     // `json` is the vault v1 JSON string. `source` picks the copy: 'move'
     // (the shell's move stash) and 'leave' (local-policy.js pickupLeaveStash,
     // the account → local stash) have their own; anything else ('file', the
-    // Restore button) gets the backup-file copy. Asks the typed replace
-    // confirm unless the account is provably empty, replaces the vault through
-    // CloudVault.importAll, says when it is not uploaded yet, then awaits
+    // Restore button) gets the backup-file copy. Unless the receiving side is
+    // provably empty, a file asks the typed replace confirm and a move/leave
+    // asks Merge / Replace / Cancel; then CloudVault.importAll(json, { mode }), says when it is not uploaded yet, then awaits
     // `beforeReload` (optional async hook; a throw is logged and the reload
     // still happens, the import already did) and reloads the page.
     // { imported: true } = replaced and reloading. { imported: false } = the
@@ -307,17 +307,35 @@
         let empty = false;
         try { empty = (await window.CloudVault.hasUserContent?.()) === false; } catch { /* fail closed */ }
         const local = document.documentElement.classList.contains('wg-local-vault');
-        const confirmed = empty || await safeConfirm(
-            move
-                ? `Your records from this ${device} replace everything stored in this account, on every device. This cannot be undone.`
-                : leave
-                ? `This ${device} already has records from using it without an account. Replace them with a copy of your account's records? Your account itself is not changed. The records now on this ${device} cannot be recovered.`
-                : local
-                ? `Everything stored on this ${device} is replaced by this backup. This cannot be undone.`
-                : 'Everything stored now is replaced by this backup, on every device. This cannot be undone.',
-            null,
-            { title: leave ? `Replace the records on this ${device}?` : 'Replace all your data?', confirmLabel: 'Replace my data', destructive: true, typedConfirm: REPLACE_PHRASE }
-        );
+        // Mode-switch pickups (bd med-o7zq.38) with records on the receiving
+        // side: Merge / Replace / Cancel, Replace confirmed once. File
+        // Restore keeps the typed replace confirm.
+        let mode;
+        let confirmed = empty;
+        if (!empty && (move || leave)) {
+            mode = await safeChoose(
+                leave
+                    ? `This ${device} has records from using it without an account. Merge adds your account's records to them. Replace erases them first. Your account is not changed either way. Records kept on both sides may appear twice after a merge.`
+                    : `Your account already has records. Merge adds the records from this ${device} to them. Replace erases the account's records on every device first. The copy on this ${device} is not changed either way. Records kept on both sides may appear twice after a merge.`,
+                [{ value: 'merge', label: 'Merge' }, { value: 'replace', label: 'Replace' }],
+                { title: leave ? `Records already on this ${device}` : 'Records already in your account' }
+            );
+            confirmed = mode === 'merge' || (mode === 'replace' && await safeConfirm(
+                leave
+                    ? `Erase the records on this ${device} and replace them with your account's? This cannot be undone.`
+                    : `Erase everything in this account, on every device, and replace it with this ${device}'s records? This cannot be undone.`,
+                null,
+                { title: 'Replace records?', confirmLabel: 'Replace', destructive: true }
+            ));
+        } else if (!empty) {
+            confirmed = await safeConfirm(
+                local
+                    ? `Everything stored on this ${device} is replaced by this backup. This cannot be undone.`
+                    : 'Everything stored now is replaced by this backup, on every device. This cannot be undone.',
+                null,
+                { title: 'Replace all your data?', confirmLabel: 'Replace my data', destructive: true, typedConfirm: REPLACE_PHRASE }
+            );
+        }
         if (!confirmed) {
             importInFlight = false;
             if (move) {
@@ -331,7 +349,9 @@
 
         setImportBusy(true);
         try {
-            const result = await window.CloudVault.importAll(json);
+            const result = mode
+                ? await window.CloudVault.importAll(json, { mode })
+                : await window.CloudVault.importAll(json);
             // Clear busy BEFORE reload — otherwise beforeUnloadGuard would
             // prompt on our own intended navigation.
             setImportBusy(false);

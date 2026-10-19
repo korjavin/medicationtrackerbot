@@ -70,7 +70,8 @@ handlers did; its storage-boundary conversions are documented under
 Import is **replace-only** (wipe target user, then insert), so leaf-record ids never
 have to survive a round-trip — the importer is free to re-mint them.
 
-Replace-only is what the backup-file Restore does. `importAll` also takes
+Replace-only is what the backup-file Restore does (Settings → Restore offers no merge).
+The mode-switch pickups (local ↔ account) ask Merge / Replace. `importAll` also takes
 `{mode:'merge'}` (bd med-o7zq.38, `mergeRecords` in `web/domain/vault.js`):
 the union by recordId where the receiver wins every collision, except that a
 live floored placeholder (`clientTs` 0) yields to the file's row; a receiver

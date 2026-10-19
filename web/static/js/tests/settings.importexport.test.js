@@ -258,6 +258,81 @@ describe('Settings → Import/Export section', () => {
         });
     });
 
+    // bd med-o7zq.38: a mode-switch pickup onto a side that already has
+    // records offers Merge / Replace / Cancel; Replace is confirmed once,
+    // with no typed phrase. File Restore (above) keeps the typed confirm.
+    describe('move/leave pickup: Merge / Replace / Cancel', () => {
+        const JSON_STR = JSON.stringify(SAMPLE_VAULT);
+        async function pickup(source, choice, { content = true, confirm = true } = {}) {
+            const { window } = env;
+            window.safeChoose = vi.fn(async () => choice);
+            window.safeConfirm = vi.fn(async () => confirm);
+            window.safeAlert = vi.fn(async () => {});
+            window.CloudVault = { exportAll: vi.fn(), importAll: vi.fn(async () => {}), hasUserContent: vi.fn(async () => content) };
+            const result = await window.SettingsImportExport.restoreVault(JSON_STR, { source });
+            return { window, result };
+        }
+
+        it('leave: asks the choice with the leave copy', async () => {
+            const { window } = await pickup('leave', null);
+            expect(window.safeChoose).toHaveBeenCalledTimes(1);
+            const [msg, choices, opts] = window.safeChoose.mock.calls[0];
+            expect(choices.map((c) => c.value)).toEqual(['merge', 'replace']);
+            expect(msg).toMatch(/Your account is not changed/);
+            expect(opts.title).toMatch(/^Records already on this /);
+        });
+
+        it('move: asks the choice with the move copy', async () => {
+            const { window } = await pickup('move', null);
+            const [msg, choices, opts] = window.safeChoose.mock.calls[0];
+            expect(choices.map((c) => c.value)).toEqual(['merge', 'replace']);
+            expect(msg).toMatch(/is not changed/);
+            expect(opts.title).toBe('Records already in your account');
+        });
+
+        it.each(['move', 'leave'])('%s: merge imports with mode merge and no confirm', async (source) => {
+            const { window, result } = await pickup(source, 'merge');
+            expect(window.safeConfirm).not.toHaveBeenCalled();
+            expect(window.CloudVault.importAll).toHaveBeenCalledWith(JSON_STR, { mode: 'merge' });
+            expect(result).toEqual({ imported: true });
+        });
+
+        it.each(['move', 'leave'])('%s: replace confirms once, destructive, untyped, then imports with mode replace', async (source) => {
+            const { window } = await pickup(source, 'replace');
+            expect(window.safeConfirm).toHaveBeenCalledTimes(1);
+            const opts = window.safeConfirm.mock.calls[0][2];
+            expect(opts).toMatchObject({ destructive: true, confirmLabel: 'Replace' });
+            expect(opts.typedConfirm).toBeUndefined();
+            expect(window.CloudVault.importAll).toHaveBeenCalledWith(JSON_STR, { mode: 'replace' });
+        });
+
+        it.each(['move', 'leave'])('%s: replace declined imports nothing', async (source) => {
+            const { window, result } = await pickup(source, 'replace', { confirm: false });
+            expect(window.CloudVault.importAll).not.toHaveBeenCalled();
+            expect(result).toEqual({ imported: false });
+        });
+
+        it('move: cancel imports nothing and says the records were not moved', async () => {
+            const { window, result } = await pickup('move', null);
+            expect(window.CloudVault.importAll).not.toHaveBeenCalled();
+            expect(result).toEqual({ imported: false });
+            expect(window.safeAlert).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ title: 'Records not moved' }));
+        });
+
+        it('leave: cancel imports nothing', async () => {
+            const { window, result } = await pickup('leave', null);
+            expect(window.CloudVault.importAll).not.toHaveBeenCalled();
+            expect(result).toEqual({ imported: false });
+        });
+
+        it.each(['move', 'leave'])('%s: probe false imports with no dialog', async (source) => {
+            const { window } = await pickup(source, 'merge', { content: false });
+            expect(window.safeChoose).not.toHaveBeenCalled();
+            expect(window.safeConfirm).not.toHaveBeenCalled();
+            expect(window.CloudVault.importAll).toHaveBeenCalledTimes(1);
+        });
+    });
+
     it('export passes includeSecrets:false through to CloudVault', async () => {
         const { window, document } = env;
         document.getElementById('importexport-include-secrets').checked = false;
