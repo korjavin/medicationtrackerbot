@@ -284,6 +284,7 @@ class MainActivity : Activity() {
             if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
                 WebViewCompat.addDocumentStartJavaScript(w, assets.open("chrome.js").bufferedReader().use { it.readText() }, rules)
             }
+            DebugHooks.onWebView(this, w, rules, ::diag) // no-op in release (src/release)
         }
         return w
     }

@@ -6,8 +6,8 @@ import { _android as android } from 'playwright';
 import { mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-// authn-probe last: if the virtual authenticator works it claims the run's invite.
-const SCENARIOS = ['firstrun', 'native-dark', 'native-fontscale', 'back-exit', 'claim-page', 'not-found', 'external-link', 'authn-probe'];
+// smoke last: it claims the run's one invite (bd med-nt9p.25).
+const SCENARIOS = ['firstrun', 'native-dark', 'native-fontscale', 'back-exit', 'claim-page', 'not-found', 'external-link', 'authn-probe', 'smoke'];
 const [want = 'all', out = 'out'] = process.argv.slice(2);
 const pkg = process.env.QA_PKG || 'com.example.medtracker';
 const inputs = {
@@ -71,10 +71,13 @@ const ctx = {
       throw e;
     }
   },
-  /** Cold start on the first-run screen: the Switch account action forgets any stored account. */
-  async launch() {
+  /**
+   * Cold start on the first-run screen: the Switch account action forgets any stored account.
+   * softAuthn: the debug-only QA soft authenticator (bd med-nt9p.25, src/debug/DebugHooks.kt).
+   */
+  async launch({ softAuthn = false } = {}) {
     await shell(`am force-stop ${pkg}`);
-    await shell(`am start -W -a com.example.medtracker.SWITCH_ACCOUNT -n ${pkg}/com.example.medtracker.MainActivity`);
+    await shell(`am start -W -a com.example.medtracker.SWITCH_ACCOUNT -n ${pkg}/com.example.medtracker.MainActivity${softAuthn ? ' --ez qaSoftAuthn true' : ''}`);
     await ctx.waitFor({ text: 'Open' });
   },
   /**
@@ -107,9 +110,9 @@ const ctx = {
     await ctx.waitFor({ text: /.*open your account.*/ });
   },
   /** Cold start → Open the run's invite → the WebView page on /unlock with the signup wizard. */
-  async openClaim() {
+  async openClaim(opts) {
     if (!ctx.claimUrl) throw new Error('QA_CLAIM_URL unset (no local cloud)');
-    await ctx.launch();
+    await ctx.launch(opts);
     await ctx.openLink(ctx.claimUrl);
     const page = await ctx.attachPage();
     if (!page) throw new Error('no WebView page (see the run log)');
@@ -147,10 +150,12 @@ try {
   log('settling'); await ctx.sleep(45_000);
   for (const name of names) {
     ctx.scenario = name;
-    const { default: run } = await import(`./scenarios/${name}.mjs`);
+    // A scenario that consumes the run's one invite exports retry = false (a retry would hit "already claimed").
+    const { default: run, retry = true } = await import(`./scenarios/${name}.mjs`);
+    const attempts = retry ? 2 : 1;
     // ponytail: one retry absorbs emulator flakiness (Play services dying under the app); the
     // failed attempt stays in the summary as "retried", so a real bug still shows twice.
-    for (let attempt = 1; attempt <= 2; attempt++) {
+    for (let attempt = 1; attempt <= attempts; attempt++) {
       log('scenario', name, 'attempt', attempt);
       const from = steps.length;
       try {
@@ -160,7 +165,7 @@ try {
         log(`scenario ${name} failed:`, e?.stack || e);
         const file = `${name}-FAILED${attempt}.png`;
         await device.screenshot({ path: join(shotsDir, file) }).then(() => shots.push(file), () => {});
-        if (attempt === 2) failed = true;
+        if (attempt === attempts) failed = true;
         else for (const s of steps.slice(from)) s.retried = true;
       } finally {
         await applyInputs().catch(() => {});
