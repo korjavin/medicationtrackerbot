@@ -165,6 +165,8 @@ precondition(localOps.contains("move.stash") && !localOps.contains("move.take") 
 precondition(accountOps.contains("move.take") && accountOps.contains("move.clear") && !accountOps.contains("move.stash"))
 precondition(accountOps.contains("account.leave") && !localOps.contains("account.leave"))
 precondition(localOps.contains("shell.ops") && accountOps.contains("shell.ops") && localOps == localOps.sorted())
+precondition(accountOps.contains("leave.stash") && !accountOps.contains("leave.take") && !accountOps.contains("leave.clear"))
+precondition(localOps.contains("leave.take") && localOps.contains("leave.clear") && !localOps.contains("leave.stash"))
 print("LocalOrigin.ops: ok")
 
 // Move (bd med-o7zq.35): the stash file's lifecycle.
@@ -183,4 +185,14 @@ precondition((try! moveDir.resourceValues(forKeys: [.isExcludedFromBackupKey])).
 move.clear()
 precondition(!move.exists && (try! move.take()) == nil)
 move.clear() // idempotent
+// Two stashes on different dirs (move/, leave/; bd med-o7zq.36) are independent.
+let leaveStash = Move(dir: FileManager.default.temporaryDirectory.appendingPathComponent("wg-leave-\(UUID().uuidString)"))
+try! move.stash("{\"v\":3}")
+leaveStash.clear()
+precondition(move.exists && (try! move.take()) == "{\"v\":3}")
+try! leaveStash.stash("{\"v\":4}")
+move.clear()
+precondition(!move.exists && leaveStash.exists && (try! leaveStash.take()) == "{\"v\":4}")
+leaveStash.clear()
+precondition(!leaveStash.exists)
 print("Move: ok")

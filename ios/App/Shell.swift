@@ -34,6 +34,11 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     }
     /// The local → cloud move's stash (bd med-o7zq.35, Move.swift).
     let move = Move(dir: Move.appDir)
+    /// The account → local move's stash (bd med-o7zq.36, same Move): Application
+    /// Support/leave, beside move/. Kept across local.didSet and forget(), so it
+    /// survives account.leave {then: "local"}; cleared by leave.clear,
+    /// local.reset and opening an account.
+    let leaveStash = Move(dir: Move.appDir.deletingLastPathComponent().appendingPathComponent("leave", isDirectory: true))
     /// The vault the shell has open (bd med-o7zq.9): one at a time, so
     /// reminders, their taps and the bridge all follow this.
     private var vault: String? { local ? LocalOrigin.host : host }
@@ -156,6 +161,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         }
         UserDefaults.standard.set(host, forKey: Shell.hostKey)
         self.host = host
+        leaveStash.clear() // an account was opened, so a pending account → local move was abandoned
         load(url) // the claim link keeps its #fragment for the page; only the host is stored
         return nil
     }
@@ -416,6 +422,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             // the shell's share of this vault is its reminders and host mirror.
             UserDefaults.standard.removeObject(forKey: LocalOrigin.hostsKey)
             move.clear()
+            leaveStash.clear()
             Task {
                 await Notifications.shared.remove(vault: LocalOrigin.host)
                 replyHandler(true, nil)
@@ -454,6 +461,26 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             }
         case "move.clear" where !local:
             move.clear()
+            replyHandler(true, nil)
+        // The account → local move (bd med-o7zq.36), the reverse of move.*: the
+        // account page stashes its vault v1 JSON before account.leave {then:
+        // "local"}; the local page takes it and clears it once restored. Same
+        // validation and errors as move.*; never the contents or the path.
+        case "leave.stash" where !local:
+            do {
+                try leaveStash.stash((body["args"] as? [String: Any])?["vault"])
+                replyHandler(true, nil)
+            } catch {
+                replyHandler(nil, (error as? Move.Failure)?.message ?? "write failed")
+            }
+        case "leave.take" where local:
+            do {
+                if let vault = try leaveStash.take() { replyHandler(["vault": vault], nil) } else { replyHandler(NSNull(), nil) }
+            } catch {
+                replyHandler(nil, "read failed")
+            }
+        case "leave.clear" where local:
+            leaveStash.clear()
             replyHandler(true, nil)
         // The anonymous trial AI (bd med-o7zq.16): local mode only — an account
         // has its own trial — and, like every op here, never while locked.
