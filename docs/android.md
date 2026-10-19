@@ -400,7 +400,7 @@ screens, `device.screenshot()` for the full screen incl. bars and keyboard).
 stays the acceptance device.
 
 ```bash
-gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-dark, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe, local-smoke, smoke, local-visual, local-app, local-backup, local-spike, local-to-cloud
+gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-dark, native-lock, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe, local-smoke, smoke, local-visual, local-app, local-backup, local-spike, local-to-cloud
 gh workflow run android-qa.yml --ref <branch> -f scenario=firstrun -f font_scale=1.3 -f dark=true -f landscape=true
 gh run download <run-id> -n android-qa-<scenario> -D /tmp/qa             # then Read the PNGs
 ```
