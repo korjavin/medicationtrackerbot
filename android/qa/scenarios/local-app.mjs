@@ -72,7 +72,10 @@ export default async function localApp(ctx) {
   // favicons WebView never fetches (first run 39236712561: logcat clean, shell rendered).
   r.aborted = own.filter((f) => f.endsWith('net::ERR_ABORTED'));
   r.failed = own.filter((f) => !f.endsWith('net::ERR_ABORTED'));
-  r.errors = errors.filter((e) => !/example\.com|no\/such\/file|Content Security Policy/.test(e));
+  // The console's 404 line names no URL; any other 404 is in r.failed via the response listener.
+  r.errors = errors.filter((e) => !/example\.com|no\/such\/file|Content Security Policy|status of 404/.test(e));
   log('localApp', JSON.stringify(r, null, 2));
   if (r.failed.length) throw new Error(`failed loads: ${r.failed.join(', ')}`);
+  // local-boot.js catches its own boot failures, so a broken app shows only as an error here.
+  if (r.errors.length) throw new Error(`page errors: ${r.errors.join(' | ')}`);
 }
