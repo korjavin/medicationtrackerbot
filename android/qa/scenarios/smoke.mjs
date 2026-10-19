@@ -114,13 +114,18 @@ export default async function smoke(ctx) {
     if (await sheetOpen()) await page.evaluate(() => window.ModalManager.bp.close());
     await page.evaluate(() => window.switchTab('today'));
     await sleep(800);
+    // Where each Back lands (bd med-nt9p.33): a press that stays in the app names its page.
+    const where = () => page.evaluate(() => ({ path: location.pathname, len: history.length, state: history.state })).catch((e) => String(e?.message || e).split('\n')[0]);
+    r.backTrail = [await where()];
     for (let n = 1; n <= 6; n++) {
       await shell('input keyevent KEYCODE_BACK');
       await sleep(1500);
+      r.backTrail.push(await where());
       if (!(await ctx.inForeground())) {
         if (n > 1) throw new Error(`took ${n} Backs`);
         return n;
       }
+      await ctx.shot(`after-back-today-${n}`);
     }
     throw new Error('still in the app after 6 Backs');
   }).catch(() => undefined);
