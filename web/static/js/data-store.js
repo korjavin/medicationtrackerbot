@@ -147,29 +147,14 @@
                 return { commit: async () => {}, rollback: async () => {} };
             }
 
-            const before = optimisticLocks.get(key) || Promise.resolve();
+            // Only a contended key waits — an uncontended call keeps its
+            // original microtask timing.
+            const before = optimisticLocks.get(key);
             let release;
             const mine = new Promise((r) => { release = r; });
-            const tail = before.then(() => mine);
+            const tail = before ? before.then(() => mine) : mine;
             optimisticLocks.set(key, tail);
-            await before;
-            try {
-                return await this._applyOptimisticLocked(key, mutator, tags);
-            } finally {
-                release();
-                if (optimisticLocks.get(key) === tail) optimisticLocks.delete(key);
-            }
-        },
-
-        async _applyOptimisticLocked(key, mutator, tags) {
-            let prior = null;
-            try {
-                prior = await this.getCached(key);
-            } catch (_e) { /* tolerate read failures — treat as cold cache */ }
-
-            const priorSnapshot = hasValue(prior) ? deepCloneSnapshot(prior) : prior;
-
-            const next = mutator(prior);
+            if (before) await before;
 
             // Mark this key as having a pending optimistic write before the
             // dispatch fires reloadCurrentTab → loadSWR. Without this, the
@@ -177,8 +162,6 @@
             // (the caller's POST hasn't reached the server yet) and write
             // stale data into the cache, flickering the screen between
             // optimistic → stale → real.
-            pendingOptimistic.set(key, (pendingOptimistic.get(key) || 0) + 1);
-
             const decrementPending = () => {
                 const c = (pendingOptimistic.get(key) || 0) - 1;
                 if (c <= 0) pendingOptimistic.delete(key);
@@ -191,20 +174,37 @@
                 try { await this.clearCached(key); } catch (_) { /* best-effort */ }
             };
 
+            let priorSnapshot;
             try {
-                if (hasValue(next)) {
-                    await this.setCachedWithTags(key, next, tags);
-                } else {
-                    await this.clearCached(key);
-                    registerKeyTags(key, tags);
+                let prior = null;
+                try {
+                    prior = await this.getCached(key);
+                } catch (_e) { /* tolerate read failures — treat as cold cache */ }
+
+                priorSnapshot = hasValue(prior) ? deepCloneSnapshot(prior) : prior;
+
+                const next = mutator(prior);
+
+                pendingOptimistic.set(key, (pendingOptimistic.get(key) || 0) + 1);
+
+                try {
+                    if (hasValue(next)) {
+                        await this.setCachedWithTags(key, next, tags);
+                    } else {
+                        await this.clearCached(key);
+                        registerKeyTags(key, tags);
+                    }
+                } catch (e) {
+                    // The cache write failed (IndexedDB quota, corruption, etc.)
+                    // so no optimistic state was actually committed. Roll back
+                    // the pending counter so future fetchFresh calls don't stay
+                    // permanently short-circuited, then surface the error.
+                    decrementPending();
+                    throw e;
                 }
-            } catch (e) {
-                // The cache write failed (IndexedDB quota, corruption, etc.)
-                // so no optimistic state was actually committed. Roll back
-                // the pending counter so future fetchFresh calls don't stay
-                // permanently short-circuited, then surface the error.
-                decrementPending();
-                throw e;
+            } finally {
+                release();
+                if (optimisticLocks.get(key) === tail) optimisticLocks.delete(key);
             }
 
             this.requestTabRefresh(tags, 'optimistic');

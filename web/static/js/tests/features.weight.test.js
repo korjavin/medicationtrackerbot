@@ -349,7 +349,8 @@ describe('features/weight.js — deleting rows never shows the offline state (me
             if (url.startsWith('/api/weight?')) return server.slice();
             return {};
         });
-        window.requestTabRefresh = () => { window.loadWeightLogs(); };
+        const loads = [];
+        window.requestTabRefresh = () => { loads.push(window.loadWeightLogs()); };
 
         const list = document.getElementById('weight-list');
         const seen = [];
@@ -368,6 +369,8 @@ describe('features/weight.js — deleting rows never shows the offline state (me
         expect(await second.flush()).toBe('deleted');
 
         await vi.waitFor(() => expect(list.querySelector('.wg-empty__title').textContent).toBe('No weigh-ins yet'));
+        // Let every refresh the writes fired finish before the env is torn down.
+        for (let n = -1; n !== loads.length;) { n = loads.length; await Promise.allSettled(loads); }
         expect(seen.some((t) => /No cached data|back online|Nothing to show/.test(t))).toBe(false);
     });
 });
