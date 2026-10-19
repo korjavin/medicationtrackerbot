@@ -436,8 +436,12 @@ window.ChartUtils = (() => {
         let width = Number((node.getAttribute('viewBox') || '').split(' ')[2]) || 0;
         if (!width) return node; // empty-state <div>, nothing to fit
         const ro = new ResizeObserver((entries) => {
+            // Removed (range change, refresh): stop observing so detached
+            // charts don't pile up. ponytail: a chart attached later than the
+            // first frame keeps its default width; callers all append synchronously.
+            if (!current.isConnected) { ro.disconnect(); return; }
             const next = Math.round(entries[entries.length - 1].contentRect.width);
-            if (!next || Math.abs(next - width) < 2 || !current.isConnected) return;
+            if (!next || Math.abs(next - width) < 2) return;
             const fresh = render({ ...(opts || {}), width: next });
             if (!fresh) return;
             ro.unobserve(current);
