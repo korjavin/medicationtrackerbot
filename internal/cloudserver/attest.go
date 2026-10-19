@@ -31,7 +31,8 @@ import (
 // install) — an App Attest key on iOS, an Android Keystore key enrolled via
 // Play Integrity on Android (bd med-nt9p.32.8.3, install kind "android").
 // SECURITY INVARIANT (as trial_proxy.go): no TrialConfig value, DeviceCheck
-// key, device token, Play Integrity token or verdict, service-account key,
+// key, device token, Play Integrity token or verdict payload (only the
+// accepted app-verdict label, an enum, as env), service-account key,
 // access token or JWT in any response or log line.
 //
 // PRIVACY: iOS enrollment calls Apple DeviceCheck (https://api.devicecheck.apple.com,
@@ -611,7 +612,8 @@ func (a *AttestAPI) enroll(w http.ResponseWriter, r *http.Request) {
 // has no per-device bits, so a pass-less enroll always founds a bucket — the
 // known gap, bounded by the per-IP limit, TRIAL_DAILY_GLOBAL and the global
 // voice cap (device recall is bd med-nt9p.32.8.6).
-// SECURITY: the token, its verdict and the pass are never logged.
+// SECURITY: the token, its verdict payload and the pass are never logged;
+// only the accepted app-verdict label (env, a fixed enum) is.
 func (a *AttestAPI) enrollAndroid(w http.ResponseWriter, r *http.Request, raw []byte) {
 	if !a.cfg.AndroidConfigured {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_not_configured"})
