@@ -65,6 +65,7 @@
 import { calculateBPCategory } from './bp.js';
 import { compareChain, isHealthWeight, weightTrendChain } from './weight.js';
 import { healthImportRecordId, healthNumericId } from './healthsource.js';
+import { FIRSTRUN_RECORD_TYPE, FIRSTRUN_RECORD_ID } from './settings.js';
 
 export const VAULT_FORMAT = 'medtracker-vault';
 export const VAULT_VERSION = 1;
@@ -794,6 +795,19 @@ export function vaultToRecords(vault, { now } = {}) {
     // Bodyless, like records.del writes: no reader may need a body off these
     // (the reminder horizon reads the day off the slot id).
     out.push({ recordType: t.recordType, recordId: t.recordId, clientTs: nowMs, deleted: true });
+  }
+
+  // --- onboarding (bd med-suu2) ---
+  // A restored vault is an onboarded user: the `firstrun` singleton is not
+  // carried by the export, so without this a restore into a new account or a
+  // fresh device-only install re-opens WGFirstRun. Only a vault with user
+  // content counts — a blank/settings-only file leaves onboarding as it was.
+  // `firstrun` stays out of VAULT_MANAGED_TYPES on purpose: the replace keeps
+  // a destination's existing flag, so a blank import can never clear it.
+  // Derived row into a deterministic id → floored clientTs (CLAUDE.md rule
+  // 12): it never outranks a real write, and the flag is write-once `true`.
+  if (hasUserContent(out)) {
+    out.push({ recordType: FIRSTRUN_RECORD_TYPE, recordId: FIRSTRUN_RECORD_ID, clientTs: 0, deleted: false, first_run_complete: true });
   }
 
   return out;

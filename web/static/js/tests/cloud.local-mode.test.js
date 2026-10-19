@@ -209,6 +209,22 @@ describe('local-only mode boot + records port (med-o7zq.2)', () => {
         expect(await pendingRows()).toEqual([]);
     });
 
+    // bd med-suu2: a device-only install restored from a backup must not
+    // onboard again; restoring a blank backup leaves onboarding pending.
+    it('a restore of a non-empty vault clears needs_first_run; a blank vault does not', async () => {
+        const { window } = env;
+        cancelReminderRecompute({ accountId: 'local' });
+        expect((await window.apiCall('/api/bootstrap')).needs_first_run).toBe(true);
+        const blank = { format: 'medtracker-vault', version: 1, exported_at: '2026-07-08T12:00:00Z', data: {} };
+        await window.CloudVault.importAll(JSON.stringify(blank), { win: window });
+        expect((await window.apiCall('/api/bootstrap')).needs_first_run).toBe(true);
+        await window.CloudVault.importAll(JSON.stringify(VAULT_FIXTURE), { win: window });
+        expect((await window.apiCall('/api/bootstrap')).needs_first_run).toBe(false);
+        // A later blank restore cannot clear the flag (firstrun is not vault-managed).
+        await window.CloudVault.importAll(JSON.stringify(blank), { win: window });
+        expect((await window.apiCall('/api/bootstrap')).needs_first_run).toBe(false);
+    });
+
     it('rejects a file that is not a v1 vault before anything is replaced', async () => {
         const { window } = env;
         await window.apiCall('/api/weight', 'POST', { weight: 80 });

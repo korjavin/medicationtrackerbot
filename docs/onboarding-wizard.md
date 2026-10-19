@@ -55,7 +55,9 @@ general `settings` record. Records are last-writer-wins per *whole record*: a de
 the completion op, later writing the shared singleton for `timezone` or `dismissed_tz_suggestion`, would
 upload a newer record with the flag missing and re-open the overlay everywhere. Nothing but
 `setFirstRunComplete` writes the `firstrun` record, and it only ever writes `true`. No migration, no new HTTP
-route.
+route. The one other writer is vault restore (bd med-suu2): importing a backup with user content writes the
+same `true` at the `clientTs: 0` floor (`web/domain/vault.js` `vaultToRecords`), so a restored account or
+device-only install does not onboard again; a blank backup leaves the flag untouched.
 
 | concern | decision |
 |---|---|
