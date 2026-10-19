@@ -112,6 +112,9 @@ export default async function localBackup(ctx) {
         m.entries = [...(m.entries || []), ...(await shell(`tar -tf '${f}' 2>&1`)).split('\n').filter(Boolean)];
       }
       if (!seen) throw new Error(`the local dir name is not in the backup set (not inspectable?): ${files.join(', ')}`);
+      // Every tar entry (apps/<pkg>/r/<path>, sp/ for prefs) must be on the include list.
+      const extra = m.entries.filter((e) => !/^apps\/[^/]+\/(_manifest|_meta|r\/app_webview\/Default\/IndexedDB\/https_appassets\.androidplatform\.net_0\.indexeddb\.(leveldb|blob)(\/.*)?|sp\/wg_trial\.xml)$/.test(e));
+      if (!m.entries.length || extra.length) throw new Error(`backup set entries outside the include list: ${extra.join(', ') || '(tar listing empty)'}`);
     });
 
     // 5. Wipe, restore, and allowlist what came back.
