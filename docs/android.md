@@ -479,17 +479,20 @@ them). It also polyfills `PublicKeyCredential.parse*OptionsFromJSON`, which
 the emulator image's WebView 113 lacks. The web code has no QA branches.
 
 The gate is [`src/debug/.../DebugHooks.kt`](../android/app/src/debug/java/com/example/medtracker/DebugHooks.kt):
-injected only when `BuildConfig.DEBUG` **and** the launch intent carries
-`--ez qaSoftAuthn true`, which only `adb shell am start` can set (a launcher
-tap never does); diag.xml then says `shell qa soft authenticator ON`. Release
+injected only when `BuildConfig.DEBUG`, the build's base is the placeholder
+`qa.test` (the QA APK), **and** the launch intent carries `--ez qaSoftAuthn
+true`, which the harness sets with `adb shell am start` (a launcher tap never
+does; `MainActivity` is exported, so the base check is what stops another app
+from sending the extra to a real-deployment debug build); diag.xml then says
+`shell qa soft authenticator ON`. Release
 builds compile [`src/release`'s no-op twin](../android/app/src/release/java/com/example/medtracker/DebugHooks.kt)
 and have neither the code nor the asset; android-qa.yml builds the release APK
 alongside and fails unless it has 0 `qa-softauthn` files and 0 dex mentions
 (step summary: *Release APK QA-hook check*). The owner's sideloaded **debug**
-APK also carries the asset, inert without the adb extra.
+APK also carries the asset, inert: its base is the real deployment, not `qa.test`.
 
 **`smoke`** (the agent's default scenario; it claims the run's one invite, so
-`all` runs it last): soft-authenticator launch → invite → signup wizard →
+`all` runs it last and it has no retry): soft-authenticator launch → invite → signup wizard →
 passkey → loss-ack → Emergency Kit (the native Save/Share dialog is
 screenshotted, dismissed with Back) → vault → onboarding wizard (screenshotted, Skip all) → Today, Meds, Vitals (`health`),
 Food, Settings → the add-BP sheet, a real tap on systolic → keyboard

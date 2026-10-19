@@ -4,7 +4,10 @@
 // relaunch unlocks from the warm cache. One invite per run, so this claims it: run it last.
 // Back steps are findings, not stoppers: they record PASS/FAIL and the scenario goes on.
 
-const TABS = [['today', 'today'], ['meds', 'meds'], ['vitals', 'health'], ['food', 'food'], ['settings', 'settings']];
+// ponytail: no retry — the passkey consumes the run's one invite; mint one per attempt if flakes bite.
+export const retry = false;
+
+const TABS =[['today', 'today'], ['meds', 'meds'], ['vitals', 'health'], ['food', 'food'], ['settings', 'settings']];
 
 export default async function smoke(ctx) {
   const r = (ctx.results.smoke = {});

@@ -150,10 +150,12 @@ try {
   log('settling'); await ctx.sleep(45_000);
   for (const name of names) {
     ctx.scenario = name;
-    const { default: run } = await import(`./scenarios/${name}.mjs`);
+    // A scenario that consumes the run's one invite exports retry = false (a retry would hit "already claimed").
+    const { default: run, retry = true } = await import(`./scenarios/${name}.mjs`);
+    const attempts = retry ? 2 : 1;
     // ponytail: one retry absorbs emulator flakiness (Play services dying under the app); the
     // failed attempt stays in the summary as "retried", so a real bug still shows twice.
-    for (let attempt = 1; attempt <= 2; attempt++) {
+    for (let attempt = 1; attempt <= attempts; attempt++) {
       log('scenario', name, 'attempt', attempt);
       const from = steps.length;
       try {
@@ -163,7 +165,7 @@ try {
         log(`scenario ${name} failed:`, e?.stack || e);
         const file = `${name}-FAILED${attempt}.png`;
         await device.screenshot({ path: join(shotsDir, file) }).then(() => shots.push(file), () => {});
-        if (attempt === 2) failed = true;
+        if (attempt === attempts) failed = true;
         else for (const s of steps.slice(from)) s.retried = true;
       } finally {
         await applyInputs().catch(() => {});
