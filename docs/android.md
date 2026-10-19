@@ -379,11 +379,10 @@ API-34 `google_apis` x86_64 emulator, and drives
 ([`run.mjs`](../android/qa/run.mjs); UiAutomator selectors for the native
 screens, `device.screenshot()` for the full screen incl. bars and keyboard).
 **Emulator results are discovery evidence, never sign-off** — the owner's phone
-stays the acceptance device. No server runs yet, so `*.qa.test` never resolves
-and *Open* lands on "Can't open your account".
+stays the acceptance device.
 
 ```bash
-gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-dark, native-fontscale, back-exit
+gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-dark, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe
 gh workflow run android-qa.yml --ref <branch> -f scenario=firstrun -f font_scale=1.3 -f dark=true -f landscape=true
 gh run download <run-id> -n android-qa-<scenario> -D /tmp/qa             # then Read the PNGs
 ```
@@ -406,8 +405,48 @@ workflow's `scenario` options. `ctx`: `device` (Playwright `AndroidDevice`),
 `shell(cmd)`, `shot(name)`, `step(name, fn)` (reported; a throw stops the
 scenario), `launch()` (cold start on first run), `openAccount(url)`,
 `inForeground()`, `attachPage()` (Playwright `page` on the shell's WebView, for
-DOM/console/CDP once a server answers), `log`. The dispatch inputs are
-re-applied after every scenario, so a scenario may change them freely.
+DOM/console/CDP), `openLink(url)`, `openClaim()` (cold start → the run's
+invite → `page` on the `/unlock` signup wizard), `claimUrl`, `results` (named
+findings for the summary), `log`. The dispatch inputs are re-applied after
+every scenario, so a scenario may change them freely.
+
+### Local cloud on the runner (bd med-nt9p.24)
+
+The web scenarios need a real account origin over https without touching
+production, so the job runs its own:
+
+```
+cmd/cloud :8080 (CLOUD_BASE_DOMAIN=qa.test, throwaway SESSION_SECRET + DB, one `admin invite` per run)
+  ← android/qa/tlsfront :443 (sudo; fresh CA + leaf for qa.test, *.qa.test and the invite host)
+  ← emulator: WebView flag --host-resolver-rules="MAP *.qa.test 10.0.2.2" (/data/local/tmp/webview-command-line)
+              + the CA in the user store (/data/misc/user/0/cacerts-added/<subject_hash_old>.0, via adb root)
+```
+
+`qa.test`, not `*.localhost`: `AccountUrl.parse` accepts https without a port
+only, and `schemeForHost` makes the WebAuthn origin http for `*.localhost`. The
+server itself is unchanged. The app trusts user CAs only through the
+**debug-source-set** `network_security_config.xml` (`<debug-overrides>`, merged
+in by `android/app/src/debug/AndroidManifest.xml`): release builds do not
+contain it, and debug-overrides are ignored by non-debuggable builds anyway. A
+debug APK sideloaded on a phone therefore trusts CAs the user installed
+themselves; release does not. `run.sh` writes the logcat count of DNS/TLS
+error lines to the step summary (expected 0); `cloud.log` and `tlsfront.log`
+are in the artifact.
+
+Scenarios on it: `claim-page` (invite → signup wizard with the page-coloured
+bands and the native "Use another invite" bar → its dialog → Cancel; default,
+font 1.3, dark), `not-found` (`nobody.qa.test` → "There is no account at …"),
+`external-link` (a `_blank` anchor and `location.href` to example.com leave the
+WebView URL unchanged and fire ACTION_VIEW — the image has Chrome, which takes
+it), `authn-probe` (below).
+
+**CDP virtual authenticator probe: FAIL** (run 2026-10-19):
+`WebAuthn.enable` → *"'WebAuthn.enable' wasn't found"* — Android WebView's
+DevTools does not expose the WebAuthn domain at all, so a CDP virtual
+authenticator cannot stand in for a passkey here. Part 3 (bd med-nt9p.25)
+therefore takes the debug-only soft-authenticator route. The probe stays in the
+suite (`results.authnProbe` in `qa-summary.json` and the step summary) so a
+WebView update that adds the domain shows up.
 
 ## Spike (med-nt9p.4): passkey PRF, Service Worker, IndexedDB in Android System WebView
 

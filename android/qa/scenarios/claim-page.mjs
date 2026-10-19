@@ -6,6 +6,7 @@ export default async function claimPage(ctx) {
     ['font-1.3', 'settings put system font_scale 1.3'],
     ['dark', 'cmd uimode night yes'],
   ]) {
+    await ctx.applyInputs(); // each variant changes one setting from the dispatch inputs
     if (cmd) await ctx.shell(cmd);
     await ctx.step(`invite opens the signup wizard (${label})`, () => ctx.openClaim());
     await ctx.shot(`wizard-${label}`);
