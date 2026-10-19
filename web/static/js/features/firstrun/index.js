@@ -249,19 +249,29 @@
         _askPendingTrial();
     }
 
-    // bd med-w6sx: the claim wizard's "Try the free trial" (web/cloud/js/signup.js
+    // bd med-w6sx: the claim wizard's trial step (web/cloud/js/signup.js
     // renderTrialStep) only records the choice — the consent record is vault
-    // data. Its second half is this: the real `ai` disclosure, the moment the app
-    // first opens. Asked once ('trial-asked'), whatever the answer;
+    // data, so its second half runs here, once ('trial-asked'), on first open;
     // screens/integrations.js reads the same key to skip its own trial choice.
+    // - 'trial-allowed' (bd med-nt9p.40): the wizard showed the `ai` disclosure
+    //   and the user allowed it — record that grant, ask nothing. Only if the
+    //   write fails does the dialog ask, so the trial is never on unconsented.
+    // - 'trial': a pre-med-nt9p.40 shell that showed no disclosure — ask.
     function _askPendingTrial() {
         let choice = null;
         try { choice = window.localStorage.getItem(TRIAL_CHOICE_KEY); } catch (_) { /* storage blocked */ }
-        if (choice !== 'trial') return;
+        if (choice !== 'trial' && choice !== 'trial-allowed') return;
         if (document.querySelector('meta[name="medtracker-trial-ai"]')?.content !== '1') return;
-        if (!window.TrialConsent || typeof window.TrialConsent.request !== 'function') return;
+        const consent = window.TrialConsent;
+        if (!consent || typeof consent.request !== 'function') return;
         try { window.localStorage.setItem(TRIAL_CHOICE_KEY, 'trial-asked'); } catch (_) { /* storage blocked */ }
-        window.TrialConsent.request('ai');
+        if (choice === 'trial' || typeof consent.grant !== 'function') {
+            consent.request('ai');
+            return;
+        }
+        Promise.resolve(consent.grant('ai'))
+            .catch(function () { return false; })
+            .then(function (stored) { if (stored !== true) consent.request('ai'); });
     }
 
     function dismiss() {

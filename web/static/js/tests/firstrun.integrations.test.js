@@ -524,7 +524,7 @@ describe('firstrun integrations screen in cloud mode with an operator trial', ()
 
     // bd med-w6sx: the claim wizard asked trial-or-keys next to Telegram; the
     // consent itself is vault data, so it completes here, on the app's first open.
-    it('a wizard "Try the free trial" asks the ai consent as soon as the overlay mounts, once', async () => {
+    it('a legacy wizard "trial" (pre-med-nt9p.40 shell, no disclosure shown) asks the ai consent as soon as the overlay mounts, once', async () => {
         const consent = { request: vi.fn(async () => true) };
         const { window, cleanup } = loadFlow({
             bootstrap: { needs_first_run: true }, cloud: true, trialAi: true, trialConsent: consent,
@@ -543,9 +543,75 @@ describe('firstrun integrations screen in cloud mode with an operator trial', ()
         } finally { cleanup(); }
     });
 
-    for (const choice of ['own-keys', 'skip']) {
+    // bd med-nt9p.40: the wizard now shows the `ai` disclosure word for word and
+    // stores 'trial-allowed' on Allow — that answer is the consent, so the app
+    // records it and asks nothing (owner: "answered for trial twice").
+    it('a wizard "Allow the free trial" is recorded on first open with no second question', async () => {
+        let granted = false;
+        const consent = {
+            request: vi.fn(async () => true),
+            grant: vi.fn(async (scope) => { granted = scope === 'ai'; return true; }),
+        };
+        const apiCall = vi.fn(async (url, method) => (url === '/api/settings/trial-consent' && method === 'GET'
+            ? { ai: granted ? true : null, voice: null, tg: null, anon: null, updated_at: 1 } : null));
+        const { window, document, cleanup } = loadFlow({
+            bootstrap: { needs_first_run: true }, cloud: true, trialAi: true, trialConsent: consent, apiCall,
+            wizardChoice: 'trial-allowed', initialStep: 'welcome',
+        });
+        try {
+            window.WGFirstRun.mount();
+            await settle();
+            expect(consent.grant).toHaveBeenCalledTimes(1);
+            expect(consent.grant).toHaveBeenCalledWith('ai');
+            expect(consent.request).not.toHaveBeenCalled();
+            expect(window.localStorage.getItem('wg-onboarding-trial-choice')).toBe('trial-asked');
+
+            // Walking on to the AI step: no trial choice there either — the
+            // granted consent carries it straight to done (resumed there, as a
+            // reload mid-flow would).
+            window.WGFirstRun.dismiss();
+            window.WGFirstRun.state.setStep('integrations');
+            window.WGFirstRun.mount();
+            await settle();
+            expect(document.querySelector('[data-firstrun-action="trial"]')).toBeNull();
+            expect(window.WGFirstRun.state.getStep()).toBe('done');
+            expect(consent.grant).toHaveBeenCalledTimes(1);
+            expect(consent.request).not.toHaveBeenCalled();
+        } finally { cleanup(); }
+    });
+
+    it('a wizard Allow whose grant cannot be stored falls back to the dialog — never on unconsented', async () => {
+        const consent = { request: vi.fn(async () => false), grant: vi.fn(async () => false) };
+        const { window, cleanup } = loadFlow({
+            bootstrap: { needs_first_run: true }, cloud: true, trialAi: true, trialConsent: consent,
+            wizardChoice: 'trial-allowed', initialStep: 'welcome',
+        });
+        try {
+            window.WGFirstRun.mount();
+            await settle();
+            expect(consent.grant).toHaveBeenCalledWith('ai');
+            expect(consent.request).toHaveBeenCalledTimes(1);
+            expect(consent.request).toHaveBeenCalledWith('ai');
+        } finally { cleanup(); }
+    });
+
+    it('a wizard Allow is not recorded where the operator has no trial key', async () => {
+        const consent = { request: vi.fn(async () => true), grant: vi.fn(async () => true) };
+        const { window, cleanup } = loadFlow({
+            bootstrap: { needs_first_run: true }, cloud: true, trialConsent: consent,
+            wizardChoice: 'trial-allowed', initialStep: 'welcome',
+        });
+        try {
+            window.WGFirstRun.mount();
+            await settle();
+            expect(consent.grant).not.toHaveBeenCalled();
+            expect(consent.request).not.toHaveBeenCalled();
+        } finally { cleanup(); }
+    });
+
+    for (const choice of ['own-keys', 'skip', 'trial-asked']) {
         it(`a wizard "${choice}" pops nothing up and the step opens on the key form`, async () => {
-            const consent = { request: vi.fn(async () => true) };
+            const consent = { request: vi.fn(async () => true), grant: vi.fn(async () => true) };
             const { window, document, cleanup } = loadFlow({
                 bootstrap: { needs_first_run: true }, cloud: true, trialAi: true, trialConsent: consent,
                 wizardChoice: choice,
@@ -554,6 +620,7 @@ describe('firstrun integrations screen in cloud mode with an operator trial', ()
                 window.WGFirstRun.mount();
                 await settle();
                 expect(consent.request).not.toHaveBeenCalled();
+                expect(consent.grant).not.toHaveBeenCalled();
                 expect(document.querySelector('[data-firstrun-action="trial"]')).toBeNull();
                 expect(document.getElementById('wg-firstrun-openai-api-key')).not.toBeNull();
             } finally { cleanup(); }

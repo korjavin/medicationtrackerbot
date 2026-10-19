@@ -187,5 +187,12 @@
         }
     }
 
-    window.TrialConsent = { request, retryAfterConsent };
+    // grant(scope): persist an Allow the user already gave on a screen that
+    // showed this exact disclosure but could not write the vault — the claim
+    // wizard's trial step (bd med-nt9p.40). No dialog; resolves true only when stored.
+    function grant(scope) {
+        return COPY[scope] ? persist(scope, true) : Promise.resolve(false);
+    }
+
+    window.TrialConsent = { request, retryAfterConsent, grant };
 })();
