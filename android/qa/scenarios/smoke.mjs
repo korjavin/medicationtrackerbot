@@ -38,6 +38,15 @@ export default async function smoke(ctx) {
     if (await skip.count()) { await ctx.shot('install-nudge'); await skip.click(); }
   });
   await ctx.step('vault opens', () => waitForVault(page));
+  // The onboarding wizard (WGFirstRun) covers the app on a fresh account: screenshot it, Skip all.
+  await ctx.step('onboarding wizard → Skip all', async () => {
+    const skipAll = page.locator('[data-firstrun-action="skip-all"]');
+    await skipAll.waitFor({ timeout: 20_000 });
+    await ctx.shot('onboarding');
+    await skipAll.click();
+    await skipAll.waitFor({ state: 'detached', timeout: 15_000 });
+    await sleep(1500);
+  }).catch(() => {});
   await ctx.shot('first-today');
 
   for (const [label, tab] of TABS) {
@@ -50,6 +59,7 @@ export default async function smoke(ctx) {
 
   await page.evaluate(() => window.switchTab('today'));
   const sheetOpen = () => page.evaluate(() => window.ModalManager._isVisible('bp-modal'));
+  r.imeUpBeforeSheet = await imeShown(ctx); // a keyboard left over from an earlier input is a finding
   await ctx.step('add-BP sheet opens', async () => {
     await page.evaluate(() => window.showBPRecordModal());
     await sleep(800);
