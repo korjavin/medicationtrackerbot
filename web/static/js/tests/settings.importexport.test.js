@@ -87,6 +87,24 @@ describe('Settings → Import/Export section', () => {
         for (const ext of ['.gz', '.age', '.json']) expect(accept).toContain(ext);
     });
 
+    it('both pickers also accept application/octet-stream so iOS leaves .age/.nxk selectable', () => {
+        // iOS maps accept to UTIs; .age/.nxk have none and grey out. octet-stream
+        // maps to public.data (any file); wrong picks are rejected after reading.
+        for (const id of ['importexport-import-file', 'importexport-nxk-file']) {
+            expect(env.document.getElementById(id).getAttribute('accept')).toContain('application/octet-stream');
+        }
+    });
+
+    it('a wrong file is rejected with a clear toast, nothing is replaced', async () => {
+        const { window, document } = env;
+        window.SyncManager = { showToast: vi.fn() };
+        window.CloudVault = { exportAll: vi.fn(), hasUserContent: async () => false,
+            importAll: vi.fn(async () => { throw new Error('Not a medtracker-vault v1 backup (got format "x", version 1)'); }) };
+        setFile(window, document.getElementById('importexport-import-file'), 'photo.json', '{"format":"x","version":1}');
+        await window.SettingsImportExport.import();
+        expect(window.SyncManager.showToast).toHaveBeenCalledWith(expect.stringMatching(/Not a medtracker-vault/), 'error');
+    });
+
     it('include-secrets checkbox is checked by default', () => {
         expect(env.document.getElementById('importexport-include-secrets').checked).toBe(true);
     });
