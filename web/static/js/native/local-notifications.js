@@ -37,11 +37,14 @@
             device: 'phone',
             settingsPath: 'Android Settings → Apps → Med Tracker → Notifications (and Alarms & reminders)',
             pushNote: 'This app sends reminders as Android notifications once your account is open. Turn them on in Settings → Notifications, or allow Med Tracker under Android Settings → Apps → Notifications and Alarms & reminders.',
+            // CloudVault.leaveAccount's answer when the shell predates account.leave (cloud-boot.js).
+            leaveFallback: 'Update Med Tracker from Google Play, or long-press its icon → Switch account, then choose Only on this device.',
         } : {
             os: 'iOS',
             device: 'iPhone',
             settingsPath: 'iOS Settings → Med Tracker → Notifications',
             pushNote: 'This app sends reminders as iPhone notifications once your account is open. Turn them on in Settings → Notifications, or allow Med Tracker in iOS Settings.',
+            leaveFallback: 'Update Med Tracker, or open iOS Settings → Med Tracker → Switch account, then choose Only on this device.',
         },
         isSupported: function () { return true; },
         permission: function () { return foundation.call('notifications.permission'); },

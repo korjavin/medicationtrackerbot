@@ -1026,6 +1026,47 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             }
         });
 
+        // bd med-nt9p.32.15: the Android shell leaves the account the same way;
+        // a shell older than account.leave (Play 0.1.170) rejects and keeps today's redirect.
+        it('in the Android app, a finished delete leaves the account instead of navigating', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                window.LocalNotifications = { ...(window.LocalNotifications || {}), __native: { platform: 'android' } };
+                const leaveAccount = vi.fn(async () => {});
+                window.CloudVault = { ...(window.CloudVault || {}), leaveAccount };
+                const baseDomainURL = vi.fn(() => 'https://app.example/');
+                await mountCloudWithDeleteModule(window, { baseDomainURL });
+                await confirmDelete(window, document);
+
+                await vi.waitFor(() => expect(leaveAccount).toHaveBeenCalledTimes(1));
+                expect(leaveAccount.mock.calls[0][0]).toBeUndefined();
+                expect(baseDomainURL).not.toHaveBeenCalled();
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        it('in an Android shell without account.leave, a finished delete falls back to the redirect', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                window.LocalNotifications = { ...(window.LocalNotifications || {}), __native: { platform: 'android' } };
+                const leaveAccount = vi.fn(async () => { throw new Error('unsupported: account.leave'); });
+                window.CloudVault = { ...(window.CloudVault || {}), leaveAccount };
+                const baseDomainURL = vi.fn(() => 'https://app.example/');
+                await mountCloudWithDeleteModule(window, { baseDomainURL });
+                await confirmDelete(window, document);
+
+                await vi.waitFor(() => expect(baseDomainURL).toHaveBeenCalled());
+                expect(leaveAccount).toHaveBeenCalledTimes(1);
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
         it('a failed delete shows an error and does not redirect', async () => {
             allowConsoleNoise();
             const { window, document, cleanup } = loadFrontendEnv();
@@ -1163,8 +1204,8 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
     // native first-run from Settings -> Account (not from the account's own
     // onboarding). Nothing is deleted on the server.
     describe('use this iPhone without an account', () => {
-        const mount = async (window, { platform = 'ios', leave = true } = {}) => {
-            if (platform) window.LocalNotifications = { ...(window.LocalNotifications || {}), __native: { platform } };
+        const mount = async (window, { platform = 'ios', leave = true, call, copy } = {}) => {
+            if (platform) window.LocalNotifications = { ...(window.LocalNotifications || {}), __native: { platform, call }, ...(copy ? { copy } : {}) };
             const leaveAccount = vi.fn(async () => {});
             window.CloudVault = { ...(window.CloudVault || {}), leaveAccount: leave ? leaveAccount : undefined };
             window.__MEDTRACKER_CLOUD__ = true;
@@ -1175,7 +1216,7 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
         };
         const hidden = (document) => document.querySelector('.wg-settings-leave-account').classList.contains('wg-settings-hidden');
 
-        it('shows only in the iOS app with leaveAccount', async () => {
+        it('shows only in an app shell with leaveAccount (Android: no shell.ops answer)', async () => {
             allowConsoleNoise();
             for (const opts of [{ platform: null }, { platform: 'android' }, { leave: false }]) {
                 const { window, document, cleanup } = loadFrontendEnv();
@@ -1186,6 +1227,53 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                     delete window.__MEDTRACKER_CLOUD__;
                     cleanup();
                 }
+            }
+        });
+
+        // bd med-nt9p.32.15: on Android the row waits for the shell to list
+        // account.leave (shell.ops); Play 0.1.170 rejects the probe and sees nothing new.
+        it('on Android stays hidden unless shell.ops lists account.leave', async () => {
+            allowConsoleNoise();
+            for (const call of [
+                vi.fn(async () => { throw new Error('unsupported: shell.ops'); }),
+                vi.fn(async () => ['ping', 'shell.ops', 'notifications.schedule']),
+            ]) {
+                const { window, document, cleanup } = loadFrontendEnv();
+                try {
+                    await mount(window, { platform: 'android', call });
+                    await vi.waitFor(() => expect(call).toHaveBeenCalledWith('shell.ops'));
+                    await new Promise((r) => setTimeout(r, 0));
+                    expect(hidden(document)).toBe(true);
+                } finally {
+                    delete window.__MEDTRACKER_CLOUD__;
+                    cleanup();
+                }
+            }
+        });
+
+        it('on Android with account.leave, shows the phone row and leaves for local mode', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                const call = vi.fn(async () => ['ping', 'shell.ops', 'account.leave']);
+                const leaveAccount = await mount(window, { platform: 'android', call, copy: { device: 'phone' } });
+                await vi.waitFor(() => expect(hidden(document)).toBe(false));
+                expect(call).toHaveBeenCalledTimes(1);
+                expect(document.getElementById('settings-leave-account-btn').textContent).toMatch(/Use this phone without an account/);
+
+                document.getElementById('settings-leave-account-btn').click();
+                const dialog = await vi.waitFor(() => {
+                    const d = document.querySelector('mt-modal.mt-confirm-modal');
+                    if (!d) throw new Error('no dialog open');
+                    return d;
+                });
+                expect(dialog.textContent).toMatch(/Use this phone without an account\?/);
+                expect(dialog.textContent).not.toMatch(/iPhone/);
+                dialog.querySelector('.mt-confirm-modal__confirm').click();
+                await vi.waitFor(() => expect(leaveAccount).toHaveBeenCalledWith({ then: 'local' }));
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
             }
         });
 
