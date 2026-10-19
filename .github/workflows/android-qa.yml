@@ -12,7 +12,7 @@ on:
       scenario:
         description: "Scenario (android/qa/scenarios/<name>.mjs), or all of them"
         type: choice
-        options: [all, firstrun, native-dark, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe, smoke, local-spike]
+        options: [all, firstrun, native-dark, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe, smoke, local-spike, local-backup]
         default: all
       font_scale:
         description: "System font scale applied before each scenario"

@@ -156,7 +156,7 @@ class LocalSpikeActivity : Activity() {
         val backup = applicationInfo.flags and ApplicationInfo.FLAG_ALLOW_BACKUP != 0
         val lines = mutableListOf(
             "native · versionCode ${packageManager.getPackageInfo(packageName, 0).longVersionCode} · Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}) · launch $launch",
-            "origin $ORIGIN · allowBackup=$backup (debug manifest + local_spike_backup_rules.xml)",
+            "origin $ORIGIN · allowBackup=$backup (main manifest + data_extraction_rules.xml)",
         )
         synchronized(log) { lines += log }
         val root = File(dataDir, "app_webview")

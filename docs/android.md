@@ -713,13 +713,10 @@ same page, same check numbers.
   `{id, value}`), plus a document-start script on the same rule (chrome.js's
   mechanism). Camera: `VIDEO_CAPTURE` granted to that origin only, after the
   runtime prompt.
-- **Backup (debug only):** the debug manifest sets `allowBackup="true"` and
-  [`local_spike_backup_rules.xml`](../android/app/src/debug/res/xml/local_spike_backup_rules.xml)
-  includes only `app_webview/Default/IndexedDB/https_appassets.androidplatform.net_0.indexeddb.{leveldb,blob}`
-  (cloud backup with `disableIfNoEncryptionCapabilities`, and device transfer).
-  The install id the page shows as `vendor` lives in `no_backup`, so a restore
-  shows the old launches under a new vendor id. Production rules are
-  med-nt9p.32.5.
+- **Backup:** the spike ran on a debug-only rules file; the shipped rules
+  replaced it ([Local mode backup](#local-mode-backup-bd-med-nt9p325)), and the
+  spike now runs on those. The install id the page shows as `vendor` lives in
+  `no_backup`, so a restore shows the old launches under a new vendor id.
 - **Page changes are Android-only branches** in `ios/LocalSpike/js/main.js`
   (iOS bridge first, unchanged): the Android bridge, #8 compares against
   `env.host`, #4/#12 are INFO (blob downloads are Files.kt's; no
@@ -784,6 +781,53 @@ Emulator = discovery evidence; the owner's phone is the GO.
 QA runs: API 34 `39197391342`, API 35 `39198183410`.
 
 **Verdict:** emulator GO candidate; GO/NO-GO is the owner's after the phone run.
+
+## Local mode backup (bd med-nt9p.32.5)
+
+Owner decision (b): the app opts into Auto Backup (`allowBackup="true"`) with
+**include-only** rules, so Android backs up exactly what is listed and
+nothing else —
+[`data_extraction_rules.xml`](../android/app/src/main/res/xml/data_extraction_rules.xml)
+(Android 12+, both `<cloud-backup disableIfNoEncryptionCapabilities="true">`
+and `<device-transfer>`) and the same list in
+[`backup_rules.xml`](../android/app/src/main/res/xml/backup_rules.xml)
+(`fullBackupContent`, so no older-rules path backs up the whole data dir):
+
+| In the backup set | Why |
+|---|---|
+| `app_webview/Default/IndexedDB/https_appassets.androidplatform.net_0.indexeddb.leveldb` (+ `.blob`) | the "Only on this device" records (dir names from the spike's `run-as` listing) |
+| `shared_prefs/wg_trial.xml` | the Android trial pass + counter (bd med-nt9p.32.8.4): Keystore keys never restore, so a reinstall rejoins its trial bucket only through this file |
+
+Everything else is **out**: every account origin's WebView data (decrypted
+records, the warm-unlock key — cloud mode's posture is unchanged), the shared
+`Local Storage` leveldb (all origins write it), and every other prefs file
+(`shell` = account host, `diag` = PII log, `reminders`, `health` anchors). So
+a restore loses UI prefs and Health Connect anchors; the import re-reads from
+scratch on missing anchors, as after an iOS restore. Never widen the rules to
+`app_webview` or `shared_prefs`.
+
+Limits the copy states: Google's cloud backup needs the phone's backup
+encryption (screen lock) and **silently skips an app over 25 MB**; a
+device-to-device transfer has no cap. The weekly export nudge stays.
+
+**Emulator proof** — QA scenario `local-backup` (not in `all`, it ends with
+`pm clear`): a cloud session writes an IndexedDB db + Local Storage key on the
+account origin (prefs too), the local origin writes a marker →
+`bmgr backupnow` on the local transport → the backup set's tar entries and a
+grep for the account host / `Local Storage` / `shell.xml` / `diag.xml` →
+`pm clear` → `bmgr restore` → the restored data dir must hold only the
+included paths → the local marker reads back. Local data comes from the debug
+*Local spike* page on the same origin until shell local mode (bd
+med-nt9p.32.4) lands.
+
+```bash
+gh workflow run android-qa.yml --ref <branch> -f scenario=local-backup
+```
+
+| Run | Result |
+|---|---|
+| Emulator API 34 | pending |
+| Owner phone (D2D or Google One restore) | pending — owner action, record here |
 
 ## Reviewer access (bd med-nt9p.12)
 
