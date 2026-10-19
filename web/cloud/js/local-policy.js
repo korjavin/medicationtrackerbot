@@ -164,6 +164,71 @@ export function startLocalHealthImport({ ctx, records, win }) {
   });
 }
 
+// Settings → App lock (bd med-nt9p.32.9): the Android shell's optional lock
+// (android/.../LocalLock.kt). iOS keeps its toggle in iPhone Settings and the
+// web has none, so only the Android shell is asked; the row mounts when it
+// answers lock.status { on, available } and the phone has a screen lock (or
+// the lock is already on, so it can be turned off). lock.set { on } shows the
+// phone's own check and resolves true once the choice applied.
+export async function mountLocalLockRow({ win }) {
+  const native = shellNative(win);
+  if (!native || native.platform !== 'android') return null;
+  let status = null;
+  try { status = await native.call('lock.status'); } catch { return null; }
+  if (!status || (!status.on && !status.available)) return null;
+  const doc = win.document;
+  const home = doc.querySelector('#settings-view .wg-settings-home');
+  if (!home || doc.getElementById('settings-local-lock')) return null;
+
+  const group = doc.createElement('div');
+  group.className = 'wg-list wg-local-only';
+  const row = doc.createElement('div');
+  row.id = 'settings-local-lock';
+  row.className = 'wg-setting';
+  const lead = doc.createElement('span');
+  lead.className = 'wg-row__lead';
+  const ico = doc.createElement('i');
+  ico.className = 'wg-ico';
+  ico.dataset.icon = 'lock';
+  lead.appendChild(ico);
+  const body = doc.createElement('span');
+  body.className = 'wg-setting__body';
+  const title = doc.createElement('span');
+  title.className = 'wg-setting__title';
+  title.textContent = 'App lock';
+  const desc = doc.createElement('span');
+  desc.className = 'wg-setting__desc';
+  desc.textContent = 'Asks for your fingerprint, face or screen lock each time you open Med Tracker. It hides the app; it does not encrypt your records, and reminders on the lock screen still show.';
+  body.append(title, desc);
+  const toggle = doc.createElement('label');
+  toggle.className = 'wg-toggle';
+  const input = doc.createElement('input');
+  input.type = 'checkbox';
+  input.id = 'settings-local-lock-toggle';
+  input.className = 'wg-toggle__input';
+  input.setAttribute('role', 'switch');
+  input.setAttribute('aria-label', 'App lock');
+  input.checked = status.on === true;
+  input.addEventListener('change', async () => {
+    const want = input.checked;
+    input.disabled = true;
+    try {
+      if ((await native.call('lock.set', { on: want }).catch(() => false)) !== true) input.checked = !want;
+    } finally {
+      input.disabled = false;
+    }
+  });
+  toggle.appendChild(input);
+  row.append(lead, body, toggle);
+  group.appendChild(row);
+  // Right under the "On this device only" indicator.
+  const indicator = doc.getElementById('settings-local-mode')?.closest('.wg-list');
+  if (indicator) indicator.after(group);
+  else home.prepend(group);
+  if (win.WGIcons && typeof win.WGIcons.hydrate === 'function') win.WGIcons.hydrate(group);
+  return group;
+}
+
 // The shell's App Attest support (window.Attest, ios/App/Attest.swift):
 // { supported, base, attested }, or null where there is none (the web, the
 // Simulator, a stub, a locked shell).

@@ -806,6 +806,57 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         }
         expect(offDevice()).toEqual([]);
     });
+
+    // bd med-nt9p.32.9: Settings → App lock is the Android shell's optional
+    // lock. The boot (on 'ios' here) never asks; the row mounts only when the
+    // Android shell answers lock.status, and a refused lock.set flips it back.
+    it('Settings → App lock: Android shell only, under the local-mode indicator, refused toggle flips back', async () => {
+        const { window, document } = env;
+        const { mountLocalLockRow } = await import('../../../cloud/js/local-policy.js');
+        expect(bridge.mock.calls.some(([op]) => String(op).startsWith('lock.'))).toBe(false);
+        expect(document.getElementById('settings-local-lock')).toBeNull();
+
+        const local = window.LocalNotifications;
+        local.__native.platform = 'android';
+        let status = { on: false, available: false };
+        let allow = true;
+        bridge.mockImplementation(async (op) => {
+            if (op === 'lock.status') return status;
+            if (op === 'lock.set') return allow;
+            return null;
+        });
+        // No screen lock and the lock off: nothing to offer.
+        expect(await mountLocalLockRow({ win: window })).toBeNull();
+
+        status = { on: false, available: true };
+        const group = await mountLocalLockRow({ win: window });
+        expect(group).not.toBeNull();
+        expect(group.previousElementSibling.querySelector('#settings-local-mode')).not.toBeNull();
+        const input = document.getElementById('settings-local-lock-toggle');
+        expect(input.checked).toBe(false);
+        expect(await mountLocalLockRow({ win: window })).toBeNull(); // once
+
+        input.checked = true;
+        input.dispatchEvent(new window.Event('change'));
+        await vi.waitFor(() => expect(input.disabled).toBe(false));
+        expect(bridge).toHaveBeenCalledWith('lock.set', { on: true });
+        expect(input.checked).toBe(true);
+
+        allow = false;
+        input.checked = false;
+        input.dispatchEvent(new window.Event('change'));
+        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('lock.set', { on: false }));
+        await vi.waitFor(() => expect(input.checked).toBe(true));
+
+        group.remove();
+        for (const platform of ['ios', 'web']) {
+            local.__native.platform = platform;
+            bridge.mockClear();
+            expect(await mountLocalLockRow({ win: window })).toBeNull();
+            expect(bridge).not.toHaveBeenCalled();
+        }
+        expect(offDevice()).toEqual([]);
+    });
 });
 
 // bd med-o7zq.16 — the anonymous trial is one opt-in switch (the `anon` trial

@@ -980,8 +980,8 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   a backup file regularly; AI and food search need your
   own keys, voice/Telegram/shared food database need an account; the invite
   link again) with **Start** (stores `wgLocalMode=true`, clears reminders,
-  opens the bundled app) and **Back** (system Back too). No biometric lock
-  yet (`.9`).
+  opens the bundled app) and **Back** (system Back too). An optional
+  **Lock** switch sits above Start ([Lock](#local-mode-lock-bd-med-nt9p329)).
 - **One vault at a time:** reminders (`Notifications`), their taps
   (`https://<vault>/?tab=…`), file grants and camera/mic (`Files`) and the
   bridge all follow the open vault: the account host, or the asset host in
@@ -1002,6 +1002,8 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   | `setEgressHosts {hosts}` | `LocalOrigin.validHosts` (≤ 8 bare DNS names, whole list or `invalid hosts`), stored under `wgLocalEgressHosts`; replies `{changed}` — the page reloads itself when true and the next document's CSP `connect-src` lists the hosts |
   | `local.reset` | the page erased its storage: removes the host mirror, clears reminders, replies `true` |
   | `local.leave` | replies `true`, then Switch account (first run) |
+  | `lock.status` | `{on, available}`: the lock's state, and whether the phone has a screen lock ([Lock](#local-mode-lock-bd-med-nt9p329)) |
+  | `lock.set {on}` | the phone's own check, then the choice; `true` once applied, `false` when refused or cancelled |
 
   `notifications.*` and `health.*` answer in both modes; `account.leave` is
   iOS-only (the web side never sends it on Android). The `attest.*` ops are
@@ -1012,6 +1014,48 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   `[a-z0-9-]`, `LocalOrigin.qaHome`, else the root). Release compiles the
   no-op twin; `android-qa.yml`'s release check counts `wgQAScene` in its dex.
   `LocalOriginTest` covers the scene parser and the bridge gating.
+
+### Local mode: lock (bd med-nt9p.32.9)
+
+Optional and **off by default** — the twin of iOS `LocalLock.swift`
+(med-o7zq.8), in
+[`LocalLock.kt`](../android/app/src/main/java/com/example/medtracker/LocalLock.kt)
+(pure state, `LocalLockTest`) and `MainActivity.kt`. A UI lock, not
+encryption; reminders on the lock screen still show. Local mode only: an
+account has its passkey, and cloud mode never shows or checks it.
+
+- **Turning it on/off:** the intro's *Lock with fingerprint, face or screen
+  lock* switch (shown when the phone has a screen lock, or the lock is
+  already on), and **Settings → App lock** in the app (`local-policy.js`
+  `mountLocalLockRow`, Android shell only; iOS keeps its toggle in iPhone
+  Settings). Either way the change applies only after the phone's own check
+  (framework `BiometricPrompt`, `BIOMETRIC_WEAK | DEVICE_CREDENTIAL`, no new
+  dependency); turning on needs a screen lock. Stored as the `shell` pref
+  `wgLocalLock`: absent on every install before it, so an upgrade never
+  locks anyone out. Not in the backup rules, so a restored phone starts off.
+- **Lifecycle:** locked at launch and on every `onStop` (Home, Recents, a
+  call, another app, the browser, the screen going off) except, while the
+  screen is on, the app's own screens — what it starts through
+  `startActivityForResult` / `startIntentSender` (file picker, save, share,
+  print, the exact-alarm Settings page) — and the phone's screen-lock check.
+  Permission screens are not exempt (`requestPermissions` is final): the
+  return from Health Connect's asks to unlock. The next `onResume` prompts
+  **once**; a cancel
+  leaves the lock screen (*Med Tracker is locked* → *Unlock*), no prompt
+  loop; a result from before a background is dropped.
+- **While locked:** the WebView is detached from the window (the page is
+  hidden, so `visibilitychange` work waits), every load is deferred, a
+  reminder tap is kept and opened after the unlock, Files' bridge ignores
+  the page, and every `wgNative` op answers `locked`. While the lock is on,
+  `setRecentsScreenshotEnabled(false)` keeps the app-switcher snapshot
+  blank; no `FLAG_SECURE`, so screenshots (and the QA harness) still work.
+- **No screen lock any more** (removed after the lock went on): the check
+  passes — the lock never strands the only copy of the records.
+- **Known gap:** leaving the app *from* one of its own picker/print/share
+  screens with the screen on locks only at the next stop (a ponytail note
+  in `onStop`); the screen going off there still locks (an `ACTION_SCREEN_OFF`
+  receiver, registered only while the lock is on). A share sheet over the
+  page is not dismissed.
 
 ### Device check (CI debug APK, local mode)
 
@@ -1034,6 +1078,11 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
    file → *Switch account* → *Only on this device* → *Start*: the account
    shows the records, and the local records are intact
    ([Moving to a cloud account](#moving-to-a-cloud-account-bd-med-nt9p3210)).
+10. Lock (a phone with a screen lock): intro switch on → *Start* asks for the
+    fingerprint/PIN; Home and back → one prompt, cancel → lock screen, no
+    loop; *Unlock* opens it. App switcher shows no data. Settings → App lock
+    off asks once more. A reminder tap while locked opens its section after
+    the unlock.
 
 ### Moving to a cloud account (bd med-nt9p.32.10)
 

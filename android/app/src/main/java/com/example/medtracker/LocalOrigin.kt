@@ -21,6 +21,8 @@ object LocalOrigin {
         "setEgressHosts", "local.reset", "local.leave",
         // The anonymous trial (bd med-nt9p.32.8.4, Attest.kt): an account page never reaches it.
         "attest.status", "attest.enroll", "attest.setPass", "attest.assert",
+        // The optional app lock's Settings row (bd med-nt9p.32.9, LocalLock.kt).
+        "lock.status", "lock.set",
     )
 
     /** The bridge's caller gate: only the open vault's own top-level https page (the account host, or HOST in local mode). */
