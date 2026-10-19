@@ -4,9 +4,12 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.app.KeyguardManager
 import android.content.ActivityNotFoundException
+import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.IntentSender
 import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
@@ -127,6 +130,18 @@ class MainActivity : Activity() {
     private var outbound = false
     /** The phone's check is up; its screen-lock screen stops this activity too. */
     private var prompting = false
+    /**
+     * The screen went off: locks even while one of this app's own screens is up, when this
+     * activity is already stopped and gets no second onStop. Registered only while the lock is on.
+     */
+    private val screenOff = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            outbound = false
+            lock.background()
+            applyLock()
+        }
+    }
+    private var screenOffRegistered = false
 
     /** window.Health's health.* ops (bd med-nt9p.8). */
     private val health by lazy { HealthConnect(this) }
@@ -182,6 +197,7 @@ class MainActivity : Activity() {
      * The lock closes on every stop (bd med-nt9p.32.9) — Home, Recents, a call, another app, the
      * screen going off — except for this app's own file picker, share, print and Settings screens
      * and the phone's screen-lock check, while the screen is on.
+     * The screen going off on one of them locks through [screenOff].
      * ponytail: leaving the app from one of those screens locks only at the next stop; telling
      * that apart needs tracking other apps' activities. Permission screens (requestPermissions is
      * final) are not exempt: the return from one asks to unlock.
@@ -241,6 +257,7 @@ class MainActivity : Activity() {
     private fun sectionUrl(section: String) = vaultHost?.let { "https://$it/?tab=$section" }
 
     override fun onDestroy() {
+        if (screenOffRegistered) unregisterReceiver(screenOff)
         health.close()
         attest.close()
         web.destroy()
@@ -793,6 +810,11 @@ class MainActivity : Activity() {
     private fun applyLock() {
         // No app-switcher snapshot while the lock is on (screenshots, and so the QA harness, still work).
         setRecentsScreenshotEnabled(!(local && lock.on))
+        if (lock.on != screenOffRegistered) {
+            if (lock.on) registerReceiver(screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF), RECEIVER_NOT_EXPORTED)
+            else unregisterReceiver(screenOff)
+            screenOffRegistered = lock.on
+        }
         unlockButton.isEnabled = lock.state != LocalLock.State.UNLOCKING
         val hide = concealed
         if (hide == (lockView.visibility == View.VISIBLE)) return

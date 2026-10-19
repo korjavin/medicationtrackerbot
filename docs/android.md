@@ -1053,7 +1053,9 @@ account has its passkey, and cloud mode never shows or checks it.
   passes — the lock never strands the only copy of the records.
 - **Known gap:** leaving the app *from* one of its own picker/print/share
   screens with the screen on locks only at the next stop (a ponytail note
-  in `onStop`); a share sheet over the page is not dismissed.
+  in `onStop`); the screen going off there still locks (an `ACTION_SCREEN_OFF`
+  receiver, registered only while the lock is on). A share sheet over the
+  page is not dismissed.
 
 ### Device check (CI debug APK, local mode)
 
