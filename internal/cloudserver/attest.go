@@ -223,11 +223,24 @@ func (a *AttestAPI) SetVoiceRelay(relay *VoiceLLMRelayAPI) {
 // checked by ServeHTTP): a relay, a voice budget, the operator's ElevenLabs
 // agent AND trial AI (the relay answers the turns with it).
 func (a *AttestAPI) voiceConfigured(w http.ResponseWriter) bool {
-	if a.voice != nil && a.cfg.VoiceLifetime > 0 && a.trial.cfg.TrialVoiceConfigured() && a.trial.cfg.TrialAIConfigured() {
+	if a.voiceOn() {
 		return true
 	}
 	writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "voice_not_configured"})
 	return false
+}
+
+func (a *AttestAPI) voiceOn() bool {
+	return a.voice != nil && a.cfg.VoiceLifetime > 0 && a.trial.cfg.TrialVoiceConfigured() && a.trial.cfg.TrialAIConfigured()
+}
+
+// voiceLimits are the operator's voice budgets for the client's copy (bd
+// med-o7zq.28), so a TRIAL_ANON_VOICE_* change needs no app release.
+// Additive fields: older builds ignore them.
+func (a *AttestAPI) voiceLimits(resp map[string]any) {
+	resp["voice_lifetime_seconds"] = a.cfg.VoiceLifetime
+	resp["voice_daily_seconds"] = a.cfg.VoiceDaily
+	resp["voice_call_max_seconds"] = a.cfg.VoiceCallMax
 }
 
 // voiceStart is the attested POST /api/attest/voice/start (empty body; the
@@ -296,10 +309,12 @@ func (a *AttestAPI) voiceStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("attest voice start", "install", keyID, "granted_seconds", grant)
-	writeJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"signed_url": signedURL, "call": call, "granted_seconds": grant,
 		"remaining_seconds": remaining, "daily_remaining_seconds": dayRemaining,
-	})
+	}
+	a.voiceLimits(resp)
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // voiceDevice is the anonymous call's device leg (WebSocket upgrade, token in
@@ -437,7 +452,7 @@ func (a *AttestAPI) enroll(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	// Idempotent re-enroll: the key is already granted, no DeviceCheck call.
 	if in, err := a.store.AttestInstall(ctx, req.KeyID); err == nil {
-		a.enrolled(w, in.Used, "")
+		a.enrolled(ctx, w, in.KeyID, in.Used, "")
 		return
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		slog.Error("attest enroll lookup failed", "error", err)
@@ -478,7 +493,7 @@ func (a *AttestAPI) enroll(w http.ResponseWriter, r *http.Request) {
 	if err := a.store.InsertAttestInstall(ctx, install); err != nil {
 		// A concurrent enroll of the same key won the insert.
 		if in, lerr := a.store.AttestInstall(ctx, req.KeyID); lerr == nil {
-			a.enrolled(w, in.Used, "")
+			a.enrolled(ctx, w, in.KeyID, in.Used, "")
 			return
 		}
 		slog.Error("attest enroll insert failed", "error", err)
@@ -496,7 +511,7 @@ func (a *AttestAPI) enroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("attest enroll granted", "env", env, "second_grant", bit0)
-	a.enrolled(w, 0, pass)
+	a.enrolled(ctx, w, install.KeyID, 0, pass)
 }
 
 // rejoin binds a freshly attested key to the bucket its trial pass names (bd
@@ -528,7 +543,7 @@ func (a *AttestAPI) rejoin(w http.ResponseWriter, r *http.Request, install cloud
 		return
 	}
 	slog.Info("attest enroll rejoined", "env", install.Env)
-	a.enrolled(w, in.Used, "")
+	a.enrolled(ctx, w, in.KeyID, in.Used, "")
 }
 
 // trialPassBytes is the trial pass secret's size (256 bits of crypto/rand).
@@ -570,13 +585,32 @@ func (a *AttestAPI) passBucket(ctx context.Context, pass string) (string, error)
 }
 
 // enrolled answers a granted key. pass is set only for a fresh bucket.
-func (a *AttestAPI) enrolled(w http.ResponseWriter, used int, pass string) {
+// With anonymous voice on it also carries the bucket's voice seconds left and
+// the voice limits (bd med-o7zq.28), so Settings shows the minutes before any
+// call — a rejoin included.
+func (a *AttestAPI) enrolled(ctx context.Context, w http.ResponseWriter, keyID string, used int, pass string) {
 	remaining := max(a.cfg.Lifetime-used, 0)
 	w.Header().Set("X-Trial-Remaining", strconv.Itoa(remaining))
 	a.setNextChallenge(w)
 	resp := map[string]any{"remaining": remaining, "daily": a.cfg.Daily}
 	if pass != "" {
 		resp["pass"] = pass
+	}
+	if a.voiceOn() {
+		if life, day, err := a.store.AttestVoiceUsage(ctx, keyID, time.Now()); err != nil {
+			// The grant stands; Settings just shows the minutes after a call.
+			slog.Warn("attest enroll voice usage lookup failed", "error", err)
+		} else {
+			// Same arithmetic as cloudstore.ReserveAttestVoice.
+			lifeLeft := max(a.cfg.VoiceLifetime-life, 0)
+			dayLeft := lifeLeft
+			if a.cfg.VoiceDaily > 0 {
+				dayLeft = min(max(a.cfg.VoiceDaily-day, 0), lifeLeft)
+			}
+			resp["voice_remaining_seconds"] = lifeLeft
+			resp["voice_daily_remaining_seconds"] = dayLeft
+			a.voiceLimits(resp)
+		}
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

@@ -858,6 +858,39 @@ func TestAttestRejoinVoice(t *testing.T) {
 	if e.voiceUsed(k1) != 2*attestDefaultVoiceCallMax {
 		t.Fatalf("bucket voice used: %d", e.voiceUsed(k1))
 	}
+	// bd med-o7zq.28: a rejoin answers the bucket's voice seconds left and
+	// the limits, so Settings shows the minutes before any call.
+	e.reapNow(out.Call)
+	e.attest.cfg.VoiceDaily = 300
+	k3 := attestKey(t)
+	rec = e.enrollPass(k3, attestTestAppID, e.challenge(), "tok-V3", pass)
+	var got map[string]int
+	_ = json.Unmarshal(rec.Body.Bytes(), &got)
+	want := map[string]int{
+		"voice_remaining_seconds":       600 - 2*attestDefaultVoiceCallMax,
+		"voice_daily_remaining_seconds": 300 - 2*attestDefaultVoiceCallMax,
+		"voice_lifetime_seconds":        600,
+		"voice_daily_seconds":           300,
+		"voice_call_max_seconds":        attestDefaultVoiceCallMax,
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Fatalf("rejoin %s = %d, want %d (%s)", k, got[k], v, rec.Body.String())
+		}
+	}
+	if !strings.Contains(mustRec(e.voiceStart(k3, 1)).Body.String(), `"voice_call_max_seconds":120`) {
+		t.Fatal("voice start carries no call max")
+	}
+}
+
+// Voice off: the enroll body carries no voice fields (older builds and the
+// copy treat "absent" as "no voice trial").
+func TestAttestEnrollNoVoiceFields(t *testing.T) {
+	e := newAttestEnv(t, 10, 0, 0)
+	rec := e.enroll(attestKey(t), attestTestAppID, e.challenge(), "tok-N")
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "voice_") {
+		t.Fatalf("enroll: %d %s", rec.Code, rec.Body.String())
+	}
 }
 
 func mustRec(rec *httptest.ResponseRecorder, _ voiceStartResp) *httptest.ResponseRecorder { return rec }

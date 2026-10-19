@@ -830,8 +830,11 @@ describe('local-only mode anonymous trial opt-in (med-o7zq.16)', () => {
         // Voice (bd med-o7zq.23): what goes where, and the minutes.
         expect(modal.textContent).toMatch(/voice calls/i);
         expect(modal.textContent).toMatch(/ElevenLabs account/);
-        expect(modal.textContent).toMatch(/10 free minutes of voice calls on this iPhone/);
-        expect(modal.textContent).toMatch(/each call uses up to 2 minutes/);
+        // Shown before the grant, so no numbers: the limits are the server's
+        // (bd med-o7zq.28), shown in Settings once granted.
+        expect(modal.textContent).toMatch(/free minutes of voice calls on this iPhone, with a daily limit/);
+        expect(modal.textContent).toMatch(/each call uses its full length limit when it starts/);
+        expect(modal.textContent).not.toMatch(/\d+ (free )?minutes/);
         modal.querySelector('[data-trial-consent-choice="allow"]').click();
         await turningOn;
 
@@ -1071,7 +1074,8 @@ describe('local-only mode trial voice calls (med-o7zq.23)', () => {
         FakeSocket.instances = [];
         vi.stubGlobal('WebSocket', FakeSocket);
         startReply = () => new Response(JSON.stringify({
-            signed_url: SIGNED, call: 'tok-1', granted_seconds: 120, remaining_seconds: 480, daily_remaining_seconds: 180,
+            signed_url: SIGNED, call: 'tok-1', granted_seconds: 300, remaining_seconds: 480, daily_remaining_seconds: 180,
+            voice_lifetime_seconds: 1200, voice_daily_seconds: 600, voice_call_max_seconds: 300,
         }), { status: 200 });
         const recorder = vi.fn(async (url, init = {}) => {
             fetched.push({ url: String(url), method: init.method || 'GET', headers: init.headers || {} });
@@ -1196,12 +1200,12 @@ describe('local-only mode trial voice calls (med-o7zq.23)', () => {
         sock.fireClose(4429);
         await vi.waitFor(() => expect(conv.endSession).toHaveBeenCalled());
         await vi.waitFor(() => expect(bar.querySelector('.wg-callbar__error').textContent)
-            .toBe('Call time is up — each free call lasts up to 2 minutes. Call again to keep talking.'));
+            .toBe('Call time is up — each free call lasts up to 5 minutes. Call again to keep talking.'));
         expect(FakeSocket.instances).toHaveLength(1); // no redial
 
         await env.window.SettingsIntegrations._renderLocalTrial();
         expect(env.document.getElementById('integrations-local-trial-status').textContent)
-            .toContain('Voice: 8 min left (each call uses up to 2 min).');
+            .toContain('Voice: 8 min left (up to 10 min a day; each call uses up to 5 min).');
     });
 
     it('on: a 4429 close on the last minutes ends the session with the minutes-used-up copy', async () => {
@@ -1319,6 +1323,29 @@ describe('local-only mode trial pass across reinstalls (med-o7zq.26)', () => {
         // The enroll finished (its body is in the Settings memo): no pass to keep.
         await vi.waitFor(() => expect(JSON.parse(env.window.localStorage.getItem('wg:local-trial'))).toMatchObject({ daily: 50 }));
         expect(env.window.Attest.setPass).not.toHaveBeenCalled();
+    });
+
+    it('a rejoin shows the voice minutes left in Settings before any call, from the server limits (med-o7zq.28)', async () => {
+        env.window.Attest.enroll = vi.fn(async () => ({
+            keyId: 'key-2', attestation: 'QQ==', deviceToken: 'RA==', pass: 'bucket.secret',
+        }));
+        enrollReply = () => new Response(JSON.stringify({
+            remaining: 120, daily: 50, voice_remaining_seconds: 420, voice_daily_remaining_seconds: 300,
+            voice_lifetime_seconds: 600, voice_daily_seconds: 300, voice_call_max_seconds: 300,
+        }), { status: 200 });
+        await trialOn();
+        await vi.waitFor(() => expect(JSON.parse(env.window.localStorage.getItem('wg:local-trial')))
+            .toMatchObject({ voiceRemaining: 420, voiceCallMax: 300 }));
+        await env.window.SettingsIntegrations._renderLocalTrial();
+        expect(env.document.getElementById('integrations-local-trial-status').textContent)
+            .toContain('Voice: 7 min left (up to 5 min a day; each call uses up to 5 min).');
+    });
+
+    it('a server without anonymous voice adds no voice line on enroll', async () => {
+        await trialOn();
+        await vi.waitFor(() => expect(JSON.parse(env.window.localStorage.getItem('wg:local-trial'))).toMatchObject({ daily: 50 }));
+        await env.window.SettingsIntegrations._renderLocalTrial();
+        expect(env.document.getElementById('integrations-local-trial-status').textContent).not.toMatch(/Voice/);
     });
 
     it('a pass the server refuses is dropped, and the enroll runs once more without it', async () => {
