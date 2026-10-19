@@ -137,9 +137,13 @@ class Attest(private val context: Context) {
             val ks = keyStore()
             val key = ks.getKey(alias, null) as? PrivateKey ?: throw Failure("no_key")
             val spki = ks.getCertificate(alias).publicKey.encoded
-            // Stored before signing: a crash after it costs one number, never a reused one.
-            val counter = AttestWire.nextCounter(prefs.getLong(COUNTER, 0)) ?: throw Failure("no_key")
-            if (!prefs.edit().putLong(COUNTER, counter).commit()) throw Failure("prefs")
+            // Stored before signing: a crash after it costs one number, never a reused one. Locked:
+            // overlapping requests (food search while typing) each get their own number.
+            val counter = synchronized(counterLock) {
+                val next = AttestWire.nextCounter(prefs.getLong(COUNTER, 0)) ?: throw Failure("no_key")
+                if (!prefs.edit().putLong(COUNTER, next).commit()) throw Failure("prefs")
+                next
+            }
             val sig = Signature.getInstance("SHA256withECDSA").run {
                 initSign(key)
                 update(AttestWire.signedMessage(AttestWire.clientDataHash(challenge, digest), counter))
@@ -192,6 +196,7 @@ class Attest(private val context: Context) {
 
         /** Prepared once per process (Play's recommendation), lazily inside the first enroll. */
         @Volatile private var provider: StandardIntegrityTokenProvider? = null
+        private val counterLock = Any()
 
         /** StandardIntegrityErrorCode's constant name for [code]: what the page may see of a Play failure. */
         fun playError(code: Int): String =

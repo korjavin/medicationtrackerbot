@@ -792,7 +792,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in-consent',
     activationNote: 'you turn on the trial in Settings → AI & integrations and accept the trial consent; off by default, and off means no request to our server at all',
     byo: 'Add your own AI key and requests go phone-direct to your provider, never through the operator',
-    evidence: ['web/cloud/js/local-policy.js:295', 'web/cloud/js/local-trial.js:99', 'web/cloud/js/local-trial.js:115', 'ios/App/Attest.swift:90', 'ios/App/Attest.swift:75', 'android/app/src/main/java/com/example/medtracker/Attest.kt:153', 'internal/cloudserver/attest.go:773', 'internal/cloudserver/attest.go:598', 'internal/appattest/devicecheck.go:65', 'internal/cloudserver/attest.go:646', 'internal/cloudserver/attest.go:950', 'internal/playintegrity/playintegrity.go:308'],
+    evidence: ['web/cloud/js/local-policy.js:295', 'web/cloud/js/local-trial.js:99', 'web/cloud/js/local-trial.js:115', 'ios/App/Attest.swift:90', 'ios/App/Attest.swift:75', 'android/app/src/main/java/com/example/medtracker/Attest.kt:157', 'internal/cloudserver/attest.go:773', 'internal/cloudserver/attest.go:598', 'internal/appattest/devicecheck.go:65', 'internal/cloudserver/attest.go:646', 'internal/cloudserver/attest.go:950', 'internal/playintegrity/playintegrity.go:308'],
     code: { go: ['internal/cloudserver/attest.go'], hosts: ['api.devicecheck.apple.com', 'playintegrity.googleapis.com', 'oauth2.googleapis.com'] },
     docSignal: null,
     userCopy: {
