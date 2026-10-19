@@ -105,7 +105,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Build cmd/cloud
-        run: CGO_ENABLED=0 go build -o /tmp/cloud ./cmd/cloud
+        run: CGO_ENABLED=0 go build -buildvcs=false -o /tmp/cloud ./cmd/cloud
 
       - name: Install Playwright
         working-directory: tests/visual/playwright
