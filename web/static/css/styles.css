@@ -228,6 +228,8 @@
     --wg-modal-max-w-compact: 320px;
     --wg-modal-max-w-editor: 320px;
     --wg-modal-max-w-wide: 420px;
+    /* Bottom sheets: the full phone width; a dialog-wide card on desktop. */
+    --wg-sheet-max-w: 100%;
 
     /* ==========================================================================
        Wandergeek Design System — deep-teal stage, glossy tiles, sun accent.
@@ -753,8 +755,11 @@
     --wg-z-dialog: var(--z-confirm);
     --wg-z-toast: var(--z-toast);
 
-    /* kit layout */
-    --wg-tabbar-h: 84px;
+    /* kit layout. The kit's 84px bar baked 28px of home-indicator padding in;
+       the bar now owns that inset once, via env() in .wg-tabbar (med-giuq):
+       0 without viewport-fit=cover, where Safari and the iOS shell already
+       keep the page clear of the home indicator. */
+    --wg-tabbar-h: calc(62px + env(safe-area-inset-bottom));
     --wg-kb-h: 291px;
     /* The visual viewport's top + height; components/wg-sheet.js overwrites
        these with measured values (med-pe9g). The defaults = the layout viewport. */
@@ -769,6 +774,7 @@
         --wg-modal-max-w-compact: 420px;
         --wg-modal-max-w-editor: 760px;
         --wg-modal-max-w-wide: 760px;
+        --wg-sheet-max-w: var(--wg-modal-max-w);
     }
 }
 
@@ -2460,20 +2466,33 @@ input.wg-stepper__val::-webkit-inner-spin-button {
    header off-screen. .wg-scrim--kb (wg-sheet.js, keyboard up) drops the
    home-indicator padding the keyboard already covers. */
 .wg-modal.wg-sheet {
+    /* A skirt of sheet surface hangs below the dock line (med-j4h9): iOS's
+       keyboard accessory bar floats translucent over the strip between the
+       visual viewport's bottom and the keyboard, where the page (tab bar)
+       showed through. Below a keyboard-less dock it is off-screen. */
+    --wg-sheet-skirt: 50dvh;
     top: calc(var(--wg-vv-top) + var(--wg-vv-h));
     bottom: auto;
     transform: translateX(-50%);
-    translate: 0 -100%;
+    translate: 0 calc(var(--wg-sheet-skirt) - 100%);
     width: 100%;
-    max-height: calc(var(--wg-vv-h) - var(--space-2xl));
+    /* The kit sheet spans the phone; the .wg-modal 320px cap made it a
+       centred card (med-j4h9). Desktop keeps the dialog width. */
+    max-width: var(--wg-sheet-max-w);
+    max-height: calc(var(--wg-vv-h) - var(--space-2xl) + var(--wg-sheet-skirt));
     overflow: hidden;
-    padding: 0 0 env(safe-area-inset-bottom);
+    padding: 0 0 calc(env(safe-area-inset-bottom) + var(--wg-sheet-skirt));
     border-width: 1px 0 0;
     animation: wg-sheet-enter 0.2s ease;
 }
 
 .wg-modal.wg-sheet.wg-scrim--kb {
-    padding-bottom: 0;
+    padding-bottom: var(--wg-sheet-skirt);
+}
+
+/* The kit's full-height sheet: the dock height plus its skirt. */
+.wg-modal.wg-sheet.wg-sheet--full {
+    height: calc(100% + var(--wg-sheet-skirt));
 }
 
 /* Runtime sheets (feedback, trial consent) keep their own --z-confirm
@@ -2662,6 +2681,7 @@ input.wg-stepper__val::-webkit-inner-spin-button {
     bottom: 0;
     left: 0;
     right: 0;
+    padding-bottom: calc(6px + env(safe-area-inset-bottom));
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
 }
