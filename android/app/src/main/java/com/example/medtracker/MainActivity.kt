@@ -909,7 +909,7 @@ class MainActivity : Activity() {
             setPadding(pad, pad, pad, pad)
             if (centered) {
                 gravity = Gravity.CENTER
-                addView(ImageView(this@MainActivity).apply { setImageResource(R.mipmap.ic_launcher) }, 96.dp, 96.dp)
+                addView(ImageView(this@MainActivity).apply { setImageResource(R.drawable.ic_launcher_art) }, 96.dp, 96.dp)
             }
             addView(TextView(this@MainActivity).apply {
                 text = title
