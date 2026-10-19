@@ -302,6 +302,35 @@ describe('flow sheets put their primary in .wg-sheet__foot', () => {
         expect(root.style.getPropertyValue('--wg-vv-h')).toBe('800px');
     });
 
+    it('coalesces viewport events within a frame into one dock write (med-08it)', () => {
+        const { window, document } = env;
+        const root = document.documentElement;
+        Object.defineProperty(root, 'clientHeight', { value: 800, configurable: true });
+        Object.defineProperty(window, 'visualViewport', {
+            value: { height: 500, offsetTop: 0, scale: 1 }, configurable: true, writable: true,
+        });
+        let flush = null;
+        let queued = 0;
+        window.requestAnimationFrame = (cb) => { queued++; flush = cb; return queued; };
+        const writes = [];
+        const set = root.style.setProperty.bind(root.style);
+        root.style.setProperty = (n, v) => { writes.push(n); return set(n, v); };
+
+        window.WGSheet.schedule();
+        window.WGSheet.schedule();
+        window.WGSheet.schedule();
+        expect(queued).toBe(1);
+        expect(writes).toEqual([]);
+        flush();
+        expect(writes).toEqual(['--wg-vv-top', '--wg-vv-h']);
+
+        // Unchanged values on the next frame: no writes.
+        window.WGSheet.schedule();
+        expect(queued).toBe(2);
+        flush();
+        expect(writes.length).toBe(2);
+    });
+
     // med-pe9g, TestFlight 178: focusing the 14px food search zoomed the page
     // (16/14 ≈ 1.14), dock() stood down at scale > 1 and the sheet ran off the
     // screen. jsdom has no zoom; this pins the viewport cap that prevents it.

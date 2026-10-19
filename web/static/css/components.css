@@ -283,7 +283,6 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
 /* scrim, dialog, sheet */
 .wg-scrim{position:absolute;inset:0;z-index:var(--wg-z-dialog);display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(4,14,12,.62);backdrop-filter:blur(3px)}
 .wg-scrim--sheet{z-index:var(--wg-z-sheet);align-items:flex-end;padding:56px 0 0}
-.wg-scrim--kb{padding-bottom:var(--wg-kb-h)}
 .wg-dialog{width:100%;max-width:322px;display:flex;flex-direction:column;gap:10px;padding:20px;border-radius:20px;background:var(--wg-bg-sheet);border:1px solid var(--wg-line-strong);box-shadow:var(--wg-sh-float)}
 .wg-dialog__icon{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:var(--wg-danger-bg);color:var(--wg-danger-fg);margin-bottom:2px}
 .wg-dialog__icon--warn{background:var(--wg-warn-bg);color:var(--wg-sun)}
