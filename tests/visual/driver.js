@@ -24,6 +24,7 @@
     window.__wgQA = qa;
     if (!scene) return;
     pinClock();
+    const trace = traceHistory();
     // Document loads in this launch (the seed import reloads once): a scene
     // whose page reloads mid-scene shows loads > 1 (or > 2 right after seeding).
     let loads = 1;
@@ -58,6 +59,35 @@
         QADate.UTC = Real.UTC;
         QADate.wgQAPinned = true;
         window.Date = QADate;
+    }
+
+    // DIAG bd med-nt9p.39: every history op / popstate / tab switch with its time and caller.
+    function traceHistory() {
+        const log = [];
+        const t0 = window.performance.now();
+        const add = (op, extra) => {
+            const stack = String(new Error().stack || '').split('\n').slice(3, 6).map((l) => l.trim().replace(/^at /, '').replace(/https?:\/\/[^/]+/, '')).join(' < ');
+            log.push({ t: Math.round(window.performance.now() - t0), op, len: window.history.length, ...extra, stack });
+            if (log.length > 80) log.shift();
+        };
+        const h = window.history;
+        ['pushState', 'replaceState', 'back', 'go', 'forward'].forEach((k) => {
+            const orig = h[k];
+            h[k] = function (...a) { add(k, k === 'go' ? { n: a[0] } : {}); return orig.apply(this, a); };
+        });
+        window.addEventListener('popstate', (e) => add('popstate', { state: JSON.stringify(e.state) }), true);
+        let st;
+        const hook = () => {
+            if (typeof window.switchTab === 'function' && !window.switchTab.wgQATraced) {
+                const orig = window.switchTab;
+                st = function (...a) { add('switchTab', { tab: a[0] }); return orig.apply(this, a); };
+                st.wgQATraced = true;
+                window.switchTab = st;
+            }
+        };
+        const iv = setInterval(hook, 5);
+        setTimeout(() => clearInterval(iv), 20000);
+        return log;
     }
 
     async function run(name) {
@@ -262,7 +292,7 @@
         // (the app switched away) is a failed scene, not a passing one.
         probes.readyLost = lostReady(def);
         if (probes.readyLost.length) failed.push('ready');
-        return { scene: def.name, ok: failed.length === 0, rev: rev++, loads, failed, probes, paint: paintRect(def) };
+        return { scene: def.name, ok: failed.length === 0, rev: rev++, loads, failed, probes, paint: paintRect(def), trace };
     }
 
     // Where the scene's last ready element shows, in points of the web view

@@ -45,6 +45,7 @@ export default async function localVisual(ctx) {
         // No report at the shot = the page reloaded or navigated away: the shot proves nothing.
         if (!json && !s.error) s.error = 'ready report gone at the shot';
         if (json) {
+          writeFileSync(join(dir, `${scene.name}${attempt > 1 ? '' : '.attempt1'}.json`), json); // DIAG med-nt9p.39
           writeFileSync(join(dir, `${scene.name}.json`), json);
           const rep = JSON.parse(json);
           s.ok = rep.ok; s.failed = rep.failed;
