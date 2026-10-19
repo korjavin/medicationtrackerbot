@@ -552,7 +552,13 @@ changes for it.
   account origin's website data on the phone). A shell built before .34 has
   the op but ignores the args, so it lands on the native first-run as before;
   a shell without the op answers `unsupported` and the page points at iOS
-  Settings → *Switch account*.
+  Settings → *Switch account*. When the shell lists `leave.stash` in
+  `shell.ops` (bd med-o7zq.36), the page first hands it
+  `CloudVault.exportAll({ includeSecrets: true })` so a copy of the records
+  comes along into local mode; if the export or the stash fails, a second
+  confirm offers to continue without them (Cancel stays in the account). An
+  older shell without the op leaves as before and local mode starts empty — a
+  backup file brings the records.
 - **After account deletion** (bd med-o7zq.33): once the server delete and the
   local wipe finish, the iOS app calls `leaveAccount()` with no args and lands
   on the native first-run instead of the base-domain page (which has no way
