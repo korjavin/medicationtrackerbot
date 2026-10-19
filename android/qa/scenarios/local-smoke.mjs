@@ -60,9 +60,11 @@ export default async function localSmoke(ctx) {
     await sleep(2500); // its programmatic focus() may raise the keyboard: let the resize settle
     if (!(await sheetOpen())) throw new Error('bp-modal not visible');
     await ctx.tapElement(page, '#bp-systolic');
-    await shell('input text 128');
+    // Type only once the keyboard is up and settled: keys sent while it opens can double (run 39249851915: "112").
     const end = Date.now() + 10_000;
     while (Date.now() < end && !(await ctx.imeShown())) await sleep(500);
+    await sleep(1000);
+    await shell('input text 128');
     r.keyboard = await page.evaluate(() => {
       const el = document.activeElement;
       const b = el && el.getBoundingClientRect();

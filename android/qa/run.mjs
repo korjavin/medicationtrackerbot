@@ -116,11 +116,21 @@ const ctx = {
     await ctx.sleep(2000); // the dead process's devtools socket must go before attaching
     const extras = `${extra ? ' --ez wgLocalMode true' : ''}${scene ? ` --es wgQAScene ${scene}` : ''}`;
     await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity${extras}`);
-    const page = await ctx.attachPage();
-    if (!page) throw new Error('no WebView page (see the run log)');
-    await page.waitForURL((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`), { timeout: 30_000 });
-    await ctx.waitLocalReady(page, scene);
-    return page;
+    // ponytail: one re-attach when the first target closes under us (run 39249851915, right after
+    // pm clear: "Target page, context or browser has been closed").
+    for (let attempt = 1; ; attempt++) {
+      const page = await ctx.attachPage();
+      if (!page) throw new Error('no WebView page (see the run log)');
+      try {
+        await page.waitForURL((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`), { timeout: 30_000 });
+        await ctx.waitLocalReady(page, scene);
+        return page;
+      } catch (e) {
+        if (attempt > 1 || !/has been closed/.test(String(e?.message))) throw e;
+        log('local page closed while waiting; re-attaching');
+        await ctx.sleep(2000);
+      }
+    }
   },
   /** The local app is up: #wg-qa-ready attached (scene; the first one seeds + reloads) or the bottom nav visible. */
   async waitLocalReady(page, scene) {
