@@ -29,12 +29,17 @@ internal object DebugHooks {
     }
 
     /**
-     * Temporary local-mode entry (bd med-nt9p.32.2) until the real mode switch (.4): the launch
-     * extra `wgLocalApp` (`am start … --ez wgLocalApp true`) opens the bundled app on
-     * https://appassets.androidplatform.net for that launch, without storing anything. Same gate
-     * as qaSoftAuthn: debug and the qa.test placeholder base only.
+     * Local-mode QA entry (bd med-nt9p.32.4): the launch extra `wgLocalMode`
+     * (`am start … --ez wgLocalMode true`) enters local mode as the first-run Start does
+     * (persisted), so android-qa.yml gets the full app without a passkey. Same gate as
+     * qaSoftAuthn: debug and the qa.test placeholder base only.
      */
-    fun localApp(activity: Activity): Boolean =
-        BuildConfig.DEBUG && BuildConfig.BASE_DOMAIN == QA_BASE &&
-            activity.intent?.getBooleanExtra("wgLocalApp", false) == true
+    fun localMode(activity: Activity): Boolean =
+        qa() && activity.intent?.getBooleanExtra("wgLocalMode", false) == true
+
+    /** `--es wgQAScene <name>`: the visual QA scene; LocalOrigin.qaHome validates the name. */
+    fun qaScene(activity: Activity): String? =
+        if (qa()) activity.intent?.getStringExtra("wgQAScene") else null
+
+    private fun qa() = BuildConfig.DEBUG && BuildConfig.BASE_DOMAIN == QA_BASE
 }

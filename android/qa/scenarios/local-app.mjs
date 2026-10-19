@@ -1,5 +1,5 @@
 // Local mode's bundled app on the emulator (bd med-nt9p.32.2, docs/android.md → Local mode):
-// the debug-only launch extra wgLocalApp opens assets/web on https://appassets.androidplatform.net
+// the debug-only launch extra wgLocalMode (bd med-nt9p.32.4) opens assets/web on https://appassets.androidplatform.net
 // in MainActivity. Proves the shell renders with no failed asset/module load, the document carries
 // the CSP header, and a miss is a 404 that never reaches the network. Findings in results.localApp.
 // Not in `all` until .6 (local-smoke) owns the local scenarios.
@@ -8,10 +8,10 @@ const ORIGIN = 'https://appassets.androidplatform.net';
 export default async function localApp(ctx) {
   const { shell, pkg, log } = ctx;
   const r = (ctx.results.localApp = {});
-  const page = await ctx.step('launch with --ez wgLocalApp true', async () => {
+  const page = await ctx.step('launch with --ez wgLocalMode true', async () => {
     await shell(`am force-stop ${pkg}`);
     await ctx.sleep(2000); // the dead process's devtools socket must go before attaching
-    await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity --ez wgLocalApp true`);
+    await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity --ez wgLocalMode true`);
     const p = await ctx.attachPage();
     if (!p) throw new Error('no WebView page (see the run log)');
     return p;

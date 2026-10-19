@@ -57,6 +57,9 @@ import java.time.Instant
  * The app remembers only the account host; the vault, Service Worker and
  * IndexedDB live in WebView storage, per origin. The base domain comes from
  * the build (BuildConfig.BASE_DOMAIN), the account from the invite at runtime.
+ * Local mode (bd med-nt9p.32.4, prefs wgLocalMode) puts the same WebView on the
+ * bundled app at https://appassets.androidplatform.net (LocalApp.kt) instead:
+ * no account, one vault at a time.
  */
 class MainActivity : Activity() {
     private val base = BuildConfig.BASE_DOMAIN
@@ -82,23 +85,29 @@ class MainActivity : Activity() {
     private lateinit var topBand: View
     private lateinit var bottomBand: View
     private lateinit var firstRun: View
+    private lateinit var localIntro: View
     private lateinit var input: EditText
     private lateinit var firstRunMessage: TextView
     private lateinit var errorView: View
     private lateinit var ceremonyBar: Button
     private lateinit var errorMessage: TextView
 
-    private val files by lazy { Files(this) { host } }
-    private val notifications by lazy { Notifications(this) { host } }
+    private val files by lazy { Files(this) { vaultHost } }
+    private val notifications by lazy { Notifications(this) { vaultHost } }
 
-    /** Local mode's asset origin (bd med-nt9p.32.2); on only via DebugHooks.localApp until .4. */
+    /** Local mode's asset origin (bd med-nt9p.32.2). */
     private val localApp by lazy { LocalApp(this) }
+    /** The persisted choice (LocalOrigin.MODE_KEY); wins over a stored host, like Shell.swift. */
     @Volatile private var local = false
+    /** The vault the shell has open (med-o7zq.9): reminders, their taps and the bridge follow it. */
+    private val vaultHost get() = if (local) LocalOrigin.HOST else host
+    /** A debug QA scene (DebugHooks.qaScene) or the bundled app's root. */
+    private val localHome by lazy { LocalOrigin.qaHome(DebugHooks.qaScene(this)) ?: LocalOrigin.HOME }
 
     /** window.Health's health.* ops (bd med-nt9p.8). */
     private val health by lazy { HealthConnect(this) }
 
-    private val back = OnBackInvokedCallback { web.goBack() }
+    private val back = OnBackInvokedCallback { if (localIntro.visibility == View.VISIBLE) showIntro(false) else web.goBack() }
     private var backRegistered = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -120,18 +129,19 @@ class MainActivity : Activity() {
         if (intent?.action == ACTION_DIAG && savedInstanceState == null) copyDiagnostics()
         adoptSpikeAccount()
         host = prefs.getString(HOST_KEY, null)?.takeIf { AccountUrl.isAccountHost(it, base) }
-        local = DebugHooks.localApp(this) // false in release (src/release)
-        if (local) return reopen(LocalOrigin.HOME)
+        local = prefs.getBoolean(LocalOrigin.MODE_KEY, false)
+        // QA launch extra, false in release (src/release): enter local mode without the first-run tap.
+        if (!local && savedInstanceState == null && DebugHooks.localMode(this)) setLocal(true)
         // A restored activity keeps its launch intent: only a fresh shortcut launch switches.
         if (intent?.action == ACTION_SWITCH && savedInstanceState == null) forget()
-        else reopen(Notifications.tappedSection(intent, host)?.let { sectionUrl(it) } ?: home)
+        else reopen(Notifications.tappedSection(intent, vaultHost)?.let { sectionUrl(it) } ?: home)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (intent.action == ACTION_SWITCH) forget()
         if (intent.action == ACTION_DIAG) copyDiagnostics()
-        Notifications.tappedSection(intent, host)?.let { openSection(it) }
+        Notifications.tappedSection(intent, vaultHost)?.let { openSection(it) }
     }
 
     override fun onResume() {
@@ -162,7 +172,7 @@ class MainActivity : Activity() {
     }
 
     /** The deep-link router reads ?tab= (section ids are Notifications.SECTIONS only). */
-    private fun sectionUrl(section: String) = home?.let { "$it?tab=$section" }
+    private fun sectionUrl(section: String) = vaultHost?.let { "https://$it/?tab=$section" }
 
     override fun onDestroy() {
         health.close()
@@ -173,7 +183,7 @@ class MainActivity : Activity() {
 
     // MARK: account
 
-    private val home get() = host?.let { "https://$it/" }
+    private val home get() = if (local) localHome else host?.let { "https://$it/" }
 
     /** First-run submit: open the account, or say why not. */
     private fun open(raw: String) {
@@ -198,12 +208,26 @@ class MainActivity : Activity() {
         reopen(url) // the claim link keeps its #fragment for the page; only the host is stored
     }
 
-    /** Switch account: back to first run. WebView data is per origin and kept. */
+    /** Switch account: back to first run, leaving local mode too. WebView data is per origin and kept. */
     private fun forget() {
+        setLocal(false)
         Notifications.clear(this)
         prefs.edit().remove(HOST_KEY).apply()
         host = null
         reopen()
+    }
+
+    /** The intro's Start: the persisted choice, then the bundled app. */
+    private fun openLocal() {
+        setLocal(true)
+        reopen()
+    }
+
+    /** Every mode change clears the alarms (med-o7zq.9): no reminder of the other vault fires or opens it. */
+    private fun setLocal(on: Boolean) {
+        if (on != local) Notifications.clear(this)
+        prefs.edit().putBoolean(LocalOrigin.MODE_KEY, on).apply()
+        local = on
     }
 
     private fun reopen(url: String? = home) {
@@ -212,6 +236,7 @@ class MainActivity : Activity() {
         clearHistory = true
         setCeremony(false)
         errorView.visibility = View.GONE
+        localIntro.visibility = View.GONE
         if (url == null) {
             web.loadUrl("about:blank")
             firstRun.visibility = View.VISIBLE
@@ -286,19 +311,18 @@ class MainActivity : Activity() {
         diag("shell webview webauthn=${webAuthnMode(w)}")
         w.setBackgroundColor(Color.TRANSPARENT)
         w.webViewClient = Client()
-        files.install(w, if (base.isEmpty()) emptySet() else setOf("https://*.$base"))
-        if (base.isNotEmpty()) {
-            val rules = setOf("https://*.$base")
-            if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
-                WebViewCompat.addWebMessageListener(w, BRIDGE, rules) { _, message, origin, isMainFrame, reply ->
-                    onBridge(message.data, origin, isMainFrame) { reply.postMessage(it) }
-                }
+        // The account subdomains and the asset origin; onBridge and Files answer only the open vault's.
+        val rules = (if (base.isEmpty()) emptySet() else setOf("https://*.$base")) + "https://${LocalOrigin.HOST}"
+        files.install(w, rules)
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+            WebViewCompat.addWebMessageListener(w, BRIDGE, rules) { _, message, origin, isMainFrame, reply ->
+                onBridge(message.data, origin, isMainFrame) { reply.postMessage(it) }
             }
-            if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
-                WebViewCompat.addDocumentStartJavaScript(w, assets.open("chrome.js").bufferedReader().use { it.readText() }, rules)
-            }
-            DebugHooks.onWebView(this, w, rules, ::diag) // no-op in release (src/release)
         }
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            WebViewCompat.addDocumentStartJavaScript(w, assets.open("chrome.js").bufferedReader().use { it.readText() }, rules)
+        }
+        DebugHooks.onWebView(this, w, rules, ::diag) // no-op in release (src/release) and off the qa.test base
         return w
     }
 
@@ -327,7 +351,8 @@ class MainActivity : Activity() {
                 clearHistory = false
                 view.clearHistory()
             }
-            if (!loadFailed && host != null && url?.let { Uri.parse(it).host?.lowercase() } == host) showingAccount = true
+            val v = vaultHost
+            if (!loadFailed && v != null && url?.let { Uri.parse(it).host?.lowercase() } == v) showingAccount = true
             updateBack()
         }
 
@@ -348,6 +373,7 @@ class MainActivity : Activity() {
          */
         override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
             if (!request.isForMainFrame) return
+            if (bundled(request, "error ${error.errorCode}")) return
             loadFailed = true
             if (showingAccount) lastUrl = request.url.toString()
             showError(error.description?.toString()?.takeIf { it.isNotBlank() } ?: "The page could not be loaded.")
@@ -357,12 +383,20 @@ class MainActivity : Activity() {
         override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
             // Once the account showed, the server's own error page stays (Back leaves it).
             if (!request.isForMainFrame || response.statusCode < 400 || showingAccount) return
+            if (bundled(request, "HTTP ${response.statusCode}")) return
             loadFailed = true
             val h = request.url.host?.lowercase()
             showError(
                 if (response.statusCode == 404 && h == host) "There is no account at $host."
                 else response.reasonPhrase?.takeIf { it.isNotBlank() } ?: "The server answered ${response.statusCode}."
             )
+        }
+
+        /** The asset origin is never "your account": a miss is LocalApp's own 404, so log it and keep the page. */
+        private fun bundled(request: WebResourceRequest, what: String): Boolean {
+            if (request.url.host?.lowercase() != LocalOrigin.HOST) return false
+            diag("shell local $what ${request.url.path}")
+            return true
         }
 
         /** Renderer crash or kill: a fresh WebView on the same URL (it keeps the fragment). */
@@ -376,7 +410,7 @@ class MainActivity : Activity() {
             showingAccount = false
             when {
                 url != null -> load(url)
-                host == null -> web.loadUrl("about:blank")
+                home == null -> web.loadUrl("about:blank")
                 else -> retry()
             }
             return true
@@ -385,8 +419,9 @@ class MainActivity : Activity() {
 
     /**
      * The wgNative bridge (bd med-nt9p.5): WebMessageListener injected as
-     * window.wgNative on the `https` subdomains of base. Only the account's own
-     * top-level page is answered. Messages are JSON {op, args, id}; replies
+     * window.wgNative on the `https` subdomains of base and the asset origin. Only
+     * the open vault's top-level page is answered (LocalOrigin.bridgeCaller), and
+     * the local-only ops only in local mode. Messages are JSON {op, args, id}; replies
      * {id, result} or {id, error}. Capability ops (native/ android platform,
      * med-nt9p.6) add cases here.
      */
@@ -397,17 +432,39 @@ class MainActivity : Activity() {
             if (id == null) return
             reply(JSONObject().put("id", id).apply { if (error != null) put("error", error) else put("result", result) }.toString())
         }
-        if (!isMainFrame || origin.scheme != "https" || origin.host?.lowercase() != host) {
+        if (!LocalOrigin.bridgeCaller(isMainFrame, origin.scheme, origin.host, vaultHost)) {
             answer(null, "forbidden")
             return
         }
-        when (val op = msg.optString("op")) {
+        val op = msg.optString("op")
+        if (!LocalOrigin.opAllowed(op, local)) return answer(null, "unsupported: $op")
+        when (op) {
             "ping" -> answer("pong")
             "chrome" -> {
                 val args = msg.optJSONObject("args") ?: return
                 cssColor(args.optString("top"))?.let { topColor = it }
                 cssColor(args.optString("bottom"))?.let { bottomColor = it }
                 updateChrome()
+            }
+            // The page's BYOK hosts, for the next document's CSP; it reloads itself when changed (local-boot.js).
+            "setEgressHosts" -> {
+                val raw = msg.optJSONObject("args")?.optJSONArray("hosts")
+                val hosts = LocalOrigin.validHosts(raw?.let { a -> List(a.length()) { a.opt(it) } })
+                    ?: return answer(null, "invalid hosts")
+                val changed = LocalOrigin.decodeHosts(prefs.getString(LocalOrigin.HOSTS_KEY, null)) != hosts
+                prefs.edit().putString(LocalOrigin.HOSTS_KEY, LocalOrigin.encodeHosts(hosts)).apply()
+                answer(JSONObject().put("changed", changed))
+            }
+            // The page erased its own storage (local-policy.js); the shell's share is the host mirror and reminders.
+            "local.reset" -> {
+                prefs.edit().remove(LocalOrigin.HOSTS_KEY).apply()
+                Notifications.clear(this)
+                answer(true)
+            }
+            // Settings → Backup → Move to a cloud account: the first run, as Switch account; the data stays.
+            "local.leave" -> {
+                answer(true)
+                forget()
             }
             "diag.append" -> diag("page " + (msg.optJSONObject("args")?.optString("entry") ?: ""))
             "health.authorize", "health.query" -> health.handle(op, msg.optJSONObject("args")) { r, e -> answer(r, e) }
@@ -429,8 +486,10 @@ class MainActivity : Activity() {
         ceremonyBar = button("Not your account? Use another invite") { confirmUseAnotherInvite() }.apply { visibility = View.GONE; maxLines = 1; minHeight = 0; minimumHeight = 0; setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f) }
         root.addView(ceremonyBar, FrameLayout.LayoutParams(MATCH_PARENT, CEREMONY_BAR_DP.dp, Gravity.BOTTOM))
         firstRun = buildFirstRun()
+        localIntro = buildLocalIntro()
         errorView = buildError()
         root.addView(firstRun, MATCH_PARENT, MATCH_PARENT)
+        root.addView(localIntro, MATCH_PARENT, MATCH_PARENT)
         root.addView(errorView, MATCH_PARENT, MATCH_PARENT)
         root.setOnApplyWindowInsetsListener { _, insets ->
             bars = insets
@@ -457,7 +516,7 @@ class MainActivity : Activity() {
         }
         topBand.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, sys.top, Gravity.TOP)
         bottomBand.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, sys.bottom, Gravity.BOTTOM)
-        for (v in listOf(firstRun, errorView)) v.setPadding(sys.left, sys.top, sys.right, bottom)
+        for (v in listOf(firstRun, localIntro, errorView)) v.setPadding(sys.left, sys.top, sys.right, bottom)
     }
 
     private fun setCeremony(on: Boolean) {
@@ -480,7 +539,7 @@ class MainActivity : Activity() {
 
     /** Bands and bar icons follow the page, or the theme while a native screen is up. */
     private fun updateChrome() {
-        val native = firstRun.visibility == View.VISIBLE || errorView.visibility == View.VISIBLE
+        val native = firstRun.visibility == View.VISIBLE || errorView.visibility == View.VISIBLE || localIntro.visibility == View.VISIBLE
         val themeBg = TypedValue().also { theme.resolveAttribute(android.R.attr.colorBackground, it, true) }.data
         val top = if (native) themeBg else topColor
         val bottom = if (native) themeBg else bottomColor
@@ -500,9 +559,10 @@ class MainActivity : Activity() {
 
     private fun isLight(c: Int) = Color.luminance(c) > 0.5f
 
-    /** Back walks the web view's history while the page shows, then leaves the app. */
+    /** Back walks the web view's history while the page shows, then leaves the app; on the intro it returns to first run. */
     private fun updateBack() {
-        val want = firstRun.visibility != View.VISIBLE && errorView.visibility != View.VISIBLE && web.canGoBack()
+        val want = localIntro.visibility == View.VISIBLE ||
+            firstRun.visibility != View.VISIBLE && errorView.visibility != View.VISIBLE && web.canGoBack()
         if (want == backRegistered) return
         if (want) onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, back)
         else onBackInvokedDispatcher.unregisterOnBackInvokedCallback(back)
@@ -521,16 +581,21 @@ class MainActivity : Activity() {
             }
         }
         firstRunMessage = TextView(this)
+        // Owner decision 2026-10-19: local mode is the primary choice in the Play build, the invite second.
         return screen(
             "Med Tracker",
+            TextView(this).apply { text = "Use Med Tracker without an account: your records stay on this phone." },
+            button("Only on this device") { showIntro(true) },
+            Space(this).apply { minimumHeight = 16.dp },
             TextView(this).apply {
-                text = "Med Tracker is invite-only. Paste your invite link or your account address, " +
+                text = "Have an invite? Paste your invite link or your account address, " +
                     "or scan the QR code from your invite or your Emergency Kit."
             },
             input,
             button("Open") { open(input.text.toString()) },
             button("Scan QR code") { scan() },
             firstRunMessage,
+            *inviteLink(),
             Space(this).apply { minimumHeight = 16.dp },
             // Store-review footnote (bd med-nt9p.31): word for word as ios/App/App.swift.
             TextView(this).apply {
@@ -538,15 +603,56 @@ class MainActivity : Activity() {
                 text = "Med Tracker is a personal log, not a medical device, and does not give medical advice. " +
                     "Talk to your doctor before changing a treatment."
             },
-            TextView(this).apply {
-                setTextAppearance(android.R.style.TextAppearance_DeviceDefault_Small)
-                text = "Privacy policy"
-                paintFlags = paintFlags or Paint.UNDERLINE_TEXT_FLAG
-                gravity = Gravity.CENTER_VERTICAL
-                minHeight = 48.dp
-                setOnClickListener { openOutside(Uri.parse(PermissionsRationaleActivity.PRIVACY_POLICY)) }
-            },
+            link("Privacy policy", PermissionsRationaleActivity.PRIVACY_POLICY),
         )
+    }
+
+    /**
+     * Local mode's intro (bd med-nt9p.32.4), twin of ios/App/App.swift LocalIntroView minus the
+     * lock: what "only on this device" means for the data, before the choice is stored.
+     */
+    private fun buildLocalIntro(): View = screen(
+        "Only on this device",
+        TextView(this).apply {
+            text = "No account and no sign-in. Your records are stored only on this phone, and nothing is sent to our servers."
+        },
+        TextView(this).apply {
+            // allowBackup=false until bd med-nt9p.32.5 (privacy-manifest says the same).
+            text = "They are not included in your phone's backup. Med Tracker keeps no other copy and cannot recover them for you."
+        },
+        TextView(this).apply {
+            text = "Deleting the app, or losing or resetting the phone, deletes them for good. " +
+                "Export a backup file regularly in Settings → Backup & import."
+        },
+        TextView(this).apply {
+            text = "AI and food search work only with providers you add with your own key. " +
+                "Voice, Telegram and the shared food database need an account."
+        },
+        *inviteLink(),
+        button("Start") { openLocal() },
+        button("Back") { showIntro(false) },
+    ).apply { visibility = View.GONE }
+
+    private fun showIntro(on: Boolean) {
+        localIntro.visibility = if (on) View.VISIBLE else View.GONE
+        if (on) {
+            localIntro.scrollTo(0, 0)
+            window.insetsController?.hide(WindowInsets.Type.ime()) // the invite field's keyboard
+        }
+        updateChrome()
+    }
+
+    /** The service's landing page says how to get an invite; the address is the build's, never committed. */
+    private fun inviteLink(): Array<View> =
+        if (base.isEmpty()) emptyArray() else arrayOf(link("How to get an invite", "https://$base/"))
+
+    private fun link(label: String, url: String) = TextView(this).apply {
+        setTextAppearance(android.R.style.TextAppearance_DeviceDefault_Small)
+        text = label
+        paintFlags = paintFlags or Paint.UNDERLINE_TEXT_FLAG
+        gravity = Gravity.CENTER_VERTICAL
+        minHeight = 48.dp
+        setOnClickListener { openOutside(Uri.parse(url)) }
     }
 
     /** The browser (or the link's own app); nothing installed to take it is a silent no-op. */
