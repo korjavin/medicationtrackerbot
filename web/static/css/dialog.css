@@ -31,12 +31,14 @@
 
 .mt-confirm-modal {
     position: fixed;
-    top: 50%;
+    /* Centred in the visual viewport, so a prompt's field stays above the
+       iOS keyboard (med-pe9g; vars from wg-sheet.js, absent on signup). */
+    top: calc(var(--wg-vv-top, 0px) + var(--wg-vv-h, 100dvh) / 2);
     left: 50%;
     transform: translate(-50%, -50%);
     width: calc(100% - 2 * var(--space-lg));
     max-width: var(--wg-modal-max-w-compact);
-    max-height: 85vh;
+    max-height: calc(var(--wg-vv-h, 100dvh) * 0.85);
     overflow-y: auto;
     overscroll-behavior: contain;
     z-index: var(--z-confirm);

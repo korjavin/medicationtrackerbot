@@ -760,6 +760,10 @@
     /* kit layout */
     --wg-tabbar-h: 84px;
     --wg-kb-h: 291px;
+    /* The visual viewport's top + height; components/wg-sheet.js overwrites
+       these with measured values (med-pe9g). The defaults = the layout viewport. */
+    --wg-vv-top: 0px;
+    --wg-vv-h: 100dvh;
 }
 
 /* Desktop: give modals room. Phones (<720px) keep the caps above untouched. */
@@ -2390,12 +2394,13 @@ svg.chart-svg {
    ModalManager open/close wiring keeps working without shell changes. */
 .wg-modal {
     position: fixed;
-    top: 50%;
+    /* Centred in the visual viewport so the iOS keyboard can't cover it (med-pe9g). */
+    top: calc(var(--wg-vv-top) + var(--wg-vv-h) / 2);
     left: 50%;
     transform: translate(-50%, -50%);
     width: 90%;
     max-width: var(--wg-modal-max-w);
-    max-height: 85vh;
+    max-height: calc(var(--wg-vv-h) * 0.85);
     overflow-y: auto;
     overscroll-behavior: contain;
     z-index: var(--z-modal);
@@ -2420,6 +2425,11 @@ svg.chart-svg {
 .wg-page {
     position: fixed;
     inset: 0;
+    /* Sized to the visual viewport so the keyboard never covers the bottom
+       and iOS can't pan the page bar away (med-pe9g, see wg-sheet.js). */
+    top: var(--wg-vv-top);
+    bottom: auto;
+    height: var(--wg-vv-h);
     overscroll-behavior: contain;
     z-index: var(--z-modal);
     display: flex;
@@ -2477,16 +2487,21 @@ input.wg-stepper__val::-webkit-inner-spin-button {
 /* Sheet (med-xso6.7): an <mt-modal class="wg-modal wg-sheet"> docks to the
    bottom edge instead of floating centred. The kit .wg-sheet / .wg-sheethead /
    .wg-sheet__body / .wg-sheet__foot rules (components.css) own the surface and
-   layout; this only re-positions the .wg-modal shell. .wg-scrim--kb is toggled
-   by components/wg-sheet.js while a virtual keyboard covers the bottom of the
-   viewport: the padding lifts the body and foot above it. */
+   layout; this only re-positions the .wg-modal shell.
+   The dock is the bottom of the VISUAL viewport (med-pe9g): top = its bottom
+   edge, `translate` lifts the sheet by its own height (composes with the
+   transform the enter animation drives), and max-height keeps the header in
+   view. iOS never shrinks the layout viewport for the keyboard, so docking to
+   bottom:0 / 100dvh put the body under the keyboard and let iOS pan the
+   header off-screen. .wg-scrim--kb (wg-sheet.js, keyboard up) drops the
+   home-indicator padding the keyboard already covers. */
 .wg-modal.wg-sheet {
-    top: auto;
-    bottom: 0;
+    top: calc(var(--wg-vv-top) + var(--wg-vv-h));
+    bottom: auto;
     transform: translateX(-50%);
+    translate: 0 -100%;
     width: 100%;
-    max-height: calc(100vh - var(--space-2xl));
-    max-height: calc(100dvh - var(--space-2xl));
+    max-height: calc(var(--wg-vv-h) - var(--space-2xl));
     overflow: hidden;
     padding: 0 0 env(safe-area-inset-bottom);
     border-width: 1px 0 0;
@@ -2494,7 +2509,7 @@ input.wg-stepper__val::-webkit-inner-spin-button {
 }
 
 .wg-modal.wg-sheet.wg-scrim--kb {
-    padding-bottom: var(--wg-kb-h);
+    padding-bottom: 0;
 }
 
 /* Runtime sheets (feedback, trial consent) keep their own --z-confirm

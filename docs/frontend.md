@@ -254,8 +254,13 @@ to an in-app deeplink (`?tab=settings&page=devices`, `features/deeplink-router.j
 `<mt-modal class="wg-modal wg-sheet">` with `.wg-sheethead` (eyebrow + title;
 forms put Save in `.wg-sheethead__acts`) and an optional
 `.wg-sheet__foot` for a flow's primary. `components/wg-sheet.js` (`WGSheet`)
-builds the header for dynamically created sheets and owns the one keyboard dock
-(`visualViewport` → `.wg-scrim--kb` + `--wg-kb-h`). Sheets open and close
+builds the header for dynamically created sheets and owns the one keyboard dock:
+`visualViewport` → `--wg-vv-top` / `--wg-vv-h` on the root, from which
+`.wg-sheet`, `.wg-page`, `.wg-modal` and `.mt-confirm-modal` are positioned,
+plus `.wg-scrim--kb` on open sheets while a keyboard is up. iOS WebKit never
+shrinks the layout viewport (fixed / `100dvh`) for the keyboard and pans the
+visual viewport instead, so anything docked to the layout viewport ends up
+under the keyboard or panned off-screen (med-pe9g). Sheets open and close
 through `ModalManager` like any modal. Every content modal dismisses through
 one header close: the icon-only `.wg-btn.wg-btn--ghost.wg-btn--icon`
 `aria-label="Close"` X (trailing in a sheet head, leading in a page bar;
