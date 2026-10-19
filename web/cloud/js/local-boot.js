@@ -71,6 +71,8 @@ window.MedTrackerCloudReady = (async function boot() {
         const records = localRecordsPort();
         policy.keepLocalRemindersFresh({ ctx: LOCAL_CTX, records, win: window });
         policy.startLocalHealthImport({ ctx: LOCAL_CTX, records, win: window });
+        policy.mountLocalLockRow({ win: window })
+            .catch((e) => console.error('[local] app lock row failed', e));
         const nudge = () => policy.nudgeLocalBackup({ win: window })
             .catch((e) => console.error('[local] backup reminder failed', e));
         nudge();

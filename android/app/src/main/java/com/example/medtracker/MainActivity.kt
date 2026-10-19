@@ -2,6 +2,7 @@ package com.example.medtracker
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.app.KeyguardManager
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -10,9 +11,13 @@ import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
 import android.graphics.Color
 import android.graphics.Paint
+import android.hardware.biometrics.BiometricManager.Authenticators
+import android.hardware.biometrics.BiometricPrompt
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.CancellationSignal
+import android.os.PowerManager
 import android.os.SystemClock
 import android.provider.Settings
 import android.text.InputType
@@ -38,6 +43,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Space
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import android.window.OnBackInvokedCallback
@@ -59,7 +65,7 @@ import java.time.Instant
  * the build (BuildConfig.BASE_DOMAIN), the account from the invite at runtime.
  * Local mode (bd med-nt9p.32.4, prefs wgLocalMode) puts the same WebView on the
  * bundled app at https://appassets.androidplatform.net (LocalApp.kt) instead:
- * no account, one vault at a time.
+ * no account, one vault at a time, with an optional lock (bd med-nt9p.32.9, LocalLock.kt).
  */
 class MainActivity : Activity() {
     private val base = BuildConfig.BASE_DOMAIN
@@ -91,8 +97,13 @@ class MainActivity : Activity() {
     private lateinit var errorView: View
     private lateinit var ceremonyBar: Button
     private lateinit var errorMessage: TextView
+    private lateinit var lockView: View
+    private lateinit var unlockButton: Button
+    private lateinit var lockSwitch: Switch
+    private lateinit var lockHint: TextView
+    private lateinit var introMessage: TextView
 
-    private val files by lazy { Files(this) { vaultHost } }
+    private val files by lazy { Files(this) { if (concealed) null else vaultHost } }
     private val notifications by lazy { Notifications(this) { vaultHost } }
 
     /** Local mode's asset origin (bd med-nt9p.32.2). */
@@ -103,6 +114,16 @@ class MainActivity : Activity() {
     private val vaultHost get() = if (local) LocalOrigin.HOST else host
     /** A debug QA scene (DebugHooks.qaScene) or the bundled app's root. */
     private val localHome by lazy { LocalOrigin.qaHome(DebugHooks.qaScene(this)) ?: LocalOrigin.HOME }
+
+    /** Local mode's optional lock (bd med-nt9p.32.9); off unless the user turned it on. */
+    private val lock by lazy { LocalLock(prefs.getBoolean(LocalLock.KEY, false)) }
+    /** The lock holds: the page is out of the window, loads and taps wait, the bridge says "locked". */
+    private val concealed get() = lock.holds(local)
+    /** What the lock held back, run on unlock. */
+    private var deferredUrl: String? = null
+    private var deferredSection: String? = null
+    /** Home/Recents (onUserLeaveHint) or a link opened outside: the next onStop is a real background. */
+    private var leaving = false
 
     /** window.Health's health.* ops (bd med-nt9p.8). */
     private val health by lazy { HealthConnect(this) }
@@ -148,7 +169,31 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        leaving = false
         notifications.onResume()
+        // Once per launch or return from the background; the prompt's own pause/resume asks nothing.
+        lock.activate(local)?.let { authenticate(it) }
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        leaving = true
+    }
+
+    /**
+     * The lock closes on a real background only (bd med-nt9p.32.9): Home/Recents, a link opened
+     * outside, or the screen going off — not on this app's own file picker, print, permission or
+     * screen-lock screens, which stop this activity too.
+     * ponytail: leaving the app from one of those screens locks only at the next background;
+     * telling it apart needs tracking other apps' activities.
+     */
+    override fun onStop() {
+        super.onStop()
+        if (leaving || !getSystemService(PowerManager::class.java).isInteractive) {
+            lock.background()
+            applyLock()
+        }
+        leaving = false
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -166,6 +211,10 @@ class MainActivity : Activity() {
     /** A reminder tap (bd med-nt9p.7): switch the open page to the section, or load the account on it. */
     private fun openSection(section: String) {
         val url = sectionUrl(section) ?: return
+        if (concealed) {
+            deferredSection = section // opened after the unlock
+            return
+        }
         if (!showingAccount || web.progress < 100) return load(url)
         // No switchTab (the unlock page): load the section URL, the deep-link router opens it after unlock.
         web.evaluateJavascript("typeof window.switchTab === 'function' ? (window.switchTab('$section'), true) : false") {
@@ -234,6 +283,10 @@ class MainActivity : Activity() {
     }
 
     private fun reopen(url: String? = home) {
+        deferredUrl = null
+        deferredSection = null
+        if (concealed) web.loadUrl("about:blank") // the old page must not run behind the lock
+        applyLock()
         showingAccount = false
         lastUrl = null
         clearHistory = true
@@ -253,6 +306,10 @@ class MainActivity : Activity() {
     private fun load(url: String) {
         errorView.visibility = View.GONE
         lastUrl = url
+        if (concealed) {
+            deferredUrl = url // loaded after the unlock
+            return
+        }
         web.loadUrl(url)
         updateChrome()
     }
@@ -408,7 +465,7 @@ class MainActivity : Activity() {
             root.removeView(view)
             view.destroy()
             web = makeWebView()
-            root.addView(web, 0)
+            if (!concealed) root.addView(web, 0) // else the unlock attaches it
             layoutBars()
             showingAccount = false
             when {
@@ -439,6 +496,8 @@ class MainActivity : Activity() {
             answer(null, "forbidden")
             return
         }
+        // A page still running behind the lock gets no native capability.
+        if (concealed) return answer(null, "locked")
         val op = msg.optString("op")
         if (!LocalOrigin.opAllowed(op, local)) return answer(null, "unsupported: $op")
         when (op) {
@@ -469,6 +528,9 @@ class MainActivity : Activity() {
                 answer(true)
                 forget()
             }
+            // Settings → App lock (local-policy.js mountLocalLockRow); available: the phone has a screen lock.
+            "lock.status" -> answer(JSONObject().put("on", lock.on).put("available", deviceSecure()))
+            "lock.set" -> setLock(msg.optJSONObject("args")?.optBoolean("on") == true) { answer(it == null) }
             "diag.append" -> diag("page " + (msg.optJSONObject("args")?.optString("entry") ?: ""))
             "health.authorize", "health.query" -> health.handle(op, msg.optJSONObject("args")) { r, e -> answer(r, e) }
             "attest.status", "attest.enroll", "attest.setPass", "attest.assert" ->
@@ -493,9 +555,11 @@ class MainActivity : Activity() {
         firstRun = buildFirstRun()
         localIntro = buildLocalIntro()
         errorView = buildError()
+        lockView = buildLock()
         root.addView(firstRun, MATCH_PARENT, MATCH_PARENT)
         root.addView(localIntro, MATCH_PARENT, MATCH_PARENT)
         root.addView(errorView, MATCH_PARENT, MATCH_PARENT)
+        root.addView(lockView, MATCH_PARENT, MATCH_PARENT)
         root.setOnApplyWindowInsetsListener { _, insets ->
             bars = insets
             if (insets.isVisible(WindowInsets.Type.ime()) && firstRun.visibility != View.VISIBLE &&
@@ -521,7 +585,7 @@ class MainActivity : Activity() {
         }
         topBand.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, sys.top, Gravity.TOP)
         bottomBand.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, sys.bottom, Gravity.BOTTOM)
-        for (v in listOf(firstRun, localIntro, errorView)) v.setPadding(sys.left, sys.top, sys.right, bottom)
+        for (v in listOf(firstRun, localIntro, errorView, lockView)) v.setPadding(sys.left, sys.top, sys.right, bottom)
     }
 
     private fun setCeremony(on: Boolean) {
@@ -544,7 +608,8 @@ class MainActivity : Activity() {
 
     /** Bands and bar icons follow the page, or the theme while a native screen is up. */
     private fun updateChrome() {
-        val native = firstRun.visibility == View.VISIBLE || errorView.visibility == View.VISIBLE || localIntro.visibility == View.VISIBLE
+        val native = firstRun.visibility == View.VISIBLE || errorView.visibility == View.VISIBLE ||
+            localIntro.visibility == View.VISIBLE || lockView.visibility == View.VISIBLE
         val themeBg = TypedValue().also { theme.resolveAttribute(android.R.attr.colorBackground, it, true) }.data
         val top = if (native) themeBg else topColor
         val bottom = if (native) themeBg else bottomColor
@@ -566,8 +631,8 @@ class MainActivity : Activity() {
 
     /** Back walks the web view's history while the page shows, then leaves the app; on the intro it returns to first run. */
     private fun updateBack() {
-        val want = localIntro.visibility == View.VISIBLE ||
-            firstRun.visibility != View.VISIBLE && errorView.visibility != View.VISIBLE && web.canGoBack()
+        val want = lockView.visibility != View.VISIBLE && (localIntro.visibility == View.VISIBLE ||
+            firstRun.visibility != View.VISIBLE && errorView.visibility != View.VISIBLE && web.canGoBack())
         if (want == backRegistered) return
         if (want) onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, back)
         else onBackInvokedDispatcher.unregisterOnBackInvokedCallback(back)
@@ -613,8 +678,8 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Local mode's intro (bd med-nt9p.32.4), twin of ios/App/App.swift LocalIntroView minus the
-     * lock: what "only on this device" means for the data, before the choice is stored.
+     * Local mode's intro (bd med-nt9p.32.4), twin of ios/App/App.swift LocalIntroView: what
+     * "only on this device" means for the data, and the optional lock (.9), before the choice is stored.
      */
     private fun buildLocalIntro(): View = screen(
         "Only on this device",
@@ -634,14 +699,27 @@ class MainActivity : Activity() {
             text = "AI and food search work only with providers you add with your own key. " +
                 "Voice, Telegram and the shared food database need an account."
         },
+        // Optional lock (bd med-nt9p.32.9); also Settings → App lock in the app.
+        Switch(this).apply { text = "Lock with fingerprint, face or screen lock" }.also { lockSwitch = it },
+        TextView(this).apply {
+            setTextAppearance(android.R.style.TextAppearance_DeviceDefault_Small)
+            text = "Asks for your fingerprint, face or screen lock each time you open Med Tracker. It hides the app; " +
+                "it does not encrypt your records, and reminders on the lock screen still show."
+        }.also { lockHint = it },
+        TextView(this).also { introMessage = it },
         *inviteLink(),
-        button("Start") { openLocal() },
+        button("Start") { setLock(lockSwitch.isChecked) { e -> if (e == null) openLocal() else introMessage.text = e } },
         button("Back") { showIntro(false) },
     ).apply { visibility = View.GONE }
 
     private fun showIntro(on: Boolean) {
         localIntro.visibility = if (on) View.VISIBLE else View.GONE
         if (on) {
+            lockSwitch.isChecked = lock.on // still on from an earlier stay in local mode
+            val offer = if (deviceSecure() || lock.on) View.VISIBLE else View.GONE
+            lockSwitch.visibility = offer
+            lockHint.visibility = offer
+            introMessage.text = ""
             localIntro.scrollTo(0, 0)
             window.insetsController?.hide(WindowInsets.Type.ime()) // the invite field's keyboard
         }
@@ -663,9 +741,11 @@ class MainActivity : Activity() {
 
     /** The browser (or the link's own app); nothing installed to take it is a silent no-op. */
     private fun openOutside(uri: Uri) {
+        leaving = true // the browser is another app: its onStop is a real background
         try {
             startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE))
         } catch (e: ActivityNotFoundException) {
+            leaving = false
         }
     }
 
@@ -677,6 +757,96 @@ class MainActivity : Activity() {
             button("Try again") { retry() },
             button("Switch account") { forget() },
         ).apply { visibility = View.GONE }
+    }
+
+    // MARK: lock (bd med-nt9p.32.9)
+
+    /** Local mode's lock screen. A cancelled prompt lands here and stays: only the button asks again. */
+    private fun buildLock(): View {
+        unlockButton = button("Unlock") { lock.begin()?.let { authenticate(it) } }
+        return screen(
+            "Med Tracker is locked",
+            TextView(this).apply { text = "Unlock with your fingerprint, face or screen lock to see your records." },
+            unlockButton,
+        ).apply { visibility = View.GONE }
+    }
+
+    /** The lock screen or the page, as the lock says; on unlock, what it held back. */
+    private fun applyLock() {
+        // No app-switcher snapshot while the lock is on (screenshots, and so the QA harness, still work).
+        setRecentsScreenshotEnabled(!(local && lock.on))
+        unlockButton.isEnabled = lock.state != LocalLock.State.UNLOCKING
+        val hide = concealed
+        if (hide == (lockView.visibility == View.VISIBLE)) return
+        lockView.visibility = if (hide) View.VISIBLE else View.GONE
+        if (hide) {
+            // Out of the window the page is hidden: no visibilitychange work runs behind the lock.
+            root.removeView(web)
+            window.insetsController?.hide(WindowInsets.Type.ime())
+        } else if (web.parent == null) {
+            root.addView(web, 0)
+            layoutBars()
+        }
+        updateChrome()
+        if (hide) return
+        deferredUrl?.let { deferredUrl = null; load(it) }
+        deferredSection?.let { deferredSection = null; openSection(it) }
+    }
+
+    private fun authenticate(attempt: Int) {
+        applyLock() // the Unlock button waits for this prompt
+        deviceCheck("Unlock Med Tracker") { ok ->
+            lock.finish(attempt, ok)
+            applyLock()
+        }
+    }
+
+    /**
+     * The intro's Start and Settings → App lock (lock.set): turning the lock on, or off while it
+     * is on, applies only after the phone confirmed its owner. null, or why not.
+     */
+    private fun setLock(on: Boolean, done: (String?) -> Unit) {
+        if (!on && !lock.on) return done(null)
+        if (on && !deviceSecure()) return done("Set a screen lock in Android Settings first, or switch the lock off.")
+        deviceCheck(if (on) "Turn on the lock for Med Tracker" else "Turn off the lock for Med Tracker") { ok ->
+            if (!ok) {
+                done(
+                    if (lock.on) "The lock is on from before, and changing it or opening Med Tracker needs your fingerprint, face or screen lock. Try again."
+                    else "The lock was not turned on. Try again, or switch it off to continue without it."
+                )
+                return@deviceCheck
+            }
+            prefs.edit().putBoolean(LocalLock.KEY, on).apply()
+            lock.confirmed(on)
+            applyLock()
+            done(null)
+        }
+    }
+
+    /** The phone has a screen lock to check against. */
+    private fun deviceSecure() = getSystemService(KeyguardManager::class.java).isDeviceSecure
+
+    /**
+     * BiometricPrompt with the screen lock as fallback. No screen lock (removed after the lock went
+     * on) passes: the lock must never strand the only copy of the records.
+     */
+    private fun deviceCheck(title: String, done: (Boolean) -> Unit) {
+        if (!deviceSecure()) return done(true)
+        val callback = object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) = done(true)
+            override fun onAuthenticationError(code: Int, message: CharSequence) =
+                done(code == BiometricPrompt.BIOMETRIC_ERROR_NO_DEVICE_CREDENTIAL)
+        }
+        runCatching {
+            BiometricPrompt.Builder(this)
+                .setTitle(title)
+                .setAllowedAuthenticators(Authenticators.BIOMETRIC_WEAK or Authenticators.DEVICE_CREDENTIAL)
+                .build()
+                .authenticate(CancellationSignal(), mainExecutor, callback)
+        }.onFailure {
+            diag("shell lock prompt failed ${it.javaClass.simpleName}")
+            done(false)
+        }
     }
 
     private fun screen(title: String, vararg views: View): View {
