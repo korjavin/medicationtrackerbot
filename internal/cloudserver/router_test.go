@@ -210,7 +210,7 @@ func TestRouter_HostVariants(t *testing.T) {
 		// subdomains — it is what CI polls to prove a Portainer redeploy landed
 		// (bd med-m391), and there is no account to scope it to.
 		{"base domain serves the build id", "app.example.com", "/api/version", http.StatusOK, "{\"build_id\":\"dev\"}\n"},
-		{"known subdomain serves the real app at root", "known-sub.app.example.com", "/", http.StatusOK, "<html><head>\n    <meta name=\"medtracker-food-db-url\" content=\"https://food.example.com\">\n    <meta name=\"medtracker-build-id\" content=\"dev\">\n    <meta name=\"medtracker-trial-ai\" content=\"1\">\n    <meta name=\"medtracker-trial-voice\" content=\"1\">\n    <script src=\"/js/cloud-boot.js\"></script>\n    <script type=\"module\" src=\"/js/update-check.js\"></script></head><body>real app</body></html>"},
+		{"known subdomain serves the real app at root", "known-sub.app.example.com", "/", http.StatusOK, "<html><head>\n    <meta name=\"medtracker-food-db\" content=\"1\">\n    <meta name=\"medtracker-build-id\" content=\"dev\">\n    <meta name=\"medtracker-trial-ai\" content=\"1\">\n    <meta name=\"medtracker-trial-voice\" content=\"1\">\n    <script src=\"/js/cloud-boot.js\"></script>\n    <script type=\"module\" src=\"/js/update-check.js\"></script></head><body>real app</body></html>"},
 		{"known subdomain serves the unlock shell", "known-sub.app.example.com", "/unlock", http.StatusOK, "account shell"},
 		{"known subdomain claim serves the shell", "known-sub.app.example.com", "/claim", http.StatusOK, "account shell"},
 		{"known subdomain recover serves the shell", "known-sub.app.example.com", "/recover", http.StatusOK, "account shell"},
@@ -528,5 +528,21 @@ func TestRouter_ShellAdvertisesTrialAI(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), "shell") {
 			t.Fatalf("trial=%v: shell body missing: %q", trial, rec.Body.String())
 		}
+	}
+}
+
+// The operator's food-DB host is private: the served document carries only a
+// flag (bd med-wa9c), never the CLOUD_FOOD_DB_URL value or its host.
+func TestInjectCloudBoot_FoodDBHostNeverServed(t *testing.T) {
+	const secret = "https://private-food.internal.example"
+	out := string(injectCloudBoot([]byte("<html><head></head></html>"), secret, false, false, "dev"))
+	if strings.Contains(out, secret) || strings.Contains(out, "private-food") {
+		t.Fatalf("document leaks the food-DB URL: %s", out)
+	}
+	if !strings.Contains(out, `<meta name="medtracker-food-db" content="1">`) {
+		t.Errorf("configured flag missing: %s", out)
+	}
+	if out := string(injectCloudBoot([]byte("<html><head></head></html>"), "", false, false, "dev")); strings.Contains(out, "medtracker-food-db") {
+		t.Errorf("flag emitted with no food DB configured: %s", out)
 	}
 }

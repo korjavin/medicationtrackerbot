@@ -7,7 +7,7 @@
 //
 // Base URL resolution: the vault's `integrations.food.url` wins when set;
 // otherwise falls back to the operator default injected by cmd/cloud into
-// the served page as a <meta name="medtracker-food-db-url"> tag (a
+// the served page as a <meta name="medtracker-food-db"> flag (a
 // CSP-safe carrier — the origin's script-src 'self' blocks inline scripts;
 // see internal/cloudserver/router.go's injectCloudBoot + CLOUD_FOOD_DB_URL
 // in docs/environment.md) — or, in iOS local mode, the trial port below.
@@ -28,13 +28,13 @@
 // (bd med-o7zq.20).
 const FETCH_TIMEOUT_MS = 10000;
 
-function operatorFoodDbURL() {
-  if (typeof document === 'undefined') return '';
-  return document.querySelector('meta[name="medtracker-food-db-url"]')?.content || '';
+// Boolean only (host never sent to the browser); legacy -url meta kept one release.
+function operatorFoodDbConfigured() {
+  return typeof document !== 'undefined' && !!document.querySelector('meta[name="medtracker-food-db"][content="1"], meta[name="medtracker-food-db-url"]:not([content=""])');
 }
 
 export const SAME_ORIGIN_FOOD_DB = {
-  available: () => !!operatorFoodDbURL(),
+  available: () => operatorFoodDbConfigured(),
   get: (pathAndQuery, signal) => fetch(pathAndQuery, { headers: {}, signal }),
 };
 
