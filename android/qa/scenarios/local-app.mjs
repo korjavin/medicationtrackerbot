@@ -67,7 +67,11 @@ export default async function localApp(ctx) {
   });
 
   // The expected 404 above and the refused example.com fetch are this step's own; drop them.
-  r.failed = failed.filter((f) => !/no\/such\/file|example\.com/.test(f));
+  const own = failed.filter((f) => !/no\/such\/file|example\.com/.test(f));
+  // ERR_ABORTED is a cancel, not a failure: the first load's requests cut by the reload, and the
+  // favicons WebView never fetches (first run 39236712561: logcat clean, shell rendered).
+  r.aborted = own.filter((f) => f.endsWith('net::ERR_ABORTED'));
+  r.failed = own.filter((f) => !f.endsWith('net::ERR_ABORTED'));
   r.errors = errors.filter((e) => !/example\.com|no\/such\/file|Content Security Policy/.test(e));
   log('localApp', JSON.stringify(r, null, 2));
   if (r.failed.length) throw new Error(`failed loads: ${r.failed.join(', ')}`);
