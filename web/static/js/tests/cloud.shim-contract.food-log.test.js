@@ -644,7 +644,11 @@ describe('food screen — incomplete-day toggle + nudge chip (med-0sgs.3)', () =
         await openFood(window, document, today);
         expect(nudge(document).dataset.date).toBe(yesterday);
 
-        document.getElementById('food-incomplete-nudge-dismiss').click();
+        // A themed icon button, not a bare unstyled "×" (med-xs71).
+        const dismiss = document.getElementById('food-incomplete-nudge-dismiss');
+        expect(dismiss.classList.contains('wg-btn')).toBe(true);
+        expect(dismiss.querySelector('.wg-ico[data-icon="x"]')).not.toBeNull();
+        dismiss.click();
         expect(nudge(document).classList.contains('hidden')).toBe(true);
         await openFood(window, document, today);
         expect(nudge(document).classList.contains('hidden')).toBe(true);
