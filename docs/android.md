@@ -476,8 +476,11 @@ the same way.
   first run. Artifact `visual/<scene>.png` (full device) +
   `visual/<scene>.json` (the ready node's report: probes, `failed`). Dark,
   font scale and landscape are the dispatch inputs, applied to every scene.
-  As on iOS only lost ready content fails a scene (one retry each); the
-  probes are findings. The scenario fails at the end if any scene did.
+  As on iOS only lost ready content fails a scene (one retry each, from
+  a fresh `pm clear`; `firstError` keeps attempt 1's failure); the probes are
+  findings. First full run 39257278592: every scene shot, all passing on
+  retry; the Settings-page scenes lose their page on a seeded cold start
+  (bd med-nt9p.39). The scenario fails at the end if any scene did.
 
 ### Local cloud on the runner (bd med-nt9p.24)
 
