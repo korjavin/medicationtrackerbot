@@ -510,6 +510,7 @@ export const LOCAL_VAULT = {
     try {
       // Computed inside replaceAllRecords' records lock: a write (the
       // background Health import) cannot land between the read and the clear.
+      // runs inside withRecordsLock (non-reentrant): no record reads/writes through the locked ports here.
       await replaceAllRecords((here) => ({
         records: mode === 'merge'
           ? mergeRecords(here, records)

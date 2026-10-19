@@ -269,8 +269,9 @@ describe('Settings → Import/Export section', () => {
             window.safeConfirm = vi.fn(async () => confirm);
             window.safeAlert = vi.fn(async () => {});
             window.CloudVault = { exportAll: vi.fn(), importAll: vi.fn(async () => {}), hasUserContent: vi.fn(async () => content) };
-            const result = await window.SettingsImportExport.restoreVault(JSON_STR, { source });
-            return { window, result };
+            const beforeReload = vi.fn(async () => {});
+            const result = await window.SettingsImportExport.restoreVault(JSON_STR, { source, beforeReload });
+            return { window, result, beforeReload };
         }
 
         it('leave: asks the choice with the leave copy', async () => {
@@ -307,29 +308,34 @@ describe('Settings → Import/Export section', () => {
         });
 
         it.each(['move', 'leave'])('%s: replace declined imports nothing', async (source) => {
-            const { window, result } = await pickup(source, 'replace', { confirm: false });
+            const { window, result, beforeReload } = await pickup(source, 'replace', { confirm: false });
             expect(window.CloudVault.importAll).not.toHaveBeenCalled();
+            expect(beforeReload).not.toHaveBeenCalled();
             expect(result).toEqual({ imported: false });
         });
 
         it('move: cancel imports nothing and says the records were not moved', async () => {
-            const { window, result } = await pickup('move', null);
+            const { window, result, beforeReload } = await pickup('move', null);
             expect(window.CloudVault.importAll).not.toHaveBeenCalled();
+            expect(beforeReload).not.toHaveBeenCalled();
             expect(result).toEqual({ imported: false });
             expect(window.safeAlert).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ title: 'Records not moved' }));
         });
 
         it('leave: cancel imports nothing', async () => {
-            const { window, result } = await pickup('leave', null);
+            const { window, result, beforeReload } = await pickup('leave', null);
             expect(window.CloudVault.importAll).not.toHaveBeenCalled();
+            expect(beforeReload).not.toHaveBeenCalled();
             expect(result).toEqual({ imported: false });
         });
 
         it.each(['move', 'leave'])('%s: probe false imports with no dialog', async (source) => {
-            const { window } = await pickup(source, 'merge', { content: false });
+            const { window, result, beforeReload } = await pickup(source, 'merge', { content: false });
             expect(window.safeChoose).not.toHaveBeenCalled();
             expect(window.safeConfirm).not.toHaveBeenCalled();
             expect(window.CloudVault.importAll).toHaveBeenCalledTimes(1);
+            expect(beforeReload).toHaveBeenCalledTimes(1);
+            expect(result).toEqual({ imported: true });
         });
     });
 
