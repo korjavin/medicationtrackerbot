@@ -171,7 +171,9 @@
             }).map(tag),
             focusUnderKeyboard: !!(focused && vv && rect(focused).bottom > vv.height + vv.offsetTop + 0.5),
             bottomNavCovered: !!(tabbar && rect(tabbar).bottom > window.innerHeight + 0.5),
-            keyboardShown: !!(vv && vv.height < window.innerHeight - 100),
+            // Against the layout viewport: in WKWebView innerHeight shrinks
+            // with the keyboard too (seen on the Simulator, bd med-y5xx.3).
+            keyboardShown: !!(vv && vv.height < document.documentElement.clientHeight - 100),
         };
         const failed = [];
         if (probes.scale !== 1) failed.push('scale');
