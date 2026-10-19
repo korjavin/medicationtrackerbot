@@ -154,6 +154,22 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
   confirmation it does Switch account. A bad or already-claimed invite
   otherwise has no way back (the host is stored the moment the link parses).
   Passive: a returning user unlocks as before.
+- **Use this phone without an account** (bd med-nt9p.32.15, iOS twin in
+  [ios.md](ios.md)): Settings → Account shows the row only once `shell.ops`
+  lists `account.leave` (settings.js `nativeHas`, one probe per page; an APK
+  without `shell.ops` rejects the probe and never shows it). After a
+  `safeConfirm` it calls `CloudVault.leaveAccount({ then: 'local' })` → bridge
+  op `account.leave {then: "local"}`: the shell forgets the account host and
+  opens local mode directly. Nothing is erased (the account on the server, the
+  account origin's WebView data on the phone). A shell that rejects the op
+  makes the page point at Google Play or the launcher's *Switch account*
+  (`LocalNotifications.copy.leaveFallback`).
+- **After account deletion** (bd med-nt9p.32.15): once the server delete and
+  the local wipe finish, the page calls `leaveAccount()` with no args and the
+  shell shows its native first run, not the base-domain page (which the shell
+  renders in-app with no way out). An APK without the op rejects and the page
+  keeps that redirect. `android-qa.yml` scenario `delete-account` drives both
+  paths end to end.
 - **Chrome:** edge to edge; the bands behind the status and navigation bars
   take the page's own background colour at its top and bottom edge (a
   document-start script, [`assets/chrome.js`](../android/app/src/main/assets/chrome.js),
