@@ -1251,18 +1251,33 @@
         const api = trackersApi();
         if (!api) return null;
         const tid = encodeURIComponent(t.id);
-        return trackerWrite(patchTracker(t.id, (x) => ({ ...x, earlierLogs: [log, ...(x.earlierLogs || [])] })),
-            patchTracker(t.id, (x) => ({ ...x, earlierLogs: (x.earlierLogs || []).filter((l) => l.id !== log.id) })),
+        // The deleted count log's id is a tombstone: the restored row is
+        // provisional (not deletable) until the POST names its new id.
+        const restored = t.kind === 'check' ? log
+            : { ...log, id: `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` };
+        return trackerWrite(patchTracker(t.id, (x) => ({ ...x, earlierLogs: [restored, ...(x.earlierLogs || [])] })),
+            patchTracker(t.id, (x) => ({ ...x, earlierLogs: (x.earlierLogs || []).filter((l) => l.id !== restored.id) })),
             () => (t.kind === 'check'
                 ? api(`/api/trackers/${tid}/days/${encodeURIComponent(log.date)}`, 'PUT', { done: true })
                 : api(`/api/trackers/${tid}/log`, 'POST', { amount: log.amount, at: log.at })),
-            () => refreshTrackerRow(api, t.id));
+            async (saved) => (await refreshTrackerRow(api, t.id)) || patchTracker(t.id, (x) => ({
+                ...x,
+                earlierLogs: (x.earlierLogs || []).map((l) => (l.id === restored.id && saved.id ? saved : l)),
+            })));
     }
 
-    // Settle patch: swap the tracker for the server's fresh row.
+    // Settle patch: the server's fresh row (totals / streak / earlier list),
+    // keeping taps still in flight (provisional ids) — their own settle swaps
+    // the saved id in.
+    // ponytail: a tap whose POST landed before this GET counts twice until the
+    // next Today load revalidates the list.
     async function refreshTrackerRow(api, id) {
         const fresh = await serverTrackerRow(api, id);
-        return fresh ? patchTracker(id, () => fresh) : null;
+        if (!fresh) return null;
+        return patchTracker(id, (x) => {
+            const pend = (x.todayLogs || []).filter(isProvisional);
+            return withLogs(fresh, pend.reduce((sum, l) => sum + logAmount(fresh, l), 0), [...pend, ...(fresh.todayLogs || [])]);
+        });
     }
 
     // A log still carrying its provisional id has no server record to delete
