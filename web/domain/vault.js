@@ -115,6 +115,7 @@ export function hasUserContent(records) {
 // Apple Health rows also hold their canonical hk id (an older client restored
 // them under a fresh id), as healthimport.js importSamples does. Rows with
 // different ids are all kept, so the same item created on both sides doubles.
+// When it adds a weight row, every manual weight trend is rewalked.
 export function mergeRecords(existing, incoming) {
   const taken = new Map();
   for (const r of existing) {
@@ -125,7 +126,14 @@ export function mergeRecords(existing, incoming) {
   const yields = (r, inc) => r.recordId === inc.recordId && !r.deleted && r.clientTs === 0 && !inc.deleted;
   const added = incoming.filter((r) => !taken.has(r.recordId) || yields(taken.get(r.recordId), r));
   const replaced = new Set(added.map((r) => r.recordId));
-  return [...existing.filter((r) => !replaced.has(r.recordId)), ...added];
+  const out = [...existing.filter((r) => !replaced.has(r.recordId)), ...added];
+  if (!added.some((r) => r.recordType === 'weight' && !r.deleted)) return out;
+  // Each side's stored weight_trend is an EMA over its own history only: walk
+  // the merged manual chain once more (weight.js weightTrendChain, the order its
+  // readers use). Health rows stay trend-less, as healthimport writes them.
+  const chain = out.filter((r) => r.recordType === 'weight' && !r.deleted).sort(compareChain);
+  const trends = new Map(weightTrendChain(chain).map((t, i) => [chain[i], t]));
+  return out.map((r) => (trends.has(r) && !isHealthWeight(r) ? { ...r, weight_trend: trends.get(r) } : r));
 }
 
 // Record types whose rows are lazily materialized into deterministic recordIds

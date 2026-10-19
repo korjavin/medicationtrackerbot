@@ -611,8 +611,8 @@ describe('mergeRecords (merge import: union by recordId, receiver wins, bd med-o
   });
 
   it('adds every incoming row whose id is absent, and keeps every receiver row', () => {
-    const mine = [row('weight', 'weight-1'), row('note', 'n1')];
-    const theirs = [row('weight', 'weight-2'), row('foodlog', 'foodlog-1')];
+    const mine = [row('bp', 'bp-1'), row('note', 'n1')];
+    const theirs = [row('bp', 'bp-2'), row('foodlog', 'foodlog-1')];
     expect(mergeRecords(mine, theirs)).toEqual([...mine, ...theirs]);
   });
 
@@ -641,6 +641,15 @@ describe('mergeRecords (merge import: union by recordId, receiver wins, bd med-o
     expect(byId(mergeRecords([row('note', 'n1')], incoming)).integrations).toBe(keys);
     const mine = row('integrations', 'integrations', { openai_key: 'mine' });
     expect(byId(mergeRecords([mine], incoming)).integrations).toBe(mine);
+  });
+
+  it('rewalks the weight trend over the merged history', () => {
+    const mine = row('weight', 'weight-1', { weight: 100, measured_at: '2026-07-01T08:00:00Z', weight_trend: 100 });
+    const theirs = row('weight', 'weight-2', { weight: 80, measured_at: '2026-07-02T08:00:00Z', weight_trend: 80 });
+    const out = byId(mergeRecords([mine], [theirs]));
+    expect(out['weight-1'].weight_trend).toBe(100);
+    expect(out['weight-2'].weight_trend).toBe(98);
+    expect(out['weight-2'].clientTs).toBe(theirs.clientTs);
   });
 
   it('into an empty vault, merge lands exactly what a replace would', () => {
