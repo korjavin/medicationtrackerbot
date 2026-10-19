@@ -278,6 +278,25 @@ window.MedTrackerCloudReady = (async function boot() {
             const { getUnopenableCount } = await import('/js/inbox.js');
             return getUnopenableCount();
         },
+        // The iOS app's first-run "Use only on this device" (bd med-o7zq.30):
+        // the shell forgets the account host and shows its native first-run,
+        // whose "Only on this device" starts local mode. Nothing is erased —
+        // the account stays on the server and this origin keeps its data, so
+        // opening the account address again resumes it. A shell built before
+        // the account.leave op answers "unsupported: …": point at the iOS
+        // Settings toggle that does the same.
+        async leaveAccount() {
+            const native = window.LocalNotifications && window.LocalNotifications.__native;
+            if (!native || native.platform !== 'ios') throw new Error('Open the app on your iPhone to use it without an account.');
+            try {
+                await native.call('account.leave');
+            } catch (e) {
+                if (/unsupported/.test(String(e && e.message))) {
+                    throw new Error('Update Med Tracker, or open iOS Settings → Med Tracker → Switch account, then choose Only on this device.');
+                }
+                throw e;
+            }
+        },
     };
 
     // --- Post-unlock boot. The vault is unlocked; from here on any failure

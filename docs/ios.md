@@ -535,6 +535,14 @@ changes for it.
   a returning user unlocks as before. Coming from local mode (Move to a cloud
   account), the user picks "Only on this device" again to return; its data
   is kept.
+- **Use only on this device from the account** (bd med-o7zq.30): the
+  account's first-run overlay (`WGFirstRun` welcome screen) shows *Use only on
+  this device* inside the iOS app. After a `safeConfirm` it calls
+  `CloudVault.leaveAccount()` → bridge op `account.leave` (account origin
+  only), which does Switch account: the native first-run, where *Only on this
+  device* starts local mode. Nothing is erased (account on the server, the
+  origin's website data on the phone). A shell without the op answers
+  `unsupported`; the page then points at iOS Settings → *Switch account*.
 - **Chrome:** the page sits inside the safe area; the status-bar and
   home-indicator bands take the page's own background colour at its top and
   bottom edge (a page script reports it), the status bar is light, and the page
