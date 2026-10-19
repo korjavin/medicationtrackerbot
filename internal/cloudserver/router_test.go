@@ -501,3 +501,32 @@ func TestRouter_ShareLanding(t *testing.T) {
 		t.Fatalf("GET /api/s/<id> with nil api = %d, want 404", rec.Code)
 	}
 }
+
+// bd med-w6sx: the passkey shell (claim wizard) carries the same boolean
+// trial-AI meta as the app document — and only when the operator set a trial key.
+func TestRouter_ShellAdvertisesTrialAI(t *testing.T) {
+	store := setupStore(t)
+	now := time.Now().UTC()
+	if _, err := store.CreateAccount(t.Context(), "acc-1", "known-sub", []byte("hash"), now.Add(time.Hour), now, "", "", ""); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	shellFS := testFS()
+	shellFS["signup.html"] = &fstest.MapFile{Data: []byte("<html><head></head><body>shell</body></html>")}
+	for _, trial := range []bool{true, false} {
+		h := New("app.example.com", store, shellFS, testAppFS(), testDomainFS(), nil, "", trial, false)
+		req := httptest.NewRequest(http.MethodGet, "/unlock", nil)
+		req.Host = "known-sub.app.example.com"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("trial=%v: status = %d", trial, rec.Code)
+		}
+		has := strings.Contains(rec.Body.String(), `<meta name="medtracker-trial-ai" content="1">`)
+		if has != trial {
+			t.Fatalf("trial=%v: meta present = %v; body %q", trial, has, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), "shell") {
+			t.Fatalf("trial=%v: shell body missing: %q", trial, rec.Body.String())
+		}
+	}
+}

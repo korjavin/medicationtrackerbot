@@ -119,7 +119,7 @@ point — `med-4pz.4`'s Emergency Kit nudge is the one screen we want people to 
 
 The claim wizard used to end at `renderDone`, a terminal screen ("the full app arrives with the next update")
 with no button and no redirect. It is gone. The sequence is now
-`welcome → (unsupported-authenticator) → loss-ack → Emergency Kit → (telegram) → enterApp`.
+`welcome → (unsupported-authenticator) → loss-ack → Emergency Kit → (telegram) → (trial) → (install) → enterApp`.
 
 `enterApp(ctx)` (`web/cloud/js/signup.js`) establishes the LDK warm cache with the ceremony's `{dek, accountId}`
 and then navigates `location.href = '/'`, exactly as `renderDeviceList`'s `onExit` already does
@@ -182,6 +182,16 @@ documents, two different primitives, no sharing needed. That is the correct boun
   `tg` and `voice` scopes are not asked here (Settings, or the dialog on first use). Declining or a failed
   dialog shows an English message and leaves *Use my own keys* (today's key form) and *Skip for now* working.
   No trial meta → today's key form unchanged.
+- **Cloud claim wizard — trial next to Telegram** (`med-w6sx`, **implemented**): the owner wanted the trial
+  beside Telegram setup, not only in the skippable overlay. `cmd/cloud` injects the same `medtracker-trial-ai`
+  meta into the passkey shell, and `signup.js renderTrialStep` (after Telegram, before install) offers
+  *Try the free trial* / *Use my own keys* / *Skip*. The shell cannot write the `trialconsent` vault record, so
+  it only stores the choice in `localStorage['wg-onboarding-trial-choice']` and says the details come when the
+  app opens. `enterApp` always opens the app in that same browser next, where `WGFirstRun.mount` shows the real
+  `TrialConsent.request('ai')` dialog at once for `trial` (then marks it `trial-asked`, asked once). Any recorded
+  choice makes this step open on the key form instead of the trial choice; a granted `ai` consent (read via
+  `GET /api/settings/trial-consent`, so another device's grant counts) skips the step. No choice on this
+  browser → the overlay's trial choice as above.
 
 ### `safety` — Emergency Kit + second device (`med-4pz.4`)
 

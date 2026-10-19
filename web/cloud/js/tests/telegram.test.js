@@ -93,6 +93,29 @@ describe('telegram.js onboarding module', () => {
     expect(fetch).toHaveBeenCalledWith('/api/telegram/skip', { method: 'POST' });
   });
 
+  // med-x988: the consent step must fit one phone screen — a short summary and
+  // the actions up top, the long relay/privacy explanation collapsed below them.
+  it('keeps the long Telegram explanation collapsed below the actions', async () => {
+    global.fetch = fetchStub({
+      '/api/telegram/status': { ok: true, json: async () => ({ enabled: true, state: 'none' }) },
+    });
+    await mountTelegram(app, { onDone: vi.fn() });
+
+    const details = app.querySelector('#tg-privacy');
+    expect(details.tagName).toBe('DETAILS');
+    expect(details.open).toBe(false);
+    expect(details.querySelector('summary').textContent).toBe('What the server and Telegram see');
+    expect(details.textContent).toContain('What the server sees:');
+    expect(details.textContent).toContain('Messages you send transit the relay.');
+    // Nothing but the one-line summary paragraph sits outside the fold.
+    const section = app.querySelector('section');
+    expect(section.querySelectorAll(':scope > p')).toHaveLength(1);
+    expect(section.querySelector(':scope > p').textContent.replace(/\s+/g, ' ')).toContain('pass through this server unencrypted');
+    // The primary action comes before the fold, so it is on screen without scrolling.
+    const accept = app.querySelector('#tg-accept');
+    expect(accept.compareDocumentPosition(details) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('omits the Skip button in settings mode (no onDone)', async () => {
     global.fetch = fetchStub({
       '/api/telegram/status': { ok: true, json: async () => ({ enabled: true, state: 'none' }) },

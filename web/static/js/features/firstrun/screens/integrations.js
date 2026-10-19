@@ -276,10 +276,34 @@
             return;
         }
         if (_trialAvailable()) {
-            renderTrialChoice(body, helpers, null);
+            // bd med-w6sx: the claim wizard already asked trial-or-keys —
+            // don't ask twice. Consent granted (here, or on another device)
+            // means the step has nothing left to offer.
+            // A wizard "Use my own keys" keeps the key form up either way.
+            const choice = _wizardTrialChoice();
+            if (choice) renderKeys(body, helpers);
+            else renderTrialChoice(body, helpers, null);
+            if (choice !== 'own-keys') _ifTrialGranted(body, function () { helpers.advance('done'); });
             return;
         }
         renderKeys(body, helpers);
+    }
+
+    // Written by the claim wizard (web/cloud/js/signup.js TRIAL_CHOICE_KEY).
+    function _wizardTrialChoice() {
+        try { return window.localStorage.getItem('wg-onboarding-trial-choice'); } catch (_) { return null; }
+    }
+
+    function _ifTrialGranted(body, then) {
+        if (typeof window.apiCall !== 'function') return;
+        const marker = body.firstChild;
+        Promise.resolve()
+            .then(function () { return window.apiCall('/api/settings/trial-consent', 'GET'); })
+            .catch(function () { return null; })
+            .then(function (consent) {
+                // Only while this screen is still the one on show.
+                if (consent && consent.ai === true && marker && marker.isConnected) then();
+            });
     }
 
     function renderKeys(body, helpers) {

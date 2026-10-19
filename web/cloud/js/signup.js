@@ -1,7 +1,7 @@
 // Claim/registration wizard: the passkey signup ceremony described in
 // docs/cloud-crypto.md "Signup (first device)". Drives the account shell
 // (signup.html's #app) through create-passkey -> loss-protection ack ->
-// Emergency Kit -> optional Telegram link, then enters the app itself. Each
+// Emergency Kit -> optional Telegram link -> optional AI trial, then enters the app itself. Each
 // screen is rendered fresh from the outcome of the previous step rather than a
 // stored step counter, per docs/cloud-mode.md Onboarding ("the wizard is
 // stateless").
@@ -455,11 +455,55 @@ function printKit(docHtml) {
 async function renderTelegramStep(app, ctx) {
   try {
     const { mountTelegram } = await import('./telegram.js');
-    await mountTelegram(app, { onDone: () => renderInstallStep(app, ctx) });
+    await mountTelegram(app, { onDone: () => renderTrialStep(app, ctx) });
   } catch (e) {
     console.error('[signup] telegram step failed', e);
-    renderInstallStep(app, ctx);
+    renderTrialStep(app, ctx);
   }
+}
+
+// Shared with web/static/js/features/firstrun (index.js + screens/integrations.js),
+// which read it on the app's first open.
+const TRIAL_CHOICE_KEY = 'wg-onboarding-trial-choice';
+
+// Wizard step 5b (bd med-w6sx): the free AI trial, next to Telegram. Shown only
+// where the operator configured a trial key (the same medtracker-trial-ai meta
+// the app reads). This page cannot persist consent — the trialconsent record is
+// vault data written by the app — so it only records the choice; the app shows
+// the real disclosure the moment it opens (WGFirstRun.mount). The app opens in
+// this same browser right after the wizard (enterApp), so localStorage carries
+// the choice; anywhere else the overlay's own trial choice still offers it.
+function renderTrialStep(app, ctx) {
+  if (document.querySelector('meta[name="medtracker-trial-ai"]')?.content !== '1') {
+    renderInstallStep(app, ctx);
+    return;
+  }
+  app.innerHTML = `
+    <section class="wizard-step">
+      <h1>Try the AI features for free</h1>
+      <p>Log food by description or photo without your own AI key. The free
+         trial is rate-limited and runs on the operator’s shared key, outside
+         the vault.</p>
+      <p class="muted">Nothing is sent yet: when the app opens, it shows exactly
+         what the trial sends and asks you to allow it.</p>
+      <div class="wizard-actions">
+        <button id="trial-try" class="wg-btn wg-btn--primary">Try the free trial</button>
+        <button id="trial-own-keys" class="wg-btn">Use my own keys</button>
+        <button id="trial-skip" class="wg-btn wg-btn--ghost">Skip</button>
+      </div>
+      <p class="muted">You can switch any time in Settings → AI &amp; integrations.</p>
+    </section>`;
+  const pick = (choice) => {
+    try {
+      localStorage.setItem(TRIAL_CHOICE_KEY, choice);
+    } catch {
+      // Storage blocked: the app's onboarding overlay asks again instead.
+    }
+    renderInstallStep(app, ctx);
+  };
+  app.querySelector('#trial-try').addEventListener('click', () => pick('trial'));
+  app.querySelector('#trial-own-keys').addEventListener('click', () => pick('own-keys'));
+  app.querySelector('#trial-skip').addEventListener('click', () => pick('skip'));
 }
 
 // Wizard step 6: platform-aware "install & reopen". It is the last step before
