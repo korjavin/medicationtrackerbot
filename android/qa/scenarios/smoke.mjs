@@ -15,42 +15,7 @@ export default async function smoke(ctx) {
   let page = await ctx.step('invite opens the signup wizard (soft authenticator)', () => ctx.openClaim({ softAuthn: true }));
   await ctx.shot('wizard');
 
-  await ctx.step('create the passkey', async () => {
-    await page.click('#create-passkey');
-    await page.locator('#loss-ack-checkbox').waitFor({ timeout: 60_000 });
-  });
-  await ctx.shot('loss-ack');
-  await ctx.step('loss-ack → emergency kit', async () => {
-    await page.check('#loss-ack-checkbox');
-    await page.click('#loss-ack-continue');
-    await page.locator('#kit-download').waitFor({ timeout: 30_000 });
-  });
-  await ctx.shot('kit');
-  await ctx.step('kit download offers Save/Share', async () => {
-    await page.click('#kit-download');
-    await ctx.waitFor({ text: 'Save to device' }, 15_000);
-  });
-  await ctx.shot('kit-save-share');
-  await ctx.step('dismiss Save/Share and continue', async () => {
-    await shell('input keyevent KEYCODE_BACK');
-    await sleep(1000);
-    if (!(await page.isChecked('#kit-saved-checkbox'))) await page.check('#kit-saved-checkbox');
-    await page.click('#kit-continue');
-    await sleep(1500);
-    const skip = page.locator('#install-skip');
-    if (await skip.count()) { await ctx.shot('install-nudge'); await skip.click(); }
-  });
-  await ctx.step('vault opens', () => waitForVault(page));
-  // The onboarding wizard (WGFirstRun) covers the app on a fresh account: screenshot it, Skip all.
-  await ctx.step('onboarding wizard → Skip all', async () => {
-    const skipAll = page.locator('[data-firstrun-action="skip-all"]');
-    await skipAll.waitFor({ timeout: 20_000 });
-    await ctx.shot('onboarding');
-    await skipAll.click();
-    await skipAll.waitFor({ state: 'detached', timeout: 15_000 });
-    await sleep(1500);
-  }).catch(() => {});
-  await ctx.shot('first-today');
+  await claimAccount(ctx, page);
 
   for (const [label, tab] of TABS) {
     await ctx.step(`tab ${label}`, async () => {
@@ -263,8 +228,52 @@ async function exportBackup(ctx, page, r) {
   await page.evaluate(() => window.switchTab('today')).catch(() => {});
 }
 
+/**
+ * The signup wizard on an opened invite (soft authenticator) → passkey → loss-ack → Emergency Kit
+ * (Save/Share shot, dismissed) → vault → onboarding wizard skipped. Shared with local-to-cloud.
+ */
+export async function claimAccount(ctx, page) {
+  const { shell, sleep } = ctx;
+  await ctx.step('create the passkey', async () => {
+    await page.click('#create-passkey');
+    await page.locator('#loss-ack-checkbox').waitFor({ timeout: 60_000 });
+  });
+  await ctx.shot('loss-ack');
+  await ctx.step('loss-ack → emergency kit', async () => {
+    await page.check('#loss-ack-checkbox');
+    await page.click('#loss-ack-continue');
+    await page.locator('#kit-download').waitFor({ timeout: 30_000 });
+  });
+  await ctx.shot('kit');
+  await ctx.step('kit download offers Save/Share', async () => {
+    await page.click('#kit-download');
+    await ctx.waitFor({ text: 'Save to device' }, 15_000);
+  });
+  await ctx.shot('kit-save-share');
+  await ctx.step('dismiss Save/Share and continue', async () => {
+    await shell('input keyevent KEYCODE_BACK');
+    await sleep(1000);
+    if (!(await page.isChecked('#kit-saved-checkbox'))) await page.check('#kit-saved-checkbox');
+    await page.click('#kit-continue');
+    await sleep(1500);
+    const skip = page.locator('#install-skip');
+    if (await skip.count()) { await ctx.shot('install-nudge'); await skip.click(); }
+  });
+  await ctx.step('vault opens', () => waitForVault(page));
+  // The onboarding wizard (WGFirstRun) covers the app on a fresh account: screenshot it, Skip all.
+  await ctx.step('onboarding wizard → Skip all', async () => {
+    const skipAll = page.locator('[data-firstrun-action="skip-all"]');
+    await skipAll.waitFor({ timeout: 20_000 });
+    await ctx.shot('onboarding');
+    await skipAll.click();
+    await skipAll.waitFor({ state: 'detached', timeout: 15_000 });
+    await sleep(1500);
+  }).catch(() => {});
+  await ctx.shot('first-today');
+}
+
 // MedTrackerCloudReady resolves once cloud-boot installed the API shim (e2e/vault-roundtrip.mjs).
-async function waitForVault(page) {
+export async function waitForVault(page) {
   await page.waitForFunction(() => Boolean(window.MedTrackerCloudReady), null, { timeout: 60_000 });
   await page.evaluate(() => window.MedTrackerCloudReady);
   if (!(await page.evaluate(() => Boolean(window.MedTrackerCloud && window.MedTrackerCloud.ctx)))) {
