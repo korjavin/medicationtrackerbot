@@ -12,7 +12,7 @@ on:
       scenario:
         description: "Scenario (android/qa/scenarios/<name>.mjs), or all of them"
         type: choice
-        options: [all, firstrun, native-dark, native-fontscale, back-exit]
+        options: [all, firstrun, native-dark, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe]
         default: all
       font_scale:
         description: "System font scale applied before each scenario"
@@ -65,6 +65,29 @@ jobs:
         working-directory: android
         run: gradle --no-daemon assembleDebug
 
+      # The local cloud the emulator reaches (bd med-nt9p.24, docs/android.md → Agent QA harness):
+      # cmd/cloud on :8080 ← tlsfront on :443 (throwaway CA) ← emulator via 10.0.2.2.
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: go.mod
+
+      - name: Start the local cloud + TLS front, mint a test invite
+        run: |
+          go build -o "$RUNNER_TEMP/cloud" ./cmd/cloud
+          go build -o "$RUNNER_TEMP/tlsfront" ./android/qa/tlsfront
+          export SESSION_SECRET="$(openssl rand -base64 48)" CLOUD_DB_PATH="$RUNNER_TEMP/cloud.db" PORT=8080
+          nohup "$RUNNER_TEMP/cloud" > "$RUNNER_TEMP/cloud.log" 2>&1 &
+          for i in $(seq 1 30); do curl -s -o /dev/null http://127.0.0.1:8080/ && break; sleep 1; done
+          inv="$("$RUNNER_TEMP/cloud" admin invite)"
+          claim="$(grep -oE 'https://[^[:space:]]+#claim=[a-f0-9]+' <<<"$inv" | head -1)"
+          host="${claim#https://}"; host="${host%%/*}"
+          [ -n "$claim" ] || { echo "no claim URL in: $inv"; exit 1; }
+          sudo -b nohup "$RUNNER_TEMP/tlsfront" -ca "$RUNNER_TEMP/ca.pem" "$host" > "$RUNNER_TEMP/tlsfront.log" 2>&1
+          for i in $(seq 1 30); do [ -s "$RUNNER_TEMP/ca.pem" ] && break; sleep 1; done
+          curl -sS --fail -o /dev/null --cacert "$RUNNER_TEMP/ca.pem" --resolve "$host:443:127.0.0.1" "https://$host/unlock"
+          echo "QA_CLAIM_URL=$claim" >> "$GITHUB_ENV"
+          echo "QA_CA=$RUNNER_TEMP/ca.pem" >> "$GITHUB_ENV"
+
       - name: Install Playwright + its Android driver APKs (no browsers)
         working-directory: android/qa
         env:
@@ -94,6 +117,10 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: bash android/qa/run.sh android/app/build/outputs/apk/debug/app-debug.apk ${{ inputs.scenario || 'all' }} qa-out
+
+      - name: Collect server logs
+        if: always()
+        run: mkdir -p qa-out && cp "$RUNNER_TEMP/cloud.log" "$RUNNER_TEMP/tlsfront.log" qa-out/ || true
 
       - name: Upload QA artifact
         if: always()
