@@ -206,7 +206,26 @@ describe('post-create PRF probe', () => {
   // probe itself got through, nothing after it runs.
   const noPrf = (rawId) => ({ rawId, getClientExtensionResults: () => ({}) });
   const notReadable = () => Object.assign(new Error('credential manager'), { name: 'NotReadableError' });
-  const bridge = () => { globalThis.wgNative = { postMessage() {}, addEventListener() {} }; };
+  // Android shell: the probe waits PROBE_SETTLE_MS after create and retries
+  // back off 1/2/4 s, so the shell cases run on a fake setTimeout. settle()
+  // steps the clock and yields a real macrotask (WebCrypto) until it passes.
+  const bridge = (post = () => {}) => {
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    globalThis.wgNative = { postMessage: post, addEventListener() {} };
+  };
+  async function settle(assertion) {
+    for (let i = 0; i < 200; i++) {
+      try { assertion(); return; } catch { /* not yet */ }
+      await vi.advanceTimersByTimeAsync(100);
+      await new Promise((r) => setImmediate(r));
+    }
+    assertion();
+  }
+  const withPrf = (rawId) => ({
+    rawId,
+    getClientExtensionResults: () => ({ prf: { results: { first: new Uint8Array(32).fill(5).buffer } } }),
+  });
+  const calls = (url) => globalThis.fetch.mock.calls.filter(([u]) => u === url).length;
 
   async function clickCreate() {
     await runSignupWizard('tok123');
@@ -216,6 +235,7 @@ describe('post-create PRF probe', () => {
   }
 
   afterEach(() => {
+    vi.useRealTimers();
     delete globalThis.window;
     delete globalThis.wgNative;
     delete globalThis.PublicKeyCredential;
@@ -237,13 +257,15 @@ describe('post-create PRF probe', () => {
     const app = await clickCreate();
     await vi.waitFor(() => expect(app.querySelector('.wizard-error')).not.toBeNull());
     expect(getCalls).toHaveLength(1);
+    // The browser's own message, and no shell busy step on the way.
+    expect(app.querySelector('.wizard-error').textContent).toBe('credential manager');
   });
 
   it('Android shell: discoverable probe, accepted when it returns the created credential', async () => {
     install(() => noPrf(new Uint8Array([1, 2, 3, 4]).buffer));
     bridge();
     const app = await clickCreate();
-    await vi.waitFor(() => expect(app.textContent).toContain("can't be used yet"));
+    await settle(() => expect(app.textContent).toContain("can't be used yet"));
     expect(getCalls).toHaveLength(1);
     expect(getCalls[0].allowCredentials).toEqual([]);
   });
@@ -252,7 +274,7 @@ describe('post-create PRF probe', () => {
     install(() => noPrf(new Uint8Array([9, 9, 9, 9]).buffer));
     bridge();
     const app = await clickCreate();
-    await vi.waitFor(() => expect(app.querySelector('.wizard-error')).not.toBeNull());
+    await settle(() => expect(app.querySelector('.wizard-error')).not.toBeNull());
     expect(app.querySelector('.wizard-error').textContent).toContain('choose the passkey you just created');
     expect(app.textContent).not.toContain("can't be used yet");
   });
@@ -261,9 +283,76 @@ describe('post-create PRF probe', () => {
     install((n) => { if (n === 1) throw notReadable(); return noPrf(RAW_ID); });
     bridge();
     const app = await clickCreate();
-    // One real 1 s backoff.
-    await vi.waitFor(() => expect(app.textContent).toContain("can't be used yet"), { timeout: 3000 });
+    await settle(() => expect(app.textContent).toContain("can't be used yet"));
     expect(getCalls).toHaveLength(2);
+  });
+
+  it('Android shell: a NotAllowedError on the post-create probe is retried too', async () => {
+    install((n) => {
+      if (n === 1) throw Object.assign(new Error('not allowed'), { name: 'NotAllowedError' });
+      return noPrf(RAW_ID);
+    });
+    bridge();
+    const app = await clickCreate();
+    await settle(() => expect(app.textContent).toContain("can't be used yet"));
+    expect(getCalls).toHaveLength(2);
+  });
+
+  it('Android shell: waits ~1.5 s after create before the first probe', async () => {
+    install(() => noPrf(RAW_ID));
+    bridge();
+    await clickCreate();
+    await settle(() => expect(navigator.credentials.create).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(getCalls).toHaveLength(0);
+    await settle(() => expect(getCalls).toHaveLength(1));
+  });
+
+  // The device log (Pixel 7): probe 1 fails, a tap ~1 s later — while the
+  // retry backs off — started a second register/begin + create ("A request is
+  // already pending") and finish then 400'd on the superseded challenge.
+  it('Android shell: one ceremony from begin to finish; a tap during the retry backoff starts nothing', async () => {
+    install((n) => { if (n === 1) throw notReadable(); return withPrf(RAW_ID); });
+    bridge();
+    await runSignupWizard('tok123');
+    const app = dom.window.document.getElementById('app');
+    const button = app.querySelector('#create-passkey');
+    button.click();
+
+    // One steady busy step: no button left, no error, says what comes next.
+    expect(app.querySelector('#create-passkey')).toBeNull();
+    expect(app.textContent).toContain('Setting up your passkey');
+    expect(app.textContent).toContain('confirm the passkey you just created');
+
+    await settle(() => expect(getCalls).toHaveLength(1)); // probe 1 failed, now backing off
+    expect(app.querySelector('.wizard-error')).toBeNull();
+    // A stray tap on the old button (even one that bypasses the DOM) is dropped.
+    button.click();
+    button.dispatchEvent(new dom.window.Event('click'));
+
+    await settle(() => expect(app.textContent).toContain('Protect against device loss'));
+    expect(calls('/api/webauthn/register/begin')).toBe(2); // the wizard's claim-state probe + this ceremony
+    expect(navigator.credentials.create).toHaveBeenCalledTimes(1);
+    expect(getCalls).toHaveLength(2);
+    expect(calls('/api/webauthn/register/finish')).toBe(1);
+  });
+
+  it('Android shell: every probe attempt failing shows one plain message, and the button restarts with a fresh begin', async () => {
+    install((n) => { if (n <= 4) throw notReadable(); return withPrf(RAW_ID); });
+    bridge();
+    const app = await clickCreate();
+    await settle(() => expect(app.querySelector('.wizard-error')).not.toBeNull());
+    expect(getCalls).toHaveLength(4); // 1 + 3 bounded retries
+    expect(app.querySelectorAll('.wizard-error')).toHaveLength(1);
+    expect(app.querySelector('.wizard-error').textContent)
+      .toBe("Couldn't set up your passkey. Tap Create your passkey to try again.");
+    expect(calls('/api/webauthn/register/finish')).toBe(0);
+
+    app.querySelector('#create-passkey').click();
+    await settle(() => expect(app.textContent).toContain('Protect against device loss'));
+    expect(calls('/api/webauthn/register/begin')).toBe(3);
+    expect(navigator.credentials.create).toHaveBeenCalledTimes(2);
+    expect(calls('/api/webauthn/register/finish')).toBe(1);
   });
 
   // med-nt9p.22: the ceremony log goes to the shell as diag.append entries.
@@ -275,10 +364,10 @@ describe('post-create PRF probe', () => {
   it('Android shell: logs begin, create, probe and the probe retry, without secrets', async () => {
     install((n) => { if (n === 1) throw notReadable(); return noPrf(RAW_ID); });
     const post = vi.fn();
-    globalThis.wgNative = { postMessage: post, addEventListener() {} };
+    bridge(post);
     const app = await clickCreate();
-    await vi.waitFor(() => expect(app.textContent).toContain("can't be used yet"), { timeout: 3000 });
-    await vi.waitFor(() => expect(diagEntries(post)).toHaveLength(4));
+    await settle(() => expect(app.textContent).toContain("can't be used yet"));
+    await settle(() => expect(diagEntries(post)).toHaveLength(4));
 
     const entries = diagEntries(post);
     const find = (op, attempt) => entries.find((e) => e.op === op && (attempt === undefined || e.attempt === attempt));
@@ -315,11 +404,12 @@ describe('post-create PRF probe', () => {
     }
   });
 
-  it('Android shell: any other error is not retried', async () => {
-    install(() => { throw Object.assign(new Error('dismissed'), { name: 'NotAllowedError' }); });
+  it('Android shell: any other error is not retried, and reads as plain English', async () => {
+    install(() => { throw Object.assign(new Error('blocked'), { name: 'SecurityError' }); });
     bridge();
     const app = await clickCreate();
-    await vi.waitFor(() => expect(app.querySelector('.wizard-error')).not.toBeNull());
+    await settle(() => expect(app.querySelector('.wizard-error')).not.toBeNull());
     expect(getCalls).toHaveLength(1);
+    expect(app.querySelector('.wizard-error').textContent).toContain('Tap Create your passkey to try again');
   });
 });

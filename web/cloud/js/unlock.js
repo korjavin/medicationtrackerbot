@@ -14,7 +14,7 @@ import {
   toBase64Url,
 } from './crypto.js';
 import { openDb } from './localdb.js';
-import { getAssertion } from './passkey-get.js';
+import { getAssertion, passkeyCeremony } from './passkey-get.js';
 import { diagHttp } from './passkey-diag.js';
 
 const STORE_NAME = 'device';
@@ -25,6 +25,12 @@ const LDK_RECORD_KEY = 'ldk2';
 const LDK_LEGACY_KEY = 'ldk';
 const LDK_STAGING_PREFIX = 'ldk-staging-';
 const LDK_AAD = new TextEncoder().encode('mt/v1/ldk');
+// Android shell's steady busy step (passkey-get.js passkeyCeremony).
+const UNLOCK_CEREMONY_COPY = {
+  busy: 'Unlocking…',
+  hint: 'Choose your passkey to open your vault.',
+  failed: "Couldn't unlock with your passkey. Tap Unlock with passkey to try again.",
+};
 
 export async function runUnlockFlow() {
   const app = document.getElementById('app');
@@ -76,7 +82,8 @@ function renderLocked(app, errorText) {
     app.querySelector('section').appendChild(p);
   }
   app.querySelector('#unlock-button').addEventListener('click', () => {
-    coldUnlock(app).catch((err) => renderLocked(app, err.message || String(err)));
+    passkeyCeremony(app, UNLOCK_CEREMONY_COPY, () => coldUnlock(app))
+      .catch((err) => renderLocked(app, err.message || String(err)));
   });
   if (carriesSharePlan) {
     const copyBtn = app.querySelector('#share-plan-copy-button');

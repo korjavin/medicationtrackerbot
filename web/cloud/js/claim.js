@@ -18,8 +18,15 @@ import {
 } from './crypto.js';
 import { renderUnsupportedAuthenticator } from './signup.js';
 import { establishLdkCache } from './unlock.js';
-import { createCredential, prfProbe } from './passkey-get.js';
+import { createCredential, passkeyCeremony, prfProbe } from './passkey-get.js';
 import { diagHttp } from './passkey-diag.js';
+
+// Android shell's steady busy step (passkey-get.js passkeyCeremony).
+const ENROLL_CEREMONY_COPY = {
+  busy: 'Setting up your passkey…',
+  hint: 'Google will then ask you to confirm the passkey you just created — choose it to finish.',
+  failed: "Couldn't set up your passkey. Please try again.",
+};
 
 export async function runClaimFlow() {
   const app = document.getElementById('app');
@@ -113,7 +120,13 @@ async function claimAndEnroll(app, { slotId, tk }) {
 // not in how they turn that into a live passkey + session. Returns false (having
 // already rendered the terminal error state) if the authenticator lacks PRF
 // support; true once the passkey + session + warm-unlock cache are all live.
-export async function enrollWithToken(app, { enrollmentToken, accountId, dek }) {
+// In the Android shell the whole ceremony is one passkeyCeremony
+// (passkey-get.js): a steady busy step, then this module's own screens.
+export function enrollWithToken(app, ctx) {
+  return passkeyCeremony(app, ENROLL_CEREMONY_COPY, () => enroll(app, ctx));
+}
+
+async function enroll(app, { enrollmentToken, accountId, dek }) {
   const beginRes = diagHttp('register/begin', await fetch('/api/webauthn/register/begin', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
