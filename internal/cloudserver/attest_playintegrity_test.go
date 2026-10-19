@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -39,11 +40,19 @@ const androidTestPkg = "ai.example.app"
 
 type fakePlayIntegrity struct {
 	status atomic.Int32 // non-zero: decode answers this status
-	// deviceRecall:write (bd med-nt9p.32.8.6): recorded newValues;
-	// writeStatus non-zero answers that status.
+	// deviceRecall:write (bd med-nt9p.32.8.6): recorded newValues, and held,
+	// the device's bits as Google keeps them (a write changes only the bits
+	// it names, per the guide); writeStatus non-zero answers that status.
 	mu          sync.Mutex
 	writes      []map[string]bool
+	held        map[string]bool
 	writeStatus atomic.Int32
+}
+
+func (f *fakePlayIntegrity) heldBits() map[string]bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return maps.Clone(f.held)
 }
 
 func (f *fakePlayIntegrity) recallWrites() []map[string]bool {
@@ -89,13 +98,20 @@ func (f *fakePlayIntegrity) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "{}", http.StatusBadRequest)
 			return
 		}
-		f.mu.Lock()
-		f.writes = append(f.writes, body.NewValues)
-		f.mu.Unlock()
 		if s := f.writeStatus.Load(); s != 0 {
+			f.mu.Lock()
+			f.writes = append(f.writes, body.NewValues)
+			f.mu.Unlock()
 			http.Error(w, `{"error":{"code":400,"status":"FAILED_PRECONDITION"}}`, int(s))
 			return
 		}
+		f.mu.Lock()
+		f.writes = append(f.writes, body.NewValues)
+		if f.held == nil {
+			f.held = map[string]bool{}
+		}
+		maps.Copy(f.held, body.NewValues)
+		f.mu.Unlock()
 		_, _ = w.Write([]byte("{}"))
 	default:
 		http.NotFound(w, r)
@@ -511,8 +527,28 @@ func TestAttestEnrollAndroidDeviceRecall(t *testing.T) {
 		t.Fatalf("rejoin: %d %s", rec.Code, rec.Body.String())
 	}
 	got, _ := json.Marshal(e.g.recallWrites())
-	if want := `[{"bitFirst":true,"bitSecond":false,"bitThird":false},{"bitFirst":true,"bitSecond":false,"bitThird":false},{"bitFirst":true,"bitSecond":true,"bitThird":true}]`; string(got) != want {
+	if want := `[{"bitFirst":true},{"bitFirst":true},{"bitFirst":true,"bitSecond":true}]`; string(got) != want {
 		t.Fatalf("writes = %s, want %s", got, want)
+	}
+	// A stale snapshot never clears a held bit: Google holds both, the
+	// token's warm-up values say First only (and then none) — the writes only
+	// set, so both stay set.
+	for name, snap := range map[string]map[string]any{"first only": {"bitFirst": true}, "none": {}} {
+		k := attestKey(t)
+		c := e.challenge()
+		if rec := e.enrollAndroid(k, c, androidToken(t, k, c, withRecall(snap)), ""); rec.Code != http.StatusOK {
+			t.Fatalf("stale %s: %d %s", name, rec.Code, rec.Body.String())
+		}
+		if h := e.g.heldBits(); !h["bitFirst"] || !h["bitSecond"] {
+			t.Fatalf("stale %s cleared a bit: %v", name, h)
+		}
+	}
+	for _, w := range e.g.recallWrites() {
+		for bit, v := range w {
+			if !v {
+				t.Fatalf("a write sent %s=false: %v", bit, w)
+			}
+		}
 	}
 	if strings.Contains(logs.String(), "ya29") || strings.Contains(logs.String(), pass) {
 		t.Fatal("a secret reached the log")

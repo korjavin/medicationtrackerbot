@@ -30,7 +30,7 @@
 // caller's challenge map is single-use, so a replayed token fails on the
 // consumed challenge. timestampMillis bounds how old a token may be.
 //
-// PRIVACY: Decode/VerifyEnrollment/WriteDeviceRecall make outbound HTTP to
+// PRIVACY: Decode/VerifyEnrollment/SetDeviceRecall make outbound HTTP to
 // playintegrity.googleapis.com and the service account's token_uri
 // (oauth2.googleapis.com). The privacy-claims guard scans only
 // internal/cloudserver, so the routes that call this package (bd
@@ -381,14 +381,21 @@ func (v *Verifier) Decode(ctx context.Context, token string) (*Verdict, error) {
 	}, nil
 }
 
-// WriteDeviceRecall sets the device's three recall bits with the token the
-// device sent (bd med-nt9p.32.8.6): POST
-// {base}/v1/{packageName}/deviceRecall:write body {"integrityToken": token,
-// "newValues": {bitFirst, bitSecond, bitThird}}, same bearer and scope as
-// decodeIntegrityToken. All three bits are sent (the REST reference marks
-// them required). Google refuses the write when the token's recall is
-// unevaluated. Any non-200 is ErrUnavailable carrying the status only.
-func (v *Verifier) WriteDeviceRecall(ctx context.Context, token string, first, second, third bool) error {
+// SetDeviceRecall sets the true bits of set with the token the device sent
+// (bd med-nt9p.32.8.6): POST {base}/v1/{packageName}/deviceRecall:write body
+// {"integrityToken": token, "newValues": {<only the true bits>: true}}, same
+// bearer and scope as decodeIntegrityToken.
+//
+// MONOTONIC: a false bit is never sent, so this can only set bits, never
+// clear one. The verdict's recall values are a snapshot (a standard-request
+// provider caches them at warm-up), so echoing a stale false would clear a bit
+// Google already holds and reopen pass-less farming. The guide says
+// unspecified bits stay unchanged; the REST reference lists all three as
+// required — if Google enforces that, the write fails, the caller rolls the
+// grant back and fails closed (never a cleared bit). Google also refuses the
+// write when the token's recall is unevaluated. Any non-200 is ErrUnavailable
+// carrying the status only.
+func (v *Verifier) SetDeviceRecall(ctx context.Context, token string, set DeviceRecall) error {
 	if token == "" || v.cfg.PackageName == "" {
 		return ErrMalformed
 	}
@@ -400,10 +407,16 @@ func (v *Verifier) WriteDeviceRecall(ctx context.Context, token string, first, s
 	if base == "" {
 		base = DefaultBaseURL
 	}
-	reqBody, _ := json.Marshal(map[string]any{
-		"integrityToken": token,
-		"newValues":      map[string]bool{"bitFirst": first, "bitSecond": second, "bitThird": third},
-	})
+	bits := map[string]bool{}
+	for name, on := range map[string]bool{"bitFirst": set.First, "bitSecond": set.Second, "bitThird": set.Third} {
+		if on {
+			bits[name] = true
+		}
+	}
+	if len(bits) == 0 {
+		return ErrMalformed
+	}
+	reqBody, _ := json.Marshal(map[string]any{"integrityToken": token, "newValues": bits})
 	_, status, err := v.post(ctx, base+"/v1/"+url.PathEscape(v.cfg.PackageName)+"/deviceRecall:write", "application/json", bytes.NewReader(reqBody), bearer)
 	if err != nil {
 		return err

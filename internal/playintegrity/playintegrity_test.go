@@ -432,23 +432,27 @@ func TestDecode_DeviceRecall(t *testing.T) {
 	}
 }
 
-func TestWriteDeviceRecall(t *testing.T) {
+func TestSetDeviceRecall(t *testing.T) {
 	f := newFixture(t, nil)
-	if err := f.v.WriteDeviceRecall(context.Background(), "good-token", true, false, true); err != nil {
+	// Only true bits go out: a false is never sent, so no bit can be cleared.
+	if err := f.v.SetDeviceRecall(context.Background(), "good-token", DeviceRecall{First: true, Third: true}); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := json.Marshal(f.g.writes)
-	if want := `[{"integrityToken":"good-token","newValues":{"bitFirst":true,"bitSecond":false,"bitThird":true}}]`; string(b) != want {
+	if want := `[{"integrityToken":"good-token","newValues":{"bitFirst":true,"bitThird":true}}]`; string(b) != want {
 		t.Fatalf("write body = %s, want %s", b, want)
 	}
 	// Non-200 (e.g. an unevaluated recall) → ErrUnavailable with the status
 	// only, never the token or the body.
 	f.g.writeStatus = http.StatusBadRequest
-	err := f.v.WriteDeviceRecall(context.Background(), "good-token", true, false, false)
+	err := f.v.SetDeviceRecall(context.Background(), "good-token", DeviceRecall{First: true})
 	if !errors.Is(err, ErrUnavailable) || errors.Is(err, ErrInvalid) || strings.Contains(err.Error(), "good-token") || !strings.Contains(err.Error(), "400") {
 		t.Fatalf("write 400: %v", err)
 	}
-	if err := f.v.WriteDeviceRecall(context.Background(), "", true, false, false); !errors.Is(err, ErrMalformed) {
+	if err := f.v.SetDeviceRecall(context.Background(), "", DeviceRecall{First: true}); !errors.Is(err, ErrMalformed) {
 		t.Fatalf("empty token: %v", err)
+	}
+	if err := f.v.SetDeviceRecall(context.Background(), "good-token", DeviceRecall{}); !errors.Is(err, ErrMalformed) {
+		t.Fatalf("no bit: %v", err)
 	}
 }
