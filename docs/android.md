@@ -388,8 +388,14 @@ gh workflow run android-qa.yml --ref <branch> -f scenario=firstrun -f font_scale
 gh run download <run-id> -n android-qa-<scenario> -D /tmp/qa             # then Read the PNGs
 ```
 
+Playwright attaches to the shell's WebView on the runner (the CDP fallback is
+not needed). The emulator is flaky right after boot (Play services restarts can
+kill the app, the launcher ANRs), so `run.mjs` waits 45 s, dismisses "isn't
+responding" dialogs, and retries a failed scenario once; the failed attempt
+stays in the summary marked *retried*. A whole run takes ~8 min.
+
 Artifact `android-qa-<scenario>`: `screenshots/<scenario>-<name>.png` (plus
-`<scenario>-FAILED.png` where one stopped), `qa-summary.json` (inputs, every
+`<scenario>-FAILED<attempt>.png` where one stopped), `qa-summary.json` (inputs, every
 step's pass/fail, screenshot list — also the run's step summary), `logcat.txt`
 (`adb logcat -d`; WebView console lines are under the `chromium` tag), and
 `diag.xml` (the shell's passkey log, `run-as … cat shared_prefs/diag.xml`).
