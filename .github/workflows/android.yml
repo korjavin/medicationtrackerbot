@@ -8,11 +8,13 @@ on:
     branches: [master]
     paths:
       - 'android/**'
+      - 'ios/LocalSpike/**' # the debug APK's local-mode spike page (bd med-nt9p.32.1)
       - '.github/workflows/android.yml'
   pull_request:
     branches: [master]
     paths:
       - 'android/**'
+      - 'ios/LocalSpike/**'
       - '.github/workflows/android.yml'
   # Any branch: spike branches ship to Play internal testing from here.
   workflow_dispatch:
