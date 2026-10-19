@@ -32,6 +32,17 @@
 //     to their existing "configure to enable" empty states. The copy in
 //     this screen keys off the same trial meta tag so it never promises
 //     an out-of-the-box trial the operator hasn't provisioned.
+//
+// iOS device-only mode (bd med-o7zq.29): the screen leads with the anonymous
+// free trial instead of the key form. window.CloudVault.trial
+// (web/cloud/js/local-policy.js) exists only in local mode, and its status()
+// is null where the shell has no App Attest — then the key form renders as
+// before. "Try the free trial" is the Settings → AI & integrations switch's
+// own flow: the `anon` TrialConsent ceremony, trial.apply() (which reloads
+// when the CSP has to admit our server — the overlay then resumes on this
+// step, sees the trial on and finishes), then trial.enroll() for the grant or
+// rejoin. A refusal or a failed grant says why and leaves "Use my own keys"
+// and "Skip for now" one tap away.
 (function () {
     'use strict';
 
@@ -125,7 +136,128 @@
         + 'features. URL and model defaults are pre-filled — change them only if you use a '
         + 'self-hosted compatible endpoint.';
 
+    const TRIAL_TAGLINE = 'Try the AI and food database without your own keys. The free trial is '
+        + 'limited and runs through our server; you’ll see exactly what it sends before it turns on.';
+    const SWITCH_NOTE = 'You can switch any time in Settings → AI & integrations.';
+    const TRIAL_DECLINED = 'The free trial stays off. You can use your own keys, or skip for now.';
+    const TRIAL_ERRORS = {
+        trial_already_used: 'The free trial was already used on this iPhone. You can use your own keys, or skip for now.',
+        trial_not_configured: 'The free trial is not available right now. You can use your own keys, or skip for now.',
+    };
+    const TRIAL_FAILED = 'Couldn’t start the free trial. Check your connection and try again, use your own keys, or skip for now.';
+
+    function _localTrial() {
+        return (window.CloudVault && window.CloudVault.trial) || null;
+    }
+
+    function _button(className, text, action) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'wg-btn wg-btn--lg wg-btn--block' + (className ? ' ' + className : '');
+        btn.textContent = text;
+        btn.setAttribute('data-firstrun-action', action);
+        return btn;
+    }
+
+    function renderTrialChoice(body, helpers, trial) {
+        const intro = document.createElement('p');
+        intro.className = 'wg-firstrun-screen__tagline';
+        intro.textContent = TRIAL_TAGLINE;
+        body.appendChild(intro);
+
+        const error = document.createElement('p');
+        error.className = 'wg-firstrun-form__error';
+        error.setAttribute('data-firstrun-form-error', 'trial');
+        body.appendChild(error);
+
+        const actions = document.createElement('div');
+        actions.className = 'wg-firstrun-actions';
+        const tryBtn = _button('wg-btn--primary', 'Try the free trial', 'trial');
+        const keysBtn = _button('', 'Use my own keys', 'own-keys');
+        // Never disabled: whatever the trial does, the user can move on.
+        const skip = _button('wg-btn--ghost', 'Skip for now', 'skip');
+        actions.append(tryBtn, keysBtn, skip);
+        body.appendChild(actions);
+
+        const note = document.createElement('p');
+        note.className = 'wg-hint';
+        note.textContent = SWITCH_NOTE;
+        body.appendChild(note);
+
+        function busy(on) {
+            tryBtn.disabled = on;
+            keysBtn.disabled = on;
+        }
+        function fail(text) {
+            error.textContent = text;
+            tryBtn.textContent = 'Try again';
+            busy(false);
+        }
+        async function finish() {
+            busy(true);
+            error.textContent = '';
+            tryBtn.textContent = 'Starting the free trial…';
+            let res;
+            try { res = await trial.enroll(); } catch (_) { res = { ok: false, code: 'network' }; }
+            if (!tryBtn.isConnected) return;
+            if (res && res.ok) {
+                helpers.advance('done');
+                return;
+            }
+            fail(TRIAL_ERRORS[res && res.code] || TRIAL_FAILED);
+        }
+
+        tryBtn.addEventListener('click', async function () {
+            busy(true);
+            error.textContent = '';
+            let reloading = false;
+            try {
+                const granted = window.TrialConsent ? await window.TrialConsent.request('anon') : false;
+                if (granted !== true) {
+                    fail(TRIAL_DECLINED);
+                    tryBtn.textContent = 'Try the free trial';
+                    return;
+                }
+                reloading = (await trial.apply()) === true;
+            } catch (e) {
+                console.error('[firstrun] trial start failed', e);
+                fail(TRIAL_FAILED);
+                return;
+            }
+            // The CSP changes on a reload; this step resumes after it.
+            if (!reloading) await finish();
+        });
+        keysBtn.addEventListener('click', function () {
+            body.replaceChildren();
+            renderKeys(body, helpers);
+        });
+        skip.addEventListener('click', function () {
+            helpers.advance('done');
+        });
+
+        // The same gate as the Settings row: no App Attest → the key form.
+        // Already on (back from apply()'s reload) → finish the grant.
+        Promise.resolve(trial.status()).catch(function () { return null; }).then(function (status) {
+            if (!tryBtn.isConnected) return;
+            if (!status) {
+                body.replaceChildren();
+                renderKeys(body, helpers);
+            } else if (status.on) {
+                finish();
+            }
+        });
+    }
+
     function render(body, helpers) {
+        const localTrial = _localTrial();
+        if (localTrial) {
+            renderTrialChoice(body, helpers, localTrial);
+            return;
+        }
+        renderKeys(body, helpers);
+    }
+
+    function renderKeys(body, helpers) {
         const trial = _trialAvailable();
 
         const intro = document.createElement('p');
@@ -208,7 +340,7 @@
     window.WGFirstRun = window.WGFirstRun || {};
     window.WGFirstRun.screens = window.WGFirstRun.screens || {};
     window.WGFirstRun.screens.integrations = {
-        title: 'OpenAI integration',
+        get title() { return _localTrial() ? 'AI and food database' : 'OpenAI integration'; },
         render: render,
     };
 })();

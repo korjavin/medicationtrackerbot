@@ -270,7 +270,21 @@ export const LOCAL_FOOD_DB = {
 // nothing here talks to one. The transport is installed
 // only once this document's CSP carries the host (no change pending a
 // reload), and a first enrollment runs then, so Settings can show the count.
-export async function registerLocalEgress({ settings, win }) {
+// Settled by the first registerLocalEgress, whatever its outcome: until then
+// LOCAL_VAULT.trial cannot tell "no App Attest" from "not told yet", so its
+// readers wait for it (the first-run screen renders right after boot).
+let firstEgressSettled;
+const firstEgress = new Promise((resolve) => { firstEgressSettled = resolve; });
+
+export async function registerLocalEgress(args) {
+  try {
+    return await registerLocalEgressNow(args);
+  } finally {
+    firstEgressSettled();
+  }
+}
+
+async function registerLocalEgressNow({ settings, win }) {
   const native = win.LocalNotifications && win.LocalNotifications.__native;
   if (!native || native.platform !== 'ios') return null;
   lastEgress = { settings, win };
@@ -381,14 +395,45 @@ export const LOCAL_VAULT = {
     // Else { on, remaining?, daily?, used? }. The window is the one
     // registerLocalEgress ran for.
     async status() {
+      await firstEgress;
       if (!lastEgress || !(await attestStatus(lastEgress.win))) return null;
       return { on: !!localTrial, ...(localTrial ? localTrial.state() : {}) };
     },
     // After Settings changed the `anon` trial consent: hand the shell the new
-    // host list, and reload when the CSP has to change with it.
+    // host list, and reload when the CSP has to change with it. Resolves true
+    // when it reloads.
     async apply() {
       const res = lastEgress ? await registerLocalEgress(lastEgress) : null;
       if (res && res.changed) lastEgress.win.location.reload();
+      return !!(res && res.changed);
+    },
+    // The first-run screen's "Try the free trial" (bd med-o7zq.29), once the
+    // trial is on: the grant or rejoin this device needs — the boot-time
+    // enrollment's, joined while in flight (local-trial.js single-flight), or
+    // one more when that one failed. Resolves { ok: true }, or { ok: false,
+    // code } with the server's error (trial_already_used,
+    // trial_not_configured, …), 'network', or 'trial_off'.
+    async enroll() {
+      await firstEgress;
+      const attest = lastEgress && await attestStatus(lastEgress.win);
+      if (!localTrial || !attest) return { ok: false, code: 'trial_off' };
+      // The memo is the proof of a grant: the shell's `attested` turns true
+      // before the server answers, so it says nothing about one. With no memo
+      // the enroll runs (the shell's pass rejoins a bucket granted before).
+      if (!localTrial.state()) {
+        let res;
+        try {
+          res = await localTrial.enroll();
+        } catch {
+          return { ok: false, code: 'network' };
+        }
+        if (!res.ok) {
+          const body = await res.clone().json().catch(() => null);
+          return { ok: false, code: (typeof body?.error === 'string' && body.error) || 'network' };
+        }
+      }
+      const st = localTrial.state();
+      return st?.used || st?.remaining === 0 ? { ok: false, code: 'trial_already_used' } : { ok: true };
     },
   },
   // The last device schedule outcome (keepLocalRemindersFresh), null before
