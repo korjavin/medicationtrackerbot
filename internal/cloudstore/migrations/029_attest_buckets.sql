@@ -28,8 +28,8 @@ CREATE INDEX attest_installs_bucket ON attest_installs (bucket_id);
 -- +goose Down
 -- +goose StatementBegin
 UPDATE attest_installs SET
-    used = COALESCE((SELECT used FROM attest_buckets b WHERE b.bucket_id = attest_installs.key_id), used),
-    voice_seconds = COALESCE((SELECT voice_seconds FROM attest_buckets b WHERE b.bucket_id = attest_installs.key_id), voice_seconds);
+    used = COALESCE((SELECT used FROM attest_buckets b WHERE b.bucket_id = attest_installs.bucket_id), used),
+    voice_seconds = COALESCE((SELECT voice_seconds FROM attest_buckets b WHERE b.bucket_id = attest_installs.bucket_id), voice_seconds);
 DROP INDEX attest_installs_bucket;
 ALTER TABLE attest_installs DROP COLUMN bucket_id;
 DROP TABLE attest_buckets;

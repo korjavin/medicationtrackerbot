@@ -68,6 +68,18 @@ func TestMigration029BackfillsBuckets(t *testing.T) {
 	if grant, _, _, _, err := r.ReserveAttestVoice(ctx, "old", 11, now, 600, 80, 0, 120, 30); grant != 30 || err != nil {
 		t.Fatalf("voice daily after backfill: %d %v", grant, err)
 	}
+	// Rolling back copies the bucket's counters onto every install of it,
+	// a rejoined one included.
+	if err := r.InsertAttestInstall(ctx, AttestInstall{KeyID: "joined", BucketID: "old", PublicKey: []byte{1}, Env: "production", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := goose.DownTo(d.DB, "migrations", 28); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := d.QueryRowContext(ctx, `SELECT COUNT(*) FROM attest_installs WHERE used = 4 AND voice_seconds = 130`).Scan(&n); err != nil || n != 2 {
+		t.Fatalf("rolled back counters: %d installs %v", n, err)
+	}
 }
 
 // bd med-o7zq.26: an install that joins a bucket spends the bucket's
