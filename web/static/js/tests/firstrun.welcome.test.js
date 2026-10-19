@@ -10,6 +10,7 @@ const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const STATE_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/state.js');
 const WELCOME_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/screens/welcome.js');
 const DONE_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/screens/done.js');
+const INTEGRATIONS_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/screens/integrations.js');
 const INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/index.js');
 
 // features/firstrun/screens/welcome.js — Task 4. Renders the first
@@ -20,7 +21,7 @@ const INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/index.js'
 
 const SHELL_HTML = `<!doctype html><html><body></body></html>`;
 
-function loadFlow({ bootstrap = null, fetchMock = null } = {}) {
+function loadFlow({ bootstrap = null, fetchMock = null, trialOffer = null, localTrial = null, trialAi = false, wizardChoice = null } = {}) {
     const dom = new JSDOM(SHELL_HTML, {
         url: 'https://example.test/',
         runScripts: 'outside-only',
@@ -29,12 +30,23 @@ function loadFlow({ bootstrap = null, fetchMock = null } = {}) {
     const { window } = dom;
     if (bootstrap) window.__MEDTRACKER_BOOTSTRAP__ = bootstrap;
     if (fetchMock) window.fetch = fetchMock;
+    // features/settings/integrations.js's trialOffer() (med-6xb9).
+    if (trialOffer) window.SettingsIntegrations = { trialOffer };
+    // iOS device-only mode: local-policy.js LOCAL_VAULT.trial.
+    if (localTrial) window.CloudVault = { trial: localTrial };
+    if (trialAi) {
+        const meta = window.document.createElement('meta');
+        meta.name = 'medtracker-trial-ai';
+        meta.content = '1';
+        window.document.head.appendChild(meta);
+    }
+    if (wizardChoice) window.localStorage.setItem('wg-onboarding-trial-choice', wizardChoice);
 
     // Load order mirrors index.html: state + screen modules first, then
     // the orchestrator. Either order works in production because each
     // file defensively initialises window.WGFirstRun, but matching the
     // shipped order keeps the test honest.
-    for (const file of [STATE_JS, WELCOME_JS, DONE_JS, INDEX_JS]) {
+    for (const file of [STATE_JS, WELCOME_JS, INTEGRATIONS_JS, DONE_JS, INDEX_JS]) {
         const src = fs.readFileSync(file, 'utf8');
         window.eval(`${src}\n//# sourceURL=file://${file}`);
     }
@@ -179,5 +191,96 @@ describe('firstrun welcome screen', () => {
                 expect(actions).toEqual(['advance', 'skip-all']);
             } finally { cleanup(); }
         }
+    });
+
+    // bd med-js3k: "Skip all" must not hide the free AI trial. With a trial on
+    // offer it lands on the integrations step's trial choice; leaving that
+    // step finishes the flow (no "done" screen), writing first_run_complete.
+    const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+    const okFetch = () => vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ ok: true }) });
+
+    it('"Skip all" with the cloud trial on offer shows the trial step; its Skip finishes', async () => {
+        const fetchMock = okFetch();
+        const trialOffer = vi.fn().mockResolvedValue(true);
+        const { window, document, cleanup } = loadFlow({
+            bootstrap: { needs_first_run: true }, fetchMock, trialOffer, trialAi: true,
+        });
+        try {
+            window.WGFirstRun.mount();
+            document.querySelector('[data-firstrun-action="skip-all"]').click();
+            await flush();
+
+            expect(trialOffer).toHaveBeenCalledTimes(1);
+            expect(fetchMock).not.toHaveBeenCalled();
+            expect(window.WGFirstRun.state.getStep()).toBe('integrations');
+            expect(document.querySelector('[data-firstrun-action="trial"]')).not.toBeNull();
+            expect(document.querySelector('[data-firstrun-action="own-keys"]')).not.toBeNull();
+
+            document.querySelector('[data-firstrun-action="skip"]').click();
+            await flush();
+
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+            expect(fetchMock.mock.calls[0][0]).toBe('/api/firstrun/complete');
+            expect(document.getElementById('wg-firstrun-overlay')).toBeNull();
+            expect(window.__MEDTRACKER_BOOTSTRAP__.needs_first_run).toBe(false);
+            expect(window.sessionStorage.getItem('wg-firstrun-skip-all')).toBeNull();
+        } finally { cleanup(); }
+    });
+
+    it('"Skip all" in device-only mode shows the local trial choice first', async () => {
+        const fetchMock = okFetch();
+        const localTrial = { status: vi.fn().mockResolvedValue({ on: false }), apply: vi.fn(), enroll: vi.fn() };
+        const { window, document, cleanup } = loadFlow({
+            bootstrap: { needs_first_run: true }, fetchMock, localTrial,
+            trialOffer: vi.fn().mockResolvedValue(true),
+        });
+        try {
+            window.WGFirstRun.mount();
+            document.querySelector('[data-firstrun-action="skip-all"]').click();
+            await flush();
+            expect(document.getElementById('wg-firstrun-title').textContent).toBe('AI and food database');
+            expect(document.querySelector('[data-firstrun-action="trial"]')).not.toBeNull();
+
+            document.querySelector('[data-firstrun-action="skip"]').click();
+            await flush();
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+            expect(document.getElementById('wg-firstrun-overlay')).toBeNull();
+        } finally { cleanup(); }
+    });
+
+    it('"Skip all" finishes immediately when no trial is on offer', async () => {
+        for (const opts of [
+            { trialOffer: vi.fn().mockResolvedValue(false) },
+            { trialOffer: vi.fn().mockRejectedValue(new Error('offline')) },
+            // The claim wizard already offered the trial.
+            { trialOffer: vi.fn().mockResolvedValue(true), trialAi: true, wizardChoice: 'skip' },
+        ]) {
+            const fetchMock = okFetch();
+            const { window, document, cleanup } = loadFlow({ bootstrap: { needs_first_run: true }, fetchMock, ...opts });
+            try {
+                window.WGFirstRun.mount();
+                document.querySelector('[data-firstrun-action="skip-all"]').click();
+                await flush();
+                expect(fetchMock).toHaveBeenCalledTimes(1);
+                expect(document.getElementById('wg-firstrun-overlay')).toBeNull();
+                expect(document.querySelector('[data-firstrun-action="trial"]')).toBeNull();
+            } finally { cleanup(); }
+        }
+    });
+
+    it('a normal walk through the trial step still ends on the done screen', async () => {
+        const fetchMock = okFetch();
+        const { window, document, cleanup } = loadFlow({
+            bootstrap: { needs_first_run: true }, fetchMock, trialAi: true,
+            trialOffer: vi.fn().mockResolvedValue(true),
+        });
+        try {
+            window.sessionStorage.setItem('wg-firstrun-step', 'integrations');
+            window.WGFirstRun.mount();
+            document.querySelector('[data-firstrun-action="skip"]').click();
+            await flush();
+            expect(window.WGFirstRun.state.getStep()).toBe('done');
+            expect(fetchMock).not.toHaveBeenCalled();
+        } finally { cleanup(); }
     });
 });

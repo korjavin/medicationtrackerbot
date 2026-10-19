@@ -92,7 +92,7 @@ The bead asks for `intro → sections tour → feature picker → BYO keys → s
 
 | # | step | status | notes |
 |---|------|--------|-------|
-| 1 | `welcome` | **exists** | reuse. Owns "Skip all" (calls `complete()`). |
+| 1 | `welcome` | **exists** | reuse. Owns "Skip all" (calls `skipAll()`). |
 | 2 | `sections` | **new** (`med-4pz.3`) | sections intro / tour |
 | 3 | `features` | **exists** | feature picker |
 | 4 | `integrations` | **exists** | BYO keys. `med-4pz.3` re-checks copy for cloud. |
@@ -108,8 +108,11 @@ truth for step validity and unknown names are silently rejected by `setStep`.
 
 ### Per-step skip vs skip-all
 
-- **Skip-all** already exists on `welcome` via the `complete()` helper (`index.js:130`), which POSTs
+- **Skip-all** exists on `welcome` via the `skipAll()` helper (`index.js`), which POSTs
   `/api/firstrun/complete` and dismisses. It sets the vault flag → never re-prompts on any device.
+  Exception (`med-js3k`): when the free AI trial is on offer (`SettingsIntegrations.trialOffer()`, and in
+  cloud mode no claim-wizard trial choice yet), it first lands on the `integrations` step's trial choice
+  (trial / own keys / skip); leaving that step completes the flow directly instead of walking to `done`.
 - **Per-step skip** is a "Skip" control on each new screen calling `advance(nextStep)` (`index.js:123`).
   It moves on **without** setting the vault flag; the user still reaches `done`, which is what completes.
 

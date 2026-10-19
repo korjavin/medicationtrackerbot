@@ -1,15 +1,15 @@
 // features/firstrun/screens/welcome.js — Task 4 of the mobile Phase 2c
 // plan. First screen in the first-run overlay: short product pitch +
 // "Get started" (advances to the features step) and "Skip all"
-// (calls POST /api/firstrun/complete and dismisses without touching
-// any further screens). The flow is fully skippable per the plan.
+// (POSTs /api/firstrun/complete and dismisses — unless the free AI trial
+// is on offer, which it shows first; bd med-js3k, see index.js _skipAll).
 //
 // Registration model: the screen attaches itself to
 // `window.WGFirstRun.screens.welcome` as `{ title, render }`. The
 // orchestrator (features/firstrun/index.js) looks up the screen by
 // the current step name returned from state.getStep() and calls
 // `render(body, helpers)` after clearing the body container. Helpers
-// are `{ advance(stepName), complete(), dismiss() }` — see index.js.
+// are `{ advance(stepName), complete(), skipAll(), dismiss() }` — see index.js.
 (function () {
     'use strict';
 
@@ -39,7 +39,7 @@
         secondary.addEventListener('click', function () {
             if (secondary.disabled) return;
             secondary.disabled = true;
-            helpers.complete();
+            helpers.skipAll();
         });
 
         actions.appendChild(primary);

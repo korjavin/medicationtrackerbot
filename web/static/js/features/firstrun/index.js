@@ -13,7 +13,8 @@
 //   3. dismiss() removes the overlay and clears the sessionStorage step
 //      tracker. Called by the "done" screen after POST /api/firstrun/
 //      complete succeeds, and by "Skip all" on the welcome screen via
-//      the complete() helper.
+//      the skipAll() helper — which first shows the AI trial offer when
+//      one is available (bd med-js3k), finishing from there.
 //
 // Screen registry: each step ("welcome" | "features" |
 // "integrations" | "done") owns a module under features/firstrun/screens/<step>.js that
@@ -44,6 +45,10 @@
     const COMPLETE_URL = '/api/firstrun/complete';
     // Written by the claim wizard (web/cloud/js/signup.js TRIAL_CHOICE_KEY).
     const TRIAL_CHOICE_KEY = 'wg-onboarding-trial-choice';
+    // bd med-js3k: set by "Skip all" when it lands on the trial offer, so
+    // leaving that step finishes the flow instead of walking on to "done".
+    // sessionStorage, like the step tracker: it survives trial.apply()'s reload.
+    const SKIP_ALL_KEY = 'wg-firstrun-skip-all';
 
     // Module-local mount latch. The architecture's "no module state"
     // posture allows this because it is a render guard, not domain data:
@@ -154,6 +159,10 @@
     function _buildHelpers() {
         return {
             advance: function (stepName) {
+                if (stepName === 'done' && _skippingAll()) {
+                    _complete();
+                    return;
+                }
                 const state = window.WGFirstRun && window.WGFirstRun.state;
                 if (state && typeof state.setStep === 'function') {
                     state.setStep(stepName);
@@ -163,10 +172,45 @@
             complete: function () {
                 return _complete();
             },
+            skipAll: function () {
+                return _skipAll();
+            },
             dismiss: function () {
                 dismiss();
             },
         };
+    }
+
+    function _skippingAll() {
+        try { return window.sessionStorage.getItem(SKIP_ALL_KEY) === '1'; } catch (_) { return false; }
+    }
+
+    // bd med-js3k: "Skip all" skips everything except the free AI trial offer —
+    // a user who skips must still learn the trial exists. On offer → land on
+    // the integrations step (trial / own keys / skip); otherwise finish now.
+    function _skipAll() {
+        return _trialOnOffer().then(function (offer) {
+            if (!offer) return _complete();
+            try { window.sessionStorage.setItem(SKIP_ALL_KEY, '1'); } catch (_) { /* storage blocked */ }
+            _buildHelpers().advance('integrations');
+        });
+    }
+
+    // Settings' own "is the trial on offer" check (med-6xb9). In cloud mode a
+    // claim-wizard trial choice means the trial was already offered there —
+    // screens/integrations.js skips its own trial choice for the same reason.
+    function _trialOnOffer() {
+        const settings = window.SettingsIntegrations;
+        if (!settings || typeof settings.trialOffer !== 'function') return Promise.resolve(false);
+        if (!(window.CloudVault && window.CloudVault.trial)) {
+            let choice = null;
+            try { choice = window.localStorage.getItem(TRIAL_CHOICE_KEY); } catch (_) { /* storage blocked */ }
+            if (choice) return Promise.resolve(false);
+        }
+        return Promise.resolve()
+            .then(function () { return settings.trialOffer(); })
+            .catch(function () { return false; })
+            .then(function (offer) { return offer === true; });
     }
 
     function _complete() {
@@ -281,6 +325,7 @@
             el.parentNode.removeChild(el);
         }
         _mounted = false;
+        try { window.sessionStorage.removeItem(SKIP_ALL_KEY); } catch (_) { /* storage blocked */ }
         if (window.WGFirstRun && window.WGFirstRun.state && typeof window.WGFirstRun.state.clear === 'function') {
             window.WGFirstRun.state.clear();
         }
