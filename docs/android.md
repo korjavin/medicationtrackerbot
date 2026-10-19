@@ -832,7 +832,7 @@ gh workflow run android-qa.yml --ref <branch> -f scenario=local-backup
 
 | Run | Result |
 |---|---|
-| Emulator API 34 (run `39243721111`) | PASS, cloud backup and D2D: set = `_manifest` + the local origin's leveldb only (~24 KB); restored dir = that dir + empty standard dirs; local marker back |
+| Emulator API 34 (run `39245263862`) | PASS, cloud backup and D2D: set = `_manifest` + the local origin's leveldb only (~24 KB); restored dir = that dir + empty standard dirs; local marker back |
 | Owner phone (D2D or Google One restore) | pending — owner action, record here |
 ## Local mode: the bundled app (bd med-nt9p.32.2)
 
