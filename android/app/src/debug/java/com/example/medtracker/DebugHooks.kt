@@ -27,4 +27,14 @@ internal object DebugHooks {
         }.onSuccess { diag("shell qa soft authenticator ON") }
             .onFailure { diag("shell qa soft authenticator failed: ${it.javaClass.simpleName}") }
     }
+
+    /**
+     * Temporary local-mode entry (bd med-nt9p.32.2) until the real mode switch (.4): the launch
+     * extra `wgLocalApp` (`am start … --ez wgLocalApp true`) opens the bundled app on
+     * https://appassets.androidplatform.net for that launch, without storing anything. Same gate
+     * as qaSoftAuthn: debug and the qa.test placeholder base only.
+     */
+    fun localApp(activity: Activity): Boolean =
+        BuildConfig.DEBUG && BuildConfig.BASE_DOMAIN == QA_BASE &&
+            activity.intent?.getBooleanExtra("wgLocalApp", false) == true
 }

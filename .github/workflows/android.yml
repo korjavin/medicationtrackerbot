@@ -1,7 +1,9 @@
 name: Android
 
 # No local Android builds (epic med-nt9p): every build, signing and Play upload
-# runs here. Runs ONLY on android/ or this file, or by hand. See docs/android.md.
+# runs here. Runs ONLY on android/, this file, or the web app the APK bundles for
+# local mode (bd med-nt9p.32.2), or by hand. See docs/android.md. Releases are
+# dispatch-only, so a web push builds and tests the APK and nothing more.
 # deploy.yml ignores android/** and this file, so Android-only merges never redeploy.
 on:
   push:
@@ -9,12 +11,20 @@ on:
     paths:
       - 'android/**'
       - 'ios/LocalSpike/**' # the debug APK's local-mode spike page (bd med-nt9p.32.1)
+      - 'ios/bundle-web.sh' # local mode's bundle, assets/web (bd med-nt9p.32.2)
+      - 'web/static/**'
+      - 'web/cloud/**'
+      - 'web/domain/**'
       - '.github/workflows/android.yml'
   pull_request:
     branches: [master]
     paths:
       - 'android/**'
       - 'ios/LocalSpike/**'
+      - 'ios/bundle-web.sh'
+      - 'web/static/**'
+      - 'web/cloud/**'
+      - 'web/domain/**'
       - '.github/workflows/android.yml'
   # Any branch: spike branches ship to Play internal testing from here.
   workflow_dispatch:
@@ -98,9 +108,36 @@ jobs:
           echo "$ANDROID_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/debug.keystore"
           echo "ANDROID_DEBUG_KEYSTORE=$RUNNER_TEMP/debug.keystore" >> "$GITHUB_ENV"
 
+      # Local mode (bd med-nt9p.32.2, docs/android.md → Local mode): the web app from this one
+      # checked-out revision into app/src/main/assets/web (git-ignored), before any Gradle task
+      # — debug, release and the AAB all carry it. iOS's script; only its output dir and
+      # build-id prefix are overridden.
+      - name: Bundle the web app for local mode
+        env:
+          WG_BUNDLE_OUT: android/app/src/main/assets/web
+          WG_BUNDLE_PREFIX: android
+        run: ios/bundle-web.sh "${{ github.run_number }}"
+
       - name: Build debug APK and run unit tests
         working-directory: android
         run: gradle --no-daemon assembleDebug testDebugUnitTest
+
+      # The bundle reached the APK (it is never committed: only the step above makes it), its
+      # document loads the local entry, and no QA driver or test suite came along.
+      - name: Check local-mode bundle in the debug APK
+        run: |
+          apk=$(ls android/app/build/outputs/apk/debug/*.apk | head -1)
+          list=$(unzip -l "$apk")
+          for f in assets/web/index.html assets/web/cloud/js/local-boot.js assets/web/cloud/js/apishim.js assets/web/domain/bp.js assets/web/static/js/core/utils.js; do
+            grep -q " $f\$" <<<"$list" || { echo "::error::$f missing from $apk"; exit 1; }
+          done
+          if grep -qE ' assets/web/(cloud/qa/|static/js/tests/|cloud/js/tests/)' <<<"$list"; then
+            echo "::error::QA driver or test suites in the bundle"; exit 1
+          fi
+          doc=$(unzip -p "$apk" assets/web/index.html)
+          grep -q 'src="/js/local-boot.js"' <<<"$doc" || { echo "::error::local index.html lacks local-boot.js"; exit 1; }
+          if grep -q 'cloud-boot.js' <<<"$doc"; then echo "::error::local index.html loads cloud-boot.js"; exit 1; fi
+          echo "local bundle: $(grep -c ' assets/web/' <<<"$list") files"
 
       # Proves the APK is signed by the secret's key. Prints MATCH/MISMATCH only.
       - name: Verify debug APK signing key
