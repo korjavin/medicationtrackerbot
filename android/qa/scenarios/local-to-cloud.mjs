@@ -16,8 +16,10 @@ import { claimAccount, waitForVault } from './smoke.mjs';
 export const retry = false;
 
 const here = dirname(fileURLToPath(import.meta.url));
-// The lists a move must carry over 1:1 (records the user made). Everything else is counted too and
-// reported, not gated: the account may derive records of its own (gamification, settings defaults).
+// The lists a move must carry over (records the user made): the target holds at least as many as
+// the local store. Not equal: a view lazily materializes derived slots (run 39272557051: the
+// account's Today minted today's planned workout session-<group>-<date>, workouts.sessions 1 → 2).
+// Everything else is counted and reported (accountDiff), not gated.
 const GATED = ['medications.items', 'medications.intakes', 'bp.readings', 'weight.logs', 'food.logs', 'diary.notes', 'trackers.items', 'trackers.logs', 'workouts.sessions', 'vitals.heart'];
 
 /** Every array in the vault's data, two levels deep: {"bp.readings": 2, "api_tokens": 2, …}. */
@@ -186,8 +188,8 @@ export default async function localToCloud(ctx) {
   await ctx.step('the account lists the seeded records', async () => {
     r.account = await vaultCounts(page);
     r.accountDiff = Object.fromEntries(Object.keys({ ...r.local, ...r.account }).filter((k) => r.local[k] !== r.account[k]).map((k) => [k, [r.local[k], r.account[k]]]));
-    const off = GATED.filter((k) => r.account[k] !== r.local[k]);
-    if (off.length) throw new Error(`account ≠ local: ${off.map((k) => `${k} ${r.account[k]}≠${r.local[k]}`).join(', ')}`);
+    const off = GATED.filter((k) => !(r.account[k] >= r.local[k]));
+    if (off.length) throw new Error(`account lost records: ${off.map((k) => `${k} ${r.account[k]}≠${r.local[k]}`).join(', ')}`);
     await page.evaluate(() => window.switchTab('meds'));
     await page.locator('.med-tab[data-tab="schedule"]').click();
     await page.locator('#med-list > *').first().waitFor({ timeout: 15_000 });
@@ -215,8 +217,9 @@ export default async function localToCloud(ctx) {
     await page.waitForFunction(() => window.MedTrackerCloudReady, null, { timeout: 60_000 });
     await page.evaluate(() => window.MedTrackerCloudReady);
     r.localAfter = await vaultCounts(page);
-    const off = GATED.filter((k) => r.localAfter[k] !== r.local[k]);
-    if (off.length) throw new Error(`local changed: ${off.map((k) => `${k} ${r.localAfter[k]}≠${r.local[k]}`).join(', ')}`);
+    r.localAfterDiff = Object.fromEntries(Object.keys({ ...r.local, ...r.localAfter }).filter((k) => r.local[k] !== r.localAfter[k]).map((k) => [k, [r.local[k], r.localAfter[k]]]));
+    const off = GATED.filter((k) => !(r.localAfter[k] >= r.local[k]));
+    if (off.length) throw new Error(`local lost records: ${off.map((k) => `${k} ${r.localAfter[k]}≠${r.local[k]}`).join(', ')}`);
     await page.evaluate(() => window.switchTab('today'));
     await page.locator('#today-content > *').first().waitFor({ timeout: 20_000 });
     await ctx.stableShot('local-again');
