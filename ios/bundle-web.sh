@@ -9,6 +9,7 @@
 # anything else (/js/*, /css/*, /vendor/*) → cloud/.
 #
 # Usage: ios/bundle-web.sh <build-id>
+#        QA=1 ios/bundle-web.sh <build-id>   # + the visual QA driver (bd med-y5xx.1)
 set -eu
 build="ios-${1:?build id}"
 repo="$(cd "$(dirname "$0")/.." && pwd)"
@@ -35,4 +36,21 @@ sed -e "s|TIMESTAMP_PLACEHOLDER|$build|g" \
     "$repo/web/static/index.html" > "$out/index.html"
 grep -q 'src="/js/local-boot.js"' "$out/index.html"
 if grep -q PLACEHOLDER "$out/index.html"; then echo "unfilled placeholder in index.html" >&2; exit 1; fi
+
+# QA=1 (the ios.yml visual job only, docs/design/ios-visual-testing.md): the
+# scene driver, its scene list and the golden vault, served at /qa/* (which
+# LocalOrigin.file(for:) maps to cloud/qa/) and loaded after every app script.
+# Without QA=1 none of it is in the bundle and /qa/* is a 404.
+if [ "${QA:-}" = 1 ]; then
+    mkdir -p "$out/cloud/qa"
+    cp "$repo/tests/visual/driver.js" "$repo/tests/visual/driver.css" "$repo/tests/visual/scenes.json" "$out/cloud/qa/"
+    cp "$repo/tests/fixtures/vault-v1.json" "$out/cloud/qa/vault-v1.json"
+    sed -e 's|</body>|<link rel="stylesheet" href="/qa/driver.css"><script src="/qa/driver.js"></script></body>|' \
+        "$out/index.html" > "$out/index.qa.html"
+    mv "$out/index.qa.html" "$out/index.html"
+    grep -q 'src="/qa/driver.js"' "$out/index.html"
+    echo "QA=1: bundled the visual QA driver"
+elif [ -e "$out/cloud/qa" ] || grep -q '/qa/' "$out/index.html"; then
+    echo "QA code in a non-QA bundle" >&2; exit 1
+fi
 echo "bundled web app into ios/LocalApp ($build)"

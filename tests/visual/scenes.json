@@ -1,0 +1,53 @@
+{
+  "_doc": "iOS visual QA scenes (docs/design/ios-visual-testing.md). nativeOnly (default: name starts with native-) = no -wgLocalMode, no driver. steps (tab | click | tag: give the first visible match a DOM id for a native tap | settingsPage) and ready (selectors that must be visible): the in-page driver (tests/visual/driver.js). native: XCUITest steps after #wg-qa-ready (ios/UITests): tap (DOM id or placeholder), type, clear, tapButton (label), waitFor (label or id), keyboard (wait for the software keyboard).",
+  "version": 1,
+  "scenes": [
+    { "name": "native-firstrun", "native": [] },
+    { "name": "native-local-intro", "native": [{ "tapButton": "Only on this device" }] },
+    { "name": "today", "steps": [{ "tab": "today" }],
+      "ready": ["#today-view.active", "#today-content > *"] },
+    { "name": "food-log", "steps": [{ "tab": "food" }],
+      "ready": ["#food-view.active", "#food-list > *"] },
+    { "name": "food-add-sheet", "steps": [{ "tab": "food" }, { "click": "#add-food-inline-btn" }],
+      "ready": ["#food-add-sheet", "#food-add-search"] },
+    { "name": "food-add-sheet-keyboard", "steps": [{ "tab": "food" }, { "click": "#add-food-inline-btn" }],
+      "ready": ["#food-add-sheet", "#food-add-search"],
+      "native": [
+        { "tap": "#food-add-search", "placeholder": "Search your foods and the database" },
+        { "type": "Gre" },
+        { "keyboard": true }
+      ] },
+    { "name": "food-add-sheet-keyboard-empty", "steps": [{ "tab": "food" }, { "click": "#add-food-inline-btn" }],
+      "ready": ["#food-add-sheet", "#food-add-search"],
+      "native": [
+        { "tap": "#food-add-search", "placeholder": "Search your foods and the database" },
+        { "type": "Gre" },
+        { "clear": true },
+        { "keyboard": true }
+      ] },
+    { "name": "meds-schedule", "steps": [{ "tab": "meds" }, { "click": ".med-tab[data-tab=\"schedule\"]" }],
+      "ready": ["#med-schedule-tab.active", "#med-list > *"] },
+    { "name": "workouts-plans", "steps": [{ "tab": "workouts" }, { "click": ".workout-tab[data-tab=\"groups\"]" }],
+      "ready": ["#workout-groups-tab.active", "#workout-groups-list > *"] },
+    { "name": "workouts-stats", "steps": [{ "tab": "workouts" }, { "click": ".workout-tab[data-tab=\"stats\"]" }, { "click": ".wg-workouts-stats__view [data-view=\"load\"]" }],
+      "ready": ["#workout-stats-tab.active", "#workout-stats-display .wg-workout-chart"] },
+    { "name": "workout-session-log",
+      "steps": [
+        { "tab": "workouts" }, { "click": ".workout-tab[data-tab=\"history\"]" }, { "click": ".wg-workouts-history-row" },
+        { "tag": "#workout-session-modal .wg-set__cell[data-field=\"reps\"]", "id": "wg-qa-reps" }
+      ],
+      "ready": ["#wg-qa-reps"],
+      "native": [
+        { "tap": "#wg-qa-reps" },
+        { "keyboard": true }
+      ] },
+    { "name": "health-bp", "steps": [{ "tab": "bp" }],
+      "ready": ["#bp-view.active", "#bpChart svg"] },
+    { "name": "health-vitals", "steps": [{ "tab": "health" }],
+      "ready": ["#health-view.active", "#health-overview-content"] },
+    { "name": "settings-home", "steps": [{ "tab": "settings" }],
+      "ready": ["#settings-view.active"] },
+    { "name": "settings-backup", "steps": [{ "tab": "settings" }, { "settingsPage": "backup" }],
+      "ready": [".wg-pagebar", "#settings-importexport"] }
+  ]
+}
