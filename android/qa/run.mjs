@@ -115,6 +115,10 @@ const ctx = {
     if (!page) throw new Error('no WebView page (see the run log)');
     await page.waitForURL(/\/unlock/, { timeout: 30_000 });
     await page.locator('#create-passkey').waitFor({ timeout: 30_000 });
+    // The software-GPU emulator paints seconds behind the DOM; without this the device shot still
+    // shows "Checking your invite…" or a blank page.
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    await ctx.sleep(3000);
     return page;
   },
   /** True while our activity is the resumed (foreground) one. */
