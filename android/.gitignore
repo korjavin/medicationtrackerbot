@@ -3,3 +3,4 @@ build/
 local.properties
 *.keystore
 *.jks
+app/src/main/assets/web/

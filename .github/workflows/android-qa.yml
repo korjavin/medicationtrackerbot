@@ -12,7 +12,7 @@ on:
       scenario:
         description: "Scenario (android/qa/scenarios/<name>.mjs), or all of them"
         type: choice
-        options: [all, firstrun, native-dark, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe, smoke, local-spike]
+        options: [all, firstrun, native-dark, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe, smoke, local-spike, local-app]
         default: all
       font_scale:
         description: "System font scale applied before each scenario"
@@ -61,6 +61,15 @@ jobs:
         with:
           gradle-version: '8.11.1'
 
+      # Local mode's bundle, as android.yml makes it, plus the visual QA driver at /qa/ (QA=1,
+      # bd med-nt9p.32.6): both APKs below carry it; neither ever ships.
+      - name: Bundle the web app for local mode (QA=1)
+        env:
+          WG_BUNDLE_OUT: android/app/src/main/assets/web
+          WG_BUNDLE_PREFIX: android
+          QA: '1'
+        run: ios/bundle-web.sh "${{ github.run_number }}"
+
       - name: Build QA debug APK (+ release, to prove it has no QA hooks)
         working-directory: android
         run: gradle --no-daemon assembleDebug assembleRelease
@@ -73,9 +82,9 @@ jobs:
           unzip -l debug/app-debug.apk | grep -q 'assets/qa-softauthn.js' || { echo 'debug APK lacks the asset'; exit 1; }
           rel=$(ls release/*.apk | head -1)
           assets=$(unzip -l "$rel" | grep -c 'qa-softauthn' || true)
-          dex=$(unzip -p "$rel" 'classes*.dex' | grep -ac 'qaSoftAuthn\|qa-softauthn' || true)
+          dex=$(unzip -p "$rel" 'classes*.dex' | grep -ac 'qaSoftAuthn\|qa-softauthn\|wgLocalApp' || true)
           echo "release $rel: qa-softauthn entries=$assets, dex mentions=$dex"
-          { echo "### Release APK QA-hook check"; echo; echo "\`$(basename "$rel")\`: qa-softauthn files **$assets**, dex mentions of qaSoftAuthn/qa-softauthn **$dex** (both must be 0)"; echo; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### Release APK QA-hook check"; echo; echo "\`$(basename "$rel")\`: qa-softauthn files **$assets**, dex mentions of qaSoftAuthn/qa-softauthn/wgLocalApp **$dex** (both must be 0)"; echo; } >> "$GITHUB_STEP_SUMMARY"
           [ "$assets" = 0 ] && [ "$dex" = 0 ]
 
       # The local cloud the emulator reaches (bd med-nt9p.24, docs/android.md → Agent QA harness):
