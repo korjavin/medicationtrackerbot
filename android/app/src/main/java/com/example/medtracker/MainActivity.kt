@@ -256,6 +256,12 @@ class MainActivity : Activity() {
         val w = WebView(this)
         w.settings.javaScriptEnabled = true
         w.settings.domStorageEnabled = true
+        // iOS parity: page text ignores the system font scale (fixed-height chrome would
+        // overflow), pinch-zoom is on instead (no on-screen buttons), and no edge glow.
+        w.settings.textZoom = 100
+        w.settings.builtInZoomControls = true
+        w.settings.displayZoomControls = false
+        w.overScrollMode = View.OVER_SCROLL_NEVER
         if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION)) {
             WebSettingsCompat.setWebAuthenticationSupport(w.settings, WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP)
         }
