@@ -101,16 +101,17 @@ for (const [device, desc] of Object.entries(DEVICES)) {
     const errors = [];
     page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
     page.on('pageerror', (e) => errors.push(String(e && e.message || e)));
+    page.on('response', (r) => { if (r.status() >= 400) errors.push(`${r.status()} ${new URL(r.url()).pathname}`); });
     const row = { device, scene: scene.name };
+    let report = null;
     try {
       await page.goto(`${base}/?qa=${encodeURIComponent(scene.name)}`);
       const ready = page.locator('#wg-qa-ready');
       await ready.waitFor({ state: 'attached', timeout: 90000 }); // survives the seed's reload
       if (scene.native && scene.native.length) await nativeSteps(page, scene.native);
-      const report = JSON.parse(await ready.getAttribute('aria-label'));
+      report = JSON.parse(await ready.getAttribute('aria-label'));
       row.status = report.error ? 'error' : report.ok ? 'ok' : 'probe';
       row.note = report.error || (report.failed || []).join(', ');
-      await writeFile(join(out, device, `${scene.name}.json`), JSON.stringify({ ...report, consoleErrors: errors }, null, 2));
     } catch (e) {
       row.status = 'error';
       row.note = String(e.message || e).split('\n')[0];
@@ -124,6 +125,7 @@ for (const [device, desc] of Object.entries(DEVICES)) {
         row.note = `${row.note || ''} screenshot failed: ${e.message}`.trim();
       }
     }
+    await writeFile(join(out, device, `${scene.name}.json`), JSON.stringify({ ...report, consoleErrors: errors }, null, 2));
     if (errors.length) row.note = `${row.note ? row.note + '; ' : ''}${errors.length} console error(s)`;
     rows.push(row);
     console.log(`${device} ${scene.name}: ${row.status} ${row.note || ''}`);
