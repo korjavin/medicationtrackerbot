@@ -16,6 +16,9 @@
     // post-optimistic reloadCurrentTab) cannot overwrite the optimistic cache
     // with the pre-write server state.
     const pendingOptimistic = new Map();
+    // Keys whose tag invalidation arrived while an optimistic write was
+    // pending: evicted once the last handle on the key settles (bd med-va47).
+    const deferredEvict = new Set();
     const keyToTags = new Map();
     const tagToKeys = new Map();
     // tag → Set<prefix>. Lets `invalidateByTag(tag)` evict every concrete
@@ -161,6 +164,12 @@
                 if (c <= 0) pendingOptimistic.delete(key);
                 else pendingOptimistic.set(key, c);
             };
+            // Last handle settled → run the invalidation that was held back
+            // while it was pending, before the refresh reads the cache.
+            const flushDeferredEvict = async () => {
+                if (pendingOptimistic.has(key) || !deferredEvict.delete(key)) return;
+                try { await this.clearCached(key); } catch (_) { /* best-effort */ }
+            };
 
             try {
                 if (hasValue(next)) {
@@ -196,6 +205,7 @@
                     } finally {
                         decrementPending();
                     }
+                    await flushDeferredEvict();
                     self.requestTabRefresh(tags, 'optimistic-commit');
                 },
                 async rollback() {
@@ -210,6 +220,7 @@
                     } finally {
                         decrementPending();
                     }
+                    await flushDeferredEvict();
                     self.requestTabRefresh(tags, 'optimistic-rollback');
                 }
             };
@@ -505,9 +516,13 @@
             // payload is authoritative until commit/rollback, and fetchFresh
             // skips the GET meanwhile — evicting it would leave the screen
             // with neither cache nor fetch (a delete's Undo window rendered
-            // the offline empty state; bd med-va47). The settle's own
-            // refresh reconciles against the server afterwards.
-            const evict = [...toEvict].filter((key) => !((pendingOptimistic.get(key) || 0) > 0));
+            // the offline empty state; bd med-va47). The eviction is
+            // deferred to the last settle (flushDeferredEvict) instead.
+            const evict = [];
+            for (const key of toEvict) {
+                if ((pendingOptimistic.get(key) || 0) > 0) deferredEvict.add(key);
+                else evict.push(key);
+            }
             await Promise.all(evict.map((key) => this.clearCached(key)));
         },
 
