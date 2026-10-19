@@ -7,16 +7,18 @@ export default async function externalLink(ctx) {
     ['anchor', () => { const a = document.createElement('a'); a.href = 'https://example.com/'; a.target = '_blank'; document.body.append(a); a.click(); }],
     ['location', () => { location.href = 'https://example.com/'; }],
   ]) {
-    await ctx.shell('logcat -c');
+    // Count, never clear: run.sh uploads (and checks) the whole run's logcat.
+    const views = async () => (await ctx.shell('logcat -d -s ActivityTaskManager'))
+      .split('\n').filter((x) => x.includes('android.intent.action.VIEW') && x.includes('example.com'));
+    const seen = (await views()).length;
     await ctx.step(`${how}: WebView URL unchanged`, async () => {
       await page.evaluate(js);
       await ctx.sleep(2500);
       if (page.url() !== before) throw new Error(`WebView moved to ${page.url()}`);
     });
     await ctx.step(`${how}: ACTION_VIEW for example.com in logcat`, async () => {
-      const l = await ctx.shell('logcat -d');
-      const hit = l.split('\n').find((x) => x.includes('android.intent.action.VIEW') && x.includes('example.com'));
-      if (!hit) throw new Error('no ACTION_VIEW line for example.com');
+      const hit = (await views())[seen];
+      if (!hit) throw new Error('no new ACTION_VIEW line for example.com');
       ctx.log('intent:', hit.trim());
     });
     await ctx.shot(`after-${how}`);
