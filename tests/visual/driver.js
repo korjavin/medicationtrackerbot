@@ -42,7 +42,7 @@
             return; // the import reloads the page; the next load runs the scene
         }
         for (const step of def.steps || []) await runStep(step);
-        for (const sel of def.ready || []) await until(() => visible(document.querySelector(sel)), STEP_MS, `ready ${sel}`);
+        for (const sel of def.ready || []) await until(() => firstVisible(sel), STEP_MS, `ready ${sel}`);
         await settle();
         publish(report(def));
         watch(def);
@@ -105,8 +105,8 @@
         if (step.tab) {
             window.switchTab(step.tab);
         } else if (step.click) {
-            await until(() => visible(document.querySelector(step.click)), STEP_MS, `click ${step.click}`);
-            document.querySelector(step.click).click();
+            await until(() => firstVisible(step.click), STEP_MS, `click ${step.click}`);
+            firstVisible(step.click).click();
         } else if (step.settingsPage) {
             await until(() => window.SettingsView.openSettingsPage(step.settingsPage), STEP_MS, `settings page ${step.settingsPage}`);
         } else {
@@ -120,6 +120,11 @@
     function visible(el) {
         if (!el || !el.isConnected || el.closest('[hidden], .hidden')) return false;
         return el.getClientRects().length > 0 || document.documentElement.getClientRects().length === 0;
+    }
+
+    // Selectors like .wg-pagebar also match markup in inactive views.
+    function firstVisible(sel) {
+        return Array.from(document.querySelectorAll(sel)).find(visible) || null;
     }
 
     // Ready once no store change has landed for QUIET_MS (capped).

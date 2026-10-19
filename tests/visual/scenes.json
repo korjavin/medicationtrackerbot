@@ -29,7 +29,7 @@
       "ready": ["#med-schedule-tab.active", "#med-list > *"] },
     { "name": "workouts-plans", "steps": [{ "tab": "workouts" }, { "click": ".workout-tab[data-tab=\"groups\"]" }],
       "ready": ["#workout-groups-tab.active", "#workout-groups-list > *"] },
-    { "name": "workouts-stats", "steps": [{ "tab": "workouts" }, { "click": ".workout-tab[data-tab=\"stats\"]" }],
+    { "name": "workouts-stats", "steps": [{ "tab": "workouts" }, { "click": ".workout-tab[data-tab=\"stats\"]" }, { "click": ".wg-workouts-stats__view [data-view=\"load\"]" }],
       "ready": ["#workout-stats-tab.active", "#workout-stats-display .wg-workout-chart"] },
     { "name": "workout-session-log",
       "steps": [{ "tab": "workouts" }, { "click": ".workout-tab[data-tab=\"history\"]" }, { "click": ".wg-workouts-history-row" }],
