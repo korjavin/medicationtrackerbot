@@ -298,6 +298,18 @@ describe('post-create PRF probe', () => {
     expect(getCalls).toHaveLength(2);
   });
 
+  it('Android shell: a cancelled probe sheet reopens at most once, then one plain message', async () => {
+    install(() => { throw Object.assign(new Error('not allowed'), { name: 'NotAllowedError' }); });
+    bridge();
+    const app = await clickCreate();
+    await settle(() => expect(app.querySelector('.wizard-error')).not.toBeNull());
+    expect(getCalls).toHaveLength(2);
+    expect(app.querySelectorAll('.wizard-error')).toHaveLength(1);
+    expect(app.querySelector('.wizard-error').textContent)
+      .toBe("Couldn't set up your passkey. Tap Create your passkey to try again.");
+    expect(calls('/api/webauthn/register/finish')).toBe(0);
+  });
+
   it('Android shell: waits ~1.5 s after create before the first probe', async () => {
     install(() => noPrf(RAW_ID));
     bridge();

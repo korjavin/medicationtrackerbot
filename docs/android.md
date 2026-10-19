@@ -219,7 +219,8 @@ what broke the claim was a tap landing as the Credential Manager sheet closed,
 which started a second `register/begin` + create mid-backoff ("A request is
 already pending"; finish then 400'd on the superseded challenge). So under the
 bridge: the probe waits 1.5 s after create and also retries `NotAllowedError`
-(same bounded 1/2/4 s schedule), and `passkeyCeremony` (signup, claim/recover
+once (it is also a user cancel, so the sheet reopens at most once;
+`NotReadableError` keeps 1/2/4 s), and `passkeyCeremony` (signup, claim/recover
 enrollment, cold unlock) holds one ceremony from begin to finish — a steady
 busy step with no button and no intermediate errors, extra taps dropped — and
 turns a browser error into one plain message whose button restarts with a

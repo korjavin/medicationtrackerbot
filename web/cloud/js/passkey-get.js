@@ -76,7 +76,10 @@ export async function getAssertion(publicKey, op = 'get') {
   if (!inAndroidShell()) return navigator.credentials.get({ publicKey });
   const options = { publicKey: { ...publicKey, allowCredentials: [] } };
   const attempt = (n) => diagCeremony(op, publicKey, n, () => navigator.credentials.get(options));
-  const retryable = (e) => e && (e.name === 'NotReadableError' || (op === 'probe' && e.name === 'NotAllowedError'));
+  // NotAllowedError is also a user cancel: at most one reopen of the sheet.
+  let notAllowedRetries = op === 'probe' ? 1 : 0;
+  const retryable = (e) => e && (e.name === 'NotReadableError'
+    || (e.name === 'NotAllowedError' && notAllowedRetries-- > 0));
   for (const [i, delay] of RETRY_DELAYS_MS.entries()) {
     try {
       return await attempt(i + 1);
