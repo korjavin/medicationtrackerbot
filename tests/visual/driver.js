@@ -111,7 +111,11 @@
             // A DOM id for a native `tap` (XCUITest finds web elements by id)
             // on an element the app renders without one.
             await until(() => firstVisible(step.tag), STEP_MS, `tag ${step.tag}`);
-            firstVisible(step.tag).id = step.id;
+            // WKWebView does not expose DOM ids to XCUITest, so the id is the
+            // accessible name too (the tap step matches either).
+            const el = firstVisible(step.tag);
+            el.id = step.id;
+            el.setAttribute('aria-label', step.id);
         } else if (step.settingsPage) {
             await until(() => window.SettingsView.openSettingsPage(step.settingsPage), STEP_MS, `settings page ${step.settingsPage}`);
         } else {

@@ -279,18 +279,21 @@ jobs:
           : > "$RUNNER_TEMP/devices"
           for t in "$(pick 'iPhone 16e' 'iPhone 16' 'iPhone 15')" "$(pick 'iPhone 17 Pro Max' 'iPhone 16 Pro Max')"; do
             [ -n "$t" ] || { echo "::error::no device type for one of the widths"; exit 1; }
-            udid="$(xcrun simctl create "QA $t" "$t" "$runtime")"
-            # Both boot at once: a fresh device's first boot migrates for minutes.
-            xcrun simctl boot "$udid"
+            # The image's own device if it has one (a fresh device's first boot
+            # migrates data for minutes), else a new one.
+            udid="$(xcrun simctl list devices available -j | jq -r --arg rt "$runtime" --arg n "$t" '.devices[$rt][]? | select(.name == $n) | .udid' | head -n 1)"
+            [ -n "$udid" ] || udid="$(xcrun simctl create "QA $t" "$t" "$runtime")"
             echo "${t// /-}=$udid" >> "$RUNNER_TEMP/devices"
           done
           while IFS='=' read -r dev udid; do
-            xcrun simctl bootstatus "$udid" -b | tail -n 2
+            start=$SECONDS
+            xcrun simctl bootstatus "$udid" -b < /dev/null | tail -n 1
+            echo "$dev booted in $((SECONDS - start))s"
             xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 --wifiBars 3 --cellularBars 4
             xcrun simctl ui "$udid" appearance dark
             # The first keyboard otherwise opens with the slide-to-type tip over it.
-            xcrun simctl spawn "$udid" defaults write com.apple.keyboard.ContinuousPath DidShowContinuousPathIntroduction -bool true
-            xcrun simctl spawn "$udid" defaults write com.apple.Preferences DidShowContinuousPathIntroduction -bool true
+            xcrun simctl spawn "$udid" defaults write com.apple.keyboard.ContinuousPath DidShowContinuousPathIntroduction -bool true < /dev/null
+            xcrun simctl spawn "$udid" defaults write com.apple.Preferences DidShowContinuousPathIntroduction -bool true < /dev/null
           done < "$RUNNER_TEMP/devices"
           cat "$RUNNER_TEMP/devices"
 
@@ -309,11 +312,12 @@ jobs:
             mkdir -p "$out"
             xcrun xcresulttool export attachments --path "build/$dev.xcresult" --output-path "$raw" || true
             # Exported as <uuid>.<ext>; the manifest maps each to its attachment
-            # name. Only the scenes' <scene>.png / <scene>.json are kept (XCTest's
-            # own failure attachments, screen recordings included, are not).
+            # name plus an _<n>_<uuid> suffix. Only the scenes' <scene>.png /
+            # <scene>.json are kept (not XCTest's own failure attachments).
             if [ -f "$raw/manifest.json" ]; then
               jq -r '.[].attachments[] | "\(.exportedFileName)\t\(.suggestedHumanReadableName)"' "$raw/manifest.json" |
                 while IFS=$'\t' read -r file name; do
+                  name="$(echo "$name" | sed -E 's/_[0-9]+_[0-9A-Fa-f-]{36}(\.[a-z]+)$/\1/')"
                   case "$name" in *.png|*.json) cp "$raw/$file" "$out/$name" ;; esac
                 done
             fi

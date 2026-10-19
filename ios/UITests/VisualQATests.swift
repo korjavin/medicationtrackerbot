@@ -112,7 +112,9 @@ final class VisualQATests: XCTestCase {
                 let id = selector.hasPrefix("#") ? String(selector.dropFirst()) : selector
                 let placeholder = step["placeholder"] as? String ?? id
                 let el = app.webViews.descendants(matching: .any)
-                    .matching(NSPredicate(format: "identifier == %@ OR placeholderValue == %@", id, placeholder))
+                    // WKWebView leaves identifier empty: the driver's `tag` step
+                    // also makes the id the element's label.
+                    .matching(NSPredicate(format: "identifier == %@ OR label == %@ OR placeholderValue == %@", id, id, placeholder))
                     .firstMatch
                 guard el.waitForExistence(timeout: 10) else { return "no web element \(selector)" }
                 el.tap()
