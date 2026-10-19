@@ -1432,6 +1432,11 @@ describe('Architecture – Wandergeek tokens', () => {
         const root = /^\*,\s*\*::before,\s*\*::after\s*\{([^}]*)\}/m.exec(css);
         expect(root).not.toBeNull();
         expect(root[1]).toContain('touch-action: manipulation');
+        // html/body named explicitly (med-r6sh) and still before the pinch-zoom lock
+        const rootEl = /^html,\s*body\s*\{([^}]*)\}/m.exec(css);
+        expect(rootEl).not.toBeNull();
+        expect(rootEl[1]).toContain('touch-action: manipulation');
+        expect(css.indexOf('html, body {')).toBeLessThan(css.indexOf('touch-action: pinch-zoom'));
         // must precede every other touch-action rule so they win the cascade
         expect(css.indexOf('touch-action: manipulation')).toBeLessThan(css.indexOf('touch-action: pinch-zoom'));
         expect(css).toContain('touch-action: none');
