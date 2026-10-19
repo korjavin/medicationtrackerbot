@@ -109,6 +109,25 @@ body {
   line-height: 1.5;
 }
 
+/* Busy step of the Android passkey ceremony (passkey-get.js). */
+.wizard-spinner {
+  width: 2rem;
+  height: 2rem;
+  margin-bottom: 1rem;
+  border: 3px solid var(--wg-border-strong);
+  border-top-color: var(--wg-mint-soft);
+  border-radius: 50%;
+  animation: wizard-spin 0.9s linear infinite;
+}
+
+@keyframes wizard-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wizard-spinner { animation-duration: 3s; }
+}
+
 /* Buttons are the kit's .wg-btn variants (components.css). Loose sibling
    buttons in a step — no .wizard-actions row around them — still need air
    between them when they wrap. */
