@@ -334,6 +334,7 @@ describe('post-create PRF probe', () => {
     // One steady busy step: no button left, no error, says what comes next.
     expect(app.querySelector('#create-passkey')).toBeNull();
     expect(app.textContent).toContain('Setting up your passkey');
+    expect(app.querySelector('.wizard-spinner')).not.toBeNull();
     expect(app.textContent).toContain('confirm the passkey you just created');
 
     await settle(() => expect(getCalls).toHaveLength(1)); // probe 1 failed, now backing off

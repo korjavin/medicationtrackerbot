@@ -58,7 +58,8 @@ export function passkeyCeremony(app, copy, run) {
   if (ceremonyInFlight) return Promise.resolve();
   ceremonyInFlight = true;
   app.innerHTML = `
-    <section class="wizard-step">
+    <section class="wizard-step" aria-busy="true">
+      <div class="wizard-spinner" aria-hidden="true"></div>
       <h1></h1>
       <p></p>
     </section>`;
