@@ -110,11 +110,12 @@ const ctx = {
    * `--ez wgLocalMode true` (extra: false relaunches on the persisted pref alone) and, with a
    * scene, `--es wgQAScene <scene>` (the QA driver seeds the golden vault, navigates and publishes
    * #wg-qa-ready). Returns the page once the ready node is attached (scene) or the bottom nav shows.
+   * softAuthn: also the QA soft authenticator (launch), for a scenario that later claims an invite.
    */
-  async launchLocal(scene, { extra = true } = {}) {
+  async launchLocal(scene, { extra = true, softAuthn = false } = {}) {
     await shell(`am force-stop ${pkg}`);
     await ctx.sleep(2000); // the dead process's devtools socket must go before attaching
-    const extras = `${extra ? ' --ez wgLocalMode true' : ''}${scene ? ` --es wgQAScene ${scene}` : ''}`;
+    const extras = `${extra ? ' --ez wgLocalMode true' : ''}${scene ? ` --es wgQAScene ${scene}` : ''}${softAuthn ? ' --ez qaSoftAuthn true' : ''}`;
     await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity${extras}`);
     // ponytail: one re-attach when the first target closes under us (run 39249851915, right after
     // pm clear: "Target page, context or browser has been closed").
