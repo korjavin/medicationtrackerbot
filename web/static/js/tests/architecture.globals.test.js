@@ -186,6 +186,11 @@ const ALLOWED_GLOBALS = new Set([
     'window.MedTrackerCloud',           // cloud-boot.js — published once warmUnlock() resolves a non-null ctx ({ accountId, kData, kMac }); features/settings.js's cloud Notifications branch reads window.MedTrackerCloud.ctx to call the DOM-free subscribe()/sendTestPush(ctx) helpers without re-deriving the vault key
     'window.CloudVault',                // cloud-boot.js — { exportAll, importAll } for the Settings → Import/Export screen (C2e Task 5): fully client-side full-vault export/import against the unlocked vault via web/domain/vault.js; exportAll reads unmasked integrations module-to-module (never across the /api shim), importAll wipes+relays the record store (preserving nk/reminder prefs) then forces one snapshot upload
 
+    // iOS visual QA (bd med-y5xx.1) — tests/visual/driver.js, outside the
+    // scanned tree and bundled only by `QA=1 ios/bundle-web.sh` (never the
+    // TestFlight archive or the cloud); entry kept for documentation.
+    'window.__wgQA',                    // tests/visual/driver.js — { scene, done, report, probe } of the running scene: done settles once the ready node (#wg-qa-ready) is published; the Vitest suite and a Web Inspector session read it, nothing in the app does
+
     // First-run guided setup overlay.
     'window.WGFirstRun',                // features/firstrun/index.js exposes the mount/dismiss/isActive surface for the first-run overlay; state.js attaches the sessionStorage step tracker under `.state`. Mounted once at bootstrap when /api/bootstrap returns needs_first_run: true.
 

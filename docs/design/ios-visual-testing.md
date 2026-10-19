@@ -46,38 +46,56 @@ Tier 2 is the MVP; it is the only tier that would have caught `med-pe9g`. Tiers
 ### Pieces
 
 1. **QA bundle** — `QA=1 ios/bundle-web.sh <id>` additionally copies
-   `tests/visual/driver.js` to `ios/LocalApp/qa/driver.js`,
-   `tests/fixtures/vault-v1.json` to `ios/LocalApp/qa/vault-v1.json`, and adds
-   `<script src="/qa/driver.js">` to the local `index.html` (CSP is
-   `script-src 'self'`, so no CSP change). Without `QA=1` nothing changes:
-   `/qa/*` is simply a 404 on `wgapp://local`, and the TestFlight archive is
-   built without it.
-2. **In-page QA driver** (`tests/visual/driver.js`, classic script, runs after
-   the app boots): reads `?qa=<scene>` from `location.search`, and
+   `tests/visual/driver.js`, `driver.css`, `scenes.json` and
+   `tests/fixtures/vault-v1.json` to `ios/LocalApp/cloud/qa/` (served at
+   `/qa/*`: `LocalOrigin.file(for:)` maps every path outside `/static/` and
+   `/domain/` to `cloud/`), and adds `<link rel="stylesheet"
+   href="/qa/driver.css"><script src="/qa/driver.js">` before `</body>` of the
+   local `index.html`, after every app script (CSP is `script-src 'self'` /
+   `style-src 'self'`, so no CSP change). Without `QA=1` nothing changes:
+   `/qa/*` is a 404 on `wgapp://local`, the script fails if a non-QA bundle
+   carries any of it, and the TestFlight archive is built without it.
+2. **In-page QA driver** (`tests/visual/driver.js`, classic script): reads
+   `?qa=<scene>` from `location.search`, waits for the app's boot (the first
+   `switchTab` has set `AppStore.currentTab`), refuses to run outside local
+   mode, and
    - **seeds** the vault once: if the local store holds no user content
-     (`hasUserContent` in `web/domain/vault.js`), it fetches `/qa/vault-v1.json`,
-     shifts every ISO date by `(today − exported_at)` so Today / Food / charts
-     show data, and imports it through the same path as Settings → Backup &
-     import (`SettingsImportExport.import` with a `DataTransfer`-built file on
-     `#importexport-import-file`, auto-confirming the in-page dialog), or, if
-     that proves brittle, through `vaultToRecords` + the local records port;
-   - **navigates** to the scene with the app's own entry points
-     (`switchTab`, `handleDeepLinks` with `#bp`-style hashes,
-     `openSettingsPage`, clicking `#add-food-inline-btn`,
-     `activateTabGroup` for sub-tabs) and waits for the scene's `ready`
-     predicate (an element visible, a chart canvas with width > 0);
-   - runs **probes** and publishes the result: a visually hidden but
-     accessible node `<div role="status" id="wg-qa-ready" aria-label="<json>">`
-     where the JSON is `{scene, ok, probes: {...}}`. XCUITest and Playwright
-     both wait for that node; XCUITest reads the label as the probe report.
+     (`CloudVault.hasUserContent`, i.e. `hasUserContent` in
+     `web/domain/vault.js`), it fetches `/qa/vault-v1.json`, shifts every
+     whole-string ISO date by whole days `(today − exported_at)` so Today /
+     Food / charts show data, sets the fixture's timezone to the device's (no
+     timezone confirm over the shots), marks first-run complete
+     (`POST /api/firstrun/complete`; that record is not vault-managed, so it
+     survives the import), and imports through Settings → Backup & import
+     itself: a `DataTransfer`-built file on `#importexport-import-file`, then
+     `SettingsImportExport.import()`. The store is empty, so the import's
+     replace confirm never shows. The import reloads the page; the next load
+     finds content and runs the scene, so seeding happens once per install;
+   - **navigates** with the app's own entry points: scene `steps` are
+     `{"tab": <section>}` (`switchTab`), `{"click": <selector>}` (sub-tab
+     buttons, `#add-food-inline-btn`, a history row) and `{"settingsPage":
+     <name>}` (`SettingsView.openSettingsPage`); then it waits for every
+     selector in the scene's `ready` list to be visible, and for the store to
+     go quiet (no `datastore:changed` for 400 ms, capped at 5 s);
+   - runs **probes** and publishes the result: a visually hidden (class
+     `wg-qa-hidden`, from `driver.css`) but accessible node
+     `<div role="status" id="wg-qa-ready" aria-label="<json>">` where the JSON
+     is `{"scene", "ok", "rev", "failed": [...], "probes": {...}}` (`scene`
+     first, so the label starts with `{"scene"`; a driver error publishes
+     `{"scene", "ok": false, "error"}`). XCUITest and Playwright both wait for
+     that node; XCUITest reads the label as the probe report **after** its
+     native steps, so the driver re-runs the probes and re-publishes the label
+     (`rev` + 1) on every `visualViewport` resize/scroll and focus/input change.
    - Probes (all pure DOM arithmetic, no screenshots):
      `scale = visualViewport.scale` (must be 1), `hOverflow =
-     documentElement.scrollWidth − innerWidth` (must be 0), `clippedTop` =
-     any `.wg-sheet__header, .wg-appbar, .wg-pagebar` with `top < 0`,
-     `canvasOverflow` = any `canvas` wider than its parent,
-     `focusUnderKeyboard` = the focused element's bottom beyond
-     `visualViewport.height + offsetTop`, `bottomNavCovered` =
-     `.wg-tabbar` bottom beyond `innerHeight`.
+     documentElement.scrollWidth − innerWidth` (must be ≤ 0), `clippedTop` =
+     any visible `.wg-sheet__header, .wg-sheethead, .wg-appbar, .wg-pagebar`
+     with `top < 0`, `canvasOverflow` = any `canvas` or chart `svg` (wider
+     than 64px) wider than its parent, `focusUnderKeyboard` = the focused
+     element's bottom beyond `visualViewport.height + offsetTop`,
+     `bottomNavCovered` = `.wg-tabbar` bottom beyond `innerHeight`, and
+     `keyboardShown = visualViewport.height < innerHeight − 100`, which is
+     reported but never fails `ok`.
    - `window.__wgQA` is the one new global (CLAUDE.md rule 4: allowlist entry
      with justification; it only exists in the QA bundle).
 3. **Shell hook** (`ios/App/Shell.swift`, `#if DEBUG` only): when the launch
@@ -94,9 +112,12 @@ Tier 2 is the MVP; it is the only tier that would have caught `med-pe9g`. Tiers
    For each scene: `app.launchArguments = ["-wgLocalMode","1","-wgQAScene",
    name]`, `app.launch()`, wait for `app.webViews.otherElements["wg-qa-ready"]`
    (XCUITest exposes WKWebView DOM as accessibility elements), perform the
-   scene's **native steps** (`typeText` into `app.webViews.textFields[...]`
-   brings up the real keyboard; `app.keyboards.firstMatch.waitForExistence`
-   before the shot), then `XCUIScreen.main.screenshot()` as an attachment with
+   scene's **native steps** (the scene's `native` list, in order:
+   `{"tap": "#<dom id>", "placeholder": "<text>"}` taps a web element by id
+   or placeholder, `{"type": "<text>"}` types into it with the real keyboard,
+   `{"clear": true}`, `{"tapButton": "<label>"}`, `{"waitFor": "<label or
+   id>"}`, `{"keyboard": true}`; after `type`/`keyboard` it waits for
+   `app.keyboards.firstMatch` before the shot), then `XCUIScreen.main.screenshot()` as an attachment with
    `lifetime = .keepAlways`, named `<scene>.png`, plus the probe JSON as a
    `.json` attachment. Native-only scenes (first-run, local intro) launch
    without `-wgLocalMode` and tap SwiftUI buttons by label.
@@ -148,14 +169,14 @@ vault, so order does not matter and one failure does not poison the rest.
 | 5 | `food-add-sheet` | 4 + click `#add-food-inline-btn` | sheet at rest: header, width, corners |
 | 6 | `food-add-sheet-keyboard` | 5 + *native*: tap `#food-add-search`, type the fixture product's first letters, wait for keyboard | the `med-pe9g` bug: zoom, header, list under the keyboard |
 | 7 | `food-add-sheet-keyboard-empty` | 6 + *native*: clear the field | the third `med-pe9g` screenshot (sheet vanished) |
-| 8 | `meds-schedule` | `switchTab('medications')`, sub-tab `schedule` | schedule rows, time chips |
+| 8 | `meds-schedule` | `switchTab('meds')`, sub-tab `schedule` | schedule rows, time chips |
 | 9 | `workouts-plans` | `switchTab('workouts')`, sub-tab `groups` | plan cards, rotation rows ("scaling on workout pages") |
 | 10 | `workouts-stats` | sub-tab `stats` | `wg-workout-chart` canvas width in a narrow view |
-| 11 | `workout-session-log` | open the fixture's session → per-set logging | number inputs + *native* numeric keyboard on the set row |
-| 12 | `health-bp` | `handleDeepLinks('#bp')` | `wg-bp-chart`, range chips, reading list |
-| 13 | `health-vitals` | `handleDeepLinks('#health')` | sleep/steps charts stacked |
+| 11 | `workout-session-log` | open the fixture's session from History + *native*: tap a set's Reps cell | the set prompt's numeric input + the real numeric keyboard |
+| 12 | `health-bp` | `switchTab('bp')` | `wg-bp-chart`, range chips, reading list |
+| 13 | `health-vitals` | `switchTab('health')` | sleep/steps charts stacked |
 | 14 | `settings-home` | `switchTab('settings')` | grouped rows, pagebar back |
-| 15 | `settings-backup` | `openSettingsPage('backup')` | file inputs, long copy, local-only rows |
+| 15 | `settings-backup` | 14 + `openSettingsPage('backup')` | file inputs, long copy, local-only rows |
 
 Phase 2 adds: `journey`, `meds-history` with the take-dose sheet, `weight`,
 `settings-targets` (number fields at 15px — focus-zoom regression check), an

@@ -1,0 +1,13 @@
+/* QA bundle only (QA=1 ios/bundle-web.sh): the driver's ready node stays in the
+   accessibility tree for XCUITest but paints nothing. */
+.wg-qa-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
