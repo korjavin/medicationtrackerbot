@@ -18,6 +18,24 @@ enum LocalOrigin {
     /// Same caps as cmd/cloud's PUT /api/egress-hosts (internal/cloudserver/egress.go).
     static let maxHosts = 8
 
+    /// Bridge ops only the bundled app may call (Shell.swift `where local`).
+    static let localOps = ["setEgressHosts", "local.reset", "local.leave",
+                           "attest.status", "attest.enroll", "attest.setPass", "attest.assert",
+                           "move.stash"] // the local → cloud move (bd med-o7zq.35, Move.swift)
+    /// Bridge ops only an account page may call (Shell.swift `where !local`).
+    static let accountOps = ["account.leave", "move.take", "move.clear"]
+    /// Every other op the shell answers, in both modes.
+    static let sharedOps = ["ping", "shell.ops", "health.authorize", "health.query",
+                            "notifications.permission", "notifications.requestPermission",
+                            "notifications.schedule", "notifications.test"]
+
+    /// The bridge op shell.ops (bd med-o7zq.35, twin of Android LocalOrigin.ops):
+    /// what this shell answers in this mode, for the page's capability probe.
+    /// Keep in step with Shell.swift's op switch.
+    static func ops(local: Bool) -> [String] {
+        (sharedOps + (local ? localOps : accountOps)).sorted()
+    }
+
     #if DEBUG
     /// Visual QA (bd med-y5xx.2, docs/design/ios-visual-testing.md), Debug
     /// builds only: launch argument `-wgQAScene <name>` (NSArgumentDomain)

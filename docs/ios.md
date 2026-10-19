@@ -757,7 +757,7 @@ mode, gated on the bridge platform being `ios` or `android`
   `local-*` in `web/cloud/js/privacy-manifest.js`.
 - **Bridge:** in local mode only the main frame of `wgapp://local` reaches
   `wgNative` (an account origin does not); `setEgressHosts`, `local.reset`,
-  `local.leave` and `attest.*` (`ios/App/Attest.swift`: `status`, `enroll`,
+  `local.leave`, `move.stash` and `attest.*` (`ios/App/Attest.swift`: `status`, `enroll`,
   `assert`, `setPass` — the anonymous trial's pass in the Keychain,
   `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not iCloud-synced, so a
   reinstall rejoins the same trial budget (bd med-o7zq.26); entitlement `com.apple.developer.devicecheck.appattest-environment`,
@@ -832,6 +832,26 @@ mode, gated on the bridge platform being `ios` or `android`
   offline, paused until a passkey re-auth, or refused for size/quota and never
   landing by itself), so the other copy is kept until then. A failed local
   restore resumes the Health import; a successful one keeps its tally.
+- **Move stash** (bd med-o7zq.35, twin of Android `Move.kt`, med-nt9p.32.17;
+  the web side that calls it is med-nt9p.32.16/.18): the shell carries the
+  vault v1 JSON across the two origins in one file,
+  `Application Support/move/vault.json` (`ios/App/Move.swift`), the directory
+  marked `isExcludedFromBackup`. Plaintext in the same sandbox as the local
+  origin's website data, never leaves the device, never logged; error replies
+  never carry the contents or the path. Ops: `move.stash {vault}` (local mode
+  only; `invalid vault` when missing, empty or not a string, `too large` above
+  64 MB of UTF-8, atomic write replacing any older stash, replies `true`);
+  `move.take` (account mode only; `{vault}` or `null`, does not delete, so a
+  failed import retries on the next open); `move.clear` (account mode only,
+  replies `true`). Deleted by `move.clear`, `local.reset` and whenever local
+  mode is entered again (*Only on this device*, *Continue on this iPhone*,
+  `account.leave {then: "local"}`, the Settings toggle); `local.leave` and
+  Switch account keep it. While it exists the native first-run says *Your
+  records are ready to move: paste or scan your invite.* and hides *Continue
+  on this iPhone*. `shell.ops` replies the op names this shell answers in the
+  current mode (`LocalOrigin.ops`), the page's capability probe; a shell
+  before it answers `unsupported: shell.ops`. `Tests/main.swift` covers the
+  file lifecycle and the per-mode op lists.
 - **One vault at a time** (bd med-o7zq.9): the shell's open vault is `local`
   or the account host. Each reminder carries it (`userInfo.vault`, id
   `wg-<n>-<vault>`); switching mode or account removes every pending reminder
