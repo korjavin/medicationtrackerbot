@@ -128,6 +128,7 @@ describe('native/attest.js on android', () => {
         const transit = w.Attest.copy.trialTransit;
         expect(transit).toMatch(/Google Play Integrity/);
         expect(transit).toMatch(/Android Keystore/);
+        expect(transit).toMatch(/Google Play may keep a mark that this phone had its trial/);
         expect(transit).toMatch(/each call uses its full length limit when it starts/);
         expect(transit).not.toMatch(/iPhone|Apple|App Attest|DeviceCheck|keychain/i);
         expect(transit).not.toMatch(/\d+ (free )?minutes/);
