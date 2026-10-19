@@ -2847,3 +2847,47 @@ describe('gamificationjournal merges grow-only fields on apply (med-ooeh)', () =
     expect((await getRaw('note-1')).text).toBe('mine');
   });
 });
+
+describe('replaceAllRecords(fn) computes its set inside the records lock (med-o7zq.38)', () => {
+  // A merge import reads the store, merges, and replaces. A write landing
+  // between the read and the clear would be in neither the merged set nor the
+  // pending overlay, so it would be reverted. With the read inside the lock,
+  // the write queues behind the replace instead.
+  const readStore = async (name) => {
+    const db = await openDb();
+    try {
+      return await new Promise((resolve, reject) => {
+        const req = db.transaction(name, 'readonly').objectStore(name).getAll();
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+
+  beforeEach(async () => {
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.deleteDatabase('medtracker-cloud');
+      req.onsuccess = resolve;
+      req.onerror = () => reject(req.error);
+    });
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline'); }));
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('a write issued during the merge survives it, and only the pending rows read are dropped', async () => {
+    const ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
+    await writeRecord(ctx, 'weight', { recordId: 'weight-1', weight: 80 });
+    await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hi' });
+    let late;
+    await replaceAllRecords((here) => {
+      late = writeRecord(ctx, 'weight', { recordId: 'weight-late', weight: 55 });
+      return { records: [...here, { recordType: 'weight', recordId: 'weight-0', clientTs: 9, deleted: false, weight: 90 }], dropPendingIds: new Set(['weight-1']) };
+    });
+    await late;
+    const ids = (await readStore('records')).map((r) => r.recordId).sort();
+    expect(ids).toEqual(['note-1', 'weight-0', 'weight-1', 'weight-late']);
+    expect((await readStore('pending')).map((p) => p.recordId).sort()).toEqual(['note-1', 'weight-late']);
+  });
+});

@@ -70,6 +70,33 @@ handlers did; its storage-boundary conversions are documented under
 Import is **replace-only** (wipe target user, then insert), so leaf-record ids never
 have to survive a round-trip — the importer is free to re-mint them.
 
+Replace-only is what the backup-file Restore does. `importAll` also takes
+`{mode:'merge'}` (bd med-o7zq.38, `mergeRecords` in `web/domain/vault.js`):
+the union by recordId where the receiver wins every collision, except that a
+live floored placeholder (`clientTs` 0) yields to the file's row; a receiver
+tombstone holds its slot, a file tombstone lands only in an empty one, and an
+Apple Health row also holds its canonical `-hk-` id. So the file's copy is
+dropped for every deterministic id the receiver already has: singletons
+(`settings`, `features`, `integrations`, `apitokens`, `bpgoal`, …), derived
+slots (`intake-<med>-<slot>`, `session-<group>-<date>`, `-hk-` rows,
+`daystats-<day>` and other per-day aggregates, `trackerlog:<tracker>:<date>`,
+gamification weeks and milestones), and secrets — `integrations` / `apitokens` land only when the
+receiver has none, and are then whole rows (no per-key union). The vitals day
+batches (`hrsample-<day>`, `spo2sample-<day>`, `stresssample-<day>`) are the
+exception: when both sides hold a day, the file's samples are unioned into the
+receiver's row by instant (the receiver's sample wins a shared instant), so a
+reading only the file has is not lost. Re-minted leaf
+ids never collide, so a leaf row on both sides lands twice; merge is meant for
+two vaults with separate histories, not for a backup of the same one. Ids the
+import numbers 1..n per file — `foodproduct-<n>` (a native product exports as a
+synthetic 1..n), `tzhistory-<n>`, `tzplanhistory-<n>` — are not identity: when
+the receiver holds that id with another body (or a tombstone), the file's row
+moves to the next free number and its food logs' `product_id` follow it; an
+equal body is the same row and the receiver's copy wins. Ids the vault carries
+verbatim (medication, workout and tracker ids) are minted from the clock plus
+randomness, so separate histories do not share them; bot-era small numeric ids
+are the exception and are not remapped.
+
 - **FK-parent records carry a numeric `id`** and are referenced by numeric id:
   `medication`, `food product`, workout `group`/`variant`/`exercise`/`library`,
   workout `session`. It is preserved as a body field alongside the string

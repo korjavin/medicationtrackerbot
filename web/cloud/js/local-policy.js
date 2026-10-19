@@ -37,7 +37,7 @@ import {
 } from './reminders.js';
 import { hostsFromIntegrations } from './egress-hosts.js';
 import { readAllLocalRecords, replaceAllRecords } from './sync.js';
-import { recordsToVault, vaultToRecords, managedTypesForImport, hasUserContent } from '../../domain/vault.js';
+import { recordsToVault, vaultToRecords, managedTypesForImport, hasUserContent, mergeRecords } from '../../domain/vault.js';
 import { startHealthImport, runHealthImport, resetHealthAnchors } from './health-import.js';
 import { clearLocalVault } from './account-delete.js';
 import { setTrialTransport } from './aiclient.js';
@@ -500,15 +500,21 @@ export const LOCAL_VAULT = {
   // import stops right before the replace (the page reloads after) so none of
   // its writes or anchors land around it — and resumes if the replace fails;
   // the anchors are then reset, since they describe the replaced records.
-  async importAll(json, { win = globalThis.window } = {}) {
+  // mode 'merge' (bd med-o7zq.38) keeps every record here and adds the file's
+  // absent ones (vault.js mergeRecords, receiver wins).
+  async importAll(json, { win = globalThis.window, mode } = {}) {
     const vault = typeof json === 'string' ? JSON.parse(json) : json;
     const records = vaultToRecords(vault, { now: Date.now() });
     const managed = managedTypesForImport(vault);
     await stopHealthImport();
     try {
-      const survive = (await readAllLocalRecords())
-        .filter((r) => !r.deleted && !managed.has(r.recordType));
-      await replaceAllRecords([...records, ...survive]);
+      // Computed inside replaceAllRecords' records lock: a write (the
+      // background Health import) cannot land between the read and the clear.
+      await replaceAllRecords((here) => ({
+        records: mode === 'merge'
+          ? mergeRecords(here, records)
+          : [...records, ...here.filter((r) => !r.deleted && !managed.has(r.recordType))],
+      }));
     } catch (e) {
       resumeHealthImport();
       throw e;

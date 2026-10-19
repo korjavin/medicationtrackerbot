@@ -565,23 +565,34 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
   // account cursor exists — throwing so importexport.js skips the reload.
   function syncModule(overrides) {
     const calls = { replaceAllRecords: 0, forceSnapshot: 0, markForceSnapshotPending: 0, dropPendingForTypes: [], order: [] };
-    return {
-      calls,
-      mod: {
+    const mod = {
         pullOnOpen: async () => {},
         startReconnectAutoDrain: () => () => {},
         getSyncStatus: async () => ({ authExpired: false }),
         readAllLiveRecords: async () => [],
-        replaceAllRecords: async () => { calls.replaceAllRecords += 1; calls.order.push('replace'); },
-        forceSnapshot: async () => { calls.forceSnapshot += 1; },
+        readAllRawRecords: async () => [],
+        bootstrapIfNeeded: async () => {},
+        // A merge passes a function of the current rows (read inside the
+        // records lock); readAllRawRecords stands in for those rows here.
+        replaceAllRecords: async (input) => {
+          calls.replaceAllRecords += 1;
+          if (typeof input === 'function') {
+            calls.computed = await input(await mod.readAllRawRecords());
+            calls.replaced = calls.computed.records;
+          } else {
+            calls.replaced = input;
+          }
+          calls.order.push('replace');
+        },
+        forceSnapshot: async () => { calls.forceSnapshot += 1; calls.order.push('snapshot'); },
         markForceSnapshotPending: async () => { calls.markForceSnapshotPending += 1; calls.order.push('mark'); },
         dropPendingForTypes: async (types) => { calls.dropPendingForTypes.push(types); calls.order.push('drop'); },
         ...overrides,
-      },
     };
+    return { calls, mod };
   }
   const MANAGED = new Set(['note', 'bp']);
-  const VAULT_MOD = { vaultToRecords: () => [], managedTypesForImport: () => MANAGED };
+  const VAULT_MOD = { vaultToRecords: () => [], managedTypesForImport: () => MANAGED, mergeRecords: realVault.mergeRecords };
   const VAULT_JSON = '{"format":"medtracker-vault","version":1,"data":{}}';
 
   async function bootWithSync(sync) {
@@ -660,7 +671,68 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
     expect(sync.calls.dropPendingForTypes).toHaveLength(1);
     expect(sync.calls.dropPendingForTypes[0]).toBe(MANAGED);
     // Drop must run before the replace, else the overlay re-adds the stale rows.
-    expect(sync.calls.order).toEqual(['mark', 'drop', 'replace']);
+    expect(sync.calls.order).toEqual(['mark', 'drop', 'replace', 'snapshot']);
+  });
+
+  // Merge (bd med-o7zq.38): the receiver keeps every row (tombstones too) and
+  // gains the file's absent ones; its pending writes stay queued.
+  const MINE = [
+    { recordType: 'weight', recordId: 'weight-1', clientTs: 5, deleted: false, weight: 80 },
+    { recordType: 'intake', recordId: 'intake-7-1', clientTs: 5, deleted: true },
+  ];
+  const THEIRS = [
+    { recordType: 'weight', recordId: 'weight-1', clientTs: 9, deleted: false, weight: 99 },
+    { recordType: 'intake', recordId: 'intake-7-1', clientTs: 9, deleted: false },
+    { recordType: 'note', recordId: 'n-2', clientTs: 9, deleted: false },
+  ];
+  const mergeVault = { ...VAULT_MOD, vaultToRecords: () => THEIRS };
+
+  it('merge replaces with the receiver rows plus the absent incoming ones, keeping pending', async () => {
+    const sync = syncModule({ isBootstrapped: async () => true, readAllRawRecords: async () => MINE });
+    const { window } = await runBoot({
+      modules: {
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
+        'apishim.js': { installApiShim: () => () => Promise.resolve(null) },
+        'sync.js': sync.mod,
+        '/domain/vault.js': mergeVault,
+        'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
+        'mcp-responder.js': { refreshResponder: () => {} },
+      },
+    });
+    await window.CloudVault.importAll(VAULT_JSON, { mode: 'merge' });
+    expect(sync.calls.replaced).toEqual([...MINE, THEIRS[2]]);
+    expect(sync.calls.computed.dropPendingIds).toEqual(new Set());
+    expect(sync.calls.dropPendingForTypes).toHaveLength(0);
+    expect(sync.calls.order).toEqual(['mark', 'replace', 'snapshot']);
+  });
+
+  it('merge also refuses to touch anything before the account cursor exists', async () => {
+    const sync = syncModule({ isBootstrapped: async () => false, readAllRawRecords: async () => MINE });
+    const window = await bootWithSync(sync);
+    await expect(window.CloudVault.importAll(VAULT_JSON, { mode: 'merge' })).rejects.toThrow(/Sync not ready/);
+    expect(sync.calls.order).toEqual([]);
+  });
+
+  it('a merge that adds a weight row drops pending weight writes inside the replace, so the overlay keeps the rewalked trend', async () => {
+    const pendingWeight = { recordType: 'weight', recordId: 'weight-1', clientTs: 5, deleted: false, weight: 80, measured_at: '2026-07-02T08:00:00Z', weight_trend: 80 };
+    const earlier = { recordType: 'weight', recordId: 'weight-0', clientTs: 9, deleted: false, weight: 100, measured_at: '2026-07-01T08:00:00Z', weight_trend: 100 };
+    const sync = syncModule({ isBootstrapped: async () => true, readAllRawRecords: async () => [pendingWeight] });
+    const { window } = await runBoot({
+      modules: {
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
+        'apishim.js': { installApiShim: () => () => Promise.resolve(null) },
+        'sync.js': sync.mod,
+        '/domain/vault.js': { ...VAULT_MOD, vaultToRecords: () => [earlier] },
+        'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
+        'mcp-responder.js': { refreshResponder: () => {} },
+      },
+    });
+    await window.CloudVault.importAll(VAULT_JSON, { mode: 'merge' });
+    // Dropped inside the replace's records lock, not by a separate call.
+    expect(sync.calls.computed.dropPendingIds).toEqual(new Set(['weight-1']));
+    expect(sync.calls.dropPendingForTypes).toHaveLength(0);
+    expect(sync.calls.order).toEqual(['mark', 'replace', 'snapshot']);
+    expect(sync.calls.replaced.find((r) => r.recordId === 'weight-1').weight_trend).toBe(98);
   });
 });
 

@@ -107,6 +107,108 @@ export function hasUserContent(records) {
   return records.some((r) => !r.deleted && USER_CONTENT_TYPES.has(r.recordType));
 }
 
+// mergeRecords (bd med-o7zq.38): the record set a merge import lands — the
+// union by recordId, receiver (`existing`) wins, i.e. putIfAbsent semantics.
+// One exception: a live floored placeholder (clientTs 0, CLAUDE.md rule 12)
+// yields to an incoming row, as it loses every LWW merge anyway. A receiver
+// tombstone holds its slot; an incoming tombstone lands only in an empty one.
+// Apple Health rows also hold their canonical hk id (an older client restored
+// them under a fresh id), as healthimport.js importSamples does. Rows with
+// different ids are all kept, so the same item created on both sides doubles.
+// When it adds a weight row, every manual weight trend is rewalked; a vitals
+// day batch both sides hold gets the file's samples unioned in.
+export function mergeRecords(existing, rawIncoming) {
+  const incoming = renumberCollisions(existing, rawIncoming);
+  const taken = new Map();
+  for (const r of existing) {
+    taken.set(r.recordId, r);
+    const hk = healthImportRecordId(r.recordType, r);
+    if (hk && !taken.has(hk)) taken.set(hk, r);
+  }
+  const yields = (r, inc) => r.recordId === inc.recordId && !r.deleted && r.clientTs === 0 && !inc.deleted;
+  const added = incoming.filter((r) => !taken.has(r.recordId) || yields(taken.get(r.recordId), r));
+  const replaced = new Set(added.map((r) => r.recordId));
+  const unions = unionDayBatches(existing, incoming, taken);
+  const out = [...existing.filter((r) => !replaced.has(r.recordId)).map((r) => unions.get(r.recordId) || r), ...added];
+  if (!added.some((r) => r.recordType === 'weight' && !r.deleted)) return out;
+  // Each side's stored weight_trend is an EMA over its own history only: walk
+  // the merged manual chain once more (weight.js weightTrendChain, the order its
+  // readers use). Health rows stay trend-less, as healthimport writes them.
+  const chain = out.filter((r) => r.recordType === 'weight' && !r.deleted).sort(compareChain);
+  const trends = new Map(weightTrendChain(chain).map((t, i) => [chain[i], t]));
+  return out.map((r) => (trends.has(r) && !isHealthWeight(r) ? { ...r, weight_trend: trends.get(r) } : r));
+}
+
+// Day-batched vitals ({day, samples}, recordId '<type>-<day>', overflow parts
+// '<type>-<day>#<k>', vitals.js importDayBatched) hold many readings in one row:
+// when both sides hold a live row for a day, the receiver's row gains the
+// file's samples at instants it has in none of that day's parts (receiver wins
+// a shared instant), sorted as the writer sorts them. Returns receiver
+// recordId -> unioned row.
+// ponytail: the unioned base row is not re-split at vitals.js
+// MAX_SAMPLES_PER_RECORD; it lands via the snapshot, and the next
+// importDayBatched of that day re-partitions it.
+const DAY_BATCH_TYPES = new Set(['hrsample', 'spo2sample', 'stresssample']);
+
+function unionDayBatches(existing, incoming, taken) {
+  const unions = new Map();
+  if (!incoming.some((r) => DAY_BATCH_TYPES.has(r.recordType))) return unions;
+  const have = new Map(); // base recordId -> sample instants across its parts
+  for (const r of existing) {
+    if (!DAY_BATCH_TYPES.has(r.recordType) || r.deleted || !Array.isArray(r.samples)) continue;
+    const base = String(r.recordId).split('#')[0];
+    if (!have.has(base)) have.set(base, new Set());
+    for (const s of r.samples) have.get(base).add(Date.parse(s.date_time));
+  }
+  for (const inc of incoming) {
+    if (!DAY_BATCH_TYPES.has(inc.recordType) || inc.deleted || !Array.isArray(inc.samples)) continue;
+    const mine = taken.get(inc.recordId);
+    if (!mine || mine.recordId !== inc.recordId || mine.deleted || !Array.isArray(mine.samples)) continue;
+    const known = have.get(inc.recordId);
+    const extra = inc.samples.filter((smp) => !known.has(Date.parse(smp.date_time)));
+    if (extra.length === 0) continue;
+    for (const smp of extra) known.add(Date.parse(smp.date_time));
+    const prev = unions.get(inc.recordId) || mine;
+    unions.set(inc.recordId, { ...prev, samples: sortBy([...prev.samples, ...extra.map((smp) => ({ ...smp }))], (smp) => smp.date_time) });
+  }
+  return unions;
+}
+
+// Ids the vault does not carry, so vaultToRecords numbers them 1..n per file
+// (a native foodproduct exports as a synthetic 1..n): the same id in two
+// separate histories is two different things. An incoming one that meets a
+// receiver row with another body (or a tombstone) moves to the next free
+// number, and the file's food logs follow their product. An equal body is the
+// same row: it keeps its id and the receiver's copy wins.
+const RENUMBERED_ID = /^(foodproduct|tzhistory|tzplanhistory)-(\d+)$/;
+
+function sameBody(a, b) {
+  if (!!a.deleted !== !!b.deleted) return false;
+  const ka = Object.keys(a).filter((k) => !META_FIELDS.has(k));
+  const kb = Object.keys(b).filter((k) => !META_FIELDS.has(k));
+  return ka.length === kb.length && ka.every((k) => JSON.stringify(a[k]) === JSON.stringify(b[k]));
+}
+
+function renumberCollisions(existing, incoming) {
+  const mine = new Map(existing.map((r) => [r.recordId, r]));
+  const top = {};
+  for (const r of [...existing, ...incoming]) {
+    const m = RENUMBERED_ID.exec(String(r.recordId));
+    if (m) top[m[1]] = Math.max(top[m[1]] || 0, Number(m[2]));
+  }
+  const moved = new Map();
+  const out = incoming.map((r) => {
+    const m = RENUMBERED_ID.exec(String(r.recordId));
+    const here = m && mine.get(r.recordId);
+    if (!here || sameBody(here, r)) return r;
+    const recordId = `${m[1]}-${top[m[1]] += 1}`;
+    moved.set(r.recordId, recordId);
+    return { ...r, recordId };
+  });
+  if (moved.size === 0) return out;
+  return out.map((r) => (r.recordType === 'foodlog' && moved.has(r.product_id) ? { ...r, product_id: moved.get(r.product_id) } : r));
+}
+
 // Record types whose rows are lazily materialized into deterministic recordIds
 // (intake-<medId>-<slot>, session-<groupId>-<date>) via putIfAbsent: for these,
 // a tombstone is a suppression signal ("deliberately deleted, do not

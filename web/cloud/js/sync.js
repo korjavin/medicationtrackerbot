@@ -242,7 +242,12 @@ async function readAllRecords() {
   return withStore('records', 'readonly', (store) => reqToPromise(store.getAll()));
 }
 
-export async function replaceAllRecords(records) {
+// `input` is the record array, or (bd med-o7zq.38) a function of the current
+// rows returning { records, dropPendingIds? }: a merge import computes its
+// set inside the lock, so no write can land between its read and the clear.
+// dropPendingIds (rows the merge rewrote) leave the pending queue under that
+// same lock, before the overlay, so their old copies are not laid back.
+export async function replaceAllRecords(input) {
   // Preserve optimistic copies of not-yet-flushed writes: a snapshot bootstrap
   // (or a compaction re-bootstrap from pullTail) clears the whole store, but
   // pending writes are unsynced local truth the snapshot doesn't contain yet —
@@ -258,6 +263,13 @@ export async function replaceAllRecords(records) {
   // timestamps unordered and a comparison alone can't prove an unsent user
   // edit stale.
   await withRecordsLock(async () => {
+    let records = input;
+    if (typeof input === 'function') {
+      const computed = await input(await readAllRecords());
+      records = computed.records;
+      const drop = computed.dropPendingIds;
+      if (drop && drop.size > 0) await clearPending([...drop]);
+    }
     const pending = await readPending();
     const snapshotById = new Map(records.map((r) => [r.recordId, r]));
     const overlay = [];
@@ -635,7 +647,7 @@ async function bootstrap(ctx) {
   return true;
 }
 
-async function bootstrapIfNeeded(ctx) {
+export async function bootstrapIfNeeded(ctx) {
   // Once we know our cursor, skip the 11-key sync_meta read on every list call.
   // A dropped connection / resetLocalSync clears this flag so a re-bootstrap
   // still runs.

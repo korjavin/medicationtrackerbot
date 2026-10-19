@@ -11,6 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   recordsToVault, vaultToRecords, VAULT_MANAGED_TYPES, managedTypesForImport, hasUserContent,
+  mergeRecords,
 } from '../../../../web/domain/vault.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -577,5 +578,124 @@ describe('hasUserContent (restore skips the confirm only when nothing is at stak
   });
   it('empty -> false', () => {
     expect(hasUserContent([])).toBe(false);
+  });
+});
+
+describe('mergeRecords (merge import: union by recordId, receiver wins, bd med-o7zq.38)', () => {
+  const row = (recordType, recordId, extra = {}) => ({ recordType, recordId, clientTs: 100, deleted: false, ...extra });
+  const byId = (rows) => Object.fromEntries(rows.map((r) => [r.recordId, r]));
+  const UUID = '0b6f1c2e-3a4d-4e5f-8a9b-0c1d2e3f4a5b';
+
+  it('keeps the receiver live row over an incoming one with the same id', () => {
+    const mine = row('medication', '7', { name: 'Mine' });
+    const out = mergeRecords([mine], [row('medication', '7', { name: 'Theirs', clientTs: 999 })]);
+    expect(out).toEqual([mine]);
+  });
+
+  it('a receiver tombstone holds its slot', () => {
+    const tomb = { recordType: 'intake', recordId: 'intake-7-1700000000', clientTs: 50, deleted: true };
+    const out = mergeRecords([tomb], [row('intake', 'intake-7-1700000000', { status: 'TAKEN' })]);
+    expect(out).toEqual([tomb]);
+  });
+
+  it('a live floored placeholder (clientTs 0) yields to the incoming row', () => {
+    const placeholder = row('intake', 'intake-7-1700000000', { clientTs: 0, status: 'PENDING' });
+    const real = row('intake', 'intake-7-1700000000', { status: 'TAKEN' });
+    expect(mergeRecords([placeholder], [real])).toEqual([real]);
+  });
+
+  it('an Apple Health row under a fresh id blocks its canonical hk id', () => {
+    const alias = row('bp', 'bp-123', { source: 'apple_health', source_id: UUID, systolic: 120 });
+    const out = mergeRecords([alias], [row('bp', `bp-hk-${UUID}`, { source: 'apple_health', source_id: UUID, systolic: 120 })]);
+    expect(out).toEqual([alias]);
+  });
+
+  it('adds every incoming row whose id is absent, and keeps every receiver row', () => {
+    const mine = [row('bp', 'bp-1'), row('note', 'n1')];
+    const theirs = [row('bp', 'bp-2'), row('foodlog', 'foodlog-1')];
+    expect(mergeRecords(mine, theirs)).toEqual([...mine, ...theirs]);
+  });
+
+  it('an incoming tombstone lands only in an empty slot', () => {
+    const live = row('intake', 'intake-7-1', { status: 'TAKEN' });
+    const placeholder = row('workoutsession', 'session-10-2026-07-07', { clientTs: 0 });
+    const tombs = ['intake-7-1', 'session-10-2026-07-07', 'intake-7-2']
+      .map((recordId) => ({ recordType: recordId.startsWith('intake') ? 'intake' : 'workoutsession', recordId, clientTs: 100, deleted: true }));
+    const out = byId(mergeRecords([live, placeholder], tombs));
+    expect(out['intake-7-1']).toBe(live);
+    expect(out['session-10-2026-07-07']).toBe(placeholder);
+    expect(out['intake-7-2'].deleted).toBe(true);
+    expect(Object.keys(out)).toHaveLength(3);
+  });
+
+  it("keeps the receiver's settings singleton", () => {
+    const mine = row('settings', 'settings', { timezone: 'Europe/Berlin' });
+    const out = mergeRecords([mine], vaultToRecords(fixture, { now: NOW }));
+    expect(out.filter((r) => r.recordId === 'settings')).toEqual([mine]);
+  });
+
+  it('an incoming secret lands when the receiver has none, and stays out when it has one', () => {
+    const incoming = vaultToRecords(fixture, { now: NOW });
+    const keys = incoming.find((r) => r.recordId === 'integrations');
+    expect(keys).toBeTruthy();
+    expect(byId(mergeRecords([row('note', 'n1')], incoming)).integrations).toBe(keys);
+    const mine = row('integrations', 'integrations', { openai_key: 'mine' });
+    expect(byId(mergeRecords([mine], incoming)).integrations).toBe(mine);
+  });
+
+  it('rewalks the weight trend over the merged history', () => {
+    const mine = row('weight', 'weight-1', { weight: 100, measured_at: '2026-07-01T08:00:00Z', weight_trend: 100 });
+    const theirs = row('weight', 'weight-2', { weight: 80, measured_at: '2026-07-02T08:00:00Z', weight_trend: 80 });
+    const out = byId(mergeRecords([mine], [theirs]));
+    expect(out['weight-1'].weight_trend).toBe(100);
+    expect(out['weight-2'].weight_trend).toBe(98);
+    expect(out['weight-2'].clientTs).toBe(theirs.clientTs);
+  });
+
+  it('a renumbered foodproduct id from another history moves, and its logs follow it', () => {
+    const vault = (name, kcal) => ({
+      format: 'medtracker-vault', version: 1,
+      data: { food: {
+        products: [{ id: 1, name, calories: kcal }],
+        logs: [{ eaten_at: '2026-07-01T12:00:00Z', product_id: 1, weight: 100, calories: kcal }],
+      } },
+    });
+    const mine = vaultToRecords(vault('Oats', 380), { now: NOW });
+    const theirs = vaultToRecords(vault('Rice', 130), { now: NOW + 1 });
+    const out = mergeRecords(mine, theirs);
+    const products = byId(out.filter((r) => r.recordType === 'foodproduct'));
+    const logs = out.filter((r) => r.recordType === 'foodlog');
+    expect(logs).toHaveLength(2);
+    expect(logs.map((l) => products[l.product_id].name).sort()).toEqual(['Oats', 'Rice']);
+    for (const l of logs) expect(products[l.product_id].calories).toBe(l.calories);
+    expect(products['foodproduct-1'].name).toBe('Oats');
+    // A file product with the receiver's body is the same row: no move, no copy.
+    const same = mergeRecords(mine, vaultToRecords(vault('Oats', 380), { now: NOW + 1 }));
+    expect(same.filter((r) => r.recordType === 'foodproduct')).toEqual([products['foodproduct-1']]);
+  });
+
+  it('renumbered tz history from another history appends under fresh indices', () => {
+    const mine = [row('tzhistory', 'tzhistory-1', { tz: 'Europe/Berlin' })];
+    const out = mergeRecords(mine, [row('tzhistory', 'tzhistory-1', { tz: 'Asia/Tokyo' }), row('tzhistory', 'tzhistory-2', { tz: 'UTC' })]);
+    expect(out.map((r) => [r.recordId, r.tz])).toEqual([
+      ['tzhistory-1', 'Europe/Berlin'], ['tzhistory-3', 'Asia/Tokyo'], ['tzhistory-2', 'UTC'],
+    ]);
+  });
+
+  it('a vitals day both sides hold keeps the receiver samples and gains the file ones', () => {
+    const at = (t, value) => ({ date_time: `2026-07-01T${t}:00Z`, tz_offset: 0, value });
+    const mine = row('hrsample', 'hrsample-2026-07-01', { day: '2026-07-01', samples: [at('08:00', 60), at('10:00', 70)] });
+    const theirs = row('hrsample', 'hrsample-2026-07-01', { day: '2026-07-01', samples: [at('12:00', 80), at('10:00', 99)] });
+    const [day] = mergeRecords([mine], [theirs]);
+    expect(day.samples).toEqual([at('08:00', 60), at('10:00', 70), at('12:00', 80)]);
+    expect(day.clientTs).toBe(mine.clientTs);
+    // An aggregate stays receiver-wins.
+    const stats = row('daystats', 'daystats-2026-07-01', { steps: 100 });
+    expect(mergeRecords([stats], [row('daystats', 'daystats-2026-07-01', { steps: 900 })])).toEqual([stats]);
+  });
+
+  it('into an empty vault, merge lands exactly what a replace would', () => {
+    const incoming = vaultToRecords(fixture, { now: NOW });
+    expect(mergeRecords([], incoming)).toEqual(incoming);
   });
 });

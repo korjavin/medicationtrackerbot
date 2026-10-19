@@ -249,22 +249,27 @@ window.MedTrackerCloudReady = (async function boot() {
             if (st.offline || st.authExpired) return undefined;
             return hasUserContent(await readAllLiveRecords(ctx));
         },
-        async importAll(json) {
-            const [{ replaceAllRecords, forceSnapshot, markForceSnapshotPending, readAllLiveRecords, isBootstrapped, dropPendingForTypes }, { vaultToRecords, managedTypesForImport }] = await Promise.all([
+        // mode 'merge' (bd med-o7zq.38): keep every record here and add the
+        // file's absent ones (vault.js mergeRecords, receiver wins). Pending
+        // writes stay queued: they are rows of the receiver, so they win too.
+        async importAll(json, { mode } = {}) {
+            const [{ replaceAllRecords, forceSnapshot, markForceSnapshotPending, readAllLiveRecords, bootstrapIfNeeded, isBootstrapped, dropPendingForTypes }, { vaultToRecords, managedTypesForImport, mergeRecords }] = await Promise.all([
                 import('/js/sync.js'),
                 import('/domain/vault.js'),
             ]);
             const vault = typeof json === 'string' ? JSON.parse(json) : json;
             const records = vaultToRecords(vault, { now: Date.now() });
+            const merge = mode === 'merge';
             // Managed set is narrowed per-file: a secrets-free vault must not
             // wipe the destination's integrations keys / api tokens.
             const VAULT_MANAGED_TYPES = managedTypesForImport(vault);
-            // Preserve records the vault never manages (nk push key, voice
-            // provisioning, un-carried secrets) across the wholesale replace.
-            // readAllLiveRecords bootstraps first, so isBootstrapped below
+            // Replace: preserve records the vault never manages (nk push key,
+            // voice provisioning, un-carried secrets) across the wholesale
+            // replace. Both paths bootstrap first, so isBootstrapped below
             // reflects whether that bootstrap actually reached the server.
-            const survive = (await readAllLiveRecords(ctx))
-                .filter((r) => !VAULT_MANAGED_TYPES.has(r.recordType));
+            if (merge) await bootstrapIfNeeded(ctx);
+            const survive = merge ? null
+                : (await readAllLiveRecords(ctx)).filter((r) => !VAULT_MANAGED_TYPES.has(r.recordType));
             // Refuse to wipe until the account cursor exists. Without it,
             // forceSnapshot can't propagate the import (null cursor → nothing to
             // snapshot at) and the next open re-bootstraps the stale server
@@ -274,16 +279,37 @@ window.MedTrackerCloudReady = (async function boot() {
             if (!(await isBootstrapped())) {
                 throw new Error('Sync not ready — connect to the internet and reopen the app before importing.');
             }
-            // Replace-only: discard any not-yet-flushed managed writes first, or
-            // replaceAllRecords' pending overlay resurrects them over the backup
-            // (and they later flush over it). Non-managed pending (nk, reminder
-            // prefs) stays queued — those records are in `survive`.
             // Mark before the wipe: a crash between replaceAllRecords and the
             // marker would let the next open re-bootstrap the stale server
             // snapshot over the import (and the old data is already gone).
             await markForceSnapshotPending();
-            await dropPendingForTypes(VAULT_MANAGED_TYPES);
-            await replaceAllRecords([...records, ...survive]);
+            if (merge) {
+                // Merge: every row here stays, tombstones included. The rows
+                // are read inside replaceAllRecords' records lock, so a write
+                // (a background Health import, a flush) cannot land between
+                // the read and the clear and be reverted. A pending row is a
+                // receiver row, so it won the merge and its op flushes after
+                // the snapshot unchanged (a floored placeholder that yielded
+                // is dropped by the overlay). Except a receiver row the merge
+                // rewrote (weight trends rewalked, a vitals day gaining the
+                // file's samples): the overlay would lay its old copy back, so
+                // its pending op goes (under the same lock); the snapshot
+                // carries the row.
+                await replaceAllRecords((here) => {
+                    const mine = new Set(here);
+                    const merged = mergeRecords(here, records);
+                    const rewritten = new Set(here.map((r) => r.recordId));
+                    for (const r of merged) if (mine.has(r)) rewritten.delete(r.recordId);
+                    return { records: merged, dropPendingIds: rewritten };
+                });
+            } else {
+                // Replace: discard any not-yet-flushed managed writes first, or
+                // replaceAllRecords' pending overlay resurrects them over the backup
+                // (and they later flush over it). Non-managed pending (nk, reminder
+                // prefs) stays queued — those records are in `survive`.
+                await dropPendingForTypes(VAULT_MANAGED_TYPES);
+                await replaceAllRecords([...records, ...survive]);
+            }
             // Past this line the import HAS happened locally. Propagation to the
             // server is retryable (forceSnapshotPending stays set, next pullOnOpen
             // retries), so a throw here must not reach importexport.js — it would
