@@ -16,6 +16,14 @@
     // post-optimistic reloadCurrentTab) cannot overwrite the optimistic cache
     // with the pre-write server state.
     const pendingOptimistic = new Map();
+    // Keys whose tag invalidation arrived while an optimistic write was
+    // pending: evicted once the last handle on the key settles (bd med-va47).
+    const deferredEvict = new Set();
+    // Per-key tail of the applyOptimistic read→mutate→write sections. Two
+    // overlapping writes on one key (deleteWithUndo's handle for the next
+    // row + the flushed delete's own _deleteXApi re-apply) otherwise both
+    // read the same prior and the later write resurrects the other's row.
+    const optimisticLocks = new Map();
     const keyToTags = new Map();
     const tagToKeys = new Map();
     // tag → Set<prefix>. Lets `invalidateByTag(tag)` evict every concrete
@@ -139,14 +147,14 @@
                 return { commit: async () => {}, rollback: async () => {} };
             }
 
-            let prior = null;
-            try {
-                prior = await this.getCached(key);
-            } catch (_e) { /* tolerate read failures — treat as cold cache */ }
-
-            const priorSnapshot = hasValue(prior) ? deepCloneSnapshot(prior) : prior;
-
-            const next = mutator(prior);
+            // Only a contended key waits — an uncontended call keeps its
+            // original microtask timing.
+            const before = optimisticLocks.get(key);
+            let release;
+            const mine = new Promise((r) => { release = r; });
+            const tail = before ? before.then(() => mine) : mine;
+            optimisticLocks.set(key, tail);
+            if (before) await before;
 
             // Mark this key as having a pending optimistic write before the
             // dispatch fires reloadCurrentTab → loadSWR. Without this, the
@@ -154,28 +162,49 @@
             // (the caller's POST hasn't reached the server yet) and write
             // stale data into the cache, flickering the screen between
             // optimistic → stale → real.
-            pendingOptimistic.set(key, (pendingOptimistic.get(key) || 0) + 1);
-
             const decrementPending = () => {
                 const c = (pendingOptimistic.get(key) || 0) - 1;
                 if (c <= 0) pendingOptimistic.delete(key);
                 else pendingOptimistic.set(key, c);
             };
+            // Last handle settled → run the invalidation that was held back
+            // while it was pending, before the refresh reads the cache.
+            const flushDeferredEvict = async () => {
+                if (pendingOptimistic.has(key) || !deferredEvict.delete(key)) return;
+                try { await this.clearCached(key); } catch (_) { /* best-effort */ }
+            };
 
+            let priorSnapshot;
             try {
-                if (hasValue(next)) {
-                    await this.setCachedWithTags(key, next, tags);
-                } else {
-                    await this.clearCached(key);
-                    registerKeyTags(key, tags);
+                let prior = null;
+                try {
+                    prior = await this.getCached(key);
+                } catch (_e) { /* tolerate read failures — treat as cold cache */ }
+
+                priorSnapshot = hasValue(prior) ? deepCloneSnapshot(prior) : prior;
+
+                const next = mutator(prior);
+
+                pendingOptimistic.set(key, (pendingOptimistic.get(key) || 0) + 1);
+
+                try {
+                    if (hasValue(next)) {
+                        await this.setCachedWithTags(key, next, tags);
+                    } else {
+                        await this.clearCached(key);
+                        registerKeyTags(key, tags);
+                    }
+                } catch (e) {
+                    // The cache write failed (IndexedDB quota, corruption, etc.)
+                    // so no optimistic state was actually committed. Roll back
+                    // the pending counter so future fetchFresh calls don't stay
+                    // permanently short-circuited, then surface the error.
+                    decrementPending();
+                    throw e;
                 }
-            } catch (e) {
-                // The cache write failed (IndexedDB quota, corruption, etc.)
-                // so no optimistic state was actually committed. Roll back
-                // the pending counter so future fetchFresh calls don't stay
-                // permanently short-circuited, then surface the error.
-                decrementPending();
-                throw e;
+            } finally {
+                release();
+                if (optimisticLocks.get(key) === tail) optimisticLocks.delete(key);
             }
 
             this.requestTabRefresh(tags, 'optimistic');
@@ -196,6 +225,7 @@
                     } finally {
                         decrementPending();
                     }
+                    await flushDeferredEvict();
                     self.requestTabRefresh(tags, 'optimistic-commit');
                 },
                 async rollback() {
@@ -210,6 +240,10 @@
                     } finally {
                         decrementPending();
                     }
+                    // ponytail: a rollback drops a held-back invalidation
+                    // rather than evicting — evicting would make Undo wait on
+                    // a refetch. The next SWR load still revalidates.
+                    if (!pendingOptimistic.has(key)) deferredEvict.delete(key);
                     self.requestTabRefresh(tags, 'optimistic-rollback');
                 }
             };
@@ -501,9 +535,18 @@
                 }
             }
 
-            if (toEvict.size === 0) return;
-
-            await Promise.all([...toEvict].map((key) => this.clearCached(key)));
+            // A key with a pending optimistic write keeps its cache: that
+            // payload is authoritative until commit/rollback, and fetchFresh
+            // skips the GET meanwhile — evicting it would leave the screen
+            // with neither cache nor fetch (a delete's Undo window rendered
+            // the offline empty state; bd med-va47). The eviction is
+            // deferred to the last settle (flushDeferredEvict) instead.
+            const evict = [];
+            for (const key of toEvict) {
+                if ((pendingOptimistic.get(key) || 0) > 0) deferredEvict.add(key);
+                else evict.push(key);
+            }
+            await Promise.all(evict.map((key) => this.clearCached(key)));
         },
 
         async invalidateTags(tags = []) {

@@ -451,4 +451,41 @@ describe('DataStore.applyOptimistic', () => {
       cleanup();
     }
   });
+
+  it('invalidateTags spares a key with a pending optimistic write and evicts it when the last handle settles (med-va47)', async () => {
+    const { window, cacheMap, cleanup } = loadDataStoreEnv({
+      initialCache: { bp: [{ id: 1 }, { id: 2 }] }
+    });
+
+    try {
+      window.DataStore.registerTags('bp', ['bp']);
+      const outer = await window.DataStore.applyOptimistic('bp', (prev) => prev.filter((r) => r.id !== 2), ['bp']);
+      const inner = await window.DataStore.applyOptimistic('bp', (prev) => prev.filter((r) => r.id !== 2), ['bp']);
+      await inner.commit(null);
+      await window.DataStore.invalidateTags(['bp']);
+      // Held: evicting now would leave the reload with neither cache nor GET.
+      expect(cacheMap.get('bp')).toEqual([{ id: 1 }]);
+      await outer.commit(null);
+      expect(cacheMap.has('bp')).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('overlapping applyOptimistic calls on one key compose instead of losing an update (med-va47)', async () => {
+    const { window, cacheMap, cleanup } = loadDataStoreEnv({
+      initialCache: { bp: [{ id: 1 }, { id: 2 }, { id: 3 }] }
+    });
+
+    try {
+      const without = (id) => (prev) => prev.filter((r) => r.id !== id);
+      await Promise.all([
+        window.DataStore.applyOptimistic('bp', without(1), ['bp']),
+        window.DataStore.applyOptimistic('bp', without(2), ['bp'])
+      ]);
+      expect(cacheMap.get('bp')).toEqual([{ id: 3 }]);
+    } finally {
+      cleanup();
+    }
+  });
 });

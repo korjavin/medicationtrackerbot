@@ -192,6 +192,7 @@ describe('Food → Food DB panel (Phase 4 follow-up, Task 5)', () => {
     it('loadFoodDB offline (apiCall → null) replaces the skeleton with the offline empty state', async () => {
         const { window, document } = env;
         window.apiCall = vi.fn(async () => null);
+        Object.defineProperty(window.navigator, 'onLine', { value: false, configurable: true });
         await window.loadFoodDB();
         const list = document.getElementById('fooddb-list');
         expect(list.querySelector('.wg-skel')).toBeNull();

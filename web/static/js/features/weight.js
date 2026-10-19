@@ -399,15 +399,9 @@ async function handleWeightSubmit(event) {
     }
 
     await window.DataStore.invalidateTags(['weight', 'gamification']);
-    // Belt-and-suspenders: CacheKeys.registerAll wires the 'weight'
-    // key→tag mapping at boot, so the invalidateTags(['weight']) above
-    // already covers the eviction. Clearing the key directly is a
-    // redundant safety net for any future code path that might bypass
-    // the registry — Today's presence check would otherwise see the
-    // stale IndexedDB snapshot and skip the refetch.
-    if (window.DataStore.clearCached) {
-        await window.DataStore.clearCached('weight');
-    }
+    // CacheKeys.registerAll wires the 'weight' key→tag mapping at boot, so
+    // this covers the eviction. No direct clearCached: it would also wipe a
+    // pending delete's optimistic payload (bd med-va47).
     closeWeightModal();
     loadWeightLogs();
     // Today shortcut path: the visible tab is 'today' while the weight modal
@@ -1117,9 +1111,6 @@ async function _deleteWeightApi(id) {
 
     if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
     await window.DataStore.invalidateTags(['weight', 'gamification']);
-    if (window.DataStore.clearCached) {
-        await window.DataStore.clearCached('weight');
-    }
     loadWeightLogs();
     return true;
 }

@@ -182,9 +182,6 @@ async function handleBPSubmit(event) {
         // (server-side id + stats/goal recompute layered on top of the
         // optimistic state).
         await window.DataStore.invalidateTags(['bp', 'gamification']);
-        if (window.DataStore.clearCached) {
-            await window.DataStore.clearCached('bp');
-        }
         await loadBPReadings();
         closeBPRecordModal();
         // Today shortcut path: the visible tab is 'today' while the BP
@@ -677,9 +674,6 @@ async function _deleteBPApi(id) {
 
     if (handle) { try { await handle.commit(null); } catch (_) { /* best-effort */ } }
     await window.DataStore.invalidateTags(['bp', 'gamification']);
-    if (window.DataStore.clearCached) {
-        await window.DataStore.clearCached('bp');
-    }
     await loadBPReadings();
     return true;
 }

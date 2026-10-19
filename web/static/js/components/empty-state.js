@@ -67,9 +67,17 @@ function createEmptyState({ icon, title, body, actions, inline, tag = 'div' } = 
 
 /**
  * The offline cold-start state (no cache yet, network down) — one wording
- * for every surface.
+ * for every surface. The "back online" copy shows only on a genuine network
+ * miss: never in device-only mode (:root.wg-local-vault — there is no
+ * "online" to come back to), and never while the browser reports itself
+ * online. Otherwise a load that produced nothing gets a neutral line
+ * (bd med-va47).
  */
 function createOfflineEmptyState({ tag = 'div' } = {}) {
+    const local = document.documentElement.classList.contains('wg-local-vault');
+    if (local || navigator.onLine !== false) {
+        return createEmptyState({ title: 'Nothing to show yet', inline: true, tag });
+    }
     return createEmptyState({
         icon: 'cloud-off',
         title: 'No cached data yet',

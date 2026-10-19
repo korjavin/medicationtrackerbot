@@ -344,3 +344,65 @@ describe('features/bp.js — row delete undoes from the toast (med-xso6.5)', () 
         expect(window.apiCall.mock.calls.filter(([, m]) => m === 'DELETE')).toHaveLength(1);
     });
 });
+
+// bd med-va47: see the matching weight suite — the delete's invalidateTags
+// evicted the cache under deleteWithUndo's pending handle, so the reload had
+// neither cache nor fetch and painted the offline state.
+describe('features/bp.js — deleting rows never shows the offline state (med-va47)', () => {
+    let env;
+
+    beforeEach(() => {
+        env = loadFrontendEnv({ withSync: true });
+    });
+
+    afterEach(() => {
+        try { env.window.localStorage.clear(); } catch (_) { /* ignore */ }
+        env.cleanup();
+        env = null;
+    });
+
+    it('second-last and last readings leave at once; the list ends on the normal empty state', async () => {
+        const { window, document } = env;
+        document.documentElement.classList.add('wg-local-vault');
+        const day = (n) => new Date(Date.now() - n * 86400000).toISOString();
+        let server = [
+            { id: 1, systolic: 120, diastolic: 78, measured_at: day(2) },
+            { id: 2, systolic: 128, diastolic: 82, measured_at: day(1) }
+        ];
+        installApiCache(window, { bp: { readingsRes: server.slice(), goalRes: null, statsRes: null } });
+        const gate = deferred();
+        window.apiCall = vi.fn(async (url, method) => {
+            if (method === 'DELETE') {
+                await gate.promise; // a slow local delete
+                const id = Number(url.split('/').pop());
+                server = server.filter((r) => r.id !== id);
+                return { ok: true };
+            }
+            if (url.startsWith('/api/bp?')) return server.slice();
+            return {};
+        });
+        const loads = [];
+        window.requestTabRefresh = () => { loads.push(window.loadBPReadings()); };
+
+        const list = document.getElementById('bp-list');
+        const seen = [];
+        new window.MutationObserver(() => seen.push(list.textContent)).observe(list, { childList: true, subtree: true });
+        const rows = () => list.querySelectorAll('[data-reading-id]').length;
+
+        await window.loadBPReadings();
+        expect(rows()).toBe(2);
+
+        const first = window.deleteBPReading('2');
+        await vi.waitFor(() => expect(rows()).toBe(1));
+        const second = window.deleteBPReading('1'); // flushes the first
+        await vi.waitFor(() => expect(rows()).toBe(0));
+        gate.resolve();
+        expect(await first.done).toBe('deleted');
+        expect(await second.flush()).toBe('deleted');
+
+        await vi.waitFor(() => expect(list.querySelector('.wg-empty__title').textContent).toBe('No readings yet'));
+        // Let every refresh the writes fired finish before the env is torn down.
+        for (let n = -1; n !== loads.length;) { n = loads.length; await Promise.allSettled(loads); }
+        expect(seen.some((t) => /No cached data|back online|Nothing to show/.test(t))).toBe(false);
+    });
+});
