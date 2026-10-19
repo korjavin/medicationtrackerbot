@@ -299,3 +299,12 @@ func (r *Repo) AttestVoiceUsed(ctx context.Context, keyID string) (int, error) {
 	err := r.db.QueryRowContext(ctx, `SELECT voice_seconds FROM attest_buckets WHERE bucket_id = `+bucketOf, keyID).Scan(&n)
 	return n, err
 }
+
+// AttestVoiceUsage is the install's bucket voice seconds used: lifetime, and
+// on now's UTC day (the two counters ReserveAttestVoice charges).
+func (r *Repo) AttestVoiceUsage(ctx context.Context, keyID string, now time.Time) (lifetime, day int, err error) {
+	err = r.db.QueryRowContext(ctx,
+		`SELECT b.voice_seconds, COALESCE((SELECT u.seconds FROM attest_voice_usage u WHERE u.day = ? AND u.key_id = b.bucket_id), 0)
+		 FROM attest_buckets b WHERE b.bucket_id = `+bucketOf, now.UTC().Format("2006-01-02"), keyID).Scan(&lifetime, &day)
+	return lifetime, day, err
+}

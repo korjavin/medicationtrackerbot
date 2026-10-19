@@ -270,13 +270,21 @@
         } else if (status.on) {
             text = 'Free trial on.';
         }
-        // Voice seconds left after the last call's up-front charge (bd
-        // med-o7zq.23); below 30 s the server grants no call.
+        // Voice seconds left, from the grant/rejoin and then each call's
+        // up-front charge (bd med-o7zq.23/.28); below 30 s the server grants
+        // no call. The limits are the server's (TRIAL_ANON_VOICE_*), never
+        // numbers baked into the app.
         const voice = status.voiceRemaining;
         if (status.on && typeof voice === 'number') {
-            text += voice < 30
-                ? ' Voice minutes used up.'
-                : ' Voice: ' + Math.max(1, Math.floor(voice / 60)) + ' min left (each call uses up to 2 min).';
+            if (voice < 30) {
+                text += ' Voice minutes used up.';
+            } else {
+                const min = (s) => Math.max(1, Math.floor(s / 60)) + ' min';
+                const limits = [];
+                if (status.voiceDaily > 0) limits.push('up to ' + min(status.voiceDaily) + ' a day');
+                if (status.voiceCallMax > 0) limits.push('each call uses up to ' + min(status.voiceCallMax));
+                text += ' Voice: ' + min(voice) + ' left' + (limits.length ? ' (' + limits.join('; ') + ').' : '.');
+            }
         }
         if (note) {
             note.textContent = text;

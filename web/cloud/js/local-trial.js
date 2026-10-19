@@ -203,6 +203,17 @@ function voiceError(code, status) {
   return Object.assign(new Error(message), { code: code || 'voice_start_failed' });
 }
 
+// The operator's voice limits from a server body (bd med-o7zq.28): the copy
+// derives from them, so a TRIAL_ANON_VOICE_* change needs no app release. A
+// server that sends none leaves the memo's alone.
+function voiceLimits(body) {
+  const out = {};
+  for (const [field, key] of [['voice_lifetime_seconds', 'voiceLifetime'], ['voice_daily_seconds', 'voiceDaily'], ['voice_call_max_seconds', 'voiceCallMax']]) {
+    if (typeof body[field] === 'number') out[key] = body[field];
+  }
+  return out;
+}
+
 function readState(storage) {
   try {
     return JSON.parse(storage.getItem(STATE_KEY)) || null;
@@ -218,9 +229,9 @@ function writeState(storage, patch) {
 }
 
 // createLocalTrial — aiclient's trial transport plus what Settings shows:
-// { remaining, daily, used, voiceRemaining } from the last responses
-// (X-Trial-Remaining, the enroll body, trial_already_used, the voice start
-// body's remaining_seconds). That memo is a per-device convenience
+// { remaining, daily, used, voiceRemaining, voiceDailyRemaining, voiceLifetime,
+// voiceDaily, voiceCallMax } from the last responses (X-Trial-Remaining, the
+// enroll body, trial_already_used, the voice start body). That memo is a per-device convenience
 // (localStorage): the server's counters are the truth, a lost memo only
 // hides the count until the next request.
 export function createLocalTrial({ attest, base, fetchImpl, storage }) {
@@ -258,7 +269,7 @@ export function createLocalTrial({ attest, base, fetchImpl, storage }) {
     // signed POST with an empty body mints the operator's ElevenLabs signed URL
     // (single-use) and the relay call token, and charges the call's whole grant
     // up front. Resolves { call, signedUrl, grantedSeconds, remainingSeconds,
-    // dailyRemainingSeconds }; throws an Error whose message is the copy to
+    // dailyRemainingSeconds, callMaxSeconds }; throws an Error whose message is the copy to
     // show. The counters ride in the body: X-Trial-Voice-Remaining is not a
     // CORS-exposed header.
     async voiceStart(signal) {
@@ -266,13 +277,18 @@ export function createLocalTrial({ attest, base, fetchImpl, storage }) {
       const res = await client.post(VOICE_START, '', signal);
       const body = await res.clone().json().catch(() => null);
       if (res.ok && body && typeof body.signed_url === 'string' && typeof body.call === 'string') {
-        writeState(storage, { voiceRemaining: body.remaining_seconds });
+        writeState(storage, {
+          voiceRemaining: body.remaining_seconds,
+          voiceDailyRemaining: body.daily_remaining_seconds,
+          ...voiceLimits(body),
+        });
         return {
           call: body.call,
           signedUrl: body.signed_url,
           grantedSeconds: body.granted_seconds,
           remainingSeconds: body.remaining_seconds,
           dailyRemainingSeconds: body.daily_remaining_seconds,
+          callMaxSeconds: body.voice_call_max_seconds,
         };
       }
       const code = body?.error || '';
@@ -283,7 +299,12 @@ export function createLocalTrial({ attest, base, fetchImpl, storage }) {
       const res = await client.enroll();
       if (res.ok) {
         const body = await res.clone().json().catch(() => ({}));
-        writeState(storage, { daily: body.daily, used: false });
+        // Voice fields only where the server has anonymous voice on (bd
+        // med-o7zq.28): Settings shows the minutes from the grant or rejoin on.
+        const voice = typeof body.voice_remaining_seconds === 'number'
+          ? { voiceRemaining: body.voice_remaining_seconds, voiceDailyRemaining: body.voice_daily_remaining_seconds, ...voiceLimits(body) }
+          : {};
+        writeState(storage, { daily: body.daily, used: false, ...voice });
       }
       return res;
     },

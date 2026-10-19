@@ -541,20 +541,24 @@
 
     // iOS local mode's anonymous trial (bd med-o7zq.23, web/cloud/js/
     // local-policy.js): there the responder's start() mints the call itself —
-    // { call, signedUrl, remainingSeconds, dailyRemainingSeconds } from one
-    // attested request — so the signed URL comes from it, and the trial
+    // { call, signedUrl, remainingSeconds, dailyRemainingSeconds, callMaxSeconds }
+    // from one attested request — so the signed URL comes from it, and the trial
     // switch already was the consent.
     function localTrialVoice() {
         return Boolean(window.CloudVoiceLLM && window.CloudVoiceLLM.localTrial);
     }
 
     // The call's grant ran out (the server ended the relay leg): which budget
-    // ended it decides the copy. Each call is charged up to 2 minutes at start
-    // (TRIAL_ANON_VOICE_CALL_MAX_SECONDS); below 30 s nothing is granted.
+    // ended it decides the copy. Each call is charged up to the server's
+    // per-call max at start (TRIAL_ANON_VOICE_CALL_MAX_SECONDS, sent as
+    // callMaxSeconds — bd med-o7zq.28); below 30 s nothing is granted.
     function trialTimeUpCopy(minted) {
         if (!(minted.remainingSeconds >= 30)) return 'Free voice minutes used up — add your own keys in a cloud account to keep calling.';
         if (!(minted.dailyRemainingSeconds >= 30)) return 'Today\u2019s free voice minutes are used up — call again tomorrow.';
-        return 'Call time is up — each free call lasts up to 2 minutes. Call again to keep talking.';
+        const max = minted.callMaxSeconds;
+        if (!(max > 0)) return 'Call time is up — call again to keep talking.';
+        const mins = Math.max(1, Math.floor(max / 60));
+        return 'Call time is up — each free call lasts up to ' + mins + (mins === 1 ? ' minute' : ' minutes') + '. Call again to keep talking.';
     }
 
     // openVoiceLLMLeg → the call token, or null to call without the relay.
