@@ -7,7 +7,7 @@ name: Android QA
 # Needs ZERO secrets: the APK's base is the public placeholder qa.test and the
 # package is the committed placeholder, so nothing here touches real accounts.
 on:
-  push: # TEMP: registers the workflow for branch dispatch; removed before ready
+  push: # TEMP
     branches: [med-nt9p.23-android-qa]
   workflow_dispatch:
     inputs:
@@ -67,11 +67,13 @@ jobs:
         working-directory: android
         run: gradle --no-daemon assembleDebug
 
-      - name: Install Playwright (Android driver only, no browsers)
+      - name: Install Playwright + its Android driver APKs (no browsers)
         working-directory: android/qa
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
-        run: npm ci --ignore-scripts
+        run: |
+          npm ci --ignore-scripts
+          npx playwright install android
 
       # KVM for the x86_64 emulator, per the android-emulator-runner README.
       - name: Enable KVM
