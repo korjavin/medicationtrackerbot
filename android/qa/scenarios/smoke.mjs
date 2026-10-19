@@ -227,7 +227,7 @@ async function exportBackup(ctx, page, r) {
     }).then((n) => { e.largeJsonBytes = n; });
     const t0 = Date.now();
     await page.click('#importexport-export-btn');
-    await sleep(1500);
+    await sleep(400);
     await ctx.shot('export-large-progress');
     try {
       await ctx.waitFor({ text: 'Save to device' }, 300_000);
@@ -255,6 +255,11 @@ async function exportBackup(ctx, page, r) {
       await dismiss();
     }
   }).catch(() => {});
+  // Close the Backup page the way Back does (its WGPage history entry), so the Back-count steps
+  // later start from a clean history.
+  await page.evaluate(() => { if (history.state && history.state.modal) history.back(); }).catch(() => {});
+  await sleep(1000);
+  e.historyAfter = await page.evaluate(() => ({ len: history.length, state: history.state })).catch(() => null);
   await page.evaluate(() => window.switchTab('today')).catch(() => {});
 }
 
