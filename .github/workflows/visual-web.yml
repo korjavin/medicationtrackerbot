@@ -93,7 +93,7 @@ jobs:
   # image, which has gh; the Playwright container does not. Evidence only.
   compare:
     needs: local
-    if: always() && needs.local.result != 'skipped'
+    if: ${{ !cancelled() && needs.local.result != 'skipped' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
