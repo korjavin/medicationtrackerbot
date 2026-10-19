@@ -80,8 +80,8 @@ export default async function localSpike(ctx) {
     // No force-stop here: a stopped package is refused ("Backup is not allowed", run 39196946385);
     // the backup itself restarts the app in restricted mode.
     b.backupnow = await shell(`bmgr backupnow ${pkg}`);
-    b.stored = await shell(`ls -l /data/cache/backup/1/_full/ 2>&1; du -k /data/cache/backup/1/_full/${pkg} 2>&1`);
-    b.contents = await shell(`tar -tvf /data/cache/backup/1/_full/${pkg} 2>&1 | head -40`);
+    // The transport's estimate of the full-backup size (vs the 25 MB cloud cap).
+    b.bytes = Number((/progress: \d+\/(\d+)/.exec(b.backupnow) || [])[1] || 0);
     b.sets = await shell('bmgr list sets');
     await shell(`pm clear ${pkg}`);
     b.afterClear = await shell(`run-as ${pkg} ls app_webview/Default/IndexedDB 2>&1`);
