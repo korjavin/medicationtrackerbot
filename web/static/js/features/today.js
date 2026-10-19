@@ -1191,10 +1191,12 @@
         const res = await trackerWrite(patchTracker(t.id, addLog(log)), patchTracker(t.id, dropLog(provisionalId)),
             () => api(`/api/trackers/${encodeURIComponent(t.id)}/log`, 'POST',
                 t.kind === 'check' ? {} : (at ? { amount: n, at } : { amount: n })),
-            (saved) => (saved.id ? (cur) => cur.map((x) => ({
-                ...x,
-                todayLogs: (x.todayLogs || []).map((l) => (l.id === provisionalId ? saved : l)),
-            })) : null));
+            (saved) => (saved.id ? (cur) => cur.map((x) => {
+                const logs = x.todayLogs || [];
+                // A refreshTrackerRow that ran meanwhile already holds the saved log.
+                if (logs.some((l) => l.id === saved.id)) return dropLog(provisionalId)(x);
+                return { ...x, todayLogs: logs.map((l) => (l.id === provisionalId ? saved : l)) };
+            }) : null));
         if (res && res.id && !quiet) {
             let message = `${t.name} +${fmtNum(n)}`;
             if (t.kind === 'check') message = trackerIsLimit(t) ? `${t.name} — slip logged` : `${t.name} done`;
@@ -1268,9 +1270,7 @@
 
     // Settle patch: the server's fresh row (totals / streak / earlier list),
     // keeping taps still in flight (provisional ids) — their own settle swaps
-    // the saved id in.
-    // ponytail: a tap whose POST landed before this GET counts twice until the
-    // next Today load revalidates the list.
+    // the saved id in (or drops the copy if this row already has it).
     async function refreshTrackerRow(api, id) {
         const fresh = await serverTrackerRow(api, id);
         if (!fresh) return null;
