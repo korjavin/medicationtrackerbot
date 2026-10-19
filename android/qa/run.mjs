@@ -1,11 +1,13 @@
 // Android QA harness driver (bd med-nt9p.23). Run by .github/workflows/android-qa.yml
 // on an emulator; never locally. Usage: node run.mjs <scenario|all> <outDir>
-// Env: QA_PKG, QA_FONT_SCALE, QA_DARK, QA_LANDSCAPE (the dispatch inputs).
+// Env: QA_PKG, QA_FONT_SCALE, QA_DARK, QA_LANDSCAPE (the dispatch inputs), QA_CLAIM_URL (the
+// runner-minted invite on the local cloud, bd med-nt9p.24).
 import { _android as android } from 'playwright';
 import { mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const SCENARIOS = ['firstrun', 'native-dark', 'native-fontscale', 'back-exit'];
+// authn-probe last: if the virtual authenticator works it claims the run's invite.
+const SCENARIOS = ['firstrun', 'native-dark', 'native-fontscale', 'back-exit', 'claim-page', 'not-found', 'external-link', 'authn-probe'];
 const [want = 'all', out = 'out'] = process.argv.slice(2);
 const pkg = process.env.QA_PKG || 'com.example.medtracker';
 const inputs = {
@@ -19,6 +21,7 @@ const shotsDir = join(out, 'screenshots');
 mkdirSync(shotsDir, { recursive: true });
 
 const steps = [];
+const results = {}; // scenario verdicts that are findings, not failures (authn-probe)
 const shots = [];
 const log = (...a) => console.log('[qa]', ...a);
 
@@ -43,6 +46,8 @@ const ctx = {
   log,
   pkg,
   inputs,
+  claimUrl: process.env.QA_CLAIM_URL,
+  results,
   applyInputs,
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
   /** Full-screen device screenshot (system bars, keyboard) → screenshots/<scenario>-<name>.png. */
@@ -90,12 +95,31 @@ const ctx = {
       }
     }
   },
-  /** First run → type an account link → Open. No server answers *.qa.test yet, so this lands on the error screen. */
-  async openAccount(url = 'https://alice.qa.test/', { shotTyped = false } = {}) {
+  /** First run → type a link → Open. */
+  async openLink(url, { shotTyped = false } = {}) {
     await device.fill({ clazz: 'android.widget.EditText' }, url);
     if (shotTyped) await ctx.shot('typed');
     await device.tap({ text: 'Open' });
+  },
+  /** Open an account the local cloud does not have (a 404) → the "Can't open your account" screen. */
+  async openAccount(url = 'https://alice.qa.test/', opts = {}) {
+    await ctx.openLink(url, opts);
     await ctx.waitFor({ text: /.*open your account.*/ });
+  },
+  /** Cold start → Open the run's invite → the WebView page on /unlock with the signup wizard. */
+  async openClaim() {
+    if (!ctx.claimUrl) throw new Error('QA_CLAIM_URL unset (no local cloud)');
+    await ctx.launch();
+    await ctx.openLink(ctx.claimUrl);
+    const page = await ctx.attachPage();
+    if (!page) throw new Error('no WebView page (see the run log)');
+    await page.waitForURL(/\/unlock/, { timeout: 30_000 });
+    await page.locator('#create-passkey').waitFor({ timeout: 30_000 });
+    // The software-GPU emulator paints seconds behind the DOM; without this the device shot still
+    // shows "Checking your invite…" or a blank page.
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    await ctx.sleep(3000);
+    return page;
   },
   /** True while our activity is the resumed (foreground) one. */
   async inForeground() {
@@ -147,7 +171,7 @@ try {
   await device.close().catch(() => {});
 }
 
-writeFileSync(join(out, 'qa-summary.json'), JSON.stringify({ inputs, ok: !failed, steps, screenshots: shots }, null, 2));
+writeFileSync(join(out, 'qa-summary.json'), JSON.stringify({ inputs, ok: !failed, results, steps, screenshots: shots }, null, 2));
 if (process.env.GITHUB_STEP_SUMMARY) {
   const rows = steps.map((s) => `| ${s.scenario} | ${s.name} | ${s.ok ? "pass" : `FAIL${s.retried ? " (retried)" : ""}: ${s.error}`} |`);
   appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
@@ -159,6 +183,7 @@ if (process.env.GITHUB_STEP_SUMMARY) {
     '|---|---|---|',
     ...rows,
     '',
+    ...Object.entries(results).map(([k, v]) => `**${k}**: ${typeof v === 'string' ? v : JSON.stringify(v)}\n`),
     `Screenshots (artifact \`android-qa-${want}\`): ${shots.map((s) => `\`${s}\``).join(', ')}`,
     '',
   ].join('\n'));

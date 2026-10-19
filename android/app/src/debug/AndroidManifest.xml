@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug source set only (bd med-nt9p.24): the emulator QA harness trusts its runner CA from
+     the user store. The release manifest is the main one, untouched. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:networkSecurityConfig="@xml/network_security_config" />
+</manifest>

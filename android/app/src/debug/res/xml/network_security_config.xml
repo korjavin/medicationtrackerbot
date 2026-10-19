@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug source set only (bd med-nt9p.24). debug-overrides apply only while the app is
+     debuggable, so even a release build carrying this file would ignore them; base-config is the
+     platform default (system CAs, no cleartext). The QA harness pushes its throwaway runner CA into
+     the emulator's user store (docs/android.md → Agent QA harness). -->
+<network-security-config>
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </debug-overrides>
+</network-security-config>
