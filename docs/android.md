@@ -1088,7 +1088,7 @@ gh workflow run android-qa.yml --ref <branch> -f scenario=local-to-cloud
 
 | Run | Result |
 |---|---|
-RUNROW
+| Emulator API 34 (run `39273862148`) | PASS, 16 steps: export 4.5 KB vault v1 (fixture shape, counts = store), saved to Downloads, *I have an invite* → first run, claim, Restore via the **system picker** (no injection), uploaded (no *Not uploaded yet*), account ⊇ local (`workouts.sessions` 1 → 2: the account materialized today's planned session), local unchanged after *Only on this device* → *Start* |
 | Owner phone | pending — release gate `med-nt9p.32.7`, check 9 below |
 
 ### Local mode: free trial (bd med-nt9p.32.8.4)
