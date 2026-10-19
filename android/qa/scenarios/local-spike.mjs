@@ -77,7 +77,8 @@ export default async function localSpike(ctx) {
     b.enable = await shell('bmgr enable true');
     b.transport = await shell('bmgr transport com.android.localtransport/.LocalTransport');
     await shell("settings put secure backup_local_transport_parameters 'is_encrypted=true'");
-    await shell(`am force-stop ${pkg}`);
+    // No force-stop here: a stopped package is refused ("Backup is not allowed", run 39196946385);
+    // the backup itself restarts the app in restricted mode.
     b.backupnow = await shell(`bmgr backupnow ${pkg}`);
     b.stored = await shell(`ls -l /data/cache/backup/1/_full/ 2>&1; du -k /data/cache/backup/1/_full/${pkg} 2>&1`);
     b.contents = await shell(`tar -tvf /data/cache/backup/1/_full/${pkg} 2>&1 | head -40`);
