@@ -260,7 +260,12 @@ builds the header for dynamically created sheets and owns the one keyboard dock:
 plus `.wg-scrim--kb` on open sheets while a keyboard is up. iOS WebKit never
 shrinks the layout viewport (fixed / `100dvh`) for the keyboard and pans the
 visual viewport instead, so anything docked to the layout viewport ends up
-under the keyboard or panned off-screen (med-pe9g). Sheets open and close
+under the keyboard or panned off-screen (med-pe9g). The dock assumes page
+scale 1, and iOS zooms in on focus of any field under 16px (most fields here
+are 13–15px) and keeps the zoom; so on iOS WebKit only (`-webkit-touch-callout`)
+`WGSheet.noFocusZoom()` appends `maximum-scale=1` to the viewport meta at load.
+Pinch-zoom stays: Safari ignores the cap for gestures and the iOS shell sets
+`ignoresViewportScaleLimits` (docs/ios.md → Keyboard). Sheets open and close
 through `ModalManager` like any modal. Every content modal dismisses through
 one header close: the icon-only `.wg-btn.wg-btn--ghost.wg-btn--icon`
 `aria-label="Close"` X (trailing in a sheet head, leading in a page bar;

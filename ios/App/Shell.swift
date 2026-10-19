@@ -58,6 +58,10 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         // (Info.plist, from project.yml) with navigation limited to them.
         config.limitsNavigationsToAppBoundDomains = true
         config.allowsInlineMediaPlayback = true // barcode/photo preview stays inline
+        // Pinch-zoom as in Safari: the page caps maximum-scale=1 on iOS
+        // (wg-sheet.js noFocusZoom, med-pe9g) to stop the zoom-in on a focused
+        // field, which WebKit still honours with this on; only gestures ignore it.
+        config.ignoresViewportScaleLimits = true
         config.userContentController.addUserScript(
             WKUserScript(source: Shell.pageJS, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: .page))
         Downloads.shared.install(on: config)
