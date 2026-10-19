@@ -1,0 +1,61 @@
+name: iOS visual (web)
+
+# Tier 1 of docs/design/ios-visual-testing.md: the QA=1 local bundle in
+# Playwright WebKit at 390 and 440pt iPhone widths, on Linux. Opt-in, like the
+# Simulator tier: PR label `ios-visual` or a manual dispatch.
+#
+# Evidence, not a gate: probe failures become warnings; the job fails only when
+# it produced no screenshot. Linux WebKit is not WKWebView: no focus-zoom, no
+# software keyboard or visualViewport shrink, no safe-area insets or shell
+# bands, different fonts. It catches overflow, clipping, chart widths and
+# stacking; it would not have caught med-pe9g. Never diff its PNGs against the
+# Simulator tier's.
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  webkit:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'ios-visual')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Same Playwright as e2e/ (1.56.0); the image carries WebKit and its deps.
+    container: mcr.microsoft.com/playwright:v1.56.0-noble
+    defaults:
+      run:
+        shell: bash # container steps default to sh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bundle the QA local app
+        run: QA=1 ios/bundle-web.sh "visual-${GITHUB_SHA::7}"
+
+      - name: Install Playwright
+        working-directory: tests/visual/playwright
+        run: npm install --no-audit --no-fund
+
+      - name: Screenshot the scenes
+        env:
+          HOME: /root # Playwright CI docs: browsers misbehave under the runner's /github/home
+        run: node tests/visual/playwright/run.mjs visual-web
+
+      - name: Job summary
+        if: always()
+        run: cat visual-web/summary.md >> "$GITHUB_STEP_SUMMARY" || echo "no summary" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-visual-web
+          path: visual-web
+          retention-days: 30
+          if-no-files-found: warn

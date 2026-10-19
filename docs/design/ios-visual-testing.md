@@ -34,7 +34,7 @@ That is what this design produces, as CI artifacts an agent can read.
 | Tier | Where | Trigger | Catches | Misses |
 |---|---|---|---|---|
 | 0. Static iOS-hazard lint | ubuntu, Vitest architecture test | every web PR | `100vh`, fixed-bottom without `env(safe-area-inset-bottom)`, `user-scalable=no`, inputs styled under 16px | anything dynamic |
-| 1. Playwright WebKit, iPhone emulation | ubuntu | every PR touching `web/**` (path filter) | CSS layout at iPhone widths, horizontal overflow, clipped headers, chart overflow, modal stacking, DOM probes | focus-zoom, the keyboard, `visualViewport` panning, safe-area bands, rubber-band, WKWebView-only behaviour, iOS fonts |
+| 1. Playwright WebKit, iPhone emulation | ubuntu | opt-in: PR label `ios-visual`, `workflow_dispatch` | CSS layout at iPhone widths, horizontal overflow, clipped headers, chart overflow, modal stacking, DOM probes | focus-zoom, the keyboard, `visualViewport` panning, safe-area bands, rubber-band, WKWebView-only behaviour, iOS fonts |
 | 2. iOS Simulator, XCUITest | `macos-26` | opt-in: PR label `ios-visual`, `workflow_dispatch`, nightly on master | everything in tier 1 **plus** focus-zoom, real keyboard, visual viewport, safe areas, the native first-run screens, the shell's bands | Face ID, App Attest, push, camera, Watch data |
 | 3. Owner's phone | TestFlight | after tiers pass | native-only paths | — |
 
@@ -212,27 +212,44 @@ nightly master run is the one unconditional spend (~$40/month).
 - **xcresult format changes** across Xcode: `xcresulttool export attachments`
   is the Xcode 16+ API; pin by asserting the export produced ≥ 1 PNG.
 
-## Tier 1: Playwright WebKit on Linux (follow-up, P2)
+## Tier 1: Playwright WebKit on Linux (implemented, bd med-y5xx.6)
 
-- `tests/visual/playwright/`: `playwright@1.56` (same version as `e2e/`),
-  `npx playwright install --with-deps webkit`. A ~20-line static server over
-  the `QA=1` bundle with the same routing as `LocalOrigin.file(for:)`
-  (`/` → index.html, `/static/*`, `/domain/*`, else `cloud/*`).
+- `tests/visual/playwright/run.mjs` (`playwright@1.56.0`, as `e2e/`) runs in
+  `.github/workflows/visual-web.yml` on `ubuntu-latest` inside the
+  `mcr.microsoft.com/playwright:v1.56.0-noble` image (WebKit preinstalled).
+  **Opt-in**, like tier 2: PR label `ios-visual` or `workflow_dispatch`
+  (`gh workflow run visual-web.yml --ref <branch>`).
+- A built-in static server over the `QA=1` bundle (`ios/LocalApp`) with the
+  routing and MIME table of `LocalOrigin.file(for:)` / `mime()` (`/` →
+  `index.html`, `/static/*`, `/domain/*`, else `cloud/*`, so `/qa/*` →
+  `cloud/qa/`) and the shell's CSP with no BYOK hosts.
 - An `addInitScript` stub for `window.webkit.messageHandlers.wgNative.postMessage`
-  (answers `ping` → `pong`, `notifications.*` → ok, `health.*` → unsupported),
-  so `native/index.js` picks the `ios` platform and the page takes the same
-  code paths as in the shell, including `noFocusZoom`.
-- `devices['iPhone 14']`-style descriptors for the same two widths, dark
-  `colorScheme`, screenshots per scene via `?qa=<scene>` and the same ready
-  node; probes read from the node's `aria-label`.
-- Runs in a new `visual-web.yml` on `ubuntu-latest` with the `frontend-tests`
-  path filter; artifact `web-visual`. Linux WebKit renders with different
-  fonts, so its images are never diffed against tier 2, only against its own
-  master run.
-- Honest limits: it can type into the search field but there is no keyboard,
-  no `visualViewport` shrink, no focus-zoom, no safe-area insets (the shell's
-  bands) — it would **not** have caught `med-pe9g`. It catches overflow,
-  clipping, chart widths and stacking at iPhone widths in ~3 Linux minutes.
+  (`ping` → `pong`, `setEgressHosts` → `{changed:false}`, `notifications.*` →
+  ok/`granted`, `local.*` → ok, `health.*` / `attest.*` / the rest →
+  `unsupported`), so `native/index.js` picks the `ios` platform and the page
+  takes the shell's code paths, including `noFocusZoom`.
+- Devices: the `iPhone 13` descriptor (mobile, touch, iOS UA, DPR 3) at
+  390×844 and 440×956, dark `colorScheme`. One browser context per device: the
+  first scene seeds the vault (the driver imports and reloads), later scenes
+  open on the seeded store. Per scene: `/?qa=<scene>`, wait for
+  `#wg-qa-ready`, a web stand-in for the scene's `native` steps (`tap` →
+  click, `type` → typed text, `clear` → empty the field; `keyboard` is a
+  no-op), then `<device>/<scene>.png` (viewport), `<scene>.full.png` (full
+  page) and `<scene>.json` (the probe report plus console errors).
+  Native-only scenes (`native-*`: SwiftUI screens) are skipped and listed as
+  such in the summary.
+- Artifact `ios-visual-web` (`<device>/…`, `summary.md`, `summary.json`), the
+  summary table in the job summary, probe failures as `::warning`. The job
+  fails only when no screenshot was produced. Linux WebKit renders with
+  different fonts, so its images are never diffed against tier 2.
+- **What this tier cannot catch:** iOS focus-zoom on sub-16px inputs, the
+  software keyboard and the `visualViewport` shrink / pan it causes
+  (`keyboardShown` and `focusUnderKeyboard` stay false here), safe-area
+  insets and the shell's native bands, rubber-band scrolling, WKWebView-only
+  behaviour and iOS fonts. `med-pe9g` (focus-zoom under the keyboard) would
+  **not** have been caught. It catches horizontal overflow, clipped headers,
+  chart widths, stacking and empty states at iPhone widths in a few Linux
+  minutes.
 
 ## Tier 0: static iOS-hazard lint (follow-up, P2)
 
