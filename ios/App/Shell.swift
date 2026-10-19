@@ -164,14 +164,15 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         if let url = lastURL ?? home { load(url) }
     }
 
-    /// Back to first-run, leaving local mode too. Website data is kept: it is
+    /// Back to first-run, leaving local mode too — or, with `thenLocal`,
+    /// straight into local mode (bd med-o7zq.34). Website data is kept: it is
     /// per origin, so returning to this account (or to local mode) later still
     /// finds its data.
-    func forget() {
+    func forget(thenLocal: Bool = false) {
         UserDefaults.standard.removeObject(forKey: Shell.hostKey)
-        UserDefaults.standard.set(false, forKey: LocalOrigin.modeKey)
+        UserDefaults.standard.set(thenLocal, forKey: LocalOrigin.modeKey)
         host = nil
-        local = false
+        local = thenLocal
         reopen()
     }
 
@@ -414,11 +415,14 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             replyHandler(true, nil)
             forget()
         case "account.leave" where !local:
-            // The account's first-run "Use only on this device" (bd
-            // med-o7zq.30): the native first-run, as Switch account. The
-            // account and this origin's data stay.
+            // Leave the account; the account and this origin's data stay.
+            // Settings → Account "Use this iPhone without an account" passes
+            // {then: "local"} and goes straight into local mode (bd
+            // med-o7zq.34); after account deletion (no args) it is the native
+            // first-run, as Switch account. Older shells ignore the args.
+            let args = body["args"] as? [String: Any] ?? [:]
             replyHandler(true, nil)
-            forget()
+            forget(thenLocal: args["then"] as? String == "local")
         // The anonymous trial AI (bd med-o7zq.16): local mode only — an account
         // has its own trial — and, like every op here, never while locked.
         case let op? where local && op.hasPrefix("attest."):

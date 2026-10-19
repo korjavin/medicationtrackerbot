@@ -278,19 +278,21 @@ window.MedTrackerCloudReady = (async function boot() {
             const { getUnopenableCount } = await import('/js/inbox.js');
             return getUnopenableCount();
         },
-        // The iOS app's way out of the account (bd med-o7zq.30/.32/.33: Settings
-        // → Account "Use this iPhone without an account", and after a delete):
-        // the shell forgets the account host and shows its native first-run,
-        // whose "Only on this device" starts local mode. Nothing is erased —
+        // The iOS app's way out of the account (bd med-o7zq.30/.32/.33/.34):
+        // the shell forgets the account host. After a delete (no opts) it shows
+        // its native first-run; Settings → Account "Use this iPhone without an
+        // account" passes { then: 'local' } and the shell opens local mode
+        // directly (a shell older than .34 ignores it and shows the first-run,
+        // whose "Only on this device" starts local mode). Nothing is erased —
         // the account stays on the server and this origin keeps its data, so
         // opening the account address again resumes it. A shell built before
         // the account.leave op answers "unsupported: …": point at the iOS
         // Settings toggle that does the same.
-        async leaveAccount() {
+        async leaveAccount(opts) {
             const native = window.LocalNotifications && window.LocalNotifications.__native;
             if (!native || native.platform !== 'ios') throw new Error('Open the app on your iPhone to use it without an account.');
             try {
-                await native.call('account.leave');
+                await native.call('account.leave', opts);
             } catch (e) {
                 if (/unsupported/.test(String(e && e.message))) {
                     throw new Error('Update Med Tracker, or open iOS Settings → Med Tracker → Switch account, then choose Only on this device.');
