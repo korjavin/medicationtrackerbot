@@ -278,7 +278,8 @@ window.MedTrackerCloudReady = (async function boot() {
             const { getUnopenableCount } = await import('/js/inbox.js');
             return getUnopenableCount();
         },
-        // The iOS app's first-run "Use only on this device" (bd med-o7zq.30):
+        // The iOS app's way out of the account (bd med-o7zq.30/.32/.33: Settings
+        // → Account "Use this iPhone without an account", and after a delete):
         // the shell forgets the account host and shows its native first-run,
         // whose "Only on this device" starts local mode. Nothing is erased —
         // the account stays on the server and this origin keeps its data, so

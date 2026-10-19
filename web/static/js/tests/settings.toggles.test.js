@@ -965,6 +965,65 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
             }
         });
 
+        // bd med-o7zq.33: inside the iOS app the base-domain page is a dead
+        // end, so a finished delete hands back to the shell's own first-run.
+        it('in the iOS app, a finished delete leaves the account instead of navigating', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                window.LocalNotifications = { ...(window.LocalNotifications || {}), __native: { platform: 'ios' } };
+                const leaveAccount = vi.fn(async () => {});
+                window.CloudVault = { ...(window.CloudVault || {}), leaveAccount };
+                const baseDomainURL = vi.fn(() => 'https://app.example/');
+                const mod = await mountCloudWithDeleteModule(window, { baseDomainURL });
+                await confirmDelete(window, document);
+
+                await vi.waitFor(() => expect(leaveAccount).toHaveBeenCalledTimes(1));
+                expect(mod.clearLocalVault).toHaveBeenCalledTimes(2);
+                expect(baseDomainURL).not.toHaveBeenCalled();
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        it('in an iOS shell without account.leave, a finished delete falls back to the redirect', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                window.LocalNotifications = { ...(window.LocalNotifications || {}), __native: { platform: 'ios' } };
+                const leaveAccount = vi.fn(async () => { throw new Error('unsupported: account.leave'); });
+                window.CloudVault = { ...(window.CloudVault || {}), leaveAccount };
+                const baseDomainURL = vi.fn(() => 'https://app.example/');
+                await mountCloudWithDeleteModule(window, { baseDomainURL });
+                await confirmDelete(window, document);
+
+                await vi.waitFor(() => expect(baseDomainURL).toHaveBeenCalled());
+                expect(leaveAccount).toHaveBeenCalledTimes(1);
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        it('on the web, a finished delete never calls leaveAccount', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                const leaveAccount = vi.fn(async () => {});
+                window.CloudVault = { ...(window.CloudVault || {}), leaveAccount };
+                const baseDomainURL = vi.fn(() => 'https://app.example/');
+                await mountCloudWithDeleteModule(window, { baseDomainURL });
+                await confirmDelete(window, document);
+
+                await vi.waitFor(() => expect(baseDomainURL).toHaveBeenCalled());
+                expect(leaveAccount).not.toHaveBeenCalled();
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
         it('a failed delete shows an error and does not redirect', async () => {
             allowConsoleNoise();
             const { window, document, cleanup } = loadFrontendEnv();
@@ -1091,6 +1150,80 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                 expect(mod.reauthAndDelete).toHaveBeenCalledTimes(1);
                 // Retry pre-wipe + post-delete wipe, after the first blocked one.
                 expect(mod.clearLocalVault).toHaveBeenCalledTimes(3);
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+    });
+
+    // bd med-o7zq.32: the iOS app's account offers the way back to the
+    // native first-run from Settings -> Account (not from the account's own
+    // onboarding). Nothing is deleted on the server.
+    describe('use this iPhone without an account', () => {
+        const mount = async (window, { platform = 'ios', leave = true } = {}) => {
+            if (platform) window.LocalNotifications = { ...(window.LocalNotifications || {}), __native: { platform } };
+            const leaveAccount = vi.fn(async () => {});
+            window.CloudVault = { ...(window.CloudVault || {}), leaveAccount: leave ? leaveAccount : undefined };
+            window.__MEDTRACKER_CLOUD__ = true;
+            window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+            window.fetch = vi.fn(async () => ({ ok: true, json: async () => [] }));
+            await window.loadSettings();
+            return leaveAccount;
+        };
+        const hidden = (document) => document.querySelector('.wg-settings-leave-account').classList.contains('wg-settings-hidden');
+
+        it('shows only in the iOS app with leaveAccount', async () => {
+            allowConsoleNoise();
+            for (const opts of [{ platform: null }, { platform: 'android' }, { leave: false }]) {
+                const { window, document, cleanup } = loadFrontendEnv();
+                try {
+                    await mount(window, opts);
+                    expect(hidden(document)).toBe(true);
+                } finally {
+                    delete window.__MEDTRACKER_CLOUD__;
+                    cleanup();
+                }
+            }
+        });
+
+        it('confirms that nothing is deleted on the server, then leaves the account', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                const leaveAccount = await mount(window);
+                expect(hidden(document)).toBe(false);
+
+                document.getElementById('settings-leave-account-btn').click();
+                const dialog = await vi.waitFor(() => {
+                    const d = document.querySelector('mt-modal.mt-confirm-modal');
+                    if (!d) throw new Error('no dialog open');
+                    return d;
+                });
+                expect(dialog.textContent).toMatch(/Nothing is deleted on the server/);
+                dialog.querySelector('.mt-confirm-modal__confirm').click();
+                await vi.waitFor(() => expect(leaveAccount).toHaveBeenCalledTimes(1));
+            } finally {
+                delete window.__MEDTRACKER_CLOUD__;
+                cleanup();
+            }
+        });
+
+        it('cancelling the confirm stays in the account', async () => {
+            allowConsoleNoise();
+            const { window, document, cleanup } = loadFrontendEnv();
+            try {
+                const leaveAccount = await mount(window);
+                const btn = document.getElementById('settings-leave-account-btn');
+                btn.click();
+                const dialog = await vi.waitFor(() => {
+                    const d = document.querySelector('mt-modal.mt-confirm-modal');
+                    if (!d) throw new Error('no dialog open');
+                    return d;
+                });
+                dialog.querySelector('.mt-confirm-modal__cancel').click();
+                await vi.waitFor(() => expect(btn.disabled).toBe(false));
+                expect(leaveAccount).not.toHaveBeenCalled();
             } finally {
                 delete window.__MEDTRACKER_CLOUD__;
                 cleanup();
