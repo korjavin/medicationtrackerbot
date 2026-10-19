@@ -16,6 +16,7 @@ on:
       # Android-only merges must not redeploy production (bd med-nt9p.3).
       - 'android/**'
       - '.github/workflows/android.yml'
+      - '.github/workflows/android-qa.yml' # QA harness (bd med-nt9p.23)
   pull_request:
     branches:
       - master
