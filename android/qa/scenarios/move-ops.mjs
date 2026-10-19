@@ -9,7 +9,7 @@
 // med-o7zq.36.3): gates, stash in the account, kept into local mode where take/clear work, deleted by
 // local.reset and by opening an account (seeded via run-as). results.moveOps has the checks.
 // Claims the run's one invite: not in `all` (smoke claims it there), no retry.
-import { claimAccount } from './smoke.mjs';
+import { claimAccount, waitForVault } from './smoke.mjs';
 
 export const retry = false;
 
@@ -95,13 +95,18 @@ export default async function moveOps(ctx) {
     await sleep(3000);
     return p;
   });
+  // The post-unlock pickup (bd med-nt9p.32.18) imports and clears the stash, reloads, and the reloaded
+  // boot shows the toast then probes move.take once more (≤ 5 s). The user path is local-to-cloud-seamless.
+  const picked = page.getByText('Your records from this phone are in your account.')
+    .waitFor({ state: 'visible', timeout: 240_000 }).then(() => true, () => false);
   await claimAccount(ctx, page);
 
   await ctx.step('account: shell.ops, move.stash refused, take keeps, clear deletes', async () => {
-    // The post-unlock pickup (bd med-nt9p.32.18) imports and clears the stash by itself; the user
-    // path is local-to-cloud-seamless. Wait for it, then seed a stash to drive take/clear directly.
-    for (let i = 0; (await stashFiles()) !== '' && i < 120; i++) await sleep(2000);
+    expect(await picked, 'no pickup toast');
+    await waitForVault(page);
+    await sleep(10_000); // the reloaded boot's move.take probe, before seeding a stash it would pick up
     expect((await stashFiles()) === '', 'the pickup did not clear the stash');
+    // A seeded stash drives take/clear directly.
     await shell(`run-as ${pkg} sh -c 'mkdir -p no_backup/move && echo {} > no_backup/move/vault.json'`);
     const ops = await call(page, 'shell.ops');
     expect(ops.ok && ops.result.includes('move.take') && ops.result.includes('move.clear'), `shell.ops ${JSON.stringify(ops)}`);
