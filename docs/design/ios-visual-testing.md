@@ -161,8 +161,9 @@ Tier 2 is the MVP; it is the only tier that would have caught `med-pe9g`. Tiers
    `::warning` annotations with the scene name; the job stays green (a
    screenshot run is evidence for an agent, not a gate — see owner decisions).
    As built (bd med-y5xx.4): `tests/visual/compare.sh <artifact> <shots>
-   <out>` finds master's newest unexpired artifact of that name through the
-   artifacts API (only dispatches on master make one), runs `compare.mjs`
+   <out>` takes the artifact of that name from the newest
+   `workflow_dispatch` run of the same workflow on master that has one
+   (only dispatches on master make one; never the current run), runs `compare.mjs`
    and appends `summary.md` to the job summary. The iOS job ships the result
    inside `ios-visual` (`shots/compare/`); `visual-web.yml` runs it in a
    `compare` job (the Playwright container has no `gh`) as the

@@ -11,16 +11,20 @@ artifact="$1" current="$2" out="$3"
 ref="${RUNNER_TEMP:-/tmp}/reference-$artifact"
 rm -rf "$ref" && mkdir -p "$ref"
 
-run="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$artifact&per_page=100" \
-  --jq '[.artifacts[] | select(.workflow_run.head_branch == "master" and .workflow_run.id != '"${GITHUB_RUN_ID:-0}"' and (.expired | not))] | sort_by(.created_at) | last | .workflow_run.id // empty' 2>/dev/null)"
+# Only this workflow's dispatches on master: a dispatch runs this repo's own
+# master (a fork PR's branch named master never qualifies), newest first,
+# never the current run. The first one that still has the artifact wins
+# (build-only dispatches have none).
+workflow="${GITHUB_WORKFLOW_REF%%@*}"; workflow="${workflow##*/}"
 note="no master \`$artifact\` artifact yet (dispatch the workflow on master to make one)"
-if [ -n "$run" ]; then
-  if gh run download "$run" -n "$artifact" -D "$ref"; then
+for run in $(gh run list --workflow "$workflow" --branch master --event workflow_dispatch -L 30 \
+    --json databaseId --jq ".[].databaseId | select(. != ${GITHUB_RUN_ID:-0})" 2>/dev/null); do
+  if gh run download "$run" -n "$artifact" -D "$ref" 2>/dev/null; then
     note="reference: master run [$run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$run)"
-  else
-    note="could not download \`$artifact\` from master run $run"
+    break
   fi
-fi
+  rm -rf "$ref" && mkdir -p "$ref"
+done
 echo "::notice title=visual compare::$note"
 
 pnpm install --frozen-lockfile --ignore-scripts --reporter=silent || echo "::warning title=visual compare::pnpm install failed"
