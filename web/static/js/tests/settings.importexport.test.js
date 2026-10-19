@@ -269,6 +269,57 @@ describe('Settings → Import/Export section', () => {
         expect(parsed.format).toBe('medtracker-vault');
     });
 
+    // bd med-nvd4: a slow export showed nothing and looked stuck. The status line
+    // walks preparing → encrypting → ready, the button is busy meanwhile, and a
+    // failure stays on screen as an error.
+    it('encrypted export shows progress, then ready, through the real button', async () => {
+        const { window, document } = env;
+        let release;
+        window.CloudVault = {
+            exportAll: vi.fn(() => new Promise((r) => { release = () => r(JSON.stringify(SAMPLE_VAULT)); })),
+            importAll: vi.fn(),
+        };
+        window.BackupCrypto.encryptBackup = vi.fn(async () => new Uint8Array([1, 2, 3]));
+        const downloads = [];
+        window.downloadBlobAsFile = (blob, filename) => downloads.push(filename);
+        document.getElementById('importexport-export-passphrase').value = 'pw';
+        const btn = document.getElementById('importexport-export-btn');
+        const status = document.getElementById('importexport-export-status');
+        expect(status.hidden).toBe(true);
+
+        btn.click();
+        await vi.waitFor(() => expect(window.CloudVault.exportAll).toHaveBeenCalled());
+        expect(status.hidden).toBe(false);
+        expect(status.textContent).toMatch(/Preparing your backup/);
+        expect(btn.disabled).toBe(true);
+        btn.click(); // re-entry ignored while busy
+        release();
+
+        await vi.waitFor(() => expect(status.textContent).toMatch(/^Backup ready: medtracker-vault-.*\.json\.gz\.age/));
+        expect(window.BackupCrypto.encryptBackup).toHaveBeenCalledTimes(1);
+        expect(window.CloudVault.exportAll).toHaveBeenCalledTimes(1);
+        expect(downloads).toHaveLength(1);
+        expect(btn.disabled).toBe(false);
+        expect(status.classList.contains('wg-error')).toBe(false);
+    });
+
+    it('export failure stays on screen as an error and frees the button', async () => {
+        const { window, document } = env;
+        window.CloudVault = { exportAll: vi.fn(async () => JSON.stringify(SAMPLE_VAULT)), importAll: vi.fn() };
+        window.BackupCrypto.encryptBackup = vi.fn(async () => { throw new Error('out of memory'); });
+        window.downloadBlobAsFile = vi.fn();
+        document.getElementById('importexport-export-passphrase').value = 'pw';
+
+        await window.SettingsImportExport.export();
+
+        const status = document.getElementById('importexport-export-status');
+        expect(status.hidden).toBe(false);
+        expect(status.classList.contains('wg-error')).toBe(true);
+        expect(status.textContent).toMatch(/^Export failed: out of memory\. Nothing was saved/);
+        expect(window.downloadBlobAsFile).not.toHaveBeenCalled();
+        expect(document.getElementById('importexport-export-btn').disabled).toBe(false);
+    });
+
     it('import accepts a gzipped backup file', async () => {
         const { window, document } = env;
         window.CloudVault = { exportAll: vi.fn(), importAll: vi.fn(async () => {}) };

@@ -495,7 +495,10 @@ APK also carries the asset, inert: its base is the real deployment, not `qa.test
 `all` runs it last and it has no retry): soft-authenticator launch → invite → signup wizard →
 passkey → loss-ack → Emergency Kit (the native Save/Share dialog is
 screenshotted, dismissed with Back) → vault → onboarding wizard (screenshotted, Skip all) → Today, Meds, Vitals (`health`),
-Food, Settings → the add-BP sheet, a real tap on systolic → keyboard
+Food, Settings → Backup & import: passphrase export through the real button
+to the Save/Share dialog, the same at ~45 MB of vault JSON (stubbed
+`exportAll`), and a 25 MB blob probe (`results.smoke.export`: phase times,
+status timeline, click → dialog ms; bd med-nvd4) → the add-BP sheet, a real tap on systolic → keyboard
 (`smoke-bp-sheet-keyboard.png`; `results.smoke.keyboard` says whether the
 focused input sits inside the visual viewport) → rotated with the sheet open
 (portrait lock: expected unchanged) → Back (the first hides the keyboard) closes

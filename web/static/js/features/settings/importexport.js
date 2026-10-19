@@ -83,7 +83,29 @@
         return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
     }
 
+    // Export progress (bd med-nvd4). A big vault takes a while to read, gzip and
+    // (with a passphrase) run age's scrypt — on a phone that is many seconds
+    // with nothing on screen, so the export looked stuck. One status line says
+    // which phase is running, then "ready" or the error; it stays until the next
+    // export. Class + textContent + hidden only (design-token guards).
+    let exportInFlight = false;
+
+    function setExportStatus(text, isError) {
+        const note = el('importexport-export-status');
+        if (!note) return;
+        note.hidden = false;
+        note.textContent = text;
+        note.className = isError ? 'wg-error' : 'wg-hint';
+    }
+
+    // Let the status line paint before a step that holds the main thread
+    // (JSON.stringify of the whole vault, age's synchronous scrypt).
+    function yieldToPaint() {
+        return new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
     async function doExport() {
+        if (exportInFlight) return;
         const passInput = el('importexport-export-passphrase');
         const passphrase = passInput ? passInput.value : '';
         const secretsBox = el('importexport-include-secrets');
@@ -101,29 +123,34 @@
             if (!ok) return;
         }
 
-        let json;
+        exportInFlight = true;
+        const btn = el('importexport-export-btn');
+        if (btn) btn.disabled = true;
+        const name = `medtracker-vault-${todayStamp()}.json.gz${passphrase ? '.age' : ''}`;
         try {
-            json = await readVaultJSON(includeSecrets);
-        } catch (e) {
-            console.error('Export failed:', e);
-            safeToast(e.message || 'Export failed', 'error');
-            return;
-        }
-
-        const base = `medtracker-vault-${todayStamp()}`;
-        try {
+            setExportStatus('Preparing your backup… reading your data.');
+            await yieldToPaint();
+            const json = await readVaultJSON(includeSecrets);
+            setExportStatus('Preparing your backup… compressing.');
+            await yieldToPaint();
             // gzip first: age ciphertext doesn't compress, and the plain file is
             // hundreds of MB. See core/backup-crypto.js.
             const gz = await window.BackupCrypto.gzipString(json);
             if (passphrase) {
+                setExportStatus('Encrypting your backup… this can take a minute on a phone.');
+                await yieldToPaint();
                 const bytes = await window.BackupCrypto.encryptBackup(gz, passphrase);
-                downloadBlobAsFile(new Blob([bytes], { type: 'application/octet-stream' }), `${base}.json.gz.age`);
+                downloadBlobAsFile(new Blob([bytes], { type: 'application/octet-stream' }), name);
             } else {
-                downloadBlobAsFile(new Blob([gz], { type: 'application/gzip' }), `${base}.json.gz`);
+                downloadBlobAsFile(new Blob([gz], { type: 'application/gzip' }), name);
             }
+            setExportStatus(`Backup ready: ${name}. Save it somewhere safe.`);
         } catch (e) {
-            console.error('Export encryption failed:', e);
-            safeToast(e.message || 'Export failed', 'error');
+            console.error('Export failed:', e);
+            setExportStatus(`Export failed: ${(e && e.message) || 'unknown error'}. Nothing was saved — try again.`, true);
+        } finally {
+            exportInFlight = false;
+            if (btn) btn.disabled = false;
         }
     }
 

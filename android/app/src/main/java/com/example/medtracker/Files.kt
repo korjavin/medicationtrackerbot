@@ -108,10 +108,12 @@ class Files(private val activity: Activity, private val accountHost: () -> Strin
 
     /** A page download (a data: URL from files.js): temp file, then Save to device or Share. */
     private fun offer(rawName: String, dataUrl: String) {
+        // Every refusal says so (bd med-nvd4): a silent return looked like a stuck export.
+        val bad = { toast("The download could not be saved.") }
         val comma = dataUrl.indexOf(',')
-        val header = if (dataUrl.startsWith("data:") && comma > 0) dataUrl.substring(5, comma) else return
-        if (!header.endsWith(";base64")) return // FileReader.readAsDataURL always is
-        val bytes = runCatching { Base64.decode(dataUrl.substring(comma + 1), Base64.DEFAULT) }.getOrNull() ?: return
+        val header = if (dataUrl.startsWith("data:") && comma > 0) dataUrl.substring(5, comma) else return bad()
+        if (!header.endsWith(";base64")) return bad() // FileReader.readAsDataURL always is
+        val bytes = runCatching { Base64.decode(dataUrl.substring(comma + 1), Base64.DEFAULT) }.getOrNull() ?: return bad()
         val mime = header.substringBefore(';').ifBlank { "application/octet-stream" }
         val name = File(rawName).name.replace(Regex("[\\x00-\\x1f\\\\/:*?\"<>|]"), "_").ifBlank { "download" }
         // One download at a time: the previous one's file goes (a vault export holds secrets).

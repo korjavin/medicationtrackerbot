@@ -36,7 +36,11 @@
         r.readAsDataURL(b);
       }))
       .then((data) => send({ op: 'download', name, data }))
-      .catch(() => console.error('[shell] download failed'));
+      .catch(() => {
+        // Never silent (bd med-nvd4): the page already said "ready".
+        console.error('[shell] download failed');
+        if (typeof window.safeToast === 'function') window.safeToast('The file could not be handed to Android. Try again.', 'error');
+      });
   }, true);
 
   // print-doc.js prints an offscreen same-origin iframe through

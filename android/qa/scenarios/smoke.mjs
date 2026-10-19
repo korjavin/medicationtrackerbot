@@ -210,6 +210,35 @@ async function exportBackup(ctx, page, r) {
     e.statusAfterDismiss = await page.evaluate(() => document.getElementById('importexport-export-status')?.textContent || null).catch(() => null);
     await ctx.shot('export-after');
   }).catch(async () => { await ctx.shot('export-stuck'); });
+  // A vault at the owner's scale (Mi Band years: ~60 MB of JSON) through the real button, with
+  // CloudVault.exportAll stubbed to return it: the status timeline shows progress and an end.
+  await ctx.step('export: large vault shows progress and reaches Save/Share', async () => {
+    await page.evaluate(() => {
+      const rows = [];
+      for (let i = 0; i < 300_000; i++) rows.push({ id: `hr-${i}`, measured_at: new Date(1.6e12 + i * 60_000).toISOString(), bpm: 50 + (i % 70), source: 'miband' });
+      const json = JSON.stringify({ format: 'medtracker-vault', version: 1, data: { heart_rate: rows } }, null, 2);
+      window.__qaExportAll = window.CloudVault.exportAll;
+      window.CloudVault.exportAll = async () => json;
+      window.__qaStatus = [];
+      const t0 = performance.now();
+      const note = document.getElementById('importexport-export-status');
+      new MutationObserver(() => window.__qaStatus.push([Math.round(performance.now() - t0), note.textContent])).observe(note, { childList: true, characterData: true, subtree: true });
+      return json.length;
+    }).then((n) => { e.largeJsonBytes = n; });
+    const t0 = Date.now();
+    await page.click('#importexport-export-btn');
+    await sleep(1500);
+    await ctx.shot('export-large-progress');
+    try {
+      await ctx.waitFor({ text: 'Save to device' }, 300_000);
+      e.largeClickToDialogMs = Date.now() - t0;
+      await ctx.shot('export-large-save-share');
+    } finally {
+      e.largeStatusTimeline = await page.evaluate(() => window.__qaStatus).catch(() => null);
+      await page.evaluate(() => { window.CloudVault.exportAll = window.__qaExportAll; }).catch(() => {});
+      await dismiss();
+    }
+  }).catch(async () => { await ctx.shot('export-large-stuck'); });
   await ctx.step('export: 25 MB blob reaches the shell', async () => {
     const t0 = Date.now();
     await page.evaluate(() => {
