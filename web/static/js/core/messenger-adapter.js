@@ -25,6 +25,8 @@
 //   onBack(handler)    → void   — registers the single back handler
 //   showBack()         → void   — reveals the in-app chevron
 //   hideBack()         → void   — hides the in-app chevron
+//   historyPush(state) → void   — history.pushState, held while an own Back is in flight
+//   historyBack()      → void   — history.back() whose popstate the app never sees
 //
 //   isPresent()        → false — no messenger host wraps the page.
 //
@@ -55,6 +57,52 @@
         function hasHistory() {
             return typeof window !== 'undefined' && window.history
                 && typeof window.history.pushState === 'function';
+        }
+
+        // The app's own history.back() calls (hideBack, modal-history) whose
+        // popstate has not landed yet (bd med-nt9p.39). The traversal is async
+        // and Android WebView delivered it ~3-4 s late on a cold start: an
+        // entry pushed in between (a Settings page, a dialog, the guard) was
+        // the one it popped, and the echo then ran the Back handler, so pages
+        // and dialogs closed by themselves. Pushes wait for the echo, and the
+        // echo is swallowed here, before any app popstate listener.
+        // ponytail: a count, so a user Back landing while one of ours is in
+        // flight is taken for our echo (and ours for the user's); a sequence
+        // number in history.state would tell them apart if that shows up.
+        let ownBacks = 0;
+        let heldPushes = [];
+        let ownBackTimer = null;
+        const OWN_BACK_MAX_MS = 10000; // a back() that never fires popstate must not hold pushes forever
+
+        function releaseHeld() {
+            ownBacks = 0;
+            clearTimeout(ownBackTimer);
+            const held = heldPushes;
+            heldPushes = [];
+            held.forEach((state) => window.history.pushState(state, ''));
+        }
+
+        function historyPush(state) {
+            if (ownBacks) heldPushes.push(state);
+            else window.history.pushState(state, '');
+        }
+
+        function historyBack() {
+            // The entry to pop was never pushed: drop it instead.
+            if (heldPushes.length) { heldPushes.pop(); return; }
+            ownBacks++;
+            clearTimeout(ownBackTimer);
+            ownBackTimer = setTimeout(releaseHeld, OWN_BACK_MAX_MS);
+            window.history.back();
+        }
+
+        if (hasHistory() && typeof window.addEventListener === 'function') {
+            // Capture + registered at load: runs before modal-history's and onPopstate.
+            window.addEventListener('popstate', (event) => {
+                if (!ownBacks) return;
+                event.stopImmediatePropagation();
+                if (--ownBacks === 0) releaseHeld();
+            }, true);
         }
 
         function invokeHandler() {
@@ -144,7 +192,7 @@
                 // instead of exiting to the previous site (bd med-z1n.2). Once
                 // per section visit; modal-history pushes its own entry on top.
                 if (!guardPushed && hasHistory()) {
-                    window.history.pushState({ wgSectionBack: true }, '');
+                    historyPush({ wgSectionBack: true });
                     guardPushed = true;
                 }
             },
@@ -157,9 +205,13 @@
                 // does nothing there (never pops a real page entry).
                 if (guardPushed && hasHistory()) {
                     guardPushed = false;
-                    window.history.back();
+                    historyBack();
                 }
             },
+
+            historyPush: historyPush,
+
+            historyBack: historyBack,
 
             isPresent: function () { return false; },
 

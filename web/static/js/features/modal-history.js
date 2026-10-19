@@ -43,6 +43,20 @@
         const a = window.MessengerAdapter;
         if (a && typeof a.showBack === 'function') a.showBack();
     }
+    // History goes through the adapter (bd med-nt9p.39): it holds a push
+    // until an own back() has landed and swallows that back's popstate.
+    // Without it (no adapter), the old swallowNextPopstate flag covers the echo.
+    function pushEntry(state) {
+        const a = window.MessengerAdapter;
+        if (a && typeof a.historyPush === 'function') a.historyPush(state);
+        else history.pushState(state, '');
+    }
+    function popEntry() {
+        const a = window.MessengerAdapter;
+        if (a && typeof a.historyBack === 'function') return a.historyBack();
+        swallowNextPopstate = true;
+        history.back();
+    }
     function adapterHideBack() {
         const a = window.MessengerAdapter;
         if (a && typeof a.hideBack === 'function') a.hideBack();
@@ -60,15 +74,14 @@
     function onOverlayShown() {
         if (modalPushed) return;
         modalPushed = true;
-        history.pushState({ modal: true }, '');
+        pushEntry({ modal: true });
         if (isBackButtonSupported()) adapterShowBack();
     }
 
     function onOverlayClosed() {
         if (!modalPushed || poppingFromHistory) return;
         modalPushed = false;
-        swallowNextPopstate = true;
-        history.back();
+        popEntry();
         reconcileBackButtonVisibility();
     }
 
@@ -78,11 +91,10 @@
         const open = isDialogOpen();
         if (open && !dialogPushed) {
             dialogPushed = true;
-            history.pushState({ modalDialog: true }, '');
+            pushEntry({ modalDialog: true });
         } else if (!open && dialogPushed) {
             dialogPushed = false;
-            swallowNextPopstate = true;
-            history.back();
+            popEntry();
         }
     }
 
@@ -108,7 +120,7 @@
             // A stacked dialog still open → re-push for the next Back.
             if (isDialogOpen()) {
                 dialogPushed = true;
-                history.pushState({ modalDialog: true }, '');
+                pushEntry({ modalDialog: true });
             }
             return;
         }
@@ -133,7 +145,7 @@
         // Sub-modal closed but parent still open → re-push so next back also works
         if (!overlay.classList.contains('hidden')) {
             modalPushed = true;
-            history.pushState({ modal: true }, '');
+            pushEntry({ modal: true });
         } else {
             reconcileBackButtonVisibility();
         }
