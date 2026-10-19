@@ -10,9 +10,10 @@ const LOCAL_ACTIVITY = 'com.example.medtracker.LocalSpikeActivity';
 const MARK = `qa-backup-${Date.now()}`;
 const LOCAL_DIR = 'https_appassets.androidplatform.net_0.indexeddb.leveldb';
 // What may exist after pm clear + restore: an allowlist, so any stray store fails (fail closed).
+// The standard dirs Android recreates count only as empty dirs: anything inside them fails.
 const ALLOWED = [
   /^\.$/,
-  /^\.\/(app_webview|app_webview\/Default|app_webview\/Default\/IndexedDB|shared_prefs|cache|code_cache)$/,
+  /^\.\/(app_webview|app_webview\/Default|app_webview\/Default\/IndexedDB|shared_prefs|cache|code_cache|databases|files|no_backup)$/,
   /^\.\/app_webview\/Default\/IndexedDB\/https_appassets\.androidplatform\.net_0\.indexeddb\.(leveldb|blob)(\/.*)?$/,
   /^\.\/shared_prefs\/wg_trial\.xml$/,
 ];
