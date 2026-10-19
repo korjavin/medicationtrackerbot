@@ -18,6 +18,22 @@ enum LocalOrigin {
     /// Same caps as cmd/cloud's PUT /api/egress-hosts (internal/cloudserver/egress.go).
     static let maxHosts = 8
 
+    #if DEBUG
+    /// Visual QA (bd med-y5xx.2, docs/design/ios-visual-testing.md), Debug
+    /// builds only: launch argument `-wgQAScene <name>` (NSArgumentDomain)
+    /// opens local mode on wgapp://local/?qa=<name> for the in-page QA driver.
+    /// The archive is Release, so neither this nor its caller ships.
+    static let qaSceneKey = "wgQAScene"
+
+    /// The QA scene's start page, or nil for a missing or malformed name.
+    static func qaHome(scene: String?) -> URL? {
+        guard let scene, !scene.isEmpty, scene.count <= 64,
+              scene.unicodeScalars.allSatisfy({ ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-" })
+        else { return nil }
+        return URL(string: "wgapp://local/?qa=\(scene)")
+    }
+    #endif
+
     /// Bundle-relative file for a request path, routed like cmd/cloud's
     /// account host (internal/cloudserver/router.go ServeHTTP): "/" is the app
     /// document, /static/ and /domain/ their trees, everything else the cloud
