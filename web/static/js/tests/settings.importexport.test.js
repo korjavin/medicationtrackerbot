@@ -153,6 +153,28 @@ describe('Settings → Import/Export section', () => {
             expect(p.querySelector('[data-file-choose]').hidden).toBe(false);
         });
 
+        // med-5jsn: the name/meta spans must stack, or the meta runs inline
+        // after the name and under the Choose button. jsdom has no layout,
+        // so pin the kit rule itself.
+        it('stacks the picker name above its meta line', async () => {
+            const fs = await import('node:fs');
+            const css = fs.readFileSync(new URL('../../css/components.css', import.meta.url), 'utf8');
+            expect(css).toMatch(/\.wg-file__name,\.wg-file__meta\{display:block\}/);
+        });
+
+        // med-5jsn: opening the page by tap focuses Back without a ring;
+        // a keyboard opener (focus-visible) keeps it.
+        it('opens the page with Back focused but no ring after a tap', () => {
+            const { window, document } = env;
+            const focus = vi.spyOn(window.HTMLElement.prototype, 'focus');
+            const page = window.SettingsView.openSettingsPage('backup');
+            const back = page.el.querySelector('.wg-back');
+            expect(focus.mock.contexts).toContain(back);
+            const call = focus.mock.calls[focus.mock.contexts.indexOf(back)];
+            expect(call[0]).toEqual({ focusVisible: false });
+            expect(document.activeElement).toBe(back);
+        });
+
         it('Choose opens the native input', () => {
             const input = env.document.getElementById('importexport-import-file');
             const click = vi.spyOn(input, 'click').mockImplementation(() => {});

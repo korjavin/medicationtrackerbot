@@ -367,6 +367,23 @@ describe('WGBpChart.render', () => {
         expect(lastTwo.every((el) => el.classList.contains('wg-bp-chart__last'))).toBe(true);
     });
 
+    it('labels a one-day window with one x tick per date, spanning both ends (med-0rzu)', () => {
+        const readings = [
+            { measured_at: '2026-10-18T12:00:00Z', systolic: 122, diastolic: 78 },
+            { measured_at: '2026-10-19T12:00:00Z', systolic: 135, diastolic: 85 },
+        ];
+        const svg = env.api.render({ readings });
+        const ticks = Array.from(svg.querySelectorAll('[data-bp-axis="x"]'));
+        const labels = ticks.map((t) => t.textContent);
+        expect(labels.length).toBe(2);
+        expect(new Set(labels).size).toBe(2);
+        const xs = ticks.map((t) => Number(t.getAttribute('x')));
+        const wide = env.api.render({ readings: sampleReadings() });
+        const wideXs = Array.from(wide.querySelectorAll('[data-bp-axis="x"]')).map((t) => Number(t.getAttribute('x')));
+        expect(xs[0]).toBe(wideXs[0]);
+        expect(xs[1]).toBe(wideXs[wideXs.length - 1]);
+    });
+
     it('caps the SVG width via .wg-bp-chart CSS so wider containers do not upscale it', () => {
         // jsdom does not evaluate the stylesheet, so assert the CSS rule
         // itself pins a max-width to --wg-bp-chart-width (358px). This

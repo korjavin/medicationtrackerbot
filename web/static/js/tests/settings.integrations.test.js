@@ -371,6 +371,23 @@ describe('Settings → Integrations section', () => {
         expect(mountTelegram).toHaveBeenCalledTimes(1);
     });
 
+    // med-4mva: local mode has no Telegram server; mounting telegram.js there
+    // fetched /api/telegram/status straight off the shell's origin (404).
+    it('does not mount Telegram in local mode', async () => {
+        const { window, document } = env;
+        document.documentElement.classList.add('wg-local-vault');
+        const loadTelegramModule = vi.fn(() => Promise.resolve({ mountTelegram: vi.fn() }));
+        window.SettingsIntegrations._setTelegramLoader(loadTelegramModule);
+        window.SettingsIntegrations._resetTelegramMounted();
+        window.apiCall = vi.fn(async () => ({}));
+
+        await window.SettingsIntegrations.load();
+        await new Promise(r => setTimeout(r, 0));
+
+        expect(loadTelegramModule).not.toHaveBeenCalled();
+        expect(document.getElementById('integrations-telegram-row').hidden).toBe(true);
+    });
+
     it('hides the trial hints when no trial meta flags are injected (server mode / no trial envs)', async () => {
         const { window, document } = env;
         window.apiCall = vi.fn(async () => ({
