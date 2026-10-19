@@ -102,6 +102,13 @@ const ctx = {
   async openLink(url, { shotTyped = false } = {}) {
     await device.fill({ clazz: 'android.widget.EditText' }, url);
     if (shotTyped) await ctx.shot('typed');
+    // At a large font scale the keyboard covers Open (local mode's button sits above the form,
+    // bd med-nt9p.32.4) and the tap lands on it: Back closes the keyboard first (never the app,
+    // the system gives Back to a shown IME).
+    if (/mInputShown=true|mIsInputViewShown=true|isInputViewShown=true/.test(await shell('dumpsys input_method'))) {
+      await shell('input keyevent KEYCODE_BACK');
+      await ctx.sleep(700);
+    }
     await device.tap({ text: 'Open' });
   },
   /** Open an account the local cloud does not have (a 404) → the "Can't open your account" screen. */

@@ -54,6 +54,38 @@ class LocalOriginTest {
         assertEquals(emptyList<String>(), LocalOrigin.decodeHosts("evil.com 'unsafe-inline'"))
     }
 
+    // The debug launch extra wgQAScene's parser (bd med-nt9p.32.4), the iOS qaHome rules.
+    @Test
+    fun qaHome() {
+        assertEquals("https://appassets.androidplatform.net/?qa=today-dark", LocalOrigin.qaHome("today-dark"))
+        assertEquals("${LocalOrigin.HOME}?qa=${"a".repeat(64)}", LocalOrigin.qaHome("a".repeat(64)))
+        for (bad in listOf(null, "", "a".repeat(65), "Today", "a b", "a&x=1", "../x", "a/b", "é"))
+            assertNull("accepted $bad", LocalOrigin.qaHome(bad))
+    }
+
+    @Test
+    fun bridgeGate() {
+        val acct = "me.example.org"
+        assertTrue(LocalOrigin.bridgeCaller(true, "https", acct, acct))
+        assertTrue(LocalOrigin.bridgeCaller(true, "https", "ME.example.org", acct))
+        assertTrue(LocalOrigin.bridgeCaller(true, "https", LocalOrigin.HOST, LocalOrigin.HOST))
+        // An account page while local mode is open, the asset origin in account mode, frames, http, no vault.
+        assertFalse(LocalOrigin.bridgeCaller(true, "https", acct, LocalOrigin.HOST))
+        assertFalse(LocalOrigin.bridgeCaller(true, "https", LocalOrigin.HOST, acct))
+        assertFalse(LocalOrigin.bridgeCaller(false, "https", acct, acct))
+        assertFalse(LocalOrigin.bridgeCaller(true, "http", acct, acct))
+        assertFalse(LocalOrigin.bridgeCaller(true, "https", null, null))
+        assertFalse(LocalOrigin.bridgeCaller(true, "https", "other.example.org", acct))
+        for (op in listOf("setEgressHosts", "local.reset", "local.leave")) {
+            assertFalse(op, LocalOrigin.opAllowed(op, local = false))
+            assertTrue(op, LocalOrigin.opAllowed(op, local = true))
+        }
+        for (op in listOf("ping", "chrome", "notifications.schedule", "health.query", "")) {
+            assertTrue(op, LocalOrigin.opAllowed(op, local = false))
+            assertTrue(op, LocalOrigin.opAllowed(op, local = true))
+        }
+    }
+
     @Test
     fun mime() {
         assertEquals("text/javascript", LocalOrigin.mime("web/cloud/js/a.js"))

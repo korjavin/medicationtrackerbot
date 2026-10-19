@@ -167,6 +167,35 @@ threat model: [cloud-mode.md → Anonymous trial](cloud-mode.md#anonymous-trial-
 Rotating the key: upload the new `.p8`, change `DEVICECHECK_KEY_ID`, redeploy.
 Existing installs keep working (DeviceCheck is only called at enrollment).
 
+### Anonymous trial for Android local mode (optional, Play Integrity)
+
+The Android twin of the above, on the same routes and quotas; independent of
+the Apple vars. Off unless both `PLAY_INTEGRITY_PACKAGE_NAME` and
+`PLAY_INTEGRITY_SERVICE_ACCOUNT_FILE` are set; unset, Android enrolls answer
+503 `trial_not_configured` and iOS is unaffected. A partial set, or an
+unreadable or malformed key file, refuses to start, naming the variable only.
+
+1. Google side (once): [android.md → Play Integrity setup](android.md#play-integrity-setup-owner)
+   — the Play Integrity API enabled on the Cloud project linked in Play
+   Console, and a service account's JSON key.
+2. Put the JSON **in the `cloud_data` volume**, exactly like the `.p8` above:
+   the same Portainer archive `PUT` into `/app/data/secrets`, a tar holding
+   `play-integrity.json`, `0600` for uid 1000. Never in env, never in git
+   (`data/secrets/` is gitignored); keep the original in the secret store.
+3. Set in the stack env: `PLAY_INTEGRITY_PACKAGE_NAME=<applicationId>`,
+   `PLAY_INTEGRITY_SERVICE_ACCOUNT_FILE=/app/data/secrets/play-integrity.json`;
+   leave `PLAY_INTEGRITY_ACCEPT_APP_VERDICTS` unset (`PLAY_RECOGNIZED` only)
+   unless running a deliberate sideload test window
+   (`PLAY_RECOGNIZED,UNRECOGNIZED_VERSION`, removed after). Redeploy.
+4. Verify: the startup log has no `anonymous trial disabled kind=android`
+   line. A log line `Google refused to decode the integrity token (HTTP 400)`
+   on every Android enroll means the package name does not match the app; a
+   `play integrity unavailable … status 403` means the service account needs
+   **Service Usage Consumer** on the project.
+
+Rotating the key: upload the new JSON over the old file, redeploy. Existing
+Android installs keep working (Google is only called at enrollment).
+
 ### Android Digital Asset Links (optional)
 
 Set `ANDROID_PACKAGE` + `ANDROID_CERT_SHA256S` (see docs/environment.md) to

@@ -44,7 +44,7 @@ TRIAL_VOICE_MAX_CALL_SECONDS=120   # ElevenLabs-side per-call cap (conversation.
 TRIAL_RATE_PER_MIN=10              # Per-account sliding-window limit shared across all trial routes (default: 10). Smooths bursts; bounds no spend. Streaming (`stream:true`, voice) turns use a separate fixed 60/min per-account limiter; the daily budgets count both.
 TRIAL_DAILY_PER_ACCOUNT=100        # Per-account DAILY cap on trial AI requests, persisted in cloud.db (default: 100; 0 disables)
 TRIAL_DAILY_GLOBAL=500             # Cross-account DAILY cap on trial AI requests, persisted in cloud.db (default: 500; 0 disables). Also covers anonymous iOS installs (one shared budget)
-# Anonymous trial for iOS local mode (bd med-o7zq.15; docs/cloud-mode.md → Anonymous trial). Base-domain
+# Anonymous trial for iOS (and, below, Android) local mode (bd med-o7zq.15; docs/cloud-mode.md → Anonymous trial). Base-domain
 # POST /api/attest/{challenge,enroll,trial/openai/chat/completions}. Live only when all four Apple vars below
 # are set AND trial AI is configured. None of the four set (or trial AI off) → those routes return 503
 # trial_not_configured. A partial set of the four is an error: cmd/cloud refuses to start (the error names
@@ -54,6 +54,13 @@ APP_ATTEST_ENV=production          # production (default; TestFlight + App Store
 DEVICECHECK_KEY_ID=...             # DeviceCheck key id (Apple Developer → Keys)
 DEVICECHECK_TEAM_ID=...            # Apple team id that owns the key
 DEVICECHECK_PRIVATE_KEY_FILE=/app/data/secrets/devicecheck.p8  # PATH to the .p8 (PKCS#8 EC). A file, never the PEM inline; never committed (*.p8 is gitignored). See docs/cloud-deployment.md
+# Android twin (bd med-nt9p.32.8.3): the same /api/attest/* routes enroll Android installs via Google Play
+# Integrity. Independent of the Apple vars: either platform, both, or neither. Both PLAY_INTEGRITY_PACKAGE_NAME
+# and PLAY_INTEGRITY_SERVICE_ACCOUNT_FILE or neither; a partial set, or an unreadable/unparseable file, refuses
+# to start (naming the var). Unset → Android enrolls answer 503 trial_not_configured; iOS is unaffected.
+PLAY_INTEGRITY_PACKAGE_NAME=...    # Android applicationId the integrity token must name (requestPackageName and appIntegrity.packageName). A wrong value makes Google answer 400 to every decode — logged as a distinct warning
+PLAY_INTEGRITY_SERVICE_ACCOUNT_FILE=/app/data/secrets/play-integrity.json  # PATH to the Google service-account JSON key of the Cloud project linked in Play Console (docs/android.md → Play Integrity setup). A file, never inline; never committed (data/secrets/ is gitignored). See docs/cloud-deployment.md
+PLAY_INTEGRITY_ACCEPT_APP_VERDICTS=PLAY_RECOGNIZED  # Comma list of accepted appRecognitionVerdict values (default: PLAY_RECOGNIZED; allowed: PLAY_RECOGNIZED, UNRECOGNIZED_VERSION). Add UNRECOGNIZED_VERSION ONLY for a deliberate sideload test window (it admits builds Play did not distribute) and remove it after; each such grant is visible as env=UNRECOGNIZED_VERSION on its attest_installs row
 TRIAL_ANON_LIFETIME_REQUESTS=200   # Lifetime trial requests per device trial bucket — one device's trial, shared by its reinstalls via the Keychain trial pass (default: 200; must be positive). Refunded when the upstream call fails
 TRIAL_ANON_DAILY=50                # Per-bucket DAILY cap, in trial_usage like accounts (default: 50; 0 disables)
 TRIAL_ANON_FOOD_DAILY=1000         # Per-bucket DAILY cap on anonymous food lookups (GET /api/attest/food/*), separate from the AI budget (default: 1000; 0 disables). Food routes also need CLOUD_FOOD_DB_URL

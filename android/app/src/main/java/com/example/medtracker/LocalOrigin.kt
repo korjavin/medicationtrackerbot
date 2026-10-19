@@ -16,6 +16,23 @@ object LocalOrigin {
     const val HOSTS_KEY = "wgLocalEgressHosts"
     /** Same cap as cmd/cloud's PUT /api/egress-hosts (internal/cloudserver/egress.go). */
     const val MAX_HOSTS = 8
+    /** Bridge ops only the bundled app may call (bd med-nt9p.32.4); an account page gets "unsupported". */
+    val LOCAL_OPS = setOf("setEgressHosts", "local.reset", "local.leave")
+
+    /** The bridge's caller gate: only the open vault's own top-level https page (the account host, or HOST in local mode). */
+    fun bridgeCaller(isMainFrame: Boolean, scheme: String?, host: String?, vault: String?): Boolean =
+        isMainFrame && scheme == "https" && vault != null && host?.lowercase() == vault
+
+    /** A local-only op answers only in local mode; every other op in both modes. */
+    fun opAllowed(op: String, local: Boolean) = local || op !in LOCAL_OPS
+
+    /**
+     * Visual QA scene start page (debug launch extra wgQAScene, DebugHooks), twin of iOS
+     * LocalOrigin.qaHome: HOME?qa=<name> for 1–64 of [a-z0-9-], else null.
+     */
+    fun qaHome(scene: String?): String? =
+        scene?.takeIf { it.isNotEmpty() && it.length <= 64 && it.all { c -> c in 'a'..'z' || c in '0'..'9' || c == '-' } }
+            ?.let { "$HOME?qa=$it" }
 
     /**
      * Asset path for a request path, routed like cmd/cloud's account host (router.go ServeHTTP):

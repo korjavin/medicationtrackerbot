@@ -129,7 +129,8 @@ func newFixture(t *testing.T, mut func(*Config)) *fixture {
 }
 
 func (f *fixture) enroll() (*ecdsa.PublicKey, error) {
-	return f.v.VerifyEnrollment(context.Background(), "good-token", f.challenge, f.keyID, f.pubDER)
+	pub, _, err := f.v.VerifyEnrollment(context.Background(), "good-token", f.challenge, f.keyID, f.pubDER)
+	return pub, err
 }
 
 func set(m map[string]any, section, key string, v any) {
@@ -217,7 +218,7 @@ func TestVerifyEnrollment_Rejections(t *testing.T) {
 			if tc.token != "" || tc.name == "empty token" {
 				tok = tc.token
 			}
-			_, err := f.v.VerifyEnrollment(context.Background(), tok, f.challenge, f.keyID, f.pubDER)
+			_, _, err := f.v.VerifyEnrollment(context.Background(), tok, f.challenge, f.keyID, f.pubDER)
 			if !errors.Is(err, tc.want) || !errors.Is(err, ErrInvalid) {
 				t.Fatalf("err = %v, want %v", err, tc.want)
 			}
