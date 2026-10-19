@@ -7,6 +7,7 @@ import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
+import android.content.IntentSender
 import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
 import android.graphics.Color
@@ -122,8 +123,10 @@ class MainActivity : Activity() {
     /** What the lock held back, run on unlock. */
     private var deferredUrl: String? = null
     private var deferredSection: String? = null
-    /** Home/Recents (onUserLeaveHint) or a link opened outside: the next onStop is a real background. */
-    private var leaving = false
+    /** This app's own screen is up (a picker, print, Settings): its onStop is not a background. */
+    private var outbound = false
+    /** The phone's check is up; its screen-lock screen stops this activity too. */
+    private var prompting = false
 
     /** window.Health's health.* ops (bd med-nt9p.8). */
     private val health by lazy { HealthConnect(this) }
@@ -169,31 +172,40 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        leaving = false
+        outbound = false
         notifications.onResume()
         // Once per launch or return from the background; the prompt's own pause/resume asks nothing.
         lock.activate(local)?.let { authenticate(it) }
     }
 
-    override fun onUserLeaveHint() {
-        super.onUserLeaveHint()
-        leaving = true
-    }
-
     /**
-     * The lock closes on a real background only (bd med-nt9p.32.9): Home/Recents, a link opened
-     * outside, or the screen going off — not on this app's own file picker, print, permission or
-     * screen-lock screens, which stop this activity too.
-     * ponytail: leaving the app from one of those screens locks only at the next background;
-     * telling it apart needs tracking other apps' activities.
+     * The lock closes on every stop (bd med-nt9p.32.9) — Home, Recents, a call, another app, the
+     * screen going off — except for this app's own file picker, share, print and Settings screens
+     * and the phone's screen-lock check, while the screen is on.
+     * ponytail: leaving the app from one of those screens locks only at the next stop; telling
+     * that apart needs tracking other apps' activities. Permission screens (requestPermissions is
+     * final) are not exempt: the return from one asks to unlock.
      */
     override fun onStop() {
         super.onStop()
-        if (leaving || !getSystemService(PowerManager::class.java).isInteractive) {
+        if (!getSystemService(PowerManager::class.java).isInteractive || !(outbound || prompting)) {
             lock.background()
             applyLock()
         }
-        leaving = false
+    }
+
+    /** Every startActivity lands here: this app's own screens, except a link opened in the browser. */
+    override fun startActivityForResult(intent: Intent, requestCode: Int, options: Bundle?) {
+        if (!intent.hasCategory(Intent.CATEGORY_BROWSABLE)) outbound = true
+        super.startActivityForResult(intent, requestCode, options)
+    }
+
+    /** PrintManager.print opens the print screen through here. */
+    override fun startIntentSender(
+        intent: IntentSender, fillInIntent: Intent?, flagsMask: Int, flagsValues: Int, extraFlags: Int, options: Bundle?,
+    ) {
+        outbound = true
+        super.startIntentSender(intent, fillInIntent, flagsMask, flagsValues, extraFlags, options)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -741,11 +753,9 @@ class MainActivity : Activity() {
 
     /** The browser (or the link's own app); nothing installed to take it is a silent no-op. */
     private fun openOutside(uri: Uri) {
-        leaving = true // the browser is another app: its onStop is a real background
         try {
             startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE))
         } catch (e: ActivityNotFoundException) {
-            leaving = false
         }
     }
 
@@ -833,10 +843,16 @@ class MainActivity : Activity() {
     private fun deviceCheck(title: String, done: (Boolean) -> Unit) {
         if (!deviceSecure()) return done(true)
         val callback = object : BiometricPrompt.AuthenticationCallback() {
-            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) = done(true)
-            override fun onAuthenticationError(code: Int, message: CharSequence) =
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                prompting = false
+                done(true)
+            }
+            override fun onAuthenticationError(code: Int, message: CharSequence) {
+                prompting = false
                 done(code == BiometricPrompt.BIOMETRIC_ERROR_NO_DEVICE_CREDENTIAL)
+            }
         }
+        prompting = true
         runCatching {
             BiometricPrompt.Builder(this)
                 .setTitle(title)
@@ -845,6 +861,7 @@ class MainActivity : Activity() {
                 .authenticate(CancellationSignal(), mainExecutor, callback)
         }.onFailure {
             diag("shell lock prompt failed ${it.javaClass.simpleName}")
+            prompting = false
             done(false)
         }
     }

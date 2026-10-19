@@ -1033,11 +1033,14 @@ account has its passkey, and cloud mode never shows or checks it.
   dependency); turning on needs a screen lock. Stored as the `shell` pref
   `wgLocalLock`: absent on every install before it, so an upgrade never
   locks anyone out. Not in the backup rules, so a restored phone starts off.
-- **Lifecycle:** locked at launch and on a real background — Home/Recents
-  (`onUserLeaveHint`), a link opened in the browser, or the screen going off
-  (`onStop` with the screen non-interactive). The app's own file picker,
-  print, Health Connect, Settings and screen-lock screens also stop the
-  activity but do not lock. The next `onResume` prompts **once**; a cancel
+- **Lifecycle:** locked at launch and on every `onStop` (Home, Recents, a
+  call, another app, the browser, the screen going off) except, while the
+  screen is on, the app's own screens — what it starts through
+  `startActivityForResult` / `startIntentSender` (file picker, save, share,
+  print, the exact-alarm Settings page) — and the phone's screen-lock check.
+  Permission screens are not exempt (`requestPermissions` is final): the
+  return from Health Connect's asks to unlock. The next `onResume` prompts
+  **once**; a cancel
   leaves the lock screen (*Med Tracker is locked* → *Unlock*), no prompt
   loop; a result from before a background is dropped.
 - **While locked:** the WebView is detached from the window (the page is
@@ -1049,8 +1052,8 @@ account has its passkey, and cloud mode never shows or checks it.
 - **No screen lock any more** (removed after the lock went on): the check
   passes — the lock never strands the only copy of the records.
 - **Known gap:** leaving the app *from* one of its own picker/print/share
-  screens locks only at the next background (a ponytail note in
-  `onStop`); a share sheet over the page is not dismissed.
+  screens with the screen on locks only at the next stop (a ponytail note
+  in `onStop`); a share sheet over the page is not dismissed.
 
 ### Device check (CI debug APK, local mode)
 
