@@ -251,9 +251,12 @@ function foodProductUniqueKey(p) {
 //     zero", so such a row is indistinguishable from an empty one and adds
 //     nothing to any total. A 0-kcal row with any macro set stays. The user's
 //     own products are never filtered, so a local "Water" stays.
-//  2. Collapse case-insensitive exact-name duplicates, keeping the row with
-//     the most non-zero nutrient fields (tie: one not in ALL CAPS, then the
-//     earlier, i.e. upstream's own order).
+//  2. Collapse case-insensitive same-name rows only when their nutrition is
+//     effectively the same (kcal within 5 kcal or 5%, each macro within 1 g
+//     or 5%), keeping the row with the most non-zero nutrient fields (tie:
+//     one not in ALL CAPS, then the earlier, i.e. upstream's own order).
+//     Same name with clearly different numbers (fresh vs dried banana) are
+//     different products: all stay, so the user can pick the right one.
 //  3. Rank exact name matches, then prefix matches, then the rest; stable, so
 //     upstream relevance order holds within each tier.
 export function cleanRemoteProducts(products, query) {
@@ -261,19 +264,23 @@ export function cleanRemoteProducts(products, query) {
   const filled = (p) => [p.energy_kcal_100g, p.carbs_100g, p.protein_100g, p.fat_100g].filter((v) => v > 0).length;
   const shouty = ({ name = '' }) => name === name.toUpperCase() && name !== name.toLowerCase();
   const better = (a, b) => filled(a) > filled(b) || (filled(a) === filled(b) && shouty(b) && !shouty(a));
-  const byName = new Map();
+  const near = (a, b, abs) => Math.abs(a - b) <= Math.max(abs, 0.05 * Math.max(a, b));
+  const same = (a, b) => near(a.energy_kcal_100g, b.energy_kcal_100g, 5)
+    && ['carbs_100g', 'protein_100g', 'fat_100g'].every((k) => near(a[k], b[k], 1));
+  const key = (p) => (p.name || '').trim().toLowerCase();
+  // A replaced duplicate keeps its slot, so upstream order holds.
+  const kept = [];
   for (const p of products) {
     if (!filled(p)) continue;
-    const key = (p.name || '').trim().toLowerCase();
-    const prev = byName.get(key);
-    if (!prev || better(p, prev)) byName.set(key, p);
+    const i = kept.findIndex((k) => key(k) === key(p) && same(k, p));
+    if (i < 0) kept.push(p);
+    else if (better(p, kept[i])) kept[i] = p;
   }
-  // Map keeps first-insertion order, so a replaced duplicate keeps its slot.
   const tier = (p) => {
-    const name = (p.name || '').trim().toLowerCase();
+    const name = key(p);
     return name === needle ? 0 : name.startsWith(needle) ? 1 : 2;
   };
-  return [...byName.values()].sort((a, b) => tier(a) - tier(b));
+  return kept.sort((a, b) => tier(a) - tier(b));
 }
 
 // mergeProducts ports mergeFoodProducts (food_handlers.go:1087): base first,
