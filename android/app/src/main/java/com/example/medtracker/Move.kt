@@ -8,7 +8,8 @@ import java.io.File
  * no storage, so the shell carries it in one app-private file: [dir] is noBackupFilesDir/move, never
  * backed up (and outside the Auto Backup include-list anyway), in the same sandbox as the local
  * origin's plaintext IndexedDB, so no new exposure. Never log the contents. No Android types, so
- * MoveTest runs it on the JVM. Twin: the same ops in ios/App/Shell.swift (iOS epic).
+ * MoveTest runs it on the JVM. The op names and semantics are the contract for the iOS shell's
+ * twin (not built yet; iOS epic).
  */
 class Move(private val dir: File) {
     class Failure(message: String) : Exception(message)

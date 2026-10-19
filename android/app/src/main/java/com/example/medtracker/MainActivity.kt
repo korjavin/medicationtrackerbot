@@ -340,7 +340,8 @@ class MainActivity : Activity() {
         if (url == null) {
             web.loadUrl("about:blank")
             firstRun.visibility = View.VISIBLE
-            if (move.exists) firstRunMessage.text = "Your records are ready to move: paste or scan your invite."
+            // Callers that explain why (an account gone) set their message after this.
+            firstRunMessage.text = if (move.exists) "Your records are ready to move: paste or scan your invite." else ""
         } else {
             firstRun.visibility = View.GONE
             load(url)

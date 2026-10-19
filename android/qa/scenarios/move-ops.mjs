@@ -2,7 +2,8 @@
 // at the bridge: no web UI drives them yet (the web sides are bd med-nt9p.32.15/.18; the user-level
 // end-to-end is bd med-nt9p.32.19). Local mode: shell.ops lists move.stash, the account-only ops are
 // refused, a bad vault is rejected, a stash lands in no_backup/move/vault.json → local.leave → the
-// first run's hint → Only on this device → Start deletes it (an abandoned move) → stash again →
+// first run's hint → Only on this device → Start deletes it (an abandoned move) → local.leave shows
+// no stale hint → Start → stash again →
 // local.leave → the runner's invite → the account: move.stash refused, move.take returns the same
 // string and keeps the file, move.clear deletes it, move.take → null. results.moveOps has the checks.
 // Claims the run's one invite: not in `all` (smoke claims it there), no retry.
@@ -57,8 +58,7 @@ export default async function moveOps(ctx) {
     await ctx.shot(`hint-${label}`);
   };
 
-  await stashAndLeave('first');
-  await ctx.step('Only on this device → Start: the abandoned stash is deleted', async () => {
+  const start = async () => {
     await device.tap({ text: 'Only on this device' });
     await ctx.waitFor({ text: 'Start' });
     await device.tap({ text: 'Start' });
@@ -66,7 +66,20 @@ export default async function moveOps(ctx) {
     if (!page) throw new Error('no WebView page');
     await page.waitForURL((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`), { timeout: 30_000 });
     await ctx.waitLocalReady(page);
+  };
+
+  await stashAndLeave('first');
+  await ctx.step('Only on this device → Start: the abandoned stash is deleted', async () => {
+    await start();
     expect((await stashFiles()) === '', `stash survived local mode: ${await stashFiles()}`);
+  });
+  await ctx.step('local.leave without a stash → first run without the hint', async () => {
+    await call(page, 'local.leave').catch(() => {});
+    await ctx.waitFor({ text: 'Open' }, 20_000);
+    await sleep(1500);
+    const stale = await device.wait({ text: HINT }, { timeout: 1_000 }).then(() => true, () => false);
+    expect(!stale, 'the hint outlived the stash');
+    await start();
   });
 
   await stashAndLeave('second');
