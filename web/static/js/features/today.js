@@ -777,7 +777,7 @@
         if (items.length === 0 && nm && nm.status === 'ok' && nm.value) {
             // The only dose is beyond the lookahead: the user has meds, so no
             // "Add medication" CTA — a repaint tick brings the dose in at 2h.
-            const card = el('div', 'wg-card wg-card--flush');
+            const card = el('div', 'wg-card wg-card--tight');
             card.appendChild(el('p', 'wg-hint', 'Nothing due in the next 2 hours'));
             section.appendChild(card);
             return { node: section, hasPrimary: false };

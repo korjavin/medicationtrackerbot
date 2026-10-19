@@ -31,6 +31,18 @@ describe('Workouts sub-tab strip (Phase 7, Task 2)', () => {
         env = null;
     });
 
+    // med-fk62: the legacy .workout-tab(s) rules (gap, 24px padding, blue
+    // underline) overrode the kit and pushed "Equipment" off a 390px strip.
+    // jsdom has no layout, so pin the stylesheets: no legacy rule styles the
+    // kit strips, and scroll options grow to fill (fit when there is room).
+    it('leaves the strip to the kit .wg-seg--scroll rules', async () => {
+        const fs = await import('node:fs');
+        const read = (f) => fs.readFileSync(new URL(`../../css/${f}`, import.meta.url), 'utf8');
+        const selectors = read('styles.css').match(/[^{}]+(?=\{)/g).join(',');
+        expect(selectors).not.toMatch(/\.(workout|med|health)-tabs?(?![\w-])/);
+        expect(read('components.css')).toContain('.wg-seg--scroll .wg-seg__opt{flex:1 0 auto}');
+    });
+
     it('renders the strip as a kit .wg-seg strip with five .workout-tab buttons', () => {
         const { document } = env;
         const strip = document.querySelector('#workouts-subtabs');

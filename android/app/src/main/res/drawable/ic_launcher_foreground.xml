@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The adaptive layer is 108dp, the launcher mask shows the middle 72dp: a 1/6 inset
+     puts the whole maskable PWA icon in the visible area, its 80% safe circle inside
+     the 66dp safe zone. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/ic_launcher_art"
+    android:inset="16.7%" />

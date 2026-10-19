@@ -163,6 +163,44 @@ describe('cloud shim contract — food products flows (features/food/{products,d
         expect(opts.headers).toMatchObject({ 'X-API-Key': 'test-key' });
     });
 
+    it('CloudFoodSearch.search: remote rows drop all-zero entries, collapse same-nutrition case duplicates, rank name matches first (med-43ma)', async () => {
+        const { window } = env;
+        env.window.__MEDTRACKER_CLOUD__ = true;
+        vi.stubGlobal('document', window.document);
+        await window.apiCall('/api/settings/integrations', 'PATCH', {
+            food: { url: 'https://fooddb.example.test', api_key: 'test-key' }
+        });
+        const row = (name, kcal100g, carbs = 0, protein = 0, fat = 0) => ({ name, barcode: '', kcal100g, carbs, protein, fat });
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+            ok: true,
+            async json() {
+                return { results: [
+                    row('Banana chips', 519, 58, 2, 33),
+                    row('BANANA', 169, 38, 1, 0.3),
+                    row('Banana', 336, 80, 3, 1),
+                    row('Banana', 97, 22, 1, 0.3),
+                    row('Banana', 168, 38, 1, 0.3),
+                    row('Banana', 0),
+                    row('Wana banana', 42, 10),
+                    row('Banana sliced', 0),
+                    row('Banana diet drink', 0, 0.5),
+                ] };
+            }
+        }));
+
+        const results = await window.CloudFoodSearch.search('banana', { remote: true });
+        expect(results.map((p) => [p.name, p.energy_kcal_100g])).toEqual([
+            // BANANA 169 and Banana 168 are one product (the non-caps name
+            // wins); 336 (dried) and 97 (fresh) are different and both stay.
+            ['Banana', 168],
+            ['Banana', 336],
+            ['Banana', 97],
+            ['Banana chips', 519],
+            ['Banana diet drink', 0],
+            ['Wana banana', 42],
+        ]);
+    });
+
     it('decodes HTML entities in an untrusted product name without parsing tags into live DOM', async () => {
         const { window } = env;
         env.window.__MEDTRACKER_CLOUD__ = true;

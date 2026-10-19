@@ -103,7 +103,12 @@
         if (window.WGIcons && typeof window.WGIcons.hydrate === 'function') window.WGIcons.hydrate(page);
         window.ModalManager.register(id, back);
         window.ModalManager.open(id);
-        backBtn.focus();
+        // Focus lands on Back for keyboard/AT users, but a page opened by a tap
+        // or a deeplink must not paint a ring on it (med-5jsn): carry the
+        // opener's focus-visible state over instead of letting WebKit guess.
+        let ring = false;
+        try { ring = !!(returnFocus && returnFocus.matches(':focus-visible')); } catch (_) { /* old engine */ }
+        backBtn.focus({ focusVisible: ring });
 
         return {
             el: page,

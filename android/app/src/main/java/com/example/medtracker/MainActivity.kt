@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
 import android.graphics.Color
+import android.graphics.Paint
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -35,6 +36,7 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.Space
 import android.widget.TextView
 import android.widget.Toast
 import android.window.OnBackInvokedCallback
@@ -259,6 +261,12 @@ class MainActivity : Activity() {
         val w = WebView(this)
         w.settings.javaScriptEnabled = true
         w.settings.domStorageEnabled = true
+        // iOS parity: page text ignores the system font scale (fixed-height chrome would
+        // overflow), pinch-zoom is on instead (no on-screen buttons), and no edge glow.
+        w.settings.textZoom = 100
+        w.settings.builtInZoomControls = true
+        w.settings.displayZoomControls = false
+        w.overScrollMode = View.OVER_SCROLL_NEVER
         if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION)) {
             WebSettingsCompat.setWebAuthenticationSupport(w.settings, WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP)
         }
@@ -288,10 +296,7 @@ class MainActivity : Activity() {
                 "http", "https" -> if (isInside(uri.host) || !request.isForMainFrame) return false
                 "blob", "data", "about" -> return false
             }
-            try {
-                startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE))
-            } catch (e: ActivityNotFoundException) {
-            }
+            openOutside(uri)
             return true
         }
 
@@ -501,7 +506,30 @@ class MainActivity : Activity() {
             button("Open") { open(input.text.toString()) },
             button("Scan QR code") { scan() },
             firstRunMessage,
+            Space(this).apply { minimumHeight = 16.dp },
+            // Store-review footnote (bd med-nt9p.31): word for word as ios/App/App.swift.
+            TextView(this).apply {
+                setTextAppearance(android.R.style.TextAppearance_DeviceDefault_Small)
+                text = "Med Tracker is a personal log, not a medical device, and does not give medical advice. " +
+                    "Talk to your doctor before changing a treatment."
+            },
+            TextView(this).apply {
+                setTextAppearance(android.R.style.TextAppearance_DeviceDefault_Small)
+                text = "Privacy policy"
+                paintFlags = paintFlags or Paint.UNDERLINE_TEXT_FLAG
+                gravity = Gravity.CENTER_VERTICAL
+                minHeight = 48.dp
+                setOnClickListener { openOutside(Uri.parse(PermissionsRationaleActivity.PRIVACY_POLICY)) }
+            },
         )
+    }
+
+    /** The browser (or the link's own app); nothing installed to take it is a silent no-op. */
+    private fun openOutside(uri: Uri) {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE))
+        } catch (e: ActivityNotFoundException) {
+        }
     }
 
     private fun buildError(): View {

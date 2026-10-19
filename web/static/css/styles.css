@@ -811,20 +811,17 @@ h3 {
     letter-spacing: -0.01em;
 }
 
-/* Sub-tabs (medications, workouts, health) */
-.med-tabs,
-.workout-tabs,
-.health-tabs {
+/* Legacy sub-tab look. Meds/Train/Health strips are kit .wg-seg now; this
+   rule's gap/padding/underline overrode the kit and clipped the Train strip
+   (med-fk62). */
+.food-tabs {
     display: flex;
     gap: var(--space-md);
     margin-bottom: var(--space-xl);
     border-bottom: 2px solid var(--hint-color);
 }
 
-.med-tab,
-.workout-tab,
-.food-tab,
-.health-tab {
+.food-tab {
     padding: var(--space-md) var(--space-xl);
     min-height: 44px;
     border: none;
@@ -836,10 +833,7 @@ h3 {
     transition: color 0.15s ease;
 }
 
-.med-tab.active,
-.workout-tab.active,
-.food-tab.active,
-.health-tab.active {
+.food-tab.active {
     color: var(--link-color);
     border-bottom: 3px solid var(--link-color);
 }
@@ -2860,6 +2854,10 @@ body:has(.wg-callbar--dock) .wg-toasts {
    all track the same --wg-* token. */
 .wg-sparkline {
     display: block;
+    /* The SVG carries fixed width/height attributes (150x22); cap it to its
+       container so narrow stat tiles scale it down by its viewBox (med-ghjr). */
+    max-width: 100%;
+    height: auto;
     color: var(--wg-mint-soft);
 }
 .wg-sparkline--sun { color: var(--wg-sun); }
@@ -6964,6 +6962,10 @@ body:has(.wg-callbar--dock) .wg-toasts {
 }
 
 .wg-food-incomplete-nudge__chip {
+    /* Share the row with the dismiss button instead of wrapping it onto a
+       line of its own (med-xs71). */
+    flex: 1 1 0;
+    min-width: 0;
     min-height: 44px;
     padding: var(--space-xs) var(--space-md);
     font-size: var(--font-size-sm);

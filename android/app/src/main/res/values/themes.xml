@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- bd med-nt9p.26: a teal window and splash instead of the theme's white/grey before the
+         first frame. DayNight stays, so colorBackground (the native screens) still follows
+         the system theme; windowBackground does not change it. -->
+    <style name="Theme.MedTracker" parent="@android:style/Theme.DeviceDefault.DayNight">
+        <item name="android:windowBackground">@color/screen</item>
+        <item name="android:windowSplashScreenBackground">@color/screen</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+    </style>
+</resources>

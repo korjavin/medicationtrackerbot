@@ -51,7 +51,7 @@ button.wg-card{width:100%;text-align:left;cursor:pointer;font:inherit;color:inhe
 .wg-pagebar__center{text-align:center;min-width:0}
 .wg-pagebar__crumb{font:600 var(--wg-fs-eyebrow)/1 var(--wg-font-ui);letter-spacing:var(--wg-track-eyebrow);text-transform:uppercase;color:var(--wg-fg-3)}
 .wg-pagebar__title{margin-top:3px;font:500 var(--wg-fs-lg)/1.15 var(--wg-font-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.wg-back{display:inline-flex;align-items:center;gap:2px;height:var(--wg-h-md);padding:0 10px 0 4px;border:0;border-radius:var(--wg-r-md);background:transparent;color:var(--wg-fg-2);font:600 var(--wg-fs-sm) var(--wg-font-ui);cursor:pointer}.wg-back:hover{background:rgba(255,255,255,.06);color:var(--wg-fg-1)}
+.wg-back{display:inline-flex;align-items:center;gap:2px;height:var(--wg-h-md);padding:0 10px 0 4px;border:0;border-radius:var(--wg-r-md);background:transparent;color:var(--wg-fg-2);font:600 var(--wg-fs-sm) var(--wg-font-ui);cursor:pointer}.wg-back:hover{background:rgba(255,255,255,.06);color:var(--wg-fg-1)}.wg-back:focus-visible{outline:0;box-shadow:var(--wg-focus)}
 .wg-subnav{padding:0 16px 10px;flex-shrink:0}
 /* content */
 .wg-content{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:2px 16px 24px;display:flex;flex-direction:column;gap:12px;scrollbar-width:none}
@@ -102,7 +102,7 @@ button.wg-card{width:100%;text-align:left;cursor:pointer;font:inherit;color:inhe
 .wg-seg__opt[aria-pressed=true]{background:var(--wg-raised);box-shadow:var(--wg-sh-raised);color:var(--wg-sun)}
 .wg-seg--accent .wg-seg__opt[aria-pressed=true]{background:var(--wg-sunfill);box-shadow:inset 0 1px 0 rgba(255,255,255,.45),0 1px 0 rgba(0,0,0,.2);color:var(--wg-fg-on-sun)}
 .wg-seg--sm .wg-seg__opt{height:30px;font-size:var(--wg-fs-xs)}
-.wg-seg--scroll{overflow-x:auto;scrollbar-width:none}.wg-seg--scroll .wg-seg__opt{flex:0 0 auto;padding:0 12px}
+.wg-seg--scroll{overflow-x:auto;scrollbar-width:none}.wg-seg--scroll .wg-seg__opt{flex:1 0 auto}
 .wg-picks{display:flex;flex-wrap:wrap;gap:6px}
 .wg-pick{display:inline-flex;align-items:center;justify-content:center;gap:4px;height:var(--wg-h-sm);min-width:44px;padding:0 12px;border-radius:var(--wg-r-sm);border:1px solid var(--wg-line-strong);background:rgba(255,255,255,.04);color:var(--wg-fg-2);font:600 var(--wg-fs-sm)/1 var(--wg-font-mono);cursor:pointer}
 .wg-pick[aria-pressed=true]{background:var(--wg-warn-bg);border-color:rgba(251,189,13,.55);color:var(--wg-sun-soft)}
@@ -243,7 +243,7 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
 .wg-file{display:flex;align-items:center;gap:12px;padding:12px;border-radius:14px;border:1px dashed var(--wg-line-strong);background:rgba(255,255,255,.02);min-width:0}
 .wg-file__icon{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;background:rgba(255,255,255,.06);color:var(--wg-fg-2);flex-shrink:0}
 .wg-file__body{flex:1;min-width:0}
-.wg-file__name{font:500 var(--wg-fs-sm)/1.3 var(--wg-font-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wg-file__name,.wg-file__meta{display:block}.wg-file__name{font:500 var(--wg-fs-sm)/1.3 var(--wg-font-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .wg-file__meta{font:400 var(--wg-fs-xs)/1.4 var(--wg-font-ui);color:var(--wg-fg-3)}
 .wg-file--filled{border-style:solid;border-color:var(--wg-ok-line);background:var(--wg-ok-bg)}.wg-file--filled .wg-file__icon{background:rgba(86,172,138,.25);color:var(--wg-ok-fg)}
 /* empty state */
@@ -365,9 +365,9 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
 
 /* trackers — tile per tracker on Today (TR1); tap = +step / toggle, ⋯ = log sheet */
 .wg-trks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-.wg-trk{position:relative;min-width:0;border-radius:14px;border:1px solid var(--wg-line);background:var(--wg-bg-card-hi)}
+.wg-trk{position:relative;display:flex;flex-direction:column;min-width:0;border-radius:14px;border:1px solid var(--wg-line);background:var(--wg-bg-card-hi)}
 .wg-trk--wide{grid-column:1 / -1}
-.wg-trk__tap{display:flex;flex-direction:column;gap:8px;width:100%;height:100%;min-height:116px;padding:12px;border:0;border-radius:inherit;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;transition:transform var(--wg-dur-fast) var(--wg-ease)}
+.wg-trk__tap{display:flex;flex-direction:column;gap:8px;width:100%;flex:1 1 auto;min-height:116px;padding:12px;border:0;border-radius:inherit;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;transition:transform var(--wg-dur-fast) var(--wg-ease)}
 .wg-trk__tap:active{transform:scale(.98)}.wg-trk__tap:focus-visible{outline:0;box-shadow:var(--wg-focus)}
 .wg-trk__top{display:flex;align-items:center;gap:8px;min-width:0;padding-right:28px}
 .wg-trk__glyph{width:32px;height:32px;flex-shrink:0;display:grid;place-items:center;border-radius:var(--wg-r-sm);border:1px solid var(--wg-line);background:var(--wg-stale-bg);color:var(--wg-fg-2)}
@@ -375,12 +375,12 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
 .wg-trk__name{min-width:0;font:600 var(--wg-fs-sm)/1.25 var(--wg-font-ui);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .wg-trk__val{font:500 22px/1 var(--wg-font-mono);letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .wg-trk__val small{margin-left:4px;font:500 var(--wg-fs-xs) var(--wg-font-ui);letter-spacing:0;color:var(--wg-fg-3)}
-.wg-trk__val--text{font-size:var(--wg-fs-lg);color:var(--wg-fg-2)}
+.wg-trk__val--text{font-size:var(--wg-fs-lg);line-height:1.2;white-space:normal;color:var(--wg-fg-2)}
 .wg-trk__foot{display:flex;align-items:center;justify-content:space-between;gap:6px;min-width:0;margin-top:auto}
 .wg-trk__more{position:absolute;top:0;right:0;width:44px;height:44px;display:grid;place-items:center;border:0;border-radius:0 14px 0 12px;background:transparent;color:var(--wg-fg-3);cursor:pointer}
 .wg-trk__more:hover{color:var(--wg-fg-1)}.wg-trk__more:focus-visible{outline:0;box-shadow:var(--wg-focus)}
 .wg-trk__limit .wg-meter__fill{background:var(--wg-fg-3)}
-.wg-trk__acts{display:flex;gap:6px;padding:0 12px 12px}
+.wg-trk__acts{display:flex;flex-wrap:wrap;gap:6px;padding:0 12px 12px}
 .wg-trk__check{display:flex;align-items:center;gap:8px;margin-top:auto}
 .wg-trk__tick{width:24px;height:24px;flex-shrink:0;display:grid;place-items:center;border-radius:50%;border:2px solid var(--wg-fg-4);color:var(--wg-fg-on-clay)}
 .wg-trk__tick .wg-ico{width:14px;height:14px}.wg-trk__tick .wg-ico svg{stroke-width:2.6}
