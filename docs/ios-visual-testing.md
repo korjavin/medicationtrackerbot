@@ -57,7 +57,17 @@ For a PR that moves UI, or when asked to QA a branch:
 2. **Look at every changed scene yourself** with an image viewer (the Read tool on the PNG). A diff or green probe is not a look. Open the diff PNG and the reference (master) shot beside the new one.
 3. Check **both widths**: 390pt (`iPhone 16e`) and 440pt (`iPhone 17 Pro Max`), not one.
 4. Keyboard scenes (`*-keyboard*`): header visible, focused field above the keyboard, no zoom, list not hidden, sheet still present after clearing.
-5. Look for: clipped or overlapping text, content under the tab bar or home indicator, empty state where the fixture should show data, wrong dark-mode colors, tiny tap targets, charts cut off.
+5. Run the ten heuristics on every shot:
+   1. Header or app bar clipped at the top or under the status bar.
+   2. Horizontal scroll, or a row cut at the right edge (chips, chart legends, long med names).
+   3. Content under the keyboard or home-indicator band; tab bar overlapping content; a sheet's primary button behind the keyboard.
+   4. Page wider than the screen (zoomed): sheet side margins gone.
+   5. Chart wider than its card, overlapping axis labels, legend wrapping onto the plot.
+   6. Text truncated mid-word; two-line labels in single-line chips.
+   7. Touch targets visibly under 44pt (tiny close buttons, chevrons).
+   8. Sheet taller than the screen with no scroll affordance.
+   9. Dialog or toast off-screen or behind the keyboard.
+   10. Empty state where the seeded fixture should show data (seeding or routing bug; file it anyway).
 6. Developer fixing a bug: attach before/after PNGs to the PR. The owner's phone is only for what the Simulator cannot do (Face ID, App Attest, push, camera, Watch data).
 
 ## Filing beads
@@ -67,3 +77,16 @@ For a PR that moves UI, or when asked to QA a branch:
 - Evidence line in the description: `run <id> (<url>), artifact ios-visual, shots/<device>/<scene>.png (+ .json)`. State which probe or what you saw.
 - **One bead per root cause**, not per scene or device: group screenshots that share a cause (same CSS rule, same component).
 - Before filing a probe-only failure, check the known false-positive patterns above and re-run once.
+
+## Needs the owner's device
+
+The Simulator cannot verify these. When a change touches one, finish the Simulator checks first, then **batch** everything into one owner request (TestFlight build plus a short list of what to try), not one ask per bead.
+
+- Real keyboard accessory bar, dictation, third-party keyboards.
+- Microphone and voice input; camera and barcode scan, meal photo.
+- Push notifications (APNs delivery; `simctl push` only injects a payload). Local notifications do work in the Simulator.
+- HealthKit data from Apple Watch (manual Health entries work).
+- Passkeys, Face ID / Touch ID lock, App Attest / DeviceCheck.
+- TestFlight update-in-place path.
+- Backups: iCloud backup and restore, share sheet into real Files/iCloud, storage eviction.
+- Real-device performance.
