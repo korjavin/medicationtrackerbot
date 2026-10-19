@@ -4,6 +4,8 @@ name: iOS
 # (med-2ue): this runs ONLY on ios/, this file, or the web app the build
 # bundles for local mode (bd med-o7zq.4), or by hand. See docs/ios.md.
 # deploy.yml ignores ios/** and this file, so iOS-only merges never redeploy.
+# The `visual` job (Simulator screenshots, bd med-y5xx.3) is opt-in on top:
+# PR label `ios-visual`, or a dispatch with visual=true.
 on:
   push:
     branches: [master]
@@ -15,24 +17,35 @@ on:
       - 'web/domain/**'
   pull_request:
     branches: [master]
+    # labeled: adding `ios-visual` starts the visual job (build skips that event).
+    types: [opened, synchronize, reopened, labeled]
     paths:
       - 'ios/**'
       - '.github/workflows/ios.yml'
       - 'web/static/**'
       - 'web/cloud/**'
       - 'web/domain/**'
+      - 'tests/visual/**'
   # Any branch: spike branches ship to TestFlight from here.
   workflow_dispatch:
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    inputs:
+      visual:
+        description: Simulator screenshots only (skips the build and TestFlight)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
   build:
+    # Not on a visual-only run: a label event, or a visual dispatch (which
+    # must never reach the TestFlight steps).
+    if: github.event.action != 'labeled' && !inputs.visual
+    # Job-level, so a visual run never cancels a build or a TestFlight dispatch.
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: macos-26
     timeout-minutes: 30
     env:
@@ -221,3 +234,133 @@ jobs:
           rm -f "$RUNNER_TEMP/asc_key.p8"
           rm -f "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/$IOS_PROFILE_UUID.mobileprovision" \
                 "$HOME/Library/MobileDevice/Provisioning Profiles/$IOS_PROFILE_UUID.mobileprovision"
+
+  # Visual QA on the Simulator (bd med-y5xx.3, docs/design/ios-visual-testing.md):
+  # every scene of tests/visual/scenes.json on a 390pt and a 440pt iPhone, as
+  # the `ios-visual` artifact. Evidence, not a gate: scene and probe failures
+  # are warnings; the job fails only when a device produced no screenshots.
+  visual:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.visual) ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'ios-visual') &&
+       (github.event.action != 'labeled' || github.event.label.name == 'ios-visual'))
+    concurrency:
+      group: ${{ github.workflow }}-visual-${{ github.ref }}
+      cancel-in-progress: true
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bundle the web app with the QA driver
+        run: QA=1 ios/bundle-web.sh "${{ github.run_number }}"
+
+      - name: Generate Xcode project and build for testing
+        working-directory: ios
+        run: |
+          command -v xcodegen >/dev/null || brew install xcodegen
+          xcodegen generate
+          xcodebuild -version
+          xcodebuild build-for-testing -project MedTracker.xcodeproj -scheme MedTracker \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO | tail -n 30
+          test "${PIPESTATUS[0]}" -eq 0
+
+      - name: Create and boot the simulators
+        run: |
+          xcrun simctl list devicetypes runtimes
+          runtime="$(xcrun simctl list runtimes -j | jq -r '[.runtimes[] | select(.platform == "iOS" and .isAvailable)] | last | .identifier')"
+          echo "runtime: $runtime"
+          # First available type per width: 390pt, then 440pt.
+          pick() { for t in "$@"; do xcrun simctl list devicetypes | grep -qF "$t (" && { echo "$t"; return; }; done; }
+          # The software keyboard, not the Mac's (Simulator.app's setting).
+          defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false
+          : > "$RUNNER_TEMP/devices"
+          for t in "$(pick 'iPhone 16e' 'iPhone 16' 'iPhone 15')" "$(pick 'iPhone 17 Pro Max' 'iPhone 16 Pro Max')"; do
+            [ -n "$t" ] || { echo "::error::no device type for one of the widths"; exit 1; }
+            # The image's own device if it has one (a fresh device's first boot
+            # migrates data for minutes), else a new one.
+            udid="$(xcrun simctl list devices available -j | jq -r --arg rt "$runtime" --arg n "$t" '.devices[$rt][]? | select(.name == $n) | .udid' | head -n 1)"
+            [ -n "$udid" ] || udid="$(xcrun simctl create "QA $t" "$t" "$runtime")"
+            echo "${t// /-}=$udid" >> "$RUNNER_TEMP/devices"
+          done
+          while IFS='=' read -r dev udid; do
+            start=$SECONDS
+            xcrun simctl bootstatus "$udid" -b < /dev/null | tail -n 1
+            echo "$dev booted in $((SECONDS - start))s"
+            xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 --wifiBars 3 --cellularBars 4
+            xcrun simctl ui "$udid" appearance dark
+          done < "$RUNNER_TEMP/devices"
+          cat "$RUNNER_TEMP/devices"
+
+      - name: Run the scenes per device
+        working-directory: ios
+        run: |
+          while IFS='=' read -r dev udid; do
+            echo "::group::$dev"
+            xcodebuild test-without-building -project MedTracker.xcodeproj -scheme MedTracker \
+              -only-testing:MedTrackerUITests -destination "platform=iOS Simulator,id=$udid" \
+              -derivedDataPath build/sim -resultBundlePath "build/$dev.xcresult" < /dev/null \
+              | grep -E ' error: |Added attachment|Test Case|Executed|\*\* TEST'
+            [ "${PIPESTATUS[0]}" -eq 0 ] || echo "::warning::$dev: some scenes failed (see the errors above)"
+            out="$GITHUB_WORKSPACE/shots/$dev"
+            raw="$RUNNER_TEMP/raw-$dev"
+            mkdir -p "$out"
+            xcrun xcresulttool export attachments --path "build/$dev.xcresult" --output-path "$raw" || true
+            # Exported as <uuid>.<ext>; the manifest maps each to its attachment
+            # name plus an _<n>_<uuid> suffix. Only the scenes' <scene>.png /
+            # <scene>.json are kept (not XCTest's own failure attachments).
+            if [ -f "$raw/manifest.json" ]; then
+              jq -r '.[].attachments[] | "\(.exportedFileName)\t\(.suggestedHumanReadableName)"' "$raw/manifest.json" |
+                while IFS=$'\t' read -r file name; do
+                  name="$(echo "$name" | sed -E 's/_[0-9]+_[0-9A-Fa-f-]{36}(\.[a-z]+)$/\1/')"
+                  case "$name" in *.png|*.json) cp "$raw/$file" "$out/$name" ;; esac
+                done
+            fi
+            ls -l "$out"
+            echo "::endgroup::"
+          done < "$RUNNER_TEMP/devices"
+
+      - name: Summary
+        if: always()
+        run: |
+          scenes="$(jq -r '.scenes[].name' tests/visual/scenes.json)"
+          broken=""
+          {
+            echo "## iOS visual QA"
+            echo
+            echo "Artifact \`ios-visual\`: \`shots/<device>/<scene>.png\` plus the probe report \`<scene>.json\`. Evidence only, never a gate."
+            while IFS='=' read -r dev udid; do
+              d="shots/$dev"
+              n="$(find "$d" -name '*.png' 2>/dev/null | wc -l | tr -d ' ')"
+              [ "$n" -gt 0 ] || broken="$broken $dev"
+              echo
+              echo "### $dev ($n PNGs)"
+              echo
+              echo "| scene | png | probes |"
+              echo "|---|---|---|"
+              for s in $scenes; do
+                png=missing; [ -f "$d/$s.png" ] && png=yes
+                [ "$png" = yes ] || echo "::warning title=ios-visual $dev/$s::no screenshot" >&2
+                if [ -f "$d/$s.json" ]; then
+                  probe="$(jq -r '(if .ok then "ok" else ({failed, error} | tojson) end) + (if (.loads // 1) > 1 then " loads=\(.loads)" else "" end)' "$d/$s.json" 2>/dev/null || echo unreadable)"
+                  jq -e '.ok' "$d/$s.json" >/dev/null 2>&1 || echo "::warning title=ios-visual $dev/$s::$probe" >&2
+                elif [[ "$s" == native-* ]]; then probe="(native scene)"
+                else probe="no report"; echo "::warning title=ios-visual $dev/$s::no probe report" >&2
+                fi
+                echo "| $s | $png | \`$probe\` |"
+              done
+            done < "$RUNNER_TEMP/devices"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ ! -s "$RUNNER_TEMP/devices" ] || [ -n "$broken" ]; then
+            echo "::error::no screenshots from:${broken:- any device}"; exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-visual
+          path: shots/
+          retention-days: 90
+          if-no-files-found: warn

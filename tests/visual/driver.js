@@ -23,6 +23,13 @@
     const qa = { scene, done: null, probe };
     window.__wgQA = qa;
     if (!scene) return;
+    // Document loads in this launch (the seed import reloads once): a scene
+    // whose page reloads mid-scene shows loads > 1 (or > 2 right after seeding).
+    let loads = 1;
+    try {
+        loads = Number(window.sessionStorage.getItem('wg-qa-loads') || 0) + 1;
+        window.sessionStorage.setItem('wg-qa-loads', String(loads));
+    } catch (_) { /* no storage: stays 1 */ }
     qa.done = run(scene).catch((e) => publish({ scene, ok: false, error: String((e && e.message) || e) }));
 
     async function run(name) {
@@ -106,6 +113,9 @@
     async function runStep(step) {
         if (step.tab) {
             window.switchTab(step.tab);
+            // The view's own load restores its last sub-tab; a click before it
+            // lands is undone (workouts-stats shot showed Plans).
+            await settle();
         } else if (step.click) {
             await until(() => firstVisible(step.click), STEP_MS, `click ${step.click}`);
             firstVisible(step.click).click();
@@ -113,7 +123,11 @@
             // A DOM id for a native `tap` (XCUITest finds web elements by id)
             // on an element the app renders without one.
             await until(() => firstVisible(step.tag), STEP_MS, `tag ${step.tag}`);
-            firstVisible(step.tag).id = step.id;
+            // WKWebView does not expose DOM ids to XCUITest, so the id is the
+            // accessible name too (the tap step matches either).
+            const el = firstVisible(step.tag);
+            el.id = step.id;
+            el.setAttribute('aria-label', step.id);
         } else if (step.settingsPage) {
             await until(() => window.SettingsView.openSettingsPage(step.settingsPage), STEP_MS, `settings page ${step.settingsPage}`);
         } else {
@@ -169,7 +183,9 @@
             }).map(tag),
             focusUnderKeyboard: !!(focused && vv && rect(focused).bottom > vv.height + vv.offsetTop + 0.5),
             bottomNavCovered: !!(tabbar && rect(tabbar).bottom > window.innerHeight + 0.5),
-            keyboardShown: !!(vv && vv.height < window.innerHeight - 100),
+            // Against the layout viewport: in WKWebView innerHeight shrinks
+            // with the keyboard too (seen on the Simulator, bd med-y5xx.3).
+            keyboardShown: !!(vv && vv.height < document.documentElement.clientHeight - 100),
         };
         const failed = [];
         if (probes.scale !== 1) failed.push('scale');
@@ -184,7 +200,7 @@
     let rev = 0;
     function report(def) {
         const { probes, failed } = probe();
-        return { scene: def.name, ok: failed.length === 0, rev: rev++, failed, probes };
+        return { scene: def.name, ok: failed.length === 0, rev: rev++, loads, failed, probes };
     }
 
     function publish(r) {
@@ -194,8 +210,13 @@
             node.id = 'wg-qa-ready';
             node.setAttribute('role', 'status');
             node.className = 'wg-qa-hidden';
-            document.body.appendChild(node);
         }
+        // WebKit drops everything outside an aria-modal that holds focus
+        // (mt-modal pages, sheets) from the accessibility tree, so XCUITest
+        // would lose the node: keep it inside that modal.
+        const focused = document.activeElement;
+        const host = (focused && focused.closest && focused.closest('[aria-modal="true"]')) || document.body;
+        if (node.parentNode !== host) host.appendChild(node);
         node.setAttribute('aria-label', JSON.stringify(r));
         qa.report = r;
     }

@@ -69,20 +69,21 @@ final class VisualQATests: XCTestCase {
         var failure: String?
         if scene.nativeOnly {
             if !app.buttons.firstMatch.waitForExistence(timeout: 30) { failure = "first-run never showed" }
-        } else if !readyNode(app).waitForExistence(timeout: 30) {
+        } else if !readyNode(app).waitForExistence(timeout: 60) {
             failure = "ready node #wg-qa-ready never appeared"
         }
         if failure == nil { failure = perform(scene.steps, in: app) }
-        Thread.sleep(forTimeInterval: 1) // keyboard and sheet animations settle
-
-        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        let shot = XCTAttachment(screenshot: Self.stableScreenshot())
         shot.name = "\(scene.name).png"
         shot.lifetime = .keepAlways
         add(shot)
         if !scene.nativeOnly {
             let ready = readyNode(app)
             if ready.exists {
-                let report = XCTAttachment(data: Data(ready.label.utf8), uniformTypeIdentifier: "public.json")
+                // WebKit appends the role (", application status") to the label.
+                let label = ready.label
+                let json = label.range(of: "}", options: .backwards).map { String(label[...$0.lowerBound]) } ?? label
+                let report = XCTAttachment(data: Data(json.utf8), uniformTypeIdentifier: "public.json")
                 report.name = "\(scene.name).json"
                 report.lifetime = .keepAlways
                 add(report)
@@ -90,6 +91,21 @@ final class VisualQATests: XCTestCase {
         }
         if let failure { XCTFail("\(scene.name): \(failure)") }
         app.terminate()
+    }
+
+    /// The CI Simulator renders without a GPU: a heavy page can show its
+    /// previous frame for seconds after the DOM (and the probes) moved on, so
+    /// shoot once two screenshots a second apart match (8 s cap).
+    private static func stableScreenshot() -> XCUIScreenshot {
+        Thread.sleep(forTimeInterval: 1) // keyboard and sheet animations settle
+        var last = XCUIScreen.main.screenshot()
+        for _ in 0..<8 {
+            Thread.sleep(forTimeInterval: 1)
+            let next = XCUIScreen.main.screenshot()
+            if next.pngRepresentation == last.pngRepresentation { return next }
+            last = next
+        }
+        return last
     }
 
     /// WKWebView's DOM reaches XCUITest as accessibility elements: the node's
@@ -109,14 +125,30 @@ final class VisualQATests: XCTestCase {
                 let id = selector.hasPrefix("#") ? String(selector.dropFirst()) : selector
                 let placeholder = step["placeholder"] as? String ?? id
                 let el = app.webViews.descendants(matching: .any)
-                    .matching(NSPredicate(format: "identifier == %@ OR placeholderValue == %@", id, placeholder))
+                    // WKWebView leaves identifier empty: the driver's `tag` step
+                    // also makes the id the element's label.
+                    .matching(NSPredicate(format: "identifier == %@ OR label == %@ OR placeholderValue == %@", id, id, placeholder))
                     .firstMatch
                 guard el.waitForExistence(timeout: 10) else { return "no web element \(selector)" }
                 el.tap()
                 field = el
+                dismissKeyboardTip(app)
             } else if let text = step["type"] as? String {
                 (field ?? app).typeText(text)
+                dismissKeyboardTip(app) // it can also come up mid-typing
                 typed = true
+                // The field's AX value lags the keystrokes: poll before failing.
+                // (An XCTNSPredicateExpectation on `value` never matched and
+                // stalled for minutes on CI.)
+                if let field {
+                    var shown = ""
+                    for _ in 0..<10 {
+                        shown = field.value as? String ?? ""
+                        if shown.contains(text) { break }
+                        Thread.sleep(forTimeInterval: 0.3)
+                    }
+                    if !shown.contains(text) { return "typed \"\(text)\" but the field shows \"\(shown)\"" }
+                }
             } else if step["clear"] as? Bool == true {
                 guard let field else { return "clear without a tapped field" }
                 let count = max((field.value as? String)?.count ?? 0, 32)
@@ -139,5 +171,13 @@ final class VisualQATests: XCTestCase {
             return "the software keyboard never appeared (hardware keyboard connected?)"
         }
         return nil
+    }
+
+    /// A device's first keyboard opens under the slide-to-type tip (seen on
+    /// both CI Simulators, on tap or mid-typing; ContinuousPath defaults did not suppress it).
+    private func dismissKeyboardTip(_ app: XCUIApplication) {
+        guard app.keyboards.firstMatch.waitForExistence(timeout: 3) else { return }
+        let tip = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Speed up your typing'")).firstMatch
+        if tip.waitForExistence(timeout: 1) { app.buttons["Continue"].firstMatch.tap() }
     }
 }
