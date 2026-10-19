@@ -76,6 +76,7 @@ describe('cloud shim contract — weight flows (features/weight.js over web/doma
     });
 
     afterEach(() => {
+        vi.useRealTimers();
         env.cleanup();
         env = null;
     });
@@ -271,6 +272,10 @@ describe('cloud shim contract — weight flows (features/weight.js over web/doma
     // (the same GET /api/gamification/goal-line Today renders), not lifetime
     // highest + latest raw reading; the frontend-regression prognosis is gone.
     it('goal card renders the Goal Line distance/progress; prognosis stays hidden on a preliminary line', async () => {
+        // Pinned midday UTC: the Goal Line buckets readings by day, so the
+        // window must not depend on the wall-clock time the suite runs at.
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-09-05T12:00:00Z'));
         const now = Date.now();
         const ago = (days) => new Date(now - days * 24 * 60 * 60 * 1000 - 3600000).toISOString();
         const w = (id, days, weight) => ({ recordId: id, clientTs: 1, deleted: false, measured_at: ago(days), weight, weight_trend: weight, body_fat: null, muscle_mass: null, notes: '' });
@@ -301,6 +306,10 @@ describe('cloud shim contract — weight flows (features/weight.js over web/doma
     // Goal Line payload — a date with a ± weeks range, or "more than a year",
     // or nothing at all.
     it('prognosis card shows the projected date ± weeks, "more than a year", or stays hidden', async () => {
+        // Pinned midday UTC: the Goal Line buckets readings by day, so the
+        // window must not depend on the wall-clock time the suite runs at.
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-09-05T12:00:00Z'));
         const now = Date.now();
         const ago = (days) => new Date(now - days * 24 * 60 * 60 * 1000 - 3600000).toISOString();
         const seed = (perDay, target) => ({
