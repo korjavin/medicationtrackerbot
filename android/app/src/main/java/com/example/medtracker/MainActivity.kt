@@ -153,6 +153,8 @@ class MainActivity : Activity() {
     private val attest by lazy { Attest(this) }
     /** The local → cloud move's stash (bd med-nt9p.32.17): no-backup app storage, see Move.kt. */
     private val move by lazy { Move(File(noBackupFilesDir, "move")) }
+    /** The account → local leave stash (bd med-o7zq.36.3): the same class, its own no-backup dir. */
+    private val leave by lazy { Move(File(noBackupFilesDir, "leave")) }
 
     private val back = OnBackInvokedCallback { if (localIntro.visibility == View.VISIBLE) showIntro(false) else web.goBack() }
     private var backRegistered = false
@@ -285,6 +287,7 @@ class MainActivity : Activity() {
             return
         }
         if (h != host) Notifications.clear(this)
+        leave.clear() // opening an account abandons a pending leave stash; the next leave stashes afresh
         prefs.edit().putString(HOST_KEY, h).apply()
         host = h
         input.setText("")
@@ -537,6 +540,21 @@ class MainActivity : Activity() {
      * {id, result} or {id, error}. Capability ops (native/ android platform,
      * med-nt9p.6) add cases here.
      */
+    private fun stash(m: Move, msg: JSONObject, answer: (Any?, String?) -> Unit) = try {
+        m.stash(msg.optJSONObject("args")?.opt("vault"))
+        answer(true, null)
+    } catch (e: Move.Failure) {
+        answer(null, e.message)
+    } catch (e: IOException) {
+        answer(null, "write failed")
+    }
+
+    private fun take(m: Move, answer: (Any?, String?) -> Unit) = try {
+        answer(m.take()?.let { JSONObject().put("vault", it) } ?: JSONObject.NULL, null)
+    } catch (e: IOException) {
+        answer(null, "read failed")
+    }
+
     private fun onBridge(data: String?, origin: Uri, isMainFrame: Boolean, reply: (String) -> Unit) {
         val msg = runCatching { JSONObject(data ?: "") }.getOrNull() ?: return
         val id = msg.opt("id")
@@ -582,29 +600,27 @@ class MainActivity : Activity() {
             "local.reset" -> {
                 prefs.edit().remove(LocalOrigin.HOSTS_KEY).apply()
                 move.clear()
+                leave.clear()
                 Notifications.clear(this)
                 answer(true)
             }
             // Local → cloud move (bd med-nt9p.32.17): the vault v1 JSON for the next account to pick up.
             // Errors never carry the contents or the path.
             // ponytail: synchronous file I/O on the main thread; move it off-thread if a 64 MB vault ever janks.
-            "move.stash" -> try {
-                move.stash(msg.optJSONObject("args")?.opt("vault"))
-                answer(true)
-            } catch (e: Move.Failure) {
-                answer(null, e.message)
-            } catch (e: IOException) {
-                answer(null, "write failed")
-            }
+            "move.stash" -> stash(move, msg) { r, e -> answer(r, e) }
             // The account side: {vault} or null. Not deleted here: the page clears it once imported,
             // so a failed import retries on the next open.
-            "move.take" -> try {
-                answer(move.take()?.let { JSONObject().put("vault", it) } ?: JSONObject.NULL)
-            } catch (e: IOException) {
-                answer(null, "read failed")
-            }
+            "move.take" -> take(move) { r, e -> answer(r, e) }
             "move.clear" -> {
                 move.clear()
+                answer(true)
+            }
+            // Account → local leave (bd med-o7zq.36.3): the mirror image, same contract, the "leave" dir.
+            // Entering local mode (setLocal/forget) deliberately keeps it; open() and local.reset delete it.
+            "leave.stash" -> stash(leave, msg) { r, e -> answer(r, e) }
+            "leave.take" -> take(leave) { r, e -> answer(r, e) }
+            "leave.clear" -> {
+                leave.clear()
                 answer(true)
             }
             // Settings → Backup → Move to a cloud account: the first run, as Switch account; the data stays.

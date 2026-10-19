@@ -76,12 +76,12 @@ class LocalOriginTest {
         assertFalse(LocalOrigin.bridgeCaller(true, "http", acct, acct))
         assertFalse(LocalOrigin.bridgeCaller(true, "https", null, null))
         assertFalse(LocalOrigin.bridgeCaller(true, "https", "other.example.org", acct))
-        for (op in listOf("setEgressHosts", "local.reset", "local.leave", "attest.status", "attest.enroll", "attest.setPass", "attest.assert", "lock.status", "lock.set", "move.stash")) {
+        for (op in listOf("setEgressHosts", "local.reset", "local.leave", "attest.status", "attest.enroll", "attest.setPass", "attest.assert", "lock.status", "lock.set", "move.stash", "leave.take", "leave.clear")) {
             assertFalse(op, LocalOrigin.opAllowed(op, local = false))
             assertTrue(op, LocalOrigin.opAllowed(op, local = true))
         }
         // account.leave (bd med-nt9p.32.13) and the move's pickup (bd med-nt9p.32.17): account mode only.
-        for (op in listOf("account.leave", "move.take", "move.clear")) {
+        for (op in listOf("account.leave", "move.take", "move.clear", "leave.stash")) {
             assertTrue(op, LocalOrigin.opAllowed(op, local = false))
             assertFalse(op, LocalOrigin.opAllowed(op, local = true))
         }
@@ -100,9 +100,13 @@ class LocalOriginTest {
         assertTrue(account.containsAll(listOf("move.take", "move.clear")))
         assertFalse(account.contains("local.leave"))
         assertFalse(account.contains("move.stash"))
+        assertTrue(account.contains("leave.stash"))
+        assertFalse(account.contains("leave.take") || account.contains("leave.clear"))
         assertTrue(local.containsAll(listOf("ping", "shell.ops", "local.leave", "lock.set", "attest.assert", "move.stash")))
         assertFalse(local.contains("account.leave"))
         assertFalse(local.contains("move.take") || local.contains("move.clear"))
+        assertTrue(local.containsAll(listOf("leave.take", "leave.clear")))
+        assertFalse(local.contains("leave.stash"))
         for (op in account) assertTrue(op, LocalOrigin.opAllowed(op, local = false))
         for (op in local) assertTrue(op, LocalOrigin.opAllowed(op, local = true))
     }
