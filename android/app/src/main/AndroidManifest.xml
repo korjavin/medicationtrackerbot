@@ -34,7 +34,9 @@
         android:label="Med Tracker"
         android:allowBackup="false"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.DeviceDefault.DayNight"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:theme="@style/Theme.MedTracker"
         android:enableOnBackInvokedCallback="true">
         <!-- enableOnBackInvokedCallback: without it Android 14/15 refuse MainActivity's
              OnBackInvokedCallback and Back leaves the app from any page or sheet. -->
