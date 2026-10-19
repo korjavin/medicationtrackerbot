@@ -3,10 +3,9 @@
 // → pm clear → bmgr restore, once per rule section (cloud backup, device transfer). PASS = the
 // local marker is back AND nothing of the account origin, Local Storage or any prefs file but
 // wg_trial.xml is in the backup set or the restored data dir.
-// Local data comes from the debug LocalSpikeActivity (the same asset origin the shell's local mode
-// uses) until the real local mode (bd med-nt9p.32.4) lands. Not in `all`: it ends with pm clear.
+// Local data comes from the bundled local app (bd med-nt9p.32.2, the debug-only wgLocalApp launch
+// extra) until the shell's local-mode switch (bd med-nt9p.32.4) lands. Not in `all`: it ends with pm clear.
 
-const LOCAL_ACTIVITY = 'com.example.medtracker.LocalSpikeActivity';
 const MARK = `qa-backup-${Date.now()}`;
 const LOCAL_DIR = 'https_appassets.androidplatform.net_0.indexeddb.leveldb';
 // What may exist after pm clear + restore: an allowlist, so any stray store fails (fail closed).
@@ -54,17 +53,13 @@ export default async function localBackup(ctx) {
   const local = async () => {
     await shell(`am force-stop ${pkg}`);
     await ctx.sleep(2000); // the dead process's devtools socket must go before attaching
-    await shell(`am start -W -n ${pkg}/${LOCAL_ACTIVITY}`);
+    await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity --ez wgLocalApp true`);
     const page = await ctx.attachPage();
     if (!page || !page.url().startsWith('https://appassets.androidplatform.net/')) throw new Error(`not on the local origin: ${page?.url()}`);
-    // The spike page reloads itself once (its check 13): wait for its report before touching it.
-    const end = Date.now() + 90_000;
-    while (Date.now() < end) {
-      const st = await page.evaluate(() => document.getElementById('status')?.textContent || '').catch(() => '');
-      if (/Automatic checks done/.test(st)) return page;
-      await ctx.sleep(1000);
-    }
-    throw new Error('local page never finished loading');
+    // The bundled app has opened its own IndexedDB (localdb) by then: same leveldb dir as the marker.
+    await page.waitForFunction(() => window.MedTrackerCloudReady, null, { timeout: 60_000 });
+    await page.evaluate(() => window.MedTrackerCloudReady);
+    return page;
   };
 
   for (const [mode, params] of MODES) {

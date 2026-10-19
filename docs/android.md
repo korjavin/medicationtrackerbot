@@ -811,14 +811,17 @@ encryption (screen lock) and **silently skips an app over 25 MB**; a
 device-to-device transfer has no cap. The weekly export nudge stays.
 
 **Emulator proof** — QA scenario `local-backup` (not in `all`, it ends with
-`pm clear`): a cloud session writes an IndexedDB db + Local Storage key on the
-account origin (prefs too), the local origin writes a marker →
-`bmgr backupnow` on the local transport → the backup set's tar entries and a
-grep for the account host / `Local Storage` / `shell.xml` / `diag.xml` →
-`pm clear` → `bmgr restore` → the restored data dir must hold only the
-included paths → the local marker reads back. Local data comes from the debug
-*Local spike* page on the same origin until shell local mode (bd
-med-nt9p.32.4) lands.
+`pm clear`), run once per rule section (local transport with
+`is_encrypted=true` = cloud backup, `is_device_transfer=true` = D2D): a cloud
+session writes an IndexedDB db + Local Storage key on the account origin (the
+shell writes its prefs), the bundled local app (`--ez wgLocalApp true`)
+writes a marker on the local origin; the scenario checks all of these exist,
+then `bmgr backupnow` → the backup set (the transport's tar under
+`com.android.localtransport/files/1/_full/<pkg>`): every tar entry on the
+include list, no hit of the account host / `Local Storage` / `Cookies` / the
+prefs file names → `pm clear` → `bmgr restore` → the restored data dir holds
+only included paths (allowlist; empty standard dirs only) → the local marker
+reads back. Fail closed: an unreadable set or a missing store fails.
 
 ```bash
 gh workflow run android-qa.yml --ref <branch> -f scenario=local-backup
