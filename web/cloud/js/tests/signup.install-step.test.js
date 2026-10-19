@@ -217,3 +217,58 @@ describe('install step: Android', () => {
     await vi.waitFor(() => expect(globalThis.location.href).toBe('/'));
   });
 });
+
+// bd med-w6sx: with an operator trial key (the medtracker-trial-ai meta, which
+// cmd/cloud now injects into the shell too) the free AI trial is offered right
+// after Telegram, before install. The shell cannot persist consent — that is
+// vault data — so it records the choice for the app's first open
+// (firstrun/index.js asks the real `ai` consent then).
+describe('trial step (after Telegram)', () => {
+  let stored;
+  beforeEach(() => {
+    stored = new Map();
+    globalThis.localStorage = {
+      getItem: (k) => (stored.has(k) ? stored.get(k) : null),
+      setItem: (k, v) => stored.set(k, String(v)),
+    };
+    mobile = false; // land straight in the app after the step
+  });
+  afterEach(() => { delete globalThis.localStorage; });
+
+  function withTrialMeta() {
+    const meta = dom.window.document.createElement('meta');
+    meta.name = 'medtracker-trial-ai';
+    meta.content = '1';
+    dom.window.document.head.appendChild(meta);
+  }
+
+  it('is skipped without the trial meta — Telegram leads straight on', async () => {
+    const app = await reachInstallStep();
+    await vi.waitFor(() => expect(globalThis.location.href).toBe('/'));
+    expect(app.querySelector('#trial-try')).toBeNull();
+    expect(stored.size).toBe(0);
+  });
+
+  it('offers trial, own keys and skip, and says consent comes when the app opens', async () => {
+    withTrialMeta();
+    const app = await reachInstallStep();
+    await vi.waitFor(() => expect(app.querySelector('#trial-try')).not.toBeNull());
+    expect(app.querySelector('h1').textContent).toBe('Try the AI features for free');
+    expect(app.querySelector('#trial-try').className).toContain('wg-btn--primary');
+    expect(app.querySelector('#trial-own-keys')).not.toBeNull();
+    expect(app.querySelector('#trial-skip')).not.toBeNull();
+    expect(app.textContent).toContain('when the app opens, it shows exactly what the trial sends');
+    expect(globalThis.location.href).toBe('');
+  });
+
+  for (const [id, choice] of [['#trial-try', 'trial'], ['#trial-own-keys', 'own-keys'], ['#trial-skip', 'skip']]) {
+    it(`${id} records "${choice}" for the app and moves on`, async () => {
+      withTrialMeta();
+      const app = await reachInstallStep();
+      await vi.waitFor(() => expect(app.querySelector(id)).not.toBeNull());
+      app.querySelector(id).click();
+      await vi.waitFor(() => expect(globalThis.location.href).toBe('/'));
+      expect(stored.get('wg-onboarding-trial-choice')).toBe(choice);
+    });
+  }
+});

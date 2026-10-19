@@ -39,6 +39,7 @@ type Handler struct {
 	app        http.Handler // web/static assets, mounted under /static/
 	domain     http.Handler // web/domain modules, mounted under /domain/
 	appIndex   []byte       // web/static/index.html, served at "/" on subdomains
+	shellIndex []byte       // web/cloud/signup.html (+ trial-AI meta), served at the shell's explicit paths
 	buildID    string       // asset fingerprint lifted out of appIndex; see version.go
 	api        http.Handler
 	mcp        http.Handler // Task 2: hosted-remote streamable-HTTP MCP endpoint, mounted at "/mcp/<token>"; nil until SetMCPHandler is called
@@ -78,6 +79,9 @@ func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, doma
 	if err != nil {
 		panic("cloudserver: shellFS missing index.html: " + err.Error())
 	}
+	// Absent only in test fixtures that never hit the shell paths; nil falls
+	// back to the file server there.
+	signup, _ := fs.ReadFile(shellFS, "signup.html")
 	buildID := buildIDFrom(idx)
 	return &Handler{
 		baseDomain: baseDomain,
@@ -86,6 +90,7 @@ func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, doma
 		app:        http.StripPrefix("/static/", http.FileServerFS(appFS)),
 		domain:     http.StripPrefix("/domain/", http.FileServerFS(domainFS)),
 		appIndex:   injectCloudBoot(idx, foodDBURL, trialAI, trialVoice, buildID),
+		shellIndex: injectShellTrial(signup, trialAI),
 		buildID:    buildID,
 		api:        api,
 		landingRaw: landing,
@@ -168,6 +173,17 @@ func (h *Handler) SetFeedbackReader(reader http.Handler) {
 // /readyz can report which build answered without a second source of truth.
 func (h *Handler) BuildID() string {
 	return h.buildID
+}
+
+// injectShellTrial gives the passkey shell the same boolean trial-AI <meta> as
+// the app document, so the claim wizard can offer the free trial next to the
+// Telegram step (bd med-w6sx). A shell without <head> (test fixtures) is served
+// unchanged.
+func injectShellTrial(signup []byte, trialAI bool) []byte {
+	if !trialAI || signup == nil {
+		return signup
+	}
+	return bytes.Replace(signup, []byte("<head>"), []byte("<head>\n<meta name=\"medtracker-trial-ai\" content=\"1\">"), 1)
 }
 
 // injectCloudBoot splices the operator's default food-DB URL (as a
@@ -464,8 +480,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/unlock" || r.URL.Path == "/claim" || r.URL.Path == "/recover" ||
 		r.URL.Path == "/devices" || r.URL.Path == "/connectors":
 		noStore(w)
-		r.URL.Path = "/signup.html"
-		h.shell.ServeHTTP(w, r)
+		if h.shellIndex == nil {
+			r.URL.Path = "/signup.html"
+			h.shell.ServeHTTP(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(h.shellIndex)
 		return
 	case r.URL.Path == "/":
 		// The app document holds the in-memory DEK + decrypted records; scope its

@@ -32,6 +32,8 @@ function loadFlow({
     trialAi = false,
     localTrial = null,
     trialConsent = null,
+    wizardChoice = null,
+    apiCall = null,
 } = {}) {
     const dom = new JSDOM(SHELL_HTML, {
         url: 'https://example.test/',
@@ -57,6 +59,9 @@ function loadFlow({
     // the real ones end to end).
     if (localTrial) window.CloudVault = { trial: localTrial };
     if (trialConsent) window.TrialConsent = trialConsent;
+    // bd med-w6sx: the claim wizard's trial step (web/cloud/js/signup.js).
+    if (wizardChoice) window.localStorage.setItem('wg-onboarding-trial-choice', wizardChoice);
+    if (apiCall) window.apiCall = apiCall;
 
     for (const file of [STATE_JS, WELCOME_JS, INTEGRATIONS_JS, DONE_JS, INDEX_JS]) {
         const src = fs.readFileSync(file, 'utf8');
@@ -514,6 +519,71 @@ describe('firstrun integrations screen in cloud mode with an operator trial', ()
             expect(document.querySelector('[data-firstrun-form-error="trial"]').textContent).toMatch(/Couldn’t start/);
             document.querySelector('[data-firstrun-action="skip"]').click();
             expect(window.WGFirstRun.state.getStep()).toBe('done');
+        } finally { cleanup(); }
+    });
+
+    // bd med-w6sx: the claim wizard asked trial-or-keys next to Telegram; the
+    // consent itself is vault data, so it completes here, on the app's first open.
+    it('a wizard "Try the free trial" asks the ai consent as soon as the overlay mounts, once', async () => {
+        const consent = { request: vi.fn(async () => true) };
+        const { window, cleanup } = loadFlow({
+            bootstrap: { needs_first_run: true }, cloud: true, trialAi: true, trialConsent: consent,
+            wizardChoice: 'trial', initialStep: 'welcome',
+        });
+        try {
+            window.WGFirstRun.mount();
+            await settle();
+            expect(consent.request).toHaveBeenCalledTimes(1);
+            expect(consent.request).toHaveBeenCalledWith('ai');
+            expect(window.localStorage.getItem('wg-onboarding-trial-choice')).toBe('trial-asked');
+            window.WGFirstRun.dismiss();
+            window.WGFirstRun.mount();
+            await settle();
+            expect(consent.request).toHaveBeenCalledTimes(1);
+        } finally { cleanup(); }
+    });
+
+    for (const choice of ['own-keys', 'skip']) {
+        it(`a wizard "${choice}" pops nothing up and the step opens on the key form`, async () => {
+            const consent = { request: vi.fn(async () => true) };
+            const { window, document, cleanup } = loadFlow({
+                bootstrap: { needs_first_run: true }, cloud: true, trialAi: true, trialConsent: consent,
+                wizardChoice: choice,
+            });
+            try {
+                window.WGFirstRun.mount();
+                await settle();
+                expect(consent.request).not.toHaveBeenCalled();
+                expect(document.querySelector('[data-firstrun-action="trial"]')).toBeNull();
+                expect(document.getElementById('wg-firstrun-openai-api-key')).not.toBeNull();
+            } finally { cleanup(); }
+        });
+    }
+
+    it('skips the step once the ai consent is granted (here or on another device)', async () => {
+        const apiCall = vi.fn(async (url, method) => (url === '/api/settings/trial-consent' && method === 'GET'
+            ? { ai: true, voice: null, tg: null, anon: null, updated_at: 1 } : null));
+        const { window, document, cleanup } = loadFlow({
+            bootstrap: { needs_first_run: true }, cloud: true, trialAi: true, apiCall,
+        });
+        try {
+            window.WGFirstRun.mount();
+            await settle();
+            expect(window.WGFirstRun.state.getStep()).toBe('done');
+            expect(document.querySelector('[data-firstrun-action="trial"]')).toBeNull();
+        } finally { cleanup(); }
+    });
+
+    it('keeps the trial choice while the consent is still open', async () => {
+        const apiCall = vi.fn(async () => ({ ai: null, voice: null, tg: null, anon: null, updated_at: 0 }));
+        const { window, document, cleanup } = loadFlow({
+            bootstrap: { needs_first_run: true }, cloud: true, trialAi: true, apiCall,
+        });
+        try {
+            window.WGFirstRun.mount();
+            await settle();
+            expect(window.WGFirstRun.state.getStep()).toBe('integrations');
+            expect(document.querySelector('[data-firstrun-action="trial"]')).not.toBeNull();
         } finally { cleanup(); }
     });
 });

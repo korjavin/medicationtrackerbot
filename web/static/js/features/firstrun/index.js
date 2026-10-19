@@ -42,6 +42,8 @@
     const FALLBACK_STEPS = ['welcome', 'features', 'integrations', 'done'];
     const BODY_ID = 'wg-firstrun-overlay-body';
     const COMPLETE_URL = '/api/firstrun/complete';
+    // Written by the claim wizard (web/cloud/js/signup.js TRIAL_CHOICE_KEY).
+    const TRIAL_CHOICE_KEY = 'wg-onboarding-trial-choice';
 
     // Module-local mount latch. The architecture's "no module state"
     // posture allows this because it is a render guard, not domain data:
@@ -244,6 +246,22 @@
         // therefore re-mounts directly at the last-visible step rather
         // than restarting from welcome.
         _renderCurrentStep();
+        _askPendingTrial();
+    }
+
+    // bd med-w6sx: the claim wizard's "Try the free trial" (web/cloud/js/signup.js
+    // renderTrialStep) only records the choice — the consent record is vault
+    // data. Its second half is this: the real `ai` disclosure, the moment the app
+    // first opens. Asked once ('trial-asked'), whatever the answer;
+    // screens/integrations.js reads the same key to skip its own trial choice.
+    function _askPendingTrial() {
+        let choice = null;
+        try { choice = window.localStorage.getItem(TRIAL_CHOICE_KEY); } catch (_) { /* storage blocked */ }
+        if (choice !== 'trial') return;
+        if (document.querySelector('meta[name="medtracker-trial-ai"]')?.content !== '1') return;
+        if (!window.TrialConsent || typeof window.TrialConsent.request !== 'function') return;
+        try { window.localStorage.setItem(TRIAL_CHOICE_KEY, 'trial-asked'); } catch (_) { /* storage blocked */ }
+        window.TrialConsent.request('ai');
     }
 
     function dismiss() {
