@@ -267,6 +267,30 @@
             return;
         }
 
+        await restoreVault(json);
+    }
+
+    // The one restore pipeline (bd med-nt9p.32.18): the Restore button above
+    // and the local → cloud move pickup (web/cloud/js/cloud-boot.js) both call
+    // it, and the account → local move may too.
+    //
+    //   restoreVault(json, { source = 'file', beforeReload } = {})
+    //     → Promise<{ imported: boolean }>   (cancel and failure resolve, not reject)
+    //
+    // `json` is the vault v1 JSON string. `source` picks the copy: 'move'
+    // (the shell's move stash) has its own; anything else ('file', the
+    // Restore button) gets the backup-file copy. Asks the typed replace
+    // confirm unless the account is provably empty, replaces the vault through
+    // CloudVault.importAll, says when it is not uploaded yet, then awaits
+    // `beforeReload` (optional async hook; a throw is logged and the reload
+    // still happens, the import already did) and reloads the page.
+    // { imported: true } = replaced and reloading. { imported: false } = the
+    // user cancelled or the import failed: already told the user, nothing
+    // replaced, beforeReload not called.
+    async function restoreVault(json, { source = 'file', beforeReload } = {}) {
+        const move = source === 'move';
+        const device = window.LocalNotifications?.copy?.device || 'iPhone';
+        importInFlight = true;
         // Typed confirm (kit S3): the confirm button stays disabled until the
         // phrase matches, so a stray tap can't wipe the vault.
         // Nothing to replace (probe says exactly `false`) → no confirm. Any other
@@ -275,13 +299,24 @@
         try { empty = (await window.CloudVault.hasUserContent?.()) === false; } catch { /* fail closed */ }
         const local = document.documentElement.classList.contains('wg-local-vault');
         const confirmed = empty || await safeConfirm(
-            local
-                ? `Everything stored on this ${window.LocalNotifications?.copy?.device || 'iPhone'} is replaced by this backup. This cannot be undone.`
+            move
+                ? `Your records from this ${device} replace everything stored in this account, on every device. This cannot be undone.`
+                : local
+                ? `Everything stored on this ${device} is replaced by this backup. This cannot be undone.`
                 : 'Everything stored now is replaced by this backup, on every device. This cannot be undone.',
             null,
             { title: 'Replace all your data?', confirmLabel: 'Replace my data', destructive: true, typedConfirm: REPLACE_PHRASE }
         );
-        if (!confirmed) { importInFlight = false; return; }
+        if (!confirmed) {
+            importInFlight = false;
+            if (move) {
+                await safeAlert(
+                    `Nothing was replaced. Your records stay on this ${device}, and the app asks again the next time you open it. To move them by hand instead, export a backup in Settings → Backup & import on this ${device} without an account, then restore that file here.`,
+                    { title: 'Records not moved' }
+                );
+            }
+            return { imported: false };
+        }
 
         setImportBusy(true);
         try {
@@ -295,19 +330,32 @@
             const why = result && NOT_UPLOADED[result.upload];
             if (why) {
                 await safeAlert(
-                    `Your backup is restored on this device, but it is not in your account yet. ${why} Keep the backup file, and any other copy of your records, until your account shows them on another device.`,
+                    move
+                        ? `Your records are in this account on this ${device}, but not uploaded yet. ${why} They also stay on this ${device} without an account until you erase them there.`
+                        : `Your backup is restored on this device, but it is not in your account yet. ${why} Keep the backup file, and any other copy of your records, until your account shows them on another device.`,
                     { title: 'Not uploaded yet' }
                 );
             }
-            // Full refresh so every section re-renders from the restored vault
-            // (simplest correct path — same as post-bootstrap reload).
-            location.reload();
-            return;
         } catch (e) {
             console.error('Import failed:', e);
             setImportBusy(false);
-            safeToast(e.message || 'Import failed', 'error');
+            if (move) {
+                await safeAlert(
+                    `${e.message || 'Import failed'} Your records stay on this ${device}, and the app tries again the next time you open it.`,
+                    { title: 'Records not moved yet' }
+                );
+            } else {
+                safeToast(e.message || 'Import failed', 'error');
+            }
+            return { imported: false };
         }
+        if (beforeReload) {
+            try { await beforeReload(); } catch (e) { console.error('restoreVault: beforeReload failed', e); }
+        }
+        // Full refresh so every section re-renders from the restored vault
+        // (simplest correct path — same as post-bootstrap reload).
+        location.reload();
+        return { imported: true };
     }
 
     function toast(message, type) {
@@ -462,6 +510,7 @@
         load: () => { bindControls(); },
         export: doExport,
         import: doImport,
+        restoreVault,
         importNxk: doNxkImport,
         resetSync: doResetSync,
         refreshUnopenableNote
