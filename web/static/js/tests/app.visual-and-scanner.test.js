@@ -322,6 +322,29 @@ describe('app.js charts, scanner and visualization helpers', () => {
     }
   });
 
+  it('loadHealthOverview shows the offline copy on a network failure even while navigator.onLine is true (med-z075)', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+
+    try {
+      Object.defineProperty(window.navigator, 'onLine', { value: true, configurable: true });
+      window.DataStore.loadSWR = vi.fn(async ({ onError }) => {
+        await onError(new TypeError('Failed to fetch'), null);
+        return { cached: null, fresh: null };
+      });
+
+      await window.loadHealthOverview();
+      expect(document.getElementById('health-overview-content').textContent).toContain('No cached data');
+
+      document.documentElement.classList.add('wg-local-vault');
+      await window.loadHealthOverview();
+      const text = document.getElementById('health-overview-content').textContent;
+      expect(text).toContain('Nothing to show yet');
+      expect(text).not.toContain('No cached data');
+    } finally {
+      cleanup();
+    }
+  });
+
   it('loadHealthOverview renders error and chart sections from fetched data', async () => {
     vi.useFakeTimers();
     const { window, document, cleanup } = loadFrontendEnv();

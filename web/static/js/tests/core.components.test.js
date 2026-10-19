@@ -92,6 +92,23 @@ describe('createEmptyState / createOfflineEmptyState / createErrorState / create
         }
     });
 
+    it('a network/5xx failure passed as reason shows the offline copy while navigator.onLine is true (med-z075)', () => {
+        const { window, cleanup } = loadComponents();
+        try {
+            const title = (el) => el.querySelector('.wg-empty__title').textContent;
+            // Captive portal / server down: the browser still says online.
+            expect(title(window.createOfflineEmptyState({ reason: new TypeError('Failed to fetch') }))).toBe('No cached data yet');
+            expect(title(window.createOfflineEmptyState({ reason: { status: 503, message: 'Service Unavailable' } }))).toBe('No cached data yet');
+            // A non-network failure (domain/programmer error) stays neutral.
+            expect(title(window.createOfflineEmptyState({ reason: new Error('vault locked') }))).toBe('Nothing to show yet');
+            // Device-only mode never says "back online", whatever the reason.
+            window.document.documentElement.classList.add('wg-local-vault');
+            expect(title(window.createOfflineEmptyState({ reason: new TypeError('Failed to fetch') }))).toBe('Nothing to show yet');
+        } finally {
+            cleanup();
+        }
+    });
+
     it('createErrorState renders .wg-error with an optional Retry', () => {
         const { window, cleanup } = loadComponents();
         try {

@@ -393,8 +393,8 @@ function renderHealthOverviewContent(content, data) {
     content.appendChild(disclaimer);
 }
 
-function renderHealthOverviewError(content) {
-    content.replaceChildren(createOfflineEmptyState());
+function renderHealthOverviewError(content, reason) {
+    content.replaceChildren(createOfflineEmptyState({ reason }));
     content.classList.remove('hidden');
 }
 
@@ -444,7 +444,7 @@ async function loadHealthOverview() {
             onError: async (e, cached) => {
                 console.error('Failed to load health overview:', e);
                 setHealthLoading(loading, false);
-                if (!cached) renderHealthOverviewError(content);
+                if (!cached) renderHealthOverviewError(content, e);
             }
         });
     } else {
@@ -540,7 +540,7 @@ async function loadNotes() {
                 const list = document.getElementById('notes-list');
                 if (list) {
                     list.replaceChildren();
-                    list.appendChild(createOfflineEmptyState({ tag: 'li' }));
+                    list.appendChild(createOfflineEmptyState({ tag: 'li', reason: e }));
                 }
             }
         }

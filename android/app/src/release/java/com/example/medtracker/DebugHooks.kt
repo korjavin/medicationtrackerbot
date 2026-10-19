@@ -7,4 +7,7 @@ import android.webkit.WebView
 internal object DebugHooks {
     @Suppress("UNUSED_PARAMETER")
     fun onWebView(activity: Activity, w: WebView, rules: Set<String>, diag: (String) -> Unit) = Unit
+
+    @Suppress("UNUSED_PARAMETER")
+    fun localApp(activity: Activity) = false
 }

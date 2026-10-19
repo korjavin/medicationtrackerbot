@@ -248,7 +248,7 @@ async function loadBPReadings() {
                 renderedSomething = true;
             } else if (list) {
                 renderedSomething = true;
-                list.replaceChildren(createOfflineEmptyState({ tag: 'li' }));
+                list.replaceChildren(createOfflineEmptyState({ tag: 'li', reason: e }));
             }
         }
     });

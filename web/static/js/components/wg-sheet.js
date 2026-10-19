@@ -81,6 +81,10 @@
     // off the top. Without the vars (no visualViewport, or pinch-zoomed: scale
     // > 1 shrinks the visual viewport too) the :root defaults (0px / 100dvh)
     // give the plain layout-viewport dock.
+    function setVar(root, name, value) {
+        if (root.style.getPropertyValue(name) !== value) root.style.setProperty(name, value);
+    }
+
     function dock() {
         const vv = window.visualViewport;
         const root = document.documentElement;
@@ -88,8 +92,8 @@
         // ponytail: measured lengths, not design values — the custom
         // properties the CSS reads (same pattern as wg-macro-bar).
         if (on) {
-            root.style.setProperty('--wg-vv-top', `${Math.round(vv.offsetTop)}px`);
-            root.style.setProperty('--wg-vv-h', `${Math.round(vv.height)}px`);
+            setVar(root, '--wg-vv-top', `${Math.round(vv.offsetTop)}px`);
+            setVar(root, '--wg-vv-h', `${Math.round(vv.height)}px`);
         } else {
             root.style.removeProperty('--wg-vv-top');
             root.style.removeProperty('--wg-vv-h');
@@ -122,11 +126,19 @@
     }
     noFocusZoom();
 
+    // visualViewport scroll/resize fire many times per frame while iOS pans
+    // for the keyboard: coalesce to one dock() per frame (med-08it).
+    let frame = 0;
+    function schedule() {
+        if (frame) return;
+        frame = window.requestAnimationFrame(() => { frame = 0; dock(); });
+    }
+
     if (window.visualViewport) {
-        window.visualViewport.addEventListener('resize', dock);
-        window.visualViewport.addEventListener('scroll', dock);
+        window.visualViewport.addEventListener('resize', schedule);
+        window.visualViewport.addEventListener('scroll', schedule);
         dock();
     }
 
-    window.WGSheet = { header, dock, noFocusZoom };
+    window.WGSheet = { header, dock, schedule, noFocusZoom };
 })();

@@ -828,6 +828,87 @@ gh workflow run android-qa.yml --ref <branch> -f scenario=local-backup
 |---|---|
 | Emulator API 34 | pending |
 | Owner phone (D2D or Google One restore) | pending — owner action, record here |
+## Local mode: the bundled app (bd med-nt9p.32.2)
+
+The Android half of local mode (epic `med-nt9p.32`, the twin of
+[ios.md → Local mode](ios.md#local-mode-the-bundled-app-on-wgapplocal-bd-med-o7zq4)):
+the APK carries the web app and the shell serves it on
+`https://appassets.androidplatform.net`, a separate origin from every account,
+so local IndexedDB never mixes with an account's. The mode switch, first run
+and bridge ops are `med-nt9p.32.4`; until then only a debug extra opens it.
+
+- **Bundle (CI only):** `android.yml` (and `android-qa.yml`, with `QA=1`)
+  runs [`ios/bundle-web.sh`](../ios/bundle-web.sh) before Gradle with
+  `WG_BUNDLE_OUT=android/app/src/main/assets/web` and
+  `WG_BUNDLE_PREFIX=android`: `web/static`, `web/cloud` and `web/domain` from
+  the checked-out revision, `index.html` with the fingerprints set to
+  `android-<run number>` and the classic `<script src="/js/local-boot.js">`
+  first. The dir is git-ignored and never committed; debug, release and the
+  AAB all carry it (~11 MB). A web change therefore re-runs `android.yml`
+  (path filter: `web/static|cloud|domain/**`, `ios/bundle-web.sh`) — build
+  and tests only, releases stay dispatch-only and `deploy.yml` ignores it.
+- **Verify step:** *Check local-mode bundle in the debug APK* fails the run
+  unless `unzip -l` lists `assets/web/index.html`,
+  `cloud/js/local-boot.js`, `cloud/js/apishim.js`, `domain/bp.js` and
+  `static/js/core/utils.js`, the document loads `local-boot.js` and not
+  `cloud-boot.js`, and no `cloud/qa/` driver or test suite came along.
+- **Serving:** [`LocalApp.kt`](../android/app/src/main/java/com/example/medtracker/LocalApp.kt)
+  answers MainActivity's `shouldInterceptRequest` while local mode is on and
+  the host is the asset host (any other host: `null`, the normal network —
+  cloud mode is unchanged). GET only (else 405); the path routes like an
+  account host via `LocalOrigin.file`: `/` → `web/index.html`, `/static/*` and
+  `/domain/*` their trees (so `apishim.js`'s `../../domain/` imports resolve),
+  everything else → `web/cloud/` (`/js`, `/css`, `/vendor`, and `/qa/` only in a
+  QA bundle); `..`, `.`, a trailing slash or a missing asset → an explicit 404,
+  never the network. MIME by extension (`text/javascript` for `js`/`mjs`),
+  `Cache-Control: no-store` so a new build never serves stale assets from the
+  WebView cache. Not `WebViewAssetLoader`: its root mapping does not fit the
+  three-tree layout.
+- **CSP:** every response carries `LocalOrigin.csp(hosts)` = cmd/cloud's
+  `cspPolicy` with `connect-src 'self'` plus `https://<h>` and `wss://<h>` per
+  host — never a wildcard (the account-document invariant). `hosts` is the
+  native mirror in the `shell` SharedPreferences under `wgLocalEgressHosts`
+  (space-separated; `.4`'s `setEgressHosts` writes it with the `egress.go`
+  rules: ≤ 8 bare lowercase DNS names, a list accepted or rejected whole); an
+  invalid stored value reads as no hosts.
+- **Routing/CSP/MIME** live in Android-free
+  [`LocalOrigin.kt`](../android/app/src/main/java/com/example/medtracker/LocalOrigin.kt),
+  checked by `LocalOriginTest` (the `ios/Tests/main.swift` cases) in
+  `testDebugUnitTest`.
+- **Debug entry (temporary, until `.4`):** `adb shell am start -n
+  <pkg>/com.example.medtracker.MainActivity --ez wgLocalApp true` opens the
+  bundled app for that launch, stores nothing. Honoured only in a debug APK
+  built for the `qa.test` placeholder base (`DebugHooks.localApp`, the
+  `qaSoftAuthn` gate); release compiles the no-op twin, and `android-qa.yml`'s
+  release check counts `wgLocalApp` in its dex too. No bridge, chrome.js or
+  file grants on that origin yet (`.4`).
+
+### Emulator run (QA scenario `local-app`)
+
+```bash
+gh workflow run android-qa.yml --ref <branch> -f scenario=local-app
+```
+
+Launches with the extra, reloads with request listeners attached, waits for
+`MedTrackerCloudReady` and `#app`, screenshots the shell, then fetches `/`,
+`/js/apishim.js`, a missing path and `https://example.com/` from the page: the
+CSP header (`connect-src 'self'`, no wildcard), `no-store`, the JS MIME, the
+404 and the refused cross-origin fetch are asserted; any other failed or
+≥ 400 load fails the scenario. Everything lands in `results.localApp`. Not in
+`all` (`.6` owns the local scenarios).
+
+## Play Integrity setup (owner)
+
+Owner-only Google Cloud setup for the Android free trial (bd med-nt9p.32.8.1, a human bead). Nothing from this goes into the repo or chat; do it whenever suits.
+
+1. **Google Cloud Console** → pick the project you used for Play (or create one) → note its **project number** (Dashboard → Project info).
+2. **APIs & Services → Library** → search "Google Play Integrity API" → **Enable**.
+3. **IAM & Admin → Service accounts → Create service account**, name it `play-integrity-verifier`. No roles needed. Open it → **Keys → Add key → JSON** → a file downloads.
+4. Store that JSON in stash: `~/stash/kv put secrets/play-integrity-sa-json "$(cat <file>.json)"`, then delete the downloaded file. Never paste it into chat or Zulip.
+5. **Play Console** → the app → **Test and release → App integrity → Play Integrity API** → **Link a Cloud project** → choose the project from step 1.
+6. **GitHub** → repo → Settings → Secrets and variables → Actions → **Variables** → new variable `ANDROID_PLAY_CLOUD_PROJECT_NUMBER` = the project number.
+
+Later, after the server part merges (owner approval asked then): the JSON goes onto the production server as `/app/data/secrets/play-integrity.json`, and the stack gets `PLAY_INTEGRITY_PACKAGE_NAME` and `PLAY_INTEGRITY_SERVICE_ACCOUNT_FILE=/app/data/secrets/play-integrity.json`. If prod then answers 403, grant the service account **Service Usage Consumer**. See [environment.md](environment.md) for the variables.
 
 ## Reviewer access (bd med-nt9p.12)
 

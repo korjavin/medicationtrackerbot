@@ -10,10 +10,15 @@
 #
 # Usage: ios/bundle-web.sh <build-id>
 #        QA=1 ios/bundle-web.sh <build-id>   # + the visual QA driver (bd med-y5xx.1)
+# android.yml reuses it (bd med-nt9p.32.2) with two overrides, both unset on iOS:
+#        WG_BUNDLE_OUT=<repo-relative dir>   # default ios/LocalApp
+#        WG_BUNDLE_PREFIX=<build-id prefix>  # default ios → "ios-<build-id>"
 set -eu
-build="ios-${1:?build id}"
+build="${WG_BUNDLE_PREFIX:-ios}-${1:?build id}"
 repo="$(cd "$(dirname "$0")/.." && pwd)"
-out="$repo/ios/LocalApp"
+rel="${WG_BUNDLE_OUT:-ios/LocalApp}"
+case "$rel" in /*|*..*|'') echo "WG_BUNDLE_OUT must be a repo-relative dir" >&2; exit 1;; esac
+out="$repo/$rel"
 
 rm -rf "$out"
 mkdir -p "$out"
@@ -55,4 +60,4 @@ if [ "${QA:-}" = 1 ]; then
 elif [ -e "$out/cloud/qa" ] || grep -q '/qa/' "$out/index.html"; then
     echo "QA code in a non-QA bundle" >&2; exit 1
 fi
-echo "bundled web app into ios/LocalApp ($build)"
+echo "bundled web app into $rel ($build)"

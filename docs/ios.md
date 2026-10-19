@@ -682,7 +682,9 @@ mode, gated on the bridge platform being `ios` or `android`
   classic `<script src="/js/local-boot.js">` (the local entry, bd med-o7zq.2;
   `web/cloud/js/local-boot.js`, which must run before every web/static script,
   as `cloud-boot.js` does). No food-DB URL, no trial flags, no
-  `update-check.js`, no Service Worker.
+  `update-check.js`, no Service Worker. `android.yml` reuses the same script
+  for the APK (bd med-nt9p.32.2) via `WG_BUNDLE_OUT` / `WG_BUNDLE_PREFIX`,
+  both unset here ([android.md → Local mode](android.md#local-mode-the-bundled-app-bd-med-nt9p322)).
 - **Serving:** [`LocalApp.swift`](../ios/App/LocalApp.swift), a
   `WKURLSchemeHandler` for `wgapp`, routes like an account host: `/` → the
   local `index.html`, `/static/*` → `web/static`, `/domain/*` → `web/domain`

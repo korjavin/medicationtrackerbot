@@ -91,6 +91,10 @@ class MainActivity : Activity() {
     private val files by lazy { Files(this) { host } }
     private val notifications by lazy { Notifications(this) { host } }
 
+    /** Local mode's asset origin (bd med-nt9p.32.2); on only via DebugHooks.localApp until .4. */
+    private val localApp by lazy { LocalApp(this) }
+    @Volatile private var local = false
+
     /** window.Health's health.* ops (bd med-nt9p.8). */
     private val health by lazy { HealthConnect(this) }
 
@@ -116,6 +120,8 @@ class MainActivity : Activity() {
         if (intent?.action == ACTION_DIAG && savedInstanceState == null) copyDiagnostics()
         adoptSpikeAccount()
         host = prefs.getString(HOST_KEY, null)?.takeIf { AccountUrl.isAccountHost(it, base) }
+        local = DebugHooks.localApp(this) // false in release (src/release)
+        if (local) return reopen(LocalOrigin.HOME)
         // A restored activity keeps its launch intent: only a fresh shortcut launch switches.
         if (intent?.action == ACTION_SWITCH && savedInstanceState == null) forget()
         else reopen(Notifications.tappedSection(intent, host)?.let { sectionUrl(it) } ?: home)
@@ -235,6 +241,7 @@ class MainActivity : Activity() {
 
     private fun isInside(h: String?): Boolean {
         val l = h?.lowercase() ?: return false
+        if (local) return l == LocalOrigin.HOST // the bundled app navigates on its own origin only
         return host != null && (l == host || l == base)
     }
 
@@ -296,6 +303,10 @@ class MainActivity : Activity() {
     }
 
     private inner class Client : WebViewClient() {
+        /** Off the main thread. Only the asset origin, only in local mode; null = the network. */
+        override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
+            if (local) localApp.intercept(request) else null
+
         /** Only the account host and the base domain load in the app; anything else opens outside it. */
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
             val uri = request.url

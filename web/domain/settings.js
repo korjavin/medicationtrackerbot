@@ -25,9 +25,10 @@ const INTEGRATIONS_RECORD_ID = 'integrations';
 // last-writer-wins whole-record, so a stale device writing the shared singleton
 // (timezone / dismissed_tz_suggestion) with a newer clientTs would drop a
 // first_run_complete it never saw and re-open the onboarding overlay. Nothing
-// but setFirstRunComplete writes this record, and it only ever writes `true`.
-const FIRSTRUN_RECORD_TYPE = 'firstrun';
-const FIRSTRUN_RECORD_ID = 'firstrun';
+// but setFirstRunComplete (and vault restore, vault.js vaultToRecords, at the
+// clientTs floor) writes this record, and both only ever write `true`.
+export const FIRSTRUN_RECORD_TYPE = 'firstrun';
+export const FIRSTRUN_RECORD_ID = 'firstrun';
 // Provisioned ElevenLabs voice agent state (agent id + toolset version + tool
 // id map). Kept in its own vault singleton rather than the masked integrations
 // record because it holds an object map, and because it is app-provisioned
