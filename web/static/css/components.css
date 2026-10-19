@@ -16,6 +16,9 @@
   it instead of moving a separate .wg-row, plus the overflow .wg-swipe__more / .wg-swipe__menu.
 - .wg-actions--4 tiles are centred with tighter padding and an xs label so "Describe" fits a ~66px tile
   in the 320px food sheet; .wg-input[type=search] hides Chromium's native clear-x (med-ipps).
+- .wg-tabbar's bottom padding is 6px + env(safe-area-inset-bottom), not the kit's 28px home-indicator
+  allowance: the page never runs under the home indicator here, so that was a second inset (med-giuq).
+  Same for .wg-sheet__foot's 30px: 12px all round, the docked sheet carries the env() inset.
 - The app-only first-run overlay (.wg-firstrun-*) rules sit at the end of this file. */
 .wg-btn,.wg-input,.wg-row,.wg-setting,.wg-choice,.wg-dialog,.wg-sheet,.wg-tile,.wg-seg,.wg-stepper,.wg-daynav,.wg-code,.wg-file,.wg-toast,.wg-tabbar,.wg-pick,.wg-menu,button.wg-card{box-sizing:border-box}
 .wg-app{position:relative;display:flex;flex-direction:column;height:100%;overflow:hidden;background:var(--wg-bg-screen);color:var(--wg-fg-1);font-family:var(--wg-font-ui);font-size:var(--wg-fs-md);-webkit-font-smoothing:antialiased}
@@ -60,7 +63,7 @@ button.wg-card{width:100%;text-align:left;cursor:pointer;font:inherit;color:inhe
 .wg-content::-webkit-scrollbar{display:none}
 .wg-content--flush{padding-left:0;padding-right:0}
 /* tab bar — v2 single row of 5; legacy 2×4 kept for comparison */
-.wg-tabbar{flex-shrink:0;display:grid;grid-template-columns:repeat(var(--n,5),minmax(0,1fr));gap:4px;height:var(--wg-tabbar-h);padding:6px 10px 28px;background:rgba(10,26,24,.96);border-top:1px solid var(--wg-line);z-index:var(--wg-z-tabbar)}
+.wg-tabbar{flex-shrink:0;display:grid;grid-template-columns:repeat(var(--n,5),minmax(0,1fr));gap:4px;height:var(--wg-tabbar-h);padding:6px 10px calc(6px + env(safe-area-inset-bottom));background:rgba(10,26,24,.96);border-top:1px solid var(--wg-line);z-index:var(--wg-z-tabbar)}
 .wg-tab{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border:0;border-radius:14px;background:transparent;color:var(--wg-fg-3);font:600 10.5px/1 var(--wg-font-ui);letter-spacing:.02em;cursor:pointer}
 .wg-tab[aria-current=page]{color:var(--wg-sun);background:linear-gradient(180deg,rgba(251,189,13,.14),rgba(251,189,13,.05));box-shadow:inset 0 0 0 1px rgba(251,189,13,.22)}
 .wg-tab__badge{position:absolute;top:4px;left:calc(50% + 6px);min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--wg-clay-hi);color:#fff;font:600 10px/16px var(--wg-font-mono);text-align:center}
@@ -296,9 +299,8 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
 .wg-sheethead__title{margin-top:4px;font:500 var(--wg-fs-xl)/1.15 var(--wg-font-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .wg-sheethead__acts{display:flex;gap:6px;flex-shrink:0}
 .wg-sheet__body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 16px 16px;display:flex;flex-direction:column;gap:14px;scrollbar-width:none}
-.wg-sheet__foot{display:flex;gap:8px;padding:12px 16px 30px;flex-shrink:0;border-top:1px solid var(--wg-line);background:var(--wg-bg-sheet)}
+.wg-sheet__foot{display:flex;gap:8px;padding:12px 16px;flex-shrink:0;border-top:1px solid var(--wg-line);background:var(--wg-bg-sheet)}
 .wg-sheet__foot>.wg-btn{flex:1}.wg-sheet__foot>.wg-btn--primary{flex:2}
-.wg-scrim--kb .wg-sheet__foot{padding-bottom:12px}
 /* action tiles (fast paths) */
 .wg-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.wg-actions--3{grid-template-columns:repeat(3,minmax(0,1fr))}.wg-actions--4{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
 /* 4-up tiles are ~66px in the 320px food sheet: centre them and drop to xs so "Describe" fits (med-ipps) */

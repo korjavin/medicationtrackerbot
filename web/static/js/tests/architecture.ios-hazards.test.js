@@ -64,6 +64,9 @@ const fontSize = (r) => px(decl(r, 'font-size') ?? (decl(r, 'font') || '').split
 
 // Existing fixed+bottom:0 rules without a safe-area inset in the same rule.
 const FIXED_BOTTOM_ALLOW = new Set([
+    // Placement only; the kit rule (components.css .wg-tabbar, loaded later) owns
+    // the env(safe-area-inset-bottom) padding, pinned below (med-giuq).
+    'web/static/css/styles.css .wg-tabbar',
     // Dev-only debug overlay, hidden by default.
     'web/static/css/styles.css .sync-debug-panel',
 ]);
@@ -121,10 +124,9 @@ describe('Architecture — iOS layout hazards', () => {
     });
 
     it('the tab bar and the docked sheet apply the bottom inset once, sheets span the phone (med-giuq, med-j4h9)', () => {
-        const rule = (sel) => ALL.find((r) => r.file === 'web/static/css/styles.css' && r.selector === sel);
-        const tabbar = rule('.wg-tabbar');
+        const rule = (sel, file = 'styles.css') => ALL.find((r) => r.file === `web/static/css/${file}` && r.selector === sel);
         // No hard-coded home-indicator padding on top of what env() / the iOS shell already reserve.
-        expect(decl(tabbar, 'padding-bottom')).toMatch(/env\(safe-area-inset-bottom\)/);
+        expect(decl(rule('.wg-tabbar', 'components.css'), 'padding')).toBe('6px 10px calc(6px + env(safe-area-inset-bottom))');
         expect(ALL.find((r) => r.selector === ':root' && /--wg-tabbar-h/.test(r.body)).body).toMatch(/--wg-tabbar-h:\s*calc\([^;]*env\(safe-area-inset-bottom\)/);
         const sheet = rule('.wg-modal.wg-sheet');
         expect(decl(sheet, 'max-width')).toBe('var(--wg-sheet-max-w)');

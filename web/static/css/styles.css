@@ -756,7 +756,8 @@
     --wg-z-toast: var(--z-toast);
 
     /* kit layout. The kit's 84px bar baked 28px of home-indicator padding in;
-       the bar now owns that inset once, via env() in .wg-tabbar (med-giuq):
+       the bar now owns that inset once, via env() in the components.css
+       .wg-tabbar padding (med-giuq):
        0 without viewport-fit=cover, where Safari and the iOS shell already
        keep the page clear of the home indicator. */
     --wg-tabbar-h: calc(62px + env(safe-area-inset-bottom));
@@ -2681,7 +2682,6 @@ input.wg-stepper__val::-webkit-inner-spin-button {
     bottom: 0;
     left: 0;
     right: 0;
-    padding-bottom: calc(6px + env(safe-area-inset-bottom));
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
 }
