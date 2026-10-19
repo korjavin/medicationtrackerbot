@@ -977,7 +977,7 @@ async function moveToCloudAccount(btn) {
             { title: 'Move to a cloud account?', confirmLabel: 'Continue' },
         );
         if (!ok) return;
-        await window.CloudVault.moveToCloud();
+        await window.CloudVault.moveToCloud({ win: window });
     } catch (e) {
         await safeAlert(
             `Your records could not be prepared for the move: ${e?.message || 'unknown error'}.\n\n`
