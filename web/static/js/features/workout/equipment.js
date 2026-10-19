@@ -451,6 +451,7 @@ function _addEquipmentPlateRow(kg, count) {
     kgWrap.className = 'wg-gloss--inset wg-equipment-modal__input-wrap wg-equipment-plate-row__field';
     const kgInput = doc.createElement('input');
     kgInput.type = 'number';
+    kgInput.inputMode = 'decimal';
     kgInput.min = '0';
     kgInput.step = '0.25';
     kgInput.placeholder = 'kg';
@@ -468,6 +469,7 @@ function _addEquipmentPlateRow(kg, count) {
     countWrap.className = 'wg-gloss--inset wg-equipment-modal__input-wrap wg-equipment-plate-row__field';
     const countInput = doc.createElement('input');
     countInput.type = 'number';
+    countInput.inputMode = 'numeric';
     countInput.min = '1';
     countInput.step = '1';
     countInput.placeholder = 'count';

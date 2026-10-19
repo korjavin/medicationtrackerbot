@@ -189,9 +189,17 @@ Tier 2 is the MVP; it is the only tier that would have caught `med-pe9g`. Tiers
    overlapping the first boots with the build (both devices at once, run
    39215981748, or one after the other, run 39221955387) left the first
    device's scenes starved (the first scene took 6-9 min, then it timed
-   out), so the devices still boot one after the other after the build. To
-   cut the wall time, run one device per job (a matrix) and merge the two
-   artifacts.
+   out), so a device never boots alongside another or the build.
+
+   **One device per job** (bd med-y5xx.12): `visual` is a two-entry matrix
+   (`width` 390 / 440, `fail-fast: false`, a concurrency group per width so
+   the two never cancel each other), each building, booting and shooting its
+   own device and uploading `ios-visual-<width>` (1-day retention). The
+   Linux job `visual-merge` downloads both into `shots/`, runs the compare
+   step once and uploads the single `ios-visual` artifact with the same
+   `<device>/<scene>.png|json` + `compare/` layout. It also runs when a
+   device job failed (the other device's shots still count), not when a
+   newer run cancelled this one.
 
 ### Scenes (MVP, 15)
 

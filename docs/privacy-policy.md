@@ -1,7 +1,7 @@
 # Med Tracker — Privacy Policy
 
-Effective 2026-10-15. This policy covers the Med Tracker web app and the Med
-Tracker iOS app, which opens the same web app. "The operator" is whoever runs
+Effective 2026-10-18. This policy covers the Med Tracker web app and the Med
+Tracker iOS and Android apps, which open the same web app. "The operator" is whoever runs
 the Med Tracker service your account lives on.
 
 ## The short version
@@ -18,7 +18,7 @@ the Med Tracker service your account lives on.
 
 | Data | Where | Who can read it |
 |---|---|---|
-| Your health records (medications and doses, blood pressure, weight, food, workouts, sleep, vitals, diary notes, and anything imported from Apple Health) | Encrypted on your device, synced to the server | Only your unlocked devices. The server holds ciphertext. |
+| Your health records (medications and doses, blood pressure, weight, food, workouts, sleep, vitals, diary notes, and anything imported from Apple Health or Health Connect) | Encrypted on your device, synced to the server | Only your unlocked devices. The server holds ciphertext. |
 | A decrypted copy for offline use | On your device only | Your device |
 | Account address, creation date, passkey public keys, which kind of record each sync item is (never its contents), sync times, sizes and IP addresses | Server | The operator (operational metadata) |
 | Reminder fire times (and an encrypted payload) | Server push relay | The operator sees the times only |
@@ -56,6 +56,20 @@ integrations.
 
 Data sent to a third party is then governed by that party's privacy policy.
 
+## Only on this device (iOS app, no account)
+
+If you choose **Only on this device** on the first screen, there is no
+account and nothing is synced: your records are stored only in the app's
+storage on your iPhone, protected by iOS data protection, and the operator
+never receives them. They are included in your iPhone's own backup (iCloud
+or your computer), like other app data; the operator keeps no other copy and
+cannot recover them. Deleting the app, or losing the iPhone without a
+backup, deletes them — export a copy regularly under Settings → Backup &
+import. In this mode only your own AI key and your own food database reach
+outside the device; the operator's AI, voice, Telegram, food and drug lookup
+features are off. **Settings → Backup & import → Erase data on this device**
+deletes everything stored in this mode.
+
 ## Apple Health (iOS app)
 
 If you switch on Apple Health in Settings, the app **reads** blood pressure,
@@ -63,6 +77,15 @@ weight, sleep and workouts and stores them in your encrypted vault, like a
 reading you typed in. It never writes to Apple Health. Health data is never
 used for advertising or sold, and leaves your vault only through the optional
 features above, when you use them.
+
+## Health Connect (Android app)
+
+If you switch on Health Connect in Settings, the app **reads** blood pressure
+and weight from Health Connect, only while the app is open, and stores them in
+your encrypted vault, like a reading you typed in. It never writes to Health
+Connect. Health data is never used for advertising or sold, and leaves your
+vault only through the optional features above, when you use them. You can
+withdraw access at any time in Health Connect → App permissions.
 
 ## Notifications (iOS app)
 

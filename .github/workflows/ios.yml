@@ -238,21 +238,31 @@ jobs:
   # Visual QA on the Simulator (bd med-y5xx.3, docs/design/ios-visual-testing.md):
   # every scene of tests/visual/scenes.json on a 390pt and a 440pt iPhone, as
   # the `ios-visual` artifact. Evidence, not a gate: scene and probe failures
-  # are warnings; the job fails only when a device produced no screenshots.
+  # are warnings; a device job fails only when its device produced no screenshots.
+  # One device per job (bd med-y5xx.12): booting both in one job is serial,
+  # and overlapping boots starved the scenes; `visual-merge` joins them.
   visual:
     if: >-
       (github.event_name == 'workflow_dispatch' && inputs.visual) ||
       (github.event_name == 'pull_request' &&
        contains(github.event.pull_request.labels.*.name, 'ios-visual') &&
        (github.event.action != 'labeled' || github.event.label.name == 'ios-visual'))
+    strategy:
+      # One device's failure must not cancel the other's shots.
+      fail-fast: false
+      matrix:
+        include:
+          # First available type per width.
+          - width: 390
+            types: iPhone 16e,iPhone 16,iPhone 15
+          - width: 440
+            types: iPhone 17 Pro Max,iPhone 16 Pro Max
+    # Per device: one shared group would make the two matrix jobs cancel each other.
     concurrency:
-      group: ${{ github.workflow }}-visual-${{ github.ref }}
+      group: ${{ github.workflow }}-visual-${{ github.ref }}-${{ matrix.width }}
       cancel-in-progress: true
     runs-on: macos-26
     timeout-minutes: 60
-    permissions:
-      contents: read
-      actions: read # the compare step downloads master's ios-visual artifact
     steps:
       - uses: actions/checkout@v4
 
@@ -275,13 +285,13 @@ jobs:
           xcrun simctl list devicetypes runtimes
           runtime="$(xcrun simctl list runtimes -j | jq -r '[.runtimes[] | select(.platform == "iOS" and .isAvailable)] | last | .identifier')"
           echo "runtime: $runtime"
-          # First available type per width: 390pt, then 440pt.
           pick() { for t in "$@"; do xcrun simctl list devicetypes | grep -qF "$t (" && { echo "$t"; return; }; done; }
           # The software keyboard, not the Mac's (Simulator.app's setting).
           defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false
           : > "$RUNNER_TEMP/devices"
-          for t in "$(pick 'iPhone 16e' 'iPhone 16' 'iPhone 15')" "$(pick 'iPhone 17 Pro Max' 'iPhone 16 Pro Max')"; do
-            [ -n "$t" ] || { echo "::error::no device type for one of the widths"; exit 1; }
+          IFS=',' read -ra types <<< "${{ matrix.types }}"
+          for t in "$(pick "${types[@]}")"; do
+            [ -n "$t" ] || { echo "::error::no device type for ${{ matrix.width }}pt"; exit 1; }
             # The image's own device if it has one (a fresh device's first boot
             # migrates data for minutes), else a new one.
             udid="$(xcrun simctl list devices available -j | jq -r --arg rt "$runtime" --arg n "$t" '.devices[$rt][]? | select(.name == $n) | .udid' | head -n 1)"
@@ -333,7 +343,7 @@ jobs:
           {
             echo "## iOS visual QA"
             echo
-            echo "Artifact \`ios-visual\`: \`shots/<device>/<scene>.png\` plus the probe report \`<scene>.json\`, and \`shots/compare/\` (diffs against master). Evidence only, never a gate."
+            echo "Artifact \`ios-visual\`: \`<device>/<scene>.png\` plus the probe report \`<scene>.json\`, and \`compare/\` (diffs against master, in the visual-merge job). Evidence only, never a gate."
             while IFS='=' read -r dev udid; do
               d="shots/$dev"
               n="$(find "$d" -name '*.png' 2>/dev/null | wc -l | tr -d ' ')"
@@ -360,17 +370,47 @@ jobs:
             echo "::error::no screenshots from:${broken:- any device}"; exit 1
           fi
 
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-visual-${{ matrix.width }}
+          path: shots/
+          retention-days: 1
+          if-no-files-found: warn
+
+  # Joins the device jobs' shots into the one `ios-visual` artifact
+  # (`<device>/<scene>.png|json` + `compare/`), and compares once.
+  visual-merge:
+    needs: visual
+    # Also after a failed device job (the other's shots still count); not
+    # when a newer run cancelled this one's devices.
+    if: always() && (needs.visual.result == 'success' || needs.visual.result == 'failure')
+    concurrency:
+      group: ${{ github.workflow }}-visual-merge-${{ github.ref }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read # the compare step downloads master's ios-visual artifact
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ios-visual-*
+          path: shots/
+          merge-multiple: true
+
       # bd med-y5xx.4: every shot against master's latest ios-visual artifact
       # (no goldens in git). Evidence only: never fails the job.
       - name: Set up pnpm
-        if: always()
         uses: pnpm/action-setup@v4
         with:
           version: 10.10.0
           run_install: false
 
       - name: Compare with master
-        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: tests/visual/compare.sh ios-visual shots shots/compare || true

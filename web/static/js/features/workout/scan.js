@@ -128,6 +128,7 @@ function renderScanReview() {
 
                 const reps = doc.createElement('input');
                 reps.type = 'number';
+                reps.inputMode = 'numeric';
                 reps.min = '0';
                 reps.max = '500';
                 reps.setAttribute('data-scan-reps', '');
@@ -138,6 +139,7 @@ function renderScanReview() {
 
                 const weight = doc.createElement('input');
                 weight.type = 'number';
+                weight.inputMode = 'decimal';
                 weight.min = '0';
                 weight.setAttribute('data-scan-weight', '');
                 weight.setAttribute('aria-label', `${s.exerciseName} set ${s.setIndex} weight (${pending.unit})`);

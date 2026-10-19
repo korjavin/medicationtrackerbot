@@ -667,7 +667,10 @@ a Web Push subscription.
 
 Local mode (epic `med-o7zq`) runs the web app with no account: the shell's one
 web view loads the copy bundled in the app from its own origin, so its
-IndexedDB never mixes with an account's. Cloud mode is unchanged.
+IndexedDB never mixes with an account's. Cloud mode is unchanged. The web side
+(`local-boot.js`, `local-policy.js`) is shared with the Android app's local
+mode, gated on the bridge platform being `ios` or `android`
+([docs/android.md](android.md), bd med-nt9p.32).
 
 - **Bundle:** [`ios/bundle-web.sh`](../ios/bundle-web.sh) runs in `ios.yml`
   before `xcodegen generate` and copies `web/static`, `web/cloud` and
