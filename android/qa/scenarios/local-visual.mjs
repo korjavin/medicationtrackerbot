@@ -71,9 +71,11 @@ export default async function localVisual(ctx) {
   async function nativeStep(step) {
     const page = ctx.page;
     if (step.tap) {
+      // The driver's `tag` keeps an element's own id and puts the alias in aria-label.
       const id = step.tap.replace(/^#/, '');
-      await page.locator(`[id="${id}"]`).first().waitFor({ state: 'visible', timeout: 10_000 });
-      await ctx.tapElement(page, `[id="${id}"]`);
+      const sel = `[id="${id}"], [aria-label="${id}"]`;
+      await page.locator(sel).first().waitFor({ state: 'visible', timeout: 10_000 });
+      await ctx.tapElement(page, sel);
     } else if (step.type !== undefined) {
       await shell(`input text '${step.type.replace(/ /g, '%s')}'`);
       await waitIme();

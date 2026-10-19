@@ -30,7 +30,21 @@ export default async function localSmoke(ctx) {
   let page = await ctx.step('cold start in local mode on scene today (seeds the golden vault)', async () => {
     const p = await ctx.launchLocal('today');
     watchNet(p);
-    await p.reload({ waitUntil: 'load', timeout: 60_000 });
+    // Playwright attaches only after the launch's first boot, so replay an empty-store first boot
+    // under the listener: our own 404 document (no app, no open IndexedDB) wipes the origin's
+    // storage, then /?qa=today boots on it, seeds, reloads and runs the scene — all observed.
+    await p.goto(`${LOCAL_ORIGIN}/qa-wipe`, { waitUntil: 'load', timeout: 30_000 });
+    r.wiped = await p.evaluate(async () => {
+      localStorage.clear();
+      sessionStorage.clear();
+      const dbs = await indexedDB.databases();
+      await Promise.all(dbs.map((d) => new Promise((res, rej) => {
+        const q = indexedDB.deleteDatabase(d.name);
+        q.onsuccess = res; q.onerror = () => rej(q.error); q.onblocked = () => rej(new Error(`delete ${d.name} blocked`));
+      })));
+      return dbs.map((d) => d.name);
+    });
+    await p.goto(`${LOCAL_ORIGIN}/?qa=today`, { waitUntil: 'load', timeout: 60_000 });
     await ctx.waitLocalReady(p, 'today');
     const report = JSON.parse(await p.locator('#wg-qa-ready').getAttribute('aria-label'));
     r.scene = { ok: report.ok, failed: report.failed, loads: report.loads };
@@ -111,6 +125,7 @@ export default async function localSmoke(ctx) {
   await ctx.step('force-stop → relaunch (persisted pref, no extras) → the med is still there', async () => {
     page = await ctx.launchLocal(undefined, { extra: false });
     watchNet(page);
+    // The same boot again under the listener (the store is persisted; nothing differs but the attach).
     await page.reload({ waitUntil: 'load', timeout: 60_000 });
     await ctx.waitLocalReady(page);
     const meds = await page.evaluate(() => window.apiCall('/api/medications'));

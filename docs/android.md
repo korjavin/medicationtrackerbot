@@ -459,7 +459,10 @@ the same way.
   `results.local = { durable, networkRequests, egress, paint, keyboard, … }`:
   `networkRequests` counts every page request and websocket (Playwright's CDP
   Network events) to a host other than `appassets.androidplatform.net` over
-  both loads, each reloaded with the listener attached — **must be 0**, the
+  both boots (Playwright attaches after a launch's first load, so the first
+  boot is replayed under the listener: our own 404 page wipes the origin's
+  storage, then `/?qa=today` boots on the empty store and seeds; the relaunch
+  is reloaded with the listener attached) — **must be 0**, the
   whole-app zero-egress check; `paint` is the seconds each shot waited for a
   stable frame.
 - **`local-visual`** (on its own; ~20 cold starts): the Android twin of
