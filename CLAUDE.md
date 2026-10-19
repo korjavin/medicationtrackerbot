@@ -42,6 +42,8 @@ scripts/ci-local.sh                   # optional: act-friendly CI subset locally
 docker compose -f docker-compose.cloud.yml up
 ```
 
+Device/visual checks — a PR changing `ios/`, `android/` or rendered UI needs one green on its head before merge (diff review can't see device bugs): `gh workflow run ios.yml --ref <branch> -f visual=true` (simulator screenshot matrix), `gh workflow run android-qa.yml --ref <branch>` (emulator scenarios).
+
 Catalog/key tooling: `cmd/genvapid` (VAPID keys for the push relay), `cmd/openfoodfacts` (food-DB CSV import), `cmd/genexercisecatalog` (exercise-catalog regen).
 
 ## Code Layout
