@@ -622,6 +622,100 @@ app origin; its write-up lands here with the re-run of steps 2 and 9
 
 **Verdict:** pending device run.
 
+## Spike: local mode on the asset origin (bd med-nt9p.32.1)
+
+The GO/NO-GO gate for Android local mode (epic `med-nt9p.32`): does a page the
+APK serves on `https://appassets.androidplatform.net` behave like a real https
+origin in Android System WebView, and does Auto Backup bring its IndexedDB
+back? Twin of the iOS spike ([ios.md → Spike: local mode](ios.md#spike-local-mode-on-a-custom-scheme-origin-bd-med-o7zq1)),
+same page, same check numbers.
+
+- **What runs (debug builds only):**
+  [`LocalSpikeActivity.kt`](../android/app/src/debug/java/com/example/medtracker/LocalSpikeActivity.kt)
+  in the **debug source set** — its own WebView, its own launcher icon
+  *Local spike*; `MainActivity` and the release APK are untouched. It serves
+  [`ios/LocalSpike/`](../ios/LocalSpike/) (copied into the debug variant's
+  assets as `localspike/` by a Gradle task in `app/build.gradle.kts`) from
+  `shouldInterceptRequest`: MIME by extension (`text/javascript` for modules),
+  the CSP as a response header on HTML (`LocalOrigin.csp` shape, connect-src
+  `'self'` + the two BYOK probe hosts), `/env.json` from native, and a 404 for
+  any miss — nothing on that host reaches the network. The page's bridge is a
+  `wgSpike` WebMessageListener scoped to the asset origin (`{id, op}` →
+  `{id, value}`), plus a document-start script on the same rule (chrome.js's
+  mechanism). Camera: `VIDEO_CAPTURE` granted to that origin only, after the
+  runtime prompt.
+- **Backup (debug only):** the debug manifest sets `allowBackup="true"` and
+  [`local_spike_backup_rules.xml`](../android/app/src/debug/res/xml/local_spike_backup_rules.xml)
+  includes only `app_webview/Default/IndexedDB/https_appassets.androidplatform.net_0.indexeddb.{leveldb,blob}`
+  (cloud backup with `disableIfNoEncryptionCapabilities`, and device transfer).
+  The install id the page shows as `vendor` lives in `no_backup`, so a restore
+  shows the old launches under a new vendor id. Production rules are
+  med-nt9p.32.5.
+- **Page changes are Android-only branches** in `ios/LocalSpike/js/main.js`
+  (iOS bridge first, unchanged): the Android bridge, #8 compares against
+  `env.host`, #4/#12 are INFO (blob downloads are Files.kt's; no
+  isExcludedFromBackup on Android), and a new **#13**: `pushState('/?spike=reload')`
+  + reload must come back on the same origin.
+
+### Emulator run (QA scenario `local-spike`)
+
+```bash
+gh workflow run android-qa.yml --ref <branch> -f scenario=local-spike -f api_level=34   # and 35
+```
+
+Not part of `all` (it ends with `pm clear`). Steps: grant CAMERA → launch →
+automatic checks → *Test camera* (the emulator gets `-camera-back emulated`
+for this scenario only) → force-stop + relaunch → `install -r` of the same
+APK + relaunch → `bmgr enable true`, `bmgr transport
+com.android.localtransport/.LocalTransport`,
+`backup_local_transport_parameters is_encrypted=true` → `bmgr backupnow` →
+`pm clear` → `bmgr restore 1 <pkg>` → relaunch. Every row lands in
+`results.localSpike` of `qa-summary.json` (also in the step summary); the
+full page + native report is in the run log. Gotcha found on the first run:
+`bmgr backupnow` refuses a **stopped** package ("Backup is not allowed") — do
+not force-stop before it.
+
+### Owner run on the phone
+
+Install the CI debug APK (Actions → **Android** on the branch or master →
+`medtracker-debug-apk`), then the *Local spike* icon:
+
+1. Wait for "Automatic checks done" → *Test camera* (allow) → *Copy report*.
+2. Swipe the app away, reopen *Local spike*: #2 and #2k PASS.
+3. Install a newer CI debug APK over it (a new run = new versionCode): #2
+   lists the older build number.
+4. Backup → restore: Settings → Google → Backup → *Back up now* (Google One),
+   then either a second phone set up from that backup, or uninstall →
+   reinstall the same APK (Play-less sideloads restore only if the backup
+   carries the package; note which path ran), open *Local spike*: #2 lists the
+   old launches, #10 shows two vendor ids. Device-to-device transfer to a new
+   phone is the other path, if one is at hand.
+5. Paste the report(s) into bd `med-nt9p.32.1` and record GO or NO-GO.
+
+### Results
+
+Emulator = discovery evidence; the owner's phone is the GO.
+
+| # | Check | Emulator API 34 (WebView 113) | Emulator API 35 (WebView 124) | Phone |
+|---|-------|-------------------------------|-------------------------------|-------|
+| 1 | `isSecureContext`, AES-GCM + PBKDF2 | PASS | PASS | pending |
+| 2 | IndexedDB across force-stop + relaunch | PASS | PASS | pending |
+| 2 | … across `install -r` (same versionCode; a real version update is phone step 3) | PASS | PASS | pending |
+| 2k | Non-extractable AES key in IndexedDB survives (also after restore) | PASS | PASS | pending |
+| 3 | Modules: nested, `/static/`, `../../domain/`, dynamic, MIME `text/javascript` | PASS | PASS | pending |
+| 5 | `getUserMedia` + readable frame | PASS (480×640) | PASS (480×640) | pending |
+| 6 | CSP from the intercept header: inline, eval, connect-src blocked + violation event | PASS | PASS | pending |
+| 7 | Origin data dir | `app_webview/Default/IndexedDB/https_appassets.androidplatform.net_0.indexeddb.leveldb` (no `.blob` dir until a Blob is stored) | same | pending |
+| 8 | Bridge on the asset origin (`https`, host, mainFrame) + document-start script | PASS | PASS | pending |
+| 9 | BYOK: OpenAI 401, Anthropic `x-api-key` 401 (Bearer form CORS-rejected, as on the web) | PASS | PASS | pending |
+| 10 | Auto Backup → `pm clear` → restore keeps IndexedDB | PASS (`bmgr`, ~11 KB) | PASS (~11 KB) | pending (real backup) |
+| 11 | `storage.persist()` / estimate (record only) | persist()=false, quota ~3.5 GB | same | pending |
+| 13 | pushState + reload stay on the origin | PASS | PASS | pending |
+
+QA runs: API 34 `39197391342`, API 35 `39198183410`.
+
+**Verdict:** emulator GO candidate; GO/NO-GO is the owner's after the phone run.
+
 ## Reviewer access (bd med-nt9p.12)
 
 The app is invite-only and unlocks only with a passkey bound to the account's
