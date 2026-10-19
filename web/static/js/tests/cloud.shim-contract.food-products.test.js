@@ -316,8 +316,8 @@ describe('cloud shim contract — food products flows (features/food/{products,d
             const { window } = env;
             window.__MEDTRACKER_CLOUD__ = true;
             vi.stubGlobal('document', window.document);
-            // The harness DOM carries no <meta name="medtracker-food-db-url">.
-            expect(window.document.querySelector('meta[name="medtracker-food-db-url"]')).toBeNull();
+            // The harness DOM carries no <meta name="medtracker-food-db">.
+            expect(window.document.querySelector('meta[name="medtracker-food-db"]')).toBeNull();
 
             expect(await window.CloudFoodSearch.remoteConfigured()).toBe(false);
             expect(await window.CloudFoodSearch.search('yogurt', { remote: true })).toEqual([]);

@@ -368,15 +368,12 @@
         renderTrialConsentRows();
     }
 
-    // applyCloudFoodDbPlaceholder shows the operator's default food-DB URL
-    // (the <meta name="medtracker-food-db-url"> tag injected by cmd/cloud —
-    // see internal/cloudserver/router.go; a CSP-safe carrier since the
-    // origin's script-src 'self' blocks inline scripts) as the field's
-    // placeholder when the user hasn't set their own override.
+    // applyCloudFoodDbPlaceholder shows static copy: the operator's host is
+    // private and never sent to the browser (only a boolean flag is).
     function applyCloudFoodDbPlaceholder() {
         const input = getInput(FIELD_IDS.food.url);
         if (!input) return;
-        input.placeholder = document.querySelector('meta[name="medtracker-food-db-url"]')?.content || '';
+        input.placeholder = document.querySelector('meta[name="medtracker-food-db"]') ? "Operator's food database" : '';
     }
 
     // Model-id suggestions (bd med-byom). Strictly a typing aid: the inputs stay

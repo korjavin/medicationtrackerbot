@@ -199,7 +199,12 @@ func injectShellTrial(signup []byte, trialAI bool) []byte {
 // this only rewrites the copy cmd/cloud serves.
 func injectCloudBoot(idx []byte, foodDBURL string, trialAI, trialVoice bool, buildID string) []byte {
 	const marker = "<head>"
-	inject := "<head>\n    <meta name=\"medtracker-food-db-url\" content=\"" + html.EscapeString(foodDBURL) + "\">"
+	// Flag only: the operator's food-DB host is private and must never reach
+	// the browser (requests go through same-origin /api/food/*).
+	inject := "<head>"
+	if foodDBURL != "" {
+		inject += "\n    <meta name=\"medtracker-food-db\" content=\"1\">"
+	}
 	inject += "\n    <meta name=\"medtracker-build-id\" content=\"" + html.EscapeString(buildID) + "\">"
 	if trialAI {
 		inject += "\n    <meta name=\"medtracker-trial-ai\" content=\"1\">"

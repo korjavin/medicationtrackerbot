@@ -18,7 +18,7 @@ describe('fooddb', () => {
     };
 
     // Mock operator URL
-    document.head.innerHTML = '<meta name="medtracker-food-db-url" content="https://operator.example.com">';
+    document.head.innerHTML = '<meta name="medtracker-food-db" content="1">';
   });
 
   afterEach(() => {
