@@ -17,7 +17,8 @@ import {
   toBase64,
 } from './crypto.js';
 import { establishLdkCache } from './unlock.js';
-import { prfProbe } from './passkey-get.js';
+import { createCredential, prfProbe } from './passkey-get.js';
+import { diagHttp } from './passkey-diag.js';
 import { isIOS, isMobile, isStandalone, iosInstallStepsHtml } from './push.js';
 import { downloadDoc, printDoc } from './print-doc.js';
 
@@ -128,7 +129,7 @@ function renderWelcome(app, claimToken, errorText) {
 }
 
 async function startRegistration(app, claimToken) {
-  const beginRes = await beginRegistration(claimToken);
+  const beginRes = diagHttp('register/begin', await beginRegistration(claimToken));
   // The probe said "pending", but another tab/device may have claimed the invite
   // between then and this click. 409 is register/begin's only conflict status and
   // it always means already_claimed — route to unlock, not back to the welcome screen.
@@ -145,7 +146,7 @@ async function startRegistration(app, claimToken) {
   // before finish — letting finish persist credential + envelope atomically.
   const accountId = new TextDecoder().decode(creationOptions.user.id);
 
-  const credential = await navigator.credentials.create({ publicKey: creationOptions });
+  const credential = await createCredential(creationOptions);
 
   // PRF availability is only reliable from a fresh assertion, never from
   // create()'s "enabled" flag alone — docs/cloud-crypto.md "Registration
@@ -175,7 +176,7 @@ async function startRegistration(app, claimToken) {
   // Never transmit the PRF output — it lives client-side only.
   if (finishBody.clientExtensionResults) delete finishBody.clientExtensionResults.prf;
 
-  const finishRes = await fetch('/api/webauthn/register/finish', {
+  const finishRes = diagHttp('register/finish', await fetch('/api/webauthn/register/finish', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -187,7 +188,7 @@ async function startRegistration(app, claimToken) {
         mac: toBase64(envelope.mac),
       },
     }),
-  });
+  }));
   // Losing the claim race between begin and finish rolls the registration back
   // server-side ("claim already used or expired"); the winner owns the account.
   if (finishRes.status === 409) {

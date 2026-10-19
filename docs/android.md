@@ -184,7 +184,7 @@ strings `{op, args, id}`; when `id` is present the reply posted back to
 `wgNative.onmessage` is `{id, result}` or `{id, error}` (`"forbidden"` for
 any other origin or a subframe, `"unsupported: <op>"` for an unknown op).
 Ops now: `ping` → `"pong"`; `chrome` `{top, bottom}` (the colour report, no
-reply); `health.authorize` / `health.query` (below). On the page side `native/index.js` selects the `android` platform
+reply); `diag.append` (the passkey log, no reply; below); `health.authorize` / `health.query` (below). On the page side `native/index.js` selects the `android` platform
 when `window.wgNative` has `postMessage` + `addEventListener` and is neither a
 Window nor a DOM node (an `<iframe name=wgNative>` must not clobber it; iOS is
 checked first) and `__native.call(op, args)` does the id-correlated round trip;
@@ -212,6 +212,34 @@ account host, so the sheet lists only that account's passkeys; the server
 still verifies the asserted credential belongs to the account
 (`login/finish`, `DELETE /api/account`). On web and iOS the request is
 unchanged and sent once.
+
+### Passkey diagnostics log (bd med-nt9p.22)
+
+Inside the shell only, every passkey ceremony is logged so a failure on a
+real phone can be pasted into a bead. [`web/cloud/js/passkey-diag.js`](../web/cloud/js/passkey-diag.js)
+(same `window.wgNative` gate; on web and iOS it returns before doing
+anything) posts one `diag.append {entry}` per server step (`register/begin`
+/ `finish`, `login/begin` / `finish`, `account/reauth` / `delete`: HTTP
+status) and per `navigator.credentials` call — `create`, `get`, or the
+post-create `probe`, one entry per retry attempt: ms since the ceremony's
+begin, page path, rp id, the caller's `allowCredentials` length (the shell
+sends `[]`), userVerification, residentKey / authenticatorAttachment, PRF
+requested; then ok + a 3-byte SHA-256 tag of the rawId, whether it is in the
+caller's allowlist, PRF length — or the error name and message. Never logged:
+credential IDs, user handles, PRF output, challenges, invite tokens, URL
+fragments. The shell ([`Diag.kt`](../android/app/src/main/java/com/example/medtracker/Diag.kt),
+`DiagTest`) timestamps each entry, redacts it at write time like the spike
+(base → `<base>`, account label → `<sub-xxxxxx>`, cert hash → `<cert>`) and
+keeps the last 200 lines in its own SharedPreferences file, so the log
+survives reloads, kills and Switch account (not *Clear storage*). It also logs
+the WebView's WebAuthn mode (`for-app` …) whenever it creates one.
+
+**Copying it:** long-press the launcher icon → **Copy diagnostics**, or on a
+ceremony page tap "Not your account? Use another invite" → **Copy
+diagnostics**. The clipboard gets a header (app version + versionCode, Android
+version / SDK, device model, WebView package + version, the credential and
+autofill providers where Android exposes them, WebAuthn mode) followed by the
+log; paste it into the bead.
 
 ### Reminders: local notifications (bd med-nt9p.7)
 

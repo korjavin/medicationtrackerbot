@@ -15,6 +15,7 @@ import {
 } from './crypto.js';
 import { openDb } from './localdb.js';
 import { getAssertion } from './passkey-get.js';
+import { diagHttp } from './passkey-diag.js';
 
 const STORE_NAME = 'device';
 // v2 lives in its own slot: a pre-v2 shell reads only LDK_LEGACY_KEY, so it
@@ -100,7 +101,7 @@ function renderLocked(app, errorText) {
 // its output comes back for the KEK; without one (session renewal) nothing
 // key-related is requested, so renewal works where PRF is unavailable.
 async function loginCeremony(salt) {
-  const beginRes = await fetch('/api/webauthn/login/begin', { method: 'POST' });
+  const beginRes = diagHttp('login/begin', await fetch('/api/webauthn/login/begin', { method: 'POST' }));
   if (!beginRes.ok) throw new Error('Could not start unlock — no passkey is registered yet.');
   const { publicKey } = await beginRes.json();
   const requestOptions = PublicKeyCredential.parseRequestOptionsFromJSON(publicKey);
@@ -116,11 +117,11 @@ async function loginCeremony(salt) {
   // Never transmit the PRF output — it lives client-side only.
   if (finishBody.clientExtensionResults) delete finishBody.clientExtensionResults.prf;
 
-  const finishRes = await fetch('/api/webauthn/login/finish', {
+  const finishRes = diagHttp('login/finish', await fetch('/api/webauthn/login/finish', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(finishBody),
-  });
+  }));
   if (!finishRes.ok) throw new Error('Unlock failed. Please try again.');
   const { account_id: accountId } = await finishRes.json();
   return { accountId, credentialId: new Uint8Array(assertion.rawId), prfOutput };

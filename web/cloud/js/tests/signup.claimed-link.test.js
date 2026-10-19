@@ -266,6 +266,55 @@ describe('post-create PRF probe', () => {
     expect(getCalls).toHaveLength(2);
   });
 
+  // med-nt9p.22: the ceremony log goes to the shell as diag.append entries.
+  const diagEntries = (post) => post.mock.calls
+    .map(([m]) => JSON.parse(m))
+    .filter((m) => m.op === 'diag.append')
+    .map((m) => JSON.parse(m.args.entry));
+
+  it('Android shell: logs begin, create, probe and the probe retry, without secrets', async () => {
+    install((n) => { if (n === 1) throw notReadable(); return noPrf(RAW_ID); });
+    const post = vi.fn();
+    globalThis.wgNative = { postMessage: post, addEventListener() {} };
+    const app = await clickCreate();
+    await vi.waitFor(() => expect(app.textContent).toContain("can't be used yet"), { timeout: 3000 });
+    await vi.waitFor(() => expect(diagEntries(post)).toHaveLength(4));
+
+    const entries = diagEntries(post);
+    const find = (op, attempt) => entries.find((e) => e.op === op && (attempt === undefined || e.attempt === attempt));
+    expect(entries.map((e) => e.op).sort()).toEqual(['create', 'http', 'probe', 'probe']);
+    expect(find('http')).toMatchObject({ step: 'register/begin', status: 200 });
+    const created = find('create', 1);
+    expect(created).toMatchObject({ result: 'ok', id: expect.stringMatching(/^[0-9a-f]{6}$/) });
+    expect(find('probe', 1)).toMatchObject({ error: 'NotReadableError', allow: 1, uv: 'required', prf: true });
+    expect(find('probe', 2)).toMatchObject({ result: 'ok', match: true, prfLen: 0, id: created.id });
+    // No raw credential id, salt, challenge or claim token in any entry.
+    const all = JSON.stringify(entries);
+    expect(all).not.toContain('tok123');
+    expect(all).not.toMatch(/"(rawId|challenge|salt|eval|first)"/);
+    expect(all).not.toContain('[1,2,3,4]');
+    for (const e of entries) expect(typeof e.ms).toBe('number');
+  });
+
+  it('web and iOS: nothing is logged, create gets the options untouched', async () => {
+    install(() => noPrf(RAW_ID));
+    const post = vi.fn();
+    // iOS's handler wins over a wgNative-shaped global, so this is not the Android shell.
+    globalThis.webkit = { messageHandlers: { wgNative: { postMessage() {} } } };
+    globalThis.wgNative = { postMessage: post, addEventListener() {} };
+    try {
+      const app = await clickCreate();
+      await vi.waitFor(() => expect(app.textContent).toContain("can't be used yet"));
+      expect(post).not.toHaveBeenCalled();
+      expect(navigator.credentials.create).toHaveBeenCalledTimes(1);
+      const [arg] = navigator.credentials.create.mock.calls[0];
+      expect(Object.keys(arg)).toEqual(['publicKey']);
+      expect(getCalls[0].allowCredentials).toEqual([{ type: 'public-key', id: RAW_ID }]);
+    } finally {
+      delete globalThis.webkit;
+    }
+  });
+
   it('Android shell: any other error is not retried', async () => {
     install(() => { throw Object.assign(new Error('dismissed'), { name: 'NotAllowedError' }); });
     bridge();
