@@ -63,6 +63,8 @@ export default async function smoke(ctx) {
     await ctx.shot(`tab-${label}`);
   }
 
+  await exportBackup(ctx, page, r);
+
   await page.evaluate(() => window.switchTab('today'));
   const sheetOpen = () => page.evaluate(() => window.ModalManager._isVisible('bp-modal'));
   const before = await page.evaluate(() => innerHeight);
@@ -151,6 +153,80 @@ export default async function smoke(ctx) {
     }
   });
   await ctx.shot('relaunch-today');
+}
+
+// bd med-nvd4: Settings → Backup & import → encrypted "Download backup" must end in the shell's
+// Save/Share dialog with visible progress on the way. results.smoke.export has each phase's time
+// (exportAll / gzip / age), the status line seen while it ran, and the click → dialog time; a
+// ~25 MB blob probe checks the shell's blob: download path at a real vault's size. Findings, not
+// stoppers. The temp file the shell wrote is deleted after (cache/downloads).
+async function exportBackup(ctx, page, r) {
+  const { shell, sleep } = ctx;
+  const e = (r.export = {});
+  const dismiss = async () => {
+    await shell('input keyevent KEYCODE_BACK');
+    await sleep(1000);
+    await shell(`run-as ${ctx.pkg} rm -rf cache/downloads`).catch(() => {});
+  };
+  await ctx.step('export: open Backup & import', async () => {
+    await page.locator('[data-settings-open="backup"]').click();
+    await page.locator('#importexport-export-btn').waitFor({ state: 'visible', timeout: 10_000 });
+    await page.fill('#importexport-export-passphrase', 'qa-export-passphrase');
+  }).catch(() => {});
+  // The same pipeline as the button, timed per phase, without a download.
+  e.phases = await page.evaluate(async () => {
+    const t = () => performance.now();
+    const out = {};
+    try {
+      let s = t();
+      const json = await window.CloudVault.exportAll({ includeSecrets: true });
+      out.exportAllMs = Math.round(t() - s); out.jsonBytes = json.length;
+      s = t();
+      const gz = await window.BackupCrypto.gzipString(json);
+      out.gzipMs = Math.round(t() - s); out.gzBytes = gz.length;
+      s = t();
+      const age = await window.BackupCrypto.encryptBackup(gz, 'qa-export-passphrase');
+      out.encryptMs = Math.round(t() - s); out.ageBytes = age.length;
+    } catch (err) {
+      out.error = String(err && err.message || err);
+    }
+    return out;
+  }).catch((err) => ({ error: String(err?.message || err).split('\n')[0] }));
+  await ctx.step('export: Download backup → Save/Share', async () => {
+    const t0 = Date.now();
+    await page.click('#importexport-export-btn');
+    await sleep(700);
+    e.statusWhileRunning = await page.evaluate(() => document.getElementById('importexport-export-status')?.textContent || null).catch(() => null);
+    await ctx.shot('export-progress');
+    try {
+      await ctx.waitFor({ text: 'Save to device' }, 180_000);
+      e.clickToDialogMs = Date.now() - t0;
+      await ctx.shot('export-save-share');
+    } finally {
+      e.statusAfter = await page.evaluate(() => document.getElementById('importexport-export-status')?.textContent || null).catch(() => null);
+    }
+    await dismiss();
+    await sleep(1000);
+    e.statusAfterDismiss = await page.evaluate(() => document.getElementById('importexport-export-status')?.textContent || null).catch(() => null);
+    await ctx.shot('export-after');
+  }).catch(async () => { await ctx.shot('export-stuck'); });
+  await ctx.step('export: 25 MB blob reaches the shell', async () => {
+    const t0 = Date.now();
+    await page.evaluate(() => {
+      const n = 25 * 1024 * 1024;
+      const b = new Uint8Array(n);
+      for (let i = 0; i < n; i += 65536) crypto.getRandomValues(b.subarray(i, Math.min(n, i + 65536)));
+      window.downloadBlobAsFile(new Blob([b], { type: 'application/octet-stream' }), 'qa-probe.bin');
+    });
+    try {
+      await ctx.waitFor({ text: 'Save to device' }, 120_000);
+      e.bigBlobMs = Date.now() - t0;
+      await ctx.shot('export-big-blob');
+    } finally {
+      await dismiss();
+    }
+  }).catch(() => {});
+  await page.evaluate(() => window.switchTab('today')).catch(() => {});
 }
 
 // MedTrackerCloudReady resolves once cloud-boot installed the API shim (e2e/vault-roundtrip.mjs).
