@@ -20,6 +20,10 @@ import (
 	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
 )
 
+// accountGoneHeader marks the 404 of an account subdomain the store does not
+// have (and no other response), for the native shells (bd med-nt9p.32.14).
+const accountGoneHeader = "X-Account-Gone"
+
 // accountStore is the subset of *cloudstore.Repo the router needs to resolve
 // a subdomain to an account and read its egress-host allowlist (for the app
 // document's scoped connect-src).
@@ -438,6 +442,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	account, err := h.store.AccountBySubdomain(r.Context(), sub)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
+			// The marker tells the native shells this 404 is ours — no such
+			// account (deleted, or a typo) — not a proxy's no-router 404 during a
+			// redeploy; only then does the Android app forget the stored host
+			// (bd med-nt9p.32.14). Only this branch sets it.
+			w.Header().Set(accountGoneHeader, "1")
 			http.NotFound(w, r)
 			return
 		}

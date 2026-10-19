@@ -220,7 +220,8 @@ func TestRouter_HostVariants(t *testing.T) {
 		{"known subdomain domain module resolves", "known-sub.app.example.com", "/domain/bp.js", http.StatusOK, "export const createBPDomain = () => ({});"},
 		{"known subdomain cloud-boot.js resolves via shell fallback", "known-sub.app.example.com", "/js/cloud-boot.js", http.StatusOK, "window.__MEDTRACKER_CLOUD__=true;"},
 		{"unknown subdomain is 404", "no-such-sub.app.example.com", "/", http.StatusNotFound, ""},
-		{"unrelated host is 404", "evil.example.org", "/", http.StatusNotFound, ""},
+		{"unknown subdomain api is 404", "no-such-sub.app.example.com", "/api/version", http.StatusNotFound, ""},
+		{"known subdomain missing asset is 404", "known-sub.app.example.com", "/static/js/nope.js", http.StatusNotFound, ""},		{"unrelated host is 404", "evil.example.org", "/", http.StatusNotFound, ""},
 	}
 
 	for _, tc := range cases {
@@ -235,6 +236,13 @@ func TestRouter_HostVariants(t *testing.T) {
 			}
 			if tc.wantBody != "" && rec.Body.String() != tc.wantBody {
 				t.Fatalf("body = %q, want %q", rec.Body.String(), tc.wantBody)
+			}
+
+			// The no-such-account marker (bd med-nt9p.32.14): only on the
+			// unknown-subdomain 404, never on a live account or another 404.
+			gone := rec.Header().Get("X-Account-Gone")
+			if wantGone := tc.name == "unknown subdomain is 404" || tc.name == "unknown subdomain api is 404"; (gone == "1") != wantGone {
+				t.Errorf("X-Account-Gone = %q, want set: %v", gone, wantGone)
 			}
 
 			if tc.name == "known subdomain serves the real app at root" {
