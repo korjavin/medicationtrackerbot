@@ -720,6 +720,7 @@ function bindLeaveAccount() {
 }
 
 function showLeaveAccount(leave) {
+    fillDeviceWords(); // the row may show before loadSettings' own fill (Android: after the probe)
     document.querySelector('.wg-settings-leave-account')?.classList.remove('wg-settings-hidden');
     const btn = document.getElementById('settings-leave-account-btn');
     if (!btn || _leaveAccountBound) return;
