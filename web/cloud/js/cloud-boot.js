@@ -96,10 +96,12 @@ function withinMs(promise, ms) {
     return Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve(null), ms))]);
 }
 async function pickUpMovedVault(win) {
+    // Wait for the page's scripts first: native/index.js (the bridge),
+    // settings.js (nativeHas) and importexport.js load after this file.
+    const doc = win.document;
+    if (doc && doc.readyState === 'loading') await new Promise((r) => doc.addEventListener('DOMContentLoaded', r, { once: true }));
     const native = win.LocalNotifications && win.LocalNotifications.__native;
     if (!native || (native.platform !== 'ios' && native.platform !== 'android')) return;
-    const doc = win.document;
-    if (doc.readyState === 'loading') await new Promise((r) => doc.addEventListener('DOMContentLoaded', r, { once: true }));
     // The reload after a pickup lands here once more: say where the records went.
     let moved = false;
     try {

@@ -267,7 +267,7 @@
             return;
         }
 
-        await restoreVault(json);
+        await runRestore(json);
     }
 
     // The one restore pipeline (bd med-nt9p.32.18): the Restore button above
@@ -286,8 +286,15 @@
     // still happens, the import already did) and reloads the page.
     // { imported: true } = replaced and reloading. { imported: false } = the
     // user cancelled or the import failed: already told the user, nothing
-    // replaced, beforeReload not called.
-    async function restoreVault(json, { source = 'file', beforeReload } = {}) {
+    // replaced, beforeReload not called — or another import / reset already
+    // runs (importInFlight; nothing shown, nothing replaced).
+    function restoreVault(json, opts) {
+        if (importInFlight) return Promise.resolve({ imported: false });
+        return runRestore(json, opts);
+    }
+
+    // restoreVault's body; doImport enters here already holding importInFlight.
+    async function runRestore(json, { source = 'file', beforeReload } = {}) {
         const move = source === 'move';
         const device = window.LocalNotifications?.copy?.device || 'iPhone';
         importInFlight = true;
