@@ -1538,3 +1538,76 @@ describe('Trackers card', () => {
         expect(strength.textContent).toContain('Met 15 of the last 29 days.');
     });
 });
+
+// med-6xb9: after a skipped onboarding, Today is where the free AI trial
+// stays discoverable. Settings owns the question and the opt-in
+// (settings.integrations / cloud.local-mode suites); Today renders the card.
+describe('AI trial card', () => {
+    let env;
+    let si;
+    const card = () => env.document.querySelector('[data-section="ai-trial"]');
+    const shown = () => !!card() && !card().classList.contains('hidden');
+    const flush = () => new Promise((r) => setTimeout(r, 0));
+
+    function setup(offer, state = baseState()) {
+        env = loadRenderEnv();
+        si = { trialOffer: vi.fn(async () => offer), startTrial: vi.fn(async () => true) };
+        env.window.SettingsIntegrations = si;
+        const root = env.document.getElementById('today-content');
+        env.paint = () => env.render(state, root, { now: NOW });
+        env.paint();
+    }
+    afterEach(() => { if (env) env.cleanup(); env = null; });
+
+    it('shows once a trial is on offer, and not when it is not', async () => {
+        setup(true);
+        expect(shown()).toBe(false); // hidden until the answer lands
+        await flush();
+        expect(shown()).toBe(true);
+        expect(card().textContent).toContain('Try AI for free');
+        env.paint();
+        expect(shown()).toBe(true); // a re-render keeps it without a flash
+        env.cleanup();
+
+        setup(false);
+        await flush();
+        expect(shown()).toBe(false);
+    });
+
+    it('Not now retires it for good on this device', async () => {
+        setup(true);
+        await flush();
+        card().querySelector('[data-action="ai-trial-dismiss"]').click();
+        expect(card()).toBeNull();
+        expect(env.window.localStorage.getItem('wg.today.aiTrialDismissed')).toBe('1');
+        env.paint();
+        await flush();
+        expect(card()).toBeNull();
+        expect(si.trialOffer).toHaveBeenCalledTimes(1);
+    });
+
+    it('Try it starts the trial through Settings and the card goes once it is on', async () => {
+        setup(true);
+        await flush();
+        card().querySelector('[data-action="ai-trial-start"]').click();
+        await flush();
+        expect(si.startTrial).toHaveBeenCalledTimes(1);
+        expect(card()).toBeNull();
+    });
+
+    it('stays when the opt-in is declined', async () => {
+        setup(true);
+        await flush();
+        si.startTrial.mockResolvedValue(false);
+        card().querySelector('[data-action="ai-trial-start"]').click();
+        await flush();
+        expect(shown()).toBe(true);
+    });
+
+    it('no card with Food turned off', async () => {
+        setup(true, { ...baseState(), caloriesToday: { value: null, deeplink: 'food', status: 'disabled' } });
+        await flush();
+        expect(card()).toBeNull();
+        expect(si.trialOffer).not.toHaveBeenCalled();
+    });
+});

@@ -969,6 +969,27 @@ describe('local-only mode anonymous trial opt-in (med-o7zq.16)', () => {
         await window.SettingsIntegrations._renderLocalTrial();
         expect(document.getElementById('integrations-local-trial').classList.contains('hidden')).toBe(true);
     });
+
+    // med-6xb9: Today's "Try AI for free" card asks trialOffer() and starts
+    // the trial through this same switch.
+    it('trialOffer is true while the switch is off, startTrial is the switch, and no offer once on or without App Attest', async () => {
+        const { window, document } = env;
+        expect(await window.SettingsIntegrations.trialOffer()).toBe(true);
+        const starting = window.SettingsIntegrations.startTrial();
+        const modal = await vi.waitFor(() => {
+            const el = document.querySelector('.wg-trial-consent-modal[data-trial-consent-scope="anon"]');
+            expect(el).not.toBeNull();
+            return el;
+        });
+        modal.querySelector('[data-trial-consent-choice="allow"]').click();
+        expect(await starting).toBe(true);
+        expect(document.getElementById('integrations-local-trial-toggle').checked).toBe(true);
+        expect(await window.SettingsIntegrations.trialOffer()).toBe(false);
+
+        await window.SettingsIntegrations._setLocalTrial(false);
+        window.Attest.status = vi.fn(async () => ({ supported: false, base: TRIAL_BASE, attested: false }));
+        expect(await window.SettingsIntegrations.trialOffer()).toBe(false);
+    });
 });
 
 // bd med-o7zq.20 — the operator's food database rides the same trial switch:
