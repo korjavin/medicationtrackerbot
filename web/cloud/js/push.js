@@ -435,7 +435,7 @@ function renderPushScreen(app, ctx, onExit) {
       <button id="push-enable" class="wg-btn wg-btn--primary">Enable notifications</button>
       <form id="reminder-form" class="note-form" hidden>
         <input id="reminder-text" placeholder="Reminder text" autocomplete="off" />
-        <input id="reminder-minutes" type="number" min="1" value="1" />
+        <input id="reminder-minutes" type="number" inputmode="numeric" min="1" value="1" />
         <button type="submit" class="wg-btn">Remind me</button>
       </form>
       <label id="rich-toggle-row" hidden>
