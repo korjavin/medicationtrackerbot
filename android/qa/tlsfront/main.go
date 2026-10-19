@@ -48,9 +48,29 @@ func main() {
 
 	// NewSingleHostReverseProxy keeps the inbound Host header, which the cloud routes accounts by.
 	proxy := httputil.NewSingleHostReverseProxy(up)
+	// down.<domain> answers 503: the shell's "Can't open your account" screen, which a 404
+	// no longer reaches (a 404 of the stored host returns to the first run, bd med-nt9p.32.14).
+	// nobody.<domain> is the server's "no such account" 404, marked X-Account-Gone: 1 exactly as
+	// internal/cloudserver/router.go's unknown-subdomain branch answers (the contract the shell
+	// trusts); stale.<domain> is a proxy's bare 404 (Traefik's no-router answer during a redeploy),
+	// which must NOT make the shell forget the account.
+	down, gone, stale := "down."+*domain, "nobody."+*domain, "stale."+*domain
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Host {
+		case down:
+			http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+		case gone:
+			w.Header().Set("X-Account-Gone", "1")
+			http.NotFound(w, r)
+		case stale:
+			http.NotFound(w, r)
+		default:
+			proxy.ServeHTTP(w, r)
+		}
+	})
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           proxy,
+		Handler:           handler,
 		TLSConfig:         &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12},
 		ReadHeaderTimeout: 10 * time.Second,
 	}
