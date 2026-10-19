@@ -73,9 +73,7 @@ final class VisualQATests: XCTestCase {
             failure = "ready node #wg-qa-ready never appeared"
         }
         if failure == nil { failure = perform(scene.steps, in: app) }
-        Thread.sleep(forTimeInterval: 1) // keyboard and sheet animations settle
-
-        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        let shot = XCTAttachment(screenshot: Self.stableScreenshot())
         shot.name = "\(scene.name).png"
         shot.lifetime = .keepAlways
         add(shot)
@@ -93,6 +91,21 @@ final class VisualQATests: XCTestCase {
         }
         if let failure { XCTFail("\(scene.name): \(failure)") }
         app.terminate()
+    }
+
+    /// The CI Simulator renders without a GPU: a heavy page can show its
+    /// previous frame for seconds after the DOM (and the probes) moved on, so
+    /// shoot once two screenshots a second apart match (8 s cap).
+    private static func stableScreenshot() -> XCUIScreenshot {
+        Thread.sleep(forTimeInterval: 1) // keyboard and sheet animations settle
+        var last = XCUIScreen.main.screenshot()
+        for _ in 0..<8 {
+            Thread.sleep(forTimeInterval: 1)
+            let next = XCUIScreen.main.screenshot()
+            if next.pngRepresentation == last.pngRepresentation { return next }
+            last = next
+        }
+        return last
     }
 
     /// WKWebView's DOM reaches XCUITest as accessibility elements: the node's
@@ -123,8 +136,12 @@ final class VisualQATests: XCTestCase {
             } else if let text = step["type"] as? String {
                 (field ?? app).typeText(text)
                 typed = true
-                if let shown = field?.value as? String, !shown.contains(text) {
-                    return "typed \"\(text)\" but the field shows \"\(shown)\""
+                // The field's AX value lags the keystrokes: poll before failing.
+                if let field {
+                    let landed = NSPredicate(format: "value CONTAINS %@", text)
+                    if XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: landed, object: field)], timeout: 3) != .completed {
+                        return "typed \"\(text)\" but the field shows \"\(field.value as? String ?? "")\""
+                    }
                 }
             } else if step["clear"] as? Bool == true {
                 guard let field else { return "clear without a tapped field" }
