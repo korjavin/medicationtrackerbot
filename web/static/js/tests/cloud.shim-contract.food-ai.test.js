@@ -352,6 +352,27 @@ describe('cloud shim contract — food AI flows (features/food/{add-sheet,photo,
         expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(/unavailable right now/i));
     });
 
+    it.each([
+        [undefined, /^This iPhone has already used/],
+        ['phone', /^This phone has already used/],
+    ])('trial 403 trial_already_used names the device (shell device=%s)', async (device, expected) => {
+        allowConsoleNoise();
+        const { window, document } = env;
+        enableTrialAI(env);
+        await grantTrialConsent(window);
+        if (device) vi.stubGlobal('LocalNotifications', { copy: { device } });
+
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+            ok: false,
+            status: 403,
+            async text() { return JSON.stringify({ error: 'trial_already_used' }); }
+        }));
+
+        await describeAndLog(window, document, 'a banana');
+
+        expect(window.safeAlert).toHaveBeenCalledWith(expect.stringMatching(expected));
+    });
+
     it('trial 503: unconfigured proxy degrades to the plain no-key error', async () => {
         allowConsoleNoise();
         const { window, document } = env;
