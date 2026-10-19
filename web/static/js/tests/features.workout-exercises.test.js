@@ -139,7 +139,8 @@ describe('features/workout/exercises.js — split-file integration', () => {
 
       const increment = document.getElementById('workout-exercise-progression-increment');
       expect(increment).not.toBeNull();
-      expect(increment.type).toBe('number');
+      expect(increment.type).toBe('text');
+      expect(increment.getAttribute('inputmode')).toBe('decimal');
     });
 
     it('Done includes a linear progression_rule with the increment in the payload', async () => {

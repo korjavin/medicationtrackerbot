@@ -1864,9 +1864,10 @@ async function _onSetCellTap(logIndex, row, field) {
         emptyError: 'Enter a number.',
     });
     if (typed === null || typed === undefined) return;
-    if (!Number.isFinite(parseFloat(typed))) return;
+    const n = parseDecimal(typed);
+    if (!Number.isFinite(n)) return;
     if (window.WorkoutSessionsState.logs[logIndex] !== log) return;
-    _setSessionSetField(logIndex, row, field, typed);
+    _setSessionSetField(logIndex, row, field, n);
 }
 
 // _completeSessionSet marks pending row `j` (0 = the first pending row) done:
@@ -3033,7 +3034,7 @@ async function saveNewSessionExercise() {
     const sets = parseInt(document.getElementById('session-add-exercise-sets').value);
     const reps = parseInt(document.getElementById('session-add-exercise-reps').value);
     const weightRaw = document.getElementById('session-add-exercise-weight').value;
-    const weight = weightRaw !== '' ? parseFloat(weightRaw) : null;
+    const weight = weightRaw.trim() !== '' ? parseDecimal(weightRaw) : null;
     const notes = document.getElementById('session-add-exercise-notes').value.trim();
 
     if (!name || !sets || !reps) {

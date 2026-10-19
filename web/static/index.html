@@ -755,7 +755,7 @@
                     <div class="wg-settings-number-field">
                         <label for="food-target-carbs" class="wg-settings-number-field__label">Carbs</label>
                         <div class="wg-gloss--inset wg-settings-number-field__wrap">
-                            <input type="number" inputmode="decimal" id="food-target-carbs"
+                            <input type="number" inputmode="numeric" id="food-target-carbs"
                                 class="wg-settings-number-field__input" min="0" placeholder="170">
                             <span class="wg-settings-number-field__unit">g</span>
                         </div>
@@ -763,7 +763,7 @@
                     <div class="wg-settings-number-field">
                         <label for="food-target-protein" class="wg-settings-number-field__label">Protein</label>
                         <div class="wg-gloss--inset wg-settings-number-field__wrap">
-                            <input type="number" inputmode="decimal" id="food-target-protein"
+                            <input type="number" inputmode="numeric" id="food-target-protein"
                                 class="wg-settings-number-field__input" min="0" placeholder="120">
                             <span class="wg-settings-number-field__unit">g</span>
                         </div>
@@ -771,7 +771,7 @@
                     <div class="wg-settings-number-field">
                         <label for="food-target-fat" class="wg-settings-number-field__label">Fat</label>
                         <div class="wg-gloss--inset wg-settings-number-field__wrap">
-                            <input type="number" inputmode="decimal" id="food-target-fat"
+                            <input type="number" inputmode="numeric" id="food-target-fat"
                                 class="wg-settings-number-field__input" min="0" placeholder="60">
                             <span class="wg-settings-number-field__unit">g</span>
                         </div>
@@ -857,14 +857,14 @@
                         <div class="wg-settings-number-field">
                             <label for="gam-target-sleep_hours-low" class="wg-settings-number-field__label">Low</label>
                             <div class="wg-gloss--inset wg-settings-number-field__wrap">
-                                <input type="number" inputmode="decimal" id="gam-target-sleep_hours-low" class="wg-settings-number-field__input" min="0" step="0.5">
+                                <input type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" autocomplete="off" id="gam-target-sleep_hours-low" class="wg-settings-number-field__input" min="0" step="0.5">
                                 <span class="wg-settings-number-field__unit">h</span>
                             </div>
                         </div>
                         <div class="wg-settings-number-field">
                             <label for="gam-target-sleep_hours-high" class="wg-settings-number-field__label">High</label>
                             <div class="wg-gloss--inset wg-settings-number-field__wrap">
-                                <input type="number" inputmode="decimal" id="gam-target-sleep_hours-high" class="wg-settings-number-field__input" min="0" step="0.5">
+                                <input type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" autocomplete="off" id="gam-target-sleep_hours-high" class="wg-settings-number-field__input" min="0" step="0.5">
                                 <span class="wg-settings-number-field__unit">h</span>
                             </div>
                         </div>
@@ -1440,7 +1440,7 @@
                 <label for="workout-exercise-weight" class="wg-label">Working weight · kg</label>
                 <div class="wg-stepper">
                     <button type="button" class="wg-stepper__btn" data-step-for="workout-exercise-weight" data-step="-2.5" aria-label="Decrease weight"><i class="wg-ico" data-icon="minus"></i></button>
-                    <input type="number" id="workout-exercise-weight" class="wg-stepper__val" step="0.5" min="0" placeholder="40" inputmode="decimal">
+                    <input type="text" id="workout-exercise-weight" class="wg-stepper__val" step="0.5" min="0" placeholder="40" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" autocomplete="off">
                     <button type="button" class="wg-stepper__btn" data-step-for="workout-exercise-weight" data-step="2.5" aria-label="Increase weight"><i class="wg-ico" data-icon="plus"></i></button>
                 </div>
             </div>
@@ -1484,7 +1484,7 @@
             </div>
             <div class="wg-field">
                 <label for="workout-exercise-progression-increment" class="wg-label">Increment · kg</label>
-                <input type="number" id="workout-exercise-progression-increment" class="wg-input" step="0.5" min="0" placeholder="2.5" inputmode="decimal">
+                <input type="text" id="workout-exercise-progression-increment" class="wg-input" step="0.5" min="0" placeholder="2.5" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" autocomplete="off">
             </div>
         </div>
     </div>
@@ -1631,7 +1631,7 @@
                 <div class="wg-workouts-library-modal__field">
                     <label for="exercise-library-weight" class="wg-workouts-library-modal__label">Weight (kg)</label>
                     <div class="wg-gloss--inset wg-workouts-library-modal__input-wrap">
-                        <input type="number" inputmode="decimal" id="exercise-library-weight" class="wg-workouts-library-modal__input" step="0.5" min="0" placeholder="40">
+                        <input type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" autocomplete="off" id="exercise-library-weight" class="wg-workouts-library-modal__input" step="0.5" min="0" placeholder="40">
                     </div>
                 </div>
             </div>
@@ -1735,19 +1735,19 @@
                     <div class="wg-equipment-modal__field">
                         <label for="workout-equipment-gen-min" class="wg-equipment-modal__label">Min</label>
                         <div class="wg-gloss--inset wg-equipment-modal__input-wrap">
-                            <input type="number" inputmode="decimal" id="workout-equipment-gen-min" class="wg-equipment-modal__input" min="0" step="0.25" placeholder="10">
+                            <input type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" autocomplete="off" id="workout-equipment-gen-min" class="wg-equipment-modal__input" min="0" step="0.25" placeholder="10">
                         </div>
                     </div>
                     <div class="wg-equipment-modal__field">
                         <label for="workout-equipment-gen-max" class="wg-equipment-modal__label">Max</label>
                         <div class="wg-gloss--inset wg-equipment-modal__input-wrap">
-                            <input type="number" inputmode="decimal" id="workout-equipment-gen-max" class="wg-equipment-modal__input" min="0" step="0.25" placeholder="30">
+                            <input type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" autocomplete="off" id="workout-equipment-gen-max" class="wg-equipment-modal__input" min="0" step="0.25" placeholder="30">
                         </div>
                     </div>
                     <div class="wg-equipment-modal__field">
                         <label for="workout-equipment-gen-step" class="wg-equipment-modal__label">Step</label>
                         <div class="wg-gloss--inset wg-equipment-modal__input-wrap">
-                            <input type="number" inputmode="decimal" id="workout-equipment-gen-step" class="wg-equipment-modal__input" min="0" step="0.25" placeholder="2.5">
+                            <input type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" autocomplete="off" id="workout-equipment-gen-step" class="wg-equipment-modal__input" min="0" step="0.25" placeholder="2.5">
                         </div>
                     </div>
                     <div class="wg-equipment-modal__field wg-equipment-modal__field--action">
@@ -1761,7 +1761,7 @@
                 <div class="wg-equipment-modal__field">
                     <label for="workout-equipment-bar" class="wg-equipment-modal__label">Bar (kg)</label>
                     <div class="wg-gloss--inset wg-equipment-modal__input-wrap">
-                        <input type="number" inputmode="decimal" id="workout-equipment-bar" class="wg-equipment-modal__input" min="0" step="0.25" placeholder="20">
+                        <input type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" autocomplete="off" id="workout-equipment-bar" class="wg-equipment-modal__input" min="0" step="0.25" placeholder="20">
                     </div>
                 </div>
 
@@ -1810,7 +1810,7 @@
                 <div class="wg-workouts-miband-modal__field">
                     <label for="miband-workout-distance" class="wg-workouts-miband-modal__label">Distance (m)</label>
                     <div class="wg-gloss--inset wg-workouts-miband-modal__input-wrap">
-                        <input type="number" inputmode="decimal" id="miband-workout-distance" class="wg-workouts-miband-modal__input" step="0.1" min="0" placeholder="0">
+                        <input type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" autocomplete="off" id="miband-workout-distance" class="wg-workouts-miband-modal__input" step="0.1" min="0" placeholder="0">
                     </div>
                 </div>
             </div>
@@ -1921,7 +1921,7 @@
                 <div class="wg-workouts-log-set-modal__field">
                     <label for="session-add-exercise-weight" class="wg-workouts-log-set-modal__label">Weight (kg)</label>
                     <div class="wg-gloss--inset wg-workouts-log-set-modal__input-wrap">
-                        <input type="number" inputmode="decimal" id="session-add-exercise-weight" class="wg-workouts-log-set-modal__input"
+                        <input type="text" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" autocomplete="off" id="session-add-exercise-weight" class="wg-workouts-log-set-modal__input"
                             step="0.5" min="0" placeholder="0">
                     </div>
                 </div>
@@ -2053,15 +2053,15 @@
             <div class="wg-fieldrow wg-fieldrow--3">
                 <div class="wg-field">
                     <label for="food-carbs" class="wg-label">Carbs</label>
-                    <div class="wg-affix wg-affix--unit"><input type="number" id="food-carbs" class="wg-input" placeholder="C" inputmode="decimal"><span class="wg-affix__unit">g</span></div>
+                    <div class="wg-affix wg-affix--unit"><input type="text" id="food-carbs" class="wg-input" placeholder="C" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" autocomplete="off"><span class="wg-affix__unit">g</span></div>
                 </div>
                 <div class="wg-field">
                     <label for="food-protein" class="wg-label">Protein</label>
-                    <div class="wg-affix wg-affix--unit"><input type="number" id="food-protein" class="wg-input" placeholder="P" inputmode="decimal"><span class="wg-affix__unit">g</span></div>
+                    <div class="wg-affix wg-affix--unit"><input type="text" id="food-protein" class="wg-input" placeholder="P" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" autocomplete="off"><span class="wg-affix__unit">g</span></div>
                 </div>
                 <div class="wg-field">
                     <label for="food-fat" class="wg-label">Fat</label>
-                    <div class="wg-affix wg-affix--unit"><input type="number" id="food-fat" class="wg-input" placeholder="F" inputmode="decimal"><span class="wg-affix__unit">g</span></div>
+                    <div class="wg-affix wg-affix--unit"><input type="text" id="food-fat" class="wg-input" placeholder="F" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" autocomplete="off"><span class="wg-affix__unit">g</span></div>
                 </div>
             </div>
 
@@ -2138,20 +2138,20 @@
             <div class="wg-fieldrow wg-fieldrow--3">
                 <div class="wg-field">
                     <label for="food-product-carbs" class="wg-label">Carbs / 100 g</label>
-                    <input type="number" id="food-product-carbs" class="wg-input" placeholder="C" step="0.1" inputmode="decimal">
+                    <input type="text" id="food-product-carbs" class="wg-input" placeholder="C" step="0.1" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" autocomplete="off">
                 </div>
                 <div class="wg-field">
                     <label for="food-product-protein" class="wg-label">Protein / 100 g</label>
-                    <input type="number" id="food-product-protein" class="wg-input" placeholder="P" step="0.1" inputmode="decimal">
+                    <input type="text" id="food-product-protein" class="wg-input" placeholder="P" step="0.1" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" autocomplete="off">
                 </div>
                 <div class="wg-field">
                     <label for="food-product-fat" class="wg-label">Fat / 100 g</label>
-                    <input type="number" id="food-product-fat" class="wg-input" placeholder="F" step="0.1" inputmode="decimal">
+                    <input type="text" id="food-product-fat" class="wg-input" placeholder="F" step="0.1" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" autocomplete="off">
                 </div>
             </div>
             <div class="wg-field">
                 <label for="food-product-calories" class="wg-label">Calories / 100 g</label>
-                <div class="wg-affix wg-affix--unit"><input type="number" id="food-product-calories" class="wg-input" placeholder="Kcal" step="0.1" inputmode="decimal"><span class="wg-affix__unit">kcal</span></div>
+                <div class="wg-affix wg-affix--unit"><input type="text" id="food-product-calories" class="wg-input" placeholder="Kcal" step="0.1" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" autocomplete="off"><span class="wg-affix__unit">kcal</span></div>
             </div>
         </div>
     </mt-modal>
@@ -2390,8 +2390,8 @@
                 <label for="weight-value" class="wg-weight-modal__label">Weight</label>
                 <div class="wg-weight-modal__weight-row">
                     <div class="wg-gloss--inset wg-weight-modal__input-wrap wg-weight-modal__weight-wrap">
-                        <input type="number" id="weight-value" step="0.1" min="30" max="300"
-                            class="wg-weight-modal__input wg-weight-modal__weight-input" inputmode="decimal" required>
+                        <input type="text" id="weight-value" step="0.1" min="30" max="300"
+                            class="wg-weight-modal__input wg-weight-modal__weight-input" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" autocomplete="off" required>
                     </div>
                     <div class="wg-gloss--inset wg-weight-modal__unit-toggle" role="radiogroup" aria-label="Unit">
                         <button type="button" class="wg-gloss wg-weight-modal__unit-btn wg-weight-modal__unit-btn--active"

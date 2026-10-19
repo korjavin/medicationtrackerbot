@@ -111,8 +111,11 @@ describe('food product edit/delete in autocomplete', () => {
       // Valid name should send PUT
       document.getElementById('food-product-name').value = 'Updated Yogurt';
       document.getElementById('food-product-barcode').value = '999';
-      document.getElementById('food-product-carbs').value = '5';
-      document.getElementById('food-product-protein').value = '12';
+      // bd med-mysj: macro fields are type=text inputmode=decimal; an iOS
+      // comma-locale ',' parses the same as '.'.
+      expect(document.getElementById('food-product-carbs').type).toBe('text');
+      document.getElementById('food-product-carbs').value = '5,5';
+      document.getElementById('food-product-protein').value = '12.5';
       document.getElementById('food-product-fat').value = '1';
       document.getElementById('food-product-calories').value = '77';
 
@@ -127,8 +130,8 @@ describe('food product edit/delete in autocomplete', () => {
       expect(window.apiCall).toHaveBeenCalledWith('/api/food/products/10', 'PUT', {
         name: 'Updated Yogurt',
         barcode: '999',
-        carbs_100g: 5,
-        protein_100g: 12,
+        carbs_100g: 5.5,
+        protein_100g: 12.5,
         fat_100g: 1,
         energy_kcal_100g: 77,
         is_meal: false,

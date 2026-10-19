@@ -450,8 +450,9 @@ function _addEquipmentPlateRow(kg, count) {
     const kgWrap = doc.createElement('div');
     kgWrap.className = 'wg-gloss--inset wg-equipment-modal__input-wrap wg-equipment-plate-row__field';
     const kgInput = doc.createElement('input');
-    kgInput.type = 'number';
+    kgInput.type = 'text';
     kgInput.inputMode = 'decimal';
+    kgInput.autocomplete = 'off';
     kgInput.min = '0';
     kgInput.step = '0.25';
     kgInput.placeholder = 'kg';
@@ -524,7 +525,7 @@ function _readEquipmentPlateRows() {
         const kgRaw = row.querySelector('[data-plate-kg]').value;
         const countRaw = row.querySelector('[data-plate-count]').value;
         if ((kgRaw === '' || kgRaw == null) && (countRaw === '' || countRaw == null)) continue;
-        const kg = Number(kgRaw);
+        const kg = parseDecimal(kgRaw);
         const count = Number(countRaw);
         if (!Number.isFinite(kg) || kg <= 0) {
             safeAlert('Plate weight must be a positive number.');
@@ -553,9 +554,9 @@ function _parseEquipmentLoads(text) {
 }
 
 function fillEquipmentLoadsFromGenerator() {
-    const min = Number(document.getElementById('workout-equipment-gen-min').value);
-    const max = Number(document.getElementById('workout-equipment-gen-max').value);
-    const step = Number(document.getElementById('workout-equipment-gen-step').value);
+    const min = parseDecimal(document.getElementById('workout-equipment-gen-min').value);
+    const max = parseDecimal(document.getElementById('workout-equipment-gen-max').value);
+    const step = parseDecimal(document.getElementById('workout-equipment-gen-step').value);
     if (!Number.isFinite(min) || min <= 0 || !Number.isFinite(max) || !Number.isFinite(step)) {
         safeAlert('Generator needs a min, max and step.');
         return;
@@ -737,7 +738,7 @@ function _buildEquipmentShapePayload() {
         if (fixedImplement) fixedPayload.implement = fixedImplement;
         return fixedPayload;
     }
-    const barKg = Number(document.getElementById('workout-equipment-bar').value);
+    const barKg = parseDecimal(document.getElementById('workout-equipment-bar').value);
     if (!Number.isFinite(barKg) || barKg <= 0) {
         safeAlert('Bar weight must be a positive number.');
         return null;

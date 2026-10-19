@@ -57,7 +57,7 @@ function readScanReviewList(container, unit) {
         if (!Number.isFinite(reps) || reps < 0) return;
         let weightKg = null;
         if (weightRaw && String(weightRaw.value).trim() !== '') {
-            const w = Number(String(weightRaw.value).trim());
+            const w = parseDecimal(weightRaw.value);
             if (!Number.isFinite(w) || w < 0) return;
             weightKg = unit === 'lb' ? Math.round(w * 0.45359237 * 100) / 100 : w;
         }
@@ -138,8 +138,9 @@ function renderScanReview() {
                 row.appendChild(reps);
 
                 const weight = doc.createElement('input');
-                weight.type = 'number';
+                weight.type = 'text';
                 weight.inputMode = 'decimal';
+                weight.autocomplete = 'off';
                 weight.min = '0';
                 weight.setAttribute('data-scan-weight', '');
                 weight.setAttribute('aria-label', `${s.exerciseName} set ${s.setIndex} weight (${pending.unit})`);
