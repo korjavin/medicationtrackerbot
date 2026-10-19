@@ -189,9 +189,17 @@
 
     // grant(scope): persist an Allow the user already gave on a screen that
     // showed this exact disclosure but could not write the vault — the claim
-    // wizard's trial step (bd med-nt9p.40). No dialog; resolves true only when stored.
-    function grant(scope) {
-        return COPY[scope] ? persist(scope, true) : Promise.resolve(false);
+    // wizard's trial step (bd med-nt9p.40). No dialog. A decision already in
+    // the vault (a later answer here, or another device's) wins and is never
+    // overwritten. Resolves true = granted, false = the vault holds a refusal,
+    // null = nothing could be read or stored (the caller may ask instead).
+    async function grant(scope) {
+        if (!COPY[scope] || typeof window.apiCall !== 'function') return null;
+        let current = null;
+        try { current = await window.apiCall(CONSENT_URL, 'GET'); } catch (_) { return null; }
+        if (!current) return null;
+        if (typeof current[scope] === 'boolean') return current[scope];
+        return (await persist(scope, true)) ? true : null;
     }
 
     window.TrialConsent = { request, retryAfterConsent, grant };

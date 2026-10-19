@@ -254,8 +254,9 @@
     // data, so its second half runs here, once ('trial-asked'), on first open;
     // screens/integrations.js reads the same key to skip its own trial choice.
     // - 'trial-allowed' (bd med-nt9p.40): the wizard showed the `ai` disclosure
-    //   and the user allowed it — record that grant, ask nothing. Only if the
-    //   write fails does the dialog ask, so the trial is never on unconsented.
+    //   and the user allowed it — record that grant, ask nothing. A decision
+    //   already in the vault wins (grant() never overwrites it); only if nothing
+    //   could be stored does the dialog ask, so the trial is never on unconsented.
     // - 'trial': a pre-med-nt9p.40 shell that showed no disclosure — ask.
     function _askPendingTrial() {
         let choice = null;
@@ -270,8 +271,8 @@
             return;
         }
         Promise.resolve(consent.grant('ai'))
-            .catch(function () { return false; })
-            .then(function (stored) { if (stored !== true) consent.request('ai'); });
+            .catch(function () { return null; })
+            .then(function (decided) { if (typeof decided !== 'boolean') consent.request('ai'); });
     }
 
     function dismiss() {

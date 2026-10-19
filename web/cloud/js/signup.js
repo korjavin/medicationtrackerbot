@@ -480,9 +480,21 @@ const TRIAL_CHOICE_KEY = 'wg-onboarding-trial-choice';
 // Not shown where the next step sends the user to a fresh storage container:
 // iOS Safari's install step ends in the Home Screen app, which cannot read this
 // tab's localStorage, so its first-run overlay asks instead — still once.
+// Nor where storage is blocked: the answer could not reach the app, which would
+// then ask again.
+function canCarryTrialChoice() {
+  try {
+    localStorage.setItem(TRIAL_CHOICE_KEY, localStorage.getItem(TRIAL_CHOICE_KEY) ?? '');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function renderTrialStep(app, ctx) {
   if (document.querySelector('meta[name="medtracker-trial-ai"]')?.content !== '1'
-      || (isIOS() && isMobile() && !isStandalone())) {
+      || (isIOS() && isMobile() && !isStandalone())
+      || !canCarryTrialChoice()) {
     renderInstallStep(app, ctx);
     return;
   }

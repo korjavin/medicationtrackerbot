@@ -313,6 +313,14 @@ describe('trial step (after Telegram)', () => {
     expect(stored.size).toBe(0);
   });
 
+  it('is not asked where storage is blocked — the answer could not reach the app', async () => {
+    withTrialMeta();
+    globalThis.localStorage.setItem = () => { throw new Error('SecurityError'); };
+    const app = await reachInstallStep();
+    await vi.waitFor(() => expect(globalThis.location.href).toBe('/'));
+    expect(app.querySelector('#trial-try')).toBeNull();
+  });
+
   it('is still asked on iOS once installed (the iOS app shell counts as standalone)', async () => {
     withTrialMeta();
     ios = true;

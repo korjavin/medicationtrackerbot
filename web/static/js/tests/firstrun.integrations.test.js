@@ -581,7 +581,7 @@ describe('firstrun integrations screen in cloud mode with an operator trial', ()
     });
 
     it('a wizard Allow whose grant cannot be stored falls back to the dialog — never on unconsented', async () => {
-        const consent = { request: vi.fn(async () => false), grant: vi.fn(async () => false) };
+        const consent = { request: vi.fn(async () => false), grant: vi.fn(async () => null) };
         const { window, cleanup } = loadFlow({
             bootstrap: { needs_first_run: true }, cloud: true, trialAi: true, trialConsent: consent,
             wizardChoice: 'trial-allowed', initialStep: 'welcome',
@@ -592,6 +592,21 @@ describe('firstrun integrations screen in cloud mode with an operator trial', ()
             expect(consent.grant).toHaveBeenCalledWith('ai');
             expect(consent.request).toHaveBeenCalledTimes(1);
             expect(consent.request).toHaveBeenCalledWith('ai');
+        } finally { cleanup(); }
+    });
+
+    it('a wizard Allow defers to a refusal the vault already holds — no grant, no question', async () => {
+        const consent = { request: vi.fn(async () => true), grant: vi.fn(async () => false) };
+        const { window, cleanup } = loadFlow({
+            bootstrap: { needs_first_run: true }, cloud: true, trialAi: true, trialConsent: consent,
+            wizardChoice: 'trial-allowed', initialStep: 'welcome',
+        });
+        try {
+            window.WGFirstRun.mount();
+            await settle();
+            expect(consent.grant).toHaveBeenCalledTimes(1);
+            expect(consent.request).not.toHaveBeenCalled();
+            expect(window.localStorage.getItem('wg-onboarding-trial-choice')).toBe('trial-asked');
         } finally { cleanup(); }
     });
 

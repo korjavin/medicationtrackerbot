@@ -194,12 +194,14 @@ documents, two different primitives, no sharing needed. That is the correct boun
   `trialconsent` vault record, so it stores `trial-allowed` in `localStorage['wg-onboarding-trial-choice']`.
   `enterApp` opens the app in that same origin and browser storage next (`/claim`, `/unlock` and the app are all
   on the account subdomain), where `WGFirstRun.mount` records the grant with `TrialConsent.grant('ai')` — no
-  dialog — and marks it `trial-asked`. Only a grant that fails to store falls back to the dialog. A legacy
+  dialog — and marks it `trial-asked`. `grant` never overwrites a decision the vault already holds (a later
+  answer, another device's); only a grant that cannot be read or stored falls back to the dialog. A legacy
   `trial` value (a pre-`med-nt9p.40` shell that showed no disclosure) still gets the `TrialConsent.request('ai')`
   dialog. Any recorded choice makes the overlay's AI step open on the key form instead of the trial choice; a
   granted `ai` consent (read via `GET /api/settings/trial-consent`, so another device's grant counts) skips the
   step. The wizard step is **not** shown in an iOS Safari tab: its install step ends in the Home Screen app, a
-  fresh storage container that cannot read the choice, so that app's overlay asks instead. No choice on this
+  fresh storage container that cannot read the choice, so that app's overlay asks instead; nor where
+  `localStorage` is blocked, for the same reason. No choice on this
   browser → the overlay's trial choice as above.
 
 ### `safety` — Emergency Kit + second device (`med-4pz.4`)
