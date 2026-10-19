@@ -257,7 +257,7 @@ describe('trial step (after Telegram)', () => {
     expect(app.querySelector('#trial-try').className).toContain('wg-btn--primary');
     expect(app.querySelector('#trial-own-keys')).not.toBeNull();
     expect(app.querySelector('#trial-skip')).not.toBeNull();
-    expect(app.textContent).toContain('when the app opens, it shows exactly what the trial sends');
+    expect(app.textContent.replace(/\s+/g, ' ')).toContain('when the app opens, it shows exactly what the trial sends');
     expect(globalThis.location.href).toBe('');
   });
 

@@ -110,7 +110,7 @@ describe('telegram.js onboarding module', () => {
     // Nothing but the one-line summary paragraph sits outside the fold.
     const section = app.querySelector('section');
     expect(section.querySelectorAll(':scope > p')).toHaveLength(1);
-    expect(section.querySelector(':scope > p').textContent).toContain('pass through this server unencrypted');
+    expect(section.querySelector(':scope > p').textContent.replace(/\s+/g, ' ')).toContain('pass through this server unencrypted');
     // The primary action comes before the fold, so it is on screen without scrolling.
     const accept = app.querySelector('#tg-accept');
     expect(accept.compareDocumentPosition(details) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
