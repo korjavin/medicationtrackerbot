@@ -60,12 +60,15 @@ export default async function localSmoke(ctx) {
     await page.evaluate(() => window.showBPRecordModal());
     await sleep(2500); // its programmatic focus() may raise the keyboard: let the resize settle
     if (!(await sheetOpen())) throw new Error('bp-modal not visible');
-    await ctx.tapElement(page, '#bp-systolic');
+    // The sheet's own focus() may already have raised the keyboard: a tap at the pre-keyboard rect
+    // then lands on the IME's "1" key (attempt 1 typed "112" three runs in a row). Tap only if needed.
+    const focused = await page.evaluate(() => document.activeElement?.id === 'bp-systolic');
+    r.tappedSystolic = !(focused && (await ctx.imeShown()));
+    if (r.tappedSystolic) await ctx.tapElement(page, '#bp-systolic');
     // Type only once the keyboard is up and settled: keys sent while it opens can double (run 39249851915: "112").
     const end = Date.now() + 10_000;
     while (Date.now() < end && !(await ctx.imeShown())) await sleep(500);
     await sleep(1000);
-    // Key events, not `input text`: the IME's composition doubled the first digit ("112", twice).
     await shell('input keyevent KEYCODE_1 KEYCODE_2 KEYCODE_8');
     r.keyboard = await page.evaluate(() => {
       const el = document.activeElement;
