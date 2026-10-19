@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
+import { allowConsoleNoise } from './helpers/setup.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -500,6 +501,7 @@ describe('firstrun integrations screen in cloud mode with an operator trial', ()
     });
 
     it('a consent dialog that throws says so and skip still works', async () => {
+        allowConsoleNoise(); // the screen logs the failure
         const { window, document, cleanup } = loadFlow({
             bootstrap: { needs_first_run: true }, cloud: true, trialAi: true,
             trialConsent: { request: vi.fn(async () => { throw new Error('boom'); }) },
