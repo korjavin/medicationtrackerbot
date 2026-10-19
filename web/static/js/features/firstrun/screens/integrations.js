@@ -279,9 +279,11 @@
             // bd med-w6sx: the claim wizard already asked trial-or-keys —
             // don't ask twice. Consent granted (here, or on another device)
             // means the step has nothing left to offer.
-            if (_wizardTrialChoice()) renderKeys(body, helpers);
+            // A wizard "Use my own keys" keeps the key form up either way.
+            const choice = _wizardTrialChoice();
+            if (choice) renderKeys(body, helpers);
             else renderTrialChoice(body, helpers, null);
-            _ifTrialGranted(body, function () { helpers.advance('done'); });
+            if (choice !== 'own-keys') _ifTrialGranted(body, function () { helpers.advance('done'); });
             return;
         }
         renderKeys(body, helpers);
