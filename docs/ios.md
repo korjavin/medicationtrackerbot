@@ -546,6 +546,47 @@ changes for it.
 - **No install prompts:** the web app's "Add to Home Screen" steps do not show
   inside the app (bridge below).
 
+### Keyboard and focus zoom (bd med-pe9g)
+
+The web view ignores the keyboard safe area (`.ignoresSafeArea(.keyboard)` in
+`App.swift`), so it keeps its full frame and WebKit handles the keyboard as in
+Mobile Safari: the visual viewport shrinks and pans, the layout viewport does
+not. The page's one keyboard dock (`web/static/js/components/wg-sheet.js`,
+[frontend.md → Sheets](frontend.md)) follows the visual viewport, and the same
+code path serves Safari and the app.
+
+That dock only works at page scale 1. iOS WebKit zooms the page in when a
+field under 16px takes focus and keeps the zoom after the keyboard closes;
+the food search (`.wg-input--text`, 14px) zoomed to 16/14 ≈ 1.14. TestFlight
+178 showed the result: the sheet was 366pt wide on screen against its 320px
+cap. With the dock off and the sheet at the bottom of the full-height layout
+viewport, the header sat above the top of the screen with the keyboard closed,
+the list ran under the keyboard with the header panned away, and an emptied
+search left the sheet entirely below the visible area. `noFocusZoom()` adds
+`maximum-scale=1` to the viewport on iOS only, which stops the focus zoom. The
+shell sets `ignoresViewportScaleLimits`, so pinch-zoom works as in Safari:
+WebKit's focus zoom honours the page cap even with this on.
+
+jsdom cannot show any of this. It has no zoom, no keyboard and no visual
+viewport. The tests pin the viewport cap and the dock's arithmetic
+(`modals.header-actions.test.js`); only a device proves the layout.
+
+#### Device check (TestFlight, and Mobile Safari)
+
+1. Food → Add (Log food). Tap the search field. The page must not zoom. The
+   sheet stays full width, with its corners and side edges where they were
+   before the tap.
+2. Type `Bana` with the keyboard up. The eyebrow, the Log food title, the Now
+   chip, the X and the search field all stay visible. Only the result list
+   scrolls, and the last row ends at the keyboard's accessory bar, not under it.
+3. Clear the search with the keyboard still up. The sheet stays visible above
+   the keyboard and the Food page behind it does not show through.
+4. Tap ✓ to close the keyboard. The sheet drops back to the bottom of the
+   screen with its header fully visible.
+5. Repeat step 1 with a 15px field, for example a Settings
+   number field. It must not zoom either.
+6. Pinch out on any page. The page still zooms, then pinch back.
+
 ### The native bridge (bd med-w6gx.4)
 
 The shell registers a `wgNative` `WKScriptMessageHandlerWithReply`; its presence

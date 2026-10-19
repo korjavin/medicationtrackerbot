@@ -302,6 +302,28 @@ describe('flow sheets put their primary in .wg-sheet__foot', () => {
         expect(root.style.getPropertyValue('--wg-vv-h')).toBe('800px');
     });
 
+    // med-pe9g, TestFlight 178: focusing the 14px food search zoomed the page
+    // (16/14 ≈ 1.14), dock() stood down at scale > 1 and the sheet ran off the
+    // screen. jsdom has no zoom; this pins the viewport cap that prevents it.
+    it('iOS WebKit only: the viewport gets maximum-scale=1 so a focused field cannot zoom the page', () => {
+        const { window, document } = env;
+        const meta = document.querySelector('meta[name="viewport"]');
+        const original = meta.content;
+        // Not iOS (jsdom, Android, desktop): untouched, pinch-zoom limits unchanged.
+        window.WGSheet.noFocusZoom();
+        expect(meta.content).toBe(original);
+        expect(original).not.toMatch(/maximum-scale/);
+
+        Object.defineProperty(window, 'CSS', {
+            value: { supports: (prop, value) => prop === '-webkit-touch-callout' && value === 'none' },
+            configurable: true, writable: true,
+        });
+        window.WGSheet.noFocusZoom();
+        expect(meta.content).toBe(`${original}, maximum-scale=1`);
+        window.WGSheet.noFocusZoom();
+        expect(meta.content).toBe(`${original}, maximum-scale=1`);
+    });
+
     it('no modal header carries a dismiss-only Cancel / Close text button — the X is the one close', () => {
         const { document } = env;
         const heads = document.querySelectorAll('mt-modal .wg-sheethead, mt-modal .wg-pagebar');

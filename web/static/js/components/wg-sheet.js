@@ -20,6 +20,7 @@
 //       icon: 'x' renders the icon-only close button, label as its aria-label
 //       → <header class="wg-sheethead">; returns { el, buttons: [<button>…] }
 //   WGSheet.dock()  re-measure now (also runs on visualViewport resize/scroll)
+//   WGSheet.noFocusZoom()  iOS: no zoom-in on a focused field (runs at load)
 
 (function () {
     function header(opts) {
@@ -103,11 +104,29 @@
         }
     }
 
+    // iOS WebKit (Safari and the app's WKWebView) zooms the page in when a
+    // field under 16px gets focus, and keeps that zoom after the keyboard
+    // closes. Most fields here are 13–15px (.wg-input--text is 14px: the
+    // food search zoomed to 16/14 ≈ 1.14). Zoomed, the visual viewport is
+    // smaller than the layout one, dock() stands down (scale > 1) and a
+    // sheet docked to the layout bottom runs past the screen: the header
+    // above the top, the list under the keyboard (med-pe9g, TestFlight 178).
+    // maximum-scale=1 stops the focus zoom only; pinch-zoom stays (Safari
+    // ignores the limit for gestures, the iOS shell sets
+    // ignoresViewportScaleLimits). iOS only: Android Chrome would honour it
+    // for pinch too. -webkit-touch-callout exists only in iOS WebKit.
+    function noFocusZoom() {
+        const meta = document.querySelector('meta[name="viewport"]');
+        const ios = Boolean(window.CSS && window.CSS.supports && window.CSS.supports('-webkit-touch-callout', 'none'));
+        if (meta && ios && !/maximum-scale/.test(meta.content)) meta.content += ', maximum-scale=1';
+    }
+    noFocusZoom();
+
     if (window.visualViewport) {
         window.visualViewport.addEventListener('resize', dock);
         window.visualViewport.addEventListener('scroll', dock);
         dock();
     }
 
-    window.WGSheet = { header, dock };
+    window.WGSheet = { header, dock, noFocusZoom };
 })();
