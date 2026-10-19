@@ -38,6 +38,10 @@ type fakeGoogle struct {
 	tokenCalls atomic.Int32
 	decodes    atomic.Int32
 	status     int // non-zero: decode answers this status
+	// deviceRecall:write (bd med-nt9p.32.8.6): recorded bodies; writeStatus
+	// non-zero answers that status.
+	writes      []map[string]any
+	writeStatus int
 }
 
 func (f *fakeGoogle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -75,6 +79,19 @@ func (f *fakeGoogle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]any{"tokenPayloadExternal": f.payload})
+	case "/v1/" + testPkg + "/deviceRecall:write":
+		if r.Header.Get("Authorization") != "Bearer ya29.fake" {
+			http.Error(w, "{}", http.StatusUnauthorized)
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		f.writes = append(f.writes, body)
+		if f.writeStatus != 0 {
+			http.Error(w, `{"error":{"message":"good-token"}}`, f.writeStatus)
+			return
+		}
+		w.Write([]byte("{}"))
 	default:
 		http.NotFound(w, r)
 	}
@@ -378,5 +395,64 @@ func TestVerifyAssertion(t *testing.T) {
 		if _, err := VerifyAssertion(tc.as, tc.pub, tc.cdh, tc.prev); !errors.Is(err, tc.want) {
 			t.Errorf("%s: err = %v, want %v", tc.name, err, tc.want)
 		}
+	}
+}
+
+// Device recall (bd med-nt9p.32.8.6): deviceIntegrity.deviceRecall.values
+// parses to nil when absent, all-false when {} (unevaluated), and the bits
+// when set; writeDates are ignored.
+func TestDecode_DeviceRecall(t *testing.T) {
+	for name, tc := range map[string]struct {
+		recall any
+		want   *DeviceRecall
+	}{
+		"absent":      {nil, nil},
+		"unevaluated": {map[string]any{"values": map[string]any{}, "writeDates": map[string]any{}}, &DeviceRecall{}},
+		"set": {map[string]any{
+			"values":     map[string]any{"bitFirst": true, "bitSecond": false, "bitThird": true},
+			"writeDates": map[string]any{"yyyymmFirst": 202610, "yyyymmThird": 202501},
+		}, &DeviceRecall{First: true, Third: true}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t, nil)
+			if tc.recall != nil {
+				set(f.g.payload, "deviceIntegrity", "deviceRecall", tc.recall)
+			}
+			_, vd, err := f.v.VerifyEnrollment(context.Background(), "good-token", f.challenge, f.keyID, f.pubDER)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (vd.DeviceRecall == nil) != (tc.want == nil) || (tc.want != nil && *vd.DeviceRecall != *tc.want) {
+				t.Fatalf("recall = %+v, want %+v", vd.DeviceRecall, tc.want)
+			}
+			if vd.AppRecognitionVerdict != VerdictPlayRecognized {
+				t.Fatalf("verdict label = %q", vd.AppRecognitionVerdict)
+			}
+		})
+	}
+}
+
+func TestSetDeviceRecall(t *testing.T) {
+	f := newFixture(t, nil)
+	// Only true bits go out: a false is never sent, so no bit can be cleared.
+	if err := f.v.SetDeviceRecall(context.Background(), "good-token", DeviceRecall{First: true, Third: true}); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(f.g.writes)
+	if want := `[{"integrityToken":"good-token","newValues":{"bitFirst":true,"bitThird":true}}]`; string(b) != want {
+		t.Fatalf("write body = %s, want %s", b, want)
+	}
+	// Non-200 (e.g. an unevaluated recall) → ErrUnavailable with the status
+	// only, never the token or the body.
+	f.g.writeStatus = http.StatusBadRequest
+	err := f.v.SetDeviceRecall(context.Background(), "good-token", DeviceRecall{First: true})
+	if !errors.Is(err, ErrUnavailable) || errors.Is(err, ErrInvalid) || strings.Contains(err.Error(), "good-token") || !strings.Contains(err.Error(), "400") {
+		t.Fatalf("write 400: %v", err)
+	}
+	if err := f.v.SetDeviceRecall(context.Background(), "", DeviceRecall{First: true}); !errors.Is(err, ErrMalformed) {
+		t.Fatalf("empty token: %v", err)
+	}
+	if err := f.v.SetDeviceRecall(context.Background(), "good-token", DeviceRecall{}); !errors.Is(err, ErrMalformed) {
+		t.Fatalf("no bit: %v", err)
 	}
 }
