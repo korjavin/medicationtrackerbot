@@ -70,14 +70,32 @@ const ctx = {
   async launch() {
     await shell(`am force-stop ${pkg}`);
     await shell(`am start -W -a com.example.medtracker.SWITCH_ACCOUNT -n ${pkg}/com.example.medtracker.MainActivity`);
-    await device.wait({ text: 'Open' }, { timeout: 30_000 });
+    await ctx.waitFor({ text: 'Open' });
+  },
+  /**
+   * Wait for a selector, dismissing system "<app> isn't responding" dialogs on the way: the
+   * freshly booted software-GPU emulator ANRs its launcher, and UiAutomator then sees only the dialog.
+   */
+  async waitFor(selector, timeout = 30_000) {
+    const end = Date.now() + timeout;
+    for (;;) {
+      try {
+        return await device.wait(selector, { timeout: 3_000 });
+      } catch (e) {
+        if (Date.now() > end) throw e;
+        if (await device.wait({ text: /isn't responding/ }, { timeout: 500 }).then(() => true, () => false)) {
+          log('dismissing an ANR dialog');
+          await device.tap({ text: 'Wait' }).catch(() => {});
+        }
+      }
+    }
   },
   /** First run → type an account link → Open. No server answers *.qa.test yet, so this lands on the error screen. */
   async openAccount(url = 'https://alice.qa.test/', { shotTyped = false } = {}) {
     await device.fill({ clazz: 'android.widget.EditText' }, url);
     if (shotTyped) await ctx.shot('typed');
     await device.tap({ text: 'Open' });
-    await device.wait({ text: /open your account/ }, { timeout: 30_000 });
+    await ctx.waitFor({ text: /open your account/ });
   },
   /** True while our activity is the resumed (foreground) one. */
   async inForeground() {
@@ -99,6 +117,7 @@ const ctx = {
 
 let failed = false;
 try {
+  await shell('settings put global hide_error_dialogs 1'); // see waitFor: no ANR dialogs over the app
   await applyInputs();
   for (const name of names) {
     ctx.scenario = name;
