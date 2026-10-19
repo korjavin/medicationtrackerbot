@@ -27,6 +27,9 @@ export default async function localVisual(ctx) {
     const nativeOnly = scene.nativeOnly ?? scene.name.startsWith('native-');
     const s = (r[scene.name] = {});
     for (let attempt = 1; attempt <= 2; attempt++) {
+      // A retry starts from the golden vault again: attempt 1 may have changed it (journey turns
+      // gamification on, so its retry could never find the unchecked toggle).
+      if (attempt > 1) await shell(`pm clear ${pkg}`);
       try {
         await runScene(scene, nativeOnly);
         s.error = undefined;
@@ -48,6 +51,7 @@ export default async function localVisual(ctx) {
         }
       }
       if (!s.error) break;
+      if (attempt === 1) s.firstError = s.error; // a flake that passed on retry still shows
     }
   }
   await ctx.step('every scene shot', async () => {
