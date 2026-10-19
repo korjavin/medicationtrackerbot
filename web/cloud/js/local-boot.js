@@ -68,6 +68,12 @@ window.MedTrackerCloudReady = (async function boot() {
         // imports can resolve before the parser reaches core/api.js, whose own
         // `window.apiCallDirect = ...` would then overwrite this wrapper.
         await domReady;
+        // The account → local move (bd med-o7zq.36.4): after domReady, as
+        // restoreVault is importexport.js's; before the reminders and the
+        // Health import, which a replace would only redo after its reload.
+        policy.showLeaveToastOnce({ win: window });
+        await policy.pickupLeaveStash({ win: window })
+            .catch((e) => console.error('[local] leave pickup failed', e));
         const records = localRecordsPort();
         policy.keepLocalRemindersFresh({ ctx: LOCAL_CTX, records, win: window });
         policy.startLocalHealthImport({ ctx: LOCAL_CTX, records, win: window });

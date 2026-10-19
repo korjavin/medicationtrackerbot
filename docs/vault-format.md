@@ -54,6 +54,13 @@ handlers did; its storage-boundary conversions are documented under
 
 - `format` — always the literal `"medtracker-vault"`. Import rejects anything else with 400.
 - `version` — integer `1`. Import rejects unknown versions with 400.
+
+  **Newer exporter, older importer.** A vault can reach an older bundle without
+  a file: the account → local move (bd med-o7zq.36) hands the account's export
+  to the app bundled in the iOS/Android shell, which may predate it. The same
+  rules hold there: unknown `data` keys and unknown tombstone record types are
+  skipped, and an unknown `version` fails before anything is replaced (the
+  local pickup then alerts and the account copy stays the retry).
 - `exported_at` — RFC3339 UTC. Informational only; **not** part of the round-trip equality contract.
 - `data` — one key per domain, described below. A domain key may be absent or its
   arrays empty; import treats absent and empty as equivalent.

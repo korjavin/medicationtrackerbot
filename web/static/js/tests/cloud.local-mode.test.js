@@ -1669,3 +1669,135 @@ describe('local-only mode trial in the Android shell (med-nt9p.32.8.4)', () => {
         expect(toBase()).toEqual([]);
     });
 });
+
+// bd med-o7zq.36.4: the account → local move, local side. The REAL
+// local-boot.js picks up the shell's leave stash through the real settings.js
+// nativeHas probe and the real importexport.js restoreVault into the real
+// on-device store; only the bridge and the dialogs are stubbed.
+describe('local-only mode leave stash pickup (med-o7zq.36.4)', () => {
+    const VAULT = JSON.stringify(VAULT_FIXTURE);
+    const FIXTURE_WEIGHTS = VAULT_FIXTURE.data.weight.logs.map((r) => r.weight).sort();
+    const NOTICE = 'Your records from your account are on this iPhone.';
+    const NOT_COPIED = 'Your account\'s records were not copied to this iPhone. Your account is unchanged: open it again and choose Use this iPhone without an account to retry, or restore a backup file.';
+    let env;
+    let log;
+
+    beforeEach(async () => {
+        allowConsoleNoise(); // location.reload is a jsdom "not implemented" error
+        await deleteDb();
+        vi.stubGlobal('fetch', vi.fn(async () => createMockResponse({ status: 503, json: {} })));
+    });
+
+    afterEach(() => {
+        cancelReminderRecompute({ accountId: 'local' });
+        env?.cleanup();
+        env = null;
+        vi.unstubAllGlobals();
+    });
+
+    // One app open over the same store. `ops` null = shell.ops rejects; `take`
+    // is leave.take's answer, or a function that throws; `platform` null = the web.
+    async function boot({
+        platform = 'ios', ops = ['shell.ops', 'leave.take', 'leave.clear'], take = null,
+        confirm = true, notice = false,
+    } = {}) {
+        env?.cleanup();
+        env = loadFrontendEnv();
+        const { window } = env;
+        window.fetch = globalThis.fetch;
+        // LOCAL_VAULT.importAll defaults its window to the global one.
+        vi.stubGlobal('window', window);
+        log = [];
+        const call = vi.fn(async (op) => {
+            log.push(op);
+            if (op === 'shell.ops') { if (!ops) throw new Error('unsupported: shell.ops'); return ops; }
+            if (op === 'leave.take') return typeof take === 'function' ? take() : take;
+            if (op === 'setEgressHosts') return { changed: false };
+            return true;
+        });
+        if (platform) window.LocalNotifications = { isSupported: () => false, __native: { platform, call } };
+        window.safeConfirm = vi.fn(async () => { log.push('confirm'); return confirm; });
+        window.safeAlert = vi.fn(async () => { log.push('alert'); });
+        window.safeToast = vi.fn();
+        if (notice) window.sessionStorage.setItem('wg-leave-picked-up', '1');
+        const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
+        run(window, (spec) => MODULES[spec]());
+        await window.MedTrackerCloudReady;
+        return { window, call };
+    }
+    const weights = async () => (await env.window.apiCall('/api/weight?days=0&limit=1000')).map((r) => r.weight).sort();
+    const leaveOps = () => log.filter((op) => op.startsWith('leave.'));
+    async function seedWeight() {
+        await boot();
+        await env.window.apiCall('/api/weight', 'POST', { weight: 80 });
+        cancelReminderRecompute({ accountId: 'local' });
+    }
+
+    it('no shell (the web): no bridge call', async () => {
+        const { call } = await boot({ platform: null, take: { vault: VAULT } });
+        expect(call).not.toHaveBeenCalled();
+        expect(await weights()).toEqual([]);
+    });
+
+    it('a shell without leave.take, or one that rejects shell.ops: never takes', async () => {
+        for (const ops of [['shell.ops', 'account.leave'], null]) {
+            await boot({ ops, take: { vault: VAULT } });
+            expect(log).toContain('shell.ops');
+            expect(leaveOps()).toEqual([]);
+            expect(await weights()).toEqual([]);
+        }
+    });
+
+    it('take rejects (locked) or finds no stash: nothing restored, nothing cleared', async () => {
+        for (const take of [() => { throw new Error('locked'); }, null, { vault: 7 }]) {
+            const { window } = await boot({ take });
+            expect(leaveOps()).toEqual(['leave.take']);
+            expect(window.safeAlert).not.toHaveBeenCalled();
+            expect(await weights()).toEqual([]);
+        }
+    });
+
+    it('stash + empty store: restores without a dialog, clears, reloads, and the next open toasts once', async () => {
+        const { window } = await boot({ take: { vault: VAULT } });
+        expect(window.safeConfirm).not.toHaveBeenCalled();
+        expect(leaveOps()).toEqual(['leave.take', 'leave.clear']);
+        expect(await weights()).toEqual(FIXTURE_WEIGHTS);
+        // beforeReload ran (restoreVault reloads right after it): the notice
+        // for the reloaded page is set, not shown yet.
+        expect(window.sessionStorage.getItem('wg-leave-picked-up')).toBe('1');
+        expect(window.safeToast).not.toHaveBeenCalledWith(NOTICE, 'success');
+
+        const next = await boot({ notice: true });
+        expect(next.window.safeToast.mock.calls.filter(([m]) => m === NOTICE)).toEqual([[NOTICE, 'success']]);
+        expect(next.window.sessionStorage.getItem('wg-leave-picked-up')).toBeNull();
+        expect(leaveOps()).toEqual(['leave.take']);
+        expect(await weights()).toEqual(FIXTURE_WEIGHTS);
+    });
+
+    it('stash + records here: typed replace confirm; confirm replaces them', async () => {
+        await seedWeight();
+        const { window } = await boot({ take: { vault: VAULT } });
+        expect(window.safeConfirm).toHaveBeenCalledTimes(1);
+        expect(window.safeConfirm.mock.calls[0][2]).toMatchObject({ destructive: true, typedConfirm: 'replace my data' });
+        expect(leaveOps()).toEqual(['leave.take', 'leave.clear']);
+        expect(await weights()).toEqual(FIXTURE_WEIGHTS);
+    });
+
+    it('stash + records here, confirm cancelled: records intact, stash cleared, the retry is explained', async () => {
+        await seedWeight();
+        const { window } = await boot({ take: { vault: VAULT }, confirm: false });
+        expect(leaveOps()).toEqual(['leave.take', 'leave.clear']);
+        expect(await weights()).toEqual([80]);
+        expect(window.safeAlert).toHaveBeenCalledTimes(1);
+        expect(window.safeAlert.mock.calls[0][0]).toBe(NOT_COPIED);
+        expect(window.sessionStorage.getItem('wg-leave-picked-up')).toBeNull();
+    });
+
+    it('a vault this bundle cannot read (version 2): records intact, stash cleared, alert', async () => {
+        await seedWeight();
+        const { window } = await boot({ take: { vault: JSON.stringify({ ...VAULT_FIXTURE, version: 2 }) } });
+        expect(leaveOps()).toEqual(['leave.take', 'leave.clear']);
+        expect(await weights()).toEqual([80]);
+        expect(window.safeAlert.mock.calls.map(([m]) => m)).toContain(NOT_COPIED);
+    });
+});
