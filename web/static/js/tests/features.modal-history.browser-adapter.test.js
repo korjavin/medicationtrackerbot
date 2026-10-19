@@ -95,6 +95,29 @@ describe('modal-history.js in BrowserAdapter mode', () => {
         } finally { cleanup(); }
     });
 
+    // bd med-nt9p.39: Android WebView delivered an own back()'s popstate ~3-4 s
+    // late on a cold start; the page pushed meanwhile was the entry it popped.
+    it('an own Back that lands late does not pop what was pushed after it', async () => {
+        const { window, document, cleanup } = createBrowserEnv();
+        try {
+            await settleHistory();
+            const realBack = window.history.back.bind(window.history);
+            vi.spyOn(window.history, 'back').mockImplementation(() => { setTimeout(realBack, 30); });
+            window.AppStore.set('currentTab', 'today'); // hideBack → the guard's back(), landing late
+            window.AppStore.set('currentTab', 'bp'); // the guard again, before that back lands
+            window.ModalManager.bp.open();
+            await flush();
+            window.switchTab.mockClear();
+
+            await new Promise((resolve) => setTimeout(resolve, 60));
+            await settleHistory();
+
+            expect(document.getElementById('bp-modal').classList.contains('hidden')).toBe(false);
+            expect(window.switchTab).not.toHaveBeenCalled();
+            expect(window.history.state).toEqual({ modal: true });
+        } finally { cleanup(); }
+    });
+
     it('still routes browser-back to switchTab("today") when no modal is open', async () => {
         const { window, cleanup } = createBrowserEnv();
         try {

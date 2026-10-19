@@ -59,49 +59,59 @@
                 && typeof window.history.pushState === 'function';
         }
 
-        // The app's own history.back() calls (hideBack, modal-history) whose
-        // popstate has not landed yet (bd med-nt9p.39). The traversal is async
-        // and Android WebView delivered it ~3-4 s late on a cold start: an
-        // entry pushed in between (a Settings page, a dialog, the guard) was
-        // the one it popped, and the echo then ran the Back handler, so pages
-        // and dialogs closed by themselves. Pushes wait for the echo, and the
-        // echo is swallowed here, before any app popstate listener.
-        // ponytail: a count, so a user Back landing while one of ours is in
-        // flight is taken for our echo (and ours for the user's); a sequence
-        // number in history.state would tell them apart if that shows up.
-        let ownBacks = 0;
-        let heldPushes = [];
-        let ownBackTimer = null;
-        const OWN_BACK_MAX_MS = 10000; // a back() that never fires popstate must not hold pushes forever
+        // The app's own history ops, one traversal at a time (bd med-nt9p.39).
+        // history.back() is async and Android WebView delivered its popstate
+        // ~3-4 s late on a cold start: an entry pushed in between (a Settings
+        // page, a dialog, the guard) was the one it popped, and the echo then
+        // ran the Back handler, so pages and dialogs closed by themselves.
+        // While one of our backs is in flight, later pushes and backs queue in
+        // order (two back() calls in one tick can collapse into one traversal,
+        // so a second one only starts after the first lands), and its popstate
+        // is swallowed here, before any app popstate listener.
+        // ponytail: a user Back landing while ours is in flight is taken for
+        // our echo (and ours for the user's); a sequence number in
+        // history.state would tell them apart if that shows up.
+        let backInFlight = false;
+        let queuedOps = []; // { push: state } | { back: true }
+        let backTimer = null;
+        const OWN_BACK_MAX_MS = 10000; // a back() that never fires popstate must not hold history forever
 
-        function releaseHeld() {
-            ownBacks = 0;
-            clearTimeout(ownBackTimer);
-            const held = heldPushes;
-            heldPushes = [];
-            held.forEach((state) => window.history.pushState(state, ''));
+        function startBack() {
+            backInFlight = true;
+            clearTimeout(backTimer);
+            backTimer = setTimeout(backLanded, OWN_BACK_MAX_MS);
+            window.history.back();
+        }
+
+        function backLanded() {
+            backInFlight = false;
+            clearTimeout(backTimer);
+            while (queuedOps.length && !backInFlight) {
+                const op = queuedOps.shift();
+                if (op.back) startBack();
+                else window.history.pushState(op.push, '');
+            }
         }
 
         function historyPush(state) {
-            if (ownBacks) heldPushes.push(state);
+            if (backInFlight) queuedOps.push({ push: state });
             else window.history.pushState(state, '');
         }
 
         function historyBack() {
+            if (!backInFlight) return startBack();
+            const last = queuedOps[queuedOps.length - 1];
             // The entry to pop was never pushed: drop it instead.
-            if (heldPushes.length) { heldPushes.pop(); return; }
-            ownBacks++;
-            clearTimeout(ownBackTimer);
-            ownBackTimer = setTimeout(releaseHeld, OWN_BACK_MAX_MS);
-            window.history.back();
+            if (last && !last.back) queuedOps.pop();
+            else queuedOps.push({ back: true });
         }
 
         if (hasHistory() && typeof window.addEventListener === 'function') {
             // Capture + registered at load: runs before modal-history's and onPopstate.
             window.addEventListener('popstate', (event) => {
-                if (!ownBacks) return;
+                if (!backInFlight) return;
                 event.stopImmediatePropagation();
-                if (--ownBacks === 0) releaseHeld();
+                backLanded();
             }, true);
         }
 
