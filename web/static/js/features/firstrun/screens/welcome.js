@@ -45,6 +45,55 @@
         actions.appendChild(primary);
         actions.appendChild(secondary);
         body.appendChild(actions);
+
+        const vault = window.CloudVault;
+        if (_onIOS() && vault && typeof vault.leaveAccount === 'function') {
+            body.appendChild(_deviceOnly(vault));
+        }
+    }
+
+    // iOS app, signed into an account (bd med-o7zq.30): the native first-run
+    // offers "Only on this device", so this overlay — the account's own
+    // first-run — offers the way there too. CloudVault.leaveAccount exists
+    // only on the account origin (cloud-boot.js); local mode never shows it.
+    function _onIOS() {
+        const native = window.LocalNotifications && window.LocalNotifications.__native;
+        return !!native && native.platform === 'ios';
+    }
+
+    const LEAVE_MESSAGE = 'Med Tracker will close this account on this iPhone and start without one. '
+        + 'Nothing is deleted: the account and its data stay on the server, and you can open it again '
+        + 'with your account address.';
+
+    function _deviceOnly(vault) {
+        const wrap = document.createElement('div');
+        wrap.className = 'wg-firstrun-actions';
+        const hint = document.createElement('p');
+        hint.className = 'wg-hint';
+        hint.textContent = 'Rather not use an account? Keep your records only on this iPhone.';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'wg-btn wg-btn--ghost wg-btn--lg wg-btn--block';
+        btn.textContent = 'Use only on this device';
+        btn.setAttribute('data-firstrun-action', 'device-only');
+        btn.addEventListener('click', async function () {
+            if (btn.disabled) return;
+            btn.disabled = true;
+            try {
+                const ok = await window.safeConfirm(LEAVE_MESSAGE, null, {
+                    title: 'Use only on this device?',
+                    confirmLabel: 'Continue',
+                });
+                if (ok) await vault.leaveAccount();
+            } catch (e) {
+                await window.safeAlert(e && e.message ? e.message : 'Couldn’t leave the account.');
+            } finally {
+                btn.disabled = false;
+            }
+        });
+        wrap.appendChild(hint);
+        wrap.appendChild(btn);
+        return wrap;
     }
 
     window.WGFirstRun = window.WGFirstRun || {};

@@ -409,6 +409,12 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             // invite screen, as Switch account. The origin's data stays.
             replyHandler(true, nil)
             forget()
+        case "account.leave" where !local:
+            // The account's first-run "Use only on this device" (bd
+            // med-o7zq.30): the native first-run, as Switch account. The
+            // account and this origin's data stay.
+            replyHandler(true, nil)
+            forget()
         // The anonymous trial AI (bd med-o7zq.16): local mode only — an account
         // has its own trial — and, like every op here, never while locked.
         case let op? where local && op.hasPrefix("attest."):
