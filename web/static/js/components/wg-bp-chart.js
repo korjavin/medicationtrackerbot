@@ -27,7 +27,10 @@
     const SVG_NS = 'http://www.w3.org/2000/svg';
     const DEFAULT_WIDTH = 358;
     const DEFAULT_HEIGHT = 200;
-    const PAD_L = 28;
+    // Steps/sleep/vitals convention: y labels end 8 units left of the plot, so
+    // a series starting at the left edge never touches a tick label (med-3r2y).
+    const PAD_L = 35;
+    const Y_TICK_GAP = 8;
     const PAD_R = 14;
     const PAD_T = 14;
     const PAD_B = 26;
@@ -245,7 +248,7 @@
         // right-aligned against the plot edge.
         const yTickValues = pickYTickValues(yMin, yMax);
         for (const value of yTickValues) {
-            const tick = makeAxisTick(PAD_L - 4, yOf(value) + 3, String(value), 'y');
+            const tick = makeAxisTick(PAD_L - Y_TICK_GAP, yOf(value) + 3, String(value), 'y');
             svg.appendChild(tick);
         }
 

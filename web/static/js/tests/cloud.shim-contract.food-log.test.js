@@ -612,7 +612,9 @@ describe('food screen — incomplete-day toggle + nudge chip (med-0sgs.3)', () =
 
         expect(nudge(document).classList.contains('hidden')).toBe(false);
         expect(nudge(document).dataset.date).toBe(yesterday);
-        expect(document.getElementById('food-incomplete-nudge-btn').textContent).toContain('Yesterday');
+        // One human date, no parenthesised dd.mm.yyyy echo (med-2fn3).
+        expect(document.getElementById('food-incomplete-nudge-btn').textContent)
+            .toBe('Was Yesterday logged incompletely? Tap to exclude it');
 
         document.getElementById('food-incomplete-nudge-btn').click();
         // Flagging yesterday must not paint today's (displayed) day as excluded.

@@ -191,6 +191,24 @@
 
     // Pure DOM arithmetic. A failing probe sets ok=false; keyboardShown is
     // reported, never failed on: the runner knows which scenes expect it.
+    // The visible top in client coordinates. Chromium measures client rects
+    // from the layout viewport (visible top = vv.offsetTop); iOS WKWebView
+    // measures them from the visual viewport (visible top = 0), which made the
+    // old `top < vv.offsetTop` flag an on-screen sheet header (med-m1x5). A
+    // marker fixed at the layout top reads the layout top in whichever space
+    // the engine uses; the visual viewport sits offsetTop below it. The marker
+    // is QA tooling, never app markup; the cloud pass has no driver.css and its
+    // CSP (style-src 'self') blocks a style attribute, but not CSSOM.
+    function visibleTop(vv) {
+        if (!vv) return 0;
+        const marker = document.createElement('div');
+        marker.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;visibility:hidden';
+        document.body.appendChild(marker);
+        const layoutTop = marker.getBoundingClientRect().top;
+        marker.remove();
+        return layoutTop + vv.offsetTop;
+    }
+
     function probe() {
         const vv = window.visualViewport;
         const shown = (sel) => Array.from(document.querySelectorAll(sel)).filter(visible);
@@ -198,19 +216,24 @@
         const tag = (el) => el.tagName.toLowerCase() + (el.id ? `#${el.id}` : '') + (el.classList[0] ? `.${el.classList[0]}` : '');
         const focused = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
         const tabbar = shown('.wg-tabbar')[0];
+        const top = visibleTop(vv);
+        // An open sheet or page covers the screen behind it with its scrim: a
+        // header back there panned off by the iOS keyboard is not clipped UI.
+        const layers = shown('mt-modal');
+        const onTop = (el) => !layers.length || layers.some((m) => m.contains(el));
         const probes = {
             scale: vv ? vv.scale : 1,
             hOverflow: document.documentElement.scrollWidth - window.innerWidth,
             // Above the visible top: a panned visual viewport (keyboard) hides a
             // header whose layout top is still >= 0.
             clippedTop: shown('.wg-sheet__header, .wg-sheethead, .wg-appbar, .wg-pagebar')
-                .filter((el) => rect(el).top < (vv ? vv.offsetTop : 0) - 0.5).map(tag),
+                .filter((el) => onTop(el) && rect(el).top < top - 0.5).map(tag),
             // Charts are <svg>; icons (small svg) are skipped.
             canvasOverflow: shown('canvas, svg').filter((el) => {
                 const w = rect(el).width;
                 return w > 64 && el.parentElement && w > rect(el.parentElement).width + 0.5;
             }).map(tag),
-            focusUnderKeyboard: !!(focused && vv && rect(focused).bottom > vv.height + vv.offsetTop + 0.5),
+            focusUnderKeyboard: !!(focused && vv && rect(focused).bottom > top + vv.height + 0.5),
             bottomNavCovered: !!(tabbar && rect(tabbar).bottom > window.innerHeight + 0.5),
             // Against the layout viewport: in WKWebView innerHeight shrinks
             // with the keyboard too (seen on the Simulator, bd med-y5xx.3).
