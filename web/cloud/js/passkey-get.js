@@ -14,6 +14,8 @@
 // transient "unknown error" (NotReadableError) is retried with a short
 // backoff under the same gate.
 
+import { diagCeremony } from './passkey-diag.js';
+
 const RETRY_DELAYS_MS = [1000, 2000, 4000];
 
 // Same detection rule as web/static/js/native/index.js (the passkey shell does
@@ -29,18 +31,27 @@ export function inAndroidShell() {
     && !(typeof Node === 'function' && b instanceof Node);
 }
 
-export async function getAssertion(publicKey) {
+// The one navigator.credentials.create: web/iOS call it directly; the shell
+// also logs it (passkey-diag.js).
+export function createCredential(publicKey) {
+  if (!inAndroidShell()) return navigator.credentials.create({ publicKey });
+  return diagCeremony('create', publicKey, 1, () => navigator.credentials.create({ publicKey }));
+}
+
+// `op` only labels the Android ceremony log ('get' or 'probe').
+export async function getAssertion(publicKey, op = 'get') {
   if (!inAndroidShell()) return navigator.credentials.get({ publicKey });
   const options = { publicKey: { ...publicKey, allowCredentials: [] } };
-  for (const delay of RETRY_DELAYS_MS) {
+  const attempt = (n) => diagCeremony(op, publicKey, n, () => navigator.credentials.get(options));
+  for (const [i, delay] of RETRY_DELAYS_MS.entries()) {
     try {
-      return await navigator.credentials.get(options);
+      return await attempt(i + 1);
     } catch (e) {
       if (!e || e.name !== 'NotReadableError') throw e;
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
-  return navigator.credentials.get(options);
+  return attempt(RETRY_DELAYS_MS.length + 1);
 }
 
 // The post-create PRF probe (signup.js, claim.js): PRF output is only reliable
@@ -53,7 +64,7 @@ export async function prfProbe(rawId, salt) {
     allowCredentials: [{ type: 'public-key', id: rawId }],
     userVerification: 'required',
     extensions: { prf: { eval: { first: salt } } },
-  });
+  }, 'probe');
   if (inAndroidShell() && !sameBytes(assertion.rawId, rawId)) {
     throw new Error('That was a different passkey. Try again and choose the passkey you just created.');
   }

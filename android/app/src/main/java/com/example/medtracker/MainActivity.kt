@@ -3,12 +3,16 @@ package com.example.medtracker
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
 import android.graphics.Color
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
@@ -18,6 +22,7 @@ import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.view.Window
 import android.view.WindowInsets
 import android.view.WindowInsetsController
+import android.view.autofill.AutofillManager
 import android.view.inputmethod.EditorInfo
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceError
@@ -31,6 +36,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
 import androidx.webkit.WebSettingsCompat
@@ -40,6 +46,7 @@ import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import org.json.JSONObject
+import java.time.Instant
 
 /**
  * The shell (bd med-nt9p.5), twin of ios/App/Shell.swift: one Android System
@@ -51,6 +58,8 @@ import org.json.JSONObject
 class MainActivity : Activity() {
     private val base = BuildConfig.BASE_DOMAIN
     private val prefs by lazy { getSharedPreferences("shell", MODE_PRIVATE) }
+    /** The passkey ceremony log (bd med-nt9p.22): its own file, so Switch account never clears it. */
+    private val diagPrefs by lazy { getSharedPreferences("diag", MODE_PRIVATE) }
     private var host: String? = null
     /** In memory only: Try again must keep an invite link's #claim= fragment. */
     private var lastUrl: String? = null
@@ -99,6 +108,7 @@ class MainActivity : Activity() {
         setContentView(buildUi())
         publishShortcut()
 
+        if (intent?.action == ACTION_DIAG && savedInstanceState == null) copyDiagnostics()
         adoptSpikeAccount()
         host = prefs.getString(HOST_KEY, null)?.takeIf { AccountUrl.isAccountHost(it, base) }
         // A restored activity keeps its launch intent: only a fresh shortcut launch switches.
@@ -109,6 +119,7 @@ class MainActivity : Activity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (intent.action == ACTION_SWITCH) forget()
+        if (intent.action == ACTION_DIAG) copyDiagnostics()
         Notifications.tappedSection(intent, host)?.let { openSection(it) }
     }
 
@@ -232,7 +243,11 @@ class MainActivity : Activity() {
             .setShortLabel("Switch account")
             .setIntent(Intent(ACTION_SWITCH, null, this, MainActivity::class.java))
             .build()
-        runCatching { getSystemService(ShortcutManager::class.java).setDynamicShortcuts(listOf(switch)) }
+        val copy = ShortcutInfo.Builder(this, "copy-diagnostics")
+            .setShortLabel("Copy diagnostics")
+            .setIntent(Intent(ACTION_DIAG, null, this, MainActivity::class.java))
+            .build()
+        runCatching { getSystemService(ShortcutManager::class.java).setDynamicShortcuts(listOf(switch, copy)) }
     }
 
     // MARK: web view
@@ -244,6 +259,7 @@ class MainActivity : Activity() {
         if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION)) {
             WebSettingsCompat.setWebAuthenticationSupport(w.settings, WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP)
         }
+        diag("shell webview webauthn=${webAuthnMode(w)}")
         w.setBackgroundColor(Color.TRANSPARENT)
         w.webViewClient = Client()
         files.install(w, if (base.isEmpty()) emptySet() else setOf("https://*.$base"))
@@ -363,6 +379,7 @@ class MainActivity : Activity() {
                 cssColor(args.optString("bottom"))?.let { bottomColor = it }
                 updateChrome()
             }
+            "diag.append" -> diag("page " + (msg.optJSONObject("args")?.optString("entry") ?: ""))
             "health.authorize", "health.query" -> health.handle(op, msg.optJSONObject("args")) { r, e -> answer(r, e) }
             else -> if (op.startsWith("notifications.")) notifications.handle(op, msg.optJSONObject("args")) { r, e -> answer(r, e) }
                 else answer(null, "unsupported: $op")
@@ -424,6 +441,7 @@ class MainActivity : Activity() {
             .setMessage("Med Tracker goes back to the first screen, where you can paste or scan another invite. Data already on this phone is kept.")
             .setPositiveButton("Use another invite") { _, _ -> forget() }
             .setNegativeButton("Cancel", null)
+            .setNeutralButton("Copy diagnostics") { _, _ -> copyDiagnostics() }
             .show()
     }
 
@@ -524,6 +542,42 @@ class MainActivity : Activity() {
             .addOnFailureListener { firstRunMessage.text = "Scanning isn't available on this phone. Paste the link instead." }
     }
 
+    // MARK: diagnostics (bd med-nt9p.22)
+
+    /** Appends one redacted line to the capped ceremony log. */
+    private fun diag(line: String) {
+        val log = diagPrefs.getString(DIAG_KEY, "") ?: ""
+        diagPrefs.edit().putString(DIAG_KEY, Diag.append(log, line, base, Instant.now().toString())).apply()
+    }
+
+    private fun webAuthnMode(w: WebView): String {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION)) return "unsupported"
+        return when (val m = WebSettingsCompat.getWebAuthenticationSupport(w.settings)) {
+            WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_NONE -> "none"
+            WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP -> "for-app"
+            WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER -> "for-browser"
+            else -> "unknown($m)"
+        }
+    }
+
+    /** Launcher shortcut or the ceremony bar's dialog: the device header plus the log, as plain text. */
+    private fun copyDiagnostics() {
+        val wv = WebViewCompat.getCurrentWebViewPackage(this)
+        val credential = runCatching { Settings.Secure.getString(contentResolver, "credential_service") }.getOrNull()
+        val autofill = runCatching { getSystemService(AutofillManager::class.java)?.autofillServiceComponentName?.flattenToShortString() }.getOrNull()
+        val header = listOf(
+            "Med Tracker diagnostics ${Instant.now()}",
+            "app ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) ${BuildConfig.BUILD_TYPE}",
+            "Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT}) ${Build.MANUFACTURER} ${Build.MODEL}",
+            "WebView ${wv?.packageName} ${wv?.versionName}",
+            "credential provider ${credential?.takeIf { it.isNotBlank() } ?: "unavailable"}; autofill ${autofill ?: "unavailable"}",
+            "webauthn ${if (::web.isInitialized) webAuthnMode(web) else "not started"}",
+        ).joinToString("\n")
+        val text = Diag.redact(header, base) + "\n\n" + (diagPrefs.getString(DIAG_KEY, "") ?: "")
+        getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Med Tracker diagnostics", text))
+        Toast.makeText(this, "Diagnostics copied", Toast.LENGTH_SHORT).show()
+    }
+
     private companion object {
         /** The page-facing bridge global, window.wgNative — med-nt9p.6 and .19 detect the Android shell by it. */
         const val BRIDGE = "wgNative"
@@ -531,6 +585,8 @@ class MainActivity : Activity() {
         const val CEREMONY_BAR_DP = 44
         const val HOST_KEY = "accountHost"
         const val ACTION_SWITCH = "com.example.medtracker.SWITCH_ACCOUNT"
+        const val ACTION_DIAG = "com.example.medtracker.COPY_DIAGNOSTICS"
+        const val DIAG_KEY = "log"
         /** --wg-bg-screen: the bands' colour until the page reports its own. */
         val SCREEN = Color.rgb(0x13, 0x2D, 0x29)
     }

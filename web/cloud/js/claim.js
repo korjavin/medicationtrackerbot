@@ -18,7 +18,8 @@ import {
 } from './crypto.js';
 import { renderUnsupportedAuthenticator } from './signup.js';
 import { establishLdkCache } from './unlock.js';
-import { prfProbe } from './passkey-get.js';
+import { createCredential, prfProbe } from './passkey-get.js';
+import { diagHttp } from './passkey-diag.js';
 
 export async function runClaimFlow() {
   const app = document.getElementById('app');
@@ -113,16 +114,16 @@ async function claimAndEnroll(app, { slotId, tk }) {
 // already rendered the terminal error state) if the authenticator lacks PRF
 // support; true once the passkey + session + warm-unlock cache are all live.
 export async function enrollWithToken(app, { enrollmentToken, accountId, dek }) {
-  const beginRes = await fetch('/api/webauthn/register/begin', {
+  const beginRes = diagHttp('register/begin', await fetch('/api/webauthn/register/begin', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ enrollment_token: enrollmentToken }),
-  });
+  }));
   if (!beginRes.ok) throw new Error('Could not start passkey registration — the code may be expired.');
   const { publicKey } = await beginRes.json();
   const creationOptions = PublicKeyCredential.parseCreationOptionsFromJSON(publicKey);
 
-  const credential = await navigator.credentials.create({ publicKey: creationOptions });
+  const credential = await createCredential(creationOptions);
 
   // PRF availability is only reliable from a fresh assertion — see signup.js.
   // Probed before finish so an unsupported authenticator aborts here (finish
@@ -144,7 +145,7 @@ export async function enrollWithToken(app, { enrollmentToken, accountId, dek }) 
   // Never transmit the PRF output — it lives client-side only.
   if (finishBody.clientExtensionResults) delete finishBody.clientExtensionResults.prf;
 
-  const finishRes = await fetch('/api/webauthn/register/finish', {
+  const finishRes = diagHttp('register/finish', await fetch('/api/webauthn/register/finish', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -156,7 +157,7 @@ export async function enrollWithToken(app, { enrollmentToken, accountId, dek }) 
         mac: toBase64(envelope.mac),
       },
     }),
-  });
+  }));
   if (!finishRes.ok) throw new Error('Passkey registration failed. Please try again.');
 
   try {

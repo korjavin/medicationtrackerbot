@@ -8,6 +8,7 @@
 // there, not merely on the client.
 
 import { getAssertion } from './passkey-get.js';
+import { diagHttp } from './passkey-diag.js';
 
 // exportVaultToFile downloads a plaintext JSON copy of the whole vault, so a
 // friend about to delete keeps their data without having to know to export
@@ -47,7 +48,7 @@ export async function exportVaultToFile(nowMs = Date.now()) {
 // Throws on any failure with a message suitable to show the user; resolves only
 // once the server has confirmed the delete (204).
 export async function reauthAndDelete() {
-  const beginRes = await fetch('/api/account/reauth', { method: 'POST' });
+  const beginRes = diagHttp('account/reauth', await fetch('/api/account/reauth', { method: 'POST' }));
   if (!beginRes.ok) throw new Error('Could not start passkey verification.');
   const { publicKey } = await beginRes.json();
 
@@ -61,11 +62,11 @@ export async function reauthAndDelete() {
   }
   if (!assertion) throw new Error('Passkey verification failed.');
 
-  const delRes = await fetch('/api/account', {
+  const delRes = diagHttp('account/delete', await fetch('/api/account', {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(assertion.toJSON()),
-  });
+  }));
   if (delRes.status !== 204) {
     if (delRes.status === 403) throw new Error('That passkey did not verify. Try again.');
     throw new Error('The account could not be deleted. Please try again.');
