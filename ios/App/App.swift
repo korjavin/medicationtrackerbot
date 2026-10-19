@@ -99,6 +99,8 @@ struct FirstRunView: View {
     @State private var scanning = false
     /// "Only on this device" tapped: the local intro replaces this screen until Back.
     @State private var localIntro = false
+    /// Local mode's origin still has data on this iPhone.
+    @State private var resumable = false
 
     var body: some View {
         if localIntro {
@@ -109,50 +111,69 @@ struct FirstRunView: View {
     }
 
     private var invite: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Med Tracker").font(.largeTitle.bold())
-            Text("Open your account with your invite link, your account address, or the QR code on your Emergency Kit. Accounts are by invitation only.")
-                .foregroundStyle(.secondary)
-            TextField("Invite link or account address", text: $text)
-                .keyboardType(.URL)
-                .textContentType(.URL)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .submitLabel(.go)
-                .onSubmit { submit(text) }
-                .padding(12)
-                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-            if let error {
-                Text(error).font(.callout).foregroundStyle(.orange)
-            }
-            Button("Continue") { submit(text) }
-                .buttonStyle(.borderedProminent)
-                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            if DataScannerViewController.isSupported {
-                Button { scan() } label: { Label("Scan QR code", systemImage: "qrcode.viewfinder") }
-                    .buttonStyle(.bordered)
-            }
-            // Local mode (bd med-o7zq.5): secondary to the invite, no account at all.
-            VStack(alignment: .leading, spacing: 6) {
-                Text("No invite? Use Med Tracker without an account.")
-                    .font(.callout)
+        // Scrolls (bd med-o7zq.31): with the keyboard up a plain VStack clipped
+        // "Only on this device" off the screen.
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Med Tracker").font(.largeTitle.bold())
+                // Local mode was left (Switch account, "I have an invite") or its
+                // flag was lost, but its records are still here: offer them first,
+                // without hiding the invite form (bd med-o7zq.31).
+                if resumable {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Your records from \"Only on this device\" are still on this iPhone.")
+                        Button("Continue on this iPhone") { shell.openLocal() }
+                            .buttonStyle(.borderedProminent)
+                    }
+                    .padding(.bottom, 8)
+                }
+                Text("Open your account with your invite link, your account address, or the QR code on your Emergency Kit. Accounts are by invitation only.")
                     .foregroundStyle(.secondary)
-                Button("Only on this device") { localIntro = true }
-                    .buttonStyle(.bordered)
+                TextField("Invite link or account address", text: $text)
+                    .keyboardType(.URL)
+                    .textContentType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.go)
+                    .onSubmit { submit(text) }
+                    .padding(12)
+                    .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+                if let error {
+                    Text(error).font(.callout).foregroundStyle(.orange)
+                }
+                Button("Continue") { submit(text) }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                if DataScannerViewController.isSupported {
+                    Button { scan() } label: { Label("Scan QR code", systemImage: "qrcode.viewfinder") }
+                        .buttonStyle(.bordered)
+                }
+                // Local mode (bd med-o7zq.5): secondary to the invite, no account at all.
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("No invite? Use Med Tracker without an account.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Button("Only on this device") { localIntro = true }
+                        .buttonStyle(.bordered)
+                }
+                .padding(.top, 8)
+                Spacer()
+                // App Store packaging (bd med-w6gx.8): same wording as the store description.
+                Text("Med Tracker is a personal log, not a medical device, and does not give medical advice. Talk to your doctor before changing a treatment.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Link("Privacy policy", destination: URL(string: "https://github.com/korjavin/medicationtrackerbot/blob/master/docs/privacy-policy.md")!)
+                    .font(.footnote)
             }
-            .padding(.top, 8)
-            Spacer()
-            // App Store packaging (bd med-w6gx.8): same wording as the store description.
-            Text("Med Tracker is a personal log, not a medical device, and does not give medical advice. Talk to your doctor before changing a treatment.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-            Link("Privacy policy", destination: URL(string: "https://github.com/korjavin/medicationtrackerbot/blob/master/docs/privacy-policy.md")!)
-                .font(.footnote)
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .scrollDismissesKeyboard(.interactively)
         .background(Color(uiColor: Shell.screen).ignoresSafeArea())
         .preferredColorScheme(.dark)
+        .onAppear {
+            resumable = LocalOrigin.offersResume(host: shell.host, local: shell.local, dataDirs: LocalOrigin.dataDirs().count)
+        }
         .sheet(isPresented: $scanning) {
             QRScanner { payload in
                 scanning = false

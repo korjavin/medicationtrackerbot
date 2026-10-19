@@ -91,6 +91,13 @@ for bad: String? in [nil, "", "Today", "a b", "a&b=c", "a#b", "../x", "x/y", Str
 }
 print("LocalOrigin: ok")
 
+// First-run after an update (bd med-o7zq.31): no host, not local, local data present ⇒ offer to continue.
+precondition(LocalOrigin.offersResume(host: nil, local: false, dataDirs: 1))
+precondition(!LocalOrigin.offersResume(host: nil, local: false, dataDirs: 0)) // a real fresh install
+precondition(!LocalOrigin.offersResume(host: "abc.app.example.com", local: false, dataDirs: 2))
+precondition(!LocalOrigin.offersResume(host: nil, local: true, dataDirs: 1))
+print("LocalOrigin.offersResume: ok")
+
 // LocalLock (bd med-o7zq.8): the lock's lifecycle without LocalAuthentication.
 var lock = LocalLock(on: true)
 precondition(lock.holds(local: true) && !lock.holds(local: false), "cold launch: locked, local mode only")
