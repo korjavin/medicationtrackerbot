@@ -39,13 +39,15 @@ if grep -q PLACEHOLDER "$out/index.html"; then echo "unfilled placeholder in ind
 
 # QA=1 (the ios.yml visual job only, docs/design/ios-visual-testing.md): the
 # scene driver, its scene list and the golden vault, served at /qa/* (which
-# LocalOrigin.file(for:) maps to cloud/qa/) and loaded after every app script.
+# LocalOrigin.file(for:) maps to cloud/qa/) and loaded right after the local
+# entry, before every web/static script: the driver pins the page clock at
+# document start (bd med-y5xx.8), then waits for the app's boot itself.
 # Without QA=1 none of it is in the bundle and /qa/* is a 404.
 if [ "${QA:-}" = 1 ]; then
     mkdir -p "$out/cloud/qa"
     cp "$repo/tests/visual/driver.js" "$repo/tests/visual/driver.css" "$repo/tests/visual/scenes.json" "$out/cloud/qa/"
     cp "$repo/tests/fixtures/vault-v1.json" "$out/cloud/qa/vault-v1.json"
-    sed -e 's|</body>|<link rel="stylesheet" href="/qa/driver.css"><script src="/qa/driver.js"></script></body>|' \
+    sed -e 's|<script src="/js/local-boot.js"></script>|&<link rel="stylesheet" href="/qa/driver.css"><script src="/qa/driver.js"></script>|' \
         "$out/index.html" > "$out/index.qa.html"
     mv "$out/index.qa.html" "$out/index.html"
     grep -q 'src="/qa/driver.js"' "$out/index.html"

@@ -50,8 +50,9 @@ Tier 2 is the MVP; it is the only tier that would have caught `med-pe9g`. Tiers
    `tests/fixtures/vault-v1.json` to `ios/LocalApp/cloud/qa/` (served at
    `/qa/*`: `LocalOrigin.file(for:)` maps every path outside `/static/` and
    `/domain/` to `cloud/`), and adds `<link rel="stylesheet"
-   href="/qa/driver.css"><script src="/qa/driver.js">` before `</body>` of the
-   local `index.html`, after every app script (CSP is `script-src 'self'` /
+   href="/qa/driver.css"><script src="/qa/driver.js">` to the local
+   `index.html` right after the local entry, before every app script, so the
+   driver pins the page clock at document start (CSP is `script-src 'self'` /
    `style-src 'self'`, so no CSP change). Without `QA=1` nothing changes:
    `/qa/*` is a 404 on `wgapp://local`, the script fails if a non-QA bundle
    carries any of it, and the TestFlight archive is built without it.
@@ -154,6 +155,28 @@ Tier 2 is the MVP; it is the only tier that would have caught `med-pe9g`. Tiers
    no master artifact just reports "no reference". Probe failures become
    `::warning` annotations with the scene name; the job stays green (a
    screenshot run is evidence for an agent, not a gate — see owner decisions).
+   As built (bd med-y5xx.4): `tests/visual/compare.sh <artifact> <shots>
+   <out>` finds master's newest unexpired artifact of that name through the
+   artifacts API (only dispatches on master make one), runs `compare.mjs`
+   and appends `summary.md` to the job summary. The iOS job ships the result
+   inside `ios-visual` (`shots/compare/`); `visual-web.yml` runs it in a
+   `compare` job (the Playwright container has no `gh`) as the
+   `ios-visual-web-compare` artifact.
+
+   **Quieter diffs** (bd med-y5xx.8): on `?qa=` the driver replaces `Date`
+   with a clock that starts at today 23:00 local, after every (day-shifted)
+   fixture entry, and ticks from there, so "Now" chips, countdowns and
+   past/future splits do not depend on the time of day the job runs. Dates
+   still move with the calendar day. A scene may list `mask` rectangles
+   (fractions of the image) that `compare.mjs` blanks in both images.
+
+   **Blank frames** (bd med-y5xx.11): two identical boot frames passed the
+   "two shots a second apart match" rule. The report now carries `paint`,
+   the last ready element's rect in web view points, and XCUITest shoots
+   only once that screen region holds content (≥ 0.5 % of its pixels off
+   the region's median luminance), else the scene fails with the shot
+   attached. Both Simulators start booting before the build and are joined
+   after it.
 
 ### Scenes (MVP, 15)
 
@@ -179,10 +202,13 @@ vault, so order does not matter and one failure does not poison the rest.
 | 14 | `settings-home` | `switchTab('settings')` | grouped rows, pagebar back |
 | 15 | `settings-backup` | 14 + `openSettingsPage('backup')` | file inputs, long copy, local-only rows |
 
-Phase 2 adds: `journey`, `meds-history` with the take-dose sheet, `weight`,
-`settings-targets` (number fields at 15px — focus-zoom regression check), an
-in-page `safeConfirm` dialog, the BYOK key form, landscape is out
-(portrait-only app).
+Phase 2 adds (bd med-y5xx.8): `weight`, `meds-history-take` (History with
+the take-dose sheet open), `settings-targets-keyboard` (number fields at
+15px with the keyboard — focus-zoom regression check),
+`settings-ai-key-keyboard` (the BYOK key form), `settings-erase-confirm` (the
+in-page `safeConfirm` dialog; the phrase is never typed) and `journey`
+(turns gamification on, so it runs last). Landscape is out (portrait-only
+app).
 
 ### Runtime and cost
 

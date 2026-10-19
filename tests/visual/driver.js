@@ -1,7 +1,7 @@
 // iOS visual QA driver (bd med-y5xx.1, docs/design/ios-visual-testing.md).
 //
 // Bundled ONLY by `QA=1 ios/bundle-web.sh` (served at /qa/driver.js on
-// wgapp://local, loaded after every app script); the TestFlight archive and the
+// wgapp://local, loaded right after the local entry, before the app scripts); the TestFlight archive and the
 // cloud never carry it (the web tier's cloud pass injects it with Playwright's
 // addInitScript, setting __wgQACloud and __wgQAFiles). A classic script: on `?qa=<scene>` it seeds the golden
 // vault into the empty local store, navigates to the scene with the app's own
@@ -23,6 +23,7 @@
     const qa = { scene, done: null, probe };
     window.__wgQA = qa;
     if (!scene) return;
+    pinClock();
     // Document loads in this launch (the seed import reloads once): a scene
     // whose page reloads mid-scene shows loads > 1 (or > 2 right after seeding).
     let loads = 1;
@@ -31,6 +32,33 @@
         window.sessionStorage.setItem('wg-qa-loads', String(loads));
     } catch (_) { /* no storage: stays 1 */ }
     qa.done = run(scene).catch((e) => publish({ scene, ok: false, error: String((e && e.message) || e) }));
+
+    // Time-dependent text ("Now 05:28", "in 3h 25m", past/future readings)
+    // must not depend on when the job runs: every Date the page makes reads
+    // today at 23:00 local, after all of the fixture's (shifted) entries, and
+    // ticks from there so timeouts and debounces keep working. Installed at
+    // document start (QA=1 loads this script right after the local entry; the
+    // cloud pass injects it with addInitScript), before any app script.
+    // ponytail: ticks from the pin, so a scene that lives > 60 s shows 23:01;
+    // freeze outright (Playwright clock.setFixedTime style) if that shows up.
+    function pinClock() {
+        const Real = window.Date;
+        if (Real.wgQAPinned) return; // the jsdom suite re-evaluates the driver
+        const d = new Real();
+        const pin = new Real(d.getFullYear(), d.getMonth(), d.getDate(), 23, 0, 0).getTime();
+        const t0 = window.performance.now();
+        const now = () => pin + Math.floor(window.performance.now() - t0);
+        function QADate(...args) {
+            if (!new.target) return new Real(now()).toString();
+            return Reflect.construct(Real, args.length ? args : [now()], new.target);
+        }
+        QADate.prototype = Real.prototype;
+        QADate.now = now;
+        QADate.parse = Real.parse;
+        QADate.UTC = Real.UTC;
+        QADate.wgQAPinned = true;
+        window.Date = QADate;
+    }
 
     async function run(name) {
         const list = await getJSON('/qa/scenes.json');
@@ -125,8 +153,9 @@
             await until(() => firstVisible(step.tag), STEP_MS, `tag ${step.tag}`);
             // WKWebView does not expose DOM ids to XCUITest, so the id is the
             // accessible name too (the tap step matches either).
+            // An element that already has an id keeps it (app code reads it).
             const el = firstVisible(step.tag);
-            el.id = step.id;
+            if (!el.id) el.id = step.id;
             el.setAttribute('aria-label', step.id);
         } else if (step.settingsPage) {
             await until(() => window.SettingsView.openSettingsPage(step.settingsPage), STEP_MS, `settings page ${step.settingsPage}`);
@@ -200,7 +229,26 @@
     let rev = 0;
     function report(def) {
         const { probes, failed } = probe();
-        return { scene: def.name, ok: failed.length === 0, rev: rev++, loads, failed, probes };
+        return { scene: def.name, ok: failed.length === 0, rev: rev++, loads, failed, probes, paint: paintRect(def) };
+    }
+
+    // Where the scene's last ready element shows, in points of the web view
+    // (visual viewport): XCUITest shoots only once that region of the screen
+    // holds painted content, not the blank boot frame (bd med-y5xx.11).
+    function paintRect(def) {
+        const sel = (def.ready || [])[(def.ready || []).length - 1];
+        const el = sel && firstVisible(sel);
+        if (!el) return null;
+        const r = el.getBoundingClientRect();
+        const vv = window.visualViewport || { offsetLeft: 0, offsetTop: 0, width: window.innerWidth, height: window.innerHeight, scale: 1 };
+        const x0 = Math.max(r.left, vv.offsetLeft);
+        const y0 = Math.max(r.top, vv.offsetTop);
+        const x1 = Math.min(r.right, vv.offsetLeft + vv.width);
+        const y1 = Math.min(r.bottom, vv.offsetTop + vv.height);
+        if (x1 - x0 < 4 || y1 - y0 < 4) return null;
+        const s = vv.scale || 1;
+        const round = (n) => Math.round(n * s);
+        return { x: round(x0 - vv.offsetLeft), y: round(y0 - vv.offsetTop), w: round(x1 - x0), h: round(y1 - y0) };
     }
 
     function publish(r) {

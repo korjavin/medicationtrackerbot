@@ -250,24 +250,15 @@ jobs:
       cancel-in-progress: true
     runs-on: macos-26
     timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read # the compare step downloads master's ios-visual artifact
     steps:
       - uses: actions/checkout@v4
 
-      - name: Bundle the web app with the QA driver
-        run: QA=1 ios/bundle-web.sh "${{ github.run_number }}"
-
-      - name: Generate Xcode project and build for testing
-        working-directory: ios
-        run: |
-          command -v xcodegen >/dev/null || brew install xcodegen
-          xcodegen generate
-          xcodebuild -version
-          xcodebuild build-for-testing -project MedTracker.xcodeproj -scheme MedTracker \
-            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO | tail -n 30
-          test "${PIPESTATUS[0]}" -eq 0
-
-      - name: Create and boot the simulators
+      # Before the build, so both first boots (4-7 min each on a fresh device,
+      # run 39209916915) run in parallel with it; the wait step joins them.
+      - name: Create the simulators and start booting them
         run: |
           xcrun simctl list devicetypes runtimes
           runtime="$(xcrun simctl list runtimes -j | jq -r '[.runtimes[] | select(.platform == "iOS" and .isAvailable)] | last | .identifier')"
@@ -284,15 +275,35 @@ jobs:
             udid="$(xcrun simctl list devices available -j | jq -r --arg rt "$runtime" --arg n "$t" '.devices[$rt][]? | select(.name == $n) | .udid' | head -n 1)"
             [ -n "$udid" ] || udid="$(xcrun simctl create "QA $t" "$t" "$runtime")"
             echo "${t// /-}=$udid" >> "$RUNNER_TEMP/devices"
+            # Detached: CoreSimulator keeps booting after this step ends.
+            nohup xcrun simctl bootstatus "$udid" -b > "$RUNNER_TEMP/boot-$udid.log" 2>&1 < /dev/null &
           done
-          while IFS='=' read -r dev udid; do
-            start=$SECONDS
-            xcrun simctl bootstatus "$udid" -b < /dev/null | tail -n 1
-            echo "$dev booted in $((SECONDS - start))s"
-            xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 --wifiBars 3 --cellularBars 4
-            xcrun simctl ui "$udid" appearance dark
-          done < "$RUNNER_TEMP/devices"
           cat "$RUNNER_TEMP/devices"
+
+      - name: Bundle the web app with the QA driver
+        run: QA=1 ios/bundle-web.sh "${{ github.run_number }}"
+
+      - name: Generate Xcode project and build for testing
+        working-directory: ios
+        run: |
+          command -v xcodegen >/dev/null || brew install xcodegen
+          xcodegen generate
+          xcodebuild -version
+          xcodebuild build-for-testing -project MedTracker.xcodeproj -scheme MedTracker \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO | tail -n 30
+          test "${PIPESTATUS[0]}" -eq 0
+
+      - name: Wait for the simulators
+        run: |
+          start=$SECONDS
+          while IFS='=' read -r dev udid; do
+            ( xcrun simctl bootstatus "$udid" -b < /dev/null | tail -n 1
+              echo "$dev booted, waited $((SECONDS - start))s after the build"
+              xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 --wifiBars 3 --cellularBars 4
+              xcrun simctl ui "$udid" appearance dark ) &
+          done < "$RUNNER_TEMP/devices"
+          wait
 
       - name: Run the scenes per device
         working-directory: ios
@@ -330,7 +341,7 @@ jobs:
           {
             echo "## iOS visual QA"
             echo
-            echo "Artifact \`ios-visual\`: \`shots/<device>/<scene>.png\` plus the probe report \`<scene>.json\`. Evidence only, never a gate."
+            echo "Artifact \`ios-visual\`: \`shots/<device>/<scene>.png\` plus the probe report \`<scene>.json\`, and \`shots/compare/\` (diffs against master). Evidence only, never a gate."
             while IFS='=' read -r dev udid; do
               d="shots/$dev"
               n="$(find "$d" -name '*.png' 2>/dev/null | wc -l | tr -d ' ')"
@@ -356,6 +367,21 @@ jobs:
           if [ ! -s "$RUNNER_TEMP/devices" ] || [ -n "$broken" ]; then
             echo "::error::no screenshots from:${broken:- any device}"; exit 1
           fi
+
+      # bd med-y5xx.4: every shot against master's latest ios-visual artifact
+      # (no goldens in git). Evidence only: never fails the job.
+      - name: Set up pnpm
+        if: always()
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.10.0
+          run_install: false
+
+      - name: Compare with master
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: tests/visual/compare.sh ios-visual shots shots/compare || true
 
       - uses: actions/upload-artifact@v4
         if: always()
