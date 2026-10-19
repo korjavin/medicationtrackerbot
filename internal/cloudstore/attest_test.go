@@ -8,6 +8,25 @@ import (
 	"time"
 )
 
+// bd med-nt9p.32.8.3: kind round-trips; a row inserted without one reads ios
+// (the migration default every pre-Android row also gets).
+func TestAttestInstallKind(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+	r := setupRepo(t)
+	if err := r.InsertAttestInstall(ctx, AttestInstall{KeyID: "ios", PublicKey: []byte{1}, Env: "production", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.InsertAttestInstall(ctx, AttestInstall{KeyID: "and", Kind: AttestKindAndroid, PublicKey: []byte{1}, Env: "PLAY_RECOGNIZED", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]string{"ios": AttestKindIOS, "and": AttestKindAndroid} {
+		if in, err := r.AttestInstall(ctx, id); err != nil || in.Kind != want {
+			t.Fatalf("%s: %+v %v", id, in, err)
+		}
+	}
+}
+
 // bd med-o7zq.15: counter CAS + lifetime + daily + global in one tx.
 func TestConsumeAttestRequest(t *testing.T) {
 	ctx := context.Background()

@@ -48,3 +48,5 @@ mcpeval-report.md
 
 # DeviceCheck / App Store Connect private keys (med-o7zq.15) — never commit
 *.p8
+# Server secrets dir (Play Integrity service-account JSON, med-nt9p.32.8.3)
+data/secrets/

@@ -373,41 +373,42 @@ func RequestHash(challenge []byte, keyID string, pubDER []byte) string {
 }
 
 // VerifyEnrollment checks a standard-request token that binds challenge to the
-// app's Keystore P-256 key and returns that key. The caller must have issued
-// challenge and consume it (single use).
-func (v *Verifier) VerifyEnrollment(ctx context.Context, token string, challenge []byte, keyID string, pubDER []byte) (*ecdsa.PublicKey, error) {
+// app's Keystore P-256 key and returns that key and the accepted
+// appRecognitionVerdict. The caller must have issued challenge and consume it
+// (single use).
+func (v *Verifier) VerifyEnrollment(ctx context.Context, token string, challenge []byte, keyID string, pubDER []byte) (*ecdsa.PublicKey, string, error) {
 	if len(challenge) == 0 {
-		return nil, ErrMalformed
+		return nil, "", ErrMalformed
 	}
 	// Local checks first: never spend a Google call on a bad key.
 	// The key must be an ECDSA P-256 SPKI (ParsePKIXPublicKey rejects trailing data).
 	k, err := x509.ParsePKIXPublicKey(pubDER)
 	if err != nil {
-		return nil, ErrKey
+		return nil, "", ErrKey
 	}
 	pub, ok := k.(*ecdsa.PublicKey)
 	if !ok || pub.Curve != elliptic.P256() {
-		return nil, ErrKey
+		return nil, "", ErrKey
 	}
 	// The key id is derived, never chosen.
 	if subtle.ConstantTimeCompare([]byte(keyID), []byte(KeyID(pubDER))) != 1 {
-		return nil, ErrKey
+		return nil, "", ErrKey
 	}
 	vd, err := v.Decode(ctx, token)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	// requestDetails.requestPackageName: the token was requested by our app.
 	if vd.RequestPackageName != v.cfg.PackageName {
-		return nil, ErrPackage
+		return nil, "", ErrPackage
 	}
 	// requestDetails.requestHash: binds this challenge and this key.
 	if subtle.ConstantTimeCompare([]byte(vd.RequestHash), []byte(RequestHash(challenge, keyID, pubDER))) != 1 {
-		return nil, ErrRequestHash
+		return nil, "", ErrRequestHash
 	}
 	// requestDetails.timestampMillis: freshness, both directions.
 	if age := v.now().Sub(time.UnixMilli(vd.TimestampMillis)); vd.TimestampMillis <= 0 || age > MaxTokenAge || age < -MaxTokenAge {
-		return nil, ErrStale
+		return nil, "", ErrStale
 	}
 	// appIntegrity.appRecognitionVerdict.
 	accept := v.cfg.AcceptAppVerdicts
@@ -415,23 +416,23 @@ func (v *Verifier) VerifyEnrollment(ctx context.Context, token string, challenge
 		accept = []string{VerdictPlayRecognized}
 	}
 	if !slices.Contains(accept, vd.AppRecognitionVerdict) {
-		return nil, ErrAppVerdict
+		return nil, "", ErrAppVerdict
 	}
 	// appIntegrity.packageName: the app Play evaluated is ours.
 	if vd.AppPackageName != v.cfg.PackageName {
-		return nil, ErrPackage
+		return nil, "", ErrPackage
 	}
 	// appIntegrity.certificateSha256Digest: optional signing-cert pin.
 	if len(v.cfg.CertDigests) > 0 && !slices.ContainsFunc(vd.CertificateDigests, func(d string) bool {
 		return slices.Contains(v.cfg.CertDigests, d)
 	}) {
-		return nil, ErrCertificate
+		return nil, "", ErrCertificate
 	}
 	// deviceIntegrity.deviceRecognitionVerdict ∋ MEETS_DEVICE_INTEGRITY.
 	if !slices.Contains(vd.DeviceVerdicts, VerdictMeetsDeviceIntegrity) {
-		return nil, ErrDeviceVerdict
+		return nil, "", ErrDeviceVerdict
 	}
-	return pub, nil
+	return pub, vd.AppRecognitionVerdict, nil
 }
 
 // VerifyAssertion checks an Android Keystore assertion. Wire format:
