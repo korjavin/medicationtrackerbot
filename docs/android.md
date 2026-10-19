@@ -1188,7 +1188,7 @@ Owner-only Google Cloud setup for the Android free trial (bd med-nt9p.32.8.1, a 
 3. **IAM & Admin → Service accounts → Create service account**, name it `play-integrity-verifier`. No roles needed. Open it → **Keys → Add key → JSON** → a file downloads.
 4. Store that JSON in stash: `~/stash/kv put secrets/play-integrity-sa-json "$(cat <file>.json)"`, then delete the downloaded file. Never paste it into chat or Zulip.
 5. **Play Console** → the app → **Test and release → App integrity → Play Integrity API** → **Link a Cloud project** → choose the project from step 1.
-6. **GitHub** → repo → Settings → Secrets and variables → Actions → **Variables** → new variable `ANDROID_PLAY_CLOUD_PROJECT_NUMBER` = the project number.
+6. **GitHub** → repo → Settings → Secrets and variables → Actions → **Variables** → new variable `ANDROID_PLAY_CLOUD_PROJECT_NUMBER` = the project number. Either a variable or a secret of that name works (the workflow reads the variable first, then the secret).
 
 Later, after the server part merges (owner approval asked then): the JSON goes onto the production server as `/app/data/secrets/play-integrity.json`, and the stack gets `PLAY_INTEGRITY_PACKAGE_NAME` and `PLAY_INTEGRITY_SERVICE_ACCOUNT_FILE=/app/data/secrets/play-integrity.json`. If prod then answers 403, grant the service account **Service Usage Consumer**. See [environment.md](environment.md) for the variables.
 
