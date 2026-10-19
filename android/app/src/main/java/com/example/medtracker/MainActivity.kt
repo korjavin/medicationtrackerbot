@@ -494,7 +494,7 @@ class MainActivity : Activity() {
             // The server says the stored account is gone (deleted here or elsewhere, or a typo): forget
             // it and say why on the first run (bd med-nt9p.32.14). A 404 without the server's marker
             // (a proxy's during a redeploy, an older server) keeps the error screen and Try again.
-            // reopen() keeps the message; the next open() clears it.
+            // Set after forget()'s reopen(), which resets the first-run message; the next open or reopen clears it.
             if (h != null && h == host && AccountUrl.accountGone(response.statusCode, response.responseHeaders)) {
                 forget()
                 firstRunMessage.text = "There is no account at $h."
