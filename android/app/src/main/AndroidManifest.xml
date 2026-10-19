@@ -32,12 +32,16 @@
 
     <application
         android:label="Med Tracker"
-        android:allowBackup="false"
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:supportsRtl="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:theme="@style/Theme.MedTracker"
         android:enableOnBackInvokedCallback="true">
+        <!-- Backup (bd med-nt9p.32.5): include-only rules — the local origin's IndexedDB and
+             wg_trial.xml; no account data, no other prefs, no Local Storage. -->
         <!-- enableOnBackInvokedCallback: without it Android 14/15 refuse MainActivity's
              OnBackInvokedCallback and Back leaves the app from any page or sheet. -->
         <!-- Only the account host and the base domain load: no URL checks with Google. -->

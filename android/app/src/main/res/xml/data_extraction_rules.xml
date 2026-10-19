@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Auto Backup (bd med-nt9p.32.5, owner decision b; docs/android.md → Local mode backup).
+     An <include> list backs up ONLY what it names: the "Only on this device" origin's IndexedDB
+     and the trial-pass prefs file. Everything else stays out by construction: every account
+     origin's WebView data (decrypted records, warm-unlock key), Local Storage (one leveldb shared
+     by all origins), and every other prefs file (shell = account host, diag = PII log, reminders,
+     health anchors). Paths are relative to the data dir; the dir names come from the spike's
+     run-as listing (bd med-nt9p.32.1). Never widen this to app_webview or shared_prefs. -->
+<data-extraction-rules>
+    <cloud-backup disableIfNoEncryptionCapabilities="true">
+        <include domain="root" path="app_webview/Default/IndexedDB/https_appassets.androidplatform.net_0.indexeddb.leveldb" />
+        <include domain="root" path="app_webview/Default/IndexedDB/https_appassets.androidplatform.net_0.indexeddb.blob" />
+        <include domain="sharedpref" path="wg_trial.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="root" path="app_webview/Default/IndexedDB/https_appassets.androidplatform.net_0.indexeddb.leveldb" />
+        <include domain="root" path="app_webview/Default/IndexedDB/https_appassets.androidplatform.net_0.indexeddb.blob" />
+        <include domain="sharedpref" path="wg_trial.xml" />
+    </device-transfer>
+</data-extraction-rules>

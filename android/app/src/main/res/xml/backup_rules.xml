@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- fullBackupContent: the same include-only set as data_extraction_rules.xml, for any backup path
+     that still reads the pre-Android-12 rules (minSdk 34, so normally none). Without it such a
+     path would back up the whole data dir, cloud-account WebView data included. Keep in sync. -->
+<full-backup-content>
+    <include domain="root" path="app_webview/Default/IndexedDB/https_appassets.androidplatform.net_0.indexeddb.leveldb" />
+    <include domain="root" path="app_webview/Default/IndexedDB/https_appassets.androidplatform.net_0.indexeddb.blob" />
+    <include domain="sharedpref" path="wg_trial.xml" />
+</full-backup-content>
