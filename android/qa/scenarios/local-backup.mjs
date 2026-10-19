@@ -99,9 +99,10 @@ export default async function localBackup(ctx) {
     // 4. The backup set itself (adb root, run.sh): the transport's full-backup tar stream. Fail
     //    closed: the local dir name must be greppable in it, or the absence checks prove nothing.
     await step('backup set holds only the include list', async () => {
-      const files = (await shell(`find /data -path '*backup*' -path '*${pkg}*' -type f 2>/dev/null`)).split('\n').filter(Boolean);
+      // The transport's own files, not the app's no_backup/ dir.
+      const files = (await shell(`find /data /cache -path '*${pkg}*' -type f 2>/dev/null | grep -i -e localtransport -e /backup/`)).split('\n').filter(Boolean);
       m.setFiles = files;
-      if (!files.length) throw new Error(`no backup file for the package; backup dirs: ${await shell("find /data -path '*backup*' -type d 2>/dev/null | head -40")}`);
+      if (!files.length) throw new Error(`no backup file for the package; candidates: ${await shell(`find /data /cache -path '*${pkg}*' -type f 2>/dev/null | grep -v '/data/\\(data\\|user\\|user_de\\)/0/${pkg}/' | head -40`)}`);
       let seen = 0;
       for (const f of files) {
         seen += Number(await shell(`grep -c '${LOCAL_DIR}' '${f}' || true`)) || 0;
