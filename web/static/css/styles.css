@@ -2430,6 +2430,7 @@ svg.chart-svg {
     top: var(--wg-vv-top);
     bottom: auto;
     height: var(--wg-vv-h);
+    box-sizing: border-box; /* the safe-area padding fits inside that height */
     overscroll-behavior: contain;
     z-index: var(--z-modal);
     display: flex;
