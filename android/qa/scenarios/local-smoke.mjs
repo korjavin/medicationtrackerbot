@@ -25,6 +25,7 @@ export default async function localSmoke(ctx) {
   await shell(`pm clear ${pkg}`);
   // Notifications allowed, so the reminder row reaches its device wording ("on for this phone").
   await shell(`pm grant ${pkg} android.permission.POST_NOTIFICATIONS`);
+  await shell(`appops set ${pkg} SCHEDULE_EXACT_ALARM allow`); // 'granted' needs both (Notifications.permission)
 
   let page = await ctx.step('cold start in local mode on scene today (seeds the golden vault)', async () => {
     const p = await ctx.launchLocal('today');
@@ -64,7 +65,8 @@ export default async function localSmoke(ctx) {
     const end = Date.now() + 10_000;
     while (Date.now() < end && !(await ctx.imeShown())) await sleep(500);
     await sleep(1000);
-    await shell('input text 128');
+    // Key events, not `input text`: the IME's composition doubled the first digit ("112", twice).
+    await shell('input keyevent KEYCODE_1 KEYCODE_2 KEYCODE_8');
     r.keyboard = await page.evaluate(() => {
       const el = document.activeElement;
       const b = el && el.getBoundingClientRect();
