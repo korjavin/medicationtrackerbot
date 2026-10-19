@@ -686,12 +686,14 @@ function nativeLeaveAccount() {
     const vault = window.CloudVault;
     if (typeof vault?.leaveAccount !== 'function') return null;
     if (window.LocalNotifications?.__native?.platform !== 'ios') return null;
-    return () => vault.leaveAccount();
+    return (opts) => vault.leaveAccount(opts);
 }
 
-// Settings → Account "Use this iPhone without an account" (bd med-o7zq.32).
-// Nothing is erased: the account stays on the server, this origin keeps its
-// data, and opening the account address again resumes it.
+// Settings → Account "Use this iPhone without an account" (bd med-o7zq.32):
+// straight into local mode (bd med-o7zq.34; a shell older than that ignores
+// `then` and shows its first-run instead). Nothing is erased: the account
+// stays on the server, this origin keeps its data, and opening the account
+// address again resumes it.
 let _leaveAccountBound = false; // module-state: bind the button once across repeated loadSettings() calls
 function bindLeaveAccount() {
     const leave = nativeLeaveAccount();
@@ -705,11 +707,11 @@ function bindLeaveAccount() {
         btn.disabled = true;
         try {
             const ok = await safeConfirm(
-                'Med Tracker will close this account on this iPhone and return to its start screen, where Only on this device keeps your records on the phone. Nothing is deleted on the server: the account and its data stay, and you can open it again with your account address.',
+                'Med Tracker will close this account on this iPhone and switch to Only on this device, which keeps your records on the phone. Nothing is deleted on the server: the account and its data stay, and you can open it again with your account address.',
                 null,
                 { title: 'Use this iPhone without an account?', confirmLabel: 'Continue' },
             );
-            if (ok) await leave();
+            if (ok) await leave({ then: 'local' });
         } catch (e) {
             await safeAlert(e?.message || 'Couldn’t leave the account.');
         } finally {

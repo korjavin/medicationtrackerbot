@@ -542,16 +542,21 @@ changes for it.
   (account origin, `CloudVault.leaveAccount` present, platform `ios`). The
   account's own first-run (`WGFirstRun` welcome) offers only *Get started* /
   *Skip all* on every platform — choosing local belongs to the app's native
-  first-run. After a `safeConfirm` the row calls `CloudVault.leaveAccount()` →
-  bridge op `account.leave` (account origin only), which does Switch account:
-  the native first-run, where *Only on this device* starts local mode. Nothing
-  is erased (account on the server, the origin's website data on the phone).
-  A shell without the op answers `unsupported`; the page then points at iOS
+  first-run. After a `safeConfirm` the row calls
+  `CloudVault.leaveAccount({ then: 'local' })` → bridge op `account.leave`
+  with args `{then: "local"}` (account origin only), which forgets the account
+  host and opens local mode directly (`forget(thenLocal: true)`, bd
+  med-o7zq.34) — no stop at the native first-run. Local mode shows whatever
+  the local origin already holds from an earlier device-only period, or starts
+  empty with its own first-run. Nothing is erased (account on the server, the
+  account origin's website data on the phone). A shell built before .34 has
+  the op but ignores the args, so it lands on the native first-run as before;
+  a shell without the op answers `unsupported` and the page points at iOS
   Settings → *Switch account*.
 - **After account deletion** (bd med-o7zq.33): once the server delete and the
-  local wipe finish, the iOS app calls the same `leaveAccount()` and lands on
-  the native first-run instead of the base-domain page (which has no way back
-  into the app). If the op is missing it falls back to that redirect.
+  local wipe finish, the iOS app calls `leaveAccount()` with no args and lands
+  on the native first-run instead of the base-domain page (which has no way
+  back into the app). If the op is missing it falls back to that redirect.
 - **Chrome:** the page sits inside the safe area; the status-bar and
   home-indicator bands take the page's own background colour at its top and
   bottom edge (a page script reports it), the status bar is light, and the page
