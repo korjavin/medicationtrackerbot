@@ -105,6 +105,15 @@ enum LocalOrigin {
         }
     }
 
+    /// First-run's "Continue on this iPhone" (bd med-o7zq.31): no account and
+    /// not in local mode, yet local mode's origin has data — an update or a
+    /// lost flag must not look like a fresh install. A button, not a silent
+    /// resume: leaving local mode on purpose ("I have an invite") keeps the
+    /// data and must still reach the invite form.
+    static func offersResume(host: String?, local: Bool, dataDirs: Int) -> Bool {
+        host == nil && !local && dataDirs > 0
+    }
+
     // MARK: backup flag
 
     /// This origin's WebKit data directories (salted-hash layout: <dir>/origin

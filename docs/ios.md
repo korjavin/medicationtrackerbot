@@ -762,6 +762,16 @@ mode, gated on the bridge platform being `ios` or `android`
   BYOK only. *Start* stores the choice; *Back* returns to the invite form.
   iPhone Settings → Med Tracker → *Local mode* is the same switch. *Switch
   account* leaves local mode too; the origin's data is kept either way.
+  When first-run shows (no account, not local) while `LocalOrigin.dataDirs()`
+  still finds the `wgapp://local` origin's data — local mode left on purpose,
+  or its flag lost across an update (bd med-o7zq.31) — it leads with
+  *Continue on this iPhone*, which reopens local mode directly
+  (`LocalOrigin.offersResume`, checked in `ios/Tests/main.swift`). A button,
+  not a silent resume, so someone who left for an invite still reaches the
+  invite form. The first-run screen scrolls, so *Only on this device* stays
+  reachable with the keyboard up. At launch the shell logs (`os_log`,
+  category `shell`) the mode, whether a host is stored and the local data
+  dir count — no host name.
   Settings opens on an *On this device only* row in local mode.
 - **Lock** (bd med-o7zq.8, [`LocalLock.swift`](../ios/App/LocalLock.swift)):
   optional, off by default; opted into on the local intro (*Lock with Face

@@ -1,3 +1,4 @@
+import os
 import SwiftUI
 import UIKit
 import WebKit
@@ -96,6 +97,9 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         Notifications.shared.vault = vault // observers don't run in init; a switch in applySettings must see the old vault
         applySettings()
         if local { LocalOrigin.includeInBackup() } // a dir an earlier launch created
+        // Launch state for a support sysdiagnose (bd med-o7zq.31); no host name, no data.
+        Logger(subsystem: Bundle.main.bundleIdentifier ?? "MedTracker", category: "shell").notice(
+            "launch mode=\(self.local ? "local" : self.host == nil ? "first-run" : "account", privacy: .public) host=\(self.host != nil, privacy: .public) localDataDirs=\(LocalOrigin.dataDirs().count, privacy: .public)")
         retry()
         Notifications.shared.onOpen = { [weak self] path, vault in self?.openReminder(path, of: vault) }
     }
