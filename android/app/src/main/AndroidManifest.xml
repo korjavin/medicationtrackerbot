@@ -14,6 +14,8 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- navigator.vibrate (workout rest timer) is a silent no-op in WebView without it. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- CAMERA/RECORD_AUDIO would otherwise make Play hide the app from phones without them. -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
@@ -32,7 +34,14 @@
         android:label="Med Tracker"
         android:allowBackup="false"
         android:supportsRtl="true"
-        android:theme="@android:style/Theme.DeviceDefault.DayNight">
+        android:theme="@android:style/Theme.DeviceDefault.DayNight"
+        android:enableOnBackInvokedCallback="true">
+        <!-- enableOnBackInvokedCallback: without it Android 14/15 refuse MainActivity's
+             OnBackInvokedCallback and Back leaves the app from any page or sheet. -->
+        <!-- Only the account host and the base domain load: no URL checks with Google. -->
+        <meta-data
+            android:name="android.webkit.WebView.EnableSafeBrowsing"
+            android:value="false" />
         <!-- First-run QR: fetch the Play services scanner module at install, not on first tap. -->
         <meta-data
             android:name="com.google.mlkit.vision.DEPENDENCIES"
@@ -52,6 +61,7 @@
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode|density"
             android:windowSoftInputMode="adjustResize"
+            android:screenOrientation="portrait"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

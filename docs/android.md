@@ -143,7 +143,14 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
   reports it over the bridge; it reads styles and sets none — the page CSP is
   `style-src 'self'`), bar icons are light or dark to match, and the keyboard
   shrinks the page instead of covering it. Back walks the WebView history,
-  then leaves the app.
+  then leaves the app (the manifest's `enableOnBackInvokedCallback="true"`
+  makes this work on Android 14/15, not only 16+). Portrait only, like iOS
+  (Android 16 still rotates on large screens).
+- **WebView settings** (iOS parity, bd med-nt9p.28): `textZoom` fixed at 100
+  (the system font size does not scale the page; pinch-zoom is on instead,
+  as in Safari), no overscroll glow, and Safe Browsing off (manifest
+  meta-data) — only own hosts load, so no URL checks go to Google.
+  `VIBRATE` is declared so `navigator.vibrate` (rest timer) buzzes.
 - **Storage:** the same script calls `navigator.storage.persist()`, as on iOS.
 - **Renderer crash or kill** (`onRenderProcessGone`): a fresh WebView reloads
   the current URL.
