@@ -1,0 +1,9 @@
+{
+  "name": "medtracker-android-qa",
+  "private": true,
+  "type": "module",
+  "description": "Emulator QA harness for the Android shell (bd med-nt9p.23); run only by .github/workflows/android-qa.yml",
+  "dependencies": {
+    "playwright": "1.56.0"
+  }
+}

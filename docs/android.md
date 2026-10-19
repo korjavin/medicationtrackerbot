@@ -386,6 +386,46 @@ same account finds its data); bad address → 404 screen → Switch account; pas
 invite → "Not your account? Use another invite" under the page → confirm →
 first run → a valid invite claims (also after kill + relaunch while stuck).
 
+## Agent QA harness (emulator) (bd med-nt9p.23)
+
+[`android-qa.yml`](../.github/workflows/android-qa.yml) (manual dispatch only,
+no secrets, separate from `android.yml`) builds a debug APK with the public
+placeholder base `qa.test` and package `com.example.medtracker`, boots an
+API-34 `google_apis` x86_64 emulator, and drives
+[`android/qa/scenarios/`](../android/qa/scenarios) with Playwright for Android
+([`run.mjs`](../android/qa/run.mjs); UiAutomator selectors for the native
+screens, `device.screenshot()` for the full screen incl. bars and keyboard).
+**Emulator results are discovery evidence, never sign-off** — the owner's phone
+stays the acceptance device. No server runs yet, so `*.qa.test` never resolves
+and *Open* lands on "Can't open your account".
+
+```bash
+gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-dark, native-fontscale, back-exit
+gh workflow run android-qa.yml --ref <branch> -f scenario=firstrun -f font_scale=1.3 -f dark=true -f landscape=true
+gh run download <run-id> -n android-qa-<scenario> -D /tmp/qa             # then Read the PNGs
+```
+
+Playwright attaches to the shell's WebView on the runner (the CDP fallback is
+not needed). The emulator is flaky right after boot (Play services restarts can
+kill the app, the launcher ANRs), so `run.mjs` waits 45 s, dismisses "isn't
+responding" dialogs, and retries a failed scenario once; the failed attempt
+stays in the summary marked *retried*. A whole run takes ~8 min.
+
+Artifact `android-qa-<scenario>`: `screenshots/<scenario>-<name>.png` (plus
+`<scenario>-FAILED<attempt>.png` where one stopped), `qa-summary.json` (inputs, every
+step's pass/fail, screenshot list — also the run's step summary), `logcat.txt`
+(`adb logcat -d`; WebView console lines are under the `chromium` tag), and
+`diag.xml` (the shell's passkey log, `run-as … cat shared_prefs/diag.xml`).
+
+A scenario is `android/qa/scenarios/<name>.mjs` exporting one
+`async (ctx) => {}`; add its name to `SCENARIOS` in `run.mjs` and to the
+workflow's `scenario` options. `ctx`: `device` (Playwright `AndroidDevice`),
+`shell(cmd)`, `shot(name)`, `step(name, fn)` (reported; a throw stops the
+scenario), `launch()` (cold start on first run), `openAccount(url)`,
+`inForeground()`, `attachPage()` (Playwright `page` on the shell's WebView, for
+DOM/console/CDP once a server answers), `log`. The dispatch inputs are
+re-applied after every scenario, so a scenario may change them freely.
+
 ## Spike (med-nt9p.4): passkey PRF, Service Worker, IndexedDB in Android System WebView
 
 The GO/NO-GO gate for the remote-origin design, twin of the iOS spike
