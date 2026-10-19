@@ -738,9 +738,9 @@ export const PRIVACY_MANIFEST = [
     feature: 'On-device mode (iPhone and Android apps) — your records on the phone',
     boundary: 'on-device',
     data: 'Every record you keep, plus your provider keys and settings (BYOK AI, food database), readable in the app\'s on-device storage',
-    destination: 'Nowhere through the app. The phone\'s own backup can include it — iCloud or a computer on iPhone, under Apple\'s security model; Android device backup where the app allows it',
+    destination: 'Nowhere through the app. The phone\'s own backup can include it — iCloud or a computer on iPhone, under Apple\'s security model. On Android the app\'s data is not included in device backups — export a backup file to keep a copy',
     operatorVisibility: 'none',
-    retention: 'Until you delete the app or its data; a backup keeps its copy per that backup\'s own retention (Apple\'s on iPhone, Google\'s on Android)',
+    retention: 'Until you delete the app or its data; on iPhone a device backup keeps its copy per Apple\'s backup retention; on Android there is no device backup of it',
     activation: 'on-device',
     activationNote: 'you chose "Only on this device"; there is no account and no sync',
     byo: 'n/a',
@@ -750,7 +750,7 @@ export const PRIVACY_MANIFEST = [
     userCopy: {
       category: 'device',
       title: 'On-device mode: your records live on this phone',
-      detail: 'In on-device mode there is no account and nothing is synced: your records, provider keys and settings are stored readable in the app on this phone, protected by the phone\'s lock. The phone\'s own backup can include them — on iPhone, iCloud or a computer, protected the way Apple protects that backup; on Android, the device backup where the app allows it — but do not count on it: deleting the app deletes them, so export a backup regularly.',
+      detail: 'In on-device mode there is no account and nothing is synced: your records, provider keys and settings are stored readable in the app on this phone, protected by the phone\'s lock. On iPhone the phone\'s own backup (iCloud or a computer) can include them, protected the way Apple protects that backup — but do not count on it; on Android they are not included in device backups at all: deleting the app deletes them, so export a backup regularly.',
     },
   },
   {
