@@ -72,8 +72,11 @@ under Settings → Backup & import. In this mode only your own AI key and your
 own food database reach outside the device; the operator's AI, voice,
 Telegram, food and drug lookup features are off unless you switch on the free
 trial. The free trial is anonymous (no account): your requests go through the
-operator's server, which keeps no prompts or photos, only an anonymous install
-id and a request count. To tell installs apart, iPhone uses Apple App Attest
+operator's server, which keeps no prompts, photos or health data and no
+account, only an anonymous install record (a device-generated public key, a
+usage counter, the platform, when it was created and a hash of the trial pass)
+and daily usage counts. On Android the trial pass file is part of the phone's
+backup, so a restored phone keeps its trial. To tell installs apart, iPhone uses Apple App Attest
 and asks Apple DeviceCheck whether this iPhone already had a trial; Android
 sends one opaque Google Play Integrity token to Google to confirm the app
 install (no health data, no account) and does not ask Google whether the
