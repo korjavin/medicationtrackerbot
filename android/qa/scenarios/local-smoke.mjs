@@ -96,8 +96,8 @@ export default async function localSmoke(ctx) {
     await page.evaluate((n) => window.apiCall('/api/medications', 'POST', {
       name: n, dosage: '5mg', schedule: JSON.stringify({ type: 'as_needed' }),
     }), name);
-    await page.evaluate(() => window.switchTab('meds'));
-    await page.getByText(name).first().waitFor({ timeout: 15_000 });
+    const meds = await page.evaluate(() => window.apiCall('/api/medications'));
+    if (!meds.some((m) => m.name === name)) throw new Error('the new med is not listed');
     await sleep(1500); // IndexedDB commits are done; give leveldb its write before the kill
   });
 
@@ -108,10 +108,14 @@ export default async function localSmoke(ctx) {
     await ctx.waitLocalReady(page);
     const meds = await page.evaluate(() => window.apiCall('/api/medications'));
     r.durable = meds.some((m) => m.name === name);
-    await page.evaluate(() => window.switchTab('meds'));
-    await page.getByText(name).first().waitFor({ timeout: 15_000 });
-    r.paint.relaunch = await ctx.stableShot('relaunch-meds');
     if (!r.durable) throw new Error(`med ${name} gone after relaunch`);
+    // Meds opens on History (intakes); the med list is the Schedule sub-tab.
+    await page.evaluate(() => window.switchTab('meds'));
+    await page.locator('.med-tab[data-tab="schedule"]').click();
+    const row = page.locator('#med-list').getByText(name).first();
+    await row.waitFor({ timeout: 15_000 });
+    await row.scrollIntoViewIfNeeded();
+    r.paint.relaunch = await ctx.stableShot('relaunch-meds');
   });
 
   await ctx.step('Settings: Android reminder copy and the Health Connect row', async () => {
