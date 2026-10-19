@@ -290,15 +290,17 @@ window.MedTrackerCloudReady = (async function boot() {
                 // the read and the clear and be reverted. A pending row is a
                 // receiver row, so it won the merge and its op flushes after
                 // the snapshot unchanged (a floored placeholder that yielded
-                // is dropped by the overlay). Except weight: a merge that adds
-                // a weight row rewalks every weight trend, and the overlay
-                // would put a pending row's old trend back, so pending weight
-                // ops go (under the same lock); the snapshot carries the rows.
+                // is dropped by the overlay). Except a receiver row the merge
+                // rewrote (weight trends rewalked, a vitals day gaining the
+                // file's samples): the overlay would lay its old copy back, so
+                // its pending op goes (under the same lock); the snapshot
+                // carries the row.
                 await replaceAllRecords((here) => {
-                    const ids = new Set(here.map((r) => r.recordId));
+                    const mine = new Set(here);
                     const merged = mergeRecords(here, records);
-                    const addsWeight = merged.some((r) => r.recordType === 'weight' && !ids.has(r.recordId));
-                    return { records: merged, dropPendingTypes: addsWeight ? new Set(['weight']) : null };
+                    const rewritten = new Set(here.map((r) => r.recordId));
+                    for (const r of merged) if (mine.has(r)) rewritten.delete(r.recordId);
+                    return { records: merged, dropPendingIds: rewritten };
                 });
             } else {
                 // Replace: discard any not-yet-flushed managed writes first, or

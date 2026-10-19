@@ -243,9 +243,10 @@ async function readAllRecords() {
 }
 
 // `input` is the record array, or (bd med-o7zq.38) a function of the current
-// rows returning { records, dropPendingTypes? }: a merge import computes its
+// rows returning { records, dropPendingIds? }: a merge import computes its
 // set inside the lock, so no write can land between its read and the clear.
-// dropPendingTypes are dropped under that same lock, before the overlay.
+// dropPendingIds (rows the merge rewrote) leave the pending queue under that
+// same lock, before the overlay, so their old copies are not laid back.
 export async function replaceAllRecords(input) {
   // Preserve optimistic copies of not-yet-flushed writes: a snapshot bootstrap
   // (or a compaction re-bootstrap from pullTail) clears the whole store, but
@@ -266,8 +267,8 @@ export async function replaceAllRecords(input) {
     if (typeof input === 'function') {
       const computed = await input(await readAllRecords());
       records = computed.records;
-      const drop = computed.dropPendingTypes;
-      if (drop) await clearPending((await readPending()).filter((p) => drop.has(p.recordType)).map((p) => p.recordId));
+      const drop = computed.dropPendingIds;
+      if (drop && drop.size > 0) await clearPending([...drop]);
     }
     const pending = await readPending();
     const snapshotById = new Map(records.map((r) => [r.recordId, r]));

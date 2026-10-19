@@ -701,7 +701,7 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
     });
     await window.CloudVault.importAll(VAULT_JSON, { mode: 'merge' });
     expect(sync.calls.replaced).toEqual([...MINE, THEIRS[2]]);
-    expect(sync.calls.computed.dropPendingTypes).toBe(null);
+    expect(sync.calls.computed.dropPendingIds).toEqual(new Set());
     expect(sync.calls.dropPendingForTypes).toHaveLength(0);
     expect(sync.calls.order).toEqual(['mark', 'replace', 'snapshot']);
   });
@@ -729,7 +729,7 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
     });
     await window.CloudVault.importAll(VAULT_JSON, { mode: 'merge' });
     // Dropped inside the replace's records lock, not by a separate call.
-    expect(sync.calls.computed.dropPendingTypes).toEqual(new Set(['weight']));
+    expect(sync.calls.computed.dropPendingIds).toEqual(new Set(['weight-1']));
     expect(sync.calls.dropPendingForTypes).toHaveLength(0);
     expect(sync.calls.order).toEqual(['mark', 'replace', 'snapshot']);
     expect(sync.calls.replaced.find((r) => r.recordId === 'weight-1').weight_trend).toBe(98);

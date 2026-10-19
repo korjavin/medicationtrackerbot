@@ -79,9 +79,13 @@ Apple Health row also holds its canonical `-hk-` id. So the file's copy is
 dropped for every deterministic id the receiver already has: singletons
 (`settings`, `features`, `integrations`, `apitokens`, `bpgoal`, …), derived
 slots (`intake-<med>-<slot>`, `session-<group>-<date>`, `-hk-` rows,
-`daystats-<day>`, `trackerlog:<tracker>:<date>`, gamification weeks and
-milestones), and secrets — `integrations` / `apitokens` land only when the
-receiver has none, and are then whole rows (no per-key union). Re-minted leaf
+`daystats-<day>` and other per-day aggregates, `trackerlog:<tracker>:<date>`,
+gamification weeks and milestones), and secrets — `integrations` / `apitokens` land only when the
+receiver has none, and are then whole rows (no per-key union). The vitals day
+batches (`hrsample-<day>`, `spo2sample-<day>`, `stresssample-<day>`) are the
+exception: when both sides hold a day, the file's samples are unioned into the
+receiver's row by instant (the receiver's sample wins a shared instant), so a
+reading only the file has is not lost. Re-minted leaf
 ids never collide, so a leaf row on both sides lands twice; merge is meant for
 two vaults with separate histories, not for a backup of the same one. Ids the
 import numbers 1..n per file — `foodproduct-<n>` (a native product exports as a

@@ -115,7 +115,8 @@ export function hasUserContent(records) {
 // Apple Health rows also hold their canonical hk id (an older client restored
 // them under a fresh id), as healthimport.js importSamples does. Rows with
 // different ids are all kept, so the same item created on both sides doubles.
-// When it adds a weight row, every manual weight trend is rewalked.
+// When it adds a weight row, every manual weight trend is rewalked; a vitals
+// day batch both sides hold gets the file's samples unioned in.
 export function mergeRecords(existing, rawIncoming) {
   const incoming = renumberCollisions(existing, rawIncoming);
   const taken = new Map();
@@ -127,7 +128,8 @@ export function mergeRecords(existing, rawIncoming) {
   const yields = (r, inc) => r.recordId === inc.recordId && !r.deleted && r.clientTs === 0 && !inc.deleted;
   const added = incoming.filter((r) => !taken.has(r.recordId) || yields(taken.get(r.recordId), r));
   const replaced = new Set(added.map((r) => r.recordId));
-  const out = [...existing.filter((r) => !replaced.has(r.recordId)), ...added];
+  const unions = unionDayBatches(existing, incoming, taken);
+  const out = [...existing.filter((r) => !replaced.has(r.recordId)).map((r) => unions.get(r.recordId) || r), ...added];
   if (!added.some((r) => r.recordType === 'weight' && !r.deleted)) return out;
   // Each side's stored weight_trend is an EMA over its own history only: walk
   // the merged manual chain once more (weight.js weightTrendChain, the order its
@@ -135,6 +137,41 @@ export function mergeRecords(existing, rawIncoming) {
   const chain = out.filter((r) => r.recordType === 'weight' && !r.deleted).sort(compareChain);
   const trends = new Map(weightTrendChain(chain).map((t, i) => [chain[i], t]));
   return out.map((r) => (trends.has(r) && !isHealthWeight(r) ? { ...r, weight_trend: trends.get(r) } : r));
+}
+
+// Day-batched vitals ({day, samples}, recordId '<type>-<day>', overflow parts
+// '<type>-<day>#<k>', vitals.js importDayBatched) hold many readings in one row:
+// when both sides hold a live row for a day, the receiver's row gains the
+// file's samples at instants it has in none of that day's parts (receiver wins
+// a shared instant), sorted as the writer sorts them. Returns receiver
+// recordId -> unioned row.
+// ponytail: the unioned base row is not re-split at vitals.js
+// MAX_SAMPLES_PER_RECORD; it lands via the snapshot, and the next
+// importDayBatched of that day re-partitions it.
+const DAY_BATCH_TYPES = new Set(['hrsample', 'spo2sample', 'stresssample']);
+
+function unionDayBatches(existing, incoming, taken) {
+  const unions = new Map();
+  if (!incoming.some((r) => DAY_BATCH_TYPES.has(r.recordType))) return unions;
+  const have = new Map(); // base recordId -> sample instants across its parts
+  for (const r of existing) {
+    if (!DAY_BATCH_TYPES.has(r.recordType) || r.deleted || !Array.isArray(r.samples)) continue;
+    const base = String(r.recordId).split('#')[0];
+    if (!have.has(base)) have.set(base, new Set());
+    for (const s of r.samples) have.get(base).add(Date.parse(s.date_time));
+  }
+  for (const inc of incoming) {
+    if (!DAY_BATCH_TYPES.has(inc.recordType) || inc.deleted || !Array.isArray(inc.samples)) continue;
+    const mine = taken.get(inc.recordId);
+    if (!mine || mine.recordId !== inc.recordId || mine.deleted || !Array.isArray(mine.samples)) continue;
+    const known = have.get(inc.recordId);
+    const extra = inc.samples.filter((smp) => !known.has(Date.parse(smp.date_time)));
+    if (extra.length === 0) continue;
+    for (const smp of extra) known.add(Date.parse(smp.date_time));
+    const prev = unions.get(inc.recordId) || mine;
+    unions.set(inc.recordId, { ...prev, samples: sortBy([...prev.samples, ...extra.map((smp) => ({ ...smp }))], (smp) => smp.date_time) });
+  }
+  return unions;
 }
 
 // Ids the vault does not carry, so vaultToRecords numbers them 1..n per file

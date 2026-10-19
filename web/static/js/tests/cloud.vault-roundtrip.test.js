@@ -682,6 +682,18 @@ describe('mergeRecords (merge import: union by recordId, receiver wins, bd med-o
     ]);
   });
 
+  it('a vitals day both sides hold keeps the receiver samples and gains the file ones', () => {
+    const at = (t, value) => ({ date_time: `2026-07-01T${t}:00Z`, tz_offset: 0, value });
+    const mine = row('hrsample', 'hrsample-2026-07-01', { day: '2026-07-01', samples: [at('08:00', 60), at('10:00', 70)] });
+    const theirs = row('hrsample', 'hrsample-2026-07-01', { day: '2026-07-01', samples: [at('12:00', 80), at('10:00', 99)] });
+    const [day] = mergeRecords([mine], [theirs]);
+    expect(day.samples).toEqual([at('08:00', 60), at('10:00', 70), at('12:00', 80)]);
+    expect(day.clientTs).toBe(mine.clientTs);
+    // An aggregate stays receiver-wins.
+    const stats = row('daystats', 'daystats-2026-07-01', { steps: 100 });
+    expect(mergeRecords([stats], [row('daystats', 'daystats-2026-07-01', { steps: 900 })])).toEqual([stats]);
+  });
+
   it('into an empty vault, merge lands exactly what a replace would', () => {
     const incoming = vaultToRecords(fixture, { now: NOW });
     expect(mergeRecords([], incoming)).toEqual(incoming);

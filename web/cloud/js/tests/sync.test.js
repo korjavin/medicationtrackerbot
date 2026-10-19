@@ -2883,7 +2883,7 @@ describe('replaceAllRecords(fn) computes its set inside the records lock (med-o7
     let late;
     await replaceAllRecords((here) => {
       late = writeRecord(ctx, 'weight', { recordId: 'weight-late', weight: 55 });
-      return { records: [...here, { recordType: 'weight', recordId: 'weight-0', clientTs: 9, deleted: false, weight: 90 }], dropPendingTypes: new Set(['weight']) };
+      return { records: [...here, { recordType: 'weight', recordId: 'weight-0', clientTs: 9, deleted: false, weight: 90 }], dropPendingIds: new Set(['weight-1']) };
     });
     await late;
     const ids = (await readStore('records')).map((r) => r.recordId).sort();
