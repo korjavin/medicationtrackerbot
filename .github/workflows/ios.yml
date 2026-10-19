@@ -286,14 +286,18 @@ jobs:
             echo "${t// /-}=$udid" >> "$RUNNER_TEMP/devices"
           done
           while IFS='=' read -r dev udid; do
+            # Before boot, so the keyboard reads them: no slide-to-type tip
+            # over the first keyboard (seen on the 440pt device).
+            prefs="$HOME/Library/Developer/CoreSimulator/Devices/$udid/data/Library/Preferences"
+            mkdir -p "$prefs"
+            defaults write "$prefs/com.apple.keyboard.ContinuousPath" DidShowContinuousPathIntroduction -bool true
+            defaults write "$prefs/com.apple.Preferences" DidShowContinuousPathIntroduction -bool true
+            defaults write "$prefs/com.apple.Preferences" KeyboardContinuousPathEnabled -bool false
             start=$SECONDS
             xcrun simctl bootstatus "$udid" -b < /dev/null | tail -n 1
             echo "$dev booted in $((SECONDS - start))s"
             xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 --wifiBars 3 --cellularBars 4
             xcrun simctl ui "$udid" appearance dark
-            # The first keyboard otherwise opens with the slide-to-type tip over it.
-            xcrun simctl spawn "$udid" defaults write com.apple.keyboard.ContinuousPath DidShowContinuousPathIntroduction -bool true < /dev/null
-            xcrun simctl spawn "$udid" defaults write com.apple.Preferences DidShowContinuousPathIntroduction -bool true < /dev/null
           done < "$RUNNER_TEMP/devices"
           cat "$RUNNER_TEMP/devices"
 
@@ -347,7 +351,7 @@ jobs:
                 png=missing; [ -f "$d/$s.png" ] && png=yes
                 [ "$png" = yes ] || echo "::warning title=ios-visual $dev/$s::no screenshot" >&2
                 if [ -f "$d/$s.json" ]; then
-                  probe="$(jq -c 'if .ok then "ok" else {failed, error} end' "$d/$s.json" 2>/dev/null || echo unreadable)"
+                  probe="$(jq -r '(if .ok then "ok" else ({failed, error} | tojson) end) + (if (.loads // 1) > 1 then " loads=\(.loads)" else "" end)' "$d/$s.json" 2>/dev/null || echo unreadable)"
                   jq -e '.ok' "$d/$s.json" >/dev/null 2>&1 || echo "::warning title=ios-visual $dev/$s::$probe" >&2
                 elif [[ "$s" == native-* ]]; then probe="(native scene)"
                 else probe="no report"; echo "::warning title=ios-visual $dev/$s::no probe report" >&2

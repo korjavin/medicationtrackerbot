@@ -22,6 +22,13 @@
     const qa = { scene, done: null, probe };
     window.__wgQA = qa;
     if (!scene) return;
+    // Document loads in this launch (the seed import reloads once): a scene
+    // whose page reloads mid-scene shows loads > 1 (or > 2 right after seeding).
+    let loads = 1;
+    try {
+        loads = Number(window.sessionStorage.getItem('wg-qa-loads') || 0) + 1;
+        window.sessionStorage.setItem('wg-qa-loads', String(loads));
+    } catch (_) { /* no storage: stays 1 */ }
     qa.done = run(scene).catch((e) => publish({ scene, ok: false, error: String((e && e.message) || e) }));
 
     async function run(name) {
@@ -188,7 +195,7 @@
     let rev = 0;
     function report(def) {
         const { probes, failed } = probe();
-        return { scene: def.name, ok: failed.length === 0, rev: rev++, failed, probes };
+        return { scene: def.name, ok: failed.length === 0, rev: rev++, loads, failed, probes };
     }
 
     function publish(r) {
