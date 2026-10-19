@@ -192,8 +192,13 @@
             node.id = 'wg-qa-ready';
             node.setAttribute('role', 'status');
             node.className = 'wg-qa-hidden';
-            document.body.appendChild(node);
         }
+        // WebKit drops everything outside an aria-modal that holds focus
+        // (mt-modal pages, sheets) from the accessibility tree, so XCUITest
+        // would lose the node: keep it inside that modal.
+        const focused = document.activeElement;
+        const host = (focused && focused.closest && focused.closest('[aria-modal="true"]')) || document.body;
+        if (node.parentNode !== host) host.appendChild(node);
         node.setAttribute('aria-label', JSON.stringify(r));
         qa.report = r;
     }

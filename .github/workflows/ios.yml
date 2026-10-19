@@ -280,12 +280,18 @@ jobs:
           for t in "$(pick 'iPhone 16e' 'iPhone 16' 'iPhone 15')" "$(pick 'iPhone 17 Pro Max' 'iPhone 16 Pro Max')"; do
             [ -n "$t" ] || { echo "::error::no device type for one of the widths"; exit 1; }
             udid="$(xcrun simctl create "QA $t" "$t" "$runtime")"
+            # Both boot at once: a fresh device's first boot migrates for minutes.
             xcrun simctl boot "$udid"
-            xcrun simctl bootstatus "$udid" -b
-            xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 --wifiBars 3 --cellularBars 4
-            xcrun simctl ui "$udid" appearance dark
             echo "${t// /-}=$udid" >> "$RUNNER_TEMP/devices"
           done
+          while IFS='=' read -r dev udid; do
+            xcrun simctl bootstatus "$udid" -b | tail -n 2
+            xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 --wifiBars 3 --cellularBars 4
+            xcrun simctl ui "$udid" appearance dark
+            # The first keyboard otherwise opens with the slide-to-type tip over it.
+            xcrun simctl spawn "$udid" defaults write com.apple.keyboard.ContinuousPath DidShowContinuousPathIntroduction -bool true
+            xcrun simctl spawn "$udid" defaults write com.apple.Preferences DidShowContinuousPathIntroduction -bool true
+          done < "$RUNNER_TEMP/devices"
           cat "$RUNNER_TEMP/devices"
 
       - name: Run the scenes per device
@@ -295,20 +301,20 @@ jobs:
             echo "::group::$dev"
             xcodebuild test-without-building -project MedTracker.xcodeproj -scheme MedTracker \
               -only-testing:MedTrackerUITests -destination "platform=iOS Simulator,id=$udid" \
-              -derivedDataPath build/sim -resultBundlePath "build/$dev.xcresult" < /dev/null | tail -n 80
-            [ "${PIPESTATUS[0]}" -eq 0 ] || echo "::warning::$dev: some scenes failed (see the summary)"
+              -derivedDataPath build/sim -resultBundlePath "build/$dev.xcresult" < /dev/null \
+              | grep -E ' error: |Added attachment|Test Case|Executed|\*\* TEST'
+            [ "${PIPESTATUS[0]}" -eq 0 ] || echo "::warning::$dev: some scenes failed (see the errors above)"
             out="$GITHUB_WORKSPACE/shots/$dev"
             raw="$RUNNER_TEMP/raw-$dev"
             mkdir -p "$out"
             xcrun xcresulttool export attachments --path "build/$dev.xcresult" --output-path "$raw" || true
-            cat "$raw/manifest.json" || true
             # Exported as <uuid>.<ext>; the manifest maps each to its attachment
-            # name ("<scene>.png" / "<scene>.json", maybe with an _<n>_<uuid> suffix).
+            # name. Only the scenes' <scene>.png / <scene>.json are kept (XCTest's
+            # own failure attachments, screen recordings included, are not).
             if [ -f "$raw/manifest.json" ]; then
               jq -r '.[].attachments[] | "\(.exportedFileName)\t\(.suggestedHumanReadableName)"' "$raw/manifest.json" |
                 while IFS=$'\t' read -r file name; do
-                  name="$(echo "$name" | sed -E 's/_[0-9]+_[0-9A-Fa-f-]{36}(\.[a-z]+)$/\1/')"
-                  cp "$raw/$file" "$out/$name"
+                  case "$name" in *.png|*.json) cp "$raw/$file" "$out/$name" ;; esac
                 done
             fi
             ls -l "$out"

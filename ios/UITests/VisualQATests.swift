@@ -82,7 +82,10 @@ final class VisualQATests: XCTestCase {
         if !scene.nativeOnly {
             let ready = readyNode(app)
             if ready.exists {
-                let report = XCTAttachment(data: Data(ready.label.utf8), uniformTypeIdentifier: "public.json")
+                // WebKit appends the role (", application status") to the label.
+                let label = ready.label
+                let json = label.range(of: "}", options: .backwards).map { String(label[...$0.lowerBound]) } ?? label
+                let report = XCTAttachment(data: Data(json.utf8), uniformTypeIdentifier: "public.json")
                 report.name = "\(scene.name).json"
                 report.lifetime = .keepAlways
                 add(report)
