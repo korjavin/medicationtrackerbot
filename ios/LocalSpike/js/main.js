@@ -213,7 +213,8 @@ async function checkBridge() {
   }
   try {
     const o = await bridge.postMessage({ op: 'origin' });
-    const ok = o && o.protocol === env.scheme && o.host === (env.host || 'local') && o.mainFrame === true;
+    const ok = o && o.protocol === env.scheme && o.host === (env.host || 'local') && o.mainFrame === true
+      && (!androidSpike || window.__wgDocStart === true); // Android: chrome.js's mechanism must run too
     set('8', ok ? 'PASS' : 'FAIL', `reply received; native saw securityOrigin protocol="${o.protocol}" host="${o.host}" port=${o.port} mainFrame=${o.mainFrame}` +
       (androidSpike ? `; document-start script ran=${window.__wgDocStart === true}` : ''));
   } catch (e) {
