@@ -17,6 +17,13 @@ const (
 	AttestScopeInstallDay = "install-day" // daily quota per bucket
 )
 
+// Install kinds (bd med-nt9p.32.8.3): which proof enrolled the key and so
+// which assertion format it signs.
+const (
+	AttestKindIOS     = "ios"     // App Attest + DeviceCheck
+	AttestKindAndroid = "android" // Play Integrity + Android Keystore
+)
+
 // ErrAttestCounter means the assertion counter did not move past the stored
 // one (a replay, or a concurrent request that won the compare-and-set).
 var ErrAttestCounter = errors.New("cloudstore: attest counter not increasing")
@@ -26,7 +33,8 @@ var ErrAttestCounter = errors.New("cloudstore: attest counter not increasing")
 // shared by every install that rejoined it with the bucket's trial pass.
 type AttestInstall struct {
 	KeyID      string
-	PublicKey  []byte // PKIX DER of the key appattest.VerifyAttestation returned
+	PublicKey  []byte // PKIX DER of the key enrollment verified
+	Kind       string // AttestKindIOS or AttestKindAndroid; "" on insert = ios
 	Counter    uint32
 	BucketID   string // on insert: "" founds a new bucket (id = KeyID)
 	PassHash   []byte // on insert of a new bucket: SHA-256 of its pass secret
@@ -55,10 +63,14 @@ func (r *Repo) InsertAttestInstall(ctx context.Context, in AttestInstall) error 
 				return err
 			}
 		}
+		kind := in.Kind
+		if kind == "" {
+			kind = AttestKindIOS
+		}
 		res, err := tx.ExecContext(ctx,
-			`INSERT INTO attest_installs (key_id, public_key, counter, used, env, created_at, last_seen_at, bucket_id)
-			 SELECT ?, ?, 0, 0, ?, ?, ?, bucket_id FROM attest_buckets WHERE bucket_id = ?`,
-			in.KeyID, in.PublicKey, in.Env, in.CreatedAt.Unix(), in.CreatedAt.Unix(), bucket)
+			`INSERT INTO attest_installs (key_id, public_key, counter, used, env, created_at, last_seen_at, bucket_id, kind)
+			 SELECT ?, ?, 0, 0, ?, ?, ?, bucket_id, ? FROM attest_buckets WHERE bucket_id = ?`,
+			in.KeyID, in.PublicKey, in.Env, in.CreatedAt.Unix(), in.CreatedAt.Unix(), kind, bucket)
 		if err != nil {
 			return err
 		}
@@ -89,9 +101,9 @@ func (r *Repo) AttestInstall(ctx context.Context, keyID string) (*AttestInstall,
 	var in AttestInstall
 	var created, seen int64
 	err := r.db.QueryRowContext(ctx,
-		`SELECT i.key_id, i.public_key, i.counter, i.bucket_id, b.used, i.env, i.created_at, i.last_seen_at
+		`SELECT i.key_id, i.public_key, i.counter, i.bucket_id, b.used, i.env, i.created_at, i.last_seen_at, i.kind
 		 FROM attest_installs i JOIN attest_buckets b ON b.bucket_id = i.bucket_id WHERE i.key_id = ?`, keyID).
-		Scan(&in.KeyID, &in.PublicKey, &in.Counter, &in.BucketID, &in.Used, &in.Env, &created, &seen)
+		Scan(&in.KeyID, &in.PublicKey, &in.Counter, &in.BucketID, &in.Used, &in.Env, &created, &seen, &in.Kind)
 	if err != nil {
 		return nil, err
 	}

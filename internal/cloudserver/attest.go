@@ -22,17 +22,23 @@ import (
 
 	"github.com/korjavin/medicationtrackerbot/internal/appattest"
 	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
+	"github.com/korjavin/medicationtrackerbot/internal/playintegrity"
 )
 
-// Anonymous AI trial for iOS local mode (bd med-o7zq.15, docs/cloud-mode.md →
-// "Anonymous trial (iOS local mode) — App Attest + DeviceCheck"). Base-domain
-// routes, no session: the subject is the App Attest key id (one per install).
+// Anonymous AI trial for local mode (bd med-o7zq.15, docs/cloud-mode.md →
+// "Anonymous trial (local mode) — App Attest / Play Integrity"). Base-domain
+// routes, no session: the subject is the install's attested key id (one per
+// install) — an App Attest key on iOS, an Android Keystore key enrolled via
+// Play Integrity on Android (bd med-nt9p.32.8.3, install kind "android").
 // SECURITY INVARIANT (as trial_proxy.go): no TrialConfig value, DeviceCheck
-// key, device token or JWT in any response or log line.
+// key, device token, Play Integrity token or verdict, service-account key,
+// access token or JWT in any response or log line.
 //
-// PRIVACY: enrollment calls Apple DeviceCheck (https://api.devicecheck.apple.com,
-// via internal/appattest); this file owns the 'local-trial' privacy-manifest
-// row, whose host anchor this comment keeps checkable.
+// PRIVACY: iOS enrollment calls Apple DeviceCheck (https://api.devicecheck.apple.com,
+// via internal/appattest); Android enrollment calls Google Play Integrity
+// (https://playintegrity.googleapis.com, bearer from https://oauth2.googleapis.com,
+// via internal/playintegrity). This file owns the 'local-trial'
+// privacy-manifest row, whose host anchors this comment keeps checkable.
 
 const (
 	attestPathPrefix    = "/api/attest/"
@@ -80,12 +86,19 @@ const (
 	// localAppOrigin is the iOS local-mode page origin (ios/App/LocalOrigin.swift
 	// scheme "wgapp", host "local"); it calls these routes cross-origin.
 	localAppOrigin = "wgapp://local"
+	// androidLocalOrigin is the Android local-mode page origin (WebViewAssetLoader's
+	// fixed asset host, docs/android.md); it is an Origin we accept, never a
+	// host the server calls.
+	androidLocalOrigin = "https://appassets.androidplatform.net"
 )
 
 // AttestConfig is the anonymous trial's env config. Configured is false unless
-// all four Apple vars are set; the routes then answer 503 trial_not_configured.
+// all four Apple vars are set; AndroidConfigured is false unless both
+// PLAY_INTEGRITY_* vars are set. With neither, every route answers 503
+// trial_not_configured; with one, enrollment of the other kind does.
 type AttestConfig struct {
 	AppAttest appattest.Config
+	Android   playintegrity.Config
 	Lifetime  int // TRIAL_ANON_LIFETIME_REQUESTS
 	Daily     int // TRIAL_ANON_DAILY; 0 disables the per-install daily cap
 	FoodDaily int // TRIAL_ANON_FOOD_DAILY; 0 disables the per-install daily food cap
@@ -95,7 +108,54 @@ type AttestConfig struct {
 	VoiceDaily    int
 	VoiceGlobal   int
 	VoiceCallMax  int
-	Configured    bool
+	Configured    bool // iOS: App Attest + DeviceCheck
+	// AndroidConfigured: Play Integrity (bd med-nt9p.32.8.3).
+	AndroidConfigured bool
+}
+
+// kindConfigured reports whether installs of kind can enroll and assert.
+func (c AttestConfig) kindConfigured(kind string) bool {
+	if kind == cloudstore.AttestKindAndroid {
+		return c.AndroidConfigured
+	}
+	return c.Configured
+}
+
+// androidAttestFromEnv loads PLAY_INTEGRITY_* into cfg (bd med-nt9p.32.8.3).
+// All unset → Android stays off, no error. Errors name the var only.
+func androidAttestFromEnv(cfg *AttestConfig) error {
+	pkg, saFile, verdicts := os.Getenv("PLAY_INTEGRITY_PACKAGE_NAME"), os.Getenv("PLAY_INTEGRITY_SERVICE_ACCOUNT_FILE"), os.Getenv("PLAY_INTEGRITY_ACCEPT_APP_VERDICTS")
+	if pkg == "" && saFile == "" && verdicts == "" {
+		return nil
+	}
+	if pkg == "" || saFile == "" {
+		return errors.New("PLAY_INTEGRITY_PACKAGE_NAME and PLAY_INTEGRITY_SERVICE_ACCOUNT_FILE must be set together")
+	}
+	accept := []string{playintegrity.VerdictPlayRecognized}
+	if verdicts != "" {
+		accept = nil
+		for _, v := range strings.Split(verdicts, ",") {
+			v = strings.TrimSpace(v)
+			if v != playintegrity.VerdictPlayRecognized && v != "UNRECOGNIZED_VERSION" {
+				return errors.New("PLAY_INTEGRITY_ACCEPT_APP_VERDICTS must list only PLAY_RECOGNIZED and/or UNRECOGNIZED_VERSION")
+			}
+			accept = append(accept, v)
+		}
+	}
+	b, err := os.ReadFile(saFile)
+	if err != nil {
+		return errors.New("PLAY_INTEGRITY_SERVICE_ACCOUNT_FILE is unreadable")
+	}
+	sa, err := playintegrity.ParseServiceAccountJSON(b)
+	if err != nil {
+		// playintegrity's errors name the field, never its value.
+		return errors.New("PLAY_INTEGRITY_SERVICE_ACCOUNT_FILE: " + err.Error())
+	}
+	// CertDigests stays empty: PLAY_RECOGNIZED already implies Play's signing
+	// cert, and the pin's encoding is unverified against live Google.
+	cfg.Android = playintegrity.Config{PackageName: pkg, ServiceAccount: sa, AcceptAppVerdicts: accept}
+	cfg.AndroidConfigured = true
+	return nil
 }
 
 // envSeconds reads a non-negative integer env var; the error names the
@@ -112,8 +172,9 @@ func envSeconds(name string, def int, rule string) (int, error) {
 	return n, nil
 }
 
-// AttestConfigFromEnv loads APP_ATTEST_* / DEVICECHECK_* / TRIAL_ANON_*. With
-// none of the Apple vars set it returns an unconfigured config and no error.
+// AttestConfigFromEnv loads APP_ATTEST_* / DEVICECHECK_* / PLAY_INTEGRITY_* /
+// TRIAL_ANON_*. With none of the Apple or Play vars set it returns an
+// unconfigured config and no error.
 // Errors name the env var only, never its value.
 func AttestConfigFromEnv() (AttestConfig, error) {
 	cfg := AttestConfig{Lifetime: attestDefaultLifetime, Daily: attestDefaultDaily, FoodDaily: attestDefaultFoodDaily}
@@ -151,6 +212,9 @@ func AttestConfigFromEnv() (AttestConfig, error) {
 	if cfg.VoiceCallMax, err = envSeconds("TRIAL_ANON_VOICE_CALL_MAX_SECONDS", attestDefaultVoiceCallMax, "an integer of at least 30"); err != nil || cfg.VoiceCallMax < attestVoiceFloorSeconds {
 		return cfg, errors.New("TRIAL_ANON_VOICE_CALL_MAX_SECONDS must be an integer of at least 30")
 	}
+	if err := androidAttestFromEnv(&cfg); err != nil {
+		return cfg, err
+	}
 	env := os.Getenv("APP_ATTEST_ENV")
 	switch env {
 	case "":
@@ -186,6 +250,9 @@ type AttestAPI struct {
 	trial     *TrialProxyAPI
 	food      *FoodProxyAPI
 	voice     *VoiceLLMRelayAPI // nil until SetVoiceRelay: the voice routes 503
+	// android verifies Play Integrity enrollments (caches the Google bearer);
+	// nil unless cfg.AndroidConfigured.
+	android   *playintegrity.Verifier
 	ipLimiter *rateLimiter
 	mu        sync.Mutex
 	// grantMu serializes DeviceCheck query → insert → bit write: DeviceCheck
@@ -202,6 +269,9 @@ type AttestAPI struct {
 // operator FastFoodDB proxy (bd med-o7zq.19).
 func NewAttestAPI(store *cloudstore.Repo, trial *TrialProxyAPI, food *FoodProxyAPI, cfg AttestConfig) *AttestAPI {
 	a := &AttestAPI{cfg: cfg, store: store, trial: trial, food: food, ipLimiter: newRateLimiter(attestIPRatePerMin, time.Minute), challenges: map[string]time.Time{}, mux: http.NewServeMux()}
+	if cfg.AndroidConfigured {
+		a.android = playintegrity.New(cfg.Android)
+	}
 	a.mux.HandleFunc("POST "+attestChallengePath, a.challenge)
 	a.mux.HandleFunc("POST "+attestEnrollPath, a.enroll)
 	a.mux.HandleFunc("POST "+attestChatPath, a.chat)
@@ -219,8 +289,8 @@ func (a *AttestAPI) SetVoiceRelay(relay *VoiceLLMRelayAPI) {
 	relay.trial = a.trial
 }
 
-// voiceConfigured is the anonymous voice master switch (App Attest is already
-// checked by ServeHTTP): a relay, a voice budget, the operator's ElevenLabs
+// voiceConfigured is the anonymous voice master switch (attestation is already
+// checked by ServeHTTP / assertHeaders): a relay, a voice budget, the operator's ElevenLabs
 // agent AND trial AI (the relay answers the turns with it).
 func (a *AttestAPI) voiceConfigured(w http.ResponseWriter) bool {
 	if a.voiceOn() {
@@ -331,9 +401,9 @@ func (a *AttestAPI) voiceDevice(w http.ResponseWriter, r *http.Request) {
 func (a *AttestAPI) RegisterRoutes(mux *http.ServeMux) { mux.Handle(attestPathPrefix, a) }
 
 func (a *AttestAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Header.Get("Origin") == localAppOrigin {
+	if origin := r.Header.Get("Origin"); origin == localAppOrigin || origin == androidLocalOrigin {
 		h := w.Header()
-		h.Set("Access-Control-Allow-Origin", localAppOrigin)
+		h.Set("Access-Control-Allow-Origin", origin)
 		h.Set("Access-Control-Expose-Headers", "X-Attest-Challenge, X-Trial-Remaining, Retry-After")
 		h.Add("Vary", "Origin")
 		if r.Method == http.MethodOptions {
@@ -345,9 +415,10 @@ func (a *AttestAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	// Challenge, enroll and food need only App Attest; chat also checks the AI
-	// trial config. One enrollment serves both.
-	if !a.cfg.Configured {
+	// Challenge, enroll and food need only an attestation kind; chat also
+	// checks the AI trial config. One enrollment serves both. Enroll and the
+	// assertion routes further refuse a kind that is not configured.
+	if !a.cfg.Configured && !a.cfg.AndroidConfigured {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_not_configured"})
 		return
 	}
@@ -418,6 +489,24 @@ func (a *AttestAPI) enroll(w http.ResponseWriter, r *http.Request) {
 	raw, err := io.ReadAll(io.LimitReader(r.Body, maxAttestEnrollBytes+1))
 	if err != nil || len(raw) > maxAttestEnrollBytes {
 		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "body_too_large"})
+		return
+	}
+	// A body without kind is the iOS body (every iOS build sends none).
+	var probe struct {
+		Kind string `json:"kind"`
+	}
+	_ = json.Unmarshal(raw, &probe)
+	switch probe.Kind {
+	case "", cloudstore.AttestKindIOS:
+	case cloudstore.AttestKindAndroid:
+		a.enrollAndroid(w, r, raw)
+		return
+	default:
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+		return
+	}
+	if !a.cfg.Configured {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_not_configured"})
 		return
 	}
 	var req struct {
@@ -511,6 +600,95 @@ func (a *AttestAPI) enroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.Info("attest enroll granted", "env", env, "second_grant", bit0)
+	a.enrolled(ctx, w, install.KeyID, 0, pass)
+}
+
+// enrollAndroid enrolls an Android Keystore P-256 key (bd med-nt9p.32.8.3):
+// body {kind:"android", key_id, public_key (std base64 SPKI DER),
+// integrity_token, challenge, pass?}. The Play Integrity standard-request
+// token binds the challenge and the key through requestHash
+// (playintegrity.RequestHash). Then the iOS flow minus DeviceCheck: Android
+// has no per-device bits, so a pass-less enroll always founds a bucket — the
+// known gap, bounded by the per-IP limit, TRIAL_DAILY_GLOBAL and the global
+// voice cap (device recall is bd med-nt9p.32.8.6).
+// SECURITY: the token, its verdict and the pass are never logged.
+func (a *AttestAPI) enrollAndroid(w http.ResponseWriter, r *http.Request, raw []byte) {
+	if !a.cfg.AndroidConfigured {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_not_configured"})
+		return
+	}
+	var req struct {
+		KeyID          string `json:"key_id"`
+		PublicKey      string `json:"public_key"`
+		IntegrityToken string `json:"integrity_token"`
+		Challenge      string `json:"challenge"`
+		Pass           string `json:"pass"`
+	}
+	if json.Unmarshal(raw, &req) != nil || req.KeyID == "" || req.PublicKey == "" || req.IntegrityToken == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json"})
+		return
+	}
+	challenge := a.consumeChallenge(req.Challenge)
+	if challenge == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "challenge_invalid"})
+		return
+	}
+	der, err := base64.StdEncoding.DecodeString(req.PublicKey)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "attestation_invalid"})
+		return
+	}
+	ctx := r.Context()
+	// The decode is a Google round trip: lift the unauth deadline.
+	extendTrialDeadlines(w)
+	_, verdict, err := a.android.VerifyEnrollment(ctx, req.IntegrityToken, challenge, req.KeyID, der)
+	switch {
+	case errors.Is(err, playintegrity.ErrUnavailable):
+		// Fail CLOSED like DeviceCheck: the trial is optional, BYOK is unaffected.
+		slog.Warn("attest android enroll: play integrity unavailable", "reason", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_unavailable"})
+		return
+	case errors.Is(err, playintegrity.ErrMalformed):
+		// The only ErrMalformed reachable here is Google's 400 (token and
+		// package are non-empty): a forged token, or PLAY_INTEGRITY_PACKAGE_NAME
+		// not matching the app — then EVERY Android enroll lands here.
+		slog.Warn("attest android enroll: Google refused to decode the integrity token (HTTP 400); if every Android enroll fails, check PLAY_INTEGRITY_PACKAGE_NAME", "reason", err)
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "attestation_invalid"})
+		return
+	case err != nil:
+		slog.Info("attest enroll rejected", "kind", cloudstore.AttestKindAndroid, "reason", err)
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "attestation_invalid"})
+		return
+	}
+	// Idempotent re-enroll: the key id is derived from the key, so a row with
+	// it is this key's.
+	if in, err := a.store.AttestInstall(ctx, req.KeyID); err == nil {
+		a.enrolled(ctx, w, in.KeyID, in.Used, "")
+		return
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		slog.Error("attest enroll lookup failed", "error", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_unavailable"})
+		return
+	}
+	// Env records the accepted app verdict, so a sideload-test-window grant
+	// (UNRECOGNIZED_VERSION) is visible in the row.
+	install := cloudstore.AttestInstall{KeyID: req.KeyID, Kind: cloudstore.AttestKindAndroid, PublicKey: der, Env: verdict, CreatedAt: time.Now().UTC()}
+	if req.Pass != "" {
+		a.rejoin(w, r, install, req.Pass)
+		return
+	}
+	pass, hash := newTrialPass(req.KeyID)
+	install.PassHash = hash
+	if err := a.store.InsertAttestInstall(ctx, install); err != nil {
+		if in, lerr := a.store.AttestInstall(ctx, req.KeyID); lerr == nil {
+			a.enrolled(ctx, w, in.KeyID, in.Used, "")
+			return
+		}
+		slog.Error("attest enroll insert failed", "error", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_unavailable"})
+		return
+	}
+	slog.Info("attest enroll granted", "kind", cloudstore.AttestKindAndroid, "env", verdict)
 	a.enrolled(ctx, w, install.KeyID, 0, pass)
 }
 
@@ -737,8 +915,13 @@ func (a *AttestAPI) assertHeaders(w http.ResponseWriter, r *http.Request) (*atte
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "install_unknown"})
 		return nil, false
 	}
-	// The stored key is only ever one VerifyAttestation returned (enroll), so
-	// VerifyAssertion's trust in its curve holds.
+	// A kind the operator has switched off answers like the whole prefix off.
+	if !a.cfg.kindConfigured(q.install.Kind) {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "trial_not_configured"})
+		return nil, false
+	}
+	// The stored key is only ever one enrollment verified, so the assertion
+	// verifier's trust in its curve holds.
 	parsed, err := x509.ParsePKIXPublicKey(q.install.PublicKey)
 	pub, isEC := parsed.(*ecdsa.PublicKey)
 	if err != nil || !isEC {
@@ -758,7 +941,14 @@ func (a *AttestAPI) assertHeaders(w http.ResponseWriter, r *http.Request) (*atte
 func (a *AttestAPI) verifyAssertion(w http.ResponseWriter, r *http.Request, q *attested, body []byte) bool {
 	reqHash := sha256.Sum256(append([]byte(r.URL.RequestURI()+"\n"), body...))
 	clientDataHash := sha256.Sum256(append(append([]byte{}, q.challenge...), reqHash[:]...))
-	counter, err := appattest.VerifyAssertion(q.assertion, q.pub, clientDataHash[:], a.cfg.AppAttest, q.install.Counter)
+	var counter uint32
+	var err error
+	if q.install.Kind == cloudstore.AttestKindAndroid {
+		// counterBE ‖ ECDSA DER over clientDataHash ‖ counterBE (playintegrity).
+		counter, err = playintegrity.VerifyAssertion(q.assertion, q.pub, clientDataHash[:], q.install.Counter)
+	} else {
+		counter, err = appattest.VerifyAssertion(q.assertion, q.pub, clientDataHash[:], a.cfg.AppAttest, q.install.Counter)
+	}
 	if err != nil {
 		slog.Info("attest assertion rejected", "reason", err)
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "assertion_invalid"})

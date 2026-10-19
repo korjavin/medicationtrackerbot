@@ -270,7 +270,10 @@ func main() {
 	// Anonymous iOS-local trial (med-o7zq.15): always mounted so the client gets
 	// 503 trial_not_configured, the same code as the account trial being off.
 	if !cfg.attest.Configured {
-		slog.Info("anonymous trial disabled", "reason", "APP_ATTEST_APP_ID/DEVICECHECK_* unset")
+		slog.Info("anonymous trial disabled", "kind", "ios", "reason", "APP_ATTEST_APP_ID/DEVICECHECK_* unset")
+	}
+	if !cfg.attest.AndroidConfigured {
+		slog.Info("anonymous trial disabled", "kind", "android", "reason", "PLAY_INTEGRITY_* unset")
 	}
 	attestAPI := cloudserver.NewAttestAPI(store, trialProxyAPI, foodProxyAPI, cfg.attest)
 	// Anonymous voice (med-o7zq.22): calls live in the voice relay, whose

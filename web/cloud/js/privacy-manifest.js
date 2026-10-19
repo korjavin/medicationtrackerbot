@@ -778,25 +778,27 @@ export const PRIVACY_MANIFEST = [
     // bd med-o7zq.15 (server half; the client bead med-o7zq.16 points the
     // evidence at the real client lines). DeviceCheck egress lives in
     // internal/appattest, which the Go host scan does not cover — attest.go
-    // names the host so this anchor is checked.
+    // names the host so this anchor is checked. bd med-nt9p.32.8.3: the
+    // Android twin — Play Integrity egress lives in internal/playintegrity;
+    // attest.go names both Google hosts for the same reason.
     id: 'local-trial',
     mode: 'local',
-    feature: 'On-device mode (iPhone app only) — anonymous trial AI (operator\'s AI key, no account)',
+    feature: 'On-device mode (iPhone and Android apps) — anonymous trial AI (operator\'s AI key, no account)',
     boundary: 'carve-out',
-    data: 'The meal or activity description you typed, meal and workout-sheet PHOTOS (with the plan\'s exercise names) and exercise names to tag, in plaintext; plus an App Attest proof and a DeviceCheck token that identify the app install, not you',
-    destination: 'The operator\'s server, then the operator\'s AI provider account (the same as the account trial AI); at enrollment the operator\'s server asks Apple DeviceCheck whether this device already had a trial',
+    data: 'The meal or activity description you typed, meal and workout-sheet PHOTOS (with the plan\'s exercise names) and exercise names to tag, in plaintext; plus a proof that identifies the app install, not you: on iPhone an App Attest proof and a DeviceCheck token, on Android a Google Play Integrity token',
+    destination: 'The operator\'s server, then the operator\'s AI provider account (the same as the account trial AI); at enrollment the operator\'s server asks Apple DeviceCheck whether this iPhone already had a trial, or, on Android, Google Play Integrity to confirm the app install — one opaque token per enrollment goes to Google, no health data, no account',
     operatorVisibility: 'transient',
-    retention: 'Prompts and photos are not stored (memory only, in transit). Stored per device trial bucket: each install\'s App Attest key id and public key, the request counters, and a SHA-256 hash of the bucket\'s trial pass (the pass itself stays in the iPhone\'s keychain, this device only, never iCloud-synced); Apple keeps the device\'s two DeviceCheck bits. No device token is stored',
+    retention: 'Prompts and photos are not stored (memory only, in transit). Stored per device trial bucket: each install\'s attested key id and public key (App Attest on iPhone, an Android Keystore key on Android), the request counters, and a SHA-256 hash of the bucket\'s trial pass (on iPhone the pass itself stays in the keychain, this device only, never iCloud-synced); Apple keeps the device\'s two DeviceCheck bits. No device token or Play Integrity token or verdict is stored, except the accepted app-verdict label on the install row',
     activation: 'opt-in-consent',
     activationNote: 'you turn on the trial in Settings → AI & integrations and accept the trial consent; off by default, and off means no request to our server at all',
     byo: 'Add your own AI key and requests go phone-direct to your provider, never through the operator',
-    evidence: ['web/cloud/js/local-policy.js:295', 'web/cloud/js/local-trial.js:99', 'web/cloud/js/local-trial.js:113', 'ios/App/Attest.swift:90', 'ios/App/Attest.swift:75', 'internal/cloudserver/attest.go:593', 'internal/cloudserver/attest.go:508', 'internal/appattest/devicecheck.go:65'],
-    code: { go: ['internal/cloudserver/attest.go'], hosts: ['api.devicecheck.apple.com'] },
+    evidence: ['web/cloud/js/local-policy.js:295', 'web/cloud/js/local-trial.js:99', 'web/cloud/js/local-trial.js:113', 'ios/App/Attest.swift:90', 'ios/App/Attest.swift:75', 'internal/cloudserver/attest.go:771', 'internal/cloudserver/attest.go:597', 'internal/appattest/devicecheck.go:65', 'internal/cloudserver/attest.go:644', 'internal/cloudserver/attest.go:948', 'internal/playintegrity/playintegrity.go:308'],
+    code: { go: ['internal/cloudserver/attest.go'], hosts: ['api.devicecheck.apple.com', 'playintegrity.googleapis.com', 'oauth2.googleapis.com'] },
     docSignal: null,
     userCopy: {
       category: 'visible',
       title: 'On-device mode: the free trial AI, if you turn it on',
-      detail: 'If you turn on the free trial AI in on-device mode, your meal and activity descriptions, meal and workout-sheet photos and exercise names go through our server to the operator\'s AI provider account to be parsed. Our server keeps no prompts or photos — only an anonymous install id and how many trial requests this phone\'s trial has used. Apple is asked whether this phone already had a trial, and a trial pass kept in the phone\'s keychain lets a reinstall of the app continue the same allowance instead of starting a new one. Add your own key to keep everything off our server.',
+      detail: 'If you turn on the free trial AI in on-device mode, your meal and activity descriptions, meal and workout-sheet photos and exercise names go through our server to the operator\'s AI provider account to be parsed. Our server keeps no prompts or photos — only an anonymous install id and how many trial requests this phone\'s trial has used. On iPhone, Apple is asked whether this phone already had a trial, and a trial pass kept in the phone\'s keychain lets a reinstall of the app continue the same allowance instead of starting a new one. On Android, Google Play Integrity confirms the app install; one opaque token per enrollment goes to Google — no health data, no account. Add your own key to keep everything off our server.',
     },
   },
   {
@@ -815,7 +817,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in-consent',
     activationNote: 'the same free-trial switch and consent as the trial AI (one enrollment per install; a reinstall rejoins the device\'s trial with its keychain pass); off means no request to our server at all',
     byo: 'Set your own food-DB endpoint in Settings → AI & integrations and lookups go phone-direct to it, never through the operator',
-    evidence: ['web/cloud/js/fooddb.js:96', 'web/cloud/js/local-policy.js:259', 'web/cloud/js/local-trial.js:255', 'internal/cloudserver/attest.go:744', 'internal/cloudserver/food_proxy.go:93'],
+    evidence: ['web/cloud/js/fooddb.js:96', 'web/cloud/js/local-policy.js:259', 'web/cloud/js/local-trial.js:255', 'internal/cloudserver/attest.go:927', 'internal/cloudserver/food_proxy.go:93'],
     code: { go: ['internal/cloudserver/attest.go', 'internal/cloudserver/food_proxy.go'], hosts: [] },
     docSignal: null,
     userCopy: {
@@ -842,7 +844,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'opt-in-consent',
     activationNote: 'the same single free-trial switch and consent as the trial AI and food database; off means no request to our server or to ElevenLabs at all',
     byo: 'None in this mode: voice with your own ElevenLabs key needs a cloud account',
-    evidence: ['web/cloud/js/local-trial.js:265', 'web/cloud/js/local-policy.js:295', 'web/cloud/js/local-policy.js:230', 'web/cloud/js/voice-llm-responder.js:171', 'web/static/js/features/elevenlabs-call.js:911', 'internal/cloudserver/attest.go:241', 'internal/cloudserver/voice_llm_relay.go:771', 'internal/cloudserver/trial_proxy.go:167'],
+    evidence: ['web/cloud/js/local-trial.js:265', 'web/cloud/js/local-policy.js:295', 'web/cloud/js/local-policy.js:230', 'web/cloud/js/voice-llm-responder.js:171', 'web/static/js/features/elevenlabs-call.js:911', 'internal/cloudserver/attest.go:311', 'internal/cloudserver/voice_llm_relay.go:771', 'internal/cloudserver/trial_proxy.go:167'],
     code: { go: ['internal/cloudserver/attest.go', 'internal/cloudserver/voice_llm_relay.go', 'internal/cloudserver/trial_proxy.go'], hosts: ['api.elevenlabs.io'] },
     docSignal: null,
     userCopy: {

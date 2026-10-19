@@ -215,7 +215,12 @@ const GO_EGRESS_MARKERS = [
 // Third-party hosts a literal reference to is NOT a disclosure obligation.
 // Deliberately empty: this is the one place a path could escape the manifest,
 // so an entry here needs a written reason and a reviewer who agrees with it.
-const HOST_EXEMPT = {};
+const HOST_EXEMPT = {
+  // bd med-nt9p.32.8.3: the Android WebView's local-mode page ORIGIN
+  // (WebViewAssetLoader's fixed asset host). attest.go only compares a
+  // request's Origin header to it for CORS; nothing is ever sent there.
+  'appassets.androidplatform.net': 'an inbound CORS origin, never an outbound destination',
+};
 
 function stripGoComments(src) {
   return src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
