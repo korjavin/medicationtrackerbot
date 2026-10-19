@@ -1145,7 +1145,7 @@
                     <div class="wg-card wg-vstack">
                         <!-- Import sniffs magic bytes, not the extension; accept only
                              shapes the OS file picker. .gz first: export writes it. -->
-                        <input type="file" id="importexport-import-file" accept=".gz,.age,.json,application/gzip,application/json" hidden>
+                        <input type="file" id="importexport-import-file" accept=".gz,.age,.json,application/gzip,application/json,application/octet-stream" hidden>
                         <div class="wg-file" data-file-input="importexport-import-file" data-empty-name="Choose a backup file" data-empty-meta=".json.gz or .age from Download backup">
                             <span class="wg-file__icon"><i class="wg-ico" data-icon="file"></i></span>
                             <span class="wg-file__body"><span class="wg-file__name">Choose a backup file</span><span class="wg-file__meta">.json.gz or .age from Download backup</span></span>
@@ -1183,7 +1183,7 @@
                 <section id="importexport-nxk-group" class="wg-section wg-cloud-only">
                     <div class="wg-section__head"><span class="wg-eyebrow">Import</span></div>
                     <div class="wg-card wg-vstack">
-                        <input type="file" id="importexport-nxk-file" accept=".nxk,.sqlite" hidden>
+                        <input type="file" id="importexport-nxk-file" accept=".nxk,.sqlite,application/octet-stream" hidden>
                         <div class="wg-file" data-file-input="importexport-nxk-file" data-empty-name="Mi Band backup" data-empty-meta=".nxk · fills Vitals and cardio sessions">
                             <span class="wg-file__icon"><i class="wg-ico" data-icon="health"></i></span>
                             <span class="wg-file__body"><span class="wg-file__name">Mi Band backup</span><span class="wg-file__meta">.nxk · fills Vitals and cardio sessions</span></span>
