@@ -417,7 +417,10 @@ export const LOCAL_VAULT = {
       await firstEgress;
       const attest = lastEgress && await attestStatus(lastEgress.win);
       if (!localTrial || !attest) return { ok: false, code: 'trial_off' };
-      if (!attest.attested && !localTrial.state()) {
+      // The memo is the proof of a grant: the shell's `attested` turns true
+      // before the server answers, so it says nothing about one. With no memo
+      // the enroll runs (the shell's pass rejoins a bucket granted before).
+      if (!localTrial.state()) {
         let res;
         try {
           res = await localTrial.enroll();
@@ -429,7 +432,8 @@ export const LOCAL_VAULT = {
           return { ok: false, code: (typeof body?.error === 'string' && body.error) || 'network' };
         }
       }
-      return localTrial.state()?.used ? { ok: false, code: 'trial_already_used' } : { ok: true };
+      const st = localTrial.state();
+      return st?.used || st?.remaining === 0 ? { ok: false, code: 'trial_already_used' } : { ok: true };
     },
   },
   // The last device schedule outcome (keepLocalRemindersFresh), null before
