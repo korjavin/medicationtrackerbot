@@ -48,9 +48,19 @@ func main() {
 
 	// NewSingleHostReverseProxy keeps the inbound Host header, which the cloud routes accounts by.
 	proxy := httputil.NewSingleHostReverseProxy(up)
+	// down.<domain> answers 503: the shell's "Can't open your account" screen, which a 404
+	// no longer reaches (a 404 of the stored host returns to the first run, bd med-nt9p.32.14).
+	down := "down." + *domain
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host == down {
+			http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		proxy.ServeHTTP(w, r)
+	})
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           proxy,
+		Handler:           handler,
 		TLSConfig:         &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12},
 		ReadHeaderTimeout: 10 * time.Second,
 	}

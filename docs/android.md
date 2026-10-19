@@ -135,7 +135,10 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
 - **Offline:** a cold start offline is answered by the Service Worker; a native
   "Can't open your account" screen (Try again / Switch account) appears only
   when the very first load fails with nothing cached, or the host answers an
-  HTTP error (a mistyped or deleted account is a 404). Try again keeps an
+  HTTP error other than 404. A 404 of the stored host before any page of the
+  account showed (a mistyped account, or one deleted here, on another device or
+  by the operator) forgets the host and returns to the first run with "There is
+  no account at <host>." (bd med-nt9p.32.14). Try again keeps an
   invite link's `#claim=` fragment (in memory only). Unlike WKWebView, WebView
   replaces the page on a failed navigation, so a later page load that fails
   with no Service Worker answer gets the same screen (Try again reloads it).
@@ -383,7 +386,8 @@ a test invite: claim it in the app and unlock with a Google Password Manager
 passkey; kill and reopen (back on the account, no first run); airplane mode,
 kill, reopen (renders from the Service Worker); open an external link (leaves
 the app); long-press the icon → *Switch account* (first run; reopening the
-same account finds its data); bad address → 404 screen → Switch account; paste an already-claimed or garbage
+same account finds its data); bad address → first run with "There is no
+account at …" (no error screen); paste an already-claimed or garbage
 invite → "Not your account? Use another invite" under the page → confirm →
 first run → a valid invite claims (also after kill + relaunch while stuck).
 
@@ -511,7 +515,9 @@ are in the artifact.
 
 Scenarios on it: `claim-page` (invite → signup wizard with the page-coloured
 bands and the native "Use another invite" bar → its dialog → Cancel; default,
-font 1.3, dark), `not-found` (`nobody.qa.test` → "There is no account at …"),
+font 1.3, dark), `not-found` (`nobody.qa.test` → the first run with "There is
+no account at …", no Try again, `accountHost` gone from `shell.xml`; the
+error-screen scenarios open `down.qa.test`, which `tlsfront` answers 503),
 `external-link` (a `_blank` anchor and `location.href` to example.com leave the
 WebView URL unchanged and fire ACTION_VIEW — the image has Chrome, which takes
 it), `authn-probe` (below).
@@ -1005,9 +1011,19 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   | `lock.status` | `{on, available}`: the lock's state, and whether the phone has a screen lock ([Lock](#local-mode-lock-bd-med-nt9p329)) |
   | `lock.set {on}` | the phone's own check, then the choice; `true` once applied, `false` when refused or cancelled |
 
-  `notifications.*` and `health.*` answer in both modes; `account.leave` is
-  iOS-only (the web side never sends it on Android). The `attest.*` ops are
-  local-only too ([Free trial](#local-mode-free-trial-bd-med-nt9p3284)).
+  The `attest.*` ops are local-only too
+  ([Free trial](#local-mode-free-trial-bd-med-nt9p3284)). Account-only — the
+  bundled app gets `unsupported: <op>` (`LocalOrigin.ACCOUNT_OPS`):
+
+  | op | does |
+  |---|---|
+  | `account.leave {then?}` | replies `true`, then forgets the account host (bd med-nt9p.32.13, iOS twin PR #1179): with `{then: "local"}` straight into local mode (Settings → Account *Use this phone without an account*), without args the first run (after an account delete). Nothing is erased: the account and its origin's WebView data stay |
+
+  Both modes: `ping`, `chrome`, `diag.append`, `notifications.*`, `health.*`,
+  and `shell.ops`, which replies the array of op names this shell answers in
+  the current mode (`LocalOrigin.ops`, one source with `opAllowed`) — the
+  page's capability probe, so a row whose op an older APK lacks stays hidden
+  (an APK before it answers `unsupported: shell.ops`).
 - **QA extras (debug + `qa.test` base only, `DebugHooks`):**
   `--ez wgLocalMode true` enters local mode as Start does (persisted, no
   first-run tap); `--es wgQAScene <name>` opens `/?qa=<name>` (1–64 of

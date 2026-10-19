@@ -58,6 +58,7 @@ import androidx.webkit.WebViewFeature
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
+import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
 
@@ -292,9 +293,13 @@ class MainActivity : Activity() {
         reopen(url) // the claim link keeps its #fragment for the page; only the host is stored
     }
 
-    /** Switch account: back to first run, leaving local mode too. WebView data is per origin and kept. */
-    private fun forget() {
-        setLocal(false)
+    /**
+     * Switch account: back to first run, leaving local mode too — or, with [thenLocal], straight
+     * into local mode (account.leave {then: "local"}, bd med-nt9p.32.13, iOS forget(thenLocal:)).
+     * WebView data is per origin and kept.
+     */
+    private fun forget(thenLocal: Boolean = false) {
+        setLocal(thenLocal)
         Notifications.clear(this)
         prefs.edit().remove(HOST_KEY).apply()
         host = null
@@ -476,12 +481,16 @@ class MainActivity : Activity() {
             // Once the account showed, the server's own error page stays (Back leaves it).
             if (!request.isForMainFrame || response.statusCode < 400 || showingAccount) return
             if (bundled(request, "HTTP ${response.statusCode}")) return
-            loadFailed = true
             val h = request.url.host?.lowercase()
-            showError(
-                if (response.statusCode == 404 && h == host) "There is no account at $host."
-                else response.reasonPhrase?.takeIf { it.isNotBlank() } ?: "The server answered ${response.statusCode}."
-            )
+            // The stored account is gone (deleted here or elsewhere, or a typo): forget it and say why
+            // on the first run (bd med-nt9p.32.14). reopen() keeps the message; the next open() clears it.
+            if (response.statusCode == 404 && h != null && h == host) {
+                forget()
+                firstRunMessage.text = "There is no account at $h."
+                return
+            }
+            loadFailed = true
+            showError(response.reasonPhrase?.takeIf { it.isNotBlank() } ?: "The server answered ${response.statusCode}.")
         }
 
         /** The asset origin is never "your account": a miss is LocalApp's own 404, so log it and keep the page. */
@@ -534,6 +543,15 @@ class MainActivity : Activity() {
         if (!LocalOrigin.opAllowed(op, local)) return answer(null, "unsupported: $op")
         when (op) {
             "ping" -> answer("pong")
+            // The page's capability probe (bd med-nt9p.32.13): an older shell answers "unsupported".
+            "shell.ops" -> answer(JSONArray(LocalOrigin.ops(local)))
+            // Leave the account (account mode only); the account and this origin's data stay. Settings
+            // → Account "Use this phone without an account" passes {then: "local"} → local mode; after
+            // an account delete (no args) → the first run, as Switch account (iOS #1179's contract).
+            "account.leave" -> {
+                answer(true)
+                forget(thenLocal = msg.optJSONObject("args")?.optString("then") == "local")
+            }
             "chrome" -> {
                 val args = msg.optJSONObject("args") ?: return
                 cssColor(args.optString("top"))?.let { topColor = it }

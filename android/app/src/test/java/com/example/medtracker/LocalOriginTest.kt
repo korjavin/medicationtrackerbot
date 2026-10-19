@@ -80,10 +80,26 @@ class LocalOriginTest {
             assertFalse(op, LocalOrigin.opAllowed(op, local = false))
             assertTrue(op, LocalOrigin.opAllowed(op, local = true))
         }
-        for (op in listOf("ping", "chrome", "notifications.schedule", "health.query", "")) {
+        // account.leave (bd med-nt9p.32.13): account mode only.
+        assertTrue(LocalOrigin.opAllowed("account.leave", local = false))
+        assertFalse(LocalOrigin.opAllowed("account.leave", local = true))
+        for (op in listOf("ping", "chrome", "shell.ops", "notifications.schedule", "health.query", "")) {
             assertTrue(op, LocalOrigin.opAllowed(op, local = false))
             assertTrue(op, LocalOrigin.opAllowed(op, local = true))
         }
+    }
+
+    // shell.ops (bd med-nt9p.32.13): the page's capability probe lists only what the gate lets through.
+    @Test
+    fun shellOps() {
+        val account = LocalOrigin.ops(local = false)
+        val local = LocalOrigin.ops(local = true)
+        assertTrue(account.containsAll(listOf("ping", "shell.ops", "account.leave", "notifications.schedule", "health.query")))
+        assertFalse(account.contains("local.leave"))
+        assertTrue(local.containsAll(listOf("ping", "shell.ops", "local.leave", "lock.set", "attest.assert")))
+        assertFalse(local.contains("account.leave"))
+        for (op in account) assertTrue(op, LocalOrigin.opAllowed(op, local = false))
+        for (op in local) assertTrue(op, LocalOrigin.opAllowed(op, local = true))
     }
 
     @Test

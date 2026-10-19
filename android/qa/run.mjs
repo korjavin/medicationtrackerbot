@@ -182,8 +182,8 @@ const ctx = {
     }
     await device.tap({ text: 'Open' });
   },
-  /** Open an account the local cloud does not have (a 404) → the "Can't open your account" screen. */
-  async openAccount(url = 'https://alice.qa.test/', opts = {}) {
+  /** Open an account whose server answers 503 (tlsfront's down.qa.test) → the "Can't open your account" screen. */
+  async openAccount(url = 'https://down.qa.test/', opts = {}) {
     await ctx.openLink(url, opts);
     await ctx.waitFor({ text: /.*open your account.*/ });
   },

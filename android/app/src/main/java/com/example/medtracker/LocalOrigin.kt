@@ -25,12 +25,23 @@ object LocalOrigin {
         "lock.status", "lock.set",
     )
 
+    /** Bridge ops only an account page may call (bd med-nt9p.32.13); the bundled app gets "unsupported". */
+    val ACCOUNT_OPS = setOf("account.leave")
+    /** Every other op the shell answers, in both modes (MainActivity.onBridge, Notifications, HealthConnect). */
+    val SHARED_OPS = setOf(
+        "ping", "chrome", "shell.ops", "diag.append", "health.authorize", "health.query",
+        "notifications.permission", "notifications.requestPermission", "notifications.schedule", "notifications.test",
+    )
+
+    /** The bridge op shell.ops (bd med-nt9p.32.13): what this shell answers in this mode, for the page's capability probe. */
+    fun ops(local: Boolean): List<String> = (SHARED_OPS + if (local) LOCAL_OPS else ACCOUNT_OPS).sorted()
+
     /** The bridge's caller gate: only the open vault's own top-level https page (the account host, or HOST in local mode). */
     fun bridgeCaller(isMainFrame: Boolean, scheme: String?, host: String?, vault: String?): Boolean =
         isMainFrame && scheme == "https" && vault != null && host?.lowercase() == vault
 
-    /** A local-only op answers only in local mode; every other op in both modes. */
-    fun opAllowed(op: String, local: Boolean) = local || op !in LOCAL_OPS
+    /** A local-only op answers only in local mode, an account-only op only in account mode; every other op in both. */
+    fun opAllowed(op: String, local: Boolean) = op !in (if (local) ACCOUNT_OPS else LOCAL_OPS)
 
     /**
      * Visual QA scene start page (debug launch extra wgQAScene, DebugHooks), twin of iOS
