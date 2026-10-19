@@ -253,7 +253,7 @@ window.MedTrackerCloudReady = (async function boot() {
         // file's absent ones (vault.js mergeRecords, receiver wins). Pending
         // writes stay queued: they are rows of the receiver, so they win too.
         async importAll(json, { mode } = {}) {
-            const [{ replaceAllRecords, forceSnapshot, markForceSnapshotPending, readAllLiveRecords, readAllRawRecords, isBootstrapped, dropPendingForTypes }, { vaultToRecords, managedTypesForImport, mergeRecords }] = await Promise.all([
+            const [{ replaceAllRecords, forceSnapshot, markForceSnapshotPending, readAllLiveRecords, bootstrapIfNeeded, isBootstrapped, dropPendingForTypes }, { vaultToRecords, managedTypesForImport, mergeRecords }] = await Promise.all([
                 import('/js/sync.js'),
                 import('/domain/vault.js'),
             ]);
@@ -265,22 +265,11 @@ window.MedTrackerCloudReady = (async function boot() {
             const VAULT_MANAGED_TYPES = managedTypesForImport(vault);
             // Replace: preserve records the vault never manages (nk push key,
             // voice provisioning, un-carried secrets) across the wholesale
-            // replace. Merge: every row here stays, tombstones included.
-            // Both reads bootstrap first, so isBootstrapped below reflects
-            // whether that bootstrap actually reached the server.
-            const here = merge ? await readAllRawRecords(ctx) : null;
-            const toWrite = merge
-                ? mergeRecords(here, records)
-                : [...records, ...(await readAllLiveRecords(ctx)).filter((r) => !VAULT_MANAGED_TYPES.has(r.recordType))];
-            // A merge that adds a weight row rewalks every weight trend, and
-            // the pending overlay would put a pending weight row's old trend
-            // back; the forced snapshot carries the rewalked row instead. Only
-            // the rows read above are dropped (`captured`): a weight write that
-            // lands meanwhile stays queued and the overlay keeps it.
-            const captured = merge ? new Map(here.map((r) => [r.recordId, r.clientTs])) : null;
-            const dropTypes = merge
-                ? (toWrite.some((r) => r.recordType === 'weight' && !captured.has(r.recordId)) ? new Set(['weight']) : null)
-                : VAULT_MANAGED_TYPES;
+            // replace. Both paths bootstrap first, so isBootstrapped below
+            // reflects whether that bootstrap actually reached the server.
+            if (merge) await bootstrapIfNeeded(ctx);
+            const survive = merge ? null
+                : (await readAllLiveRecords(ctx)).filter((r) => !VAULT_MANAGED_TYPES.has(r.recordType));
             // Refuse to wipe until the account cursor exists. Without it,
             // forceSnapshot can't propagate the import (null cursor → nothing to
             // snapshot at) and the next open re-bootstraps the stale server
@@ -290,20 +279,35 @@ window.MedTrackerCloudReady = (async function boot() {
             if (!(await isBootstrapped())) {
                 throw new Error('Sync not ready — connect to the internet and reopen the app before importing.');
             }
-            // Replace: discard any not-yet-flushed managed writes first, or
-            // replaceAllRecords' pending overlay resurrects them over the backup
-            // (and they later flush over it). Non-managed pending (nk, reminder
-            // prefs) stays queued — those records survive the replace. Merge
-            // drops only weight, above: any other pending row is a receiver
-            // row, so it won the merge and its op flushes after the snapshot
-            // unchanged (a floored placeholder that yielded is dropped by
-            // replaceAllRecords' overlay).
             // Mark before the wipe: a crash between replaceAllRecords and the
             // marker would let the next open re-bootstrap the stale server
             // snapshot over the import (and the old data is already gone).
             await markForceSnapshotPending();
-            if (dropTypes) await dropPendingForTypes(dropTypes, captured);
-            await replaceAllRecords(toWrite);
+            if (merge) {
+                // Merge: every row here stays, tombstones included. The rows
+                // are read inside replaceAllRecords' records lock, so a write
+                // (a background Health import, a flush) cannot land between
+                // the read and the clear and be reverted. A pending row is a
+                // receiver row, so it won the merge and its op flushes after
+                // the snapshot unchanged (a floored placeholder that yielded
+                // is dropped by the overlay). Except weight: a merge that adds
+                // a weight row rewalks every weight trend, and the overlay
+                // would put a pending row's old trend back, so pending weight
+                // ops go (under the same lock); the snapshot carries the rows.
+                await replaceAllRecords((here) => {
+                    const ids = new Set(here.map((r) => r.recordId));
+                    const merged = mergeRecords(here, records);
+                    const addsWeight = merged.some((r) => r.recordType === 'weight' && !ids.has(r.recordId));
+                    return { records: merged, dropPendingTypes: addsWeight ? new Set(['weight']) : null };
+                });
+            } else {
+                // Replace: discard any not-yet-flushed managed writes first, or
+                // replaceAllRecords' pending overlay resurrects them over the backup
+                // (and they later flush over it). Non-managed pending (nk, reminder
+                // prefs) stays queued — those records are in `survive`.
+                await dropPendingForTypes(VAULT_MANAGED_TYPES);
+                await replaceAllRecords([...records, ...survive]);
+            }
             // Past this line the import HAS happened locally. Propagation to the
             // server is retryable (forceSnapshotPending stays set, next pullOnOpen
             // retries), so a throw here must not reach importexport.js — it would

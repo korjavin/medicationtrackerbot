@@ -225,6 +225,31 @@ describe('local-only mode boot + records port (med-o7zq.2)', () => {
         expect(fetched.filter((u) => u.includes('/api/'))).toEqual([]);
     });
 
+    // bd med-o7zq.38: the merge reads the records inside replaceAllRecords'
+    // lock, so a write (a background Health import) issued while it reads
+    // queues behind the replace instead of being reverted by it.
+    it('a write that lands while a merge reads the store survives the merge', async () => {
+        const { window } = env;
+        await window.apiCall('/api/weight', 'POST', { weight: 99 });
+        cancelReminderRecompute({ accountId: 'local' });
+        const getAll = globalThis.IDBObjectStore.prototype.getAll;
+        let late = null;
+        const spy = vi.spyOn(globalThis.IDBObjectStore.prototype, 'getAll').mockImplementation(function (...args) {
+            if (!late && this.name === 'records') late = window.apiCall('/api/weight', 'POST', { weight: 55 });
+            return getAll.apply(this, args);
+        });
+        try {
+            await window.CloudVault.importAll(JSON.stringify(VAULT_FIXTURE), { win: window, mode: 'merge' });
+        } finally {
+            spy.mockRestore();
+        }
+        expect(late).not.toBe(null);
+        await late;
+        const weights = (await window.apiCall('/api/weight?days=0&limit=1000')).map((r) => r.weight);
+        expect(weights).toEqual(expect.arrayContaining([99, 55, ...VAULT_FIXTURE.data.weight.logs.map((r) => r.weight)]));
+        expect(weights).toHaveLength(2 + VAULT_FIXTURE.data.weight.logs.length);
+    });
+
     // bd med-suu2: a device-only install restored from a backup must not
     // onboard again; restoring a blank backup leaves onboarding pending.
     it('a restore of a non-empty vault clears needs_first_run; a blank vault does not', async () => {

@@ -565,21 +565,31 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
   // account cursor exists — throwing so importexport.js skips the reload.
   function syncModule(overrides) {
     const calls = { replaceAllRecords: 0, forceSnapshot: 0, markForceSnapshotPending: 0, dropPendingForTypes: [], order: [] };
-    return {
-      calls,
-      mod: {
+    const mod = {
         pullOnOpen: async () => {},
         startReconnectAutoDrain: () => () => {},
         getSyncStatus: async () => ({ authExpired: false }),
         readAllLiveRecords: async () => [],
         readAllRawRecords: async () => [],
-        replaceAllRecords: async (rows) => { calls.replaceAllRecords += 1; calls.replaced = rows; calls.order.push('replace'); },
+        bootstrapIfNeeded: async () => {},
+        // A merge passes a function of the current rows (read inside the
+        // records lock); readAllRawRecords stands in for those rows here.
+        replaceAllRecords: async (input) => {
+          calls.replaceAllRecords += 1;
+          if (typeof input === 'function') {
+            calls.computed = await input(await mod.readAllRawRecords());
+            calls.replaced = calls.computed.records;
+          } else {
+            calls.replaced = input;
+          }
+          calls.order.push('replace');
+        },
         forceSnapshot: async () => { calls.forceSnapshot += 1; calls.order.push('snapshot'); },
         markForceSnapshotPending: async () => { calls.markForceSnapshotPending += 1; calls.order.push('mark'); },
-        dropPendingForTypes: async (types, captured) => { calls.dropPendingForTypes.push(types); calls.captured = captured; calls.order.push('drop'); },
+        dropPendingForTypes: async (types) => { calls.dropPendingForTypes.push(types); calls.order.push('drop'); },
         ...overrides,
-      },
     };
+    return { calls, mod };
   }
   const MANAGED = new Set(['note', 'bp']);
   const VAULT_MOD = { vaultToRecords: () => [], managedTypesForImport: () => MANAGED, mergeRecords: realVault.mergeRecords };
@@ -691,6 +701,7 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
     });
     await window.CloudVault.importAll(VAULT_JSON, { mode: 'merge' });
     expect(sync.calls.replaced).toEqual([...MINE, THEIRS[2]]);
+    expect(sync.calls.computed.dropPendingTypes).toBe(null);
     expect(sync.calls.dropPendingForTypes).toHaveLength(0);
     expect(sync.calls.order).toEqual(['mark', 'replace', 'snapshot']);
   });
@@ -702,7 +713,7 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
     expect(sync.calls.order).toEqual([]);
   });
 
-  it('a merge that adds a weight row drops pending weight writes only, so the overlay keeps the rewalked trend', async () => {
+  it('a merge that adds a weight row drops pending weight writes inside the replace, so the overlay keeps the rewalked trend', async () => {
     const pendingWeight = { recordType: 'weight', recordId: 'weight-1', clientTs: 5, deleted: false, weight: 80, measured_at: '2026-07-02T08:00:00Z', weight_trend: 80 };
     const earlier = { recordType: 'weight', recordId: 'weight-0', clientTs: 9, deleted: false, weight: 100, measured_at: '2026-07-01T08:00:00Z', weight_trend: 100 };
     const sync = syncModule({ isBootstrapped: async () => true, readAllRawRecords: async () => [pendingWeight] });
@@ -717,9 +728,10 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
       },
     });
     await window.CloudVault.importAll(VAULT_JSON, { mode: 'merge' });
-    expect(sync.calls.dropPendingForTypes).toEqual([new Set(['weight'])]);
-    expect(sync.calls.captured).toEqual(new Map([['weight-1', 5]]));
-    expect(sync.calls.order).toEqual(['mark', 'drop', 'replace', 'snapshot']);
+    // Dropped inside the replace's records lock, not by a separate call.
+    expect(sync.calls.computed.dropPendingTypes).toEqual(new Set(['weight']));
+    expect(sync.calls.dropPendingForTypes).toHaveLength(0);
+    expect(sync.calls.order).toEqual(['mark', 'replace', 'snapshot']);
     expect(sync.calls.replaced.find((r) => r.recordId === 'weight-1').weight_trend).toBe(98);
   });
 });

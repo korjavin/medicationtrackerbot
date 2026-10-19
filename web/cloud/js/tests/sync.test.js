@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { deriveDataKeys, encryptRecord, decryptRecord, encryptSnapshot, decryptSnapshot, generateDEK, toBase64 } from '../crypto.js';
-import { listRecords, listRecordsInRange, readAllLiveRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, startReconnectAutoDrain, requestDrain, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL, dropPendingForTypes } from '../sync.js';
+import { listRecords, listRecordsInRange, readAllLiveRecords, pullOnOpen, writeRecord, flushConfirmed, describeSyncStatus, getSyncStatus, recordsPort, resetLocalSync, forceSnapshot, replaceAllRecords, reauthenticate, startReconnectAutoDrain, requestDrain, getRecordsChangeCount, ORIGIN_UI, ORIGIN_EXTERNAL } from '../sync.js';
 import { openDb, cachedDb, dropCachedDb, onCachedDbDropped } from '../localdb.js';
 
 // reauthenticate() dynamic-imports unlock.js for the passkey ceremony; the real
@@ -2848,16 +2848,17 @@ describe('gamificationjournal merges grow-only fields on apply (med-ooeh)', () =
   });
 });
 
-describe('dropPendingForTypes with a captured read keeps later writes (med-o7zq.38)', () => {
-  // A merge import reads the store, merges, then drops pending weight ops so
-  // the rewalked trend is not overlaid back. A write that lands after that read
-  // must stay queued, or replaceAllRecords would silently replace it.
-  const pendingIds = async () => {
+describe('replaceAllRecords(fn) computes its set inside the records lock (med-o7zq.38)', () => {
+  // A merge import reads the store, merges, and replaces. A write landing
+  // between the read and the clear would be in neither the merged set nor the
+  // pending overlay, so it would be reverted. With the read inside the lock,
+  // the write queues behind the replace instead.
+  const readStore = async (name) => {
     const db = await openDb();
     try {
       return await new Promise((resolve, reject) => {
-        const req = db.transaction('pending', 'readonly').objectStore('pending').getAll();
-        req.onsuccess = () => resolve(req.result.map((p) => p.recordId).sort());
+        const req = db.transaction(name, 'readonly').objectStore(name).getAll();
+        req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
       });
     } finally {
@@ -2875,17 +2876,18 @@ describe('dropPendingForTypes with a captured read keeps later writes (med-o7zq.
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it('drops only the pending rows the caller read, at the clientTs it read', async () => {
+  it('a write issued during the merge survives it, and only the pending rows read are dropped', async () => {
     const ctx = { accountId, ...(await deriveDataKeys(generateDEK())) };
-    const first = await writeRecord(ctx, 'weight', { recordId: 'weight-1', weight: 80 });
-    await writeRecord(ctx, 'weight', { recordId: 'weight-2', weight: 81 });
-    // weight-2 was read at another clientTs (edited since); weight-3 not read.
-    const captured = new Map([['weight-1', first.clientTs], ['weight-2', 0]]);
-    await writeRecord(ctx, 'weight', { recordId: 'weight-3', weight: 82 });
+    await writeRecord(ctx, 'weight', { recordId: 'weight-1', weight: 80 });
     await writeRecord(ctx, 'note', { recordId: 'note-1', text: 'hi' });
-    await dropPendingForTypes(new Set(['weight']), captured);
-    expect(await pendingIds()).toEqual(['note-1', 'weight-2', 'weight-3']);
-    await dropPendingForTypes(new Set(['weight']));
-    expect(await pendingIds()).toEqual(['note-1']);
+    let late;
+    await replaceAllRecords((here) => {
+      late = writeRecord(ctx, 'weight', { recordId: 'weight-late', weight: 55 });
+      return { records: [...here, { recordType: 'weight', recordId: 'weight-0', clientTs: 9, deleted: false, weight: 90 }], dropPendingTypes: new Set(['weight']) };
+    });
+    await late;
+    const ids = (await readStore('records')).map((r) => r.recordId).sort();
+    expect(ids).toEqual(['note-1', 'weight-0', 'weight-1', 'weight-late']);
+    expect((await readStore('pending')).map((p) => p.recordId).sort()).toEqual(['note-1', 'weight-late']);
   });
 });

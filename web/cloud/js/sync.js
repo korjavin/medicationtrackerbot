@@ -242,7 +242,11 @@ async function readAllRecords() {
   return withStore('records', 'readonly', (store) => reqToPromise(store.getAll()));
 }
 
-export async function replaceAllRecords(records) {
+// `input` is the record array, or (bd med-o7zq.38) a function of the current
+// rows returning { records, dropPendingTypes? }: a merge import computes its
+// set inside the lock, so no write can land between its read and the clear.
+// dropPendingTypes are dropped under that same lock, before the overlay.
+export async function replaceAllRecords(input) {
   // Preserve optimistic copies of not-yet-flushed writes: a snapshot bootstrap
   // (or a compaction re-bootstrap from pullTail) clears the whole store, but
   // pending writes are unsynced local truth the snapshot doesn't contain yet —
@@ -258,6 +262,13 @@ export async function replaceAllRecords(records) {
   // timestamps unordered and a comparison alone can't prove an unsent user
   // edit stale.
   await withRecordsLock(async () => {
+    let records = input;
+    if (typeof input === 'function') {
+      const computed = await input(await readAllRecords());
+      records = computed.records;
+      const drop = computed.dropPendingTypes;
+      if (drop) await clearPending((await readPending()).filter((p) => drop.has(p.recordType)).map((p) => p.recordId));
+    }
     const pending = await readPending();
     const snapshotById = new Map(records.map((r) => [r.recordId, r]));
     const overlay = [];
@@ -296,22 +307,10 @@ export async function replaceAllRecords(records) {
 // and the row would later flush over the imported backup. importAll calls this
 // before replaceAllRecords so only non-managed pending (nk, reminder prefs)
 // stays queued. Held under withRecordsLock so it's atomic w.r.t. writeRecord.
-// `captured` (recordId -> clientTs, the rows a merge import read) narrows the
-// drop to pending writes the caller has already folded in: a write that landed
-// after that read is a new id or a newer clientTs, so it stays queued and
-// replaceAllRecords' overlay keeps it.
-export async function dropPendingForTypes(types, captured = null) {
+export async function dropPendingForTypes(types) {
   await withRecordsLock(async () => {
-    const stale = [];
-    for (const p of await readPending()) {
-      if (!types.has(p.recordType)) continue;
-      if (captured) {
-        const r = await getRecord(p.recordId);
-        if (!r || !captured.has(p.recordId) || captured.get(p.recordId) !== r.clientTs) continue;
-      }
-      stale.push(p.recordId);
-    }
-    await clearPending(stale);
+    const stale = (await readPending()).filter((p) => types.has(p.recordType));
+    await clearPending(stale.map((p) => p.recordId));
   });
 }
 
@@ -647,7 +646,7 @@ async function bootstrap(ctx) {
   return true;
 }
 
-async function bootstrapIfNeeded(ctx) {
+export async function bootstrapIfNeeded(ctx) {
   // Once we know our cursor, skip the 11-key sync_meta read on every list call.
   // A dropped connection / resetLocalSync clears this flag so a re-bootstrap
   // still runs.

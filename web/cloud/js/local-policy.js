@@ -508,10 +508,13 @@ export const LOCAL_VAULT = {
     const managed = managedTypesForImport(vault);
     await stopHealthImport();
     try {
-      const here = await readAllLocalRecords();
-      await replaceAllRecords(mode === 'merge'
-        ? mergeRecords(here, records)
-        : [...records, ...here.filter((r) => !r.deleted && !managed.has(r.recordType))]);
+      // Computed inside replaceAllRecords' records lock: a write (the
+      // background Health import) cannot land between the read and the clear.
+      await replaceAllRecords((here) => ({
+        records: mode === 'merge'
+          ? mergeRecords(here, records)
+          : [...records, ...here.filter((r) => !r.deleted && !managed.has(r.recordType))],
+      }));
     } catch (e) {
       resumeHealthImport();
       throw e;
