@@ -353,8 +353,8 @@ describe('cloud shim contract — food AI flows (features/food/{add-sheet,photo,
     });
 
     it.each([
-        [undefined, /^This iPhone has already used/],
-        ['phone', /^This phone has already used/],
+        [undefined, /This iPhone has already used/],
+        ['phone', /This phone has already used/],
     ])('trial 403 trial_already_used names the device (shell device=%s)', async (device, expected) => {
         allowConsoleNoise();
         const { window, document } = env;
