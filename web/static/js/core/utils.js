@@ -504,6 +504,16 @@ function readWeightUnitPreference() {
     return window.weightUnitPreference === 'lb' ? 'lb' : 'kg';
 }
 
+// Parse a user-typed non-negative decimal from a type="text" inputmode="decimal"
+// field (bd med-mysj). iOS comma-locale decimal pads type ',', which
+// <input type="number"> silently drops, so fractional fields are text inputs and
+// every read goes through here: ',' or '.' as the separator; '' / junk /
+// negative → NaN. Integer fields stay type="number" inputmode="numeric".
+function parseDecimal(v) {
+    const s = String(v == null ? '' : v).trim().replace(',', '.');
+    return /^(\d+\.?\d*|\.\d+)$/.test(s) ? Number(s) : NaN;
+}
+
 function escapeHtml(text) {
     if (!text) return "";
     return String(text)

@@ -45,7 +45,7 @@ async function saveMiBandWorkout() {
     const payload = {};
 
     const steps = parseInt(document.getElementById('miband-workout-steps').value) || 0;
-    const distance = parseFloat(document.getElementById('miband-workout-distance').value) || 0;
+    const distance = parseDecimal(document.getElementById('miband-workout-distance').value) || 0;
     const duration = parseInt(document.getElementById('miband-workout-duration').value) || 0;
     const calories = parseInt(document.getElementById('miband-workout-calories').value) || 0;
     const hr = parseInt(document.getElementById('miband-workout-hr').value) || 0;

@@ -60,7 +60,7 @@ function _syncSuggestApply() {
     const weightEl = document.getElementById('workout-exercise-weight');
     if (!card || !apply || !weightEl) return;
     const kg = card.dataset.weight;
-    apply.hidden = card.hidden || kg === undefined || kg === '' || parseFloat(weightEl.value) === parseFloat(kg);
+    apply.hidden = card.hidden || kg === undefined || kg === '' || parseDecimal(weightEl.value) === parseFloat(kg);
 }
 
 function applySuggestedWeight() {
@@ -380,7 +380,7 @@ async function _relabelPlanAutoEquipment(list, ticket) {
                     ? await window.WorkoutEquipment.locationScope() : null;
                 const name = nameEl ? nameEl.value : '';
                 const hit = domain.equipmentForExercise({ equipment_id: null, exercise_name: name }, null,
-                    list, weightEl ? parseFloat(weightEl.value) : NaN, location);
+                    list, weightEl ? parseDecimal(weightEl.value) : NaN, location);
                 item = hit && hit.auto ? hit.item : null;
             }
         } catch (_) { item = null; }
@@ -740,18 +740,23 @@ function buildExercisePayload() {
     const repsMaxRaw = document.getElementById('workout-exercise-reps-max').value;
     const repsMax = repsMaxRaw !== '' ? parseInt(repsMaxRaw) : null;
     const weightRaw = document.getElementById('workout-exercise-weight').value;
-    const weight = weightRaw !== '' ? parseFloat(weightRaw) : null;
+    const weight = weightRaw.trim() !== '' ? parseDecimal(weightRaw) : null;
 
     if (!name || !sets || !repsMin) {
         safeAlert('Exercise name, sets, and reps min are required!');
         return null;
     }
+    if (Number.isNaN(weight)) {
+        safeAlert('Working weight must be a number.');
+        return null;
+    }
 
     const progressionType = document.getElementById('workout-exercise-progression').value || 'none';
     const incrementRaw = document.getElementById('workout-exercise-progression-increment').value;
+    const increment = parseDecimal(incrementRaw);
     const progressionRule = progressionType === 'none'
         ? { type: 'none' }
-        : { type: progressionType, increment_kg: incrementRaw !== '' ? parseFloat(incrementRaw) : 2.5 };
+        : { type: progressionType, increment_kg: Number.isFinite(increment) ? increment : 2.5 };
 
     // Per-exercise goal override; blank ("From plan") clears it.
     const trainingGoal = document.getElementById('workout-exercise-goal').value;

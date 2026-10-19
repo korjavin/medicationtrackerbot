@@ -102,9 +102,9 @@ function syncFoodMacrosToggleActiveClass() {
 
 function calculateFoodCalories(force = false) {
     const weight = parseFloat(document.getElementById('food-weight').value) || 0;
-    const carbs = parseFloat(document.getElementById('food-carbs').value) || 0;
-    const protein = parseFloat(document.getElementById('food-protein').value) || 0;
-    const fat = parseFloat(document.getElementById('food-fat').value) || 0;
+    const carbs = parseDecimal(document.getElementById('food-carbs').value) || 0;
+    const protein = parseDecimal(document.getElementById('food-protein').value) || 0;
+    const fat = parseDecimal(document.getElementById('food-fat').value) || 0;
     const per100g = document.getElementById('food-per-100g').checked;
     const caloriesInput = document.getElementById('food-calories');
 
@@ -136,7 +136,7 @@ function onFoodCaloriesFocus() {
 function parseOptionalNumber(rawValue) {
     const v = String(rawValue || '').trim();
     if (v === '') return null;
-    const n = parseFloat(v);
+    const n = parseDecimal(v);
     if (Number.isNaN(n)) return null;
     return n;
 }

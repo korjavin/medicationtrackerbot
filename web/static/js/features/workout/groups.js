@@ -206,7 +206,7 @@ function _workoutStep(btn) {
     const step = parseFloat(btn.dataset.step) || 0;
     const min = input.min !== '' ? parseFloat(input.min) : -Infinity;
     const max = input.max !== '' ? parseFloat(input.max) : Infinity;
-    const cur = input.value !== '' ? parseFloat(input.value)
+    const cur = input.value !== '' ? (parseDecimal(input.value) || 0)
         : (input.placeholder !== '' ? parseFloat(input.placeholder) || 0 : 0);
     const next = Math.min(max, Math.max(min, Math.round((cur + (input.value !== '' ? step : 0)) * 100) / 100));
     input.value = String(next);

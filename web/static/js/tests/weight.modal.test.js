@@ -247,6 +247,45 @@ describe('Edit-weight modal (Phase 6, Task 6)', () => {
             expect(payload.weight).toBeCloseTo(80.0, 1);
         });
 
+        // bd med-mysj: iOS comma-locale decimal pads type ',' — type=number
+        // dropped it. The field is type=text inputmode=decimal and both
+        // separators save the same value; out-of-range no longer has native
+        // min/max, so the handler rejects it.
+        it.each(['72,5', '72.5'])('saves %s as 72.5 kg', async (typed) => {
+            const { window, document } = env;
+            const apiCallSpy = vi.fn().mockResolvedValue({ id: 1 });
+            window.apiCall = apiCallSpy;
+            window.DataStore.invalidateTags = vi.fn().mockResolvedValue(undefined);
+            window.loadWeightLogs = vi.fn();
+
+            const input = document.getElementById('weight-value');
+            expect(input.type).toBe('text');
+            expect(input.getAttribute('inputmode')).toBe('decimal');
+
+            window.showWeightModal();
+            document.getElementById('weight-datetime').value = '2026-04-22T08:15';
+            input.value = typed;
+            await window.handleWeightSubmit({ preventDefault() {} });
+
+            expect(apiCallSpy).toHaveBeenCalledTimes(1);
+            expect(apiCallSpy.mock.calls[0][2].weight).toBe(72.5);
+        });
+
+        it('rejects a weight outside the unit range', async () => {
+            const { window, document } = env;
+            const apiCallSpy = vi.fn();
+            window.apiCall = apiCallSpy;
+            window.safeAlert = vi.fn();
+
+            window.showWeightModal();
+            document.getElementById('weight-datetime').value = '2026-04-22T08:15';
+            document.getElementById('weight-value').value = '7,25';
+            await window.handleWeightSubmit({ preventDefault() {} });
+
+            expect(apiCallSpy).not.toHaveBeenCalled();
+            expect(window.safeAlert).toHaveBeenCalledWith('Enter a weight between 30 and 300 kg');
+        });
+
         it('does not POST when required fields are missing', async () => {
             const { window, document } = env;
             const apiCallSpy = vi.fn();

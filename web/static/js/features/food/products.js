@@ -554,10 +554,10 @@ async function saveFoodProduct() {
     const payload = {
         name: name,
         barcode: document.getElementById('food-product-barcode').value.trim(),
-        carbs_100g: Math.round((parseFloat(document.getElementById('food-product-carbs').value) || 0) * 10) / 10,
-        protein_100g: Math.round((parseFloat(document.getElementById('food-product-protein').value) || 0) * 10) / 10,
-        fat_100g: Math.round((parseFloat(document.getElementById('food-product-fat').value) || 0) * 10) / 10,
-        energy_kcal_100g: Math.round(parseFloat(document.getElementById('food-product-calories').value) || 0),
+        carbs_100g: Math.round((parseDecimal(document.getElementById('food-product-carbs').value) || 0) * 10) / 10,
+        protein_100g: Math.round((parseDecimal(document.getElementById('food-product-protein').value) || 0) * 10) / 10,
+        fat_100g: Math.round((parseDecimal(document.getElementById('food-product-fat').value) || 0) * 10) / 10,
+        energy_kcal_100g: Math.round(parseDecimal(document.getElementById('food-product-calories').value) || 0),
         is_meal: isMeal,
         total_weight_g: totalWeight,
     };

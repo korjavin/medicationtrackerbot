@@ -250,7 +250,7 @@ function setWeightModalUnit(unit) {
     if (unit === weightModalUnit) return;
 
     const input = document.getElementById('weight-value');
-    const raw = input ? parseFloat(input.value) : NaN;
+    const raw = input ? parseDecimal(input.value) : NaN;
     const prevUnit = weightModalUnit;
     weightModalUnit = unit;
 
@@ -278,8 +278,11 @@ function setWeightModalUnit(unit) {
 }
 
 function readWeightModalKg() {
-    const raw = parseFloat(document.getElementById('weight-value').value);
-    if (!Number.isFinite(raw)) return NaN;
+    // type=text (bd med-mysj): no native min/max, so the unit's bounds are
+    // enforced here; out of range reads as invalid.
+    const input = document.getElementById('weight-value');
+    const raw = parseDecimal(input.value);
+    if (!Number.isFinite(raw) || raw < Number(input.min || 0) || (input.max !== '' && raw > Number(input.max))) return NaN;
     return weightModalUnit === 'lb' ? raw * WEIGHT_KG_PER_LB : raw;
 }
 
@@ -290,8 +293,13 @@ async function handleWeightSubmit(event) {
     const weight = readWeightModalKg();
     const notes = document.getElementById('weight-notes').value;
 
-    if (!datetime || !Number.isFinite(weight) || weight <= 0) {
+    if (!datetime) {
         safeAlert('Please fill in all required fields');
+        return;
+    }
+    if (!Number.isFinite(weight) || weight <= 0) {
+        const input = document.getElementById('weight-value');
+        safeAlert(`Enter a weight between ${input.min} and ${input.max} ${weightModalUnit}`);
         return;
     }
 
@@ -475,7 +483,7 @@ function renderWeightGoalCard(logs, goalData, goalLine) {
             emptyError: 'Enter a target weight.',
         });
         if (valStr !== null) {
-            const num = parseFloat(valStr);
+            const num = parseDecimal(valStr);
             if (!isNaN(num) && num > 0) {
                 // Convert back to kg if user's display is lb
                 const kgValue = pref === 'lb' ? num / 2.20462 : num;
