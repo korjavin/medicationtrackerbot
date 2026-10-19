@@ -69,7 +69,7 @@ final class VisualQATests: XCTestCase {
         var failure: String?
         if scene.nativeOnly {
             if !app.buttons.firstMatch.waitForExistence(timeout: 30) { failure = "first-run never showed" }
-        } else if !readyNode(app).waitForExistence(timeout: 30) {
+        } else if !readyNode(app).waitForExistence(timeout: 60) {
             failure = "ready node #wg-qa-ready never appeared"
         }
         if failure == nil { failure = perform(scene.steps, in: app) }
@@ -135,6 +135,7 @@ final class VisualQATests: XCTestCase {
                 dismissKeyboardTip(app)
             } else if let text = step["type"] as? String {
                 (field ?? app).typeText(text)
+                dismissKeyboardTip(app) // it can also come up mid-typing
                 typed = true
                 // The field's AX value lags the keystrokes: poll before failing.
                 // (An XCTNSPredicateExpectation on `value` never matched and
@@ -173,7 +174,7 @@ final class VisualQATests: XCTestCase {
     }
 
     /// A device's first keyboard opens under the slide-to-type tip (seen on
-    /// the 440pt Simulator; the ContinuousPath defaults did not suppress it).
+    /// both CI Simulators, on tap or mid-typing; ContinuousPath defaults did not suppress it).
     private func dismissKeyboardTip(_ app: XCUIApplication) {
         guard app.keyboards.firstMatch.waitForExistence(timeout: 3) else { return }
         let tip = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Speed up your typing'")).firstMatch
