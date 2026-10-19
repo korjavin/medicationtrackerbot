@@ -11,9 +11,10 @@
 //   .wg-sheet__foot                      (optional; flows put their primary here)
 //
 // Static sheets author that markup in index.html; dynamic ones build the header
-// with WGSheet.header(). The keyboard dock is global: while a virtual keyboard
-// covers the bottom of the viewport, every open sheet gets .wg-scrim--kb and
-// --wg-kb-h, so its body shrinks and the foot sits on top of the keyboard.
+// with WGSheet.header(). The keyboard dock is global: every sheet and page
+// tracks the visual viewport (--wg-vv-top / --wg-vv-h on the root), so a
+// sheet's bottom sits on the keyboard, its header stays in view and only its
+// body scrolls; while a keyboard is up, open sheets also get .wg-scrim--kb.
 //
 //   WGSheet.header({ eyebrow, title, actions: [{ label, primary?, icon?, attrs? }] })
 //       icon: 'x' renders the icon-only close button, label as its aria-label
@@ -70,30 +71,42 @@
         return { el, buttons };
     }
 
-    // Height of the visual viewport's hidden bottom strip (the keyboard). 0 when
-    // the layout viewport already shrank (Android resizes-content) or the user
-    // is pinch-zoomed (scale > 1 also shrinks visualViewport.height).
-    function keyboardHeight() {
-        const vv = window.visualViewport;
-        if (!vv || vv.scale > 1) return 0;
-        return Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
-    }
-
+    // Sheets and pages are glued to the visual viewport (med-pe9g): the root
+    // carries its top and height and the CSS positions .wg-sheet / .wg-page
+    // from them. iOS WebKit (Safari and the app's WKWebView) never shrinks the
+    // layout viewport for the keyboard — position:fixed and 100dvh keep the
+    // full height while iOS pans the visual viewport over it — so a sheet
+    // docked to the layout bottom runs under the keyboard and its header pans
+    // off the top. Without the vars (no visualViewport, or pinch-zoomed: scale
+    // > 1 shrinks the visual viewport too) the :root defaults (0px / 100dvh)
+    // give the plain layout-viewport dock.
     function dock() {
-        const kb = keyboardHeight();
+        const vv = window.visualViewport;
+        const root = document.documentElement;
+        const on = Boolean(vv) && !(vv.scale > 1);
+        // ponytail: measured lengths, not design values — the custom
+        // properties the CSS reads (same pattern as wg-macro-bar).
+        if (on) {
+            root.style.setProperty('--wg-vv-top', `${Math.round(vv.offsetTop)}px`);
+            root.style.setProperty('--wg-vv-h', `${Math.round(vv.height)}px`);
+        } else {
+            root.style.removeProperty('--wg-vv-top');
+            root.style.removeProperty('--wg-vv-h');
+        }
+        // Keyboard up = the visual viewport ends above the layout viewport's
+        // bottom. clientHeight, not innerHeight: iOS reports innerHeight as the
+        // visible height, so innerHeight - vv.height is ~0 there (why the old
+        // innerHeight-based dock never engaged on iOS).
+        const kb = on && Math.round(root.clientHeight - vv.height - vv.offsetTop) > 0;
         for (const sheet of document.querySelectorAll('mt-modal.wg-sheet')) {
-            const on = kb > 0 && !sheet.classList.contains('hidden');
-            sheet.classList.toggle('wg-scrim--kb', on);
-            // ponytail: a measured length, not a design value — the one
-            // custom property the CSS reads (same pattern as wg-macro-bar).
-            if (on) sheet.style.setProperty('--wg-kb-h', `${kb}px`);
-            else sheet.style.removeProperty('--wg-kb-h');
+            sheet.classList.toggle('wg-scrim--kb', kb && !sheet.classList.contains('hidden'));
         }
     }
 
     if (window.visualViewport) {
         window.visualViewport.addEventListener('resize', dock);
         window.visualViewport.addEventListener('scroll', dock);
+        dock();
     }
 
     window.WGSheet = { header, dock };

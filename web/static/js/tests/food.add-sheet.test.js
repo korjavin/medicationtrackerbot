@@ -173,6 +173,32 @@ describe('Food Add sheet', () => {
         expect(search.value).toBe('oat');
     });
 
+    it('typing with the iOS keyboard up docks the sheet to the visual viewport, so header + search stay in view (med-pe9g)', async () => {
+        const { window, document } = env;
+        window.FoodLog.addSheet.open();
+        await settle();
+        const root = document.documentElement;
+        // iOS: the layout viewport keeps 800px under a 336px keyboard, and
+        // scrolling pans the visual viewport 150px down over it.
+        Object.defineProperty(root, 'clientHeight', { value: 800, configurable: true });
+        Object.defineProperty(window, 'innerHeight', { value: 464, configurable: true, writable: true });
+        Object.defineProperty(window, 'visualViewport', {
+            value: { height: 464, offsetTop: 150, scale: 1 }, configurable: true, writable: true,
+        });
+        window.WGSheet.dock();
+
+        // The sheet's CSS top is --wg-vv-top + --wg-vv-h lifted by its own
+        // height, max-height --wg-vv-h minus a gap: it spans 150..614 at most.
+        expect(root.style.getPropertyValue('--wg-vv-top')).toBe('150px');
+        expect(root.style.getPropertyValue('--wg-vv-h')).toBe('464px');
+        expect(sheet().classList.contains('wg-scrim--kb')).toBe(true);
+        // Only the results scroll: header and search sit outside .wg-sheet__body.
+        const body = sheet().querySelector('.wg-sheet__body');
+        expect(body.contains(document.getElementById('food-add-results'))).toBe(true);
+        expect(body.contains(document.getElementById('food-add-search'))).toBe(false);
+        expect(body.contains(sheet().querySelector('.wg-sheethead'))).toBe(false);
+    });
+
     it('a scanned barcode with no match opens the manual form prefilled with it', async () => {
         const { window, document } = env;
         window.FoodLog.addSheet.open();

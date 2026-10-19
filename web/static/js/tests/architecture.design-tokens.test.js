@@ -1359,9 +1359,9 @@ describe('Architecture – Wandergeek tokens', () => {
         // shadows, spacing) must stay CSS-only. (The tab bar's column count
         // is the kit's un-prefixed `--n`, so it needs no entry here.)
         const ALLOWED_JS_TOKEN_REFS = {
-            // med-xso6.7: the measured virtual-keyboard height (a length, not
-            // a visual value) the kit's .wg-scrim--kb reads to dock the sheet foot.
-            'web/static/js/components/wg-sheet.js': new Set(['--wg-kb-h']),
+            // med-xso6.7 / med-pe9g: the measured visual-viewport top + height every sheet,
+            // page and dialog is positioned from.
+            'web/static/js/components/wg-sheet.js': new Set(['--wg-vv-top', '--wg-vv-h']),
         };
 
         const jsDir = path.join(REPO_ROOT, 'web/static/js');

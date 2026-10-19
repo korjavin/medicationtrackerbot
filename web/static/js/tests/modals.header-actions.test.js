@@ -265,27 +265,41 @@ describe('flow sheets put their primary in .wg-sheet__foot', () => {
         const sheet = document.getElementById('workout-start-modal');
         expect(sheet.querySelector(':scope > .wg-sheet__foot')).not.toBeNull();
 
-        // A 300px keyboard: the visual viewport is 300px shorter than the layout one.
-        Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true, writable: true });
+        const root = document.documentElement;
+        // A 300px keyboard, iOS-style (med-pe9g): the layout viewport (ICB,
+        // clientHeight) stays 800 while innerHeight follows the visual viewport.
+        Object.defineProperty(root, 'clientHeight', { value: 800, configurable: true });
+        Object.defineProperty(window, 'innerHeight', { value: 500, configurable: true, writable: true });
         Object.defineProperty(window, 'visualViewport', {
             value: { height: 500, offsetTop: 0, scale: 1 }, configurable: true, writable: true,
         });
         window.WGSheet.dock();
         expect(sheet.classList.contains('wg-scrim--kb')).toBe(true);
-        expect(sheet.style.getPropertyValue('--wg-kb-h')).toBe('300px');
+        expect(root.style.getPropertyValue('--wg-vv-top')).toBe('0px');
+        expect(root.style.getPropertyValue('--wg-vv-h')).toBe('500px');
         // Closed sheets are left alone.
         expect(document.getElementById('bp-modal').classList.contains('wg-scrim--kb')).toBe(false);
 
-        // Pinch-zoom shrinks the visual viewport too — not a keyboard.
+        // iOS pans the visual viewport down over the layout one: the sheet
+        // follows it (its CSS top is --wg-vv-top + --wg-vv-h), so the header
+        // can't scroll off-screen.
+        window.visualViewport = { height: 500, offsetTop: 120.4, scale: 1 };
+        window.WGSheet.dock();
+        expect(root.style.getPropertyValue('--wg-vv-top')).toBe('120px');
+        expect(sheet.classList.contains('wg-scrim--kb')).toBe(true);
+
+        // Pinch-zoom shrinks the visual viewport too — not a keyboard; the
+        // layout-viewport defaults from :root take over.
         window.visualViewport = { height: 500, offsetTop: 0, scale: 2 };
         window.WGSheet.dock();
         expect(sheet.classList.contains('wg-scrim--kb')).toBe(false);
+        expect(root.style.getPropertyValue('--wg-vv-h')).toBe('');
 
-        // Keyboard dismissed: undocked, the measured length is cleared.
+        // Keyboard dismissed: undocked, the viewport is the full height again.
         window.visualViewport = { height: 800, offsetTop: 0, scale: 1 };
         window.WGSheet.dock();
         expect(sheet.classList.contains('wg-scrim--kb')).toBe(false);
-        expect(sheet.style.getPropertyValue('--wg-kb-h')).toBe('');
+        expect(root.style.getPropertyValue('--wg-vv-h')).toBe('800px');
     });
 
     it('no modal header carries a dismiss-only Cancel / Close text button — the X is the one close', () => {

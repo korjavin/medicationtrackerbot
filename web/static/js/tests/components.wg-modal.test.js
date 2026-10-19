@@ -107,7 +107,8 @@ describe('Wandergeek modal token-only CSS', () => {
     it('.wg-modal is positioned as a centered fixed dialog', () => {
         const [body] = extractClassBlocks(css, '.wg-modal');
         expect(body).toMatch(/position:\s*fixed\b/);
-        expect(body).toMatch(/top:\s*50%/);
+        // Centred in the visual viewport (med-pe9g), not the layout one.
+        expect(body).toMatch(/top:\s*calc\(var\(--wg-vv-top\) \+ var\(--wg-vv-h\) \/ 2\)/);
         expect(body).toMatch(/left:\s*50%/);
         expect(body).toMatch(/transform:\s*translate\(-50%,\s*-50%\)/);
     });
