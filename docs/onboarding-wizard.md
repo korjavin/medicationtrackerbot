@@ -173,7 +173,15 @@ documents, two different primitives, no sharing needed. That is the correct boun
   trial on and finishes), then `trial.enroll()` — the grant or rejoin, sharing the boot-time enrollment while it
   is in flight. Declining, `trial_already_used`, `trial_not_configured` or a network failure shows an English
   message and leaves *Use my own keys* and *Skip for now* working. No App Attest (Simulator) → the key form.
-  Cloud mode is unchanged (no `CloudVault.trial` there).
+- **Cloud mode — trial first** (`med-oc8h`, **implemented**): where the operator configured a trial key
+  (`<meta name="medtracker-trial-ai" content="1">`, the same gate as Settings → Integrations `applyTrialHints`)
+  the screen shows the same three choices and switch note. The cloud trial has no on/off switch — `aiclient.js`
+  routes through the operator key whenever the user has no key of their own — but every trial transmission is
+  gated on the `ai` TrialConsent scope. So *Try the free trial* is exactly the Settings trial-AI row's *Allow*:
+  `TrialConsent.request('ai')` (the cloud disclosure, persisted to the `trialconsent` record), then done. The
+  `tg` and `voice` scopes are not asked here (Settings, or the dialog on first use). Declining or a failed
+  dialog shows an English message and leaves *Use my own keys* (today's key form) and *Skip for now* working.
+  No trial meta → today's key form unchanged.
 
 ### `safety` — Emergency Kit + second device (`med-4pz.4`)
 

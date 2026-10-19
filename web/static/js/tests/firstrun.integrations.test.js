@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
+import { allowConsoleNoise } from './helpers/setup.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -100,6 +101,8 @@ describe('firstrun integrations screen', () => {
         const withTrial = loadFlow({ bootstrap: { needs_first_run: true }, cloud: true, trialAi: true });
         try {
             withTrial.window.WGFirstRun.mount();
+            // The trial leads (med-oc8h); "Use my own keys" is this form.
+            withTrial.document.querySelector('[data-firstrun-action="own-keys"]').click();
             const tagline = withTrial.document.querySelector('.wg-firstrun-screen__tagline').textContent;
             expect(tagline).toMatch(/already work/i);
             expect(tagline).toMatch(/rate-limited/i);
@@ -425,6 +428,92 @@ describe('firstrun integrations screen in device-only mode', () => {
             await settle();
             expect(document.getElementById('wg-firstrun-openai-api-key')).not.toBeNull();
             expect(document.querySelector('[data-firstrun-action="trial"]')).toBeNull();
+        } finally { cleanup(); }
+    });
+});
+
+// bd med-oc8h — cloud mode with an operator trial key leads with the trial too.
+// The cloud trial has no switch; its opt-in is the `ai` TrialConsent scope,
+// the same grant as Settings → AI & integrations' "Allow" on the trial AI row.
+describe('firstrun integrations screen in cloud mode with an operator trial', () => {
+    const settle = async () => { for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0)); };
+
+    it('offers the free trial first, own keys second, and says where to switch later', async () => {
+        const { window, document, cleanup } = loadFlow({
+            bootstrap: { needs_first_run: true }, cloud: true, trialAi: true,
+        });
+        try {
+            window.WGFirstRun.mount();
+            await settle();
+            expect(document.getElementById('wg-firstrun-title').textContent).toBe('AI features');
+            expect(document.querySelector('.wg-firstrun-screen__tagline').textContent)
+                .toMatch(/without your own key.*rate-limited/);
+            const actions = [...document.querySelectorAll('[data-firstrun-action]')].map((b) => b.dataset.firstrunAction);
+            expect(actions).toEqual(['trial', 'own-keys', 'skip']);
+            expect(document.querySelector('[data-firstrun-action="trial"]').className).toContain('wg-btn--primary');
+            expect(document.body.textContent).toContain('You can switch any time in Settings → AI & integrations.');
+            expect(document.getElementById('wg-firstrun-openai-api-key')).toBeNull();
+            // No reload resume in cloud: the step stays put until the user picks.
+            expect(window.WGFirstRun.state.getStep()).toBe('integrations');
+        } finally { cleanup(); }
+    });
+
+    it('the trial tap asks the ai consent and advances to done on Allow', async () => {
+        const consent = { request: vi.fn(async () => true) };
+        const fetchMock = vi.fn();
+        const { window, document, cleanup } = loadFlow({
+            bootstrap: { needs_first_run: true }, cloud: true, trialAi: true, trialConsent: consent, fetchMock,
+        });
+        try {
+            window.WGFirstRun.mount();
+            await settle();
+            document.querySelector('[data-firstrun-action="trial"]').click();
+            await settle();
+            expect(consent.request).toHaveBeenCalledWith('ai');
+            expect(fetchMock).not.toHaveBeenCalled(); // no key PATCH
+            expect(window.WGFirstRun.state.getStep()).toBe('done');
+        } finally { cleanup(); }
+    });
+
+    it('declining says the trial stays off and leaves own keys and skip working', async () => {
+        const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+        const { window, document, cleanup } = loadFlow({
+            bootstrap: { needs_first_run: true }, cloud: true, trialAi: true, fetchMock,
+            trialConsent: { request: vi.fn(async () => false) },
+        });
+        try {
+            window.WGFirstRun.mount();
+            await settle();
+            const tryBtn = document.querySelector('[data-firstrun-action="trial"]');
+            tryBtn.click();
+            await settle();
+            expect(document.querySelector('[data-firstrun-form-error="trial"]').textContent).toMatch(/stays off/);
+            expect(tryBtn.disabled).toBe(false);
+            expect(window.WGFirstRun.state.getStep()).toBe('integrations');
+
+            document.querySelector('[data-firstrun-action="own-keys"]').click();
+            document.getElementById('wg-firstrun-openai-api-key').value = 'sk-mine';
+            document.querySelector('[data-firstrun-action="save"]').click();
+            await settle();
+            expect(JSON.parse(fetchMock.mock.calls[0][1].body).openai.api_key).toBe('sk-mine');
+            expect(window.WGFirstRun.state.getStep()).toBe('done');
+        } finally { cleanup(); }
+    });
+
+    it('a consent dialog that throws says so and skip still works', async () => {
+        allowConsoleNoise(); // the screen logs the failure
+        const { window, document, cleanup } = loadFlow({
+            bootstrap: { needs_first_run: true }, cloud: true, trialAi: true,
+            trialConsent: { request: vi.fn(async () => { throw new Error('boom'); }) },
+        });
+        try {
+            window.WGFirstRun.mount();
+            await settle();
+            document.querySelector('[data-firstrun-action="trial"]').click();
+            await settle();
+            expect(document.querySelector('[data-firstrun-form-error="trial"]').textContent).toMatch(/Couldn’t start/);
+            document.querySelector('[data-firstrun-action="skip"]').click();
+            expect(window.WGFirstRun.state.getStep()).toBe('done');
         } finally { cleanup(); }
     });
 });

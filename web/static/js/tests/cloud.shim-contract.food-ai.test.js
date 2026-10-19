@@ -14,6 +14,7 @@
 // a real one) for the duration of each test; the picked File is likewise
 // constructed via env.window.File so both come from the same JSDOM realm.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { createAIClient } from '../../../cloud/js/aiclient.js';
 import { installApiCache, loadCloudShimFrontendEnv } from './helpers/cloud-shim-harness.js';
 import { allowConsoleNoise } from './helpers/setup.js';
@@ -617,6 +618,29 @@ describe('cloud shim contract — food AI flows (features/food/{add-sheet,photo,
             expect(trialCall).toBeDefined();
             const consent = await window.apiCall('/api/settings/trial-consent', 'GET');
             expect(consent.ai).toBe(true);
+        });
+
+        // bd med-oc8h — first run's "Try the free trial" is the same grant:
+        // the ai disclosure, persisted through the real shim route, then done.
+        it('first run leads with the trial; its tap grants the ai scope and moves on', async () => {
+            const { window, document } = env;
+            enableTrialAI(env);
+            const dir = new URL('../features/firstrun/', import.meta.url);
+            window.sessionStorage.setItem('wg-firstrun-step', 'integrations');
+            for (const f of ['state.js', 'screens/integrations.js', 'screens/done.js', 'index.js']) {
+                window.eval(readFileSync(new URL(f, dir), 'utf8'));
+            }
+            window.WGFirstRun.mount({ needs_first_run: true });
+
+            document.querySelector('[data-firstrun-action="trial"]').click();
+            await flushPromises();
+            const modal = document.querySelector('.wg-trial-consent-modal[data-trial-consent-scope="ai"]');
+            expect(modal).not.toBeNull();
+            modal.querySelector('[data-trial-consent-choice="allow"]').click();
+            await vi.waitFor(() => expect(window.WGFirstRun.state.getStep()).toBe('done'));
+            const consent = await window.apiCall('/api/settings/trial-consent', 'GET');
+            expect(consent.ai).toBe(true);
+            expect(consent.tg).not.toBe(true);
         });
     });
 

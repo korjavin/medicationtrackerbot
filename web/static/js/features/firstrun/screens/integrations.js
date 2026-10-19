@@ -43,6 +43,16 @@
 // step, sees the trial on and finishes), then trial.enroll() for the grant or
 // rejoin. A refusal or a failed grant says why and leaves "Use my own keys"
 // and "Skip for now" one tap away.
+//
+// Cloud mode (bd med-oc8h): where the operator configured a trial key (the
+// medtracker-trial-ai meta tag, _trialAvailable below) the same three-button
+// choice leads. The cloud trial needs no switch — aiclient.js routes through
+// the operator key whenever the user has no key of their own — but every
+// trial transmission is gated on the `ai` TrialConsent scope. So "Try the free
+// trial" is the Settings → AI & integrations "Allow" on the trial AI row:
+// TrialConsent.request('ai'), which persists the grant itself; on a grant the
+// screen advances to done. The Telegram (`tg`) and voice scopes stay
+// asked-on-first-use / in Settings, as before.
 (function () {
     'use strict';
 
@@ -139,6 +149,9 @@
     const TRIAL_TAGLINE = 'Try the AI and food database without your own keys. The free trial is '
         + 'limited and runs through our server; you’ll see exactly what it sends before it turns on.';
     const SWITCH_NOTE = 'You can switch any time in Settings → AI & integrations.';
+    const CLOUD_TRIAL_TAGLINE = 'Try the AI features — food by description and food photo — without your '
+        + 'own key. The free trial is rate-limited and runs on the operator’s shared key; you’ll see '
+        + 'exactly what it sends before it turns on.';
     const TRIAL_DECLINED = 'The free trial stays off. You can use your own keys, or skip for now.';
     const TRIAL_ERRORS = {
         trial_already_used: 'The free trial was already used on this iPhone. You can use your own keys, or skip for now.',
@@ -159,10 +172,12 @@
         return btn;
     }
 
+    // trial: the local-mode port (consent `anon`, then apply + enroll), or
+    // null in cloud mode (consent `ai` is the whole opt-in).
     function renderTrialChoice(body, helpers, trial) {
         const intro = document.createElement('p');
         intro.className = 'wg-firstrun-screen__tagline';
-        intro.textContent = TRIAL_TAGLINE;
+        intro.textContent = trial ? TRIAL_TAGLINE : CLOUD_TRIAL_TAGLINE;
         body.appendChild(intro);
 
         const error = document.createElement('p');
@@ -212,10 +227,15 @@
             error.textContent = '';
             let reloading = false;
             try {
-                const granted = window.TrialConsent ? await window.TrialConsent.request('anon') : false;
+                const scope = trial ? 'anon' : 'ai';
+                const granted = window.TrialConsent ? await window.TrialConsent.request(scope) : false;
                 if (granted !== true) {
                     fail(TRIAL_DECLINED);
                     tryBtn.textContent = 'Try the free trial';
+                    return;
+                }
+                if (!trial) {
+                    helpers.advance('done');
                     return;
                 }
                 reloading = (await trial.apply()) === true;
@@ -237,6 +257,7 @@
 
         // The same gate as the Settings row: no App Attest → the key form.
         // Already on (back from apply()'s reload) → finish the grant.
+        if (!trial) return;
         Promise.resolve(trial.status()).catch(function () { return null; }).then(function (status) {
             if (!tryBtn.isConnected) return;
             if (!status) {
@@ -252,6 +273,10 @@
         const localTrial = _localTrial();
         if (localTrial) {
             renderTrialChoice(body, helpers, localTrial);
+            return;
+        }
+        if (_trialAvailable()) {
+            renderTrialChoice(body, helpers, null);
             return;
         }
         renderKeys(body, helpers);
@@ -340,7 +365,10 @@
     window.WGFirstRun = window.WGFirstRun || {};
     window.WGFirstRun.screens = window.WGFirstRun.screens || {};
     window.WGFirstRun.screens.integrations = {
-        get title() { return _localTrial() ? 'AI and food database' : 'OpenAI integration'; },
+        get title() {
+            if (_localTrial()) return 'AI and food database';
+            return _trialAvailable() ? 'AI features' : 'OpenAI integration';
+        },
         render: render,
     };
 })();
