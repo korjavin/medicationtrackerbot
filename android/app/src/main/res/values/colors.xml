@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- --wg-bg-screen, the same colour as MainActivity.SCREEN and iOS LaunchBackground. -->
+    <!-- The web token wg-bg-screen: the same colour as MainActivity.SCREEN and iOS LaunchBackground. -->
     <color name="screen">#132D29</color>
     <color name="ic_launcher_background">@color/screen</color>
 </resources>
