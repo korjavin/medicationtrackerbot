@@ -256,11 +256,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Before the build, so the first boots (4-7 min each on a fresh device,
-      # run 39209916915) overlap it. One device at a time: booting both at
-      # once left them so slow that the first scene took 9 min and scenes
-      # timed out (run 39215981748).
-      - name: Create the simulators and start booting them
+      - name: Bundle the web app with the QA driver
+        run: QA=1 ios/bundle-web.sh "${{ github.run_number }}"
+
+      - name: Generate Xcode project and build for testing
+        working-directory: ios
+        run: |
+          command -v xcodegen >/dev/null || brew install xcodegen
+          xcodegen generate
+          xcodebuild -version
+          xcodebuild build-for-testing -project MedTracker.xcodeproj -scheme MedTracker \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO | tail -n 30
+          test "${PIPESTATUS[0]}" -eq 0
+
+      - name: Create and boot the simulators
         run: |
           xcrun simctl list devicetypes runtimes
           runtime="$(xcrun simctl list runtimes -j | jq -r '[.runtimes[] | select(.platform == "iOS" and .isAvailable)] | last | .identifier')"
@@ -278,34 +288,14 @@ jobs:
             [ -n "$udid" ] || udid="$(xcrun simctl create "QA $t" "$t" "$runtime")"
             echo "${t// /-}=$udid" >> "$RUNNER_TEMP/devices"
           done
-          cat "$RUNNER_TEMP/devices"
-          # Detached and serial: CoreSimulator keeps booting after this step ends.
-          nohup bash -c 'while IFS="=" read -r dev udid; do xcrun simctl bootstatus "$udid" -b < /dev/null; done < "$0"' \
-            "$RUNNER_TEMP/devices" > "$RUNNER_TEMP/boot.log" 2>&1 < /dev/null &
-
-      - name: Bundle the web app with the QA driver
-        run: QA=1 ios/bundle-web.sh "${{ github.run_number }}"
-
-      - name: Generate Xcode project and build for testing
-        working-directory: ios
-        run: |
-          command -v xcodegen >/dev/null || brew install xcodegen
-          xcodegen generate
-          xcodebuild -version
-          xcodebuild build-for-testing -project MedTracker.xcodeproj -scheme MedTracker \
-            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO | tail -n 30
-          test "${PIPESTATUS[0]}" -eq 0
-
-      - name: Wait for the simulators
-        run: |
-          start=$SECONDS
           while IFS='=' read -r dev udid; do
+            start=$SECONDS
             xcrun simctl bootstatus "$udid" -b < /dev/null | tail -n 1
-            echo "$dev booted, waited $((SECONDS - start))s after the build"
+            echo "$dev booted in $((SECONDS - start))s"
             xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 --wifiBars 3 --cellularBars 4
             xcrun simctl ui "$udid" appearance dark
           done < "$RUNNER_TEMP/devices"
+          cat "$RUNNER_TEMP/devices"
 
       - name: Run the scenes per device
         working-directory: ios

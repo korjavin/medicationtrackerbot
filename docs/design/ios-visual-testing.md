@@ -185,9 +185,13 @@ Tier 2 is the MVP; it is the only tier that would have caught `med-pe9g`. Tiers
    shot Plans with `ok:true`, run 39214150540) is caught too: the driver
    redoes the steps once if a ready selector is gone after the settle, and
    every report (re-published on class/`hidden` mutations) re-checks them,
-   failing with `ready` and `probes.readyLost`. The Simulators boot one
-   after the other in the background from before the build (booting both at
-   once left them too slow to run the scenes, run 39215981748).
+   failing with `ready` and `probes.readyLost`. Boot time is unchanged:
+   overlapping the first boots with the build (both devices at once, run
+   39215981748, or one after the other, run 39221955387) left the first
+   device's scenes starved (the first scene took 6-9 min, then it timed
+   out), so the devices still boot one after the other after the build. To
+   cut the wall time, run one device per job (a matrix) and merge the two
+   artifacts.
 
 ### Scenes (MVP, 15)
 
