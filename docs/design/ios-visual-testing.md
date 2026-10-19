@@ -90,7 +90,8 @@ Tier 2 is the MVP; it is the only tier that would have caught `med-pe9g`. Tiers
      `scale = visualViewport.scale` (must be 1), `hOverflow =
      documentElement.scrollWidth − innerWidth` (must be ≤ 0), `clippedTop` =
      any visible `.wg-sheet__header, .wg-sheethead, .wg-appbar, .wg-pagebar`
-     with `top < 0`, `canvasOverflow` = any `canvas` or chart `svg` (wider
+     whose top is above `visualViewport.offsetTop` (the visible top, so a
+     keyboard-panned viewport counts), `canvasOverflow` = any `canvas` or chart `svg` (wider
      than 64px) wider than its parent, `focusUnderKeyboard` = the focused
      element's bottom beyond `visualViewport.height + offsetTop`,
      `bottomNavCovered` = `.wg-tabbar` bottom beyond `innerHeight`, and

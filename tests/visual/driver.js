@@ -156,7 +156,10 @@
         const probes = {
             scale: vv ? vv.scale : 1,
             hOverflow: document.documentElement.scrollWidth - window.innerWidth,
-            clippedTop: shown('.wg-sheet__header, .wg-sheethead, .wg-appbar, .wg-pagebar').filter((el) => rect(el).top < 0).map(tag),
+            // Above the visible top: a panned visual viewport (keyboard) hides a
+            // header whose layout top is still >= 0.
+            clippedTop: shown('.wg-sheet__header, .wg-sheethead, .wg-appbar, .wg-pagebar')
+                .filter((el) => rect(el).top < (vv ? vv.offsetTop : 0) - 0.5).map(tag),
             // Charts are <svg>; icons (small svg) are skipped.
             canvasOverflow: shown('canvas, svg').filter((el) => {
                 const w = rect(el).width;
