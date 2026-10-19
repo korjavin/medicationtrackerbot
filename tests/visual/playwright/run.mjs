@@ -119,7 +119,7 @@ for (const [device, desc] of Object.entries(DEVICES)) {
     // A shot even on error: an empty or stuck page is itself evidence.
     for (const [suffix, fullPage] of [['', false], ['.full', true]]) {
       try {
-        await page.screenshot({ path: join(out, device, `${scene.name}${suffix}.png`), fullPage, animations: 'disabled' });
+        await page.screenshot({ path: join(out, device, `${scene.name}${suffix}.png`), fullPage, caret: 'initial' }); // no injected <style>: the page's CSP refuses it
         shots++;
       } catch (e) {
         row.note = `${row.note || ''} screenshot failed: ${e.message}`.trim();
