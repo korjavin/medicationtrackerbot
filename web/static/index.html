@@ -928,6 +928,20 @@
                 <p class="wg-hint">Stored in your vault. Saved keys show as <span class="wg-mono-display">***</span> and stay unchanged unless you re-enter them. Empty a field to clear a saved value.</p>
                 <p class="wg-hint wg-local-only">On this device, AI and food search reach only the providers you add here, and the free trial only if you turn it on. Voice and Telegram need a cloud account.</p>
 
+                <!-- Cloud's operator trial AI (med-6xb9, integrations.js
+                     renderTrialConsentRows): first while it is on offer, so a
+                     skipped onboarding still finds it. Same grant as the
+                     trial AI row's Allow below. -->
+                <section id="integrations-cloud-trial" class="wg-section hidden">
+                    <div class="wg-section__head"><span class="wg-eyebrow">Free trial</span></div>
+                    <div class="wg-card wg-vstack">
+                        <div class="wg-setting wg-setting--bare">
+                            <span class="wg-setting__body"><span class="wg-setting__title">Try the free AI trial</span><span class="wg-setting__desc">Describe a meal or snap a photo and the AI logs it, without your own key. Rate-limited and runs on the operator&rsquo;s shared key; you&rsquo;ll see what is sent before you agree.</span></span>
+                        </div>
+                        <button type="button" id="integrations-cloud-trial-start" class="wg-btn wg-btn--block">Try the free AI trial</button>
+                    </div>
+                </section>
+
                 <!-- Local mode's anonymous trial AI (bd med-o7zq.16,
                      integrations.js renderLocalTrial): shown only where the
                      shell supports App Attest. -->
