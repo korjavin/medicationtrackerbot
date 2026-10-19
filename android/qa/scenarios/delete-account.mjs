@@ -23,9 +23,11 @@ const storedHost = async (ctx) => {
 
 /** Settings → Account (the page the user opens). */
 async function openAccountPage(page) {
-  await page.locator('[data-nav-to="settings"]:visible').first().click();
-  await page.locator('[data-settings-open="account"]').waitFor({ state: 'visible', timeout: 15_000 });
-  await page.locator('[data-settings-open="account"]').click();
+  const row = page.locator('[data-settings-open="account"]');
+  // A reopened account restores its last section, Settings included (run 39325392612): no gear then.
+  if (!(await row.isVisible())) await page.locator('[data-nav-to="settings"]:visible').first().click();
+  await row.waitFor({ state: 'visible', timeout: 15_000 });
+  await row.click();
 }
 
 /** The account opened from the first run: a warm vault boots straight in; otherwise /unlock's passkey button. */
