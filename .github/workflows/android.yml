@@ -62,7 +62,7 @@ jobs:
       ANDROID_VERSION_CODE: ${{ github.run_number }}
       # Local mode's free trial (bd med-nt9p.32.8.4, BuildConfig.PLAY_CLOUD_PROJECT_NUMBER); unset
       # builds an app whose trial reports unsupported.
-      ANDROID_PLAY_CLOUD_PROJECT_NUMBER: ${{ vars.ANDROID_PLAY_CLOUD_PROJECT_NUMBER }}
+      ANDROID_PLAY_CLOUD_PROJECT_NUMBER: ${{ vars.ANDROID_PLAY_CLOUD_PROJECT_NUMBER || secrets.ANDROID_PLAY_CLOUD_PROJECT_NUMBER }}
     steps:
       # The shell's base domain (BuildConfig.BASE_DOMAIN, app/build.gradle.kts).
       # A SECRET, not the CLOUD_BASE_DOMAIN variable deploy.yml/ios.yml read: a

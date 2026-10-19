@@ -1532,6 +1532,50 @@
         return card;
     }
 
+    // ---- AI trial card (med-6xb9) -------------------------------------------
+    //
+    // After a skipped onboarding nothing else mentions the free AI trial. The
+    // card shows while SettingsIntegrations.trialOffer() says one is on offer
+    // (no own key, trial available, not started) and retires on "Not now" —
+    // per device, like the trackers empty state — or once the trial is on.
+    // The trial's AI logs meals, so Food off means no card.
+    const AI_TRIAL_DISMISSED = 'wg.today.aiTrialDismissed';
+    let aiTrialOffered = false; // last answer, so a re-render does not flash the card in or out
+
+    function aiTrialDismissed() {
+        try { return window.localStorage.getItem(AI_TRIAL_DISMISSED) === '1'; } catch (_) { return false; }
+    }
+
+    function retireAITrialCard() {
+        aiTrialOffered = false;
+        const card = doc().querySelector('[data-section="ai-trial"]');
+        if (card) card.remove();
+    }
+
+    function renderAITrialCard(state) {
+        const si = (typeof window !== 'undefined') ? window.SettingsIntegrations : null;
+        if (!si || typeof si.trialOffer !== 'function' || aiTrialDismissed()) return null;
+        if (state && state.caloriesToday && !on(state.caloriesToday)) return null;
+        const card = el('section', 'wg-card wg-vstack' + (aiTrialOffered ? '' : ' hidden'));
+        card.setAttribute('data-section', 'ai-trial');
+        const head = el('div', 'wg-card__head');
+        head.appendChild(el('span', 'wg-card__title', 'Try AI for free'));
+        const acts = el('div', 'wg-hstack');
+        acts.append(
+            btn('Try it', { sm: true, icon: 'sparkle', action: 'ai-trial-start', onClick: () => Promise.resolve().then(() => si.startTrial()).then((ok) => { if (ok) retireAITrialCard(); }, () => {}) }),
+            btn('Not now', { sm: true, ghost: true, action: 'ai-trial-dismiss', onClick: () => {
+                try { window.localStorage.setItem(AI_TRIAL_DISMISSED, '1'); } catch (_) { /* best-effort */ }
+                retireAITrialCard();
+            } }),
+        );
+        card.append(head, el('p', 'wg-hint', 'Snap or describe a meal and the AI logs it for you. No API key needed.'), acts);
+        Promise.resolve().then(() => si.trialOffer()).catch(() => false).then((offered) => {
+            aiTrialOffered = offered === true && !aiTrialDismissed();
+            card.classList.toggle('hidden', !aiTrialOffered);
+        });
+        return card;
+    }
+
     // ---- Tracker log sheet (TR1b) ------------------------------------------
 
     function closeTrackerSheet() {
@@ -3010,6 +3054,9 @@
             vitals.forEach((t) => strip.appendChild(t));
             root.appendChild(strip);
         }
+
+        const aiTrial = renderAITrialCard(state);
+        if (aiTrial) { root.appendChild(aiTrial); }
 
         const trackersCard = renderTrackersCard(state && state.trackers, nowMs);
         if (trackersCard) { root.appendChild(trackersCard); }

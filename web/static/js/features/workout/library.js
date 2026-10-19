@@ -464,7 +464,7 @@ async function saveExerciseLibraryItem() {
     const repsMaxRaw = document.getElementById('exercise-library-reps-max').value;
     const repsMax = repsMaxRaw !== '' ? parseInt(repsMaxRaw) : null;
     const weightRaw = document.getElementById('exercise-library-weight').value;
-    const weight = weightRaw !== '' ? parseFloat(weightRaw) : null;
+    const weight = weightRaw.trim() !== '' ? parseDecimal(weightRaw) : null;
     const notes = document.getElementById('exercise-library-notes').value.trim();
     const bodyPartEl = document.getElementById('exercise-library-body-part');
     const bodyPart = bodyPartEl ? bodyPartEl.value : '';

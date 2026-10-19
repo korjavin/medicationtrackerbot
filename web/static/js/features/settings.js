@@ -1353,8 +1353,8 @@ async function saveGamificationTargets({ toast = true } = {}) {
         if (!lowEl || !highEl) continue;
         const lowStr = lowEl.value.trim();
         const highStr = highEl.value.trim();
-        const low = lowStr === '' ? null : Number(lowStr);
-        const high = highStr === '' ? null : Number(highStr);
+        const low = lowStr === '' ? null : parseDecimal(lowStr);
+        const high = highStr === '' ? null : parseDecimal(highStr);
         const pretty = key.replace(/_/g, ' ');
         // Client-side guard against obviously unsafe values before the PUT (the
         // service validates the same, but catch it early for a clearer message).

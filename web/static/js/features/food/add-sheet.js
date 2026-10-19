@@ -356,7 +356,7 @@
                 title: 'How many grams?', label: 'Grams', value: String(st.picked.grams),
                 inputMode: 'decimal', confirmLabel: 'Use', emptyError: 'Enter the grams.',
             });
-            const g = Math.round(parseFloat(v));
+            const g = Math.round(parseDecimal(v));
             if (g > 0 && st.picked) setGrams(g);
         });
         picks.appendChild(other);
@@ -663,15 +663,16 @@
         const name = el('input', 'wg-input wg-input--text');
         name.value = item.name;
         const grams = el('input', 'wg-input');
-        grams.type = 'number';
+        grams.type = 'text';
         grams.inputMode = 'decimal';
+        grams.autocomplete = 'off';
         grams.value = String(item.weight);
         content.append(field('Name', name), field('Grams', grams));
         const choice = await safeForm('', content, {
             title: 'Edit item',
             confirmLabel: 'Done',
             collect: () => {
-                const g = Math.round(parseFloat(grams.value));
+                const g = Math.round(parseDecimal(grams.value));
                 if (!name.value.trim() || !(g > 0)) return null;
                 return { name: name.value.trim(), grams: g };
             },

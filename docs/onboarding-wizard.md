@@ -203,6 +203,14 @@ documents, two different primitives, no sharing needed. That is the correct boun
   fresh storage container that cannot read the choice, so that app's overlay asks instead; nor where
   `localStorage` is blocked, for the same reason. No choice on this
   browser → the overlay's trial choice as above.
+- **After a skip — trial stays discoverable** (`med-6xb9`, **implemented**): `SettingsIntegrations.trialOffer()`
+  is true while no own OpenAI key is saved, a trial exists (local: `CloudVault.trial.status()` non-null; cloud:
+  the trial meta) and it is not on (local switch off; cloud `ai` consent not `true`). Then Today shows a
+  *Try AI for free* card (`today.js renderAITrialCard`; hidden with Food off) whose *Try it* is
+  `SettingsIntegrations.startTrial()` — the local switch or `TrialConsent.request('ai')` — and *Not now*
+  retires it per device (`localStorage['wg.today.aiTrialDismissed']`, like the trackers empty state). In cloud,
+  Settings → AI & integrations leads with a *Try the free AI trial* entry (`#integrations-cloud-trial`) under the
+  same condition; local mode's trial switch already leads that page.
 
 ### `safety` — Emergency Kit + second device (`med-4pz.4`)
 

@@ -145,6 +145,16 @@
     }
 
     function renderTrialConsentRows() {
+        // Cloud's "Try the free AI trial" entry (med-6xb9): leads the page
+        // while the operator's trial is on offer and nothing else is set up.
+        // Hidden until the consent record has loaded, so a granted trial
+        // never flashes the offer.
+        const offer = document.getElementById('integrations-cloud-trial');
+        if (offer) {
+            const trialOn = document.querySelector('meta[name="medtracker-trial-ai"]')?.content === '1';
+            const keySet = !!(getInput(FIELD_IDS.openai.api_key)?.value);
+            offer.classList.toggle('hidden', !(trialOn && !keySet && _trialConsent && _trialConsent.ai !== true));
+        }
         for (const [metaName, hintId, scopes] of CONSENT_MOUNTS) {
             const hint = document.getElementById(hintId);
             if (!hint) continue;
@@ -202,9 +212,10 @@
             // persists the choice itself and resolves true only when the
             // PATCH landed, so apply the grant locally first — the re-GET is
             // reconciliation only and may fail without unshowing the grant.
+            let granted = false;
             if (window.TrialConsent && typeof window.TrialConsent.request === 'function') {
-                const granted = await window.TrialConsent.request(scope);
-                if (granted === true) {
+                granted = (await window.TrialConsent.request(scope)) === true;
+                if (granted) {
                     _trialConsent = { ...(_trialConsent || {}), [scope]: true };
                     renderTrialConsentRows();
                 }
@@ -212,7 +223,7 @@
             } else if (typeof safeToast === 'function') {
                 safeToast('Consent dialog unavailable — reload and try again', 'error');
             }
-            return;
+            return granted;
         }
         const prev = _trialConsent;
         const next = { ...(prev || {}), [scope]: allowed };
@@ -295,10 +306,11 @@
     async function setLocalTrial(on) {
         const trial = window.CloudVault && window.CloudVault.trial;
         const toggle = document.getElementById('integrations-local-trial-toggle');
-        if (!trial || !toggle) return;
+        if (!trial || !toggle) return false;
         toggle.disabled = true;
+        let ok = false;
         try {
-            const ok = on
+            ok = on
                 ? (window.TrialConsent ? await window.TrialConsent.request('anon') : false) === true
                 : await setTrialConsentScope('anon', false);
             if (ok) await trial.apply();
@@ -309,6 +321,36 @@
             toggle.disabled = false;
             await renderLocalTrial();
         }
+        return ok;
+    }
+
+    // trialOffer (med-6xb9): is a free AI trial on offer — no own OpenAI
+    // key, none started, and one this install can start? Today's "Try AI for
+    // free" card reads it, so a skipped onboarding still finds the trial.
+    async function trialOffer() {
+        if (typeof apiCall !== 'function') return false;
+        try {
+            const integ = await apiCall('/api/settings/integrations', 'GET');
+            if (!integ || (integ.openai && integ.openai.api_key)) return false;
+            const trial = window.CloudVault && window.CloudVault.trial;
+            if (trial) {
+                const status = await trial.status();
+                return !!status && status.on !== true;
+            }
+            if (document.querySelector('meta[name="medtracker-trial-ai"]')?.content !== '1') return false;
+            const consent = await apiCall('/api/settings/trial-consent', 'GET');
+            return !!consent && consent.ai !== true;
+        } catch (_) {
+            return false;
+        }
+    }
+
+    // startTrial: the Settings opt-in from anywhere — local mode's switch
+    // (`anon` consent + apply, which may reload), else cloud's `ai` consent.
+    // Resolves true once the trial is on.
+    async function startTrial() {
+        if (window.CloudVault && window.CloudVault.trial) return await setLocalTrial(true);
+        return await setTrialConsentScope('ai', true);
     }
 
     async function loadTrialConsent() {
@@ -612,6 +654,11 @@
             trialToggle.dataset.integrationsBound = '1';
             trialToggle.addEventListener('change', () => { setLocalTrial(trialToggle.checked); });
         }
+        const trialStart = document.getElementById('integrations-cloud-trial-start');
+        if (trialStart && !trialStart.dataset.integrationsBound) {
+            trialStart.dataset.integrationsBound = '1';
+            trialStart.addEventListener('click', () => { setTrialConsentScope('ai', true); });
+        }
     }
 
     if (document.readyState === 'loading') {
@@ -636,6 +683,8 @@
         load: loadIntegrations,
         save: saveIntegrations,
         patch: patchIntegrations,
+        trialOffer,
+        startTrial,
         // Internals exposed for the integration test suite. Not used by app code.
         _applyPayloadToDOM: applyPayloadToDOM,
         _readDOMIntoPayload: readDOMIntoPayload,

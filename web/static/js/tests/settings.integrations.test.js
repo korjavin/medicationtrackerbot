@@ -558,6 +558,73 @@ describe('Settings → Integrations section', () => {
         expect(consentRow(document, 'ai').querySelector('[data-trial-consent-state]').textContent).toBe('Not asked');
     });
 
+    // med-6xb9: a skipped onboarding must still find the free trial — the
+    // cloud entry leads the page, and Today's card asks the same question.
+    it('cloud: "Try the free AI trial" leads the page while the trial is on offer, and starts the ai consent', async () => {
+        const { window, document } = env;
+        window.__MEDTRACKER_CLOUD__ = true;
+        installTrialMetas(document, ['medtracker-trial-ai']);
+        window.apiCall = trialConsentApiStub(window, { ai: null, voice: null, tg: null, updated_at: 1 });
+
+        await window.SettingsIntegrations.load();
+        await new Promise(r => setTimeout(r, 0));
+
+        const offer = document.getElementById('integrations-cloud-trial');
+        expect(offer.classList.contains('hidden')).toBe(false);
+        expect(document.querySelector('#settings-integrations > .wg-section')).toBe(offer);
+        expect(await window.SettingsIntegrations.trialOffer()).toBe(true);
+
+        document.getElementById('integrations-cloud-trial-start').click();
+        await new Promise(r => setTimeout(r, 0));
+        const dialog = document.querySelector('.wg-trial-consent-modal');
+        expect(dialog.getAttribute('data-trial-consent-scope')).toBe('ai');
+        dialog.querySelector('[data-trial-consent-choice="allow"]').click();
+        await new Promise(r => setTimeout(r, 0));
+        await new Promise(r => setTimeout(r, 0));
+
+        expect(window.apiCall).toHaveBeenCalledWith('/api/settings/trial-consent', 'PATCH', { ai: true });
+        expect(offer.classList.contains('hidden')).toBe(true);
+        expect(await window.SettingsIntegrations.trialOffer()).toBe(false);
+    });
+
+    it('cloud: no trial entry or offer once an own key is saved, without the trial flag, or before consent loads', async () => {
+        const { window, document } = env;
+        window.__MEDTRACKER_CLOUD__ = true;
+        const offer = document.getElementById('integrations-cloud-trial');
+
+        // No trial flag (server without TRIAL_OPENAI_API_KEY): nothing to offer.
+        window.apiCall = trialConsentApiStub(window, { ai: null, updated_at: 1 });
+        await window.SettingsIntegrations.load();
+        await new Promise(r => setTimeout(r, 0));
+        expect(offer.classList.contains('hidden')).toBe(true);
+        expect(await window.SettingsIntegrations.trialOffer()).toBe(false);
+
+        // Own key stored: the trial is beside the point.
+        installTrialMetas(document, ['medtracker-trial-ai']);
+        window.apiCall = vi.fn(async (url) => (url === '/api/settings/integrations'
+            ? { openai: { api_key: '***' }, food: {}, elevenlabs: {} }
+            : { ai: null, updated_at: 1 }));
+        await window.SettingsIntegrations.load();
+        await new Promise(r => setTimeout(r, 0));
+        expect(offer.classList.contains('hidden')).toBe(true);
+        expect(await window.SettingsIntegrations.trialOffer()).toBe(false);
+    });
+
+    it('a declined consent dialog leaves the trial on offer', async () => {
+        const { window, document } = env;
+        window.__MEDTRACKER_CLOUD__ = true;
+        installTrialMetas(document, ['medtracker-trial-ai']);
+        window.apiCall = trialConsentApiStub(window, { ai: null, updated_at: 1 });
+        await window.SettingsIntegrations.load();
+        await new Promise(r => setTimeout(r, 0));
+
+        const started = window.SettingsIntegrations.startTrial();
+        await new Promise(r => setTimeout(r, 0));
+        document.querySelector('.mt-confirm-backdrop').click();
+        expect(await started).toBe(false);
+        expect(document.getElementById('integrations-cloud-trial').classList.contains('hidden')).toBe(false);
+    });
+
     it('Revoke PATCHes the single scope through DataStore.applyOptimistic with no dialog', async () => {
         const { window, document } = env;
         window.__MEDTRACKER_CLOUD__ = true;
