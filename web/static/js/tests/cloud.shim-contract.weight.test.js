@@ -272,7 +272,9 @@ describe('cloud shim contract — weight flows (features/weight.js over web/doma
     // highest + latest raw reading; the frontend-regression prognosis is gone.
     it('goal card renders the Goal Line distance/progress; prognosis stays hidden on a preliminary line', async () => {
         const now = Date.now();
-        const ago = (days) => new Date(now - days * 24 * 60 * 60 * 1000 - 3600000).toISOString();
+        // Halfway into today (UTC), not a fixed hour back: from 00:00 to 01:00
+        // UTC that put today's reading on yesterday and widened the ± range.
+        const ago = (days) => new Date(now - days * 24 * 60 * 60 * 1000 - (now % 86400000) / 2).toISOString();
         const w = (id, days, weight) => ({ recordId: id, clientTs: 1, deleted: false, measured_at: ago(days), weight, weight_trend: weight, body_fat: null, muscle_mass: null, notes: '' });
         setupEnv({
             // A lifetime high of 95 a year ago: the legacy card measured from it.
@@ -302,7 +304,9 @@ describe('cloud shim contract — weight flows (features/weight.js over web/doma
     // or nothing at all.
     it('prognosis card shows the projected date ± weeks, "more than a year", or stays hidden', async () => {
         const now = Date.now();
-        const ago = (days) => new Date(now - days * 24 * 60 * 60 * 1000 - 3600000).toISOString();
+        // Halfway into today (UTC), not a fixed hour back: from 00:00 to 01:00
+        // UTC that put today's reading on yesterday and widened the ± range.
+        const ago = (days) => new Date(now - days * 24 * 60 * 60 * 1000 - (now % 86400000) / 2).toISOString();
         const seed = (perDay, target) => ({
             weight: Array.from({ length: 60 }, (_, d) => ({ recordId: `w${d}`, clientTs: 1, deleted: false, measured_at: ago(d), weight: 87 + perDay * d, weight_trend: null, body_fat: null, muscle_mass: null, notes: '' })),
             weightgoal: [{ recordId: 'g1', clientTs: 1, deleted: false, set_at: ago(30), target_weight: target, target_date: null, start_weight: 88.5 }],
