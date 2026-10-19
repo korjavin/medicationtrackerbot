@@ -213,6 +213,19 @@ still verifies the asserted credential belongs to the account
 (`login/finish`, `DELETE /api/account`). On web and iOS the request is
 unchanged and sent once.
 
+Device logs showed the probe right after create fails once every time
+(`NotReadableError`, sometimes `NotAllowedError`) and succeeds ~1 s later;
+what broke the claim was a tap landing as the Credential Manager sheet closed,
+which started a second `register/begin` + create mid-backoff ("A request is
+already pending"; finish then 400'd on the superseded challenge). So under the
+bridge: the probe waits 1.5 s after create and also retries `NotAllowedError`
+once (it is also a user cancel, so the sheet reopens at most once;
+`NotReadableError` keeps 1/2/4 s), and `passkeyCeremony` (signup, claim/recover
+enrollment, cold unlock) holds one ceremony from begin to finish — a steady
+busy step with no button and no intermediate errors, extra taps dropped — and
+turns a browser error into one plain message whose button restarts with a
+fresh begin.
+
 ### Passkey diagnostics log (bd med-nt9p.22)
 
 Inside the shell only, every passkey ceremony is logged so a failure on a

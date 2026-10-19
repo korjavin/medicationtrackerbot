@@ -17,12 +17,18 @@ import {
   toBase64,
 } from './crypto.js';
 import { establishLdkCache } from './unlock.js';
-import { createCredential, prfProbe } from './passkey-get.js';
+import { createCredential, passkeyCeremony, prfProbe } from './passkey-get.js';
 import { diagHttp } from './passkey-diag.js';
 import { isIOS, isMobile, isStandalone, iosInstallStepsHtml } from './push.js';
 import { downloadDoc, printDoc } from './print-doc.js';
 
 const EXPIRED_LINK_MESSAGE = 'Could not start passkey registration — the invite link may be expired.';
+// Android shell's steady busy step (passkey-get.js passkeyCeremony).
+const CREATE_CEREMONY_COPY = {
+  busy: 'Setting up your passkey…',
+  hint: 'Google will then ask you to confirm the passkey you just created — choose it to finish.',
+  failed: "Couldn't set up your passkey. Tap Create your passkey to try again.",
+};
 
 // Android/desktop fire `beforeinstallprompt` when the origin becomes
 // installable — which can happen well before the wizard reaches its install
@@ -122,7 +128,7 @@ function renderWelcome(app, claimToken, errorText) {
     app.querySelector('section').appendChild(p);
   }
   app.querySelector('#create-passkey').addEventListener('click', () => {
-    startRegistration(app, claimToken).catch((err) => {
+    passkeyCeremony(app, CREATE_CEREMONY_COPY, () => startRegistration(app, claimToken)).catch((err) => {
       renderWelcome(app, claimToken, err.message || String(err));
     });
   });
