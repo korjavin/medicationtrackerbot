@@ -1,6 +1,7 @@
 import CryptoKit
 import DeviceCheck
 import Foundation
+import Security
 
 /// window.Attest on iOS (bd med-o7zq.16): App Attest + DeviceCheck for local
 /// mode's anonymous trial AI. The server half is internal/cloudserver/attest.go
@@ -19,10 +20,14 @@ import Foundation
 ///   attest.status → {supported, base, attested} (no network); attested: the
 ///     current key was attested already, so the server has it or the enroll
 ///     POST failed after it — Apple attests a key only once.
-///   attest.enroll {challenge} → {keyId, attestation, deviceToken}: attests
-///     the current key, or a new one when it was attested already or is gone
-///     (a new key then meets the server's DeviceCheck bit0: one trial per
-///     device). clientDataHash = SHA256(challenge).
+///   attest.enroll {challenge} → {keyId, attestation, deviceToken, pass?}:
+///     attests the current key, or a new one when it was attested already or
+///     is gone. pass is the trial pass in the Keychain, when an earlier
+///     install stored one: the server then binds the new key to that trial
+///     bucket (bd med-o7zq.26); without one, a new key meets the server's
+///     DeviceCheck bits. clientDataHash = SHA256(challenge).
+///   attest.setPass {pass} → null: stores the trial pass the server granted
+///     ("" deletes it).
 ///   attest.assert {challenge, bodySha256} → {keyId, assertion}, or "no_key"
 ///     when there is no usable key (enroll again). clientDataHash =
 ///     SHA256(challenge ‖ bodySha256); the page computes bodySha256 =
@@ -41,6 +46,35 @@ enum Attest {
     /// App Attest keys do not survive one.
     static let keyIdKey = "wgAttestKeyId"
     static let attestedKey = "wgAttestAttested"
+
+    /// The trial pass (bd med-o7zq.26) is the opposite: the Keychain, so it
+    /// outlives a reinstall and the next install rejoins the same trial
+    /// budget. This device only, after first unlock, never iCloud-synced.
+    static let passQuery: [String: Any] = [
+        kSecClass as String: kSecClassGenericPassword,
+        kSecAttrService as String: "wgTrialPass",
+        kSecAttrAccount as String: "trial",
+        kSecAttrSynchronizable as String: false,
+    ]
+
+    static func readPass() -> String? {
+        var query = passQuery
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var out: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &out) == errSecSuccess, let data = out as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func writePass(_ pass: String) throws {
+        SecItemDelete(passQuery as CFDictionary)
+        guard !pass.isEmpty else { return }
+        var item = passQuery
+        item[kSecValueData as String] = Data(pass.utf8)
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        let status = SecItemAdd(item as CFDictionary, nil)
+        guard status == errSecSuccess else { throw Failure("keychain \(status)") }
+    }
 
     /// False on the Simulator and devices without Secure Enclave support.
     static var supported: Bool { DCAppAttestService.shared.isSupported && DCDevice.current.isSupported }
@@ -71,8 +105,14 @@ enum Attest {
             }
             defaults.set(keyId, forKey: attestedKey)
             let token = try await DCDevice.current.generateToken()
-            return ["keyId": keyId, "attestation": attestation.base64EncodedString(),
-                    "deviceToken": token.base64EncodedString()]
+            var reply: [String: Any] = ["keyId": keyId, "attestation": attestation.base64EncodedString(),
+                                        "deviceToken": token.base64EncodedString()]
+            if let pass = readPass() { reply["pass"] = pass }
+            return reply
+        case "attest.setPass":
+            guard let pass = args["pass"] as? String else { throw Failure("invalid pass") }
+            try writePass(pass)
+            return NSNull()
         case "attest.assert":
             guard supported else { throw Failure("unsupported") }
             guard let keyId = current, attested else { throw Failure("no_key") }

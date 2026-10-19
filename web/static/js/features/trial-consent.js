@@ -42,17 +42,17 @@
     const ALTERNATIVE = 'Alternative: add your own key in Settings → Integrations, and this data goes only to your own provider account.';
 
     // iOS local mode (bd med-o7zq.16): no account, so the trial is anonymous —
-    // it goes through our server and is counted per app install. One switch,
+    // it goes through our server and is counted per device trial bucket. One switch,
     // the `anon` scope, covers the AI, the operator's food database and, from
     // bd med-o7zq.23, voice calls. The copy must say what the server keeps and
-    // that a reinstall forfeits the rest. The minutes are the operator's
+    // that a reinstall continues it (bd med-o7zq.26). The minutes are the operator's
     // TRIAL_ANON_VOICE_LIFETIME / _DAILY / _CALL_MAX_SECONDS (owner-approved).
     const LOCAL_COPY = {
         anon: {
             title: 'Try the AI, food database and voice calls without your own keys?',
             data: 'What you ask the AI to read — meal and activity descriptions, meal photos, workout-sheet photos with your plan’s exercise names, and exercise names to tag — and the barcodes and food names you look up will be sent through our server: AI requests to the operator’s AI provider account (OpenAI or Anthropic, the operator’s choice), lookups to the operator’s food database. Our server keeps no prompts, photos or searches.',
             voice: 'Voice calls: your voice audio and the transcript go to the operator’s ElevenLabs account. The agent’s answers are written by the operator’s AI provider through our server, which receives each turn AND the health data the agent reads from this phone to answer you — blood pressure, weight, workouts, medications, food, sleep, notes. Our server keeps no call content.',
-            transit: 'To count the trial without an account, our server stores an anonymous install id from Apple’s App Attest and how many requests and seconds of calls it has used, and Apple’s DeviceCheck keeps a mark that this iPhone had its trial. You get a limited number of free AI requests per install of the app, a daily allowance of food lookups, and 10 free minutes of voice calls per install, up to 5 a day (shown in Settings), counted by our server as call time: each call uses up to 2 minutes of them when it starts, even if you hang up sooner. Reinstalling the app gives up the rest, and the trial does not start again.',
+            transit: 'To count the trial without an account, our server stores an anonymous install id from Apple’s App Attest and how many requests and seconds of calls this iPhone’s trial has used, and Apple’s DeviceCheck keeps a mark that this iPhone had its trial. You get a limited number of free AI requests on this iPhone, a daily allowance of food lookups, and 10 free minutes of voice calls on this iPhone, up to 5 a day (shown in Settings), counted by our server as call time: each call uses up to 2 minutes of them when it starts, even if you hang up sooner. Reinstalling the app continues the same allowance — a trial pass kept in this iPhone’s keychain links the new install to it — and the trial does not start again.',
             alternative: 'Alternative: add your own keys in Settings → AI & integrations, and this data goes only to your own providers, never through our server.',
         },
     };

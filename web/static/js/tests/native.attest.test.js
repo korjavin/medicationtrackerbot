@@ -40,12 +40,14 @@ describe('native/attest.js', () => {
         expect(w.Attest.status).toBeUndefined();
         expect(w.Attest.enroll).toBeUndefined();
         expect(w.Attest.assert).toBeUndefined();
+        expect(w.Attest.setPass).toBeUndefined();
     });
 
-    it('ios: status, enroll and assert are plain round trips to the shell', async () => {
+    it('ios: status, enroll, assert and setPass are plain round trips to the shell', async () => {
         const replies = {
             'attest.status': { supported: true, base: 'example.test', attested: false },
-            'attest.enroll': { keyId: 'K', attestation: 'QQ==', deviceToken: 'RA==' },
+            'attest.enroll': { keyId: 'K', attestation: 'QQ==', deviceToken: 'RA==', pass: 'B.c2VjcmV0' },
+            'attest.setPass': null,
             'attest.assert': { keyId: 'K', assertion: 'Uw==' },
         };
         const { w, sent } = load({ reply: (m) => Promise.resolve(replies[m.op]) });
@@ -53,10 +55,12 @@ describe('native/attest.js', () => {
         await expect(w.Attest.status()).resolves.toEqual(replies['attest.status']);
         await expect(w.Attest.enroll('Q0g=')).resolves.toEqual(replies['attest.enroll']);
         await expect(w.Attest.assert('Q0g=', 'RA==')).resolves.toEqual(replies['attest.assert']);
+        await expect(w.Attest.setPass('B.c2VjcmV0')).resolves.toBeNull();
         expect(JSON.parse(JSON.stringify(sent))).toEqual([
             { op: 'attest.status', args: {} },
             { op: 'attest.enroll', args: { challenge: 'Q0g=' } },
             { op: 'attest.assert', args: { challenge: 'Q0g=', bodySha256: 'RA==' } },
+            { op: 'attest.setPass', args: { pass: 'B.c2VjcmV0' } },
         ]);
     });
 

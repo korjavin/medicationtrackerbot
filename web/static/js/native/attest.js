@@ -10,9 +10,13 @@
 //                                    false on the Simulator and old devices; base
 //                                    is the trial host; attested: the current key
 //                                    was attested once (Apple allows only once)
-//   enroll(challenge)              → { keyId, attestation, deviceToken } (base64)
-//                                    for the current key, or a new one once it
-//                                    was attested
+//   enroll(challenge)              → { keyId, attestation, deviceToken, pass? }
+//                                    (base64) for the current key, or a new one
+//                                    once it was attested; pass: the trial pass
+//                                    an earlier install kept in the Keychain
+//   setPass(pass)                  → null; keeps the server's trial pass in the
+//                                    Keychain (survives a reinstall, this device
+//                                    only, bd med-o7zq.26); '' deletes it
 //   assert(challenge, bodySha256)  → { keyId, assertion } (base64); rejects
 //                                    "no_key" when there is no usable key (enroll again)
 // challenge and bodySha256 are standard base64. The replies mean something
@@ -38,5 +42,6 @@
         assert: function (challenge, bodySha256) {
             return foundation.call('attest.assert', { challenge: challenge, bodySha256: bodySha256 });
         },
+        setPass: function (pass) { return foundation.call('attest.setPass', { pass: pass }); },
     });
 })();

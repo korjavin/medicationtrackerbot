@@ -278,12 +278,28 @@ func (e *attestEnv) challenge() string {
 }
 
 func (e *attestEnv) enroll(k *ecdsa.PrivateKey, appID, chal, token string) *httptest.ResponseRecorder {
+	return e.enrollPass(k, appID, chal, token, "")
+}
+
+// enrollPass enrolls presenting a trial pass (bd med-o7zq.26); "" sends none.
+func (e *attestEnv) enrollPass(k *ecdsa.PrivateKey, appID, chal, token, pass string) *httptest.ResponseRecorder {
 	raw, _ := base64.StdEncoding.DecodeString(chal)
-	body, _ := json.Marshal(map[string]string{
+	req := map[string]string{
 		"key_id": attestKeyID(e.t, k), "challenge": chal, "device_token": token,
 		"attestation": base64.StdEncoding.EncodeToString(fakeAttestation(e.t, e.ca, k, appID, raw)),
-	})
+	}
+	if pass != "" {
+		req["pass"] = pass
+	}
+	body, _ := json.Marshal(req)
 	return e.do("localhost", attestEnrollPath, string(body), nil)
+}
+
+// passOf is the trial pass a grant response carries ("" when none).
+func passOf(rec *httptest.ResponseRecorder) string {
+	var out struct{ Pass string }
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	return out.Pass
 }
 
 // chat signs signedBody but sends body (equal unless a test forges it).
@@ -325,26 +341,52 @@ func TestAttestEnroll(t *testing.T) {
 	if bits, _ := e.dc.state("tok-1"); bits != [2]bool{true, false} {
 		t.Fatalf("bit0 not set: %v", bits)
 	}
+	// The grant carries the bucket's pass; the server keeps only the
+	// secret's SHA-256 (bd med-o7zq.26).
+	pass := passOf(rec)
+	bucket, secretB64, _ := strings.Cut(pass, ".")
+	secret, _ := base64.RawURLEncoding.DecodeString(secretB64)
+	if bucket != attestKeyID(t, k) || len(secret) < 16 {
+		t.Fatalf("pass shape: %q", pass)
+	}
+	sum := sha256.Sum256(secret)
+	if h, err := e.store.AttestBucketPassHash(context.Background(), bucket); err != nil || string(h) != string(sum[:]) {
+		t.Fatalf("stored pass hash: %x %v", h, err)
+	}
 	wantErr(t, e.enroll(k, attestTestAppID, chal, "tok-1"), http.StatusBadRequest, "challenge_invalid")
 
 	// Re-enroll the same key: 200, no DeviceCheck call.
 	_, calls := e.dc.state("")
 	rec = e.enroll(k, attestTestAppID, e.challenge(), "tok-1")
-	if _, after := e.dc.state(""); rec.Code != http.StatusOK || after != calls {
-		t.Fatalf("re-enroll: %d calls %d→%d", rec.Code, calls, after)
+	if _, after := e.dc.state(""); rec.Code != http.StatusOK || after != calls || passOf(rec) != "" {
+		t.Fatalf("re-enroll: %d calls %d→%d %s", rec.Code, calls, after, rec.Body.String())
 	}
-	// Second key on the same device: bit0 already set.
+	// Second key on the same device without a pass (a wiped phone, or an
+	// install from before passes): bit0 set, bit1 clear → ONE fresh bucket,
+	// bit1 set.
+	k2 := attestKey(t)
+	rec = e.enroll(k2, attestTestAppID, e.challenge(), "tok-1")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"remaining":3`) || passOf(rec) == "" || passOf(rec) == pass {
+		t.Fatalf("second grant: %d %s", rec.Code, rec.Body.String())
+	}
+	if bits, _ := e.dc.state("tok-1"); bits != [2]bool{true, true} {
+		t.Fatalf("bit1 not set: %v", bits)
+	}
+	if in, _ := e.store.AttestInstall(context.Background(), attestKeyID(t, k2)); in.BucketID != attestKeyID(t, k2) {
+		t.Fatalf("second grant joined a bucket: %+v", in)
+	}
+	// Both bits set, no pass: trial_already_used.
 	wantErr(t, e.enroll(attestKey(t), attestTestAppID, e.challenge(), "tok-1"), http.StatusForbidden, "trial_already_used")
-	// Two new keys from one device racing: exactly one grant.
+	// Three new keys from one device racing: exactly two grants (bit0, bit1).
 	var wg sync.WaitGroup
-	codes := make([]int, 2)
+	codes := make([]int, 3)
 	for i := range codes {
 		k, c := attestKey(t), e.challenge()
 		wg.Add(1)
 		go func() { defer wg.Done(); codes[i] = e.enroll(k, attestTestAppID, c, "tok-race").Code }()
 	}
 	wg.Wait()
-	if (codes[0] == 200) == (codes[1] == 200) {
+	if countOK(codes) != 2 {
 		t.Fatalf("concurrent same-device enroll: %v", codes)
 	}
 	wantErr(t, e.enroll(attestKey(t), "OTHER.ai.example.app", e.challenge(), "tok-2"), http.StatusUnauthorized, "attestation_invalid")
@@ -702,3 +744,120 @@ func TestAttestFood(t *testing.T) {
 		t.Fatalf("preflight: %d %v", rec.Code, rec.Header())
 	}
 }
+
+func countOK(codes []int) (n int) {
+	for _, c := range codes {
+		if c == http.StatusOK {
+			n++
+		}
+	}
+	return n
+}
+
+// bd med-o7zq.26: a reinstall presenting the trial pass rejoins its bucket.
+// Every budget is the bucket's: lifetime, daily, food daily, the burst
+// limiter; concurrent installs of one bucket never double-spend.
+func TestAttestRejoin(t *testing.T) {
+	ctx := context.Background()
+	e := newAttestEnv(t, 4, 0, 0)
+	e.attest.cfg.FoodDaily = 1
+	k1 := attestKey(t)
+	rec := e.enroll(k1, attestTestAppID, e.challenge(), "tok-A")
+	pass := passOf(rec)
+	if rec.Code != http.StatusOK || pass == "" {
+		t.Fatalf("grant: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := e.chat(k1, 1, e.challenge(), attestChatBody, attestChatBody); rec.Code != http.StatusOK || rec.Header().Get("X-Trial-Remaining") != "3" {
+		t.Fatalf("k1 chat: %d %s", rec.Code, rec.Header().Get("X-Trial-Remaining"))
+	}
+	if rec := e.foodGet("localhost", k1, 2, e.challenge(), "/api/attest/food/search?q=oats", "/api/attest/food/search?q=oats"); rec.Code != http.StatusOK {
+		t.Fatalf("k1 food: %d", rec.Code)
+	}
+
+	// The reinstall: a new key, the pass, no DeviceCheck call, nothing reset.
+	_, calls := e.dc.state("")
+	k2 := attestKey(t)
+	rec = e.enrollPass(k2, attestTestAppID, e.challenge(), "tok-A2", pass)
+	if _, after := e.dc.state(""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"remaining":3`) || passOf(rec) != "" || after != calls {
+		t.Fatalf("rejoin: %d %s dc calls %d→%d", rec.Code, rec.Body.String(), calls, after)
+	}
+	if in, _ := e.store.AttestInstall(ctx, attestKeyID(t, k2)); in.BucketID != attestKeyID(t, k1) {
+		t.Fatalf("rejoined bucket: %+v", in)
+	}
+	// Food: the bucket's one lookup today is spent.
+	wantErr(t, e.foodGet("localhost", k2, 1, e.challenge(), "/api/attest/food/search?q=oats", "/api/attest/food/search?q=oats"),
+		http.StatusTooManyRequests, "trial_budget_exhausted")
+	// Lifetime: k2 and k1 spend one budget; two concurrent last-but-one
+	// requests from both installs never overshoot it.
+	if rec := e.chat(k2, 2, e.challenge(), attestChatBody, attestChatBody); rec.Code != http.StatusOK || rec.Header().Get("X-Trial-Remaining") != "2" {
+		t.Fatalf("k2 chat: %d %s", rec.Code, rec.Header().Get("X-Trial-Remaining"))
+	}
+	var wg sync.WaitGroup
+	codes := make([]int, 3)
+	for i, k := range []*ecdsa.PrivateKey{k1, k2, k1} {
+		c, counter := e.challenge(), uint32(10+i)
+		wg.Add(1)
+		go func() { defer wg.Done(); codes[i] = e.chat(k, counter, c, attestChatBody, attestChatBody).Code }()
+	}
+	wg.Wait()
+	if n := countOK(codes); n != 2 {
+		t.Fatalf("concurrent bucket spend: %v", codes)
+	}
+	rec = e.chat(k2, 20, e.challenge(), attestChatBody, attestChatBody)
+	wantErr(t, rec, http.StatusTooManyRequests, "trial_budget_exhausted")
+	if !strings.Contains(rec.Body.String(), `"scope":"install"`) {
+		t.Fatalf("scope: %s", rec.Body.String())
+	}
+	// Another reinstall rejoins the exhausted bucket: still exhausted.
+	k3 := attestKey(t)
+	if rec := e.enrollPass(k3, attestTestAppID, e.challenge(), "tok-A3", pass); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"remaining":0`) {
+		t.Fatalf("rejoin exhausted: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Bad passes are refused and store nothing: a wrong secret, an unknown
+	// bucket, a malformed pass, and a backfilled bucket (no pass at all).
+	bucket, _, _ := strings.Cut(pass, ".")
+	wrong := bucket + "." + base64.RawURLEncoding.EncodeToString(make([]byte, trialPassBytes))
+	_, secret, _ := strings.Cut(pass, ".")
+	if err := e.store.InsertAttestInstall(ctx, cloudstore.AttestInstall{KeyID: "legacy", PublicKey: []byte{1}, Env: "production", CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{wrong, "unknown." + secret, "no-dot", "." + secret, bucket + ".!!", "legacy." + secret} {
+		k := attestKey(t)
+		wantErr(t, e.enrollPass(k, attestTestAppID, e.challenge(), "tok-bad", bad), http.StatusUnauthorized, "trial_pass_invalid")
+		if _, err := e.store.AttestInstall(ctx, attestKeyID(t, k)); err == nil {
+			t.Fatalf("row stored for bad pass %q", bad)
+		}
+	}
+	if bits, _ := e.dc.state("tok-bad"); bits != [2]bool{} {
+		t.Fatalf("bad pass touched DeviceCheck: %v", bits)
+	}
+}
+
+// bd med-o7zq.26: voice is the bucket's too — one call at a time per bucket,
+// and the seconds are shared.
+func TestAttestRejoinVoice(t *testing.T) {
+	e := newAttestEnv(t, 10, 0, 0)
+	e.voiceOn()
+	k1 := attestKey(t)
+	pass := passOf(e.enroll(k1, attestTestAppID, e.challenge(), "tok-V"))
+	k2 := attestKey(t)
+	if rec := e.enrollPass(k2, attestTestAppID, e.challenge(), "tok-V2", pass); rec.Code != http.StatusOK {
+		t.Fatalf("rejoin: %d %s", rec.Code, rec.Body.String())
+	}
+	rec, out := e.voiceStart(k1, 1)
+	if rec.Code != http.StatusOK || out.Granted != attestDefaultVoiceCallMax {
+		t.Fatalf("k1 start: %d %s", rec.Code, rec.Body.String())
+	}
+	wantErr(t, mustRec(e.voiceStart(k2, 1)), http.StatusConflict, "call_in_progress")
+	e.reapNow(out.Call)
+	rec, out = e.voiceStart(k2, 2)
+	if rec.Code != http.StatusOK || out.Remaining != 600-2*attestDefaultVoiceCallMax {
+		t.Fatalf("k2 start: %d %s", rec.Code, rec.Body.String())
+	}
+	if e.voiceUsed(k1) != 2*attestDefaultVoiceCallMax {
+		t.Fatalf("bucket voice used: %d", e.voiceUsed(k1))
+	}
+}
+
+func mustRec(rec *httptest.ResponseRecorder, _ voiceStartResp) *httptest.ResponseRecorder { return rec }

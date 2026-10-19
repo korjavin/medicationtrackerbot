@@ -820,15 +820,17 @@ describe('local-only mode anonymous trial opt-in (med-o7zq.16)', () => {
             expect(el).not.toBeNull();
             return el;
         });
-        // Local copy: through our server, what it keeps, per install, reinstall forfeits.
+        // Local copy: through our server, what it keeps, per iPhone, and a
+        // reinstall continues the same allowance (bd med-o7zq.26).
         expect(modal.textContent).toMatch(/through our server/i);
         expect(modal.textContent).toMatch(/App Attest/);
-        expect(modal.textContent).toMatch(/per install/i);
-        expect(modal.textContent).toMatch(/reinstalling the app gives up the rest/i);
+        expect(modal.textContent).toMatch(/free AI requests on this iPhone/i);
+        expect(modal.textContent).toMatch(/reinstalling the app continues the same allowance/i);
+        expect(modal.textContent).not.toMatch(/gives up the rest/i);
         // Voice (bd med-o7zq.23): what goes where, and the minutes.
         expect(modal.textContent).toMatch(/voice calls/i);
         expect(modal.textContent).toMatch(/ElevenLabs account/);
-        expect(modal.textContent).toMatch(/10 free minutes of voice calls per install/);
+        expect(modal.textContent).toMatch(/10 free minutes of voice calls on this iPhone/);
         expect(modal.textContent).toMatch(/each call uses up to 2 minutes/);
         modal.querySelector('[data-trial-consent-choice="allow"]').click();
         await turningOn;
@@ -1233,5 +1235,102 @@ describe('local-only mode trial voice calls (med-o7zq.23)', () => {
         expect(starts()).toHaveLength(1);
         expect(FakeSocket.instances).toEqual([]);
         expect(startSession).not.toHaveBeenCalled();
+    });
+});
+
+// bd med-o7zq.26 — the trial pass: a fresh grant's pass goes to the shell's
+// Keychain (window.Attest.setPass), and after a reinstall the shell's enroll
+// reply hands it back, so the enroll presents it and the server rejoins the
+// same device bucket instead of answering trial_already_used.
+describe('local-only mode trial pass across reinstalls (med-o7zq.26)', () => {
+    const TRIAL_BASE = 'trial-base.example.test';
+    const ENROLL = `https://${TRIAL_BASE}/api/attest/enroll`;
+    let env;
+    let enrolls;
+    let enrollReply;
+
+    beforeEach(async () => {
+        await deleteDb();
+        enrolls = [];
+        enrollReply = () => new Response(JSON.stringify({ remaining: 200, daily: 50 }), { status: 200 });
+        const recorder = vi.fn(async (url, init = {}) => {
+            const u = String(url);
+            if (u === `https://${TRIAL_BASE}/api/attest/challenge`) {
+                return new Response(JSON.stringify({ challenge: 'c1', expires_in: 300 }), { status: 200 });
+            }
+            if (u === ENROLL) {
+                const body = JSON.parse(init.body);
+                enrolls.push(body);
+                return enrollReply(body);
+            }
+            return createMockResponse({ status: 503, json: {} });
+        });
+        vi.stubGlobal('fetch', recorder);
+        env = loadFrontendEnv();
+        env.window.fetch = recorder;
+        const bridge = vi.fn(async (op) => (op === 'setEgressHosts' ? { changed: false } : null));
+        const notifications = { isSupported: () => false, __native: { platform: 'ios', call: bridge } };
+        env.window.LocalNotifications = notifications;
+        vi.stubGlobal('LocalNotifications', notifications);
+        // A fresh install: no attested key yet, so turning the trial on enrolls.
+        env.window.Attest = {
+            isSupported: () => true,
+            status: vi.fn(async () => ({ supported: true, base: TRIAL_BASE, attested: false })),
+            enroll: vi.fn(async () => ({ keyId: 'key-1', attestation: 'QQ==', deviceToken: 'RA==' })),
+            assert: vi.fn(),
+            setPass: vi.fn(async () => null),
+        };
+        const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
+        run(env.window, (spec) => MODULES[spec]());
+        await env.window.MedTrackerCloudReady;
+        await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] }));
+    });
+
+    afterEach(async () => {
+        await env.window.apiCall('/api/settings/trial-consent', 'PATCH', { anon: false });
+        await env.window.CloudVault.trial.apply();
+        const { setTrialTransport } = await import('../../../cloud/js/aiclient.js');
+        setTrialTransport(null);
+        env.cleanup();
+        vi.unstubAllGlobals();
+    });
+
+    async function trialOn() {
+        await env.window.apiCall('/api/settings/trial-consent', 'PATCH', { anon: true });
+        await env.window.CloudVault.trial.apply();
+    }
+
+    it('a first grant keeps the pass from the enroll response in the Keychain', async () => {
+        enrollReply = () => new Response(JSON.stringify({ remaining: 200, daily: 50, pass: 'bucket.secret' }), { status: 200 });
+        await trialOn();
+        await vi.waitFor(() => expect(env.window.Attest.setPass).toHaveBeenCalledWith('bucket.secret'));
+        expect(enrolls).toHaveLength(1);
+        expect(enrolls[0]).not.toHaveProperty('pass');
+    });
+
+    it('after a reinstall the Keychain pass rides on the enroll, and the rejoin stores nothing new', async () => {
+        env.window.Attest.enroll = vi.fn(async () => ({
+            keyId: 'key-2', attestation: 'QQ==', deviceToken: 'RA==', pass: 'bucket.secret',
+        }));
+        enrollReply = () => new Response(JSON.stringify({ remaining: 120, daily: 50 }), { status: 200 });
+        await trialOn();
+        await vi.waitFor(() => expect(enrolls).toHaveLength(1));
+        expect(enrolls[0]).toMatchObject({ key_id: 'key-2', pass: 'bucket.secret' });
+        // The enroll finished (its body is in the Settings memo): no pass to keep.
+        await vi.waitFor(() => expect(JSON.parse(env.window.localStorage.getItem('wg:local-trial'))).toMatchObject({ daily: 50 }));
+        expect(env.window.Attest.setPass).not.toHaveBeenCalled();
+    });
+
+    it('a pass the server refuses is dropped, and the enroll runs once more without it', async () => {
+        env.window.Attest.enroll = vi.fn(async () => ({
+            keyId: 'key-3', attestation: 'QQ==', deviceToken: 'RA==', pass: 'stale.secret',
+        }));
+        enrollReply = (body) => (body.pass
+            ? new Response(JSON.stringify({ error: 'trial_pass_invalid' }), { status: 401 })
+            : new Response(JSON.stringify({ remaining: 200, daily: 50, pass: 'fresh.secret' }), { status: 200 }));
+        await trialOn();
+        await vi.waitFor(() => expect(env.window.Attest.setPass).toHaveBeenCalledWith('fresh.secret'));
+        expect(env.window.Attest.setPass.mock.calls).toEqual([[''], ['fresh.secret']]);
+        expect(enrolls.map((b) => b.pass)).toEqual(['stale.secret', undefined]);
     });
 });
