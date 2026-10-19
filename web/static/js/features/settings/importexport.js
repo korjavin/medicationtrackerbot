@@ -370,6 +370,10 @@
         // Full refresh so every section re-renders from the restored vault
         // (simplest correct path — same as post-bootstrap reload).
         location.reload();
+        // ponytail: released once the reload is asked for, so a reload that
+        // never happens (a cancelled leave prompt) can't wedge Restore; the old
+        // page's last moments before the reload commits stay unguarded.
+        importInFlight = false;
         return { imported: true };
     }
 

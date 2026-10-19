@@ -12,7 +12,7 @@ import 'fake-indexeddb/auto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
-    afterEach, beforeEach, describe, expect, it, vi
+    afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi
 } from 'vitest';
 import { loadFrontendEnv, createMockResponse } from './helpers/frontend-harness.js';
 import { localRecordsPort } from '../../../cloud/js/sync.js';
@@ -463,6 +463,9 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
     let bridge;
     let schedule;
     let permission;
+    // The boot's shell.ops answer: nativeHas memoises it for the page, and the
+    // boot already asks (pickupLeaveStash), so a test can't change it later.
+    let bootShellOps = true;
     const HEALTH_UUID = '11111111-2222-4333-8444-555555555555';
 
     const offDevice = () => fetched.filter((u) => u.startsWith('/api/') || /^[a-z][a-z0-9+.-]*:/i.test(u));
@@ -488,7 +491,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         // __native.call is native/index.js call(op, args), answered in
         // ios/App/Shell.swift: setEgressHosts {hosts} → {changed},
         // local.reset → true.
-        bridge = vi.fn(async (op) => (op === 'setEgressHosts' ? { changed: false } : true));
+        bridge = vi.fn(async (op) => (op === 'shell.ops' ? bootShellOps : op === 'setEgressHosts' ? { changed: false } : true));
         schedule = vi.fn(async (items) => (permission === 'granted' ? Math.min(items.length, 64) : 0));
         permission = 'default';
         const notifications = {
@@ -752,44 +755,49 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         expect(moveOps()).toEqual([]);
     });
 
-    it('Settings home Move row: export → move.stash → local.leave, records kept', async () => {
-        const { window, document } = env;
-        await window.apiCall('/api/weight', 'POST', { weight: 80 });
-        cancelReminderRecompute({ accountId: 'local' });
-        let stashed = null;
-        withMoveOps(({ vault }) => { stashed = vault; return true; });
-        window.bindLocalMoveRow();
-        const row = document.getElementById('settings-local-move-btn');
-        await vi.waitFor(() => expect(row.classList.contains('wg-settings-hidden')).toBe(false));
-        row.click();
-        const dialog = await openDialog(document);
-        expect(dialog.textContent).toMatch(/Move to a cloud account\?/);
-        dialog.querySelector('.mt-confirm-modal__confirm').click();
-        await vi.waitFor(() => expect(moveOps()).toEqual(['move.stash', 'local.leave']));
-        const expected = JSON.parse(await window.CloudVault.exportAll({ win: window }));
-        expect(JSON.parse(stashed).data).toEqual(expected.data);
-        expect((await localRecordsPort().list('weight')).map((r) => r.weight)).toEqual([80]);
-        expect(offDevice()).toEqual([]);
-    });
+    describe('with a shell that lists move.stash', () => {
+        beforeAll(() => { bootShellOps = ['ping', 'shell.ops', 'move.stash', 'local.leave']; });
+        afterAll(() => { bootShellOps = true; });
 
-    it('Settings home Move row: a rejected stash shows the file steps and never leaves', async () => {
-        const { window, document } = env;
-        allowConsoleNoise();
-        withMoveOps(() => { throw new Error('too large'); });
-        window.bindLocalMoveRow();
-        const row = document.getElementById('settings-local-move-btn');
-        await vi.waitFor(() => expect(row.classList.contains('wg-settings-hidden')).toBe(false));
-        row.click();
-        (await openDialog(document)).querySelector('.mt-confirm-modal__confirm').click();
-        const alert = await vi.waitFor(() => {
-            const d = [...document.querySelectorAll('mt-modal.mt-confirm-modal')].find((m) => /too large/.test(m.textContent));
-            if (!d) throw new Error('no alert yet');
-            return d;
+        it('Settings home Move row: export → move.stash → local.leave, records kept', async () => {
+            const { window, document } = env;
+            await window.apiCall('/api/weight', 'POST', { weight: 80 });
+            cancelReminderRecompute({ accountId: 'local' });
+            let stashed = null;
+            withMoveOps(({ vault }) => { stashed = vault; return true; });
+            window.bindLocalMoveRow();
+            const row = document.getElementById('settings-local-move-btn');
+            await vi.waitFor(() => expect(row.classList.contains('wg-settings-hidden')).toBe(false));
+            row.click();
+            const dialog = await openDialog(document);
+            expect(dialog.textContent).toMatch(/Move to a cloud account\?/);
+            dialog.querySelector('.mt-confirm-modal__confirm').click();
+            await vi.waitFor(() => expect(moveOps()).toEqual(['move.stash', 'local.leave']));
+            const expected = JSON.parse(await window.CloudVault.exportAll({ win: window }));
+            expect(JSON.parse(stashed).data).toEqual(expected.data);
+            expect((await localRecordsPort().list('weight')).map((r) => r.weight)).toEqual([80]);
+            expect(offDevice()).toEqual([]);
         });
-        expect(alert.textContent).toMatch(/Download a backup/);
-        expect(moveOps()).toEqual(['move.stash']);
-        alert.querySelector('.mt-confirm-modal__cancel').click();
-        await vi.waitFor(() => expect(row.disabled).toBe(false));
+
+        it('Settings home Move row: a rejected stash shows the file steps and never leaves', async () => {
+            const { window, document } = env;
+            allowConsoleNoise();
+            withMoveOps(() => { throw new Error('too large'); });
+            window.bindLocalMoveRow();
+            const row = document.getElementById('settings-local-move-btn');
+            await vi.waitFor(() => expect(row.classList.contains('wg-settings-hidden')).toBe(false));
+            row.click();
+            (await openDialog(document)).querySelector('.mt-confirm-modal__confirm').click();
+            const alert = await vi.waitFor(() => {
+                const d = [...document.querySelectorAll('mt-modal.mt-confirm-modal')].find((m) => /too large/.test(m.textContent));
+                if (!d) throw new Error('no alert yet');
+                return d;
+            });
+            expect(alert.textContent).toMatch(/Download a backup/);
+            expect(moveOps()).toEqual(['move.stash']);
+            alert.querySelector('.mt-confirm-modal__cancel').click();
+            await vi.waitFor(() => expect(row.disabled).toBe(false));
+        });
     });
 
     it('erase waits out an Apple Health import in flight, and none starts after it', async () => {
