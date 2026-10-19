@@ -284,19 +284,21 @@ export function cleanRemoteProducts(products, query) {
 }
 
 // mergeProducts ports mergeFoodProducts (food_handlers.go:1087): base first,
-// dedup by barcode-else-name, capped at 50.
+// dedup by barcode-else-name, capped at 50. Among `extra` rows only a
+// barcode dedups: same-name remote rows reaching here are distinct products
+// cleanRemoteProducts chose to keep (fresh vs dried banana, med-43ma).
 export function mergeProducts(base, extra) {
   if (!extra.length) return base;
   const merged = [];
   const seen = new Set();
-  const add = (p) => {
+  const add = (p, isExtra) => {
     const key = foodProductUniqueKey(p);
     if (seen.has(key)) return;
-    seen.add(key);
+    if (!isExtra || key.startsWith('barcode:')) seen.add(key);
     merged.push(p);
   };
-  base.forEach(add);
-  extra.forEach(add);
+  base.forEach((p) => add(p, false));
+  extra.forEach((p) => add(p, true));
   return merged.slice(0, 50);
 }
 
