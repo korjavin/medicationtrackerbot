@@ -7,6 +7,8 @@ name: Android QA
 # Needs ZERO secrets: the APK's base is the public placeholder qa.test and the
 # package is the committed placeholder, so nothing here touches real accounts.
 on:
+  push: # TEMP: registers the workflow for branch dispatch; removed before ready
+    branches: [med-nt9p.23-android-qa]
   workflow_dispatch:
     inputs:
       scenario:
@@ -83,19 +85,19 @@ jobs:
       - name: Run scenario on the emulator
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
-          api-level: ${{ inputs.api_level }}
+          api-level: ${{ inputs.api_level || '34' }}
           target: google_apis
           arch: x86_64
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: bash android/qa/run.sh android/app/build/outputs/apk/debug/app-debug.apk ${{ inputs.scenario }} qa-out
+          script: bash android/qa/run.sh android/app/build/outputs/apk/debug/app-debug.apk ${{ inputs.scenario || 'all' }} qa-out
 
       - name: Upload QA artifact
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: android-qa-${{ inputs.scenario }}
+          name: android-qa-${{ inputs.scenario || 'all' }}
           path: qa-out/
           if-no-files-found: warn
           retention-days: 14
