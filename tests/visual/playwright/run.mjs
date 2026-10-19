@@ -117,6 +117,9 @@ for (const [device, desc] of Object.entries(DEVICES)) {
       row.note = String(e.message || e).split('\n')[0];
     }
     // A shot even on error: an empty or stuck page is itself evidence.
+    // Errors the screenshot itself triggers (Playwright's injected styles vs
+    // the CSP) are kept apart from the app's.
+    const pre = errors.length;
     for (const [suffix, fullPage] of [['', false], ['.full', true]]) {
       try {
         await page.screenshot({ path: join(out, device, `${scene.name}${suffix}.png`), fullPage, caret: 'initial' }); // no injected <style>: the page's CSP refuses it
@@ -125,8 +128,8 @@ for (const [device, desc] of Object.entries(DEVICES)) {
         row.note = `${row.note || ''} screenshot failed: ${e.message}`.trim();
       }
     }
-    await writeFile(join(out, device, `${scene.name}.json`), JSON.stringify({ ...report, consoleErrors: errors }, null, 2));
-    if (errors.length) row.note = `${row.note ? row.note + '; ' : ''}${errors.length} console error(s)`;
+    await writeFile(join(out, device, `${scene.name}.json`), JSON.stringify({ ...report, consoleErrors: errors.slice(0, pre), screenshotErrors: errors.slice(pre) }, null, 2));
+    if (pre) row.note = `${row.note ? row.note + '; ' : ''}${pre} console error(s)`;
     rows.push(row);
     console.log(`${device} ${scene.name}: ${row.status} ${row.note || ''}`);
     await page.close();
