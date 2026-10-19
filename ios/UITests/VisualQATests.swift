@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 
 /// Visual QA on the Simulator (bd med-y5xx.2, docs/design/ios-visual-testing.md
@@ -73,20 +74,27 @@ final class VisualQATests: XCTestCase {
             failure = "ready node #wg-qa-ready never appeared"
         }
         if failure == nil { failure = perform(scene.steps, in: app) }
-        let shot = XCTAttachment(screenshot: Self.stableScreenshot())
+        Thread.sleep(forTimeInterval: 1) // keyboard and sheet animations settle; the driver re-publishes
+        let region = scene.nativeOnly ? nil : paintRegion(app)
+        let (screenshot, painted) = Self.stableScreenshot(paint: region, points: app.frame.width)
+        if !painted, failure == nil { failure = "the ready content never painted (blank frame)" }
+        let shot = XCTAttachment(screenshot: screenshot)
         shot.name = "\(scene.name).png"
         shot.lifetime = .keepAlways
         add(shot)
         if !scene.nativeOnly {
-            let ready = readyNode(app)
-            if ready.exists {
-                // WebKit appends the role (", application status") to the label.
-                let label = ready.label
-                let json = label.range(of: "}", options: .backwards).map { String(label[...$0.lowerBound]) } ?? label
+            if let json = readyReport(app) {
                 let report = XCTAttachment(data: Data(json.utf8), uniformTypeIdentifier: "public.json")
                 report.name = "\(scene.name).json"
                 report.lifetime = .keepAlways
                 add(report)
+                // The driver re-checks the scene's ready selectors on every
+                // report: "ready" in failed means the shot shows another view.
+                if failure == nil,
+                   let obj = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+                   (obj["failed"] as? [String])?.contains("ready") == true {
+                    failure = "the scene's ready content was gone at the shot (probes.readyLost in \(scene.name).json)"
+                }
             }
         }
         if let failure { XCTFail("\(scene.name): \(failure)") }
@@ -95,17 +103,69 @@ final class VisualQATests: XCTestCase {
 
     /// The CI Simulator renders without a GPU: a heavy page can show its
     /// previous frame for seconds after the DOM (and the probes) moved on, so
-    /// shoot once two screenshots a second apart match (8 s cap).
-    private static func stableScreenshot() -> XCUIScreenshot {
-        Thread.sleep(forTimeInterval: 1) // keyboard and sheet animations settle
+    /// shoot once two screenshots a second apart match. Two identical blank
+    /// boot frames also match (run 39209916915, bd med-y5xx.11), so a web
+    /// scene's frame must also show painted content where the driver says its
+    /// last ready element is. 15 s cap; returns whether the region painted.
+    private static func stableScreenshot(paint region: CGRect?, points: CGFloat) -> (XCUIScreenshot, Bool) {
         var last = XCUIScreen.main.screenshot()
-        for _ in 0..<8 {
+        var painted = false
+        for _ in 0..<15 {
             Thread.sleep(forTimeInterval: 1)
             let next = XCUIScreen.main.screenshot()
-            if next.pngRepresentation == last.pngRepresentation { return next }
+            painted = region.map { Self.painted(next, $0, points: points) } ?? true
+            if painted, next.pngRepresentation == last.pngRepresentation { return (next, true) }
             last = next
         }
-        return last
+        return (last, painted)
+    }
+
+    /// Whether the screen region (points) holds content rather than a flat
+    /// background: at least 0.5 % of its pixels differ in luminance from the
+    /// region's median by more than 40 (text, icons, chart strokes do; the
+    /// boot frame's gradient does not).
+    private static func painted(_ shot: XCUIScreenshot, _ region: CGRect, points: CGFloat) -> Bool {
+        guard let cg = shot.image.cgImage, points > 0 else { return true }
+        let scale = CGFloat(cg.width) / points
+        let px = CGRect(x: region.minX * scale, y: region.minY * scale, width: region.width * scale, height: region.height * scale)
+            .integral.intersection(CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+        guard px.width >= 4, px.height >= 4, let crop = cg.cropping(to: px) else { return true }
+        let w = min(Int(px.width), 400)
+        let h = max(1, Int(CGFloat(w) * px.height / px.width))
+        var buf = [UInt8](repeating: 0, count: w * h * 4)
+        let drawn = buf.withUnsafeMutableBytes { raw -> Bool in
+            guard let ctx = CGContext(data: raw.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            ctx.draw(crop, in: CGRect(x: 0, y: 0, width: w, height: h))
+            return true
+        }
+        guard drawn else { return true }
+        var lum = [Int](repeating: 0, count: w * h)
+        for i in 0..<(w * h) { lum[i] = (Int(buf[i * 4]) * 3 + Int(buf[i * 4 + 1]) * 6 + Int(buf[i * 4 + 2])) / 10 }
+        let median = lum.sorted()[lum.count / 2]
+        let off = lum.reduce(0) { $0 + (abs($1 - median) > 40 ? 1 : 0) }
+        return off * 200 >= lum.count
+    }
+
+    /// The ready node's probe JSON (WebKit appends the role, ", application
+    /// status", to the label).
+    private func readyReport(_ app: XCUIApplication) -> String? {
+        let ready = readyNode(app)
+        guard ready.exists else { return nil }
+        let label = ready.label
+        return label.range(of: "}", options: .backwards).map { String(label[...$0.lowerBound]) } ?? label
+    }
+
+    /// The report's `paint` rect (web view points) on the screen.
+    private func paintRegion(_ app: XCUIApplication) -> CGRect? {
+        guard let json = readyReport(app),
+              let obj = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+              let p = obj["paint"] as? [String: Double],
+              let x = p["x"], let y = p["y"], let w = p["w"], let h = p["h"] else { return nil }
+        let web = app.webViews.firstMatch
+        guard web.exists else { return nil }
+        return CGRect(x: web.frame.minX + x, y: web.frame.minY + y, width: w, height: h)
     }
 
     /// WKWebView's DOM reaches XCUITest as accessibility elements: the node's

@@ -1,5 +1,5 @@
 {
-  "_doc": "iOS visual QA scenes (docs/design/ios-visual-testing.md). nativeOnly (default: name starts with native-) = no -wgLocalMode, no driver. steps (tab | click | tag: give the first visible match a DOM id for a native tap | settingsPage) and ready (selectors that must be visible): the in-page driver (tests/visual/driver.js). native: XCUITest steps after #wg-qa-ready (ios/UITests): tap (DOM id or placeholder), type, clear, tapButton (label), waitFor (label or id), keyboard (wait for the software keyboard). Page scenes (Settings) open from Today first: a page keeps its origin tab lit, and each load restores the previous scene's tab, so without it Settings would light whatever ran before (med-e6ql).",
+  "_doc": "iOS visual QA scenes (docs/design/ios-visual-testing.md). nativeOnly (default: name starts with native-) = no -wgLocalMode, no driver. steps (tab | click | tag: give the first visible match a DOM id for a native tap | settingsPage) and ready (selectors that must be visible): the in-page driver (tests/visual/driver.js). native: XCUITest steps after #wg-qa-ready (ios/UITests): tap (DOM id or placeholder), type, clear, tapButton (label), waitFor (label or id), keyboard (wait for the software keyboard). Page scenes (Settings) open from Today first: a page keeps its origin tab lit, and each load restores the previous scene's tab, so without it Settings would light whatever ran before (med-e6ql). The page clock reads today 23:00 local (driver.js pinClock), so time-dependent text is stable. mask (optional): [{x, y, w, h}] fractions of the image that tests/visual/compare.mjs blanks before diffing (regions that still change run to run). localOnly: the cloud pass skips it. settings-erase-confirm only opens the typed-confirm dialog (it never types the phrase); journey turns gamification ON for the device, so it stays last.",
   "version": 1,
   "scenes": [
     { "name": "native-firstrun", "native": [] },
@@ -48,6 +48,25 @@
     { "name": "settings-home", "steps": [{ "tab": "today" }, { "tab": "settings" }],
       "ready": ["#settings-view.active"] },
     { "name": "settings-backup", "steps": [{ "tab": "today" }, { "tab": "settings" }, { "settingsPage": "backup" }],
-      "ready": [".wg-pagebar", "#settings-importexport"] }
+      "ready": [".wg-pagebar", "#settings-importexport"] },
+    { "name": "weight", "steps": [{ "tab": "weight" }],
+      "ready": ["#weight-view.active", "#weightChart > *", "#weight-list > *"] },
+    { "name": "meds-history-take",
+      "steps": [{ "tab": "meds" }, { "click": ".med-tab[data-tab=\"history\"]" }, { "click": "#history-list .wg-meds-history__row.cursor-pointer" }],
+      "ready": ["#med-confirm-modal", "#med-confirm-list > *"] },
+    { "name": "settings-targets-keyboard",
+      "steps": [{ "tab": "today" }, { "tab": "settings" }, { "settingsPage": "targets" }, { "tag": "#food-target-calories", "id": "wg-qa-calories" }],
+      "ready": ["#food-target-calories"],
+      "native": [{ "tap": "#wg-qa-calories", "placeholder": "1700" }, { "keyboard": true }] },
+    { "name": "settings-ai-key-keyboard",
+      "steps": [{ "tab": "today" }, { "tab": "settings" }, { "settingsPage": "integrations" }, { "tag": "#integrations-openai-api-key", "id": "wg-qa-api-key" }],
+      "ready": ["#integrations-openai-api-key"],
+      "native": [{ "tap": "#wg-qa-api-key", "placeholder": "sk-..." }, { "keyboard": true }] },
+    { "name": "settings-erase-confirm", "localOnly": true,
+      "steps": [{ "tab": "today" }, { "tab": "settings" }, { "settingsPage": "backup" }, { "click": "#importexport-local-erase-btn" }],
+      "ready": [".mt-confirm-modal", ".mt-confirm-modal .mt-confirm-modal__confirm"] },
+    { "name": "journey",
+      "steps": [{ "tab": "today" }, { "tab": "settings" }, { "settingsPage": "features" }, { "click": "#gamification-feature-toggle:not(:checked)" }, { "click": ".wg-page .wg-back" }, { "tab": "today" }, { "tab": "journey" }],
+      "ready": ["#journey-view.active", "#journey-content > *"] }
   ]
 }

@@ -250,6 +250,9 @@ jobs:
       cancel-in-progress: true
     runs-on: macos-26
     timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read # the compare step downloads master's ios-visual artifact
     steps:
       - uses: actions/checkout@v4
 
@@ -330,7 +333,7 @@ jobs:
           {
             echo "## iOS visual QA"
             echo
-            echo "Artifact \`ios-visual\`: \`shots/<device>/<scene>.png\` plus the probe report \`<scene>.json\`. Evidence only, never a gate."
+            echo "Artifact \`ios-visual\`: \`shots/<device>/<scene>.png\` plus the probe report \`<scene>.json\`, and \`shots/compare/\` (diffs against master). Evidence only, never a gate."
             while IFS='=' read -r dev udid; do
               d="shots/$dev"
               n="$(find "$d" -name '*.png' 2>/dev/null | wc -l | tr -d ' ')"
@@ -356,6 +359,21 @@ jobs:
           if [ ! -s "$RUNNER_TEMP/devices" ] || [ -n "$broken" ]; then
             echo "::error::no screenshots from:${broken:- any device}"; exit 1
           fi
+
+      # bd med-y5xx.4: every shot against master's latest ios-visual artifact
+      # (no goldens in git). Evidence only: never fails the job.
+      - name: Set up pnpm
+        if: always()
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.10.0
+          run_install: false
+
+      - name: Compare with master
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: tests/visual/compare.sh ios-visual shots shots/compare || true
 
       - uses: actions/upload-artifact@v4
         if: always()

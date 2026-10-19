@@ -88,6 +88,42 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
+  # bd med-y5xx.4: the local tier's shots against master's latest
+  # ios-visual-web artifact (a dispatch on master). Its own job on the runner
+  # image, which has gh; the Playwright container does not. Evidence only.
+  compare:
+    needs: local
+    if: ${{ !cancelled() && needs.local.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ios-visual-web
+          path: visual-web
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.10.0
+          run_install: false
+
+      - name: Compare with master
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: tests/visual/compare.sh ios-visual-web visual-web visual-web-compare || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-visual-web-compare
+          path: visual-web-compare
+          retention-days: 30
+          if-no-files-found: warn
+
   cloud:
     needs: gate
     if: needs.gate.outputs.run == 'true'

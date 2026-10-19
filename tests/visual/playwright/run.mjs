@@ -214,6 +214,10 @@ for (const [device, [engine, desc]] of Object.entries(DEVICES)) {
       rows.push({ device, scene: scene.name, status: 'skipped', note: 'native-only (SwiftUI screen, Simulator tier only)' });
       continue;
     }
+    if (mode === 'cloud' && scene.localOnly) {
+      rows.push({ device, scene: scene.name, status: 'skipped', note: 'local-only (a local-mode control)' });
+      continue;
+    }
     errors = [];
     const row = { device, scene: scene.name };
     let report = null;
