@@ -243,6 +243,39 @@ function foodProductUniqueKey(p) {
   return `name:${(p.name || '').trim().toLowerCase()}`;
 }
 
+// cleanRemoteProducts tidies a food-DB text-search page before it is merged
+// behind the user's own products (bd med-43ma). Upstream rows are untouched;
+// this only shapes what the picker shows. Rules:
+//  1. Drop rows where kcal, carbs, protein and fat are ALL zero. The upstream
+//     (and fooddb.js's `|| 0` mapping) cannot tell "missing" from "explicit
+//     zero", so such a row is indistinguishable from an empty one and adds
+//     nothing to any total. A 0-kcal row with any macro set stays. The user's
+//     own products are never filtered, so a local "Water" stays.
+//  2. Collapse case-insensitive exact-name duplicates, keeping the row with
+//     the most non-zero nutrient fields (tie: one not in ALL CAPS, then the
+//     earlier, i.e. upstream's own order).
+//  3. Rank exact name matches, then prefix matches, then the rest; stable, so
+//     upstream relevance order holds within each tier.
+export function cleanRemoteProducts(products, query) {
+  const needle = (query || '').trim().toLowerCase();
+  const filled = (p) => [p.energy_kcal_100g, p.carbs_100g, p.protein_100g, p.fat_100g].filter((v) => v > 0).length;
+  const shouty = ({ name = '' }) => name === name.toUpperCase() && name !== name.toLowerCase();
+  const better = (a, b) => filled(a) > filled(b) || (filled(a) === filled(b) && shouty(b) && !shouty(a));
+  const byName = new Map();
+  for (const p of products) {
+    if (!filled(p)) continue;
+    const key = (p.name || '').trim().toLowerCase();
+    const prev = byName.get(key);
+    if (!prev || better(p, prev)) byName.set(key, p);
+  }
+  // Map keeps first-insertion order, so a replaced duplicate keeps its slot.
+  const tier = (p) => {
+    const name = (p.name || '').trim().toLowerCase();
+    return name === needle ? 0 : name.startsWith(needle) ? 1 : 2;
+  };
+  return [...byName.values()].sort((a, b) => tier(a) - tier(b));
+}
+
 // mergeProducts ports mergeFoodProducts (food_handlers.go:1087): base first,
 // dedup by barcode-else-name, capped at 50.
 export function mergeProducts(base, extra) {
@@ -761,6 +794,8 @@ export function createFoodDomain({ records, now, timeZone, foodDb }) {
     } catch {
       return local;
     }
+    // A barcode hit is the one product the user scanned: show it as-is.
+    if (!isBarcodeQuery(query)) apiProducts = cleanRemoteProducts(apiProducts, query);
     if (!apiProducts.length) return local;
     return mergeProducts(local, apiProducts);
   }
