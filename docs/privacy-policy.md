@@ -56,19 +56,32 @@ integrations.
 
 Data sent to a third party is then governed by that party's privacy policy.
 
-## Only on this device (iOS app, no account)
+## Only on this device (iPhone and Android apps, no account)
 
 If you choose **Only on this device** on the first screen, there is no
 account and nothing is synced: your records are stored only in the app's
-storage on your iPhone, protected by iOS data protection, and the operator
-never receives them. They are included in your iPhone's own backup (iCloud
-or your computer), like other app data; the operator keeps no other copy and
-cannot recover them. Deleting the app, or losing the iPhone without a
-backup, deletes them — export a copy regularly under Settings → Backup &
-import. In this mode only your own AI key and your own food database reach
-outside the device; the operator's AI, voice, Telegram, food and drug lookup
-features are off. **Settings → Backup & import → Erase data on this device**
-deletes everything stored in this mode.
+storage on this phone, protected by the phone's lock, and the operator never
+receives them. The phone's own backup can include them, like other app data:
+on iPhone, iCloud or your computer; on Android, Google's backup (only when
+the phone encrypts it, e.g. with the screen lock) and device-to-device
+transfer. Google's cloud backup skips apps over 25 MB, and the Android backup
+holds only these on-device records, never a cloud account's data. The
+operator keeps no other copy and cannot recover them. Deleting the app, or
+losing the phone without a backup, deletes them — export a copy regularly
+under Settings → Backup & import. In this mode only your own AI key and your
+own food database reach outside the device; the operator's AI, voice,
+Telegram, food and drug lookup features are off unless you switch on the free
+trial. The free trial is anonymous (no account): your requests go through the
+operator's server, which keeps no prompts, photos or health data and no
+account, only an anonymous install record (a device-generated public key, a
+usage counter, the platform, when it was created and a hash of the trial pass)
+and daily usage counts. On Android the trial pass file is part of the phone's
+backup, so a restored phone keeps its trial. To tell installs apart, iPhone uses Apple App Attest
+and asks Apple DeviceCheck whether this iPhone already had a trial; Android
+sends one opaque Google Play Integrity token to Google to confirm the app
+install (no health data, no account) and does not ask Google whether the
+phone had a trial before. **Settings → Backup & import → Erase data on this
+device** deletes everything stored in this mode.
 
 ## Apple Health (iOS app)
 

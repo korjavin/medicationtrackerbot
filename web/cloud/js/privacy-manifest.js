@@ -728,7 +728,7 @@ export const PRIVACY_MANIFEST = [
   // ==========================================================================
   // On-device mode (bd med-o7zq.3; Android bd med-nt9p.32): the "Only on this
   // device" app on iPhone and Android — no account, no server. The free trial
-  // rows (App Attest) are the iPhone app's only. `mode: 'local'` keeps these rows out of the cloud
+  // rows use App Attest on iPhone and Play Integrity on Android. `mode: 'local'` keeps these rows out of the cloud
   // app's "What can the operator see?" page (privacy.js); the generated doc
   // table carries them.
   // ==========================================================================
