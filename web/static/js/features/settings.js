@@ -828,7 +828,7 @@ function bindLocalErase() {
     _localEraseBound = true;
     btn.addEventListener('click', async () => {
         const ok = await safeConfirm(
-            'This deletes every record, setting and reminder stored in the app on this iPhone. It cannot be undone. Download a backup first if you want to keep anything.',
+            `This deletes every record, setting and reminder stored in the app on this ${nativeCopy().device}. It cannot be undone. Download a backup first if you want to keep anything.`,
             null,
             { title: 'Erase data on this device?', confirmLabel: 'Erase', destructive: true, typedConfirm: 'erase' },
         );
@@ -856,7 +856,7 @@ function bindLocalMoveToCloud() {
     _localMoveBound = true;
     btn.addEventListener('click', async () => {
         const ok = await safeConfirm(
-            'Download a backup first: the new account is filled from that file. Your records stay on this iPhone.',
+            `Download a backup first: the new account is filled from that file. Your records stay on this ${nativeCopy().device}.`,
             null,
             { title: 'Open an invite?', confirmLabel: 'Continue' },
         );

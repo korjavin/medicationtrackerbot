@@ -187,19 +187,20 @@ const VOICE_START = '/api/attest/voice/start';
 
 // voiceStart's refusals, by the server's machine-readable error (and the
 // budget's scope). Never err.status: the call bar maps a 503 to its own copy.
-const VOICE_COPY = {
+const device = () => globalThis.LocalNotifications?.copy?.device || 'iPhone';
+const voiceCopy = () => ({
   voice_not_configured: 'Voice calls are not available on this server.',
   trial_not_configured: 'Voice calls are not available on this server.',
-  'voice:voice': 'Free voice minutes used up on this iPhone. Add your own keys in a cloud account to keep calling.',
+  'voice:voice': `Free voice minutes used up on this ${device()}. Add your own keys in a cloud account to keep calling.`,
   'voice:voice-day': 'Free voice calls paused until tomorrow.',
   'voice:global': 'The free voice line is busy today — try again tomorrow.',
   // One call per install: the last one is still in the server's 30 s grace.
   call_in_progress: 'Your last call is still ending — try again in a minute.',
-  trial_already_used: 'The free trial was already used on this iPhone.',
-};
+  trial_already_used: `The free trial was already used on this ${device()}.`,
+});
 
 function voiceError(code, status) {
-  const message = VOICE_COPY[code] || `Could not start the call${status ? ` (${status})` : ''}.`;
+  const message = voiceCopy()[code] || `Could not start the call${status ? ` (${status})` : ''}.`;
   return Object.assign(new Error(message), { code: code || 'voice_start_failed' });
 }
 
