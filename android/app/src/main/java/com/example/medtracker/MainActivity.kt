@@ -800,9 +800,8 @@ class MainActivity : Activity() {
                 "Voice, Telegram and the shared food database need an account."
         },
         TextView(this).apply {
-            // The file-based Move of bd med-nt9p.32.10 (Settings → Backup & import → Move to a cloud account).
-            text = "To move to an account later: export a backup file here, open your invite, " +
-                "then restore the file in the new account's Settings. Accounts are invite-only."
+            // The seamless move (bd med-nt9p.32.16-.19); Backup & import keeps the file steps as the fallback.
+            text = "To move to an account later: Settings → Move to a cloud account. Accounts are invite-only."
         },
         // Optional lock (bd med-nt9p.32.9); also Settings → App lock in the app.
         Switch(this).apply { text = "Lock with fingerprint, face or screen lock" }.also { lockSwitch = it },
@@ -824,7 +823,11 @@ class MainActivity : Activity() {
             val offer = if (deviceSecure() || lock.on) View.VISIBLE else View.GONE
             lockSwitch.visibility = offer
             lockHint.visibility = offer
-            introMessage.text = ""
+            // A pending move (bd med-nt9p.32.19): Start enters local mode, which drops the stash
+            // (setLocal). Kept reachable, unlike iOS's one-tap Continue on this iPhone: it is the
+            // only way back here, and the records stay in local mode either way.
+            introMessage.text = if (move.exists) "Start cancels the move to a cloud account. " +
+                "Your records stay on this phone, and you can move them again from Settings." else ""
             localIntro.scrollTo(0, 0)
             window.insetsController?.hide(WindowInsets.Type.ime()) // the invite field's keyboard
         }
