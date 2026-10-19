@@ -757,7 +757,7 @@ mode, gated on the bridge platform being `ios` or `android`
   `local-*` in `web/cloud/js/privacy-manifest.js`.
 - **Bridge:** in local mode only the main frame of `wgapp://local` reaches
   `wgNative` (an account origin does not); `setEgressHosts`, `local.reset`,
-  `local.leave`, `move.stash` and `attest.*` (`ios/App/Attest.swift`: `status`, `enroll`,
+  `local.leave`, `move.stash`, `leave.take`, `leave.clear` and `attest.*` (`ios/App/Attest.swift`: `status`, `enroll`,
   `assert`, `setPass` — the anonymous trial's pass in the Keychain,
   `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not iCloud-synced, so a
   reinstall rejoins the same trial budget (bd med-o7zq.26); entitlement `com.apple.developer.devicecheck.appattest-environment`,
@@ -852,6 +852,24 @@ mode, gated on the bridge platform being `ios` or `android`
   current mode (`LocalOrigin.ops`), the page's capability probe; a shell
   before it answers `unsupported: shell.ops`. `Tests/main.swift` covers the
   file lifecycle and the per-mode op lists.
+- **Leave stash** (bd med-o7zq.36.2, the reverse of the move stash; the web
+  sides are med-o7zq.36.1 and .36.4): the same `Move` on a second directory,
+  `Application Support/leave/vault.json`, also excluded from backup, carries
+  the account's vault v1 JSON into local mode. Same validation, errors and
+  privacy as `move.*`:
+
+  | Op | Mode | Reply |
+  |----|------|-------|
+  | `leave.stash {vault}` | account only | `true`; `invalid vault` / `too large` / `write failed` |
+  | `leave.take` | local only | `{vault}` or `null`; does not delete |
+  | `leave.clear` | local only | `true` |
+
+  Lifecycle: the account page stashes before `account.leave {then: "local"}`,
+  so the stash survives entering local mode (`forget(thenLocal:)` and the
+  `local` didSet leave it alone); the local page takes it and clears it once
+  restored. Deleted by `leave.clear`, `local.reset` and opening an account
+  (`open(_:)`: the move was abandoned). Independent of the move stash: one
+  never clears the other (`Tests/main.swift`).
 - **One vault at a time** (bd med-o7zq.9): the shell's open vault is `local`
   or the account host. Each reminder carries it (`userInfo.vault`, id
   `wg-<n>-<vault>`); switching mode or account removes every pending reminder
@@ -913,6 +931,11 @@ mode, gated on the bridge platform being `ios` or `android`
    Inspector on the hidden page: `window.webkit.messageHandlers.wgNative`
    calls reject with `locked`. Settings → Med Tracker → *Lock* off → back in
    the app: still asks once, then stays open on the next return.
+9. Account → local (bd med-o7zq.36; end-to-end only with the web parts
+   med-o7zq.36.1 and .36.4): an account with records → Settings → Account →
+   *Use this iPhone without an account* → local mode shows the records →
+   *Switch account* → the account address → the account's records are still
+   there.
 
 ## Spike: passkey PRF, Service Worker, IndexedDB in WKWebView (bd med-w6gx.2)
 
