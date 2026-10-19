@@ -9,5 +9,8 @@ internal object DebugHooks {
     fun onWebView(activity: Activity, w: WebView, rules: Set<String>, diag: (String) -> Unit) = Unit
 
     @Suppress("UNUSED_PARAMETER")
-    fun localApp(activity: Activity) = false
+    fun localMode(activity: Activity) = false
+
+    @Suppress("UNUSED_PARAMETER")
+    fun qaScene(activity: Activity): String? = null
 }

@@ -792,7 +792,7 @@ The Android half of local mode (epic `med-nt9p.32`, the twin of
 the APK carries the web app and the shell serves it on
 `https://appassets.androidplatform.net`, a separate origin from every account,
 so local IndexedDB never mixes with an account's. The mode switch, first run
-and bridge ops are `med-nt9p.32.4`; until then only a debug extra opens it.
+and bridge ops are below ([Local mode: the shell](#local-mode-the-shell-bd-med-nt9p324)).
 
 - **Bundle (CI only):** `android.yml` (and `android-qa.yml`, with `QA=1`)
   runs [`ios/bundle-web.sh`](../ios/bundle-web.sh) before Gradle with
@@ -832,13 +832,8 @@ and bridge ops are `med-nt9p.32.4`; until then only a debug extra opens it.
   [`LocalOrigin.kt`](../android/app/src/main/java/com/example/medtracker/LocalOrigin.kt),
   checked by `LocalOriginTest` (the `ios/Tests/main.swift` cases) in
   `testDebugUnitTest`.
-- **Debug entry (temporary, until `.4`):** `adb shell am start -n
-  <pkg>/com.example.medtracker.MainActivity --ez wgLocalApp true` opens the
-  bundled app for that launch, stores nothing. Honoured only in a debug APK
-  built for the `qa.test` placeholder base (`DebugHooks.localApp`, the
-  `qaSoftAuthn` gate); release compiles the no-op twin, and `android-qa.yml`'s
-  release check counts `wgLocalApp` in its dex too. No bridge, chrome.js or
-  file grants on that origin yet (`.4`).
+- **Debug entry:** the QA launch extras of `.4` (`--ez wgLocalMode true`,
+  below) replaced the temporary `wgLocalApp` extra.
 
 ### Emulator run (QA scenario `local-app`)
 
@@ -846,13 +841,85 @@ and bridge ops are `med-nt9p.32.4`; until then only a debug extra opens it.
 gh workflow run android-qa.yml --ref <branch> -f scenario=local-app
 ```
 
-Launches with the extra, reloads with request listeners attached, waits for
+Launches with `--ez wgLocalMode true`, reloads with request listeners attached, waits for
 `MedTrackerCloudReady` and `#app`, screenshots the shell, then fetches `/`,
 `/js/apishim.js`, a missing path and `https://example.com/` from the page: the
 CSP header (`connect-src 'self'`, no wildcard), `no-store`, the JS MIME, the
 404 and the refused cross-origin fetch are asserted; any other failed or
 ≥ 400 load fails the scenario. Everything lands in `results.localApp`. Not in
 `all` (`.6` owns the local scenarios).
+
+## Local mode: the shell (bd med-nt9p.32.4)
+
+Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
+[`MainActivity.kt`](../android/app/src/main/java/com/example/medtracker/MainActivity.kt):
+
+- **Mode:** the `shell` SharedPreferences boolean `wgLocalMode`
+  (`LocalOrigin.MODE_KEY`) wins over a stored account host. Local: home is
+  `https://appassets.androidplatform.net/`, `shouldInterceptRequest` serves
+  it from `LocalApp`, only that host navigates inside the app, and a load
+  error or 404 on it is logged to the diagnostics log instead of showing
+  *Can't open your account*.
+- **First run:** *Only on this device* is the **primary** button (owner
+  decision 2026-10-19 — the Play build's reviewer path needs no invite); the
+  invite form (paste, Open, Scan QR code) follows under "Have an invite?",
+  then a **How to get an invite** link to the service landing page
+  `https://<BuildConfig.BASE_DOMAIN>/` (absent when the build has no base),
+  the store footnote and the privacy link. The button opens a native intro
+  (*Only on this device*: records only on this phone, nothing sent to our
+  servers; not in the phone's backup and no other copy; deleting the app
+  deletes them, export a backup file regularly; AI and food search need your
+  own keys, voice/Telegram/shared food database need an account; the invite
+  link again) with **Start** (stores `wgLocalMode=true`, clears reminders,
+  opens the bundled app) and **Back** (system Back too). No biometric lock
+  yet (`.9`); the backup sentence changes with `.5`.
+- **One vault at a time:** reminders (`Notifications`), their taps
+  (`https://<vault>/?tab=…`), file grants and camera/mic (`Files`) and the
+  bridge all follow the open vault: the account host, or the asset host in
+  local mode. **Every mode change clears the alarms**, so a reminder of the
+  other vault never fires or opens the wrong origin. Leaving local mode (the
+  page's *Move to a cloud account*, or the launcher *Switch account*
+  shortcut) sets `wgLocalMode=false` and shows first run; each origin keeps
+  its own WebView data, so *Only on this device* again (or the account
+  address) finds it.
+- **Bridge:** `wgNative`, `wgFiles`, `chrome.js` and `files.js` are injected
+  on `https://*.<base>` and `https://appassets.androidplatform.net`; a
+  message is answered only from the open vault's top-level https page
+  (`LocalOrigin.bridgeCaller`, else `forbidden`). Local-only ops — an account
+  page gets `unsupported: <op>` (`LocalOrigin.opAllowed`):
+
+  | op | does |
+  |---|---|
+  | `setEgressHosts {hosts}` | `LocalOrigin.validHosts` (≤ 8 bare DNS names, whole list or `invalid hosts`), stored under `wgLocalEgressHosts`; replies `{changed}` — the page reloads itself when true and the next document's CSP `connect-src` lists the hosts |
+  | `local.reset` | the page erased its storage: removes the host mirror, clears reminders, replies `true` |
+  | `local.leave` | replies `true`, then Switch account (first run) |
+
+  `notifications.*` and `health.*` answer in both modes; `account.leave` is
+  iOS-only (the web side never sends it on Android).
+- **QA extras (debug + `qa.test` base only, `DebugHooks`):**
+  `--ez wgLocalMode true` enters local mode as Start does (persisted, no
+  first-run tap); `--es wgQAScene <name>` opens `/?qa=<name>` (1–64 of
+  `[a-z0-9-]`, `LocalOrigin.qaHome`, else the root). Release compiles the
+  no-op twin; `android-qa.yml`'s release check counts `wgQAScene` in its dex.
+  `LocalOriginTest` covers the scene parser and the bridge gating.
+
+### Device check (CI debug APK, local mode)
+
+1. Fresh install, airplane mode → *Only on this device* (top button) → read
+   the intro (*Back* returns to first run) → *Start*: the bundled app renders
+   offline, `wg-local-vault` on `<html>`, no network requests in
+   `chrome://inspect`.
+2. Add a med, kill and reopen: still there, no first run.
+3. Settings → Reminders → Allow → a reminder fires; its tap opens Meds in
+   local mode.
+4. Save a BYOK key in Settings → AI & integrations: the page reloads once
+   and the provider host is in the document CSP (`chrome://inspect`).
+5. Settings → Backup → *Move to a cloud account* → first run; *Only on this
+   device* again finds the data.
+6. Erase → empty app, BYOK hosts gone from the CSP.
+7. Long-press → *Switch account* → a test account, then back to *Only on
+   this device*: both data sets intact; no reminder of the other vault fires.
+8. *How to get an invite* opens the service landing page in the browser.
 
 ## Play Integrity setup (owner)
 

@@ -82,9 +82,9 @@ jobs:
           unzip -l debug/app-debug.apk | grep -q 'assets/qa-softauthn.js' || { echo 'debug APK lacks the asset'; exit 1; }
           rel=$(ls release/*.apk | head -1)
           assets=$(unzip -l "$rel" | grep -c 'qa-softauthn' || true)
-          dex=$(unzip -p "$rel" 'classes*.dex' | grep -ac 'qaSoftAuthn\|qa-softauthn\|wgLocalApp' || true)
+          dex=$(unzip -p "$rel" 'classes*.dex' | grep -ac 'qaSoftAuthn\|qa-softauthn\|wgQAScene' || true)
           echo "release $rel: qa-softauthn entries=$assets, dex mentions=$dex"
-          { echo "### Release APK QA-hook check"; echo; echo "\`$(basename "$rel")\`: qa-softauthn files **$assets**, dex mentions of qaSoftAuthn/qa-softauthn/wgLocalApp **$dex** (both must be 0)"; echo; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### Release APK QA-hook check"; echo; echo "\`$(basename "$rel")\`: qa-softauthn files **$assets**, dex mentions of qaSoftAuthn/qa-softauthn/wgQAScene **$dex** (both must be 0)"; echo; } >> "$GITHUB_STEP_SUMMARY"
           [ "$assets" = 0 ] && [ "$dex" = 0 ]
 
       # The local cloud the emulator reaches (bd med-nt9p.24, docs/android.md → Agent QA harness):
