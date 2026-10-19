@@ -40,8 +40,10 @@ export default async function localVisual(ctx) {
       // The shot is taken either way: a failed scene shows what was on screen.
       const typing = (scene.native || []).some((n) => n.keyboard || n.type || n.tap);
       s.stableAfter = await ctx.stableShot(scene.name, { file: join(dir, `${scene.name}.png`), cap: typing ? 0 : 15 });
-      if (!nativeOnly && ctx.page) {
-        const json = await ctx.page.evaluate(() => document.getElementById('wg-qa-ready')?.getAttribute('aria-label')).catch(() => null);
+      if (!nativeOnly) {
+        const json = await ctx.page?.evaluate(() => document.getElementById('wg-qa-ready')?.getAttribute('aria-label')).catch(() => null);
+        // No report at the shot = the page reloaded or navigated away: the shot proves nothing.
+        if (!json && !s.error) s.error = 'ready report gone at the shot';
         if (json) {
           writeFileSync(join(dir, `${scene.name}.json`), json);
           const rep = JSON.parse(json);
