@@ -217,8 +217,24 @@ nightly master run is the one unconditional spend (~$40/month).
 - `tests/visual/playwright/run.mjs` (`playwright@1.56.0`, as `e2e/`) runs in
   `.github/workflows/visual-web.yml` on `ubuntu-latest` inside the
   `mcr.microsoft.com/playwright:v1.56.0-noble` image (WebKit preinstalled).
-  **Opt-in**, like tier 2: PR label `ios-visual` or `workflow_dispatch`
-  (`gh workflow run visual-web.yml --ref <branch>`).
+  Runs on PR label `ios-visual`, `workflow_dispatch`
+  (`gh workflow run visual-web.yml --ref <branch>`), and on any PR touching
+  `web/static/css/**`, `web/static/js/components/**`, `web/cloud/**`,
+  `tests/visual/**` or the workflow (a `gate` job checks the diff).
+- Two jobs (bd med-y5xx.10). `local`: the QA bundle below, in WebKit
+  (`iphone-390`, `iphone-440`) and Chromium (`desktop-1280` at 1280×800,
+  `pixel-7`), artifact `ios-visual-web`. `cloud`: `run.mjs <out> cloud` with
+  `CLOUD_BIN` starts the real `cmd/cloud` (`CLOUD_BASE_DOMAIN=localhost`, temp
+  DB, random `SESSION_SECRET`, no external services), mints an invite per
+  device with `cloud admin invite`, signs up through the real claim wizard
+  with Chromium's CDP virtual authenticator (PRF, resident key, UV), and runs
+  the same scenes at `http://<sub>.localhost:<port>/?qa=<scene>` (cloud
+  apishim, server CSP) as `cloud-desktop-1280` / `cloud-pixel-7`, artifact
+  `visual-web-cloud`. The cloud never serves the driver: it is injected with
+  `addInitScript` together with `window.__wgQAFiles` (scenes + golden vault,
+  in place of `/qa/*`) and `window.__wgQACloud` (lets the driver seed a
+  non-local, still-empty vault through Settings → Backup's import). One page
+  per device so the per-page virtual authenticator outlives the scenes.
 - A built-in static server over the `QA=1` bundle (`ios/LocalApp`) with the
   routing and MIME table of `LocalOrigin.file(for:)` / `mime()` (`/` →
   `index.html`, `/static/*`, `/domain/*`, else `cloud/*`, so `/qa/*` →
