@@ -29,6 +29,8 @@ function loadFlow({
     settingsHelper = null,
     cloud = false,
     trialAi = false,
+    localTrial = null,
+    trialConsent = null,
 } = {}) {
     const dom = new JSDOM(SHELL_HTML, {
         url: 'https://example.test/',
@@ -49,6 +51,11 @@ function loadFlow({
     if (fetchMock) window.fetch = fetchMock;
     if (initialStep) window.sessionStorage.setItem('wg-firstrun-step', initialStep);
     if (settingsHelper) window.SettingsIntegrations = settingsHelper;
+    // iOS device-only mode: local-policy.js LOCAL_VAULT.trial and
+    // trial-consent.js's window.TrialConsent (cloud.local-mode.test.js runs
+    // the real ones end to end).
+    if (localTrial) window.CloudVault = { trial: localTrial };
+    if (trialConsent) window.TrialConsent = trialConsent;
 
     for (const file of [STATE_JS, WELCOME_JS, INTEGRATIONS_JS, DONE_JS, INDEX_JS]) {
         const src = fs.readFileSync(file, 'utf8');
@@ -278,6 +285,146 @@ describe('firstrun integrations screen', () => {
             });
             expect(fetchMock).not.toHaveBeenCalled();
             expect(window.WGFirstRun.state.getStep()).toBe('done');
+        } finally { cleanup(); }
+    });
+});
+
+// bd med-o7zq.29 — iOS device-only mode leads with the anonymous free trial;
+// "Use my own keys" is the key form above. A refusal or a failed grant never
+// traps the user.
+describe('firstrun integrations screen in device-only mode', () => {
+    const settle = async () => { for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0)); };
+    function trialPort(overrides = {}) {
+        return {
+            status: vi.fn(async () => ({ on: false })),
+            apply: vi.fn(async () => false),
+            enroll: vi.fn(async () => ({ ok: true })),
+            ...overrides,
+        };
+    }
+
+    it('offers the free trial first, own keys second, and says where to switch later', async () => {
+        const { window, document, cleanup } = loadFlow({
+            bootstrap: { needs_first_run: true }, localTrial: trialPort(),
+        });
+        try {
+            window.WGFirstRun.mount();
+            await settle();
+            expect(document.getElementById('wg-firstrun-title').textContent).toBe('AI and food database');
+            expect(document.querySelector('.wg-firstrun-screen__tagline').textContent)
+                .toMatch(/without your own keys/);
+            const actions = [...document.querySelectorAll('[data-firstrun-action]')].map((b) => b.dataset.firstrunAction);
+            expect(actions).toEqual(['trial', 'own-keys', 'skip']);
+            expect(document.querySelector('[data-firstrun-action="trial"]').className).toContain('wg-btn--primary');
+            expect(document.body.textContent).toContain('Settings → AI & integrations');
+            expect(document.getElementById('wg-firstrun-openai-api-key')).toBeNull();
+        } finally { cleanup(); }
+    });
+
+    it('the trial tap runs the anon consent, applies it, enrolls, and advances to done', async () => {
+        const trial = trialPort();
+        const consent = { request: vi.fn(async () => true) };
+        const { window, document, cleanup } = loadFlow({
+            bootstrap: { needs_first_run: true }, localTrial: trial, trialConsent: consent,
+        });
+        try {
+            window.WGFirstRun.mount();
+            await settle();
+            document.querySelector('[data-firstrun-action="trial"]').click();
+            await settle();
+            expect(consent.request).toHaveBeenCalledWith('anon');
+            expect(trial.apply).toHaveBeenCalledTimes(1);
+            expect(trial.enroll).toHaveBeenCalledTimes(1);
+            expect(window.WGFirstRun.state.getStep()).toBe('done');
+        } finally { cleanup(); }
+    });
+
+    it('when applying reloads the page, the resumed step sees the trial on and finishes the grant', async () => {
+        const trial = trialPort({ apply: vi.fn(async () => true) });
+        const first = loadFlow({
+            bootstrap: { needs_first_run: true }, localTrial: trial, trialConsent: { request: async () => true },
+        });
+        try {
+            first.window.WGFirstRun.mount();
+            await settle();
+            first.document.querySelector('[data-firstrun-action="trial"]').click();
+            await settle();
+            expect(trial.enroll).not.toHaveBeenCalled(); // the reload's job
+            expect(first.window.WGFirstRun.state.getStep()).toBe('integrations');
+        } finally { first.cleanup(); }
+
+        const resumed = loadFlow({
+            bootstrap: { needs_first_run: true }, localTrial: trialPort({ status: async () => ({ on: true }) }),
+        });
+        try {
+            resumed.window.WGFirstRun.mount();
+            await settle();
+            expect(resumed.window.WGFirstRun.state.getStep()).toBe('done');
+        } finally { resumed.cleanup(); }
+    });
+
+    it('declining the consent says the trial stays off and leaves own keys and skip working', async () => {
+        const trial = trialPort();
+        const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+        const { window, document, cleanup } = loadFlow({
+            bootstrap: { needs_first_run: true }, localTrial: trial, fetchMock,
+            trialConsent: { request: vi.fn(async () => false) },
+        });
+        try {
+            window.WGFirstRun.mount();
+            await settle();
+            document.querySelector('[data-firstrun-action="trial"]').click();
+            await settle();
+            expect(trial.apply).not.toHaveBeenCalled();
+            expect(document.querySelector('[data-firstrun-form-error="trial"]').textContent).toMatch(/stays off/);
+            expect(window.WGFirstRun.state.getStep()).toBe('integrations');
+
+            // BYO: the key form, saving as before.
+            const keys = document.querySelector('[data-firstrun-action="own-keys"]');
+            expect(keys.disabled).toBe(false);
+            keys.click();
+            document.getElementById('wg-firstrun-openai-api-key').value = 'sk-mine';
+            document.querySelector('[data-firstrun-action="save"]').click();
+            await settle();
+            expect(JSON.parse(fetchMock.mock.calls[0][1].body).openai.api_key).toBe('sk-mine');
+            expect(window.WGFirstRun.state.getStep()).toBe('done');
+        } finally { cleanup(); }
+    });
+
+    it.each([
+        ['trial_already_used', /already used on this iPhone/],
+        ['trial_not_configured', /not available right now/],
+        ['network', /Check your connection/],
+    ])('a failed grant (%s) says why and the user can still skip', async (code, copy) => {
+        const { window, document, cleanup } = loadFlow({
+            bootstrap: { needs_first_run: true },
+            localTrial: trialPort({ enroll: vi.fn(async () => ({ ok: false, code })) }),
+            trialConsent: { request: async () => true },
+        });
+        try {
+            window.WGFirstRun.mount();
+            await settle();
+            const tryBtn = document.querySelector('[data-firstrun-action="trial"]');
+            tryBtn.click();
+            await settle();
+            expect(document.querySelector('[data-firstrun-form-error="trial"]').textContent).toMatch(copy);
+            expect(tryBtn.disabled).toBe(false);
+            expect(tryBtn.textContent).toBe('Try again');
+            expect(window.WGFirstRun.state.getStep()).toBe('integrations');
+            document.querySelector('[data-firstrun-action="skip"]').click();
+            expect(window.WGFirstRun.state.getStep()).toBe('done');
+        } finally { cleanup(); }
+    });
+
+    it('without App Attest (status null, the Simulator) shows the key form', async () => {
+        const { window, document, cleanup } = loadFlow({
+            bootstrap: { needs_first_run: true }, localTrial: trialPort({ status: async () => null }),
+        });
+        try {
+            window.WGFirstRun.mount();
+            await settle();
+            expect(document.getElementById('wg-firstrun-openai-api-key')).not.toBeNull();
+            expect(document.querySelector('[data-firstrun-action="trial"]')).toBeNull();
         } finally { cleanup(); }
     });
 });

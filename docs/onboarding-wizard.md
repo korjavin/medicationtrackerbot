@@ -164,6 +164,16 @@ documents, two different primitives, no sharing needed. That is the correct boun
   on read, mask-preserved on write (`:27-45,199-238`); unmasked values are read module-to-module by
   `aiclient.js` / `fooddb.js`, never over an `/api` route
 - so the existing screen should already work in cloud mode unmodified. `med-4pz.3` **verifies** rather than rewrites.
+- **iOS device-only mode — trial first** (`med-o7zq.29`, **implemented**): where `window.CloudVault.trial`
+  (`web/cloud/js/local-policy.js`, local mode only) reports a status — i.e. the shell has App Attest, the same
+  gate as the Settings → AI & integrations trial row — the screen leads with *Try the free trial* (primary),
+  *Use my own keys* (the key form above) and *Skip for now*, plus a note that the choice can be switched any
+  time in Settings → AI & integrations. The trial tap is the Settings switch's flow: `TrialConsent.request('anon')`,
+  then `trial.apply()` (reloads when the CSP must admit our server; the overlay resumes on this step, sees the
+  trial on and finishes), then `trial.enroll()` — the grant or rejoin, sharing the boot-time enrollment while it
+  is in flight. Declining, `trial_already_used`, `trial_not_configured` or a network failure shows an English
+  message and leaves *Use my own keys* and *Skip for now* working. No App Attest (Simulator) → the key form.
+  Cloud mode is unchanged (no `CloudVault.trial` there).
 
 ### `safety` — Emergency Kit + second device (`med-4pz.4`)
 
