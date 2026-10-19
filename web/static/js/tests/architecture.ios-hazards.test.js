@@ -58,7 +58,7 @@ const px = (v) => {
     const n = v.match(/^([\d.]+)px/);
     return n ? parseFloat(n[1]) : null;
 };
-const fontSize = (r) => px(decl(r, 'font-size') ?? (decl(r, 'font') || '').split(/\s+/).find((t) => /^var\(--wg-fs|px(\/|$)/.test(t)));
+const fontSize = (r) => px(decl(r, 'font-size') ?? (decl(r, 'font') || '').split(/\s+/).find((t) => /^(var\(--wg-fs|[\d.]+px(\/|$))/.test(t)));
 
 // Existing fixed+bottom:0 rules without a safe-area inset in the same rule.
 const FIXED_BOTTOM_ALLOW = new Set([
