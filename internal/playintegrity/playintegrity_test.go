@@ -41,8 +41,8 @@ type fakeGoogle struct {
 }
 
 func (f *fakeGoogle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	switch {
-	case r.URL.Path == "/token":
+	switch r.URL.Path {
+	case "/token":
 		f.tokenCalls.Add(1)
 		if r.ParseForm() != nil || r.PostForm.Get("grant_type") != "urn:ietf:params:oauth:grant-type:jwt-bearer" {
 			http.Error(w, `{"error":"unsupported_grant_type"}`, http.StatusBadRequest)
@@ -57,7 +57,7 @@ func (f *fakeGoogle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]any{"access_token": "ya29.fake", "expires_in": 3599, "token_type": "Bearer"})
-	case r.URL.Path == "/v1/"+testPkg+":decodeIntegrityToken":
+	case "/v1/" + testPkg + ":decodeIntegrityToken":
 		f.decodes.Add(1)
 		if r.Header.Get("Authorization") != "Bearer ya29.fake" {
 			http.Error(w, "{}", http.StatusUnauthorized)
