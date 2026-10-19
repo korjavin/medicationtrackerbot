@@ -6,7 +6,8 @@
 // no stale hint → Start → stash again →
 // local.leave → the runner's invite → the account's pickup clears it (bd med-nt9p.32.18) → a seeded
 // stash: move.stash refused, move.take returns it and keeps the file, move.clear deletes it, → null. Then the leave.* mirror (bd
-// med-o7zq.36.3): gates, stash in the account, kept into local mode where take/clear work, deleted by
+// med-o7zq.36.3): gates, stash in the account, kept into local mode where take/clear work (under the
+// local boot's pickup confirm, bd med-o7zq.36.4, then cancelled), deleted by
 // local.reset and by opening an account (seeded via run-as). results.moveOps has the checks.
 // Claims the run's one invite: not in `all` (smoke claims it there), no retry.
 import { claimAccount, waitForVault } from './smoke.mjs';
@@ -151,7 +152,11 @@ export default async function moveOps(ctx) {
     page = await ctx.attachPage();
     if (!page) throw new Error('no WebView page');
     await page.waitForURL((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`), { timeout: 30_000 });
-    await ctx.waitLocalReady(page);
+    // The local boot's leave pickup (bd med-o7zq.36.4) has taken the stash (take keeps it) and asks the
+    // typed replace confirm over the seeded records; the bridge checks run under it, then Cancel.
+    const title = page.locator('.mt-confirm-modal__title');
+    await title.filter({ hasText: 'Replace the records on this' }).waitFor({ timeout: 60_000 });
+    await ctx.shot('leave-pickup-confirm');
     expect((await leaveFiles()) === 'vault.json', 'entering local mode deleted the leave stash');
     const ops = await call(page, 'shell.ops');
     expect(ops.ok && ops.result.includes('leave.take') && ops.result.includes('leave.clear') && !ops.result.includes('leave.stash'), `local shell.ops ${JSON.stringify(ops)}`);
@@ -165,6 +170,11 @@ export default async function moveOps(ctx) {
     expect((await leaveFiles()) === '', `leave.clear left: ${await leaveFiles()}`);
     const none = await call(page, 'leave.take');
     expect(none.ok && none.result === null, `leave.take after clear: ${JSON.stringify(none)}`);
+    // Cancel → the pickup clears (already empty) and says the records were not copied → OK.
+    await page.click('.mt-confirm-modal__cancel');
+    await title.filter({ hasText: 'Records not copied' }).waitFor({ timeout: 15_000 });
+    await page.click('.mt-confirm-modal__cancel');
+    await ctx.waitLocalReady(page);
   });
   await ctx.step('local.reset deletes the leave stash', async () => {
     await seedLeave();
