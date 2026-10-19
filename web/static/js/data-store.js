@@ -501,9 +501,14 @@
                 }
             }
 
-            if (toEvict.size === 0) return;
-
-            await Promise.all([...toEvict].map((key) => this.clearCached(key)));
+            // A key with a pending optimistic write keeps its cache: that
+            // payload is authoritative until commit/rollback, and fetchFresh
+            // skips the GET meanwhile — evicting it would leave the screen
+            // with neither cache nor fetch (a delete's Undo window rendered
+            // the offline empty state; bd med-va47). The settle's own
+            // refresh reconciles against the server afterwards.
+            const evict = [...toEvict].filter((key) => !((pendingOptimistic.get(key) || 0) > 0));
+            await Promise.all(evict.map((key) => this.clearCached(key)));
         },
 
         async invalidateTags(tags = []) {

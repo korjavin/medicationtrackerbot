@@ -180,6 +180,7 @@ describe('workout invalidation: tag + legacy cache + push-modal flows', () => {
         await window.invalidateWorkoutCache();
 
         window.apiCallDirect = vi.fn(async () => { throw new Error('offline'); });
+        Object.defineProperty(window.navigator, 'onLine', { value: false, configurable: true });
 
         await window.loadWorkoutGroups();
 
@@ -229,6 +230,7 @@ describe('workout invalidation: tag + legacy cache + push-modal flows', () => {
         await window.invalidateWorkoutCache();
 
         window.apiCallDirect = vi.fn(async () => { throw new Error('offline'); });
+        Object.defineProperty(window.navigator, 'onLine', { value: false, configurable: true });
 
         await window.loadWorkoutStatsTab();
 

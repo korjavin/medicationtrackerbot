@@ -66,10 +66,27 @@ describe('createEmptyState / createOfflineEmptyState / createErrorState / create
     it('offline cold-start state is one shared wording', () => {
         const { window, cleanup } = loadComponents();
         try {
+            Object.defineProperty(window.navigator, 'onLine', { value: false, configurable: true });
             const el = window.createOfflineEmptyState({ tag: 'li' });
             expect(el.tagName).toBe('LI');
             expect(el.classList.contains('wg-empty')).toBe(true);
             expect(el.textContent).toContain('No cached data');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('offline copy only on a genuine network miss, never in device-only mode (med-va47)', () => {
+        const { window, cleanup } = loadComponents();
+        try {
+            // Online: a load that produced nothing is not an offline miss.
+            expect(window.createOfflineEmptyState().textContent).not.toMatch(/cached|online/);
+            // Device-only mode has no "online", even when the device is offline.
+            Object.defineProperty(window.navigator, 'onLine', { value: false, configurable: true });
+            window.document.documentElement.classList.add('wg-local-vault');
+            const el = window.createOfflineEmptyState();
+            expect(el.querySelector('.wg-empty__title').textContent).toBe('Nothing to show yet');
+            expect(el.textContent).not.toMatch(/cached|online/);
         } finally {
             cleanup();
         }

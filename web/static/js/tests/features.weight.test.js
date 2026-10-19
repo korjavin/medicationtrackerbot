@@ -310,3 +310,64 @@ describe('features/weight.js — row delete undoes from the toast (med-xso6.5)',
         expect((window.apiCall.mock.calls.filter(([, m]) => m === 'DELETE'))).toHaveLength(0);
     });
 });
+
+// bd med-va47: deleting rows in device-only mode flashed "No cached data yet —
+// This loads once you are back online" for seconds. The delete's own
+// invalidateTags evicted the cache while deleteWithUndo's optimistic handle was
+// still pending (so fetchFresh skipped the GET): neither cache nor fetch, and
+// the loader painted the offline state until the settle's refetch landed.
+describe('features/weight.js — deleting rows never shows the offline state (med-va47)', () => {
+    let env;
+
+    beforeEach(() => {
+        env = loadFrontendEnv({ withSync: true });
+    });
+
+    afterEach(() => {
+        try { env.window.localStorage.clear(); } catch (_) { /* ignore */ }
+        env.cleanup();
+        env = null;
+    });
+
+    it('second-last and last rows leave at once; the list ends on the normal empty state', async () => {
+        const { window, document } = env;
+        document.documentElement.classList.add('wg-local-vault');
+        const day = (n) => new Date(Date.now() - n * 86400000).toISOString();
+        let server = [
+            { id: 1, weight: 80.2, measured_at: day(2) },
+            { id: 2, weight: 80.0, measured_at: day(1) }
+        ];
+        installApiCache(window, { weight: { logsRes: server.slice(), goalRes: null, lineRes: null } });
+        const gate = deferred();
+        window.apiCall = vi.fn(async (url, method) => {
+            if (method === 'DELETE') {
+                await gate.promise; // a slow local delete
+                const id = Number(url.split('/').pop());
+                server = server.filter((l) => l.id !== id);
+                return { ok: true };
+            }
+            if (url.startsWith('/api/weight?')) return server.slice();
+            return {};
+        });
+        window.requestTabRefresh = () => { window.loadWeightLogs(); };
+
+        const list = document.getElementById('weight-list');
+        const seen = [];
+        new window.MutationObserver(() => seen.push(list.textContent)).observe(list, { childList: true, subtree: true });
+        const rows = () => list.querySelectorAll('.wg-weight-history-row').length;
+
+        await window.loadWeightLogs();
+        expect(rows()).toBe(2);
+
+        const first = window.deleteWeightLog('2');
+        await vi.waitFor(() => expect(rows()).toBe(1));
+        const second = window.deleteWeightLog('1'); // flushes the first
+        await vi.waitFor(() => expect(rows()).toBe(0));
+        gate.resolve();
+        expect(await first.done).toBe('deleted');
+        expect(await second.flush()).toBe('deleted');
+
+        await vi.waitFor(() => expect(list.querySelector('.wg-empty__title').textContent).toBe('No weigh-ins yet'));
+        expect(seen.some((t) => /No cached data|back online|Nothing to show/.test(t))).toBe(false);
+    });
+});

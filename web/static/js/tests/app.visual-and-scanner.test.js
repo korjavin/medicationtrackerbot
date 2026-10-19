@@ -341,6 +341,7 @@ describe('app.js charts, scanner and visualization helpers', () => {
         });
 
       window.DataStore.loadSWR = loadSWRSpy;
+      Object.defineProperty(window.navigator, 'onLine', { value: false, configurable: true });
 
       await window.loadHealthOverview();
       expect(document.getElementById('health-overview-content').innerHTML).toContain('No cached data');

@@ -556,6 +556,7 @@ describe('Today v2 — states (T4–T6) and offline', () => {
     it('cold start offline → the shared offline state; settled with nothing → error + Retry', () => {
         const s = baseState();
         s.__firstRun = true;
+        Object.defineProperty(env.window.navigator, 'onLine', { value: false, configurable: true });
         env.render(s, root, { now: NOW, offline: true });
         expect(root.querySelector('.wg-empty__title').textContent).toBe('No cached data yet');
         expect(root.querySelector('.wg-skel')).toBeNull();

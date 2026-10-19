@@ -99,6 +99,7 @@ describe('Today next_intake offline read', () => {
     state.__firstRun = true;
 
     const root = env.window.document.createElement('div');
+    Object.defineProperty(env.window.navigator, 'onLine', { value: false, configurable: true });
     expect(() => env.render(state, root, { now, offline: true })).not.toThrow();
 
     // First run short-circuits the render — the shared offline state, no

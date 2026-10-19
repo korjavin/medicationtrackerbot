@@ -416,12 +416,11 @@ describe('app.js form submissions and push modal behavior', () => {
     }
   });
 
-  it('handleWeightSubmit explicitly clears the Today weight cache by key', async () => {
-    // Regression: this exercise predates CacheKeys.registerAll wiring the
-    // 'weight' key at boot. It pins the belt-and-suspenders contract — a
-    // bypass of registration (future refactor, or a code path that skips
-    // the registry) must still result in eviction via clearCached('weight')
-    // so Today's presence check doesn't treat the stale snapshot as fresh.
+  it('handleWeightSubmit evicts the weight cache through the tag (no direct clearCached)', async () => {
+    // Eviction goes through invalidateTags, which spares a key with a
+    // pending optimistic write (an open delete Undo window). A direct
+    // clearCached('weight') would wipe that payload and blank the list
+    // until the window closed (bd med-va47).
     const { window, document, cleanup } = loadFrontendEnv();
 
     try {
@@ -439,13 +438,14 @@ describe('app.js form submissions and push modal behavior', () => {
 
       await window.handleWeightSubmit({ preventDefault() {} });
 
-      expect(clearCachedSpy).toHaveBeenCalledWith('weight');
+      expect(window.DataStore.invalidateTags).toHaveBeenCalledWith(['weight', 'gamification']);
+      expect(clearCachedSpy).not.toHaveBeenCalledWith('weight');
     } finally {
       cleanup();
     }
   });
 
-  it('handleBPSubmit explicitly clears the Today BP cache by key', async () => {
+  it('handleBPSubmit evicts the BP cache through the tag (no direct clearCached)', async () => {
     const { window, document, cleanup } = loadFrontendEnv();
 
     try {
@@ -464,7 +464,8 @@ describe('app.js form submissions and push modal behavior', () => {
 
       await window.handleBPSubmit({ preventDefault() {} });
 
-      expect(clearCachedSpy).toHaveBeenCalledWith('bp');
+      expect(window.DataStore.invalidateTags).toHaveBeenCalledWith(['bp', 'gamification']);
+      expect(clearCachedSpy).not.toHaveBeenCalledWith('bp');
     } finally {
       cleanup();
     }
