@@ -701,6 +701,26 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
     await expect(window.CloudVault.importAll(VAULT_JSON, { mode: 'merge' })).rejects.toThrow(/Sync not ready/);
     expect(sync.calls.order).toEqual([]);
   });
+
+  it('a merge that adds a weight row drops pending weight writes only, so the overlay keeps the rewalked trend', async () => {
+    const pendingWeight = { recordType: 'weight', recordId: 'weight-1', clientTs: 5, deleted: false, weight: 80, measured_at: '2026-07-02T08:00:00Z', weight_trend: 80 };
+    const earlier = { recordType: 'weight', recordId: 'weight-0', clientTs: 9, deleted: false, weight: 100, measured_at: '2026-07-01T08:00:00Z', weight_trend: 100 };
+    const sync = syncModule({ isBootstrapped: async () => true, readAllRawRecords: async () => [pendingWeight] });
+    const { window } = await runBoot({
+      modules: {
+        'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
+        'apishim.js': { installApiShim: () => () => Promise.resolve(null) },
+        'sync.js': sync.mod,
+        '/domain/vault.js': { ...VAULT_MOD, vaultToRecords: () => [earlier] },
+        'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
+        'mcp-responder.js': { refreshResponder: () => {} },
+      },
+    });
+    await window.CloudVault.importAll(VAULT_JSON, { mode: 'merge' });
+    expect(sync.calls.dropPendingForTypes).toEqual([new Set(['weight'])]);
+    expect(sync.calls.order).toEqual(['mark', 'drop', 'replace', 'snapshot']);
+    expect(sync.calls.replaced.find((r) => r.recordId === 'weight-1').weight_trend).toBe(98);
+  });
 });
 
 describe('cloud-boot early service worker registration (med-gvk.1)', () => {

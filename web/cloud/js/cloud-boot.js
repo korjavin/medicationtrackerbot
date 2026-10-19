@@ -268,9 +268,17 @@ window.MedTrackerCloudReady = (async function boot() {
             // replace. Merge: every row here stays, tombstones included.
             // Both reads bootstrap first, so isBootstrapped below reflects
             // whether that bootstrap actually reached the server.
+            const here = merge ? await readAllRawRecords(ctx) : null;
             const toWrite = merge
-                ? mergeRecords(await readAllRawRecords(ctx), records)
+                ? mergeRecords(here, records)
                 : [...records, ...(await readAllLiveRecords(ctx)).filter((r) => !VAULT_MANAGED_TYPES.has(r.recordType))];
+            // A merge that adds a weight row rewalks every weight trend, and
+            // the pending overlay would put a pending weight row's old trend
+            // back; the forced snapshot carries the rewalked row instead.
+            const hereIds = merge ? new Set(here.map((r) => r.recordId)) : null;
+            const dropTypes = merge
+                ? (toWrite.some((r) => r.recordType === 'weight' && !hereIds.has(r.recordId)) ? new Set(['weight']) : null)
+                : VAULT_MANAGED_TYPES;
             // Refuse to wipe until the account cursor exists. Without it,
             // forceSnapshot can't propagate the import (null cursor → nothing to
             // snapshot at) and the next open re-bootstraps the stale server
@@ -284,14 +292,15 @@ window.MedTrackerCloudReady = (async function boot() {
             // replaceAllRecords' pending overlay resurrects them over the backup
             // (and they later flush over it). Non-managed pending (nk, reminder
             // prefs) stays queued — those records survive the replace. Merge
-            // drops nothing: a pending row is a receiver row, so it won the
-            // merge and its op flushes after the snapshot unchanged (a floored
-            // placeholder that yielded is dropped by replaceAllRecords' overlay).
+            // drops only weight, above: any other pending row is a receiver
+            // row, so it won the merge and its op flushes after the snapshot
+            // unchanged (a floored placeholder that yielded is dropped by
+            // replaceAllRecords' overlay).
             // Mark before the wipe: a crash between replaceAllRecords and the
             // marker would let the next open re-bootstrap the stale server
             // snapshot over the import (and the old data is already gone).
             await markForceSnapshotPending();
-            if (!merge) await dropPendingForTypes(VAULT_MANAGED_TYPES);
+            if (dropTypes) await dropPendingForTypes(dropTypes);
             await replaceAllRecords(toWrite);
             // Past this line the import HAS happened locally. Propagation to the
             // server is retryable (forceSnapshotPending stays set, next pullOnOpen
