@@ -178,6 +178,9 @@ class MainActivity : Activity() {
         host = h
         input.setText("")
         firstRunMessage.text = ""
+        // Found by the emulator harness (bd med-nt9p.23): the keyboard stayed up over the
+        // page or the error screen, so the first Back only closed it.
+        window.insetsController?.hide(WindowInsets.Type.ime())
         reopen(url) // the claim link keeps its #fragment for the page; only the host is stored
     }
 
