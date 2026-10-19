@@ -135,10 +135,13 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
 - **Offline:** a cold start offline is answered by the Service Worker; a native
   "Can't open your account" screen (Try again / Switch account) appears only
   when the very first load fails with nothing cached, or the host answers an
-  HTTP error other than 404. A 404 of the stored host before any page of the
-  account showed (a mistyped account, or one deleted here, on another device or
-  by the operator) forgets the host and returns to the first run with "There is
-  no account at <host>." (bd med-nt9p.32.14). Try again keeps an
+  HTTP error. Only the server's own "no such account" 404 — marked
+  `X-Account-Gone: 1` by `internal/cloudserver/router.go` (a mistyped account,
+  or one deleted here, on another device or by the operator) — on the stored
+  host before any page of the account showed forgets the host and returns to
+  the first run with "There is no account at <host>." (bd med-nt9p.32.14,
+  `AccountUrl.accountGone`). A bare 404 (the proxy's while the server
+  redeploys, or an older server) keeps the account and this screen. Try again keeps an
   invite link's `#claim=` fragment (in memory only). Unlike WKWebView, WebView
   replaces the page on a failed navigation, so a later page load that fails
   with no Service Worker answer gets the same screen (Try again reloads it).
@@ -515,9 +518,11 @@ are in the artifact.
 
 Scenarios on it: `claim-page` (invite → signup wizard with the page-coloured
 bands and the native "Use another invite" bar → its dialog → Cancel; default,
-font 1.3, dark), `not-found` (`nobody.qa.test` → the first run with "There is
-no account at …", no Try again, `accountHost` gone from `shell.xml`; the
-error-screen scenarios open `down.qa.test`, which `tlsfront` answers 503),
+font 1.3, dark), `not-found` (`nobody.qa.test`, which `tlsfront` answers with
+the server's marked 404 → the first run with "There is no account at …", no
+Try again, `accountHost` gone from `shell.xml`; `stale.qa.test`, a bare 404 →
+the error screen, `accountHost` kept; the other error-screen scenarios open
+`down.qa.test`, which `tlsfront` answers 503),
 `external-link` (a `_blank` anchor and `location.href` to example.com leave the
 WebView URL unchanged and fire ACTION_VIEW — the image has Chrome, which takes
 it), `authn-probe` (below).

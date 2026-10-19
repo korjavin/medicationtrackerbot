@@ -483,9 +483,11 @@ class MainActivity : Activity() {
             if (!request.isForMainFrame || response.statusCode < 400 || showingAccount) return
             if (bundled(request, "HTTP ${response.statusCode}")) return
             val h = request.url.host?.lowercase()
-            // The stored account is gone (deleted here or elsewhere, or a typo): forget it and say why
-            // on the first run (bd med-nt9p.32.14). reopen() keeps the message; the next open() clears it.
-            if (response.statusCode == 404 && h != null && h == host) {
+            // The server says the stored account is gone (deleted here or elsewhere, or a typo): forget
+            // it and say why on the first run (bd med-nt9p.32.14). A 404 without the server's marker
+            // (a proxy's during a redeploy, an older server) keeps the error screen and Try again.
+            // reopen() keeps the message; the next open() clears it.
+            if (h != null && h == host && AccountUrl.accountGone(response.statusCode, response.responseHeaders)) {
                 forget()
                 firstRunMessage.text = "There is no account at $h."
                 return
