@@ -13,4 +13,7 @@ internal object DebugHooks {
 
     @Suppress("UNUSED_PARAMETER")
     fun qaScene(activity: Activity): String? = null
+
+    @Suppress("UNUSED_PARAMETER")
+    fun qaLock(activity: Activity) = false
 }
