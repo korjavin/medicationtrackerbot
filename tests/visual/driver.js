@@ -168,12 +168,12 @@
     // old `top < vv.offsetTop` flag an on-screen sheet header (med-m1x5). A
     // marker fixed at the layout top reads the layout top in whichever space
     // the engine uses; the visual viewport sits offsetTop below it. The marker
-    // is QA tooling, never app markup, and the cloud pass has no driver.css,
-    // hence the attribute style.
+    // is QA tooling, never app markup; the cloud pass has no driver.css and its
+    // CSP (style-src 'self') blocks a style attribute, but not CSSOM.
     function visibleTop(vv) {
         if (!vv) return 0;
         const marker = document.createElement('div');
-        marker.setAttribute('style', 'position:fixed;top:0;left:0;width:0;height:0;visibility:hidden');
+        marker.style.cssText = 'position:fixed;top:0;left:0;width:0;height:0;visibility:hidden';
         document.body.appendChild(marker);
         const layoutTop = marker.getBoundingClientRect().top;
         marker.remove();

@@ -118,7 +118,7 @@ describe('iOS visual QA driver (med-y5xx.1)', () => {
         expect(sheethead).not.toBeNull();
         let headTop = 50;
         const rectFor = (el) => {
-            const fixedMarker = /position:\s*fixed/.test(el.getAttribute('style') || '');
+            const fixedMarker = el.style.position === 'fixed';
             let top = 0;
             if (fixedMarker || el.classList.contains('wg-appbar')) top = -300; // layout top, panned away
             else if (el === sheethead) top = headTop;
