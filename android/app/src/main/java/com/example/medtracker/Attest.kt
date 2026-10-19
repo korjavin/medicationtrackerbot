@@ -53,9 +53,10 @@ import kotlin.coroutines.resumeWithException
  * Binary values are standard base64. Nothing here logs: Diag is user-copyable, and the token
  * and the pass must never reach it.
  *
- * State: SharedPreferences "wg_trial" (pass, key alias, attested alias, counter). Keystore keys
- * never restore, so a reinstall rejoins its trial bucket only once that file is in the Auto
- * Backup rules (bd med-nt9p.32.5); until then a reinstall founds a fresh bucket.
+ * State: SharedPreferences "wg_trial" (pass, key alias, attested alias, counter), in the Auto
+ * Backup include rules (res/xml/data_extraction_rules.xml, bd med-nt9p.32.5). Keystore keys
+ * never restore, so after a restore the alias finds no key: the next enroll makes a new one and
+ * presents the restored pass, and the install rejoins its trial bucket.
  */
 class Attest(private val context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
