@@ -394,6 +394,7 @@ describe('WGBpChart.render', () => {
             observe() {}
             unobserve() {}
         };
+        env.window.requestAnimationFrame = (cb) => cb();
         const host = env.window.document.createElement('div');
         env.window.document.body.appendChild(host);
         host.appendChild(env.api.render({ readings: sampleReadings() }));

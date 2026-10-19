@@ -435,13 +435,11 @@ window.ChartUtils = (() => {
         let current = node;
         let width = Number((node.getAttribute('viewBox') || '').split(' ')[2]) || 0;
         if (!width) return node; // empty-state <div>, nothing to fit
-        const ro = new ResizeObserver((entries) => {
-            // Removed (range change, refresh): stop observing so detached
-            // charts don't pile up. ponytail: a chart attached later than the
-            // first frame keeps its default width; callers all append synchronously.
-            if (!current.isConnected) { ro.disconnect(); return; }
-            const next = Math.round(entries[entries.length - 1].contentRect.width);
-            if (!next || Math.abs(next - width) < 2) return;
+        let pending = 0;
+        const refit = () => {
+            const next = pending;
+            pending = 0;
+            if (!next || !current.isConnected || Math.abs(next - width) < 2) return;
             const fresh = render({ ...(opts || {}), width: next });
             if (!fresh) return;
             ro.unobserve(current);
@@ -449,6 +447,19 @@ window.ChartUtils = (() => {
             current = fresh;
             width = next;
             ro.observe(fresh);
+        };
+        const ro = new ResizeObserver((entries) => {
+            // Removed (range change, refresh): stop observing so detached
+            // charts don't pile up. ponytail: a chart attached later than the
+            // first frame keeps its default width; callers all append synchronously.
+            if (!current.isConnected) { ro.disconnect(); return; }
+            const next = Math.round(entries[entries.length - 1].contentRect.width);
+            if (!next || Math.abs(next - width) < 2) return;
+            // Swap on the next frame: resizing inside the observer callback
+            // trips "ResizeObserver loop completed with undelivered notifications".
+            const schedule = !pending;
+            pending = next;
+            if (schedule) requestAnimationFrame(refit);
         });
         ro.observe(node);
         return node;
