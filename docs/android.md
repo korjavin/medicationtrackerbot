@@ -400,7 +400,7 @@ screens, `device.screenshot()` for the full screen incl. bars and keyboard).
 stays the acceptance device.
 
 ```bash
-gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-dark, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe, smoke
+gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-dark, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe, local-smoke, smoke, local-visual, local-app, local-backup, local-spike
 gh workflow run android-qa.yml --ref <branch> -f scenario=firstrun -f font_scale=1.3 -f dark=true -f landscape=true
 gh run download <run-id> -n android-qa-<scenario> -D /tmp/qa             # then Read the PNGs
 ```
@@ -424,9 +424,64 @@ workflow's `scenario` options. `ctx`: `device` (Playwright `AndroidDevice`),
 scenario), `launch()` (cold start on first run), `openAccount(url)`,
 `inForeground()`, `attachPage()` (Playwright `page` on the shell's WebView, for
 DOM/console/CDP), `openLink(url)`, `openClaim({ softAuthn })` (cold start → the run's
-invite → `page` on the `/unlock` signup wizard), `claimUrl`, `results` (named
+invite → `page` on the `/unlock` signup wizard), `launchLocal(scene?, { extra })`
+(below), `stableShot(name)` (shoots once two frames a second apart match — the
+software GPU paints seconds behind the DOM), `tapElement(page, selector)` (a
+real touch on a DOM element), `imeShown()`, `claimUrl`, `results` (named
 findings for the summary), `log`. The dispatch inputs are re-applied after
 every scenario, so a scenario may change them freely.
+
+### Local-mode scenarios (bd med-nt9p.32.6)
+
+Every unlocked-vault path in cloud mode needs a passkey; local mode needs none.
+**A passkey-free full-app run is `gh workflow run android-qa.yml -f
+scenario=local-smoke`.** The QA APK carries a `QA=1` bundle (prefix
+`android-qa`, so the build id tells it apart): the visual QA driver
+([`tests/visual/driver.js`](../tests/visual/driver.js)) at `/qa/*`, which on
+`?qa=<scene>` seeds the golden vault into the empty local store, navigates and
+publishes `#wg-qa-ready`. `ctx.launchLocal(scene?, { extra = true })` =
+force-stop + `am start … --ez wgLocalMode true [--es wgQAScene <scene>]` (the
+debug + `qa.test` extras of [Local mode: the shell](#local-mode-the-shell-bd-med-nt9p324);
+`extra: false` relaunches on the persisted pref alone), then waits for
+`#wg-qa-ready` (scene) or the bottom nav. The QA bundle never ships:
+`android.yml` bundles without `QA=1`, its debug-APK check fails on any
+`assets/web/cloud/qa/`, and a release dispatch checks the release APK and AAB
+the same way.
+
+- **`local-smoke`** (in `all`, before `smoke`): `pm clear`, notifications
+  granted → cold start on scene `today` → every tab (Today, Meds, Vitals,
+  Food, Settings; each a stable shot after its content and the bottom nav are
+  in the DOM) → the add-BP sheet, a real tap on systolic, typed `128`,
+  keyboard up (`local-smoke-bp-sheet-keyboard.png`) → Back hides the
+  keyboard, the next closes the sheet, the app stays open → a med added
+  (through `/api/medications`) → force-stop → relaunch with no extras → the
+  med is still listed (`local-smoke-relaunch-meds.png`) → Settings: the
+  Health Connect row and the reminder state in Android wording ("phone").
+  `results.local = { durable, networkRequests, egress, paint, keyboard, … }`:
+  `networkRequests` counts every page request and websocket (Playwright's CDP
+  Network events) to a host other than `appassets.androidplatform.net` over
+  both boots (Playwright attaches after a launch's first load, so the first
+  boot is replayed under the listener: a same-origin non-app document (`/qa/scenes.json`) wipes the origin's
+  storage, then `/?qa=today` boots on the empty store and seeds; the relaunch
+  is reloaded with the listener attached) — **must be 0**, the
+  whole-app zero-egress check; `paint` is the seconds each shot waited for a
+  stable frame.
+- **`local-visual`** (on its own; ~20 cold starts): the Android twin of
+  `ios/UITests/VisualQATests.swift` for [visual QA](design/ios-visual-testing.md)
+  (med-y5xx.9 consumes it). `pm clear`, then per scene of
+  [`tests/visual/scenes.json`](../tests/visual/scenes.json): web scenes
+  launch with `--es wgQAScene <name>`, wait for `#wg-qa-ready`, run the
+  scene's `native` steps on the device (`tap` = a real touch on the DOM id,
+  `type` = `adb input text`, `clear`, `tapButton` / `waitFor` = UiAutomator
+  text, `keyboard` = the IME is up); native-only scenes (`native-*`) open
+  first run. Artifact `visual/<scene>.png` (full device) +
+  `visual/<scene>.json` (the ready node's report: probes, `failed`). Dark,
+  font scale and landscape are the dispatch inputs, applied to every scene.
+  As on iOS only lost ready content fails a scene (one retry each, from
+  a fresh `pm clear`; `firstError` keeps attempt 1's failure); the probes are
+  findings. First full run 39257278592: every scene shot, all passing on
+  retry; the Settings-page scenes lose their page on a seeded cold start
+  (bd med-nt9p.39). The scenario fails at the end if any scene did.
 
 ### Local cloud on the runner (bd med-nt9p.24)
 
@@ -844,8 +899,8 @@ the APK carries the web app and the shell serves it on
 so local IndexedDB never mixes with an account's. The mode switch, first run
 and bridge ops are below ([Local mode: the shell](#local-mode-the-shell-bd-med-nt9p324)).
 
-- **Bundle (CI only):** `android.yml` (and `android-qa.yml`, with `QA=1`)
-  runs [`ios/bundle-web.sh`](../ios/bundle-web.sh) before Gradle with
+- **Bundle (CI only):** `android.yml` (and `android-qa.yml`, with `QA=1` and
+  prefix `android-qa`) runs [`ios/bundle-web.sh`](../ios/bundle-web.sh) before Gradle with
   `WG_BUNDLE_OUT=android/app/src/main/assets/web` and
   `WG_BUNDLE_PREFIX=android`: `web/static`, `web/cloud` and `web/domain` from
   the checked-out revision, `index.html` with the fingerprints set to
@@ -897,7 +952,7 @@ Launches with `--ez wgLocalMode true`, reloads with request listeners attached, 
 CSP header (`connect-src 'self'`, no wildcard), `no-store`, the JS MIME, the
 404 and the refused cross-origin fetch are asserted; any other failed or
 ≥ 400 load fails the scenario. Everything lands in `results.localApp`. Not in
-`all` (`.6` owns the local scenarios).
+`all` (`local-smoke` is the local scenario there).
 
 ## Local mode: the shell (bd med-nt9p.32.4)
 

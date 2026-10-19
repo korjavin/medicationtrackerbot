@@ -2,7 +2,7 @@
 // the debug-only launch extra wgLocalMode (bd med-nt9p.32.4) opens assets/web on https://appassets.androidplatform.net
 // in MainActivity. Proves the shell renders with no failed asset/module load, the document carries
 // the CSP header, and a miss is a 404 that never reaches the network. Findings in results.localApp.
-// Not in `all` until .6 (local-smoke) owns the local scenarios.
+// Not in `all`: local-smoke (bd med-nt9p.32.6) is the local scenario there.
 const ORIGIN = 'https://appassets.androidplatform.net';
 
 export default async function localApp(ctx) {

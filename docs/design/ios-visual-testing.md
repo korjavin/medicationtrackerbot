@@ -403,6 +403,8 @@ the three `med-pe9g` screenshots were one bead.
 - **Phase 3 (P3):** the same driver on the Android shell with
   `reactivecircus/android-emulator-runner` on ubuntu (cheap); Dynamic Type /
   larger text axis if the owner wants it.
+  The Android tier exists: `android-qa.yml -f scenario=local-visual` (bd med-nt9p.32.6,
+  [android.md → Local-mode scenarios](../android.md#local-mode-scenarios-bd-med-nt9p326)).
 
 ## Decisions for the owner
 
