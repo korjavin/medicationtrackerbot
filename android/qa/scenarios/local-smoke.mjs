@@ -119,6 +119,8 @@ export default async function localSmoke(ctx) {
     const row = page.locator('#health-import-row .wg-setting__title');
     await row.waitFor({ timeout: 15_000 });
     r.healthLabel = (await row.textContent()).trim();
+    // A finding, not a stopper (bd med-nt9p.38: the "On this device only" row says iPhone).
+    r.iPhoneText = await page.evaluate(() => (document.getElementById('settings-view')?.innerText.match(/iPhone/g) || []).length);
     await page.evaluate(() => window.SettingsView.openSettingsPage('notifications'));
     const state = page.locator('#local-notify-state');
     await state.waitFor({ state: 'visible', timeout: 10_000 });
