@@ -466,7 +466,29 @@ describe('Meds schedule sub-tab (Phase 5, Task 4)', () => {
         expect(headers).not.toContain('Scheduled');
 
         const row = list.querySelector('.wg-meds-row');
-        expect(row.querySelector('.wg-meds-row__schedule').textContent).toBe('Daily: 08:00');
+        expect(row.querySelector('.wg-meds-row__schedule').textContent).toBe('Daily at 08:00');
+    });
+
+    // bd med-aec1 — course dates read as copy, not "12.09.2026, – N/A".
+    it('renders course dates as "since"/"until"/range copy and omits open ends', async () => {
+        const { document, window } = env;
+        const daily = JSON.stringify({ type: 'daily', times: ['09:00'] });
+        await seedMedications(window, [
+            { id: 11, name: 'StartOnly', schedule: daily, start_date: '2026-09-12T00:00:00.000Z', archived: false },
+            { id: 12, name: 'Bounded', schedule: daily, start_date: '2026-09-12T00:00:00.000Z', end_date: '2026-10-01T00:00:00.000Z', archived: false },
+            { id: 13, name: 'EndOnly', schedule: daily, end_date: '2026-10-01T00:00:00.000Z', archived: false },
+            { id: 14, name: 'Open', schedule: daily, archived: false }
+        ]);
+        const dates = (id) => {
+            const el = document.querySelector(`.wg-meds-row[data-med-id="${id}"] .wg-meds-row__dates`);
+            return el ? el.textContent : null;
+        };
+        // Wall-clock day of the stored date part, in the runtime locale ("Sep 12" in en).
+        const day = (m, d) => new Date(2026, m, d).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+        expect(dates(11)).toBe(`· since ${day(8, 12)}`);
+        expect(dates(12)).toBe(`· ${day(8, 12)} – ${day(9, 1)}`);
+        expect(dates(13)).toBe(`· until ${day(9, 1)}`);
+        expect(dates(14)).toBeNull();
     });
 
     it('rendering twice replaces the list cleanly (no duplicate section headers)', async () => {

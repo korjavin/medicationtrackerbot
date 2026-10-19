@@ -183,7 +183,7 @@ describe('features/medication-utils.js — MedicationUtils (Plan 2026-05-13, Tas
                 { schedule: '...' },
                 { type: 'daily', times: ['08:00', '20:00'] }
             );
-            expect(text).toBe('Daily: 08:00, 20:00');
+            expect(text).toBe('Daily at 08:00, 20:00');
         });
 
         it('renders weekly schedules with day names and times', () => {
@@ -192,7 +192,7 @@ describe('features/medication-utils.js — MedicationUtils (Plan 2026-05-13, Tas
                 { schedule: '...' },
                 { type: 'weekly', days: [1, 3, 5], times: ['09:00'] }
             );
-            expect(text).toBe('Weekly (Mon, Wed, Fri): 09:00');
+            expect(text).toBe('Mon, Wed, Fri at 09:00');
         });
 
         it('returns "As Needed" for any other schedule type', () => {

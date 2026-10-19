@@ -297,6 +297,27 @@ describe('WGWorkoutChart.render', () => {
             expect(Number(line.dataset.workoutYMin)).toBe(900);
         });
 
+        // med-vohq — two weekly buckets used to interpolate x by timestamp:
+        // the trained week's bar clamped to the axis under labels 10/12, 10/14,
+        // 10/16, 10/19 that matched no bucket.
+        it('spaces weekly bars evenly and labels each bar with its own week', () => {
+            const two = [
+                { week: '2026-10-12T12:00:00Z', volume: 1810 },
+                { week: '2026-10-19T12:00:00Z', volume: 0 },
+            ];
+            const svg = env.api.render({ sessions: two, metric: 'volume', variant: 'bars' });
+            const centres = Array.from(svg.querySelectorAll('rect.wg-workout-chart__bar'))
+                .map((b) => Number(b.getAttribute('x')) + Number(b.getAttribute('width')) / 2);
+            const labels = Array.from(svg.querySelectorAll('text[data-workout-axis="x"]'));
+            expect(labels.map((t) => t.textContent)).toEqual(
+                two.map((w) => new Date(w.week).toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' })));
+            labels.forEach((t, i) => expect(Number(t.getAttribute('x'))).toBeCloseTo(centres[i], 0));
+            // A skipped week keeps its slot: gaps stay evenly spaced.
+            const gap = env.api.render({ sessions: [two[0], { week: '2026-10-26T12:00:00Z', volume: 500 }], metric: 'volume', variant: 'bars' });
+            const [a, b] = Array.from(gap.querySelectorAll('rect.wg-workout-chart__bar')).map((r) => Number(r.getAttribute('x')));
+            expect(b - a).toBeCloseTo(2 * (centres[1] - centres[0]) * 2 / 3, 0);
+        });
+
         it('keeps every bucket instead of downsampling, and stays inside the plot', () => {
             const svg = env.api.render({ sessions: makeSessions({ weeks: 120 }), variant: 'bars' });
             const bars = Array.from(svg.querySelectorAll('rect.wg-workout-chart__bar'));
