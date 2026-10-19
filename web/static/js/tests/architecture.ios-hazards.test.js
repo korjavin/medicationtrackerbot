@@ -13,6 +13,8 @@
 //  4. Form-control rules whose font-size resolves under 16px (iOS zooms on
 //     focus below 16px). Safe only because of noFocusZoom(); every hit must be
 //     in the allowlist so a NEW sub-16px control is a conscious decision.
+//  5. The bottom inset is applied once (med-giuq) and the docked sheet spans
+//     the phone with a skirt under the floating keyboard bar (med-j4h9).
 
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
@@ -62,8 +64,8 @@ const fontSize = (r) => px(decl(r, 'font-size') ?? (decl(r, 'font') || '').split
 
 // Existing fixed+bottom:0 rules without a safe-area inset in the same rule.
 const FIXED_BOTTOM_ALLOW = new Set([
-    // Bakes 28px of bottom padding into the bar (components.css .wg-tabbar) for
-    // the home indicator; the viewport has no viewport-fit=cover, so env() is 0.
+    // Placement only; the kit rule (components.css .wg-tabbar, loaded later) owns
+    // the env(safe-area-inset-bottom) padding, pinned below (med-giuq).
     'web/static/css/styles.css .wg-tabbar',
     // Dev-only debug overlay, hidden by default.
     'web/static/css/styles.css .sync-debug-panel',
@@ -119,5 +121,19 @@ describe('Architecture — iOS layout hazards', () => {
             hits.filter((r) => !SUB16_ALLOW.has(`${r.file} ${r.selector}`)).map((r) => `${r.file}:${r.line} ${r.selector}`));
         const keys = hits.map((r) => `${r.file} ${r.selector}`);
         expect([...SUB16_ALLOW].filter((k) => !keys.includes(k)), 'stale SUB16_ALLOW entries').toEqual([]);
+    });
+
+    it('the tab bar and the docked sheet apply the bottom inset once, sheets span the phone (med-giuq, med-j4h9)', () => {
+        const rule = (sel, file = 'styles.css') => ALL.find((r) => r.file === `web/static/css/${file}` && r.selector === sel);
+        // No hard-coded home-indicator padding on top of what env() / the iOS shell already reserve.
+        expect(decl(rule('.wg-tabbar', 'components.css'), 'padding')).toBe('6px 10px calc(6px + env(safe-area-inset-bottom))');
+        expect(ALL.find((r) => r.selector === ':root' && /--wg-tabbar-h/.test(r.body)).body).toMatch(/--wg-tabbar-h:\s*calc\([^;]*env\(safe-area-inset-bottom\)/);
+        const sheet = rule('.wg-modal.wg-sheet');
+        expect(decl(sheet, 'max-width')).toBe('var(--wg-sheet-max-w)');
+        expect(ALL.some((r) => /--wg-sheet-max-w:\s*100%/.test(r.body))).toBe(true);
+        // The skirt hangs below the dock line: lifted by height minus skirt, padded by the skirt.
+        expect(decl(sheet, 'translate')).toBe('0 calc(var(--wg-sheet-skirt) - 100%)');
+        expect(decl(sheet, 'padding')).toMatch(/var\(--wg-sheet-skirt\)/);
+        expect(decl(rule('.wg-modal.wg-sheet.wg-scrim--kb'), 'padding-bottom')).toBe('var(--wg-sheet-skirt)');
     });
 });
