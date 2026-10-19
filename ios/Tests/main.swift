@@ -1,5 +1,5 @@
-// Self-check for AccountURL, LocalOrigin, LocalLock and ReminderPath, run by .github/workflows/ios.yml:
-//   swiftc -D DEBUG App/AccountURL.swift App/LocalOrigin.swift App/LocalLock.swift App/ReminderPath.swift Tests/main.swift -o <bin> && <bin>
+// Self-check for AccountURL, LocalOrigin, LocalLock, ReminderPath and Move, run by .github/workflows/ios.yml:
+//   swiftc -D DEBUG App/AccountURL.swift App/LocalOrigin.swift App/LocalLock.swift App/ReminderPath.swift App/Move.swift Tests/main.swift -o <bin> && <bin>
 // Not part of the app target (project.yml sources only App/).
 import Foundation
 
@@ -158,3 +158,29 @@ precondition(ReminderPath.legacy("meds") == "/?tab=meds" && ReminderPath.legacy(
 precondition(ReminderPath.legacy("settings") == "/?tab=today" && ReminderPath.legacy(nil) == "/?tab=today")
 precondition(ReminderPath.legacy(42) == "/?tab=today")
 print("ReminderPath: ok")
+
+// shell.ops (bd med-o7zq.35): per mode, the move ops on their own side.
+let localOps = LocalOrigin.ops(local: true), accountOps = LocalOrigin.ops(local: false)
+precondition(localOps.contains("move.stash") && !localOps.contains("move.take") && !localOps.contains("move.clear"))
+precondition(accountOps.contains("move.take") && accountOps.contains("move.clear") && !accountOps.contains("move.stash"))
+precondition(accountOps.contains("account.leave") && !localOps.contains("account.leave"))
+precondition(localOps.contains("shell.ops") && accountOps.contains("shell.ops") && localOps == localOps.sorted())
+print("LocalOrigin.ops: ok")
+
+// Move (bd med-o7zq.35): the stash file's lifecycle.
+let moveDir = FileManager.default.temporaryDirectory.appendingPathComponent("wg-move-\(UUID().uuidString)")
+let move = Move(dir: moveDir)
+func failure(_ vault: Any?) -> String? {
+    do { try move.stash(vault); return nil } catch { return (error as? Move.Failure)?.message ?? "other" }
+}
+precondition(!move.exists && (try! move.take()) == nil)
+precondition(failure(nil) == "invalid vault" && failure("") == "invalid vault" && failure(42) == "invalid vault")
+precondition(failure(String(repeating: "é", count: Move.maxBytes / 2 + 1)) == "too large") // UTF-8 bytes, not characters
+precondition(!move.exists)
+precondition(failure("{\"v\":1}") == nil && move.exists && (try! move.take()) == "{\"v\":1}")
+precondition(failure("{\"v\":2}") == nil && (try! move.take()) == "{\"v\":2}") // replaced; take does not delete
+precondition((try! moveDir.resourceValues(forKeys: [.isExcludedFromBackupKey])).isExcludedFromBackup == true)
+move.clear()
+precondition(!move.exists && (try! move.take()) == nil)
+move.clear() // idempotent
+print("Move: ok")
