@@ -107,6 +107,27 @@ export function hasUserContent(records) {
   return records.some((r) => !r.deleted && USER_CONTENT_TYPES.has(r.recordType));
 }
 
+// mergeRecords (bd med-o7zq.38): the record set a merge import lands — the
+// union by recordId, receiver (`existing`) wins, i.e. putIfAbsent semantics.
+// One exception: a live floored placeholder (clientTs 0, CLAUDE.md rule 12)
+// yields to an incoming row, as it loses every LWW merge anyway. A receiver
+// tombstone holds its slot; an incoming tombstone lands only in an empty one.
+// Apple Health rows also hold their canonical hk id (an older client restored
+// them under a fresh id), as healthimport.js importSamples does. Rows with
+// different ids are all kept, so the same item created on both sides doubles.
+export function mergeRecords(existing, incoming) {
+  const taken = new Map();
+  for (const r of existing) {
+    taken.set(r.recordId, r);
+    const hk = healthImportRecordId(r.recordType, r);
+    if (hk && !taken.has(hk)) taken.set(hk, r);
+  }
+  const yields = (r, inc) => r.recordId === inc.recordId && !r.deleted && r.clientTs === 0 && !inc.deleted;
+  const added = incoming.filter((r) => !taken.has(r.recordId) || yields(taken.get(r.recordId), r));
+  const replaced = new Set(added.map((r) => r.recordId));
+  return [...existing.filter((r) => !replaced.has(r.recordId)), ...added];
+}
+
 // Record types whose rows are lazily materialized into deterministic recordIds
 // (intake-<medId>-<slot>, session-<groupId>-<date>) via putIfAbsent: for these,
 // a tombstone is a suppression signal ("deliberately deleted, do not

@@ -209,6 +209,22 @@ describe('local-only mode boot + records port (med-o7zq.2)', () => {
         expect(await pendingRows()).toEqual([]);
     });
 
+    // bd med-o7zq.38: a merge keeps what is here and adds the file's records;
+    // the default replace still wipes.
+    it("merge keeps this device's weight and adds the fixture's records; replace still wipes", async () => {
+        const { window } = env;
+        await window.apiCall('/api/weight', 'POST', { weight: 99 });
+        cancelReminderRecompute({ accountId: 'local' });
+        const fixtureWeights = VAULT_FIXTURE.data.weight.logs.map((r) => r.weight);
+        const weights = async () => (await window.apiCall('/api/weight?days=0&limit=1000')).map((r) => r.weight).sort();
+        await window.CloudVault.importAll(JSON.stringify(VAULT_FIXTURE), { win: window, mode: 'merge' });
+        expect(await weights()).toEqual([99, ...fixtureWeights].sort());
+        expect((await window.apiCall('/api/bootstrap')).needs_first_run).toBe(false);
+        await window.CloudVault.importAll(JSON.stringify(VAULT_FIXTURE), { win: window });
+        expect(await weights()).toEqual([...fixtureWeights].sort());
+        expect(fetched.filter((u) => u.includes('/api/'))).toEqual([]);
+    });
+
     // bd med-suu2: a device-only install restored from a backup must not
     // onboard again; restoring a blank backup leaves onboarding pending.
     it('a restore of a non-empty vault clears needs_first_run; a blank vault does not', async () => {

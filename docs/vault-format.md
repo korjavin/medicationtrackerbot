@@ -70,6 +70,25 @@ handlers did; its storage-boundary conversions are documented under
 Import is **replace-only** (wipe target user, then insert), so leaf-record ids never
 have to survive a round-trip — the importer is free to re-mint them.
 
+Replace-only is what the backup-file Restore does. `importAll` also takes
+`{mode:'merge'}` (bd med-o7zq.38, `mergeRecords` in `web/domain/vault.js`):
+the union by recordId where the receiver wins every collision, except that a
+live floored placeholder (`clientTs` 0) yields to the file's row; a receiver
+tombstone holds its slot, a file tombstone lands only in an empty one, and an
+Apple Health row also holds its canonical `-hk-` id. So the file's copy is
+dropped for every deterministic id the receiver already has: singletons
+(`settings`, `features`, `integrations`, `apitokens`, `bpgoal`, …), derived
+slots (`intake-<med>-<slot>`, `session-<group>-<date>`, `-hk-` rows,
+`daystats-<day>`, `trackerlog:<tracker>:<date>`, gamification weeks and
+milestones), and secrets — `integrations` / `apitokens` land only when the
+receiver has none, and are then whole rows (no per-key union). Re-minted leaf
+ids never collide, so a leaf row on both sides lands twice; merge is meant for
+two vaults with separate histories, not for a backup of the same one. Ids that
+the export renumbers can collide across unrelated vaults: `foodproduct-<n>` for
+native products (synthetic 1..n on export), `tzhistory-<n>` / `tzplanhistory-<n>`,
+and bot-era small numeric ids. The receiver's row is kept and the file's
+references (a food log's `product_id`) then point at it.
+
 - **FK-parent records carry a numeric `id`** and are referenced by numeric id:
   `medication`, `food product`, workout `group`/`variant`/`exercise`/`library`,
   workout `session`. It is preserved as a body field alongside the string
