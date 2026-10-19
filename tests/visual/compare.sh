@@ -12,7 +12,7 @@ ref="${RUNNER_TEMP:-/tmp}/reference-$artifact"
 rm -rf "$ref" && mkdir -p "$ref"
 
 run="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$artifact&per_page=100" \
-  --jq '[.artifacts[] | select(.workflow_run.head_branch == "master" and (.expired | not))] | sort_by(.created_at) | last | .workflow_run.id // empty' 2>/dev/null)"
+  --jq '[.artifacts[] | select(.workflow_run.head_branch == "master" and .workflow_run.id != '"${GITHUB_RUN_ID:-0}"' and (.expired | not))] | sort_by(.created_at) | last | .workflow_run.id // empty' 2>/dev/null)"
 note="no master \`$artifact\` artifact yet (dispatch the workflow on master to make one)"
 if [ -n "$run" ]; then
   if gh run download "$run" -n "$artifact" -D "$ref"; then
