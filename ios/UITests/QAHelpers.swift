@@ -26,7 +26,8 @@ enum QA {
     /// The web app's bottom tab bar (.wg-tabbar, wg-bottom-nav.js): its Meds
     /// and Train tabs as web buttons.
     static func tabBarShows(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        app.webViews.buttons["Train"].waitForExistence(timeout: timeout) && app.webViews.buttons["Meds"].exists
+        app.webViews.buttons["Train"].waitForExistence(timeout: timeout)
+            && app.webViews.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Meds'")).firstMatch.exists // "Meds 1": a due-dose badge
     }
 
     /// A device's first keyboard opens under the slide-to-type tip (seen on
