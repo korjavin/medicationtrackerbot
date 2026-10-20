@@ -134,7 +134,7 @@ final class FlowQAStashTests: XCTestCase {
         shot(flow, "toast")
         if !toasted { XCTContext.runActivity(named: "pickup toast not caught (3 s toast)") { _ in } }
         // The web first-run overlay is not vault-managed: the wiped store shows it.
-        let skip = app.webViews.buttons["Skip all"]
+        let skip = app.webViews.buttons.matching(NSPredicate(format: "label IN {'Skip', 'Skip all'}")).firstMatch // W1 picker "Skip" (med-ta2n.1)
         if skip.waitForExistence(timeout: 10) { skip.tap() }
         XCTAssertTrue(QA.tabBarShows(app, timeout: 30), "no tab bar after the pickup")
         webButton(app, prefix: "Meds").tap() // "Meds 1" with a dose due
