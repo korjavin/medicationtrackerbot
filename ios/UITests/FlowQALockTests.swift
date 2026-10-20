@@ -43,9 +43,9 @@ final class FlowQALockTests: XCTestCase {
             // persisted choice, so this launch falls back to first run (test
             // harness only: a user has no argument domain). The local app
             // shows on the relaunch, after the lock's own prompt.
+            // (Not asserted from the prefs plist: cfprefsd may not have
+            // flushed it yet; the lock screen and the local app below prove both.)
             app.terminate()
-            require(flow, QA.appDefaults()?["wgLocalMode"] as? Bool == true, "Start did not persist local mode")
-            require(flow, QA.appDefaults()?["wgLocalLockOn"] as? Bool == true, "the match did not persist the lock as on")
             app.launchArguments = ["-wgQAScene", "today"]
             app.launch()
             require(flow, locked.waitForExistence(timeout: 30), "relaunch with the lock on showed no lock screen")
