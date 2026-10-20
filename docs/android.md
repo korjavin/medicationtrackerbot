@@ -1255,7 +1255,7 @@ gh workflow run android-qa.yml --ref <branch> -f scenario=local-to-cloud
 
 | Run | Result |
 |---|---|
-| `local-to-cloud-seamless`, emulator API 34 (run `39335690786`) | PASS, 14 steps: the row → first run with the hint, stash = plain vault v1 (fixture shape, counts = store), intro note + *Back* keeps the stash, claim (soft authenticator), pickup with **no** confirm on the empty account and no Backup & import, the toast, stash gone, account ⊇ local (`workouts.sessions` 1 → 2, the planned session), local unchanged after *Only on this device* → *Start*. The onboarding *Skip all* step times out (the pickup reloads the page under it; best-effort, not gated) |
+| `local-to-cloud-seamless`, emulator API 34 (runs `39335690786`, `39345504891`) | PASS, 14 steps: the row → first run with the hint, stash = plain vault v1 (fixture shape, counts = store), intro note + *Back* keeps the stash, claim (soft authenticator), pickup with **no** confirm on the empty account and no Backup & import, the toast, stash gone, account ⊇ local (`workouts.sessions` 1 → 2, the planned session), local unchanged after *Only on this device* → *Start*. The onboarding *Skip all* step times out (the pickup reloads the page under it; best-effort, not gated) |
 | `local-to-cloud`, emulator API 34 (run `39273862148`) | PASS, 16 steps: export 4.5 KB vault v1 (fixture shape, counts = store), saved to Downloads, *I have an invite* → first run, claim, Restore via the **system picker** (no injection), uploaded (no *Not uploaded yet*), account ⊇ local (`workouts.sessions` 1 → 2: the account materialized today's planned session), local unchanged after *Only on this device* → *Start* |
 | Owner phone | pending — release gate `med-nt9p.32.7`, check 9 below |
 
