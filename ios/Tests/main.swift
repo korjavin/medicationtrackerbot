@@ -31,6 +31,51 @@ precondition(AccountURL.accountGone(404, ["x-account-gone": " 1 "]))
 precondition(!AccountURL.accountGone(404, ["X-Account-Gone": "0"]))
 precondition(!AccountURL.accountGone(503, ["X-Account-Gone": "1"]))
 precondition(!AccountURL.accountGone(404, [:]))
+// parseInvite (bd med-ta2n.11): landing and scheme forms → the claim URL; the old forms still pass.
+func invite(_ input: String, _ want: String?) {
+    let got = AccountURL.parseInvite(input, base: base)?.absoluteString
+    precondition(got == want, "invite \(input.debugDescription): got \(got ?? "nil"), want \(want ?? "nil")")
+}
+let claim = "https://abc.app.example.com/#claim=0a1b2c"
+invite("https://app.example.com/i/abc#0a1b2c", claim)
+invite("https://APP.example.com/i/ABC#0a1b2c", claim)
+invite("medtracker://i/abc#0a1b2c", claim)
+invite("MedTracker://i/abc#0a1b2c", claim)
+invite(claim, claim)
+invite("https://abc.app.example.com/#claim=0a1b2c&kit=1", "https://abc.app.example.com/#claim=0a1b2c&kit=1")
+invite("abc.app.example.com", "https://abc.app.example.com/")
+invite("https://app.example.com/i/abc", nil) // no token
+invite("https://app.example.com/i/#0a1b2c", nil) // no sub
+invite("https://app.example.com/i/a/b#0a1b2c", nil)
+invite("https://app.example.com/i/a.b#0a1b2c", nil)
+invite("https://app.example.com/i/-abc#0a1b2c", "https://-abc.app.example.com/#claim=0a1b2c") // label rules are the server's
+invite("https://app.example.com/i/abc?x=1#0a1b2c", nil)
+invite("https://app.example.com/i/abc#0a1b&kit=1", nil)
+invite("https://app.example.com:8443/i/abc#0a1b2c", nil)
+invite("https://u@app.example.com/i/abc#0a1b2c", nil)
+invite("http://app.example.com/i/abc#0a1b2c", nil)
+invite("https://evil.com/i/abc#0a1b2c", nil)
+invite("https://app.example.com.evil.com/i/abc#0a1b2c", nil)
+invite("https://abc.app.example.com/i/abc#0a1b2c", "https://abc.app.example.com/i/abc#0a1b2c") // an account page: parse()'s call
+invite("medtracker://x/abc#0a1b2c", nil)
+invite("medtracker://i/abc", nil)
+invite("otherapp://i/abc#0a1b2c", nil)
+invite("wgapp://local/", nil)
+precondition(AccountURL.parseInvite("https://app.example.com/i/abc#0a1b2c", base: "") == nil)
+
+// InviteSlot: empty, store, newest wins, clear.
+let slotDefaults = UserDefaults(suiteName: "wg-invite-slot-test")!
+slotDefaults.removePersistentDomain(forName: "wg-invite-slot-test")
+precondition(InviteSlot.pending(slotDefaults) == nil)
+InviteSlot.store(URL(string: claim)!, at: Date(timeIntervalSince1970: 1_700_000_000), slotDefaults)
+InviteSlot.store(URL(string: "https://xyz.app.example.com/#claim=ff")!, at: Date(timeIntervalSince1970: 1_700_000_001.5), slotDefaults)
+let slot = InviteSlot.pending(slotDefaults)
+precondition(slot?["url"] as? String == "https://xyz.app.example.com/#claim=ff", "\(String(describing: slot))")
+precondition(slot?["receivedAt"] as? Int64 == 1_700_000_001_500, "\(String(describing: slot))")
+precondition(JSONSerialization.isValidJSONObject(slot!))
+InviteSlot.clear(slotDefaults)
+precondition(InviteSlot.pending(slotDefaults) == nil)
+slotDefaults.removePersistentDomain(forName: "wg-invite-slot-test")
 print("AccountURL: ok")
 
 // LocalOrigin (bd med-o7zq.4): request routing, CSP, the bridge's host list.

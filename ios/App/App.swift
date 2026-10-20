@@ -65,6 +65,9 @@ struct RootView: View {
         .onChange(of: launchDone, initial: true) { _, done in
             if done { withAnimation(.easeOut(duration: 0.18)) { launchMark = false } }
         }
+        // Invite links (bd med-ta2n.11): the landing universal link and the
+        // medtracker:// scheme both arrive here, cold or warm.
+        .onOpenURL { shell.capture($0) }
         .alert("Diagnostics copied", isPresented: $shell.diagCopied) {
             Button("OK", role: .cancel) {}
         } message: {

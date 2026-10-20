@@ -22,6 +22,7 @@ The two native shells (`ios/`, `android/`) wrap the same web app. Keep them in s
 | Local app lock (`lock.status` / `lock.set`) | ✓ | ✓ | parity (med-o7zq.39) |
 | Switch account entry | Settings.bundle | launcher long-press shortcut (`MainActivity.kt`) | divergent: platform convention |
 | Native token mirror + N1 first run / N2 local intro (kit v2.1) | med-ckm5.13 | ✓ (med-ckm5.14) | twin open on iOS |
+| Invite capture (applinks/app links + `medtracker://`, pending slot, `invite.pending` / `invite.clear`, `local.leave` / `account.leave {url}`) | ✓ phase 1 (med-ta2n.11; first run still native) | med-ta2n.12 | twin open on Android |
 | "Only on this device" while a move stash exists | hides one-tap Continue | keeps it visible | divergent: deliberate |
 | System bars (`chrome` op) | n/a | ✓ | Android-only: system bars |
 | `diag.append` + Copy diagnostics (passkey debug aid) | ✓ (error screen, ceremony dialog, Home Screen quick action) | ✓ | parity (med-w6gx.24) |

@@ -680,6 +680,27 @@ changes for it.
   home-indicator bands take the page's own background colour at its top and
   bottom edge (a page script reports it), the status bar is light, and the page
   does not rubber-band past its edges.
+- **Invite links** (bd med-ta2n.11 phase 1; contract in `bd show med-ta2n.7`
+  design §§1–7): the entitlement `applinks:$(WG_BASE_DOMAIN)` (base only; the
+  server's AASA lists `/i/*`, med-ta2n.9) makes the landing
+  `https://<base>/i/<sub>#<token>` open the app, and `CFBundleURLTypes`
+  registers `medtracker://i/<sub>#<token>` (the landing page's "Open in the
+  app"). `RootView.onOpenURL` → `Shell.capture`: `AccountURL.parseInvite`
+  turns either form (or an old claim link) into the claim URL
+  `https://<sub>.<base>/#claim=<token>` and stores the **pending slot**
+  `{url, receivedAt}` (`InviteSlot`, UserDefaults `wgPendingInvite`; newest
+  wins, never expired by the shell). Then: on the native first run the invite
+  opens at once (as a pasted link); with a page loaded (local or account mode)
+  the shell loads that mode's home with `?invite=1` (deferred under the lock);
+  on a cold start nothing more — the booting page reads the slot.
+  Bridge ops (both modes): `invite.pending` → `{url, receivedAt}` or `null`;
+  `invite.clear` → `true`. `local.leave {url}` / `account.leave {url}` validate
+  the URL with `AccountURL.parse` (fragment kept, `&kit=1` included; error
+  `invalid url` with no change), then store the host, leave local mode, clear
+  `wgLeaveHost` and the slot, and load the URL (`then` is ignored). Without a
+  url both keep their pre-v3 behaviour (native first run / `{then: "local"}`)
+  until phase 2 removes the native first run. Older shells ignore `url` and
+  land on their first run; the web probes `shell.ops` for `invite.pending`.
 - **Storage:** the same page script calls `navigator.storage.persist()` — the
   spike saw `persisted: false`, so WebKit may evict website data under storage
   pressure; the vault re-syncs from the server, unsynced offline writes are
