@@ -214,8 +214,12 @@ Store Connect (ASC) by the owner from this section.
   icon (`web/static/icons/icon.png`, 1024², no alpha); Xcode derives every
   size from it.
 - **Launch screen:** `UILaunchScreen` → `LaunchBackground` colour
-  (`--wg-bg-screen`, `#132D29`), so there is no white flash before the dark app.
-  No logo: Apple asks for a launch screen that looks like the first screen.
+  (`--wg-bg-screen`, `#132D29`) plus the 96 pt app mark, centred
+  (`LaunchMark` imageset, rendered from the kit's `.wg-mark--lg`). N6 (bd
+  med-ckm5.15): RootView keeps the same mark over the first page and fades it
+  out over 180 ms once the page reports ready (`didFinish` or its first
+  `wgChrome` sample), or straight away for the native first run, the lock
+  screen (whose mark sits at the same spot) and the error screen.
 - **Bundle id / team:** the `IOS_BUNDLE_ID` / `IOS_TEAM_ID` repo variables
   (Owner setup above).
 - **Usage strings** (`ios/project.yml`):
@@ -627,7 +631,10 @@ changes for it.
 - **Navigation:** the account host and the base domain load in the app; every
   other link (and `mailto:`/`tel:`) opens in Safari or its own app.
 - **Offline:** a cold start offline is answered by the Service Worker; a native
-  "Can't open your account" screen (Try again / Switch account) appears only
+  load-error screen (N4, bd med-ckm5.15: "Can't reach your account" with Try
+  again / Switch account; a bare 404 "We can't find this account" with Use
+  another invite / Try again; local mode "Can't open Med Tracker" with Use an
+  account instead; each with Copy diagnostics and a mono status line) appears only
   when the very first load fails with nothing cached, or the host answers an
   HTTP error. Try again keeps an invite link's `#claim=` fragment (in memory
   only). A 404 carrying the server's `X-Account-Gone: 1` marker (an unknown
@@ -637,15 +644,12 @@ changes for it.
 - **Switch account:** iOS Settings → Med Tracker → *Switch account*, then return
   to the app; also on the load-error screen. Website data is per origin and is
   kept, so switching back still finds offline data and warm unlock.
-- **Use another invite** (bd med-w6gx.21): while the committed page is a
-  ceremony (`/unlock`, `/claim`, `/recover` — `AccountURL.isCeremony`), a
-  native bar under the page offers "Not your account? Use another invite";
-  after a confirmation it does Switch account. An invalid, expired or
-  already-claimed invite otherwise leaves no way back (the host is stored the
-  moment the link parses, so relaunch reopens `/unlock`). The bar is passive:
-  a returning user unlocks as before. Coming from local mode (Move to a cloud
-  account), the user picks "Only on this device" again to return; its data
-  is kept.
+- **Use another invite** (bd med-w6gx.21, moved to the web by med-ckm5.2 /
+  med-ckm5.15 N5): the ceremony pages (`/unlock`, `/claim`, `/recover`) render
+  their own `.wg-exitbar` at the top inside the native shells; "Not your
+  account?" opens an in-page confirm and calls bridge op `account.leave` (no
+  args), which does Switch account. The shell draws no bar of its own. Copy
+  diagnostics stays on the Home Screen quick action and the load-error screen.
 - **Use this iPhone without an account** (bd med-o7zq.30, moved by
   med-o7zq.32): Settings → Account shows the row inside the iOS app only
   (account origin, `CloudVault.leaveAccount` present, platform `ios`). The
@@ -759,8 +763,7 @@ status, or the NSError domain + code). `Tests/main.swift` checks the redaction
 and the cap.
 
 **Copying it:** long-press the Home Screen icon → **Copy diagnostics**, or
-**Copy diagnostics** on the "Can't open your account" screen or in the "Not
-your account? Use another invite" dialog of a ceremony page. The pasteboard
+**Copy diagnostics** on the load-error screen. The pasteboard
 gets a header (app version + build, iOS version, device model, mode with the
 redacted account host) followed by the log; paste it into the bead.
 
@@ -869,7 +872,7 @@ mode, gated on the bridge platform being `ios` or `android`
   nothing leaves the phone except calls to the providers the user added with
   their own key. Reminders are computed on the device and go to the iOS
   scheduler only, on every write, open and return to the front (no relay upload, no Telegram re-fire calls; the lock-screen
-  text is generic unless Settings → Reminders & notifications → Reminder text
+  text is generic unless Settings → Reminders & notifications → Lock-screen text
   says Detailed); RxNav lookups are off (`rxnorm: null`); the account trial
   and the operator food DB are off because the bundle carries no trial /
   food-DB meta. The **anonymous trial** (bd med-o7zq.16) is the one opt-in
@@ -943,13 +946,16 @@ mode, gated on the bridge platform being `ios` or `android`
   with) or iPhone Settings → Med Tracker → *Lock*. The row and the iPhone
   Settings toggle write the same key (`wgLocalLock`), so they agree. Local mode
   only — an account has its passkey unlock. A UI lock, not encryption, and
-  Lock Screen reminders still show (their text is Settings → Reminder text);
+  Lock Screen reminders still show (their text is Settings → Lock-screen text);
   both are said where it is turned on. `LocalAuthentication`
   `.deviceOwnerAuthentication` (biometrics, passcode fallback). States
   locked / unlocking / unlocked: it locks at launch and on going to the
   background (not on inactive — Control Center and the Face ID sheet itself
   pass through inactive), and prompts once on the next activation; a cancel
-  leaves the lock screen with an *Unlock* button and no re-prompt. While it
+  leaves the lock screen with an *Unlock* button and no re-prompt. The lock
+  screen (N3, bd med-ckm5.15) is the 96 pt mark at the launch screen's spot,
+  "Med Tracker is locked" and Unlock; a failed check (not a cancel) adds a
+  warn note, and the screen dims under the system prompt. While it
   holds: the web view is out of the window (the page is hidden, so the
   `visibilitychange` work — Health import, reminder refresh, backup nudge —
   waits for the unlock), every load is deferred (launch, Try again, mode

@@ -784,7 +784,8 @@
         }
         if (items.length === 0) {
             const actions = [];
-            if (medsOn) actions.push({ label: 'Add medication', icon: 'pill', onClick: h.onAddMedication });
+            // O2: "Add medication" is the empty Today's one sun (bd med-ckm5.3).
+            if (medsOn) actions.push({ label: 'Add medication', icon: 'pill', variant: 'primary', onClick: h.onAddMedication });
             if (workoutsOn) actions.push({ label: 'Create plan', icon: 'dumbbell', onClick: h.onCreatePlan });
             const card = el('div', 'wg-card wg-card--flush');
             card.appendChild(typeof createEmptyState === 'function'
@@ -796,7 +797,7 @@
                 })
                 : el('p', 'wg-hint', 'Nothing scheduled'));
             section.appendChild(card);
-            return { node: section, hasPrimary: false };
+            return { node: section, hasPrimary: medsOn };
         }
 
         const todayEnd = startOfLocalDay(nowMs) + DAY_IN_MS;
@@ -1554,21 +1555,22 @@
 
     function renderAITrialCard(state) {
         const si = (typeof window !== 'undefined') ? window.SettingsIntegrations : null;
-        if (!si || typeof si.trialOffer !== 'function' || aiTrialDismissed()) return null;
+        const W = (typeof window !== 'undefined') ? window.WGOfferCard : null;
+        if (!si || typeof si.trialOffer !== 'function' || !W || aiTrialDismissed()) return null;
         if (state && state.caloriesToday && !on(state.caloriesToday)) return null;
-        const card = el('section', 'wg-card wg-vstack' + (aiTrialOffered ? '' : ' hidden'));
-        card.setAttribute('data-section', 'ai-trial');
-        const head = el('div', 'wg-card__head');
-        head.appendChild(el('span', 'wg-card__title', 'Try AI for free'));
-        const acts = el('div', 'wg-hstack');
-        acts.append(
-            btn('Try it', { sm: true, icon: 'sparkle', action: 'ai-trial-start', onClick: () => Promise.resolve().then(() => si.startTrial()).then((ok) => { if (ok) retireAITrialCard(); }, () => {}) }),
-            btn('Not now', { sm: true, ghost: true, action: 'ai-trial-dismiss', onClick: () => {
+        // Kit A1: the shared offer card; Try it is raised, not sun (Take holds it).
+        const card = W.create({
+            title: 'Try AI for free',
+            meta: 'Food logging · no API key',
+            text: 'Snap or describe a meal and the AI logs it for you.',
+            onDismiss: () => {
                 try { window.localStorage.setItem(AI_TRIAL_DISMISSED, '1'); } catch (_) { /* best-effort */ }
                 retireAITrialCard();
-            } }),
-        );
-        card.append(head, el('p', 'wg-hint', 'Snap or describe a meal and the AI logs it for you. No API key needed.'), acts);
+            },
+            actions: [{ label: 'Try it', icon: 'sparkle', action: 'ai-trial-start', onClick: () => Promise.resolve().then(() => si.startTrial()).then((ok) => { if (ok) retireAITrialCard(); }, () => {}) }],
+        });
+        card.classList.toggle('hidden', !aiTrialOffered);
+        card.setAttribute('data-section', 'ai-trial');
         Promise.resolve().then(() => si.trialOffer()).catch(() => false).then((offered) => {
             aiTrialOffered = offered === true && !aiTrialDismissed();
             card.classList.toggle('hidden', !aiTrialOffered);
@@ -3043,6 +3045,10 @@
         const next = renderNextUp(state, h, nowMs);
         if (next.node) { root.appendChild(next.node); }
 
+        // After Next up, so the offer never pushes a due dose down (kit A1).
+        const aiTrial = renderAITrialCard(state);
+        if (aiTrial) { root.appendChild(aiTrial); }
+
         const vitals = [
             renderBpTile(state && state.bpLatest, state && state.bpTrend7d, h, nowMs, offline),
             renderWeightTile(state && state.weightLatest, state && state.weightTrend7d, h, nowMs, offline),
@@ -3054,9 +3060,6 @@
             vitals.forEach((t) => strip.appendChild(t));
             root.appendChild(strip);
         }
-
-        const aiTrial = renderAITrialCard(state);
-        if (aiTrial) { root.appendChild(aiTrial); }
 
         const trackersCard = renderTrackersCard(state && state.trackers, nowMs);
         if (trackersCard) { root.appendChild(trackersCard); }

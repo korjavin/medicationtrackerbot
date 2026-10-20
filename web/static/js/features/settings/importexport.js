@@ -24,8 +24,8 @@
     // so no navigation nag lingers.
     let importInFlight = false;
 
-    // The phrase the typed confirm asks for before a replace-import.
-    const REPLACE_PHRASE = 'replace my data';
+    // The word the typed confirm asks for before a replace-import (D1).
+    const REPLACE_PHRASE = 'REPLACE';
 
     // Why a cloud import is not on the server yet (CloudVault.importAll's
     // `upload`, sync.js forceSnapshot). 'synced' and the local vault (no
@@ -309,32 +309,48 @@
         try { empty = (await window.CloudVault.hasUserContent?.()) === false; } catch { /* fail closed */ }
         const local = document.documentElement.classList.contains('wg-local-vault');
         // Mode-switch pickups (bd med-o7zq.38) with records on the receiving
-        // side: Merge / Replace / Cancel, Replace confirmed once. File
-        // Restore keeps the typed replace confirm.
+        // side: Merge / Replace / Cancel. Replace and a file Restore both ask
+        // the typed REPLACE confirm.
         let mode;
         let confirmed = empty;
+        // D1 (med-ckm5.5): Merge is preselected and Continue commits it;
+        // Replace goes on to a typed REPLACE confirm.
         if (!empty && (move || leave)) {
             mode = await safeChoose(
                 leave
-                    ? `This ${device} has records from using it without an account. Merge adds your account's records to them. Replace erases them first. Your account is not changed either way. Records kept on both sides may appear twice after a merge.`
-                    : `Your account already has records. Merge adds the records from this ${device} to them. Replace erases the account's records on every device first. The copy on this ${device} is not changed either way. Records kept on both sides may appear twice after a merge.`,
-                [{ value: 'merge', label: 'Merge' }, { value: 'replace', label: 'Replace' }],
-                { title: leave ? `Records already on this ${device}` : 'Records already in your account' }
+                    ? `This ${device} already has records from using it without an account. Your account is not changed either way.`
+                    : `Your account already has records. The copy on this ${device} is not changed either way.`,
+                [
+                    { value: 'merge', label: 'Merge', sub: 'Keep both. Records kept on both sides may appear twice.' },
+                    { value: 'replace', label: 'Replace', sub: leave ? `Erase the records on this ${device} first` : "Erase the account's records on every device first" },
+                ],
+                {
+                    title: leave ? `Records already on this ${device}` : 'Records already in your account',
+                    icon: 'archive', tone: 'info', confirmLabel: 'Continue', selected: 'merge',
+                }
             );
             confirmed = mode === 'merge' || (mode === 'replace' && await safeConfirm(
-                leave
-                    ? `Erase the records on this ${device} and replace them with your account's? This cannot be undone.`
-                    : `Erase everything in this account, on every device, and replace it with this ${device}'s records? This cannot be undone.`,
+                '',
                 null,
-                { title: 'Replace records?', confirmLabel: 'Replace', destructive: true }
+                {
+                    title: leave ? `Replace the records on this ${device}?` : 'Replace the records in your account?',
+                    icon: 'swap', destructive: true, confirmLabel: 'Replace', typedConfirm: REPLACE_PHRASE,
+                    facts: leave
+                        ? [{ text: `The records on this ${device} now`, gone: true }, { text: "Your account's records take their place" }]
+                        : [{ text: "The account's records, on every device", gone: true }, { text: `The records from this ${device} take their place` }],
+                }
             ));
         } else if (!empty) {
             confirmed = await safeConfirm(
-                local
-                    ? `Everything stored on this ${device} is replaced by this backup. This cannot be undone.`
-                    : 'Everything stored now is replaced by this backup, on every device. This cannot be undone.',
+                '',
                 null,
-                { title: 'Replace all your data?', confirmLabel: 'Replace my data', destructive: true, typedConfirm: REPLACE_PHRASE }
+                {
+                    title: 'Replace all your data?', icon: 'swap', destructive: true, confirmLabel: 'Replace', typedConfirm: REPLACE_PHRASE,
+                    facts: [
+                        { text: local ? `Everything stored on this ${device} now` : 'Everything stored now, on every device', gone: true },
+                        { text: 'The records in this backup take its place' },
+                    ],
+                }
             );
         }
         if (!confirmed) {
@@ -452,9 +468,15 @@
         // setImportBusy(true) which keeps it set.
         importInFlight = true;
         const confirmed = await safeConfirm(
-            'This device is rebuilt from the server. Changes not yet synced from it are discarded.',
+            'This device is rebuilt from the server.',
             null,
-            { title: 'Reset local sync?', confirmLabel: 'Reset', destructive: true }
+            {
+                title: 'Reset local sync?', icon: 'refresh', confirmLabel: 'Reset', destructive: true,
+                facts: [
+                    { text: 'Changes on this device not synced yet', gone: true },
+                    { text: 'Everything already on the server' },
+                ],
+            }
         );
         if (!confirmed) { importInFlight = false; return; }
         setImportBusy(true, 'Resetting local sync… keep this page open until it finishes.');

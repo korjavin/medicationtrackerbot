@@ -25,16 +25,6 @@ enum AccountURL {
         return parts.url
     }
 
-    /// An account's ceremony page (claim, unlock, recover — the server's set in
-    /// internal/cloudserver/router.go), where a bad invite can strand the user;
-    /// the shell offers its "Use another invite" exit there (bd med-w6gx.21).
-    static func isCeremony(_ url: URL?, base: String) -> Bool {
-        guard let url, url.scheme?.lowercased() == "https",
-              let host = url.host?.lowercased(), isAccountHost(host, base: base.lowercased())
-        else { return false }
-        return ["/unlock", "/claim", "/recover"].contains(url.path)
-    }
-
     /// The server's own "no such account" 404 (bd med-w6gx.22, twin of Android's
     /// AccountUrl.accountGone): cmd/cloud marks it with X-Account-Gone: 1
     /// (internal/cloudserver/router.go). A bare 404 — a proxy's during a

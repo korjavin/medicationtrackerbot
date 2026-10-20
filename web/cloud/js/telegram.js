@@ -214,8 +214,8 @@ export async function mountTelegram(container, opts = {}) {
              cannot be end-to-end encrypted through a bot, so your device hands
              the server the exact reminder words to forward. By default that text
              is <em>detailed</em> — it names the medication ("Time to take:
-             Lisinopril 10 mg"). Switch <em>Telegram Reminder Detail</em> to
-             <em>Generic</em> in Settings → Notifications and it sends only
+             Lisinopril 10 mg"). Switch <em>Telegram reminder text</em> to
+             <em>Generic</em> in Settings → Reminders &amp; notifications and it sends only
              "Medication time" instead, with no names leaving your vault.</p>
           <p><strong>Messages you send transit the relay.</strong> Telegram sees
              them, and because a bot cannot be end-to-end encrypted they pass

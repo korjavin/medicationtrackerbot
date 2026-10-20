@@ -219,6 +219,10 @@ for (const [device, [engine, desc]] of Object.entries(DEVICES)) {
       rows.push({ device, scene: scene.name, status: 'skipped', note: 'local-only (a local-mode control)' });
       continue;
     }
+    if (mode !== 'cloud' && scene.cloudOnly) {
+      rows.push({ device, scene: scene.name, status: 'skipped', note: 'cloud-only (an account control)' });
+      continue;
+    }
     errors = [];
     const row = { device, scene: scene.name };
     let report = null;

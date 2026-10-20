@@ -564,92 +564,89 @@
 
             <div class="wg-settings-pages" hidden>
             <div class="wg-settings-page" data-settings-page="notifications">
-            <section class="wg-card wg-settings-section wg-settings-notifications-cloud wg-settings-hidden">
-                <h3 class="wg-settings-section__title">Notifications</h3>
-                <p class="wg-settings-section__desc">Push alerts and test notifications</p>
-                <div class="wg-settings-row-list">
-                    <div class="wg-settings-row">
-                        <div class="wg-settings-row__content">
-                            <div class="wg-settings-row__title wg-mono-display">Web Push Notifications</div>
-                            <div class="wg-settings-row__desc">Browser notifications for medications</div>
-                        </div>
-                        <div class="wg-settings-row__control wg-settings-action-row">
-                            <button id="cloud-push-toggle" class="wg-btn wg-btn--sm">Enable</button>
-                        </div>
+            <!-- Kit S8 (bd med-ckm5.8). The .wg-choices groups stand in for
+                 selects (kit rule 7): settings.js choiceValue/setChoiceValue
+                 read and write the pressed [data-value]. -->
+            <!-- Local-only mode (bd med-o7zq.9): settings.js bindLocalNotifications.
+                 Denied: the card hides and NotifyPermission.renderNote fills the
+                 note slot (med-ckm5.4). -->
+            <section class="wg-section wg-local-only">
+                <div class="wg-section__head"><span class="wg-eyebrow">This <span data-device-word>iPhone</span></span></div>
+                <div id="local-notify-card" class="wg-card wg-vstack">
+                    <div class="wg-hstack">
+                        <span id="local-notify-chip" class="wg-chip">Off</span>
+                        <span id="local-notify-state" class="wg-hint wg-spacer" role="status" aria-live="polite">Checking notification permission…</span>
                     </div>
-                    <div id="cloud-push-status" class="wg-settings-webpush-status wg-settings-hidden"></div>
-                    <div class="wg-settings-row">
-                        <div class="wg-settings-row__content">
-                            <div class="wg-settings-row__title wg-mono-display">Test Notifications</div>
-                            <div class="wg-settings-row__desc">Send a test push to this device</div>
-                        </div>
-                        <div class="wg-settings-row__control wg-settings-action-row">
-                            <button id="cloud-push-test-btn" class="wg-btn wg-btn--sm">Send test push</button>
-                        </div>
-                    </div>
-                    <div class="wg-settings-row">
-                        <div class="wg-settings-row__content">
-                            <div class="wg-settings-row__title wg-mono-display">Reminder Delivery</div>
-                            <div class="wg-settings-row__desc">Where scheduled reminders are sent. Telegram needs a linked bot.</div>
-                        </div>
-                        <div class="wg-settings-row__control wg-settings-action-row">
-                            <select id="cloud-reminder-delivery" class="wg-input wg-select" aria-label="Reminder delivery channel">
-                                <option value="webpush">Web push only</option>
-                                <option value="telegram">Telegram only</option>
-                                <option value="both">Web push and Telegram</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="wg-settings-row">
-                        <div class="wg-settings-row__content">
-                            <div class="wg-settings-row__title wg-mono-display">Telegram Reminder Detail</div>
-                            <div class="wg-settings-row__desc">Telegram reminders pass through the server as readable text. The default "Generic" says only that a reminder is due; opt in to "Detailed" to also send medication names.</div>
-                        </div>
-                        <div class="wg-settings-row__control wg-settings-action-row">
-                            <select id="cloud-reminder-verbosity" class="wg-input wg-select" aria-label="Telegram reminder detail level">
-                                <option value="generic" selected>Generic (no names)</option>
-                                <option value="detailed">Detailed (includes names)</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div id="cloud-reminder-delivery-status" class="wg-settings-webpush-status wg-settings-hidden"></div>
+                    <button id="local-notify-enable" type="button" class="wg-btn wg-btn--primary wg-btn--block" hidden>Allow notifications</button>
+                    <button id="local-notify-test" type="button" class="wg-btn wg-btn--block" hidden>Send test notification</button>
                 </div>
+                <div id="local-notify-note"></div>
             </section>
 
-            <!-- Local-only mode (bd med-o7zq.9): settings.js bindLocalNotifications. -->
-            <section class="wg-section wg-local-only">
-                <div class="wg-section__head"><span class="wg-eyebrow">Notifications</span></div>
-                <div class="wg-card wg-vstack">
-                    <p id="local-notify-state" class="wg-settings-webpush-status" role="status" aria-live="polite">Checking notification permission…</p>
-                    <div class="wg-hstack">
-                        <button id="local-notify-enable" type="button" class="wg-btn wg-btn--sm" hidden>Allow notifications</button>
-                        <button id="local-notify-test" type="button" class="wg-btn wg-btn--sm" hidden>Send test notification</button>
+            <!-- Cloud mode (bd med-76c.1): settings.js bindCloudNotifications. -->
+            <div class="wg-vstack wg-settings-notifications-cloud wg-settings-hidden">
+                <section class="wg-section">
+                    <div class="wg-section__head"><span class="wg-eyebrow">This device</span></div>
+                    <div id="cloud-push-card" class="wg-card wg-vstack">
+                        <div class="wg-hstack">
+                            <span id="cloud-push-chip" class="wg-chip">Off</span>
+                            <span class="wg-hint wg-spacer">Reminders as notifications on this device</span>
+                            <button id="cloud-push-toggle" type="button" class="wg-btn wg-btn--sm">Enable</button>
+                        </div>
+                        <div id="cloud-push-status" class="wg-settings-webpush-status wg-settings-hidden"></div>
+                        <button id="cloud-push-test-btn" type="button" class="wg-btn wg-btn--block">Send test notification</button>
                     </div>
-                </div>
-            </section>
+                    <div id="cloud-push-note"></div>
+                </section>
+                <section class="wg-section">
+                    <div class="wg-section__head"><span class="wg-eyebrow">Reminder delivery</span></div>
+                    <div id="cloud-reminder-delivery" class="wg-choices" role="group" aria-label="Reminder delivery channel">
+                        <button type="button" class="wg-choice" data-value="webpush" aria-pressed="true"><span>Push only<span class="wg-choice__sub">Notifications on your devices</span></span></button>
+                        <button type="button" class="wg-choice" data-value="telegram" aria-pressed="false"><span>Telegram only<span class="wg-choice__sub">Needs a linked bot</span></span></button>
+                        <button type="button" class="wg-choice" data-value="both" aria-pressed="false"><span>Push and Telegram</span></button>
+                    </div>
+                </section>
+                <section class="wg-section">
+                    <div class="wg-section__head"><span class="wg-eyebrow">Telegram reminder text</span></div>
+                    <div id="cloud-reminder-verbosity" class="wg-choices" role="group" aria-label="Telegram reminder detail level">
+                        <button type="button" class="wg-choice" data-value="generic" aria-pressed="true"><span>Generic<span class="wg-choice__sub">Says only that a reminder is due</span></span></button>
+                        <button type="button" class="wg-choice" data-value="detailed" aria-pressed="false"><span>Detailed<span class="wg-choice__sub">Also sends medication names</span></span></button>
+                    </div>
+                    <p class="wg-hint">Telegram reminders pass through the server as readable text.</p>
+                    <div id="cloud-reminder-delivery-status" class="wg-settings-webpush-status wg-settings-hidden"></div>
+                </section>
+            </div>
 
             <!-- Local-only mode (bd med-o7zq.3): settings.js bindLocalReminderText. -->
             <section class="wg-section wg-local-only">
-                <div class="wg-section__head"><span class="wg-eyebrow">Lock screen</span></div>
-                <div class="wg-card wg-vstack">
-                    <div class="wg-field">
-                        <label for="local-reminder-verbosity" class="wg-label">Reminder text</label>
-                        <select id="local-reminder-verbosity" class="wg-input wg-select">
-                            <option value="generic" selected>Generic (no names)</option>
-                            <option value="detailed">Detailed (includes names)</option>
-                        </select>
-                        <p class="wg-hint">iOS shows reminders on the lock screen and in Notification Center, where anyone holding your phone can read them, even while it is locked. Generic says only that a reminder is due; Detailed shows the full text: medication and tracker names, workout plans, your weight and goal, and the weekly summary.</p>
-                    </div>
+                <div class="wg-section__head"><span class="wg-eyebrow">Lock-screen text</span></div>
+                <div id="local-reminder-verbosity" class="wg-choices" role="group" aria-label="Lock-screen reminder text">
+                    <button type="button" class="wg-choice" data-value="generic" aria-pressed="true"><span>Generic<span class="wg-choice__sub">"Medication time"</span></span></button>
+                    <button type="button" class="wg-choice" data-value="detailed" aria-pressed="false"><span>Detailed<span class="wg-choice__sub">Shows the medication or measurement</span></span></button>
                 </div>
+                <div class="wg-notif" aria-hidden="true">
+                    <span class="wg-mark"><i class="wg-ico" data-icon="pill"></i></span>
+                    <span class="wg-notif__body">
+                        <span class="wg-notif__app"><span>Med Tracker</span><span>now</span></span>
+                        <span class="wg-notif__title">Med Tracker</span>
+                        <span id="local-reminder-preview" class="wg-notif__text">Medication time</span>
+                    </span>
+                </div>
+                <p class="wg-hint">Anyone holding your <span data-device-word>iPhone</span> can read the lock screen, even while it is locked. Detailed shows the full text: medication and tracker names, workout plans, your weight and goal, and the weekly summary.</p>
             </section>
 
             <section class="wg-section wg-settings-reminders">
-                <div class="wg-section__head"><span class="wg-eyebrow">Reminders</span></div>
+                <div class="wg-section__head"><span class="wg-eyebrow">Remind me about</span></div>
                 <div class="wg-list">
-                    <mt-setting-toggle title="Blood pressure" description="Smart reminders to measure regularly"
+                    <mt-setting-toggle title="Blood pressure" icon="activity" description="Smart reminders to measure regularly"
                         input-id="bp-reminders-toggle"></mt-setting-toggle>
-                    <mt-setting-toggle title="Weight" description="A weekly nudge to weigh in"
+                    <mt-setting-toggle title="Weight" icon="scale" description="A weekly nudge to weigh in"
                         input-id="weight-reminders-toggle"></mt-setting-toggle>
+                    <button type="button" class="wg-setting" id="settings-reminders-meds">
+                        <span class="wg-row__lead"><i class="wg-ico" data-icon="pill"></i></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">Medications</span><span class="wg-setting__desc">Set per medication in Meds</span></span>
+                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                    </button>
                 </div>
             </section>
             </div>
@@ -935,33 +932,26 @@
                 <p class="wg-hint">Stored in your vault. Saved keys show as <span class="wg-mono-display">***</span> and stay unchanged unless you re-enter them. Empty a field to clear a saved value.</p>
                 <p class="wg-hint wg-local-only">On this device, AI and food search reach only the providers you add here, and the free trial only if you turn it on. Voice and Telegram need a cloud account.</p>
 
-                <!-- Cloud's operator trial AI (med-6xb9, integrations.js
-                     renderTrialConsentRows): first while it is on offer, so a
-                     skipped onboarding still finds it. Same grant as the
-                     trial AI row's Allow below. -->
-                <section id="integrations-cloud-trial" class="wg-section hidden">
-                    <div class="wg-section__head"><span class="wg-eyebrow">Free trial</span></div>
-                    <div class="wg-card wg-vstack">
-                        <div class="wg-setting wg-setting--bare">
-                            <span class="wg-setting__body"><span class="wg-setting__title">Try the free AI trial</span><span class="wg-setting__desc">Describe a meal or snap a photo and the AI logs it, without your own key. Rate-limited and runs on the operator&rsquo;s shared key; you&rsquo;ll see what is sent before you agree.</span></span>
+                <!-- The free trial (kit A1, med-ckm5.10; integrations.js
+                     renderTrialCard): one WGOfferCard for cloud's operator
+                     trial (med-6xb9, the `ai` consent) and local mode's
+                     anonymous trial (med-o7zq.16, the `anon` consent, only
+                     where the shell has App Attest). Offer while it is on
+                     offer, the same card ON with its limits once started. -->
+                <div id="integrations-trial" class="hidden">
+                    <section class="wg-section">
+                        <div class="wg-section__head"><span class="wg-eyebrow">Free trial</span></div>
+                        <div id="integrations-trial-card"></div>
+                    </section>
+                    <section class="wg-section">
+                        <div class="wg-section__head"><span class="wg-eyebrow">Your own keys</span><span class="wg-meta">replace the trial</span></div>
+                        <div class="wg-list">
+                            <button type="button" class="wg-setting" data-own-key="openai"><span class="wg-row__lead"><i class="wg-ico" data-icon="key"></i></span><span class="wg-setting__body"><span class="wg-setting__title">OpenAI</span><span class="wg-setting__desc" data-own-key-state>Not set</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+                            <button type="button" class="wg-setting" data-own-key="food"><span class="wg-row__lead"><i class="wg-ico" data-icon="search"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Food database</span><span class="wg-setting__desc" data-own-key-state>Not set</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+                            <button type="button" class="wg-setting wg-cloud-only" data-own-key="elevenlabs"><span class="wg-row__lead"><i class="wg-ico" data-icon="mic"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Voice (ElevenLabs)</span><span class="wg-setting__desc" data-own-key-state>Not set</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
                         </div>
-                        <button type="button" id="integrations-cloud-trial-start" class="wg-btn wg-btn--block">Try the free AI trial</button>
-                    </div>
-                </section>
-
-                <!-- Local mode's anonymous trial AI (bd med-o7zq.16,
-                     integrations.js renderLocalTrial): shown only where the
-                     shell supports App Attest. -->
-                <section id="integrations-local-trial" class="wg-section wg-local-only hidden">
-                    <div class="wg-section__head"><span class="wg-eyebrow">Free trial</span></div>
-                    <div class="wg-card wg-vstack">
-                        <div class="wg-setting wg-setting--bare">
-                            <span class="wg-setting__body"><span class="wg-setting__title">Try the AI, food database and voice calls without your own keys</span><span class="wg-setting__desc">Requests and calls go through our server to the operator&rsquo;s providers. A limited number of free AI requests per install, a daily allowance of food lookups, and a limited number of free minutes of voice calls, with a daily limit (shown here once the trial is on).</span></span>
-                            <label class="wg-toggle"><input type="checkbox" role="switch" id="integrations-local-trial-toggle" class="wg-toggle__input" aria-label="Try the AI, food database and voice calls without your own keys"></label>
-                        </div>
-                        <p id="integrations-local-trial-status" class="wg-hint" hidden></p>
-                    </div>
-                </section>
+                    </section>
+                </div>
 
                 <section class="wg-section">
                     <div class="wg-section__head"><span class="wg-eyebrow">OpenAI</span></div>
@@ -2627,6 +2617,7 @@
     <script src="/static/js/components/wg-page.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-sheet.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-chip.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/components/wg-offer-card.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-bottom-nav.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-sparkline.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-bp-chart.js?v=TIMESTAMP_PLACEHOLDER"></script>

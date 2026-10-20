@@ -176,6 +176,139 @@ describe('safeConfirm — in-page modal', () => {
         confirm.click();
         await expect(promise).resolves.toBe(true);
     });
+
+    // med-ckm5.5 — the D1 dialog family on the one builder.
+    describe('D1 dialog family', () => {
+        it.each([
+            ['danger', 'wg-dialog__icon', true],
+            ['warn', 'wg-dialog__icon wg-dialog__icon--warn', false],
+            ['info', 'wg-dialog__icon wg-dialog__icon--info', false],
+        ])('tone %s picks the icon tile (and the clay confirm only for danger)', async (tone, iconClass, clay) => {
+            const { window, document } = env;
+            const promise = window.safeConfirm('', null, { title: 'T', icon: 'device', tone });
+            const modal = document.querySelector('mt-modal.mt-confirm-modal');
+            expect(modal.querySelector('.wg-dialog__icon').className).toBe(iconClass);
+            expect(modal.querySelector('.mt-confirm-modal__confirm').classList.contains('wg-btn--danger')).toBe(clay);
+            modal.querySelector('.mt-confirm-modal__cancel').click();
+            await expect(promise).resolves.toBe(false);
+        });
+
+        it('warn tone with destructive keeps the warn icon and the clay confirm (Leave, Move)', async () => {
+            const { window, document } = env;
+            const promise = window.safeConfirm('', null, { title: 'Leave?', icon: 'device', tone: 'warn', destructive: true });
+            const modal = document.querySelector('mt-modal.mt-confirm-modal');
+            expect(modal.querySelector('.wg-dialog__icon--warn')).not.toBeNull();
+            expect(modal.querySelector('.mt-confirm-modal__confirm').classList.contains('wg-btn--danger')).toBe(true);
+            modal.querySelector('.mt-confirm-modal__confirm').click();
+            await expect(promise).resolves.toBe(true);
+        });
+
+        it('facts render what goes (× is-gone) and what stays (✓), with no empty message', async () => {
+            const { window, document } = env;
+            const promise = window.safeConfirm('', null, {
+                title: 'Erase?', destructive: true,
+                facts: [{ text: 'All records here', gone: true }, { text: 'Exported files stay' }],
+            });
+            const modal = document.querySelector('mt-modal.mt-confirm-modal');
+            expect(modal.querySelector('.mt-confirm-modal__message')).toBeNull();
+            const items = [...modal.querySelectorAll('.wg-dialog__body ul.wg-dialog__facts > li')];
+            expect(items.map((li) => li.textContent)).toEqual(['All records here', 'Exported files stay']);
+            expect(items[0].classList.contains('is-gone')).toBe(true);
+            expect(items[0].querySelector('svg.wg-ico[data-wg-icon="x"]')).not.toBeNull();
+            expect(items[1].classList.contains('is-gone')).toBe(false);
+            expect(items[1].querySelector('svg.wg-ico[data-wg-icon="check"]')).not.toBeNull();
+            modal.querySelector('.mt-confirm-modal__confirm').click();
+            await expect(promise).resolves.toBe(true);
+        });
+
+        it('typedConfirm renders the kit __confirm block with the word in mono and gates the confirm', async () => {
+            const { window, document } = env;
+            const promise = window.safeConfirm('', null, { title: 'Erase?', destructive: true, typedConfirm: 'ERASE' });
+            const modal = document.querySelector('mt-modal.mt-confirm-modal');
+            const block = modal.querySelector('.wg-dialog__confirm');
+            expect(block.querySelector('.wg-label').textContent).toBe('Type ERASE to confirm');
+            expect(block.querySelector('.wg-label b').textContent).toBe('ERASE');
+            const input = block.querySelector('input.wg-input--text');
+            expect(input.getAttribute('autocapitalize')).toBe('characters');
+            const confirm = modal.querySelector('.mt-confirm-modal__confirm');
+            expect(confirm.disabled).toBe(true);
+            input.value = 'erase';
+            input.dispatchEvent(new window.Event('input'));
+            expect(confirm.disabled).toBe(false);
+            confirm.click();
+            await expect(promise).resolves.toBe(true);
+        });
+
+        it('a body link cancels the dialog, then runs its action', async () => {
+            const { window, document } = env;
+            const onClick = vi.fn();
+            const promise = window.safeConfirm('if you might want them.', null, { title: 'Delete?', link: { label: 'Export a backup first', onClick } });
+            const message = document.querySelector('.mt-confirm-modal__message');
+            expect(message.textContent).toBe('Export a backup first if you might want them.');
+            message.querySelector('button.wg-link').click();
+            await expect(promise).resolves.toBe(false);
+            expect(onClick).toHaveBeenCalledTimes(1);
+            expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
+        });
+    });
+});
+
+// med-ckm5.5 — safeChoose with confirmLabel: choose, then Continue.
+describe('safeChoose — choose + Continue', () => {
+    let env;
+    beforeEach(() => { env = loadFrontendEnv(); });
+    afterEach(() => { env.cleanup(); env = null; });
+
+    const open = (window, opts) => window.safeChoose('You already have records.', [
+        { value: 'merge', label: 'Merge', sub: 'Keep both.' },
+        { value: 'replace', label: 'Replace', sub: 'Delete these first' },
+    ], { title: 'Records already here', icon: 'archive', tone: 'info', confirmLabel: 'Continue', ...opts });
+
+    it('preselects the selected choice and Continue commits only it', async () => {
+        const { window, document } = env;
+        const promise = open(window, { selected: 'merge' });
+        const modal = document.querySelector('mt-modal.mt-confirm-modal');
+        expect(modal.querySelector('.wg-dialog__icon--info')).not.toBeNull();
+        const choices = [...modal.querySelectorAll('.mt-confirm-modal__choice')];
+        expect(choices.map((c) => c.getAttribute('aria-pressed'))).toEqual(['true', 'false']);
+        expect(choices[0].querySelector('.wg-choice__sub').textContent).toBe('Keep both.');
+        // Actions sit below the body, like a plain confirm.
+        expect(modal.lastElementChild.classList.contains('wg-dialog__acts')).toBe(true);
+        const confirm = modal.querySelector('.mt-confirm-modal__confirm');
+        expect(confirm.textContent).toBe('Continue');
+        expect(confirm.classList.contains('wg-btn--primary')).toBe(true);
+        expect(document.querySelector('mt-modal.mt-confirm-modal')).not.toBeNull();
+        confirm.click();
+        await expect(promise).resolves.toBe('merge');
+    });
+
+    it('a tap only moves the selection; Continue settles the new one', async () => {
+        const { window, document } = env;
+        const promise = open(window, { selected: 'merge' });
+        const choices = [...document.querySelectorAll('.mt-confirm-modal__choice')];
+        choices[1].click();
+        expect(document.querySelector('mt-modal.mt-confirm-modal')).not.toBeNull();
+        expect(choices.map((c) => c.getAttribute('aria-pressed'))).toEqual(['false', 'true']);
+        document.querySelector('.mt-confirm-modal__confirm').click();
+        await expect(promise).resolves.toBe('replace');
+    });
+
+    it('with nothing preselected Continue waits for a pick; Cancel resolves null', async () => {
+        const { window, document } = env;
+        const promise = open(window, {});
+        const confirm = document.querySelector('.mt-confirm-modal__confirm');
+        expect(confirm.disabled).toBe(true);
+        document.querySelector('.mt-confirm-modal__cancel').click();
+        await expect(promise).resolves.toBeNull();
+    });
+
+    it('without confirmLabel a tap still settles at once (untouched callers)', async () => {
+        const { window, document } = env;
+        const promise = window.safeChoose('', [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }], { title: 'Pick' });
+        expect(document.querySelector('.mt-confirm-modal__confirm')).toBeNull();
+        document.querySelectorAll('.mt-confirm-modal__choice')[1].click();
+        await expect(promise).resolves.toBe('b');
+    });
 });
 
 // med-v83g: safeAlert is the in-page dialog's alert mode — one OK button in

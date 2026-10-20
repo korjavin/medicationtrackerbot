@@ -96,9 +96,13 @@ describe('Settings Reminders section (notifications page)', () => {
         try {
             const doc = dom.window.document;
             const reminders = doc.querySelector('[data-settings-page="notifications"] .wg-settings-reminders');
-            expect(eyebrows(reminders)).toBe('Reminders');
+            expect(eyebrows(reminders)).toBe('Remind me about');
             expect(Array.from(reminders.querySelectorAll('.wg-list mt-setting-toggle')).map((t) => t.getAttribute('input-id')))
                 .toEqual(['bp-reminders-toggle', 'weight-reminders-toggle']);
+            // Kit S8: medication times live per medication, one tap away in Meds.
+            expect(reminders.querySelector('#settings-reminders-meds .wg-setting__desc').textContent).toBe('Set per medication in Meds');
+            // Kit rule 7: the page has no native <select> (bd med-ckm5.8).
+            expect(doc.querySelectorAll('[data-settings-page="notifications"] select')).toHaveLength(0);
             expect(featuresPage(doc).querySelector('[input-id="bp-reminders-toggle"]')).toBeNull();
         } finally {
             cleanup();
@@ -819,7 +823,7 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
     describe('delete account flow', () => {
         const mountCloudWithDeleteModule = async (window, overrides = {}) => {
             const mod = {
-                DELETE_CONFIRM_PHRASE: 'delete my account',
+                DELETE_CONFIRM_PHRASE: 'DELETE',
                 exportVaultToFile: vi.fn(async () => {}),
                 reauthAndDelete: vi.fn(async () => {}),
                 clearLocalVault: vi.fn(async () => {}),
@@ -851,7 +855,7 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
         };
         const confirmDelete = async (window, document) => {
             const dialog = await openDeleteDialog(window, document);
-            typePhrase(window, dialog, 'delete my account');
+            typePhrase(window, dialog, 'DELETE');
             dialog.querySelector('.mt-confirm-modal__confirm').click();
         };
 
@@ -883,10 +887,17 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                 expect(btn.classList.contains('wg-btn--danger')).toBe(true);
                 expect(btn.disabled).toBe(true);
 
-                typePhrase(window, dialog, 'delete');
+                // D1 (med-ckm5.5): danger tone, goes/stays facts, the
+                // export-first link, "Type DELETE to confirm".
+                expect(dialog.querySelector('.wg-dialog__icon:not(.wg-dialog__icon--warn)')).not.toBeNull();
+                expect(dialog.querySelector('.mt-confirm-modal__label b').textContent).toBe('DELETE');
+                expect([...dialog.querySelectorAll('.wg-dialog__facts li')].map((li) => li.classList.contains('is-gone'))).toEqual([true, true, false]);
+                expect(dialog.querySelector('.mt-confirm-modal__link').textContent).toBe('Export a backup first');
+
+                typePhrase(window, dialog, 'DEL');
                 expect(btn.disabled).toBe(true);
 
-                typePhrase(window, dialog, 'Delete My Account');
+                typePhrase(window, dialog, ' delete ');
                 expect(btn.disabled).toBe(false);
 
                 // Cancel closes just the dialog; nothing is deleted.
@@ -1290,8 +1301,9 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                     if (!d) throw new Error('no dialog open');
                     return d;
                 });
-                expect(dialog.textContent).toMatch(/switch to Only on this device/);
-                expect(dialog.textContent).toMatch(/Nothing is deleted on the server/);
+                // D1 (med-ckm5.5): the account staying on the server is a kept fact.
+                const stays = [...dialog.querySelectorAll('.wg-dialog__facts li:not(.is-gone)')].map((li) => li.textContent);
+                expect(stays).toContain(`Your account stays on ${window.location.hostname}`);
                 dialog.querySelector('.mt-confirm-modal__confirm').click();
                 // bd med-o7zq.34: straight into local mode, not the native first-run.
                 await vi.waitFor(() => expect(leaveAccount).toHaveBeenCalledWith({ then: 'local' }));
@@ -1391,9 +1403,13 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                 describe(platform, () => {
                     it('op listed: exportAll, then leave.stash({vault}), then leaveAccount', () => run(platform, {}, async ({ document, order }) => {
                         const dialog = await dialogMatching(document, /without an account\?/);
-                        expect(dialog.textContent).toMatch(/switch to Only on this device/);
-                        expect(dialog.textContent).toMatch(/Nothing is deleted on the server/);
-                        expect(dialog.textContent).toMatch(/A copy of your records comes along\./);
+                        // D1 (med-ckm5.5): warn tone, goes/stays facts, Leave.
+                        expect(dialog.querySelector('.wg-dialog__icon--warn')).not.toBeNull();
+                        const facts = [...dialog.querySelectorAll('.wg-dialog__facts li')];
+                        expect(facts.map((li) => li.classList.contains('is-gone'))).toEqual([false, false, true]);
+                        expect(facts[0].textContent).toMatch(/A copy of your records stays on this /);
+                        expect(facts[1].textContent).toMatch(/Your account stays on /);
+                        expect(dialog.querySelector('.mt-confirm-modal__confirm').textContent).toBe('Leave');
                         dialog.querySelector('.mt-confirm-modal__confirm').click();
                         await vi.waitFor(() => expect(order).toHaveLength(3));
                         expect(order).toEqual([
@@ -1407,7 +1423,7 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                         if (platform === 'android' && ops instanceof Error) continue; // Android hides the row without shell.ops
                         it(`${name}: leaves without exporting`, () => run(platform, { ops }, async ({ window, document, leaveAccount, call }) => {
                             const dialog = await dialogMatching(document, /without an account\?/);
-                            expect(dialog.textContent).toMatch(/Device-only mode starts empty; restore a backup file to bring your records\./);
+                            expect(dialog.querySelector('.wg-dialog__facts li.is-gone').textContent).toMatch(/starts empty: restore a backup file to bring your records/);
                             dialog.querySelector('.mt-confirm-modal__confirm').click();
                             await vi.waitFor(() => expect(leaveAccount).toHaveBeenCalledWith({ then: 'local' }));
                             expect(window.CloudVault.exportAll).not.toHaveBeenCalled();

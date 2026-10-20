@@ -232,6 +232,13 @@ the browser's unstyled box. Every dialog goes through `_mountConfirmModal` in
 (a `WGIcons` name), `opts.destructive` (filled clay confirm instead of sun) and
 `safeConfirm`'s `opts.typedConfirm` (confirm stays disabled until the phrase is
 typed — account delete uses it) cover record/account deletes (kit rule 3).
+High-stakes dialogs use the D1 family on the same builder (med-ckm5.5):
+`opts.tone` (`danger` data loss / `warn` reversible / `info` a choice; picks the
+icon tile), `opts.facts` (`[{ text, gone }]` → `.wg-dialog__facts`, what goes
+and what stays), `typedConfirm` as one upper-case word ("Type ERASE to
+confirm", case-insensitive), `opts.link` (`{ label, onClick }`, a body link that
+cancels then acts), and `safeChoose` with `opts.confirmLabel` + `opts.selected`
+(tap selects, Continue settles — Merge/Replace).
 `mt-modal.mt-confirm-modal` stays the JS hook for Back/Esc. Placement rules live
 in `web/static/css/dialog.css`, linked after `components.css` by both
 `index.html` and the passkey shell `web/cloud/signup.html` (which also loads

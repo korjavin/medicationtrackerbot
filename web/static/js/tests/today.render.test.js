@@ -15,6 +15,7 @@ const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const EMPTY_STATE_JS = path.join(REPO_ROOT, 'web/static/js/components/empty-state.js');
 const WG_ICONS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-icons.js');
 const WG_CHIP_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-chip.js');
+const WG_OFFER_CARD_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-offer-card.js');
 const WG_SPARKLINE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-sparkline.js');
 const TODAY_JS = path.join(REPO_ROOT, 'web/static/js/features/today.js');
 const CACHE_KEYS_JS = path.join(REPO_ROOT, 'web/static/js/core/cache-keys.js');
@@ -29,6 +30,7 @@ function loadRenderEnv() {
     window.eval(fs.readFileSync(EMPTY_STATE_JS, 'utf8'));
     window.eval(fs.readFileSync(WG_ICONS_JS, 'utf8'));
     window.eval(fs.readFileSync(WG_CHIP_JS, 'utf8'));
+    window.eval(fs.readFileSync(WG_OFFER_CARD_JS, 'utf8'));
     window.eval(fs.readFileSync(WG_SPARKLINE_JS, 'utf8'));
     window.eval(fs.readFileSync(TODAY_JS, 'utf8'));
     return {
@@ -287,7 +289,7 @@ describe('Today v2 — Next up', () => {
         expect(env.window.WorkoutSessions.start).toHaveBeenCalledWith(12);
     });
 
-    it('nothing scheduled → an empty state that names the next step (no sun of its own)', () => {
+    it('nothing scheduled → an empty state that names the next step; Add medication is the sun (O2)', () => {
         const onAddMedication = vi.fn();
         const onCreatePlan = vi.fn();
         env.render(baseState(), root, { now: NOW, onAddMedication, onCreatePlan });
@@ -299,7 +301,7 @@ describe('Today v2 — Next up', () => {
         acts[1].click();
         expect(onAddMedication).toHaveBeenCalledTimes(1);
         expect(onCreatePlan).toHaveBeenCalledTimes(1);
-        expect(primaries(root).length).toBe(0);
+        expect(primaries(root)).toEqual([acts[0]]);
     });
 
     it('a dose more than 2h out stays on Meds: no row, no Add medication CTA, a quiet hint (med-h20s)', () => {
@@ -331,17 +333,39 @@ describe('Today v2 — Next up', () => {
         expect(nextKinds(root)).toEqual(['med-missed']);
     });
 
-    it('first run: with nothing scheduled the goal card owns the single primary (T4)', () => {
+    it('first run: with nothing scheduled Add medication is the single sun, not the goal card (O2, med-ckm5.3)', () => {
         const s = baseState();
         s.goalLine = env.aggregate({ features: { gamification: true } }, { gamification_goal_line: goalLinePayload({ status: 'no_goal' }) }, NOW).goalLine;
         const onDeeplink = vi.fn();
         env.render(s, root, { now: NOW, onDeeplink });
         const sun = primaries(root);
-        expect(sun.length).toBe(1);
-        expect(sun[0].getAttribute('data-action')).toBe('set-goal');
-        expect(root.querySelector('[data-section="goal-line"]').classList.contains('wg-card--accent')).toBe(true);
-        sun[0].click();
+        expect(sun.map((b) => b.textContent)).toEqual(['Add medication']);
+        const setGoal = root.querySelector('[data-action="set-goal"]');
+        expect(setGoal.classList.contains('wg-btn--primary')).toBe(false);
+        setGoal.click();
         expect(onDeeplink).toHaveBeenCalledWith('weight');
+    });
+
+    it('first run with meds off: no sun from Next up, so the goal card keeps it', () => {
+        const s = baseState();
+        s.goalLine = env.aggregate({ features: { gamification: true } }, { gamification_goal_line: goalLinePayload({ status: 'no_goal' }) }, NOW).goalLine;
+        s.nextMed = { status: 'disabled' };
+        env.render(s, root, { now: NOW });
+        expect(primaries(root).map((b) => b.getAttribute('data-action'))).toEqual(['set-goal']);
+    });
+
+    // bd med-ckm5.3 (O2, shot 33): the last card ends the 24px reserve above the
+    // tab bar at scroll end (android-qa smoke measures it on device). The stage
+    // bleeds into #app's reserve and re-adds it as padding; both come from the
+    // one tab-bar var, so a bar-height change moves the reserve with it.
+    it('the Today stage reserves the tab bar height + 24px below the last card', () => {
+        const css = fs.readFileSync(path.join(REPO_ROOT, 'web/static/css/styles.css'), 'utf8');
+        expect(css).toMatch(/--wg-tabbar-reserved:\s*calc\(var\(--wg-tabbar-h\) \+ 24px\);/);
+        const app = /#app\s*\{([^}]*)\}/.exec(css)[1];
+        expect(app).toMatch(/padding-bottom:\s*var\(--wg-tabbar-reserved\);/);
+        const stage = /\.wg-screen-stage\s*\{([^}]*)\}/.exec(css)[1];
+        expect(stage).toMatch(/margin-bottom:\s*calc\(var\(--wg-tabbar-reserved\) \* -1\);/);
+        expect(stage).toMatch(/padding:\s*\S+ \S+ var\(--wg-tabbar-reserved\);/);
     });
 
     // Missed = intake state (PENDING past slot, not snoozed ahead) from the
@@ -1565,6 +1589,15 @@ describe('AI trial card', () => {
         await flush();
         expect(shown()).toBe(true);
         expect(card().textContent).toContain('Try AI for free');
+        // Kit A1: the shared WGOfferCard (Settings renders the same builder),
+        // Try it raised not sun, and placed after Next up, before the vitals.
+        expect(card().matches('.wg-card.wg-card--accent[data-offer-card]')).toBe(true);
+        expect(card().querySelector('.wg-meta').textContent).toBe('Food logging · no API key');
+        expect(card().querySelector('[data-action="ai-trial-start"]').classList.contains('wg-btn--primary')).toBe(false);
+        const sections = [...env.document.querySelectorAll('#today-content > [data-section]')].map((n) => n.getAttribute('data-section'));
+        const at = sections.indexOf('ai-trial');
+        if (sections.includes('next-up')) expect(at).toBeGreaterThan(sections.indexOf('next-up'));
+        expect(at).toBeLessThan(sections.indexOf('vitals'));
         env.paint();
         expect(shown()).toBe(true); // a re-render keeps it without a flash
         env.cleanup();
@@ -1577,7 +1610,7 @@ describe('AI trial card', () => {
     it('Not now retires it for good on this device', async () => {
         setup(true);
         await flush();
-        card().querySelector('[data-action="ai-trial-dismiss"]').click();
+        card().querySelector('[data-action="offer-dismiss"]').click();
         expect(card()).toBeNull();
         expect(env.window.localStorage.getItem('wg.today.aiTrialDismissed')).toBe('1');
         env.paint();

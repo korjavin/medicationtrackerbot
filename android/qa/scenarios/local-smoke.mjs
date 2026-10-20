@@ -150,7 +150,8 @@ export default async function localSmoke(ctx) {
     r.iPhoneText = await page.evaluate(() => (document.getElementById('settings-view')?.innerText.match(/iPhone/g) || []).length);
     await page.evaluate(() => window.SettingsView.openSettingsPage('notifications'));
     const state = page.locator('#local-notify-state');
-    await state.waitFor({ state: 'visible', timeout: 10_000 });
+    // Attached, not visible: a denied permission swaps the status card for the warn note (kit S8).
+    await state.waitFor({ state: 'attached', timeout: 10_000 });
     await page.waitForFunction(() => !/^(Checking|Notifications are allowed)/.test(document.getElementById('local-notify-state').textContent), null, { timeout: 15_000 }).catch(() => {});
     r.reminderCopy = (await state.textContent()).trim();
     r.reminderDevice = await page.evaluate(() => window.LocalNotifications?.copy?.device);

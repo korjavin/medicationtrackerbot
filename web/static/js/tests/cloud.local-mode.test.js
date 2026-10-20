@@ -514,16 +514,21 @@ describe('local-only mode egress + side-effect policy (med-o7zq.3)', () => {
         await window.apiCall('/api/medications', 'POST', {
             name: 'Metformin', dosage: '500mg', schedule: JSON.stringify({ type: 'daily', times: ['09:00'] }),
         });
-        const sel = window.document.getElementById('local-reminder-verbosity');
+        // Kit S8 (med-ckm5.8): a Generic / Detailed choice pair, no <select>.
+        const group = window.document.getElementById('local-reminder-verbosity');
+        const pressed = () => group.querySelector('.wg-choice[aria-pressed="true"]').dataset.value;
+        const preview = window.document.getElementById('local-reminder-preview');
         await window.bindLocalReminderText();
-        expect(sel.value).toBe('generic');
+        expect(pressed()).toBe('generic');
+        expect(preview.textContent).toBe('Medication time');
         schedule.mockClear();
-        sel.value = 'detailed';
-        sel.dispatchEvent(new window.Event('change'));
+        group.querySelector('.wg-choice[data-value="detailed"]').click();
         await vi.waitFor(() => expect(schedule).toHaveBeenCalled(), { timeout: 5000 });
         const med = schedule.mock.calls.at(-1)[0].find((i) => i.section === 'meds');
         expect(med.body).toContain('Metformin');
-        expect(sel.value).toBe('detailed');
+        await vi.waitFor(() => expect(group.querySelector('.wg-choice').disabled).toBe(false));
+        expect(pressed()).toBe('detailed');
+        expect(preview.textContent).toContain('Time to take');
         expect(await window.apiCall('/api/settings/reminder-delivery')).toMatchObject({ verbosity: 'detailed' });
         expect(offDevice()).toEqual([]);
     });
@@ -669,6 +674,9 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         await window.refreshLocalNotifyState();
         expect(state.textContent).toContain('iOS Settings');
         expect(enable.hidden).toBe(true);
+        // Kit S8: denied swaps the status card for O3's warn note.
+        expect(document.getElementById('local-notify-card').hidden).toBe(true);
+        expect(document.querySelector('#local-notify-note .wg-note--warn[data-notify-denied]')).not.toBeNull();
         expect(offDevice()).toEqual([]);
     });
 
@@ -710,7 +718,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         await vi.waitFor(() => expect(release).toBeTypeOf('function'));
         await vi.waitFor(() => expect(state.textContent).toContain('Scheduling reminders'));
         expect(state.textContent).not.toContain('accepted none');
-        expect(state.classList.contains('status-error')).toBe(false);
+        expect(document.getElementById('local-notify-chip').classList.contains('wg-chip--warn')).toBe(false);
         release();
         await vi.waitFor(() => expect(state.textContent).toBe('Reminders are on for this iPhone.'));
     });
@@ -728,7 +736,9 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         schedule.mockRejectedValueOnce(new Error('The operation couldn’t be completed'));
         front();
         await vi.waitFor(() => expect(state.textContent).toContain("Reminders couldn't be scheduled: The operation couldn’t be completed"));
-        expect(state.classList.contains('status-error')).toBe(true);
+        const chip = document.getElementById('local-notify-chip');
+        expect(chip.textContent).toBe('Off');
+        expect(chip.classList.contains('wg-chip--warn')).toBe(true);
 
         // Granted, reminders to set, but iOS took none of them.
         await window.apiCall('/api/medications', 'POST', {
@@ -742,8 +752,9 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         // The next schedule takes: now it is on.
         front();
         await vi.waitFor(() => expect(state.textContent).toBe('Reminders are on for this iPhone.'));
-        expect(state.classList.contains('status-success')).toBe(true);
-        expect(state.classList.contains('status-error')).toBe(false);
+        expect(chip.textContent).toBe('On');
+        expect(chip.classList.contains('wg-chip--ok')).toBe(true);
+        expect(chip.classList.contains('wg-chip--warn')).toBe(false);
         expect(offDevice()).toEqual([]);
     });
 
@@ -1131,12 +1142,15 @@ describe('local-only mode anonymous trial opt-in (med-o7zq.16)', () => {
         expect(window.Attest.enroll).not.toHaveBeenCalled();
     });
 
-    it('the Settings switch runs the local consent, adds the base domain, and turning it off removes it', async () => {
+    const trialState = (document) => document.querySelector('#integrations-trial-card [data-offer-card]')?.getAttribute('data-trial-state');
+
+    it('the Settings trial card runs the local consent, adds the base domain, and Turn off removes it', async () => {
         const { window, document } = env;
-        await window.SettingsIntegrations._renderLocalTrial();
-        const section = document.getElementById('integrations-local-trial');
+        await window.SettingsIntegrations._renderTrialCard();
+        const section = document.getElementById('integrations-trial');
         expect(section.classList.contains('hidden')).toBe(false);
-        expect(document.getElementById('integrations-local-trial-toggle').checked).toBe(false);
+        expect(trialState(document)).toBe('offer');
+        expect(document.querySelector('#integrations-trial-card .wg-meta').textContent).toBe('Food AI · food database · voice');
 
         const turningOn = window.SettingsIntegrations._setLocalTrial(true);
         const modal = await vi.waitFor(() => {
@@ -1171,7 +1185,7 @@ describe('local-only mode anonymous trial opt-in (med-o7zq.16)', () => {
         expect((await window.apiCall('/api/settings/trial-consent')).anon).toBe(true);
         expect(bridge).toHaveBeenLastCalledWith('setEgressHosts', { hosts: [TRIAL_BASE, 'api.elevenlabs.io'] });
         expect(await window.CloudVault.trial.status()).toMatchObject({ on: true });
-        expect(document.getElementById('integrations-local-trial-toggle').checked).toBe(true);
+        expect(trialState(document)).toBe('on');
 
         await window.SettingsIntegrations._setLocalTrial(false);
         expect((await window.apiCall('/api/settings/trial-consent')).anon).toBe(false);
@@ -1184,8 +1198,8 @@ describe('local-only mode anonymous trial opt-in (med-o7zq.16)', () => {
         const { window, document } = env;
         window.Attest.status = vi.fn(async () => ({ supported: false, base: TRIAL_BASE, attested: false }));
         expect(await window.CloudVault.trial.status()).toBeNull();
-        await window.SettingsIntegrations._renderLocalTrial();
-        expect(document.getElementById('integrations-local-trial').classList.contains('hidden')).toBe(true);
+        await window.SettingsIntegrations._renderTrialCard();
+        expect(document.getElementById('integrations-trial').classList.contains('hidden')).toBe(true);
     });
 
     // med-6xb9: Today's "Try AI for free" card asks trialOffer() and starts
@@ -1201,7 +1215,7 @@ describe('local-only mode anonymous trial opt-in (med-o7zq.16)', () => {
         });
         modal.querySelector('[data-trial-consent-choice="allow"]').click();
         expect(await starting).toBe(true);
-        expect(document.getElementById('integrations-local-trial-toggle').checked).toBe(true);
+        expect(trialState(document)).toBe('on');
         expect(await window.SettingsIntegrations.trialOffer()).toBe(false);
 
         await window.SettingsIntegrations._setLocalTrial(false);
@@ -1554,8 +1568,8 @@ describe('local-only mode trial voice calls (med-o7zq.23)', () => {
             .toBe('Call time is up — each free call lasts up to 5 minutes. Call again to keep talking.'));
         expect(FakeSocket.instances).toHaveLength(1); // no redial
 
-        await env.window.SettingsIntegrations._renderLocalTrial();
-        expect(env.document.getElementById('integrations-local-trial-status').textContent)
+        await env.window.SettingsIntegrations._renderTrialCard();
+        expect(env.document.getElementById('integrations-trial-status').textContent)
             .toContain('Voice: 8 min left (up to 10 min a day; each call uses up to 5 min).');
     });
 
@@ -1570,8 +1584,8 @@ describe('local-only mode trial voice calls (med-o7zq.23)', () => {
         await vi.waitFor(() => expect(conv.endSession).toHaveBeenCalled());
         await vi.waitFor(() => expect(bar.querySelector('.wg-callbar__error').textContent)
             .toBe('Free voice minutes used up — add your own keys in a cloud account to keep calling.'));
-        await env.window.SettingsIntegrations._renderLocalTrial();
-        expect(env.document.getElementById('integrations-local-trial-status').textContent).toContain('Voice minutes used up.');
+        await env.window.SettingsIntegrations._renderTrialCard();
+        expect(env.document.getElementById('integrations-trial-status').textContent).toContain('Voice minutes used up.');
     });
 
     it.each([
@@ -1687,16 +1701,21 @@ describe('local-only mode trial pass across reinstalls (med-o7zq.26)', () => {
         await trialOn();
         await vi.waitFor(() => expect(JSON.parse(env.window.localStorage.getItem('wg:local-trial')))
             .toMatchObject({ voiceRemaining: 420, voiceCallMax: 300 }));
-        await env.window.SettingsIntegrations._renderLocalTrial();
-        expect(env.document.getElementById('integrations-local-trial-status').textContent)
+        await env.window.SettingsIntegrations._renderTrialCard();
+        expect(env.document.getElementById('integrations-trial-status').textContent)
             .toContain('Voice: 7 min left (up to 5 min a day; each call uses up to 5 min).');
+        // Kit A1: the same limits as meters (used / total), so the end is visible coming.
+        const card = env.document.querySelector('#integrations-trial-card [data-offer-card]');
+        expect([...card.querySelectorAll('.wg-macros__label')].map((n) => n.textContent)).toEqual(['Voice', 'Today']);
+        expect([...card.querySelectorAll('.wg-macros__val')].map((n) => n.textContent)).toEqual(['3 / 10 min', '0 / 5 min']);
+        expect(card.querySelector('.wg-meter__fill').style.getPropertyValue('--p')).toBe('30%');
     });
 
     it('a server without anonymous voice adds no voice line on enroll', async () => {
         await trialOn();
         await vi.waitFor(() => expect(JSON.parse(env.window.localStorage.getItem('wg:local-trial'))).toMatchObject({ daily: 50 }));
-        await env.window.SettingsIntegrations._renderLocalTrial();
-        expect(env.document.getElementById('integrations-local-trial-status').textContent).not.toMatch(/Voice/);
+        await env.window.SettingsIntegrations._renderTrialCard();
+        expect(env.document.getElementById('integrations-trial-status').textContent).not.toMatch(/Voice/);
     });
 
     // bd med-o7zq.29 — the first-run wizard's "Try the free trial" is this
@@ -1838,8 +1857,8 @@ describe('local-only mode trial in the Android shell (med-nt9p.32.8.4)', () => {
         const { createHash } = await import('node:crypto');
         const { window, document } = env;
         expect(toBase()).toEqual([]);
-        await window.SettingsIntegrations._renderLocalTrial();
-        expect(document.getElementById('integrations-local-trial').classList.contains('hidden')).toBe(false);
+        await window.SettingsIntegrations._renderTrialCard();
+        expect(document.getElementById('integrations-trial').classList.contains('hidden')).toBe(false);
 
         const turningOn = window.SettingsIntegrations._setLocalTrial(true);
         const modal = await vi.waitFor(() => {
@@ -1892,8 +1911,8 @@ describe('local-only mode trial in the Android shell (med-nt9p.32.8.4)', () => {
         const { window, document } = env;
         window.Attest.status = vi.fn(async () => ({ supported: false, base: TRIAL_BASE, attested: false }));
         expect(await window.CloudVault.trial.status()).toBeNull();
-        await window.SettingsIntegrations._renderLocalTrial();
-        expect(document.getElementById('integrations-local-trial').classList.contains('hidden')).toBe(true);
+        await window.SettingsIntegrations._renderTrialCard();
+        expect(document.getElementById('integrations-trial').classList.contains('hidden')).toBe(true);
         expect(window.Attest.enroll).not.toHaveBeenCalled();
         expect(toBase()).toEqual([]);
     });
@@ -2021,17 +2040,18 @@ describe('local-only mode leave stash pickup (med-o7zq.36.4)', () => {
     });
 
     // bd med-o7zq.38: records here → Merge / Replace / Cancel.
-    it('stash + records here: the choice; Replace, confirmed once, replaces them', async () => {
+    it('stash + records here: the choice; Replace, confirmed with typed REPLACE, replaces them', async () => {
         await seedWeight();
         const { window } = await boot({ take: { vault: VAULT } });
         expect(window.safeChoose).toHaveBeenCalledTimes(1);
-        // The leave copy (bd med-o7zq.37/.38), not the backup-file one.
-        expect(window.safeChoose.mock.calls[0][0]).toBe('This iPhone has records from using it without an account. Merge adds your account\'s records to them. Replace erases them first. Your account is not changed either way. Records kept on both sides may appear twice after a merge.');
-        expect(window.safeChoose.mock.calls[0][2].title).toBe('Records already on this iPhone');
+        // The leave copy (bd med-o7zq.37/.38, D1 med-ckm5.5), not the backup-file one.
+        expect(window.safeChoose.mock.calls[0][0]).toBe('This iPhone already has records from using it without an account. Your account is not changed either way.');
+        expect(window.safeChoose.mock.calls[0][2]).toMatchObject({ title: 'Records already on this iPhone', confirmLabel: 'Continue', selected: 'merge' });
         expect(window.safeConfirm).toHaveBeenCalledTimes(1);
-        expect(window.safeConfirm.mock.calls[0][0]).toBe('Erase the records on this iPhone and replace them with your account\'s? This cannot be undone.');
-        expect(window.safeConfirm.mock.calls[0][2]).toMatchObject({ destructive: true, confirmLabel: 'Replace' });
-        expect(window.safeConfirm.mock.calls[0][2].typedConfirm).toBeUndefined();
+        expect(window.safeConfirm.mock.calls[0][2]).toMatchObject({
+            title: 'Replace the records on this iPhone?', destructive: true, confirmLabel: 'Replace', typedConfirm: 'REPLACE',
+        });
+        expect(window.safeConfirm.mock.calls[0][2].facts[0]).toEqual({ text: 'The records on this iPhone now', gone: true });
         expect(leaveOps()).toEqual(['leave.take', 'leave.clear']);
         expect(await weights()).toEqual(FIXTURE_WEIGHTS);
     });

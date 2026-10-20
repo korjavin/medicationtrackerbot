@@ -36,6 +36,30 @@ let _cloudNotificationsBound = false; // module-state: one-time guard so the clo
 function loadCloudPushModule() { return import('/js/push.js'); }
 function loadCloudRemindersModule() { return import('/js/reminders.js'); }
 
+// The toggle plus the S8 status chip (bd med-ckm5.8). Denied swaps the card
+// for O3's warn note (NotifyPermission.renderNote, med-ckm5.4), as in local mode.
+async function paintCloudPush(toggleBtn, on) {
+    toggleBtn.dataset.subscribed = on ? '1' : '0';
+    toggleBtn.textContent = on ? 'Disable' : 'Enable';
+    // The button's own document: a refresh can land after the page went away.
+    const doc = toggleBtn.ownerDocument;
+    const chip = doc?.getElementById('cloud-push-chip');
+    if (chip) {
+        chip.textContent = on ? 'On' : 'Off';
+        chip.classList.toggle('wg-chip--ok', on);
+    }
+    const np = doc?.defaultView?.NotifyPermission;
+    const note = doc?.getElementById('cloud-push-note');
+    const card = doc?.getElementById('cloud-push-card');
+    if (!np || !note || !card) return;
+    try {
+        await np.renderNote(note);
+        const denied = (await np.state()) === 'denied';
+        card.hidden = denied && !!note.firstChild;
+        chip?.classList.toggle('wg-chip--warn', denied);
+    } catch (e) { /* the card still offers Enable */ }
+}
+
 // status is passed only on the initial bind. After a deliberate Disable click
 // the granted-but-unsubscribed state is exactly what the user asked for, and
 // warning about it there would stomp the "Notifications disabled" confirmation.
@@ -44,14 +68,12 @@ async function refreshCloudPushToggleState(toggleBtn, status) {
         if (localNotificationsSupported()) {
             // iOS app shell: "subscribed" is the iOS notification permission.
             const granted = (await window.LocalNotifications.permission()) === 'granted';
-            toggleBtn.dataset.subscribed = granted ? '1' : '0';
-            toggleBtn.textContent = granted ? 'Disable' : 'Enable';
+            paintCloudPush(toggleBtn, granted);
             return;
         }
         const { getSubscription } = await loadCloudPushModule();
         const sub = await getSubscription();
-        toggleBtn.dataset.subscribed = sub ? '1' : '0';
-        toggleBtn.textContent = sub ? 'Disable' : 'Enable';
+        paintCloudPush(toggleBtn, !!sub);
         // Permission granted but no subscription means the push service evicted
         // it and the boot-time repair could not restore it (med-d5t.3). A bare
         // "Enable" button reads like a device that was never set up, so it would
@@ -60,8 +82,7 @@ async function refreshCloudPushToggleState(toggleBtn, status) {
             applyWebpushStatus(status, 'Reminders are not armed on this device — tap Enable to restore them.', 'error');
         }
     } catch (e) {
-        toggleBtn.dataset.subscribed = '0';
-        toggleBtn.textContent = 'Enable';
+        paintCloudPush(toggleBtn, false);
     }
 }
 
@@ -252,20 +273,20 @@ function bindCloudNotifications() {
 // reminders domain rather than an /api route. Changing either re-uploads the
 // horizon immediately — the relay holds precomputed entries, so a pref change
 // that isn't re-pushed wouldn't take effect until the next mutation.
-let _cloudReminderDeliveryBound = false; // module-state: bind the selects once across repeated loadSettings() calls
+let _cloudReminderDeliveryBound = false; // module-state: bind the choice groups once across repeated loadSettings() calls
 function bindCloudReminderDelivery() {
-    const deliverySel = document.getElementById('cloud-reminder-delivery');
-    const verbositySel = document.getElementById('cloud-reminder-verbosity');
+    const deliveryEl = document.getElementById('cloud-reminder-delivery');
+    const verbosityEl = document.getElementById('cloud-reminder-verbosity');
     const status = document.getElementById('cloud-reminder-delivery-status');
-    if (!deliverySel || !verbositySel || !status) return;
+    if (!deliveryEl || !verbosityEl || !status) return;
 
     const ctx = window.MedTrackerCloud?.ctx;
     if (ctx) {
         loadCloudRemindersModule()
             .then(({ remindersDomain }) => remindersDomain(ctx).getDeliveryPref())
             .then((pref) => {
-                deliverySel.value = pref.delivery;
-                verbositySel.value = pref.verbosity;
+                setChoiceValue(deliveryEl, pref.delivery);
+                setChoiceValue(verbosityEl, pref.verbosity);
             })
             .catch(() => { /* leave the HTML defaults (webpush/generic) */ });
     }
@@ -280,26 +301,50 @@ function bindCloudReminderDelivery() {
             setTimeout(() => hideWebpushStatus(status), 3000);
             return;
         }
-        deliverySel.disabled = true;
-        verbositySel.disabled = true;
+        setChoicesDisabled(deliveryEl, true);
+        setChoicesDisabled(verbosityEl, true);
         try {
             const { remindersDomain, recomputeAndPush } = await loadCloudRemindersModule();
             await remindersDomain(cloudCtx).setDeliveryPref({
-                delivery: deliverySel.value,
-                verbosity: verbositySel.value,
+                delivery: choiceValue(deliveryEl),
+                verbosity: choiceValue(verbosityEl),
             });
             await recomputeAndPush(cloudCtx);
             applyWebpushStatus(status, 'Reminder delivery updated.', 'success');
         } catch (err) {
             applyWebpushStatus(status, err.message || 'Failed to update reminder delivery', 'error');
         }
-        deliverySel.disabled = false;
-        verbositySel.disabled = false;
+        setChoicesDisabled(deliveryEl, false);
+        setChoicesDisabled(verbosityEl, false);
         setTimeout(() => hideWebpushStatus(status), 3000);
     };
 
-    deliverySel.addEventListener('change', save);
-    verbositySel.addEventListener('change', save);
+    bindChoices(deliveryEl, save);
+    bindChoices(verbosityEl, save);
+}
+
+// A .wg-choices group standing in for a <select> (kit rule 7, bd med-ckm5.8):
+// its value is the pressed button's data-value.
+function choiceValue(group) {
+    return group.querySelector('.wg-choice[aria-pressed="true"]')?.dataset.value;
+}
+
+function setChoiceValue(group, value) {
+    group.querySelectorAll('.wg-choice').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.value === value)));
+}
+
+function setChoicesDisabled(group, disabled) {
+    group.querySelectorAll('.wg-choice').forEach((b) => { b.disabled = disabled; });
+}
+
+// onChange runs after a tap pressed a different choice.
+function bindChoices(group, onChange) {
+    group.addEventListener('click', (e) => {
+        const btn = e.target.closest('.wg-choice');
+        if (!btn || btn.disabled || btn.getAttribute('aria-pressed') === 'true') return;
+        setChoiceValue(group, btn.dataset.value);
+        onChange();
+    });
 }
 
 // Cloud-mode "Invite a friend": POST /api/invite mints a subdomain + claim
@@ -629,15 +674,22 @@ function bindDeleteAccount() {
         // tap must never erase a vault. Past the server delete there is
         // nothing left to confirm — only the local wipe to retry.
         if (!serverDeleted) {
+            // D1 (med-ckm5.5): what goes, what stays, typed DELETE.
             const ok = await window.safeConfirm(
-                'This permanently erases your account and every reading, note, and setting from this server. It cannot be undone, and because your data is encrypted, no one — including the operator — can recover it afterwards.',
+                'if you might want your records later. Your data is encrypted, so no one, the operator included, can recover it afterwards.',
                 null,
                 {
                     title: 'Delete your account?',
                     icon: 'trash',
                     destructive: true,
                     typedConfirm: mod.DELETE_CONFIRM_PHRASE,
-                    confirmLabel: 'Verify passkey & delete',
+                    confirmLabel: 'Delete account',
+                    link: { label: 'Export a backup first', onClick: () => exportBtn?.click() },
+                    facts: [
+                        { text: `Your vault on ${window.location.hostname}, for every device`, gone: true },
+                        { text: 'Connectors and the Telegram link', gone: true },
+                        { text: nativeLeaveAccount() ? `This ${nativeCopy().device} returns to the start screen` : 'This browser goes back to the start page' },
+                    ],
                 },
             );
             if (!ok) return;
@@ -738,13 +790,20 @@ function showLeaveAccount(leave) {
             // bd med-o7zq.36: a shell with leave.stash carries a copy of the
             // vault into local mode; an older one starts it empty.
             const stash = await nativeHas('leave.stash');
-            const carry = stash
-                ? 'A copy of your records comes along.'
-                : 'Device-only mode starts empty; restore a backup file to bring your records.';
+            // D1 (med-ckm5.5): warn tone, what stays and what stops.
             const ok = await safeConfirm(
-                `Med Tracker will close this account on this ${device} and switch to Only on this device, which keeps your records on the phone. Nothing is deleted on the server: the account and its data stay, and you can open it again with your account address. ${carry}`,
+                '',
                 null,
-                { title: `Use this ${device} without an account?`, confirmLabel: 'Continue' },
+                {
+                    title: `Use this ${device} without an account?`, icon: 'device', tone: 'warn', destructive: true, confirmLabel: 'Leave',
+                    facts: [
+                        stash
+                            ? { text: `A copy of your records stays on this ${device}` }
+                            : { text: `This ${device} starts empty: restore a backup file to bring your records`, gone: true },
+                        { text: `Your account stays on ${window.location.hostname}` },
+                        { text: `This ${device} stops syncing with your other devices`, gone: true },
+                    ],
+                },
             );
             if (!ok) return;
             if (stash) {
@@ -756,7 +815,7 @@ function showLeaveAccount(leave) {
                     const go = await safeConfirm(
                         `Your records could not be carried over (${e?.message || e}). Continue without them? Your account keeps them; a backup file can bring them here later.`,
                         null,
-                        { title: 'Records not carried over', confirmLabel: 'Continue' },
+                        { title: 'Records not carried over', icon: 'alert', tone: 'warn', confirmLabel: 'Continue' },
                     );
                     if (!go) return;
                 }
@@ -818,22 +877,30 @@ function bindRerunOnboarding() {
 // Local-only mode's lock-screen reminder text (bd med-o7zq.3): the
 // verbosity half of the vault's reminder delivery pref, through the shim
 // (GET/PUT /api/settings/reminder-delivery), which reschedules on a change.
-// The select is its own optimistic state; a failed save puts it back.
-let _localReminderTextBound = false; // module-state: bind the select once across repeated loadSettings() calls
+// The choice pair is its own optimistic state; a failed save puts it back.
+// The .wg-notif preview mirrors what reminders.js schedules for a dose.
+let _localReminderTextBound = false; // module-state: bind the choice pair once across repeated loadSettings() calls
+function setLocalReminderText(group, value) {
+    setChoiceValue(group, value);
+    const preview = document.getElementById('local-reminder-preview');
+    if (preview) preview.textContent = value === 'detailed' ? 'Time to take: Metformin' : 'Medication time';
+}
+
 async function bindLocalReminderText() {
-    const sel = document.getElementById('local-reminder-verbosity');
-    if (!sel) return;
+    const group = document.getElementById('local-reminder-verbosity');
+    if (!group) return;
     const pref = await apiCall('/api/settings/reminder-delivery', 'GET');
-    if (pref && pref.verbosity) sel.value = pref.verbosity;
-    sel.dataset.saved = sel.value;
+    setLocalReminderText(group, (pref && pref.verbosity) || choiceValue(group));
+    group.dataset.saved = choiceValue(group);
     if (_localReminderTextBound) return;
     _localReminderTextBound = true;
-    sel.addEventListener('change', async () => {
-        sel.disabled = true;
-        const res = await apiCall('/api/settings/reminder-delivery', 'PUT', { verbosity: sel.value });
-        if (res && res.verbosity) sel.dataset.saved = res.verbosity;
-        sel.value = sel.dataset.saved;
-        sel.disabled = false;
+    bindChoices(group, async () => {
+        setLocalReminderText(group, choiceValue(group));
+        setChoicesDisabled(group, true);
+        const res = await apiCall('/api/settings/reminder-delivery', 'PUT', { verbosity: choiceValue(group) });
+        if (res && res.verbosity) group.dataset.saved = res.verbosity;
+        setLocalReminderText(group, group.dataset.saved);
+        setChoicesDisabled(group, false);
     });
 }
 
@@ -848,6 +915,11 @@ async function refreshLocalNotifyState() {
     const state = document.getElementById('local-notify-state');
     const enable = document.getElementById('local-notify-enable');
     const test = document.getElementById('local-notify-test');
+    // Kit S8 (bd med-ckm5.8): a status chip; denied swaps the card for O3's
+    // warn note (NotifyPermission.renderNote), the one sun on the page.
+    const chip = document.getElementById('local-notify-chip');
+    const note = document.getElementById('local-notify-note');
+    const card = document.getElementById('local-notify-card');
     if (!state || !enable || !test) return;
     let permission = 'unsupported';
     if (localNotificationsSupported()) {
@@ -861,8 +933,15 @@ async function refreshLocalNotifyState() {
     test.hidden = permission !== 'granted';
     const [text, tone] = localNotifyText(permission, window.CloudVault?.lastReminderSchedule?.() || null);
     state.textContent = text;
-    state.classList.toggle('status-success', tone === 'success');
-    state.classList.toggle('status-error', tone === 'error');
+    if (chip) {
+        chip.textContent = tone === 'success' ? 'On' : 'Off';
+        chip.classList.toggle('wg-chip--ok', tone === 'success');
+        chip.classList.toggle('wg-chip--warn', tone === 'error');
+    }
+    try {
+        await state.ownerDocument?.defaultView?.NotifyPermission?.renderNote(note);
+    } catch (e) { /* the card still says what is wrong */ }
+    if (card) card.hidden = permission === 'denied' && !!note?.firstChild;
 }
 
 // "On" needs both the iOS permission and a device schedule that took
@@ -933,10 +1012,17 @@ function bindLocalErase() {
     if (!btn || !errorEl || _localEraseBound) return;
     _localEraseBound = true;
     btn.addEventListener('click', async () => {
+        const device = nativeCopy().device;
         const ok = await safeConfirm(
-            `This deletes every record, setting and reminder stored in the app on this ${nativeCopy().device}. It cannot be undone. Download a backup first if you want to keep anything.`,
+            '',
             null,
-            { title: 'Erase data on this device?', confirmLabel: 'Erase', destructive: true, typedConfirm: 'erase' },
+            {
+                title: `Erase data on this ${device}?`, icon: 'trash', confirmLabel: 'Erase', destructive: true, typedConfirm: 'ERASE',
+                facts: [
+                    { text: `All records, settings and keys on this ${device}`, gone: true },
+                    { text: 'Backup files you exported stay where you saved them' },
+                ],
+            },
         );
         if (!ok) return;
         btn.disabled = true;
@@ -997,10 +1083,18 @@ async function moveToCloudAccount(btn) {
     if (btn.disabled) return;
     btn.disabled = true;
     try {
+        const device = nativeCopy().device;
         const ok = await safeConfirm(
-            'Your records move with you. Paste or scan your invite on the next screen; the new account picks them up on its own.\n\nNothing is erased here: Only on this device brings you back.',
+            '',
             null,
-            { title: 'Move to a cloud account?', confirmLabel: 'Continue' },
+            {
+                title: 'Move to a cloud account?', icon: 'route', tone: 'warn', destructive: true, confirmLabel: 'Move',
+                facts: [
+                    { text: `Your records are packed and kept on this ${device}` },
+                    { text: 'They move in after you sign in to the new account' },
+                    { text: 'Cancel any time from the start screen' },
+                ],
+            },
         );
         if (!ok) return;
         await window.CloudVault.moveToCloud({ win: window });
@@ -1066,6 +1160,7 @@ async function loadSettings() {
 
         document.getElementById('bp-reminders-toggle').checked = !!bundle.bpReminderStatus.enabled;
         document.getElementById('weight-reminders-toggle').checked = !!bundle.weightReminderStatus.enabled;
+        applyReminderSummaries(bundle.bpReminderStatus, bundle.weightReminderStatus);
     };
 
     const fetchBundle = async () => {
@@ -1215,17 +1310,22 @@ function openSettingsPage(name) {
     page = window.WGPage.push({
         title,
         back: body.dataset.settingsParent || 'Settings',
+        // Kit S8: icon-only Back so "Reminders & notifications" fits (bd med-ckm5.8).
+        longTitle: name === 'notifications',
         body,
         primary: settingsPagePrimary(name, () => page),
         onClose: () => {
+            _openSettingsPages.delete(name);
             store.appendChild(body);
             refreshSettingsSummaries();
         },
     });
+    _openSettingsPages.set(name, page);
     if (name === 'devices') mountCloudDevices();
     return page;
 }
 
+const _openSettingsPages = new Map(); // module-state: page name → its open WGPage handle
 let _settingsPagesBound = false; // module-state: bind the home/page row clicks once across repeated loadSettings() calls
 function bindSettingsPages() {
     if (_settingsPagesBound) return;
@@ -1233,6 +1333,33 @@ function bindSettingsPages() {
     document.querySelectorAll('[data-settings-open]').forEach((row) => {
         row.addEventListener('click', () => openSettingsPage(row.dataset.settingsOpen));
     });
+    // Reminders → Medications: per-medication times live in the Meds editor.
+    document.getElementById('settings-reminders-meds')?.addEventListener('click', () => {
+        _openSettingsPages.get('notifications')?.close();
+        switchTab('meds');
+    });
+}
+
+// Read-only reminder time summaries (kit S8) from the bundle's reminder statuses.
+function reminderHour(status) {
+    const h = Number(status && status.preferred_reminder_hour);
+    return Number.isInteger(h) && h >= 0 && h < 24 ? `${String(h).padStart(2, '0')}:00` : null;
+}
+
+function setReminderDesc(inputId, text) {
+    const desc = document.getElementById(inputId)?.closest('mt-setting-toggle')?.querySelector('.wg-setting__desc');
+    if (desc && text) desc.textContent = text;
+}
+
+function applyReminderSummaries(bp, weight) {
+    const bpAt = reminderHour(bp);
+    if (bpAt) setReminderDesc('bp-reminders-toggle', `At ${bpAt} unless you measured recently`);
+    const weightAt = reminderHour(weight);
+    if (weightAt) {
+        setReminderDesc('weight-reminders-toggle', weight.cadence === 'daily'
+            ? `Daily at ${weightAt}`
+            : `At ${weightAt}, a week after your last weigh-in`);
+    }
 }
 
 // Hide a home row when every top-level section of its page is hidden.
@@ -1286,7 +1413,7 @@ function refreshSettingsSummaries() {
     const cloudNotifications = document.querySelector('.wg-settings-notifications-cloud');
     const delivery = document.getElementById('cloud-reminder-delivery');
     if (cloudNotifications && delivery && !isSettingsSectionHidden(cloudNotifications)) {
-        parts.push({ webpush: 'Push', telegram: 'Telegram', both: 'Push + Telegram' }[delivery.value] || 'Push');
+        parts.push({ webpush: 'Push', telegram: 'Telegram', both: 'Push + Telegram' }[choiceValue(delivery)] || 'Push');
     }
     const reminders = [
         document.getElementById('bp-reminders-toggle')?.checked && 'BP',
