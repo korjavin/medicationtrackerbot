@@ -220,6 +220,9 @@ jobs:
           if grep -qF 'wgapp://local/?qa=' build/MedTracker.xcarchive/Products/Applications/MedTracker.app/MedTracker; then
             echo "::error::the archive carries the Debug-only -wgQAScene hook"; exit 1
           fi
+          # The qa job builds with WG_BASE_DOMAIN=qa.test; the archive must carry the deployment's base.
+          base="$(/usr/libexec/PlistBuddy -c 'Print :WGBaseDomain' build/MedTracker.xcarchive/Products/Applications/MedTracker.app/Info.plist)"
+          [ "$base" = "$CLOUD_BASE_DOMAIN" ] || { echo "::error::the archive's WGBaseDomain is not CLOUD_BASE_DOMAIN"; exit 1; }
           OPTS="$RUNNER_TEMP/ExportOptions.plist"
           cp ExportOptions.plist "$OPTS"
           /usr/libexec/PlistBuddy -c "Add :teamID string $IOS_TEAM_ID" \
@@ -390,20 +393,30 @@ jobs:
           xcodebuild -version
           xcodebuild build-for-testing -project MedTracker.xcodeproj -scheme MedTracker \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO | tail -n 30
+            -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO \
+            WG_BASE_DOMAIN=qa.test | tail -n 30
           test "${PIPESTATUS[0]}" -eq 0
 
       - name: Create and boot the simulator
         run: ios/qa/boot-sim.sh "iPhone 16e,iPhone 16,iPhone 15" 390pt
+
+      # The account-gone flows' fake server (bd med-w6gx.23.5): tlsfront on
+      # :443 for *.qa.test, the base the build above was given. This job's
+      # build is never archived; the archive (build job) sets its own base.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Start the fake account server (tlsfront) and trust its CA
+        run: ios/qa/fake-server.sh
 
       - name: Run the flows
         working-directory: ios
         run: |
           IFS='=' read -r dev udid < "$RUNNER_TEMP/devices"
           xcodebuild test-without-building -project MedTracker.xcodeproj -scheme MedTracker \
-            -only-testing:MedTrackerUITests/FlowQATests \
-            -only-testing:MedTrackerUITests/FlowQALockTests \
-            -destination "platform=iOS Simulator,id=$udid" \
+            -only-testing:MedTrackerUITests -skip-testing:MedTrackerUITests/VisualQATests -destination "platform=iOS Simulator,id=$udid" \
             -derivedDataPath build/sim -resultBundlePath build/qa.xcresult < /dev/null \
             | grep -E ' error: |Added attachment|Test Case|Executed|\*\* TEST'
           exit "${PIPESTATUS[0]}"
