@@ -1028,6 +1028,19 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
             expect(leaveOps()).toEqual([]);
         });
 
+        it('Not now while the clipboard read is pending: the late text never leaves', async () => {
+            const { window, document } = env;
+            openSheet(window);
+            let resolve;
+            window.Clipboard.readText.mockImplementation(() => new Promise((r) => { resolve = r; }));
+            act(document, 'paste').click();
+            act(document, 'not-now').click();
+            resolve(CLAIM);
+            await new Promise((r) => { setTimeout(r, 20); });
+            expect(sheet(document)).toBeNull();
+            expect(leaveOps()).toEqual([]);
+        });
+
         it('the shell rejecting the URL ("invalid url") shows the field error', async () => {
             const { window, document } = env;
             bridge.mockImplementation(async (op) => {

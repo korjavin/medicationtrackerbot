@@ -214,8 +214,11 @@
             if (e.key === 'Escape') { e.preventDefault(); close(); }
         }
 
+        // A sheet dismissed while a read or a check was pending must not leave.
+        function live() { return current === close; }
+
         async function submit(raw) {
-            if (busy) return;
+            if (busy || !live()) return;
             busy = true;
             showError('');
             try {
@@ -227,6 +230,7 @@
                     showError('Update Med Tracker to use an invite here.');
                     return;
                 }
+                if (!live()) return;
                 await window.CloudVault.moveToCloud({ win: window, url: invite.claimUrl });
                 // The shell is navigating to the account; nothing left to do here.
             } catch (e) {
@@ -242,6 +246,7 @@
             var reading;
             try { reading = window.Clipboard.readText(); } catch (_) { reading = null; } // inside the tap: WebKit's Paste callout
             Promise.resolve(reading).then(function (text) {
+                if (!live()) return;
                 if (!text) { showField(); return; }
                 input.value = text;
                 submit(text);
