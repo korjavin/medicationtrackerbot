@@ -26,10 +26,11 @@ import { isIOS, isMobile } from './platform.js';
 export const STATUS_API_PREFIX = '/api/i/';
 export const L3_KEY_PREFIX = 'mt-invite-l3:';
 export const ASK_TEXT = 'My Med Tracker invite has expired — could you send me a new one?';
+// Contract A2 (med-ta2n.7 design): the sub is lowercased, then must match
+// [a-z0-9-]+; the token is lowercase hex as minted (NewClaimToken). Raw path and
+// fragment — no percent-decoding — the same rules as the shells' parseInvite.
 const SUB_RE = /^\/i\/([a-z0-9-]+)$/;
-// ClaimURL mints hex; anything outside the URL-safe set is not a real token and
-// must not be spliced into the claim / scheme URLs.
-const TOKEN_RE = /^[A-Za-z0-9_-]+$/;
+const TOKEN_RE = /^[0-9a-f]+$/;
 
 export const COPY = {
   title: "You're invited to Med Tracker",
@@ -57,7 +58,7 @@ export const COPY = {
 // parseInviteLink(pathname, hash) -> { sub, token } ('' for a missing or
 // malformed part). Never throws.
 export function parseInviteLink(pathname, hash) {
-  const m = SUB_RE.exec(String(pathname || ''));
+  const m = SUB_RE.exec(String(pathname || '').toLowerCase());
   const frag = String(hash || '').replace(/^#/, '');
   return { sub: m ? m[1] : '', token: TOKEN_RE.test(frag) ? frag : '' };
 }
@@ -67,6 +68,11 @@ export function parseInviteLink(pathname, hash) {
 export function claimHref(location, sub, token) {
   const scheme = location.protocol === 'http:' ? 'http://' : 'https://';
   return scheme + sub + '.' + location.host + '/#claim=' + token;
+}
+
+// landingHref — this page's canonical URL, origin + /i/<sub> + #<token>.
+export function landingHref(location, sub, token) {
+  return location.origin + '/i/' + sub + '#' + token;
 }
 
 export function appSchemeHref(sub, token) {
@@ -164,7 +170,10 @@ export async function mount(root = document, deps = {}) {
     return;
   }
 
-  const landingUrl = location.href;
+  // Canonical, never location.href: a ?query (e.g. a tracker a messenger
+  // appended) must not ride into the Play referrer, the clipboard or the QR —
+  // the shells' parseInvite rejects a landing URL with a query (contract §1).
+  const landingUrl = landingHref(location, sub, token);
   const iosId = meta(root, 'medtracker-ios-app-store-id');
   const pkg = meta(root, 'medtracker-android-package');
   const l3Key = L3_KEY_PREFIX + sub;

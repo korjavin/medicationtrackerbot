@@ -256,7 +256,7 @@ export const PRIVACY_MANIFEST = [
     activation: 'user-initiated',
     activationNote: 'only when you tap "Get the app for Android" on an invite page; iPhone and "Continue in the browser" send nothing to a store',
     byo: 'n/a — tap "Continue in the browser", or install the app first and paste the invite in it',
-    evidence: ['web/cloud/js/invite-landing.js:87', 'web/cloud/js/invite-landing.js:77', 'web/cloud/js/invite-landing.js:180'],
+    evidence: ['web/cloud/js/invite-landing.js:93', 'web/cloud/js/invite-landing.js:83', 'web/cloud/js/invite-landing.js:189'],
     code: { go: [], hosts: ['play.google.com', 'apps.apple.com'] },
     docSignal: null,
     userCopy: {

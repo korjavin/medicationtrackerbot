@@ -32,6 +32,7 @@ function fakeLocation(over = {}) {
     pathname: `/i/${SUB}`,
     hash: `#${TOKEN}`,
     href: LANDING,
+    origin: 'https://med.example',
     host: 'med.example',
     protocol: 'https:',
     ...over,
@@ -69,16 +70,42 @@ async function setup({ platform = 'ios', body = PENDING, metas, location = fakeL
   return { fetchImpl, clipboard, location, storage, nav };
 }
 
-describe('parseInviteLink', () => {
-  it('reads sub from the path and the token from the fragment', () => {
-    expect(parseInviteLink('/i/alice-7', '#0123abcdef')).toEqual({ sub: 'alice-7', token: '0123abcdef' });
-  });
+// The landing-form pairs of the canonical vector set (contract A2:
+// `inviteVectors` in ios/Tests/main.swift, base app.example.com; want "" =
+// reject). The page only ever sees its own path + fragment, so the host /
+// scheme / port / userinfo vectors are the server's and the shells' business;
+// the query vectors are covered by the canonical landingUrl test below.
+const LANDING_VECTORS = [
+  ['https://app.example.com/i/abc#0a1b2c', 'https://abc.app.example.com/#claim=0a1b2c'],
+  ['https://APP.example.com/i/ABC#0a1b2c', 'https://abc.app.example.com/#claim=0a1b2c'],
+  ['https://app.example.com/i/abc', ''], // no token
+  ['https://app.example.com/i/abc#', ''], // empty token
+  ['https://app.example.com/i/#0a1b2c', ''], // no sub
+  ['https://app.example.com/i/a/b#0a1b2c', ''],
+  ['https://app.example.com/i/a.b#0a1b2c', ''],
+  ['https://app.example.com/i/a_b#0a1b2c', ''],
+  ['https://app.example.com/i/%61bc#0a1b2c', ''], // raw path: no percent-decoding
+  ['https://app.example.com/i/abc#%30a1b', ''], // raw fragment
+  ['https://app.example.com/i/abc#0A1B2C', ''], // token is lowercase hex
+  ['https://app.example.com/i/abc#0a1g', ''],
+  ['https://app.example.com/i/abc#0a-1b', ''],
+  ['https://app.example.com/i/abc#0a1b&kit=1', ''],
+  ['https://app.example.com/x/abc#0a1b2c', ''],
+];
 
-  it('rejects malformed parts instead of splicing them into URLs', () => {
-    expect(parseInviteLink('/i/Alice', '#t')).toEqual({ sub: '', token: 't' });
-    expect(parseInviteLink('/i/a/b', '#t').sub).toBe('');
-    expect(parseInviteLink('/i/a', '#a"b').token).toBe('');
-    expect(parseInviteLink('/i/a', '').token).toBe('');
+describe('parseInviteLink (contract A2 vectors)', () => {
+  for (const [input, want] of LANDING_VECTORS) {
+    it(`${input} -> ${want || 'reject'}`, () => {
+      const u = new URL(input);
+      const { sub, token } = parseInviteLink(u.pathname, u.hash);
+      const got = sub && token ? claimHref({ protocol: 'https:', host: 'app.example.com' }, sub, token) : '';
+      expect(got).toBe(want);
+    });
+  }
+
+  it('underscore / dash tokens are not hex', () => {
+    expect(parseInviteLink('/i/abc', '#0a_1b').token).toBe('');
+    expect(parseInviteLink('/i/abc', '#0a1b2c').token).toBe('0a1b2c');
   });
 });
 
@@ -194,6 +221,20 @@ describe('invite landing page', () => {
       expect(title()).toBe(COPY.opening);
       await flush();
       expect(location.href).toBe(playHref('ai.myhealthbot.app', LANDING));
+    });
+
+    it('a ?query never reaches the referrer, the clipboard or the QR (canonical landing URL)', async () => {
+      const location = fakeLocation({ href: `https://med.example/i/${SUB}?fbclid=x1#${TOKEN}`, search: '?fbclid=x1' });
+      const { clipboard } = await setup({ platform: 'android', location });
+      $('invite-get').click();
+      expect(clipboard.writeText).toHaveBeenCalledWith(LANDING);
+      await flush();
+      expect(location.href).toBe(playHref('ai.myhealthbot.app', LANDING));
+      expect(location.href).not.toContain('fbclid');
+
+      const qr = fakeQr();
+      await setup({ platform: 'desktop', location: fakeLocation({ href: `https://med.example/i/${SUB}?fbclid=x1#${TOKEN}` }), loadQr: async () => ({ qrcode: qr.qrcode }) });
+      expect(qr.data).toEqual([LANDING]);
     });
 
     it('no package meta: no store button', async () => {
