@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- .wg-mark-lg: the 96dp app mark tile (ink, gloss, soft line, the sun pill) on the lock
-     screen (N3) and, centred in wg_splash_mark, the splash (N6), in the same spot. -->
+     screen (N3); wg_splash_mark draws the same tile for the splash (N6). -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:width="96dp" android:height="96dp">
         <shape>

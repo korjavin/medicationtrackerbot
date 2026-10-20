@@ -149,8 +149,9 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
   the window, the Android 12+ splash, `colorBackground`, the WebView
   background, the system-bar bands and every native screen are `wg_screen`
   in light and dark mode alike, so a cold start never shows a white or grey
-  frame. The splash icon is the 96dp mark tile (`wg_splash_mark` →
-  `wg_mark_lg`), where the lock screen puts it; MainActivity holds the first
+  frame. The splash icon is the mark tile (`wg_splash_mark`, sized so the
+  system's icon scaling lands it at the lock screen's 96dp `wg_mark_lg`, in
+  the same spot); MainActivity holds the first
   frame (an `OnPreDrawListener`) until the page posts its first `chrome`
   sample or commits a visible frame, or a native screen shows (capped at
   5 s), then the mark fades out over 180 ms (N6, bd med-ckm5.16). A new icon means

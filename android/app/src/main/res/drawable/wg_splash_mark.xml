@@ -1,9 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The splash icon (N6): a no-background splash icon is drawn at 288dp, so the 96dp mark tile
-     centred in it lands at the size and spot of the lock screen's mark (N3). -->
+<!-- The splash icon (N6): the mark tile of wg_mark_lg, centred in the 288dp splash icon box. The
+     system draws that box about 1.76x larger (android-qa native-lock: a 96dp tile here showed at
+     ~169dp, clipped by the icon circle), so the tile is 54dp here to land at the lock screen's 96dp,
+     in the same spot (N3). ponytail: measured scale; re-check the splash shot on a new API level. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:width="288dp" android:height="288dp">
         <shape><solid android:color="#00000000" /></shape>
     </item>
-    <item android:width="96dp" android:height="96dp" android:gravity="center" android:drawable="@drawable/wg_mark_lg" />
+    <item android:width="54dp" android:height="54dp" android:gravity="center">
+        <shape>
+            <corners android:radius="14.6dp" />
+            <solid android:color="@color/wg_ink" />
+            <stroke android:width="0.6dp" android:color="#1AFFFFFF" />
+        </shape>
+    </item>
+    <item android:width="54dp" android:height="54dp" android:gravity="center">
+        <shape>
+            <corners android:radius="14.6dp" />
+            <gradient android:angle="270" android:startColor="#29FFFFFF" android:centerColor="#00FFFFFF"
+                android:centerY="0.52" android:endColor="#00FFFFFF" />
+        </shape>
+    </item>
+    <item android:width="26dp" android:height="26dp" android:gravity="center" android:drawable="@drawable/wg_mark_pill" />
 </layer-list>
