@@ -983,7 +983,7 @@ class MainActivity : Activity() {
                 gravity = Gravity.CENTER
             },
             unlockButton,
-            centered = true,
+            mark = true,
         ).apply { visibility = View.GONE }
     }
 
@@ -1077,12 +1077,12 @@ class MainActivity : Activity() {
         }
     }
 
-    /** The load-error and lock screens: a centred column on the token mirror (N3/N4 finish them, med-ckm5.16). */
-    private fun screen(title: String, vararg views: View, centered: Boolean = false): View {
+    /** The load-error and lock screens: a centred column on the token mirror (N3/N4 finish them, med-ckm5.16); [mark] adds the brand icon. */
+    private fun screen(title: String, vararg views: View, mark: Boolean = false): View {
         val column = wgStack(16).apply {
             setPadding(24.dp, 24.dp, 24.dp, 24.dp)
             gravity = Gravity.CENTER
-            if (centered) addView(ImageView(this@MainActivity).apply { setImageResource(R.mipmap.ic_launcher) }, 96.dp, 96.dp)
+            if (mark) addView(ImageView(this@MainActivity).apply { setImageResource(R.mipmap.ic_launcher) }, 96.dp, 96.dp)
             addView(wgText(R.style.Widget_Wg_Text_Title_Md, title).apply { gravity = Gravity.CENTER }, MATCH_PARENT, WRAP_CONTENT)
             for (v in views) addView(v, MATCH_PARENT, WRAP_CONTENT)
         }

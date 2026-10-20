@@ -36,6 +36,7 @@ export default async function nativeScreens(ctx) {
     await ctx.openLink('https://nobody.qa.test/');
     await ctx.waitFor({ text: 'There is no account at nobody.qa.test.' }, 15_000);
     await ctx.waitFor({ text: 'Check the address, or ask whoever invited you for a new link.' }, 5_000);
+    await ctx.waitFor({ clazz: 'android.widget.EditText', text: 'nobody.qa.test' }, 5_000);
   });
   await ctx.shot('n1-no-account');
 

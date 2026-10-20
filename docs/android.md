@@ -731,7 +731,7 @@ and before any *Clear storage*, and paste it into the bead.
    Android version/build, WebView package + version, app versionCode, and
    `webauthn for-app (read back <n>)` (`WEB_AUTHENTICATION_SUPPORT_FOR_APP`). `UNSUPPORTED` here is already a NO-GO
    candidate — update Android System WebView from Play and retry.
-2. **Claim B in the app (1, 2).** Paste B's invite link → *Open* → finish the
+2. **Claim B in the app (1, 2).** Paste B's invite link → *Continue* → finish the
    claim. Expect `tap` lines `webauthn.create … ok:true` and
    `webauthn.get … ok:true, prfFirst:true`, and the app unlocked. Note the
    passkey sheet's provider (Google Password Manager or another) for check 7,
@@ -764,7 +764,7 @@ and before any *Clear storage*, and paste it into the bead.
 9. **Cold unlock of A (2).** *Copy report* first. Android Settings → Apps →
    Med Tracker → Storage → *Clear storage* (wipes WebView data and the
    report). Open the app, paste A's account URL `https://<A>.<base>/` →
-   *Open* → unlock with the passkey made in Chrome. Expect
+   *Continue* → unlock with the passkey made in Chrome. Expect
    `tap webauthn.get … ok:true, prfFirst:true` and the vault's data.
 
 **Step 2b: read the retry lines (med-nt9p.18).** If the claim's immediate PRF
@@ -1240,8 +1240,9 @@ local origin's plaintext IndexedDB (no new exposure), never backed up
 (`no_backup/`), never sent anywhere, never logged. It is deleted after the
 import (`move.clear`), by `local.reset`, and whenever local mode is entered
 again — *Only on this device* → *Start* abandons the move (the next one
-stashes afresh). While a stash exists the local intro says *Start cancels the
-move to a cloud account…*; unlike iOS, which hides its one-tap *Continue on
+stashes afresh). While a stash exists the local intro shows the warn note *A
+move to a cloud account is waiting.* and *Start and cancel the move* (N2 ·
+move); unlike iOS, which hides its one-tap *Continue on
 this iPhone*, Android keeps *Only on this device* reachable: it is the only
 way back to local mode, and *Back* on the intro keeps the stash. Op contract:
 [Local mode: the shell](#local-mode-the-shell-bd-med-nt9p324) above.

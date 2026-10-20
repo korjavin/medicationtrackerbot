@@ -175,6 +175,8 @@
         <item name="android:thumb">@drawable/wg_switch_thumb</item>
         <item name="android:track">@drawable/wg_switch_track</item>
         <item name="android:switchMinWidth">50dp</item>
+        <!-- No parent: Switch defaults showText to true and would lay out a null textOn. -->
+        <item name="android:showText">false</item>
         <item name="android:background">@null</item>
         <item name="android:focusable">true</item>
         <item name="android:clickable">true</item>
