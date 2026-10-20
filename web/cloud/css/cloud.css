@@ -223,8 +223,10 @@ a.wg-btn {
 
 /* The invite landing (bd med-ta2n.10, design L1-L3): one kit .wg-app screen,
    viewport-tall so the .wg-shell column scrolls and the footer docks at the
-   bottom; capped on desktop so the column does not stretch across it. */
-.invite-page {
+   bottom; capped on desktop so the column does not stretch across it.
+   Two classes: components.css loads after this file and its .wg-app sets
+   height: 100%, which would otherwise win. */
+.wg-app.invite-page {
   height: 100vh;
   height: 100dvh;
   max-width: 32rem;
