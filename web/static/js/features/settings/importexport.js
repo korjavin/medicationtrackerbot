@@ -104,21 +104,144 @@
         return new Promise((resolve) => setTimeout(resolve, 50));
     }
 
+    // Kit sheets over the Backup page (S7, bd med-ckm5.7): the passphrase is
+    // typed in a sheet docked on the keyboard, never in a field on the page,
+    // so iOS has no page to pan and Settings home can't show behind it (shot
+    // 09). One sheet at a time. openSheet(id) resolves what closeSheet(value)
+    // passes; the X, the backdrop, Back and Esc resolve null.
+    let closeSheet = null;
+
+    function openSheet(id) {
+        if (closeSheet) closeSheet(null);
+        const backdrop = el('importexport-sheet-backdrop');
+        return new Promise((resolve) => {
+            closeSheet = (value) => {
+                closeSheet = null;
+                window.ModalManager.register(id, null);
+                window.ModalManager.close(id);
+                if (backdrop) backdrop.hidden = true;
+                resolve(value);
+            };
+            if (backdrop) backdrop.hidden = false;
+            window.ModalManager.register(id, () => { if (closeSheet) closeSheet(null); });
+            window.ModalManager.open(id, { overlay: false });
+        });
+    }
+
+    // Export backup → the passphrase sheet. Its foot names what happens: an
+    // empty passphrase writes an unencrypted file (doExport's confirm still
+    // guards API keys in clear).
+    async function openExportSheet() {
+        if (exportInFlight) return;
+        const pass = el('importexport-export-passphrase');
+        paintExportConfirm();
+        const go = openSheet('importexport-export-sheet');
+        try { pass?.focus(); } catch (_) { /* ignore */ }
+        if (await go) await doExport();
+        else if (pass) pass.value = ''; // closed: nothing typed lingers
+    }
+
+    // Live as the user types: the foot label, and the nudge only when API keys
+    // would go out unencrypted.
+    function paintExportConfirm() {
+        const btn = el('importexport-export-confirm');
+        const pass = el('importexport-export-passphrase');
+        const secrets = el('importexport-include-secrets');
+        const nudge = el('importexport-passphrase-nudge');
+        const has = !!(pass && pass.value);
+        if (btn) btn.textContent = has ? 'Encrypt and export' : 'Export without encryption';
+        if (nudge) nudge.hidden = has || !(secrets && secrets.checked);
+    }
+
+    // "last N days ago" in the Back up head: when a backup last left this
+    // device through Save or Share. Per-device browser storage, no record
+    // content; missing or blocked storage just hides the line.
+    const LAST_BACKUP_KEY = 'wg.backup.last';
+
+    function paintLastBackup() {
+        const meta = el('importexport-last-backup');
+        if (!meta) return;
+        let at = 0;
+        try { at = Number(window.localStorage.getItem(LAST_BACKUP_KEY)) || 0; } catch (_) { /* hidden */ }
+        meta.hidden = !at;
+        if (!at) return;
+        const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(at).setHours(0, 0, 0, 0)) / 86400000);
+        meta.textContent = days <= 0 ? 'last today' : days === 1 ? 'last yesterday' : `last ${days} days ago`;
+    }
+
+    function stampLastBackup() {
+        try { window.localStorage.setItem(LAST_BACKUP_KEY, String(Date.now())); } catch (_) { /* not remembered */ }
+        paintLastBackup();
+    }
+
+    // The ready file: name split into stem + extension (.wg-fname) so a narrow
+    // screen truncates the stem and ".json.gz.age" never breaks (shot 44).
+    let readyFile = null;
+
+    function splitFileName(name) {
+        const i = name.indexOf('.json');
+        return i > 0 ? [name.slice(0, i), name.slice(i)] : [name, ''];
+    }
+
+    function canShareFile(file) {
+        try {
+            return typeof navigator.share === 'function' && typeof navigator.canShare === 'function'
+                && navigator.canShare({ files: [file] });
+        } catch (_) { return false; }
+    }
+
+    // Backup ready (kit S7): Save to device (sun) is the existing download path
+    // (the native shells hand it to their Save / Share flow); Share is the Web
+    // Share sheet, shown only where it can take a file.
+    function showReady(blob, name, encrypted) {
+        readyFile = { blob, name };
+        const [stem, ext] = splitFileName(name);
+        el('importexport-ready-stem').textContent = stem;
+        el('importexport-ready-ext').textContent = ext;
+        el('importexport-ready-meta').textContent = `${formatFileSize(blob.size)} · ${encrypted ? 'encrypted with your passphrase' : 'not encrypted'}`;
+        let file = null;
+        try { file = new File([blob], name, { type: blob.type }); } catch (_) { /* no File: no Share */ }
+        el('importexport-ready-share').hidden = !(file && canShareFile(file));
+        readyFile.file = file;
+        const ready = readyFile;
+        // The blob can be hundreds of MB: let it go with the sheet.
+        openSheet('importexport-ready-sheet').then(() => { if (readyFile === ready) readyFile = null; });
+    }
+
+    function saveReady() {
+        if (!readyFile) return;
+        downloadBlobAsFile(readyFile.blob, readyFile.name);
+        stampLastBackup();
+        if (closeSheet) closeSheet(true);
+    }
+
+    async function shareReady() {
+        if (!readyFile || !readyFile.file) return;
+        try {
+            await navigator.share({ files: [readyFile.file], title: readyFile.name });
+            stampLastBackup();
+            if (closeSheet) closeSheet(true);
+        } catch (e) {
+            // Dismissing the OS sheet is not an error.
+            if (e && e.name === 'AbortError') return;
+            safeToast("Couldn't share the file. Save it to the device instead.", 'error');
+        }
+    }
+
     async function doExport() {
         if (exportInFlight) return;
         const passInput = el('importexport-export-passphrase');
         const passphrase = passInput ? passInput.value : '';
+        // Never kept on the page once read.
+        if (passInput) passInput.value = '';
         const secretsBox = el('importexport-include-secrets');
         const includeSecrets = secretsBox ? secretsBox.checked : true;
-        const nudge = el('importexport-passphrase-nudge');
-        // Shown only when exporting secrets unencrypted.
-        if (nudge) nudge.hidden = !!passphrase || !includeSecrets;
         // include_secrets defaults to on, so without this gate the user's first
         // sight of the nudge is *after* their provider API keys and live API
         // tokens have already landed in ~/Downloads in plain text.
         if (includeSecrets && !passphrase) {
             const ok = await safeConfirm(
-                'This backup will contain your provider API keys and access tokens in plain text. Download anyway?'
+                'This backup will contain your provider API keys and access tokens in plain text. Export anyway?'
             );
             if (!ok) return;
         }
@@ -136,15 +259,17 @@
             // gzip first: age ciphertext doesn't compress, and the plain file is
             // hundreds of MB. See core/backup-crypto.js.
             const gz = await window.BackupCrypto.gzipString(json);
+            let blob;
             if (passphrase) {
                 setExportStatus('Encrypting your backup… this can take a minute on a phone.');
                 await yieldToPaint();
                 const bytes = await window.BackupCrypto.encryptBackup(gz, passphrase);
-                downloadBlobAsFile(new Blob([bytes], { type: 'application/octet-stream' }), name);
+                blob = new Blob([bytes], { type: 'application/octet-stream' });
             } else {
-                downloadBlobAsFile(new Blob([gz], { type: 'application/gzip' }), name);
+                blob = new Blob([gz], { type: 'application/gzip' });
             }
             setExportStatus(`Backup ready: ${name}. Save it somewhere safe.`);
+            showReady(blob, name, !!passphrase);
         } catch (e) {
             console.error('Export failed:', e);
             setExportStatus(`Export failed: ${(e && e.message) || 'unknown error'}. Nothing was saved — try again.`, true);
@@ -169,22 +294,34 @@
     // compression plain .json backup is measured uncompressed.
     const MAX_BACKUP_BYTES = 64 * 1024 * 1024;
 
-    // Reveal the decrypt-passphrase field iff the picked file is an age file.
-    // Only the 21-byte magic is read — the file itself can be hundreds of MB.
+    // Say "encrypted" on the picker iff the picked file is an age file (Restore
+    // then asks its passphrase in a sheet). Only the 21-byte magic is read —
+    // the file itself can be hundreds of MB.
     async function onFileChange() {
-        const field = el('importexport-import-passphrase-field');
         const file = el('importexport-import-file')?.files?.[0];
-        if (!field) return;
-        if (!file) { field.hidden = true; return; }
+        if (!file) return;
         // Resolve before the await: the view may be torn down by the time it lands.
         const meta = document.querySelector('[data-file-input="importexport-import-file"] .wg-file__meta');
-        try {
-            const head = await readFileBytes(file.slice(0, 21));
-            field.hidden = !window.BackupCrypto.isAgeFile(head);
-        } catch (_) {
-            field.hidden = true;
-        }
-        if (meta && !field.hidden) meta.textContent = `${formatFileSize(file.size)} · encrypted`;
+        let age = false;
+        try { age = window.BackupCrypto.isAgeFile(await readFileBytes(file.slice(0, 21))); } catch (_) { /* not age */ }
+        if (meta && age) meta.textContent = `${formatFileSize(file.size)} · encrypted`;
+    }
+
+    // The import passphrase sheet: resolves the typed passphrase, or null when
+    // it is closed. An empty Decrypt keeps it open.
+    async function askImportPassphrase() {
+        const pass = el('importexport-import-passphrase');
+        if (pass) pass.value = '';
+        const go = openSheet('importexport-import-sheet');
+        try { pass?.focus(); } catch (_) { /* ignore */ }
+        const ok = await go;
+        const value = ok && pass ? pass.value : '';
+        if (pass) pass.value = '';
+        return value || null;
+    }
+
+    function submitImportPassphrase() {
+        if (el('importexport-import-passphrase')?.value && closeSheet) closeSheet(true);
     }
 
     function formatFileSize(bytes) {
@@ -253,8 +390,8 @@
         let json;
         try {
             if (window.BackupCrypto.isAgeFile(bytes)) {
-                const passphrase = el('importexport-import-passphrase')?.value || '';
-                if (!passphrase) { importInFlight = false; safeAlert('This backup is encrypted — enter its passphrase'); return; }
+                const passphrase = await askImportPassphrase();
+                if (!passphrase) { importInFlight = false; return; }
                 bytes = await window.BackupCrypto.decryptBackup(bytes, passphrase);
             }
             json = window.BackupCrypto.isGzipFile(bytes)
@@ -523,6 +660,22 @@
         note.hidden = false;
     }
 
+    // The sheets' own controls; bound once, with the Export button.
+    function bindSheets() {
+        const on = (id, type, fn) => el(id)?.addEventListener(type, fn);
+        const dismiss = () => { if (closeSheet) closeSheet(null); };
+        el('importexport-sheet-backdrop')?.addEventListener('click', dismiss);
+        document.querySelectorAll('.wg-importexport-sheet [data-sheet-close]').forEach((b) => b.addEventListener('click', dismiss));
+        on('importexport-export-passphrase', 'input', paintExportConfirm);
+        on('importexport-include-secrets', 'change', paintExportConfirm);
+        on('importexport-export-confirm', 'click', () => { if (closeSheet) closeSheet(true); });
+        on('importexport-export-passphrase', 'keydown', (e) => { if (e.key === 'Enter' && closeSheet) closeSheet(true); });
+        on('importexport-ready-save', 'click', saveReady);
+        on('importexport-ready-share', 'click', () => { shareReady(); });
+        on('importexport-import-decrypt', 'click', submitImportPassphrase);
+        on('importexport-import-passphrase', 'keydown', (e) => { if (e.key === 'Enter') submitImportPassphrase(); });
+    }
+
     function bindControls() {
         document.querySelectorAll('#settings-importexport [data-file-input]').forEach(bindFilePicker);
 
@@ -542,8 +695,10 @@
         const exportBtn = el('importexport-export-btn');
         if (exportBtn && !exportBtn.dataset.bound) {
             exportBtn.dataset.bound = '1';
-            exportBtn.addEventListener('click', () => { doExport(); });
+            exportBtn.addEventListener('click', () => { openExportSheet(); });
+            bindSheets();
         }
+        paintLastBackup();
         const importBtn = el('importexport-import-btn');
         if (importBtn && !importBtn.dataset.bound) {
             importBtn.dataset.bound = '1';

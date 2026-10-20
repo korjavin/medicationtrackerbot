@@ -14,10 +14,10 @@ final class FlowQAStashTests: XCTestCase {
         app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Your records are ready to move.'")).firstMatch
     }
 
-    /// Settings → Move to a cloud account → stash + first run with the hint →
-    /// Only on this device → Back keeps it → Start abandons it (file gone) →
-    /// Backup & import → I have an invite: first run without the hint →
-    /// relaunch is first run, and the records are still there.
+    /// Settings → Move to a cloud account → Backup & import's Move button →
+    /// stash + first run with the hint → Only on this device → Back keeps it →
+    /// Start abandons it (file gone) → relaunch stays local, and the records
+    /// are still there.
     func testMoveLocalSide() throws {
         continueAfterFailure = false
         // A failed step must not leave a stash for the next flow's boot to pick up.
@@ -38,6 +38,11 @@ final class FlowQAStashTests: XCTestCase {
         shot(flow, "settings-move-row")
         XCTAssertTrue(shown, "Settings shows no Move to a cloud account row (shell.ops lacks move.stash?)")
         moveRow.tap()
+        // The row opens Backup & import's Move section; its button is the one Move control (bd med-ckm5.7).
+        let moveBtn = app.webViews.buttons["Move to a cloud account"]
+        XCTAssertTrue(moveBtn.waitForExistence(timeout: 15), "the Move row opened no Move section")
+        shot(flow, "move-section")
+        moveBtn.tap()
         XCTAssertTrue(webText(app, "Move to a cloud account?").waitForExistence(timeout: 10), "no move confirm")
         shot(flow, "move-confirm")
         app.webViews.buttons["Move"].tap()
@@ -69,27 +74,13 @@ final class FlowQAStashTests: XCTestCase {
         XCTAssertTrue(QA.readyNode(app).waitForExistence(timeout: 90), "local mode never came back after Start")
         XCTAssertNil(Self.stashData("move"), "Start kept the abandoned move stash")
 
-        // Backup & import's card leaves without a stash: no stale hint.
-        let backup = webButton(app, prefix: "Backup & import")
-        XCTAssertTrue(backup.waitForExistence(timeout: 15), "Settings shows no Backup & import")
-        backup.tap()
-        let invite = app.webViews.buttons["I have an invite"]
-        XCTAssertTrue(invite.waitForExistence(timeout: 15), "Backup & import shows no I have an invite")
-        invite.tap()
-        XCTAssertTrue(webText(app, "Open an invite?").waitForExistence(timeout: 10), "no open-invite confirm")
-        app.webViews.buttons["Continue"].tap()
-        XCTAssertTrue(app.buttons["Only on this device"].waitForExistence(timeout: 30), "local.leave did not reach the first run")
-        Thread.sleep(forTimeInterval: 1.5)
-        XCTAssertFalse(moveHint(app).exists, "the hint outlived the stash")
-        XCTAssertNil(Self.stashData("move"), "the invite card wrote a move stash")
-        shot(flow, "first-run-no-hint")
-
-        // No mode argument: local mode was left, and nothing was erased.
+        // No mode argument: Start persisted local mode, and nothing was erased.
+        // (Backup & import's "I have an invite" leave is gone, bd med-ckm5.7.)
         app.terminate()
         app.launchArguments = ["-wgAccountHost", "", "-wgLocalLockOn", "NO"]
         app.launch()
-        startLocal(app)
         XCTAssertTrue(QA.tabBarShows(app, timeout: 60), "local mode shows no tab bar after the relaunch")
+        XCTAssertFalse(moveHint(app).exists, "the hint outlived the stash")
         webButton(app, prefix: "Meds").tap() // "Meds 1" with a dose due
         XCTAssertTrue(webText(app, contains: Self.firstMed(fixture)).waitForExistence(timeout: 20), "the records are gone after the move round-trip")
         shot(flow, "records-kept")

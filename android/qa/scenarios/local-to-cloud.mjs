@@ -1,8 +1,9 @@
 // Local → cloud upgrade path (bd med-nt9p.32.10, docs/android.md → Moving to a cloud account): the
 // file-based Move of bd med-o7zq.6 end to end on the shell. Local mode seeded with the golden vault
-// → Settings → Backup & import → Download backup (the file Files.kt wrote is read back from the
-// device and checked against tests/fixtures/vault-v1.json's shape) → Save to device → Move to a
-// cloud account → I have an invite → native first run → the runner's invite, claimed with the soft
+// → Settings → Backup & import → Export backup → the passphrase sheet (left empty) → Backup ready
+// → Save to device (the file Files.kt wrote is read back from the device and checked against
+// tests/fixtures/vault-v1.json's shape) → Save to device → the shell's Switch account (the page's
+// "I have an invite" is gone, bd med-ckm5.7) → native first run → the runner's invite, claimed with the soft
 // authenticator → the new account's Restore of that file → the account lists the seeded records and
 // they reached the server → Switch account → Only on this device → Start → the local records are
 // all still there (nothing is erased by a move). results.localToCloud has the counts per vault list.
@@ -64,14 +65,20 @@ export default async function localToCloud(ctx) {
   r.local = await vaultCounts(page);
   await ctx.stableShot('local-today');
 
-  // 1. Export, as the user does: no passphrase, API keys included (the plain-text confirm).
-  await ctx.step('Backup & import → Download backup → Save/Share', async () => {
+  // 1. Export, as the user does: no passphrase, API keys included (the plain-text confirm), then
+  //    Backup ready → Save to device hands the file to the shell's Save/Share.
+  await ctx.step('Backup & import → Export backup → Backup ready → Save/Share', async () => {
     await openBackup(page);
-    await page.locator('#importexport-local-move-group').waitFor({ state: 'visible', timeout: 10_000 });
     await ctx.stableShot('backup-page');
     await page.click('#importexport-export-btn');
+    await page.locator('#importexport-export-confirm').waitFor({ state: 'visible', timeout: 10_000 });
+    await ctx.shot('export-sheet');
+    await page.click('#importexport-export-confirm');
     await confirmDialog(page);
-    await ctx.waitFor({ text: 'Save to device' }, 120_000);
+    await page.locator('#importexport-ready-save').waitFor({ state: 'visible', timeout: 120_000 });
+    await ctx.shot('backup-ready');
+    await page.click('#importexport-ready-save');
+    await ctx.waitFor({ text: 'Save to device' }, 60_000);
   });
   await ctx.shot('export-save-share');
 
@@ -112,15 +119,11 @@ export default async function localToCloud(ctx) {
   await sleep(1000);
   await ctx.stableShot('export-done');
 
-  // 2. Move to a cloud account → I have an invite → the shell's first run (local.leave).
-  await ctx.step('Move to a cloud account → I have an invite → first run', async () => {
-    await page.locator('#importexport-local-move-btn').scrollIntoViewIfNeeded();
-    await ctx.stableShot('move-section');
-    await page.click('#importexport-local-move-btn');
-    await page.locator('.mt-confirm-modal__confirm').waitFor({ state: 'visible', timeout: 10_000 });
-    await ctx.shot('move-confirm');
-    await page.click('.mt-confirm-modal__confirm');
-    await ctx.waitFor({ text: 'Continue' }, 20_000);
+  // 2. The shell's first run, as a user with the file gets there (the seamless Move is
+  //    local-to-cloud-seamless.mjs).
+  await ctx.step('Switch account → first run', async () => {
+    await shell(`am start -W -a com.example.medtracker.SWITCH_ACCOUNT -n ${pkg}/com.example.medtracker.MainActivity`);
+    await ctx.waitFor({ text: 'Only on this device' }, 20_000);
   });
   await ctx.shot('first-run');
 

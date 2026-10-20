@@ -35,14 +35,19 @@ export default async function localToCloudSeamless(ctx) {
   r.local = await vaultCounts(page);
   await ctx.stableShot('local-today');
 
-  // 1. Settings home → Move to a cloud account (shown only when the shell lists move.stash).
-  await ctx.step('Settings → Move to a cloud account → Continue → first run with the hint', async () => {
+  // 1. Settings home → Move to a cloud account (shown only when the shell lists move.stash) opens
+  //    Backup & import's Move section; its button starts the move (bd med-ckm5.7).
+  await ctx.step('Settings → Move to a cloud account → Move section → Continue → first run with the hint', async () => {
     await page.locator('[data-nav-to="settings"]:visible').first().click();
-    const row = page.locator('#settings-local-move-btn');
+    const row = page.locator('#settings-local-move-row');
     await row.waitFor({ state: 'visible', timeout: 15_000 });
     await row.scrollIntoViewIfNeeded();
     await ctx.stableShot('settings-move-row');
     await row.click();
+    const btn = page.locator('#settings-local-move-btn');
+    await btn.waitFor({ state: 'visible', timeout: 10_000 });
+    await ctx.stableShot('move-section');
+    await btn.click();
     await page.locator('.mt-confirm-modal__confirm').waitFor({ state: 'visible', timeout: 10_000 });
     await ctx.shot('move-confirm');
     await page.click('.mt-confirm-modal__confirm');

@@ -1200,8 +1200,8 @@ account has its passkey, and cloud mode never shows or checks it.
    *ready to move* hint → claim a test invite → the account shows the records
    with no Restore, and the toast once → *Switch account* → no hint → *Only
    on this device* → *Start*: the local records are intact. Once more with
-   the file fallback: Backup & import → Download backup → *Move to a cloud
-   account* → *I have an invite* → claim → Restore the file
+   the file fallback: Backup & import → Export backup → *Save to device* →
+   *Switch account* → claim → Restore the file
    ([Moving to a cloud account](#moving-to-a-cloud-account-bd-med-nt9p3210)).
 10. Lock (a phone with a screen lock): intro switch on → *Start* asks for the
     fingerprint/PIN; Home and back → one prompt, cancel → lock screen, no
@@ -1217,9 +1217,10 @@ med-o7zq.35; the web side is
 [cloud-mode.md → C2e implementation notes](cloud-mode.md#c2e-implementation-notes)). Vault
 format v1, no server change.
 
-1. Local mode: Settings home → **Move to a cloud account** → *Continue*. The
-   row shows only when `shell.ops` lists `move.stash` (the web and older
-   shells keep only the file steps below). The page exports the vault
+1. Local mode: Settings home → **Move to a cloud account** (opens Backup &
+   import's Move section, kit S7) → its **Move to a cloud account** button →
+   *Continue*. Row and section show only when `shell.ops` lists `move.stash`
+   (the web and older shells keep only the file steps below). The page exports the vault
    (`exportAll`, API keys included) and sends `move.stash {vault}` then
    `local.leave`; the shell writes the stash and shows first run with the
    *Your records are ready to move.* note, the invite first. A rejected stash
@@ -1253,11 +1254,12 @@ way back to local mode, and *Back* on the intro keeps the stash. Op contract:
 [ios.md → Backup, restore, move to cloud](ios.md#local-mode-the-bundled-app-on-wgapplocal-bd-med-o7zq4)),
 for shells without `move.stash` and when the stash is refused:
 
-1. Settings → Backup & import → **Download backup** (a passphrase is
-   optional; without one the API keys are in plain text and the page asks
-   first) → the shell's *Save to device* (Downloads) or *Share*.
-2. **Move to a cloud account → I have an invite → Continue**: `local.leave`,
-   first run.
+1. Settings → Backup & import → **Export backup** → the passphrase sheet (a
+   passphrase is optional; without one the API keys are in plain text and the
+   page asks first) → *Backup ready* → **Save to device** → the shell's *Save
+   to device* (Downloads) or *Share*.
+2. The shell's **Switch account**: first run. (The page's *I have an invite*,
+   which sent `local.leave`, is gone since bd med-ckm5.7: one Move control.)
 3. Claim the invite; in the new account Settings → Backup & import → Restore
    → choose the file (an empty account skips the confirm).
 
@@ -1286,9 +1288,10 @@ this device* → *Start* → the local counts are unchanged.
 showed (`pickupConfirm`).
 
 **Emulator proof, file fallback** — QA scenario `local-to-cloud` (same
-invite rule): Backup & import → Download backup → the gzipped file under
-`cache/downloads/` checked against the fixture → *Save to device* through
-DocumentsUI → *I have an invite* → claim → Restore via the system picker
+invite rule): Backup & import → Export backup → *Backup ready* → Save to
+device → the gzipped file under `cache/downloads/` checked against the
+fixture → *Save to device* through DocumentsUI → *Switch account* → claim →
+Restore via the system picker
 (or injected bytes; `results.localToCloud.restorePicker`) → account ⊇ local →
 back to local, unchanged.
 
