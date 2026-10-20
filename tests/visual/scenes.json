@@ -55,6 +55,8 @@
       "ready": ["#settings-view.active"] },
     { "name": "settings-backup", "steps": [{ "tab": "today" }, { "tab": "settings" }, { "settingsPage": "backup" }],
       "ready": [".wg-pagebar", "#settings-importexport"] },
+    { "name": "settings-notifications", "steps": [{ "tab": "today" }, { "tab": "settings" }, { "settingsPage": "notifications" }],
+      "ready": [".wg-pagebar--long", "#settings-reminders-meds"] },
     { "name": "weight", "steps": [{ "tab": "weight" }],
       "ready": ["#weight-view.active", "#weightChart > *", "#weight-list > *"] },
     { "name": "meds-history-take",
