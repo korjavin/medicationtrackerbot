@@ -560,7 +560,11 @@ describe('Settings → Integrations section', () => {
 
     // med-6xb9: a skipped onboarding must still find the free trial — the
     // cloud entry leads the page, and Today's card asks the same question.
-    it('cloud: "Try the free AI trial" leads the page while the trial is on offer, and starts the ai consent', async () => {
+    // med-ckm5.10 (kit A1): the trial is one WGOfferCard — on offer, then ON
+    // with "Turn off the trial", with the own-key rows below it.
+    const trialCard = (document) => document.querySelector('#integrations-trial-card [data-offer-card]');
+
+    it('cloud: the "Try AI for free" card leads the page while the trial is on offer, starts the ai consent, then shows ON and turns off', async () => {
         const { window, document } = env;
         window.__MEDTRACKER_CLOUD__ = true;
         installTrialMetas(document, ['medtracker-trial-ai']);
@@ -569,12 +573,17 @@ describe('Settings → Integrations section', () => {
         await window.SettingsIntegrations.load();
         await new Promise(r => setTimeout(r, 0));
 
-        const offer = document.getElementById('integrations-cloud-trial');
+        const offer = document.getElementById('integrations-trial');
         expect(offer.classList.contains('hidden')).toBe(false);
-        expect(document.querySelector('#settings-integrations > .wg-section')).toBe(offer);
+        expect(document.querySelector('#settings-integrations > :not(p)')).toBe(offer);
+        expect(trialCard(document).matches('.wg-card.wg-card--accent')).toBe(true);
+        expect(trialCard(document).getAttribute('data-trial-state')).toBe('offer');
+        expect(trialCard(document).querySelector('.wg-card__title').textContent).toBe('Try AI for free');
+        expect([...document.querySelectorAll('#integrations-trial [data-own-key-state]')].map((n) => n.textContent))
+            .toEqual(['Not set', 'Not set', 'Not set']);
         expect(await window.SettingsIntegrations.trialOffer()).toBe(true);
 
-        document.getElementById('integrations-cloud-trial-start').click();
+        trialCard(document).querySelector('[data-action="trial-start"]').click();
         await new Promise(r => setTimeout(r, 0));
         const dialog = document.querySelector('.wg-trial-consent-modal');
         expect(dialog.getAttribute('data-trial-consent-scope')).toBe('ai');
@@ -583,14 +592,37 @@ describe('Settings → Integrations section', () => {
         await new Promise(r => setTimeout(r, 0));
 
         expect(window.apiCall).toHaveBeenCalledWith('/api/settings/trial-consent', 'PATCH', { ai: true });
-        expect(offer.classList.contains('hidden')).toBe(true);
+        expect(offer.classList.contains('hidden')).toBe(false);
+        expect(trialCard(document).getAttribute('data-trial-state')).toBe('on');
+        expect(trialCard(document).querySelector('.wg-chip--ok').textContent).toBe('On');
         expect(await window.SettingsIntegrations.trialOffer()).toBe(false);
+
+        trialCard(document).querySelector('[data-action="trial-stop"]').click();
+        await new Promise(r => setTimeout(r, 0));
+        await new Promise(r => setTimeout(r, 0));
+        expect(window.apiCall).toHaveBeenCalledWith('/api/settings/trial-consent', 'PATCH', { ai: false });
+        expect(trialCard(document).getAttribute('data-trial-state')).toBe('offer');
+    });
+
+    it('cloud: own-key rows show Set and jump to the key field', async () => {
+        const { window, document } = env;
+        window.__MEDTRACKER_CLOUD__ = true;
+        installTrialMetas(document, ['medtracker-trial-ai']);
+        window.apiCall = vi.fn(async (url) => (url === '/api/settings/integrations'
+            ? { openai: {}, food: { api_key: '***' }, elevenlabs: {} }
+            : { ai: true, updated_at: 1 }));
+        await window.SettingsIntegrations.load();
+        await new Promise(r => setTimeout(r, 0));
+        const food = document.querySelector('#integrations-trial [data-own-key="food"]');
+        expect(food.querySelector('[data-own-key-state]').textContent).toBe('Set');
+        food.click();
+        expect(document.activeElement).toBe(document.getElementById('integrations-food-api-key'));
     });
 
     it('cloud: no trial entry or offer once an own key is saved, without the trial flag, or before consent loads', async () => {
         const { window, document } = env;
         window.__MEDTRACKER_CLOUD__ = true;
-        const offer = document.getElementById('integrations-cloud-trial');
+        const offer = document.getElementById('integrations-trial');
 
         // No trial flag (server without TRIAL_OPENAI_API_KEY): nothing to offer.
         window.apiCall = trialConsentApiStub(window, { ai: null, updated_at: 1 });
@@ -622,7 +654,8 @@ describe('Settings → Integrations section', () => {
         await new Promise(r => setTimeout(r, 0));
         document.querySelector('.mt-confirm-backdrop').click();
         expect(await started).toBe(false);
-        expect(document.getElementById('integrations-cloud-trial').classList.contains('hidden')).toBe(false);
+        expect(document.getElementById('integrations-trial').classList.contains('hidden')).toBe(false);
+        expect(trialCard(document).getAttribute('data-trial-state')).toBe('offer');
     });
 
     it('Revoke PATCHes the single scope through DataStore.applyOptimistic with no dialog', async () => {

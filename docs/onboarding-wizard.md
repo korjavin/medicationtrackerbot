@@ -212,11 +212,11 @@ documents, two different primitives, no sharing needed. That is the correct boun
 - **After a skip — trial stays discoverable** (`med-6xb9`, **implemented**): `SettingsIntegrations.trialOffer()`
   is true while no own OpenAI key is saved, a trial exists (local: `CloudVault.trial.status()` non-null; cloud:
   the trial meta) and it is not on (local switch off; cloud `ai` consent not `true`). Then Today shows a
-  *Try AI for free* card (`today.js renderAITrialCard`; hidden with Food off) whose *Try it* is
-  `SettingsIntegrations.startTrial()` — the local switch or `TrialConsent.request('ai')` — and *Not now*
-  retires it per device (`localStorage['wg.today.aiTrialDismissed']`, like the trackers empty state). In cloud,
-  Settings → AI & integrations leads with a *Try the free AI trial* entry (`#integrations-cloud-trial`) under the
-  same condition; local mode's trial switch already leads that page.
+  *Try AI for free* card (`today.js renderAITrialCard`, a `WGOfferCard`; hidden with Food off) whose *Try it* is
+  `SettingsIntegrations.startTrial()` — the local `anon` consent or `TrialConsent.request('ai')` — and its ×
+  retires it per device (`localStorage['wg.today.aiTrialDismissed']`, like the trackers empty state). In both
+  modes Settings → AI & integrations leads with the same card (`#integrations-trial`, med-ckm5.10): the offer
+  under the same condition, or the trial ON with its limits and *Turn off the trial*.
 
 ### `safety` — Emergency Kit + second device (`med-4pz.4`)
 

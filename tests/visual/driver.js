@@ -174,6 +174,14 @@
             // "Re-run onboarding" does. Nothing is written until a tap.
             window.WGFirstRun.state.clear();
             window.WGFirstRun.mount({ needs_first_run: true });
+        } else if (step.trial) {
+            // The AI-trial card (kit A1) has no natural state on CI either (no
+            // App Attest, and the seed vault has its own OpenAI key): stub what
+            // the card reads with step.trial as the trial status. Scenes using
+            // it run last, since the stub stays for the rest of the run.
+            const status = step.trial;
+            if (window.CloudVault && window.CloudVault.trial) window.CloudVault.trial.status = async () => status;
+            window.SettingsIntegrations.trialOffer = async () => status.on !== true;
         } else if (step.settingsPage) {
             await until(() => window.SettingsView.openSettingsPage(step.settingsPage), STEP_MS, `settings page ${step.settingsPage}`);
         } else if (step.file) {
