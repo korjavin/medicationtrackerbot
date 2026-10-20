@@ -68,7 +68,7 @@
 			<key>Type</key>
 			<string>PSGroupSpecifier</string>
 			<key>FooterText</key>
-			<string>Local mode only: asks for Face ID, Touch ID or your passcode each time you return to Med Tracker. It hides the app; it does not encrypt your data, and reminders on the Lock Screen still show (Reminder text in the app sets what they say). Turning it off takes effect after your next unlock.</string>
+			<string>Local mode only: asks for Face ID, Touch ID or your passcode each time you return to Med Tracker. It hides the app; it does not encrypt your data, and reminders on the Lock Screen still show (Lock-screen text in Reminders &amp; notifications sets what they say). Turning it off takes effect after your next unlock.</string>
 		</dict>
 		<dict>
 			<key>Type</key>
