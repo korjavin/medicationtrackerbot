@@ -15,11 +15,11 @@ import {
     afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi
 } from 'vitest';
 import { loadFrontendEnv, createMockResponse } from './helpers/frontend-harness.js';
-import { localRecordsPort } from '../../../cloud/js/sync.js';
+import { localRecordsPort, readAllLocalRecords } from '../../../cloud/js/sync.js';
 import { openDb } from '../../../cloud/js/localdb.js';
 import { cancelReminderRecompute } from '../../../cloud/js/reminders.js';
 import { allowConsoleNoise } from './helpers/setup.js';
-import { recordsToVault, vaultToRecords } from '../../../domain/vault.js';
+import { recordsToVault, vaultToRecords, USER_CONTENT_TYPES } from '../../../domain/vault.js';
 
 const LOCAL_BOOT_SRC = readFileSync(
     fileURLToPath(new URL('../../../cloud/js/local-boot.js', import.meta.url)),
@@ -1906,6 +1906,8 @@ describe('local-only mode leave stash pickup (med-o7zq.36.4)', () => {
         await env.window.apiCall('/api/firstrun/complete', 'POST', {});
         expect((await env.window.apiCall('/api/settings/features')).weight).toBe(false);
         cancelReminderRecompute({ accountId: 'local' });
+        // DEBUG med-o7zq.40
+        expect((await readAllLocalRecords()).filter((r) => !r.deleted && USER_CONTENT_TYPES.has(r.recordType)).map((r) => JSON.stringify(r))).toEqual([]);
         const { window } = await boot({ take: { vault: VAULT } });
         expect(window.safeConfirm).not.toHaveBeenCalled();
         expect(leaveOps()).toEqual(['leave.take', 'leave.clear']);
