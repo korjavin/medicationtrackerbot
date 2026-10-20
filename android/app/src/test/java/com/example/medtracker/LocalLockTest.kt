@@ -26,9 +26,17 @@ class LocalLockTest {
         assertFalse("local mode only", lock.holds(false))
         var attempt = lock.activate(true)!!
         assertNull("the prompt's own pause/resume must not prompt again", lock.activate(true))
-        lock.finish(attempt, false)
+        lock.finish(attempt, false, cancelled = true)
         assertEquals("cancel stays locked", State.LOCKED, lock.state)
+        assertFalse("a cancel is not a failure (N3: no note)", lock.failed)
         assertNull("no prompt loop after a cancel", lock.activate(true))
+        attempt = lock.begin()!!
+        lock.finish(attempt, false)
+        assertTrue("a failed check shows the note", lock.failed)
+        lock.background()
+        assertFalse("the background clears the note", lock.failed)
+        attempt = lock.activate(true)!!
+        lock.finish(attempt, false)
         attempt = lock.begin()!!
         assertNull("one prompt at a time", lock.begin())
         lock.background()

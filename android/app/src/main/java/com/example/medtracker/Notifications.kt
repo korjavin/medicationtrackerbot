@@ -37,6 +37,8 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
     private val waiting = mutableListOf<(String) -> Unit>()
     private var stage = 0
     private var awaitingResume = false
+    /** openSettings: the first step opens the settings screen even with notifications allowed. */
+    private var settings = false
 
     /** The bridge already checked the caller is the account's own page. */
     fun handle(op: String, args: JSONObject?, reply: (Any?, String?) -> Unit) {
@@ -45,6 +47,13 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
             "notifications.requestPermission" -> {
                 waiting += { reply(it, null) }
                 if (waiting.size == 1) { stage = 0; step() }
+            }
+            // The denied note's "Open Android Settings" (bd med-ckm5.16): the app's notification
+            // settings, never the runtime prompt, then Alarms & reminders when that is missing too —
+            // permission() needs both. Replies permission() once the user is back.
+            "notifications.openSettings" -> {
+                waiting += { reply(it, null) }
+                if (waiting.size == 1) { stage = 0; settings = true; step() }
             }
             "notifications.schedule" -> {
                 val h = host() ?: return reply(0, null)
@@ -68,19 +77,22 @@ class Notifications(private val activity: Activity, private val host: () -> Stri
      */
     private fun step() {
         val enabled = notifying(activity)
-        if (!enabled && stage < 1) {
+        val forced = settings
+        settings = false
+        // Forced with notifications on: their settings only when the alarms page has nothing to fix.
+        if ((!enabled || forced && alarms(activity).canScheduleExactAlarms()) && stage < 1) {
             stage = 1
             val prefs = store(activity)
             val pkg = activity.packageName
             val granted = activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
             when {
-                !granted && (!prefs.getBoolean(ASKED, false) ||
+                !forced && !granted && (!prefs.getBoolean(ASKED, false) ||
                     activity.shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS)) -> {
                     prefs.edit().putBoolean(ASKED, true).apply()
                     activity.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), PERMISSION_REQUEST)
                 }
                 // Allowed for the app, but the Reminders channel was switched off.
-                manager(activity).areNotificationsEnabled() -> open(Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                !enabled && manager(activity).areNotificationsEnabled() -> open(Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
                     .putExtra(Settings.EXTRA_APP_PACKAGE, pkg).putExtra(Settings.EXTRA_CHANNEL_ID, CHANNEL))
                 else -> open(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, pkg))
             }

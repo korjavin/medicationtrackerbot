@@ -26,6 +26,9 @@ class LocalLock(on: Boolean) {
     /** Bumped by every prompt and every background: a stale prompt's result is dropped. */
     var attempt = 0
         private set
+    /** The last prompt failed (not cancelled): the lock screen's warn note (N3, bd med-ckm5.16). */
+    var failed = false
+        private set
 
     /** Concealed and bridge closed. Local mode only: an account has its own passkey unlock. */
     fun holds(local: Boolean) = local && on && state != State.UNLOCKED
@@ -33,6 +36,7 @@ class LocalLock(on: Boolean) {
     fun background() {
         if (!on) return
         state = State.LOCKED
+        failed = false
         promptDue = true
         attempt++
     }
@@ -51,9 +55,11 @@ class LocalLock(on: Boolean) {
         return ++attempt
     }
 
-    fun finish(attempt: Int, ok: Boolean) {
+    /** [cancelled]: the user dismissed the prompt, not an error — the plain locked state. */
+    fun finish(attempt: Int, ok: Boolean, cancelled: Boolean = false) {
         if (attempt != this.attempt || state != State.UNLOCKING) return
         state = if (ok) State.UNLOCKED else State.LOCKED
+        failed = !ok && !cancelled
     }
 
     /**
@@ -63,6 +69,7 @@ class LocalLock(on: Boolean) {
     fun confirmed(on: Boolean) {
         this.on = on
         state = State.UNLOCKED
+        failed = false
         attempt++
     }
 
