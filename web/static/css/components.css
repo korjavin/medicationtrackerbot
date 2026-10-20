@@ -547,7 +547,10 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
     color: var(--wg-fg-1);
     font-family: var(--wg-font-ui);
     overflow-y: auto;
-    animation: wg-firstrun-overlay-enter 0.2s ease;
+    /* No enter fade (bd med-ckm5.3, O2): the overlay mounts after Today has
+       painted (auth-bootstrap applies needs_first_run late), so a fade is a
+       cross-fade with Welcome ghosting under the Today header. Opaque from
+       the first frame; dismiss() removes it synchronously. */
 }
 
 .wg-firstrun-overlay__panel {
@@ -573,17 +576,6 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
     display: flex;
     flex-direction: column;
     gap: var(--space-lg);
-}
-
-@keyframes wg-firstrun-overlay-enter {
-    from {
-        opacity: 0;
-        transform: translateY(8px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
 }
 
 /* Screen content — shared across welcome, features, integrations,
