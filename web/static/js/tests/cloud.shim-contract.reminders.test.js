@@ -9,7 +9,8 @@ vi.mock('../../../cloud/js/push.js', () => ({
 import { pushSchedule, sendTestPush } from '../../../cloud/js/push.js';
 import { computeReminderEntries } from '../../../cloud/js/reminders.js';
 import { loadCloudShimFrontendEnv, createInMemoryRecordsPort } from './helpers/cloud-shim-harness.js';
-import { installApiShim } from '../../../cloud/js/apishim.js';
+import { installApiShim, createApiRouter } from '../../../cloud/js/apishim.js';
+import { ORIGIN_UI, ORIGIN_EXTERNAL } from '../../../cloud/js/sync.js';
 
 describe('cloud shim contract — reminders', () => {
     let env;
@@ -52,6 +53,20 @@ describe('cloud shim contract — reminders', () => {
         weightStatus = await window.offlineAwareApiCall('/api/weight/reminder/status', 'GET');
         expect(weightStatus.enabled).toBe(true);
         expect(weightStatus.preferred_reminder_hour).toBe(9);
+    });
+
+    // bd med-ckm5.4: only the user's own writes may open the notification
+    // permission sheet; an agent's or the inbox drain's write never does.
+    it('only UI-origin writes ask for notification permission', async () => {
+        for (const [origin, asks] of [[ORIGIN_UI, true], [ORIGIN_EXTERNAL, false]]) {
+            const scheduleReminderRecompute = vi.fn();
+            const router = createApiRouter(null, {
+                records: createInMemoryRecordsPort(), origin, timeZone: 'UTC', effects: { scheduleReminderRecompute },
+            });
+            await router('/api/bp/reminder/toggle', 'POST', { enabled: true });
+            expect(scheduleReminderRecompute).toHaveBeenCalledTimes(1);
+            expect(scheduleReminderRecompute.mock.calls[0][1].askPermission === true).toBe(asks);
+        }
     });
 
     it('records port shows the singleton', async () => {

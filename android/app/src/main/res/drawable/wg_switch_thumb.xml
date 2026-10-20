@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- .wg-toggle knob: 22dp, teal when on, raised when off. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_checked="true">
+        <layer-list>
+            <item android:left="2dp" android:right="2dp" android:top="4dp" android:bottom="4dp">
+                <shape android:shape="oval">
+                    <size android:width="22dp" android:height="22dp" />
+                    <gradient android:angle="270" android:startColor="#2D544F" android:endColor="@color/wg_inset_b" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+    <item>
+        <layer-list>
+            <item android:left="2dp" android:right="2dp" android:top="4dp" android:bottom="4dp">
+                <shape android:shape="oval">
+                    <size android:width="22dp" android:height="22dp" />
+                    <gradient android:angle="270" android:startColor="@color/wg_raised_a" android:endColor="@color/wg_raised_b" />
+                    <stroke android:width="@dimen/wg_line_w" android:color="@color/wg_line" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+</selector>

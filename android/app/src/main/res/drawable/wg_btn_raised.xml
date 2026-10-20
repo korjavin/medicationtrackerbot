@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- wg-raised + 1dp line: secondary buttons (Widget.Wg.Button) and the icon button. -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android" android:color="#1FFFFFFF">
+    <item>
+        <layer-list>
+            <item>
+                <shape>
+                    <corners android:radius="@dimen/wg_radius_field" />
+                    <gradient android:angle="270" android:startColor="@color/wg_raised_a" android:endColor="@color/wg_raised_b" />
+                    <stroke android:width="@dimen/wg_line_w" android:color="@color/wg_line" />
+                </shape>
+            </item>
+            <item>
+                <shape>
+                    <corners android:radius="@dimen/wg_radius_field" />
+                    <gradient android:angle="270" android:startColor="#29FFFFFF" android:centerColor="#00FFFFFF"
+                        android:centerY="0.52" android:endColor="#00FFFFFF" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+</ripple>

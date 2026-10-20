@@ -199,6 +199,7 @@ export async function recomputeAndPush(ctx, opts = {}) {
     computeReminderEntries(ctx, opts),
     domain.getDeliveryPref(),
   ]);
+  if (opts.askPermission) askPermissionIfNeeded(ctx, opts, entries, pref);
   if (opts.relay === false) {
     await scheduleLocalNotifications(entries, { delivery: 'webpush' }, { generic: pref.verbosity === 'generic' });
     return;
@@ -208,6 +209,28 @@ export async function recomputeAndPush(ctx, opts = {}) {
   const local = scheduleLocalNotifications(entries, pref);
   await pushSchedule(ctx, entries, pref);
   await local; // never rejects, bounded by LOCAL_SCHEDULE_TIMEOUT_MS
+}
+
+// bd med-ckm5.4 (kit O3): a schedule after the user's own write that would
+// notify this device asks for the permission in context
+// (features/notify-permission.js: once per device, only while it is
+// 'default'). askPermission comes only from the UI-origin apishim router (any
+// UI write, Settings toggles included); boot, sync drains, agents and
+// Settings' direct recomputes never pass it, so the app never asks at launch.
+// A new grant re-runs the schedule now. Fire-and-forget: the sheet waits on
+// the user.
+function askPermissionIfNeeded(ctx, opts, entries, pref) {
+  const asker = globalThis.NotifyPermission;
+  if (typeof asker?.maybeAsk !== 'function') return;
+  let shell = false;
+  try { shell = globalThis.LocalNotifications?.isSupported?.() === true; } catch { /* native/ stub */ }
+  // Local-only mode has no relay, so only the app shell's own scheduler delivers.
+  if (opts.relay === false && !shell) return;
+  if (!localNotificationItems(entries, opts.relay === false ? {} : pref).length) return;
+  const { askPermission, ...rest } = opts;
+  Promise.resolve(asker.maybeAsk())
+    .then((granted) => { if (granted === true) scheduleReminderRecompute(ctx, rest, 0); })
+    .catch((e) => console.error('[reminders] permission ask failed', e));
 }
 
 // iOS app shell only (bd med-w6gx.5): WKWebView has no Web Push, so the same

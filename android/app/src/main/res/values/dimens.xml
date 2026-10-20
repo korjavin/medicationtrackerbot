@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shape and size of the native token mirror (bd med-ckm5.14); type sizes in sp so Android's
+     non-linear font scaling applies (N1 at 2x). -->
+<resources>
+    <dimen name="wg_radius_field">12dp</dimen>
+    <dimen name="wg_radius_row">16dp</dimen>
+    <dimen name="wg_radius_sheet">22dp</dimen>
+    <dimen name="wg_radius_primary">14dp</dimen>
+    <dimen name="wg_hit">48dp</dimen>
+    <dimen name="wg_gutter">24dp</dimen>
+    <dimen name="wg_primary_h">52dp</dimen>
+    <dimen name="wg_line_w">1dp</dimen>
+    <!-- ramp 12 / 14 / 16 / 22 / 28, plus the eyebrow label and 13 for links and notes -->
+    <dimen name="wg_fs_eyebrow">10.5sp</dimen>
+    <dimen name="wg_fs_xs">12sp</dimen>
+    <dimen name="wg_fs_sm">13sp</dimen>
+    <dimen name="wg_fs_md">14sp</dimen>
+    <dimen name="wg_fs_lg">16sp</dimen>
+    <dimen name="wg_fs_title">22sp</dimen>
+    <dimen name="wg_fs_metric">28sp</dimen>
+</resources>
