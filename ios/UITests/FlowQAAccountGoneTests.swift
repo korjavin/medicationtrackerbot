@@ -64,8 +64,7 @@ final class FlowQAAccountGoneTests: XCTestCase {
     /// A fresh first run (no stored host), then the address typed and Continue.
     /// The keyboard's slide-to-type tip opens on tap or mid-typing and eats
     /// keystrokes (CI run 39429614834: the bare 404's first run never left),
-    /// so the field's value is checked, and retyped, before submitting, and
-    /// the submit is proved by the first run going away.
+    /// so the field's value is checked, and retyped, before submitting.
     private func openFromFirstRun(_ app: XCUIApplication, _ address: String) {
         launch(app, notLocal + ["-wgAccountHost", ""])
         let field = app.textFields["Invite link or account address"]
@@ -83,11 +82,9 @@ final class FlowQAAccountGoneTests: XCTestCase {
             dismissTip(app, besides: submit)
         }
         XCTAssertEqual(field.value as? String, address, "the address field did not take the typed address")
+        // No wait for the first run to leave: the marked 404 brings it back,
+        // maybe faster than a poll sees it go. Callers wait on the destination.
         submit.tap()
-        let left = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: field)
-        if XCTWaiter().wait(for: [left], timeout: 30) != .completed {
-            XCTFail("Continue did not leave the first run for \(address); on screen: \(texts(app))")
-        }
     }
 
     /// The slide-to-type tip, dismissed with its own Continue, never the first run's.
