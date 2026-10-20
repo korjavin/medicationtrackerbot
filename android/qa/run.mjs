@@ -156,11 +156,11 @@ const ctx = {
    * Wait for a selector, dismissing system "<app> isn't responding" dialogs on the way: the
    * freshly booted software-GPU emulator ANRs its launcher, and UiAutomator then sees only the dialog.
    */
-  async waitFor(selector, timeout = 30_000) {
+  async waitFor(selector, timeout = 60_000) {
     const end = Date.now() + timeout;
     for (;;) {
       try {
-        return await device.wait(selector, { timeout: 3_000 });
+        return await device.wait(selector, { timeout: 10_000 });
       } catch (e) {
         if (Date.now() > end) throw e;
         if (await device.wait({ text: /.*isn't responding.*/ }, { timeout: 500 }).then(() => true, () => false)) {
@@ -183,10 +183,10 @@ const ctx = {
     }
     await device.tap({ text: 'Continue' });
   },
-  /** Open an account whose server answers 503 (tlsfront's down.qa.test) → the "Can't open your account" screen. */
+  /** Open an account whose server answers 503 (tlsfront's down.qa.test) → the load-error screen (N4; every variant has Copy diagnostics). */
   async openAccount(url = 'https://down.qa.test/', opts = {}) {
     await ctx.openLink(url, opts);
-    await ctx.waitFor({ text: /.*open your account.*/ });
+    await ctx.waitFor({ text: 'Copy diagnostics' });
   },
   /** Cold start → Open the run's invite → the WebView page on /unlock with the signup wizard. */
   async openClaim(opts) {

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- .wg-shell__icon-warn: the 404 variant (nothing was lost on this phone). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <corners android:radius="18dp" />
+    <solid android:color="@color/wg_warn_bg" />
+    <stroke android:width="@dimen/wg_line_w" android:color="@color/wg_warn_line" />
+</shape>

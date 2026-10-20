@@ -286,6 +286,7 @@ function mountHealthRow(doc, storage, health, onToggle) {
 
     row.append(lead, body, toggle);
     group.appendChild(row);
-    home.appendChild(group);
+    // Kit S6 slot ③ (bd med-ckm5.6).
+    (home.querySelector('[data-settings-slot="health"]') || home).appendChild(group);
     if (globalThis.WGIcons && typeof globalThis.WGIcons.hydrate === 'function') globalThis.WGIcons.hydrate(group);
 }

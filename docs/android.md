@@ -149,13 +149,20 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
   the window, the Android 12+ splash, `colorBackground`, the WebView
   background, the system-bar bands and every native screen are `wg_screen`
   in light and dark mode alike, so a cold start never shows a white or grey
-  frame. A new icon means
+  frame. The splash icon is the mark tile (`wg_splash_mark`, sized so the
+  system's icon scaling lands it at the lock screen's 96dp `wg_mark_lg`, in
+  the same spot); MainActivity holds the first
+  frame (an `OnPreDrawListener`) until the page posts its first `chrome`
+  sample or commits a visible frame, or a native screen shows (capped at
+  5 s), then the mark fades out over 180 ms (N6, bd med-ckm5.16). A new icon means
   replacing both PNGs from `web/static/icons`.
 - **Navigation:** the account host and the base domain load in the app; every
   other link (and `mailto:`/`tel:`) opens in the browser or its own app.
   `target=_blank` / `window.open` load in the same WebView.
 - **Offline:** a cold start offline is answered by the Service Worker; a native
-  "Can't open your account" screen (Try again / Switch account) appears only
+  load-error screen (N4, bd med-ckm5.16: "Can't reach your account" with Try
+  again / Switch account / Copy diagnostics and a mono status line; a bare 404
+  is "We can't find this account" with Use another invite first) appears only
   when the very first load fails with nothing cached, or the host answers an
   HTTP error. Only the server's own "no such account" 404 — marked
   `X-Account-Gone: 1` by `internal/cloudserver/router.go` (a mistyped account,
@@ -170,10 +177,12 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
 - **Switch account:** long-press the launcher icon → *Switch account*; also on
   the load-error screen. WebView data is per origin and is kept, so switching
   back still finds offline data and warm unlock.
-- **Use another invite** (bd med-nt9p.20): while the page is a ceremony
-  (`/unlock`, `/claim`, `/recover` — `AccountUrl.isCeremony`), a native bar
-  below the page offers "Not your account? Use another invite"; after a
-  confirmation it does Switch account. A bad or already-claimed invite
+- **Use another invite** (bd med-nt9p.20; web-owned since med-ckm5.2/.16): on
+  a ceremony page (`/unlock`, `/claim`, `/recover`) the page draws its own exit
+  bar at the top (`web/cloud/js/exitbar.js`, "Not your account?"); after an
+  in-page confirm it calls `account.leave` with no args, which does Switch
+  account. The shell has no bar or dialog of its own any more;
+  `AccountUrl.isCeremony` only clears Back history on leaving the ceremony. A bad or already-claimed invite
   otherwise has no way back (the host is stored the moment the link parses).
   Passive: a returning user unlocks as before.
 - **Use this phone without an account** (bd med-nt9p.32.15, iOS twin in
@@ -309,9 +318,8 @@ keeps the last 200 lines in its own SharedPreferences file, so the log
 survives reloads, kills and Switch account (not *Clear storage*). It also logs
 the WebView's WebAuthn mode (`for-app` …) whenever it creates one.
 
-**Copying it:** long-press the launcher icon → **Copy diagnostics**, or on a
-ceremony page tap "Not your account? Use another invite" → **Copy
-diagnostics**. The clipboard gets a header (app version + versionCode, Android
+**Copying it:** long-press the launcher icon → **Copy diagnostics**, or
+**Copy diagnostics** on the load-error screen (N4). The clipboard gets a header (app version + versionCode, Android
 version / SDK, device model, WebView package + version, the credential and
 autofill providers where Android exposes them, WebAuthn mode) followed by the
 log; paste it into the bead.
@@ -329,7 +337,11 @@ section}`, the last one the "Open the app to keep reminders running" notice.
 - **Ops:** `notifications.permission` / `requestPermission` → `granted`
   only when **both** grants exist, else `default` (or `denied` once the
   notification prompt was refused); `schedule {items}` → how many alarms are
-  armed; `test` → one notification now.
+  armed; `test` → one notification now; `openSettings` (no args, bd
+  med-ckm5.16: the denied note's *Open Android Settings*, web #1218) → the
+  app's notification settings, then *Alarms & reminders* while that is
+  missing too (straight to it when notifications are on), replying
+  `permission()` once the user is back.
 - **Enable** (Settings → Notifications) walks both system grants: the
   `POST_NOTIFICATIONS` prompt (or the app's notification settings once it was
   refused), then *Alarms & reminders* (`ACTION_REQUEST_SCHEDULE_EXACT_ALARM`;
@@ -429,7 +441,7 @@ kill, reopen (renders from the Service Worker); open an external link (leaves
 the app); long-press the icon → *Switch account* (first run; reopening the
 same account finds its data); bad address → first run with "There is no
 account at …" (no error screen); paste an already-claimed or garbage
-invite → "Not your account? Use another invite" under the page → confirm →
+invite → "Not your account?" at the top of the page → confirm →
 first run → a valid invite claims (also after kill + relaunch while stuck).
 
 ## Agent QA harness (emulator) (bd med-nt9p.23)
@@ -573,12 +585,16 @@ error lines to the step summary (expected 0); `cloud.log` and `tlsfront.log`
 are in the artifact.
 
 Scenarios on it: `claim-page` (invite → signup wizard with the page-coloured
-bands and the native "Use another invite" bar → its dialog → Cancel; default,
-font 1.3, dark), `not-found` (`nobody.qa.test`, which `tlsfront` answers with
+bands and the web exit bar at the top, no native bar → its in-page confirm →
+Cancel; default, font 1.3, then dark, which confirms → the first run with
+`accountHost` gone), `not-found` (`nobody.qa.test`, which `tlsfront` answers with
 the server's marked 404 → the first run with "There is no account at …", no
 Try again, `accountHost` gone from `shell.xml`; `stale.qa.test`, a bare 404 →
-the error screen, `accountHost` kept; the other error-screen scenarios open
-`down.qa.test`, which `tlsfront` answers 503),
+N4 · 404, `accountHost` kept; the other error-screen scenarios open
+`down.qa.test`, which `tlsfront` answers 503), `load-error` (N4's 503, bare-404
+and local variants with their meta line; local via the debug-only
+`--ez wgQALocalError true`), `native-lock` (the splash, N3 light/dark, and the
+failed note via `--ez wgQALockFailed true`),
 `external-link` (a `_blank` anchor and `location.href` to example.com leave the
 WebView URL unchanged and fire ACTION_VIEW — the image has Chrome, which takes
 it), `authn-probe` (below).
@@ -1035,8 +1051,9 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   (`LocalOrigin.MODE_KEY`) wins over a stored account host. Local: home is
   `https://appassets.androidplatform.net/`, `shouldInterceptRequest` serves
   it from `LocalApp`, only that host navigates inside the app, and a load
-  error or 404 on it is logged to the diagnostics log instead of showing
-  *Can't open your account*.
+  error or 404 on it is logged to the diagnostics log and keeps the page —
+  except a miss of the app document itself, which shows N4 · local (*Can't
+  open Med Tracker*, *Use an account instead*, never Switch account).
 - **First run (N1):** the boxed *Only on this device* row comes first (owner
   decision 2026-10-19 — the Play build's reviewer path needs no invite); then
   "or" and the invite field under "Have an invite?" with the Scan icon button
@@ -1163,8 +1180,10 @@ account has its passkey, and cloud mode never shows or checks it.
   Permission screens are not exempt (`requestPermissions` is final): the
   return from Health Connect's asks to unlock. The next `onResume` prompts
   **once**; a cancel
-  leaves the lock screen (*Med Tracker is locked* → *Unlock*), no prompt
-  loop; a result from before a background is dropped.
+  leaves the lock screen (N3: the mark tile at the splash's spot, *Med Tracker
+  is locked* → *Unlock*), no prompt loop; a failed check (any prompt error but
+  a cancel) adds the warn note "Not recognised. Try again, or use your screen
+  lock."; a result from before a background is dropped.
 - **While locked:** the WebView is detached from the window (the page is
   hidden, so `visibilitychange` work waits), every load is deferred, a
   reminder tap is kept and opened after the unlock, Files' bridge ignores

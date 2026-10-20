@@ -204,6 +204,9 @@ for (const [device, [engine, desc]] of Object.entries(DEVICES)) {
     try {
       appBase = await cloudSignup(context, page);
     } catch (e) {
+      // A harness break (admin invite printed no claim URL) must fail the run,
+      // not leave an "error" row and skip every cloud scene silently.
+      if (String(e && e.message).startsWith('no claim URL')) throw e;
       rows.push({ device, scene: 'signup', status: 'error', note: String(e.message || e).split('\n')[0] });
       try { await page.screenshot({ path: join(out, device, 'signup.png') }); shots++; } catch { /* page gone */ }
       await context.close();

@@ -1,7 +1,6 @@
 package com.example.medtracker
 
 import android.app.Activity
-import android.app.AlertDialog
 import android.app.KeyguardManager
 import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
@@ -24,12 +23,12 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.provider.Settings
 import android.text.InputType
-import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.view.ViewTreeObserver
 import android.view.Window
 import android.view.WindowInsets
 import android.view.WindowInsetsController
@@ -66,6 +65,8 @@ import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import java.time.Instant
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 
 /**
  * The shell (bd med-nt9p.5), twin of ios/App/Shell.swift: one Android System
@@ -90,6 +91,10 @@ class MainActivity : Activity() {
     private var loadFailed = false
     /** Set by open/forget: the previous account's pages must not stay reachable by Back. */
     private var clearHistory = false
+    /** The committed page is an account ceremony (/unlock, /claim, /recover; the web draws its exit bar). */
+    private var onCeremony = false
+    /** N6: the splash stays up until the page or a native screen is ready ([releaseSplash]). */
+    private var splashHeld = true
     /** Until then the first-run field's keyboard is still owed a hide (bd med-nt9p.34). */
     private var hideImeUntil = 0L
     private var topColor = SCREEN
@@ -115,9 +120,15 @@ class MainActivity : Activity() {
     private lateinit var inputError: TextView
     private lateinit var inputHint: TextView
     private lateinit var errorView: View
-    private lateinit var ceremonyBar: Button
-    private lateinit var errorMessage: TextView
+    private lateinit var errorIcon: ImageView
+    private lateinit var errorTitle: TextView
+    private lateinit var errorLede: TextView
+    private lateinit var errorMeta: TextView
+    private lateinit var errorPrimary: Button
+    private lateinit var errorSecondary: Button
     private lateinit var lockView: View
+    private lateinit var lockNote: View
+    private lateinit var lockFoot: View
     private lateinit var unlockButton: Button
     private lateinit var lockSwitch: Switch
     private lateinit var lockRow: View
@@ -189,6 +200,7 @@ class MainActivity : Activity() {
         window.isNavigationBarContrastEnforced = false // the band shows the page colour, not a scrim
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
         setContentView(buildUi())
+        holdSplash()
         publishShortcut()
 
         if (intent?.action == ACTION_DIAG && savedInstanceState == null) copyDiagnostics()
@@ -200,6 +212,33 @@ class MainActivity : Activity() {
         // A restored activity keeps its launch intent: only a fresh shortcut launch switches.
         if (intent?.action == ACTION_SWITCH && savedInstanceState == null) forget()
         else reopen(Notifications.tappedSection(intent, vaultHost)?.let { sectionUrl(it) } ?: home)
+        if (DebugHooks.qaLocalError(this)) showError(LoadError.LOCAL, "local · bundle failed to load")
+    }
+
+    /**
+     * N6 splash → web hand-off: the platform splash (wg_screen, the mark tile) stays while the
+     * first frame is held, until the page posts its first chrome sample or commits a visible frame,
+     * or a native screen (first run, error, lock) shows — then the mark fades out over 180 ms onto
+     * the same colour. ponytail: capped at [SPLASH_MAX_MS], so a page that never reports still shows.
+     */
+    private fun holdSplash() {
+        root.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                if (splashHeld) return false
+                root.viewTreeObserver.removeOnPreDrawListener(this)
+                return true
+            }
+        })
+        root.postDelayed(::releaseSplash, SPLASH_MAX_MS)
+        splashScreen.setOnExitAnimationListener { v ->
+            v.animate().alpha(0f).setDuration(180).withEndAction { v.remove() }.start()
+        }
+    }
+
+    private fun releaseSplash() {
+        if (!splashHeld) return
+        splashHeld = false
+        root.invalidate()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -366,7 +405,7 @@ class MainActivity : Activity() {
         showingAccount = false
         lastUrl = null
         clearHistory = true
-        setCeremony(false)
+        onCeremony = false
         errorView.visibility = View.GONE
         localIntro.visibility = View.GONE
         if (url == null) {
@@ -397,8 +436,53 @@ class MainActivity : Activity() {
         (lastUrl ?: home)?.let { load(it) }
     }
 
-    private fun showError(message: String) {
-        errorMessage.text = message
+    /** N4's three variants (screens-native.html; twin of iOS LoadErrorView). */
+    private enum class LoadError { NETWORK, NOT_FOUND, LOCAL }
+
+    /**
+     * N4 load error: [what] is the mono meta line for support ("503 · service unavailable"), the
+     * time appended. A bare 404 leads with another invite (trying again can't fix it, warn tone);
+     * local mode never offers Switch account.
+     */
+    private fun showError(kind: LoadError, what: String) {
+        val h = host ?: "your account"
+        val warn = kind == LoadError.NOT_FOUND
+        errorIcon.setBackgroundResource(if (warn) R.drawable.wg_shell_icon_warn else R.drawable.wg_shell_icon)
+        errorIcon.setImageResource(
+            when (kind) {
+                LoadError.NETWORK -> R.drawable.ic_wg_cloud_off
+                LoadError.NOT_FOUND -> R.drawable.ic_wg_search
+                LoadError.LOCAL -> R.drawable.ic_wg_device
+            }
+        )
+        errorIcon.imageTintList = getColorStateList(if (warn) R.color.wg_warn_fg else R.color.wg_fg_2)
+        when (kind) {
+            LoadError.NETWORK -> {
+                errorTitle.text = "Can't reach your account"
+                errorLede.text = "Med Tracker couldn't connect to $h. Your records are safe. Check your connection and try again."
+            }
+            LoadError.NOT_FOUND -> {
+                errorTitle.text = "We can't find this account"
+                errorLede.text = "There's no account at $h any more. It may have been deleted, or the address changed."
+            }
+            LoadError.LOCAL -> {
+                errorTitle.text = "Can't open Med Tracker"
+                errorLede.text = "The app on this phone didn't start. Your records are still here. Try again, or restart your phone if it keeps happening."
+            }
+        }
+        errorMeta.text = "$what · ${LocalTime.now().format(HH_MM)}"
+        fun set(b: Button, label: String, action: () -> Unit) {
+            b.text = label
+            b.setOnClickListener { action() }
+        }
+        // Leaving local mode keeps its data: it is back on the next switch.
+        if (warn) {
+            set(errorPrimary, "Use another invite") { forget() }
+            set(errorSecondary, "Try again") { retry() }
+        } else {
+            set(errorPrimary, "Try again") { retry() }
+            set(errorSecondary, if (kind == LoadError.LOCAL) "Use an account instead" else "Switch account") { forget() }
+        }
         errorView.visibility = View.VISIBLE
         updateChrome()
     }
@@ -500,13 +584,18 @@ class MainActivity : Activity() {
             val ceremony = AccountUrl.isCeremony(url, base)
             // Leaving /unlock, /claim or /recover for the app (bd med-nt9p.33): Back on Today
             // must leave the app, not reopen the spent ceremony ("invite already claimed").
-            if (!ceremony && ceremonyBar.visibility == View.VISIBLE) {
+            if (!ceremony && onCeremony) {
                 clearHistory = true
                 // Signed in: write the session cookie now, not on Chromium's ~30 s timer (bd med-nt9p.45).
                 CookieManager.getInstance().flush()
             }
-            setCeremony(ceremony)
+            onCeremony = ceremony
             updateBack()
+        }
+
+        /** N6: the page's first visible frame ends the splash hold. */
+        override fun onPageCommitVisible(view: WebView, url: String?) {
+            releaseSplash()
         }
 
         /**
@@ -519,14 +608,23 @@ class MainActivity : Activity() {
             if (bundled(request, "error ${error.errorCode}")) return
             loadFailed = true
             if (showingAccount) lastUrl = request.url.toString()
-            showError(error.description?.toString()?.takeIf { it.isNotBlank() } ?: "The page could not be loaded.")
+            val why = error.description?.toString()?.takeIf { it.isNotBlank() } ?: "not loaded"
+            showError(if (local) LoadError.LOCAL else LoadError.NETWORK, "error ${error.errorCode} · $why")
         }
 
         /** An HTTP error before any page of this account showed — a mistyped or deleted account is a 404. */
         override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: WebResourceResponse) {
             // Once the account showed, the server's own error page stays (Back leaves it).
             if (!request.isForMainFrame || response.statusCode < 400 || showingAccount) return
-            if (bundled(request, "HTTP ${response.statusCode}")) return
+            val code = response.statusCode
+            if (bundled(request, "HTTP $code")) {
+                // The app document itself missing: the bundled app can't start (N4 · local).
+                if (request.url.path.orEmpty().trim('/').isEmpty()) {
+                    loadFailed = true
+                    showError(LoadError.LOCAL, "local · $code · bundle failed to load")
+                }
+                return
+            }
             val h = request.url.host?.lowercase()
             // The server says the stored account is gone (deleted here or elsewhere, or a typo): forget
             // it and say why on the first run (bd med-nt9p.32.14). A 404 without the server's marker
@@ -540,10 +638,12 @@ class MainActivity : Activity() {
                 return
             }
             loadFailed = true
-            showError(response.reasonPhrase?.takeIf { it.isNotBlank() } ?: "The server answered ${response.statusCode}.")
+            // WebView often leaves reasonPhrase empty (HTTP/2 has none).
+            val reason = response.reasonPhrase?.takeIf { it.isNotBlank() }?.lowercase() ?: STATUS_TEXT[code] ?: "http error"
+            showError(if (code == 404) LoadError.NOT_FOUND else LoadError.NETWORK, "$code · $reason")
         }
 
-        /** The asset origin is never "your account": a miss is LocalApp's own 404, so log it and keep the page. */
+        /** The asset origin is never "your account": a miss is LocalApp's own 404, so log it and keep the page (the app document aside). */
         private fun bundled(request: WebResourceRequest, what: String): Boolean {
             if (request.url.host?.lowercase() != LocalOrigin.HOST) return false
             diag("shell local $what ${request.url.path}")
@@ -622,6 +722,8 @@ class MainActivity : Activity() {
                 cssColor(args.optString("top"))?.let { topColor = it }
                 cssColor(args.optString("bottom"))?.let { bottomColor = it }
                 updateChrome()
+                releaseSplash() // N6: the page's first sample says it is ready
+
             }
             // The page's BYOK hosts, for the next document's CSP; it reloads itself when changed (local-boot.js).
             "setEgressHosts" -> {
@@ -696,8 +798,6 @@ class MainActivity : Activity() {
         bottomBand = View(this)
         root.addView(topBand, FrameLayout.LayoutParams(MATCH_PARENT, 0, Gravity.TOP))
         root.addView(bottomBand, FrameLayout.LayoutParams(MATCH_PARENT, 0, Gravity.BOTTOM))
-        ceremonyBar = wgButton(R.style.Widget_Wg_Button, "Not your account? Use another invite") { confirmUseAnotherInvite() }.apply { visibility = View.GONE; maxLines = 1; minHeight = 0; minimumHeight = 0; setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f) }
-        root.addView(ceremonyBar, FrameLayout.LayoutParams(MATCH_PARENT, CEREMONY_BAR_DP.dp, Gravity.BOTTOM))
         firstRun = buildFirstRun()
         localIntro = buildLocalIntro()
         errorView = buildError()
@@ -721,47 +821,29 @@ class MainActivity : Activity() {
         val sys = bars.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
         val ime = bars.getInsets(WindowInsets.Type.ime())
         val bottom = maxOf(sys.bottom, ime.bottom)
-        // The exit bar sits below the page, not over it: the ceremony's own buttons stay clear.
-        val barH = if (ceremonyBar.visibility == View.VISIBLE) CEREMONY_BAR_DP.dp else 0
-        ceremonyBar.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, CEREMONY_BAR_DP.dp, Gravity.BOTTOM).apply {
-            setMargins(sys.left, 0, sys.right, bottom)
-        }
         web.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT).apply {
-            setMargins(sys.left, sys.top, sys.right, bottom + barH)
+            setMargins(sys.left, sys.top, sys.right, bottom)
         }
         topBand.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, sys.top, Gravity.TOP)
         bottomBand.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, sys.bottom, Gravity.BOTTOM)
         // The keyboard's extra height is a margin, not padding: the ScrollView really shrinks and
         // its onSizeChanged scrolls the focused invite field above the keyboard (N1 at 2x).
         val imeLift = bottom - sys.bottom
-        for (v in listOf(firstRun, localIntro, errorView, lockView)) {
+        for (v in listOf(firstRun, localIntro, errorView)) {
             v.setPadding(sys.left, sys.top, sys.right, sys.bottom)
             v.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT).apply { bottomMargin = imeLift }
         }
-    }
-
-    private fun setCeremony(on: Boolean) {
-        val v = if (on) View.VISIBLE else View.GONE
-        if (ceremonyBar.visibility == v) return
-        ceremonyBar.visibility = v
-        layoutBars()
-    }
-
-    /** Native confirmation, then Switch account (bd med-nt9p.20); website data stays. */
-    private fun confirmUseAnotherInvite() {
-        AlertDialog.Builder(this)
-            .setTitle("Use another invite?")
-            .setMessage("Med Tracker goes back to the first screen, where you can paste or scan another invite. Data already on this phone is kept.")
-            .setPositiveButton("Use another invite") { _, _ -> forget() }
-            .setNegativeButton("Cancel", null)
-            .setNeutralButton("Copy diagnostics") { _, _ -> copyDiagnostics() }
-            .show()
+        // The lock fills the window so its mark sits at the window's centre, where the splash put
+        // it (N6); only its foot clears the navigation bar. The lock hides the keyboard.
+        lockView.setPadding(sys.left, 0, sys.right, 0)
+        lockFoot.setPadding(24.dp, 12.dp, 24.dp, 16.dp + sys.bottom)
     }
 
     /** Bands and bar icons follow the page, or wg_screen while a native screen is up. */
     private fun updateChrome() {
         val native = firstRun.visibility == View.VISIBLE || errorView.visibility == View.VISIBLE ||
             localIntro.visibility == View.VISIBLE || lockView.visibility == View.VISIBLE
+        if (native) releaseSplash() // N6: a native screen is ready to show at once
         val top = if (native) SCREEN else topColor
         val bottom = if (native) SCREEN else bottomColor
         root.setBackgroundColor(top)
@@ -990,31 +1072,72 @@ class MainActivity : Activity() {
         }
     }
 
+    /** N4 load error (bd med-ckm5.16): the icon tile, title, lede and meta line; [showError] fills them. */
     private fun buildError(): View {
-        // On the token mirror; N4's hierarchy and copy are med-ckm5.16.
-        errorMessage = wgText(R.style.Widget_Wg_Text_Lede).apply { gravity = Gravity.CENTER }
-        return screen(
-            "Can't open your account",
-            errorMessage,
-            wgButton(R.style.Widget_Wg_Button_Primary, "Try again") { retry() },
-            wgButton(R.style.Widget_Wg_Button, "Switch account") { forget() },
-        ).apply { visibility = View.GONE }
+        errorIcon = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            setPadding(17.dp, 17.dp, 17.dp, 17.dp) // 30dp icon in the 64dp tile
+            layoutParams = LinearLayout.LayoutParams(64.dp, 64.dp).apply { gravity = Gravity.CENTER_HORIZONTAL }
+        }
+        errorTitle = wgText(R.style.Widget_Wg_Text_Title_Md).apply { gravity = Gravity.CENTER }
+        errorLede = wgText(R.style.Widget_Wg_Text_Lede).apply { gravity = Gravity.CENTER }
+        errorMeta = wgText(R.style.Widget_Wg_Text_Meta).apply { gravity = Gravity.CENTER }
+        errorPrimary = wgButton(R.style.Widget_Wg_Button_Primary, "Try again") { retry() }
+        errorSecondary = wgButton(R.style.Widget_Wg_Button, "Switch account") { forget() }
+        val body = wgStack(16, errorIcon, errorTitle, errorLede, errorMeta).apply {
+            setPadding(24.dp, 24.dp, 24.dp, 24.dp)
+            gravity = Gravity.CENTER
+        }
+        val foot = wgStack(
+            8, errorPrimary, errorSecondary,
+            wgButton(R.style.Widget_Wg_Button_Ghost_Sm, "Copy diagnostics") { copyDiagnostics() },
+        ).apply { setPadding(24.dp, 12.dp, 24.dp, 16.dp) }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundResource(R.color.wg_screen)
+            addView(wgScroll(body), LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+            addView(wgRule(R.color.wg_line))
+            addView(foot)
+            visibility = View.GONE
+        }
     }
 
     // MARK: lock (bd med-nt9p.32.9)
 
-    /** Local mode's lock screen. A cancelled prompt lands here and stays: only the button asks again. */
+    /**
+     * N3, local mode's lock screen (bd med-ckm5.16): the 96dp mark tile at the window's centre (the
+     * splash's spot, N6), no account name, Unlock the only control. A failed check adds the warn
+     * note; a cancelled prompt lands on the plain locked state and stays: only the button asks again.
+     */
     private fun buildLock(): View {
         unlockButton = wgButton(R.style.Widget_Wg_Button_Primary, "Unlock") { lock.begin()?.let { authenticate(it) } }
-        // On the token mirror; N3's mark tile and failed note are med-ckm5.16. The launcher icon is the brand mark.
-        return screen(
-            "Med Tracker is locked",
-            wgText(R.style.Widget_Wg_Text_Lede, "Unlock with your fingerprint, face or screen lock to see your records.").apply {
-                gravity = Gravity.CENTER
-            },
-            unlockButton,
-            mark = true,
-        ).apply { visibility = View.GONE }
+        lockNote = wgNote(Wg.Tone.WARN, R.drawable.ic_wg_alert, "Not recognised. Try again, or use your screen lock.").apply {
+            visibility = View.GONE
+        }
+        val text = wgStack(
+            16,
+            wgText(R.style.Widget_Wg_Text_Title_Md, "Med Tracker is locked").apply { gravity = Gravity.CENTER },
+            wgText(R.style.Widget_Wg_Text_Lede, "Unlock with your fingerprint, face or screen lock.").apply { gravity = Gravity.CENTER },
+            lockNote,
+        ).apply { setPadding(24.dp, 20.dp, 24.dp, 16.dp) }
+        lockFoot = wgStack(8, unlockButton)
+        // Two equal halves around the mark: it stays centred whatever the text below needs.
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundResource(R.color.wg_screen)
+            addView(Space(this@MainActivity), LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+            addView(ImageView(this@MainActivity).apply {
+                setImageResource(R.drawable.wg_mark_lg)
+                contentDescription = "Med Tracker"
+            }, LinearLayout.LayoutParams(96.dp, 96.dp).apply { gravity = Gravity.CENTER_HORIZONTAL })
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(wgScroll(text), LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+                addView(wgRule(R.color.wg_line))
+                addView(lockFoot)
+            }, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+            visibility = View.GONE
+        }
     }
 
     /** The lock screen or the page, as the lock says; on unlock, what it held back. */
@@ -1027,6 +1150,7 @@ class MainActivity : Activity() {
             screenOffRegistered = lock.on
         }
         unlockButton.isEnabled = lock.state != LocalLock.State.UNLOCKING
+        lockNote.visibility = if (lock.failed || DebugHooks.qaLockFailed(this)) View.VISIBLE else View.GONE
         val hide = concealed
         if (hide == (lockView.visibility == View.VISIBLE)) return
         lockView.visibility = if (hide) View.VISIBLE else View.GONE
@@ -1046,8 +1170,8 @@ class MainActivity : Activity() {
 
     private fun authenticate(attempt: Int) {
         applyLock() // the Unlock button waits for this prompt
-        deviceCheck("Unlock Med Tracker") { ok ->
-            lock.finish(attempt, ok)
+        deviceCheck("Unlock Med Tracker") { ok, cancelled ->
+            lock.finish(attempt, ok, cancelled)
             applyLock()
         }
     }
@@ -1059,7 +1183,7 @@ class MainActivity : Activity() {
     private fun setLock(on: Boolean, done: (String?) -> Unit) {
         if (!on && !lock.on) return done(null)
         if (on && !deviceSecure()) return done("Set a screen lock in Android Settings first, or switch the lock off.")
-        deviceCheck(if (on) "Turn on the lock for Med Tracker" else "Turn off the lock for Med Tracker") { ok ->
+        deviceCheck(if (on) "Turn on the lock for Med Tracker" else "Turn off the lock for Med Tracker") { ok, _ ->
             if (!ok) {
                 done(
                     if (lock.on) "The lock is on from before, and changing it or opening Med Tracker needs your fingerprint, face or screen lock. Try again."
@@ -1080,17 +1204,18 @@ class MainActivity : Activity() {
     /**
      * BiometricPrompt with the screen lock as fallback. No screen lock (removed after the lock went
      * on) passes: the lock must never strand the only copy of the records.
+     * done(ok, cancelled): a cancel (the user, or the app leaving the screen) is not a failure (N3).
      */
-    private fun deviceCheck(title: String, done: (Boolean) -> Unit) {
-        if (!deviceSecure()) return done(true)
+    private fun deviceCheck(title: String, done: (Boolean, Boolean) -> Unit) {
+        if (!deviceSecure()) return done(true, false)
         val callback = object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                 prompting = false
-                done(true)
+                done(true, false)
             }
             override fun onAuthenticationError(code: Int, message: CharSequence) {
                 prompting = false
-                done(code == BiometricPrompt.BIOMETRIC_ERROR_NO_DEVICE_CREDENTIAL)
+                done(code == BiometricPrompt.BIOMETRIC_ERROR_NO_DEVICE_CREDENTIAL, code in CANCELS)
             }
         }
         prompting = true
@@ -1103,20 +1228,8 @@ class MainActivity : Activity() {
         }.onFailure {
             diag("shell lock prompt failed ${it.javaClass.simpleName}")
             prompting = false
-            done(false)
+            done(false, false)
         }
-    }
-
-    /** The load-error and lock screens: a centred column on the token mirror (N3/N4 finish them, med-ckm5.16); [mark] adds the brand icon. */
-    private fun screen(title: String, vararg views: View, mark: Boolean = false): View {
-        val column = wgStack(16).apply {
-            setPadding(24.dp, 24.dp, 24.dp, 24.dp)
-            gravity = Gravity.CENTER
-            if (mark) addView(ImageView(this@MainActivity).apply { setImageResource(R.mipmap.ic_launcher) }, 96.dp, 96.dp)
-            addView(wgText(R.style.Widget_Wg_Text_Title_Md, title).apply { gravity = Gravity.CENTER }, MATCH_PARENT, WRAP_CONTENT)
-            for (v in views) addView(v, MATCH_PARENT, WRAP_CONTENT)
-        }
-        return wgScroll(column)
     }
 
     /** Play services' scanner: no camera permission here; any failure falls back to paste. A match fills the field and runs Continue. */
@@ -1145,7 +1258,7 @@ class MainActivity : Activity() {
         }
     }
 
-    /** Launcher shortcut or the ceremony bar's dialog: the device header plus the log, as plain text. */
+    /** Launcher shortcut or the load-error screen (N4): the device header plus the log, as plain text. */
     private fun copyDiagnostics() {
         val wv = WebViewCompat.getCurrentWebViewPackage(this)
         val credential = runCatching { Settings.Secure.getString(contentResolver, "credential_service") }.getOrNull()
@@ -1166,8 +1279,20 @@ class MainActivity : Activity() {
     private companion object {
         /** The page-facing bridge global, window.wgNative — med-nt9p.6 and .19 detect the Android shell by it. */
         const val BRIDGE = "wgNative"
-        /** One fixed line, so the page margin never disagrees with the bar. */
-        const val CEREMONY_BAR_DP = 44
+        /** N6's cap on holding the splash for a page that never reports ready. */
+        const val SPLASH_MAX_MS = 5_000L
+        /** BiometricPrompt errors that are a dismissal, not a failed check (N3: no note). */
+        val CANCELS = setOf(
+            BiometricPrompt.BIOMETRIC_ERROR_CANCELED,
+            BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED,
+        )
+        /** N4's meta line when the response carries no reason phrase. */
+        val STATUS_TEXT = mapOf(
+            404 to "not found", 500 to "internal server error", 502 to "bad gateway",
+            503 to "service unavailable", 504 to "gateway timeout",
+        )
+        /** N4's meta line time. */
+        val HH_MM: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
         const val HOST_KEY = "accountHost"
         const val LEAVE_HOST_KEY = "leaveHost"
         const val ACTION_SWITCH = "com.example.medtracker.SWITCH_ACCOUNT"

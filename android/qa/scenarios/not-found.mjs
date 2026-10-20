@@ -2,7 +2,7 @@
 // nobody.qa.test as internal/cloudserver/router.go answers it) → back to the first run with
 // "There is no account at …", the stored host forgotten — as on a relaunch after a delete.
 // A bare 404 (tlsfront's stale.qa.test: a proxy's during a redeploy) keeps the account and the
-// "Can't open your account" screen with Try again.
+// N4 "We can't find this account" screen (Use another invite, then Try again; bd med-ckm5.16).
 const storedHost = async (ctx) => {
   // SharedPreferences.apply() writes to disk asynchronously: give it a moment.
   await ctx.sleep(1500);
@@ -27,8 +27,9 @@ export default async function notFound(ctx) {
   });
 
   await ctx.step('launch on first run again', () => ctx.launch());
-  await ctx.step('a bare 404 (stale.qa.test) shows the error screen with Try again', async () => {
+  await ctx.step('a bare 404 (stale.qa.test) shows N4 · 404 with Try again', async () => {
     await ctx.openAccount('https://stale.qa.test/');
+    await ctx.waitFor({ text: 'We can\'t find this account' }, 5_000);
     await ctx.waitFor({ text: 'Try again' }, 5_000);
   });
   await ctx.shot('bare-404');
