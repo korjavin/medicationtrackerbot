@@ -109,6 +109,8 @@ class Files(private val activity: Activity, private val accountHost: () -> Strin
     private fun offer(rawName: String, dataUrl: String) {
         // Every refusal says so (bd med-nvd4): a silent return looked like a stuck export.
         val bad = { toast("The download could not be saved.") }
+        // One save at a time: a second offer would delete the temp file the open picker is about to copy.
+        if (pendingSave != null) return toast("Finish saving the current file first.")
         val comma = dataUrl.indexOf(',')
         val header = if (dataUrl.startsWith("data:") && comma > 0) dataUrl.substring(5, comma) else return bad()
         if (!header.endsWith(";base64")) return bad() // FileReader.readAsDataURL always is

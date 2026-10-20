@@ -15,6 +15,7 @@ The two native shells (`ios/`, `android/`) wrap the same web app. Keep them in s
 | Account mode (cloud vault in WebView) | ✓ | ✓ | parity |
 | Local mode (bundled app, no account) | `WKURLSchemeHandler` (`wgapp://local`) | `appassets` + `files.js` / `chrome.js` | divergent: platform loader |
 | Local → cloud move / account → local leave | ✓ | ✓ | parity |
+| Page downloads (blob:/data:) | Files export picker (med-o7zq.43) | `ACTION_CREATE_DOCUMENT` picker, no shell dialog (med-nt9p.48) | parity: both go straight to the system picker; Share lives in the web sheet (hidden in the Android WebView) |
 | Anonymous trial attestation | App Attest | Play Integrity (device-recall flag OFF) | divergent: platform API |
 | Health data | HealthKit | Health Connect | divergent: platform API |
 | Notifications (bridge ops) | ✓ | ✓ | parity |
