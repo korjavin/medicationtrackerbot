@@ -62,6 +62,14 @@ func (inv Invite) ClaimURL(baseDomain string) string {
 	return fmt.Sprintf("https://%s/i/%s#%s", baseDomain, inv.Account.Subdomain, inv.Token)
 }
 
+// AccountClaimURL returns the same invite in the older claim form,
+// https://<sub>.<base>/#claim=<token> — the account host's own claim page,
+// which is what the landing page hands off to. `cloud admin invite` prints it
+// too, for tooling that opens the claim page directly (visual/QA harnesses).
+func (inv Invite) AccountClaimURL(baseDomain string) string {
+	return fmt.Sprintf("https://%s.%s/#claim=%s", inv.Account.Subdomain, baseDomain, inv.Token)
+}
+
 const maxSubdomainAttempts = 10
 
 // Provision pre-provisions a new unclaimed account: random account_id,
