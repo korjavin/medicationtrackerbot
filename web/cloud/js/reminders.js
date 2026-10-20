@@ -40,6 +40,7 @@ const TRACKER_LOG_RECORD_TYPE = 'trackerlog';
 const DEBOUNCE_MS = 2000;
 
 const timers = new Map();
+const askPending = new Set(); // keys whose coalesced calls include a UI-origin askPermission
 
 function defaultTimeZone() {
   return (typeof Intl !== 'undefined' && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
@@ -316,9 +317,13 @@ export function onLocalScheduleResult(fn) {
 export function scheduleReminderRecompute(ctx, opts = {}, debounceMs = DEBOUNCE_MS) {
   const key = (ctx && ctx.accountId) || ctx;
   clearTimeout(timers.get(key));
+  // askPermission is sticky across coalesced calls: a later non-UI recompute
+  // must not drop an earlier UI save's in-context notification ask.
+  if (opts.askPermission) askPending.add(key);
   const timer = setTimeout(() => {
     timers.delete(key);
-    recomputeAndPush(ctx, opts).catch((e) => console.error('[reminders] recompute/push failed', e));
+    const ask = askPending.delete(key);
+    recomputeAndPush(ctx, ask ? { ...opts, askPermission: true } : opts).catch((e) => console.error('[reminders] recompute/push failed', e));
   }, debounceMs);
   timers.set(key, timer);
 }

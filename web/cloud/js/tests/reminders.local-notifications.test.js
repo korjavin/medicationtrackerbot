@@ -158,6 +158,17 @@ describe('recomputeAndPush asks for notification permission in context', () => {
     expect(maybeAsk).toHaveBeenCalledTimes(1);
   });
 
+  it('a UI save followed within the debounce by a non-UI recompute still asks once', async () => {
+    const maybeAsk = vi.fn(async () => false);
+    globalThis.NotifyPermission = { maybeAsk };
+    globalThis.LocalNotifications = { isSupported: () => true, schedule: vi.fn(async () => 0) };
+    const records = fakeRecords(seed('both'));
+    scheduleReminderRecompute(ctx, { records, timeZone: 'UTC', askPermission: true }, 10);
+    scheduleReminderRecompute(ctx, { records, timeZone: 'UTC' }, 10); // agent/inbox write
+    await vi.advanceTimersByTimeAsync(20);
+    expect(maybeAsk).toHaveBeenCalledTimes(1);
+  });
+
   it('no ask when nothing would notify this device (Telegram-only, or local mode on the web)', async () => {
     const maybeAsk = vi.fn(async () => false);
     globalThis.NotifyPermission = { maybeAsk };
