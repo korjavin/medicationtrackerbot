@@ -167,7 +167,7 @@ final class FlowQABackupTests: XCTestCase {
                                        suffix: String, timeout: TimeInterval = 60) {
         let service = XCUIApplication(bundleIdentifier: "com.apple.DocumentManagerUICore.Service")
         let marks = NSPredicate(format: "label IN {'Cancel', 'Save', 'Move', 'Browse', 'Recents', 'On My iPhone'}")
-        let cancel = NSPredicate(format: "label IN {'Cancel', 'Close'}")
+        let cancel = NSPredicate(format: "label IN {'Cancel', 'Close', 'Dismiss'} OR identifier IN {'xmark', 'Cancel', 'Close'}")
         let shown = {
             service.descendants(matching: .any).matching(marks).firstMatch.exists
                 || app.descendants(matching: .any).matching(marks).count > app.webViews.descendants(matching: .any).matching(marks).count
@@ -180,22 +180,22 @@ final class FlowQABackupTests: XCTestCase {
         let files = filesIn(downloads)
         XCTAssertTrue(files.count == 1 && files[0].hasSuffix(suffix), "\(step): Downloads holds \(files), want one *\(suffix)")
 
-        // The picker's X is its topmost Cancel/Close; the web Backup ready
-        // sheet's own Close sits near the bottom, under the picker.
-        let remoteCancel = service.buttons.matching(cancel).firstMatch
-        let x = remoteCancel.exists ? remoteCancel
-            : app.buttons.matching(cancel).allElementsBoundByIndex.min { $0.frame.minY < $1.frame.minY }
-        guard let x else { return XCTFail("\(step): no Cancel/Close on the export picker — tree: \(tree(app))") }
-        x.tap()
+        // The picker's X sits in its header, top left (iOS 26: a glass xmark
+        // button); the web Backup ready sheet's own close sits low, under the
+        // picker. No labelled match → tap where the X is drawn.
+        let x = (service.buttons.matching(cancel).allElementsBoundByIndex + app.buttons.matching(cancel).allElementsBoundByIndex)
+            .first { (40..<150).contains($0.frame.minY) }
+        if let x { x.tap() } else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.096, dy: 0.112)).tap() }
         let closed = waitUntil(15) { !shown() }
-        XCTAssertTrue(closed, "\(step): the export picker did not close — tree: \(tree(app))")
+        XCTAssertTrue(closed, "\(step): the export picker did not close — tree tail: \(tree(app, tail: true)) — service: \(tree(service, tail: true))")
         XCTAssertTrue(waitUntil(10) { filesIn(downloads).isEmpty }, "\(step): the export file outlived the picker: \(filesIn(downloads))")
     }
 
     /// The element tree on one line, for a failure message (the job's log keeps
     /// only " error: " lines and the artifact only PNGs).
-    private func tree(_ app: XCUIApplication) -> String {
-        String(app.debugDescription.split(separator: "\n").joined(separator: " | ").prefix(6000))
+    private func tree(_ app: XCUIApplication, tail: Bool = false) -> String {
+        let line = app.debugDescription.split(separator: "\n").joined(separator: " | ")
+        return String(tail ? line.suffix(6000) : line.prefix(6000))
     }
 
     /// Bottom tab bar → Meds → Schedule (the tab restores its last sub-tab).
