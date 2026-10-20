@@ -66,8 +66,8 @@ export default async function localToCloud(ctx) {
   await ctx.stableShot('local-today');
 
   // 1. Export, as the user does: no passphrase, API keys included (the plain-text confirm), then
-  //    Backup ready → Save to device hands the file to the shell's Save/Share.
-  await ctx.step('Backup & import → Export backup → Backup ready → Save/Share', async () => {
+  //    Backup ready → Save to device hands the file to the shell, which opens the system file picker.
+  await ctx.step('Backup & import → Export backup → Backup ready → file picker', async () => {
     await openBackup(page);
     await ctx.stableShot('backup-page');
     await page.click('#importexport-export-btn');
@@ -78,11 +78,11 @@ export default async function localToCloud(ctx) {
     await page.locator('#importexport-ready-save').waitFor({ state: 'visible', timeout: 120_000 });
     await ctx.shot('backup-ready');
     await page.click('#importexport-ready-save');
-    await ctx.waitFor({ text: 'Save to device' }, 60_000);
+    await ctx.waitFor({ text: /^(SAVE|Save)$/ }, 60_000);
   });
-  await ctx.shot('export-save-share');
+  await ctx.shot('export-file-picker');
 
-  // The file Files.offer wrote (cache/downloads/<uuid>/<name>) before the dialog, read back intact.
+  // The file Files.offer wrote (cache/downloads/<uuid>/<name>) before the picker, read back intact.
   const file = await ctx.step('the exported file is vault v1 (fixture shape)', async () => {
     const path = await shell(`run-as ${pkg} sh -c 'ls cache/downloads/*/*'`);
     r.exportName = path.slice(path.lastIndexOf('/') + 1);
@@ -103,7 +103,6 @@ export default async function localToCloud(ctx) {
   // Save to device: DocumentsUI's create-document screen (Downloads), as a user keeps the file.
   // A finding, not a stopper: the restore below can still take the bytes read above.
   r.savedToDownloads = await ctx.step('Save to device → Downloads', async () => {
-    await device.tap({ text: 'Save to device' });
     await ctx.waitFor({ text: /^(SAVE|Save)$/ }, 20_000);
     await ctx.shot('documentsui-save');
     await device.tap({ text: /^(SAVE|Save)$/ });

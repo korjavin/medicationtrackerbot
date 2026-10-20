@@ -218,39 +218,6 @@ describe('features/trial-consent.js — disclosure dialog + retry seam', () => {
         expect(env.window.apiCall).toHaveBeenCalledTimes(1);
     });
 
-    // bd med-nt9p.40: grant(scope) records an Allow the claim wizard already
-    // collected under this exact disclosure — no dialog — and never overwrites
-    // a decision the vault already holds.
-    describe('grant(scope)', () => {
-        function vaultWith(ai) {
-            env.window.apiCall = vi.fn(async (url, method, body) => {
-                if (url !== '/api/settings/trial-consent') return null;
-                if (method === 'GET') return { ai, voice: null, tg: null, updated_at: 1 };
-                return { ai, voice: null, tg: null, updated_at: 2, ...body };
-            });
-        }
-        const patches = () => env.window.apiCall.mock.calls.filter((c) => c[1] === 'PATCH');
-
-        it('stores { ai: true } with no dialog when the vault has no decision', async () => {
-            vaultWith(null);
-            await expect(env.window.TrialConsent.grant('ai')).resolves.toBe(true);
-            expect(patches().map((c) => c[2])).toEqual([{ ai: true }]);
-            expect(modal()).toBeNull();
-        });
-
-        it('leaves a refusal already in the vault alone and reports it', async () => {
-            vaultWith(false);
-            await expect(env.window.TrialConsent.grant('ai')).resolves.toBe(false);
-            expect(patches()).toEqual([]);
-        });
-
-        it('resolves null when the vault cannot be read or written', async () => {
-            env.window.apiCall = vi.fn(async () => null);
-            await expect(env.window.TrialConsent.grant('ai')).resolves.toBeNull();
-            expect(modal()).toBeNull();
-        });
-    });
-
     it('modal CSS lifts the dialog onto the backdrop layer (--z-confirm)', async () => {
         // The dialog reuses .mt-confirm-backdrop (z-index: var(--z-confirm),
         // 1050) but the .wg-modal shell sits at var(--z-modal) (1001). Without

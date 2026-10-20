@@ -104,7 +104,7 @@ func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, doma
 		app:         http.StripPrefix("/static/", http.FileServerFS(appFS)),
 		domain:      http.StripPrefix("/domain/", http.FileServerFS(domainFS)),
 		appIndex:    injectCloudBoot(idx, foodDBURL, trialAI, trialVoice, buildID),
-		shellIndex:  injectShellTrial(signup, trialAI),
+		shellIndex:  signup,
 		buildID:     buildID,
 		api:         api,
 		landingRaw:  landing,
@@ -208,17 +208,6 @@ func (h *Handler) SetFeedbackReader(reader http.Handler) {
 // /readyz can report which build answered without a second source of truth.
 func (h *Handler) BuildID() string {
 	return h.buildID
-}
-
-// injectShellTrial gives the passkey shell the same boolean trial-AI <meta> as
-// the app document, so the claim wizard can offer the free trial next to the
-// Telegram step (bd med-w6sx). A shell without <head> (test fixtures) is served
-// unchanged.
-func injectShellTrial(signup []byte, trialAI bool) []byte {
-	if !trialAI || signup == nil {
-		return signup
-	}
-	return bytes.Replace(signup, []byte("<head>"), []byte("<head>\n<meta name=\"medtracker-trial-ai\" content=\"1\">"), 1)
 }
 
 // injectCloudBoot splices the operator's default food-DB URL (as a

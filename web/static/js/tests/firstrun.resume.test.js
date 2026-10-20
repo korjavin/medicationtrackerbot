@@ -9,7 +9,8 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const STATE_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/state.js');
 const FEATURES_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/screens/features.js');
-const INTEGRATIONS_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/screens/integrations.js');
+const TRIAL_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/screens/trial.js');
+const OFFER_CARD_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-offer-card.js');
 const INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/index.js');
 
 // Task 7 — resume safety. The orchestrator should re-enter the flow at
@@ -39,9 +40,10 @@ function loadFlow({
     // sessionStorage points at — Task 7's whole point is "no fixed
     // entry point: whichever step the user died on, render that one".
     for (const file of [
+        OFFER_CARD_JS,
         STATE_JS,
         FEATURES_JS,
-        INTEGRATIONS_JS,
+        TRIAL_JS,
         INDEX_JS,
     ]) {
         const src = fs.readFileSync(file, 'utf8');
@@ -52,27 +54,30 @@ function loadFlow({
 }
 
 describe('firstrun resume safety', () => {
-    it('resumes at the persisted step (integrations) instead of restarting from the picker', () => {
-        const { window, document, cleanup } = loadFlow({
-            bootstrap: { needs_first_run: true },
-            storedStep: 'integrations',
+    // 'integrations' is the step's pre-med-ta2n.2 name: a session stored
+    // before the rename resumes on W2 too.
+    for (const stored of ['trial', 'integrations']) {
+        it(`resumes at the persisted W2 trial step (${stored}) instead of restarting from the picker`, () => {
+            const { window, document, cleanup } = loadFlow({
+                bootstrap: { needs_first_run: true },
+                storedStep: stored,
+            });
+            try {
+                window.WGFirstRun.mount();
+
+                // W2 is the one that renders — its actions exist, the
+                // picker's rows and Skip do not.
+                expect(document.querySelector('[data-firstrun-action="trial"]')).not.toBeNull();
+                expect(document.querySelector('[data-firstrun-action="not-now"]')).not.toBeNull();
+                expect(document.querySelector('[data-firstrun-feature]')).toBeNull();
+                expect(document.querySelector('[data-firstrun-action="skip-all"]')).toBeNull();
+
+                // The title swaps too — the orchestrator pulls it from the
+                // screen registry.
+                expect(document.getElementById('wg-firstrun-title').textContent).toBe('Log a meal by just saying it');
+            } finally { cleanup(); }
         });
-        try {
-            window.WGFirstRun.mount();
-
-            // Integrations screen is the one that renders — its form
-            // fields exist, the picker's rows and Skip do not.
-            expect(document.getElementById('wg-firstrun-openai-api-key')).not.toBeNull();
-            expect(document.querySelector('[data-firstrun-action="save"]')).not.toBeNull();
-            expect(document.querySelector('[data-firstrun-feature]')).toBeNull();
-            expect(document.querySelector('[data-firstrun-action="skip-all"]')).toBeNull();
-
-            // The title swaps too — the orchestrator pulls it from the
-            // screen registry.
-            const title = document.getElementById('wg-firstrun-title');
-            expect(title.textContent.toLowerCase()).toContain('openai');
-        } finally { cleanup(); }
-    });
+    }
 
     // A session mid-flow on the pre-v3 overlay (bd med-ta2n.1 removed
     // welcome/done), or an unknown name: back to the picker, never a crash.
@@ -86,7 +91,7 @@ describe('firstrun resume safety', () => {
                 window.WGFirstRun.mount();
                 expect(document.querySelector('[data-firstrun-feature="medication"]')).not.toBeNull();
                 expect(document.querySelector('[data-firstrun-action="skip-all"]')).not.toBeNull();
-                expect(document.getElementById('wg-firstrun-openai-api-key')).toBeNull();
+                expect(document.querySelector('[data-firstrun-action="trial"]')).toBeNull();
                 expect(window.WGFirstRun.state.getStep()).toBe('features');
             } finally { cleanup(); }
         });
@@ -100,10 +105,10 @@ describe('firstrun resume safety', () => {
         // reset-onboarding flow) doesn't resume mid-flow.
         const { window, document, cleanup } = loadFlow({
             bootstrap: { needs_first_run: false },
-            storedStep: 'integrations',
+            storedStep: 'trial',
         });
         try {
-            expect(window.sessionStorage.getItem('wg-firstrun-step')).toBe('integrations');
+            expect(window.sessionStorage.getItem('wg-firstrun-step')).toBe('trial');
             window.WGFirstRun.mount();
             expect(document.getElementById('wg-firstrun-overlay')).toBeNull();
             expect(window.WGFirstRun.isActive()).toBe(false);
@@ -112,10 +117,10 @@ describe('firstrun resume safety', () => {
     });
 
     it('persisted step survives a simulated mid-flow process kill (re-mount after dismiss-less close)', () => {
-        // Simulate the lifecycle: user advances to integrations, the
+        // Simulate the lifecycle: user advances to the trial step, the
         // WebView is destroyed before dismiss() runs (process kill).
         // Next launch fires bootstrap → mount(); the orchestrator reads
-        // sessionStorage and re-enters at integrations.
+        // sessionStorage and re-enters at the trial step.
         const { window, document, cleanup } = loadFlow({
             bootstrap: { needs_first_run: true },
         });
@@ -123,8 +128,8 @@ describe('firstrun resume safety', () => {
             window.WGFirstRun.mount();
             // Walk forward two steps the way the screen handlers do.
             window.WGFirstRun.state.setStep('features');
-            window.WGFirstRun.state.setStep('integrations');
-            expect(window.sessionStorage.getItem('wg-firstrun-step')).toBe('integrations');
+            window.WGFirstRun.state.setStep('trial');
+            expect(window.sessionStorage.getItem('wg-firstrun-step')).toBe('trial');
 
             // Simulate process kill: tear down the overlay element + the
             // mount latch without going through dismiss() (which would
@@ -140,8 +145,8 @@ describe('firstrun resume safety', () => {
             window.eval(`${indexSrc}\n//# sourceURL=file://${INDEX_JS}`);
 
             window.WGFirstRun.mount();
-            expect(document.getElementById('wg-firstrun-openai-api-key')).not.toBeNull();
-            expect(window.sessionStorage.getItem('wg-firstrun-step')).toBe('integrations');
+            expect(document.querySelector('[data-firstrun-action="trial"]')).not.toBeNull();
+            expect(window.sessionStorage.getItem('wg-firstrun-step')).toBe('trial');
         } finally { cleanup(); }
     });
 });

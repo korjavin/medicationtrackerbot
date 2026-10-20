@@ -267,9 +267,11 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
   Blob, so a URL revoked right after `click()` still works) and posts it as a
   base64 data URL over a second listener, **`window.wgFiles`** (download and
   print only; capability ops stay on `wgNative`). The shell writes it to
-  `cacheDir/downloads` and asks *Save to device* (`ACTION_CREATE_DOCUMENT`,
-  temp file deleted after the copy) or *Share* (FileProvider; the file stays
-  until the next download or launch — Android gives no "sheet closed" signal).
+  `cacheDir/downloads` and opens the system file picker (`ACTION_CREATE_DOCUMENT`)
+  directly, with no shell dialog: the web's Backup-ready sheet already offers
+  the choice. The temp file is deleted after the copy or on cancel. No Share
+  from the shell (the WebView has no Web Share with files; a shared op would
+  be a separate bead). Twin: iOS med-o7zq.43 (Files export picker).
   https attachments go to the system DownloadManager **without** the WebView's
   cookies (DownloadManager re-sends request headers across redirects, to any
   host); cleartext http is refused (`AccountUrl.isDownloadable`, unit-tested).
@@ -675,12 +677,12 @@ APK also carries the asset, inert: its base is the real deployment, not `qa.test
 
 **`smoke`** (the agent's default scenario; it claims the run's one invite, so
 `all` runs it last and it has no retry): soft-authenticator launch → invite → signup wizard →
-passkey → loss-ack → Emergency Kit (the native Save/Share dialog is
+passkey → loss-ack → Emergency Kit (the system file picker is
 screenshotted, dismissed with Back) → vault → onboarding wizard (screenshotted, Skip all) → Today, Meds, Vitals (`health`),
 Food, Settings → Backup & import: passphrase export through the real button
-to the Save/Share dialog, the same at ~45 MB of vault JSON (stubbed
+to the system file picker, the same at ~45 MB of vault JSON (stubbed
 `exportAll`), and a 25 MB blob probe (`results.smoke.export`: phase times,
-status timeline, click → dialog ms; bd med-nvd4) → the add-BP sheet, a real tap on systolic → keyboard
+status timeline, click → picker ms; bd med-nvd4) → the add-BP sheet, a real tap on systolic → keyboard
 (`smoke-bp-sheet-keyboard.png`; `results.smoke.keyboard` says whether the
 focused input sits inside the visual viewport) → rotated with the sheet open
 (portrait lock: expected unchanged) → Back (the first hides the keyboard) closes
@@ -1260,7 +1262,7 @@ account has its passkey, and cloud mode never shows or checks it.
    *ready to move* hint → claim a test invite → the account shows the records
    with no Restore, and the toast once → *Switch account* → no hint → *Only
    on this device* → *Start*: the local records are intact. Once more with
-   the file fallback: Backup & import → Export backup → *Save to device* →
+   the file fallback: Backup & import → Export backup → *Save to device* → file picker →
    *Switch account* → claim → Restore the file
    ([Moving to a cloud account](#moving-to-a-cloud-account-bd-med-nt9p3210)).
 10. Lock (a phone with a screen lock): intro switch on → *Start* asks for the

@@ -41,18 +41,31 @@ describe('WGFirstRun.state — step tracker', () => {
     it('setStep persists a valid step to sessionStorage under wg-firstrun-step', () => {
         const { window, cleanup } = loadState();
         try {
+            window.WGFirstRun.state.setStep('trial');
+            expect(window.sessionStorage.getItem('wg-firstrun-step')).toBe('trial');
+            expect(window.WGFirstRun.state.getStep()).toBe('trial');
+        } finally { cleanup(); }
+    });
+
+    // bd med-ta2n.2 renamed 'integrations' to 'trial': a session stored before
+    // the rename resumes on the trial step, and the old name is not settable.
+    it('getStep maps a stored pre-rename "integrations" to "trial"', () => {
+        const { window, cleanup } = loadState();
+        try {
+            window.sessionStorage.setItem('wg-firstrun-step', 'integrations');
+            expect(window.WGFirstRun.state.getStep()).toBe('trial');
+            window.WGFirstRun.state.clear();
             window.WGFirstRun.state.setStep('integrations');
-            expect(window.sessionStorage.getItem('wg-firstrun-step')).toBe('integrations');
-            expect(window.WGFirstRun.state.getStep()).toBe('integrations');
+            expect(window.sessionStorage.getItem('wg-firstrun-step')).toBeNull();
         } finally { cleanup(); }
     });
 
     it('setStep ignores unknown step names (defensive against caller typos)', () => {
         const { window, cleanup } = loadState();
         try {
-            window.WGFirstRun.state.setStep('integrations');
+            window.WGFirstRun.state.setStep('trial');
             window.WGFirstRun.state.setStep('not-a-real-step');
-            expect(window.sessionStorage.getItem('wg-firstrun-step')).toBe('integrations');
+            expect(window.sessionStorage.getItem('wg-firstrun-step')).toBe('trial');
         } finally { cleanup(); }
     });
 
@@ -71,7 +84,7 @@ describe('WGFirstRun.state — step tracker', () => {
     it('clear() removes the key so the next getStep returns the default', () => {
         const { window, cleanup } = loadState();
         try {
-            window.WGFirstRun.state.setStep('integrations');
+            window.WGFirstRun.state.setStep('trial');
             window.WGFirstRun.state.clear();
             expect(window.sessionStorage.getItem('wg-firstrun-step')).toBeNull();
             expect(window.WGFirstRun.state.getStep()).toBe('features');
@@ -81,7 +94,7 @@ describe('WGFirstRun.state — step tracker', () => {
     it('exposes the canonical step list under VALID_STEPS', () => {
         const { window, cleanup } = loadState();
         try {
-            expect(Array.from(window.WGFirstRun.state.VALID_STEPS)).toEqual(['features', 'integrations']);
+            expect(Array.from(window.WGFirstRun.state.VALID_STEPS)).toEqual(['features', 'trial']);
         } finally { cleanup(); }
     });
 });
