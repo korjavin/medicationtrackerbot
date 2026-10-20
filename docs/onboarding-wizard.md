@@ -124,7 +124,10 @@ point — `med-4pz.4`'s Emergency Kit nudge is the one screen we want people to 
 
 The claim wizard used to end at `renderDone`, a terminal screen ("the full app arrives with the next update")
 with no button and no redirect. It is gone. The sequence is now
-`welcome → (unsupported-authenticator) → loss-ack → Emergency Kit → (telegram) → (trial) → (install) → enterApp`.
+`welcome → (unsupported-authenticator) → Emergency Kit (with the loss-ack) → (telegram) → (trial) → (install) → enterApp`.
+The Emergency Kit page (bd `med-ckm5.2`, design O1) is one page: "I saved my Emergency Kit" alone unlocks
+Continue, which POSTs `/api/loss-ack`; the save state (`download | print | ack`, or `none` while a fresh code is unconfirmed) goes to the synced
+`emergencykit` vault record via `web/cloud/js/kit-state.js` on the next unlocked open.
 
 `enterApp(ctx)` (`web/cloud/js/signup.js`) establishes the LDK warm cache with the ceremony's `{dek, accountId}`
 and then navigates `location.href = '/'`, exactly as `renderDeviceList`'s `onExit` already does

@@ -91,6 +91,31 @@ describe('features/trial-consent.js — disclosure dialog + retry seam', () => {
         modal().querySelector('[data-trial-consent-choice="deny"]').click();
     });
 
+    // med-ckm5.11: a scannable sheet — eyebrow per scope, bold-lead facts on
+    // top, the full disclosure in a closed "Full details" disclosure. The web
+    // has no device check, so no fact for one.
+    it('reads as facts: scope eyebrow, What’s sent / Where it goes / own key, no Device check on the web, details closed', async () => {
+        const eyebrows = { ai: 'Food logging', voice: 'Voice calls', tg: 'Telegram agent' };
+        for (const [scope, eyebrow] of Object.entries(eyebrows)) {
+            const p = env.window.TrialConsent.request(scope);
+            const el = modal();
+            expect(el.querySelector('.wg-sheethead .wg-eyebrow').textContent).toBe(eyebrow);
+            const leads = [...el.querySelectorAll('.wg-facts > li b')].map((b) => b.textContent);
+            expect(leads).toEqual(['What’s sent', 'Where it goes', 'Rather use your own key?']);
+            expect(el.querySelector('.wg-facts').textContent).toMatch(/Settings → AI & integrations/);
+            expect(el.querySelectorAll('.wg-facts .wg-ico svg').length).toBe(3);
+            const disc = el.querySelector('details.wg-disc');
+            expect(disc.open).toBe(false);
+            expect(disc.querySelector('summary').textContent).toMatch(/Full details/);
+            // The full disclosure is all inside the disclosure, word for word.
+            expect(disc.querySelectorAll('.wg-trial-consent-modal__text').length).toBe(3);
+            expect(el.querySelectorAll('.wg-trial-consent-modal__text').length).toBe(3);
+            el.querySelector('.wg-sheethead [aria-label="Close"]').click();
+            await expect(p).resolves.toBe(false);
+        }
+        expect(env.window.apiCall).not.toHaveBeenCalled();
+    });
+
     it('Allow PATCHes { scope: true } and resolves true; the modal unmounts', async () => {
         const p = env.window.TrialConsent.request('ai');
         modal().querySelector('[data-trial-consent-choice="allow"]').click();
@@ -125,7 +150,7 @@ describe('features/trial-consent.js — disclosure dialog + retry seam', () => {
         const p = env.window.TrialConsent.request('ai');
         const el = modal();
         expect(el.classList.contains('wg-sheet')).toBe(true);
-        expect(el.querySelector('.wg-sheethead .wg-sheethead__title').textContent).toMatch(/trial AI/i);
+        expect(el.querySelector('.wg-sheethead .wg-sheethead__title').textContent).toBe('Try AI for free');
         expect(el.querySelector('.wg-sheet__foot [data-trial-consent-choice="allow"]').classList.contains('wg-btn--primary')).toBe(true);
         expect(env.document.getElementById('modal-overlay').classList.contains('hidden')).toBe(false);
         // #modal-overlay is the one dim; the own backdrop only catches taps

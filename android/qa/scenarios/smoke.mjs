@@ -229,20 +229,16 @@ async function exportBackup(ctx, page, r) {
 }
 
 /**
- * The signup wizard on an opened invite (soft authenticator) → passkey → loss-ack → Emergency Kit
+ * The signup wizard on an opened invite (soft authenticator) → passkey → Emergency Kit
  * (Save/Share shot, dismissed) → vault → onboarding wizard skipped. Shared with local-to-cloud.
  */
 export async function claimAccount(ctx, page) {
   const { shell, sleep } = ctx;
   await ctx.step('create the passkey', async () => {
     await page.click('#create-passkey');
-    await page.locator('#loss-ack-checkbox').waitFor({ timeout: 60_000 });
-  });
-  await ctx.shot('loss-ack');
-  await ctx.step('loss-ack → emergency kit', async () => {
-    await page.check('#loss-ack-checkbox');
-    await page.click('#loss-ack-continue');
-    await page.locator('#kit-download').waitFor({ timeout: 30_000 });
+    // #kit-download sits in the collapsed "Download or print" disclosure: attached, then opened.
+    await page.locator('#kit-download').waitFor({ state: 'attached', timeout: 60_000 });
+    await page.evaluate(() => { document.querySelector('#kit-download').closest('details').open = true; });
   });
   await ctx.shot('kit');
   await ctx.step('kit download offers Save/Share', async () => {
@@ -253,7 +249,7 @@ export async function claimAccount(ctx, page) {
   await ctx.step('dismiss Save/Share and continue', async () => {
     await shell('input keyevent KEYCODE_BACK');
     await sleep(1000);
-    if (!(await page.isChecked('#kit-saved-checkbox'))) await page.check('#kit-saved-checkbox');
+    if ((await page.getAttribute('#kit-saved', 'aria-pressed')) !== 'true') await page.click('#kit-saved');
     await page.click('#kit-continue');
     await sleep(1500);
     const skip = page.locator('#install-skip');

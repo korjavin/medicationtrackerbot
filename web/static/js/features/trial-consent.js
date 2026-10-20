@@ -54,17 +54,99 @@
             title: 'Try the AI, food database and voice calls without your own keys?',
             data: 'What you ask the AI to read — meal and activity descriptions, meal photos, workout-sheet photos with your plan’s exercise names, and exercise names to tag — and the barcodes and food names you look up will be sent through our server: AI requests to the operator’s AI provider account (OpenAI or Anthropic, the operator’s choice), lookups to the operator’s food database. Our server keeps no prompts, photos or searches.',
             voice: 'Voice calls: your voice audio and the transcript go to the operator’s ElevenLabs account. The agent’s answers are written by the operator’s AI provider through our server, which receives each turn AND the health data the agent reads from this phone to answer you — blood pressure, weight, workouts, medications, food, sleep, notes. Our server keeps no call content.',
-            transit: 'To count the trial without an account, our server stores an anonymous install id from Apple’s App Attest and how many requests and seconds of calls this iPhone’s trial has used, and Apple’s DeviceCheck keeps a mark that this iPhone had its trial. You get a limited number of free AI requests on this iPhone, a daily allowance of food lookups, and a limited number of free minutes of voice calls on this iPhone, with a daily limit (the minutes left are shown in Settings), counted by our server as call time: each call uses its full length limit when it starts, even if you hang up sooner. Reinstalling the app continues the same allowance — a trial pass kept in this iPhone’s keychain links the new install to it — and the trial does not start again.',
+            transit: [
+                'To count the trial without an account, our server stores an anonymous install id from Apple’s App Attest and how many requests and seconds of calls this iPhone’s trial has used, and Apple’s DeviceCheck keeps a mark that this iPhone had its trial.',
+                'You get a limited number of free AI requests on this iPhone, a daily allowance of food lookups, and a limited number of free minutes of voice calls on this iPhone, with a daily limit (the minutes left are shown in Settings), counted by our server as call time: each call uses its full length limit when it starts, even if you hang up sooner. Reinstalling the app continues the same allowance — a trial pass kept in this iPhone’s keychain links the new install to it — and the trial does not start again.',
+            ],
+            deviceCheck: 'Apple App Attest confirms this is the real app on a real iPhone. No personal data is shared.',
+            deviceIcon: 'faceid',
             alternative: 'Alternative: add your own keys in Settings → AI & integrations, and this data goes only to your own providers, never through our server.',
         },
     };
 
+    // The scannable layer (med-ckm5.11): an eyebrow and four facts with bold
+    // leads; the paragraphs above stay word for word under "Full details".
+    // Draft copy — owner/legal review before release.
+    const THROUGH_SERVER = 'Through our server to the AI provider, encrypted in transit. Our server keeps none of it after the reply.';
+    const FACTS = {
+        ai: { eyebrow: 'Food logging', icon: 'camera', sent: 'Only the meal text and photos you log, never the rest of your records.', where: THROUGH_SERVER },
+        voice: {
+            eyebrow: 'Voice calls', icon: 'mic',
+            sent: 'Your voice, the transcript, and the health data the agent reads from your vault to answer you.',
+            where: 'To the voice service, then through our server to the AI provider, encrypted in transit. Our server keeps none of it.',
+        },
+        tg: { eyebrow: 'Telegram agent', icon: 'message', sent: 'Your Telegram messages and the vault records the assistant reads to answer them.', where: THROUGH_SERVER },
+        anon: {
+            eyebrow: 'AI, food database and voice', icon: 'camera',
+            sent: 'What you ask the AI to read, the foods you look up, and your voice calls with the records the agent reads to answer.',
+            where: 'Through our server to the AI provider and the food database, encrypted in transit. Our server keeps none of it after the reply.',
+        },
+    };
+    const OWN_KEY = 'Add it in Settings → AI & integrations instead.';
+
     function copyFor(scope) {
         const local = document.documentElement.classList.contains('wg-local-vault');
         if (!local) return COPY[scope] && { ...COPY[scope], alternative: ALTERNATIVE };
-        // The Android shell names its own attestation (bd med-nt9p.32.8.4); the iOS impl has no override.
-        const transit = window.Attest?.copy?.trialTransit;
-        return LOCAL_COPY[scope] && transit ? { ...LOCAL_COPY[scope], transit } : LOCAL_COPY[scope];
+        // A shell that names its own attestation (Android, bd med-nt9p.32.8.4)
+        // replaces both platform texts as a unit, so no Apple wording survives;
+        // the iOS impl has no override.
+        const platform = window.Attest?.copy;
+        if (!LOCAL_COPY[scope] || !platform?.trialTransit) return LOCAL_COPY[scope];
+        return { ...LOCAL_COPY[scope], transit: platform.trialTransit, deviceCheck: platform.deviceCheck, deviceIcon: 'device' };
+    }
+
+    function icon(doc, name, extra) {
+        const i = doc.createElement('i');
+        i.className = extra ? `wg-ico ${extra}` : 'wg-ico';
+        i.setAttribute('data-icon', name);
+        return i;
+    }
+
+    // Kit .wg-facts + a closed .wg-disc holding the full disclosure.
+    function renderBody(doc, scope, copy) {
+        const f = FACTS[scope];
+        const facts = doc.createElement('ul');
+        facts.className = 'wg-facts wg-facts--sm';
+        const rows = [
+            [f.icon, 'What’s sent', f.sent],
+            ['shield', 'Where it goes', f.where],
+            // Web has no device check, so no fact for it.
+            copy.deviceCheck && [copy.deviceIcon || 'device', 'Device check', copy.deviceCheck],
+            ['key', 'Rather use your own key?', OWN_KEY],
+        ].filter(Boolean);
+        for (const [name, lead, text] of rows) {
+            const li = doc.createElement('li');
+            const span = doc.createElement('span');
+            const b = doc.createElement('b');
+            b.textContent = lead;
+            span.append(b, text);
+            li.append(icon(doc, name), span);
+            facts.appendChild(li);
+        }
+
+        const disc = doc.createElement('details');
+        disc.className = 'wg-disc';
+        const summary = doc.createElement('summary');
+        const sumBody = doc.createElement('span');
+        sumBody.className = 'wg-setting__body';
+        const sumTitle = doc.createElement('span');
+        sumTitle.className = 'wg-setting__title';
+        sumTitle.textContent = 'Full details';
+        const sumDesc = doc.createElement('span');
+        sumDesc.className = 'wg-setting__desc';
+        sumDesc.textContent = copy.deviceCheck ? 'How the device check works and what our server keeps' : 'Exactly what is sent and where';
+        sumBody.append(sumTitle, sumDesc);
+        summary.append(sumBody, icon(doc, 'chev-d', 'wg-disc__chev'));
+        const discBody = doc.createElement('div');
+        discBody.className = 'wg-disc__body';
+        for (const text of [copy.data, copy.voice, ...[].concat(copy.transit), copy.alternative].filter(Boolean)) {
+            const p = doc.createElement('p');
+            p.className = 'wg-trial-consent-modal__text';
+            p.textContent = text;
+            discBody.appendChild(p);
+        }
+        disc.append(summary, discBody);
+        return [facts, disc];
     }
 
     // Best-effort persist; resolves true only when the PATCH actually landed.
@@ -103,16 +185,18 @@
 
             const grab = doc.createElement('div');
             grab.className = 'wg-sheet__grab';
-            const header = window.WGSheet.header({ eyebrow: 'Trial', title: copy.title }).el;
+            const head = window.WGSheet.header({
+                eyebrow: FACTS[scope].eyebrow,
+                title: 'Try AI for free',
+                actions: [{ label: 'Close', icon: 'x' }],
+            });
+            const header = head.el;
+            const closeBtn = head.buttons && head.buttons[0];
 
             const body = doc.createElement('div');
             body.className = 'wg-sheet__body';
-            for (const text of [copy.data, copy.voice, copy.transit, copy.alternative].filter(Boolean)) {
-                const p = doc.createElement('p');
-                p.className = 'wg-trial-consent-modal__text';
-                p.textContent = text;
-                body.appendChild(p);
-            }
+            body.append(...renderBody(doc, scope, copy));
+            if (window.WGIcons && typeof window.WGIcons.hydrate === 'function') window.WGIcons.hydrate(body);
 
             const foot = doc.createElement('div');
             foot.className = 'wg-sheet__foot';
@@ -162,6 +246,7 @@
             denyBtn.addEventListener('click', () => settle(false));
             allowBtn.addEventListener('click', () => settle(true));
             backdrop.addEventListener('click', () => settle(null));
+            if (closeBtn) closeBtn.addEventListener('click', () => settle(null));
             doc.addEventListener('keydown', onKeydown, true);
 
             doc.body.appendChild(backdrop);
