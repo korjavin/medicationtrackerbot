@@ -435,6 +435,12 @@ window.MedTrackerCloudReady = (async function boot() {
         // is already unlocked). The IIFE closes just before the outer catch.
         void (async () => {
         await pullOnOpen(ctx);
+        // The kit page's save state (bd med-ckm5.2, kit-state.js): after
+        // pullOnOpen, so the record lands on the synced singleton.
+        Promise.resolve()
+            .then(() => import('/js/kit-state.js'))
+            .then(({ drainKitSaved }) => drainKitSaved(shimCall))
+            .catch((e) => console.error('[cloud-boot] emergency kit state failed', e));
         // The local → cloud move pickup (bd med-nt9p.32.18): after pullOnOpen,
         // as importAll needs the bootstrapped cursor. Not awaited, so a slow
         // shell or a pending confirm never holds the rest of the boot; it then

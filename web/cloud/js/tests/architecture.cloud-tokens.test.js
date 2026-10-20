@@ -31,7 +31,12 @@ const DIALOG_CSS = path.join(REPO_ROOT, 'web/static/css/dialog.css');
 // pages link components.css too. Only the rules for these roots render in the
 // shell; their tokens must resolve there as well.
 const COMPONENTS_CSS = path.join(REPO_ROOT, 'web/static/css/components.css');
-const SHELL_KIT_ROOTS = ['.wg-dialog', '.wg-btn', '.wg-choice', '.wg-field', '.wg-input', '.wg-ico'];
+// The Emergency Kit page and the ceremony exit bar (bd med-ckm5.2) wear the
+// v2.1 page kit too.
+const SHELL_KIT_ROOTS = ['.wg-dialog', '.wg-btn', '.wg-choice', '.wg-field', '.wg-input', '.wg-ico',
+    '.wg-exitbar', '.wg-pagefoot', '.wg-content', '.wg-vstack', '.wg-hstack', '.wg-steps', '.wg-meta',
+    '.wg-shell__title', '.wg-shell__lede', '.wg-disc', '.wg-row__lead', '.wg-setting__', '.wg-kv', '.wg-qr',
+    '.wg-hint', '.wg-chip', '.wg-note'];
 
 // The :root blocks hold gradients full of parens but no braces, so a
 // non-greedy match to the first '}' is a correct extraction here.

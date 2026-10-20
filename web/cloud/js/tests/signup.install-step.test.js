@@ -93,10 +93,7 @@ afterEach(() => {
 async function reachInstallStep(ctx = CTX) {
   const app = dom.window.document.getElementById('app');
   await renderEmergencyKit(app, ctx);
-  app.querySelector('#kit-print').click();
-  const checkbox = app.querySelector('#kit-saved-checkbox');
-  checkbox.checked = true;
-  checkbox.dispatchEvent(new dom.window.Event('change'));
+  app.querySelector('#kit-print').click(); // also ticks "I saved it"
   app.querySelector('#kit-continue').click();
   return app;
 }

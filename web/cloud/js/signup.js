@@ -1,7 +1,7 @@
 // Claim/registration wizard: the passkey signup ceremony described in
 // docs/cloud-crypto.md "Signup (first device)". Drives the account shell
-// (signup.html's #app) through create-passkey -> loss-protection ack ->
-// Emergency Kit -> optional Telegram link -> optional AI trial, then enters the app itself. Each
+// (signup.html's #app) through create-passkey -> Emergency Kit (with the
+// loss-protection ack) -> optional Telegram link -> optional AI trial, then enters the app itself. Each
 // screen is rendered fresh from the outcome of the previous step rather than a
 // stored step counter, per docs/cloud-mode.md Onboarding ("the wizard is
 // stateless").
@@ -21,6 +21,7 @@ import { createCredential, passkeyCeremony, prfProbe } from './passkey-get.js';
 import { diagHttp } from './passkey-diag.js';
 import { isIOS, isMobile, isStandalone, iosInstallStepsHtml } from './push.js';
 import { downloadDoc, printDoc } from './print-doc.js';
+import { stashKitSaved } from './kit-state.js';
 
 const EXPIRED_LINK_MESSAGE = 'Could not start passkey registration — the invite link may be expired.';
 // Android shell's steady busy step (passkey-get.js passkeyCeremony).
@@ -203,7 +204,22 @@ async function startRegistration(app, claimToken) {
   }
   if (!finishRes.ok) throw new Error('Passkey registration failed. Please try again.');
 
-  renderLossProtection(app, { accountId, dek });
+  await showSignupKit(app, { accountId, dek });
+}
+
+// The account exists from here on, so a failed kit upload must not fall back
+// to "Create your passkey" (the claim is spent): retry the kit in place.
+function showSignupKit(app, ctx) {
+  return renderEmergencyKit(app, ctx).catch((err) => {
+    app.innerHTML = `
+      <section class="wizard-step">
+        <h1>Couldn't create your Emergency Kit</h1>
+        <p class="wizard-error" id="kit-setup-error"></p>
+        <button id="kit-retry" class="wg-btn wg-btn--primary">Try again</button>
+      </section>`;
+    app.querySelector('#kit-setup-error').textContent = err.message || String(err);
+    app.querySelector('#kit-retry').addEventListener('click', () => showSignupKit(app, ctx));
+  });
 }
 
 // Exported so claim.js (device-transfer enrollment) shows the identical
@@ -218,54 +234,26 @@ export function renderUnsupportedAuthenticator(app) {
     </section>`;
 }
 
-function renderLossProtection(app, ctx) {
-  app.innerHTML = `
-    <section class="wizard-step">
-      <h1>Protect against device loss</h1>
-      <p>We cannot recover your data if you lose every passkey and the
-         Emergency Kit — there is no password reset. Before continuing:</p>
-      <ul>
-        <li>Check whether your passkey is synced (iCloud Keychain / Google
-            Password Manager) — if so, losing this device is a non-event.</li>
-        <li>You can add a second device later.</li>
-        <li>Save the Emergency Kit on the next screen.</li>
-      </ul>
-      <label class="wizard-ack">
-        <input type="checkbox" id="loss-ack-checkbox">
-        I understand my data is unrecoverable if I lose this device.
-      </label>
-      <button id="loss-ack-continue" class="wg-btn wg-btn--primary" disabled>Continue</button>
-    </section>`;
-  const checkbox = app.querySelector('#loss-ack-checkbox');
-  const button = app.querySelector('#loss-ack-continue');
-  checkbox.addEventListener('change', () => { button.disabled = !checkbox.checked; });
-  button.addEventListener('click', () => {
-    button.disabled = true;
-    fetch('/api/loss-ack', { method: 'POST' })
-      .then((res) => {
-        if (!res.ok) throw new Error('Could not save your acknowledgment.');
-        return renderEmergencyKit(app, ctx);
-      })
-      .catch((err) => {
-        button.disabled = false;
-        renderLossProtectionError(app, err);
-      });
-  });
+// Signup's tail after the kit page: the server-side loss acknowledgement
+// (POST /api/loss-ack — the kit page's "I saved it" is that acknowledgement
+// now, bd med-ckm5.2), then the optional Telegram step.
+async function finishSignupKit(app, ctx) {
+  const res = await fetch('/api/loss-ack', { method: 'POST' });
+  if (!res.ok) throw new Error('Could not save your acknowledgment. Try again.');
+  return renderTelegramStep(app, ctx);
 }
 
-function renderLossProtectionError(app, err) {
-  const p = document.createElement('p');
-  p.className = 'wizard-error';
-  p.textContent = err.message || String(err);
-  app.querySelector('section').appendChild(p);
-}
-
+// The one Emergency Kit page (bd med-ckm5.2, design O1 in
+// screens-onboarding.html): loss protection and the kit together, three
+// disclosures, an "I saved it" choice, Continue docked in .wg-pagefoot.
+//
 // Exported so recover.js re-renders the identical Emergency Kit screen for
 // the forced code rotation after a successful recovery redemption, and so
 // devices.js can offer "Regenerate Emergency Kit" (med-d5t.12), rather than a
 // second copy of this ceremony. ctx.onKitSaved, if given, replaces the default
-// telegram-step-then-enter-app tail (recover.js redirects to the
-// already-unlocked vault itself); ctx.continueLabel renames its button.
+// loss-ack-then-telegram tail (recover.js redirects to the already-unlocked
+// vault itself) and drops signup's step indicator; ctx.continueLabel renames
+// its button.
 //
 // Every caller is a rotation of the same shape: mint a code, re-wrap the DEK,
 // upload envelope + verifier atomically, make the user actually save it. The
@@ -308,68 +296,111 @@ export async function renderEmergencyKit(app, ctx) {
   const qrSvg = qr.createSvgTag(4);
   const kitDoc = buildKitDocument({ kitUrl, accountId: ctx.accountId, formatted, qrSvg });
 
+  const signup = !ctx.onKitSaved;
+  const disc = (icon, title, desc, body, extra = '', leadId = '') => `
+        <details class="wg-disc">
+          <summary><span class="wg-row__lead${icon === 'alert' ? ' wg-row__lead--sun' : ''}"${leadId}><i class="wg-ico" data-icon="${icon}"></i></span><span class="wg-setting__body"><span class="wg-setting__title">${title}</span><span class="wg-setting__desc"${extra ? ' id="kit-save-desc"' : ''}>${desc}</span></span>${extra}<i class="wg-ico wg-disc__chev" data-icon="chev-d"></i></summary>
+          <div class="wg-disc__body">${body}</div>
+        </details>`;
   app.innerHTML = `
-    <section class="wizard-step kit">
-      <h1>Your Emergency Kit</h1>
-      <p>This is the only way back into your account if you lose every
-         passkey. Save or print it now — it will not be shown again.</p>
-      <dl>
-        <dt>URL</dt><dd>${kitUrl}</dd>
-        <dt>Account ID</dt><dd id="kit-account-id"></dd>
-        <dt>Recovery code</dt><dd class="recovery-code">${formatted}</dd>
-      </dl>
-      <div class="kit-qr">${qrSvg}</div>
-      <div class="kit-actions">
-        <button id="kit-download" class="wg-btn">Download Emergency Kit</button>
-        <button id="kit-print" class="wg-btn wg-btn--ghost">Print it instead</button>
+    <section class="kit-page">
+      <div class="wg-content">
+        <div class="wg-vstack">
+          ${signup ? '<span class="wg-hstack"><span class="wg-steps"><i class="is-done"></i><i class="is-done"></i><i class="is-now"></i><i></i><i></i></span><span class="wg-meta">Step 3 of 5</span></span>' : ''}
+          <h1 class="wg-shell__title">Save your Emergency Kit</h1>
+          <p class="wg-shell__lede">It's the only way back in if you lose every passkey.</p>
+        </div>
+        ${disc('alert', 'Why it matters', 'There\'s no password reset', `
+          <p>Your account opens with passkeys on your devices. If you lose all of them, the kit is the only way back in. Nobody, including us, can reset it for you, and this page won't show the code again.</p>
+          <p>If your passkey syncs (iCloud Keychain, Google Password Manager), losing one device locks nothing. You can add a second device later.</p>`)}
+        ${disc('key', 'What\'s in the kit', 'Address, ID, recovery code, QR', `
+          <dl class="wg-kv">
+            <div><dt>Account address</dt><dd id="kit-url"></dd></div>
+            <div><dt>Account ID</dt><dd id="kit-account-id"></dd></div>
+            <div><dt>Recovery code</dt><dd id="kit-code">${formatted}</dd></div>
+          </dl>
+          <div class="wg-hstack"><span class="wg-qr">${qrSvg}</span><span class="wg-hint">The QR opens this account on a new phone: first run → Scan.</span></div>`)}
+        ${disc('download', 'Download or print', 'A one-page document', `
+          <div class="wg-hstack">
+            <button type="button" id="kit-download" class="wg-btn"><i class="wg-ico wg-ico--sm" data-icon="download"></i>Download kit</button>
+            <button type="button" id="kit-print" class="wg-btn wg-btn--ghost"><i class="wg-ico wg-ico--sm" data-icon="print"></i>Print</button>
+          </div>
+          <p>Keep it somewhere other than this device: printed, or in a password manager.</p>`,
+          '<span class="wg-chip wg-chip--warn wg-chip--sm" id="kit-save-chip">Not saved</span>', ' id="kit-save-lead"')}
+        <button type="button" id="kit-saved" class="wg-choice wg-choice--check" aria-pressed="false"><span>I saved my Emergency Kit<span class="wg-choice__sub">Somewhere other than this device</span></span></button>
+        <div class="wg-note wg-note--warn" id="kit-risk" hidden><i class="wg-ico" data-icon="alert"></i><div class="wg-note__body"><span><b>We didn't see a download or print here.</b> That's fine if you saved it another way. Settings will show a reminder until you do.</span></div></div>
+        <p class="wizard-error" id="kit-error" hidden></p>
       </div>
-      <label class="wizard-ack">
-        <input type="checkbox" id="kit-saved-checkbox" disabled>
-        I saved my Emergency Kit.
-      </label>
-      <p class="kit-hint" id="kit-hint">Download or print the kit to continue.</p>
-      <button id="kit-continue" class="wg-btn wg-btn--primary" disabled>${escapeHtml(ctx.continueLabel || 'Enter Med Tracker')}</button>
+      <footer class="wg-pagefoot">
+        <button type="button" id="kit-continue" class="wg-btn wg-btn--primary wg-btn--lg" disabled>${escapeHtml(ctx.continueLabel || 'Continue')}</button>
+        <p class="wg-hint" id="kit-hint">Confirm you saved the kit to continue</p>
+      </footer>
     </section>`;
 
-  // Server-controlled value — set via textContent, never innerHTML.
+  // Origin and server-assigned id — set via textContent, never innerHTML.
+  app.querySelector('#kit-url').textContent = kitUrl;
   app.querySelector('#kit-account-id').textContent = ctx.accountId;
-  const checkbox = app.querySelector('#kit-saved-checkbox');
-  const button = app.querySelector('#kit-continue');
-  const hint = app.querySelector('#kit-hint');
+  const q = (sel) => app.querySelector(sel);
+  const choice = q('#kit-saved');
+  const button = q('#kit-continue');
+  const hydrate = () => globalThis.WGIcons?.hydrate?.(app);
+  hydrate();
 
-  // Two gates, deliberately. Producing a file (or printing) is the one that
-  // actually saves the account; the checkbox stays as a second line of defence
-  // but can no longer be the ONLY one — ticking a box saved nobody's vault.
-  let kitProduced = false;
+  // "I saved it" alone unlocks Continue (at the user's own risk, design O1):
+  // a download or print here only changes what the page says, and which `how`
+  // the synced emergencykit record gets (kit-state.js) — Settings keeps a
+  // reminder for an `ack` until a kit is actually produced.
+  let produced = null; // { how: 'download' | 'print', at }
+  const ticked = () => choice.getAttribute('aria-pressed') === 'true';
   const sync = () => {
-    checkbox.disabled = !kitProduced;
-    button.disabled = !(kitProduced && checkbox.checked);
+    button.disabled = !ticked();
+    q('#kit-hint').hidden = ticked();
+    q('#kit-risk').hidden = !ticked() || !!produced;
   };
-  const markProduced = () => {
-    kitProduced = true;
-    // The download/print IS the confirmation — auto-tick the attestation so the
-    // user isn't asked to separately confirm what they just did. Honest because
-    // this only fires after a real save action, never on step view. The box
-    // stays interactive as a manual fallback (untick/re-tick still works).
-    checkbox.checked = true;
-    hint.textContent = 'Kit saved and confirmed.';
+  const markProduced = (how) => {
+    produced = { how, at: Date.now() };
+    const time = new Date(produced.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const kb = Math.max(1, Math.round(new TextEncoder().encode(kitDoc).length / 1024));
+    q('#kit-save-desc').textContent = how === 'download' ? `Downloaded ${time} · HTML, ${kb} KB` : `Printed ${time}`;
+    q('#kit-save-lead').className = 'wg-row__lead wg-row__lead--ok';
+    const chip = q('#kit-save-chip');
+    chip.className = 'wg-chip wg-chip--ok wg-chip--sm';
+    chip.innerHTML = '<i class="wg-ico" data-icon="check"></i>Saved';
+    hydrate();
+    // The download/print IS the confirmation — tick it for the user (med-eas.47);
+    // it stays a toggle.
+    choice.setAttribute('aria-pressed', 'true');
     sync();
   };
 
-  checkbox.addEventListener('change', sync);
-  app.querySelector('#kit-download').addEventListener('click', () => {
-    // In-app browsers (and a few privacy modes) refuse Blob downloads. Fall
-    // through to the printable view rather than leaving the user stuck behind
-    // a gate they cannot open.
-    if (downloadKit(kitDoc, ctx.accountId)) markProduced();
-    else { printKit(kitDoc); markProduced(); }
+  choice.addEventListener('click', () => {
+    choice.setAttribute('aria-pressed', String(!ticked()));
+    sync();
   });
-  app.querySelector('#kit-print').addEventListener('click', () => {
+  q('#kit-download').addEventListener('click', () => {
+    // In-app browsers (and a few privacy modes) refuse Blob downloads. Fall
+    // through to the printable view rather than leaving the user without a kit.
+    if (downloadKit(kitDoc, ctx.accountId)) markProduced('download');
+    else { printKit(kitDoc); markProduced('print'); }
+  });
+  q('#kit-print').addEventListener('click', () => {
     printKit(kitDoc);
-    markProduced();
+    markProduced('print');
   });
 
-  button.addEventListener('click', () => (ctx.onKitSaved ? ctx.onKitSaved() : renderTelegramStep(app, ctx)));
+  button.addEventListener('click', () => {
+    button.disabled = true;
+    const error = q('#kit-error');
+    error.hidden = true;
+    stashKitSaved(produced ? { savedAt: produced.at, how: produced.how } : { savedAt: Date.now(), how: 'ack' });
+    Promise.resolve()
+      .then(() => (ctx.onKitSaved ? ctx.onKitSaved() : finishSignupKit(app, ctx)))
+      .catch((err) => {
+        error.textContent = err.message || String(err);
+        error.hidden = false;
+        button.disabled = false;
+      });
+  });
 }
 
 function escapeHtml(s) {

@@ -665,6 +665,14 @@ export function createApiRouter(ctx, {
       if (method === 'PATCH') return settings.setTrialConsent(body);
     }
 
+    // Emergency Kit save state (bd med-ckm5.2): PUT by cloud-boot's drain of
+    // the kit page's stash, GET by Settings. Not a catalogued MCP op: an agent
+    // must not be able to mark a user's kit as saved.
+    if (path === '/api/settings/emergency-kit') {
+      if (method === 'GET') return settings.getEmergencyKit();
+      if (method === 'PUT') return settings.setEmergencyKit(body);
+    }
+
     // Reminder delivery pref (bd med-o7zq.3): the /api seam local-only mode's
     // lock-screen text choice uses (Settings → Reminders & notifications).
     // Cloud Settings binds the same record through reminders.js directly. A

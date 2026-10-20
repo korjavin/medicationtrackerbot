@@ -3,7 +3,16 @@
 // (credential exists? loss ack set?) rather than a stored step counter — see
 // docs/cloud-mode.md Onboarding.
 
+import { mountExitBar } from './exitbar.js';
+
 const claimToken = new URLSearchParams(location.hash.slice(1)).get('claim');
+
+// The app shells' "Not your account?" strip (bd med-ckm5.2); never blocks the page.
+try {
+  mountExitBar();
+} catch (err) {
+  console.error('[app] exit bar failed', err);
+}
 
 // In-app Settings deeplinks (features/deeplink-router.js). Fixed, same-origin
 // paths: nothing from the incoming URL is ever forwarded into a redirect.

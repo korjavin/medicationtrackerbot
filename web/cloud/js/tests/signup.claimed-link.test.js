@@ -126,15 +126,11 @@ describe('wizard tail (Emergency Kit -> app)', () => {
     globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200 }));
     const app = dom.window.document.getElementById('app');
     await renderEmergencyKit(app, ctx);
-    // #kit-continue needs BOTH gates (med-d5t.2): the kit has to be produced
-    // before the checkbox even unlocks. Print rather than download — it opens
-    // the same gate without an <a download> click, which jsdom answers with a
+    // Print ticks "I saved it" and arms #kit-continue. Print rather than
+    // download — no <a download> click, which jsdom answers with a
     // "navigation not implemented" error. The gate itself is covered in
     // signup.emergency-kit.test.js.
     app.querySelector('#kit-print').click();
-    const checkbox = app.querySelector('#kit-saved-checkbox');
-    checkbox.checked = true;
-    checkbox.dispatchEvent(new dom.window.Event('change'));
     app.querySelector('#kit-continue').click();
     return app;
   }
@@ -343,7 +339,7 @@ describe('post-create PRF probe', () => {
     button.click();
     button.dispatchEvent(new dom.window.Event('click'));
 
-    await settle(() => expect(app.textContent).toContain('Protect against device loss'));
+    await settle(() => expect(app.textContent).toContain('Save your Emergency Kit'));
     expect(calls('/api/webauthn/register/begin')).toBe(2); // the wizard's claim-state probe + this ceremony
     expect(navigator.credentials.create).toHaveBeenCalledTimes(1);
     expect(getCalls).toHaveLength(2);
@@ -362,7 +358,7 @@ describe('post-create PRF probe', () => {
     expect(calls('/api/webauthn/register/finish')).toBe(0);
 
     app.querySelector('#create-passkey').click();
-    await settle(() => expect(app.textContent).toContain('Protect against device loss'));
+    await settle(() => expect(app.textContent).toContain('Save your Emergency Kit'));
     expect(calls('/api/webauthn/register/begin')).toBe(3);
     expect(navigator.credentials.create).toHaveBeenCalledTimes(2);
     expect(calls('/api/webauthn/register/finish')).toBe(1);

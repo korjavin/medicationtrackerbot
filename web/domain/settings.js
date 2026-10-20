@@ -57,6 +57,16 @@ const TG_PREFS_MAX_CHARS = 4096;
 const TRIALCONSENT_RECORD_TYPE = 'trialconsent';
 const TRIALCONSENT_RECORD_ID = 'trialconsent';
 const TRIALCONSENT_SCOPES = ['ai', 'voice', 'tg', 'anon'];
+// Whether the CURRENT Emergency Kit was saved (bd med-ckm5.2, epic med-ckm5
+// decision 4): {savedAt, how: download|print|ack}, written by the kit page and
+// read by Settings (S6 chip, S9 row). Synced so the wording is true across
+// devices. clientTs = savedAt, so a stash filed late (cloud-boot drains it on
+// the next unlocked open) never beats a newer kit saved on another device.
+// Not in VAULT_MANAGED_TYPES: a backup restored into another account must not
+// claim that account's kit was saved.
+const EMERGENCYKIT_RECORD_TYPE = 'emergencykit';
+const EMERGENCYKIT_RECORD_ID = 'emergencykit';
+const EMERGENCYKIT_HOW = new Set(['download', 'print', 'ack']);
 
 // SECRET_MASK mirrors secretMask in settings_integrations_handlers.go: GET
 // returns this sentinel for non-empty secret fields (never the raw key), and
@@ -346,6 +356,27 @@ export function createSettingsDomain({ records, now, timeZone }) {
     return cur;
   }
 
+  // null = no kit save recorded on any device yet.
+  async function getEmergencyKit() {
+    const all = await records.list(EMERGENCYKIT_RECORD_TYPE);
+    const rec = findSingleton(all, EMERGENCYKIT_RECORD_ID);
+    return rec ? { savedAt: rec.savedAt, how: rec.how } : null;
+  }
+
+  async function setEmergencyKit(state) {
+    const how = state && state.how;
+    if (!EMERGENCYKIT_HOW.has(how)) {
+      const err = new Error(`Unknown kit save method: ${how}`);
+      err.code = 'invalid_kit_state';
+      throw err;
+    }
+    const savedAt = Number.isFinite(state.savedAt) && state.savedAt > 0 ? state.savedAt : now();
+    await records.put(EMERGENCYKIT_RECORD_TYPE, {
+      recordId: EMERGENCYKIT_RECORD_ID, clientTs: savedAt, deleted: false, savedAt, how,
+    });
+    return { savedAt, how };
+  }
+
   // getTGPrefsNote / setTGPrefsNote back the Settings UI's Telegram agent
   // glossary field (bd med-vcv.4): read the note the agent has learned, or
   // FULL-REPLACE it (never append — that's inbox-apply.js's appendTGPref,
@@ -382,6 +413,8 @@ export function createSettingsDomain({ records, now, timeZone }) {
     patchIntegrations,
     getTrialConsent,
     setTrialConsent,
+    getEmergencyKit,
+    setEmergencyKit,
     getTGPrefsNote,
     setTGPrefsNote,
     getVoiceProvisioning,

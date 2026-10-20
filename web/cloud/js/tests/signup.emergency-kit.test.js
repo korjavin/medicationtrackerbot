@@ -1,8 +1,9 @@
-// med-d5t.2: the Emergency Kit screen used to promise "save or print it now"
-// and offer no way to do either — the only gate was a self-attestation
-// checkbox. A friend who tapped through and later lost their phone had an
-// unrecoverable vault. These pin the gate (a file, or an explicit print) and
-// the invariant that matters most: the recovery code never leaves the browser.
+// The one Emergency Kit page (bd med-ckm5.2, design O1; earlier med-d5t.2):
+// loss protection and the kit together, an "I saved it" choice that unlocks
+// Continue at the user's own risk, the save state stashed for the synced
+// vault record, and the invariant that matters most: the recovery code never
+// leaves the browser. Plus the ceremony exit bar the app shells show on top
+// of these pages (design N5).
 //
 // The cloud shell has no integration entry point, so this follows the
 // pure-unit convention of cloud-boot.test.js (repo rule 8's documented exception).
@@ -13,11 +14,13 @@ import { JSDOM } from 'jsdom';
 import { Blob as NodeBlob } from 'node:buffer';
 
 import { buildKitDocument, renderEmergencyKit } from '../signup.js';
+import { mountExitBar } from '../exitbar.js';
 
 vi.mock('../unlock.js', () => ({ establishLdkCache: vi.fn(async () => {}) }));
-vi.mock('../telegram.js', () => ({ mountTelegram: async (_app, { onDone }) => onDone() }));
+vi.mock('../telegram.js', () => ({ mountTelegram: vi.fn(async () => {}) }));
 
 const CTX = { accountId: 'acct-1', dek: new Uint8Array(32).fill(7) };
+const STASH = 'wg-emergency-kit-saved';
 
 let dom;
 let blobs;     // every Blob handed to createObjectURL
@@ -25,9 +28,11 @@ let anchors;   // every <a> whose click() we intercepted
 let printed;   // srcdoc of every iframe told to print
 
 beforeEach(() => {
-  dom = new JSDOM('<div id="app"></div>');
+  dom = new JSDOM('<div id="app"></div>', { url: 'https://acct.example/unlock' });
   globalThis.document = dom.window.document;
   globalThis.location = { origin: 'https://acct.example', href: '' };
+  // defineProperty: newer Node ships its own getter-only localStorage global.
+  Object.defineProperty(globalThis, 'localStorage', { value: dom.window.localStorage, configurable: true, writable: true });
   globalThis.Blob = NodeBlob;
   globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200 }));
 
@@ -46,7 +51,6 @@ beforeEach(() => {
     anchors.push(this);
   });
   // jsdom's iframe never fires load for srcdoc, so drive print off the append.
-  vi.spyOn(dom.window.HTMLIFrameElement.prototype, 'setAttribute');
   const realAppend = dom.window.HTMLElement.prototype.appendChild;
   vi.spyOn(dom.window.HTMLElement.prototype, 'appendChild').mockImplementation(function append(node) {
     const r = realAppend.call(this, node);
@@ -60,6 +64,7 @@ afterEach(() => {
   delete globalThis.document;
   delete globalThis.fetch;
   delete globalThis.location;
+  delete globalThis.localStorage;
   delete globalThis.Blob;
 });
 
@@ -69,36 +74,71 @@ async function mountKit(ctx = CTX) {
   return app;
 }
 
-describe('Emergency Kit: the user must actually produce the kit', () => {
-  it('offers a download and a print action, not just a checkbox', async () => {
+const pressed = (app) => app.querySelector('#kit-saved').getAttribute('aria-pressed');
+const stash = () => JSON.parse(dom.window.localStorage.getItem(STASH));
+
+describe('Emergency Kit page: one page, "I saved it" at the user\'s own risk', () => {
+  it('is one page: three disclosures, a choice (no native checkbox), Continue in the docked footer', async () => {
     const app = await mountKit();
+    expect(app.querySelector('h1').textContent).toBe('Save your Emergency Kit');
+    expect(app.querySelectorAll('details.wg-disc')).toHaveLength(3);
+    expect(app.querySelector('input[type=checkbox]')).toBeNull();
+    expect(app.querySelector('#kit-saved').classList.contains('wg-choice--check')).toBe(true);
+    expect(app.querySelector('.wg-pagefoot #kit-continue')).not.toBeNull();
     expect(app.querySelector('#kit-download')).not.toBeNull();
     expect(app.querySelector('#kit-print')).not.toBeNull();
+    // Signup shows where it is in the wizard.
+    expect(app.querySelector('.wg-steps')).not.toBeNull();
   });
 
-  it('locks the checkbox and Continue until the kit is produced', async () => {
+  it('puts a long account ID and the recovery code in the wrapping .wg-kv list (med-i0fj)', async () => {
+    const accountId = 'acc_7Q2M9X4KJ8R3TZ6V1N5B0WHC2YFD8LPEQ3XYZ';
+    const app = await mountKit({ ...CTX, accountId });
+    const kv = app.querySelector('dl.wg-kv');
+    expect(kv.querySelector('#kit-account-id').textContent).toBe(accountId);
+    expect(kv.querySelector('#kit-code').textContent.trim()).not.toBe('');
+    expect(kv.querySelector('#kit-url').textContent).toBe('https://acct.example');
+  });
+
+  it('keeps Continue disabled, with the hint, until "I saved it" is ticked', async () => {
     const app = await mountKit();
-    expect(app.querySelector('#kit-saved-checkbox').disabled).toBe(true);
+    expect(pressed(app)).toBe('false');
+    expect(app.querySelector('#kit-continue').disabled).toBe(true);
+    expect(app.querySelector('#kit-hint').hidden).toBe(false);
+    expect(app.querySelector('#kit-save-chip').textContent).toBe('Not saved');
+  });
+
+  it('ticked without a download or print: Continue unlocks, the warn note says so, and the stash says ack', async () => {
+    const app = await mountKit();
+    app.querySelector('#kit-saved').click();
+
+    expect(pressed(app)).toBe('true');
+    expect(app.querySelector('#kit-continue').disabled).toBe(false);
+    expect(app.querySelector('#kit-hint').hidden).toBe(true);
+    expect(app.querySelector('#kit-risk').hidden).toBe(false);
+    expect(app.querySelector('#kit-risk').textContent).toContain("We didn't see a download or print here");
+
+    app.querySelector('#kit-continue').click();
+    expect(stash()).toEqual({ savedAt: expect.any(Number), how: 'ack' });
+
+    // Unticking re-gates it.
+    app.querySelector('#kit-saved').click();
     expect(app.querySelector('#kit-continue').disabled).toBe(true);
   });
 
-  it('downloading a file auto-confirms the attestation and arms Continue (med-eas.47)', async () => {
+  it('a download marks the row saved, ticks the choice, hides the warn note and stashes download', async () => {
     const app = await mountKit();
     app.querySelector('#kit-download').click();
 
-    const checkbox = app.querySelector('#kit-saved-checkbox');
-    expect(checkbox.disabled).toBe(false);
-    // The download IS the confirmation — no separate tick asked of the user.
-    expect(checkbox.checked).toBe(true);
+    expect(app.querySelector('#kit-save-chip').textContent).toBe('Saved');
+    expect(app.querySelector('#kit-save-chip').classList.contains('wg-chip--ok')).toBe(true);
+    expect(app.querySelector('#kit-save-desc').textContent).toMatch(/^Downloaded .+ · HTML, \d+ KB$/);
+    expect(pressed(app)).toBe('true');
+    expect(app.querySelector('#kit-risk').hidden).toBe(true);
     expect(app.querySelector('#kit-continue').disabled).toBe(false);
 
-    // Manual fallback still works: unticking re-gates Continue, re-ticking arms.
-    checkbox.checked = false;
-    checkbox.dispatchEvent(new dom.window.Event('change'));
-    expect(app.querySelector('#kit-continue').disabled).toBe(true);
-    checkbox.checked = true;
-    checkbox.dispatchEvent(new dom.window.Event('change'));
-    expect(app.querySelector('#kit-continue').disabled).toBe(false);
+    app.querySelector('#kit-continue').click();
+    expect(stash().how).toBe('download');
   });
 
   it('names the downloaded file after the account', async () => {
@@ -112,7 +152,7 @@ describe('Emergency Kit: the user must actually produce the kit', () => {
 
   it('the downloaded file carries the URL, account id, recovery code and QR', async () => {
     const app = await mountKit();
-    const shownCode = app.querySelector('.recovery-code').textContent.trim();
+    const shownCode = app.querySelector('#kit-code').textContent.trim();
     app.querySelector('#kit-download').click();
 
     expect(blobs).toHaveLength(1);
@@ -125,13 +165,15 @@ describe('Emergency Kit: the user must actually produce the kit', () => {
     expect(text).not.toMatch(/<link|<script|src="http/);
   });
 
-  it('printing is an independent way through the gate (blob downloads can be blocked)', async () => {
+  it('printing marks the row saved and stashes print', async () => {
     const app = await mountKit();
     app.querySelector('#kit-print').click();
 
     expect(printed).toHaveLength(1);
     expect(printed[0]).toContain('Emergency Kit');
-    expect(app.querySelector('#kit-saved-checkbox').disabled).toBe(false);
+    expect(app.querySelector('#kit-save-desc').textContent).toMatch(/^Printed /);
+    app.querySelector('#kit-continue').click();
+    expect(stash().how).toBe('print');
   });
 
   it('falls back to the printable view when the browser refuses a Blob download', async () => {
@@ -141,40 +183,50 @@ describe('Emergency Kit: the user must actually produce the kit', () => {
 
     app.querySelector('#kit-download').click();
 
-    // The user is never left stuck behind a gate they cannot open.
     expect(printed).toHaveLength(1);
-    expect(app.querySelector('#kit-saved-checkbox').disabled).toBe(false);
+    expect(pressed(app)).toBe('true');
   });
 
-  it('the checkbox alone can never arm Continue', async () => {
+  it('signup: Continue sends the server-side loss acknowledgement, then moves on', async () => {
+    const { mountTelegram } = await import('../telegram.js');
     const app = await mountKit();
-    const checkbox = app.querySelector('#kit-saved-checkbox');
-    // Simulate a user (or a devtools poke) forcing the box without saving.
-    checkbox.checked = true;
-    checkbox.dispatchEvent(new dom.window.Event('change'));
-
-    expect(app.querySelector('#kit-continue').disabled).toBe(true);
-  });
-
-  it('gates the forced code rotation in recover.js too, via the shared renderer', async () => {
-    const onKitSaved = vi.fn();
-    const app = await mountKit({ ...CTX, onKitSaved });
-    expect(app.querySelector('#kit-saved-checkbox').disabled).toBe(true);
-
-    app.querySelector('#kit-download').click();
-    const checkbox = app.querySelector('#kit-saved-checkbox');
-    checkbox.checked = true;
-    checkbox.dispatchEvent(new dom.window.Event('change'));
+    app.querySelector('#kit-saved').click();
     app.querySelector('#kit-continue').click();
 
-    expect(onKitSaved).toHaveBeenCalled();
+    await vi.waitFor(() => expect(mountTelegram).toHaveBeenCalled());
+    expect(globalThis.fetch.mock.calls.map(([url]) => url)).toContain('/api/loss-ack');
+  });
+
+  it('signup: a failed loss acknowledgement stays on the page with the error and Continue re-armed', async () => {
+    const app = await mountKit();
+    globalThis.fetch = vi.fn(async () => ({ ok: false, status: 500 }));
+    app.querySelector('#kit-saved').click();
+    app.querySelector('#kit-continue').click();
+
+    await vi.waitFor(() => expect(app.querySelector('#kit-error').hidden).toBe(false));
+    expect(app.querySelector('#kit-error').textContent).toContain('Could not save your acknowledgment');
+    expect(app.querySelector('#kit-continue').disabled).toBe(false);
+  });
+
+  it('recover / regenerate render the same page without the step indicator, and hand Continue to the caller', async () => {
+    const onKitSaved = vi.fn();
+    const app = await mountKit({ ...CTX, onKitSaved, continueLabel: 'Done' });
+    expect(app.querySelector('.wg-steps')).toBeNull();
+    expect(app.querySelector('#kit-continue').textContent).toBe('Done');
+
+    app.querySelector('#kit-download').click();
+    app.querySelector('#kit-continue').click();
+
+    await vi.waitFor(() => expect(onKitSaved).toHaveBeenCalled());
+    expect(globalThis.fetch.mock.calls.map(([url]) => url)).not.toContain('/api/loss-ack');
+    expect(stash().how).toBe('download');
   });
 });
 
 describe('Emergency Kit: the recovery code never leaves the browser', () => {
   it('uploads only the verifier and the wrapped envelope, never the code', async () => {
     const app = await mountKit();
-    const code = app.querySelector('.recovery-code').textContent.trim();
+    const code = app.querySelector('#kit-code').textContent.trim();
     const bare = code.replace(/[\s-]/g, '');
 
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
@@ -188,13 +240,15 @@ describe('Emergency Kit: the recovery code never leaves the browser', () => {
     expect(Object.keys(body).sort()).toEqual(['envelope', 'verifier']);
   });
 
-  it('never writes the code to a URL — a blob: URL is an opaque handle', async () => {
+  it('never writes the code to a URL or the save-state stash', async () => {
     const app = await mountKit();
-    const bare = app.querySelector('.recovery-code').textContent.trim().replace(/[\s-]/g, '');
+    const bare = app.querySelector('#kit-code').textContent.trim().replace(/[\s-]/g, '');
     app.querySelector('#kit-download').click();
+    app.querySelector('#kit-continue').click();
 
     for (const a of anchors) expect(a.href).not.toContain(bare);
     expect(globalThis.location.href).not.toContain(bare);
+    expect(dom.window.localStorage.getItem(STASH)).not.toContain(bare);
   });
 
   it('never console-logs the code, on the happy path or the failure path', async () => {
@@ -203,7 +257,7 @@ describe('Emergency Kit: the recovery code never leaves the browser', () => {
     globalThis.URL.createObjectURL = vi.fn(() => { throw new Error('blocked'); });
 
     const app = await mountKit();
-    const bare = app.querySelector('.recovery-code').textContent.trim().replace(/[\s-]/g, '');
+    const bare = app.querySelector('#kit-code').textContent.trim().replace(/[\s-]/g, '');
     app.querySelector('#kit-download').click();
 
     for (const call of [...spy.mock.calls, ...logSpy.mock.calls]) {
@@ -238,5 +292,60 @@ describe('buildKitDocument', () => {
 
   it('tells the user the code rotates after use, so a stale printout is not trusted', () => {
     expect(buildKitDocument(ARGS)).toContain('new code afterwards');
+  });
+});
+
+// Design N5: the web-owned exit strip the iOS/Android shells show instead of
+// their native bottom bar. Its action is the shells' existing account.leave op.
+describe('ceremony exit bar (.wg-exitbar)', () => {
+  function shellWindow({ path = '/unlock', hash = '', platform = 'android' } = {}) {
+    const d = new JSDOM('<body><main id="app"></main></body>', { url: `https://vivid-vole.qa.test${path}${hash}` });
+    const call = vi.fn(async () => true);
+    let confirmCb = null;
+    let confirmOpts = null;
+    const win = {
+      location: d.window.location,
+      LocalNotifications: platform ? { __native: { platform, call } } : undefined,
+      safeConfirm: vi.fn((msg, cb, opts) => { confirmCb = cb; confirmOpts = opts; }),
+      safeAlert: vi.fn(),
+    };
+    return { d, win, call, confirm: (ok) => confirmCb(ok), opts: () => confirmOpts };
+  }
+
+  it('renders at the top of the page, before #app, naming the account being set up', () => {
+    const { d, win } = shellWindow({ hash: '#claim=tok' });
+    const bar = mountExitBar(d.window.document, win);
+
+    expect(d.window.document.body.firstElementChild).toBe(bar);
+    expect(bar.className).toBe('wg-exitbar');
+    expect(bar.querySelector('.wg-exitbar__who').textContent).toBe('Setting up vivid-vole.qa.test');
+    expect(bar.querySelector('button.wg-exitbar__leave').textContent).toBe('Not your account?');
+  });
+
+  it('confirms in-page, then calls account.leave with no args', async () => {
+    const { d, win, call, confirm, opts } = shellWindow({ path: '/claim', platform: 'ios' });
+    mountExitBar(d.window.document, win).querySelector('button').click();
+
+    expect(win.safeConfirm).toHaveBeenCalled();
+    expect(opts()).toMatchObject({ title: 'Use another invite?', confirmLabel: 'Use another invite', cancelLabel: 'Keep setting up' });
+    expect(call).not.toHaveBeenCalled();
+
+    confirm(true);
+    expect(call).toHaveBeenCalledWith('account.leave');
+  });
+
+  it('keeping the setup calls nothing', () => {
+    const { d, win, call, confirm } = shellWindow({ path: '/recover' });
+    mountExitBar(d.window.document, win).querySelector('button').click();
+    confirm(false);
+    expect(call).not.toHaveBeenCalled();
+  });
+
+  it('is absent on the web (no shell to go back to) and off the ceremony pages', () => {
+    const web = shellWindow({ platform: null });
+    expect(mountExitBar(web.d.window.document, web.win)).toBeNull();
+    const devices = shellWindow({ path: '/devices' });
+    expect(mountExitBar(devices.d.window.document, devices.win)).toBeNull();
+    expect(devices.d.window.document.querySelector('.wg-exitbar')).toBeNull();
   });
 });
