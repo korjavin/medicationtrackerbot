@@ -272,6 +272,24 @@ export async function claimAccount(ctx, page) {
     await sleep(1500);
   }).catch(() => {});
   await ctx.shot('first-today');
+  // bd med-ckm5.3: at scroll end the last Today card clears the tab bar by the 24px reserve.
+  const r = (ctx.results.firstToday = {});
+  await ctx.step('first Today: last card clears the tab bar at scroll end', async () => {
+    r.end = await page.evaluate(() => {
+      window.scrollTo(0, document.scrollingElement.scrollHeight);
+      const cards = document.querySelectorAll('#today-content > *');
+      const last = cards[cards.length - 1];
+      const bar = document.querySelector('.wg-tabbar');
+      return {
+        lastBottom: last && last.getBoundingClientRect().bottom, barTop: bar && bar.getBoundingClientRect().top,
+        innerHeight, vvHeight: window.visualViewport && window.visualViewport.height,
+        scrollY, scrollHeight: document.scrollingElement.scrollHeight,
+      };
+    });
+    await ctx.sleep(500);
+    if (!(r.end.barTop - r.end.lastBottom >= 23)) throw new Error(`last card ends ${r.end.barTop - r.end.lastBottom}px above the tab bar (${JSON.stringify(r.end)})`);
+  }).catch(() => {});
+  await ctx.shot('first-today-end');
 }
 
 // MedTrackerCloudReady resolves once cloud-boot installed the API shim (e2e/vault-roundtrip.mjs).
