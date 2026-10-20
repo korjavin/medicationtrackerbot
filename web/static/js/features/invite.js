@@ -199,8 +199,12 @@
             video.hidden = true;
         }
 
+        // While the move runs it cannot be called back: the sheet stays up
+        // until local.leave was sent (the shell navigates) or the move failed.
+        var moving = false;
+
         function close() {
-            if (current !== close) return false;
+            if (current !== close || moving) return false;
             current = null;
             stopScan();
             document.removeEventListener('keydown', onKeydown, true);
@@ -231,6 +235,7 @@
                     return;
                 }
                 if (!live()) return;
+                moving = true;
                 await window.CloudVault.moveToCloud({ win: window, url: invite.claimUrl });
                 // The shell is navigating to the account; nothing left to do here.
             } catch (e) {
@@ -238,6 +243,7 @@
                 showError(/invalid url/.test(msg) ? NOT_INVITE : 'The invite could not be opened: ' + (msg || 'unknown error') + '.');
             } finally {
                 busy = false;
+                moving = false;
             }
         }
 

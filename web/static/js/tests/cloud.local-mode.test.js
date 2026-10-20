@@ -994,6 +994,24 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
             await vi.waitFor(() => expect(leaveOps()).toEqual([['move.stash'], ['local.leave', { url: CLAIM }]]));
         });
 
+        it('the sheet cannot be dismissed while the move runs', async () => {
+            const { window, document } = env;
+            await vi.waitFor(async () => expect(await window.apiCall('/api/bp?days=60')).toHaveLength(1));
+            let stashed;
+            bridge.mockImplementation(async (op) => {
+                if (op === 'shell.ops') return bootShellOps;
+                if (op === 'move.stash') return new Promise((r) => { stashed = r; });
+                return op === 'setEgressHosts' ? { changed: false } : true;
+            });
+            openSheet(window, { clipboard: CLAIM });
+            act(document, 'paste').click();
+            await vi.waitFor(() => expect(stashed).toBeTypeOf('function'));
+            act(document, 'not-now').click();
+            expect(sheet(document)).not.toBeNull();
+            stashed(true);
+            await vi.waitFor(() => expect(leaveOps()).toEqual([['move.stash'], ['local.leave', { url: CLAIM }]]));
+        });
+
         it('garbage → inline error, the sheet stays and the field is shown; nothing leaves', async () => {
             const { window, document } = env;
             openSheet(window, { clipboard: 'hello there' });
