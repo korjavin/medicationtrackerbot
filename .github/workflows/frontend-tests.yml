@@ -10,6 +10,8 @@ on:
       - 'package.json'
       - 'pnpm-lock.yaml'
       - 'vitest.config.mjs'
+      - 'ios/App/LocalOrigin.swift'
+      - 'android/app/src/main/java/**/LocalOrigin.kt'
       - '.github/workflows/frontend-tests.yml'
   workflow_dispatch:
 
