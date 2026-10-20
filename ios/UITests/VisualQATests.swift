@@ -32,6 +32,8 @@ final class VisualQATests: XCTestCase {
         let name: String
         let nativeOnly: Bool
         let steps: [[String: Any]]
+        /// `"args"`: extra launch arguments (Dynamic Type, the Debug-only `-wgQAMovePending`).
+        let args: [String]
     }
 
     func testScenes() throws {
@@ -54,7 +56,8 @@ final class VisualQATests: XCTestCase {
             let name = try XCTUnwrap(raw["name"] as? String, "scenes.json: a scene without a name")
             return Scene(name: name,
                          nativeOnly: raw["nativeOnly"] as? Bool ?? name.hasPrefix("native-"),
-                         steps: raw["native"] as? [[String: Any]] ?? [])
+                         steps: raw["native"] as? [[String: Any]] ?? [],
+                         args: raw["args"] as? [String] ?? [])
         }
     }
 
@@ -65,6 +68,7 @@ final class VisualQATests: XCTestCase {
         app.launchArguments = scene.nativeOnly
             ? ["-wgLocalMode", "NO", "-wgAccountHost", ""]
             : ["-wgLocalMode", "1", "-wgLocalLockOn", "0", "-wgQAScene", scene.name]
+        app.launchArguments += scene.args
         app.launch()
 
         var failure: String?

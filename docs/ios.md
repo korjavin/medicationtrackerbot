@@ -140,6 +140,17 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   the Settings import input (driver seed) into an erased store, records survive
   a relaunch. `testErase` — typed "erase" → Erase: both shell stashes cleared,
   Meds empty after relaunch, local mode kept.
+- **Stash flows** ([`FlowQAStashTests.swift`](../ios/UITests/FlowQAStashTests.swift),
+  bd med-w6gx.23.3): the shell's stashes from the local
+  side, as files in the container's `Application Support/{move,leave}/vault.json`:
+  `testMoveLocalSide` — Settings → Move to a cloud account → the stash
+  (fixture format, sections, counts) and the first-run hint → Back keeps it,
+  Start deletes it → Backup & import → I have an invite shows no stale hint →
+  a relaunch is first run, records kept. `testLeaveStashPickup` — wipes
+  `Library/WebKit`, seeds `leave/vault.json` from `tests/fixtures/vault-v1.json`
+  (read from the source tree via `#filePath`) → the boot imports it (the 3 s toast is shot when caught, not gated),
+  clears the file → seeded again over records: Merge / Replace → Cancel →
+  "Records not copied", file cleared.
 
 **Adding a flow:** one `func test<Flow>()` in `FlowQATests`, with
 `continueAfterFailure = false`. Launch with arguments in NSArgumentDomain
@@ -607,6 +618,12 @@ changes for it.
   exactly one label under `CLOUD_BASE_DOMAIN`; CI runs its check
   (`ios/Tests/main.swift`). The app stores the account **host** only, never
   the claim fragment, and opens `https://<host>/` on every later launch.
+  The native screens follow UI kit v2.1 N1/N2
+  (`docs/design/claude-design/ui_kits/app-v2/screens-native.html`) through
+  the token mirror in [`Wg.swift`](../ios/App/Wg.swift): palette, the bundled
+  OFL fonts in `ios/App/Fonts` (Space Grotesk, JetBrains Mono; `UIAppFonts`),
+  the primary/raised/ghost button styles and an `AccentColor` asset set to
+  sun (bd med-ckm5.13).
 - **Navigation:** the account host and the base domain load in the app; every
   other link (and `mailto:`/`tel:`) opens in Safari or its own app.
 - **Offline:** a cold start offline is answered by the Service Worker; a native
@@ -972,7 +989,11 @@ mode, gated on the bridge platform being `ios` or `android`
   takes the leave stash below and restores it through the same `restoreVault`
   (Merge / Replace / Cancel when records are already here), clears the stash
   whatever the outcome (the account copy is the retry), and the reloaded app
-  toasts once that the account's records are on this iPhone.
+  toasts once that the account's records are on this iPhone. Cancel means
+  nothing happened (bd med-o7zq.42): no dialog follows, both sides stay as
+  they were, and `leave.clear {back: true}` reopens the account (a shell
+  without it stays in local mode). A move pickup's Cancel is silent too and
+  keeps its stash.
 - **Move stash** (bd med-o7zq.35, twin of Android `Move.kt`, med-nt9p.32.17;
   the web side that calls it is med-nt9p.32.16/.18): the shell carries the
   vault v1 JSON across the two origins in one file,
@@ -1003,7 +1024,7 @@ mode, gated on the bridge platform being `ios` or `android`
   |----|------|-------|
   | `leave.stash {vault}` | account only | `true`; `invalid vault` / `too large` / `write failed` |
   | `leave.take` | local only | `{vault}` or `null`; does not delete |
-  | `leave.clear` | local only | `true` |
+  | `leave.clear {back?}` | local only | `true`; with `back: true` and the account `account.leave {then: "local"}` left (`wgLeaveHost`), `{back: true}`, then that account reopens (bd med-o7zq.42) |
 
   Lifecycle: the account page stashes before `account.leave {then: "local"}`,
   so the stash survives entering local mode (`forget(thenLocal:)` and the

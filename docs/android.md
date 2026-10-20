@@ -1074,7 +1074,7 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   | `local.leave` | replies `true`, then Switch account (first run) |
   | `move.stash {vault}` | the local → cloud move (bd med-nt9p.32.17, [`Move.kt`](../android/app/src/main/java/com/example/medtracker/Move.kt)): writes the vault v1 JSON string to `no_backup/move/vault.json` (temp file + rename, one stash at a time, replaces the old one); `invalid vault` when missing, empty or not a string, `too large` above 64 MB (UTF-8 bytes); replies `true` |
   | `leave.take` | local pickup (bd med-o7zq.36.3): replies `{vault}` or `null`; does not delete (same as `move.take`) |
-  | `leave.clear` | deletes the leave stash, replies `true` |
+  | `leave.clear {back?}` | deletes the leave stash, replies `true`; with `back: true` (the page's pickup was cancelled, bd med-o7zq.42) and an account remembered by `account.leave {then: "local"}` (`leaveHost`), replies `{back: true}` and reopens that account |
   | `lock.status` | `{on, available}`: the lock's state, and whether the phone has a screen lock ([Lock](#local-mode-lock-bd-med-nt9p329)) |
   | `lock.set {on}` | the phone's own check, then the choice; `true` once applied, `false` when refused or cancelled |
 
@@ -1117,7 +1117,9 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   writes it (`leave.stash`, account mode only) just before
   `account.leave {then: "local"}`; the local page picks it up (`leave.take`,
   `leave.clear`, local mode only). It is deleted by `leave.clear`,
-  `local.reset` and opening an account (`open()`), and **kept** across
+  `local.reset` and opening an account (`open()`); a cancelled pickup sends
+  `leave.clear {back: true}`, which also reopens the account the leave came
+  from (bd med-o7zq.42). It is **kept** across
   `setLocal(true)` and `forget(thenLocal)` (that is the hand-off) and across
   `local.leave`. The `move.*` ops are unchanged. `move-ops` also covers it
   (gates, stash, kept into local mode, take/clear, `local.reset`, `open()`).

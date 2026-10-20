@@ -154,10 +154,10 @@ export default async function moveOps(ctx) {
     page = await ctx.attachPage();
     if (!page) throw new Error('no WebView page');
     await page.waitForURL((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`), { timeout: 30_000 });
-    // The local boot's leave pickup (bd med-o7zq.36.4) has taken the stash (take keeps it) and asks the
-    // typed replace confirm over the seeded records; the bridge checks run under it, then Cancel.
+    // The local boot's leave pickup (bd med-o7zq.36.4) has taken the stash (take keeps it) and asks
+    // Merge / Replace / Cancel over the seeded records; the bridge checks run under it, then Cancel.
     const title = page.locator('.mt-confirm-modal__title');
-    await title.filter({ hasText: 'Replace the records on this' }).waitFor({ timeout: 60_000 });
+    await title.filter({ hasText: 'Records already on this' }).waitFor({ timeout: 60_000 });
     await ctx.shot('leave-pickup-confirm');
     expect((await leaveFiles()) === 'vault.json', 'entering local mode deleted the leave stash');
     const ops = await call(page, 'shell.ops');
@@ -172,11 +172,11 @@ export default async function moveOps(ctx) {
     expect((await leaveFiles()) === '', `leave.clear left: ${await leaveFiles()}`);
     const none = await call(page, 'leave.take');
     expect(none.ok && none.result === null, `leave.take after clear: ${JSON.stringify(none)}`);
-    // Cancel → the pickup clears (already empty) and says the records were not copied → OK.
-    await page.click('.mt-confirm-modal__cancel');
-    await title.filter({ hasText: 'Records not copied' }).waitFor({ timeout: 15_000 });
+    // Cancel → no dialog (bd med-o7zq.42); leave.clear {back: true} stays local here, as the plain
+    // leave.clear above already dropped the remembered account.
     await page.click('.mt-confirm-modal__cancel');
     await ctx.waitLocalReady(page);
+    expect(page.url().startsWith(`${LOCAL_ORIGIN}/`), `cancel left local mode: ${page.url()}`);
   });
   await ctx.step('local.reset deletes the leave stash', async () => {
     await seedLeave();

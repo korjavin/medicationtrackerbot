@@ -326,6 +326,9 @@ class MainActivity : Activity() {
      * WebView data is per origin and kept.
      */
     private fun forget(thenLocal: Boolean = false) {
+        // The account a leave left (bd med-o7zq.42): leave.clear {back: true} reopens it.
+        val left = host
+        prefs.edit().apply { if (thenLocal && left != null) putString(LEAVE_HOST_KEY, left) else remove(LEAVE_HOST_KEY) }.apply()
         setLocal(thenLocal)
         Notifications.clear(this)
         prefs.edit().remove(HOST_KEY).apply()
@@ -641,9 +644,19 @@ class MainActivity : Activity() {
             // Entering local mode (setLocal/forget) deliberately keeps it; open() and local.reset delete it.
             "leave.stash" -> stash(leave, msg) { r, e -> answer(r, e) }
             "leave.take" -> take(leave) { r, e -> answer(r, e) }
+            // {back: true}: the user cancelled the pickup (bd med-o7zq.42), so nothing happened:
+            // reopen the account the leave came from (never changed; its origin's data is kept).
             "leave.clear" -> {
                 leave.clear()
-                answer(true)
+                val back = prefs.getString(LEAVE_HOST_KEY, null)?.takeIf { AccountUrl.isAccountHost(it, base) }
+                prefs.edit().remove(LEAVE_HOST_KEY).apply()
+                if (back != null && msg.optJSONObject("args")?.optBoolean("back") == true) {
+                    answer(JSONObject().put("back", true))
+                    setLocal(false)
+                    prefs.edit().putString(HOST_KEY, back).apply()
+                    host = back
+                    reopen()
+                } else answer(true)
             }
             // Settings → Backup → Move to a cloud account: the first run, as Switch account; the data stays.
             "local.leave" -> {
@@ -1145,6 +1158,7 @@ class MainActivity : Activity() {
         /** One fixed line, so the page margin never disagrees with the bar. */
         const val CEREMONY_BAR_DP = 44
         const val HOST_KEY = "accountHost"
+        const val LEAVE_HOST_KEY = "leaveHost"
         const val ACTION_SWITCH = "com.example.medtracker.SWITCH_ACCOUNT"
         const val ACTION_DIAG = "com.example.medtracker.COPY_DIAGNOSTICS"
         const val DIAG_KEY = "log"
