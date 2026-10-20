@@ -1297,8 +1297,9 @@ describe('Settings view extraction → features/settings.js (Plan 2026-06-10 Tas
                     if (!d) throw new Error('no dialog open');
                     return d;
                 });
-                expect(dialog.textContent).toMatch(/switch to Only on this device/);
-                expect(dialog.textContent).toMatch(/Nothing is deleted on the server/);
+                // D1 (med-ckm5.5): the account staying on the server is a kept fact.
+                const stays = [...dialog.querySelectorAll('.wg-dialog__facts li:not(.is-gone)')].map((li) => li.textContent);
+                expect(stays).toContain(`Your account stays on ${window.location.hostname}`);
                 dialog.querySelector('.mt-confirm-modal__confirm').click();
                 // bd med-o7zq.34: straight into local mode, not the native first-run.
                 await vi.waitFor(() => expect(leaveAccount).toHaveBeenCalledWith({ then: 'local' }));
