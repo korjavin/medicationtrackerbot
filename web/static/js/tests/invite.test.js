@@ -118,6 +118,17 @@ describe('InviteSheet.boot in account mode — "Switch account?"', () => {
         expect(document.getElementById('invite-sync-sheet')).toBeNull();
     });
 
+    it('F1 paste in account mode (no slot) → the same "Switch account?" → account.leave {url}', async () => {
+        const { window, document } = env;
+        call.mockImplementation(async (op) => (op === 'shell.ops' ? ops : op === 'invite.pending' ? null : true));
+        window.Clipboard = { readText: vi.fn(async () => 'https://app.example.com/i/abc#0a1b2c') };
+        document.dispatchEvent(new window.CustomEvent('wg:invite-open'));
+        document.querySelector('#invite-sheet [data-invite-action="paste"]').click();
+        (await dialog(document)).querySelector('.mt-confirm-modal__confirm').click();
+        await vi.waitFor(() => expect(call).toHaveBeenCalledWith('account.leave', { url: CLAIM }));
+        expect(document.getElementById('invite-sheet')).toBeNull();
+    });
+
     it('Keep this account → invite.clear, no leave', async () => {
         const { window, document } = env;
         await window.InviteSheet.boot();

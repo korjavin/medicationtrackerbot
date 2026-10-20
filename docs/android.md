@@ -1294,8 +1294,9 @@ format v1, no server change.
    import waits for the snapshot upload; one that did not land says why
    (*Not uploaded yet*) before the reload. After the reload a toast says *Sync
    is on · N records are on your account* once (N = the user records the
-   stash carried). A stash with no user records moves nothing: the pickup
-   drops it (`move.clear`) without a dialog.
+   stash carried). A stash with no user records is never offered as a
+   Replace: an account with records drops it (`move.clear`) without a
+   dialog; an empty one imports it silently (settings, keys).
 4. The local records stay: *Switch account* → *Only on this device* →
    *Start* opens them again. Nothing prompts to erase them.
 

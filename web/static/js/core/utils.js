@@ -278,6 +278,7 @@ function safeForm(msg, content, opts) {
 //     (✓), rendered as .wg-dialog__facts under the message.
 //   link: { label, onClick } — a .wg-link in the body ("Export a backup
 //     first"); tapping it cancels the dialog, then runs onClick.
+//   dangerOutline: Cancel raised (the safe choice), confirm .wg-btn--danger-ghost.
 // safeConfirm also takes opts.typedConfirm: a word the user must type
 // (case-insensitive) before the confirm button enables (.wg-dialog__confirm,
 // "Type ERASE to confirm"). safeChoose with opts.confirmLabel selects on tap

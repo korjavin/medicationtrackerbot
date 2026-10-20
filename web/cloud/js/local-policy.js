@@ -553,9 +553,9 @@ export const LOCAL_VAULT = {
   // changed. Only a v3 shell (invite.pending listed) honours it — callers gate.
   // Always stashes, records or not (bd med-ta2n.7): local.leave {url} KEEPS the
   // move stash (contract A1), so skipping it would leave an older, abandoned
-  // stash for the new account to import. The account side drops a stash with
-  // no user content (cloud-boot.js pickUpMovedVault), so an existing account
-  // is never offered an empty vault to replace its own.
+  // stash for the new account to import. An account with records drops a
+  // stash with no user content (cloud-boot.js pickUpMovedVault), so it is
+  // never offered an empty vault to replace its own.
   async moveToCloud({ win = globalThis.window, url } = {}) {
     const native = shellNative(win);
     if (!native) throw new Error(`Open the app on your ${deviceName(win)} to use an invite.`);

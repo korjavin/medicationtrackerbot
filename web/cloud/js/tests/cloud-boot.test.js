@@ -963,13 +963,30 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
   // #1244 breakage review: moveToCloud {url} always stashes, so a device with
   // nothing logged stashes an empty vault. It moves nothing: dropped, never
   // offered as a Merge/Replace to an account with records.
-  it('a stash with no user content: move.clear, no probe, no dialog, no import', async () => {
+  it('a stash with no user content + an account with records: move.clear, no dialog, no import', async () => {
     const { window, log } = await boot({ stash: { vault: EMPTY_VAULT }, content: true });
     await vi.waitFor(() => expect(log).toContain('move.clear'));
     await settle();
-    expect(log).toEqual(['shell.ops', 'move.take', 'move.clear']);
+    expect(log).toEqual(['shell.ops', 'move.take', 'probe', 'move.clear']);
     expect(window.safeChoose).not.toHaveBeenCalled();
     expect(window.sessionStorage.getItem('wg-move-picked-up')).toBeNull();
+  });
+
+  // Settings, features and keys still move into an empty account, silently.
+  it('a stash with no user content + an empty account: imported with no dialog, then "Sync is on"', async () => {
+    const { window, log } = await boot({ stash: { vault: EMPTY_VAULT } });
+    await vi.waitFor(() => expect(log).toContain('move.clear'));
+    expect(log).toEqual(['shell.ops', 'move.take', 'probe', 'probe', 'importAll', 'move.clear']);
+    expect(window.safeChoose).not.toHaveBeenCalled();
+    expect(window.sessionStorage.getItem('wg-move-picked-up')).toBe('0');
+  });
+
+  it('after the reload of a records-free move: the toast says "Sync is on"', async () => {
+    env.window.sessionStorage.setItem('wg-move-picked-up', '0');
+    const { window, log } = await boot({ stash: null });
+    await vi.waitFor(() => expect(log).toContain('move.take'));
+    await settle();
+    expect(window.safeToast).toHaveBeenCalledWith('Sync is on', 'success');
   });
 
   // A fresh account holds only what signup and the first run wrote (bd

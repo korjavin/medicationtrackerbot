@@ -245,7 +245,7 @@
                 if (!invite) { showError(NOT_INVITE); showField(); return; }
                 if (window.navigator.onLine === false) { showError(OFFLINE); return; }
                 var n = native();
-                if (!n || !(await n.has('invite.pending')) || !window.CloudVault || typeof window.CloudVault.moveToCloud !== 'function') {
+                if (!n || !(await n.has('invite.pending'))) {
                     showError('Update Med Tracker to use an invite here.');
                     return;
                 }

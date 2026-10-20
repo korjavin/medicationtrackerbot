@@ -87,9 +87,10 @@ const REMINDER_ACTION_ROUTES = {
 // - Inert on the web and on any shell whose shell.ops does not list move.take
 //   (older iOS/Android builds reject the probe → no pickup). Every bridge call
 //   is time-boxed so a shell that never answers cannot hold the boot.
-// - move.clear runs only after restoreVault replaced the vault (its
-//   beforeReload hook); a cancel or a failed import keeps the stash and the
-//   next open asks again.
+// - move.clear runs after restoreVault replaced the vault (its beforeReload
+//   hook), or at once for a stash with no user content when this account has
+//   records (bd med-ta2n.7); a cancel or a failed import keeps the stash and
+//   the next open asks again.
 const MOVE_NOTICE_KEY = 'wg-move-picked-up';
 const MOVE_PROBE_MS = 5000;
 function withinMs(promise, ms) {
@@ -111,9 +112,9 @@ async function pickUpMovedVault(win) {
     } catch { /* storage blocked */ }
     if (moved !== null) {
         const n = Number(moved);
-        win.safeToast(Number.isInteger(n) && n > 0
+        win.safeToast(moved !== '' && Number.isInteger(n) && n > 0
             ? `Sync is on · ${n} ${n === 1 ? 'record is' : 'records are'} on your account`
-            : 'Sync is on · your records are on your account', 'success');
+            : 'Sync is on', 'success');
     }
     // nativeHas: features/settings.js, the one shell.ops probe per page.
     if (typeof win.nativeHas !== 'function') return;
@@ -123,14 +124,16 @@ async function pickUpMovedVault(win) {
     const restore = win.SettingsImportExport && win.SettingsImportExport.restoreVault;
     if (typeof vault !== 'string' || !vault || typeof restore !== 'function') return;
     // A stash with no user content (an invite taken on a device with nothing
-    // logged: moveToCloud {url} always stashes, bd med-ta2n.7) moves nothing:
-    // drop it, never offer it as a Replace. Unreadable → restoreVault reports it.
+    // logged: moveToCloud {url} always stashes, bd med-ta2n.7) is never offered
+    // as a Merge/Replace to an account with records: dropped there. An empty
+    // account still takes it silently (settings, keys). Unreadable →
+    // restoreVault reports it.
     let count = null;
     try {
         const { vaultToRecords, userContentCount } = await import('/domain/vault.js');
         count = userContentCount(vaultToRecords(JSON.parse(vault), { now: Date.now() }));
     } catch { /* restoreVault below says why */ }
-    if (count === 0) {
+    if (count === 0 && (await Promise.resolve(win.CloudVault?.hasUserContent?.()).catch(() => true)) !== false) {
         await withinMs(native.call('move.clear').catch(() => null), MOVE_PROBE_MS);
         return;
     }
