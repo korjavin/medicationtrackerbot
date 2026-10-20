@@ -623,7 +623,7 @@ class MainActivity : Activity() {
             }
             // The page erased its own storage (local-policy.js); the shell's share is the host mirror and reminders.
             "local.reset" -> {
-                prefs.edit().remove(LocalOrigin.HOSTS_KEY).apply()
+                prefs.edit().remove(LocalOrigin.HOSTS_KEY).remove(LEAVE_HOST_KEY).apply()
                 move.clear()
                 leave.clear()
                 Notifications.clear(this)
