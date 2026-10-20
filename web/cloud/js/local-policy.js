@@ -164,15 +164,16 @@ export function startLocalHealthImport({ ctx, records, win }) {
   });
 }
 
-// Settings → App lock (bd med-nt9p.32.9): the Android shell's optional lock
-// (android/.../LocalLock.kt). iOS keeps its toggle in iPhone Settings and the
-// web has none, so only the Android shell is asked; the row mounts when it
+// Settings → App lock (bd med-nt9p.32.9, iOS med-o7zq.39): the shell's optional
+// lock (android/.../LocalLock.kt, ios/App/LocalLock.swift; iOS also keeps its
+// iPhone Settings toggle, same key). The web has none, so only a phone shell is
+// asked; an older iOS shell rejects the op and gets no row. The row mounts when it
 // answers lock.status { on, available } and the phone has a screen lock (or
 // the lock is already on, so it can be turned off). lock.set { on } shows the
 // phone's own check and resolves true once the choice applied.
 export async function mountLocalLockRow({ win }) {
   const native = shellNative(win);
-  if (!native || native.platform !== 'android') return null;
+  if (!native) return null;
   let status = null;
   try { status = await native.call('lock.status'); } catch { return null; }
   if (!status || (!status.on && !status.available)) return null;
@@ -198,7 +199,8 @@ export async function mountLocalLockRow({ win }) {
   title.textContent = 'App lock';
   const desc = doc.createElement('span');
   desc.className = 'wg-setting__desc';
-  desc.textContent = 'Asks for your fingerprint, face or screen lock each time you open Med Tracker. It hides the app; it does not encrypt your records, and reminders on the lock screen still show.';
+  const check = native.platform === 'ios' ? 'Face ID, Touch ID or passcode' : 'fingerprint, face or screen lock';
+  desc.textContent = `Asks for your ${check} each time you open Med Tracker. It hides the app; it does not encrypt your records, and reminders on the lock screen still show.`;
   body.append(title, desc);
   const toggle = doc.createElement('label');
   toggle.className = 'wg-toggle';

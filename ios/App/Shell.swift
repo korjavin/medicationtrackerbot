@@ -248,7 +248,8 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         }
     }
 
-    /// Local onboarding's choice: turning the lock on, or off while it is
+    /// Local onboarding's choice, or Settings → App lock (bridge op lock.set):
+    /// turning the lock on, or off while it is
     /// still on, applies only after the phone confirmed its owner.
     func setLock(_ on: Bool) async -> Bool {
         guard on || lock.on else { return true }
@@ -427,6 +428,17 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
                 await Notifications.shared.remove(vault: LocalOrigin.host)
                 replyHandler(true, nil)
             }
+        // Settings → App lock (bd med-o7zq.39, local-policy.js mountLocalLockRow;
+        // twin of Android med-nt9p.32.9). Same key as iPhone Settings → Lock, so
+        // both stay in sync. available: the phone can check its owner. lock.set
+        // is the intro's Start path: true once applied, false when cancelled.
+        case "lock.status" where local:
+            replyHandler(["on": lock.on, "available": DeviceAuth.available], nil)
+        case "lock.set" where local:
+            let on = (body["args"] as? [String: Any])?["on"] as? Bool == true
+            // No passcode: DeviceAuth.check lets anyone in, so there is nothing to turn on.
+            guard !on || DeviceAuth.available else { return replyHandler(false, nil) }
+            Task { replyHandler(await setLock(on), nil) }
         case "local.leave" where local:
             // Settings → Backup → Move to a cloud account (bd med-o7zq.6): the
             // invite screen, as Switch account. The origin's data stays.
