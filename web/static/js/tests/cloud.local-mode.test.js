@@ -975,6 +975,15 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('lock.set', { on: false }));
         await vi.waitFor(() => expect(input.checked).toBe(true));
 
+        // Changed outside the page (iPhone Settings → Lock): the switch follows
+        // when the page comes back.
+        status = { on: false, available: true };
+        document.dispatchEvent(new window.Event('visibilitychange'));
+        await vi.waitFor(() => expect(input.checked).toBe(false));
+        status = { on: true, available: true };
+        document.dispatchEvent(new window.Event('visibilitychange'));
+        await vi.waitFor(() => expect(input.checked).toBe(true));
+
         // A rejected lock.set ("locked") flips back too.
         bridge.mockImplementation(async (op) => {
             if (op === 'lock.set') throw new Error('locked');

@@ -220,6 +220,15 @@ export async function mountLocalLockRow({ win }) {
       input.disabled = false;
     }
   });
+  // The lock can change outside the page (iPhone Settings → Lock, applied on
+  // return): re-read it whenever the page comes back, which is after any unlock.
+  doc.addEventListener('visibilitychange', async () => {
+    if (doc.visibilityState !== 'visible' || input.disabled) return;
+    try {
+      const now = await native.call('lock.status');
+      if (now && !input.disabled) input.checked = now.on === true;
+    } catch { /* locked again or gone: keep what it shows */ }
+  });
   toggle.appendChild(input);
   row.append(lead, body, toggle);
   group.appendChild(row);
