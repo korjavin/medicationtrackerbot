@@ -24,7 +24,7 @@ final class FlowQABackupTests: XCTestCase {
         launch(app, scene: "settings-backup")
         XCTAssertTrue(QA.readyNode(app).waitForExistence(timeout: 90), "Backup & import never published #wg-qa-ready")
         let downloads = try XCTUnwrap(QA.appContainer(), "no app container").appendingPathComponent("tmp/wg-downloads")
-        let exportBtn = QA.webElement(app, id: "importexport-export-btn")
+        let exportBtn = app.webViews.buttons["Download backup"]
 
         // Plain: no passphrase → the page asks before writing API keys in clear.
         XCTAssertTrue(exportBtn.waitForExistence(timeout: 10), "no Download backup button")
@@ -88,18 +88,28 @@ final class FlowQABackupTests: XCTestCase {
         continueAfterFailure = false
         let flow = "erase"
         let app = XCUIApplication()
-        launch(app, scene: "settings-erase-confirm")
-        let modeBefore = QA.appDefaults()?["wgLocalMode"] as? Bool
+        // Choose local mode on first run, so it is persisted (not only the
+        // launch argument) and the relaunch below can run with no arguments.
+        app.launchArguments = ["-wgLocalMode", "NO", "-wgAccountHost", "", "-wgQAScene", "settings-erase-confirm"]
+        app.launch()
+        let onlyHere = app.buttons["Only on this device"]
+        XCTAssertTrue(onlyHere.waitForExistence(timeout: 30), "first run never showed \"Only on this device\"")
+        onlyHere.tap()
+        let start = app.buttons["Start"]
+        XCTAssertTrue(start.waitForExistence(timeout: 10), "the local intro never showed \"Start\"")
+        start.tap()
         erase(app, flow: flow)
+        XCTAssertEqual(QA.appDefaults()?["wgLocalMode"] as? Bool, true, "wgLocalMode is not persisted before the relaunch")
         app.terminate()
 
-        launch(app) // no scene: a scene would re-seed the empty store
+        app.launchArguments = [] // the persisted choice only; a scene would re-seed the empty store
+        app.launch()
         openMedsSchedule(app, flow: flow)
         XCTAssertTrue(webText(app, containing: "No medications yet").waitForExistence(timeout: 20), "Meds → Schedule is not empty after erase")
         XCTAssertFalse(webText(app, containing: "Lisinopril").exists, "an erased medication is still listed")
         shot(flow, "empty")
         XCTAssertFalse(app.buttons["Only on this device"].exists, "erase dropped local mode (first run showed)")
-        XCTAssertEqual(QA.appDefaults()?["wgLocalMode"] as? Bool, modeBefore, "erase changed the persisted local-mode flag")
+        XCTAssertEqual(QA.appDefaults()?["wgLocalMode"] as? Bool, true, "erase dropped the persisted local-mode flag")
         app.terminate()
     }
 
