@@ -570,7 +570,7 @@ export const LOCAL_VAULT = {
       if (res && res.changed) lastEgress.win.location.reload();
       return !!(res && res.changed);
     },
-    // The first-run screen's "Try the free trial" (bd med-o7zq.29), once the
+    // First run W2's "Try it free" (bd med-o7zq.29, med-ta2n.2), once the
     // trial is on: the grant or rejoin this device needs — the boot-time
     // enrollment's, joined while in flight (local-trial.js single-flight), or
     // one more when that one failed. Resolves { ok: true }, or { ok: false,
