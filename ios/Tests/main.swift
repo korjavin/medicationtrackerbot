@@ -173,6 +173,9 @@ precondition(accountOps.contains("account.leave") && !localOps.contains("account
 precondition(localOps.contains("shell.ops") && accountOps.contains("shell.ops") && localOps == localOps.sorted())
 precondition(accountOps.contains("leave.stash") && !accountOps.contains("leave.take") && !accountOps.contains("leave.clear"))
 precondition(localOps.contains("leave.take") && localOps.contains("leave.clear") && !localOps.contains("leave.stash"))
+// Settings → App lock (bd med-o7zq.39): local mode only, as on Android.
+precondition(localOps.contains("lock.status") && localOps.contains("lock.set"))
+precondition(!accountOps.contains("lock.status") && !accountOps.contains("lock.set"))
 print("LocalOrigin.ops: ok")
 
 // Move (bd med-o7zq.35): the stash file's lifecycle.
