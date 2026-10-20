@@ -5,8 +5,9 @@
 
 import { mountExitBar } from './exitbar.js';
 
-// #claim=<token>[&kit=1]: kit=1 is appended by the web only when sync was
-// turned on from Settings (bd med-ta2n.7/.8); shells pass it through untouched.
+// #claim=<token>[&kit=1]: kit=1 means sync was turned on from Settings, so the
+// ceremony ends on the Emergency Kit offer (bd med-ta2n.8). The web's "Turn on
+// sync" path appends it (bd med-ta2n.7); shells pass the fragment through untouched.
 const fragment = new URLSearchParams(location.hash.slice(1));
 const claimToken = fragment.get('claim');
 

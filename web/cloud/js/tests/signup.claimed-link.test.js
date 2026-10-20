@@ -345,14 +345,22 @@ describe('post-create PRF probe', () => {
     expect(calls('/api/loss-ack')).toBe(1);
   });
 
-  it('web, no kit flag: no kit page, no recovery code minted, straight on to the app', async () => {
-    install(() => withPrf(RAW_ID));
-    globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ publicKey: {} }) }));
-    const app = await clickCreate();
-    await vi.waitFor(() => expect(globalThis.location.href).toBe('/'));
-    expect(calls('/api/webauthn/register/finish')).toBe(1);
-    expect(calls('/api/recovery-material')).toBe(0);
-    expect(app.querySelector('#kit-done, #kit-continue')).toBeNull();
+  it('web, no kit flag: no kit page, no recovery code minted, "not saved" filed, straight on to the app', async () => {
+    const storage = new JSDOM('', { url: 'https://acct.example/unlock' }).window.localStorage;
+    Object.defineProperty(globalThis, 'localStorage', { value: storage, configurable: true, writable: true });
+    try {
+      install(() => withPrf(RAW_ID));
+      globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ publicKey: {} }) }));
+      const app = await clickCreate();
+      await vi.waitFor(() => expect(globalThis.location.href).toBe('/'));
+      expect(calls('/api/webauthn/register/finish')).toBe(1);
+      expect(calls('/api/recovery-material')).toBe(0);
+      expect(app.querySelector('#kit-done, #kit-continue')).toBeNull();
+      // The Settings Kit chip's source: an explicit "not saved", not a missing record.
+      expect(JSON.parse(storage.getItem('wg-emergency-kit-saved'))).toEqual({ savedAt: expect.any(Number), how: 'none' });
+    } finally {
+      delete globalThis.localStorage;
+    }
   });
 
   it('Android shell: discoverable probe, accepted when it returns the created credential', async () => {

@@ -228,8 +228,14 @@ async function startRegistration(app, claimToken, kit) {
   if (!finishRes.ok) throw new Error("Couldn't finish signing in. Please try again.");
 
   const ctx = { accountId, dek };
-  if (kit) await showSignupKit(app, { ...ctx, offer: true });
-  else await renderTelegramStep(app, ctx);
+  if (kit) {
+    await showSignupKit(app, { ...ctx, offer: true });
+    return;
+  }
+  // No kit yet: file an explicit "not saved" so the Settings Kit chip reminds
+  // (regenerate = /devices?flow=emergency-kit) rather than relying on a missing record.
+  stashKitSaved({ savedAt: Date.now(), how: 'none' });
+  await renderTelegramStep(app, ctx);
 }
 
 // The account exists from here on, so a failed kit upload must not fall back
@@ -276,22 +282,19 @@ async function finishSignupKit(app, ctx) {
   return renderTelegramStep(app, ctx);
 }
 
-// The one Emergency Kit page (bd med-ckm5.2, design O1 in
-// screens-onboarding.html): loss protection and the kit together, three
-// disclosures, an "I saved it" choice, Continue docked in .wg-pagefoot.
-//
-// Exported so recover.js re-renders the identical Emergency Kit screen for
-// the forced code rotation after a successful recovery redemption, and so
-// devices.js can offer "Regenerate Emergency Kit" (med-d5t.12), rather than a
-// second copy of this ceremony. ctx.onKitSaved, if given, replaces the default
-// loss-ack-then-telegram tail (recover.js redirects to the already-unlocked
-// vault itself); ctx.continueLabel renames its button. ctx.offer (signup
-// only) renders the W5 · kit offer over the same kit instead: no
-// acknowledgement choice, Done always enabled.
+// The Emergency Kit, in two shapes over the same minted kit:
+// - ctx.offer (signup with &kit=1, bd med-ta2n.8, design W5 · kit): renderKitOffer —
+//   two facts, Save/Print, Done always enabled, no acknowledgement choice.
+// - otherwise the O1 page (bd med-ckm5.2, design O1 in screens-onboarding.html):
+//   loss protection and the kit together, three disclosures, an "I saved it"
+//   choice, Continue docked in .wg-pagefoot. Used by recover.js (the forced
+//   code rotation after a recovery redemption) and devices.js ("Regenerate
+//   Emergency Kit", med-d5t.12); both pass ctx.onKitSaved, which replaces the
+//   loss-ack-then-telegram fallback tail; ctx.continueLabel renames its button.
 //
 // Every caller is a rotation of the same shape: mint a code, re-wrap the DEK,
-// upload envelope + verifier atomically, then ask the user to save it (a
-// download or print, or "I saved it" at their own risk). The
+// upload envelope + verifier atomically, then offer to save it (a download or
+// print; on O1 also "I saved it" at the user's own risk). The
 // upload happens BEFORE the kit renders, so any failure leaves the previous
 // recovery material untouched and the old code still working.
 export async function renderEmergencyKit(app, ctx) {

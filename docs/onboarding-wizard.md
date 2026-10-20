@@ -134,8 +134,9 @@ through untouched; `app.js` reads it next to `claim`). The offer (W5 · kit) min
 page, shows two facts, Save kit / Print and Done; Done POSTs `/api/loss-ack` and files `download | print` after a
 save, else `none`. Without the flag — the P3 "Turn on sync?" path, a plain invite link, **and an invite pasted
 into an older native first-run screen** — there is no kit page and no recovery code is minted at signup; the
-missing `emergencykit` record reads as "not saved" and the Settings Kit chip reminds (regenerate =
-`/devices?flow=emergency-kit`). That older-shell case is accepted (bd `med-ta2n.8` breakage review). The O1 page
+wizard files `emergencykit` `how: 'none'` and the Settings Kit chip (bd `med-ckm5.6`) reminds (regenerate =
+`/devices?flow=emergency-kit`). That older-shell case is accepted (bd `med-ta2n.8` breakage review). The `&kit=1`
+producer is the web's "Turn on sync" path (bd `med-ta2n.7`). The O1 page
 (`renderEmergencyKit` without `offer`: "I saved it" unlocks Continue, `ack` at the user's own risk) stays for
 `/recover`'s forced rotation and the `/devices` regenerate flow. Kit record values are unchanged.
 
@@ -146,7 +147,8 @@ top of the real app.
 
 The cache is established **at the tail, not right after `register/finish`** (which is what `claim.js:167-173`
 does, because enrollment is its last step). Caching early would let a user who abandons at the Emergency Kit
-reload straight into the app having never saved a recovery code.
+offer reload straight into the app having never saved a recovery code. (Without `&kit=1` there is no code to
+save at signup at all; the Settings Kit chip carries that.)
 
 `establishLdkCache` failure is swallowed and we navigate anyway: a storage-blocked browser lands on `/`,
 `cloud-boot`'s `warmUnlock` fails, and it is routed to `/unlock` to sign in with the passkey it just created.
@@ -156,7 +158,7 @@ Degraded, not dead-ended.
 warm cache was already established by `enrollWithToken`.
 
 Onboarding therefore starts **after** the Emergency Kit, **inside** the real app — as the bead requires — and
-the claim wizard keeps exactly one job: get a passkey and a recovery code. No duplicated step machinery: the
+the claim wizard keeps exactly one job: get a passkey (and, entered from Settings, offer the recovery code). No duplicated step machinery: the
 claim wizard uses `wizard-step` (defined in `web/cloud/css/cloud.css:15`, **shell-only**, not loaded by
 `web/static`), and onboarding uses `.wg-firstrun-overlay` (end of `web/static/css/components.css`). Two different
 documents, two different primitives, no sharing needed. That is the correct boundary, not an accident.
