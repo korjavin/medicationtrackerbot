@@ -105,6 +105,9 @@ describe('native/index.js — foundation', () => {
         expect(await env.window.Barcode.__native.has('invite.pending')).toBe(false);
     });
 
+    // Mirrors the real shell.ops bridge op: it replies the array of op names the
+    // shell answers in the current mode (Android LocalOrigin.ops, answered in
+    // MainActivity.kt "shell.ops"; iOS LocalOrigin.swift, answered in Shell.swift).
     it('has(op) answers from one cached shell.ops round trip in a shell', async () => {
         env = makeWindow();
         const sent = [];

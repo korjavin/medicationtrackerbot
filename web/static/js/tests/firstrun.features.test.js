@@ -416,6 +416,10 @@ describe('firstrun W1 → trial offer', () => {
 // F1 entry (W1 footer, opposite Skip): only in a v3 shell (it lists
 // invite.pending), in local mode, with no invite already waiting.
 describe('firstrun W1 "Have an invite?" footer', () => {
+    // A fake of the native foundation (native/index.js): has(op) answers from the
+    // shell's shell.ops list (Android LocalOrigin.ops / MainActivity.kt, iOS
+    // LocalOrigin.swift / Shell.swift); call('invite.pending') follows the
+    // med-ta2n.7 bridge contract: {url, receivedAt} for a waiting invite, else null.
     function shell({ ops = ['invite.pending'], slot = null } = {}) {
         return {
             platform: 'ios',
