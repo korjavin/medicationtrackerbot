@@ -398,6 +398,109 @@ The shipped screen has six collapsible groups, with a Feedback card above them:
 
 ---
 
+## Since the 2026-10 kit (v2)
+
+Snapshot as of 2026-10-20. Everything below shipped after the approved App UI kit v2 (2026-10-09/11, [claude-design/INDEX.md](claude-design/INDEX.md)). It has had **no design pass**, except where a kit screen id is named. Native file paths are relative to the repo root (`ios/`, `android/`). Web paths are relative to `web/`, as above. Line numbers are approximate.
+
+Shipped from the kit since then, for orientation only (no new design needed): 5-tab bar Today · Food · Meds · Train · Health (`static/js/components/wg-bottom-nav.js`, which supersedes the 2×4 grid in "Global frame"), Trackers TR1–TR3, Log sheet T3b, session W1b (RPE chips, Finish in top bar) and W4/W4b (equipment swap).
+
+**Colour baseline for native screens:** both shells paint `#132D29` (= `--wg-bg-screen`) behind the page, on the iOS launch screen, and on the Android window and splash (`ios/App/Shell.swift:18`, `android/app/src/main/res/values/colors.xml`). **Neither shell loads the Wandergeek fonts.** iOS uses SF Pro, Android uses Roboto / DeviceDefault.
+
+### Native shell screens: iOS / Android side by side [NEW]
+
+Both shells are a full-screen web view around the same web app. These native screens show *before* or *instead of* the page.
+
+| Screen | iOS (SwiftUI, `ios/App/App.swift`) | Android (Kotlin views, `android/app/src/main/java/com/example/medtracker/MainActivity.kt`) |
+|---|---|---|
+| **First run / "no account"** [NEW] | `FirstRunView` `:101`. Forced dark on `#132D29`, leading-aligned, 24pt padding, scrolls. Large-title bold "Med Tracker", then secondary-grey intro. **Invite comes first:** text field (white 8% fill, 10pt radius) → **Continue** (`.borderedProminent`, system blue) → **Scan QR code** (`.bordered`, qrcode icon). Then "No invite? Use Med Tracker without an account." → **Only on this device** (`.bordered`). Footnote disclaimer + Privacy policy link. Conditional rows: "Your records are ready to move…" (a move is pending), "Your records from "Only on this device" are still on this iPhone" + **Continue on this iPhone** (prominent). Errors in system orange. | `buildFirstRun` `:744`. Built by the shared `screen()` helper (`:975`): 24dp padding, 24sp title, **background = the theme's `colorBackground` (DayNight: white in light mode, near-black in dark), not teal**. **Local comes first** (owner decision 2026-10-19): "Use Med Tracker without an account…" → **Only on this device**. Then the invite paragraph → URL EditText → **Open** → **Scan QR code** (ML Kit Google code scanner, `:1004`). Then message line, underlined "How to get an invite" link, small disclaimer, Privacy policy link. All buttons are identical DeviceDefault buttons, sentence case. |
+| **Local intro "Only on this device"** [NEW] | `LocalIntroView` `:218`. Large title, then four SF Symbol `Label`s (iphone / externaldrive / exclamationmark.triangle in **orange** / key) explaining storage, backup, loss and BYOK. Optional **Lock with Face ID** `Toggle` + footnote. **Start** (prominent), **Back** (plain). | `buildLocalIntro` `:784`. Same `screen()` look. Five plain paragraphs (storage, Google backup ≤25 MB, loss, BYOK, "Settings → Move to a cloud account"), a **Switch** "Lock with fingerprint, face or screen lock" + small hint, a message line ("Start cancels the move…" while a move is pending), invite link, **Start**, **Back**. |
+| **App lock screen** [NEW] | `LockView` `:277`. Centered: `lock.fill` large-title glyph, "Med Tracker is locked" (title2 bold), secondary line "Unlock with Face ID…", **Unlock** (prominent). App-switcher snapshot is covered by a plain `#132D29` overlay (`:60`). | `buildLock` `:871`. Centered `screen()`: **96dp launcher icon**, "Med Tracker is locked", centered line, **Unlock**. System BiometricPrompt titled "Unlock Med Tracker" (`:912`). Recents screenshot disabled while locked. |
+| **Load error** [NEW] | `LoadErrorView` `:322`, overlay on the web view. Centered: "Can't open your account" / "Can't open Med Tracker" (local mode), secondary message, **Try again** (prominent), **Switch account** / "Use an account instead" (plain), **Copy diagnostics** (footnote). | `buildError` `:858`. `screen()`: always titled "Can't open your account", then message, **Try again**, **Switch account**. No Copy diagnostics here. |
+| **Ceremony exit bar** (claim / unlock / recover pages) [NEW] | `CeremonyExitBar` `:301`. Full-width "Not your account? Use another invite" (callout, white tint on `#132D29`), pinned below the page. Opens a confirmation dialog: Use another invite (destructive) / Copy diagnostics / Cancel. | `ceremonyBar` `:653`. A full-width DeviceDefault button, 13sp, fixed height, at the bottom. Opens an AlertDialog "Use another invite?" with Use another invite / Cancel / Copy diagnostics (`:699`). |
+| **Passkey busy screen** [NEW] | Not used (WebKit runs the ceremony). | Web side: `cloud/js/passkey-get.js:66`. Old `wizard-step` with a `.wizard-spinner`, busy title and hint, shown while Credential Manager runs. |
+| **QR scanner** [NEW] | `QRScanner` `:371`. VisionKit `DataScannerViewController` in a sheet, highlights the code. | ML Kit Google code scanner (system UI). |
+| **Health permission rationale** [NEW] | n/a (HealthKit's own sheet). | `PermissionsRationaleActivity.kt`. "Health Connect access" at 24sp, one paragraph, **Privacy policy** button. Stock DayNight. |
+| **"Diagnostics copied" alert** [NEW] | System alert, `RootView` `:64`. | Toast/clipboard (`copyDiagnostics` `:1030`). |
+| **OS-level entry points** [NEW] | iPhone Settings → Med Tracker (`ios/App/Settings.bundle/Root.plist`): toggles **Switch account**, **Local mode**, **Lock**, a test-only **Local mode diagnostic**, and a Privacy note. Home Screen quick action **Copy diagnostics** (`ios/project.yml:71`). | Launcher long-press shortcuts **Switch account** and **Copy diagnostics** (`publishShortcut` `:393`). |
+| **Icon, splash** [NEW] | Launch colour `#132D29` (`Assets.xcassets/LaunchBackground`). | Teal window + splash showing the launcher icon (`res/values/themes.xml`). |
+| **Notifications** [NEW] | Local notifications, title "Med Tracker" (`ios/App/Notifications.swift:105`). Tapping a reminder opens the take sheet for that dose. | Channel "Reminders" (high importance, `Notifications.kt:196`), exact alarms. Tap opens the take sheet. Needs two grants: notifications + Alarms & reminders. |
+
+The local-mode debug page `LocalSpikeView` (`ios/App/LocalSpike.swift:326`) is test-only. Do not design it.
+
+### Local-only mode ("Only on this device") [NEW]
+
+The phone apps can run with **no account**. The bundled web app is served from the app itself (iOS `wgapp://local/`, `ios/App/LocalApp.swift`; Android asset origin, `LocalOrigin.kt`). Records stay on the device. Policy and egress rules: `cloud/js/local-policy.js`. Boot: `cloud/js/local-boot.js`. The `<html>` gets `wg-local-vault`, and `.wg-local-only` / `.wg-cloud-only` show or hide sections. `data-device-word` swaps "iPhone" / "phone".
+
+- **Settings home indicator**: "On this device only" row with device icon (`static/index.html:504`) [NEW].
+- **Move to a cloud account** row (`index.html:510`) [NEW]. Shown only when the shell supports a seamless move. It stashes the records, returns to the native first run with "Your records are ready to move", and the new account picks them up after unlock.
+- **App lock** row with toggle, mounted under the indicator (`cloud/js/local-policy.js:175`) [NEW]. iOS wording "Face ID, Touch ID or passcode", Android "fingerprint, face or screen lock".
+- **Apple Health / Health Connect** import toggle row on Settings home (`cloud/js/health-import.js:239`) [NEW]. Status line like "Last imported … · N readings". It also exists in account mode inside the apps.
+- **Reminders & notifications page, local variant** (`index.html:619-643`) [NEW]. A status line ("Reminders are on for this iPhone" / "…off…"), **Allow notifications**, **Send test notification**, and a "Lock screen → Reminder text" select (Generic / Detailed).
+- **AI & integrations, local variant** (`index.html:936`, `:951`) [NEW]. A BYOK hint, plus the **Free trial** card with a switch "Try the AI, food database and voice calls without your own keys". Remaining voice minutes are shown here.
+- **Backup & import, local additions** [NEW]:
+  - Export shows progress ("Preparing your backup… reading your data / compressing", "Encrypting…") and "Backup ready" (`static/js/features/settings/importexport.js`).
+  - The "Move to a cloud account" card is a 3-step ordered list plus **I have an invite** (`index.html:1189`).
+  - **Erase data on this device** is a danger row with a typed confirm (`index.html:1234`).
+- **Weekly backup nudge**: an info toast "Your records are stored only on this iPhone. Export a backup file…" with a **Back up** action (`cloud/js/local-policy.js:415`) [NEW].
+- **Food DB off** copy when neither the trial nor own keys are set (`local-policy.js:319`) [NEW].
+
+### Onboarding & vault safety [NEW]
+
+- **Signup wizard**, cloud shell (`cloud/js/signup.js`). It now loads `static/css/fonts.css` + `components.css` and uses `wg-btn` inside `wizard-step` markup. Steps: Checking invite → Already claimed → Welcome (`:109`) → Device can't be used (`:214`) → **Protect against device loss**, a checkbox acknowledgement (`:221`) → **Your Emergency Kit** (QR + recovery code, Download / Print, "I saved my Emergency Kit", `:313`) → Telegram (`:455`, compacted) → **Try the AI features for free** with Allow the free trial / Use my own keys / Skip (`:494`, NEW) → Add to Home Screen, iOS/Android (`:563`/`:583`).
+- **In-app first-run** (`static/js/features/firstrun/screens/integrations.js:140-240`) [NEW]. The AI step now leads with **Try the free trial** (primary) / **Use my own keys**. Its state copy covers starting, declined, "already used on this phone", "not available" and failed. "Skip all" still offers the trial.
+- **Move / leave pickups**. When records already exist on the receiving side: a generic choice dialog **Merge / Replace** with a title like "Records already in your account" or "Records already on this iPhone", then a destructive "Replace records?" confirm (`importexport.js:316`) [NEW]. File restore keeps the typed confirm. An empty vault skips the confirm.
+- **Success toasts** after a move or leave: "Your records from this phone are in your account" (`cloud/js/cloud-boot.js:111`), "…are on this iPhone" (`local-policy.js:461`) [NEW].
+- **Account gone**: if the server marks the account as deleted or unknown, the app returns to the native first run with "There is no account at …" (Android `MainActivity.kt:503`; iOS `firstRunMessage`) [NEW].
+
+### Lock & privacy [NEW]
+
+- **Native app lock**: see the lock screens above. It can be set from the local intro, from Settings → App lock (web row), or from iPhone Settings → Lock. The copy says plainly that it hides the app but does not encrypt, and that lock-screen reminders still show.
+- **App-switcher privacy**: when locked, iOS covers the snapshot in plain teal and Android disables the recents screenshot.
+- **Lock-screen reminder text**: the Generic / Detailed choice in local mode (see above). The Telegram detail select is its cloud twin.
+- **Copy diagnostics**: on the iOS error screen, the ceremony dialog, the Home Screen quick action and the Android launcher shortcut. It copies a redacted passkey-ceremony log for support.
+
+### AI trial [NEW]
+
+- **Today card "Try AI for free"** (`static/js/features/today.js:1555`). A plain `wg-card` with the hint "Snap or describe a meal and the AI logs it for you. No API key needed." and buttons **Try it** (sparkle icon) / **Not now** (ghost). Shown while the trial is on offer, Food is on and the card hasn't been dismissed (per device).
+- **Settings → AI & integrations → Free trial** (cloud: `index.html:941`, **Try the free AI trial** block button; local: the switch above).
+- **Consent dialog** (`static/js/features/trial-consent.js`), with variants for food, voice and Telegram. Each has a title, a "data" paragraph, a "transit" paragraph and an own-key alternative. The device-trial variants add long platform paragraphs: iOS App Attest / DeviceCheck (`trial-consent.js:57`), Android Play Integrity (`static/js/native/attest.js:69`).
+- **Limits and errors**: "Free voice minutes used up…", "Today's free voice minutes are used up…" (`static/js/features/elevenlabs-call.js:556`, `cloud/js/local-trial.js:196`), "Food lookups paused until tomorrow", "AI trial used — add your own key below".
+
+### Settings additions [NEW]
+
+- **Home grouping** (kit S1, shipped): local group (indicator, Move, App lock) → Health import row → Features / Targets / Reminders & notifications / Units → AI & integrations / Devices & connectors / Backup & import / Account & privacy → Feedback.
+- **Account & privacy**: new **Use this iPhone/phone without an account** row (`index.html:1262`). It keeps a copy of the records on the phone and leaves the account on the server. Confirm copy is in `static/js/features/settings.js:744`. In the apps, **Delete account** now ends on the native first run.
+- **Reminders & notifications**: native permission states ("Notifications are off for Med Tracker. Turn them on in iOS Settings → Med Tracker → Notifications"), with the path wording per platform (`static/js/native/local-notifications.js:38,45`).
+- **Invite a friend** sheet now opens above the Devices page.
+
+### Platform-specific behaviours [NEW]
+
+- **Safe areas**: the page's top and bottom colours fill the iOS safe-area bands and the Android system bars (Android `chrome` op), so the bars match the screen under them.
+- **Android Back**: one Back on Today leaves the app; elsewhere it pops pages and sheets.
+- **Keyboard**: sheets dock above the keyboard (`static/js/components/wg-sheet.js`, visualViewport). The food search header stays pinned above the iOS keyboard. Numeric fields open the number pad (`inputmode`). Decimals accept "," or ".".
+- **Zoom**: double-tap zoom is off (`touch-action: manipulation`); pinch zoom is kept. Android forces textZoom 100. Portrait lock on Android.
+- **Files**: downloads go to the share sheet / Save to Files (iOS) or the Android downloads/share flow, and print uses the native print dialog. The restore picker accepts `.age` on iOS.
+- **Camera**: live barcode scanning falls back to ZXing on canvas where `BarcodeDetector` is missing (iOS).
+- **Haptics**: the rest timer vibrates when rest ends (Android only; iOS has no vibrate).
+- **Health data**: HealthKit (iOS) / Health Connect (Android) import BP, weight, sleep and workouts. The data is read-only and pulled while the app is open.
+
+### Web-only changes since the kit (no kit frame)
+
+- **Today**:
+  - Next up shows med doses only within 2h of the slot.
+  - The workout row names the rotating day, with a constant **View**, and **Start** for upcoming sessions.
+  - Sparklines were tuned.
+- **Session**:
+  - A collapsed **Try N kg** suggestion chip (`static/js/features/workout/sessions.js:798`).
+  - A set weight change cascades to the remaining pending sets.
+  - **Manage / Add equipment** from the swap picker.
+- **Food**:
+  - Search dedupes and ranks results and drops empty rows.
+  - A named dish stays one row in AI parsing.
+- **Rows**: a save made during a delete-Undo window still lands, and the offline empty state no longer flashes on row deletes.
+
+---
+
 ## Known visual debt / drift
 
 Ordered roughly by how much a designer should care.
@@ -500,3 +603,26 @@ The handoff's `AppHeader` (title + date) was never adopted, so no screen has a t
 - **Live HR** is behind an experimental flag and styled like a debug tool.
 - **CSV export** for BP and Weight is not in the UI.
 - **Scheduled ad-hoc workouts** can be created only through MCP.
+
+### H. Since the 2026-10 kit (v2) [NEW]
+- **Native screens are off-brand on both platforms**:
+  - Neither loads the Wandergeek fonts.
+  - **iOS** has no `AccentColor` asset, so `.borderedProminent` buttons are **system blue** on `#132D29`, and warnings use system orange instead of `--wg-warn` (`ios/App/App.swift:101-340`).
+  - **Android** native screens paint the DayNight `colorBackground`: white in light mode, grey-black in dark. They sit *between* a teal splash and a teal web app, with stock DeviceDefault buttons and no primary/secondary hierarchy (`MainActivity.kt:975-1001`). The Health Connect rationale screen is the same (`PermissionsRationaleActivity.kt`).
+- **The two shells diverge**:
+  - First run puts the invite first on iOS and local first on Android (deliberate, but the layouts were never designed as a pair).
+  - The Android error screen is always titled "Can't open your account", even in local mode, and has no Copy diagnostics (`MainActivity.kt:858`). iOS has both (`App.swift:322`).
+  - The lock screen shows the app icon on Android and an SF Symbol lock on iOS.
+- **The Android passkey busy screen** is still `wizard-step` + `.wizard-spinner` markup (`cloud/js/passkey-get.js:66`).
+- **The signup wizard mixes systems**: it loads kit fonts and `wg-btn` inside `wizard-step` / `<h1>` / `<input type="checkbox">` markup (`cloud/js/signup.js:221-245,494-540`).
+- **Settings pages mix kit and legacy markup**:
+  - The Notifications page and the Account page still use `.wg-settings-section` / `.wg-settings-row` / `wg-mono-display` title-case rows next to kit `.wg-section` / `.wg-setting` (`static/index.html:566-617,1249-1290`).
+  - Visible native `<select>`s break kit rule 7: reminder delivery, Telegram detail, local Reminder text (`index.html:596,609,637`).
+- **Settings home rows are built imperatively** by three modules (App lock `cloud/js/local-policy.js:175`, Health `cloud/js/health-import.js:239`, Feedback). Their order depends on mount timing.
+- **High-stakes data choices use generic dialogs**:
+  - Merge / Replace for move and leave pickups is a `safeChoose` with a paragraph of prose (`static/js/features/settings/importexport.js:316`).
+  - The local backup reminder is only a toast (`cloud/js/local-policy.js:425`).
+  - Erase and leave use `safeConfirm` (`static/js/features/settings.js:744,936-1010`).
+- **Trial consent is a wall of text**: the iOS and Android device-trial paragraphs run to about 120 words each (`static/js/features/trial-consent.js:57`, `static/js/native/attest.js:69`), and the AI trial is offered from three places with three different shapes: Today card, Settings card or switch, onboarding step.
+- **The local-mode "Move to a cloud account" exists twice**: as a Settings-home row (seamless move) and as a 3-step manual list in Backup (`index.html:510`, `:1189`), with different wording.
+- **Correction to C above**: every cloud shell page (`cloud/index.html`, which serves unlock/claim/recover/devices/transfer/connectors, plus `signup.html`, `share.html`, `feedback.html`) now loads `static/css/fonts.css`. The markup and buttons are still wizard-styled (`.wizard-step`, `cloud/css/cloud.css`).

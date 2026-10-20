@@ -12,7 +12,6 @@ Open `ui_kits/app-v2/index.html` in a browser; every page is static HTML.
 |------|-------|------------|
 | `tokens.css`, `components.css`, `icons.js` | Yes — the `wg-*` kit. Port into `web/static/css` / `web/static/js` under existing token/architecture guards. | `tokens.css` → the first `:root` of `web/static/css/styles.css`; `components.css` → `web/static/css/components.css` (port deltas in its header); `icons.js` → `web/static/js/components/wg-icons.js` (epic med-xso6) |
 | `kit.css`, `kit.js` | No — board/phone-frame presentation only. `kit.js` also shows the tab-bar markup v2 expects. | — (tab bar: `web/static/js/components/wg-bottom-nav.js`) |
-| `.wg-theme-light` (in `tokens.css`, `components.css`, `kit.css`) | No — designer's light-theme draft. The app is dark-only (owner, 2026-10-11); don't port it. | — |
 | `*.html` | Spec only. Screen ids (T1, F4, M2, W1, P1, S4…) are referenced by beads. | — (screens: see the table below) |
 
 ## Kit rules (from `ui_kits/app-v2/README.md`)
@@ -24,6 +23,7 @@ Open `ui_kits/app-v2/index.html` in a browser; every page is static HTML.
 5. No inline styles except `--p` (percent) and `--n` (count).
 6. Hit targets ≥ 44px; set rows 56px.
 7. No native dialogs, checkboxes, selects, date or file inputs as the visible control.
+8. (v2.1) A flow's Continue lives only in `.wg-pagefoot` / `.wg-shell__foot`; persistent chrome (`.wg-exitbar`) sits at the top in normal flow and never floats over content.
 
 ## Screen → spec → current code
 
@@ -39,8 +39,15 @@ Open `ui_kits/app-v2/index.html` in a browser; every page is static HTML.
 | Settings home, Features, Backup, Devices & connectors | `screens-settings.html` S1–S5 | `features/settings.js`, `features/settings/`, cloud shell pages in `web/cloud/` |
 | Health (BP / Weight / Vitals segments; section id `health` stays) | `navigation.html` | `features/bp.js`, `weight.js`, `health.js`, `live-hr.js` |
 | Trackers (Today tiles, log sheet, create/edit + templates, history + strength; epic med-1vy5, brief `docs/design/briefs/trackers.md`) | `screens-trackers.html` TR1, TR1b, TR2, TR3 | `web/domain/trackers.js` (domain); `features/today.js` (card, log sheet, editor + templates, manage sheet, history page) |
+| Native shell screens, iOS + Android (first run, local intro, app lock, load error, ceremony exit bar, splash hand-off) + **native token mirror** table — one design, both platforms (beads med-nt9p.41, med-w6gx.25; brief `docs/design/briefs/native-shells-and-local.md`) | `screens-native.html` N1–N6 | iOS `ios/App/App.swift` (`FirstRunView`, `LocalIntroView`, `LockView`, `LoadErrorView`), `ios/App/Shell.swift`; Android `android/app/.../MainActivity.kt` (`buildFirstRun`, `buildLocalIntro`, `buildLock`, `buildError`), splash/theme resources |
+| Onboarding vault safety (loss protection + Emergency Kit on one page, first Today, notification ask in context) (med-1uuq, med-i0fj, med-1ikf, med-fhil) | `screens-onboarding.html` O1–O3 | `web/cloud/` unlock/signup wizard (loss-ack + kit steps), onboarding wizard (`WGFirstRun`), `features/meds.js` schedule editor, `features/today.js` |
+| Local mode & account lifecycle (Settings home local/cloud, Backup/Move/Erase, Reminders & notifications, Account & privacy) | `screens-settings.html` S6–S9 | `features/settings.js`, `features/settings/` pages |
+| Destructive / confirm dialog family (erase, delete account, merge-or-replace, replace records, move to cloud) | `screens-settings.html` D1 | `core/utils.js` safe* dialogs, `web/static/css/dialog.css` |
+| AI free trial (Today card, Settings entry, consent iOS/Android) | `screens-today.html` A1 | `features/today.js`, AI & integrations settings page, trial consent flow |
 | Primitives (buttons, chips, rows, sheets, dialog, toast, empty, skeleton) | `foundations.html`, `components.html` | `web/static/js/components/`, `web/static/css/components.css`, `styles.css`, `dialog.css`, `core/utils.js` safe* dialogs |
 
 ## Changelog
+
+- 2026-10-20 — **v2.1, approved 2026-10-20**: native shells N1–N6 (+ native token mirror), onboarding O1–O3, Settings S6–S9, dialog family D1, AI trial A1; brief `docs/design/briefs/native-shells-and-local.md`, inputs `../CAPABILITIES.md` ("Since the 2026-10 kit (v2)"). New components in `components.css`/`components.html` (v2.1 section): `wg-mark`, `wg-shell`, `wg-pagefoot`, `wg-exitbar`, `wg-or`, `wg-inputrow`, `wg-note`, `wg-facts`, `wg-olist`, `wg-disc`, `wg-kv`, `wg-qr`, `wg-fname`, `wg-notif`; `.wg-dialog__facts/__confirm/__icon--info`, `.wg-pagebar--long`. Light-theme draft removed from the kit (app stays dark-only). Designer answers to the brief's open questions: Android native screens always dark (theme pinned, no DayNight); lock screen shows the app mark, never the account name; "I saved it" without a download keeps a Settings reminder until the kit is saved.
 
 - 2026-10-10 — **W1 revision, approved 2026-10-10**: Finish moves to the session top bar and the footer keeps Previous/Next (med-t5s6); one-tap RPE 6–10 chips on the active set and on the just-ticked set until rated, with "RPE n" shown in done rows (med-5wgd). New frame W1b; new layout rule `.wg-set__rpe-picks` in `components.css`. W2/W3 now draw Finish in the top bar too.
