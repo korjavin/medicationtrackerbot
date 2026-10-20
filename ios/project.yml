@@ -63,8 +63,11 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         # --wg-bg-screen (Assets.xcassets): no white flash before the dark app.
+        # N6 (bd med-ckm5.15): the 96 pt mark, centred; RootView fades it out
+        # over the first page (App.swift LaunchMark).
         UILaunchScreen:
           UIColorName: LaunchBackground
+          UIImageName: LaunchMark
         # The kit's type (bd med-ckm5.13, App/Wg.swift): OFL, licences beside them in App/Fonts.
         UIAppFonts:
           - SpaceGrotesk-Regular.ttf

@@ -208,7 +208,12 @@ The last three rows are the **inbound** posture, decided in `med-eas.29.1` and s
 
 ## Onboarding — invite → wizard → installed PWA
 
-**The invitation IS the claim link.** Minting an invite (`cloud admin invite`) pre-provisions the account (subdomain + one-time claim token) and yields `https://<sub>.<base>/#claim=<token>` — delivered by email, link, or QR. There is no public signup page; the base host serves only a static landing/education page with an "invitations only" note. Unclaimed accounts expire and can be re-issued.
+**The invitation IS the claim link.** Minting an invite (`cloud admin invite`) pre-provisions the account (subdomain + one-time claim token) and yields an invite link — delivered by email, link, or QR. There is no public signup page; the base host serves only a static landing/education page with an "invitations only" note. Unclaimed accounts expire and can be re-issued.
+
+**Two link forms, both valid** (bd med-ta2n.9). The token always rides the fragment, so it never reaches the server:
+
+- **Claim form** — `https://<sub>.<base>/#claim=<token>`, what `ClaimURL` returns and what every mint path hands out today (admin CLI `invite` / `reset-claim`, `POST /api/invite`, managebot DM); stays valid forever. `cloud-boot.js` routes it to `/unlock#claim`; it is what the landing page hands off to.
+- **Landing form** — `https://<base>/i/<sub>#<token>` (`Invite.LandingURL`), served but not minted yet: shipped native shells reject a base-domain URL on their paste/scan screen ("That isn't an account link"), so `ClaimURL` flips to it only after the shells that parse it (med-ta2n.11 / .12) are released. The base domain serves the invite landing page there (`web/cloud/invite.html`, no-store, strict CSP); until med-ta2n.10 ships the real page it is a placeholder that forwards straight to the claim form. The AASA file already claims `/i/*` (`applinks`); it becomes the iOS universal link and the Android app link once the shells' entitlement / intent filter land. The status read the page uses is `GET https://<base>/api/i/<sub>` (base domain only, per-IP rate-limited, no token, no session) → `200 {"state":"pending"|"expired"|"claimed","expires_at"?}`; `expires_at` comes only with `pending`, and an unknown or malformed subdomain answers `{"state":"expired"}`, so it is indistinguishable from a swept invite.
 
 The claim link lands on a minimal, picture-first education wizard:
 
