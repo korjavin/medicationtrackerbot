@@ -175,7 +175,8 @@ final class FlowQABackupTests: XCTestCase {
         }
         XCTAssertTrue(QA.tabBarShows(app, timeout: 30), "no tab bar")
         app.webViews.buttons["Meds"].firstMatch.tap()
-        let schedule = app.webViews.buttons["Schedule"].firstMatch
+        // aria-pressed makes the segment a toggle button, not a button.
+        let schedule = app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label == 'Schedule'")).firstMatch
         XCTAssertTrue(schedule.waitForExistence(timeout: 10), "no Meds → Schedule sub-tab")
         schedule.tap()
     }
