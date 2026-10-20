@@ -401,7 +401,8 @@ jobs:
         run: |
           IFS='=' read -r dev udid < "$RUNNER_TEMP/devices"
           xcodebuild test-without-building -project MedTracker.xcodeproj -scheme MedTracker \
-            -only-testing:MedTrackerUITests/FlowQATests -destination "platform=iOS Simulator,id=$udid" \
+            -only-testing:MedTrackerUITests/FlowQATests \
+            -only-testing:MedTrackerUITests/FlowQABackupTests -destination "platform=iOS Simulator,id=$udid" \
             -derivedDataPath build/sim -resultBundlePath build/qa.xcresult < /dev/null \
             | grep -E ' error: |Added attachment|Test Case|Executed|\*\* TEST'
           exit "${PIPESTATUS[0]}"
