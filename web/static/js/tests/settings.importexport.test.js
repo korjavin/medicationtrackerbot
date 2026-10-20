@@ -430,9 +430,10 @@ describe('Settings → Import/Export section', () => {
     });
 
     // bd med-nvd4: a slow export showed nothing and looked stuck. The status line
-    // walks preparing → encrypting → ready, the button is busy meanwhile, and a
-    // failure stays on screen as an error.
-    it('encrypted export shows progress, then ready, through the real button', async () => {
+    // walks preparing → encrypting, hides for Backup ready, and says "Backup
+    // exported" after Save; the button is busy meanwhile, and a failure stays
+    // on screen as an error.
+    it('encrypted export shows progress, then Backup ready, through the real button', async () => {
         const { window, document } = env;
         let release;
         window.CloudVault = {

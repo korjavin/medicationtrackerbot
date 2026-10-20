@@ -86,8 +86,9 @@
     // Export progress (bd med-nvd4). A big vault takes a while to read, gzip and
     // (with a passphrase) run age's scrypt — on a phone that is many seconds
     // with nothing on screen, so the export looked stuck. One status line says
-    // which phase is running, then "ready" or the error; it stays until the next
-    // export. Class + textContent + hidden only (design-token guards).
+    // which phase is running, or the error. It hides when Backup ready opens and
+    // says "Backup exported" only after Save or Share. Class + textContent +
+    // hidden only (design-token guards).
     let exportInFlight = false;
 
     function setExportStatus(text, isError) {
