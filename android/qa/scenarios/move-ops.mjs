@@ -15,7 +15,7 @@ import { claimAccount, waitForVault } from './smoke.mjs';
 export const retry = false;
 
 // Waited for up to 60 s: the fresh emulator's launcher ANR dialog hid it from UiAutomator for 20 s (first run).
-const HINT = /^Your records are ready to move\. Paste or scan the invite for your new account\./;
+const HINT = /^Your records are ready to move\. Paste or scan the invite for your new account\..*/;
 
 /** The page's own bridge call (native/index.js): {ok, result} or {ok: false, error}. */
 const call = (page, op, args) => page.evaluate(([o, a]) => window.LocalNotifications.__native.call(o, a)

@@ -41,11 +41,7 @@ internal fun Context.wgText(style: Int, text: CharSequence? = null) =
 
 internal fun Context.wgButton(style: Int, label: String, action: () -> Unit) =
     Button(this, null, 0, style).apply {
-        text = label
-        // Every kit button is Space Grotesk 600. Set here too: QA run 39437138649 drew the
-        // drawableStart Back in a fallback serif mono from the style alone.
-        typeface = Typeface.create(resources.getFont(R.font.wg_ui), 600, false)
-        setOnClickListener { action() }
+        text = label        setOnClickListener { action() }
     }
 
 /** A kit icon (res/drawable/ic_wg_*), tinted with a colour resource. */

@@ -3,8 +3,8 @@
 // state, for reading against the frames. Dispatch with font_scale=2.0 for N1 · 2x. No invite used.
 // The pending move is a fake stash file (run-as, debug APK): the screens only check that it exists.
 const START = /^Start$/;
-const HINT = /^Your records are ready to move\. Paste or scan the invite for your new account\./;
-const NOTE = /^A move to a cloud account is waiting\. Start here cancels it\./;
+const HINT = /^Your records are ready to move\. Paste or scan the invite for your new account\..*/;
+const NOTE = /^A move to a cloud account is waiting\. Start here cancels it\..*/;
 
 export default async function nativeScreens(ctx) {
   const { device, shell, pkg } = ctx;
