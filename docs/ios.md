@@ -123,6 +123,17 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   (lock off) → Start → the app (seeded by the QA driver) → relaunch with no
   arguments: local mode persisted, no first-run screen, `wgLocalMode` true in
   the app's prefs plist.
+- `FlowQAStashTests` (bd med-w6gx.23.3), the shell's stashes from the local
+  side, as files in the container's `Application Support/{move,leave}/vault.json`:
+  `testMoveLocalSide` — Settings → Move to a cloud account → the stash
+  (fixture format, sections, counts) and the first-run hint → Back keeps it,
+  Start deletes it → Backup & import → I have an invite shows no stale hint →
+  a relaunch is first run, records kept. `testLeaveStashPickup` — wipes
+  `Library/WebKit`, seeds `leave/vault.json` from `tests/fixtures/vault-v1.json`
+  (read from the source tree via `#filePath`) → the boot imports it, toasts,
+  clears the file → seeded again over records: Merge / Replace → Cancel →
+  "Records not copied", file cleared. The `qa` job runs every class in the
+  bundle but `VisualQATests`.
 
 **Adding a flow:** one `func test<Flow>()` in `FlowQATests`, with
 `continueAfterFailure = false`. Launch with arguments in NSArgumentDomain
