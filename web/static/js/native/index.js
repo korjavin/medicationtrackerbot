@@ -154,12 +154,24 @@
         return impls[capability] && impls[capability][platform];
     }
 
+    // Does the shell implement `op`? One cached shell.ops round trip per page
+    // (bd med-ta2n.1); false on the web and on a shell that can't answer.
+    var shellOps = null;
+    function has(op) {
+        if (current === 'web') return Promise.resolve(false);
+        if (!shellOps) {
+            shellOps = call('shell.ops').then(function (ops) { return Array.isArray(ops) ? ops : []; }, function () { return []; });
+        }
+        return shellOps.then(function (ops) { return ops.indexOf(op) !== -1; });
+    }
+
     var foundation = {
         NotImplementedError: NotImplementedError,
         registerImpl: registerImpl,
         getImpl: getImpl,
         platform: current,
         call: call,
+        has: has,
     };
 
     window.MediaCapture = makeStub('MediaCapture', ['takePhoto', 'pickPhoto', 'openCameraStream', 'recordAudio']);

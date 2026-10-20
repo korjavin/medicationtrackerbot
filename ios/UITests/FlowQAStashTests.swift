@@ -72,6 +72,8 @@ final class FlowQAStashTests: XCTestCase {
         // Backup & import's card leaves without a stash: no stale hint.
         let backup = webButton(app, prefix: "Backup & import")
         XCTAssertTrue(backup.waitForExistence(timeout: 15), "Settings shows no Backup & import")
+        // The S-kit Settings list runs under the tab bar: scroll the row clear first.
+        for _ in 0..<3 where !backup.isHittable { app.webViews.firstMatch.swipeUp() }
         backup.tap()
         let invite = app.webViews.buttons["I have an invite"]
         XCTAssertTrue(invite.waitForExistence(timeout: 15), "Backup & import shows no I have an invite")

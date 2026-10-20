@@ -1725,7 +1725,7 @@ describe('local-only mode trial pass across reinstalls (med-o7zq.26)', () => {
     function mountFirstRun() {
         const dir = fileURLToPath(new URL('../features/firstrun/', import.meta.url));
         env.window.sessionStorage.setItem('wg-firstrun-step', 'integrations');
-        for (const f of ['state.js', 'screens/integrations.js', 'screens/done.js', 'index.js']) {
+        for (const f of ['state.js', 'screens/integrations.js', 'index.js']) {
             env.window.eval(readFileSync(dir + f, 'utf8'));
         }
         env.window.WGFirstRun.mount({ needs_first_run: true });
@@ -1749,7 +1749,8 @@ describe('local-only mode trial pass across reinstalls (med-o7zq.26)', () => {
     it('first run offers the trial first; its tap consents, enrolls once and moves on (med-o7zq.29)', async () => {
         mountFirstRun();
         await tapTrialAndAllow();
-        await vi.waitFor(() => expect(env.window.WGFirstRun.state.getStep()).toBe('done'));
+        // No done screen (bd med-ta2n.1): moving on completes the flow.
+        await vi.waitFor(() => expect(env.window.WGFirstRun.isActive()).toBe(false));
         expect((await env.window.apiCall('/api/settings/trial-consent')).anon).toBe(true);
         expect(enrolls).toHaveLength(1);
         expect(await env.window.CloudVault.trial.status()).toMatchObject({ on: true, daily: 50 });
@@ -1765,7 +1766,7 @@ describe('local-only mode trial pass across reinstalls (med-o7zq.26)', () => {
         env.document.querySelector('[data-firstrun-action="own-keys"]').click();
         expect(env.document.getElementById('wg-firstrun-openai-api-key')).not.toBeNull();
         env.document.querySelector('[data-firstrun-action="skip"]').click();
-        expect(env.window.WGFirstRun.state.getStep()).toBe('done');
+        await vi.waitFor(() => expect(env.window.WGFirstRun.isActive()).toBe(false));
     });
 
     it('a pass the server refuses is dropped, and the enroll runs once more without it', async () => {

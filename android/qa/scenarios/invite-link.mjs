@@ -169,6 +169,29 @@ export default async function inviteLink(ctx) {
     const res = await call(p, 'local.reset');
     expect(res.ok && res.result === true, `local.reset: ${JSON.stringify(res)}`);
     expect((await pending(p)) === null, 'local.reset kept the slot');
+    page = p;
+  });
+
+  // W1 (web #1234) shows "Have an invite?" only in a v3 shell, in local mode, with no slot.
+  await ctx.step('W1: "Have an invite?" with an empty slot, hidden once one waits', async () => {
+    // An empty local origin, so the bundled app boots into W1 (as local-smoke wipes it).
+    await page.goto(`${LOCAL_ORIGIN}/qa/scenes.json`, { waitUntil: 'load', timeout: 30_000 });
+    await page.evaluate(async () => {
+      localStorage.clear();
+      sessionStorage.clear();
+      const dbs = await indexedDB.databases();
+      await Promise.all(dbs.map((d) => new Promise((res) => { const q = indexedDB.deleteDatabase(d.name); q.onsuccess = q.onerror = q.onblocked = res; })));
+    });
+    await page.goto(`${LOCAL_ORIGIN}/`, { waitUntil: 'load', timeout: 60_000 });
+    const button = page.locator('[data-firstrun-action="invite"]');
+    await button.waitFor({ state: 'visible', timeout: 60_000 });
+    await ctx.shot('w1-have-an-invite');
+    await warm(page, scheme, `${LOCAL_ORIGIN}/`);
+    const p = await pageOn((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`));
+    await p.getByText('Medications').first().waitFor({ state: 'visible', timeout: 60_000 });
+    await sleep(3000); // the footer's invite.pending probe
+    expect((await p.locator('[data-firstrun-action="invite"]').count()) === 0, 'W1 offers an invite while one waits');
+    await ctx.shot('w1-invited');
     r.ok = true;
   });
 }

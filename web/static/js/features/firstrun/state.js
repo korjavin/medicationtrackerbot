@@ -1,9 +1,9 @@
 // features/firstrun/state.js — first-run flow step tracker.
 //
-// Persists the current step ("welcome" | "features" |
-// "integrations" | "done") to sessionStorage so a mid-flow reload can
+// Persists the current step ("features" = the W1 module picker |
+// "integrations" = the AI trial offer) to sessionStorage so a mid-flow reload can
 // resume at the last-visible step on the next bootstrap. A full device
-// power-cycle wipes sessionStorage; the flow then restarts from "welcome"
+// power-cycle wipes sessionStorage; the flow then restarts from "features"
 // on the next launch, which is acceptable because `needs_first_run` is
 // still true server-side. Documented as intentional in features/firstrun/
 // index.js's top-of-file comment.
@@ -17,8 +17,10 @@
     'use strict';
 
     const KEY = 'wg-firstrun-step';
-    const DEFAULT_STEP = 'welcome';
-    const VALID_STEPS = Object.freeze(['welcome', 'features', 'integrations', 'done']);
+    const DEFAULT_STEP = 'features';
+    // bd med-ta2n.1 dropped 'welcome' and 'done'; a stale stored value of
+    // either falls back to DEFAULT_STEP. W2 (med-ta2n.2) renames 'integrations'.
+    const VALID_STEPS = Object.freeze(['features', 'integrations']);
 
     function _safeRead() {
         try {

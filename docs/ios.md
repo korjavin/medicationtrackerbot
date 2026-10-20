@@ -680,6 +680,35 @@ changes for it.
   home-indicator bands take the page's own background colour at its top and
   bottom edge (a page script reports it), the status bar is light, and the page
   does not rubber-band past its edges.
+- **Invite links** (bd med-ta2n.11 phase 1; contract in `bd show med-ta2n.7`
+  design §§1–7): the entitlement `applinks:$(WG_BASE_DOMAIN)` (base only; the
+  server's AASA lists `/i/*`, med-ta2n.9) makes the landing
+  `https://<base>/i/<sub>#<token>` open the app, and `CFBundleURLTypes`
+  registers `medtracker://i/<sub>#<token>` (the landing page's "Open in the
+  app"). `RootView.onOpenURL` → `Shell.capture`: `AccountURL.parseInvite`
+  turns either form (or an old claim link) into the claim URL
+  `https://<sub>.<base>/#claim=<token>` and stores the **pending slot**
+  `{url, receivedAt}` (`InviteSlot`, UserDefaults `wgPendingInvite`; newest
+  wins, never expired by the shell). A capture never opens anything by itself
+  (any page can fire the scheme): the native first run prefills its invite
+  field from the slot and the user taps Continue; with a page loaded (local or
+  account mode) the shell loads that mode's home with `?invite=1` (deferred
+  under the lock); on a cold start nothing more — the booting page reads the
+  slot. `parseInvite` checks the raw (not percent-decoded) path and fragment:
+  sub `^[a-z0-9-]+$` after lowercasing, token `^[0-9a-f]+$` (the server's hex
+  claim token), no port, userinfo or query; the vectors in
+  `ios/Tests/main.swift` are the shared list for Android.
+  Bridge ops (both modes): `invite.pending` → `{url, receivedAt}` or `null`;
+  `invite.clear` → `true`; `local.reset` clears the slot too.
+  `local.leave {url}` / `account.leave {url}` validate the URL with
+  `AccountURL.parse` (fragment kept, `&kit=1` included; error `invalid url`
+  with no change), then store the host, leave local mode, clear `wgLeaveHost`,
+  the leave stash and the slot, and reopen on the URL (`then` is ignored).
+  `local.leave {url}` keeps the move stash for the new account;
+  `account.leave {url}` drops it. A present `url` that is `null`, empty or not a string is "invalid url" (contract A3). Without a
+  url both keep their pre-v3 behaviour (native first run / `{then: "local"}`)
+  until phase 2 removes the native first run. Older shells ignore `url` and
+  land on their first run; the web probes `shell.ops` for `invite.pending`.
 - **Storage:** the same page script calls `navigator.storage.persist()` — the
   spike saw `persisted: false`, so WebKit may evict website data under storage
   pressure; the vault re-syncs from the server, unsynced offline writes are
