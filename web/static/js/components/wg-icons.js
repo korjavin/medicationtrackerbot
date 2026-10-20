@@ -111,6 +111,8 @@
         sig: '<path d="M3 18h2.4v2.5H3zM7.7 15h2.4v5.5H7.7zM12.4 12h2.4v8.5h-2.4zM17.1 9h2.4v11.5h-2.4z" fill="currentColor" stroke="none"/>',
         wifi: '<path d="M2.5 9.5a14 14 0 0 1 19 0M5.5 13a9.5 9.5 0 0 1 13 0M8.6 16.4a5 5 0 0 1 6.8 0"/><circle cx="12" cy="19.5" r="1.2" fill="currentColor" stroke="none"/>',
         batt: '<rect x="2" y="7" width="18" height="10" rx="2.5"/><rect x="4" y="9" width="12.5" height="6" rx="1" fill="currentColor" stroke="none"/><path d="M22 10.5v3"/>',
+        faceid: '<path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M9 9.5v1M15 9.5v1M12 9.5v3.5h-1M9.5 15.5a3.5 3.5 0 0 0 5 0"/>',
+        finger: '<path d="M7.5 19.5c1.2-2 1.5-4 1.5-7a3 3 0 0 1 6 0c0 1.2-.1 2.4-.3 3.5M12 12.5c0 3.5-.6 6-2 8.5M16.8 18.5c.4-1.8.7-3.8.7-6a5.5 5.5 0 0 0-9.8-3.4M4.5 15.5c.6-1 .9-1.9 1-3M18.5 6.5A8 8 0 0 0 4.7 8.6"/>',
     };
 
     // Kit names that collide with an existing registry icon resolve to the
@@ -124,6 +126,7 @@
         'chev-l': 'chevronLeft',
         'chev-r': 'chevronRight',
         'chev-d': 'chevronDown',
+        print: 'printer',
     };
     for (const alias of Object.keys(ALIASES)) PATHS[alias] = PATHS[ALIASES[alias]];
 

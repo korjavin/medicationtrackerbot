@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 
 function flushMutations() {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -192,6 +197,40 @@ describe('app.js modal history and back behavior', () => {
       await flushMutations();
       expect(document.querySelector('mt-modal.wg-page[id^="wg-page-"]')).toBeNull();
       expect(document.getElementById('modal-overlay').classList.contains('hidden')).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  // med-ckm5.1: kit v2.1 long-title bar — icon-only Back (named by aria-label) and
+  // fixed 44px side columns, so "Reminders & notifications" fits a 390px bar whole.
+  it('longTitle pages get the icon-only back and the full title; default pages keep the text back', async () => {
+    const { window, document, cleanup } = loadFrontendEnv();
+    try {
+      window.WGPage.push({ title: 'Settings', back: 'Today' });
+      window.WGPage.push({ title: 'Reminders & notifications', back: 'Settings', longTitle: true });
+      await flushMutations();
+      const [plain, long] = document.querySelectorAll('mt-modal.wg-page[id^="wg-page-"]');
+
+      expect(plain.querySelector('.wg-pagebar').classList.contains('wg-pagebar--long')).toBe(false);
+      const plainBack = plain.querySelector('.wg-back');
+      expect(plainBack.classList.contains('wg-back--icon')).toBe(false);
+      expect(plainBack.textContent).toBe('Today');
+
+      expect(long.querySelector('.wg-pagebar').classList.contains('wg-pagebar--long')).toBe(true);
+      expect(long.querySelector('.wg-pagebar__title').textContent).toBe('Reminders & notifications');
+      const back = long.querySelector('.wg-back.wg-back--icon');
+      expect(back.getAttribute('aria-label')).toBe('Settings');
+      expect(back.textContent).toBe('');
+      expect(back.querySelector('.wg-ico svg')).not.toBeNull();
+
+      const css = fs.readFileSync(path.join(REPO_ROOT, 'web/static/css/components.css'), 'utf8');
+      expect(css).toContain('.wg-pagebar--long{grid-template-columns:44px minmax(0,1fr) 44px}');
+      expect(css).toContain('.wg-back--icon{width:44px;padding:0;justify-content:center}');
+
+      back.click();
+      await flushMutations();
+      expect(document.querySelectorAll('mt-modal.wg-page[id^="wg-page-"]')).toHaveLength(1);
     } finally {
       cleanup();
     }

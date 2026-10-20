@@ -24,6 +24,7 @@ export default async function localVisual(ctx) {
   await shell(`pm clear ${pkg}`); // the golden vault exactly, whatever ran before
 
   for (const scene of scenes) {
+    if (scene.platform && scene.platform !== 'android') continue; // iOS-only native scenes (SwiftUI states)
     const nativeOnly = scene.nativeOnly ?? scene.name.startsWith('native-');
     const s = (r[scene.name] = {});
     for (let attempt = 1; attempt <= 2; attempt++) {

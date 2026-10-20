@@ -618,6 +618,12 @@ changes for it.
   exactly one label under `CLOUD_BASE_DOMAIN`; CI runs its check
   (`ios/Tests/main.swift`). The app stores the account **host** only, never
   the claim fragment, and opens `https://<host>/` on every later launch.
+  The native screens follow UI kit v2.1 N1/N2
+  (`docs/design/claude-design/ui_kits/app-v2/screens-native.html`) through
+  the token mirror in [`Wg.swift`](../ios/App/Wg.swift): palette, the bundled
+  OFL fonts in `ios/App/Fonts` (Space Grotesk, JetBrains Mono; `UIAppFonts`),
+  the primary/raised/ghost button styles and an `AccentColor` asset set to
+  sun (bd med-ckm5.13).
 - **Navigation:** the account host and the base domain load in the app; every
   other link (and `mailto:`/`tel:`) opens in Safari or its own app.
 - **Offline:** a cold start offline is answered by the Service Worker; a native
@@ -983,7 +989,11 @@ mode, gated on the bridge platform being `ios` or `android`
   takes the leave stash below and restores it through the same `restoreVault`
   (Merge / Replace / Cancel when records are already here), clears the stash
   whatever the outcome (the account copy is the retry), and the reloaded app
-  toasts once that the account's records are on this iPhone.
+  toasts once that the account's records are on this iPhone. Cancel means
+  nothing happened (bd med-o7zq.42): no dialog follows, both sides stay as
+  they were, and `leave.clear {back: true}` reopens the account (a shell
+  without it stays in local mode). A move pickup's Cancel is silent too and
+  keeps its stash.
 - **Move stash** (bd med-o7zq.35, twin of Android `Move.kt`, med-nt9p.32.17;
   the web side that calls it is med-nt9p.32.16/.18): the shell carries the
   vault v1 JSON across the two origins in one file,
@@ -1014,7 +1024,7 @@ mode, gated on the bridge platform being `ios` or `android`
   |----|------|-------|
   | `leave.stash {vault}` | account only | `true`; `invalid vault` / `too large` / `write failed` |
   | `leave.take` | local only | `{vault}` or `null`; does not delete |
-  | `leave.clear` | local only | `true` |
+  | `leave.clear {back?}` | local only | `true`; with `back: true` and the account `account.leave {then: "local"}` left (`wgLeaveHost`), `{back: true}`, then that account reopens (bd med-o7zq.42) |
 
   Lifecycle: the account page stashes before `account.leave {then: "local"}`,
   so the stash survives entering local mode (`forget(thenLocal:)` and the

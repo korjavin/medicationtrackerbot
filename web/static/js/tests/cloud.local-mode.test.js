@@ -2030,13 +2030,13 @@ describe('local-only mode leave stash pickup (med-o7zq.36.4)', () => {
     it.each([
         ['choice cancelled', { choice: null }],
         ['Replace declined', { confirm: false }],
-    ])('stash + records here, %s: records intact, stash cleared, the retry is explained', async (_, opts) => {
+    ])('stash + records here, %s: no dialog after it, records intact, back to the account (med-o7zq.42)', async (_, opts) => {
         await seedWeight();
-        const { window } = await boot({ take: { vault: VAULT }, ...opts });
+        const { window, call } = await boot({ take: { vault: VAULT }, ...opts });
         expect(leaveOps()).toEqual(['leave.take', 'leave.clear']);
+        expect(call).toHaveBeenCalledWith('leave.clear', { back: true });
         expect(await weights()).toEqual([80]);
-        expect(window.safeAlert).toHaveBeenCalledTimes(1);
-        expect(window.safeAlert.mock.calls[0][0]).toBe(NOT_COPIED);
+        expect(window.safeAlert).not.toHaveBeenCalled();
         expect(window.sessionStorage.getItem('wg-leave-picked-up')).toBeNull();
     });
 

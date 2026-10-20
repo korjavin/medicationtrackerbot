@@ -147,15 +147,16 @@ export default async function moveOps(ctx) {
     expect((await stashFiles()) === '', 'leave.stash touched the move dir');
   });
   await ctx.step('account.leave {then: local}: the leave stash is kept, local takes and clears it', async () => {
+    const accountHost = new URL(page.url()).host;
     await call(page, 'account.leave', { then: 'local' }).catch(() => {});
     await sleep(2000);
     page = await ctx.attachPage();
     if (!page) throw new Error('no WebView page');
     await page.waitForURL((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`), { timeout: 30_000 });
-    // The local boot's leave pickup (bd med-o7zq.36.4) has taken the stash (take keeps it) and asks the
-    // typed replace confirm over the seeded records; the bridge checks run under it, then Cancel.
+    // The local boot's leave pickup (bd med-o7zq.36.4) has taken the stash (take keeps it) and asks
+    // Merge / Replace / Cancel over the seeded records; the bridge checks run under it, then Cancel.
     const title = page.locator('.mt-confirm-modal__title');
-    await title.filter({ hasText: 'Replace the records on this' }).waitFor({ timeout: 60_000 });
+    await title.filter({ hasText: 'Records already on this' }).waitFor({ timeout: 60_000 });
     await ctx.shot('leave-pickup-confirm');
     expect((await leaveFiles()) === 'vault.json', 'entering local mode deleted the leave stash');
     const ops = await call(page, 'shell.ops');
@@ -165,16 +166,32 @@ export default async function moveOps(ctx) {
     const took = await call(page, 'leave.take');
     expect(took.ok && took.result && took.result.vault === vault, `leave.take: ${took.ok} ${took.error || took.result?.vault?.length}`);
     expect((await leaveFiles()) === 'vault.json', 'leave.take deleted the stash');
-    const cleared = await call(page, 'leave.clear');
-    expect(cleared.ok && cleared.result === true, `leave.clear: ${JSON.stringify(cleared)}`);
-    expect((await leaveFiles()) === '', `leave.clear left: ${await leaveFiles()}`);
-    const none = await call(page, 'leave.take');
-    expect(none.ok && none.result === null, `leave.take after clear: ${JSON.stringify(none)}`);
-    // Cancel → the pickup clears (already empty) and says the records were not copied → OK.
+    // Cancel → leave.clear {back: true} (bd med-o7zq.42): the SAME account reopens, no dialog, stash gone.
     await page.click('.mt-confirm-modal__cancel');
-    await title.filter({ hasText: 'Records not copied' }).waitFor({ timeout: 15_000 });
-    await page.click('.mt-confirm-modal__cancel');
+    await sleep(5000);
+    page = await ctx.attachPage();
+    if (!page) throw new Error('no WebView page');
+    await page.waitForURL((u) => !u.href.startsWith(`${LOCAL_ORIGIN}/`), { timeout: 60_000 });
+    expect(new URL(page.url()).host === accountHost, `cancel reopened ${page.url()}, not ${accountHost}`);
+    await sleep(3000);
+    await ctx.shot('leave-cancel-back-in-account');
+    const dlg = await page.locator('.mt-confirm-modal__title').count();
+    expect(dlg === 0, 'a dialog shows after Cancel');
+    expect((await leaveFiles()) === '', `cancel left the leave stash: ${await leaveFiles()}`);
+    await sleep(1500); // apply() writes the xml off-thread
+    expect(!/leaveHost/.test(await shell(`run-as ${pkg} cat shared_prefs/shell.xml`)), 'cancel kept leaveHost');
+    r.cancelBack = true;
+  });
+  await ctx.step('back in local: the records are intact (nothing merged or replaced)', async () => {
+    await call(page, 'account.leave', { then: 'local' }).catch(() => {}); // no stash: no dialog
+    await sleep(2000);
+    page = await ctx.attachPage();
+    if (!page) throw new Error('no WebView page');
+    await page.waitForURL((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`), { timeout: 30_000 });
     await ctx.waitLocalReady(page);
+    const now = await page.evaluate(() => window.CloudVault.exportAll({ includeSecrets: false }));
+    expect(now.length > 0 && Math.abs(now.length - vault.length) < vault.length * 0.1, `local records changed: ${now.length} vs ${vault.length}`);
+    expect(/leaveHost/.test(await shell(`run-as ${pkg} cat shared_prefs/shell.xml`)), 'leaving did not remember the account');
   });
   await ctx.step('local.reset deletes the leave stash', async () => {
     await seedLeave();
@@ -182,6 +199,8 @@ export default async function moveOps(ctx) {
     const res = await call(page, 'local.reset');
     expect(res.ok && res.result === true, `local.reset: ${JSON.stringify(res)}`);
     expect((await leaveFiles()) === '', `local.reset left: ${await leaveFiles()}`);
+    for (let i = 0; i < 20 && /leaveHost/.test(await shell(`run-as ${pkg} cat shared_prefs/shell.xml`)); i++) await sleep(1000); // apply() writes off-thread
+    expect(!/leaveHost/.test(await shell(`run-as ${pkg} cat shared_prefs/shell.xml`)), 'local.reset kept leaveHost');
   });
   await ctx.step('local.leave keeps it; opening an account deletes it', async () => {
     await seedLeave();

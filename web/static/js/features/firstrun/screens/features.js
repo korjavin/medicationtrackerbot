@@ -178,6 +178,21 @@
         });
         el.appendChild(toggle);
 
+        // Medications: "Reminders won't fire" under its copy while it is on and
+        // notifications are off for this device (med-ckm5.4, kit O3).
+        if (item.key === 'medication' && window.NotifyPermission) {
+            var slot = document.createElement('div');
+            slot.className = 'wg-notify-slot';
+            slot.setAttribute('data-firstrun-notify-note', '');
+            text.appendChild(slot);
+            var sync = function () {
+                if (toggle.checked) window.NotifyPermission.renderNote(slot);
+                else slot.replaceChildren();
+            };
+            toggle.addEventListener('change', sync);
+            sync();
+        }
+
         return el;
     }
 

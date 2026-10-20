@@ -64,6 +64,10 @@ const ALLOWLIST = [
         reason: 'trial-consent disclosure modal (bd med-yor.2); its only network call is the PATCH /api/settings/trial-consent write persisting the user\'s choice — a consent ceremony, not a cached section read',
     },
     {
+        file: 'notify-permission.js',
+        reason: 'notification permission ask sheet + denied note (bd med-ckm5.4); reads only the device/browser permission, no API data',
+    },
+    {
         file: 'food-photo-summary.js',
         reason: 'transient in-app summary card rendered after a photo upload — no API reads, pure DOM construction from a passed-in payload',
     },

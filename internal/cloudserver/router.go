@@ -87,6 +87,7 @@ func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, doma
 	// back to the file server there.
 	signup, _ := fs.ReadFile(shellFS, "signup.html")
 	buildID := buildIDFrom(idx)
+	idx, buildID = stampDevVersion(idx, buildID, vcsRevision())
 	return &Handler{
 		baseDomain: baseDomain,
 		store:      store,

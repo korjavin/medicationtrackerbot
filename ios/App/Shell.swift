@@ -14,6 +14,10 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     static let hostKey = "wgAccountHost"
     /// Settings.bundle toggle (iOS Settings → Med Tracker → Switch account).
     static let forgetKey = "wgForgetAccount"
+    /// The account that account.leave {then: "local"} left (bd med-o7zq.42):
+    /// a Cancel in the local page's leave pickup goes back to it (leave.clear
+    /// {back: true}). Cleared by every leave.clear and every other forget().
+    static let leaveHostKey = "wgLeaveHost"
     /// --wg-bg-screen: the bands' colour until the page reports its own.
     static let screen = UIColor(red: 0x13 / 255, green: 0x2D / 255, blue: 0x29 / 255, alpha: 1)
 
@@ -45,6 +49,8 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     @Published private(set) var loadError: String?
     /// Why the first run shows (an account the server says is gone); cleared by the next open or reopen.
     @Published private(set) var firstRunMessage: String?
+    /// The gone account's address, put back in the first run's field with that message.
+    private(set) var firstRunInput: String?
     /// The committed page is an account ceremony (/unlock, /claim, /recover):
     /// RootView offers "Use another invite" (bd med-w6gx.21) — a bad or
     /// already-claimed invite has no exit of its own there.
@@ -197,6 +203,8 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     /// per origin, so returning to this account (or to local mode) later still
     /// finds its data.
     func forget(thenLocal: Bool = false) {
+        if thenLocal, let host { UserDefaults.standard.set(host, forKey: Shell.leaveHostKey) }
+        else { UserDefaults.standard.removeObject(forKey: Shell.leaveHostKey) }
         UserDefaults.standard.removeObject(forKey: Shell.hostKey)
         UserDefaults.standard.set(thenLocal, forKey: LocalOrigin.modeKey)
         host = nil
@@ -349,6 +357,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             // server) keeps the error screen with Try again.
             if let h = http.url?.host?.lowercased(), h == host, AccountURL.accountGone(http.statusCode, http.allHeaderFields) {
                 forget()
+                firstRunInput = h
                 firstRunMessage = "There is no account at \(h)." // after forget()'s reopen(), which clears it
                 return .cancel
             }
@@ -520,8 +529,23 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
                 replyHandler(nil, "read failed")
             }
         case "leave.clear" where local:
+            // {back: true}: the user cancelled the pickup (bd med-o7zq.42), so
+            // nothing happened: reopen the account the leave came from. That
+            // account was never changed and its origin's data is still here.
             leaveStash.clear()
-            replyHandler(true, nil)
+            let back = UserDefaults.standard.string(forKey: Shell.leaveHostKey)
+            UserDefaults.standard.removeObject(forKey: Shell.leaveHostKey)
+            if (body["args"] as? [String: Any])?["back"] as? Bool == true,
+               let h = back, AccountURL.isAccountHost(h, base: base) {
+                replyHandler(["back": true], nil)
+                UserDefaults.standard.set(h, forKey: Shell.hostKey)
+                UserDefaults.standard.set(false, forKey: LocalOrigin.modeKey)
+                host = h
+                local = false
+                reopen()
+            } else {
+                replyHandler(true, nil)
+            }
         // The anonymous trial AI (bd med-o7zq.16): local mode only — an account
         // has its own trial — and, like every op here, never while locked.
         case let op? where local && op.hasPrefix("attest."):
