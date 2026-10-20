@@ -41,14 +41,16 @@ function loadCloudRemindersModule() { return import('/js/reminders.js'); }
 async function paintCloudPush(toggleBtn, on) {
     toggleBtn.dataset.subscribed = on ? '1' : '0';
     toggleBtn.textContent = on ? 'Disable' : 'Enable';
-    const chip = document.getElementById('cloud-push-chip');
+    // The button's own document: a refresh can land after the page went away.
+    const doc = toggleBtn.ownerDocument;
+    const chip = doc?.getElementById('cloud-push-chip');
     if (chip) {
         chip.textContent = on ? 'On' : 'Off';
         chip.classList.toggle('wg-chip--ok', on);
     }
-    const np = window.NotifyPermission;
-    const note = document.getElementById('cloud-push-note');
-    const card = document.getElementById('cloud-push-card');
+    const np = doc?.defaultView?.NotifyPermission;
+    const note = doc?.getElementById('cloud-push-note');
+    const card = doc?.getElementById('cloud-push-card');
     if (!np || !note || !card) return;
     try {
         await np.renderNote(note);
@@ -899,6 +901,11 @@ async function refreshLocalNotifyState() {
     const state = document.getElementById('local-notify-state');
     const enable = document.getElementById('local-notify-enable');
     const test = document.getElementById('local-notify-test');
+    // Kit S8 (bd med-ckm5.8): a status chip; denied swaps the card for O3's
+    // warn note (NotifyPermission.renderNote), the one sun on the page.
+    const chip = document.getElementById('local-notify-chip');
+    const note = document.getElementById('local-notify-note');
+    const card = document.getElementById('local-notify-card');
     if (!state || !enable || !test) return;
     let permission = 'unsupported';
     if (localNotificationsSupported()) {
@@ -912,19 +919,14 @@ async function refreshLocalNotifyState() {
     test.hidden = permission !== 'granted';
     const [text, tone] = localNotifyText(permission, window.CloudVault?.lastReminderSchedule?.() || null);
     state.textContent = text;
-    // Kit S8 (bd med-ckm5.8): a status chip; denied swaps the card for O3's
-    // warn note (NotifyPermission.renderNote), the one sun on the page.
-    const chip = document.getElementById('local-notify-chip');
     if (chip) {
         chip.textContent = tone === 'success' ? 'On' : 'Off';
         chip.classList.toggle('wg-chip--ok', tone === 'success');
         chip.classList.toggle('wg-chip--warn', tone === 'error');
     }
-    const note = document.getElementById('local-notify-note');
     try {
-        await window.NotifyPermission?.renderNote(note);
+        await state.ownerDocument?.defaultView?.NotifyPermission?.renderNote(note);
     } catch (e) { /* the card still says what is wrong */ }
-    const card = document.getElementById('local-notify-card');
     if (card) card.hidden = permission === 'denied' && !!note?.firstChild;
 }
 
