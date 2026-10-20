@@ -64,5 +64,27 @@ a{color:var(--wg-sun)}a:hover{color:var(--wg-sun-hi)}
 .kit-menu-pos{top:52px;right:0}
 .kit-stage .wg-tabbar{height:auto;padding-bottom:6px}
 .kit-chart{display:block;width:100%;height:150px}
-.kit-phone:has(.wg-theme-light){background:#F4FBF7}.kit-phone:has(.wg-theme-light) .kit-home{background:rgba(15,46,41,.4)}
-.kit-stage.wg-theme-light{color:var(--wg-fg-1)}
+/* platform chrome (presentation) */
+.kit-phone--android{border-radius:34px}.kit-phone--android .kit-island,.kit-phone--android .kit-home{display:none}
+.kit-punch{position:absolute;top:13px;left:50%;width:20px;height:20px;margin-left:-10px;border-radius:50%;background:#000;z-index:200;pointer-events:none}
+.kit-gesture{position:absolute;bottom:10px;left:50%;width:110px;height:4px;margin-left:-55px;border-radius:2px;background:rgba(255,255,255,.55);z-index:200;pointer-events:none}
+.kit-status--android{height:44px;padding:10px 24px 0 26px;font:500 14px Roboto,system-ui,sans-serif}
+.kit-plat{display:inline-flex;align-self:flex-start;height:20px;align-items:center;padding:0 7px;border-radius:5px;background:rgba(255,255,255,.07);font:600 10px var(--wg-font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--wg-fg-2)}
+.kit-fs2{--wg-fs-eyebrow:17px;--wg-fs-xs:21px;--wg-fs-sm:23px;--wg-fs-md:24px;--wg-fs-lg:26px;--wg-fs-title:32px;--wg-fs-metric:38px}
+.kit-fs2 .wg-btn{font-size:var(--wg-fs-md);height:auto;min-height:var(--wg-h-lg);padding-top:10px;padding-bottom:10px;white-space:normal}
+.kit-fs2 .wg-input{height:auto;min-height:56px;font-size:var(--wg-fs-md)}
+.kit-fading{opacity:.35}
+/* system UI drawn for context only — never shipped */
+.kit-faceid{position:absolute;top:50%;left:50%;width:156px;height:156px;margin:-78px 0 0 -78px;z-index:120;border-radius:30px;background:rgba(40,40,40,.86);backdrop-filter:blur(20px);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#fff;font:500 15px -apple-system,system-ui,sans-serif}
+.kit-faceid .wg-ico{width:60px;height:60px}.kit-faceid .wg-ico svg{stroke-width:1.3}
+.kit-bio{position:absolute;left:0;right:0;bottom:0;z-index:120;padding:28px 24px 40px;border-radius:28px 28px 0 0;background:#2B2F2E;color:#E3E3E3;display:flex;flex-direction:column;align-items:center;gap:10px;font:400 14px Roboto,system-ui,sans-serif;text-align:center}
+.kit-bio__title{font:400 22px Roboto,system-ui,sans-serif;color:#fff}
+.kit-bio__fp{width:64px;height:64px;margin:18px 0;border-radius:50%;display:grid;place-items:center;background:#3A3F3E;color:#A8C7FA}.kit-bio__fp .wg-ico{width:36px;height:36px}
+.kit-bio__acts{align-self:stretch;display:flex;justify-content:flex-start;font:500 14px Roboto,system-ui,sans-serif;color:#A8C7FA}
+.kit-dim{position:absolute;inset:0;z-index:110;background:rgba(0,0,0,.5)}
+.kit-alert{position:absolute;top:50%;left:50%;width:270px;margin-left:-135px;transform:translateY(-50%);z-index:120;border-radius:14px;overflow:hidden;background:rgba(37,37,37,.94);backdrop-filter:blur(20px);color:#fff;text-align:center;font:400 13px/1.35 -apple-system,system-ui,sans-serif}
+.kit-alert__body{padding:18px 16px 16px;display:flex;flex-direction:column;gap:4px}.kit-alert__body b{font:600 17px/1.3 -apple-system,system-ui,sans-serif}
+.kit-alert__acts{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid rgba(255,255,255,.14)}.kit-alert__acts span{padding:11px 0;color:#0A84FF;font-size:17px}.kit-alert__acts span+span{border-left:1px solid rgba(255,255,255,.14);font-weight:600}
+.kit-camera{flex:1;margin:0 16px 30px;border-radius:18px;background:#050807;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;color:rgba(255,255,255,.8);font:500 14px var(--wg-font-ui);text-align:center;padding:24px}
+.kit-camera__frame{width:200px;height:200px;border-radius:20px;border:3px solid rgba(255,255,255,.85);-webkit-mask:linear-gradient(#000 0 0) top left/40px 40px no-repeat,linear-gradient(#000 0 0) top right/40px 40px no-repeat,linear-gradient(#000 0 0) bottom left/40px 40px no-repeat,linear-gradient(#000 0 0) bottom right/40px 40px no-repeat}
+.kit-handoff{position:absolute;inset:0;z-index:120;display:grid;place-items:center;background:var(--wg-bg-screen)}

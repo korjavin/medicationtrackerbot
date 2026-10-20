@@ -7,8 +7,10 @@ This kit is option B from `briefs/UX-AUDIT.md`. It's mobile-first, 390×844, and
 - `components.css`: every `wg-*` component, using classes only. **Ship this.**
 - `icons.js`: a sprite of original line icons. `<i class="wg-ico" data-icon="pill"></i>` hydrates to inline SVG. **Ship this, or port the paths.**
 - `kit.css` and `kit.js`: presentation only (phone frames, fake keyboard, demo toggles). **Don't ship these.**
-- Pages: `foundations`, `components`, `screens-today`, `screens-food`, `screens-meds`, `screens-workouts`, `screens-settings`, `screens-trackers`, `navigation`.
-- Light theme (draft): add `.wg-theme-light` to `.wg-app`. Sun-coloured text uses `--wg-sun-ink`.
+- Pages: `foundations`, `components`, `screens-today`, `screens-food`, `screens-meds`, `screens-workouts`, `screens-settings`, `screens-trackers`, `screens-native`, `screens-onboarding`, `navigation`.
+
+## v2.1 (2026-10-20)
+This release adds native shells (N1–N6), onboarding vault safety (O1–O3), local mode and account lifecycle (S6–S9), the dialog family (D1) and the AI trial (A1). The new components are `wg-mark`, `wg-shell`, `wg-pagefoot`, `wg-exitbar`, `wg-or`, `wg-inputrow`, `wg-note`, `wg-facts`, `wg-olist`, `wg-disc`, `wg-kv`, `wg-qr`, `wg-fname` and `wg-notif`. It also adds `.wg-dialog__facts`, `__confirm` and `__icon--info` to `.wg-dialog`, and the `.wg-pagebar--long` modifier. The native shells mirror the eight tokens in the table at the bottom of `screens-native.html`.
 
 ## Rules
 1. There is one sun-filled control per view. Selection states (segmented controls, tabs, picks) use raised teal with sun text. `.wg-seg--accent` is only for a mode switch inside a sheet.
@@ -18,6 +20,7 @@ This kit is option B from `briefs/UX-AUDIT.md`. It's mobile-first, 390×844, and
 5. Components use no inline styles. The one exception: data values pass through `--p` (a percentage) or `--n` (a count) on the element.
 6. Hit targets are at least 44px, and set rows are 56px.
 7. Never use native dialogs, checkboxes, selects or date or file inputs as the visible control.
+8. A flow's Continue lives only in `.wg-pagefoot` or `.wg-shell__foot`. Persistent chrome, such as `.wg-exitbar`, sits at the top in normal flow and never floats over content.
 
 ## Replaces
 - **Buttons:** `wg-toolbar-btn`, `*-modal__header-btn` (×15), `*-subtabs__btn`, `btn btn-sm *`, `wg-firstrun-btn`, `.wizard-step button`, `.pwa-update-btn` → `wg-btn` plus its variants.
