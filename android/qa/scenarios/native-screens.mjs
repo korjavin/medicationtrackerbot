@@ -53,6 +53,10 @@ export default async function nativeScreens(ctx) {
     await ctx.step('N2: lock switch on', async () => {
       await ctx.launch();
       await intro();
+      // At font_scale=2.0 the row is below the fold: scroll the column (a no-op at 1.0).
+      await shell('input swipe 540 1500 540 400 300');
+      await shell('input swipe 540 1500 540 400 300');
+      await ctx.sleep(500);
       await device.tap({ text: 'Lock with fingerprint or face' });
       await ctx.sleep(500);
     });
@@ -70,6 +74,8 @@ export default async function nativeScreens(ctx) {
     await ctx.shot('n1-move');
     await ctx.step('N2: pending-move warning; Back keeps the stash', async () => {
       await intro();
+      await shell('input swipe 540 1500 540 400 300');
+      await shell('input swipe 540 1500 540 400 300');
       await ctx.waitFor({ text: NOTE }, 5_000);
       await ctx.waitFor({ text: 'Start and cancel the move' }, 5_000);
       await ctx.waitFor({ text: 'Open the new account instead' }, 5_000);
