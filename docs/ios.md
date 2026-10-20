@@ -133,6 +133,13 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   on the intro → relaunch locked (no web view) → match; a failed check holds
   the lock with Unlock enabled and no re-prompt; home → back locks; Settings →
   App lock off → relaunch opens unlocked. Leaves the lock off.
+- **Backup flows** ([`FlowQABackupTests.swift`](../ios/UITests/FlowQABackupTests.swift),
+  bd med-w6gx.23.4): `testBackupExport` — Download backup, plain then with a
+  passphrase (`.age`): each file sits in `tmp/wg-downloads` while the share
+  sheet shows and is gone once it closes. `testRestoreFromFile` — restore via
+  the Settings import input (driver seed) into an erased store, records survive
+  a relaunch. `testErase` — typed "erase" → Erase: both shell stashes cleared,
+  Meds empty after relaunch, local mode kept.
 
 **Adding a flow:** one `func test<Flow>()` in `FlowQATests`, with
 `continueAfterFailure = false`. Launch with arguments in NSArgumentDomain
