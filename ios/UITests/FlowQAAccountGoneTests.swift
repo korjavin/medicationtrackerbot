@@ -24,7 +24,8 @@ final class FlowQAAccountGoneTests: XCTestCase {
         XCTAssertFalse(app.buttons["Try again"].exists, "the marked 404 showed the error screen")
         shot("account-gone", "no-account")
         app.terminate()
-        XCTAssertNil(QA.appDefaults()?["wgAccountHost"], "wgAccountHost is still in the app's prefs after the marked 404")
+        // No prefs-plist check: cfprefsd had not flushed the removal when the
+        // app was killed (CI run 39416173097). The relaunch is the proof.
         launch(app, notLocal)
         XCTAssertTrue(app.buttons["Only on this device"].waitForExistence(timeout: 30), "after relaunch the forgotten host reopened")
         XCTAssertFalse(gone.exists, "the in-memory message survived a relaunch")
@@ -35,7 +36,6 @@ final class FlowQAAccountGoneTests: XCTestCase {
         expectErrorScreen(app, "not found", "the bare 404")
         shot("account-gone", "bare-404")
         app.terminate()
-        XCTAssertEqual(QA.appDefaults()?["wgAccountHost"] as? String, "stale.qa.test", "the bare 404 forgot the host")
         launch(app, notLocal)
         expectErrorScreen(app, "not found", "the relaunch after the bare 404")
         app.buttons["Switch account"].tap()

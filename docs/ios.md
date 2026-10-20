@@ -147,8 +147,8 @@ dev-machine step. `testAccountGone` in
 [`FlowQAAccountGoneTests.swift`](../ios/UITests/FlowQAAccountGoneTests.swift)
 (twin of Android's `not-found`): `nobody` (the server's 404 with
 `X-Account-Gone: 1`) → the first run with "There is no account at …", no Try
-again, `wgAccountHost` gone from the prefs plist, and a relaunch stays on the
-first run; `stale` (a bare 404) → "Can't open your account" with Try again, the
+again, and a relaunch stays on the first run (not a prefs-plist read: the
+removal is not flushed before the app is killed); `stale` (a bare 404) → "Can't open your account" with Try again, the
 host kept, a relaunch reopens the error screen, Switch account → first run;
 `down` (503) → the error screen, Try again keeps it. A "certificate" message on
 the error screen is a failed trust setup, never a pass. The `qa` job runs every
