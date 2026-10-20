@@ -236,7 +236,9 @@ export async function claimAccount(ctx, page) {
   const { shell, sleep } = ctx;
   await ctx.step('create the passkey', async () => {
     await page.click('#create-passkey');
-    await page.locator('#kit-download').waitFor({ timeout: 60_000 });
+    // #kit-download sits in the collapsed "Download or print" disclosure: attached, then opened.
+    await page.locator('#kit-download').waitFor({ state: 'attached', timeout: 60_000 });
+    await page.evaluate(() => { document.querySelector('#kit-download').closest('details').open = true; });
   });
   await ctx.shot('kit');
   await ctx.step('kit download offers Save/Share', async () => {

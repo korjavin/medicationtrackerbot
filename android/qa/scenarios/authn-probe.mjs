@@ -17,7 +17,7 @@ export default async function authnProbe(ctx) {
     });
     ctx.log('virtual authenticator', authenticatorId);
     await page.click('#create-passkey');
-    const done = page.locator('#kit-download');
+    const done = page.locator('#kit-saved');
     const end = Date.now() + 60_000;
     while (Date.now() < end && !(await done.isVisible().catch(() => false))) await ctx.sleep(1000);
     await ctx.shot('after-create');
