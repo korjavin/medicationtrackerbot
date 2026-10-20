@@ -57,9 +57,9 @@ final class FlowQAStashTests: XCTestCase {
         }
 
         app.buttons["Only on this device"].tap()
-        let start = app.buttons["Start"]
+        let start = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Start'")).firstMatch // "Start and cancel the move" during a move
         XCTAssertTrue(start.waitForExistence(timeout: 10), "no local intro")
-        // ponytail: the bead's "Start cancels the move" note is Android-only (App.swift has none); shot, not asserted.
+        XCTAssertTrue(app.buttons["Start and cancel the move"].exists, "the intro does not say Start cancels the move")
         shot(flow, "intro")
         app.buttons["Back"].tap()
         XCTAssertTrue(moveHint(app).waitForExistence(timeout: 10), "Back lost the move hint")
@@ -168,7 +168,7 @@ final class FlowQAStashTests: XCTestCase {
         let onlyHere = app.buttons["Only on this device"]
         XCTAssertTrue(onlyHere.waitForExistence(timeout: 30), "first run never showed \"Only on this device\"")
         onlyHere.tap()
-        let start = app.buttons["Start"]
+        let start = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Start'")).firstMatch // "Start and cancel the move" during a move
         XCTAssertTrue(start.waitForExistence(timeout: 10), "the local intro never showed \"Start\"")
         start.tap()
     }
