@@ -98,6 +98,31 @@ describe('native/index.js — foundation', () => {
         env = loadFoundation();
         expect(env.window.MediaCapture.__native).toBe(env.window.Barcode.__native);
     });
+
+    // bd med-ta2n.1: has(op) asks the shell once per page for its op list.
+    it('has(op) is false on the web without touching a bridge', async () => {
+        env = loadFoundation();
+        expect(await env.window.Barcode.__native.has('invite.pending')).toBe(false);
+    });
+
+    it('has(op) answers from one cached shell.ops round trip in a shell', async () => {
+        env = makeWindow();
+        const sent = [];
+        env.window.webkit = { messageHandlers: { wgNative: { postMessage: (msg) => { sent.push(msg.op); return Promise.resolve(['shell.ops', 'invite.pending']); } } } };
+        env.evalFile(NATIVE_INDEX_JS);
+        const native = env.window.Barcode.__native;
+        expect(native.platform).toBe('ios');
+        expect(await native.has('invite.pending')).toBe(true);
+        expect(await native.has('clipboard.read')).toBe(false);
+        expect(sent).toEqual(['shell.ops']);
+    });
+
+    it('has(op) is false when the shell cannot answer shell.ops', async () => {
+        env = makeWindow();
+        env.window.webkit = { messageHandlers: { wgNative: { postMessage: () => Promise.reject(new Error('unknown op')) } } };
+        env.evalFile(NATIVE_INDEX_JS);
+        expect(await env.window.Barcode.__native.has('invite.pending')).toBe(false);
+    });
 });
 
 describe('native/index.js — full module load wires real impls', () => {

@@ -11,22 +11,25 @@
 //      overlay to <body>. The orchestrator dispatches rendering to the
 //      registered screen module for the current step (Task 4+).
 //   3. dismiss() removes the overlay and clears the sessionStorage step
-//      tracker. Called by the "done" screen after POST /api/firstrun/
-//      complete succeeds, and by "Skip all" on the welcome screen via
-//      the skipAll() helper — which first shows the AI trial offer when
-//      one is available (bd med-js3k), finishing from there.
+//      tracker. Called once POST /api/firstrun/complete settles: straight
+//      from the W1 picker (features step) when no AI trial is on offer, else
+//      from the trial step after it (bd med-ta2n.1; med-js3k's "a user who
+//      skips still learns the trial exists" holds for Skip and Continue).
 //
-// Screen registry: each step ("welcome" | "features" |
-// "integrations" | "done") owns a module under features/firstrun/screens/<step>.js that
+// Screen registry: each step ("features" | "integrations") owns a module
+// under features/firstrun/screens/<step>.js that
 // attaches `{ title, render(body, helpers) }` to
 // window.WGFirstRun.screens[step]. The orchestrator looks the screen up
 // by name, sets the panel title, clears the body container, then calls
-// the screen's render with helpers `{ advance, complete, dismiss }`.
+// the screen's render with helpers `{ advance, complete, finishPicker,
+// dismiss }`. advance('done') completes the flow (there is no done screen).
+// A screen with `brand: true` (W1) shows the app mark row instead of the
+// step bars.
 //
 // Resume semantics — the sessionStorage step tracker in state.js survives
 // in-session WebView/process kills, so a mid-flow death resumes at the
 // last visible step. A full device power-cycle wipes sessionStorage; the
-// flow then restarts from "welcome" because `needs_first_run` is still
+// flow then restarts from "features" because `needs_first_run` is still
 // true server-side. This is intentional, not a bug.
 //
 // This module exposes `window.WGFirstRun` with the public surface
@@ -40,15 +43,16 @@
     const OVERLAY_ID = 'wg-firstrun-overlay';
     const TITLE_ID = 'wg-firstrun-title';
     const STEPS_ID = 'wg-firstrun-steps';
-    const FALLBACK_STEPS = ['welcome', 'features', 'integrations', 'done'];
+    const BRAND_ID = 'wg-firstrun-brand';
+    const FALLBACK_STEPS = ['features', 'integrations'];
     const BODY_ID = 'wg-firstrun-overlay-body';
     const COMPLETE_URL = '/api/firstrun/complete';
     // Written by the claim wizard (web/cloud/js/signup.js TRIAL_CHOICE_KEY).
     const TRIAL_CHOICE_KEY = 'wg-onboarding-trial-choice';
-    // bd med-js3k: set by "Skip all" when it lands on the trial offer, so
-    // leaving that step finishes the flow instead of walking on to "done".
-    // sessionStorage, like the step tracker: it survives trial.apply()'s reload.
-    const SKIP_ALL_KEY = 'wg-firstrun-skip-all';
+    // The W1 picks (bd med-ta2n.1), held until completion POSTs them as
+    // `picked`. sessionStorage, like the step tracker: it survives the trial
+    // step's trial.apply() reload.
+    const PICKED_KEY = 'wg-firstrun-picked';
 
     // Module-local mount latch. The architecture's "no module state"
     // posture allows this because it is a render guard, not domain data:
@@ -67,7 +71,7 @@
     function _currentStep() {
         const state = window.WGFirstRun && window.WGFirstRun.state;
         if (state && typeof state.getStep === 'function') return state.getStep();
-        return 'welcome';
+        return 'features';
     }
 
     function _lookupScreen(stepName) {
@@ -90,6 +94,24 @@
         const panel = document.createElement('div');
         panel.className = 'wg-firstrun-overlay__panel';
 
+        // Kit shell brand row (W1): the app mark + name, shown by screens
+        // with `brand: true` in place of the step bars.
+        const brand = document.createElement('div');
+        brand.id = BRAND_ID;
+        brand.className = 'wg-shell__brand';
+        const mark = document.createElement('span');
+        mark.className = 'wg-mark wg-mark--sm';
+        const ico = document.createElement('i');
+        ico.className = 'wg-ico';
+        ico.setAttribute('data-icon', 'pill');
+        mark.appendChild(ico);
+        const name = document.createElement('span');
+        name.className = 'wg-shell__name';
+        name.textContent = 'Med Tracker';
+        brand.append(mark, name);
+        if (window.WGIcons && typeof window.WGIcons.hydrate === 'function') window.WGIcons.hydrate(brand);
+        panel.appendChild(brand);
+
         // Kit step indicator (.wg-steps): one bar per step, painted by
         // _paintSteps on every render.
         const steps = document.createElement('div');
@@ -102,7 +124,7 @@
 
         const title = document.createElement('h2');
         title.id = TITLE_ID;
-        title.className = 'wg-firstrun-overlay__title';
+        title.className = 'wg-firstrun-overlay__title wg-shell__title';
         panel.appendChild(title);
 
         const body = document.createElement('div');
@@ -139,6 +161,9 @@
         const body = document.getElementById(BODY_ID);
         if (!title || !body) return;
         _paintSteps(stepName);
+        const branded = !!(screen && screen.brand);
+        document.getElementById(BRAND_ID).hidden = !branded;
+        document.getElementById(STEPS_ID).hidden = branded;
 
         // Screens that haven't loaded yet (e.g. an older bundle, a step
         // module deferred to a later task) leave the panel empty rather
@@ -159,7 +184,7 @@
     function _buildHelpers() {
         return {
             advance: function (stepName) {
-                if (stepName === 'done' && _skippingAll()) {
+                if (stepName === 'done') {
                     _complete();
                     return;
                 }
@@ -172,8 +197,8 @@
             complete: function () {
                 return _complete();
             },
-            skipAll: function () {
-                return _skipAll();
+            finishPicker: function (picked) {
+                return _finishPicker(picked);
             },
             dismiss: function () {
                 dismiss();
@@ -181,19 +206,24 @@
         };
     }
 
-    function _skippingAll() {
-        try { return window.sessionStorage.getItem(SKIP_ALL_KEY) === '1'; } catch (_) { return false; }
-    }
-
-    // bd med-js3k: "Skip all" skips everything except the free AI trial offer —
-    // a user who skips must still learn the trial exists. On offer → land on
-    // the integrations step (trial / own keys / skip); otherwise finish now.
-    function _skipAll() {
+    // W1 is done (its flags are written): remember the picks for completion,
+    // then the free AI trial offer if there is one (bd med-js3k — a user who
+    // skips must still learn the trial exists), else finish now.
+    function _finishPicker(picked) {
+        try { window.sessionStorage.setItem(PICKED_KEY, JSON.stringify(picked)); } catch (_) { /* storage blocked */ }
         return _trialOnOffer().then(function (offer) {
             if (!offer) return _complete();
-            try { window.sessionStorage.setItem(SKIP_ALL_KEY, '1'); } catch (_) { /* storage blocked */ }
             _buildHelpers().advance('integrations');
         });
+    }
+
+    function _readPicked() {
+        try {
+            const picked = JSON.parse(window.sessionStorage.getItem(PICKED_KEY));
+            return Array.isArray(picked) ? picked : null;
+        } catch (_) {
+            return null;
+        }
     }
 
     // Settings' own "is the trial on offer" check (med-6xb9). In cloud mode a
@@ -227,10 +257,12 @@
         // requests but the server build's AuthMiddleware would 401 a bare
         // fetch). The Vitest harness loads only the firstrun modules so
         // apiCall is absent there; the fetch fallback keeps tests minimal.
+        const picked = _readPicked();
+        const payload = picked ? { picked: picked } : null;
         let promise;
         if (typeof window.apiCall === 'function') {
             try {
-                promise = window.apiCall(COMPLETE_URL, 'POST', null);
+                promise = window.apiCall(COMPLETE_URL, 'POST', payload);
             } catch (_) {
                 promise = Promise.resolve(null);
             }
@@ -240,6 +272,7 @@
                     method: 'POST',
                     credentials: 'same-origin',
                     headers: { 'Content-Type': 'application/json' },
+                    body: payload ? JSON.stringify(payload) : undefined,
                 });
             } catch (_) {
                 promise = Promise.resolve(null);
@@ -288,7 +321,7 @@
         // _currentStep() reads state.getStep(), which returns the
         // persisted sessionStorage value when present. A mid-flow kill
         // therefore re-mounts directly at the last-visible step rather
-        // than restarting from welcome.
+        // than restarting from the picker.
         _renderCurrentStep();
         _askPendingTrial();
     }
@@ -325,7 +358,7 @@
             el.parentNode.removeChild(el);
         }
         _mounted = false;
-        try { window.sessionStorage.removeItem(SKIP_ALL_KEY); } catch (_) { /* storage blocked */ }
+        try { window.sessionStorage.removeItem(PICKED_KEY); } catch (_) { /* storage blocked */ }
         if (window.WGFirstRun && window.WGFirstRun.state && typeof window.WGFirstRun.state.clear === 'function') {
             window.WGFirstRun.state.clear();
         }

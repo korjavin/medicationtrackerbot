@@ -206,6 +206,17 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         expect(after.needs_first_run).toBe(false);
     });
 
+    it('completing first run stores the W1 picks on the firstrun record (bd med-ta2n.1)', async () => {
+        const { window, records } = env;
+
+        await window.apiCall('/api/firstrun/complete', 'POST', { picked: ['medication', 'food', 'diary', 7] });
+
+        const all = await records.list('firstrun');
+        expect(all).toHaveLength(1);
+        expect(all[0]).toMatchObject({ first_run_complete: true, picked: ['medication', 'food', 'diary'] });
+        expect(all[0].clientTs).toBeGreaterThan(0);
+    });
+
     it('a stale device overwriting the settings singleton cannot un-complete first run', async () => {
         const { window, records } = env;
 

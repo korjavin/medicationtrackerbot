@@ -168,6 +168,12 @@
             // the Simulator, no trial keys in the cloud tier): open it directly.
             // The promise stays pending; the shot is taken with the sheet up.
             window.TrialConsent.request(step.consent);
+        } else if (step.firstrun) {
+            // The W1 picker over the seeded vault (bd med-ta2n.1): the seed
+            // completed first run, so open the overlay the way Settings →
+            // "Re-run onboarding" does. Nothing is written until a tap.
+            window.WGFirstRun.state.clear();
+            window.WGFirstRun.mount({ needs_first_run: true });
         } else if (step.settingsPage) {
             await until(() => window.SettingsView.openSettingsPage(step.settingsPage), STEP_MS, `settings page ${step.settingsPage}`);
         } else if (step.file) {

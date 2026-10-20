@@ -9,19 +9,27 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const STATE_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/state.js');
-const WELCOME_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/screens/welcome.js');
 const INTEGRATIONS_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/screens/integrations.js');
-const DONE_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/screens/done.js');
 const INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/index.js');
 
-// features/firstrun/screens/integrations.js — Task 6. Third screen in
-// the first-run overlay: compact OpenAI key form with pre-filled URL
+// features/firstrun/screens/integrations.js — Task 6. The step after the W1
+// picker (bd med-ta2n.1): compact OpenAI key form with pre-filled URL
 // + model defaults. Save PATCHes /api/settings/integrations and
-// advances to "done"; Skip advances without touching the endpoint.
+// finishes the flow; Skip finishes without touching the endpoint.
 // A failed PATCH surfaces an inline error and keeps the user on the
 // integrations step so they can retry or skip.
 
 const SHELL_HTML = `<!doctype html><html><body></body></html>`;
+
+// There is no done screen (bd med-ta2n.1): leaving this step completes the
+// flow — POST /api/firstrun/complete, overlay gone, bootstrap flag flipped.
+function completed(window) {
+    return !window.WGFirstRun.isActive() && window.__MEDTRACKER_BOOTSTRAP__.needs_first_run === false;
+}
+
+// Every fetch except the completion POST (the key PATCHes).
+const patches = (fetchMock) => fetchMock.mock.calls.filter(([url]) => url !== '/api/firstrun/complete');
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 function loadFlow({
     bootstrap = null,
@@ -63,7 +71,7 @@ function loadFlow({
     if (wizardChoice) window.localStorage.setItem('wg-onboarding-trial-choice', wizardChoice);
     if (apiCall) window.apiCall = apiCall;
 
-    for (const file of [STATE_JS, WELCOME_JS, INTEGRATIONS_JS, DONE_JS, INDEX_JS]) {
+    for (const file of [STATE_JS, INTEGRATIONS_JS, INDEX_JS]) {
         const src = fs.readFileSync(file, 'utf8');
         window.eval(`${src}\n//# sourceURL=file://${file}`);
     }
@@ -160,7 +168,7 @@ describe('firstrun integrations screen', () => {
         } finally { cleanup(); }
     });
 
-    it('Save success advances to the done step', async () => {
+    it('Save success finishes the flow', async () => {
         const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
         const { window, document, cleanup } = loadFlow({
             bootstrap: { needs_first_run: true },
@@ -170,13 +178,13 @@ describe('firstrun integrations screen', () => {
             window.WGFirstRun.mount();
             document.getElementById('wg-firstrun-openai-api-key').value = 'sk-ok';
             document.querySelector('[data-firstrun-action="save"]').click();
-            await new Promise(resolve => setTimeout(resolve, 0));
+            await flush();
+            await flush();
 
-            expect(window.WGFirstRun.state.getStep()).toBe('done');
-            // The done screen has rendered, so the "Open app" button is
-            // present and the form fields are gone.
-            expect(document.querySelector('[data-firstrun-action="open-app"]')).not.toBeNull();
-            expect(document.getElementById('wg-firstrun-openai-api-key')).toBeNull();
+            expect(completed(window)).toBe(true);
+            expect(fetchMock.mock.calls.map(([url]) => url))
+                .toEqual(['/api/settings/integrations', '/api/firstrun/complete']);
+            expect(document.getElementById('wg-firstrun-overlay')).toBeNull();
         } finally { cleanup(); }
     });
 
@@ -221,8 +229,8 @@ describe('firstrun integrations screen', () => {
         } finally { cleanup(); }
     });
 
-    it('Skip advances to done without calling PATCH', () => {
-        const fetchMock = vi.fn();
+    it('Skip finishes the flow without calling PATCH', async () => {
+        const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
         const { window, document, cleanup } = loadFlow({
             bootstrap: { needs_first_run: true },
             fetchMock,
@@ -230,9 +238,9 @@ describe('firstrun integrations screen', () => {
         try {
             window.WGFirstRun.mount();
             document.querySelector('[data-firstrun-action="skip"]').click();
-            expect(window.WGFirstRun.state.getStep()).toBe('done');
-            expect(fetchMock).not.toHaveBeenCalled();
-            expect(document.querySelector('[data-firstrun-action="open-app"]')).not.toBeNull();
+            await flush();
+            expect(completed(window)).toBe(true);
+            expect(patches(fetchMock)).toEqual([]);
         } finally { cleanup(); }
     });
 
@@ -271,7 +279,7 @@ describe('firstrun integrations screen', () => {
         // the shared apiCall-backed helper. window.fetch must never be
         // touched when the helper is available.
         const helperPatch = vi.fn().mockResolvedValue({ openai: { api_key: '***' } });
-        const fetchMock = vi.fn();
+        const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
         const { window, document, cleanup } = loadFlow({
             bootstrap: { needs_first_run: true },
             fetchMock,
@@ -291,8 +299,9 @@ describe('firstrun integrations screen', () => {
                     model: 'gpt-6-luna',
                 },
             });
-            expect(fetchMock).not.toHaveBeenCalled();
-            expect(window.WGFirstRun.state.getStep()).toBe('done');
+            await flush();
+            expect(patches(fetchMock)).toEqual([]);
+            expect(completed(window)).toBe(true);
         } finally { cleanup(); }
     });
 });
@@ -329,7 +338,7 @@ describe('firstrun integrations screen in device-only mode', () => {
         } finally { cleanup(); }
     });
 
-    it('the trial tap runs the anon consent, applies it, enrolls, and advances to done', async () => {
+    it('the trial tap runs the anon consent, applies it, enrolls, and finishes', async () => {
         const trial = trialPort();
         const consent = { request: vi.fn(async () => true) };
         const { window, document, cleanup } = loadFlow({
@@ -343,7 +352,7 @@ describe('firstrun integrations screen in device-only mode', () => {
             expect(consent.request).toHaveBeenCalledWith('anon');
             expect(trial.apply).toHaveBeenCalledTimes(1);
             expect(trial.enroll).toHaveBeenCalledTimes(1);
-            expect(window.WGFirstRun.state.getStep()).toBe('done');
+            expect(completed(window)).toBe(true);
         } finally { cleanup(); }
     });
 
@@ -367,7 +376,7 @@ describe('firstrun integrations screen in device-only mode', () => {
         try {
             resumed.window.WGFirstRun.mount();
             await settle();
-            expect(resumed.window.WGFirstRun.state.getStep()).toBe('done');
+            expect(completed(resumed.window)).toBe(true);
         } finally { resumed.cleanup(); }
     });
 
@@ -395,7 +404,7 @@ describe('firstrun integrations screen in device-only mode', () => {
             document.querySelector('[data-firstrun-action="save"]').click();
             await settle();
             expect(JSON.parse(fetchMock.mock.calls[0][1].body).openai.api_key).toBe('sk-mine');
-            expect(window.WGFirstRun.state.getStep()).toBe('done');
+            expect(completed(window)).toBe(true);
         } finally { cleanup(); }
     });
 
@@ -420,7 +429,8 @@ describe('firstrun integrations screen in device-only mode', () => {
             expect(tryBtn.textContent).toBe('Try again');
             expect(window.WGFirstRun.state.getStep()).toBe('integrations');
             document.querySelector('[data-firstrun-action="skip"]').click();
-            expect(window.WGFirstRun.state.getStep()).toBe('done');
+            await settle();
+            expect(completed(window)).toBe(true);
         } finally { cleanup(); }
     });
 
@@ -463,9 +473,9 @@ describe('firstrun integrations screen in cloud mode with an operator trial', ()
         } finally { cleanup(); }
     });
 
-    it('the trial tap asks the ai consent and advances to done on Allow', async () => {
+    it('the trial tap asks the ai consent and finishes on Allow', async () => {
         const consent = { request: vi.fn(async () => true) };
-        const fetchMock = vi.fn();
+        const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
         const { window, document, cleanup } = loadFlow({
             bootstrap: { needs_first_run: true }, cloud: true, trialAi: true, trialConsent: consent, fetchMock,
         });
@@ -475,8 +485,8 @@ describe('firstrun integrations screen in cloud mode with an operator trial', ()
             document.querySelector('[data-firstrun-action="trial"]').click();
             await settle();
             expect(consent.request).toHaveBeenCalledWith('ai');
-            expect(fetchMock).not.toHaveBeenCalled(); // no key PATCH
-            expect(window.WGFirstRun.state.getStep()).toBe('done');
+            expect(patches(fetchMock)).toEqual([]); // no key PATCH
+            expect(completed(window)).toBe(true);
         } finally { cleanup(); }
     });
 
@@ -501,7 +511,7 @@ describe('firstrun integrations screen in cloud mode with an operator trial', ()
             document.querySelector('[data-firstrun-action="save"]').click();
             await settle();
             expect(JSON.parse(fetchMock.mock.calls[0][1].body).openai.api_key).toBe('sk-mine');
-            expect(window.WGFirstRun.state.getStep()).toBe('done');
+            expect(completed(window)).toBe(true);
         } finally { cleanup(); }
     });
 
@@ -518,7 +528,8 @@ describe('firstrun integrations screen in cloud mode with an operator trial', ()
             await settle();
             expect(document.querySelector('[data-firstrun-form-error="trial"]').textContent).toMatch(/Couldn’t start/);
             document.querySelector('[data-firstrun-action="skip"]').click();
-            expect(window.WGFirstRun.state.getStep()).toBe('done');
+            await settle();
+            expect(completed(window)).toBe(true);
         } finally { cleanup(); }
     });
 
@@ -528,7 +539,7 @@ describe('firstrun integrations screen in cloud mode with an operator trial', ()
         const consent = { request: vi.fn(async () => true) };
         const { window, cleanup } = loadFlow({
             bootstrap: { needs_first_run: true }, cloud: true, trialAi: true, trialConsent: consent,
-            wizardChoice: 'trial', initialStep: 'welcome',
+            wizardChoice: 'trial', initialStep: 'features',
         });
         try {
             window.WGFirstRun.mount();
@@ -556,7 +567,7 @@ describe('firstrun integrations screen in cloud mode with an operator trial', ()
             ? { ai: granted ? true : null, voice: null, tg: null, anon: null, updated_at: 1 } : null));
         const { window, document, cleanup } = loadFlow({
             bootstrap: { needs_first_run: true }, cloud: true, trialAi: true, trialConsent: consent, apiCall,
-            wizardChoice: 'trial-allowed', initialStep: 'welcome',
+            wizardChoice: 'trial-allowed', initialStep: 'features',
         });
         try {
             window.WGFirstRun.mount();
@@ -567,14 +578,14 @@ describe('firstrun integrations screen in cloud mode with an operator trial', ()
             expect(window.localStorage.getItem('wg-onboarding-trial-choice')).toBe('trial-asked');
 
             // Walking on to the AI step: no trial choice there either — the
-            // granted consent carries it straight to done (resumed there, as a
+            // granted consent finishes the flow (resumed there, as a
             // reload mid-flow would).
             window.WGFirstRun.dismiss();
             window.WGFirstRun.state.setStep('integrations');
             window.WGFirstRun.mount();
             await settle();
             expect(document.querySelector('[data-firstrun-action="trial"]')).toBeNull();
-            expect(window.WGFirstRun.state.getStep()).toBe('done');
+            expect(completed(window)).toBe(true);
             expect(consent.grant).toHaveBeenCalledTimes(1);
             expect(consent.request).not.toHaveBeenCalled();
         } finally { cleanup(); }
@@ -584,7 +595,7 @@ describe('firstrun integrations screen in cloud mode with an operator trial', ()
         const consent = { request: vi.fn(async () => false), grant: vi.fn(async () => null) };
         const { window, cleanup } = loadFlow({
             bootstrap: { needs_first_run: true }, cloud: true, trialAi: true, trialConsent: consent,
-            wizardChoice: 'trial-allowed', initialStep: 'welcome',
+            wizardChoice: 'trial-allowed', initialStep: 'features',
         });
         try {
             window.WGFirstRun.mount();
@@ -599,7 +610,7 @@ describe('firstrun integrations screen in cloud mode with an operator trial', ()
         const consent = { request: vi.fn(async () => true), grant: vi.fn(async () => false) };
         const { window, cleanup } = loadFlow({
             bootstrap: { needs_first_run: true }, cloud: true, trialAi: true, trialConsent: consent,
-            wizardChoice: 'trial-allowed', initialStep: 'welcome',
+            wizardChoice: 'trial-allowed', initialStep: 'features',
         });
         try {
             window.WGFirstRun.mount();
@@ -614,7 +625,7 @@ describe('firstrun integrations screen in cloud mode with an operator trial', ()
         const consent = { request: vi.fn(async () => true), grant: vi.fn(async () => true) };
         const { window, cleanup } = loadFlow({
             bootstrap: { needs_first_run: true }, cloud: true, trialConsent: consent,
-            wizardChoice: 'trial-allowed', initialStep: 'welcome',
+            wizardChoice: 'trial-allowed', initialStep: 'features',
         });
         try {
             window.WGFirstRun.mount();
@@ -651,7 +662,7 @@ describe('firstrun integrations screen in cloud mode with an operator trial', ()
         try {
             window.WGFirstRun.mount();
             await settle();
-            expect(window.WGFirstRun.state.getStep()).toBe('done');
+            expect(completed(window)).toBe(true);
             expect(document.querySelector('[data-firstrun-action="trial"]')).toBeNull();
         } finally { cleanup(); }
     });

@@ -8,10 +8,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const STATE_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/state.js');
-const WELCOME_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/screens/welcome.js');
 const FEATURES_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/screens/features.js');
 const INTEGRATIONS_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/screens/integrations.js');
-const DONE_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/screens/done.js');
 const INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/index.js');
 
 // Task 7 — resume safety. The orchestrator should re-enter the flow at
@@ -20,7 +18,7 @@ const INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/index.js'
 // reports needs_first_run=false the orchestrator must defensively clear
 // any stale step entry so a ghost step doesn't surface on the next
 // install. Power-cycle (sessionStorage wiped) intentionally restarts
-// from welcome — documented in features/firstrun/index.js's top comment.
+// from the W1 picker — documented in features/firstrun/index.js's top comment.
 
 const SHELL_HTML = `<!doctype html><html><body></body></html>`;
 
@@ -42,10 +40,8 @@ function loadFlow({
     // entry point: whichever step the user died on, render that one".
     for (const file of [
         STATE_JS,
-        WELCOME_JS,
         FEATURES_JS,
         INTEGRATIONS_JS,
-        DONE_JS,
         INDEX_JS,
     ]) {
         const src = fs.readFileSync(file, 'utf8');
@@ -56,7 +52,7 @@ function loadFlow({
 }
 
 describe('firstrun resume safety', () => {
-    it('resumes at the persisted step (integrations) instead of restarting from welcome', () => {
+    it('resumes at the persisted step (integrations) instead of restarting from the picker', () => {
         const { window, document, cleanup } = loadFlow({
             bootstrap: { needs_first_run: true },
             storedStep: 'integrations',
@@ -65,81 +61,36 @@ describe('firstrun resume safety', () => {
             window.WGFirstRun.mount();
 
             // Integrations screen is the one that renders — its form
-            // fields exist, welcome's tagline + "Get started" button do
-            // not.
+            // fields exist, the picker's rows and Skip do not.
             expect(document.getElementById('wg-firstrun-openai-api-key')).not.toBeNull();
             expect(document.querySelector('[data-firstrun-action="save"]')).not.toBeNull();
-            expect(document.querySelector('[data-firstrun-action="advance"]')).toBeNull();
+            expect(document.querySelector('[data-firstrun-feature]')).toBeNull();
             expect(document.querySelector('[data-firstrun-action="skip-all"]')).toBeNull();
 
             // The title swaps too — the orchestrator pulls it from the
-            // screen registry, not from the welcome screen's title.
+            // screen registry.
             const title = document.getElementById('wg-firstrun-title');
             expect(title.textContent.toLowerCase()).toContain('openai');
         } finally { cleanup(); }
     });
 
-    it('resumes at the persisted step (features)', () => {
-        const { window, document, cleanup } = loadFlow({
-            bootstrap: { needs_first_run: true },
-            storedStep: 'features',
+    // A session mid-flow on the pre-v3 overlay (bd med-ta2n.1 removed
+    // welcome/done), or an unknown name: back to the picker, never a crash.
+    for (const stored of ['an-unrecognized-step', 'welcome', 'done', null]) {
+        it(`starts at the W1 picker for a stored step of ${JSON.stringify(stored)}`, () => {
+            const { window, document, cleanup } = loadFlow({
+                bootstrap: { needs_first_run: true },
+                storedStep: stored,
+            });
+            try {
+                window.WGFirstRun.mount();
+                expect(document.querySelector('[data-firstrun-feature="medication"]')).not.toBeNull();
+                expect(document.querySelector('[data-firstrun-action="skip-all"]')).not.toBeNull();
+                expect(document.getElementById('wg-firstrun-openai-api-key')).toBeNull();
+                expect(window.WGFirstRun.state.getStep()).toBe('features');
+            } finally { cleanup(); }
         });
-        try {
-            window.WGFirstRun.mount();
-
-            // The feature picker renders its rows; no welcome CTA and no
-            // integrations form fields.
-            expect(document.querySelector('[data-firstrun-feature]')).not.toBeNull();
-            expect(document.querySelector('[data-firstrun-action="advance"]')).toBeNull();
-            expect(document.getElementById('wg-firstrun-openai-api-key')).toBeNull();
-        } finally { cleanup(); }
-    });
-
-    it('resumes at the persisted step (done)', async () => {
-        const { window, document, cleanup } = loadFlow({
-            bootstrap: { needs_first_run: true },
-            storedStep: 'done',
-        });
-        try {
-            window.WGFirstRun.mount();
-
-            // Done screen renders directly: "Open app" button is present;
-            // none of the prior screens are.
-            expect(document.querySelector('[data-firstrun-action="open-app"]')).not.toBeNull();
-            expect(document.querySelector('[data-firstrun-action="advance"]')).toBeNull();
-            expect(document.querySelector('[data-firstrun-action="save"]')).toBeNull();
-        } finally { cleanup(); }
-    });
-
-    it('falls back to welcome when sessionStorage holds an unknown step name', () => {
-        // Defensive: a future schema change might rename a step. state.js's
-        // VALID_STEPS guard maps unknown values back to "welcome" so we
-        // never crash trying to look up a missing screen.
-        const { window, document, cleanup } = loadFlow({
-            bootstrap: { needs_first_run: true },
-            storedStep: 'an-unrecognized-step',
-        });
-        try {
-            window.WGFirstRun.mount();
-            expect(document.querySelector('[data-firstrun-action="advance"]')).not.toBeNull();
-            expect(document.querySelector('[data-firstrun-action="skip-all"]')).not.toBeNull();
-        } finally { cleanup(); }
-    });
-
-    it('starts at welcome when sessionStorage was wiped (power-cycle simulation)', () => {
-        // Power-cycle wipes sessionStorage. The bootstrap is still true
-        // because the server-side flag hasn't been POSTed yet. The flow
-        // restarts at welcome — intentional per the top-of-file comment.
-        const { window, document, cleanup } = loadFlow({
-            bootstrap: { needs_first_run: true },
-            storedStep: null,
-        });
-        try {
-            window.WGFirstRun.mount();
-            expect(document.querySelector('[data-firstrun-action="advance"]')).not.toBeNull();
-            expect(window.WGFirstRun.state.getStep()).toBe('welcome');
-        } finally { cleanup(); }
-    });
+    }
 
     it('clears a stale sessionStorage step entry when needs_first_run is false (defensive cleanup)', () => {
         // A prior install's last persisted step survives a re-install on

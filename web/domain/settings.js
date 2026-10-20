@@ -176,13 +176,18 @@ export function createSettingsDomain({ records, now, timeZone }) {
     return !!(rec && rec.first_run_complete);
   }
 
-  async function setFirstRunComplete(done) {
-    await records.put(FIRSTRUN_RECORD_TYPE, {
+  // picked (bd med-ta2n.1): the W1 module picks, in picker order ('diary' has
+  // no feature flag), read by the W3 Today hints. A deliberate user write, so
+  // now() + put — not a derived row.
+  async function setFirstRunComplete(done, picked) {
+    const rec = {
       recordId: FIRSTRUN_RECORD_ID,
       clientTs: now(),
       deleted: false,
       first_run_complete: !!done,
-    });
+    };
+    if (Array.isArray(picked)) rec.picked = picked.filter((k) => typeof k === 'string');
+    await records.put(FIRSTRUN_RECORD_TYPE, rec);
     return !!done;
   }
 
