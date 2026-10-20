@@ -115,7 +115,7 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   build, no TestFlight, no visual). Run it once before each TestFlight batch.
 - **Job:** `ios.yml` → `qa`, one 390pt iPhone
   ([`ios/qa/boot-sim.sh`](../ios/qa/boot-sim.sh), shared with `visual`), its
-  own concurrency group `iOS-qa-<ref>`. About 20 min, most of it the build.
+  own concurrency group `iOS-qa-<ref>`. About 5 min (the first run took 5), most of it the build.
 - **Output:** the step summary has one row per test (result plus failure
   message); artifact `ios-qa` (14 days) has `<flow>-<step>.png`:
   `gh run download <run> -n ios-qa -D /tmp/ios-qa`.
