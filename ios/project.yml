@@ -38,6 +38,8 @@ targets:
     settings:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Sun, so no control falls back to system blue (bd med-ckm5.13, App/Wg.swift).
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: "1"
     # Passkeys in WKWebView for every account subdomain; confirmed by the
@@ -63,6 +65,12 @@ targets:
         # --wg-bg-screen (Assets.xcassets): no white flash before the dark app.
         UILaunchScreen:
           UIColorName: LaunchBackground
+        # The kit's type (bd med-ckm5.13, App/Wg.swift): OFL, licences beside them in App/Fonts.
+        UIAppFonts:
+          - SpaceGrotesk-Regular.ttf
+          - SpaceGrotesk-Medium.ttf
+          - SpaceGrotesk-SemiBold.ttf
+          - JetBrainsMono-Medium.ttf
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         # Portrait-only is legal for iPad only with full screen (App Store 90474).
         UIRequiresFullScreen: true

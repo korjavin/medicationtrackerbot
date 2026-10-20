@@ -45,6 +45,8 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     @Published private(set) var loadError: String?
     /// Why the first run shows (an account the server says is gone); cleared by the next open or reopen.
     @Published private(set) var firstRunMessage: String?
+    /// The gone account's address, put back in the first run's field with that message.
+    private(set) var firstRunInput: String?
     /// The committed page is an account ceremony (/unlock, /claim, /recover):
     /// RootView offers "Use another invite" (bd med-w6gx.21) — a bad or
     /// already-claimed invite has no exit of its own there.
@@ -349,6 +351,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             // server) keeps the error screen with Try again.
             if let h = http.url?.host?.lowercased(), h == host, AccountURL.accountGone(http.statusCode, http.allHeaderFields) {
                 forget()
+                firstRunInput = h
                 firstRunMessage = "There is no account at \(h)." // after forget()'s reopen(), which clears it
                 return .cancel
             }

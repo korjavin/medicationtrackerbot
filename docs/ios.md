@@ -607,6 +607,12 @@ changes for it.
   exactly one label under `CLOUD_BASE_DOMAIN`; CI runs its check
   (`ios/Tests/main.swift`). The app stores the account **host** only, never
   the claim fragment, and opens `https://<host>/` on every later launch.
+  The native screens follow UI kit v2.1 N1/N2
+  (`docs/design/claude-design/ui_kits/app-v2/screens-native.html`) through
+  the token mirror in [`Wg.swift`](../ios/App/Wg.swift): palette, the bundled
+  OFL fonts in `ios/App/Fonts` (Space Grotesk, JetBrains Mono; `UIAppFonts`),
+  the primary/raised/ghost button styles and an `AccentColor` asset set to
+  sun (bd med-ckm5.13).
 - **Navigation:** the account host and the base domain load in the app; every
   other link (and `mailto:`/`tel:`) opens in Safari or its own app.
 - **Offline:** a cold start offline is answered by the Service Worker; a native
