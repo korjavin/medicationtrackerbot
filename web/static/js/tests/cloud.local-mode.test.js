@@ -1900,7 +1900,13 @@ describe('local-only mode leave stash pickup (med-o7zq.36.4)', () => {
     // A first run on this iPhone writes only settings and onboarding records
     // (bd med-o7zq.37): nothing of the user's is at stake, so no confirm.
     it('stash + a store with only first-run settings: restores without a dialog', async () => {
+        const dbg = async (tag) => [tag, (await readAllLocalRecords()).map((r) => `${r.recordType}:${r.recordId}:${r.deleted}`)];
+        const seen = [await dbg('start')];
         await boot();
+        seen.push(await dbg('boot1'));
+        await env.window.apiCall('/api/settings/features/weight', 'POST', { enabled: false });
+        seen.push(await dbg('feat'));
+        expect(seen).toEqual([]);
         await env.window.apiCall('/api/settings/features/weight', 'POST', { enabled: false });
         await env.window.apiCall('/api/settings/integrations', 'PATCH', {});
         await env.window.apiCall('/api/firstrun/complete', 'POST', {});
