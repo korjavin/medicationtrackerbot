@@ -41,7 +41,8 @@ internal fun Context.wgText(style: Int, text: CharSequence? = null) =
 
 internal fun Context.wgButton(style: Int, label: String, action: () -> Unit) =
     Button(this, null, 0, style).apply {
-        text = label        setOnClickListener { action() }
+        text = label
+        setOnClickListener { action() }
     }
 
 /** A kit icon (res/drawable/ic_wg_*), tinted with a colour resource. */
