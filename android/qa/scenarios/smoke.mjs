@@ -121,10 +121,13 @@ export default async function smoke(ctx) {
 }
 
 // bd med-nvd4: Settings → Backup & import → encrypted "Export backup" must end in the shell's
-// Save/Share dialog with visible progress on the way. results.smoke.export has each phase's time
-// (exportAll / gzip / age), the status line seen while it ran, and the click → dialog time; a
+// system file picker (ACTION_CREATE_DOCUMENT) with visible progress on the way. results.smoke.export has each phase's time
+// (exportAll / gzip / age), the status line seen while it ran, and the click → picker time; a
 // ~25 MB blob probe checks the shell's blob: download path at a real vault's size. Findings, not
 // stoppers. The temp file the shell wrote is deleted after (cache/downloads).
+/** DocumentsUI's create-document confirm button: the shell sends every download straight to it. */
+const PICKER_SAVE = /^(SAVE|Save)$/;
+
 async function exportBackup(ctx, page, r) {
   const { shell, sleep } = ctx;
   const e = (r.export = {});
@@ -167,7 +170,7 @@ async function exportBackup(ctx, page, r) {
     }
     return out;
   }).catch((err) => ({ error: String(err?.message || err).split('\n')[0] }));
-  await ctx.step('export: Export backup → Backup ready → Save/Share', async () => {
+  await ctx.step('export: Export backup → Backup ready → file picker', async () => {
     const t0 = Date.now();
     await startExport();
     await sleep(700);
@@ -175,9 +178,9 @@ async function exportBackup(ctx, page, r) {
     await ctx.shot('export-progress');
     try {
       await saveReady(180_000);
-      await ctx.waitFor({ text: 'Save to device' }, 60_000);
+      await ctx.waitFor({ text: PICKER_SAVE }, 60_000);
       e.clickToDialogMs = Date.now() - t0;
-      await ctx.shot('export-save-share');
+      await ctx.shot('export-file-picker');
     } finally {
       e.statusAfter = await page.evaluate(() => document.getElementById('importexport-export-status')?.textContent || null).catch(() => null);
     }
@@ -188,7 +191,7 @@ async function exportBackup(ctx, page, r) {
   }).catch(async () => { await ctx.shot('export-stuck'); });
   // A vault at the owner's scale (Mi Band years: ~60 MB of JSON) through the real button, with
   // CloudVault.exportAll stubbed to return it: the status timeline shows progress and an end.
-  await ctx.step('export: large vault shows progress and reaches Save/Share', async () => {
+  await ctx.step('export: large vault shows progress and reaches the file picker', async () => {
     await page.evaluate(() => {
       const rows = [];
       for (let i = 0; i < 300_000; i++) rows.push({ id: `hr-${i}`, measured_at: new Date(1.6e12 + i * 60_000).toISOString(), bpm: 50 + (i % 70), source: 'miband' });
@@ -207,9 +210,9 @@ async function exportBackup(ctx, page, r) {
     await ctx.shot('export-large-progress');
     try {
       await saveReady(300_000);
-      await ctx.waitFor({ text: 'Save to device' }, 60_000);
+      await ctx.waitFor({ text: PICKER_SAVE }, 60_000);
       e.largeClickToDialogMs = Date.now() - t0;
-      await ctx.shot('export-large-save-share');
+      await ctx.shot('export-large-file-picker');
     } finally {
       e.largeStatusTimeline = await page.evaluate(() => window.__qaStatus).catch(() => null);
       await page.evaluate(() => { window.CloudVault.exportAll = window.__qaExportAll; }).catch(() => {});
@@ -225,7 +228,7 @@ async function exportBackup(ctx, page, r) {
       window.downloadBlobAsFile(new Blob([b], { type: 'application/octet-stream' }), 'qa-probe.bin');
     });
     try {
-      await ctx.waitFor({ text: 'Save to device' }, 120_000);
+      await ctx.waitFor({ text: PICKER_SAVE }, 120_000);
       e.bigBlobMs = Date.now() - t0;
       await ctx.shot('export-big-blob');
     } finally {
@@ -242,7 +245,7 @@ async function exportBackup(ctx, page, r) {
 
 /**
  * The signup wizard on an opened invite (soft authenticator) → sign in → (only with &kit=1, bd
- * med-ta2n.8) the Emergency Kit offer (Save/Share shot, dismissed, Done) → vault → onboarding
+ * med-ta2n.8) the Emergency Kit offer (file-picker shot, dismissed, Done) → vault → onboarding
  * wizard skipped. Shared with local-to-cloud.
  */
 export async function claimAccount(ctx, page) {
@@ -257,12 +260,12 @@ export async function claimAccount(ctx, page) {
   });
   if (kit) {
     await ctx.shot('kit');
-    await ctx.step('kit Save offers Save/Share', async () => {
+    await ctx.step('kit Save opens the system file picker', async () => {
       await page.click('#kit-download');
-      await ctx.waitFor({ text: 'Save to device' }, 15_000);
+      await ctx.waitFor({ text: PICKER_SAVE }, 15_000);
     });
-    await ctx.shot('kit-save-share');
-    await ctx.step('dismiss Save/Share and Done', async () => {
+    await ctx.shot('kit-file-picker');
+    await ctx.step('dismiss the picker and Done', async () => {
       await shell('input keyevent KEYCODE_BACK');
       await sleep(1000);
       await page.click('#kit-done');

@@ -2,7 +2,6 @@ package com.example.medtracker
 
 import android.Manifest
 import android.app.Activity
-import android.app.AlertDialog
 import android.app.DownloadManager
 import android.content.ActivityNotFoundException
 import android.content.ClipData
@@ -55,7 +54,7 @@ class Files(private val activity: Activity, private val accountHost: () -> Strin
     private var printView: WebView? = null // held until its print job no longer needs it (the next print)
 
     init {
-        // A file a killed app left behind (a share target may still have been reading it).
+        // A file a killed app left behind (an unfinished save).
         downloads.deleteRecursively()
         photos.deleteRecursively()
     }
@@ -106,10 +105,12 @@ class Files(private val activity: Activity, private val accountHost: () -> Strin
             .onFailure { toast("The download could not start.") }
     }
 
-    /** A page download (a data: URL from files.js): temp file, then Save to device or Share. */
+    /** A page download (a data: URL from files.js): temp file, then straight to the system file picker (the web's Backup-ready sheet owns the choice). */
     private fun offer(rawName: String, dataUrl: String) {
         // Every refusal says so (bd med-nvd4): a silent return looked like a stuck export.
         val bad = { toast("The download could not be saved.") }
+        // One save at a time: a second offer would delete the temp file the open picker is about to copy.
+        if (pendingSave != null) return toast("Finish saving the current file first.")
         val comma = dataUrl.indexOf(',')
         val header = if (dataUrl.startsWith("data:") && comma > 0) dataUrl.substring(5, comma) else return bad()
         if (!header.endsWith(";base64")) return bad() // FileReader.readAsDataURL always is
@@ -117,17 +118,11 @@ class Files(private val activity: Activity, private val accountHost: () -> Strin
         val mime = header.substringBefore(';').ifBlank { "application/octet-stream" }
         val name = File(rawName).name.replace(Regex("[\\x00-\\x1f\\\\/:*?\"<>|]"), "_").ifBlank { "download" }
         // One download at a time: the previous one's file goes (a vault export holds secrets).
-        // ponytail: a shared file stays until the next download or launch — Android
-        // gives no "share sheet closed" signal; a receiver may still be reading it.
         downloads.deleteRecursively()
         val file = runCatching {
             File(File(downloads, UUID.randomUUID().toString()).apply { mkdirs() }, name).apply { writeBytes(bytes) }
         }.getOrElse { return toast("The download could not be saved.") }
-        AlertDialog.Builder(activity)
-            .setTitle(name)
-            .setItems(arrayOf("Save to device", "Share")) { _, which -> if (which == 0) save(file, mime) else share(file, mime) }
-            .setOnCancelListener { file.parentFile?.deleteRecursively() }
-            .show()
+        save(file, mime)
     }
 
     private fun save(file: File, mime: String) {
@@ -140,21 +135,8 @@ class Files(private val activity: Activity, private val accountHost: () -> Strin
             activity.startActivityForResult(intent, REQ_SAVE)
         } catch (e: ActivityNotFoundException) {
             pendingSave = null
-            share(file, mime)
-        }
-    }
-
-    private fun share(file: File, mime: String) {
-        val uri = FileProvider.getUriForFile(activity, authority, file)
-        val send = Intent(Intent.ACTION_SEND)
-            .setType(mime)
-            .putExtra(Intent.EXTRA_STREAM, uri)
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        send.clipData = ClipData.newRawUri(file.name, uri) // carries the read grant through the chooser
-        try {
-            activity.startActivity(Intent.createChooser(send, file.name))
-        } catch (e: ActivityNotFoundException) {
-            toast("No app can take this file.")
+            file.parentFile?.deleteRecursively()
+            toast("No app can save this file.")
         }
     }
 
