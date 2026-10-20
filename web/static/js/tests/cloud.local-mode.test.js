@@ -1900,7 +1900,7 @@ describe('local-only mode leave stash pickup (med-o7zq.36.4)', () => {
     // A first run on this iPhone writes only settings and onboarding records
     // (bd med-o7zq.37): nothing of the user's is at stake, so no confirm.
     it('stash + a store with only first-run settings: restores without a dialog', async () => {
-        const dbg = async (tag) => [tag, (await readAllLocalRecords()).map((r) => `${r.recordType}:${r.recordId}:${r.deleted}`)];
+        const dbg = async (tag) => [tag, (await readAllLocalRecords()).map((r) => `${r.recordType}:${r.recordId}:${r.deleted}`), 'memo-meds', (await localRecordsPort().list('medication')).map((r) => r.recordId)];
         const seen = [await dbg('start')];
         await boot();
         seen.push(await dbg('boot1'));
