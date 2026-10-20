@@ -48,7 +48,7 @@ func main() {
 
 	// NewSingleHostReverseProxy keeps the inbound Host header, which the cloud routes accounts by.
 	proxy := httputil.NewSingleHostReverseProxy(up)
-	// down.<domain> answers 503: the shell's "Can't open your account" screen, which a 404
+	// down.<domain> answers 503: the shell's "Can't reach your account" screen (N4), which a 404
 	// no longer reaches (a 404 of the stored host returns to the first run, bd med-nt9p.32.14).
 	// nobody.<domain> is the server's "no such account" 404, marked X-Account-Gone: 1 exactly as
 	// internal/cloudserver/router.go's unknown-subdomain branch answers (the contract the shell

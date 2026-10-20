@@ -216,6 +216,12 @@ a.wg-btn {
   padding-top: 16px;
 }
 
+/* W5 sign in (bd med-ta2n.8): the mark and title centred in the page above
+   the docked footer. */
+.kit-page > .kit-page__signin {
+  min-height: 60vh;
+}
+
 .kit-page > .wg-pagefoot {
   position: sticky;
   bottom: 0;

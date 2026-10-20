@@ -183,16 +183,19 @@ const ctx = {
     }
     await device.tap({ text: 'Continue' });
   },
-  /** Open an account whose server answers 503 (tlsfront's down.qa.test) → the "Can't open your account" screen. */
+  /** Open an account whose server answers 503 (tlsfront's down.qa.test) → the load-error screen (N4; every variant has Copy diagnostics). */
   async openAccount(url = 'https://down.qa.test/', opts = {}) {
     await ctx.openLink(url, opts);
-    await ctx.waitFor({ text: /.*open your account.*/ });
+    await ctx.waitFor({ text: 'Copy diagnostics' });
   },
-  /** Cold start → Open the run's invite → the WebView page on /unlock with the signup wizard. */
-  async openClaim(opts) {
+  /**
+   * Cold start → Open the run's invite → the WebView page on /unlock with the signup wizard.
+   * kit: append &kit=1 (sync turned on from Settings), so the ceremony ends on the kit offer.
+   */
+  async openClaim(opts = {}) {
     if (!ctx.claimUrl) throw new Error('QA_CLAIM_URL unset (no local cloud)');
     await ctx.launch(opts);
-    await ctx.openLink(ctx.claimUrl);
+    await ctx.openLink(opts.kit ? `${ctx.claimUrl}&kit=1` : ctx.claimUrl);
     const page = await ctx.attachPage();
     if (!page) throw new Error('no WebView page (see the run log)');
     await page.waitForURL(/\/unlock/, { timeout: 30_000 });

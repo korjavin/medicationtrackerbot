@@ -80,6 +80,13 @@
     <style name="Widget.Wg.Text.Note">
         <item name="android:textSize">@dimen/wg_fs_sm</item>
     </style>
+    <!-- wg-meta: the load error's mono status line for support. -->
+    <style name="Widget.Wg.Text.Meta">
+        <item name="android:fontFamily">@font/wg_mono</item>
+        <item name="android:textFontWeight">500</item>
+        <item name="android:textSize">@dimen/wg_fs_xs</item>
+        <item name="android:textColor">@color/wg_fg_3</item>
+    </style>
     <!-- wg-link: sun text, 48dp tall to tap. -->
     <style name="Widget.Wg.Text.Link">
         <item name="android:textFontWeight">600</item>
@@ -124,6 +131,15 @@
     <style name="Widget.Wg.Button.Ghost">
         <item name="android:background">@drawable/wg_btn_ghost</item>
         <item name="android:textColor">@color/wg_fg_2</item>
+    </style>
+    <!-- wg-btn-ghost wg-btn-sm: 36 high, 13sp (Copy diagnostics). -->
+    <style name="Widget.Wg.Button.Ghost.Sm">
+        <item name="android:minHeight">36dp</item>
+        <item name="android:paddingTop">6dp</item>
+        <item name="android:paddingBottom">6dp</item>
+        <item name="android:paddingStart">12dp</item>
+        <item name="android:paddingEnd">12dp</item>
+        <item name="android:textSize">@dimen/wg_fs_sm</item>
     </style>
     <!-- wg-back: the page bar's Back with the chevron. -->
     <style name="Widget.Wg.Button.Back">
