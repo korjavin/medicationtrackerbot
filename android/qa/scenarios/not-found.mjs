@@ -16,7 +16,7 @@ export default async function notFound(ctx) {
     await ctx.openLink('https://nobody.qa.test/');
     await ctx.waitFor({ text: /There is no account at nobody\.qa\.test\./ }, 15_000);
     await ctx.waitFor({ text: 'Only on this device' }, 5_000);
-    await ctx.waitFor({ text: 'Open' }, 5_000);
+    await ctx.waitFor({ text: 'Continue' }, 5_000);
     const tryAgain = await ctx.device.wait({ text: 'Try again' }, { timeout: 1_500 }).then(() => true, () => false);
     if (tryAgain) throw new Error('the error screen ("Try again") is showing');
   });

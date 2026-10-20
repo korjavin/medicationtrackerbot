@@ -16,8 +16,8 @@ import { GATED, counts, vaultCounts, confirmDialog } from './local-to-cloud.mjs'
 export const retry = false;
 
 const here = dirname(fileURLToPath(import.meta.url));
-const HINT = /^Your records are ready to move: paste or scan your invite\.$/;
-const NOTE = /^Start cancels the move to a cloud account\..*/;
+const HINT = /^Your records are ready to move\. Paste or scan the invite for your new account\./;
+const NOTE = /^A move to a cloud account is waiting\. Start here cancels it\./;
 const TOAST = 'Your records from this phone are in your account.';
 const WAIT = 240_000; // claim + import + snapshot upload + reload on the software-GPU emulator
 

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- .wg-setting-boxed: a card row, radius 16, 1dp soft line. -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android" android:color="#14FFFFFF">
+    <item>
+        <shape>
+            <corners android:radius="@dimen/wg_radius_row" />
+            <solid android:color="@color/wg_card" />
+            <stroke android:width="@dimen/wg_line_w" android:color="@color/wg_line_soft" />
+        </shape>
+    </item>
+</ripple>

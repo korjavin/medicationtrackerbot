@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- .wg-mark-sm: the app mark tile (ink, gloss, soft line), 36dp, radius 10. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape>
+            <corners android:radius="10dp" />
+            <solid android:color="@color/wg_ink" />
+            <stroke android:width="@dimen/wg_line_w" android:color="#1AFFFFFF" />
+        </shape>
+    </item>
+    <item>
+        <shape>
+            <corners android:radius="10dp" />
+            <gradient android:angle="270" android:startColor="#29FFFFFF" android:centerColor="#00FFFFFF"
+                android:centerY="0.52" android:endColor="#00FFFFFF" />
+        </shape>
+    </item>
+</layer-list>

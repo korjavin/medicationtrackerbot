@@ -1,6 +1,42 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The native token mirror (bd med-ckm5.14): docs/design/claude-design/ui_kits/app-v2/
+     screens-native.html "Native token mirror", values from tokens.css (tokens.css wins).
+     Twin of the iOS Wg palette. fg-2/3/4 are colour state lists in res/color. -->
 <resources>
-    <!-- The web token wg-bg-screen: the same colour as MainActivity.SCREEN and iOS LaunchBackground. -->
-    <color name="screen">#132D29</color>
-    <color name="ic_launcher_background">@color/screen</color>
+    <!-- wg-bg-screen: window, splash, WebView, system bars, every native screen. -->
+    <color name="wg_screen">#132D29</color>
+    <color name="ic_launcher_background">@color/wg_screen</color>
+    <color name="wg_card">#21423D</color>
+    <color name="wg_card_hi">#2A4E48</color>
+    <color name="wg_inset_a">#162F2B</color>
+    <color name="wg_inset_b">#1C3934</color>
+    <color name="wg_raised_a">#3C6B65</color>
+    <color name="wg_raised_b">#264742</color>
+    <color name="wg_ink">#0F5042</color>
+    <color name="wg_toggle_off">#0F2723</color>
+    <!-- wg-line-strong / wg-line / wg-line-dark -->
+    <color name="wg_line">#24FFFFFF</color>
+    <color name="wg_line_soft">#12FFFFFF</color>
+    <color name="wg_line_dark">#47000000</color>
+    <color name="wg_fill_soft">#0FFFFFFF</color>
+    <color name="wg_fg_1">#F4FBF7</color>
+    <color name="wg_mint">#9CE4CC</color>
+    <!-- wg-sunfill and its text -->
+    <color name="wg_sun">#FBBD0D</color>
+    <color name="wg_sun_hi">#FFD14A</color>
+    <color name="wg_sun_deep">#E5A600</color>
+    <color name="wg_on_sun">#1A1200</color>
+    <color name="wg_focus">#99FBBD0D</color>
+    <!-- Status pairs: fg on bg, plus the 1dp line -->
+    <color name="wg_ok_fg">#9CE4CC</color>
+    <color name="wg_ok_bg">#2E56AC8A</color>
+    <color name="wg_warn_fg">#FFD870</color>
+    <color name="wg_warn_bg">#24FBBD0D</color>
+    <color name="wg_warn_line">#57FBBD0D</color>
+    <color name="wg_danger_fg">#F3A693</color>
+    <color name="wg_danger_bg">#33C6553A</color>
+    <color name="wg_danger_line">#73C6553A</color>
+    <color name="wg_info_fg">#9FD0F2</color>
+    <color name="wg_info_bg">#243FA3E5</color>
+    <color name="wg_info_line">#5C3FA3E5</color>
 </resources>
