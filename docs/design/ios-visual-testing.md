@@ -405,6 +405,8 @@ the three `med-pe9g` screenshots were one bead.
   larger text axis if the owner wants it.
   The Android tier exists: `android-qa.yml -f scenario=local-visual` (bd med-nt9p.32.6,
   [android.md → Local-mode scenarios](../android.md#local-mode-scenarios-bd-med-nt9p326)).
+  It uploads the `android-visual` artifact and compares it with master's latest
+  dispatch, as the iOS tiers do (bd med-y5xx.9). Dispatch only, no PR label yet.
 
 ## Decisions for the owner
 

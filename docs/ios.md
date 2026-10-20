@@ -523,8 +523,11 @@ changes for it.
 - **Offline:** a cold start offline is answered by the Service Worker; a native
   "Can't open your account" screen (Try again / Switch account) appears only
   when the very first load fails with nothing cached, or the host answers an
-  HTTP error (a mistyped or deleted account is a 404). Try again keeps an
-  invite link's `#claim=` fragment (in memory only).
+  HTTP error. Try again keeps an invite link's `#claim=` fragment (in memory
+  only). A 404 carrying the server's `X-Account-Gone: 1` marker (an unknown
+  account subdomain — mistyped, deleted or expired) instead forgets the host
+  and returns to the native first run with "There is no account at <host>."
+  (`AccountURL.accountGone`, bd med-w6gx.22, as Android).
 - **Switch account:** iOS Settings → Med Tracker → *Switch account*, then return
   to the app; also on the load-error screen. Website data is per origin and is
   kept, so switching back still finds offline data and warm unlock.

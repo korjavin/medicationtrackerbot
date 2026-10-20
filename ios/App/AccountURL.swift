@@ -35,6 +35,17 @@ enum AccountURL {
         return ["/unlock", "/claim", "/recover"].contains(url.path)
     }
 
+    /// The server's own "no such account" 404 (bd med-w6gx.22, twin of Android's
+    /// AccountUrl.accountGone): cmd/cloud marks it with X-Account-Gone: 1
+    /// (internal/cloudserver/router.go). A bare 404 — a proxy's during a
+    /// redeploy, an older server — is not proof the account is gone.
+    static func accountGone(_ status: Int, _ headers: [AnyHashable: Any]) -> Bool {
+        status == 404 && headers.contains { h in
+            (h.key as? String)?.caseInsensitiveCompare("X-Account-Gone") == .orderedSame
+                && (h.value as? String)?.trimmingCharacters(in: .whitespaces) == "1"
+        }
+    }
+
     /// Exactly one DNS label under base: what the webcredentials wildcard and
     /// the WKAppBoundDomains entry cover.
     static func isAccountHost(_ host: String, base: String) -> Bool {

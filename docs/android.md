@@ -497,8 +497,8 @@ the same way.
   scene's `native` steps on the device (`tap` = a real touch on the DOM id,
   `type` = `adb input text`, `clear`, `tapButton` / `waitFor` = UiAutomator
   text, `keyboard` = the IME is up); native-only scenes (`native-*`) open
-  first run. Artifact `visual/<scene>.png` (full device) +
-  `visual/<scene>.json` (the ready node's report: probes, `failed`). Dark,
+  first run. Artifact `visual/android/<scene>.png` (full device) +
+  `visual/android/<scene>.json` (the ready node's report: probes, `failed`). Dark,
   font scale and landscape are the dispatch inputs, applied to every scene.
   As on iOS only lost ready content fails a scene (one retry each, from
   a fresh `pm clear`; `firstError` keeps attempt 1's failure); the probes are
@@ -508,6 +508,15 @@ the same way.
   and it popped the page pushed meanwhile; `MessengerAdapter.historyPush` /
   `historyBack` now hold pushes until it lands — run 39265321642 passes every
   scene on attempt 1). The scenario fails at the end if any scene did.
+  **Visual tier (bd med-y5xx.9):** a `local-visual` dispatch also uploads
+  `visual/` as its own artifact, `android-visual` (90 days), suffixed by each
+  non-default input (`-api35`, `-font1.3`, `-dark`, `-landscape`), and runs
+  `tests/visual/compare.sh` against master's latest dispatch carrying the same
+  name, so a variant only compares with its own kind. Diffs land in the
+  artifact's `compare/`. Evidence only, never a gate. The master reference is
+  `gh workflow run android-qa.yml --ref master -f scenario=local-visual`;
+  rerun it after an intended UI change. Shots are Playwright's
+  `AndroidDevice.screenshot()`, which is `adb` `screencap` underneath.
 
 ### Local cloud on the runner (bd med-nt9p.24)
 
