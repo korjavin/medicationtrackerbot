@@ -2,8 +2,8 @@
 // file-based Move of bd med-o7zq.6 end to end on the shell. Local mode seeded with the golden vault
 // → Settings → Backup & import → Export backup → the passphrase sheet (left empty) → Backup ready
 // → Save to device (the file Files.kt wrote is read back from the device and checked against
-// tests/fixtures/vault-v1.json's shape) → Save to device → the shell's Switch account (the page's
-// "I have an invite" is gone, bd med-ckm5.7) → native first run → the runner's invite, claimed with the soft
+// tests/fixtures/vault-v1.json's shape) → Save to device → local.leave (the op the page's removed
+// "I have an invite" called, bd med-ckm5.7) → native first run → the runner's invite, claimed with the soft
 // authenticator → the new account's Restore of that file → the account lists the seeded records and
 // they reached the server → Switch account → Only on this device → Start → the local records are
 // all still there (nothing is erased by a move). results.localToCloud has the counts per vault list.
@@ -119,10 +119,11 @@ export default async function localToCloud(ctx) {
   await sleep(1000);
   await ctx.stableShot('export-done');
 
-  // 2. The shell's first run, as a user with the file gets there (the seamless Move is
-  //    local-to-cloud-seamless.mjs).
-  await ctx.step('Switch account → first run', async () => {
-    await shell(`am start -W -a com.example.medtracker.SWITCH_ACCOUNT -n ${pkg}/com.example.medtracker.MainActivity`);
+  // 2. The shell's first run through local.leave, the op the removed "I have an invite" button
+  //    called (bd med-ckm5.7; the seamless Move is local-to-cloud-seamless.mjs). The page goes
+  //    away right after the reply, hence the catch.
+  await ctx.step('local.leave → first run', async () => {
+    await page.evaluate(() => window.LocalNotifications.__native.call('local.leave')).catch(() => {});
     await ctx.waitFor({ text: 'Only on this device' }, 20_000);
   });
   await ctx.shot('first-run');
