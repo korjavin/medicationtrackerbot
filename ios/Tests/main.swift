@@ -1,5 +1,5 @@
-// Self-check for AccountURL, LocalOrigin, LocalLock, ReminderPath and Move, run by .github/workflows/ios.yml:
-//   swiftc -D DEBUG App/AccountURL.swift App/LocalOrigin.swift App/LocalLock.swift App/ReminderPath.swift App/Move.swift Tests/main.swift -o <bin> && <bin>
+// Self-check for AccountURL, LocalOrigin, LocalLock, ReminderPath, Move and Diag, run by .github/workflows/ios.yml:
+//   swiftc -D DEBUG App/AccountURL.swift App/LocalOrigin.swift App/LocalLock.swift App/ReminderPath.swift App/Move.swift App/Diag.swift Tests/main.swift -o <bin> && <bin>
 // Not part of the app target (project.yml sources only App/).
 import Foundation
 
@@ -205,3 +205,17 @@ precondition(!move.exists && leaveStash.exists && (try! leaveStash.take()) == "{
 leaveStash.clear()
 precondition(!leaveStash.exists)
 print("Move: ok")
+
+// Diag (bd med-w6gx.24): redaction and the cap, as Android's DiagTest.
+let red = Diag.redact("page https://ABC.app.example.com/unlock rp=abc.app.example.com other=xyz.app.example.com base=app.example.com", base: base)
+precondition(!red.lowercased().contains("abc") && !red.contains("xyz") && !red.contains("example"), red)
+let subs = red.split(separator: " ").compactMap { w in w.range(of: "<sub-[0-9a-f]{6}>", options: .regularExpression).map { String(w[$0]) } }
+precondition(subs.count == 3 && subs[0] == subs[1] && subs[1] != subs[2], red) // same account, same tag; another, another
+precondition(red.hasSuffix("base=<base>"), red)
+precondition(Diag.redact("abc.app.example.com", base: "") == "abc.app.example.com")
+var diagLog = ""
+for i in 1...(Diag.cap + 50) { diagLog = Diag.append(diagLog, "line \(i)\nnext", base: base, time: "T") }
+let diagLines = diagLog.split(separator: "\n")
+precondition(diagLines.count == Diag.cap && diagLines.first == "T line 51 next" && diagLines.last == "T line \(Diag.cap + 50) next")
+precondition(Diag.append("", String(repeating: "x", count: 5000), base: base, time: "T").count == Diag.maxLine)
+print("Diag: ok")

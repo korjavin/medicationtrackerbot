@@ -70,10 +70,10 @@ jobs:
           xcodegen generate
           xcodebuild -version
 
-      - name: Check first-run link parsing, local-origin routing, the local lock and reminder paths
+      - name: Check first-run link parsing, local-origin routing, the local lock, reminder paths and the diagnostics log
         working-directory: ios
         run: |
-          swiftc -D DEBUG App/AccountURL.swift App/LocalOrigin.swift App/LocalLock.swift App/ReminderPath.swift App/Move.swift Tests/main.swift -o "$RUNNER_TEMP/accounturl-check"
+          swiftc -D DEBUG App/AccountURL.swift App/LocalOrigin.swift App/LocalLock.swift App/ReminderPath.swift App/Move.swift App/Diag.swift Tests/main.swift -o "$RUNNER_TEMP/accounturl-check"
           "$RUNNER_TEMP/accounturl-check"
 
       # build-for-testing: the app plus the MedTrackerUITests bundle (bd
@@ -83,8 +83,11 @@ jobs:
         run: |
           xcodebuild build-for-testing -project MedTracker.xcodeproj -scheme MedTracker \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO | tail -n 50
-          test "${PIPESTATUS[0]}" -eq 0
+            -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO | tee "$RUNNER_TEMP/build.log" | tail -n 50
+          status=${PIPESTATUS[0]}
+          # The tail cuts the compiler's diagnostics off a failed build.
+          grep -E ': error:' "$RUNNER_TEMP/build.log" | sort -u | head -n 40 || true
+          test "$status" -eq 0
 
       # The archive step's "no QA hook" check greps for this marker; prove the
       # Debug build carries it, so that check cannot pass vacuously.

@@ -270,8 +270,8 @@ fresh begin.
 
 Inside the shell only, every passkey ceremony is logged so a failure on a
 real phone can be pasted into a bead. [`web/cloud/js/passkey-diag.js`](../web/cloud/js/passkey-diag.js)
-(same `window.wgNative` gate; on web and iOS it returns before doing
-anything) posts one `diag.append {entry}` per server step (`register/begin`
+(the same shell detection; on the web it returns before doing anything, and
+iOS logs the same entries to its own shell — docs/ios.md, bd med-w6gx.24) posts one `diag.append {entry}` per server step (`register/begin`
 / `finish`, `login/begin` / `finish`, `account/reauth` / `delete`: HTTP
 status) and per `navigator.credentials` call — `create`, `get`, or the
 post-create `probe`, one entry per retry attempt: ms since the ceremony's

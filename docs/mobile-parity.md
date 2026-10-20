@@ -23,7 +23,7 @@ The two native shells (`ios/`, `android/`) wrap the same web app. Keep them in s
 | Switch account entry | Settings.bundle | launcher long-press shortcut (`MainActivity.kt`) | divergent: platform convention |
 | "Only on this device" while a move stash exists | hides one-tap Continue | keeps it visible | divergent: deliberate |
 | System bars (`chrome` op) | n/a | ✓ | Android-only: system bars |
-| `diag.append` + Copy diagnostics (passkey debug aid) | gap | ✓ | open: med-w6gx.24 (in progress; drops `diag.append` from `PLATFORM_ONLY`) |
+| `diag.append` + Copy diagnostics (passkey debug aid) | ✓ (error screen, ceremony dialog, Home Screen quick action) | ✓ | parity (med-w6gx.24) |
 | Back gesture exits app | n/a | ✓ | Android-only: back-exit |
 | e2e flow QA scenarios | gap | ✓ (`android/qa`) | open: med-w6gx.23 (waiting on owner) |
 | Visual QA scene driver | ✓ (Simulator) | gap | open: med-y5xx.9 |

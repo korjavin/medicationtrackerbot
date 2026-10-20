@@ -17,7 +17,6 @@ const ANDROID = path.join(ANDROID_DIR, fs.readdirSync(ANDROID_DIR, { recursive: 
 
 const PLATFORM_ONLY = {
     chrome: 'Android system bars',
-    'diag.append': 'Android passkey debug aid; iOS twin is med-w6gx.24',
 };
 
 // { op: group } from `<name> = [ ... ]` (Swift) or `<name> = setOf( ... )` (Kotlin).

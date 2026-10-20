@@ -637,6 +637,27 @@ resolves with the Swift reply; only the account host's main frame is answered.
 Ops: `ping` → `"pong"`; `notifications.*` (below); HealthKit ops come with med-w6gx.6.
 Details: [docs/frontend.md → Device-Capability Abstractions](frontend.md#device-capability-abstractions).
 
+### Passkey diagnostics log (bd med-w6gx.24)
+
+Twin of Android's [passkey diagnostics log](android.md#passkey-diagnostics-log-bd-med-nt9p22):
+[`web/cloud/js/passkey-diag.js`](../web/cloud/js/passkey-diag.js) posts the
+same `diag.append {entry}` per server ceremony step and per
+`navigator.credentials` call to the `wgNative` handler (both modes, no reply
+awaited; same never-logged list). The iOS ceremony itself is unchanged — only
+the Android shell's discoverable get, retries and busy screen differ.
+[`Diag.swift`](../ios/App/Diag.swift) timestamps each entry, redacts it at
+write time (base → `<base>`, account label → `<sub-xxxxxx>`) and keeps the
+last 200 lines in `UserDefaults` (`wgDiagLog`), so the log survives reloads and
+Switch account; the shell adds its own lines for a failed first load (HTTP
+status, or the NSError domain + code). `Tests/main.swift` checks the redaction
+and the cap.
+
+**Copying it:** long-press the Home Screen icon → **Copy diagnostics**, or
+**Copy diagnostics** on the "Can't open your account" screen or in the "Not
+your account? Use another invite" dialog of a ceremony page. The pasteboard
+gets a header (app version + build, iOS version, device model, mode with the
+redacted account host) followed by the log; paste it into the bead.
+
 ### Reminders as local notifications (bd med-w6gx.5)
 
 WKWebView has no Web Push. Whenever the web app computes the reminder horizon
