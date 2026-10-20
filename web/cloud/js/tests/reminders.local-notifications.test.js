@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { pushSchedule } from '../push.js';
-import { recomputeAndPush, localNotificationItems } from '../reminders.js';
+import { recomputeAndPush, localNotificationItems, scheduleReminderRecompute } from '../reminders.js';
 
 vi.mock('../push.js', () => ({ pushSchedule: vi.fn(async () => {}), sendTestPush: vi.fn() }));
 
@@ -120,6 +120,65 @@ describe('recomputeAndPush hands the horizon to LocalNotifications in the iOS ap
     await recomputeAndPush(ctx, { records: fakeRecords(seed('telegram', 'detailed')), timeZone: 'UTC', relay: false });
     expect(schedule.mock.calls[1][0].find((i) => i.section === 'meds').body).toContain('Time to take: A');
     expect(pushSchedule).not.toHaveBeenCalled();
+  });
+});
+
+// bd med-ckm5.4 (kit O3): a write-triggered schedule that would notify this
+// device asks for the permission (features/notify-permission.js decides
+// whether a sheet actually shows); boot recomputes never ask.
+describe('recomputeAndPush asks for notification permission in context', () => {
+  const ctx = { accountId: 'acct-ask' };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW_MS);
+    pushSchedule.mockReset();
+    pushSchedule.mockResolvedValue(undefined);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    delete globalThis.LocalNotifications;
+    delete globalThis.NotifyPermission;
+    vi.restoreAllMocks();
+  });
+
+  it('boot (no askPermission) never asks; a UI write\'s debounced recompute does', async () => {
+    const maybeAsk = vi.fn(async () => false);
+    globalThis.NotifyPermission = { maybeAsk };
+    globalThis.LocalNotifications = { isSupported: () => true, schedule: vi.fn(async () => 0) };
+    const records = fakeRecords(seed('both'));
+    await recomputeAndPush(ctx, { records, timeZone: 'UTC' });
+    scheduleReminderRecompute(ctx, { records, timeZone: 'UTC' }, 10);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(maybeAsk).not.toHaveBeenCalled();
+
+    // apishim's UI-origin router adds the flag (cloud.shim-contract.reminders).
+    scheduleReminderRecompute(ctx, { records, timeZone: 'UTC', askPermission: true }, 10);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(maybeAsk).toHaveBeenCalledTimes(1);
+  });
+
+  it('no ask when nothing would notify this device (Telegram-only, or local mode on the web)', async () => {
+    const maybeAsk = vi.fn(async () => false);
+    globalThis.NotifyPermission = { maybeAsk };
+    await recomputeAndPush(ctx, { records: fakeRecords(seed('telegram')), timeZone: 'UTC', askPermission: true });
+    await recomputeAndPush(ctx, { records: fakeRecords(seed('both')), timeZone: 'UTC', relay: false, askPermission: true });
+    expect(maybeAsk).not.toHaveBeenCalled();
+    // The web with Web Push delivery does ask.
+    await recomputeAndPush(ctx, { records: fakeRecords(seed('both')), timeZone: 'UTC', askPermission: true });
+    expect(maybeAsk).toHaveBeenCalledTimes(1);
+  });
+
+  it('a new grant reschedules the device right away', async () => {
+    const maybeAsk = vi.fn().mockResolvedValueOnce(true).mockResolvedValue(false);
+    globalThis.NotifyPermission = { maybeAsk };
+    const schedule = vi.fn(async () => 0);
+    globalThis.LocalNotifications = { isSupported: () => true, schedule };
+    await recomputeAndPush(ctx, { records: fakeRecords(seed('both')), timeZone: 'UTC', relay: false, askPermission: true });
+    expect(schedule).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.waitFor(() => expect(schedule).toHaveBeenCalledTimes(2));
+    expect(pushSchedule).not.toHaveBeenCalled(); // the reschedule kept local mode's relay: false
   });
 });
 
