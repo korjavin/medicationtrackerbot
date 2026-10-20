@@ -14,8 +14,8 @@
 //   renderNote(el)  → fills el with the "Reminders won't fire" warn note when
 //                     the permission is denied, or still 'default' after "Not
 //                     now"; empties it otherwise. Shared by the med editor's
-//                     Times section and the first-run features screen (S8,
-//                     bd med-ckm5.8, is to consume it next).
+//                     Times section, the first-run features screen and
+//                     Settings → Reminders & notifications (S8, med-ckm5.8).
 (function () {
     'use strict';
 

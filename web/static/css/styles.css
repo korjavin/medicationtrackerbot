@@ -7609,6 +7609,13 @@ body:has(.wg-callbar--dock) .wg-toasts {
     display: none !important;
 }
 
+/* Reminders & notifications (kit S8, med-ckm5.8): an empty permission-note
+   slot must not add a section gap. */
+#local-notify-note:empty,
+#cloud-push-note:empty {
+    display: none;
+}
+
 .wg-settings-integrations,
 .wg-settings-importexport,
 .wg-settings-telegram {
