@@ -141,7 +141,8 @@ final class FlowQAStashTests: XCTestCase {
         try Self.writeStash("leave", seed)
         app.launch()
         XCTAssertTrue(webText(app, contains: "Records already on this").waitForExistence(timeout: 60), "no Merge / Replace choice over existing records")
-        XCTAssertTrue(app.webViews.buttons["Replace"].exists, "the choice offers no Replace")
+        // aria-pressed choices reach XCUITest as toggles, not buttons.
+        XCTAssertTrue(webText(app, contains: "Replace").waitForExistence(timeout: 5), "the choice offers no Replace")
         shot(flow, "replace-dialog")
         app.webViews.buttons["Cancel"].tap()
         XCTAssertTrue(webText(app, "Records not copied").waitForExistence(timeout: 15), "no Records not copied alert after Cancel")
