@@ -4,12 +4,13 @@
 // refused, a bad vault is rejected, a stash lands in no_backup/move/vault.json → local.leave → the
 // first run's hint → Only on this device → Start deletes it (an abandoned move) → local.leave shows
 // no stale hint → Start → stash again →
-// local.leave → the runner's invite → the account: move.stash refused, move.take returns the same
-// string and keeps the file, move.clear deletes it, move.take → null. Then the leave.* mirror (bd
-// med-o7zq.36.3): gates, stash in the account, kept into local mode where take/clear work, deleted by
+// local.leave → the runner's invite → the account's pickup clears it (bd med-nt9p.32.18) → a seeded
+// stash: move.stash refused, move.take returns it and keeps the file, move.clear deletes it, → null. Then the leave.* mirror (bd
+// med-o7zq.36.3): gates, stash in the account, kept into local mode where take/clear work (under the
+// local boot's pickup confirm, bd med-o7zq.36.4, then cancelled), deleted by
 // local.reset and by opening an account (seeded via run-as). results.moveOps has the checks.
 // Claims the run's one invite: not in `all` (smoke claims it there), no retry.
-import { claimAccount } from './smoke.mjs';
+import { claimAccount, waitForVault } from './smoke.mjs';
 
 export const retry = false;
 
@@ -95,16 +96,26 @@ export default async function moveOps(ctx) {
     await sleep(3000);
     return p;
   });
+  // The post-unlock pickup (bd med-nt9p.32.18) imports and clears the stash, reloads, and the reloaded
+  // boot shows the toast then probes move.take once more (≤ 5 s). The user path is local-to-cloud-seamless.
+  const picked = page.getByText('Your records from this phone are in your account.')
+    .waitFor({ state: 'visible', timeout: 240_000 }).then(() => true, () => false);
   await claimAccount(ctx, page);
 
   await ctx.step('account: shell.ops, move.stash refused, take keeps, clear deletes', async () => {
+    expect(await picked, 'no pickup toast');
+    await waitForVault(page);
+    await sleep(10_000); // the reloaded boot's move.take probe, before seeding a stash it would pick up
+    expect((await stashFiles()) === '', 'the pickup did not clear the stash');
+    // A seeded stash drives take/clear directly.
+    await shell(`run-as ${pkg} sh -c 'mkdir -p no_backup/move && echo {} > no_backup/move/vault.json'`);
     const ops = await call(page, 'shell.ops');
     expect(ops.ok && ops.result.includes('move.take') && ops.result.includes('move.clear'), `shell.ops ${JSON.stringify(ops)}`);
     expect(!ops.result.includes('move.stash'), `account lists move.stash: ${ops.result}`);
     const stash = await call(page, 'move.stash', { vault: '{}' });
     expect(!stash.ok && stash.error === 'unsupported: move.stash', `stash in account mode: ${JSON.stringify(stash)}`);
     const took = await call(page, 'move.take');
-    expect(took.ok && took.result && took.result.vault === vault, `take: ${took.ok} ${took.error || typeof took.result?.vault} ${took.result?.vault?.length}`);
+    expect(took.ok && took.result?.vault?.trim() === '{}', `take: ${took.ok} ${took.error || typeof took.result?.vault} ${took.result?.vault?.length}`);
     expect((await stashFiles()) === 'vault.json', 'take deleted the stash');
     const cleared = await call(page, 'move.clear');
     expect(cleared.ok && cleared.result === true, `clear: ${JSON.stringify(cleared)}`);
@@ -141,7 +152,11 @@ export default async function moveOps(ctx) {
     page = await ctx.attachPage();
     if (!page) throw new Error('no WebView page');
     await page.waitForURL((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`), { timeout: 30_000 });
-    await ctx.waitLocalReady(page);
+    // The local boot's leave pickup (bd med-o7zq.36.4) has taken the stash (take keeps it) and asks the
+    // typed replace confirm over the seeded records; the bridge checks run under it, then Cancel.
+    const title = page.locator('.mt-confirm-modal__title');
+    await title.filter({ hasText: 'Replace the records on this' }).waitFor({ timeout: 60_000 });
+    await ctx.shot('leave-pickup-confirm');
     expect((await leaveFiles()) === 'vault.json', 'entering local mode deleted the leave stash');
     const ops = await call(page, 'shell.ops');
     expect(ops.ok && ops.result.includes('leave.take') && ops.result.includes('leave.clear') && !ops.result.includes('leave.stash'), `local shell.ops ${JSON.stringify(ops)}`);
@@ -155,6 +170,11 @@ export default async function moveOps(ctx) {
     expect((await leaveFiles()) === '', `leave.clear left: ${await leaveFiles()}`);
     const none = await call(page, 'leave.take');
     expect(none.ok && none.result === null, `leave.take after clear: ${JSON.stringify(none)}`);
+    // Cancel → the pickup clears (already empty) and says the records were not copied → OK.
+    await page.click('.mt-confirm-modal__cancel');
+    await title.filter({ hasText: 'Records not copied' }).waitFor({ timeout: 15_000 });
+    await page.click('.mt-confirm-modal__cancel');
+    await ctx.waitLocalReady(page);
   });
   await ctx.step('local.reset deletes the leave stash', async () => {
     await seedLeave();

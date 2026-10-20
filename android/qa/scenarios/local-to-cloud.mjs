@@ -20,10 +20,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 // the local store. Not equal: a view lazily materializes derived slots (run 39272557051: the
 // account's Today minted today's planned workout session-<group>-<date>, workouts.sessions 1 → 2).
 // Everything else is counted and reported (accountDiff), not gated.
-const GATED = ['medications.items', 'medications.intakes', 'bp.readings', 'weight.logs', 'food.logs', 'diary.notes', 'trackers.items', 'trackers.logs', 'workouts.sessions', 'vitals.heart'];
+export const GATED = ['medications.items', 'medications.intakes', 'bp.readings', 'weight.logs', 'food.logs', 'diary.notes', 'trackers.items', 'trackers.logs', 'workouts.sessions', 'vitals.heart'];
 
 /** Every array in the vault's data, two levels deep: {"bp.readings": 2, "api_tokens": 2, …}. */
-function counts(vault) {
+export function counts(vault) {
   const out = {};
   for (const [k, v] of Object.entries(vault.data || {})) {
     if (Array.isArray(v)) out[k] = v.length;
@@ -32,7 +32,7 @@ function counts(vault) {
   return out;
 }
 
-const vaultCounts = async (page) => counts(JSON.parse(await page.evaluate(() => window.CloudVault.exportAll({ includeSecrets: false }))));
+export const vaultCounts = async (page) => counts(JSON.parse(await page.evaluate(() => window.CloudVault.exportAll({ includeSecrets: false }))));
 
 /** Settings → Backup & import (the page the user opens). */
 async function openBackup(page) {
@@ -43,7 +43,7 @@ async function openBackup(page) {
 }
 
 /** The in-page dialog's confirm (safeConfirm), typing its phrase first when it asks for one. */
-async function confirmDialog(page, timeout = 10_000) {
+export async function confirmDialog(page, timeout = 10_000) {
   const btn = page.locator('.mt-confirm-modal__confirm');
   await btn.waitFor({ state: 'visible', timeout });
   const typed = page.locator('.mt-confirm-modal__input');
