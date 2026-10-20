@@ -829,19 +829,10 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         expect(offDevice()).toEqual([]);
     });
 
-    it('Move to a cloud account hands over to the shell\'s invite screen and keeps the records', async () => {
-        const { window } = env;
-        await window.apiCall('/api/weight', 'POST', { weight: 80 });
-        cancelReminderRecompute({ accountId: 'local' });
-        await window.CloudVault.openCloudAccount({ win: window });
-        expect(bridge).toHaveBeenCalledWith('local.leave');
-        expect((await localRecordsPort().list('weight')).map((r) => r.weight)).toEqual([80]);
-        expect(offDevice()).toEqual([]);
-    });
-
-    // bd med-nt9p.32.16: the Settings-home row stashes the vault with the shell
-    // (move.stash) before leaving; a shell that does not list the op (every
-    // shell before it, iOS today) never shows the row.
+    // bd med-nt9p.32.16: Backup & import's Move button stashes the vault with
+    // the shell (move.stash) before leaving, and the Settings-home row only
+    // opens that section; a shell that does not list the op (every shell
+    // before it) shows neither.
     const openDialog = (document) => vi.waitFor(() => {
         const d = document.querySelector('mt-modal.mt-confirm-modal');
         if (!d) throw new Error('no dialog open');
@@ -1000,7 +991,8 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
 
         await window.CloudVault.trial.apply();
         expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] });
-        await window.CloudVault.openCloudAccount({ win: window });
+        await window.CloudVault.moveToCloud({ win: window });
+        expect(bridge).toHaveBeenCalledWith('move.stash', expect.objectContaining({ vault: expect.any(String) }));
         expect(bridge).toHaveBeenCalledWith('local.leave');
         const replace = vi.fn();
         const win = () => ({
@@ -1015,7 +1007,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
             local.__native.platform = platform;
             bridge.mockClear();
             await window.CloudVault.trial.apply();
-            await expect(window.CloudVault.openCloudAccount({ win: window })).rejects.toThrow('Open the app on your phone to use an invite.');
+            await expect(window.CloudVault.moveToCloud({ win: window })).rejects.toThrow('Open the app on your phone to use an invite.');
             await window.CloudVault.eraseDevice({ win: win() });
             expect(bridge).not.toHaveBeenCalled();
         }

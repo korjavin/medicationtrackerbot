@@ -169,9 +169,11 @@
         meta.textContent = days <= 0 ? 'last today' : days === 1 ? 'last yesterday' : `last ${days} days ago`;
     }
 
-    function stampLastBackup() {
+    // The file left the device (Save or Share): only now is there a backup.
+    function stampLastBackup(name) {
         try { window.localStorage.setItem(LAST_BACKUP_KEY, String(Date.now())); } catch (_) { /* not remembered */ }
         paintLastBackup();
+        setExportStatus(`Backup exported: ${name}. Keep it somewhere safe.`);
     }
 
     // The ready file: name split into stem + extension (.wg-fname) so a narrow
@@ -211,7 +213,7 @@
     function saveReady() {
         if (!readyFile) return;
         downloadBlobAsFile(readyFile.blob, readyFile.name);
-        stampLastBackup();
+        stampLastBackup(readyFile.name);
         if (closeSheet) closeSheet(true);
     }
 
@@ -219,7 +221,7 @@
         if (!readyFile || !readyFile.file) return;
         try {
             await navigator.share({ files: [readyFile.file], title: readyFile.name });
-            stampLastBackup();
+            stampLastBackup(readyFile.name);
             if (closeSheet) closeSheet(true);
         } catch (e) {
             // Dismissing the OS sheet is not an error.
@@ -268,7 +270,9 @@
             } else {
                 blob = new Blob([gz], { type: 'application/gzip' });
             }
-            setExportStatus(`Backup ready: ${name}. Save it somewhere safe.`);
+            // Nothing is saved until Save or Share on Backup ready.
+            const note = el('importexport-export-status');
+            if (note) note.hidden = true;
             showReady(blob, name, !!passphrase);
         } catch (e) {
             console.error('Export failed:', e);

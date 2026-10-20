@@ -41,7 +41,7 @@ final class FlowQABackupTests: XCTestCase {
         shot(flow, "plain-ready")
         save.tap()
         shareSheetRoundTrip(app, flow: flow, step: "plain", downloads: downloads, suffix: ".json.gz")
-        XCTAssertTrue(webText(app, containing: ".json.gz.").waitForExistence(timeout: 10), "the export status never said \"Backup ready\"")
+        XCTAssertTrue(webText(app, containing: ".json.gz.").waitForExistence(timeout: 10), "the export status never said \"Backup exported\"")
 
         // Encrypted: the passphrase makes it .age (proof the typing landed).
         exportBtn.tap()
@@ -58,7 +58,7 @@ final class FlowQABackupTests: XCTestCase {
         shot(flow, "encrypted-ready")
         save.tap()
         shareSheetRoundTrip(app, flow: flow, step: "encrypted", downloads: downloads, suffix: ".json.gz.age", timeout: 60)
-        XCTAssertTrue(webText(app, containing: ".json.gz.age").waitForExistence(timeout: 10), "the encrypted export status never said \"Backup ready\"")
+        XCTAssertTrue(webText(app, containing: ".json.gz.age").waitForExistence(timeout: 10), "the encrypted export status never said \"Backup exported\"")
         shot(flow, "after-dismiss")
         XCTAssertFalse(webText(app, containing: "Preparing").exists || webText(app, containing: "Encrypting").exists, "the export status still says it is running")
         app.terminate()

@@ -196,6 +196,9 @@ describe('Settings → Import/Export section', () => {
             expect(css).toMatch(/\.wg-importexport-sheet \[hidden\]\s*\{[^}]*display:\s*none\s*!important/);
             // Over the pushed page (--z-modal), on the backdrop's layer.
             expect(css).toMatch(/\.wg-importexport-sheet\s*\{[^}]*z-index:\s*var\(--z-confirm\)/);
+            expect(css).toMatch(/\.wg-importexport-backdrop\s*\{[^}]*z-index:\s*var\(--z-confirm\)/);
+            // Not the in-page dialog's class: its presence means a dialog is open.
+            expect(document.querySelector('.mt-confirm-backdrop')).toBeNull();
         });
     });
 
@@ -464,17 +467,39 @@ describe('Settings → Import/Export section', () => {
         btn.click(); // re-entry ignored while busy
         release();
 
-        await vi.waitFor(() => expect(status.textContent).toMatch(/^Backup ready: medtracker-vault-.*\.json\.gz\.age/));
+        const ready = document.getElementById('importexport-ready-sheet');
+        await vi.waitFor(() => expect(ready.classList.contains('hidden')).toBe(false));
         expect(window.BackupCrypto.encryptBackup).toHaveBeenCalledTimes(1);
         expect(window.CloudVault.exportAll).toHaveBeenCalledTimes(1);
         expect(btn.disabled).toBe(false);
-        expect(status.classList.contains('wg-error')).toBe(false);
-        const ready = document.getElementById('importexport-ready-sheet');
-        expect(ready.classList.contains('hidden')).toBe(false);
+        // Nothing saved yet: the page claims no backup until Save or Share.
+        expect(status.hidden).toBe(true);
         expect(document.getElementById('importexport-ready-meta').textContent).toBe('1 KB · encrypted with your passphrase');
         document.getElementById('importexport-ready-save').click();
         expect(downloads).toHaveLength(1);
         expect(ready.classList.contains('hidden')).toBe(true);
+        expect(status.hidden).toBe(false);
+        expect(status.classList.contains('wg-error')).toBe(false);
+        expect(status.textContent).toMatch(/^Backup exported: medtracker-vault-.*\.json\.gz\.age/);
+    });
+
+    it('dismissing Backup ready saves nothing and says nothing was saved', async () => {
+        const { window, document } = env;
+        window.CloudVault = { exportAll: vi.fn(async () => JSON.stringify(SAMPLE_VAULT)), importAll: vi.fn() };
+        window.downloadBlobAsFile = vi.fn();
+        window.localStorage.removeItem('wg.backup.last');
+        window.SettingsImportExport.load();
+        document.getElementById('importexport-include-secrets').checked = false;
+
+        await window.SettingsImportExport.export();
+
+        const ready = document.getElementById('importexport-ready-sheet');
+        expect(ready.classList.contains('hidden')).toBe(false);
+        ready.querySelector('[data-sheet-close]').click();
+        expect(ready.classList.contains('hidden')).toBe(true);
+        expect(window.downloadBlobAsFile).not.toHaveBeenCalled();
+        expect(document.getElementById('importexport-export-status').hidden).toBe(true);
+        expect(document.getElementById('importexport-last-backup').hidden).toBe(true);
     });
 
     // Shot 44: the ready filename wrapped mid-extension. .wg-fname splits it
