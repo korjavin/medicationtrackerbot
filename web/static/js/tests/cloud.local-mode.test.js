@@ -1159,6 +1159,12 @@ describe('local-only mode anonymous trial opt-in (med-o7zq.16)', () => {
         // reinstall continues the same allowance (bd med-o7zq.26).
         expect(modal.textContent).toMatch(/through our server/i);
         expect(modal.textContent).toMatch(/App Attest/);
+        // med-ckm5.11: four facts, the iOS Device check among them; the rest under Full details.
+        expect([...modal.querySelectorAll('.wg-facts > li b')].map((b) => b.textContent))
+            .toEqual(['What’s sent', 'Where it goes', 'Device check', 'Rather use your own key?']);
+        expect(modal.querySelector('.wg-facts').textContent).toMatch(/Apple App Attest confirms this is the real app/);
+        expect(modal.querySelector('details.wg-disc').open).toBe(false);
+        expect(modal.querySelector('.wg-disc__body').textContent).toMatch(/reinstalling the app continues the same allowance/i);
         expect(modal.textContent).toMatch(/free AI requests on this iPhone/i);
         expect(modal.textContent).toMatch(/reinstalling the app continues the same allowance/i);
         expect(modal.textContent).not.toMatch(/gives up the rest/i);
@@ -1775,6 +1781,8 @@ describe('local-only mode trial in the Android shell (med-nt9p.32.8.4)', () => {
     const TRIAL_BASE = 'trial-base.example.test';
     const ENROLL = `https://${TRIAL_BASE}/api/attest/enroll`;
     const TRANSIT = 'Android transit: an install id from a Keystore key, confirmed by Google Play Integrity.';
+    const TRANSIT_2 = 'Android allowance: Google Play keeps a mark, so reinstalling does not reset it.';
+    const DEVICE_CHECK = 'Android device check: Play Integrity confirms the real app.';
     const settle = async (n = 5) => {
         for (let i = 0; i < n; i++) await new Promise((r) => setTimeout(r, 0));
     };
@@ -1818,7 +1826,7 @@ describe('local-only mode trial in the Android shell (med-nt9p.32.8.4)', () => {
             enroll: vi.fn(async () => ({ kind: 'android', keyId: 'akey-1', publicKey: 'UEs=', integrityToken: 'play.token' })),
             assert: vi.fn(async (challenge, digest) => ({ keyId: 'akey-1', assertion: `sig:${challenge}:${digest}` })),
             setPass: vi.fn(async () => null),
-            copy: { trialTransit: TRANSIT },
+            copy: { trialTransit: [TRANSIT, TRANSIT_2], deviceCheck: DEVICE_CHECK },
         };
         const run = new Function('window', '__imp', LOCAL_BOOT_SRC); // eslint-disable-line no-new-func
         run(env.window, (spec) => MODULES[spec]());
@@ -1851,6 +1859,15 @@ describe('local-only mode trial in the Android shell (med-nt9p.32.8.4)', () => {
             return el;
         });
         expect(modal.textContent).toContain(TRANSIT);
+        // The variants differ only in the Device check fact and the details text (med-ckm5.11).
+        const details = [...modal.querySelectorAll('.wg-disc__body p')].map((p) => p.textContent);
+        expect(details).toContain(TRANSIT);
+        expect(details).toContain(TRANSIT_2);
+        const facts = [...modal.querySelectorAll('.wg-facts > li')];
+        expect(facts.map((li) => li.querySelector('b').textContent))
+            .toEqual(['What’s sent', 'Where it goes', 'Device check', 'Rather use your own key?']);
+        expect(facts[2].textContent).toContain(DEVICE_CHECK);
+        expect(facts[2].querySelector('.wg-ico').getAttribute('data-icon')).toBe('device');
         expect(modal.textContent).toMatch(/through our server/i);
         expect(modal.textContent).not.toMatch(/iPhone|App Attest|DeviceCheck|keychain/i);
         modal.querySelector('[data-trial-consent-choice="allow"]').click();

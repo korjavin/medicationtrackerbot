@@ -125,7 +125,10 @@ describe('native/attest.js on android', () => {
 
     it('carries the Android consent copy: Play Integrity, never Apple or the iPhone', () => {
         const { w } = loadAndroid({});
-        const transit = w.Attest.copy.trialTransit;
+        expect(w.Attest.copy.trialTransit).toHaveLength(2);
+        const transit = w.Attest.copy.trialTransit.join(' ');
+        expect(w.Attest.copy.deviceCheck).toMatch(/Google Play Integrity/);
+        expect(w.Attest.copy.deviceCheck).not.toMatch(/iPhone|Apple/);
         expect(transit).toMatch(/Google Play Integrity/);
         expect(transit).toMatch(/Android Keystore/);
         expect(transit).toMatch(/Google Play may keep a mark that this phone had its trial/);

@@ -128,7 +128,7 @@ function mintInvite() {
 }
 
 // The signup wizard as a person runs it (e2e/vault-roundtrip.mjs's flow): claim
-// → PRF passkey → loss ack → emergency kit → vault open. The authenticator is
+// → PRF passkey → Emergency Kit page → vault open. The authenticator is
 // per page (CDP), so the cloud run keeps one page per device.
 async function cloudSignup(context, page) {
   const cdp = await context.newCDPSession(page);
@@ -139,13 +139,14 @@ async function cloudSignup(context, page) {
   await page.goto(`${origin}/#claim=${token}`, { waitUntil: 'domcontentloaded' });
   await page.waitForURL(/\/unlock/, { timeout: 30000 });
   await page.click('#create-passkey', { timeout: 30000 });
-  await page.check('#loss-ack-checkbox', { timeout: 30000 });
-  await page.click('#loss-ack-continue');
-  await page.locator('#kit-download').waitFor({ timeout: 30000 });
+  // The one Emergency Kit page (bd med-ckm5.2): Download sits in the collapsed
+  // "Download or print" disclosure; a download ticks "I saved it" itself.
+  await page.locator('#kit-saved').waitFor({ timeout: 30000 });
+  await page.click('summary:has(#kit-save-chip)');
   const download = page.waitForEvent('download').catch(() => null);
   await page.click('#kit-download');
   await download;
-  await page.check('#kit-saved-checkbox');
+  if ((await page.getAttribute('#kit-saved', 'aria-pressed')) !== 'true') await page.click('#kit-saved');
   await page.click('#kit-continue');
   const skip = page.locator('#install-skip');
   await page.waitForFunction(() => Boolean(window.MedTrackerCloudReady) || document.querySelector('#install-skip'), null, { timeout: 60000 });
