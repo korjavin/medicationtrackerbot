@@ -309,8 +309,13 @@ describe('Settings home slots + mode card (kit S6)', () => {
             await window.loadSettings();
             await vi.waitFor(() => expect(chip.classList.contains('wg-settings-hidden')).toBe(true));
 
-            // The card opens Devices & connectors.
+            // The card opens Devices & connectors (its modules stubbed, as in settings.toggles).
+            window.loadCloudDevicesModule = () => Promise.resolve({ renderDeviceList: vi.fn() });
+            window.loadCloudConnectorsModule = () => Promise.resolve({ claudeConnectorMode: async () => 'remote' });
             card.click();
+            // Let the page's async connector refresh land before cleanup.
+            await vi.waitFor(() => expect(document.getElementById('settings-claude-connector-status').textContent)
+                .toBe('Remote · claude.ai / ChatGPT'));
             const pushedTitle = () => Array.from(document.querySelectorAll('mt-modal.wg-page[id^="wg-page-"]')).pop()
                 ?.querySelector('.wg-pagebar__title').textContent;
             await vi.waitFor(() => expect(pushedTitle()).toBe('Devices & connectors'));
