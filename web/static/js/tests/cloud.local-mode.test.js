@@ -15,11 +15,12 @@ import {
     afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi
 } from 'vitest';
 import { loadFrontendEnv, createMockResponse } from './helpers/frontend-harness.js';
-import { localRecordsPort, readAllLocalRecords } from '../../../cloud/js/sync.js';
+import { localRecordsPort } from '../../../cloud/js/sync.js';
 import { openDb } from '../../../cloud/js/localdb.js';
 import { cancelReminderRecompute } from '../../../cloud/js/reminders.js';
+import { materializationSettled } from '../../../cloud/js/apishim.js';
 import { allowConsoleNoise } from './helpers/setup.js';
-import { recordsToVault, vaultToRecords, USER_CONTENT_TYPES } from '../../../domain/vault.js';
+import { recordsToVault, vaultToRecords } from '../../../domain/vault.js';
 
 const LOCAL_BOOT_SRC = readFileSync(
     fileURLToPath(new URL('../../../cloud/js/local-boot.js', import.meta.url)),
@@ -39,7 +40,11 @@ const MODULES = {
     '/js/local-policy.js': () => import('../../../cloud/js/local-policy.js'),
 };
 
-function deleteDb() {
+// The last test's install-time dose sweep may still be running: it read that
+// store's medications and would write their due doses into the fresh store
+// (bd med-o7zq.40: a 09:00 fixture dose, so only after 07:00 UTC).
+async function deleteDb() {
+    await materializationSettled();
     return new Promise((resolve, reject) => {
         const req = indexedDB.deleteDatabase('medtracker-cloud');
         req.onsuccess = resolve;
@@ -1900,20 +1905,12 @@ describe('local-only mode leave stash pickup (med-o7zq.36.4)', () => {
     // A first run on this iPhone writes only settings and onboarding records
     // (bd med-o7zq.37): nothing of the user's is at stake, so no confirm.
     it('stash + a store with only first-run settings: restores without a dialog', async () => {
-        const dbg = async (tag) => [tag, (await readAllLocalRecords()).map((r) => `${r.recordType}:${r.recordId}:${r.deleted}`), 'memo-meds', (await localRecordsPort().list('medication')).map((r) => r.recordId)];
-        const seen = [await dbg('start')];
         await boot();
-        seen.push(await dbg('boot1'));
-        await env.window.apiCall('/api/settings/features/weight', 'POST', { enabled: false });
-        seen.push(await dbg('feat'));
-        expect(seen).toEqual([]);
         await env.window.apiCall('/api/settings/features/weight', 'POST', { enabled: false });
         await env.window.apiCall('/api/settings/integrations', 'PATCH', {});
         await env.window.apiCall('/api/firstrun/complete', 'POST', {});
         expect((await env.window.apiCall('/api/settings/features')).weight).toBe(false);
         cancelReminderRecompute({ accountId: 'local' });
-        // DEBUG med-o7zq.40
-        expect((await readAllLocalRecords()).filter((r) => !r.deleted && USER_CONTENT_TYPES.has(r.recordType)).map((r) => JSON.stringify(r))).toEqual([]);
         const { window } = await boot({ take: { vault: VAULT } });
         expect(window.safeConfirm).not.toHaveBeenCalled();
         expect(leaveOps()).toEqual(['leave.take', 'leave.clear']);
