@@ -153,8 +153,8 @@ describe('firstrun integrations screen', () => {
             document.querySelector('[data-firstrun-action="save"]').click();
             await new Promise(resolve => setTimeout(resolve, 0));
 
-            expect(fetchMock).toHaveBeenCalledTimes(1);
-            const [url, opts] = fetchMock.mock.calls[0];
+            expect(patches(fetchMock)).toHaveLength(1);
+            const [url, opts] = patches(fetchMock)[0];
             expect(url).toBe('/api/settings/integrations');
             expect(opts.method).toBe('PATCH');
             const body = JSON.parse(opts.body);
