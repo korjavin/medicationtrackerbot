@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -220,5 +221,53 @@ func TestInviteAPI_ExpiredInvitesFreeQuota(t *testing.T) {
 
 	if rec := postInvite(t, h, host, session); rec.Code != http.StatusOK {
 		t.Fatalf("POST /api/invite after expired invites = %d, want 200 (sweep must free quota)", rec.Code)
+	}
+}
+
+// TestInviteStatus pins the landing page's GET /api/i/<sub> contract
+// (med-ta2n.9): pending carries expires_at, expired/claimed/unknown do not,
+// unknown and malformed look exactly like expired, and account hosts refuse it.
+func TestInviteStatus(t *testing.T) {
+	h, store, host, claimToken := newTestInviteHandler(t)
+	pendingSub := strings.TrimSuffix(host, ".localhost")
+	now := time.Now().UTC()
+	if _, err := store.CreateAccount(t.Context(), "acc-exp", "old-invite", []byte("hash"), now.Add(-time.Hour), now.Add(-15*24*time.Hour), "", "", ""); err != nil {
+		t.Fatalf("CreateAccount: %v", err)
+	}
+	get := func(reqHost, sub string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/api/i/"+sub, nil)
+		req.Host = reqHost
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	check := func(sub, want string) {
+		t.Helper()
+		rec := get("localhost", sub)
+		if rec.Code != http.StatusOK || rec.Body.String() != want+"\n" {
+			t.Fatalf("GET /api/i/%s = %d %q, want %s", sub, rec.Code, rec.Body.String(), want)
+		}
+		if cc := rec.Header().Get("Cache-Control"); !strings.Contains(cc, "no-store") {
+			t.Fatalf("GET /api/i/%s Cache-Control = %q, want no-store", sub, cc)
+		}
+	}
+
+	rec := get("localhost", pendingSub)
+	var pending struct {
+		State     string    `json:"state"`
+		ExpiresAt time.Time `json:"expires_at"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &pending); err != nil || pending.State != "pending" || !pending.ExpiresAt.After(now) {
+		t.Fatalf("pending: %d %q (%v)", rec.Code, rec.Body.String(), err)
+	}
+	check("old-invite", `{"state":"expired"}`)
+	check("no-such-sub", `{"state":"expired"}`)
+	check("Bad.Sub", `{"state":"expired"}`)
+
+	registerAndGetSession(t, h, host, claimToken)
+	check(pendingSub, `{"state":"claimed"}`)
+
+	if rec := get(host, pendingSub); rec.Code != http.StatusNotFound {
+		t.Fatalf("account host GET /api/i/ = %d, want 404 (base domain only)", rec.Code)
 	}
 }

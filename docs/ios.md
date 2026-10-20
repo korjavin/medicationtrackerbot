@@ -1125,7 +1125,10 @@ was removed by the shell bead; what the build sets up stays (all in
 Production must serve the AASA: set `IOS_TEAM_ID` / `IOS_BUNDLE_ID` in the
 cloud env (docs/environment.md) and check that
 `https://<base>/.well-known/apple-app-site-association` and the same path on an
-account subdomain return `{"webcredentials":{"apps":["<TEAM>.<bundle>"]}}`.
+account subdomain return
+`{"applinks":{"details":[{"appIDs":["<TEAM>.<bundle>"],"components":[{"/":"/i/*","comment":"invite landing"}]}]},"webcredentials":{"apps":["<TEAM>.<bundle>"]}}`
+(applinks claims the invite landing `/i/*`; the entitlement lists
+`applinks:<base>` only — never `*.<base>` — med-ta2n.11).
 Apple fetches it through its CDN
 (`https://app-site-association.cdn-apple.com/a/v1/<host>`), which can lag by
 hours after the first deploy. If an archive fails on the Associated Domains
