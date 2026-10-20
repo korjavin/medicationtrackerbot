@@ -22,12 +22,12 @@ final class FlowQALockTests: XCTestCase {
             app.launchArguments = ["-wgLocalMode", "NO", "-wgAccountHost", "", "-wgQAScene", "today"]
             app.launch()
             let onlyHere = app.buttons["Only on this device"]
-            XCTAssertTrue(onlyHere.waitForExistence(timeout: 30), "first run never showed \"Only on this device\"")
+            require(flow, onlyHere.waitForExistence(timeout: 30), "first run never showed \"Only on this device\"")
             onlyHere.tap()
             let start = app.buttons["Start"]
-            XCTAssertTrue(start.waitForExistence(timeout: 10), "the local intro never showed \"Start\"")
+            require(flow, start.waitForExistence(timeout: 10), "the local intro never showed \"Start\"")
             let toggle = app.switches.matching(NSPredicate(format: "label BEGINSWITH 'Lock with'")).firstMatch
-            XCTAssertTrue(toggle.waitForExistence(timeout: 5), "no lock toggle on the intro: Face ID enrollment did not reach the app")
+            require(flow, toggle.waitForExistence(timeout: 5), "no lock toggle on the intro: Face ID enrollment did not reach the app")
             if "\(toggle.value ?? "")" != "1" {
                 // The switch at the row's trailing edge (tapping the label row does not toggle).
                 toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
@@ -37,19 +37,20 @@ final class FlowQALockTests: XCTestCase {
             start.tap()
             Thread.sleep(forTimeInterval: 1.5)
             shot(flow, "face-id-sheet")
-            XCTAssertTrue(matchUntil(app, timeout: 30) { !start.exists }, "Start stayed: the Face ID match did not turn the lock on")
-            XCTAssertTrue(QA.readyNode(app).waitForExistence(timeout: 90), "the local app never published #wg-qa-ready")
-            XCTAssertTrue(QA.tabBarShows(app, timeout: 10), "the local app shows no tab bar")
+            require(flow, matchUntil(app, timeout: 30) { !start.exists }, "Start stayed: the Face ID match did not turn the lock on")
+            allowFaceID(app)
+            require(flow, QA.readyNode(app).waitForExistence(timeout: 90), "the local app never published #wg-qa-ready")
+            require(flow, QA.tabBarShows(app, timeout: 10), "the local app shows no tab bar")
             shot(flow, "unlocked")
 
             app.terminate()
             app.launchArguments = []
             app.launch()
-            XCTAssertTrue(locked.waitForExistence(timeout: 30), "relaunch with the lock on showed no lock screen")
+            require(flow, locked.waitForExistence(timeout: 30), "relaunch with the lock on showed no lock screen")
             XCTAssertEqual(app.webViews.count, 0, "the web view is in the hierarchy behind the lock")
             shot(flow, "lock-screen")
-            XCTAssertTrue(matchUntil(app, timeout: 30) { !locked.exists }, "the launch prompt's match did not unlock")
-            XCTAssertTrue(QA.tabBarShows(app, timeout: 60), "after unlock the app shows no tab bar")
+            require(flow, matchUntil(app, timeout: 30) { !locked.exists }, "the launch prompt's match did not unlock")
+            require(flow, QA.tabBarShows(app, timeout: 60), "after unlock the app shows no tab bar")
             shot(flow, "relaunch-unlocked")
         }
 
@@ -57,18 +58,18 @@ final class FlowQALockTests: XCTestCase {
             let flow = "lock-cancel"
             app.terminate()
             app.launch()
-            XCTAssertTrue(locked.waitForExistence(timeout: 30), "relaunch showed no lock screen")
+            require(flow, locked.waitForExistence(timeout: 30), "relaunch showed no lock screen")
             Thread.sleep(forTimeInterval: 2) // the launch prompt is up
             shot(flow, "face-id-sheet")
             failPrompt(app, until: { unlock.exists && unlock.isEnabled })
             Thread.sleep(forTimeInterval: 3) // no re-prompt loop
-            XCTAssertTrue(locked.exists, "a failed check let the app open")
-            XCTAssertTrue(unlock.isEnabled, "Unlock is not enabled after a failed check (a prompt still up?)")
+            require(flow, locked.exists, "a failed check let the app open")
+            require(flow, unlock.isEnabled, "Unlock is not enabled after a failed check (a prompt still up?)")
             XCTAssertEqual(app.webViews.count, 0, "the web view is in the hierarchy behind the lock")
             shot(flow, "held")
             unlock.tap()
-            XCTAssertTrue(matchUntil(app, timeout: 30) { !locked.exists }, "Unlock's match did not unlock")
-            XCTAssertTrue(QA.tabBarShows(app, timeout: 60), "after unlock the app shows no tab bar")
+            require(flow, matchUntil(app, timeout: 30) { !locked.exists }, "Unlock's match did not unlock")
+            require(flow, QA.tabBarShows(app, timeout: 60), "after unlock the app shows no tab bar")
             shot(flow, "unlocked")
         }
 
@@ -77,11 +78,11 @@ final class FlowQALockTests: XCTestCase {
             XCUIDevice.shared.press(.home)
             Thread.sleep(forTimeInterval: 2)
             app.activate()
-            XCTAssertTrue(locked.waitForExistence(timeout: 15), "back from the background showed no lock screen")
+            require(flow, locked.waitForExistence(timeout: 15), "back from the background showed no lock screen")
             XCTAssertEqual(app.webViews.count, 0, "the web view is in the hierarchy behind the lock")
             shot(flow, "lock-screen")
-            XCTAssertTrue(matchUntil(app, timeout: 30) { !locked.exists }, "the return prompt's match did not unlock")
-            XCTAssertTrue(QA.tabBarShows(app, timeout: 30), "after unlock the app shows no tab bar")
+            require(flow, matchUntil(app, timeout: 30) { !locked.exists }, "the return prompt's match did not unlock")
+            require(flow, QA.tabBarShows(app, timeout: 30), "after unlock the app shows no tab bar")
             shot(flow, "unlocked")
         }
 
@@ -90,23 +91,23 @@ final class FlowQALockTests: XCTestCase {
             app.terminate()
             app.launchArguments = ["-wgQAScene", "settings-home"]
             app.launch()
-            XCTAssertTrue(locked.waitForExistence(timeout: 30), "relaunch showed no lock screen")
-            XCTAssertTrue(matchUntil(app, timeout: 30) { !locked.exists }, "the launch prompt's match did not unlock")
-            XCTAssertTrue(QA.readyNode(app).waitForExistence(timeout: 90), "settings-home never published #wg-qa-ready")
+            require(flow, locked.waitForExistence(timeout: 30), "relaunch showed no lock screen")
+            require(flow, matchUntil(app, timeout: 30) { !locked.exists }, "the launch prompt's match did not unlock")
+            require(flow, QA.readyNode(app).waitForExistence(timeout: 90), "settings-home never published #wg-qa-ready")
             let row = app.webViews.switches["App lock"]
-            XCTAssertTrue(row.waitForExistence(timeout: 15), "Settings shows no \"App lock\" row")
+            require(flow, row.waitForExistence(timeout: 15), "Settings shows no \"App lock\" row")
             XCTAssertEqual("\(row.value ?? "")", "1", "the App lock row is not on")
             shot(flow, "row-on")
             row.tap()
             Thread.sleep(forTimeInterval: 1) // the row disables itself while lock.set runs
-            XCTAssertTrue(matchUntil(app, timeout: 30) { row.isEnabled && "\(row.value ?? "")" == "0" },
+            require(flow, matchUntil(app, timeout: 30) { row.isEnabled && "\(row.value ?? "")" == "0" },
                           "the App lock row did not turn off")
             shot(flow, "row-off")
 
             app.terminate()
             app.launchArguments = []
             app.launch()
-            XCTAssertTrue(QA.tabBarShows(app, timeout: 60), "with the lock off the app did not open straight to the tab bar")
+            require(flow, QA.tabBarShows(app, timeout: 60), "with the lock off the app did not open straight to the tab bar")
             XCTAssertFalse(locked.exists, "the lock screen showed with the lock off")
             shot(flow, "relaunch")
             app.terminate()
@@ -148,6 +149,16 @@ final class FlowQALockTests: XCTestCase {
             let ok = owner.alerts.buttons["OK"]
             if ok.exists { ok.tap() }
         }
+    }
+
+    /// XCTAssertTrue that first attaches what the screen showed and puts the
+    /// element tree, on one line, in the failure message (the job's log keeps
+    /// only " error: " lines and the artifact only PNGs).
+    private func require(_ flow: String, _ ok: Bool, _ message: String) {
+        guard !ok else { return }
+        shot(flow, "failed")
+        let tree = XCUIApplication().debugDescription.split(separator: "\n").joined(separator: " | ")
+        XCTFail("\(message) — tree: \(tree.prefix(6000))")
     }
 
     private func shot(_ flow: String, _ step: String) {
