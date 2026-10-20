@@ -84,7 +84,9 @@
     flex-wrap: wrap;
 }
 
-.mt-confirm-modal__label {
+/* The prompt's label. A typed confirm's label is the kit's .wg-label inside
+   .wg-dialog__confirm (D1, med-ckm5.5) and keeps the kit styling. */
+.wg-field > .mt-confirm-modal__label {
     font-family: var(--wg-font-mono);
     font-size: var(--font-size-xs);
     color: var(--wg-fg-3);

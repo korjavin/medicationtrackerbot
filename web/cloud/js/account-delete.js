@@ -27,7 +27,7 @@ export async function exportVaultToFile(nowMs = Date.now()) {
   const ok = await window.safeConfirm(
     'This backup will contain your provider API keys and access tokens in plain text. Download anyway?',
     null,
-    { title: 'Download backup?', confirmLabel: 'Download' },
+    { title: 'Download backup?', icon: 'download', tone: 'warn', confirmLabel: 'Download' },
   );
   if (!ok) {
     return false;
@@ -128,9 +128,9 @@ export async function clearLocalVault() {
   } catch { /* best-effort */ }
 }
 
-// The word the user types to confirm. Deliberately not the subdomain — a friend
-// may not know it offhand, and a fixed intent phrase is clearer.
-export const DELETE_CONFIRM_PHRASE = 'delete my account';
+// The word the user types to confirm (D1, case-insensitive). Deliberately not
+// the subdomain — a friend may not know it offhand, and a fixed word is clearer.
+export const DELETE_CONFIRM_PHRASE = 'DELETE';
 
 // baseDomainURL strips the account's own subdomain label so we can send the user
 // somewhere that still exists after their subdomain is gone.
