@@ -5,7 +5,7 @@
 // localStorage and cloud-boot files it into the synced `emergencykit` record
 // (web/domain/settings.js) on the next unlocked open. Storage blocked, or a
 // failed write: nothing is recorded and Settings keeps its kit reminder — the
-// safe side. Same hand-off as the wizard's trial choice (signup.js).
+// safe side.
 const KEY = 'wg-emergency-kit-saved';
 
 // `storage` defaults to localStorage, read inside the try: a blocked one throws on access.
