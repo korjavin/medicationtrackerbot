@@ -142,15 +142,18 @@ describe('recomputeAndPush asks for notification permission in context', () => {
     vi.restoreAllMocks();
   });
 
-  it('boot (no askPermission) never asks; the debounced write path does', async () => {
+  it('boot (no askPermission) never asks; a UI write\'s debounced recompute does', async () => {
     const maybeAsk = vi.fn(async () => false);
     globalThis.NotifyPermission = { maybeAsk };
     globalThis.LocalNotifications = { isSupported: () => true, schedule: vi.fn(async () => 0) };
     const records = fakeRecords(seed('both'));
     await recomputeAndPush(ctx, { records, timeZone: 'UTC' });
+    scheduleReminderRecompute(ctx, { records, timeZone: 'UTC' }, 10);
+    await vi.advanceTimersByTimeAsync(20);
     expect(maybeAsk).not.toHaveBeenCalled();
 
-    scheduleReminderRecompute(ctx, { records, timeZone: 'UTC' }, 10);
+    // apishim's UI-origin router adds the flag (cloud.shim-contract.reminders).
+    scheduleReminderRecompute(ctx, { records, timeZone: 'UTC', askPermission: true }, 10);
     await vi.advanceTimersByTimeAsync(20);
     expect(maybeAsk).toHaveBeenCalledTimes(1);
   });

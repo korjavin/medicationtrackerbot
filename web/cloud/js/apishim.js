@@ -175,9 +175,14 @@ export function createApiRouter(ctx, {
 } = {}) {
   const targetWindow = win || (typeof window !== 'undefined' ? window : undefined);
   const records = recordsOverride || (portFactory ? portFactory(origin) : recordsPort(ctx, origin));
-  const {
-    scheduleReminderRecompute, sendTestPush, cancelMedRefire, cancelReminderRefire,
-  } = { ...cloudReminders, ...effects };
+  const reminderEffects = { ...cloudReminders, ...effects };
+  const { sendTestPush, cancelMedRefire, cancelReminderRefire } = reminderEffects;
+  // Only the user's own writes may ask for notification permission (bd
+  // med-ckm5.4): an agent's or the inbox drain's write must not open a sheet,
+  // least of all right after launch.
+  const scheduleReminderRecompute = origin === ORIGIN_UI
+    ? (c, opts, debounceMs) => reminderEffects.scheduleReminderRecompute(c, { ...opts, askPermission: true }, debounceMs)
+    : reminderEffects.scheduleReminderRecompute;
   // Gamification read-path memo signal (med-90w.2). Only valid when the real
   // sync-backed port is in use — a test recordsOverride is a fake NOT tracked by
   // getRecordsChangeCount, so pass null there to keep those reads always-fresh.

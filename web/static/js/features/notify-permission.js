@@ -14,7 +14,8 @@
 //   renderNote(el)  → fills el with the "Reminders won't fire" warn note when
 //                     the permission is denied, or still 'default' after "Not
 //                     now"; empties it otherwise. Shared by the med editor's
-//                     Times section, the first-run features screen and S8.
+//                     Times section and the first-run features screen (S8,
+//                     bd med-ckm5.8, is to consume it next).
 (function () {
     'use strict';
 
@@ -96,11 +97,19 @@
         if (window.WGIcons && typeof window.WGIcons.hydrate === 'function') window.WGIcons.hydrate(root);
     }
 
-    var FACTS = [
-        ['bell', 'Only what you schedule', 'Doses, BP and weigh-ins. Nothing else.'],
-        ['lock', 'Private on the lock screen', 'Shows "Time for your reminder" unless you choose detailed text.'],
-        ['gear', 'Change it any time', 'Settings → Reminders & notifications.'],
-    ];
+    // The lock-screen fact must be true per mode: only local-only mode honours
+    // the generic/detailed pref on the device (reminders.js recomputeAndPush);
+    // cloud reminders name what is due.
+    function facts() {
+        var local = document.documentElement.classList.contains('wg-local-vault');
+        return [
+            ['bell', 'Only what you schedule', 'Doses, BP and weigh-ins. Nothing else.'],
+            local
+                ? ['lock', 'Private on the lock screen', 'Shows a plain line like "Medication time" unless you choose detailed text.']
+                : ['lock', 'Shown on your lock screen', 'Reminders name the medication or measurement that is due.'],
+            ['gear', 'Change it any time', 'Settings → Reminders & notifications.'],
+        ];
+    }
 
     // Resolves true when Allow ended in a grant; false on Not now / Back / Esc.
     function openSheet() {
@@ -111,15 +120,15 @@
 
             var header = window.WGSheet.header({ eyebrow: 'Reminders', title: 'Let Med Tracker remind you' }).el;
             var body = el('div', 'wg-sheet__body');
-            var facts = el('ul', 'wg-facts wg-facts--sm');
-            FACTS.forEach(function (f) {
+            var list = el('ul', 'wg-facts wg-facts--sm');
+            facts().forEach(function (f) {
                 var li = el('li');
                 var span = el('span');
                 span.append(el('b', null, f[1]), f[2]);
                 li.append(icon(f[0]), span);
-                facts.appendChild(li);
+                list.appendChild(li);
             });
-            body.appendChild(facts);
+            body.appendChild(list);
 
             var foot = el('div', 'wg-sheet__foot');
             var notNow = el('button', 'wg-btn wg-btn--ghost', 'Not now');
@@ -182,17 +191,9 @@
         return pending;
     }
 
-    // Does the shell answer this bridge op? (settings.js nativeHas; one probe.)
-    var shellOps = null;
+    // Does the shell answer this bridge op? settings.js's page-wide probe.
     function nativeHas(op) {
-        var native = window.LocalNotifications && window.LocalNotifications.__native;
-        if (!native || typeof native.call !== 'function') return Promise.resolve(false);
-        if (!shellOps) {
-            shellOps = Promise.resolve()
-                .then(function () { return native.call('shell.ops'); })
-                .then(function (ops) { return Array.isArray(ops) ? ops : []; }, function () { return []; });
-        }
-        return shellOps.then(function (ops) { return ops.indexOf(op) !== -1; });
+        return typeof window.nativeHas === 'function' ? window.nativeHas(op) : Promise.resolve(false);
     }
 
     async function buildNote() {

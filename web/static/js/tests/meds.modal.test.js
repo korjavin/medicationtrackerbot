@@ -196,7 +196,7 @@ describe('Medication editor page (kit M5–M6)', () => {
         expect(sheet.querySelector('.wg-eyebrow').textContent).toBe('Reminders');
         expect(sheet.querySelector('.wg-sheethead__title').textContent).toBe('Let Med Tracker remind you');
         expect(Array.from(sheet.querySelectorAll('.wg-facts b')).map((b) => b.textContent))
-            .toEqual(['Only what you schedule', 'Private on the lock screen', 'Change it any time']);
+            .toEqual(['Only what you schedule', 'Shown on your lock screen', 'Change it any time']);
         // A second schedule while the sheet is up does not stack another.
         expect(window.NotifyPermission.maybeAsk()).toBe(first);
 

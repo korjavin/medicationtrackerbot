@@ -211,11 +211,14 @@ export async function recomputeAndPush(ctx, opts = {}) {
   await local; // never rejects, bounded by LOCAL_SCHEDULE_TIMEOUT_MS
 }
 
-// bd med-ckm5.4 (kit O3): a write-triggered schedule that would notify this
-// device asks for the permission in context (features/notify-permission.js:
-// once per device, only while it is 'default'). Boot and Settings recomputes
-// never pass askPermission, so the app never asks at launch. A new grant
-// re-runs the schedule now. Fire-and-forget: the sheet waits on the user.
+// bd med-ckm5.4 (kit O3): a schedule after the user's own write that would
+// notify this device asks for the permission in context
+// (features/notify-permission.js: once per device, only while it is
+// 'default'). askPermission comes only from the UI-origin apishim router (any
+// UI write, Settings toggles included); boot, sync drains, agents and
+// Settings' direct recomputes never pass it, so the app never asks at launch.
+// A new grant re-runs the schedule now. Fire-and-forget: the sheet waits on
+// the user.
 function askPermissionIfNeeded(ctx, opts, entries, pref) {
   const asker = globalThis.NotifyPermission;
   if (typeof asker?.maybeAsk !== 'function') return;
@@ -315,8 +318,7 @@ export function scheduleReminderRecompute(ctx, opts = {}, debounceMs = DEBOUNCE_
   clearTimeout(timers.get(key));
   const timer = setTimeout(() => {
     timers.delete(key);
-    // The debounced path is the write path (apishim after a save), so it may ask.
-    recomputeAndPush(ctx, { ...opts, askPermission: true }).catch((e) => console.error('[reminders] recompute/push failed', e));
+    recomputeAndPush(ctx, opts).catch((e) => console.error('[reminders] recompute/push failed', e));
   }, debounceMs);
   timers.set(key, timer);
 }

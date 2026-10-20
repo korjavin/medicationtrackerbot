@@ -363,7 +363,8 @@ describe('firstrun feature picker screen', () => {
             return { ok: result !== null && result !== undefined, status: 200, json: async () => result };
         });
 
-        const { window, document, cleanup } = loadFlow({ fetchMock });
+        // notifyPermission: the production load, with the Medications row's note slot.
+        const { window, document, cleanup } = loadFlow({ fetchMock, notifyPermission: 'default' });
         try {
             window.WGFirstRun.mount();
             document.querySelector('[data-firstrun-action="continue"]').click();
