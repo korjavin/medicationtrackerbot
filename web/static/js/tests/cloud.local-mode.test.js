@@ -1032,7 +1032,9 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         status = { on: false, available: true };
         const group = await mountLocalLockRow({ win: window });
         expect(group).not.toBeNull();
-        expect(group.previousElementSibling.querySelector('#settings-local-mode')).not.toBeNull();
+        // Kit S6 slot ② (bd med-ckm5.6), right after the mode-card slot.
+        expect(group.parentElement.dataset.settingsSlot).toBe('mode-actions');
+        expect(group.parentElement.previousElementSibling.querySelector('#settings-local-mode')).not.toBeNull();
         expect(group.querySelector('.wg-setting__desc').textContent).toContain(`Asks for your ${check} each time`);
         const input = document.getElementById('settings-local-lock-toggle');
         expect(input.checked).toBe(false);

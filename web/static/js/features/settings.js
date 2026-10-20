@@ -574,6 +574,49 @@ async function openConnectorPage() {
     });
 }
 
+// Kit S6 mode card, cloud (bd med-ckm5.6): "Your vault" · <host> · N devices ·
+// synced HH:MM, off the data the app already has (the device count memo, the
+// sync engine's local status). A part it cannot read is left out. Tapping it
+// opens Devices & connectors. Repainted on every Settings open.
+function loadCloudSyncModule() { return import('/js/sync.js'); }
+let _vaultCardBound = false; // module-state: bind the card click once across repeated loadSettings() calls
+async function paintVaultCard() {
+    const card = document.getElementById('settings-vault-card');
+    const meta = document.getElementById('settings-vault-meta');
+    if (!card || !meta) return;
+    card.classList.remove('wg-settings-hidden');
+    if (!_vaultCardBound) {
+        _vaultCardBound = true;
+        card.addEventListener('click', () => openSettingsPage('devices'));
+    }
+    const parts = [window.location.hostname];
+    const count = await fetchDeviceCount();
+    if (typeof count === 'number') parts.push(count === 1 ? '1 device' : `${count} devices`);
+    try {
+        const { getSyncStatus } = await loadCloudSyncModule();
+        const { lastSyncedAt } = await getSyncStatus(cloudCtx());
+        if (lastSyncedAt) {
+            parts.push(`synced ${new Date(lastSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
+        }
+    } catch { /* no sync status: leave it out */ }
+    meta.textContent = parts.join(' · ');
+}
+
+// Kit chip on Account & privacy (bd med-ckm5.6, epic decision 4): shown while
+// the synced emergencykit record says the current kit was never saved (no
+// record, or a new code nobody confirmed saving: how 'none'). A failed read
+// hides it rather than nag on a guess.
+async function paintKitChip() {
+    const chip = document.getElementById('settings-kit-chip');
+    if (!chip) return;
+    let unsaved = false;
+    try {
+        const kit = await apiCall('/api/settings/emergency-kit', 'GET');
+        unsaved = !kit || kit.how === 'none';
+    } catch { /* keep it hidden */ }
+    chip.classList.toggle('wg-settings-hidden', !unsaved);
+}
+
 let _cloudDevicesBound = false; // module-state: bind the Devices page rows once across repeated loadSettings() calls
 function bindCloudDevicesPage() {
     if (_cloudDevicesBound) return;
@@ -1126,6 +1169,12 @@ async function loadSettings() {
         // builds have no vault devices or relay.
         document.querySelector('.wg-settings-cloud-devices')?.classList.remove('wg-settings-hidden');
         bindCloudDevicesPage();
+        // Local mode has its own card (.wg-local-only) and no account.
+        if (!document.documentElement.classList.contains('wg-local-vault')) {
+            // Neither throws; not awaited so Settings never waits on the sync module.
+            paintVaultCard();
+            paintKitChip();
+        }
         await bindSecondDeviceNudge();
         await bindOperatorVisibility();
         bindLeaveAccount();

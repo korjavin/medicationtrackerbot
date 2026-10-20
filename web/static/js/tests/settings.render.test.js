@@ -6,6 +6,9 @@ import { JSDOM } from 'jsdom';
 import { loadFrontendEnv } from './helpers/frontend-harness.js';
 import { allowConsoleNoise } from './helpers/setup.js';
 
+// feedback-ui's send path is not under test here (its own suite covers it).
+vi.mock('../../../cloud/js/feedback-submit.js', () => ({ enqueueFeedback: vi.fn() }));
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
@@ -50,7 +53,7 @@ describe('Settings v2 home (kit S1, med-xso6.23)', () => {
         const { document, cleanup } = loadSettingsView();
         try {
             // The local-mode indicator (med-o7zq.9) is a row with no page.
-            const groups = Array.from(document.querySelectorAll('.wg-settings-home > .wg-list:not(.wg-local-only)'));
+            const groups = Array.from(document.querySelectorAll('.wg-settings-home > .wg-settings-slot > .wg-list:not(.wg-local-only)'));
             expect(groups.map((g) => Array.from(g.querySelectorAll('[data-settings-open]')).map((r) => r.dataset.settingsOpen)))
                 .toEqual([
                     ['features', 'targets', 'notifications', 'units'],
@@ -206,6 +209,121 @@ describe('Settings v2 pushed pages + summaries (harness)', () => {
             expect(summary('notifications')).toBe('BP');
             expect(summary('units')).toBe('lb');
         } finally {
+            cleanup();
+        }
+    });
+});
+
+// Kit S6 (bd med-ckm5.6): the home is a fixed row of named slots and the
+// modules that boot on their own (App lock, health import, feedback) mount
+// INTO theirs, so the order never depends on which one finished first.
+describe('Settings home slots + mode card (kit S6)', () => {
+    const SLOTS = ['mode-card', 'mode-actions', 'health', 'everyday', 'connected', 'feedback'];
+    const ROWS_IN_ORDER = ['#settings-vault-card', '#settings-local-mode', '#settings-local-lock', '#health-import-row',
+        '[data-settings-open="features"]', '[data-settings-open="account"]', '#feedback-launcher'];
+    const order = (document) => Array.from(document.querySelectorAll(ROWS_IN_ORDER.join(', ')))
+        .map((el) => ROWS_IN_ORDER.find((sel) => el.matches(sel)));
+    const permutations = (xs) => (xs.length <= 1 ? [xs]
+        : xs.flatMap((x, i) => permutations([...xs.slice(0, i), ...xs.slice(i + 1)]).map((rest) => [x, ...rest])));
+
+    it('mounts App lock, health import and feedback into their slots in every boot order', async () => {
+        const { window, document, cleanup } = loadFrontendEnv();
+        // feedback-ui reads the page globals (it runs in the account document).
+        const saved = { window: globalThis.window, document: globalThis.document };
+        globalThis.window = window;
+        globalThis.document = document;
+        try {
+            expect(Array.from(document.querySelectorAll('.wg-settings-home > *')).map((el) => el.dataset.settingsSlot))
+                .toEqual(SLOTS);
+            const [{ mountLocalLockRow }, { startHealthImport }, { mountFeedbackLauncher }] = await Promise.all([
+                import('../../../cloud/js/local-policy.js'),
+                import('../../../cloud/js/health-import.js'),
+                import('../../../cloud/js/feedback-ui.js'),
+            ]);
+            window.LocalNotifications = {
+                __native: { platform: 'ios', call: async (op) => (op === 'lock.status' ? { on: false, available: true } : null) },
+            };
+            const health = { isSupported: () => true, label: 'Apple Health' };
+            const mounts = {
+                lock: () => mountLocalLockRow({ win: window }),
+                health: () => startHealthImport({}, { health, storage: window.localStorage, doc: document, run: async () => null }),
+                feedback: () => mountFeedbackLauncher({}),
+            };
+            for (const boot of permutations(Object.keys(mounts))) {
+                for (const id of ['settings-local-lock', 'health-import-row', 'feedback-launcher']) {
+                    document.getElementById(id)?.closest('.wg-list').remove();
+                }
+                for (const name of boot) await mounts[name]();
+                expect(order(document), boot.join(' → ')).toEqual(ROWS_IN_ORDER);
+                expect(document.getElementById('settings-local-lock').closest('[data-settings-slot]').dataset.settingsSlot).toBe('mode-actions');
+                expect(document.getElementById('health-import-row').closest('[data-settings-slot]').dataset.settingsSlot).toBe('health');
+                expect(document.getElementById('feedback-launcher').closest('[data-settings-slot]').dataset.settingsSlot).toBe('feedback');
+            }
+        } finally {
+            globalThis.window = saved.window;
+            globalThis.document = saved.document;
+            cleanup();
+        }
+    });
+
+    it('cloud: "Your vault" card names the host, devices and last sync; the Kit chip follows the emergencykit record', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            let kit = null;
+            window.MedTrackerCloud = { ctx: { accountId: 'acct-1' } };
+            window.apiCall = vi.fn(async (url) => {
+                if (url === '/api/settings/emergency-kit') return kit;
+                throw new Error('offline');
+            });
+            window.fetch = vi.fn(async () => ({ ok: true, json: async () => [{}, {}] }));
+            const syncedAt = new Date(2026, 9, 20, 9, 40).getTime();
+            window.loadCloudSyncModule = () => Promise.resolve({ getSyncStatus: async () => ({ lastSyncedAt: syncedAt }) });
+            const card = document.getElementById('settings-vault-card');
+            const chip = document.getElementById('settings-kit-chip');
+            expect(card.classList.contains('wg-settings-hidden')).toBe(true);
+
+            await window.loadSettings();
+            const hhmm = new Date(syncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            await vi.waitFor(() => expect(document.getElementById('settings-vault-meta').textContent)
+                .toBe(`example.test · 2 devices · synced ${hhmm}`));
+            expect(card.classList.contains('wg-settings-hidden')).toBe(false);
+            expect(card.querySelector('.wg-chip').textContent).toBe('Cloud');
+            // No kit save on any device yet → the chip nudges.
+            await vi.waitFor(() => expect(chip.classList.contains('wg-settings-hidden')).toBe(false));
+            expect(chip.closest('[data-settings-open]').dataset.settingsOpen).toBe('account');
+
+            kit = { savedAt: 1, how: 'download' };
+            await window.loadSettings();
+            await vi.waitFor(() => expect(chip.classList.contains('wg-settings-hidden')).toBe(true));
+
+            // A new code nobody confirmed saving: the kit is unsaved again.
+            kit = { savedAt: 2, how: 'none' };
+            await window.loadSettings();
+            await vi.waitFor(() => expect(chip.classList.contains('wg-settings-hidden')).toBe(false));
+
+            // The card opens Devices & connectors.
+            card.click();
+            await vi.waitFor(() => expect(document.querySelector('mt-modal.wg-page .wg-pagebar__title')?.textContent).toBe('Devices & connectors'));
+        } finally {
+            delete window.__MEDTRACKER_CLOUD__;
+            cleanup();
+        }
+    });
+
+    it('local mode keeps its own card: the vault card and Kit chip stay hidden', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            document.documentElement.classList.add('wg-local-vault');
+            window.apiCall = vi.fn(async () => null);
+            // The local-mode binders need a shell this harness lacks; only the cloud branch matters here.
+            await window.loadSettings().catch(() => {});
+            expect(document.getElementById('settings-vault-card').classList.contains('wg-settings-hidden')).toBe(true);
+            expect(document.getElementById('settings-kit-chip').classList.contains('wg-settings-hidden')).toBe(true);
+            expect(window.apiCall).not.toHaveBeenCalledWith('/api/settings/emergency-kit', 'GET');
+        } finally {
+            delete window.__MEDTRACKER_CLOUD__;
             cleanup();
         }
     });

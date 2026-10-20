@@ -233,10 +233,8 @@ export async function mountLocalLockRow({ win }) {
   toggle.appendChild(input);
   row.append(lead, body, toggle);
   group.appendChild(row);
-  // Right under the "On this device only" indicator.
-  const indicator = doc.getElementById('settings-local-mode')?.closest('.wg-list');
-  if (indicator) indicator.after(group);
-  else home.prepend(group);
+  // Kit S6 slot ② (bd med-ckm5.6), right under the mode card.
+  (home.querySelector('[data-settings-slot="mode-actions"]') || home).prepend(group);
   if (win.WGIcons && typeof win.WGIcons.hydrate === 'function') win.WGIcons.hydrate(group);
   return group;
 }
