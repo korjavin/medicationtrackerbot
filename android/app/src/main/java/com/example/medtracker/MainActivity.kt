@@ -272,6 +272,7 @@ class MainActivity : Activity() {
         prefs.edit().apply {
             if (url == null) remove(Invite.URL_KEY).remove(Invite.AT_KEY) else putString(Invite.URL_KEY, url).putLong(Invite.AT_KEY, at)
         }.commit()
+        slotWrites++
     }
 
     /**
@@ -311,6 +312,7 @@ class MainActivity : Activity() {
      */
     private fun readReferrer() {
         val client = InstallReferrerClient.newBuilder(this).build()
+        val writes = slotWrites // any capture, open, clear or reset after this wins over the late answer
         runCatching {
             client.startConnection(object : InstallReferrerStateListener {
                 override fun onInstallReferrerSetupFinished(code: Int) {
@@ -318,7 +320,7 @@ class MainActivity : Activity() {
                     runCatching { client.endConnection() }
                     val url = AccountUrl.referrerInvite(details?.installReferrer, base) ?: return
                     runOnUiThread {
-                        if (prefs.contains(Invite.URL_KEY)) return@runOnUiThread
+                        if (slotWrites != writes || prefs.contains(Invite.URL_KEY)) return@runOnUiThread
                         // Filed even if this activity went meanwhile: the read-once flag is already set.
                         setInvite(url, Invite.referrerAt(details!!.referrerClickTimestampSeconds, System.currentTimeMillis()))
                         if (!isDestroyed) deliverInvite()
@@ -1395,6 +1397,8 @@ class MainActivity : Activity() {
     }
 
     private companion object {
+        /** Slot writes in this process (setInvite, main thread): a late referrer never overrides one. */
+        var slotWrites = 0
         /** The page-facing bridge global, window.wgNative — med-nt9p.6 and .19 detect the Android shell by it. */
         const val BRIDGE = "wgNative"
         /** N6's cap on holding the splash for a page that never reports ready. */
