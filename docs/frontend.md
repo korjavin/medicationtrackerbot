@@ -165,6 +165,7 @@ register themselves at script-load time and replace the stub.
 | `window.LocalNotifications` | Device-scheduled notifications (`isSupported`; ios: `permission`, `requestPermission`, `schedule` replace-all, `test`) | web: unsupported; ios: the app shell (`native/local-notifications.js`; reminders hand-off, [docs/ios.md](ios.md#reminders-as-local-notifications-bd-med-w6gx5)) |
 | `window.Health` | Apple Health read (`isSupported`; ios adds `requestAuthorization`, `query` — see `native/health.js`) | web: unsupported; ios: the app shell (`native/health.js`) |
 | `window.Attest` | App Attest + DeviceCheck for local mode's anonymous trial (AI and food database) (`isSupported`; ios adds `status`, `enroll`, `assert` — see `native/attest.js`; callers: `web/cloud/js/local-trial.js` for `enroll`/`assert`, `web/cloud/js/local-policy.js` `attestStatus` for `isSupported`/`status`) | web: unsupported; ios: the app shell, local mode only (`native/attest.js`, `ios/App/Attest.swift`) |
+| `window.Clipboard` | Clipboard text read from a tap (`readText()` → string or `null` when empty/denied/unsupported, never rejects; caller: the F1 invite sheet, `features/invite.js`) | web + ios: `navigator.clipboard.readText()` inside the tap (WebKit's Paste callout, no prompt); android: the shell's `clipboard.read` op when `shell.ops` lists it, else the web read (`native/clipboard.js`) |
 
 **Platforms** — `native/index.js` is the only place that decides the platform
 (`__native.platform`): `'ios'` when the iOS app shell's `wgNative` reply handler

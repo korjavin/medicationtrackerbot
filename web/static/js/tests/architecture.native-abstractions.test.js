@@ -7,7 +7,8 @@
  * Two distinct invariants, deliberately not conflated:
  *
  *  1. Device-capability globals (`navigator.mediaDevices`, `getUserMedia`,
- *     `BarcodeDetector`, `navigator.bluetooth`, `requestDevice`) may only
+ *     `BarcodeDetector`, `navigator.bluetooth`, `requestDevice`,
+ *     `navigator.clipboard.read*` — writes stay free) may only
  *     appear inside `native/`. No allowlist — `native/` owns the platform
  *     impls, feature code asks the abstraction.
  *
@@ -29,7 +30,7 @@ const JS_ROOT = path.join(REPO_ROOT, 'web/static/js');
 const NATIVE_DIR = 'web/static/js/native';
 
 /** Device-capability globals `native/` owns. */
-const CAPABILITY_RE = /navigator\.mediaDevices|getUserMedia|BarcodeDetector|navigator\.bluetooth|requestDevice/;
+const CAPABILITY_RE = /navigator\.mediaDevices|getUserMedia|BarcodeDetector|navigator\.bluetooth|requestDevice|navigator\.clipboard\.read/;
 
 /** The removed Capacitor shell. */
 const CAPACITOR_RE = /isNativePlatform|window\.Capacitor/;
