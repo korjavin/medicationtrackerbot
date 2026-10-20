@@ -200,7 +200,8 @@ export default async function moveOps(ctx) {
     expect(res.ok && res.result === true, `local.reset: ${JSON.stringify(res)}`);
     expect((await leaveFiles()) === '', `local.reset left: ${await leaveFiles()}`);
     await sleep(1500); // apply() writes the xml off-thread
-    expect(!/leaveHost/.test(await shell(`run-as ${pkg} cat shared_prefs/shell.xml`)), 'local.reset kept leaveHost');
+    const xml = await shell(`run-as ${pkg} cat shared_prefs/shell.xml`);
+    expect(!/leaveHost/.test(xml), `local.reset kept leaveHost: ${xml}`);
   });
   await ctx.step('local.leave keeps it; opening an account deletes it', async () => {
     await seedLeave();
