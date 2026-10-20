@@ -88,6 +88,8 @@ function fillMedEditor(med) {
     timeContainer.replaceChildren();
     const times = sched.times && sched.times.length > 0 ? sched.times : [''];
     times.forEach((t) => addTimeInput(t));
+    // "Reminders won't fire" under the times when notifications are off (med-ckm5.4).
+    window.NotifyPermission?.renderNote(document.getElementById('med-notify-note'));
 
     window.MedicationUtils.setPickedDays(document.querySelector('#days-container .wg-picks'), sched.days || []);
 
@@ -305,7 +307,9 @@ function calculateDailyUsage(med) {
 }
 
 // One dose-time row in the editor's times list (kit M5): clock lead, the
-// time input, Remove.
+// time input, Remove. Without a value WebKit draws the input blank, so the row
+// says "Set time" (sun) until one is picked (med-fhil, kit O3): the input sits
+// invisibly over that label, so a tap lands on it and opens the picker.
 function addTimeInput(value = '') {
     const row = document.createElement('div');
     row.className = 'wg-row time-row';
@@ -318,13 +322,38 @@ function addTimeInput(value = '') {
     lead.appendChild(clock);
 
     const body = document.createElement('span');
-    body.className = 'wg-row__body';
+    body.className = 'wg-row__body wg-meds-editor__timebody';
+    const unset = document.createElement('span');
+    unset.className = 'wg-meds-editor__unset';
+    const unsetTitle = document.createElement('span');
+    unsetTitle.className = 'wg-row__title';
+    const sun = document.createElement('span');
+    sun.className = 'wg-sun';
+    sun.textContent = 'Set time';
+    unsetTitle.appendChild(sun);
+    const unsetMeta = document.createElement('span');
+    unsetMeta.className = 'wg-row__meta';
+    unsetMeta.textContent = 'Tap to choose · not saved yet';
+    unset.append(unsetTitle, unsetMeta);
     const input = document.createElement('input');
     input.type = 'time';
     input.className = 'med-time-input wg-meds-editor__time';
     input.setAttribute('aria-label', 'Dose time');
     input.value = value;
-    body.appendChild(input);
+    const sync = () => {
+        const empty = !input.value;
+        row.classList.toggle('is-unset', empty);
+        lead.classList.toggle('wg-row__lead--sun', empty);
+    };
+    input.addEventListener('input', sync);
+    input.addEventListener('change', sync);
+    // Desktop Chrome only focuses a segment on click; open the picker there.
+    input.addEventListener('click', () => {
+        if (input.value || typeof input.showPicker !== 'function') return;
+        try { input.showPicker(); } catch (_) { /* the tap already focused it */ }
+    });
+    sync();
+    body.append(unset, input);
 
     const removeButton = document.createElement('button');
     removeButton.type = 'button';

@@ -94,6 +94,7 @@ const WORKOUT_INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/in
 const SETTINGS_JS = path.join(REPO_ROOT, 'web/static/js/features/settings.js');
 const SETTINGS_INTEGRATIONS_JS = path.join(REPO_ROOT, 'web/static/js/features/settings/integrations.js');
 const TRIAL_CONSENT_JS = path.join(REPO_ROOT, 'web/static/js/features/trial-consent.js');
+const NOTIFY_PERMISSION_JS = path.join(REPO_ROOT, 'web/static/js/features/notify-permission.js');
 const SETTINGS_IMPORTEXPORT_JS = path.join(REPO_ROOT, 'web/static/js/features/settings/importexport.js');
 const WORKOUT_MODALS_JS = path.join(REPO_ROOT, 'web/static/js/features/workout/modals.js');
 const BRIEF_JS = path.join(REPO_ROOT, 'web/static/js/features/brief.js');
@@ -353,6 +354,9 @@ export function loadFrontendEnv({ withWorkout = false, withSync = false, url = '
   // modules like production index.html; food/log.js + food/photo.js resolve
   // it lazily at call time.
   evalFileCached(window, TRIAL_CONSENT_JS);
+  // notify-permission.js — window.NotifyPermission in-context permission ask +
+  // the shared "Reminders won't fire" note (bd med-ckm5.4).
+  evalFileCached(window, NOTIFY_PERMISSION_JS);
 
   // settings/importexport.js — Settings → Import/Export section (C2e Task 6).
   // Static section (no server prefill); binds its export/import/file-change

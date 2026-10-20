@@ -7107,6 +7107,35 @@ body:has(.wg-callbar--dock) .wg-toasts {
     font: inherit;
 }
 
+/* NotifyPermission.renderNote's slot takes no gap while it holds no note. */
+.wg-notify-slot:empty {
+    display: none;
+}
+
+/* A time row with no value reads "Set time" (med-fhil); the invisible input
+   covers the label so the tap opens the native picker. */
+.wg-meds-editor__timebody {
+    position: relative;
+}
+
+.wg-meds-editor__unset {
+    display: none;
+}
+
+.time-row.is-unset .wg-meds-editor__unset {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.time-row.is-unset .wg-meds-editor__time {
+    position: absolute;
+    inset: 0;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+}
+
 .wg-meds-editor__stock {
     text-align: center;
     appearance: textfield;
