@@ -638,7 +638,8 @@ class MainActivity : Activity() {
                 return
             }
             loadFailed = true
-            val reason = response.reasonPhrase?.takeIf { it.isNotBlank() }?.lowercase() ?: "http error"
+            // WebView often leaves reasonPhrase empty (HTTP/2 has none).
+            val reason = response.reasonPhrase?.takeIf { it.isNotBlank() }?.lowercase() ?: STATUS_TEXT[code] ?: "http error"
             showError(if (code == 404) LoadError.NOT_FOUND else LoadError.NETWORK, "$code · $reason")
         }
 
@@ -1284,6 +1285,11 @@ class MainActivity : Activity() {
         val CANCELS = setOf(
             BiometricPrompt.BIOMETRIC_ERROR_CANCELED,
             BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED,
+        )
+        /** N4's meta line when the response carries no reason phrase. */
+        val STATUS_TEXT = mapOf(
+            404 to "not found", 500 to "internal server error", 502 to "bad gateway",
+            503 to "service unavailable", 504 to "gateway timeout",
         )
         /** N4's meta line time. */
         val HH_MM: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
