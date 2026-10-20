@@ -12,8 +12,8 @@ const INDEX_JS = path.join(REPO_ROOT, 'web/static/js/features/firstrun/index.js'
 
 // features/firstrun/index.js — Task 3 of the mobile Phase 2c plan.
 // The orchestrator listens for the bootstrap `needs_first_run` flag and
-// attaches a full-screen overlay onto <body>. Subsequent tasks (4–6)
-// add the actual welcome / features / integrations / done screens
+// attaches a full-screen overlay onto <body>. The screens (the W1 picker
+// and the trial step, bd med-ta2n.1) render
 // inside the overlay panel; the orchestrator's job is the mount latch
 // and the dismiss path that's reused by every screen's exit button.
 

@@ -1,114 +1,69 @@
-// features/firstrun/screens/features.js — feature picker step (med-4pz.2).
-// Sits between "welcome" and "integrations": the user chooses which
-// tracking sections they want *before* the BYO-keys screen, because the
-// keys only matter for features they kept (the food-DB key is pointless
-// with food off).
+// features/firstrun/screens/features.js — W1, the first-run module picker
+// (bd med-ta2n.1, screens-onboarding-v3.html W1). The first and only picker
+// screen: seven kit check choices, nothing preselected, "Continue with N",
+// Skip = everything on.
 //
-// Catalog scope — the six *tracking* sections, deliberately not every key
-// in web/domain/settings.js's DEFAULT_FEATURES:
-//   - `gamification` is absent from the cloud shim's PORTED_SET
-//     (web/cloud/js/apishim.js:161), so POSTing `enabled:true` there is
-//     rejected with a null return and the toggle would silently snap back.
-//   - `weekly_digest` is a bot-only Telegram summary, meaningless in the
-//     cloud/mobile shells this overlay runs in, and defaults to off.
-//   - `live_hr` is an experimental sub-feature of Vitals (med-byks.1), not a
-//     tracking section, so it has no picker row either.
-// Every remaining row is in PORTED_SET, so every row in this screen
-// can actually be turned on in every build that renders the overlay.
+// Rows ↔ feature flags. Six rows are tracking sections, each a key in the
+// cloud shim's PORTED_SET (web/cloud/js/apishim.js), so every write here can
+// stick in every build that renders the overlay. Sleep is the Vitals section
+// (`health`). Diary has NO flag (the notes section has none, owner decision
+// 2026-10-20): picking it only drives the W3 Today hints. Deliberately not
+// rows: `gamification` (not a tracking section), `weekly_digest` (bot-only
+// Telegram summary), `live_hr` (an experimental Vitals sub-feature).
 //
-// Write path: reuse the Settings global `toggleFeatureSetting` rather than
-// re-POSTing by hand — it owns the whole write (POST
-// /api/settings/features/<key>, SettingsState mirror, bottom-nav rebuild,
-// DataStore tag invalidation, tab-visibility sync). Toggles write through
-// immediately, one POST per flip. The `fetch` fallback exists only for
-// the Vitest harness, which loads the firstrun modules alone (same reason
-// integrations.js carries one — see its _patch helper).
+// Write path: Continue/Skip persist an EXPLICIT boolean for all six flags,
+// not just the picks (med-t05.1). web/domain/settings.js DEFAULT_FEATURES is
+// all-on and getFeatures() spreads it under the stored flags, so a flag this
+// screen showed unpicked but never wrote would come back ON. DEFAULT_FEATURES
+// itself must stay all-on — it is also the fallback for existing accounts.
+// Writes reuse the Settings global `toggleFeatureSetting` (POST, SettingsState
+// mirror, bottom-nav rebuild, DataStore invalidation); the `fetch` fallback is
+// for the Vitest harness, which loads the firstrun modules alone. Taps only
+// flip the choice; nothing is written until Continue/Skip.
 //
-// Continue persists an EXPLICIT boolean for all six, not just the deviations
-// (med-t05.1). web/domain/settings.js DEFAULT_FEATURES is all-on and
-// getFeatures() spreads it under the stored flags, so a feature this screen
-// showed UNCHECKED but never wrote would come back ON. Per-flip writes alone
-// cannot fix that: a user who accepts the defaults flips nothing, writes
-// nothing, and gets all-on. DEFAULT_FEATURES itself must stay all-on — it is
-// also the fallback for existing accounts that never wrote a features record,
-// and flipping it would strip sections from current users.
+// Then helpers.finishPicker(picked) stores the picks (POSTed as `picked` with
+// /api/firstrun/complete, W1 order, incl. 'diary') and moves on to the trial
+// offer or completes.
 //
-// Failure semantics mirror the Settings UI: a rejected write reverts the
-// checkbox to its previous value and surfaces one inline message, so the
-// overlay never shows a toggle whose state the server disagrees with.
+// Footer "Have an invite?" (F1) renders only in a v3 shell in local mode with
+// no invite already waiting: foundation.has('invite.pending') AND
+// :root.wg-local-vault AND invite.pending → null. Hidden on the web, in
+// account mode, and while a slot exists (W1 · invited). It dispatches
+// `wg:invite-open` on document; the F1 sheet (med-ta2n.6) listens.
 (function () {
     'use strict';
 
     var FEATURES_URL = '/api/settings/features';
+    var INVITE_EVENT = 'wg:invite-open';
 
-    // `on` is the first-run pre-check state (owner call, med-t05.1): the three
-    // low-friction daily-logging sections start on; the three that only pay off
-    // with a device, a prescription, or a clinical reason start off.
+    // W1 order. `flag: false` = no feature flag behind the row.
     var CATALOG = [
-        {
-            key: 'medication',
-            label: 'Medications',
-            copy: 'Track doses, courses, and refill reminders.',
-            on: false,
-        },
-        {
-            key: 'bp',
-            label: 'Blood pressure',
-            copy: 'Log readings and watch trends over time.',
-            on: false,
-        },
-        {
-            key: 'weight',
-            label: 'Weight',
-            copy: 'Record weigh-ins and see the moving average.',
-            on: true,
-        },
-        {
-            key: 'food',
-            label: 'Food',
-            copy: 'Log meals and daily calorie and macro targets.',
-            on: true,
-        },
-        {
-            key: 'workout',
-            label: 'Workouts',
-            copy: 'Plan sessions, log exercises, and track progress.',
-            on: true,
-        },
-        {
-            key: 'health',
-            label: 'Vitals',
-            copy: 'Sleep, heart rate, and other wearable data.',
-            on: false,
-        },
+        { key: 'medication', label: 'Medications', copy: 'Doses, reminders, stock', icon: 'pill' },
+        { key: 'bp', label: 'Blood pressure', copy: 'Readings and trends', icon: 'activity' },
+        { key: 'weight', label: 'Weight', copy: 'Progress to a goal', icon: 'scale' },
+        { key: 'workout', label: 'Workouts', copy: 'Plans and sets', icon: 'dumbbell' },
+        { key: 'health', label: 'Sleep', copy: 'From your watch or by hand', icon: 'moon' },
+        { key: 'food', label: 'Food', copy: 'Meals and calories', icon: 'food' },
+        { key: 'diary', label: 'Diary', copy: 'How you feel, in a line', icon: 'note', flag: false },
     ];
 
-    // Defaults are all-on (web/domain/settings.js DEFAULT_FEATURES), so an
-    // absent mirror means "everything enabled", not "everything off".
-    function _isEnabled(key) {
-        var flags = window.featureSettings;
-        if (!flags || typeof flags !== 'object') return true;
-        if (typeof flags[key] !== 'boolean') return true;
-        return flags[key];
+    function _el(tag, className, text) {
+        var el = document.createElement(tag);
+        if (className) el.className = className;
+        if (text) el.textContent = text;
+        return el;
     }
 
-    // What the box shows on mount. A user resuming the wizard, or one whose
-    // account already has flags, sees their own state; everyone else sees the
-    // first-run pre-check set. Reads the mirror directly rather than through
-    // _isEnabled, whose absent-mirror answer is the all-on *fallback* default.
-    function _initialChecked(item) {
+    function _isEnabled(key) {
         var flags = window.featureSettings;
-        if (flags && typeof flags === 'object' && typeof flags[item.key] === 'boolean') {
-            return flags[item.key];
-        }
-        return item.on;
+        if (!flags || typeof flags !== 'object' || typeof flags[key] !== 'boolean') return true;
+        return flags[key];
     }
 
     function _writeFeature(key, enabled) {
         if (typeof window.toggleFeatureSetting === 'function') {
-            // Resolves whether or not the POST succeeded; it reverts the
-            // Settings DOM itself but tells us nothing, so re-read the
-            // mirror below to find out what actually stuck.
+            // Resolves whether or not the POST succeeded, so re-read the
+            // mirror to find out what actually stuck.
             return Promise.resolve(window.toggleFeatureSetting(key, enabled))
                 .then(function () {
                     if (_isEnabled(key) !== enabled) throw new Error('rejected');
@@ -124,134 +79,142 @@
         });
     }
 
-    // Writes every row's current state, one at a time. Sequential is required,
-    // not just tidy: the cloud shim's setFeature (web/domain/settings.js) reads
-    // the whole flags map, mutates one key, and puts it back, so concurrent
-    // writes would last-write-wins each other's keys away.
-    function _persistAll(rows) {
-        return rows.reduce(function (chain, row) {
+    // Sequential, not parallel: the cloud shim's setFeature reads the whole
+    // flags map, mutates one key and puts it back, so concurrent writes would
+    // last-write-wins each other's keys away.
+    function _persistAll(picked) {
+        return CATALOG.reduce(function (chain, item) {
+            if (item.flag === false) return chain;
             return chain.then(function () {
-                return _writeFeature(row.key, row.toggle.checked);
+                return _writeFeature(item.key, picked.indexOf(item.key) !== -1);
             });
         }, Promise.resolve());
     }
 
-    function _renderRow(item, error) {
-        var el = document.createElement('div');
-        el.className = 'wg-firstrun-feature';
-        el.setAttribute('data-firstrun-feature', item.key);
+    function _renderChoice(item) {
+        var btn = _el('button', 'wg-choice wg-choice--check');
+        btn.type = 'button';
+        btn.setAttribute('aria-pressed', 'false');
+        btn.setAttribute('data-firstrun-feature', item.key);
+        var text = _el('span', null, item.label);
+        text.appendChild(_el('span', 'wg-choice__sub', item.copy));
+        var trail = _el('span', 'wg-choice__trail wg-muted');
+        var ico = _el('i', 'wg-ico');
+        ico.setAttribute('data-icon', item.icon);
+        trail.appendChild(ico);
+        btn.append(text, trail);
+        return btn;
+    }
 
-        var text = document.createElement('div');
-        text.className = 'wg-firstrun-feature__text';
-
-        var label = document.createElement('label');
-        label.className = 'wg-firstrun-feature__label';
-        label.setAttribute('for', 'firstrun-feature-' + item.key);
-        label.textContent = item.label;
-        text.appendChild(label);
-
-        var copy = document.createElement('p');
-        copy.className = 'wg-firstrun-feature__copy';
-        copy.textContent = item.copy;
-        text.appendChild(copy);
-
-        el.appendChild(text);
-
-        var toggle = document.createElement('input');
-        toggle.type = 'checkbox';
-        toggle.id = 'firstrun-feature-' + item.key;
-        toggle.className = 'wg-firstrun-feature__toggle';
-        toggle.checked = _initialChecked(item);
-        toggle.setAttribute('data-firstrun-feature-toggle', item.key);
-        toggle.addEventListener('change', function () {
-            var desired = toggle.checked;
-            toggle.disabled = true;
-            error.textContent = '';
-            _writeFeature(item.key, desired)
-                .catch(function () {
-                    toggle.checked = !desired;
-                    error.textContent = 'Couldn’t save that change. It stays as it was — you can adjust features later in Settings.';
-                })
-                .then(function () {
-                    toggle.disabled = false;
+    function _showInviteInLocalShell(row) {
+        if (!document.documentElement.classList.contains('wg-local-vault')) return;
+        var native = window.LocalNotifications && window.LocalNotifications.__native;
+        if (!native || typeof native.has !== 'function') return;
+        Promise.resolve(native.has('invite.pending'))
+            .then(function (has) {
+                if (!has) return null;
+                return Promise.resolve(native.call('invite.pending')).then(function (slot) {
+                    if (slot || !row.isConnected) return;
+                    var invite = _el('button', 'wg-btn wg-btn--ghost wg-btn--sm', 'Have an invite?');
+                    invite.type = 'button';
+                    invite.setAttribute('data-firstrun-action', 'invite');
+                    invite.addEventListener('click', function () {
+                        document.dispatchEvent(new window.CustomEvent(INVITE_EVENT));
+                    });
+                    row.appendChild(invite);
                 });
-        });
-        el.appendChild(toggle);
-
-        // Medications: "Reminders won't fire" under its copy while it is on and
-        // notifications are off for this device (med-ckm5.4, kit O3).
-        if (item.key === 'medication' && window.NotifyPermission) {
-            var slot = document.createElement('div');
-            slot.className = 'wg-notify-slot';
-            slot.setAttribute('data-firstrun-notify-note', '');
-            text.appendChild(slot);
-            var sync = function () {
-                if (toggle.checked) window.NotifyPermission.renderNote(slot);
-                else slot.replaceChildren();
-            };
-            toggle.addEventListener('change', sync);
-            sync();
-        }
-
-        return el;
+            })
+            .catch(function () { /* no invite entry: the footer keeps Skip only */ });
     }
 
     function render(body, helpers) {
-        var intro = document.createElement('p');
-        intro.className = 'wg-firstrun-screen__tagline';
-        intro.textContent = 'Turn off anything you don’t need. Disabled sections disappear from the navigation — you can change this any time in Settings.';
-        body.appendChild(intro);
+        body.appendChild(_el('p', 'wg-shell__lede', 'Pick any. You can change this later in Settings.'));
 
-        var error = document.createElement('p');
-        error.className = 'wg-firstrun-form__error';
+        var list = _el('div', 'wg-choices');
+        var choices = CATALOG.map(function (item) {
+            var btn = _renderChoice(item);
+            list.appendChild(btn);
+            return btn;
+        });
+        body.appendChild(list);
+
+        var error = _el('p', 'wg-firstrun-form__error');
         error.setAttribute('data-firstrun-feature-error', '');
-
-        var rows = document.createElement('div');
-        rows.className = 'wg-firstrun-features';
-        var picked = [];
-        for (var i = 0; i < CATALOG.length; i++) {
-            var rowEl = _renderRow(CATALOG[i], error);
-            rows.appendChild(rowEl);
-            picked.push({
-                key: CATALOG[i].key,
-                toggle: rowEl.querySelector('[data-firstrun-feature-toggle]'),
-            });
-        }
-        body.appendChild(rows);
         body.appendChild(error);
 
-        var actions = document.createElement('div');
-        actions.className = 'wg-firstrun-actions';
-
-        var cont = document.createElement('button');
+        var foot = _el('div', 'wg-firstrun-foot');
+        var cont = _el('button', 'wg-btn wg-btn--primary wg-btn--lg wg-btn--block', 'Continue');
         cont.type = 'button';
-        cont.className = 'wg-btn wg-btn--primary wg-btn--lg wg-btn--block';
-        cont.textContent = 'Continue';
         cont.setAttribute('data-firstrun-action', 'continue');
-        cont.addEventListener('click', function () {
-            cont.disabled = true;
+        var row = _el('div', 'wg-hstack');
+        var skip = _el('button', 'wg-btn wg-btn--ghost wg-btn--sm', 'Skip');
+        skip.type = 'button';
+        // The id the QA scenarios (android/qa smoke) wait on, kept from the
+        // old welcome screen's "Skip all".
+        skip.setAttribute('data-firstrun-action', 'skip-all');
+        row.append(skip, _el('span', 'wg-spacer'));
+        foot.append(cont, row);
+        body.appendChild(foot);
+
+        function picks() {
+            return CATALOG.filter(function (_, i) {
+                return choices[i].getAttribute('aria-pressed') === 'true';
+            }).map(function (item) { return item.key; });
+        }
+        function paintCount() {
+            var n = picks().length;
+            cont.textContent = n ? 'Continue with ' + n : 'Continue';
+        }
+        function busy(on) {
+            choices.concat([cont, skip]).forEach(function (b) { b.disabled = on; });
+        }
+        // 0 picks = Skip: everything on, all seven picked.
+        function finish(picked) {
+            if (!picked.length) picked = CATALOG.map(function (item) { return item.key; });
+            busy(true);
             error.textContent = '';
             _persistAll(picked)
-                .then(function () {
-                    helpers.advance('integrations');
-                })
+                .then(function () { return helpers.finishPicker(picked); })
                 .catch(function () {
-                    // Advancing here would leave the unchecked features silently
-                    // ON, since an unwritten flag falls back to DEFAULT_FEATURES.
-                    // Better to stay put and let the user retry.
-                    cont.disabled = false;
-                    error.textContent = 'Couldn’t save your choices. Check your connection and try again — you can also adjust features later in Settings.';
+                    // Moving on now would leave unpicked sections silently ON
+                    // (an unwritten flag falls back to DEFAULT_FEATURES).
+                    busy(false);
+                    error.textContent = 'Couldn’t save your choices. Check your connection and try again — you can also adjust this later in Settings.';
                 });
-        });
+        }
 
-        actions.appendChild(cont);
-        body.appendChild(actions);
+        choices.forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                btn.setAttribute('aria-pressed', btn.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
+                paintCount();
+            });
+        });
+        cont.addEventListener('click', function () { finish(picks()); });
+        skip.addEventListener('click', function () { finish([]); });
+
+        // Medications: "Reminders won't fire" under the row while it is picked
+        // and notifications are off for this device (med-ckm5.4, kit O3). A
+        // sibling of the choice: the note may hold a button.
+        if (window.NotifyPermission) {
+            var med = choices[0];
+            var slot = _el('div', 'wg-notify-slot');
+            slot.setAttribute('data-firstrun-notify-note', '');
+            med.after(slot);
+            med.addEventListener('click', function () {
+                if (med.getAttribute('aria-pressed') === 'true') window.NotifyPermission.renderNote(slot);
+                else slot.replaceChildren();
+            });
+        }
+
+        if (window.WGIcons && typeof window.WGIcons.hydrate === 'function') window.WGIcons.hydrate(body);
+        _showInviteInLocalShell(row);
     }
 
     window.WGFirstRun = window.WGFirstRun || {};
     window.WGFirstRun.screens = window.WGFirstRun.screens || {};
     window.WGFirstRun.screens.features = {
         title: 'What do you want to track?',
+        brand: true,
         render: render,
         CATALOG: CATALOG,
     };
