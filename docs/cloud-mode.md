@@ -208,7 +208,12 @@ The last three rows are the **inbound** posture, decided in `med-eas.29.1` and s
 
 ## Onboarding — invite → wizard → installed PWA
 
-**The invitation IS the claim link.** Minting an invite (`cloud admin invite`) pre-provisions the account (subdomain + one-time claim token) and yields `https://<sub>.<base>/#claim=<token>` — delivered by email, link, or QR. There is no public signup page; the base host serves only a static landing/education page with an "invitations only" note. Unclaimed accounts expire and can be re-issued.
+**The invitation IS the claim link.** Minting an invite (`cloud admin invite`) pre-provisions the account (subdomain + one-time claim token) and yields an invite link — delivered by email, link, or QR. There is no public signup page; the base host serves only a static landing/education page with an "invitations only" note. Unclaimed accounts expire and can be re-issued.
+
+**Two link forms, both valid** (bd med-ta2n.9). The token always rides the fragment, so it never reaches the server:
+
+- **Landing form** — `https://<base>/i/<sub>#<token>`, what `ClaimURL` returns (admin CLI, `POST /api/invite`, managebot DM, the kit QR). The base domain serves the invite landing page there (`web/cloud/invite.html`, no-store, strict CSP), which offers the apps and hands off to the claim form; it is also the iOS universal link (AASA `applinks` `/i/*`) and the Android app link. The page asks `GET https://<base>/api/i/<sub>` (base domain only, per-IP rate-limited, no token, no session) → `200 {"state":"pending"|"expired"|"claimed","expires_at"?}`; `expires_at` comes only with `pending`, and an unknown or malformed subdomain answers `{"state":"expired"}`, so it is indistinguishable from a swept invite.
+- **Claim form** — `https://<sub>.<base>/#claim=<token>[&kit=1]`, the original shape; stays valid forever. `cloud-boot.js` routes it to `/unlock#claim`; it is what the landing's "Continue in the browser" opens and what the native shells' pending-invite slot holds. Shells built before the landing form existed reject it on their paste screen ("That isn't an account link"); those were owner-only builds.
 
 The claim link lands on a minimal, picture-first education wizard:
 
@@ -226,7 +231,7 @@ The claim link lands on a minimal, picture-first education wizard:
 
 ### User-mintable invites
 
-Invites are not admin-only: any signed-in account can mint one for a friend from its own subdomain via `POST /api/invite` (session-authed, same host-routed `/api/*` mux as devices/sync/push). It runs the same `Provision()` path as `cloud admin invite` — server-assigned subdomain, one-time claim token, per-account VAPID keypair — and returns `{"subdomain", "claim_url", "expires_at"}`. The token exists only in that response body and travels in the claim URL's fragment; the store keeps only its hash. Settings → "Invite a friend" shows the claim URL with a copy button and a client-rendered QR code.
+Invites are not admin-only: any signed-in account can mint one for a friend from its own subdomain via `POST /api/invite` (session-authed, same host-routed `/api/*` mux as devices/sync/push). It runs the same `Provision()` path as `cloud admin invite` — server-assigned subdomain, one-time claim token, per-account VAPID keypair — and returns `{"subdomain", "claim_url", "expires_at"}`. The token exists only in that response body and travels in the URL fragment (`claim_url` is the landing form above); the store keeps only its hash. Settings → "Invite a friend" shows the claim URL with a copy button and a client-rendered QR code.
 
 **Quota: 100 invites per account per rolling 30 days**, counted in SQL, not memory — `accounts.created_by_account_id` (migration `010`, NULL for admin-CLI invites) records the minter, and the endpoint counts that account's rows with `created_at_unix` inside the window. Over quota: `429 {"error":"invite limit reached","limit":100,"window_days":30}`. Counting rows rather than mints means `SweepExpiredClaims` reaping an unclaimed invite gives the quota back — deliberate, since the limit is about *users* created, not links clicked. `ponytail:` a patient abuser can therefore recycle expired invites; swap in an append-only mint log if that ever happens. Note that `created_by_account_id` also holds `tg:<uid>` rows minted by the managebot — not every value is an account id, see [Managebot onboarding](#managebot-onboarding--invites-over-chat).
 

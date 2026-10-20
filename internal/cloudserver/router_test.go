@@ -90,6 +90,7 @@ func testFS() fstest.MapFS {
 		"index.html":       {Data: []byte("landing page")},
 		"signup.html":      {Data: []byte("account shell")},
 		"share.html":       {Data: []byte(`<body data-page="share-landing">`)},
+		"invite.html":      {Data: []byte(`<html><head></head><body data-page="invite-landing"></body></html>`)},
 		"css/cloud.css":    {Data: []byte("body{}")},
 		"js/cloud-boot.js": {Data: []byte("window.__MEDTRACKER_CLOUD__=true;")},
 	}
@@ -221,7 +222,7 @@ func TestRouter_HostVariants(t *testing.T) {
 		{"known subdomain cloud-boot.js resolves via shell fallback", "known-sub.app.example.com", "/js/cloud-boot.js", http.StatusOK, "window.__MEDTRACKER_CLOUD__=true;"},
 		{"unknown subdomain is 404", "no-such-sub.app.example.com", "/", http.StatusNotFound, ""},
 		{"unknown subdomain api is 404", "no-such-sub.app.example.com", "/api/version", http.StatusNotFound, ""},
-		{"known subdomain missing asset is 404", "known-sub.app.example.com", "/static/js/nope.js", http.StatusNotFound, ""},		{"unrelated host is 404", "evil.example.org", "/", http.StatusNotFound, ""},
+		{"known subdomain missing asset is 404", "known-sub.app.example.com", "/static/js/nope.js", http.StatusNotFound, ""}, {"unrelated host is 404", "evil.example.org", "/", http.StatusNotFound, ""},
 	}
 
 	for _, tc := range cases {
@@ -552,5 +553,55 @@ func TestInjectCloudBoot_FoodDBHostNeverServed(t *testing.T) {
 	}
 	if out := string(injectCloudBoot([]byte("<html><head></head></html>"), "", false, false, "dev")); strings.Contains(out, "medtracker-food-db") {
 		t.Errorf("flag emitted with no food DB configured: %s", out)
+	}
+}
+
+// TestRouter_InviteLanding pins the /i/<sub> landing route (med-ta2n.9): base
+// domain only, well-formed subdomains only, no-store, the strict default CSP,
+// and the store-id metas present exactly when configured (HTML-escaped).
+func TestRouter_InviteLanding(t *testing.T) {
+	store := setupStore(t)
+	get := func(h *Handler, host, path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Host = host
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	isLanding := func(rec *httptest.ResponseRecorder) bool {
+		return rec.Code == http.StatusOK && strings.Contains(rec.Body.String(), `data-page="invite-landing"`)
+	}
+
+	h := New("app.example.com", store, testFS(), testAppFS(), testDomainFS(), nil, "", false, false)
+	h.SetInviteStoreIDs("", "")
+	rec := get(h, "app.example.com", "/i/brave-otter-abc123")
+	if !isLanding(rec) {
+		t.Fatalf("GET /i/<sub> = %d %q, want the invite page", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "medtracker-ios-app-store-id") || strings.Contains(rec.Body.String(), "medtracker-android-package") {
+		t.Fatalf("unset store ids emitted a meta: %q", rec.Body.String())
+	}
+	if cc := rec.Header().Get("Cache-Control"); !strings.Contains(cc, "no-store") {
+		t.Errorf("Cache-Control = %q, want no-store", cc)
+	}
+	if csp := rec.Header().Get("Content-Security-Policy"); csp != cspPolicy("connect-src 'self'", "") {
+		t.Errorf("CSP = %q, want the strict default", csp)
+	}
+	for _, path := range []string{"/i/", "/i/Brave-Otter", "/i/a/b", "/i/a.b"} {
+		if isLanding(get(h, "app.example.com", path)) {
+			t.Errorf("GET %s served the invite page, want no match", path)
+		}
+	}
+
+	h = New("app.example.com", store, testFS(), testAppFS(), testDomainFS(), nil, "", false, false)
+	h.SetInviteStoreIDs("1234567890", `com.example."app"`)
+	body := get(h, "app.example.com", "/i/brave-otter-abc123").Body.String()
+	for _, want := range []string{
+		`<meta name="medtracker-ios-app-store-id" content="1234567890">`,
+		`<meta name="medtracker-android-package" content="com.example.&#34;app&#34;">`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("invite page missing %s: %q", want, body)
+		}
 	}
 }

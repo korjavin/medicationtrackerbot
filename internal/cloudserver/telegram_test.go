@@ -798,7 +798,7 @@ func TestManagerOnboarding(t *testing.T) {
 		if err != nil || len(accounts) != 1 {
 			t.Fatalf("ListAccounts = (%d, %v), want 1", len(accounts), err)
 		}
-		want := "https://" + accounts[0].Subdomain + ".localhost/#claim="
+		want := "https://localhost/i/" + accounts[0].Subdomain + "#"
 		if len(tg.mu.sent) != 1 || !strings.Contains(tg.mu.sent[0], want) {
 			t.Fatalf("reply missing claim URL %q: %v", want, tg.mu.sent)
 		}
@@ -883,7 +883,7 @@ func TestManagerOnboarding(t *testing.T) {
 		if n := mintedBy(t, store, tgCreator); n != 1 {
 			t.Fatalf("minted %d accounts, want 1 (expired invites swept, one fresh mint)", n)
 		}
-		if len(tg.mu.sent) != 1 || !strings.Contains(tg.mu.sent[0], "#claim=") {
+		if len(tg.mu.sent) != 1 || !strings.Contains(tg.mu.sent[0], "https://localhost/i/") {
 			t.Fatalf("reply missing a fresh claim URL: %v", tg.mu.sent)
 		}
 	})

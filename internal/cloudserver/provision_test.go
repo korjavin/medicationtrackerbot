@@ -3,7 +3,6 @@ package cloudserver
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"strings"
 	"testing"
 	"time"
 
@@ -22,7 +21,7 @@ func TestProvision_InviteClaimSingleUse(t *testing.T) {
 	if inv.Account.Subdomain == "" || inv.Token == "" {
 		t.Fatalf("expected non-empty subdomain and token, got %+v", inv)
 	}
-	if !strings.Contains(inv.ClaimURL("app.example.com"), inv.Account.Subdomain+".app.example.com/#claim="+inv.Token) {
+	if inv.ClaimURL("app.example.com") != "https://app.example.com/i/"+inv.Account.Subdomain+"#"+inv.Token {
 		t.Fatalf("unexpected claim URL: %s", inv.ClaimURL("app.example.com"))
 	}
 

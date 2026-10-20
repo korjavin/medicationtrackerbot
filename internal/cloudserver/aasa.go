@@ -12,13 +12,21 @@ const aasaPath = "/.well-known/apple-app-site-association"
 // bd med-w6gx.1). Empty team ID or bundle ID leaves it off and the path falls
 // through to the normal routing. Served on the base domain and, without an
 // account lookup, on every subdomain: Apple's CDN probes the host named in the
-// entitlement, and the content is identical and public.
+// entitlement, and the content is identical and public. applinks claims only
+// the invite landing /i/* as a universal link (bd med-ta2n.9); the app's
+// entitlement lists applinks for the base domain alone, so account subdomains
+// never become universal links even though they serve the same file.
 func (h *Handler) SetAppleAppSiteAssociation(teamID, bundleID string) {
 	if teamID == "" || bundleID == "" {
 		return
 	}
+	appID := teamID + "." + bundleID
 	h.aasa, _ = json.Marshal(map[string]any{
-		"webcredentials": map[string]any{"apps": []string{teamID + "." + bundleID}},
+		"applinks": map[string]any{"details": []any{map[string]any{
+			"appIDs":     []string{appID},
+			"components": []any{map[string]string{"/": "/i/*", "comment": "invite landing"}},
+		}}},
+		"webcredentials": map[string]any{"apps": []string{appID}},
 	})
 }
 

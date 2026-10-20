@@ -835,8 +835,8 @@ func (t *TelegramAPI) mintInviteLocked(ctx context.Context, creator string) stri
 		slog.Error("telegram manager message: provision invite", "error", err, "creator", creator)
 		return onboardingMintFailMessage
 	}
-	return "🎉 Your account is ready. Open this link and set it up with a passkey:\n\n" +
-		inv.ClaimURL(t.baseDomain) + "\n\nThe link is personal and expires — open it on the device you'll use."
+	return "🎉 Your account is ready. Open this link to get the app and sign in:\n\n" +
+		inv.ClaimURL(t.baseDomain) + "\n\nThe link is personal, works once and expires."
 }
 
 // reply sends a managebot message, logging and swallowing failures.

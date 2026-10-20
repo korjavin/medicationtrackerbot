@@ -51,10 +51,14 @@ type Invite struct {
 	Token   string
 }
 
-// ClaimURL returns the personal claim link for this invite. The token
-// travels in the URL fragment so it never hits server access logs.
+// ClaimURL returns the personal invite link: the base-domain landing page
+// https://<base>/i/<sub>#<token> (bd med-ta2n.9), which offers the apps and
+// hands off to the account's own claim page. The token travels in the URL
+// fragment so it never hits server access logs. The older claim form
+// https://<sub>.<base>/#claim=<token> stays valid forever (cloud-boot.js routes
+// it to /unlock#claim); the landing page converts to it client-side.
 func (inv Invite) ClaimURL(baseDomain string) string {
-	return fmt.Sprintf("https://%s.%s/#claim=%s", inv.Account.Subdomain, baseDomain, inv.Token)
+	return fmt.Sprintf("https://%s/i/%s#%s", baseDomain, inv.Account.Subdomain, inv.Token)
 }
 
 const maxSubdomainAttempts = 10
