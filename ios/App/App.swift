@@ -114,6 +114,7 @@ struct FirstRunView: View {
     @State private var moving = false
     @FocusState private var focused: Bool
     @Environment(\.dynamicTypeSize) private var typeSize
+    @State private var moreBelow = false
 
     var body: some View {
         if localIntro {
@@ -186,11 +187,18 @@ struct FirstRunView: View {
             .padding(.bottom, Wg.gutter)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        // At accessibility sizes the column fades at the bottom: the cut-off text reads as "more below".
+        // At accessibility sizes the column fades at the bottom while more is
+        // below: the cut-off text reads as "more below", the end reads clear.
+        .onScrollGeometryChange(for: Bool.self) { g in
+            g.contentOffset.y + g.containerSize.height < g.contentSize.height + g.contentInsets.bottom - 1
+        } action: { _, below in
+            moreBelow = below
+        }
         .mask {
+            let fade = typeSize.isAccessibilitySize && moreBelow
             LinearGradient(stops: [.init(color: .black, location: 0),
-                                   .init(color: .black, location: typeSize.isAccessibilitySize ? 0.82 : 1),
-                                   .init(color: typeSize.isAccessibilitySize ? .clear : .black, location: 1)],
+                                   .init(color: .black, location: fade ? 0.82 : 1),
+                                   .init(color: fade ? .clear : .black, location: 1)],
                            startPoint: .top, endPoint: .bottom)
         }
         .scrollDismissesKeyboard(.interactively)
