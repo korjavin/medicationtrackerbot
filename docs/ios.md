@@ -140,6 +140,17 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   the Settings import input (driver seed) into an erased store, records survive
   a relaunch. `testErase` — typed "erase" → Erase: both shell stashes cleared,
   Meds empty after relaunch, local mode kept.
+- **Stash flows** ([`FlowQAStashTests.swift`](../ios/UITests/FlowQAStashTests.swift),
+  bd med-w6gx.23.3): the shell's stashes from the local
+  side, as files in the container's `Application Support/{move,leave}/vault.json`:
+  `testMoveLocalSide` — Settings → Move to a cloud account → the stash
+  (fixture format, sections, counts) and the first-run hint → Back keeps it,
+  Start deletes it → Backup & import → I have an invite shows no stale hint →
+  a relaunch is first run, records kept. `testLeaveStashPickup` — wipes
+  `Library/WebKit`, seeds `leave/vault.json` from `tests/fixtures/vault-v1.json`
+  (read from the source tree via `#filePath`) → the boot imports it (the 3 s toast is shot when caught, not gated),
+  clears the file → seeded again over records: Merge / Replace → Cancel →
+  "Records not copied", file cleared.
 
 **Adding a flow:** one `func test<Flow>()` in `FlowQATests`, with
 `continueAfterFailure = false`. Launch with arguments in NSArgumentDomain
