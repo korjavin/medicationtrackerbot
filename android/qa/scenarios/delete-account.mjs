@@ -60,6 +60,20 @@ export default async function deleteAccount(ctx) {
   await claimAccount(ctx, page);
   r.accountHost = new URL(page.url()).host;
 
+  // 0. Killed right after sign-in (bd med-nt9p.45): the session cookie is already on disk, so the
+  // relaunch reopens the account and unlocks. Chromium's own write is ~30 s late.
+  await ctx.step('force-stop right after sign-in → session cookie on disk → relaunch unlocks', async () => {
+    await shell(`am force-stop ${pkg}`);
+    const jar = await shell(`run-as ${pkg} cat app_webview/Default/Cookies`);
+    if (!jar.includes('cloud_session')) throw new Error(`no cloud_session on disk: ${await shell(`run-as ${pkg} ls -R app_webview`)}`);
+    await sleep(2000); // the dead process's devtools socket must go before attaching
+    await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity --ez qaSoftAuthn true`);
+    page = await ctx.attachPage();
+    if (!page) throw new Error('no WebView page');
+    await page.waitForURL((u) => u.host === r.accountHost, { timeout: 30_000 });
+    await unlock(ctx, page, r);
+  });
+
   // 1. Use this phone without an account → local mode, no stop at the first run.
   await ctx.step('Settings → Account shows "Use this phone without an account"', async () => {
     await openAccountPage(page);
