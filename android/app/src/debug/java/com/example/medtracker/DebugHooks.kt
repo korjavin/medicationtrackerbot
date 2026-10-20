@@ -45,5 +45,13 @@ internal object DebugHooks {
     fun qaLock(activity: Activity): Boolean =
         qa() && activity.intent?.getBooleanExtra("wgQALock", false) == true
 
+    /** `--ez wgQALockFailed true`: the lock screen's failed-attempt note (N3 · failed). */
+    fun qaLockFailed(activity: Activity): Boolean =
+        qa() && activity.intent?.getBooleanExtra("wgQALockFailed", false) == true
+
+    /** `--ez wgQALocalError true`: the local-mode load error (N4 · local), which a real bundle never hits. */
+    fun qaLocalError(activity: Activity): Boolean =
+        qa() && activity.intent?.getBooleanExtra("wgQALocalError", false) == true
+
     private fun qa() = BuildConfig.DEBUG && BuildConfig.BASE_DOMAIN == QA_BASE
 }

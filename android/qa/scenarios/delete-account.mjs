@@ -122,7 +122,7 @@ export default async function deleteAccount(ctx) {
     await shell(`am start -W -n ${pkg}/com.example.medtracker.MainActivity`);
     await ctx.waitFor({ text: 'Only on this device' }, 30_000);
     await ctx.waitFor({ text: 'Continue' }, 5_000);
-    for (const text of [/There is no account.*/, /.*open your account.*/, 'Try again']) {
+    for (const text of [/There is no account.*/, 'Copy diagnostics', 'Try again']) {
       if (await device.wait({ text }, { timeout: 1_500 }).then(() => true, () => false)) throw new Error(`showing ${text}`);
     }
   });

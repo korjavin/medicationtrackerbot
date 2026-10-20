@@ -15,6 +15,8 @@
         <item name="android:colorAccent">@color/wg_sun</item>
         <item name="android:colorControlActivated">@color/wg_sun</item>
         <item name="android:windowSplashScreenBackground">@color/wg_screen</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <!-- N6: the mark tile where the lock screen (N3) puts it; MainActivity holds the splash
+             until the page or a native screen is ready, then cross-fades it out. -->
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/wg_splash_mark</item>
     </style>
 </resources>

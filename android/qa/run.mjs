@@ -183,10 +183,10 @@ const ctx = {
     }
     await device.tap({ text: 'Continue' });
   },
-  /** Open an account whose server answers 503 (tlsfront's down.qa.test) → the "Can't open your account" screen. */
+  /** Open an account whose server answers 503 (tlsfront's down.qa.test) → the load-error screen (N4; every variant has Copy diagnostics). */
   async openAccount(url = 'https://down.qa.test/', opts = {}) {
     await ctx.openLink(url, opts);
-    await ctx.waitFor({ text: /.*open your account.*/ });
+    await ctx.waitFor({ text: 'Copy diagnostics' });
   },
   /** Cold start → Open the run's invite → the WebView page on /unlock with the signup wizard. */
   async openClaim(opts) {
