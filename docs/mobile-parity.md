@@ -25,5 +25,5 @@ The two native shells (`ios/`, `android/`) wrap the same web app. Keep them in s
 | System bars (`chrome` op) | n/a | ✓ | Android-only: system bars |
 | `diag.append` + Copy diagnostics (passkey debug aid) | gap | ✓ | open: med-w6gx.24 (in progress; drops `diag.append` from `PLATFORM_ONLY`) |
 | Back gesture exits app | n/a | ✓ | Android-only: back-exit |
-| e2e flow QA scenarios | gap | ✓ (`android/qa`) | open: med-w6gx.23 (waiting on owner) |
+| e2e flow QA scenarios | partial: local-mode flows (`ios.yml` `qa`) | ✓ (`android/qa`) | partial: account flows are owner device checks ([ios.md](ios.md#owner-device-checklist-account-flows-need-a-passkey)); med-w6gx.23 |
 | Visual QA scene driver | ✓ (Simulator) | gap | open: med-y5xx.9 |

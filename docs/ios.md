@@ -99,6 +99,58 @@ Revoking a development certificate does not affect TestFlight or App Store
 builds. Then create the App Store profile above and add
 `IOS_APPSTORE_PROFILE_BASE64`.
 
+## Flow QA (Simulator) (bd med-w6gx.23)
+
+The iOS twin of Android's [Agent QA harness](android.md#agent-qa-harness-emulator-bd-med-nt9p23),
+**local mode only**: no account, no passkey (WKWebView has no soft
+authenticator). Flows are XCUITest methods in
+[`ios/UITests/FlowQATests.swift`](../ios/UITests/FlowQATests.swift) (the
+`MedTrackerUITests` bundle the visual tier uses; shared helpers in
+[`QAHelpers.swift`](../ios/UITests/QAHelpers.swift)). Unlike the visual tier
+this is a **gate**: a flow is a contract, and a failed step fails the job.
+
+- **Trigger (opt-in, never on every commit):** PR label `ios-qa` (new pushes
+  to the labeled PR re-run it), or
+  `gh workflow run ios.yml --ref <branch> -f qa=true` (runs only `qa`: no
+  build, no TestFlight, no visual). Run it once before each TestFlight batch.
+- **Job:** `ios.yml` → `qa`, one 390pt iPhone
+  ([`ios/qa/boot-sim.sh`](../ios/qa/boot-sim.sh), shared with `visual`), its
+  own concurrency group `iOS-qa-<ref>`. About 20 min, most of it the build.
+- **Output:** the step summary has one row per test (result plus failure
+  message); artifact `ios-qa` (14 days) has `<flow>-<step>.png`:
+  `gh run download <run> -n ios-qa -D /tmp/ios-qa`.
+- **Flows:** `testLocalFirstRun` — first run → "Only on this device" → intro
+  (lock off) → Start → the app (seeded by the QA driver) → relaunch with no
+  arguments: local mode persisted, no first-run screen, `wgLocalMode` true in
+  the app's prefs plist.
+
+**Adding a flow:** one `func test<Flow>()` in `FlowQATests`, with
+`continueAfterFailure = false`. Launch with arguments in NSArgumentDomain
+(`-wgLocalMode`, `-wgAccountHost`, `-wgLocalLockOn`, and the Debug-only
+`-wgQAScene <scene>` to have the in-page driver seed the golden vault). Assert
+what the UI shows (native labels, web elements through `QA.webElement` /
+`QA.tabBarShows`) or files the app already writes, read from the runner:
+`QA.appContainer()` is the app's data container, `QA.appDefaults()` its
+persisted defaults. No new app hook or report file. Attach shots as
+`<flow>-<step>.png` with `.keepAlways`. Run one flow locally with
+`-only-testing:MedTrackerUITests/FlowQATests/test<Flow>`.
+
+### Owner device checklist (account flows, need a passkey)
+
+Not covered by flow QA; check on a TestFlight build before release:
+
+1. **Move local → cloud end to end:** in local mode with records, move to a
+   new account. The account shows the stash pickup toast, the records are in
+   the account, and the local stash is gone (relaunch: no "pending move").
+2. **Leave cloud → local:** in an account, Settings → "Use this iPhone without
+   an account". Local mode opens with the account's records on the device.
+3. **Delete account:** Settings → delete account. The app returns to the native
+   first run, and a relaunch stays there.
+
+A passkey stand-in for these (a Debug-only WKUserScript injecting
+`android/app/src/debug/assets/qa-softauthn.js` on a `qa.test` account origin)
+is a possible later bead, deliberately unfiled.
+
 ## Shipping a build
 
 Actions → **iOS** → Run workflow → pick the branch. When the run is green the
