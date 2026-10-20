@@ -38,11 +38,15 @@ enum AccountURL {
         let custom = scheme == "medtracker" && host == "i"
         guard landing || custom else { return parse(raw, base: base) }
         // Landing path "/i/<sub>"; the scheme's host is "i", so its path is "/<sub>".
-        let sub = parts.path.hasPrefix(landing ? "/i/" : "/") ? String(parts.path.dropFirst(landing ? 3 : 1)).lowercased() : ""
-        let tok = parts.fragment ?? ""
+        // RAW path and fragment (no percent-decoding): sub ^[a-z0-9-]+$ after
+        // lowercasing, token ^[0-9a-f]+$ (the server's hex claim token,
+        // cloudserver.NewClaimToken). Twin: Android AccountUrl.parseInvite.
+        let path = parts.percentEncodedPath, prefix = landing ? "/i/" : "/"
+        let sub = path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)).lowercased() : ""
+        let tok = parts.percentEncodedFragment ?? ""
         guard parts.user == nil, parts.port == nil, parts.password == nil, parts.query == nil,
               !sub.isEmpty, sub.allSatisfy({ ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-" }),
-              !tok.isEmpty, tok.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") })
+              !tok.isEmpty, tok.allSatisfy({ ("0"..."9").contains($0) || ("a"..."f").contains($0) })
         else { return nil }
         return parse("https://\(sub).\(base)/#claim=\(tok)", base: base)
     }

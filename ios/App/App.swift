@@ -226,6 +226,13 @@ struct FirstRunView: View {
             // "There is no account at …": the address stays in the field, to fix in place.
             if text.isEmpty, shell.firstRunMessage != nil, let gone = shell.firstRunInput { text = gone }
         }
+        // A captured invite link (bd med-ta2n.11) waits in the field: the user taps Continue to open it.
+        .onChange(of: shell.pendingInvite, initial: true) { _, url in
+            if let url {
+                text = url
+                error = nil
+            }
+        }
         .sheet(isPresented: $scanning) {
             VStack(spacing: 0) {
                 HStack {

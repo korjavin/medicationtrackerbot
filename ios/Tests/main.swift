@@ -32,36 +32,56 @@ precondition(!AccountURL.accountGone(404, ["X-Account-Gone": "0"]))
 precondition(!AccountURL.accountGone(503, ["X-Account-Gone": "1"]))
 precondition(!AccountURL.accountGone(404, [:]))
 // parseInvite (bd med-ta2n.11): landing and scheme forms → the claim URL; the old forms still pass.
-func invite(_ input: String, _ want: String?) {
-    let got = AccountURL.parseInvite(input, base: base)?.absoluteString
-    precondition(got == want, "invite \(input.debugDescription): got \(got ?? "nil"), want \(want ?? "nil")")
+// Shared vectors: [input, want ("" = rejected)], base "app.example.com". Android's
+// AccountUrl.parseInvite test pins the same list (contract med-ta2n.7 §5).
+let inviteVectors: [(String, String)] = [
+    ("https://app.example.com/i/abc#0a1b2c", "https://abc.app.example.com/#claim=0a1b2c"),
+    ("https://APP.example.com/i/ABC#0a1b2c", "https://abc.app.example.com/#claim=0a1b2c"),
+    ("medtracker://i/abc#0a1b2c", "https://abc.app.example.com/#claim=0a1b2c"),
+    ("MedTracker://I/abc#0a1b2c", "https://abc.app.example.com/#claim=0a1b2c"),
+    ("medtracker://i/my-sub-9#00ff", "https://my-sub-9.app.example.com/#claim=00ff"),
+    ("https://abc.app.example.com/#claim=0a1b2c", "https://abc.app.example.com/#claim=0a1b2c"),
+    ("https://abc.app.example.com/#claim=0a1b2c&kit=1", "https://abc.app.example.com/#claim=0a1b2c&kit=1"),
+    ("abc.app.example.com", "https://abc.app.example.com/"),
+    ("https://app.example.com/i/abc", ""), // no token
+    ("https://app.example.com/i/abc#", ""), // empty token
+    ("https://app.example.com/i/#0a1b2c", ""), // no sub
+    ("https://app.example.com/i/a/b#0a1b2c", ""),
+    ("https://app.example.com/i/a.b#0a1b2c", ""),
+    ("https://app.example.com/i/a_b#0a1b2c", ""),
+    ("https://app.example.com/i/%61bc#0a1b2c", ""), // raw path: no percent-decoding
+    ("https://app.example.com/i/abc#%30a1b", ""), // raw fragment
+    ("https://app.example.com/i/abc#0A1B2C", ""), // token is lowercase hex
+    ("https://app.example.com/i/abc#0a1g", ""),
+    ("https://app.example.com/i/abc#0a-1b", ""),
+    ("https://app.example.com/i/abc#0a1b&kit=1", ""),
+    ("https://app.example.com/i/abc?x=1#0a1b2c", ""),
+    ("https://app.example.com/i/abc?#0a1b2c", ""),
+    ("https://app.example.com:8443/i/abc#0a1b2c", ""),
+    ("https://u@app.example.com/i/abc#0a1b2c", ""),
+    ("https://u:p@app.example.com/i/abc#0a1b2c", ""),
+    ("http://app.example.com/i/abc#0a1b2c", ""),
+    ("https://evil.com/i/abc#0a1b2c", ""),
+    ("https://app.example.com.evil.com/i/abc#0a1b2c", ""),
+    ("https://evilapp.example.com/i/abc#0a1b2c", ""),
+    ("https://app.example.com/x/abc#0a1b2c", ""),
+    ("medtracker://x/abc#0a1b2c", ""),
+    ("medtracker://i/abc", ""),
+    ("medtracker://i/#0a1b2c", ""),
+    ("medtracker://i/a/b#0a1b2c", ""),
+    ("medtracker://i:1/abc#0a1b2c", ""),
+    ("medtracker://u@i/abc#0a1b2c", ""),
+    ("medtracker://i/abc?x=1#0a1b2c", ""),
+    ("otherapp://i/abc#0a1b2c", ""),
+    ("wgapp://local/", ""),
+    ("", ""),
+]
+for (input, want) in inviteVectors {
+    let got = AccountURL.parseInvite(input, base: base)?.absoluteString ?? ""
+    precondition(got == want, "invite \(input.debugDescription): got \(got.debugDescription), want \(want.debugDescription)")
 }
-let claim = "https://abc.app.example.com/#claim=0a1b2c"
-invite("https://app.example.com/i/abc#0a1b2c", claim)
-invite("https://APP.example.com/i/ABC#0a1b2c", claim)
-invite("medtracker://i/abc#0a1b2c", claim)
-invite("MedTracker://i/abc#0a1b2c", claim)
-invite(claim, claim)
-invite("https://abc.app.example.com/#claim=0a1b2c&kit=1", "https://abc.app.example.com/#claim=0a1b2c&kit=1")
-invite("abc.app.example.com", "https://abc.app.example.com/")
-invite("https://app.example.com/i/abc", nil) // no token
-invite("https://app.example.com/i/#0a1b2c", nil) // no sub
-invite("https://app.example.com/i/a/b#0a1b2c", nil)
-invite("https://app.example.com/i/a.b#0a1b2c", nil)
-invite("https://app.example.com/i/-abc#0a1b2c", "https://-abc.app.example.com/#claim=0a1b2c") // label rules are the server's
-invite("https://app.example.com/i/abc?x=1#0a1b2c", nil)
-invite("https://app.example.com/i/abc#0a1b&kit=1", nil)
-invite("https://app.example.com:8443/i/abc#0a1b2c", nil)
-invite("https://u@app.example.com/i/abc#0a1b2c", nil)
-invite("http://app.example.com/i/abc#0a1b2c", nil)
-invite("https://evil.com/i/abc#0a1b2c", nil)
-invite("https://app.example.com.evil.com/i/abc#0a1b2c", nil)
-invite("https://abc.app.example.com/i/abc#0a1b2c", "https://abc.app.example.com/i/abc#0a1b2c") // an account page: parse()'s call
-invite("medtracker://x/abc#0a1b2c", nil)
-invite("medtracker://i/abc", nil)
-invite("otherapp://i/abc#0a1b2c", nil)
-invite("wgapp://local/", nil)
 precondition(AccountURL.parseInvite("https://app.example.com/i/abc#0a1b2c", base: "") == nil)
+let claim = "https://abc.app.example.com/#claim=0a1b2c"
 
 // InviteSlot: empty, store, newest wins, clear.
 let slotDefaults = UserDefaults(suiteName: "wg-invite-slot-test")!

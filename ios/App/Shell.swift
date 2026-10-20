@@ -183,34 +183,38 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     }
 
     /// Opens an account URL (validated by AccountURL.parse) from any mode: the
-    /// first-run submit, a captured invite on the first run, and
-    /// local.leave/account.leave {url} (bd med-ta2n.11). A pending local → cloud
-    /// move stash is kept: the new account takes it.
+    /// first-run submit and local.leave/account.leave {url} (bd med-ta2n.11).
+    /// The move stash is the caller's call (account.leave {url} drops it).
     private func enter(_ url: URL, host: String) {
         let defaults = UserDefaults.standard
         defaults.set(host, forKey: Shell.hostKey)
         defaults.set(false, forKey: LocalOrigin.modeKey)
         defaults.removeObject(forKey: Shell.leaveHostKey)
-        InviteSlot.clear() // whatever invite was waiting, this open consumed or superseded it
+        setInvite(nil) // whatever invite was waiting, this open consumed or superseded it
         self.host = host
         local = false
-        firstRunMessage = nil
         leaveStash.clear() // an account was opened, so a pending account → local move was abandoned
-        load(url) // the claim link keeps its #fragment for the page; only the host is stored
+        reopen(to: url) // the claim link keeps its #fragment for the page; only the host is stored
+    }
+
+    /// The pending slot's claim URL, for FirstRunView's invite field (phase 1).
+    @Published private(set) var pendingInvite = InviteSlot.pending()?["url"] as? String
+
+    private func setInvite(_ url: URL?) {
+        if let url { InviteSlot.store(url) } else { InviteSlot.clear() }
+        pendingInvite = url?.absoluteString
     }
 
     /// An invite link opened the app (bd med-ta2n.11, contract med-ta2n.7 §6):
-    /// the landing universal link, the medtracker:// scheme, or a claim link.
-    /// It goes into the pending slot (newest wins). On the first run it opens
-    /// at once; a page that has loaded reloads home with ?invite=1 so the web
-    /// reads the slot; on a cold start the booting page reads it anyway.
+    /// the landing universal link or the medtracker:// scheme. It goes into the
+    /// pending slot (newest wins) and never opens by itself — any page can fire
+    /// the scheme. The native first run prefills its field from the slot; a
+    /// loaded page reloads home with ?invite=1 so the web reads the slot; on a
+    /// cold start the booting page reads it anyway.
     func capture(_ link: URL) {
         guard let claim = AccountURL.parseInvite(link.absoluteString, base: base) else { return }
-        InviteSlot.store(claim)
-        if host == nil && !local {
-            if let h = claim.host { enter(claim, host: h) }
-        } else if committedHost != nil, let home,
-                  var parts = URLComponents(url: home, resolvingAgainstBaseURL: false) {
+        setInvite(claim)
+        if committedHost != nil, let home, var parts = URLComponents(url: home, resolvingAgainstBaseURL: false) {
             parts.queryItems = (parts.queryItems ?? []) + [URLQueryItem(name: "invite", value: "1")]
             if let url = parts.url { load(url) } // deferred under the lock like any load
         }
@@ -312,8 +316,8 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         return true
     }
 
-    /// Mode or account changed: open the new home, or stop the old page.
-    private func reopen() {
+    /// Mode or account changed: open the new home (or `url` on it), or stop the old page.
+    private func reopen(to url: URL? = nil) {
         lastURL = nil
         committedHost = nil
         loadError = nil
@@ -321,7 +325,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         deferredURL = nil
         deferredReminder = nil
         if concealed { webView.loadHTMLString("", baseURL: nil) } // the old page must not run behind the lock
-        if let home { load(home) } else { webView.loadHTMLString("", baseURL: nil) }
+        if let target = url ?? home { load(target) } else { webView.loadHTMLString("", baseURL: nil) }
     }
 
     private func load(_ url: URL) {
@@ -495,6 +499,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             UserDefaults.standard.removeObject(forKey: LocalOrigin.hostsKey)
             move.clear()
             leaveStash.clear()
+            setInvite(nil) // no claim token left behind after Erase
             Task {
                 await Notifications.shared.remove(vault: LocalOrigin.host)
                 replyHandler(true, nil)
@@ -514,18 +519,22 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         case "invite.pending":
             replyHandler(InviteSlot.pending() ?? NSNull(), nil)
         case "invite.clear":
-            InviteSlot.clear()
+            setInvite(nil)
             replyHandler(true, nil)
         // {url} (bd med-ta2n.11, contract med-ta2n.7 §7): open that account's
         // claim link from either mode — validated, else "invalid url" and
         // nothing changes; the slot is consumed. account.leave ignores then.
+        // A null or empty url is no url.
         case "local.leave" where local, "account.leave" where !local:
             let args = body["args"] as? [String: Any] ?? [:]
-            if let raw = args["url"] {
+            if let raw = args["url"], !(raw is NSNull), (raw as? String)?.isEmpty != true {
                 guard let url = (raw as? String).flatMap({ AccountURL.parse($0, base: base) }), let h = url.host else {
                     return replyHandler(nil, "invalid url")
                 }
                 replyHandler(true, nil)
+                // Only local.leave's move stash is for the new account; from
+                // an account, a stale one must not land in the next account.
+                if !local { move.clear() }
                 enter(url, host: h)
             } else {
                 // Without a url, local.leave is Settings → Backup → Move to a

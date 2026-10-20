@@ -689,15 +689,23 @@ changes for it.
   turns either form (or an old claim link) into the claim URL
   `https://<sub>.<base>/#claim=<token>` and stores the **pending slot**
   `{url, receivedAt}` (`InviteSlot`, UserDefaults `wgPendingInvite`; newest
-  wins, never expired by the shell). Then: on the native first run the invite
-  opens at once (as a pasted link); with a page loaded (local or account mode)
-  the shell loads that mode's home with `?invite=1` (deferred under the lock);
-  on a cold start nothing more — the booting page reads the slot.
+  wins, never expired by the shell). A capture never opens anything by itself
+  (any page can fire the scheme): the native first run prefills its invite
+  field from the slot and the user taps Continue; with a page loaded (local or
+  account mode) the shell loads that mode's home with `?invite=1` (deferred
+  under the lock); on a cold start nothing more — the booting page reads the
+  slot. `parseInvite` checks the raw (not percent-decoded) path and fragment:
+  sub `^[a-z0-9-]+$` after lowercasing, token `^[0-9a-f]+$` (the server's hex
+  claim token), no port, userinfo or query; the vectors in
+  `ios/Tests/main.swift` are the shared list for Android.
   Bridge ops (both modes): `invite.pending` → `{url, receivedAt}` or `null`;
-  `invite.clear` → `true`. `local.leave {url}` / `account.leave {url}` validate
-  the URL with `AccountURL.parse` (fragment kept, `&kit=1` included; error
-  `invalid url` with no change), then store the host, leave local mode, clear
-  `wgLeaveHost` and the slot, and load the URL (`then` is ignored). Without a
+  `invite.clear` → `true`; `local.reset` clears the slot too.
+  `local.leave {url}` / `account.leave {url}` validate the URL with
+  `AccountURL.parse` (fragment kept, `&kit=1` included; error `invalid url`
+  with no change), then store the host, leave local mode, clear `wgLeaveHost`,
+  the leave stash and the slot, and reopen on the URL (`then` is ignored).
+  `local.leave {url}` keeps the move stash for the new account;
+  `account.leave {url}` drops it. A `null` or empty `url` is no url. Without a
   url both keep their pre-v3 behaviour (native first run / `{then: "local"}`)
   until phase 2 removes the native first run. Older shells ignore `url` and
   land on their first run; the web probes `shell.ops` for `invite.pending`.
