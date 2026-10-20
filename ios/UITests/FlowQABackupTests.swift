@@ -160,21 +160,43 @@ final class FlowQABackupTests: XCTestCase {
 
     /// Waits for the Files export picker (bd med-o7zq.43), checks the file sits
     /// in the Downloads dir while it shows, cancels it, and checks the dir is
-    /// empty after. The picker is a remote view service: look for its nav-bar
-    /// Cancel in the app tree and in the service process (the web page has no
-    /// native nav bar, so this never matches page buttons).
+    /// empty after. The picker is a remote view service whose controls may show
+    /// in the app tree or in the service process; in the app tree they count
+    /// only beyond the web view's own matches, so page buttons never pass.
     private func exportPickerRoundTrip(_ app: XCUIApplication, flow: String, step: String, downloads: URL,
                                        suffix: String, timeout: TimeInterval = 60) {
         let service = XCUIApplication(bundleIdentifier: "com.apple.DocumentManagerUICore.Service")
-        let cancels = [app.navigationBars.buttons["Cancel"].firstMatch, service.buttons["Cancel"].firstMatch]
-        XCTAssertTrue(waitUntil(timeout) { cancels.contains { $0.exists } }, "\(step): the Files export picker never showed")
+        let marks = NSPredicate(format: "label IN {'Cancel', 'Save', 'Move', 'Browse', 'Recents', 'On My iPhone'}")
+        let cancel = NSPredicate(format: "label IN {'Cancel', 'Close'}")
+        let shown = {
+            service.descendants(matching: .any).matching(marks).firstMatch.exists
+                || app.descendants(matching: .any).matching(marks).count > app.webViews.descendants(matching: .any).matching(marks).count
+        }
+        let up = waitUntil(timeout, shown)
         shot(flow, "\(step)-export-picker")
+        guard up else {
+            return XCTFail("\(step): the Files export picker never showed — tree: \(tree(app))")
+        }
         let files = filesIn(downloads)
         XCTAssertTrue(files.count == 1 && files[0].hasSuffix(suffix), "\(step): Downloads holds \(files), want one *\(suffix)")
 
-        cancels.first { $0.exists }?.tap()
-        XCTAssertTrue(waitUntil(15) { !cancels.contains { $0.exists } }, "\(step): the export picker did not close")
+        let remoteCancel = service.buttons.matching(cancel).firstMatch
+        if remoteCancel.exists {
+            remoteCancel.tap()
+        } else if app.webViews.buttons.matching(cancel).count == 0, app.buttons.matching(cancel).firstMatch.exists {
+            app.buttons.matching(cancel).firstMatch.tap()
+        } else {
+            app.navigationBars.buttons.matching(cancel).firstMatch.tap()
+        }
+        let closed = waitUntil(15) { !shown() }
+        XCTAssertTrue(closed, "\(step): the export picker did not close — tree: \(tree(app))")
         XCTAssertTrue(waitUntil(10) { filesIn(downloads).isEmpty }, "\(step): the export file outlived the picker: \(filesIn(downloads))")
+    }
+
+    /// The element tree on one line, for a failure message (the job's log keeps
+    /// only " error: " lines and the artifact only PNGs).
+    private func tree(_ app: XCUIApplication) -> String {
+        String(app.debugDescription.split(separator: "\n").joined(separator: " | ").prefix(6000))
     }
 
     /// Bottom tab bar → Meds → Schedule (the tab restores its last sub-tab).
