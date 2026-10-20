@@ -6,7 +6,7 @@ import android.os.Bundle
 
 /**
  * Invite capture (bd med-ta2n.12.1, contract med-ta2n.7 §4–§7; twin of iOS InviteSlot): the
- * pending slot's keys and the pure rules around it, so InviteTest runs them on the JVM.
+ * pending slot's keys and the pure rules around it, so AccountUrlTest runs them on the JVM.
  * MainActivity owns the SharedPreferences and the delivery.
  */
 object Invite {

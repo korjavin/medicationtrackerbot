@@ -210,9 +210,10 @@ class MainActivity : Activity() {
         host = prefs.getString(HOST_KEY, null)?.takeIf { AccountUrl.isAccountHost(it, base) }
         local = prefs.getBoolean(LocalOrigin.MODE_KEY, false)
         // Before anything writes the mode: a true first install reads the Play referrer (A6).
-        if (savedInstanceState == null && !prefs.getBoolean(Invite.REFERRER_KEY, false)) {
-            if (Invite.readReferrer(prefs.contains(HOST_KEY), prefs.contains(LocalOrigin.MODE_KEY), false)) readReferrer()
-            prefs.edit().putBoolean(Invite.REFERRER_KEY, true).commit()
+        if (savedInstanceState == null) {
+            val done = prefs.getBoolean(Invite.REFERRER_KEY, false)
+            if (Invite.readReferrer(prefs.contains(HOST_KEY), prefs.contains(LocalOrigin.MODE_KEY), done)) readReferrer()
+            if (!done) prefs.edit().putBoolean(Invite.REFERRER_KEY, true).commit()
         }
         // An invite link launched the app (A5): into the slot; the launch path below boots as usual.
         capture(intent, savedInstanceState == null)
@@ -317,9 +318,10 @@ class MainActivity : Activity() {
                     runCatching { client.endConnection() }
                     val url = AccountUrl.referrerInvite(details?.installReferrer, base) ?: return
                     runOnUiThread {
-                        if (isDestroyed || prefs.contains(Invite.URL_KEY)) return@runOnUiThread
+                        if (prefs.contains(Invite.URL_KEY)) return@runOnUiThread
+                        // Filed even if this activity went meanwhile: the read-once flag is already set.
                         setInvite(url, Invite.referrerAt(details!!.referrerClickTimestampSeconds, System.currentTimeMillis()))
-                        deliverInvite()
+                        if (!isDestroyed) deliverInvite()
                     }
                 }
                 override fun onInstallReferrerServiceDisconnected() {}
@@ -442,9 +444,9 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Opens a validated account URL from any mode (A1): the first-run submit and local.leave /
-     * account.leave {url}. Not open() (never left local mode) and not forget()/setLocal(true)
-     * (entering local mode drops the move stash): the move stash is the caller's call.
+     * Opens a validated account URL from any mode (A1): the first-run submit (open()) and
+     * local.leave / account.leave {url}. It leaves local mode with setLocal(false), which keeps the
+     * move stash (forget()/setLocal(true) would drop it): dropping it is account.leave's call.
      */
     private fun enterAccount(url: String, h: String) {
         if (h != host) Notifications.clear(this)
@@ -870,7 +872,7 @@ class MainActivity : Activity() {
                 answer(true)
             }
             // Account → local leave (bd med-o7zq.36.3): the mirror image, same contract, the "leave" dir.
-            // Entering local mode (setLocal/forget) deliberately keeps it; open() and local.reset delete it.
+            // Entering local mode (setLocal/forget) deliberately keeps it; enterAccount (open(), leave {url}) and local.reset delete it.
             "leave.stash" -> stash(leave, msg) { r, e -> answer(r, e) }
             "leave.take" -> take(leave) { r, e -> answer(r, e) }
             // {back: true}: the user cancelled the pickup (bd med-o7zq.42), so nothing happened:
