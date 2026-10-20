@@ -30,8 +30,9 @@
 //                                    integrityToken, pass? }: publicKey is the
 //                                    key's SPKI DER (base64), keyId base64url
 //   setPass(pass), assert(…)       → as ios; the assertion is counter ‖ signature
-// The android impl also carries copy.trialTransit, the trial consent's "what
-// our server keeps" text for this platform (features/trial-consent.js).
+// The android impl also carries copy.trialTransit (the trial consent's "what
+// our server keeps" paragraphs) and copy.deviceCheck (its Device check fact)
+// for this platform (features/trial-consent.js).
 // challenge and bodySha256 are standard base64. The replies mean something
 // only to our server's /api/attest routes: the key proves a genuine app
 // install, not that the user meant a given request.
@@ -66,7 +67,12 @@
         assert: ios.assert,
         setPass: ios.setPass,
         copy: {
-            trialTransit: 'To count the trial without an account, our server stores an anonymous install id (a key this app made in this phone’s Android Keystore, confirmed by Google Play Integrity) and how many requests and seconds of calls this phone’s trial has used. Turning the trial on asks Google Play Integrity to check this app install: no health data, no account. You get a limited number of free AI requests on this phone, a daily allowance of food lookups, and a limited number of free minutes of voice calls on this phone, with a daily limit (the minutes left are shown in Settings), counted by our server as call time: each call uses its full length limit when it starts, even if you hang up sooner. Google Play may keep a mark that this phone had its trial, so reinstalling does not reset it.',
+            // Two "Full details" paragraphs + the Device check fact (med-ckm5.11).
+            deviceCheck: 'Google Play Integrity confirms this is the real app on a real phone. No personal data is shared.',
+            trialTransit: [
+                'To count the trial without an account, our server stores an anonymous install id (a key this app made in this phone’s Android Keystore, confirmed by Google Play Integrity) and how many requests and seconds of calls this phone’s trial has used. Turning the trial on asks Google Play Integrity to check this app install: no health data, no account.',
+                'You get a limited number of free AI requests on this phone, a daily allowance of food lookups, and a limited number of free minutes of voice calls on this phone, with a daily limit (the minutes left are shown in Settings), counted by our server as call time: each call uses its full length limit when it starts, even if you hang up sooner. Google Play may keep a mark that this phone had its trial, so reinstalling does not reset it.',
+            ],
         },
     });
 })();

@@ -71,6 +71,9 @@
     { "name": "settings-erase-confirm", "localOnly": true,
       "steps": [{ "tab": "today" }, { "tab": "settings" }, { "settingsPage": "backup" }, { "click": "#importexport-local-erase-btn" }],
       "ready": [".mt-confirm-modal", ".mt-confirm-modal .mt-confirm-modal__confirm"] },
+    { "name": "trial-consent", "localOnly": true,
+      "steps": [{ "tab": "today" }, { "consent": "anon" }],
+      "ready": ["#trial-consent-modal-anon .wg-facts", "#trial-consent-modal-anon [data-trial-consent-choice=\"allow\"]"] },
     { "name": "journey",
       "steps": [{ "tab": "today" }, { "tab": "settings" }, { "settingsPage": "features" }, { "click": "#gamification-feature-toggle:not(:checked)" }, { "click": ".wg-page .wg-back" }, { "tab": "today" }, { "tab": "journey" }],
       "ready": ["#journey-view.active", "#journey-content > *"] }
