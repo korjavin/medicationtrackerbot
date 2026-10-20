@@ -2,7 +2,7 @@
 // by med-y5xx.9): one screenshot per scene of tests/visual/scenes.json. Web scenes launch local mode
 // with `--es wgQAScene <name>` (debug-only, bd med-nt9p.32.4), the QA=1 bundle's driver seeds the
 // golden vault, navigates and publishes #wg-qa-ready; the scene's native steps run on the device;
-// then visual/<scene>.png (full device) + visual/<scene>.json (the ready node's report). Native-only
+// then visual/android/<scene>.png (full device) + visual/android/<scene>.json (the ready node's report). Native-only
 // scenes open first run. Dark / font scale / landscape are the dispatch inputs, applied to every scene.
 // A failed scene still attaches its shot; the rest still run; the scenario fails at the end.
 // Not in `all` (~20 cold starts).
@@ -18,7 +18,7 @@ export default async function localVisual(ctx) {
   const { shell, pkg, device, sleep } = ctx;
   const doc = JSON.parse(readFileSync(join(here, '../../../tests/visual/scenes.json'), 'utf8'));
   const scenes = doc.scenes;
-  const dir = join(ctx.out, 'visual');
+  const dir = join(ctx.out, 'visual', 'android'); // <device>/<scene>, the layout tests/visual/compare.mjs reads
   mkdirSync(dir, { recursive: true });
   const r = (ctx.results.localVisual = {});
   await shell(`pm clear ${pkg}`); // the golden vault exactly, whatever ran before
