@@ -272,8 +272,10 @@ describe('Settings home slots + mode card (kit S6)', () => {
         try {
             let kit = null;
             window.MedTrackerCloud = { ctx: { accountId: 'acct-1' } };
-            window.apiCall = vi.fn(async (url) => {
-                if (url === '/api/settings/emergency-kit') return kit;
+            window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+            let kitReadFails = false;
+            window.apiCallDirect = vi.fn(async (url) => {
+                if (url === '/api/settings/emergency-kit' && !kitReadFails) return kit;
                 throw new Error('offline');
             });
             window.fetch = vi.fn(async () => ({ ok: true, json: async () => [{}, {}] }));
@@ -302,6 +304,11 @@ describe('Settings home slots + mode card (kit S6)', () => {
             await window.loadSettings();
             await vi.waitFor(() => expect(chip.classList.contains('wg-settings-hidden')).toBe(false));
 
+            // A failed read is no evidence the kit is unsaved: no nag.
+            kitReadFails = true;
+            await window.loadSettings();
+            await vi.waitFor(() => expect(chip.classList.contains('wg-settings-hidden')).toBe(true));
+
             // The card opens Devices & connectors.
             card.click();
             await vi.waitFor(() => expect(document.querySelector('mt-modal.wg-page .wg-pagebar__title')?.textContent).toBe('Devices & connectors'));
@@ -317,11 +324,12 @@ describe('Settings home slots + mode card (kit S6)', () => {
         try {
             document.documentElement.classList.add('wg-local-vault');
             window.apiCall = vi.fn(async () => null);
+            window.apiCallDirect = vi.fn(async () => null);
             // The local-mode binders need a shell this harness lacks; only the cloud branch matters here.
             await window.loadSettings().catch(() => {});
             expect(document.getElementById('settings-vault-card').classList.contains('wg-settings-hidden')).toBe(true);
             expect(document.getElementById('settings-kit-chip').classList.contains('wg-settings-hidden')).toBe(true);
-            expect(window.apiCall).not.toHaveBeenCalledWith('/api/settings/emergency-kit', 'GET');
+            expect(window.apiCallDirect).not.toHaveBeenCalledWith('/api/settings/emergency-kit', 'GET');
         } finally {
             delete window.__MEDTRACKER_CLOUD__;
             cleanup();

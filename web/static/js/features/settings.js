@@ -605,13 +605,14 @@ async function paintVaultCard() {
 // Kit chip on Account & privacy (bd med-ckm5.6, epic decision 4): shown while
 // the synced emergencykit record says the current kit was never saved (no
 // record, or a new code nobody confirmed saving: how 'none'). A failed read
-// hides it rather than nag on a guess.
+// hides it rather than nag on a guess — hence apiCallDirect, which throws where
+// apiCall would hand back the same null as "no record".
 async function paintKitChip() {
     const chip = document.getElementById('settings-kit-chip');
     if (!chip) return;
     let unsaved = false;
     try {
-        const kit = await apiCall('/api/settings/emergency-kit', 'GET');
+        const kit = await window.apiCallDirect('/api/settings/emergency-kit', 'GET');
         unsaved = !kit || kit.how === 'none';
     } catch { /* keep it hidden */ }
     chip.classList.toggle('wg-settings-hidden', !unsaved);
