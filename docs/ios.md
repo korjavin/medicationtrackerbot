@@ -705,7 +705,7 @@ changes for it.
   with no change), then store the host, leave local mode, clear `wgLeaveHost`,
   the leave stash and the slot, and reopen on the URL (`then` is ignored).
   `local.leave {url}` keeps the move stash for the new account;
-  `account.leave {url}` drops it. A `null` or empty `url` is no url. Without a
+  `account.leave {url}` drops it. A present `url` that is `null`, empty or not a string is "invalid url" (contract A3). Without a
   url both keep their pre-v3 behaviour (native first run / `{then: "local"}`)
   until phase 2 removes the native first run. Older shells ignore `url` and
   land on their first run; the web probes `shell.ops` for `invite.pending`.

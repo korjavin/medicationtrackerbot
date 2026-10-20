@@ -524,10 +524,11 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         // {url} (bd med-ta2n.11, contract med-ta2n.7 §7): open that account's
         // claim link from either mode — validated, else "invalid url" and
         // nothing changes; the slot is consumed. account.leave ignores then.
-        // A null or empty url is no url.
+        // A present url key always takes this path: null, empty or non-string
+        // is "invalid url", never the destructive no-url leave (contract A3).
         case "local.leave" where local, "account.leave" where !local:
             let args = body["args"] as? [String: Any] ?? [:]
-            if let raw = args["url"], !(raw is NSNull), (raw as? String)?.isEmpty != true {
+            if let raw = args["url"] {
                 guard let url = (raw as? String).flatMap({ AccountURL.parse($0, base: base) }), let h = url.host else {
                     return replyHandler(nil, "invalid url")
                 }
