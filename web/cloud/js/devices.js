@@ -139,8 +139,7 @@ async function rotateEmergencyKit(app, ctx, onDone) {
     throw new Error('That passkey belongs to a different account.');
   }
 
-  // Reuse the signup ceremony wholesale — including the download/print gate
-  // from med-d5t.2. A second copy of this screen would drift, and the copy that
+  // Reuse the signup Emergency Kit page wholesale (bd med-ckm5.2). A second copy of this screen would drift, and the copy that
   // drifted would be the one that fails a friend who has lost their phone.
   const { renderEmergencyKit } = await import('./signup.js');
   await renderEmergencyKit(app, { accountId, dek, onKitSaved: onDone, continueLabel: 'Done' });

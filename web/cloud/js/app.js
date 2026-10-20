@@ -43,8 +43,8 @@ try {
     await runRecoverFlow();
   } else if (location.pathname === '/devices' && new URLSearchParams(location.search).get('flow') === 'emergency-kit') {
     // The one devices flow that stays a full-document ceremony (med-xso6.25):
-    // Emergency Kit rotation = fresh passkey assertion + the signup kit's
-    // download/print gate. Every exit returns to the in-app Devices page.
+    // Emergency Kit rotation = fresh passkey assertion + the signup
+    // Emergency Kit page. Every exit returns to the in-app Devices page.
     const { warmUnlock } = await import('./unlock.js');
     const { renderRegenerateKit } = await import('./devices.js');
     let ctx = null;

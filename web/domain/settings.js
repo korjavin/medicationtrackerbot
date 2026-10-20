@@ -58,15 +58,18 @@ const TRIALCONSENT_RECORD_TYPE = 'trialconsent';
 const TRIALCONSENT_RECORD_ID = 'trialconsent';
 const TRIALCONSENT_SCOPES = ['ai', 'voice', 'tg', 'anon'];
 // Whether the CURRENT Emergency Kit was saved (bd med-ckm5.2, epic med-ckm5
-// decision 4): {savedAt, how: download|print|ack}, written by the kit page and
-// read by Settings (S6 chip, S9 row). Synced so the wording is true across
-// devices. clientTs = savedAt, so a stash filed late (cloud-boot drains it on
-// the next unlocked open) never beats a newer kit saved on another device.
+// decision 4): {savedAt, how: download|print|ack|none}, written by the kit
+// page and read by Settings (S6 chip, S9 row). Synced so the wording is true
+// across devices. `none` = a new code was issued (the old kit is dead) and
+// nobody confirmed saving it yet — the page stashes it before Continue, so an
+// abandoned rotation reads as unsaved. setEmergencyKit keeps the newer
+// savedAt, so a stash filed late (cloud-boot drains it on the next unlocked
+// open) never replaces a newer kit state from another device.
 // Not in VAULT_MANAGED_TYPES: a backup restored into another account must not
 // claim that account's kit was saved.
 const EMERGENCYKIT_RECORD_TYPE = 'emergencykit';
 const EMERGENCYKIT_RECORD_ID = 'emergencykit';
-const EMERGENCYKIT_HOW = new Set(['download', 'print', 'ack']);
+const EMERGENCYKIT_HOW = new Set(['download', 'print', 'ack', 'none']);
 
 // SECRET_MASK mirrors secretMask in settings_integrations_handlers.go: GET
 // returns this sentinel for non-empty secret fields (never the raw key), and
@@ -371,6 +374,10 @@ export function createSettingsDomain({ records, now, timeZone }) {
       throw err;
     }
     const savedAt = Number.isFinite(state.savedAt) && state.savedAt > 0 ? state.savedAt : now();
+    // records.put promotes clientTs past the stored row, so LWW alone would let
+    // an older stash win; compare the save times instead.
+    const existing = findSingleton(await records.list(EMERGENCYKIT_RECORD_TYPE), EMERGENCYKIT_RECORD_ID);
+    if (existing && existing.savedAt >= savedAt) return { savedAt: existing.savedAt, how: existing.how };
     await records.put(EMERGENCYKIT_RECORD_TYPE, {
       recordId: EMERGENCYKIT_RECORD_ID, clientTs: savedAt, deleted: false, savedAt, how,
     });

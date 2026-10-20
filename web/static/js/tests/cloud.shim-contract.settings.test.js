@@ -311,8 +311,20 @@ describe('cloud shim contract — settings flows (features/settings.js over web/
         expect(await window.apiCall('/api/settings/emergency-kit', 'GET')).toEqual({ savedAt: 1700000000000, how: 'download' });
         const all = await records.list('emergencykit');
         expect(all).toHaveLength(1);
-        // clientTs is the save time, so a late drain never beats a newer kit from another device.
-        expect(all[0]).toMatchObject({ recordId: 'emergencykit', clientTs: 1700000000000, deleted: false, how: 'download' });
+        expect(all[0]).toMatchObject({ recordId: 'emergencykit', deleted: false, how: 'download' });
+    });
+
+    it('emergency-kit: an older stash drained late never replaces a newer kit state from another device', async () => {
+        const { window } = env;
+        await window.apiCall('/api/settings/emergency-kit', 'PUT', { savedAt: 2000, how: 'none' });
+
+        const { stashKitSaved, drainKitSaved } = await import('../../../cloud/js/kit-state.js');
+        stashKitSaved({ savedAt: 1000, how: 'download' }, window.localStorage);
+        await drainKitSaved((path, method, body) => window.apiCall(path, method, body), window.localStorage);
+
+        expect(await window.apiCall('/api/settings/emergency-kit', 'GET')).toEqual({ savedAt: 2000, how: 'none' });
+        await window.apiCall('/api/settings/emergency-kit', 'PUT', { savedAt: 3000, how: 'print' });
+        expect(await window.apiCall('/api/settings/emergency-kit', 'GET')).toEqual({ savedAt: 3000, how: 'print' });
     });
 
     it('emergency-kit: an unknown save method is refused and nothing is written', async () => {

@@ -33,13 +33,17 @@ export function mountExitBar(doc = document, win = window) {
   // ponytail: safeConfirm until D1 (bd med-ckm5.5) adds the facts/tone dialog
   // with the Copy diagnostics action; the shells keep their own copy action.
   leave.addEventListener('click', () => {
+    // One message for every stage: after the passkey step the account already
+    // exists, so the design's "nothing is saved until you finish" would be false.
     win.safeConfirm(
-      settingUp
-        ? `You'll leave this setup and go back to the start. Nothing is saved for ${hostname} until you finish.`
-        : "You'll leave this page and go back to the first screen, where you can paste or scan another invite. Nothing on this phone is deleted.",
+      "You'll leave this page and go back to the first screen, where you can paste or scan another invite. Nothing on this device is deleted.",
       (ok) => {
         if (!ok) return;
-        native.call('account.leave').catch((e) => win.safeAlert((e && e.message) || String(e)));
+        native.call('account.leave').catch((e) => {
+          // A shell older than the op (it still has its own exit at the bottom).
+          const msg = String((e && e.message) || e);
+          win.safeAlert(/unsupported/.test(msg) ? 'Update Med Tracker to use this, or use the app’s own “Use another invite” button.' : msg);
+        });
       },
       { title: 'Use another invite?', confirmLabel: 'Use another invite', cancelLabel: settingUp ? 'Keep setting up' : 'Stay here', destructive: false },
     );

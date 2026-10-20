@@ -106,6 +106,8 @@ describe('Emergency Kit page: one page, "I saved it" at the user\'s own risk', (
     expect(app.querySelector('#kit-continue').disabled).toBe(true);
     expect(app.querySelector('#kit-hint').hidden).toBe(false);
     expect(app.querySelector('#kit-save-chip').textContent).toBe('Not saved');
+    // The new code is already live, so a page closed now must read as unsaved.
+    expect(stash().how).toBe('none');
   });
 
   it('ticked without a download or print: Continue unlocks, the warn note says so, and the stash says ack', async () => {

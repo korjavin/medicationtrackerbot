@@ -286,6 +286,9 @@ export async function renderEmergencyKit(app, ctx) {
     }),
   });
   if (!recoveryRes.ok) throw new Error('Could not save recovery material.');
+  // The previous kit is dead from here on: until Continue says otherwise, the
+  // synced record must read "not saved" (kit-state.js), even if the page is closed.
+  stashKitSaved({ savedAt: Date.now(), how: 'none' });
 
   const kitUrl = location.origin;
   const { qrcode } = await import('../vendor/qrcode.mjs');
