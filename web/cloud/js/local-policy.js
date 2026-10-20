@@ -498,9 +498,9 @@ export async function pickupLeaveStash({ win }) {
 
 // Settings → Backup (importexport.js reads window.CloudVault): the same
 // recordsToVault / vaultToRecords conversion as cloud-boot.js, over the
-// on-device store. Moving to a cloud account (bd med-o7zq.6) is this export,
-// then the account's own Restore of the file: openCloudAccount only hands the
-// user to the shell's invite screen, and this origin keeps its data.
+// on-device store. Moving to a cloud account is moveToCloud: this export,
+// handed to the shell, which the new account picks up. This origin keeps
+// its data.
 export const LOCAL_VAULT = {
   async hasUserContent() {
     return hasUserContent(await readAllLocalRecords());
@@ -540,15 +540,7 @@ export const LOCAL_VAULT = {
     }
     resetHealthAnchors(win.localStorage);
   },
-  // Settings → Backup → Move to a cloud account: the shell leaves local mode
-  // for its invite screen. Nothing here is erased; choosing "Only on this
-  // device" again reopens it.
-  async openCloudAccount({ win = globalThis.window } = {}) {
-    const native = shellNative(win);
-    if (!native) throw new Error(`Open the app on your ${deviceName(win)} to use an invite.`);
-    await native.call('local.leave');
-  },
-  // Settings home → Move to a cloud account (bd med-nt9p.32.16): the shell
+  // Backup & import → Move to a cloud account (bd med-nt9p.32.16): the shell
   // carries the vault across origins (move.stash, docs/android.md "move
   // stash"); the new account picks it up with move.take. A rejected stash
   // ('invalid vault', 'too large', an old shell) throws before the leave.

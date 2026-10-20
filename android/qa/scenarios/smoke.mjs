@@ -120,7 +120,7 @@ export default async function smoke(ctx) {
   await ctx.shot('relaunch-today');
 }
 
-// bd med-nvd4: Settings → Backup & import → encrypted "Download backup" must end in the shell's
+// bd med-nvd4: Settings → Backup & import → encrypted "Export backup" must end in the shell's
 // Save/Share dialog with visible progress on the way. results.smoke.export has each phase's time
 // (exportAll / gzip / age), the status line seen while it ran, and the click → dialog time; a
 // ~25 MB blob probe checks the shell's blob: download path at a real vault's size. Findings, not
@@ -133,10 +133,20 @@ async function exportBackup(ctx, page, r) {
     await sleep(1000);
     await shell(`run-as ${ctx.pkg} rm -rf cache/downloads`).catch(() => {});
   };
+  // Export backup opens the passphrase sheet; Backup ready's Save to device hands the file to
+  // the shell (kit S7, bd med-ckm5.7).
+  const startExport = async () => {
+    await page.click('#importexport-export-btn');
+    await page.fill('#importexport-export-passphrase', 'qa-export-passphrase');
+    await page.click('#importexport-export-confirm');
+  };
+  const saveReady = async (timeout) => {
+    await page.locator('#importexport-ready-save').waitFor({ state: 'visible', timeout });
+    await page.click('#importexport-ready-save');
+  };
   await ctx.step('export: open Backup & import', async () => {
     await page.locator('[data-settings-open="backup"]').click();
     await page.locator('#importexport-export-btn').waitFor({ state: 'visible', timeout: 10_000 });
-    await page.fill('#importexport-export-passphrase', 'qa-export-passphrase');
   }).catch(() => {});
   // The same pipeline as the button, timed per phase, without a download.
   e.phases = await page.evaluate(async () => {
@@ -157,14 +167,15 @@ async function exportBackup(ctx, page, r) {
     }
     return out;
   }).catch((err) => ({ error: String(err?.message || err).split('\n')[0] }));
-  await ctx.step('export: Download backup → Save/Share', async () => {
+  await ctx.step('export: Export backup → Backup ready → Save/Share', async () => {
     const t0 = Date.now();
-    await page.click('#importexport-export-btn');
+    await startExport();
     await sleep(700);
     e.statusWhileRunning = await page.evaluate(() => document.getElementById('importexport-export-status')?.textContent || null).catch(() => null);
     await ctx.shot('export-progress');
     try {
-      await ctx.waitFor({ text: 'Save to device' }, 180_000);
+      await saveReady(180_000);
+      await ctx.waitFor({ text: 'Save to device' }, 60_000);
       e.clickToDialogMs = Date.now() - t0;
       await ctx.shot('export-save-share');
     } finally {
@@ -191,11 +202,12 @@ async function exportBackup(ctx, page, r) {
       return json.length;
     }).then((n) => { e.largeJsonBytes = n; });
     const t0 = Date.now();
-    await page.click('#importexport-export-btn');
+    await startExport();
     await sleep(400);
     await ctx.shot('export-large-progress');
     try {
-      await ctx.waitFor({ text: 'Save to device' }, 300_000);
+      await saveReady(300_000);
+      await ctx.waitFor({ text: 'Save to device' }, 60_000);
       e.largeClickToDialogMs = Date.now() - t0;
       await ctx.shot('export-large-save-share');
     } finally {

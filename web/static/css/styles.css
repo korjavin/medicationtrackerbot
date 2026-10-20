@@ -2569,6 +2569,31 @@ input.wg-stepper__val::-webkit-inner-spin-button {
     z-index: var(--z-confirm);
 }
 
+/* Backup & import sheets (kit S7, bd med-ckm5.7) open over the pushed page,
+   above #modal-overlay: they sit on their own dimmed backdrop
+   (#importexport-sheet-backdrop, earlier in the DOM, same layer). It has its
+   own class: a .mt-confirm-backdrop in the DOM means an in-page dialog is
+   open. The kit's display rules beat the UA [hidden] rule, as on the
+   settings pages. */
+.wg-importexport-backdrop {
+    position: fixed;
+    inset: 0;
+    background: var(--color-overlay);
+    z-index: var(--z-confirm);
+}
+
+.wg-importexport-backdrop[hidden] {
+    display: none;
+}
+
+.wg-importexport-sheet {
+    z-index: var(--z-confirm);
+}
+
+.wg-importexport-sheet [hidden] {
+    display: none !important;
+}
+
 /* Cloud feedback capture (med-dni.2) — compose modal opened from the Settings
    "Send feedback" row (a kit .wg-setting). Cloud-mode-only; mounted post-unlock
    by web/cloud/js/feedback-ui.js. Shell is the generic .wg-modal on the same
