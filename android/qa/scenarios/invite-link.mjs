@@ -188,7 +188,8 @@ export default async function inviteLink(ctx) {
     await ctx.shot('w1-have-an-invite');
     await warm(page, scheme, `${LOCAL_ORIGIN}/`);
     const p = await pageOn((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`));
-    await p.getByText('Medications').first().waitFor({ state: 'visible', timeout: 60_000 });
+    // W1's title ('Medications' also matches hidden app nodes behind the overlay).
+    await p.getByText('What do you want to track?').locator('visible=true').first().waitFor({ state: 'visible', timeout: 60_000 });
     await sleep(3000); // the footer's invite.pending probe
     expect((await p.locator('[data-firstrun-action="invite"]').count()) === 0, 'W1 offers an invite while one waits');
     await ctx.shot('w1-invited');
