@@ -983,13 +983,13 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
   it.each([
     ['choice cancelled', { choice: null }],
     ['Replace declined', { confirm: false }],
-  ])('%s: nothing imported, stash kept, the file steps hint shown', async (_, opts) => {
+  ])('%s: nothing imported, stash kept, no dialog after it (med-o7zq.42)', async (_, opts) => {
     const { window, log } = await boot({ content: true, ...opts });
-    await vi.waitFor(() => expect(log).toContain('alert'));
+    await vi.waitFor(() => expect(log).toContain(opts.confirm === false ? 'confirm' : 'choose'));
     await settle();
     expect(log).not.toContain('importAll');
     expect(log).not.toContain('move.clear');
-    expect(window.safeAlert.mock.calls[0][0]).toMatch(/Nothing was replaced.*export a backup/);
+    expect(window.safeAlert).not.toHaveBeenCalled();
   });
 
   it('importAll rejects: never move.clear, the error is shown', async () => {
