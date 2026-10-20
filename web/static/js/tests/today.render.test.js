@@ -15,6 +15,7 @@ const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const EMPTY_STATE_JS = path.join(REPO_ROOT, 'web/static/js/components/empty-state.js');
 const WG_ICONS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-icons.js');
 const WG_CHIP_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-chip.js');
+const WG_OFFER_CARD_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-offer-card.js');
 const WG_SPARKLINE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-sparkline.js');
 const TODAY_JS = path.join(REPO_ROOT, 'web/static/js/features/today.js');
 const CACHE_KEYS_JS = path.join(REPO_ROOT, 'web/static/js/core/cache-keys.js');
@@ -29,6 +30,7 @@ function loadRenderEnv() {
     window.eval(fs.readFileSync(EMPTY_STATE_JS, 'utf8'));
     window.eval(fs.readFileSync(WG_ICONS_JS, 'utf8'));
     window.eval(fs.readFileSync(WG_CHIP_JS, 'utf8'));
+    window.eval(fs.readFileSync(WG_OFFER_CARD_JS, 'utf8'));
     window.eval(fs.readFileSync(WG_SPARKLINE_JS, 'utf8'));
     window.eval(fs.readFileSync(TODAY_JS, 'utf8'));
     return {
@@ -1565,6 +1567,15 @@ describe('AI trial card', () => {
         await flush();
         expect(shown()).toBe(true);
         expect(card().textContent).toContain('Try AI for free');
+        // Kit A1: the shared WGOfferCard (Settings renders the same builder),
+        // Try it raised not sun, and placed after Next up, before the vitals.
+        expect(card().matches('.wg-card.wg-card--accent[data-offer-card]')).toBe(true);
+        expect(card().querySelector('.wg-meta').textContent).toBe('Food logging · no API key');
+        expect(card().querySelector('[data-action="ai-trial-start"]').classList.contains('wg-btn--primary')).toBe(false);
+        const sections = [...env.document.querySelectorAll('#today-content > [data-section]')].map((n) => n.getAttribute('data-section'));
+        const at = sections.indexOf('ai-trial');
+        if (sections.includes('next-up')) expect(at).toBeGreaterThan(sections.indexOf('next-up'));
+        expect(at).toBeLessThan(sections.indexOf('vitals'));
         env.paint();
         expect(shown()).toBe(true); // a re-render keeps it without a flash
         env.cleanup();
@@ -1577,7 +1588,7 @@ describe('AI trial card', () => {
     it('Not now retires it for good on this device', async () => {
         setup(true);
         await flush();
-        card().querySelector('[data-action="ai-trial-dismiss"]').click();
+        card().querySelector('[data-action="offer-dismiss"]').click();
         expect(card()).toBeNull();
         expect(env.window.localStorage.getItem('wg.today.aiTrialDismissed')).toBe('1');
         env.paint();

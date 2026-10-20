@@ -82,6 +82,12 @@
       "ready": ["#trial-consent-modal-anon .wg-facts", "#trial-consent-modal-anon [data-trial-consent-choice=\"allow\"]"] },
     { "name": "journey",
       "steps": [{ "tab": "today" }, { "tab": "settings" }, { "settingsPage": "features" }, { "click": "#gamification-feature-toggle:not(:checked)" }, { "click": ".wg-page .wg-back" }, { "tab": "today" }, { "tab": "journey" }],
-      "ready": ["#journey-view.active", "#journey-content > *"] }
+      "ready": ["#journey-view.active", "#journey-content > *"] },
+    { "name": "today-ai-trial", "localOnly": true,
+      "steps": [{ "trial": { "on": false } }, { "tab": "settings" }, { "tab": "today" }],
+      "ready": ["#today-content [data-section=\"ai-trial\"] [data-action=\"ai-trial-start\"]"] },
+    { "name": "settings-ai-trial", "localOnly": true,
+      "steps": [{ "trial": { "on": true, "remaining": 42, "daily": 50, "voiceRemaining": 1080, "voiceLifetime": 1800, "voiceDaily": 600, "voiceDailyRemaining": 420, "voiceCallMax": 300 } }, { "tab": "today" }, { "tab": "settings" }, { "settingsPage": "integrations" }],
+      "ready": ["#integrations-trial-card [data-trial-state=\"on\"] .wg-macros"] }
   ]
 }

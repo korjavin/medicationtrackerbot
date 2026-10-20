@@ -145,16 +145,7 @@
     }
 
     function renderTrialConsentRows() {
-        // Cloud's "Try the free AI trial" entry (med-6xb9): leads the page
-        // while the operator's trial is on offer and nothing else is set up.
-        // Hidden until the consent record has loaded, so a granted trial
-        // never flashes the offer.
-        const offer = document.getElementById('integrations-cloud-trial');
-        if (offer) {
-            const trialOn = document.querySelector('meta[name="medtracker-trial-ai"]')?.content === '1';
-            const keySet = !!(getInput(FIELD_IDS.openai.api_key)?.value);
-            offer.classList.toggle('hidden', !(trialOn && !keySet && _trialConsent && _trialConsent.ai !== true));
-        }
+        renderTrialCard();
         for (const [metaName, hintId, scopes] of CONSENT_MOUNTS) {
             const hint = document.getElementById(hintId);
             if (!hint) continue;
@@ -254,25 +245,110 @@
         return true;
     }
 
-    // Local mode's anonymous trial AI (bd med-o7zq.16). window.CloudVault.trial
-    // (web/cloud/js/local-policy.js) exists only in local mode; its status()
-    // is null where the shell has no App Attest (the Simulator, old devices),
-    // and the row stays hidden. On = the `anon` trial consent (one switch for
-    // the AI and, from bd med-o7zq.20, the food database): turning it on is
-    // the consent ceremony (local-mode copy in trial-consent.js), turning it
-    // off revokes it; either way trial.apply() re-scopes the shell's CSP and
+    // The free trial card (kit A1, med-ckm5.10): one WGOfferCard for both
+    // trials. Cloud: the operator trial is the `ai` consent (med-6xb9), on
+    // offer while the trial flag is set, no own key is saved and the consent
+    // record has loaded (so a granted trial never flashes the offer). Local
+    // (bd med-o7zq.16): window.CloudVault.trial (web/cloud/js/local-policy.js)
+    // exists only in local mode; its status() is null where the shell has no
+    // App Attest (the Simulator, old devices), and the card stays hidden. On =
+    // the `anon` consent (AI, food database, voice): turning it on is the
+    // consent ceremony (local-mode copy in trial-consent.js), turning it off
+    // revokes it; either way trial.apply() re-scopes the shell's CSP and
     // reloads the page when it changed. Enrollment runs after that reload.
-    async function renderLocalTrial() {
-        const section = document.getElementById('integrations-local-trial');
+    let _trialSeq = 0;
+    async function renderTrialCard() {
+        const wrap = document.getElementById('integrations-trial');
+        const mount = document.getElementById('integrations-trial-card');
+        if (!wrap || !mount || !window.WGOfferCard) return;
+        const seq = ++_trialSeq;
         const trial = window.CloudVault && window.CloudVault.trial;
-        if (!section || !trial) return;
         let status = null;
-        try { status = await trial.status(); } catch (_) { status = null; }
-        section.classList.toggle('hidden', !status);
-        if (!status) return;
-        const toggle = document.getElementById('integrations-local-trial-toggle');
-        const note = document.getElementById('integrations-local-trial-status');
-        if (toggle) toggle.checked = status.on === true;
+        let available;
+        let on;
+        if (trial) {
+            try { status = await trial.status(); } catch (_) { status = null; }
+            if (seq !== _trialSeq) return; // a newer render owns the card
+            available = !!status;
+            on = available && status.on === true;
+        } else {
+            available = document.querySelector('meta[name="medtracker-trial-ai"]')?.content === '1' && !!_trialConsent;
+            on = available && _trialConsent.ai === true;
+        }
+        const keySet = !!(getInput(FIELD_IDS.openai.api_key)?.value);
+        const show = on || (available && !keySet);
+        wrap.classList.toggle('hidden', !show);
+        mount.textContent = '';
+        syncOwnKeyRows();
+        if (!show) return;
+        const local = !!trial;
+        const meta = local ? 'Food AI · food database · voice' : 'Food logging · no API key';
+        let card;
+        if (on) {
+            const body = [];
+            if (status) {
+                const rows = trialMeters(status);
+                if (rows.length) body.push(window.WGOfferCard.meters(rows));
+                const text = trialStatusText(status);
+                if (text) {
+                    const note = document.createElement('p');
+                    note.id = 'integrations-trial-status';
+                    note.className = 'wg-hint';
+                    note.textContent = text;
+                    body.push(note);
+                }
+            }
+            card = window.WGOfferCard.create({
+                title: 'AI free trial',
+                meta,
+                trail: window.WGChip ? window.WGChip.create({ text: 'On', state: 'ok', small: true, icon: 'check' }) : null,
+                text: local
+                    ? 'Uses our keys, so you don’t need your own. Requests go through our server to the operator’s providers.'
+                    : 'Uses the operator’s shared key, so you don’t need your own. Rate-limited.',
+                body,
+                actions: [{ label: 'Turn off the trial', ghost: true, sm: true, action: 'trial-stop', onClick: () => { stopTrial(); } }],
+            });
+        } else {
+            card = window.WGOfferCard.create({
+                title: 'Try AI for free',
+                meta,
+                text: 'Describe a meal or snap a photo and the AI logs it, without your own key. You’ll see what is sent before you agree.',
+                actions: [{ label: 'Try it', icon: 'sparkle', action: 'trial-start', onClick: () => { startTrial(); } }],
+            });
+        }
+        card.setAttribute('data-trial-state', on ? 'on' : 'offer');
+        mount.appendChild(card);
+    }
+
+    // The "Your own keys · replace the trial" rows: Set / Not set from the
+    // masked GET values, and a tap jumps to that provider's key field.
+    const OWN_KEY_INPUTS = { openai: FIELD_IDS.openai.api_key, food: FIELD_IDS.food.api_key, elevenlabs: FIELD_IDS.elevenlabs.api_key };
+    function syncOwnKeyRows() {
+        document.querySelectorAll('#integrations-trial [data-own-key]').forEach((row) => {
+            const input = getInput(OWN_KEY_INPUTS[row.getAttribute('data-own-key')]);
+            const state = row.querySelector('[data-own-key-state]');
+            if (state) state.textContent = input && input.value ? 'Set' : 'Not set';
+        });
+    }
+
+    // Meters where the server told us a total (bd med-o7zq.28): the voice
+    // allowance and today's share of it. The AI's lifetime budget has no
+    // total on the wire (only `remaining`), so it stays a sentence.
+    function trialMeters(status) {
+        const min = (s) => Math.round(s / 60);
+        const rows = [];
+        if (status.voiceLifetime > 0 && typeof status.voiceRemaining === 'number') {
+            const used = Math.max(0, status.voiceLifetime - status.voiceRemaining);
+            rows.push({ label: 'Voice', used, total: status.voiceLifetime, value: min(used) + ' / ' + min(status.voiceLifetime) + ' min' });
+        }
+        if (status.voiceDaily > 0 && typeof status.voiceDailyRemaining === 'number') {
+            const used = Math.max(0, status.voiceDaily - status.voiceDailyRemaining);
+            rows.push({ label: 'Today', used, total: status.voiceDaily, value: min(used) + ' / ' + min(status.voiceDaily) + ' min' });
+        }
+        return rows;
+    }
+
+    function trialStatusText(status) {
         let text = '';
         if (status.on && (status.used || status.remaining === 0)) {
             text = 'AI trial used — add your own key below to keep using the AI.';
@@ -297,17 +373,14 @@
                 text += ' Voice: ' + min(voice) + ' left' + (limits.length ? ' (' + limits.join('; ') + ').' : '.');
             }
         }
-        if (note) {
-            note.textContent = text;
-            note.hidden = !text;
-        }
+        return text.trim();
     }
 
+    let _trialBusy = false;
     async function setLocalTrial(on) {
         const trial = window.CloudVault && window.CloudVault.trial;
-        const toggle = document.getElementById('integrations-local-trial-toggle');
-        if (!trial || !toggle) return false;
-        toggle.disabled = true;
+        if (!trial || _trialBusy) return false;
+        _trialBusy = true;
         let ok = false;
         try {
             ok = on
@@ -318,8 +391,8 @@
             console.error('[settings] trial toggle failed', e);
             if (typeof safeToast === 'function') safeToast('Could not change the free trial — try again', 'error');
         } finally {
-            toggle.disabled = false;
-            await renderLocalTrial();
+            _trialBusy = false;
+            await renderTrialCard();
         }
         return ok;
     }
@@ -351,6 +424,12 @@
     async function startTrial() {
         if (window.CloudVault && window.CloudVault.trial) return await setLocalTrial(true);
         return await setTrialConsentScope('ai', true);
+    }
+
+    // stopTrial: the card's "Turn off the trial" — revokes the same consent.
+    async function stopTrial() {
+        if (window.CloudVault && window.CloudVault.trial) return await setLocalTrial(false);
+        return await setTrialConsentScope('ai', false);
     }
 
     async function loadTrialConsent() {
@@ -564,8 +643,8 @@
 
             // Fire-and-forget: consent rows repaint when the GET lands; the
             // integrations payload itself doesn't wait on it.
+            // (applyPayloadToDOM above already painted the trial card.)
             loadTrialConsent();
-            renderLocalTrial();
 
             // Local mode has no server to link Telegram through, and telegram.js
             // reads its status with a raw fetch the shim never sees (a 404 on
@@ -646,16 +725,16 @@
             loadBtn.addEventListener('click', () => { chooseModel(cfg); });
         }
         document.querySelectorAll('#settings-integrations .wg-secret').forEach(bindSecretField);
-        const trialToggle = document.getElementById('integrations-local-trial-toggle');
-        if (trialToggle && !trialToggle.dataset.integrationsBound) {
-            trialToggle.dataset.integrationsBound = '1';
-            trialToggle.addEventListener('change', () => { setLocalTrial(trialToggle.checked); });
-        }
-        const trialStart = document.getElementById('integrations-cloud-trial-start');
-        if (trialStart && !trialStart.dataset.integrationsBound) {
-            trialStart.dataset.integrationsBound = '1';
-            trialStart.addEventListener('click', () => { setTrialConsentScope('ai', true); });
-        }
+        document.querySelectorAll('#integrations-trial [data-own-key]').forEach((row) => {
+            if (row.dataset.integrationsBound) return;
+            row.dataset.integrationsBound = '1';
+            row.addEventListener('click', () => {
+                const input = getInput(OWN_KEY_INPUTS[row.getAttribute('data-own-key')]);
+                if (!input) return;
+                if (typeof input.scrollIntoView === 'function') input.scrollIntoView({ block: 'center' });
+                input.focus();
+            });
+        });
     }
 
     if (document.readyState === 'loading') {
@@ -693,7 +772,7 @@
         _chooseModel: (scope) => chooseModel(MODEL_LOADERS.find((c) => c.scope === scope)),
         syncTelegramRow,
         // Returns the in-flight promise, like _loadModels.
-        _renderLocalTrial: renderLocalTrial,
+        _renderTrialCard: renderTrialCard,
         _setLocalTrial: setLocalTrial,
         _resetTelegramMounted: () => { _telegramMounted = false; },
         _setTelegramLoader: (loader) => { _telegramModuleLoader = loader; }

@@ -461,8 +461,9 @@ The phone apps can run with **no account**. The bundled web app is served from t
 
 ### AI trial [NEW]
 
-- **Today card "Try AI for free"** (`static/js/features/today.js:1555`). A plain `wg-card` with the hint "Snap or describe a meal and the AI logs it for you. No API key needed." and buttons **Try it** (sparkle icon) / **Not now** (ghost). Shown while the trial is on offer, Food is on and the card hasn't been dismissed (per device).
-- **Settings → AI & integrations → Free trial** (cloud: `index.html:941`, **Try the free AI trial** block button; local: the switch above).
+- **One offer card** (kit A1, `static/js/components/wg-offer-card.js` `WGOfferCard.create`): accent card, sparkle lead, title, mono meta line, one sentence, block action(s), optional × dismiss / trailing chip / meters. Today and Settings build it; the onboarding trial step (med-ta2n.2) is meant to as well.
+- **Today card "Try AI for free"** (`static/js/features/today.js renderAITrialCard`), right after Next up: meta "Food logging · no API key", raised **Try it**, × = Not now (per device). Shown while the trial is on offer, Food is on and the card hasn't been dismissed.
+- **Settings → AI & integrations → Free trial** (`integrations.js renderTrialCard`, cloud and local): the same card as an offer (**Try it**), or ON with an "On" chip, voice minutes as meters (used / total, and today's), the AI requests-left sentence and a ghost **Turn off the trial**; then "Your own keys · replace the trial" rows (OpenAI / Food database / Voice, Set / Not set, tap jumps to the key field).
 - **Consent dialog** (`static/js/features/trial-consent.js`), with variants for food, voice and Telegram. Each has a title, a "data" paragraph, a "transit" paragraph and an own-key alternative. The device-trial variants add long platform paragraphs: iOS App Attest / DeviceCheck (`trial-consent.js:57`), Android Play Integrity (`static/js/native/attest.js:69`).
 - **Limits and errors**: "Free voice minutes used up…", "Today's free voice minutes are used up…" (`static/js/features/elevenlabs-call.js:556`, `cloud/js/local-trial.js:196`), "Food lookups paused until tomorrow", "AI trial used — add your own key below".
 
