@@ -9,7 +9,7 @@
 // image: {x, y, w, h} in 0..1), blanked in both images before the diff.
 // Evidence, never a gate: always exits 0.
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
-import { basename, dirname, join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import pixelmatch from 'pixelmatch';
 import pngjs from 'pngjs';
@@ -61,7 +61,7 @@ export async function compare(current, reference, out, scenesPath = SCENES) {
     const rows = [];
     for (const rel of await pngs(current, resolve(out))) { // out may sit inside current (shots/compare)
         const device = dirname(rel);
-        const scene = basename(rel, '.png'); // device '.' = a flat layout (Android: visual/<scene>.png)
+        const scene = rel.slice(device.length + 1, -'.png'.length);
         const row = { scene, device, changedRatio: null, probesOk: await probesOk(join(current, device, `${scene}.json`)) };
         rows.push(row);
         const cur = await readPNG(join(current, rel));

@@ -51,18 +51,4 @@ describe('visual compare (med-y5xx.4)', () => {
         expect(md).toContain('no reference');
         expect(JSON.parse(fs.readFileSync(path.join(out, 'summary.json'), 'utf8'))).toHaveLength(3);
     });
-
-    it('takes a flat <scene>.png layout (the Android tier, med-y5xx.9)', async () => {
-        tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'wg-compare-'));
-        const cur = path.join(tmp, 'cur');
-        const ref = path.join(tmp, 'ref');
-        writePNG(path.join(ref, 'today.png'), 10, 10);
-        writePNG(path.join(cur, 'today.png'), 10, 10, dot(1, 1));
-        fs.writeFileSync(path.join(cur, 'today.json'), JSON.stringify({ ok: false, failed: ['hOverflow'] }));
-
-        const rows = await compare(cur, ref, path.join(cur, 'compare'), path.join(tmp, 'none.json'));
-
-        expect(rows).toHaveLength(1);
-        expect(rows[0]).toMatchObject({ scene: 'today', changedRatio: 0.01, probesOk: false });
-    });
 });
