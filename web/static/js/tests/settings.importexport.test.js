@@ -198,7 +198,7 @@ describe('Settings → Import/Export section', () => {
             expect(css).toMatch(/\.wg-importexport-sheet\s*\{[^}]*z-index:\s*var\(--z-confirm\)/);
             expect(css).toMatch(/\.wg-importexport-backdrop\s*\{[^}]*z-index:\s*var\(--z-confirm\)/);
             // Not the in-page dialog's class: its presence means a dialog is open.
-            expect(document.querySelector('.mt-confirm-backdrop')).toBeNull();
+            expect(env.document.querySelector('.mt-confirm-backdrop')).toBeNull();
         });
     });
 
