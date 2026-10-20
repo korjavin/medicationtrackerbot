@@ -963,13 +963,12 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
   });
 
   // bd med-o7zq.38: an account with content offers Merge / Replace / Cancel.
-  it('stash + account with content: Replace, confirmed once, replaces the account', async () => {
+  it('stash + account with content: Replace, confirmed with typed REPLACE, replaces the account', async () => {
     const { window, log } = await boot({ content: true });
     await vi.waitFor(() => expect(log).toContain('move.clear'));
     expect(log).toEqual(['shell.ops', 'move.take', 'probe', 'choose', 'confirm', 'importAll', 'move.clear']);
-    expect(window.safeChoose.mock.calls[0][2]).toMatchObject({ title: 'Records already in your account' });
-    expect(window.safeConfirm.mock.calls[0][2]).toMatchObject({ destructive: true, confirmLabel: 'Replace' });
-    expect(window.safeConfirm.mock.calls[0][2].typedConfirm).toBeUndefined();
+    expect(window.safeChoose.mock.calls[0][2]).toMatchObject({ title: 'Records already in your account', confirmLabel: 'Continue', selected: 'merge' });
+    expect(window.safeConfirm.mock.calls[0][2]).toMatchObject({ destructive: true, confirmLabel: 'Replace', typedConfirm: 'REPLACE' });
     expect(window.CloudVault.importAll).toHaveBeenCalledWith(VAULT, { mode: 'replace' });
   });
 

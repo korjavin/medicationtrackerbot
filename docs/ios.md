@@ -872,7 +872,7 @@ mode, gated on the bridge platform being `ios` or `android`
   nothing leaves the phone except calls to the providers the user added with
   their own key. Reminders are computed on the device and go to the iOS
   scheduler only, on every write, open and return to the front (no relay upload, no Telegram re-fire calls; the lock-screen
-  text is generic unless Settings → Reminders & notifications → Reminder text
+  text is generic unless Settings → Reminders & notifications → Lock-screen text
   says Detailed); RxNav lookups are off (`rxnorm: null`); the account trial
   and the operator food DB are off because the bundle carries no trial /
   food-DB meta. The **anonymous trial** (bd med-o7zq.16) is the one opt-in
@@ -946,7 +946,7 @@ mode, gated on the bridge platform being `ios` or `android`
   with) or iPhone Settings → Med Tracker → *Lock*. The row and the iPhone
   Settings toggle write the same key (`wgLocalLock`), so they agree. Local mode
   only — an account has its passkey unlock. A UI lock, not encryption, and
-  Lock Screen reminders still show (their text is Settings → Reminder text);
+  Lock Screen reminders still show (their text is Settings → Lock-screen text);
   both are said where it is turned on. `LocalAuthentication`
   `.deviceOwnerAuthentication` (biometrics, passcode fallback). States
   locked / unlocking / unlocked: it locks at launch and on going to the

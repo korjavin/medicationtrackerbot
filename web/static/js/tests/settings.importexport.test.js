@@ -224,7 +224,8 @@ describe('Settings → Import/Export section', () => {
         setFile(window, document.getElementById('importexport-import-file'), 'backup.json', JSON.stringify(SAMPLE_VAULT));
         await window.SettingsImportExport.import();
         const opts = window.safeConfirm.mock.calls[0][2];
-        expect(opts).toMatchObject({ destructive: true, typedConfirm: 'replace my data' });
+        expect(opts).toMatchObject({ destructive: true, typedConfirm: 'REPLACE', confirmLabel: 'Replace' });
+        expect(opts.facts.map((f) => !!f.gone)).toEqual([true, false]);
     });
 
     // med-eyos: an empty target vault has nothing to lose, so no typed confirm;
@@ -259,8 +260,9 @@ describe('Settings → Import/Export section', () => {
     });
 
     // bd med-o7zq.38: a mode-switch pickup onto a side that already has
-    // records offers Merge / Replace / Cancel; Replace is confirmed once,
-    // with no typed phrase. File Restore (above) keeps the typed confirm.
+    // records offers Merge / Replace / Cancel (D1 med-ckm5.5: Merge
+    // preselected, Continue); Replace asks the typed REPLACE confirm, like
+    // the file Restore above.
     describe('move/leave pickup: Merge / Replace / Cancel', () => {
         const JSON_STR = JSON.stringify(SAMPLE_VAULT);
         async function pickup(source, choice, { content = true, confirm = true } = {}) {
@@ -298,12 +300,11 @@ describe('Settings → Import/Export section', () => {
             expect(result).toEqual({ imported: true });
         });
 
-        it.each(['move', 'leave'])('%s: replace confirms once, destructive, untyped, then imports with mode replace', async (source) => {
+        it.each(['move', 'leave'])('%s: replace confirms once, destructive, typed REPLACE, then imports with mode replace', async (source) => {
             const { window } = await pickup(source, 'replace');
             expect(window.safeConfirm).toHaveBeenCalledTimes(1);
             const opts = window.safeConfirm.mock.calls[0][2];
-            expect(opts).toMatchObject({ destructive: true, confirmLabel: 'Replace' });
-            expect(opts.typedConfirm).toBeUndefined();
+            expect(opts).toMatchObject({ destructive: true, confirmLabel: 'Replace', typedConfirm: 'REPLACE' });
             expect(window.CloudVault.importAll).toHaveBeenCalledWith(JSON_STR, { mode: 'replace' });
         });
 

@@ -229,20 +229,16 @@ async function exportBackup(ctx, page, r) {
 }
 
 /**
- * The signup wizard on an opened invite (soft authenticator) → passkey → loss-ack → Emergency Kit
+ * The signup wizard on an opened invite (soft authenticator) → passkey → Emergency Kit
  * (Save/Share shot, dismissed) → vault → onboarding wizard skipped. Shared with local-to-cloud.
  */
 export async function claimAccount(ctx, page) {
   const { shell, sleep } = ctx;
   await ctx.step('create the passkey', async () => {
     await page.click('#create-passkey');
-    await page.locator('#loss-ack-checkbox').waitFor({ timeout: 60_000 });
-  });
-  await ctx.shot('loss-ack');
-  await ctx.step('loss-ack → emergency kit', async () => {
-    await page.check('#loss-ack-checkbox');
-    await page.click('#loss-ack-continue');
-    await page.locator('#kit-download').waitFor({ timeout: 30_000 });
+    // #kit-download sits in the collapsed "Download or print" disclosure: attached, then opened.
+    await page.locator('#kit-download').waitFor({ state: 'attached', timeout: 60_000 });
+    await page.evaluate(() => { document.querySelector('#kit-download').closest('details').open = true; });
   });
   await ctx.shot('kit');
   await ctx.step('kit download offers Save/Share', async () => {
@@ -253,7 +249,7 @@ export async function claimAccount(ctx, page) {
   await ctx.step('dismiss Save/Share and continue', async () => {
     await shell('input keyevent KEYCODE_BACK');
     await sleep(1000);
-    if (!(await page.isChecked('#kit-saved-checkbox'))) await page.check('#kit-saved-checkbox');
+    if ((await page.getAttribute('#kit-saved', 'aria-pressed')) !== 'true') await page.click('#kit-saved');
     await page.click('#kit-continue');
     await sleep(1500);
     const skip = page.locator('#install-skip');
@@ -270,6 +266,24 @@ export async function claimAccount(ctx, page) {
     await sleep(1500);
   }).catch(() => {});
   await ctx.shot('first-today');
+  // bd med-ckm5.3: at scroll end the last Today card clears the tab bar by the 24px reserve.
+  const r = (ctx.results.firstToday = {});
+  await ctx.step('first Today: last card clears the tab bar at scroll end', async () => {
+    r.end = await page.evaluate(() => {
+      window.scrollTo(0, document.scrollingElement.scrollHeight);
+      const cards = document.querySelectorAll('#today-content > *');
+      const last = cards[cards.length - 1];
+      const bar = document.querySelector('.wg-tabbar');
+      return {
+        lastBottom: last && last.getBoundingClientRect().bottom, barTop: bar && bar.getBoundingClientRect().top,
+        innerHeight, vvHeight: window.visualViewport && window.visualViewport.height,
+        scrollY, scrollHeight: document.scrollingElement.scrollHeight,
+      };
+    });
+    await ctx.sleep(500);
+    if (!(r.end.barTop - r.end.lastBottom >= 23)) throw new Error(`last card ends ${r.end.barTop - r.end.lastBottom}px above the tab bar (${JSON.stringify(r.end)})`);
+  }).catch(() => {});
+  await ctx.shot('first-today-end');
 }
 
 // MedTrackerCloudReady resolves once cloud-boot installed the API shim (e2e/vault-roundtrip.mjs).

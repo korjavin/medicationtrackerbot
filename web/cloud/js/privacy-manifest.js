@@ -863,7 +863,7 @@ export const PRIVACY_MANIFEST = [
     operatorVisibility: 'none',
     retention: 'Until the reminder fires or is replaced by the next schedule',
     activation: 'opt-in',
-    activationNote: 'you allow notifications; Settings → Reminders & notifications → Reminder text picks Generic or Detailed',
+    activationNote: 'you allow notifications; Settings → Reminders & notifications → Lock-screen text picks Generic or Detailed',
     byo: 'n/a',
     evidence: ['web/cloud/js/reminders.js:189', 'web/cloud/js/reminders.js:237', 'android/app/src/main/java/com/example/medtracker/Notifications.kt:29'],
     code: { go: [], hosts: [] },

@@ -8,7 +8,7 @@ import XCTest
 /// app's container (QA.appContainer).
 @MainActor
 final class FlowQAStashTests: XCTestCase {
-    private let hint = "Your records are ready to move: paste or scan your invite."
+    private let hint = "Your records are ready to move. Paste or scan the invite for your new account. They move in after you sign in." // App.swift FirstRunView (N1)
 
     /// Settings → Move to a cloud account → stash + first run with the hint →
     /// Only on this device → Back keeps it → Start abandons it (file gone) →
@@ -36,7 +36,7 @@ final class FlowQAStashTests: XCTestCase {
         moveRow.tap()
         XCTAssertTrue(webText(app, "Move to a cloud account?").waitForExistence(timeout: 10), "no move confirm")
         shot(flow, "move-confirm")
-        app.webViews.buttons["Continue"].tap()
+        app.webViews.buttons["Move"].tap()
 
         XCTAssertTrue(app.staticTexts[hint].waitForExistence(timeout: 60), "the first run shows no move hint")
         XCTAssertFalse(app.buttons["Continue on this iPhone"].exists, "the first run offers Continue on this iPhone during a move")

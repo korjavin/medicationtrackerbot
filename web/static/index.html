@@ -564,92 +564,89 @@
 
             <div class="wg-settings-pages" hidden>
             <div class="wg-settings-page" data-settings-page="notifications">
-            <section class="wg-card wg-settings-section wg-settings-notifications-cloud wg-settings-hidden">
-                <h3 class="wg-settings-section__title">Notifications</h3>
-                <p class="wg-settings-section__desc">Push alerts and test notifications</p>
-                <div class="wg-settings-row-list">
-                    <div class="wg-settings-row">
-                        <div class="wg-settings-row__content">
-                            <div class="wg-settings-row__title wg-mono-display">Web Push Notifications</div>
-                            <div class="wg-settings-row__desc">Browser notifications for medications</div>
-                        </div>
-                        <div class="wg-settings-row__control wg-settings-action-row">
-                            <button id="cloud-push-toggle" class="wg-btn wg-btn--sm">Enable</button>
-                        </div>
+            <!-- Kit S8 (bd med-ckm5.8). The .wg-choices groups stand in for
+                 selects (kit rule 7): settings.js choiceValue/setChoiceValue
+                 read and write the pressed [data-value]. -->
+            <!-- Local-only mode (bd med-o7zq.9): settings.js bindLocalNotifications.
+                 Denied: the card hides and NotifyPermission.renderNote fills the
+                 note slot (med-ckm5.4). -->
+            <section class="wg-section wg-local-only">
+                <div class="wg-section__head"><span class="wg-eyebrow">This <span data-device-word>iPhone</span></span></div>
+                <div id="local-notify-card" class="wg-card wg-vstack">
+                    <div class="wg-hstack">
+                        <span id="local-notify-chip" class="wg-chip">Off</span>
+                        <span id="local-notify-state" class="wg-hint wg-spacer" role="status" aria-live="polite">Checking notification permission…</span>
                     </div>
-                    <div id="cloud-push-status" class="wg-settings-webpush-status wg-settings-hidden"></div>
-                    <div class="wg-settings-row">
-                        <div class="wg-settings-row__content">
-                            <div class="wg-settings-row__title wg-mono-display">Test Notifications</div>
-                            <div class="wg-settings-row__desc">Send a test push to this device</div>
-                        </div>
-                        <div class="wg-settings-row__control wg-settings-action-row">
-                            <button id="cloud-push-test-btn" class="wg-btn wg-btn--sm">Send test push</button>
-                        </div>
-                    </div>
-                    <div class="wg-settings-row">
-                        <div class="wg-settings-row__content">
-                            <div class="wg-settings-row__title wg-mono-display">Reminder Delivery</div>
-                            <div class="wg-settings-row__desc">Where scheduled reminders are sent. Telegram needs a linked bot.</div>
-                        </div>
-                        <div class="wg-settings-row__control wg-settings-action-row">
-                            <select id="cloud-reminder-delivery" class="wg-input wg-select" aria-label="Reminder delivery channel">
-                                <option value="webpush">Web push only</option>
-                                <option value="telegram">Telegram only</option>
-                                <option value="both">Web push and Telegram</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="wg-settings-row">
-                        <div class="wg-settings-row__content">
-                            <div class="wg-settings-row__title wg-mono-display">Telegram Reminder Detail</div>
-                            <div class="wg-settings-row__desc">Telegram reminders pass through the server as readable text. The default "Generic" says only that a reminder is due; opt in to "Detailed" to also send medication names.</div>
-                        </div>
-                        <div class="wg-settings-row__control wg-settings-action-row">
-                            <select id="cloud-reminder-verbosity" class="wg-input wg-select" aria-label="Telegram reminder detail level">
-                                <option value="generic" selected>Generic (no names)</option>
-                                <option value="detailed">Detailed (includes names)</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div id="cloud-reminder-delivery-status" class="wg-settings-webpush-status wg-settings-hidden"></div>
+                    <button id="local-notify-enable" type="button" class="wg-btn wg-btn--primary wg-btn--block" hidden>Allow notifications</button>
+                    <button id="local-notify-test" type="button" class="wg-btn wg-btn--block" hidden>Send test notification</button>
                 </div>
+                <div id="local-notify-note"></div>
             </section>
 
-            <!-- Local-only mode (bd med-o7zq.9): settings.js bindLocalNotifications. -->
-            <section class="wg-section wg-local-only">
-                <div class="wg-section__head"><span class="wg-eyebrow">Notifications</span></div>
-                <div class="wg-card wg-vstack">
-                    <p id="local-notify-state" class="wg-settings-webpush-status" role="status" aria-live="polite">Checking notification permission…</p>
-                    <div class="wg-hstack">
-                        <button id="local-notify-enable" type="button" class="wg-btn wg-btn--sm" hidden>Allow notifications</button>
-                        <button id="local-notify-test" type="button" class="wg-btn wg-btn--sm" hidden>Send test notification</button>
+            <!-- Cloud mode (bd med-76c.1): settings.js bindCloudNotifications. -->
+            <div class="wg-vstack wg-settings-notifications-cloud wg-settings-hidden">
+                <section class="wg-section">
+                    <div class="wg-section__head"><span class="wg-eyebrow">This device</span></div>
+                    <div id="cloud-push-card" class="wg-card wg-vstack">
+                        <div class="wg-hstack">
+                            <span id="cloud-push-chip" class="wg-chip">Off</span>
+                            <span class="wg-hint wg-spacer">Reminders as notifications on this device</span>
+                            <button id="cloud-push-toggle" type="button" class="wg-btn wg-btn--sm">Enable</button>
+                        </div>
+                        <div id="cloud-push-status" class="wg-settings-webpush-status wg-settings-hidden"></div>
+                        <button id="cloud-push-test-btn" type="button" class="wg-btn wg-btn--block">Send test notification</button>
                     </div>
-                </div>
-            </section>
+                    <div id="cloud-push-note"></div>
+                </section>
+                <section class="wg-section">
+                    <div class="wg-section__head"><span class="wg-eyebrow">Reminder delivery</span></div>
+                    <div id="cloud-reminder-delivery" class="wg-choices" role="group" aria-label="Reminder delivery channel">
+                        <button type="button" class="wg-choice" data-value="webpush" aria-pressed="true"><span>Push only<span class="wg-choice__sub">Notifications on your devices</span></span></button>
+                        <button type="button" class="wg-choice" data-value="telegram" aria-pressed="false"><span>Telegram only<span class="wg-choice__sub">Needs a linked bot</span></span></button>
+                        <button type="button" class="wg-choice" data-value="both" aria-pressed="false"><span>Push and Telegram</span></button>
+                    </div>
+                </section>
+                <section class="wg-section">
+                    <div class="wg-section__head"><span class="wg-eyebrow">Telegram reminder text</span></div>
+                    <div id="cloud-reminder-verbosity" class="wg-choices" role="group" aria-label="Telegram reminder detail level">
+                        <button type="button" class="wg-choice" data-value="generic" aria-pressed="true"><span>Generic<span class="wg-choice__sub">Says only that a reminder is due</span></span></button>
+                        <button type="button" class="wg-choice" data-value="detailed" aria-pressed="false"><span>Detailed<span class="wg-choice__sub">Also sends medication names</span></span></button>
+                    </div>
+                    <p class="wg-hint">Telegram reminders pass through the server as readable text.</p>
+                    <div id="cloud-reminder-delivery-status" class="wg-settings-webpush-status wg-settings-hidden"></div>
+                </section>
+            </div>
 
             <!-- Local-only mode (bd med-o7zq.3): settings.js bindLocalReminderText. -->
             <section class="wg-section wg-local-only">
-                <div class="wg-section__head"><span class="wg-eyebrow">Lock screen</span></div>
-                <div class="wg-card wg-vstack">
-                    <div class="wg-field">
-                        <label for="local-reminder-verbosity" class="wg-label">Reminder text</label>
-                        <select id="local-reminder-verbosity" class="wg-input wg-select">
-                            <option value="generic" selected>Generic (no names)</option>
-                            <option value="detailed">Detailed (includes names)</option>
-                        </select>
-                        <p class="wg-hint">iOS shows reminders on the lock screen and in Notification Center, where anyone holding your phone can read them, even while it is locked. Generic says only that a reminder is due; Detailed shows the full text: medication and tracker names, workout plans, your weight and goal, and the weekly summary.</p>
-                    </div>
+                <div class="wg-section__head"><span class="wg-eyebrow">Lock-screen text</span></div>
+                <div id="local-reminder-verbosity" class="wg-choices" role="group" aria-label="Lock-screen reminder text">
+                    <button type="button" class="wg-choice" data-value="generic" aria-pressed="true"><span>Generic<span class="wg-choice__sub">"Medication time"</span></span></button>
+                    <button type="button" class="wg-choice" data-value="detailed" aria-pressed="false"><span>Detailed<span class="wg-choice__sub">Shows the medication or measurement</span></span></button>
                 </div>
+                <div class="wg-notif" aria-hidden="true">
+                    <span class="wg-mark"><i class="wg-ico" data-icon="pill"></i></span>
+                    <span class="wg-notif__body">
+                        <span class="wg-notif__app"><span>Med Tracker</span><span>now</span></span>
+                        <span class="wg-notif__title">Med Tracker</span>
+                        <span id="local-reminder-preview" class="wg-notif__text">Medication time</span>
+                    </span>
+                </div>
+                <p class="wg-hint">Anyone holding your <span data-device-word>iPhone</span> can read the lock screen, even while it is locked. Detailed shows the full text: medication and tracker names, workout plans, your weight and goal, and the weekly summary.</p>
             </section>
 
             <section class="wg-section wg-settings-reminders">
-                <div class="wg-section__head"><span class="wg-eyebrow">Reminders</span></div>
+                <div class="wg-section__head"><span class="wg-eyebrow">Remind me about</span></div>
                 <div class="wg-list">
-                    <mt-setting-toggle title="Blood pressure" description="Smart reminders to measure regularly"
+                    <mt-setting-toggle title="Blood pressure" icon="activity" description="Smart reminders to measure regularly"
                         input-id="bp-reminders-toggle"></mt-setting-toggle>
-                    <mt-setting-toggle title="Weight" description="A weekly nudge to weigh in"
+                    <mt-setting-toggle title="Weight" icon="scale" description="A weekly nudge to weigh in"
                         input-id="weight-reminders-toggle"></mt-setting-toggle>
+                    <button type="button" class="wg-setting" id="settings-reminders-meds">
+                        <span class="wg-row__lead"><i class="wg-ico" data-icon="pill"></i></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">Medications</span><span class="wg-setting__desc">Set per medication in Meds</span></span>
+                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                    </button>
                 </div>
             </section>
             </div>

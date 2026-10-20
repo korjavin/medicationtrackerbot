@@ -205,9 +205,10 @@ async function replayPendingDeletes() {
     if (waiting) setTimeout(replayPendingDeletes, PENDING_DELETE_GRACE_MS);
 }
 
-// opts (optional): { title, confirmLabel, cancelLabel, icon, destructive,
-// typedConfirm } — custom wording for the in-page dialog; destructive paints
-// the confirm filled clay, typedConfirm gates it on typing that phrase.
+// opts (optional): { title, confirmLabel, cancelLabel, icon, tone,
+// destructive, facts, typedConfirm, link } — custom wording for the in-page
+// dialog (the D1 family, see _mountConfirmModal); destructive paints the
+// confirm filled clay, typedConfirm gates it on typing that word.
 function safeConfirm(msg, callback, opts) {
     const invokeCallback = (ok) => {
         if (typeof callback !== 'function') return ok;
@@ -235,9 +236,12 @@ function safePrompt(msg, opts) {
 }
 
 // safeChoose — the in-page replacement for a native <select>: a list of
-// tappable options in the confirm modal shell. choices: [{ value, label,
+// tappable options in the confirm modal shell. choices: [{ value, label, sub,
 // selected, disabled }]. Resolves the picked choice's value, or null on
-// cancel. opts: { title, cancelLabel }.
+// cancel. opts: { title, cancelLabel, icon, tone }. With opts.confirmLabel
+// (D1 "choose + Continue"): a tap only selects, the preselected choice is
+// opts.selected (or the one marked selected), and the confirm button settles
+// the selected value.
 function safeChoose(msg, choices, opts) {
     return new Promise((resolve) => {
         _mountConfirmModal(msg, resolve, { ...(opts || {}), choices: choices || [] });
@@ -265,17 +269,35 @@ function safeForm(msg, content, opts) {
 // mode settles true/false; input and choices modes settle the value or null;
 // alert mode has one OK button in the .mt-confirm-modal__cancel slot, so
 // Back's cancel-first path (modal-manager.js) dismisses it too.
-// Shared opts: { title, icon (WGIcons name), destructive }. safeConfirm also
-// takes opts.typedConfirm: a phrase the user must type (case-insensitive)
-// before the confirm button enables.
+// Shared opts: { title, icon (WGIcons name), tone, destructive }. The D1
+// dialog family (kit components.html "Dialog family (D1)", med-ckm5.5):
+//   tone 'danger' (data loss) | 'warn' (reversible) | 'info' (a choice) picks
+//     the icon tile; destructive:true with no tone means tone 'danger'.
+//     destructive (or tone 'danger') paints the confirm filled clay.
+//   facts: [{ text, gone }] — what goes (gone: ×, li.is-gone) and what stays
+//     (✓), rendered as .wg-dialog__facts under the message.
+//   link: { label, onClick } — a .wg-link in the body ("Export a backup
+//     first"); tapping it cancels the dialog, then runs onClick.
+// safeConfirm also takes opts.typedConfirm: a word the user must type
+// (case-insensitive) before the confirm button enables (.wg-dialog__confirm,
+// "Type ERASE to confirm"). safeChoose with opts.confirmLabel selects on tap
+// and settles on the confirm button (see safeChoose).
 function _mountConfirmModal(msg, onResult, opts = {}) {
     const doc = document;
     const alertMode = opts.alert === true;
     const inputMode = opts.input === true;
     const choiceMode = Array.isArray(opts.choices);
+    const pickMode = choiceMode && !!opts.confirmLabel;
     const contentMode = !!opts.content;
-    const typedPhrase = (!inputMode && !choiceMode && !contentMode && !alertMode && opts.typedConfirm)
-        ? String(opts.typedConfirm).trim().toLowerCase() : '';
+    const typedWord = (!inputMode && !choiceMode && !contentMode && !alertMode && opts.typedConfirm)
+        ? String(opts.typedConfirm).trim() : '';
+    const typedPhrase = typedWord.toLowerCase();
+    const tone = opts.tone || (opts.destructive ? 'danger' : 'warn');
+    const danger = !!opts.destructive || opts.tone === 'danger';
+    const iconSvg = (name, size) => {
+        if (!window.WGIcons) return null;
+        try { return window.WGIcons.iconSvg(name, { size }); } catch (_) { return null; }
+    };
     const backdrop = doc.createElement('div');
     backdrop.className = 'mt-confirm-backdrop';
 
@@ -285,15 +307,14 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
     const titleText = opts.title || (alertMode ? 'Notice' : 'Confirm');
     modal.setAttribute('aria-label', titleText);
 
-    // The icon is decorative; the passkey shell has no WGIcons and skips it.
-    if (opts.icon && window.WGIcons) {
-        try {
-            const svg = window.WGIcons.iconSvg(opts.icon, { size: 24 });
-            const icon = doc.createElement('span');
-            icon.className = opts.destructive ? 'wg-dialog__icon' : 'wg-dialog__icon wg-dialog__icon--warn';
-            icon.appendChild(svg);
-            modal.appendChild(icon);
-        } catch (_) { /* unknown icon name: render without one */ }
+    // The icon is decorative; the passkey shell has no WGIcons and skips it
+    // (so does an unknown icon name).
+    const svg = opts.icon ? iconSvg(opts.icon, 24) : null;
+    if (svg) {
+        const icon = doc.createElement('span');
+        icon.className = tone === 'danger' ? 'wg-dialog__icon' : `wg-dialog__icon wg-dialog__icon--${tone === 'info' ? 'info' : 'warn'}`;
+        icon.appendChild(svg);
+        modal.appendChild(icon);
     }
 
     const title = doc.createElement('p');
@@ -302,11 +323,38 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
 
     const body = doc.createElement('div');
     body.className = 'wg-dialog__body mt-confirm-modal__body';
-    if (!(inputMode || choiceMode || contentMode) || msg) {
+    const facts = Array.isArray(opts.facts) ? opts.facts : [];
+    let linkBtn = null;
+    if (opts.link && opts.link.label) {
+        linkBtn = doc.createElement('button');
+        linkBtn.type = 'button';
+        linkBtn.className = 'wg-link mt-confirm-modal__link';
+        linkBtn.textContent = opts.link.label;
+    }
+    if (msg || linkBtn || !(inputMode || choiceMode || contentMode || facts.length)) {
         const messageEl = doc.createElement('p');
         messageEl.className = 'mt-confirm-modal__message';
-        messageEl.textContent = String(msg ?? '');
+        if (linkBtn) messageEl.append(linkBtn, msg ? ' ' : '');
+        messageEl.append(String(msg ?? ''));
         body.appendChild(messageEl);
+    }
+    if (facts.length) {
+        const list = doc.createElement('ul');
+        list.className = 'wg-dialog__facts';
+        for (const fact of facts) {
+            const li = doc.createElement('li');
+            if (fact.gone) li.className = 'is-gone';
+            const mark = iconSvg(fact.gone ? 'x' : 'check', 16);
+            if (mark) {
+                mark.setAttribute('class', 'wg-ico');
+                li.appendChild(mark);
+            }
+            const text = doc.createElement('span');
+            text.textContent = fact.text;
+            li.appendChild(text);
+            list.appendChild(li);
+        }
+        body.appendChild(list);
     }
 
     const actions = doc.createElement('div');
@@ -319,10 +367,10 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
     cancelBtn.textContent = alertMode ? (opts.confirmLabel || 'OK') : (opts.cancelLabel || 'Cancel');
     actions.appendChild(cancelBtn);
     let confirmBtn = null;
-    if (!choiceMode && !alertMode) {
+    if ((!choiceMode || pickMode) && !alertMode) {
         confirmBtn = doc.createElement('button');
         confirmBtn.type = 'button';
-        confirmBtn.className = `wg-btn ${opts.destructive ? 'wg-btn--danger' : 'wg-btn--primary'} mt-confirm-modal__confirm`;
+        confirmBtn.className = `wg-btn ${danger ? 'wg-btn--danger' : 'wg-btn--primary'} mt-confirm-modal__confirm`;
         confirmBtn.textContent = opts.confirmLabel || (inputMode ? 'Save' : 'Confirm');
         if (typedPhrase) confirmBtn.disabled = true;
         actions.appendChild(confirmBtn);
@@ -332,12 +380,20 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
     let errorEl = null;
     if (inputMode || typedPhrase) {
         const field = doc.createElement('label');
-        field.className = 'wg-field';
-        const labelText = typedPhrase ? `Type "${String(opts.typedConfirm).trim()}" to confirm` : opts.label;
-        if (labelText) {
+        // A typed confirm is the kit's .wg-dialog__confirm: "Type <b>ERASE</b>
+        // to confirm" over the field.
+        field.className = typedPhrase ? 'wg-dialog__confirm' : 'wg-field';
+        if (typedPhrase) {
+            const labelEl = doc.createElement('span');
+            labelEl.className = 'wg-label mt-confirm-modal__label';
+            const word = doc.createElement('b');
+            word.textContent = typedWord;
+            labelEl.append('Type ', word, ' to confirm');
+            field.appendChild(labelEl);
+        } else if (opts.label) {
             const labelEl = doc.createElement('span');
             labelEl.className = 'mt-confirm-modal__label';
-            labelEl.textContent = labelText;
+            labelEl.textContent = opts.label;
             field.appendChild(labelEl);
         }
         input = doc.createElement('input');
@@ -345,7 +401,10 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
         input.className = 'wg-input mt-confirm-modal__input';
         input.autocomplete = 'off';
         if (typedPhrase) {
-            input.setAttribute('autocapitalize', 'none');
+            input.classList.add('wg-input--text');
+            // An upper-case word (ERASE) gets the caps keyboard; the match
+            // stays case-insensitive either way.
+            input.setAttribute('autocapitalize', typedWord === typedWord.toUpperCase() ? 'characters' : 'none');
             input.spellcheck = false;
         }
         if (opts.inputMode) input.setAttribute('inputmode', opts.inputMode);
@@ -360,17 +419,40 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
         field.appendChild(errorEl);
         body.appendChild(field);
     }
+    let pickedValue;
     if (choiceMode) {
         const list = doc.createElement('div');
         list.className = 'wg-choices mt-confirm-modal__choices';
+        const preselected = opts.selected !== undefined
+            ? opts.selected
+            : (opts.choices.find((c) => c.selected && !c.disabled) || {}).value;
+        if (pickMode) {
+            pickedValue = preselected;
+            confirmBtn.disabled = preselected === undefined;
+        }
         for (const choice of opts.choices) {
             const btn = doc.createElement('button');
             btn.type = 'button';
             btn.className = 'wg-choice mt-confirm-modal__choice';
-            btn.setAttribute('aria-pressed', choice.selected ? 'true' : 'false');
+            const pressed = pickMode ? choice.value === preselected : !!choice.selected;
+            btn.setAttribute('aria-pressed', pressed ? 'true' : 'false');
             btn.disabled = !!choice.disabled;
-            btn.textContent = choice.label;
-            btn.addEventListener('click', () => settle(choice.value));
+            if (choice.sub) {
+                const text = doc.createElement('span');
+                const sub = doc.createElement('span');
+                sub.className = 'wg-choice__sub';
+                sub.textContent = choice.sub;
+                text.append(String(choice.label), sub);
+                btn.appendChild(text);
+            } else {
+                btn.textContent = choice.label;
+            }
+            btn.addEventListener('click', () => {
+                if (!pickMode) { settle(choice.value); return; }
+                pickedValue = choice.value;
+                for (const other of list.children) other.setAttribute('aria-pressed', other === btn ? 'true' : 'false');
+                confirmBtn.disabled = false;
+            });
             list.appendChild(btn);
         }
         body.appendChild(list);
@@ -380,8 +462,9 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
     // Dialogs with a field or a list keep their actions top-right beside the
     // title so the mobile keyboard never covers them (med-8j5w.5); a confirm
     // — typed or not — keeps the kit's full-width actions row below the body,
-    // where a long destructive label ("Verify passkey & delete") still fits.
-    if (inputMode || choiceMode || contentMode) {
+    // where a long destructive label ("Verify passkey & delete") still fits,
+    // and so does choose + Continue (no keyboard; the D1 frame).
+    if (inputMode || (choiceMode && !pickMode) || contentMode) {
         const head = doc.createElement('div');
         head.className = 'mt-confirm-modal__head';
         actions.classList.add('mt-confirm-modal__head-acts');
@@ -422,6 +505,10 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
             if (typedMatches()) settle(true);
             return;
         }
+        if (pickMode) {
+            if (pickedValue !== undefined) settle(pickedValue);
+            return;
+        }
         if (!inputMode) { settle(true); return; }
         const value = input.value.trim();
         if (!value) {
@@ -449,6 +536,22 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
             errorEl.hidden = true;
             input.removeAttribute('aria-invalid');
             if (typedPhrase) confirmBtn.disabled = !typedMatches();
+        });
+        // The dialog is centred in the visual viewport (dialog.css), so with
+        // the keyboard up a tall one (icon, facts, typed field) scrolls inside
+        // itself: bring the field into view once the keyboard has opened.
+        // ponytail: fixed delay for the keyboard animation; a visualViewport
+        // resize listener if 300ms proves short on some device.
+        input.addEventListener('focus', () => {
+            setTimeout(() => {
+                if (typeof input.scrollIntoView === 'function') input.scrollIntoView({ block: 'nearest' });
+            }, 300);
+        });
+    }
+    if (linkBtn) {
+        linkBtn.addEventListener('click', () => {
+            settle(cancelValue);
+            if (typeof opts.link.onClick === 'function') opts.link.onClick();
         });
     }
     cancelBtn.addEventListener('click', () => settle(cancelValue));
