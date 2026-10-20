@@ -86,7 +86,7 @@ final class FlowQAStashTests: XCTestCase {
         app.launch()
         startLocal(app)
         XCTAssertTrue(QA.tabBarShows(app, timeout: 60), "local mode shows no tab bar after the relaunch")
-        app.webViews.buttons["Meds"].tap()
+        webButton(app, prefix: "Meds").tap() // "Meds 1" with a dose due
         XCTAssertTrue(webText(app, contains: Self.firstMed(fixture)).waitForExistence(timeout: 20), "the records are gone after the move round-trip")
         shot(flow, "records-kept")
         app.terminate()
@@ -128,7 +128,7 @@ final class FlowQAStashTests: XCTestCase {
         let skip = app.webViews.buttons["Skip all"]
         if skip.waitForExistence(timeout: 10) { skip.tap() }
         XCTAssertTrue(QA.tabBarShows(app, timeout: 30), "no tab bar after the pickup")
-        app.webViews.buttons["Meds"].tap()
+        webButton(app, prefix: "Meds").tap() // "Meds 1" with a dose due
         XCTAssertTrue(webText(app, contains: Self.firstMed(fixture)).waitForExistence(timeout: 20), "Meds lists no fixture medication after the pickup")
         shot(flow, "meds")
         XCTAssertNil(Self.stashData("leave"), "the pickup kept leave/vault.json")
@@ -146,7 +146,7 @@ final class FlowQAStashTests: XCTestCase {
         app.webViews.buttons["OK"].tap()
         XCTAssertNil(Self.stashData("leave"), "Cancel kept leave/vault.json (the pickup is one-shot)")
         XCTAssertTrue(QA.tabBarShows(app, timeout: 20), "no tab bar after the cancelled pickup")
-        app.webViews.buttons["Meds"].tap()
+        webButton(app, prefix: "Meds").tap() // "Meds 1" with a dose due
         XCTAssertTrue(webText(app, contains: Self.firstMed(fixture)).waitForExistence(timeout: 20), "the records are gone after the cancelled pickup")
         app.terminate()
     }
@@ -172,7 +172,8 @@ final class FlowQAStashTests: XCTestCase {
     }
 
     private func webText(_ app: XCUIApplication, contains text: String) -> XCUIElement {
-        app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
+        // Any element: a role="status" toast may reach XCUITest as a group, not a static text.
+        app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
     }
 
     /// tests/fixtures/vault-v1.json, read from the source tree: the Simulator's
