@@ -707,7 +707,13 @@ class MainActivity : Activity() {
         }
         topBand.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, sys.top, Gravity.TOP)
         bottomBand.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, sys.bottom, Gravity.BOTTOM)
-        for (v in listOf(firstRun, localIntro, errorView, lockView)) v.setPadding(sys.left, sys.top, sys.right, bottom)
+        // The keyboard's extra height is a margin, not padding: the ScrollView really shrinks and
+        // its onSizeChanged scrolls the focused invite field above the keyboard (N1 at 2x).
+        val imeLift = bottom - sys.bottom
+        for (v in listOf(firstRun, localIntro, errorView, lockView)) {
+            v.setPadding(sys.left, sys.top, sys.right, sys.bottom)
+            v.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT).apply { bottomMargin = imeLift }
+        }
     }
 
     private fun setCeremony(on: Boolean) {
