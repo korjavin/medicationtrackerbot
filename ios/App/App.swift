@@ -8,6 +8,7 @@ import WebKit
 // WKWebView (Shell.swift). docs/ios.md.
 @main
 struct WGApp: App {
+    @UIApplicationDelegateAdaptor(QuickAction.self) private var quickAction
     @StateObject private var shell = Shell()
 
     init() {
@@ -60,6 +61,11 @@ struct RootView: View {
             if phase != .active && shell.local && shell.lock.on {
                 Color(uiColor: Shell.screen).ignoresSafeArea()
             }
+        }
+        .alert("Diagnostics copied", isPresented: $shell.diagCopied) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Paste them into your message to support.")
         }
         .onChange(of: phase) { _, now in
             if now == .active {
@@ -305,6 +311,7 @@ struct CeremonyExitBar: View {
             .background(Color(uiColor: Shell.screen))
             .confirmationDialog("Use another invite?", isPresented: $confirming, titleVisibility: .visible) {
                 Button("Use another invite", role: .destructive) { shell.forget() }
+                Button("Copy diagnostics") { shell.copyDiagnostics() }
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("Med Tracker goes back to the first screen, where you can paste or scan another invite. Records already on this iPhone are kept. To keep using Med Tracker without an account, choose \"Only on this device\" there again.")
@@ -323,11 +330,40 @@ struct LoadErrorView: View {
             Button("Try again") { shell.retry() }.buttonStyle(.borderedProminent)
             // Leaving local mode keeps its data: it is back on the next switch.
             Button(shell.local ? "Use an account instead" : "Switch account") { shell.forget() }
+            Button("Copy diagnostics") { shell.copyDiagnostics() }.font(.footnote)
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(uiColor: Shell.screen).ignoresSafeArea())
         .preferredColorScheme(.dark)
+    }
+}
+
+/// The Home Screen quick action "Copy diagnostics" (bd med-w6gx.24, twin of
+/// Android's launcher shortcut; UIApplicationShortcutItems in project.yml):
+/// a cold launch hands it to the scene configuration, a running app to the
+/// scene delegate.
+@MainActor
+final class QuickAction: NSObject, UIApplicationDelegate, UIWindowSceneDelegate {
+    static let copyType = "copy-diagnostics"
+
+    func application(_ application: UIApplication, configurationForConnecting session: UISceneSession,
+                     options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+        if options.shortcutItem?.type == QuickAction.copyType { QuickAction.copyDiagnostics() }
+        let config = UISceneConfiguration(name: nil, sessionRole: session.role)
+        config.delegateClass = QuickAction.self
+        return config
+    }
+
+    func windowScene(_ windowScene: UIWindowScene, performActionFor shortcutItem: UIApplicationShortcutItem,
+                     completionHandler: @escaping (Bool) -> Void) {
+        let mine = shortcutItem.type == QuickAction.copyType
+        if mine { QuickAction.copyDiagnostics() }
+        completionHandler(mine)
+    }
+
+    private static func copyDiagnostics() {
+        if let shell = Shell.current { shell.copyDiagnostics() } else { Shell.copyOnLaunch = true }
     }
 }
 

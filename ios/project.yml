@@ -67,6 +67,11 @@ targets:
         # Portrait-only is legal for iPad only with full screen (App Store 90474).
         UIRequiresFullScreen: true
         ITSAppUsesNonExemptEncryption: false
+        # Home Screen quick action (bd med-w6gx.24, App.swift QuickAction).
+        UIApplicationShortcutItems:
+          - UIApplicationShortcutItemType: copy-diagnostics
+            UIApplicationShortcutItemTitle: Copy diagnostics
+            UIApplicationShortcutItemIconSymbolName: doc.on.clipboard
         # First-run accepts only accounts at <sub>.<this> (Shell.swift, AccountURL.swift).
         WGBaseDomain: $(WG_BASE_DOMAIN)
         # The app's screens are dark (--wg-bg-screen) in both system appearances.

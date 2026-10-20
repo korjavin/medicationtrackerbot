@@ -34,6 +34,7 @@ import { parseCommand } from '../../domain/tgcommand.js';
 import { createAIClient } from './aiclient.js';
 import { createFoodDbClient } from './fooddb.js';
 import { createApiRouter } from './apishim.js';
+import { materializing } from './materialize-gate.js';
 import { cancelMedRefire, rearmMedRefire } from './reminders.js';
 import { createDispatcher } from './mcp-responder.js';
 import { createTGAgent } from './tg-agent.js';
@@ -242,7 +243,7 @@ export async function applyIntakeSlotAction(event, { intake, records, now = Date
   // The tap may name a slot whose intakes were never materialized (the app has
   // not been open since it came due). Materializing first is what makes them
   // exist to confirm; it is idempotent via the deterministic intake id.
-  await intake.materializeDueDoses();
+  await materializing(() => intake.materializeDueDoses());
 
   const intakes = await records.list(INTAKE_RECORD_TYPE);
   // Compared as strings throughout: the relay round-trips the ids through a
@@ -818,7 +819,7 @@ export async function applyTGText(event, eventId, { agent, records, verbosity = 
 // later stay pending; confirming a dose you have not taken yet would be a lie
 // the inventory count then inherits.
 async function confirmDueIntakes({ intake, records, atMs, now }) {
-  await intake.materializeDueDoses();
+  await materializing(() => intake.materializeDueDoses());
   const due = (await records.list(INTAKE_RECORD_TYPE)).filter((i) => !i.deleted
     && i.status === 'PENDING'
     && Date.parse(i.scheduled_at) <= atMs);

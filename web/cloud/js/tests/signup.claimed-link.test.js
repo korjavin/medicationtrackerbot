@@ -398,16 +398,20 @@ describe('post-create PRF probe', () => {
     for (const e of entries) expect(typeof e.ms).toBe('number');
   });
 
-  it('web and iOS: nothing is logged, create gets the options untouched', async () => {
+  it('iOS shell: the log goes to its handler, create gets the options untouched', async () => {
     install(() => noPrf(RAW_ID));
     const post = vi.fn();
+    const iosPost = vi.fn(() => Promise.resolve(null));
     // iOS's handler wins over a wgNative-shaped global, so this is not the Android shell.
-    globalThis.webkit = { messageHandlers: { wgNative: { postMessage() {} } } };
+    globalThis.webkit = { messageHandlers: { wgNative: { postMessage: iosPost } } };
     globalThis.wgNative = { postMessage: post, addEventListener() {} };
     try {
       const app = await clickCreate();
       await vi.waitFor(() => expect(app.textContent).toContain("can't be used yet"));
       expect(post).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(iosPost.mock.calls.length).toBeGreaterThanOrEqual(3));
+      const ops = iosPost.mock.calls.map(([m]) => m.op === 'diag.append' && JSON.parse(m.args.entry).op);
+      expect(ops).toEqual(expect.arrayContaining(['http', 'create', 'probe']));
       expect(navigator.credentials.create).toHaveBeenCalledTimes(1);
       const [arg] = navigator.credentials.create.mock.calls[0];
       expect(Object.keys(arg)).toEqual(['publicKey']);
