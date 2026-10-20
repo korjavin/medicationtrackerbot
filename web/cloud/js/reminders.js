@@ -413,4 +413,5 @@ export function cancelReminderRecompute(ctx) {
   const key = (ctx && ctx.accountId) || ctx;
   clearTimeout(timers.get(key));
   timers.delete(key);
+  askPending.delete(key);
 }

@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { pushSchedule } from '../push.js';
-import { recomputeAndPush, localNotificationItems, scheduleReminderRecompute } from '../reminders.js';
+import { recomputeAndPush, localNotificationItems, scheduleReminderRecompute, cancelReminderRecompute } from '../reminders.js';
 
 vi.mock('../push.js', () => ({ pushSchedule: vi.fn(async () => {}), sendTestPush: vi.fn() }));
 
@@ -167,6 +167,14 @@ describe('recomputeAndPush asks for notification permission in context', () => {
     scheduleReminderRecompute(ctx, { records, timeZone: 'UTC' }, 10); // agent/inbox write
     await vi.advanceTimersByTimeAsync(20);
     expect(maybeAsk).toHaveBeenCalledTimes(1);
+
+    // A cancelled UI ask must not leak into the next non-UI recompute.
+    maybeAsk.mockClear();
+    scheduleReminderRecompute(ctx, { records, timeZone: 'UTC', askPermission: true }, 10);
+    cancelReminderRecompute(ctx);
+    scheduleReminderRecompute(ctx, { records, timeZone: 'UTC' }, 10);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(maybeAsk).not.toHaveBeenCalled();
   });
 
   it('no ask when nothing would notify this device (Telegram-only, or local mode on the web)', async () => {
