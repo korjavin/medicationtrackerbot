@@ -159,4 +159,22 @@ describe('WGFirstRun orchestrator', () => {
             expect(window.sessionStorage.getItem('wg-firstrun-step')).toBeNull();
         } finally { cleanup(); }
     });
+
+    // bd med-ckm5.3 (O2): the overlay mounts over an already painted Today, so
+    // any enter/exit transition is a cross-fade that ghosts Welcome under the
+    // Today header. Opaque on mount, gone in the same task on dismiss.
+    it('never cross-fades with Today: no overlay animation, dismiss removes it synchronously', () => {
+        const css = fs.readFileSync(path.join(REPO_ROOT, 'web/static/css/components.css'), 'utf8');
+        const rule = /\.wg-firstrun-overlay\s*\{([^}]*)\}/.exec(css);
+        expect(rule).not.toBeNull();
+        expect(rule[1]).not.toMatch(/\b(animation|transition|opacity)\s*:/);
+
+        const { window, document, cleanup } = loadFirstRun({ bootstrap: { needs_first_run: true } });
+        try {
+            window.WGFirstRun.mount();
+            expect(document.getElementById('wg-firstrun-overlay')).not.toBeNull();
+            window.WGFirstRun.dismiss();
+            expect(document.getElementById('wg-firstrun-overlay')).toBeNull();
+        } finally { cleanup(); }
+    });
 });
