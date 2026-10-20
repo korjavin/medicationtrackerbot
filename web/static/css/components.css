@@ -19,6 +19,10 @@
 - .wg-tabbar's bottom padding is 6px + env(safe-area-inset-bottom), not the kit's 28px home-indicator
   allowance: the page never runs under the home indicator here, so that was a second inset (med-giuq).
   Same for .wg-sheet__foot's 30px: 12px all round, the docked sheet carries the env() inset.
+- The v2.1 extension block (med-ckm5.1) is the kit's verbatim: every color in it is already a token, an
+  rgba() overlay, or the #000 mask stop. Its .wg-shell__foot / .wg-pagefoot bottom paddings (34px / 30px)
+  are kept as the kit has them; screen beads that dock them revisit the med-giuq inset note above.
+  The kit's --wg-kb-h token (its phone stage's simulated keyboard) is not ported.
 - The app-only first-run overlay (.wg-firstrun-*) rules sit at the end of this file. */
 .wg-btn,.wg-input,.wg-row,.wg-setting,.wg-choice,.wg-dialog,.wg-sheet,.wg-tile,.wg-seg,.wg-stepper,.wg-daynav,.wg-code,.wg-file,.wg-toast,.wg-tabbar,.wg-pick,.wg-menu,button.wg-card{box-sizing:border-box}
 .wg-app{position:relative;display:flex;flex-direction:column;height:100%;overflow:hidden;background:var(--wg-bg-screen);color:var(--wg-fg-1);font-family:var(--wg-font-ui);font-size:var(--wg-fs-md);-webkit-font-smoothing:antialiased}
@@ -420,6 +424,103 @@ button.wg-setting{cursor:pointer}button.wg-setting:hover{background:var(--wg-bg-
 .wg-trkhist__legend i{width:10px;height:10px;border-radius:2px;background:var(--wg-stale-line)}
 .wg-trkhist__legend i.is-met{background:var(--wg-sage)}.wg-trkhist__legend i.is-over{background:var(--wg-warn-fg)}.wg-trkhist__legend i.is-today{background:transparent;box-shadow:inset 0 0 0 1.5px var(--wg-fg-2)}
 .wg-setting--quiet{background:transparent;box-shadow:none;border-style:dashed}
+
+/* ===== v2.1 extension (2026-10-20): native shells, local mode, vault safety, account lifecycle ===== */
+/* app mark — placeholder tile for the launcher icon; same size + position on splash, lock and load error */
+.wg-mark{position:relative;width:72px;height:72px;flex-shrink:0;border-radius:20px;display:grid;place-items:center;background:var(--wg-gloss-hi),var(--wg-ink);border:1px solid rgba(255,255,255,.1);box-shadow:var(--wg-sh-raised);color:var(--wg-sun)}
+.wg-mark .wg-ico{width:36px;height:36px}
+.wg-mark--sm{width:36px;height:36px;border-radius:10px}.wg-mark--sm .wg-ico{width:20px;height:20px}
+.wg-mark--lg{width:96px;height:96px;border-radius:26px}.wg-mark--lg .wg-ico{width:46px;height:46px}
+/* native shell screen — the layout SwiftUI/Kotlin mirror (see token table) */
+.wg-shell{flex:1;min-height:0;display:flex;flex-direction:column;gap:20px;padding:8px 24px 24px;overflow-y:auto;overflow-x:hidden;scrollbar-width:none}
+.wg-shell::-webkit-scrollbar{display:none}
+.wg-shell>*,.wg-content>*,.wg-sheet__body>*{flex-shrink:0}
+.wg-shell--center{align-items:center;justify-content:center;text-align:center;gap:16px}
+.wg-shell--fade{-webkit-mask-image:linear-gradient(180deg,#000 82%,transparent);mask-image:linear-gradient(180deg,#000 82%,transparent)}
+.wg-shell__brand{display:flex;align-items:center;gap:10px;padding-top:12px}
+.wg-shell__name{font:500 var(--wg-fs-lg)/1.2 var(--wg-font-mono)}
+.wg-shell__title{font:500 var(--wg-fs-metric)/1.15 var(--wg-font-mono);letter-spacing:-.02em;text-wrap:balance}
+.wg-shell__title--md{font-size:var(--wg-fs-title)}
+.wg-shell__lede{font:400 var(--wg-fs-lg)/1.5 var(--wg-font-ui);color:var(--wg-fg-2);text-wrap:pretty}
+.wg-shell--center .wg-shell__lede{max-width:30ch}
+.wg-shell__fine{font:400 var(--wg-fs-xs)/1.5 var(--wg-font-ui);color:var(--wg-fg-3);text-wrap:pretty}
+.wg-shell__icon{width:64px;height:64px;border-radius:18px;display:grid;place-items:center;background:var(--wg-stale-bg);border:1px solid var(--wg-stale-line);color:var(--wg-fg-2)}
+.wg-shell__icon .wg-ico{width:30px;height:30px}
+.wg-shell__icon--warn{background:var(--wg-warn-bg);border-color:var(--wg-warn-line);color:var(--wg-warn-fg)}
+.wg-shell__icon--danger{background:var(--wg-danger-bg);border-color:var(--wg-danger-line);color:var(--wg-danger-fg)}
+.wg-shell__foot{flex-shrink:0;display:flex;flex-direction:column;gap:8px;padding:12px 24px 34px;border-top:1px solid var(--wg-line);background:var(--wg-bg-screen)}
+.wg-shell__foot>.wg-btn{width:100%}
+/* docked page footer for flows on web pages (signup, ceremony) — the only place their Continue lives */
+.wg-pagefoot{flex-shrink:0;display:flex;flex-direction:column;gap:8px;padding:12px 16px 30px;border-top:1px solid var(--wg-line);background:var(--wg-bg-screen)}
+.wg-pagefoot>.wg-btn{width:100%}
+.wg-pagefoot>.wg-hint{text-align:center}
+/* ceremony exit — top of the page, in flow, never over an action */
+.wg-exitbar{flex-shrink:0;display:flex;align-items:center;gap:8px;min-height:44px;padding:0 6px 0 16px;border-bottom:1px solid var(--wg-line);font:500 var(--wg-fs-xs)/1.3 var(--wg-font-mono);color:var(--wg-fg-3)}
+.wg-exitbar__who{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wg-exitbar__who b{font-weight:500;color:var(--wg-fg-2)}
+/* "or" separator */
+.wg-or{display:flex;align-items:center;gap:12px;font:600 var(--wg-fs-eyebrow)/1 var(--wg-font-ui);letter-spacing:var(--wg-track-eyebrow);text-transform:uppercase;color:var(--wg-fg-3)}
+.wg-or::before,.wg-or::after{content:"";flex:1;height:1px;background:var(--wg-line-strong)}
+/* input + trailing icon button (paste field + Scan) */
+.wg-inputrow{display:flex;gap:8px;min-width:0}.wg-inputrow>.wg-input{flex:1;min-width:0}.wg-inputrow>.wg-btn{flex-shrink:0;width:48px;height:48px;padding:0}
+/* inline note — in-flow, status-tinted, full border (not a side stripe) */
+.wg-note{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-radius:var(--wg-r-md);border:1px solid var(--wg-line-strong);background:rgba(255,255,255,.04);font:400 var(--wg-fs-sm)/1.45 var(--wg-font-ui);color:var(--wg-fg-1);text-align:left;text-wrap:pretty}
+.wg-note>.wg-ico{margin-top:1px;color:var(--wg-fg-2)}
+.wg-note__body{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.wg-note__body b{font-weight:600}
+.wg-note--info{background:var(--wg-pending-bg);border-color:var(--wg-pending-line)}.wg-note--info>.wg-ico{color:var(--wg-pending-fg)}
+.wg-note--warn{background:var(--wg-warn-bg);border-color:var(--wg-warn-line)}.wg-note--warn>.wg-ico{color:var(--wg-warn-fg)}
+.wg-note--danger{background:var(--wg-danger-bg);border-color:var(--wg-danger-line)}.wg-note--danger>.wg-ico{color:var(--wg-danger-fg)}
+.wg-note--ok{background:var(--wg-ok-bg);border-color:var(--wg-ok-line)}.wg-note--ok>.wg-ico{color:var(--wg-ok-fg)}
+/* facts — icon + short bold lead + one line; replaces paragraph walls */
+.wg-facts{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:14px}
+.wg-facts li{display:flex;align-items:flex-start;gap:12px;font:400 var(--wg-fs-sm)/1.45 var(--wg-font-ui);color:var(--wg-fg-2);text-align:left;text-wrap:pretty}
+.wg-facts li>.wg-ico{margin-top:1px;color:var(--wg-mint)}
+.wg-facts li>span{flex:1;min-width:0}
+.wg-facts b{display:block;margin-bottom:1px;font:600 var(--wg-fs-md)/1.35 var(--wg-font-ui);color:var(--wg-fg-1)}
+.wg-facts li.is-warn>.wg-ico{color:var(--wg-warn-fg)}
+.wg-facts--sm{gap:10px}.wg-facts--sm b{font-size:var(--wg-fs-sm)}
+/* numbered steps */
+.wg-olist{margin:0;padding:0;list-style:none;counter-reset:wgstep;display:flex;flex-direction:column;gap:10px}
+.wg-olist li{counter-increment:wgstep;display:flex;align-items:flex-start;gap:12px;font:400 var(--wg-fs-sm)/1.45 var(--wg-font-ui);color:var(--wg-fg-2)}
+.wg-olist li::before{content:counter(wgstep);width:24px;height:24px;flex-shrink:0;border-radius:50%;display:grid;place-items:center;background:rgba(255,255,255,.08);font:600 12px/1 var(--wg-font-mono);color:var(--wg-fg-1)}
+/* disclosure section (<details>) */
+.wg-disc{border-radius:var(--wg-r-lg);border:1px solid var(--wg-line);background:var(--wg-bg-card);box-shadow:var(--wg-sh-card);overflow:hidden;min-width:0}
+.wg-disc>summary{list-style:none;display:flex;align-items:center;gap:12px;min-height:60px;padding:10px 12px 10px 14px;cursor:pointer}
+.wg-disc>summary::-webkit-details-marker{display:none}
+.wg-disc__chev{color:var(--wg-fg-3);transition:transform var(--wg-dur) var(--wg-ease)}
+.wg-disc[open]>summary .wg-disc__chev{transform:rotate(180deg)}
+.wg-disc__body{display:flex;flex-direction:column;gap:12px;padding:2px 14px 16px;font:400 var(--wg-fs-sm)/1.5 var(--wg-font-ui);color:var(--wg-fg-2);text-wrap:pretty}
+/* key/value stack — labels above values so long IDs wrap inside the gutter (med-i0fj) */
+.wg-kv{margin:0;display:flex;flex-direction:column;gap:12px;min-width:0}
+.wg-kv dt{font:600 var(--wg-fs-eyebrow)/1.2 var(--wg-font-ui);letter-spacing:var(--wg-track-eyebrow);text-transform:uppercase;color:var(--wg-fg-3)}
+.wg-kv dd{margin:3px 0 0;font:500 var(--wg-fs-sm)/1.5 var(--wg-font-mono);color:var(--wg-fg-1);overflow-wrap:anywhere;word-break:break-all}
+.wg-qr{width:128px;height:128px;flex-shrink:0;border-radius:var(--wg-r-md);background:var(--wg-paper);display:grid;place-items:center;font:600 11px var(--wg-font-mono);letter-spacing:.1em;color:var(--wg-ink)}
+/* filename that never breaks mid-extension (shot 44) */
+.wg-fname{display:flex;min-width:0;white-space:nowrap}.wg-fname__stem{min-width:0;overflow:hidden;text-overflow:ellipsis}.wg-fname__ext{flex-shrink:0}
+/* long page titles: icon-only back so "Reminders & notifications" fits */
+.wg-pagebar--long{grid-template-columns:44px minmax(0,1fr) 44px}
+.wg-back--icon{width:44px;padding:0;justify-content:center}
+/* lock-screen notification preview */
+.wg-notif{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-radius:18px;background:rgba(255,255,255,.09);border:1px solid var(--wg-line);min-width:0}
+.wg-notif .wg-mark{width:30px;height:30px;border-radius:8px;box-shadow:none}.wg-notif .wg-mark .wg-ico{width:16px;height:16px}
+.wg-notif__body{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.wg-notif__app{display:flex;justify-content:space-between;gap:8px;font:600 var(--wg-fs-eyebrow)/1.3 var(--wg-font-ui);letter-spacing:.06em;text-transform:uppercase;color:var(--wg-fg-3)}
+.wg-notif__title{font:600 var(--wg-fs-sm)/1.35 var(--wg-font-ui);color:var(--wg-fg-1)}
+.wg-notif__text{font:400 var(--wg-fs-sm)/1.35 var(--wg-font-ui);color:var(--wg-fg-2)}
+/* dialog family (D1) — severity icon, question title, goes/stays facts, optional typed confirm */
+.wg-dialog__icon--info{background:var(--wg-pending-bg);color:var(--wg-pending-fg)}
+.wg-dialog__facts{margin:2px 0 0;padding:12px;list-style:none;display:flex;flex-direction:column;gap:8px;border-radius:var(--wg-r-md);background:rgba(0,0,0,.16)}
+.wg-dialog__facts li{display:flex;align-items:flex-start;gap:8px;font:400 var(--wg-fs-sm)/1.4 var(--wg-font-ui);color:var(--wg-fg-2)}
+.wg-dialog__facts li>.wg-ico{width:16px;height:16px;margin-top:1px;color:var(--wg-ok-fg)}
+.wg-dialog__facts li.is-gone>.wg-ico{color:var(--wg-danger-fg)}
+.wg-dialog__facts li>span{flex:1;min-width:0}
+.wg-dialog__confirm{display:flex;flex-direction:column;gap:6px;margin-top:4px}
+.wg-dialog__confirm .wg-label b{font:600 var(--wg-fs-xs) var(--wg-font-mono);letter-spacing:.06em;color:var(--wg-fg-1)}
+.wg-dialog .wg-choices{margin-top:2px}
+.wg-card__foot--pad{margin-top:0;padding:12px 14px 14px}
+/* ===== end v2.1 extension ===== */
+
 /* tracker editor (TR2): the reminder time field sits inline in its setting row */
 .wg-trkedit__time{width:auto}
 /* First-run overlay (app-only, not part of the kit; folded in from firstrun.css,

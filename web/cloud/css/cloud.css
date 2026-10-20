@@ -75,6 +75,9 @@
     --wg-inset: linear-gradient(180deg, var(--wg-bg-inset-a) 0%, var(--wg-bg-inset-b) 100%);
     --wg-line-dark: rgba(0, 0, 0, 0.28);
     --wg-line-strong: rgba(255, 255, 255, 0.14);
+    --wg-ok-fg: #9CE4CC;
+    --wg-pending-bg: rgba(63, 163, 229, 0.14);
+    --wg-pending-fg: #9FD0F2;
     --wg-r-md: 12px;
     --wg-r-sm: 9px;
     --wg-raised: var(--wg-gloss-hi), linear-gradient(180deg, var(--wg-bg-raised-a) 0%, var(--wg-bg-raised-b) 100%);
