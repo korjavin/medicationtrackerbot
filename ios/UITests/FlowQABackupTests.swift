@@ -180,14 +180,13 @@ final class FlowQABackupTests: XCTestCase {
         let files = filesIn(downloads)
         XCTAssertTrue(files.count == 1 && files[0].hasSuffix(suffix), "\(step): Downloads holds \(files), want one *\(suffix)")
 
+        // The picker's X is its topmost Cancel/Close; the web Backup ready
+        // sheet's own Close sits near the bottom, under the picker.
         let remoteCancel = service.buttons.matching(cancel).firstMatch
-        if remoteCancel.exists {
-            remoteCancel.tap()
-        } else if app.webViews.buttons.matching(cancel).count == 0, app.buttons.matching(cancel).firstMatch.exists {
-            app.buttons.matching(cancel).firstMatch.tap()
-        } else {
-            app.navigationBars.buttons.matching(cancel).firstMatch.tap()
-        }
+        let x = remoteCancel.exists ? remoteCancel
+            : app.buttons.matching(cancel).allElementsBoundByIndex.min { $0.frame.minY < $1.frame.minY }
+        guard let x else { return XCTFail("\(step): no Cancel/Close on the export picker — tree: \(tree(app))") }
+        x.tap()
         let closed = waitUntil(15) { !shown() }
         XCTAssertTrue(closed, "\(step): the export picker did not close — tree: \(tree(app))")
         XCTAssertTrue(waitUntil(10) { filesIn(downloads).isEmpty }, "\(step): the export file outlived the picker: \(filesIn(downloads))")
