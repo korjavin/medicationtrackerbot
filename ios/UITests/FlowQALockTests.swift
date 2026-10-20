@@ -38,20 +38,23 @@ final class FlowQALockTests: XCTestCase {
             Thread.sleep(forTimeInterval: 1.5)
             shot(flow, "face-id-sheet")
             require(flow, matchUntil(app, timeout: 30) { !start.exists }, "Start stayed: the Face ID match did not turn the lock on")
-            allowFaceID(app)
-            require(flow, QA.readyNode(app).waitForExistence(timeout: 90), "the local app never published #wg-qa-ready")
-            require(flow, QA.tabBarShows(app, timeout: 10), "the local app shows no tab bar")
-            shot(flow, "unlocked")
-
+            // The sheet's dismissal re-activates the app, and applySettings
+            // then reads `-wgLocalMode NO` from the argument domain over the
+            // persisted choice, so this launch falls back to first run (test
+            // harness only: a user has no argument domain). The local app
+            // shows on the relaunch, after the lock's own prompt.
             app.terminate()
-            app.launchArguments = []
+            require(flow, QA.appDefaults()?["wgLocalMode"] as? Bool == true, "Start did not persist local mode")
+            require(flow, QA.appDefaults()?["wgLocalLockOn"] as? Bool == true, "the match did not persist the lock as on")
+            app.launchArguments = ["-wgQAScene", "today"]
             app.launch()
             require(flow, locked.waitForExistence(timeout: 30), "relaunch with the lock on showed no lock screen")
             XCTAssertEqual(app.webViews.count, 0, "the web view is in the hierarchy behind the lock")
             shot(flow, "lock-screen")
             require(flow, matchUntil(app, timeout: 30) { !locked.exists }, "the launch prompt's match did not unlock")
-            require(flow, QA.tabBarShows(app, timeout: 60), "after unlock the app shows no tab bar")
-            shot(flow, "relaunch-unlocked")
+            require(flow, QA.readyNode(app).waitForExistence(timeout: 90), "the local app never published #wg-qa-ready")
+            require(flow, QA.tabBarShows(app, timeout: 10), "after unlock the app shows no tab bar")
+            shot(flow, "unlocked")
         }
 
         XCTContext.runActivity(named: "cancel holds") { _ in
