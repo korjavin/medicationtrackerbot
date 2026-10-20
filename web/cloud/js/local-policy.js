@@ -444,7 +444,8 @@ export async function nudgeLocalBackup({ win, now = Date.now() }) {
 // - Inert on the web and on shells whose shell.ops lacks leave.take; every
 //   bridge call is time-boxed (same 5 s as cloud-boot.js's move pickup).
 // - A rejected or empty leave.take clears nothing: the next boot asks again.
-// - Once a vault was taken, leave.clear runs whatever restoreVault answers.
+// - Once a vault was taken, leave.clear runs whatever restoreVault answers;
+//   on a Cancel with {back: true}, so the shell reopens the account.
 const LEAVE_NOTICE_KEY = 'wg-leave-picked-up';
 const LEAVE_PROBE_MS = 5000;
 function withinMs(promise, ms) {
@@ -479,9 +480,16 @@ export async function pickupLeaveStash({ win }) {
     },
   });
   if (r && r.imported) return;
+  if (r && r.cancelled) {
+    // Cancel = nothing happened (bd med-o7zq.42): no dialog, back to the
+    // account this leave came from. A shell that does not know it (older
+    // builds ignore `back`) only clears: local mode stays, records untouched.
+    await withinMs(native.call('leave.clear', { back: true }).catch(() => null), LEAVE_PROBE_MS);
+    return;
+  }
   // ponytail: one-shot pickup; the account copy is the retry. restoreVault's
-  // busy answer looks like a cancel, so a pickup racing a manual restore is
-  // dropped too — add a busy flag to restoreVault if that ever matters.
+  // busy answer lands here too, so a pickup racing a manual restore is
+  // dropped — add a busy flag to restoreVault if that ever matters.
   await clear();
   const device = deviceName(win);
   await win.safeAlert(

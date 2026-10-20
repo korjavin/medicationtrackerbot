@@ -285,10 +285,11 @@
     // asks Merge / Replace / Cancel; then CloudVault.importAll(json, { mode }), says when it is not uploaded yet, then awaits
     // `beforeReload` (optional async hook; a throw is logged and the reload
     // still happens, the import already did) and reloads the page.
-    // { imported: true } = replaced and reloading. { imported: false } = the
-    // user cancelled or the import failed: already told the user, nothing
-    // replaced, beforeReload not called — or another import / reset already
-    // runs (importInFlight; nothing shown, nothing replaced).
+    // { imported: true } = replaced and reloading. { imported: false,
+    // cancelled: true } = the user cancelled: nothing shown after, nothing
+    // replaced. { imported: false } = the import failed (already told the
+    // user) or another import / reset already runs (importInFlight; nothing
+    // shown). Neither replaced anything or called beforeReload.
     function restoreVault(json, opts) {
         if (importInFlight) return Promise.resolve({ imported: false });
         return runRestore(json, opts);
@@ -338,13 +339,9 @@
         }
         if (!confirmed) {
             importInFlight = false;
-            if (move) {
-                await safeAlert(
-                    `Nothing was replaced. Your records stay on this ${device}, and the app asks again the next time you open it. To move them by hand instead, export a backup in Settings → Backup & import on this ${device} without an account, then restore that file here.`,
-                    { title: 'Records not moved' }
-                );
-            }
-            return { imported: false };
+            // Cancel = nothing happened (bd med-o7zq.42): no dialog after it.
+            // A move keeps its stash (asks again next open); a leave goes back.
+            return { imported: false, cancelled: true };
         }
 
         setImportBusy(true);

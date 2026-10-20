@@ -989,7 +989,11 @@ mode, gated on the bridge platform being `ios` or `android`
   takes the leave stash below and restores it through the same `restoreVault`
   (Merge / Replace / Cancel when records are already here), clears the stash
   whatever the outcome (the account copy is the retry), and the reloaded app
-  toasts once that the account's records are on this iPhone.
+  toasts once that the account's records are on this iPhone. Cancel means
+  nothing happened (bd med-o7zq.42): no dialog follows, both sides stay as
+  they were, and `leave.clear {back: true}` reopens the account (a shell
+  without it stays in local mode). A move pickup's Cancel is silent too and
+  keeps its stash.
 - **Move stash** (bd med-o7zq.35, twin of Android `Move.kt`, med-nt9p.32.17;
   the web side that calls it is med-nt9p.32.16/.18): the shell carries the
   vault v1 JSON across the two origins in one file,
@@ -1020,7 +1024,7 @@ mode, gated on the bridge platform being `ios` or `android`
   |----|------|-------|
   | `leave.stash {vault}` | account only | `true`; `invalid vault` / `too large` / `write failed` |
   | `leave.take` | local only | `{vault}` or `null`; does not delete |
-  | `leave.clear` | local only | `true` |
+  | `leave.clear {back?}` | local only | `true`; with `back: true` and the account `account.leave {then: "local"}` left (`wgLeaveHost`), `{back: true}`, then that account reopens (bd med-o7zq.42) |
 
   Lifecycle: the account page stashes before `account.leave {then: "local"}`,
   so the stash survives entering local mode (`forget(thenLocal:)` and the

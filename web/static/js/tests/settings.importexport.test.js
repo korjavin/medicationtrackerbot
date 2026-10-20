@@ -311,22 +311,16 @@ describe('Settings → Import/Export section', () => {
             const { window, result, beforeReload } = await pickup(source, 'replace', { confirm: false });
             expect(window.CloudVault.importAll).not.toHaveBeenCalled();
             expect(beforeReload).not.toHaveBeenCalled();
-            expect(result).toEqual({ imported: false });
+            expect(result).toEqual({ imported: false, cancelled: true });
         });
 
-        it('move: cancel imports nothing and says the records were not moved', async () => {
-            const { window, result, beforeReload } = await pickup('move', null);
+        // bd med-o7zq.42: Cancel = nothing happened, so no dialog follows it.
+        it.each(['move', 'leave'])('%s: cancel imports nothing and shows nothing after it', async (source) => {
+            const { window, result, beforeReload } = await pickup(source, null);
             expect(window.CloudVault.importAll).not.toHaveBeenCalled();
             expect(beforeReload).not.toHaveBeenCalled();
-            expect(result).toEqual({ imported: false });
-            expect(window.safeAlert).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ title: 'Records not moved' }));
-        });
-
-        it('leave: cancel imports nothing', async () => {
-            const { window, result, beforeReload } = await pickup('leave', null);
-            expect(window.CloudVault.importAll).not.toHaveBeenCalled();
-            expect(beforeReload).not.toHaveBeenCalled();
-            expect(result).toEqual({ imported: false });
+            expect(result).toEqual({ imported: false, cancelled: true });
+            expect(window.safeAlert).not.toHaveBeenCalled();
         });
 
         it.each(['move', 'leave'])('%s: probe false imports with no dialog', async (source) => {
