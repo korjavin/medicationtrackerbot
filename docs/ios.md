@@ -849,7 +849,7 @@ mode, gated on the bridge platform being `ios` or `android`
   restore resumes the Health import; a successful one keeps its tally.
   The account → local move (bd med-o7zq.36.4) needs no file: the local boot
   takes the leave stash below and restores it through the same `restoreVault`
-  (typed replace confirm when records are already here), clears the stash
+  (Merge / Replace / Cancel when records are already here), clears the stash
   whatever the outcome (the account copy is the retry), and the reloaded app
   toasts once that the account's records are on this iPhone.
 - **Move stash** (bd med-o7zq.35, twin of Android `Move.kt`, med-nt9p.32.17;
@@ -954,8 +954,9 @@ mode, gated on the bridge platform being `ios` or `android`
 9. Account → local (bd med-o7zq.36): an account with records → Settings →
    Account → *Use this iPhone without an account* → local mode shows the
    records and a one-time toast that they came from the account (with records
-   already in local mode: the typed replace confirm first; Cancel keeps them
-   and says how to retry) → *Switch account* → the account address → the
+   already in local mode: a Merge / Replace / Cancel choice first. Merge keeps
+   them and adds the account's; Replace asks one more confirm, then erases
+   them; Cancel keeps them and says how to retry) → *Switch account* → the account address → the
    account's records are still there.
 
 ## Spike: passkey PRF, Service Worker, IndexedDB in WKWebView (bd med-w6gx.2)

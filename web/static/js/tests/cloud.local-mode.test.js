@@ -1820,7 +1820,7 @@ describe('local-only mode leave stash pickup (med-o7zq.36.4)', () => {
     // is leave.take's answer, or a function that throws; `platform` null = the web.
     async function boot({
         platform = 'ios', ops = ['shell.ops', 'leave.take', 'leave.clear'], take = null,
-        confirm = true, notice = false,
+        choice = 'replace', confirm = true, notice = false,
     } = {}) {
         env?.cleanup();
         env = loadFrontendEnv();
@@ -1837,6 +1837,7 @@ describe('local-only mode leave stash pickup (med-o7zq.36.4)', () => {
             return true;
         });
         if (platform) window.LocalNotifications = { isSupported: () => false, __native: { platform, call } };
+        window.safeChoose = vi.fn(async () => { log.push('choose'); return choice; });
         window.safeConfirm = vi.fn(async () => { log.push('confirm'); return confirm; });
         window.safeAlert = vi.fn(async () => { log.push('alert'); });
         window.safeToast = vi.fn();
@@ -1880,6 +1881,7 @@ describe('local-only mode leave stash pickup (med-o7zq.36.4)', () => {
 
     it('stash + empty store: restores without a dialog, clears, reloads, and the next open toasts once', async () => {
         const { window } = await boot({ take: { vault: VAULT } });
+        expect(window.safeChoose).not.toHaveBeenCalled();
         expect(window.safeConfirm).not.toHaveBeenCalled();
         expect(leaveOps()).toEqual(['leave.take', 'leave.clear']);
         expect(await weights()).toEqual(FIXTURE_WEIGHTS);
@@ -1910,21 +1912,36 @@ describe('local-only mode leave stash pickup (med-o7zq.36.4)', () => {
         expect(await weights()).toEqual(FIXTURE_WEIGHTS);
     });
 
-    it('stash + records here: typed replace confirm; confirm replaces them', async () => {
+    // bd med-o7zq.38: records here → Merge / Replace / Cancel.
+    it('stash + records here: the choice; Replace, confirmed once, replaces them', async () => {
         await seedWeight();
         const { window } = await boot({ take: { vault: VAULT } });
+        expect(window.safeChoose).toHaveBeenCalledTimes(1);
+        // The leave copy (bd med-o7zq.37/.38), not the backup-file one.
+        expect(window.safeChoose.mock.calls[0][0]).toBe('This iPhone has records from using it without an account. Merge adds your account\'s records to them. Replace erases them first. Your account is not changed either way. Records kept on both sides may appear twice after a merge.');
+        expect(window.safeChoose.mock.calls[0][2].title).toBe('Records already on this iPhone');
         expect(window.safeConfirm).toHaveBeenCalledTimes(1);
-        expect(window.safeConfirm.mock.calls[0][2]).toMatchObject({ destructive: true, typedConfirm: 'replace my data' });
-        // The leave copy (bd med-o7zq.37), not the backup-file one.
-        expect(window.safeConfirm.mock.calls[0][0]).toBe('This iPhone already has records from using it without an account. Replace them with a copy of your account\'s records? Your account itself is not changed. The records now on this iPhone cannot be recovered.');
-        expect(window.safeConfirm.mock.calls[0][2].title).toBe('Replace the records on this iPhone?');
+        expect(window.safeConfirm.mock.calls[0][0]).toBe('Erase the records on this iPhone and replace them with your account\'s? This cannot be undone.');
+        expect(window.safeConfirm.mock.calls[0][2]).toMatchObject({ destructive: true, confirmLabel: 'Replace' });
+        expect(window.safeConfirm.mock.calls[0][2].typedConfirm).toBeUndefined();
         expect(leaveOps()).toEqual(['leave.take', 'leave.clear']);
         expect(await weights()).toEqual(FIXTURE_WEIGHTS);
     });
 
-    it('stash + records here, confirm cancelled: records intact, stash cleared, the retry is explained', async () => {
+    it('stash + records here: Merge keeps them and adds the account\'s', async () => {
         await seedWeight();
-        const { window } = await boot({ take: { vault: VAULT }, confirm: false });
+        const { window } = await boot({ take: { vault: VAULT }, choice: 'merge' });
+        expect(window.safeConfirm).not.toHaveBeenCalled();
+        expect(leaveOps()).toEqual(['leave.take', 'leave.clear']);
+        expect(await weights()).toEqual([...FIXTURE_WEIGHTS, 80].sort());
+    });
+
+    it.each([
+        ['choice cancelled', { choice: null }],
+        ['Replace declined', { confirm: false }],
+    ])('stash + records here, %s: records intact, stash cleared, the retry is explained', async (_, opts) => {
+        await seedWeight();
+        const { window } = await boot({ take: { vault: VAULT }, ...opts });
         expect(leaveOps()).toEqual(['leave.take', 'leave.clear']);
         expect(await weights()).toEqual([80]);
         expect(window.safeAlert).toHaveBeenCalledTimes(1);

@@ -295,6 +295,7 @@ window.MedTrackerCloudReady = (async function boot() {
                 // file's samples): the overlay would lay its old copy back, so
                 // its pending op goes (under the same lock); the snapshot
                 // carries the row.
+                // runs inside withRecordsLock (non-reentrant): no record reads/writes through the locked ports here.
                 await replaceAllRecords((here) => {
                     const mine = new Set(here);
                     const merged = mergeRecords(here, records);
