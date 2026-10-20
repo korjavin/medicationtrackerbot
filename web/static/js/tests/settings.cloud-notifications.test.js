@@ -595,3 +595,73 @@ describe('cloud Notifications controls inside the iOS app (LocalNotifications)',
         }
     });
 });
+
+describe('Reminders & notifications page (kit S8, med-ckm5.8)', () => {
+    it('long-title bar, no <select>; the delivery and Telegram choices persist through the delivery pref', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            window.__MEDTRACKER_CLOUD__ = true;
+            const setDeliveryPref = vi.fn(async (p) => p);
+            const recomputeAndPush = vi.fn(async () => {});
+            stubCloudModules(window, {
+                push: { subscribe: vi.fn(), unsubscribe: vi.fn(), getSubscription: vi.fn().mockResolvedValue({}) },
+                reminders: {
+                    sendTestPush: vi.fn(),
+                    recomputeAndPush,
+                    remindersDomain: () => ({
+                        getDeliveryPref: async () => ({ delivery: 'both', verbosity: 'detailed' }),
+                        setDeliveryPref,
+                    }),
+                },
+            });
+            window.MedTrackerCloud = { ctx: { accountId: 'acc-1' } };
+            window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+            await window.loadSettings();
+
+            document.querySelector('.wg-settings-home [data-settings-open="notifications"]').click();
+            const pushed = document.querySelector('mt-modal.wg-page[id^="wg-page-"]');
+            expect(pushed.querySelector('.wg-pagebar').classList.contains('wg-pagebar--long')).toBe(true);
+            expect(pushed.querySelector('.wg-back').getAttribute('aria-label')).toBe('Settings');
+            expect(pushed.querySelector('.wg-pagebar__title').textContent).toBe('Reminders & notifications');
+            expect(pushed.querySelectorAll('select')).toHaveLength(0);
+
+            const pressed = (id) => document.querySelector(`#${id} .wg-choice[aria-pressed="true"]`).dataset.value;
+            await vi.waitFor(() => expect(pressed('cloud-reminder-delivery')).toBe('both'));
+            expect(pressed('cloud-reminder-verbosity')).toBe('detailed');
+            await vi.waitFor(() => expect(document.getElementById('cloud-push-chip').textContent).toBe('On'));
+
+            document.querySelector('#cloud-reminder-delivery .wg-choice[data-value="telegram"]').click();
+            await vi.waitFor(() => expect(setDeliveryPref).toHaveBeenCalledWith({ delivery: 'telegram', verbosity: 'detailed' }));
+            await vi.waitFor(() => expect(recomputeAndPush).toHaveBeenCalled());
+            expect(pressed('cloud-reminder-delivery')).toBe('telegram');
+
+            pushed.querySelector('.wg-back').click();
+            expect(document.querySelector('[data-settings-summary="notifications"]').textContent).toContain('Telegram');
+        } finally {
+            cleanup();
+        }
+    });
+
+    it('"Remind me about" summarises the reminder times; Medications closes the page onto Meds', async () => {
+        allowConsoleNoise();
+        const { window, document, cleanup } = loadFrontendEnv();
+        try {
+            delete window.__MEDTRACKER_CLOUD__;
+            window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+            await window.loadSettings();
+            const desc = (id) => document.getElementById(id).closest('mt-setting-toggle').querySelector('.wg-setting__desc').textContent;
+            window.applyReminderSummaries({ preferred_reminder_hour: 8 }, { preferred_reminder_hour: 7, cadence: 'daily' });
+            expect(desc('bp-reminders-toggle')).toBe('At 08:00 unless you measured recently');
+            expect(desc('weight-reminders-toggle')).toBe('Daily at 07:00');
+
+            window.switchTab = vi.fn();
+            document.querySelector('.wg-settings-home [data-settings-open="notifications"]').click();
+            document.getElementById('settings-reminders-meds').click();
+            expect(document.querySelector('mt-modal.wg-page[id^="wg-page-"]')).toBeNull();
+            expect(window.switchTab).toHaveBeenCalledWith('meds');
+        } finally {
+            cleanup();
+        }
+    });
+});

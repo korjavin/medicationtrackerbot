@@ -96,9 +96,13 @@ describe('Settings Reminders section (notifications page)', () => {
         try {
             const doc = dom.window.document;
             const reminders = doc.querySelector('[data-settings-page="notifications"] .wg-settings-reminders');
-            expect(eyebrows(reminders)).toBe('Reminders');
+            expect(eyebrows(reminders)).toBe('Remind me about');
             expect(Array.from(reminders.querySelectorAll('.wg-list mt-setting-toggle')).map((t) => t.getAttribute('input-id')))
                 .toEqual(['bp-reminders-toggle', 'weight-reminders-toggle']);
+            // Kit S8: medication times live per medication, one tap away in Meds.
+            expect(reminders.querySelector('#settings-reminders-meds .wg-setting__desc').textContent).toBe('Set per medication in Meds');
+            // Kit rule 7: the page has no native <select> (bd med-ckm5.8).
+            expect(doc.querySelectorAll('[data-settings-page="notifications"] select')).toHaveLength(0);
             expect(featuresPage(doc).querySelector('[input-id="bp-reminders-toggle"]')).toBeNull();
         } finally {
             cleanup();
