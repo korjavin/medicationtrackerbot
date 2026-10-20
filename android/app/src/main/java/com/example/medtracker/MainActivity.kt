@@ -34,6 +34,7 @@ import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.autofill.AutofillManager
 import android.view.inputmethod.EditorInfo
+import android.webkit.CookieManager
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -253,6 +254,12 @@ class MainActivity : Activity() {
         notifications.onResume()
         // Once per launch or return from the background; the prompt's own pause/resume asks nothing.
         lock.activate(local)?.let { authenticate(it) }
+    }
+
+    /** Chromium writes cookies only every ~30 s: a kill soon after sign-in would lose the session (bd med-nt9p.45). */
+    override fun onPause() {
+        super.onPause()
+        CookieManager.getInstance().flush()
     }
 
     /**
@@ -577,7 +584,11 @@ class MainActivity : Activity() {
             val ceremony = AccountUrl.isCeremony(url, base)
             // Leaving /unlock, /claim or /recover for the app (bd med-nt9p.33): Back on Today
             // must leave the app, not reopen the spent ceremony ("invite already claimed").
-            if (!ceremony && onCeremony) clearHistory = true
+            if (!ceremony && onCeremony) {
+                clearHistory = true
+                // Signed in: write the session cookie now, not on Chromium's ~30 s timer (bd med-nt9p.45).
+                CookieManager.getInstance().flush()
+            }
             onCeremony = ceremony
             updateBack()
         }
