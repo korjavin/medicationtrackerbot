@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- .wg-shell__icon: the load error's 64dp icon tile (stale fill and line). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <corners android:radius="18dp" />
+    <solid android:color="#0DF4FBF7" />
+    <stroke android:width="@dimen/wg_line_w" android:color="#3DF4FBF7" />
+</shape>

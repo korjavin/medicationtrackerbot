@@ -38,6 +38,8 @@ object LocalOrigin {
     val SHARED_OPS = setOf(
         "ping", "chrome", "shell.ops", "diag.append", "health.authorize", "health.query",
         "notifications.permission", "notifications.requestPermission", "notifications.schedule", "notifications.test",
+        // The denied note's "Open Android Settings" (web #1218, bd med-ckm5.16).
+        "notifications.openSettings",
     )
 
     /** The bridge op shell.ops (bd med-nt9p.32.13): what this shell answers in this mode, for the page's capability probe. */

@@ -97,6 +97,7 @@ class LocalOriginTest {
         val account = LocalOrigin.ops(local = false)
         val local = LocalOrigin.ops(local = true)
         assertTrue(account.containsAll(listOf("ping", "shell.ops", "account.leave", "notifications.schedule", "health.query")))
+        assertTrue(account.contains("notifications.openSettings") && local.contains("notifications.openSettings"))
         assertTrue(account.containsAll(listOf("move.take", "move.clear")))
         assertFalse(account.contains("local.leave"))
         assertFalse(account.contains("move.stash"))
