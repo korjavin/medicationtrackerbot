@@ -290,13 +290,19 @@ window.AuthBootstrap = (function () {
                 window.__MEDTRACKER_BOOTSTRAP__ = window.__MEDTRACKER_BOOTSTRAP__ || {};
                 window.__MEDTRACKER_BOOTSTRAP__.needs_first_run = res.needs_first_run;
             }
-            if (window.WGFirstRun && typeof window.WGFirstRun.mount === 'function') {
+            const mountFirstRun = () => {
+                if (!window.WGFirstRun || typeof window.WGFirstRun.mount !== 'function') return;
                 try {
                     window.WGFirstRun.mount({ needs_first_run: res.needs_first_run });
                 } catch (e) {
                     console.warn('[FirstRun] mount failed', e);
                 }
-            }
+            };
+            // In an app shell the pending invite is routed first (bd
+            // med-ta2n.7): "Your invite is here" comes before W1. null on the web.
+            const invite = window.InviteSheet && typeof window.InviteSheet.boot === 'function' ? window.InviteSheet.boot() : null;
+            if (invite) invite.then(mountFirstRun, mountFirstRun);
+            else mountFirstRun();
         }
 
         return true;

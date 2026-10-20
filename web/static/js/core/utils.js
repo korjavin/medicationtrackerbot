@@ -361,16 +361,19 @@ function _mountConfirmModal(msg, onResult, opts = {}) {
     actions.className = 'wg-dialog__acts';
     const cancelBtn = doc.createElement('button');
     cancelBtn.type = 'button';
+    // opts.dangerOutline (the "Switch account?" D1, bd med-ta2n.7): the safe
+    // choice is the raised button, the risky one a danger outline.
+    const outline = !!opts.dangerOutline;
     cancelBtn.className = alertMode
         ? 'wg-btn wg-btn--primary mt-confirm-modal__cancel'
-        : 'wg-btn wg-btn--ghost mt-confirm-modal__cancel';
+        : `wg-btn${outline ? '' : ' wg-btn--ghost'} mt-confirm-modal__cancel`;
     cancelBtn.textContent = alertMode ? (opts.confirmLabel || 'OK') : (opts.cancelLabel || 'Cancel');
     actions.appendChild(cancelBtn);
     let confirmBtn = null;
     if ((!choiceMode || pickMode) && !alertMode) {
         confirmBtn = doc.createElement('button');
         confirmBtn.type = 'button';
-        confirmBtn.className = `wg-btn ${danger ? 'wg-btn--danger' : 'wg-btn--primary'} mt-confirm-modal__confirm`;
+        confirmBtn.className = `wg-btn ${outline ? 'wg-btn--danger-ghost' : danger ? 'wg-btn--danger' : 'wg-btn--primary'} mt-confirm-modal__confirm`;
         confirmBtn.textContent = opts.confirmLabel || (inputMode ? 'Save' : 'Confirm');
         if (typedPhrase) confirmBtn.disabled = true;
         actions.appendChild(confirmBtn);

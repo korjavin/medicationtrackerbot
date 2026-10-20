@@ -107,6 +107,12 @@ export function hasUserContent(records) {
   return records.some((r) => !r.deleted && USER_CONTENT_TYPES.has(r.recordType));
 }
 
+// How many LIVE user-content records (the "N records" of the P3 sheet and the
+// move pickup's "Sync is on" toast, bd med-ta2n.7).
+export function userContentCount(records) {
+  return records.filter((r) => !r.deleted && USER_CONTENT_TYPES.has(r.recordType)).length;
+}
+
 // mergeRecords (bd med-o7zq.38): the record set a merge import lands — the
 // union by recordId, receiver (`existing`) wins, i.e. putIfAbsent semantics.
 // One exception: a live floored placeholder (clientTs 0, CLAUDE.md rule 12)

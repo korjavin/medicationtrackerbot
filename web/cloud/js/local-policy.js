@@ -38,7 +38,7 @@ import {
 import { hostsFromIntegrations } from './egress-hosts.js';
 import { readAllLocalRecords, replaceAllRecords } from './sync.js';
 import { withMaterializationStopped } from './apishim.js';
-import { recordsToVault, vaultToRecords, managedTypesForImport, hasUserContent, mergeRecords } from '../../domain/vault.js';
+import { recordsToVault, vaultToRecords, managedTypesForImport, hasUserContent, userContentCount, mergeRecords } from '../../domain/vault.js';
 import { startHealthImport, runHealthImport, resetHealthAnchors } from './health-import.js';
 import { clearLocalVault } from './account-delete.js';
 import { setTrialTransport } from './aiclient.js';
@@ -505,6 +505,10 @@ export const LOCAL_VAULT = {
   async hasUserContent() {
     return hasUserContent(await readAllLocalRecords());
   },
+  // The P3 "Turn on sync?" sheet's "Your N records" (features/invite.js).
+  async userContentCount() {
+    return userContentCount(await readAllLocalRecords());
+  },
   async exportAll({ includeSecrets = true, win = globalThis.window } = {}) {
     const records = await readAllLocalRecords();
     const json = JSON.stringify(recordsToVault(records, { now: Date.now(), includeSecrets }), null, 2);
@@ -547,15 +551,16 @@ export const LOCAL_VAULT = {
   // url (bd med-ta2n.6, contract med-ta2n.7 §7): the claim URL the shell opens
   // directly (local.leave {url}); it rejects "invalid url" with nothing
   // changed. Only a v3 shell (invite.pending listed) honours it — callers gate.
-  // With a url and no records here there is nothing to move: no stash, so an
-  // existing account is never offered an empty vault to replace its own.
+  // Always stashes, records or not (bd med-ta2n.7): local.leave {url} KEEPS the
+  // move stash (contract A1), so skipping it would leave an older, abandoned
+  // stash for the new account to import. The account side drops a stash with
+  // no user content (cloud-boot.js pickUpMovedVault), so an existing account
+  // is never offered an empty vault to replace its own.
   async moveToCloud({ win = globalThis.window, url } = {}) {
     const native = shellNative(win);
     if (!native) throw new Error(`Open the app on your ${deviceName(win)} to use an invite.`);
-    if (url === undefined || await LOCAL_VAULT.hasUserContent()) {
-      const vault = await LOCAL_VAULT.exportAll({ includeSecrets: true, win });
-      await native.call('move.stash', { vault });
-    }
+    const vault = await LOCAL_VAULT.exportAll({ includeSecrets: true, win });
+    await native.call('move.stash', { vault });
     if (url === undefined) await native.call('local.leave');
     else await native.call('local.leave', { url });
   },

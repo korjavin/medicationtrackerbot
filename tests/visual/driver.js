@@ -179,6 +179,11 @@
             // button shows only in a v3 shell's local mode, which the cloud and
             // Playwright passes are not: open it the way that button does.
             document.dispatchEvent(new CustomEvent('wg:invite-open'));
+        } else if (step.offer) {
+            // The P3 route for a claim URL (bd med-ta2n.7): local mode with the
+            // seeded records → "Turn on sync?"; account mode → "Switch account?".
+            // Nothing leaves until a tap.
+            window.InviteSheet.offer(step.offer);
         } else if (step.trial) {
             // The AI-trial card (kit A1) has no natural state on CI either (no
             // App Attest, and the seed vault has its own OpenAI key): stub what

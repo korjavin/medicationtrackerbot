@@ -933,8 +933,10 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
     // bd med-ta2n.6 — F1 "Have an invite?" (features/invite.js), opened by the
     // W1 footer's wg:invite-open. Paste reads window.Clipboard, Scan decodes
     // window.Barcode frames (both stubbed); a valid invite becomes the claim URL
-    // and goes to CloudVault.moveToCloud({url}): move.stash when there are
-    // records, then local.leave {url} (contract med-ta2n.7 §7-8, A7 gates).
+    // and goes to the P3 route (bd med-ta2n.7): records here → "Turn on sync?",
+    // none → "Your invite is here"; either one's button is
+    // CloudVault.moveToCloud({url}) = move.stash (always, #1244 review) then
+    // local.leave {url} (contract med-ta2n.7 §7-8, A7 gates).
     describe('F1 invite sheet in a v3 shell', () => {
         const CLAIM = 'https://abc.app.example.com/#claim=0a1b2c';
         const NOT_INVITE = /That isn't an invite link/;
@@ -946,6 +948,18 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
             .map(([op, args]) => (op === 'local.leave' ? [op, args] : [op]));
         const sheet = (document) => document.getElementById('invite-sheet');
         const act = (document, name) => sheet(document).querySelector(`[data-invite-action="${name}"]`);
+        // P3 "Turn on sync?" (records here) and "Your invite is here" (none).
+        const sync = (document) => vi.waitFor(() => {
+            const s = document.getElementById('invite-sync-sheet');
+            if (!s) throw new Error('no P3 sheet');
+            return s;
+        });
+        const ready = (document) => vi.waitFor(() => {
+            const s = document.getElementById('invite-ready');
+            if (!s) throw new Error('no invite-ready screen');
+            return s;
+        });
+        const tap = (root, name) => root.querySelector(`[data-invite-action="${name}"]`).click();
         function openSheet(window, { clipboard = null } = {}) {
             // The shell's deployment base (native/attest.js ios impl, attest.status).
             window.Attest = { isSupported: () => true, status: vi.fn(async () => ({ supported: false, base: 'app.example.com', attested: false })) };
@@ -958,7 +972,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
             beforeAll(() => { healthOn = false; });
             afterAll(() => { healthOn = true; });
 
-            it('Paste of each accepted form leaves for the claim URL, nothing stashed', async () => {
+            it('Paste of each accepted form → "Your invite is here" → Sign in: an (empty) stash, then local.leave {url}', async () => {
                 const { window, document } = env;
                 for (const form of [
                     'https://app.example.com/i/abc#0a1b2c', // landing (what L1 copies)
@@ -970,10 +984,17 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                     openSheet(window, { clipboard: form });
                     expect(sheet(document).textContent).toMatch(/Paste the link you were sent, or scan its QR code/);
                     act(document, 'paste').click();
-                    await vi.waitFor(() => expect(leaveOps()).toEqual([['local.leave', { url: CLAIM }]]));
+                    const screen = await ready(document);
+                    expect(sheet(document)).toBeNull(); // F1 handed over
+                    expect(screen.textContent).toMatch(/Your account is ready/);
+                    expect(screen.textContent).toMatch(/Sign in with Face ID/);
+                    expect(leaveOps()).toEqual([]);
+                    tap(screen, 'sign-in');
+                    // #1244: always stashed, so an older stash can never reach the new account.
+                    await vi.waitFor(() => expect(leaveOps()).toEqual([['move.stash'], ['local.leave', { url: CLAIM }]]));
                     expect(window.Clipboard.readText).toHaveBeenCalledTimes(1);
-                    act(document, 'not-now').click();
-                    expect(sheet(document)).toBeNull();
+                    tap(screen, 'without-sync');
+                    expect(document.getElementById('invite-ready')).toBeNull();
                 }
                 expect(offDevice()).toEqual([]);
             });
@@ -991,20 +1012,65 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 expect(stop).toHaveBeenCalled(); // the camera is released on a decode
                 expect(leaveOps()).toEqual([]);
                 act(document, 'scan').click();
-                await vi.waitFor(() => expect(leaveOps()).toEqual([['local.leave', { url: CLAIM }]]));
+                tap(await ready(document), 'sign-in');
+                await vi.waitFor(() => expect(leaveOps()).toEqual([['move.stash'], ['local.leave', { url: CLAIM }]]));
                 expect(window.Barcode.scan).toHaveBeenCalledWith(expect.objectContaining({ formats: ['qr_code'] }));
             });
         });
 
-        it('with records: move.stash first, then local.leave {url}', async () => {
+        it('with records: "Turn on sync?" with the live count, then move.stash, then local.leave {url}', async () => {
             const { window, document } = env;
             await vi.waitFor(async () => expect(await window.apiCall('/api/bp?days=60')).toHaveLength(1));
+            await window.apiCall('/api/weight', 'POST', { weight: 80 });
+            cancelReminderRecompute({ accountId: 'local' });
             openSheet(window, { clipboard: 'https://app.example.com/i/abc#0a1b2c' });
             act(document, 'paste').click();
+            const p3 = await sync(document);
+            const n = await window.CloudVault.userContentCount();
+            expect(n).toBeGreaterThanOrEqual(2);
+            expect(p3.textContent).toMatch(/Turn on sync\?/);
+            expect(p3.textContent).toContain(`Your ${n} records move to your account`);
+            expect(p3.textContent).toMatch(/This iPhone keeps working offline/);
+            expect(p3.textContent).toMatch(/Sign in with Face ID/);
+            expect(leaveOps()).toEqual([]);
+            tap(p3, 'turn-on-sync');
             await vi.waitFor(() => expect(leaveOps()).toEqual([['move.stash'], ['local.leave', { url: CLAIM }]]));
         });
 
-        it('the sheet cannot be dismissed while the move runs', async () => {
+        it('entered from Settings (wg:invite-open {kit}): the claim fragment gains &kit=1', async () => {
+            const { window, document } = env;
+            await vi.waitFor(async () => expect(await window.apiCall('/api/bp?days=60')).toHaveLength(1));
+            window.Attest = { isSupported: () => true, status: vi.fn(async () => ({ base: 'app.example.com' })) };
+            window.Clipboard = { readText: vi.fn(async () => CLAIM) };
+            document.dispatchEvent(new window.CustomEvent('wg:invite-open', { detail: { kit: true } }));
+            act(document, 'paste').click();
+            tap(await sync(document), 'turn-on-sync');
+            await vi.waitFor(() => expect(leaveOps().at(-1)).toEqual(['local.leave', { url: `${CLAIM}&kit=1` }]));
+        });
+
+        it('Not now closes "Turn on sync?" with nothing stashed', async () => {
+            const { window, document } = env;
+            await vi.waitFor(async () => expect(await window.apiCall('/api/bp?days=60')).toHaveLength(1));
+            openSheet(window, { clipboard: CLAIM });
+            act(document, 'paste').click();
+            tap(await sync(document), 'not-now');
+            expect(document.getElementById('invite-sync-sheet')).toBeNull();
+            expect(leaveOps()).toEqual([]);
+        });
+
+        it('offline at Turn on sync → in-page error on the sheet, no stash, no op', async () => {
+            const { window, document } = env;
+            await vi.waitFor(async () => expect(await window.apiCall('/api/bp?days=60')).toHaveLength(1));
+            openSheet(window, { clipboard: CLAIM });
+            act(document, 'paste').click();
+            const p3 = await sync(document);
+            Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => false });
+            tap(p3, 'turn-on-sync');
+            await vi.waitFor(() => expect(p3.querySelector('.wg-error').textContent).toMatch(/You're offline/));
+            expect(leaveOps()).toEqual([]);
+        });
+
+        it('the P3 sheet cannot be dismissed while the move runs', async () => {
             const { window, document } = env;
             await vi.waitFor(async () => expect(await window.apiCall('/api/bp?days=60')).toHaveLength(1));
             let stashed;
@@ -1015,9 +1081,11 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
             });
             openSheet(window, { clipboard: CLAIM });
             act(document, 'paste').click();
+            const p3 = await sync(document);
+            tap(p3, 'turn-on-sync');
             await vi.waitFor(() => expect(stashed).toBeTypeOf('function'));
-            act(document, 'not-now').click();
-            expect(sheet(document)).not.toBeNull();
+            tap(p3, 'not-now');
+            expect(document.getElementById('invite-sync-sheet')).not.toBeNull();
             stashed(true);
             await vi.waitFor(() => expect(leaveOps()).toEqual([['move.stash'], ['local.leave', { url: CLAIM }]]));
         });
@@ -1044,6 +1112,9 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
             expect(leaveOps()).toEqual([]);
             input.value = '  MedTracker://I/ABC#0a1b2c ';
             act(document, 'submit').click();
+            await vi.waitFor(() => expect(sheet(document)).toBeNull());
+            const next = document.getElementById('invite-sync-sheet') || document.getElementById('invite-ready');
+            tap(next, next.id === 'invite-ready' ? 'sign-in' : 'turn-on-sync');
             await vi.waitFor(() => expect(leaveOps().at(-1)).toEqual(['local.leave', { url: CLAIM }]));
         });
 
@@ -1069,8 +1140,9 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
             expect(leaveOps()).toEqual([]);
         });
 
-        it('the shell rejecting the URL ("invalid url") shows the field error', async () => {
+        it('the shell rejecting the URL ("invalid url") shows the error on the P3 sheet', async () => {
             const { window, document } = env;
+            await vi.waitFor(async () => expect(await window.apiCall('/api/bp?days=60')).toHaveLength(1));
             bridge.mockImplementation(async (op) => {
                 if (op === 'shell.ops') return bootShellOps;
                 if (op === 'local.leave') throw new Error('invalid url');
@@ -1078,8 +1150,105 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
             });
             openSheet(window, { clipboard: CLAIM });
             act(document, 'paste').click();
-            await vi.waitFor(() => expect(sheet(document).querySelector('.wg-error').textContent).toMatch(NOT_INVITE));
+            const p3 = await sync(document);
+            tap(p3, 'turn-on-sync');
+            await vi.waitFor(() => expect(p3.querySelector('.wg-error').textContent).toMatch(NOT_INVITE));
         });
+
+        // Boot routing (InviteSheet.boot, called by auth-bootstrap.js before
+        // W1 mounts): ONE invite.pending read per page.
+        describe('a pending invite in the slot at boot', () => {
+            const slotted = (slot) => bridge.mockImplementation(async (op) => {
+                if (op === 'shell.ops') return bootShellOps;
+                if (op === 'invite.pending') return slot;
+                return op === 'setEgressHosts' ? { changed: false } : true;
+            });
+            const pendingReads = () => bridge.mock.calls.filter(([op]) => op === 'invite.pending').length;
+
+            it('records here → "Turn on sync?" with the live count; Turn on sync → move.stash then local.leave {url}', async () => {
+                const { window, document } = env;
+                await vi.waitFor(async () => expect(await window.apiCall('/api/bp?days=60')).toHaveLength(1));
+                for (let i = 0; i < 42; i++) await window.apiCall('/api/weight', 'POST', { weight: 70 + i / 10 });
+                cancelReminderRecompute({ accountId: 'local' });
+                slotted({ url: CLAIM, receivedAt: Date.now() });
+                const gate = window.InviteSheet.boot();
+                await gate;
+                expect(window.InviteSheet.boot()).toBe(gate); // a second bootstrap reads nothing again
+                const p3 = await sync(document);
+                const n = await window.CloudVault.userContentCount();
+                expect(n).toBeGreaterThanOrEqual(43);
+                expect(p3.textContent).toContain(`Your ${n} records move to your account`);
+                expect(pendingReads()).toBe(1);
+                tap(p3, 'turn-on-sync');
+                await vi.waitFor(() => expect(leaveOps()).toEqual([['move.stash'], ['local.leave', { url: CLAIM }]]));
+                expect(bridge).not.toHaveBeenCalledWith('invite.clear');
+                expect(offDevice()).toEqual([]);
+            });
+
+            it('a slot older than 14 days is cleared and ignored', async () => {
+                const { window, document } = env;
+                await vi.waitFor(async () => expect(await window.apiCall('/api/bp?days=60')).toHaveLength(1));
+                slotted({ url: CLAIM, receivedAt: Date.now() - 15 * 24 * 60 * 60 * 1000 });
+                await window.InviteSheet.boot();
+                expect(bridge).toHaveBeenCalledWith('invite.clear');
+                expect(document.getElementById('invite-sync-sheet')).toBeNull();
+            });
+
+            it('no slot + ?invite=1 → F1 opens, and the flag is stripped', async () => {
+                const { window, document } = env;
+                window.history.replaceState(null, '', '/?invite=1');
+                slotted(null);
+                await window.InviteSheet.boot();
+                expect(window.location.search).toBe('');
+                await vi.waitFor(() => expect(sheet(document)).not.toBeNull());
+            });
+
+            describe('with no records on this device (the Play-referrer first launch)', () => {
+                beforeAll(() => { healthOn = false; });
+                afterAll(() => { healthOn = true; });
+
+                it('"Your invite is here" holds W1 until Use without sync; the slot is kept and W1 has no invite footer', async () => {
+                    const { window, document } = env;
+                    window.LocalNotifications.copy = { os: 'Android', device: 'phone' };
+                    slotted({ url: CLAIM, receivedAt: Date.now() });
+                    let mounted = false;
+                    window.InviteSheet.boot().then(() => {
+                        mounted = true;
+                        window.WGFirstRun.mount({ needs_first_run: true });
+                    });
+                    const screen = await ready(document);
+                    expect(screen.textContent).toMatch(/Your invite is here/);
+                    expect(screen.textContent).toMatch(/Sign in with your fingerprint/);
+                    expect(screen.querySelector('[data-invite-action="sign-in"]').textContent).toBe('Sign in with fingerprint');
+                    await new Promise((r) => { setTimeout(r, 20); });
+                    expect(mounted).toBe(false);
+                    tap(screen, 'without-sync');
+                    await vi.waitFor(() => expect(window.WGFirstRun.isActive()).toBe(true));
+                    expect(document.getElementById('invite-ready')).toBeNull();
+                    expect(bridge).not.toHaveBeenCalledWith('invite.clear');
+                    await new Promise((r) => { setTimeout(r, 20); });
+                    expect(document.querySelector('[data-firstrun-action="invite"]')).toBeNull();
+                    expect(leaveOps()).toEqual([]);
+                    window.WGFirstRun.dismiss();
+                });
+
+                it('Sign in → move.stash then local.leave {url}', async () => {
+                    const { window, document } = env;
+                    slotted({ url: CLAIM, receivedAt: Date.now() });
+                    window.InviteSheet.boot();
+                    tap(await ready(document), 'sign-in');
+                    await vi.waitFor(() => expect(leaveOps()).toEqual([['move.stash'], ['local.leave', { url: CLAIM }]]));
+                });
+            });
+        });
+    });
+
+    it('boot in a pre-v3 shell (no invite.pending): no slot read, nothing shown', async () => {
+        const { window, document } = env;
+        await window.InviteSheet.boot();
+        expect(bridge).not.toHaveBeenCalledWith('invite.pending');
+        expect(document.getElementById('invite-sync-sheet')).toBeNull();
+        expect(document.getElementById('invite-ready')).toBeNull();
     });
 
     it('F1 in a pre-v3 shell (no invite.pending): a valid paste never stashes or leaves', async () => {

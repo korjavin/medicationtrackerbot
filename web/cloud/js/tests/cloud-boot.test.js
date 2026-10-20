@@ -863,7 +863,11 @@ describe('cloud-boot share-plan fragment across unlock (med-uo64.3)', () => {
 // settings.js nativeHas probe and the real importexport.js restoreVault; only
 // the bridge, the dialogs and CloudVault's probe/import are stubbed.
 describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
-  const VAULT = JSON.stringify({ format: 'medtracker-vault', version: 1, data: {} });
+  // The golden vault (docs/vault-format.md): a stash that carries records.
+  const VAULT = readFileSync(fileURLToPath(new URL('../../../../tests/fixtures/vault-v1.json', import.meta.url)), 'utf8');
+  const MOVED = realVault.userContentCount(realVault.vaultToRecords(JSON.parse(VAULT), { now: Date.now() }));
+  // What moveToCloud {url} stashes from a device with nothing logged (bd med-ta2n.7).
+  const EMPTY_VAULT = JSON.stringify(realVault.recordsToVault([], { now: Date.now() }));
   const UNLOCKED = async () => ({ accountId: 'a', kData: {}, kMac: {} });
   let env;
 
@@ -932,18 +936,40 @@ describe('cloud-boot local → cloud move pickup (med-nt9p.32.18)', () => {
     expect(log).toEqual(['shell.ops', 'move.take', 'probe', 'importAll', 'move.clear']);
     expect(window.CloudVault.importAll).toHaveBeenCalledWith(VAULT);
     expect(window.safeConfirm).not.toHaveBeenCalled();
-    expect(window.sessionStorage.getItem('wg-move-picked-up')).toBe('1');
+    expect(MOVED).toBeGreaterThan(1);
+    expect(window.sessionStorage.getItem('wg-move-picked-up')).toBe(String(MOVED));
   });
 
-  it('after the reload: the toast shows once and nothing is imported again', async () => {
+  // P3 · done (bd med-ta2n.7): the count the pickup moved.
+  it('after the reload: "Sync is on · N records" shows once and nothing is imported again', async () => {
+    env.window.sessionStorage.setItem('wg-move-picked-up', '43');
+    const { window, log } = await boot({ stash: null });
+    await vi.waitFor(() => expect(log).toContain('move.take'));
+    await settle();
+    expect(window.safeToast).toHaveBeenCalledWith('Sync is on · 43 records are on your account', 'success');
+    expect(window.sessionStorage.getItem('wg-move-picked-up')).toBeNull();
+    expect(log).not.toContain('importAll');
+    expect(log).not.toContain('move.clear');
+  });
+
+  it('the toast says "record is" for one', async () => {
     env.window.sessionStorage.setItem('wg-move-picked-up', '1');
     const { window, log } = await boot({ stash: null });
     await vi.waitFor(() => expect(log).toContain('move.take'));
     await settle();
-    expect(window.safeToast).toHaveBeenCalledWith('Your records from this phone are in your account.', 'success');
+    expect(window.safeToast).toHaveBeenCalledWith('Sync is on · 1 record is on your account', 'success');
+  });
+
+  // #1244 breakage review: moveToCloud {url} always stashes, so a device with
+  // nothing logged stashes an empty vault. It moves nothing: dropped, never
+  // offered as a Merge/Replace to an account with records.
+  it('a stash with no user content: move.clear, no probe, no dialog, no import', async () => {
+    const { window, log } = await boot({ stash: { vault: EMPTY_VAULT }, content: true });
+    await vi.waitFor(() => expect(log).toContain('move.clear'));
+    await settle();
+    expect(log).toEqual(['shell.ops', 'move.take', 'move.clear']);
+    expect(window.safeChoose).not.toHaveBeenCalled();
     expect(window.sessionStorage.getItem('wg-move-picked-up')).toBeNull();
-    expect(log).not.toContain('importAll');
-    expect(log).not.toContain('move.clear');
   });
 
   // A fresh account holds only what signup and the first run wrote (bd

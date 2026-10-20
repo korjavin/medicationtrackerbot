@@ -1017,7 +1017,12 @@ mode, gated on the bridge platform being `ios` or `android`
   *Move to a cloud account* (opens Backup & import's Move section, whose
   button is the one Move control), which carries the records without the file (the
   move stash below; shared contract in
-  [android.md → Moving to a cloud account](android.md#moving-to-a-cloud-account-bd-med-nt9p3210)). A cloud restore not yet on the server says why before
+  [android.md → Moving to a cloud account](android.md#moving-to-a-cloud-account-bd-med-nt9p3210),
+  which also has the P3 invite path, bd med-ta2n.7: *Turn on sync?* / *Your
+  invite is here* / *Switch account?*, gated on `shell.ops` listing
+  `invite.pending` so an older shell never gets a `{url}` it would ignore;
+  with a url the page always stashes, and the account drops a stash with no
+  user records). A cloud restore not yet on the server says why before
   the reload (`importAll` → `{ upload }`, sync.js `forceSnapshot`: retrying
   offline, paused until a passkey re-auth, or refused for size/quota and never
   landing by itself), so the other copy is kept until then. A failed local

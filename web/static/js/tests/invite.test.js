@@ -7,11 +7,12 @@
  * the web cannot drift. Add a vector there first. The sheet's own behaviour
  * (paste, scan, gates, hand-off) is in cloud.local-mode.test.js "F1 invite sheet".
  */
-import { describe, it, expect, afterAll } from 'vitest';
+import { describe, it, expect, afterAll, afterEach, beforeEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom';
+import { loadFrontendEnv } from './helpers/frontend-harness.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
@@ -63,5 +64,90 @@ describe('InviteSheet.parse', () => {
         expect(url('https://app.example.com/i/abc?#0a1b')).toBe('');
         expect(url('')).toBe('');
         expect(url(null)).toBe('');
+    });
+});
+
+// bd med-ta2n.7: an invite reaching a shell that is in ACCOUNT mode (no
+// :root.wg-local-vault) → the "Switch account?" D1. Switch = account.leave
+// {url} (the shell drops the move stash, A1); Keep this account = invite.clear.
+describe('InviteSheet.boot in account mode — "Switch account?"', () => {
+    const CLAIM = 'https://abc.app.example.com/#claim=0a1b2c';
+    let env;
+    let call;
+    let ops;
+
+    beforeEach(() => {
+        env = loadFrontendEnv();
+        ops = ['shell.ops', 'account.leave', 'move.take', 'move.clear', 'invite.pending', 'invite.clear'];
+        call = vi.fn(async (op) => {
+            if (op === 'shell.ops') return ops;
+            if (op === 'invite.pending') return { url: CLAIM, receivedAt: Date.now() };
+            return true;
+        });
+        env.window.LocalNotifications = {
+            ...env.window.LocalNotifications,
+            copy: { os: 'Android', device: 'phone' },
+            __native: { platform: 'android', call, has: vi.fn(async (op) => ops.includes(op)) },
+        };
+    });
+    afterEach(() => env.cleanup());
+
+    const dialog = (document) => vi.waitFor(() => {
+        const d = document.querySelector('mt-modal.mt-confirm-modal');
+        if (!d) throw new Error('no dialog');
+        return d;
+    });
+
+    it('shows the facts with Keep this account raised and Switch as a danger outline; Switch → account.leave {url}', async () => {
+        const { window, document } = env;
+        await window.InviteSheet.boot();
+        const d = await dialog(document);
+        expect(d.textContent).toMatch(/Switch account\?/);
+        expect(d.textContent).toContain(`This phone leaves ${window.location.hostname}. Your records stay on the server for your other devices.`);
+        expect(d.textContent).toMatch(/The invite opens a new, empty account/);
+        expect(d.textContent).toMatch(/Nothing is copied across/);
+        const keep = d.querySelector('.mt-confirm-modal__cancel');
+        const sw = d.querySelector('.mt-confirm-modal__confirm');
+        expect(keep.textContent).toBe('Keep this account');
+        expect(keep.classList.contains('wg-btn--ghost')).toBe(false);
+        expect(sw.textContent).toBe('Switch');
+        expect(sw.classList.contains('wg-btn--danger-ghost')).toBe(true);
+        sw.click();
+        await vi.waitFor(() => expect(call).toHaveBeenCalledWith('account.leave', { url: CLAIM }));
+        expect(call).not.toHaveBeenCalledWith('invite.clear');
+        expect(document.getElementById('invite-sync-sheet')).toBeNull();
+    });
+
+    it('Keep this account → invite.clear, no leave', async () => {
+        const { window, document } = env;
+        await window.InviteSheet.boot();
+        (await dialog(document)).querySelector('.mt-confirm-modal__cancel').click();
+        await vi.waitFor(() => expect(call).toHaveBeenCalledWith('invite.clear'));
+        expect(call.mock.calls.map(([op]) => op)).not.toContain('account.leave');
+    });
+
+    it('offline at Switch → error toast, no leave, the slot kept', async () => {
+        const { window, document } = env;
+        window.safeToast = vi.fn();
+        Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => false });
+        await window.InviteSheet.boot();
+        (await dialog(document)).querySelector('.mt-confirm-modal__confirm').click();
+        await vi.waitFor(() => expect(window.safeToast).toHaveBeenCalledWith(expect.stringMatching(/You're offline/), 'error'));
+        expect(call.mock.calls.map(([op]) => op)).not.toContain('account.leave');
+        expect(call).not.toHaveBeenCalledWith('invite.clear');
+    });
+
+    it('a pre-v3 shell (no invite.pending): no slot read, no dialog', async () => {
+        const { window, document } = env;
+        ops = ['shell.ops', 'account.leave'];
+        await window.InviteSheet.boot();
+        expect(call).not.toHaveBeenCalledWith('invite.pending');
+        expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
+    });
+
+    it('the web: boot is null and nothing is asked', () => {
+        env.window.LocalNotifications = { ...env.window.LocalNotifications, __native: { platform: 'web', call, has: async () => false } };
+        expect(env.window.InviteSheet.boot()).toBeNull();
+        expect(call).not.toHaveBeenCalled();
     });
 });
