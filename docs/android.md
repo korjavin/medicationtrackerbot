@@ -497,8 +497,8 @@ the same way.
   scene's `native` steps on the device (`tap` = a real touch on the DOM id,
   `type` = `adb input text`, `clear`, `tapButton` / `waitFor` = UiAutomator
   text, `keyboard` = the IME is up); native-only scenes (`native-*`) open
-  first run. Artifact `visual/<scene>.png` (full device) +
-  `visual/<scene>.json` (the ready node's report: probes, `failed`). Dark,
+  first run. Artifact `visual/android/<scene>.png` (full device) +
+  `visual/android/<scene>.json` (the ready node's report: probes, `failed`). Dark,
   font scale and landscape are the dispatch inputs, applied to every scene.
   As on iOS only lost ready content fails a scene (one retry each, from
   a fresh `pm clear`; `firstError` keeps attempt 1's failure); the probes are
