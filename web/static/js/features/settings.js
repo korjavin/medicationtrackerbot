@@ -36,12 +36,9 @@ let _cloudNotificationsBound = false; // module-state: one-time guard so the clo
 function loadCloudPushModule() { return import('/js/push.js'); }
 function loadCloudRemindersModule() { return import('/js/reminders.js'); }
 
-// status is passed only on the initial bind. After a deliberate Disable click
-// the granted-but-unsubscribed state is exactly what the user asked for, and
-// warning about it there would stomp the "Notifications disabled" confirmation.
-// The toggle plus the S8 status chip (bd med-ckm5.8) and, when the permission
-// is denied, O3's warn note (NotifyPermission.renderNote, med-ckm5.4).
-function paintCloudPush(toggleBtn, on) {
+// The toggle plus the S8 status chip (bd med-ckm5.8). Denied swaps the card
+// for O3's warn note (NotifyPermission.renderNote, med-ckm5.4), as in local mode.
+async function paintCloudPush(toggleBtn, on) {
     toggleBtn.dataset.subscribed = on ? '1' : '0';
     toggleBtn.textContent = on ? 'Disable' : 'Enable';
     const chip = document.getElementById('cloud-push-chip');
@@ -49,9 +46,21 @@ function paintCloudPush(toggleBtn, on) {
         chip.textContent = on ? 'On' : 'Off';
         chip.classList.toggle('wg-chip--ok', on);
     }
-    Promise.resolve(window.NotifyPermission?.renderNote(document.getElementById('cloud-push-note'))).catch(() => {});
+    const np = window.NotifyPermission;
+    const note = document.getElementById('cloud-push-note');
+    const card = document.getElementById('cloud-push-card');
+    if (!np || !note || !card) return;
+    try {
+        await np.renderNote(note);
+        const denied = (await np.state()) === 'denied';
+        card.hidden = denied && !!note.firstChild;
+        chip?.classList.toggle('wg-chip--warn', denied);
+    } catch (e) { /* the card still offers Enable */ }
 }
 
+// status is passed only on the initial bind. After a deliberate Disable click
+// the granted-but-unsubscribed state is exactly what the user asked for, and
+// warning about it there would stomp the "Notifications disabled" confirmation.
 async function refreshCloudPushToggleState(toggleBtn, status) {
     try {
         if (localNotificationsSupported()) {

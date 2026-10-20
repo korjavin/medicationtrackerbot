@@ -648,12 +648,16 @@ describe('Reminders & notifications page (kit S8, med-ckm5.8)', () => {
         const { window, document, cleanup } = loadFrontendEnv();
         try {
             delete window.__MEDTRACKER_CLOUD__;
-            window.apiCall = vi.fn(async () => { throw new Error('offline'); });
+            const answers = {
+                '/api/bp/reminder/status': { enabled: true, preferred_reminder_hour: 8 },
+                '/api/weight/reminder/status': { enabled: false, preferred_reminder_hour: 7, cadence: 'daily' },
+            };
+            window.apiCall = vi.fn(async (url) => answers[url] || {});
             await window.loadSettings();
             const desc = (id) => document.getElementById(id).closest('mt-setting-toggle').querySelector('.wg-setting__desc').textContent;
-            window.applyReminderSummaries({ preferred_reminder_hour: 8 }, { preferred_reminder_hour: 7, cadence: 'daily' });
-            expect(desc('bp-reminders-toggle')).toBe('At 08:00 unless you measured recently');
+            await vi.waitFor(() => expect(desc('bp-reminders-toggle')).toBe('At 08:00 unless you measured recently'));
             expect(desc('weight-reminders-toggle')).toBe('Daily at 07:00');
+            expect(document.getElementById('bp-reminders-toggle').checked).toBe(true);
 
             window.switchTab = vi.fn();
             document.querySelector('.wg-settings-home [data-settings-open="notifications"]').click();
