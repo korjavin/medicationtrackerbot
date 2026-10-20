@@ -252,7 +252,7 @@ export const PRIVACY_MANIFEST = [
     data: 'The invite link itself, including its one-time claim token (no health data — the account is still empty)',
     destination: 'Google Play, browser-direct, which hands it to the Med Tracker app on its first launch',
     operatorVisibility: 'none',
-    retention: 'Per Google Play\'s own policy; the token stops working once the invite is claimed or after 14 days',
+    retention: 'Per Google Play\'s own policy; the token stops working once the invite is claimed or expires (14 days by default, CLOUD_CLAIM_TTL)',
     activation: 'user-initiated',
     activationNote: 'only when you tap "Get the app for Android" on an invite page; iPhone and "Continue in the browser" send nothing to a store',
     byo: 'n/a — tap "Continue in the browser", or install the app first and paste the invite in it',
@@ -262,7 +262,7 @@ export const PRIVACY_MANIFEST = [
     userCopy: {
       category: 'leaves',
       title: 'Invite links opened on Android',
-      detail: 'When you open an invite on an Android phone and tap "Get the app for Android", the invite link — with its one-time sign-in token — goes to Google Play, so the app can pick up your invite the first time it opens. It carries no health data, and the token stops working once the invite is used or after 14 days. "Continue in the browser" and the iPhone App Store link send nothing to a store.',
+      detail: 'When you open an invite on an Android phone and tap "Get the app for Android", the invite link — with its one-time sign-in token — goes to Google Play, so the app can pick up your invite the first time it opens. It carries no health data, and the token stops working once the invite is used or expires. "Continue in the browser" and the iPhone App Store link send nothing to a store.',
     },
   },
 
