@@ -349,7 +349,7 @@ final class QuickAction: NSObject, UIApplicationDelegate, UIWindowSceneDelegate 
 
     func application(_ application: UIApplication, configurationForConnecting session: UISceneSession,
                      options: UIScene.ConnectionOptions) -> UISceneConfiguration {
-        if options.shortcutItem?.type == QuickAction.copyType { QuickAction.copy() }
+        if options.shortcutItem?.type == QuickAction.copyType { QuickAction.copyDiagnostics() }
         let config = UISceneConfiguration(name: nil, sessionRole: session.role)
         config.delegateClass = QuickAction.self
         return config
@@ -358,11 +358,11 @@ final class QuickAction: NSObject, UIApplicationDelegate, UIWindowSceneDelegate 
     func windowScene(_ windowScene: UIWindowScene, performActionFor shortcutItem: UIApplicationShortcutItem,
                      completionHandler: @escaping (Bool) -> Void) {
         let mine = shortcutItem.type == QuickAction.copyType
-        if mine { QuickAction.copy() }
+        if mine { QuickAction.copyDiagnostics() }
         completionHandler(mine)
     }
 
-    private static func copy() {
+    private static func copyDiagnostics() {
         if let shell = Shell.current { shell.copyDiagnostics() } else { Shell.copyOnLaunch = true }
     }
 }
