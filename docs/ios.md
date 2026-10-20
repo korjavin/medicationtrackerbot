@@ -123,6 +123,16 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   (lock off) → Start → the app (seeded by the QA driver) → relaunch with no
   arguments: local mode persisted, no first-run screen, `wgLocalMode` true in
   the app's prefs plist.
+- **Lock flows** (bd med-w6gx.23.2,
+  [`FlowQALockTests.swift`](../ios/UITests/FlowQALockTests.swift),
+  `testLocalLock`): the real `LocalLock` + `DeviceAuth` with simulated Face
+  ID, no app hook. The runner enrolls Face ID and posts match / non-match
+  the way `simctl spawn <udid> notifyutil` does (Darwin notifications
+  `com.apple.BiometricKit.enrollmentChanged`,
+  `com.apple.BiometricKit_Sim.pearl.match|nomatch`). Four activities: opt-in
+  on the intro → relaunch locked (no web view) → match; a failed check holds
+  the lock with Unlock enabled and no re-prompt; home → back locks; Settings →
+  App lock off → relaunch opens unlocked. Leaves the lock off.
 
 **Adding a flow:** one `func test<Flow>()` in `FlowQATests`, with
 `continueAfterFailure = false`. Launch with arguments in NSArgumentDomain
