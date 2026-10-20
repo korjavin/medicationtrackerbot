@@ -1,9 +1,11 @@
 package cloudserver
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"regexp"
+	"runtime/debug"
 )
 
 // devBuildID is what an un-stamped tree reports: `go run ./cmd/cloud` serves
@@ -28,6 +30,47 @@ func buildIDFrom(idx []byte) string {
 		return devBuildID
 	}
 	return string(m[1])
+}
+
+// vcsRevision is the short git revision this binary was built from, "-dirty"
+// when the tree was modified, or "" when the build carries no VCS info.
+func vcsRevision() string {
+	bi, ok := debug.ReadBuildInfo()
+	if !ok {
+		return ""
+	}
+	rev, dirty := "", ""
+	for _, s := range bi.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			rev = s.Value
+		case "vcs.modified":
+			if s.Value == "true" {
+				dirty = "-dirty"
+			}
+		}
+	}
+	if rev == "" {
+		return ""
+	}
+	if len(rev) > 7 {
+		rev = rev[:7]
+	}
+	return rev + dirty
+}
+
+// stampDevVersion fills the Settings-footer VERSION_PLACEHOLDER on an unstamped
+// build (go run, android-qa, plain docker build). deploy.yml's sed still wins in
+// production: there the placeholder is already gone and buildID is not "dev".
+// The label doubles as the build id so /api/version and the footer agree.
+func stampDevVersion(idx []byte, buildID, rev string) ([]byte, string) {
+	if buildID != devBuildID {
+		return idx, buildID
+	}
+	if rev == "" {
+		rev = devBuildID
+	}
+	return bytes.ReplaceAll(idx, []byte("VERSION_PLACEHOLDER"), []byte(rev)), rev
 }
 
 // serveVersion answers "is the build I booted with still the one you serve?".
