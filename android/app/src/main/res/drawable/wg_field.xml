@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Widget.Wg.EditText: the inset fill and a 1dp line, no underline; a sun line while focused. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true">
+        <shape>
+            <corners android:radius="@dimen/wg_radius_field" />
+            <gradient android:angle="270" android:startColor="@color/wg_inset_a" android:endColor="@color/wg_inset_b" />
+            <stroke android:width="@dimen/wg_line_w" android:color="@color/wg_focus" />
+        </shape>
+    </item>
+    <item>
+        <shape>
+            <corners android:radius="@dimen/wg_radius_field" />
+            <gradient android:angle="270" android:startColor="@color/wg_inset_a" android:endColor="@color/wg_inset_b" />
+            <stroke android:width="@dimen/wg_line_w" android:color="@color/wg_line" />
+        </shape>
+    </item>
+</selector>

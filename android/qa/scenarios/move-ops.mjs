@@ -15,7 +15,7 @@ import { claimAccount, waitForVault } from './smoke.mjs';
 export const retry = false;
 
 // Waited for up to 60 s: the fresh emulator's launcher ANR dialog hid it from UiAutomator for 20 s (first run).
-const HINT = /^Your records are ready to move: paste or scan your invite\.$/;
+const HINT = /^Your records are ready to move\. Paste or scan the invite for your new account\..*/;
 
 /** The page's own bridge call (native/index.js): {ok, result} or {ok: false, error}. */
 const call = (page, op, args) => page.evaluate(([o, a]) => window.LocalNotifications.__native.call(o, a)
@@ -64,8 +64,10 @@ export default async function moveOps(ctx) {
 
   const start = async () => {
     await device.tap({ text: 'Only on this device' });
-    await ctx.waitFor({ text: 'Start' });
-    await device.tap({ text: 'Start' });
+    // N2 names the consequence while a stash is pending (bd med-ckm5.14).
+    const START = /^Start( and cancel the move)?$/;
+    await ctx.waitFor({ text: START });
+    await device.tap({ text: START });
     page = await ctx.attachPage();
     if (!page) throw new Error('no WebView page');
     await page.waitForURL((u) => u.href.startsWith(`${LOCAL_ORIGIN}/`), { timeout: 30_000 });
@@ -79,7 +81,7 @@ export default async function moveOps(ctx) {
   });
   await ctx.step('local.leave without a stash → first run without the hint', async () => {
     await call(page, 'local.leave').catch(() => {});
-    await ctx.waitFor({ text: 'Open' }, 20_000);
+    await ctx.waitFor({ text: 'Continue' }, 20_000);
     await sleep(1500);
     const stale = await device.wait({ text: HINT }, { timeout: 1_000 }).then(() => true, () => false);
     expect(!stale, 'the hint outlived the stash');
@@ -205,7 +207,7 @@ export default async function moveOps(ctx) {
   await ctx.step('local.leave keeps it; opening an account deletes it', async () => {
     await seedLeave();
     await call(page, 'local.leave').catch(() => {});
-    await ctx.waitFor({ text: 'Open' }, 60_000);
+    await ctx.waitFor({ text: 'Continue' }, 60_000);
     expect((await leaveFiles()) === 'vault.json', 'leaving local mode deleted the leave stash');
     await ctx.openLink(ctx.claimUrl); // open() runs before the page loads
     await sleep(2000);

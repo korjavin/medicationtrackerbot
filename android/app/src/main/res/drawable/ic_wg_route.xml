@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Kit icon "route" (ui_kits/app-v2/icons.js), 24 grid, stroke 1.8; tinted where used. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:pathData="M3.8,18a2.2,2.2 0 1 0 4.4,0a2.2,2.2 0 1 0 -4.4,0" android:fillColor="#00000000" android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8" android:strokeLineCap="round" android:strokeLineJoin="round" />
+    <path android:pathData="M15.8,6a2.2,2.2 0 1 0 4.4,0a2.2,2.2 0 1 0 -4.4,0" android:fillColor="#00000000" android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8" android:strokeLineCap="round" android:strokeLineJoin="round" />
+    <path android:pathData="M8.2 18H15a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h6.8" android:fillColor="#00000000" android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8" android:strokeLineCap="round" android:strokeLineJoin="round" />
+</vector>

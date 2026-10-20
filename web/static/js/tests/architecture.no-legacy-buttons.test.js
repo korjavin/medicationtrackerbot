@@ -44,8 +44,9 @@ const PATTERNS = {
     'wg-settings-action-btn': /\bwg-settings-action-btn\b/g,
     'wg-settings-save-btn': /\bwg-settings-save-btn\b/g,
 };
-// Shell-only: a <button …> literal with no wg-btn class.
-const SHELL_BARE_BUTTON = /<button\b(?![^>]*\bwg-btn\b)[^>]*>/g;
+// Shell-only: a <button …> literal with no kit button class — .wg-btn, or the
+// kit's .wg-choice (the Emergency Kit page's "I saved it", bd med-ckm5.2).
+const SHELL_BARE_BUTTON = /<button\b(?![^>]*\b(?:wg-btn|wg-choice)\b)[^>]*>/g;
 
 const ALLOWLIST = {};
 

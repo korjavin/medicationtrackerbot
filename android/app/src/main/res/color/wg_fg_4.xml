@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- wg-fg-4: fg-1 at 0.36. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:color="@color/wg_fg_1" android:alpha="0.36" />
+</selector>

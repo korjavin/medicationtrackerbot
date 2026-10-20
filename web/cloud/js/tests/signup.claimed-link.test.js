@@ -126,15 +126,11 @@ describe('wizard tail (Emergency Kit -> app)', () => {
     globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200 }));
     const app = dom.window.document.getElementById('app');
     await renderEmergencyKit(app, ctx);
-    // #kit-continue needs BOTH gates (med-d5t.2): the kit has to be produced
-    // before the checkbox even unlocks. Print rather than download — it opens
-    // the same gate without an <a download> click, which jsdom answers with a
+    // Print ticks "I saved it" and arms #kit-continue. Print rather than
+    // download — no <a download> click, which jsdom answers with a
     // "navigation not implemented" error. The gate itself is covered in
     // signup.emergency-kit.test.js.
     app.querySelector('#kit-print').click();
-    const checkbox = app.querySelector('#kit-saved-checkbox');
-    checkbox.checked = true;
-    checkbox.dispatchEvent(new dom.window.Event('change'));
     app.querySelector('#kit-continue').click();
     return app;
   }
@@ -261,6 +257,27 @@ describe('post-create PRF probe', () => {
     expect(app.querySelector('.wizard-error').textContent).toBe('credential manager');
   });
 
+  it('web: a failed kit upload offers Try again, and a double tap rotates the code once', async () => {
+    install(() => withPrf(RAW_ID));
+    let failed = false;
+    globalThis.fetch = vi.fn(async (url) => {
+      if (url === '/api/recovery-material' && !failed) {
+        failed = true;
+        return { ok: false, status: 500, json: async () => ({}) };
+      }
+      return { ok: true, status: 200, json: async () => ({ publicKey: {} }) };
+    });
+    const app = await clickCreate();
+    await vi.waitFor(() => expect(app.querySelector('#kit-retry')).not.toBeNull());
+    expect(app.textContent).toContain("Couldn't create your Emergency Kit");
+
+    const retry = app.querySelector('#kit-retry');
+    retry.click();
+    retry.click();
+    await vi.waitFor(() => expect(app.textContent).toContain('Save your Emergency Kit'));
+    expect(calls('/api/recovery-material')).toBe(2); // the failed one + exactly one retry
+  });
+
   it('Android shell: discoverable probe, accepted when it returns the created credential', async () => {
     install(() => noPrf(new Uint8Array([1, 2, 3, 4]).buffer));
     bridge();
@@ -343,7 +360,7 @@ describe('post-create PRF probe', () => {
     button.click();
     button.dispatchEvent(new dom.window.Event('click'));
 
-    await settle(() => expect(app.textContent).toContain('Protect against device loss'));
+    await settle(() => expect(app.textContent).toContain('Save your Emergency Kit'));
     expect(calls('/api/webauthn/register/begin')).toBe(2); // the wizard's claim-state probe + this ceremony
     expect(navigator.credentials.create).toHaveBeenCalledTimes(1);
     expect(getCalls).toHaveLength(2);
@@ -362,7 +379,7 @@ describe('post-create PRF probe', () => {
     expect(calls('/api/webauthn/register/finish')).toBe(0);
 
     app.querySelector('#create-passkey').click();
-    await settle(() => expect(app.textContent).toContain('Protect against device loss'));
+    await settle(() => expect(app.textContent).toContain('Save your Emergency Kit'));
     expect(calls('/api/webauthn/register/begin')).toBe(3);
     expect(navigator.credentials.create).toHaveBeenCalledTimes(2);
     expect(calls('/api/webauthn/register/finish')).toBe(1);
