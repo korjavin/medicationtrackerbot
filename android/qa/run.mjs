@@ -156,11 +156,11 @@ const ctx = {
    * Wait for a selector, dismissing system "<app> isn't responding" dialogs on the way: the
    * freshly booted software-GPU emulator ANRs its launcher, and UiAutomator then sees only the dialog.
    */
-  async waitFor(selector, timeout = 30_000) {
+  async waitFor(selector, timeout = 60_000) {
     const end = Date.now() + timeout;
     for (;;) {
       try {
-        return await device.wait(selector, { timeout: 3_000 });
+        return await device.wait(selector, { timeout: 10_000 });
       } catch (e) {
         if (Date.now() > end) throw e;
         if (await device.wait({ text: /.*isn't responding.*/ }, { timeout: 500 }).then(() => true, () => false)) {
