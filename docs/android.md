@@ -508,6 +508,15 @@ the same way.
   and it popped the page pushed meanwhile; `MessengerAdapter.historyPush` /
   `historyBack` now hold pushes until it lands — run 39265321642 passes every
   scene on attempt 1). The scenario fails at the end if any scene did.
+  **Visual tier (bd med-y5xx.9):** a `local-visual` dispatch also uploads
+  `visual/` as its own artifact, `android-visual` (90 days), suffixed by each
+  non-default input (`-api35`, `-font1.3`, `-dark`, `-landscape`), and runs
+  `tests/visual/compare.sh` against master's latest dispatch carrying the same
+  name, so a variant only compares with its own kind. Diffs land in the
+  artifact's `compare/`. Evidence only, never a gate. The master reference is
+  `gh workflow run android-qa.yml --ref master -f scenario=local-visual`;
+  rerun it after an intended UI change. Shots are Playwright's
+  `AndroidDevice.screenshot()`, which is `adb` `screencap` underneath.
 
 ### Local cloud on the runner (bd med-nt9p.24)
 
