@@ -36,7 +36,9 @@ const COMPONENTS_CSS = path.join(REPO_ROOT, 'web/static/css/components.css');
 const SHELL_KIT_ROOTS = ['.wg-dialog', '.wg-btn', '.wg-choice', '.wg-field', '.wg-input', '.wg-ico',
     '.wg-exitbar', '.wg-pagefoot', '.wg-content', '.wg-vstack', '.wg-hstack', '.wg-steps', '.wg-meta',
     '.wg-shell__title', '.wg-shell__lede', '.wg-disc', '.wg-row__lead', '.wg-setting__', '.wg-kv', '.wg-qr',
-    '.wg-hint', '.wg-chip', '.wg-note'];
+    '.wg-hint', '.wg-chip', '.wg-note',
+    // The invite landing (bd med-ta2n.10) is a kit shell screen.
+    '.wg-app', '.wg-shell', '.wg-mark', '.wg-olist'];
 
 // The :root blocks hold gradients full of parens but no braces, so a
 // non-greedy match to the first '}' is a correct extraction here.

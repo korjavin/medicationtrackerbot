@@ -28,6 +28,10 @@ const ALLOWED = {
   'api.openai.com': 'BYO provider default; egress-host registration (med-yor.4)',
   // Anchor hrefs / navigation only — never a fetch, so connect-src is moot.
   't.me': 'navigation link to the Telegram bot, not a fetch',
+  // The invite landing's store buttons (med-ta2n.10): location.href
+  // navigations, never a fetch; disclosed as the invite-play-referrer row.
+  'apps.apple.com': 'invite landing store navigation, not a fetch',
+  'play.google.com': 'invite landing store navigation (install referrer), not a fetch',
 };
 
 function nonTestJsFiles(dir = JS_DIR) {

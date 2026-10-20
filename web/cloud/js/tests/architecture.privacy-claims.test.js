@@ -99,6 +99,7 @@ const REQUIRED_CARVE_OUTS = [
   ['hosted MCP (tier 2)', /hosted mcp/i],
   ['operator-default food DB', /food[\s-]?db|food database/i],
   ['RxNav drug lookups', /rxnav/i],
+  ['invite Play install referrer', /play install referrer/i],
   ['operational metadata', /operational metadata/i],
 ];
 
