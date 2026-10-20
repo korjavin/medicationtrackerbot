@@ -94,7 +94,7 @@ final class FlowQAStashTests: XCTestCase {
 
     /// The local boot's leave pickup: on an empty store it imports without a
     /// question, toasts and clears the file; over records it asks Merge /
-    /// Replace, and Cancel says "Records not copied" and clears it too.
+    /// Replace, and Cancel shows nothing more, keeps the records and clears it too.
     func testLeaveStashPickup() throws {
         continueAfterFailure = false
         // A failed step must not leave a stash for the next flow's boot to pick up.
@@ -146,11 +146,12 @@ final class FlowQAStashTests: XCTestCase {
         XCTAssertTrue(replace.waitForExistence(timeout: 5), "the choice offers no Replace")
         shot(flow, "replace-dialog")
         app.webViews.buttons["Cancel"].tap()
-        XCTAssertTrue(webText(app, "Records not copied").waitForExistence(timeout: 15), "no Records not copied alert after Cancel")
-        shot(flow, "not-copied")
-        app.webViews.buttons["OK"].tap()
-        XCTAssertNil(Self.stashData("leave"), "Cancel kept leave/vault.json (the pickup is one-shot)")
+        // bd med-o7zq.42: Cancel = nothing happened. No dialog after it; with
+        // no account remembered here, leave.clear {back: true} stays local.
         XCTAssertTrue(QA.tabBarShows(app, timeout: 20), "no tab bar after the cancelled pickup")
+        shot(flow, "cancelled")
+        XCTAssertFalse(webText(app, "Records not copied").exists, "a dialog followed Cancel")
+        XCTAssertNil(Self.stashData("leave"), "Cancel kept leave/vault.json")
         webButton(app, prefix: "Meds").tap() // "Meds 1" with a dose due
         XCTAssertTrue(webText(app, contains: Self.firstMed(fixture)).waitForExistence(timeout: 20), "the records are gone after the cancelled pickup")
         app.terminate()
