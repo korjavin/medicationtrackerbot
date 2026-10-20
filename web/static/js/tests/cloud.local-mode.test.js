@@ -558,9 +558,9 @@ describe('local-only mode egress + side-effect policy (med-o7zq.3)', () => {
         ];
         for (const el of hidden) expect(shown(el), el.id || el.className).toBe(false);
         expect(shown(document.getElementById('local-reminder-verbosity').closest('section'))).toBe(true);
-        // Restore and the move to a cloud account work here (bd med-o7zq.6).
+        // Restore and Erase work here; the Move section needs move.stash (below).
         expect(shown(document.getElementById('importexport-import-btn').closest('section'))).toBe(true);
-        expect(shown(document.getElementById('importexport-local-move-group'))).toBe(true);
+        expect(shown(document.getElementById('importexport-local-erase-group'))).toBe(true);
         // The settings home hides a row whose page has nothing left to show.
         expect(window.isSettingsSectionHidden(document.getElementById('importexport-nxk-group'))).toBe(true);
         expect(window.isSettingsSectionHidden(document.getElementById('local-reminder-verbosity').closest('section'))).toBe(false);
@@ -829,19 +829,10 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         expect(offDevice()).toEqual([]);
     });
 
-    it('Move to a cloud account hands over to the shell\'s invite screen and keeps the records', async () => {
-        const { window } = env;
-        await window.apiCall('/api/weight', 'POST', { weight: 80 });
-        cancelReminderRecompute({ accountId: 'local' });
-        await window.CloudVault.openCloudAccount({ win: window });
-        expect(bridge).toHaveBeenCalledWith('local.leave');
-        expect((await localRecordsPort().list('weight')).map((r) => r.weight)).toEqual([80]);
-        expect(offDevice()).toEqual([]);
-    });
-
-    // bd med-nt9p.32.16: the Settings-home row stashes the vault with the shell
-    // (move.stash) before leaving; a shell that does not list the op (every
-    // shell before it, iOS today) never shows the row.
+    // bd med-nt9p.32.16: Backup & import's Move button stashes the vault with
+    // the shell (move.stash) before leaving, and the Settings-home row only
+    // opens that section; a shell that does not list the op (every shell
+    // before it) shows neither.
     const openDialog = (document) => vi.waitFor(() => {
         const d = document.querySelector('mt-modal.mt-confirm-modal');
         if (!d) throw new Error('no dialog open');
@@ -854,7 +845,11 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
     });
     const moveOps = () => bridge.mock.calls.map(([op]) => op).filter((op) => op === 'move.stash' || op === 'local.leave');
 
-    it('Settings home Move row stays hidden when the shell does not list move.stash', async () => {
+    // Kit S7 (bd med-ckm5.7): one Move control, the Backup & import section's
+    // button; the manual "I have an invite" path is gone.
+    const moveGroup = (document) => document.getElementById('importexport-local-move-group');
+
+    it('Move row and section stay hidden when the shell does not list move.stash', async () => {
         const { window, document } = env;
         bridge.mockImplementation(async (op) => {
             if (op === 'shell.ops') throw new Error('unsupported: shell.ops');
@@ -863,19 +858,34 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         window.bindLocalMoveRow();
         await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('shell.ops'));
         await new Promise((r) => { setTimeout(r, 0); });
-        const row = document.getElementById('settings-local-move-btn');
-        expect(row.classList.contains('wg-settings-hidden')).toBe(true);
-        row.click();
+        expect(document.getElementById('settings-local-move-row').classList.contains('wg-settings-hidden')).toBe(true);
+        expect(moveGroup(document).classList.contains('wg-settings-hidden')).toBe(true);
+        document.getElementById('settings-local-move-btn').click();
         await new Promise((r) => { setTimeout(r, 0); });
         expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
         expect(moveOps()).toEqual([]);
+        expect(document.getElementById('importexport-local-move-btn')).toBeNull();
+        expect(document.body.textContent).not.toMatch(/I have an invite/);
     });
 
     describe('with a shell that lists move.stash', () => {
         beforeAll(() => { bootShellOps = ['ping', 'shell.ops', 'move.stash', 'local.leave']; });
         afterAll(() => { bootShellOps = true; });
 
-        it('Settings home Move row: export → move.stash → local.leave, records kept', async () => {
+        it('the Settings-home row only opens the Backup & import Move section', async () => {
+            const { window, document } = env;
+            withMoveOps(() => true);
+            window.bindLocalMoveRow();
+            const row = document.getElementById('settings-local-move-row');
+            await vi.waitFor(() => expect(row.classList.contains('wg-settings-hidden')).toBe(false));
+            expect(moveGroup(document).classList.contains('wg-settings-hidden')).toBe(false);
+            row.click();
+            await vi.waitFor(() => expect(moveGroup(document).closest('.wg-page')).not.toBeNull());
+            expect(document.querySelector('mt-modal.mt-confirm-modal')).toBeNull();
+            expect(moveOps()).toEqual([]);
+        });
+
+        it('Move button: export → move.stash → local.leave, records kept', async () => {
             const { window, document } = env;
             await window.apiCall('/api/weight', 'POST', { weight: 80 });
             cancelReminderRecompute({ accountId: 'local' });
@@ -883,7 +893,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
             withMoveOps(({ vault }) => { stashed = vault; return true; });
             window.bindLocalMoveRow();
             const row = document.getElementById('settings-local-move-btn');
-            await vi.waitFor(() => expect(row.classList.contains('wg-settings-hidden')).toBe(false));
+            await vi.waitFor(() => expect(moveGroup(document).classList.contains('wg-settings-hidden')).toBe(false));
             row.click();
             const dialog = await openDialog(document);
             expect(dialog.textContent).toMatch(/Move to a cloud account\?/);
@@ -895,13 +905,13 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
             expect(offDevice()).toEqual([]);
         });
 
-        it('Settings home Move row: a rejected stash shows the file steps and never leaves', async () => {
+        it('Move button: a rejected stash shows the file steps and never leaves', async () => {
             const { window, document } = env;
             allowConsoleNoise();
             withMoveOps(() => { throw new Error('too large'); });
             window.bindLocalMoveRow();
             const row = document.getElementById('settings-local-move-btn');
-            await vi.waitFor(() => expect(row.classList.contains('wg-settings-hidden')).toBe(false));
+            await vi.waitFor(() => expect(moveGroup(document).classList.contains('wg-settings-hidden')).toBe(false));
             row.click();
             (await openDialog(document)).querySelector('.mt-confirm-modal__confirm').click();
             const alert = await vi.waitFor(() => {
@@ -909,7 +919,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
                 if (!d) throw new Error('no alert yet');
                 return d;
             });
-            expect(alert.textContent).toMatch(/Download a backup/);
+            expect(alert.textContent).toMatch(/Export backup/);
             expect(moveOps()).toEqual(['move.stash']);
             alert.querySelector('.mt-confirm-modal__cancel').click();
             await vi.waitFor(() => expect(row.disabled).toBe(false));
@@ -981,7 +991,8 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
 
         await window.CloudVault.trial.apply();
         expect(bridge).toHaveBeenCalledWith('setEgressHosts', { hosts: [] });
-        await window.CloudVault.openCloudAccount({ win: window });
+        await window.CloudVault.moveToCloud({ win: window });
+        expect(bridge).toHaveBeenCalledWith('move.stash', expect.objectContaining({ vault: expect.any(String) }));
         expect(bridge).toHaveBeenCalledWith('local.leave');
         const replace = vi.fn();
         const win = () => ({
@@ -996,7 +1007,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
             local.__native.platform = platform;
             bridge.mockClear();
             await window.CloudVault.trial.apply();
-            await expect(window.CloudVault.openCloudAccount({ win: window })).rejects.toThrow('Open the app on your phone to use an invite.');
+            await expect(window.CloudVault.moveToCloud({ win: window })).rejects.toThrow('Open the app on your phone to use an invite.');
             await window.CloudVault.eraseDevice({ win: win() });
             expect(bridge).not.toHaveBeenCalled();
         }

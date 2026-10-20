@@ -109,49 +109,112 @@ describe('Settings → Import/Export section', () => {
         expect(env.document.getElementById('importexport-include-secrets').checked).toBe(true);
     });
 
-    // med-c2b: the import passphrase box is an answer to a question we can ask
-    // the file itself. It ships `hidden` and appears only for an age archive.
-    describe('import passphrase field', () => {
+    // med-c2b: the import passphrase is an answer to a question we can ask the
+    // file itself. Kit S7 (bd med-ckm5.7): it is asked in a docked sheet over
+    // the page (shot 09), and only for an age archive.
+    describe('import passphrase sheet', () => {
+        const sheet = () => env.document.getElementById('importexport-import-sheet');
+        const open = () => !sheet().classList.contains('hidden');
+
         function pick(name, contents) {
             const input = env.document.getElementById('importexport-import-file');
             setFile(env.window, input, name, contents);
             input.dispatchEvent(new env.window.Event('change'));
-            return env.document.getElementById('importexport-import-passphrase-field');
         }
 
-        it('stays hidden for a plaintext archive', async () => {
-            env.window.BackupCrypto.isAgeFile = vi.fn(() => false);
-            const field = pick('vault.json', JSON.stringify(SAMPLE_VAULT));
-            await vi.waitFor(() => expect(env.window.BackupCrypto.isAgeFile).toHaveBeenCalled());
-            expect(field.hidden).toBe(true);
+        it('no passphrase field lives on the page', () => {
+            const pass = env.document.getElementById('importexport-import-passphrase');
+            expect(pass.closest('.wg-settings-page')).toBeNull();
+            expect(pass.closest('#importexport-import-sheet')).not.toBeNull();
         });
 
-        it('is revealed for an age-encrypted archive', async () => {
-            env.window.BackupCrypto.isAgeFile = vi.fn(() => true);
-            const field = pick('vault.json.gz.age', 'age-encryption.org/v1\n');
-            await vi.waitFor(() => expect(field.hidden).toBe(false));
-        });
-
-        it('is hidden again after switching back to a plaintext archive', async () => {
-            env.window.BackupCrypto.isAgeFile = vi.fn(() => true);
-            const field = pick('vault.json.gz.age', 'age-encryption.org/v1\n');
-            await vi.waitFor(() => expect(field.hidden).toBe(false));
-
-            env.window.BackupCrypto.isAgeFile = vi.fn(() => false);
+        it('a plaintext archive restores without asking', async () => {
+            const { window } = env;
+            window.CloudVault = { exportAll: vi.fn(), importAll: vi.fn(async () => {}), hasUserContent: async () => false };
             pick('vault.json', JSON.stringify(SAMPLE_VAULT));
-            await vi.waitFor(() => expect(field.hidden).toBe(true));
+            await window.SettingsImportExport.import();
+            expect(open()).toBe(false);
+            expect(window.CloudVault.importAll).toHaveBeenCalledTimes(1);
         });
 
-        // The `hidden` attribute above is only a UA `display:none`. The field's
-        // own class sets `display:flex`, which outranks it — so the JS hid the
-        // field and the CSS showed it anyway. Pin the guard rule.
-        it('has a CSS rule making [hidden] actually hide it', async () => {
+        it('an age archive says encrypted on the picker', async () => {
+            env.window.BackupCrypto.isAgeFile = vi.fn(() => true);
+            pick('vault.json.gz.age', 'age-encryption.org/v1\n');
+            const meta = env.document.querySelector('[data-file-input="importexport-import-file"] .wg-file__meta');
+            await vi.waitFor(() => expect(meta.textContent).toMatch(/· encrypted$/));
+        });
+
+        it('an age archive asks in the sheet, decrypts with the typed passphrase, then clears it', async () => {
+            const { window, document } = env;
+            window.BackupCrypto.isAgeFile = vi.fn(() => true);
+            window.BackupCrypto.decryptBackup = vi.fn(async () => new TextEncoder().encode(JSON.stringify(SAMPLE_VAULT)));
+            window.CloudVault = { exportAll: vi.fn(), importAll: vi.fn(async () => {}), hasUserContent: async () => false };
+            pick('vault.json.gz.age', 'age-encryption.org/v1\n');
+            const done = window.SettingsImportExport.import();
+            await vi.waitFor(() => expect(open()).toBe(true));
+            expect(document.getElementById('importexport-sheet-backdrop').hidden).toBe(false);
+            // An empty Decrypt keeps the sheet open.
+            document.getElementById('importexport-import-decrypt').click();
+            expect(open()).toBe(true);
+            const pass = document.getElementById('importexport-import-passphrase');
+            pass.value = 'pw';
+            document.getElementById('importexport-import-decrypt').click();
+            await done;
+            expect(open()).toBe(false);
+            expect(document.getElementById('importexport-sheet-backdrop').hidden).toBe(true);
+            expect(window.BackupCrypto.decryptBackup).toHaveBeenCalledWith(expect.anything(), 'pw');
+            expect(pass.value).toBe('');
+            expect(window.CloudVault.importAll).toHaveBeenCalledTimes(1);
+        });
+
+        it('closing the sheet restores nothing and frees Restore', async () => {
+            const { window, document } = env;
+            window.BackupCrypto.isAgeFile = vi.fn(() => true);
+            window.CloudVault = { exportAll: vi.fn(), importAll: vi.fn(async () => {}), hasUserContent: async () => false };
+            pick('vault.json.gz.age', 'age-encryption.org/v1\n');
+            const done = window.SettingsImportExport.import();
+            await vi.waitFor(() => expect(open()).toBe(true));
+            sheet().querySelector('[data-sheet-close]').click();
+            await done;
+            expect(window.BackupCrypto.decryptBackup).not.toHaveBeenCalled();
+            expect(window.CloudVault.importAll).not.toHaveBeenCalled();
+            // The re-entry guard is released: Restore asks again.
+            const again = window.SettingsImportExport.import();
+            await vi.waitFor(() => expect(open()).toBe(true));
+            document.getElementById('importexport-sheet-backdrop').click();
+            await again;
+            expect(open()).toBe(false);
+        });
+
+        // The kit's display rules outrank the UA [hidden] rule; pin the guards
+        // that keep [hidden] authoritative on the page and in the sheets.
+        it('has CSS rules making [hidden] actually hide', async () => {
             const { readFile } = await import('node:fs/promises');
             const css = await readFile(
                 new URL('../../css/styles.css', import.meta.url), 'utf8');
             expect(css).toMatch(/\.wg-settings-page \[hidden\]\s*\{[^}]*display:\s*none\s*!important/);
-            expect(env.document.getElementById('importexport-import-passphrase-field').closest('.wg-settings-page')).not.toBeNull();
+            expect(css).toMatch(/\.wg-importexport-sheet \[hidden\]\s*\{[^}]*display:\s*none\s*!important/);
+            // Over the pushed page (--z-modal), on the backdrop's layer.
+            expect(css).toMatch(/\.wg-importexport-sheet\s*\{[^}]*z-index:\s*var\(--z-confirm\)/);
+            expect(css).toMatch(/\.wg-importexport-backdrop\s*\{[^}]*z-index:\s*var\(--z-confirm\)/);
+            // Not the in-page dialog's class: its presence means a dialog is open.
+            expect(env.document.querySelector('.mt-confirm-backdrop')).toBeNull();
         });
+    });
+
+    // Kit S7 (bd med-ckm5.7): Back up, Restore, Move, Danger in that order,
+    // one sun on the page.
+    it('lays the page out as Back up, Restore, Move, Danger', () => {
+        const { document } = env;
+        const heads = [...document.querySelectorAll('#settings-importexport > .wg-section > .wg-section__head .wg-eyebrow')]
+            .map((e) => e.textContent);
+        expect(heads.filter((h) => ['Back up', 'Restore', 'Move to a cloud account', 'Danger'].includes(h)))
+            .toEqual(['Back up', 'Restore', 'Move to a cloud account', 'Danger']);
+        expect(document.querySelectorAll('[data-settings-page="backup"] .wg-btn--primary')).toHaveLength(1);
+        expect(document.getElementById('importexport-export-btn').textContent).toBe('Export backup');
+        const erase = document.getElementById('importexport-local-erase-btn');
+        expect(erase.classList.contains('wg-setting--boxed')).toBe(true);
+        expect(erase.closest('section').querySelector('.wg-eyebrow--danger')).not.toBeNull();
     });
 
     // med-xso6.24 (kit S3): the native file input is hidden behind a kit
@@ -346,12 +409,15 @@ describe('Settings → Import/Export section', () => {
     });
 
     it('export downloads a gzipped medtracker-vault blob from CloudVault.exportAll', async () => {
-        const { window } = env;
+        const { window, document } = env;
         window.CloudVault = { exportAll: vi.fn(async () => JSON.stringify(SAMPLE_VAULT)), importAll: vi.fn() };
         const downloads = [];
         window.downloadBlobAsFile = (blob, filename) => downloads.push({ blob, filename });
 
         await window.SettingsImportExport.export();
+        // Nothing is written until Save to device on the Backup ready sheet.
+        expect(downloads).toHaveLength(0);
+        document.getElementById('importexport-ready-save').click();
 
         expect(window.CloudVault.exportAll).toHaveBeenCalledWith({ includeSecrets: true });
         expect(downloads).toHaveLength(1);
@@ -364,9 +430,10 @@ describe('Settings → Import/Export section', () => {
     });
 
     // bd med-nvd4: a slow export showed nothing and looked stuck. The status line
-    // walks preparing → encrypting → ready, the button is busy meanwhile, and a
-    // failure stays on screen as an error.
-    it('encrypted export shows progress, then ready, through the real button', async () => {
+    // walks preparing → encrypting, hides for Backup ready, and says "Backup
+    // exported" after Save; the button is busy meanwhile, and a failure stays
+    // on screen as an error.
+    it('encrypted export shows progress, then Backup ready, through the real button', async () => {
         const { window, document } = env;
         let release;
         window.CloudVault = {
@@ -376,25 +443,98 @@ describe('Settings → Import/Export section', () => {
         window.BackupCrypto.encryptBackup = vi.fn(async () => new Uint8Array([1, 2, 3]));
         const downloads = [];
         window.downloadBlobAsFile = (blob, filename) => downloads.push(filename);
-        document.getElementById('importexport-export-passphrase').value = 'pw';
         const btn = document.getElementById('importexport-export-btn');
         const status = document.getElementById('importexport-export-status');
+        const sheet = document.getElementById('importexport-export-sheet');
+        const confirm = document.getElementById('importexport-export-confirm');
         expect(status.hidden).toBe(true);
 
+        // Export backup opens the passphrase sheet (kit S7, shot 09); its foot
+        // names what it will do.
         btn.click();
+        expect(sheet.classList.contains('hidden')).toBe(false);
+        expect(confirm.textContent).toBe('Export without encryption');
+        const pass = document.getElementById('importexport-export-passphrase');
+        pass.value = 'pw';
+        pass.dispatchEvent(new window.Event('input'));
+        expect(confirm.textContent).toBe('Encrypt and export');
+        confirm.click();
         await vi.waitFor(() => expect(window.CloudVault.exportAll).toHaveBeenCalled());
+        expect(sheet.classList.contains('hidden')).toBe(true);
+        expect(pass.value).toBe('');
         expect(status.hidden).toBe(false);
         expect(status.textContent).toMatch(/Preparing your backup/);
         expect(btn.disabled).toBe(true);
         btn.click(); // re-entry ignored while busy
         release();
 
-        await vi.waitFor(() => expect(status.textContent).toMatch(/^Backup ready: medtracker-vault-.*\.json\.gz\.age/));
+        const ready = document.getElementById('importexport-ready-sheet');
+        await vi.waitFor(() => expect(ready.classList.contains('hidden')).toBe(false));
         expect(window.BackupCrypto.encryptBackup).toHaveBeenCalledTimes(1);
         expect(window.CloudVault.exportAll).toHaveBeenCalledTimes(1);
-        expect(downloads).toHaveLength(1);
         expect(btn.disabled).toBe(false);
+        // Nothing saved yet: the page claims no backup until Save or Share.
+        expect(status.hidden).toBe(true);
+        expect(document.getElementById('importexport-ready-meta').textContent).toBe('1 KB · encrypted with your passphrase');
+        document.getElementById('importexport-ready-save').click();
+        expect(downloads).toHaveLength(1);
+        expect(ready.classList.contains('hidden')).toBe(true);
+        expect(status.hidden).toBe(false);
         expect(status.classList.contains('wg-error')).toBe(false);
+        expect(status.textContent).toMatch(/^Backup exported: medtracker-vault-.*\.json\.gz\.age/);
+    });
+
+    it('dismissing Backup ready saves nothing and says nothing was saved', async () => {
+        const { window, document } = env;
+        window.CloudVault = { exportAll: vi.fn(async () => JSON.stringify(SAMPLE_VAULT)), importAll: vi.fn() };
+        window.downloadBlobAsFile = vi.fn();
+        window.localStorage.removeItem('wg.backup.last');
+        window.SettingsImportExport.load();
+        document.getElementById('importexport-include-secrets').checked = false;
+
+        await window.SettingsImportExport.export();
+
+        const ready = document.getElementById('importexport-ready-sheet');
+        expect(ready.classList.contains('hidden')).toBe(false);
+        ready.querySelector('[data-sheet-close]').click();
+        expect(ready.classList.contains('hidden')).toBe(true);
+        expect(window.downloadBlobAsFile).not.toHaveBeenCalled();
+        expect(document.getElementById('importexport-export-status').hidden).toBe(true);
+        expect(document.getElementById('importexport-last-backup').hidden).toBe(true);
+    });
+
+    // Shot 44: the ready filename wrapped mid-extension. .wg-fname splits it
+    // so the stem truncates and ".json.gz.age" stays whole at 390px (jsdom has
+    // no layout: pin the split and the kit rule).
+    it('Backup ready keeps the extension whole and remembers the save', async () => {
+        const { window, document } = env;
+        window.CloudVault = { exportAll: vi.fn(async () => JSON.stringify(SAMPLE_VAULT)), importAll: vi.fn() };
+        window.BackupCrypto.encryptBackup = vi.fn(async () => new Uint8Array([1, 2, 3]));
+        window.downloadBlobAsFile = vi.fn();
+        window.localStorage.removeItem('wg.backup.last');
+        window.SettingsImportExport.load();
+        const last = document.getElementById('importexport-last-backup');
+        expect(last.hidden).toBe(true);
+        document.getElementById('importexport-export-passphrase').value = 'pw';
+
+        await window.SettingsImportExport.export();
+
+        const stem = document.getElementById('importexport-ready-stem');
+        const ext = document.getElementById('importexport-ready-ext');
+        expect(stem.textContent).toMatch(/^medtracker-vault-\d{4}-\d{2}-\d{2}$/);
+        expect(ext.textContent).toBe('.json.gz.age');
+        expect(stem.parentElement.classList.contains('wg-fname')).toBe(true);
+        const fs = await import('node:fs');
+        const css = fs.readFileSync(new URL('../../css/components.css', import.meta.url), 'utf8');
+        expect(css).toMatch(/\.wg-fname\{[^}]*white-space:nowrap/);
+        expect(css).toMatch(/\.wg-fname__stem\{[^}]*text-overflow:ellipsis/);
+        expect(css).toMatch(/\.wg-fname__ext\{flex-shrink:0\}/);
+        // No Web Share with files here: Share stays hidden, Save is the sun.
+        expect(document.getElementById('importexport-ready-share').hidden).toBe(true);
+        document.getElementById('importexport-ready-save').click();
+        expect(window.downloadBlobAsFile).toHaveBeenCalledWith(expect.anything(), `${stem.textContent}.json.gz.age`);
+        expect(last.hidden).toBe(false);
+        expect(last.textContent).toBe('last today');
     });
 
     it('export failure stays on screen as an error and frees the button', async () => {
@@ -449,6 +589,7 @@ describe('Settings → Import/Export section', () => {
         window.downloadBlobAsFile = (blob, filename) => downloads.push({ blob, filename });
 
         await window.SettingsImportExport.export();
+        env.document.getElementById('importexport-ready-save').click();
 
         expect(window.CloudVault.exportAll).toHaveBeenCalled();
         expect(window.apiCall).not.toHaveBeenCalled();

@@ -521,8 +521,9 @@
                         <span class="wg-setting__body"><span class="wg-setting__title">On this device only</span><span class="wg-setting__desc">No account. Your data is stored only on this <span data-device-word>iPhone</span>; Backup &amp; import keeps a copy.</span></span>
                     </div>
                     <!-- bd med-nt9p.32.16: shown by settings.js bindLocalMoveRow only
-                         when the shell lists move.stash (shell.ops). -->
-                    <button type="button" class="wg-setting wg-settings-hidden" id="settings-local-move-btn">
+                         when the shell lists move.stash (shell.ops); opens the
+                         Backup & import Move section (bd med-ckm5.7). -->
+                    <button type="button" class="wg-setting wg-settings-hidden" id="settings-local-move-row">
                         <span class="wg-row__lead"><i class="wg-ico" data-icon="cloud-up"></i></span>
                         <span class="wg-setting__body"><span class="wg-setting__title">Move to a cloud account</span><span class="wg-setting__desc">Bring your records into an account with an invite.</span></span>
                         <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
@@ -1150,27 +1151,21 @@
 
             </div>
 
-            <!-- Backup & import (med-xso6.24, kit S3). File inputs stay in the
-                 DOM but hidden; a .wg-file picker shows their empty/filled state
-                 (importexport.js bindFilePicker). Replace and Reset go through the
-                 kit dialog (typed confirm for Replace). -->
+            <!-- Backup & import (med-xso6.24 kit S3; local layout kit S7, bd
+                 med-ckm5.7): Back up, Restore, Move, Danger in that order. File
+                 inputs stay in the DOM but hidden; a .wg-file picker shows their
+                 empty/filled state (importexport.js bindFilePicker). Passphrases
+                 are typed in docked sheets (#importexport-export-sheet,
+                 #importexport-import-sheet), never on this page. Replace and
+                 Reset go through the kit dialog (typed confirm for Replace). -->
             <div class="wg-settings-page" data-settings-page="backup">
 
             <section id="settings-importexport" class="wg-settings-importexport">
                 <section class="wg-section">
-                    <div class="wg-section__head"><span class="wg-eyebrow">Export</span></div>
+                    <div class="wg-section__head"><span class="wg-eyebrow">Back up</span><span id="importexport-last-backup" class="wg-meta" hidden></span></div>
                     <div class="wg-card wg-vstack">
-                        <div class="wg-setting wg-setting--bare">
-                            <span class="wg-setting__body"><span class="wg-setting__title">Include API keys</span><span class="wg-setting__desc">Provider keys and access tokens. Set a passphrase if this is on.</span></span>
-                            <label class="wg-toggle"><input type="checkbox" class="wg-toggle__input" id="importexport-include-secrets" aria-label="Include API keys" checked></label>
-                        </div>
-                        <div class="wg-field">
-                            <label for="importexport-export-passphrase" class="wg-label">Passphrase · optional</label>
-                            <input type="password" id="importexport-export-passphrase" class="wg-input" autocomplete="off" placeholder="Encrypt the backup">
-                            <p class="wg-hint">Encrypts the file with age. Without it the file is plain JSON.</p>
-                            <p id="importexport-passphrase-nudge" class="wg-hint" hidden>The backup contains your provider API keys — consider a passphrase.</p>
-                        </div>
-                        <button id="importexport-export-btn" type="button" class="wg-btn wg-btn--primary wg-btn--block"><i class="wg-ico wg-ico--sm" data-icon="download"></i>Download backup</button>
+                        <p class="wg-hint">A file with all records, settings and keys, encrypted with your passphrase. Keep it somewhere other than this device.</p>
+                        <button id="importexport-export-btn" type="button" class="wg-btn wg-btn--primary wg-btn--block"><i class="wg-ico wg-ico--sm" data-icon="download"></i>Export backup</button>
                         <p id="importexport-export-status" class="wg-hint" role="status" aria-live="polite" hidden></p>
                     </div>
                 </section>
@@ -1181,36 +1176,30 @@
                         <!-- Import sniffs magic bytes, not the extension; accept only
                              shapes the OS file picker. .gz first: export writes it. -->
                         <input type="file" id="importexport-import-file" accept=".gz,.age,.json,application/gzip,application/json,application/octet-stream" hidden>
-                        <div class="wg-file" data-file-input="importexport-import-file" data-empty-name="Choose a backup file" data-empty-meta=".json.gz or .age from Download backup">
-                            <span class="wg-file__icon"><i class="wg-ico" data-icon="file"></i></span>
-                            <span class="wg-file__body"><span class="wg-file__name">Choose a backup file</span><span class="wg-file__meta">.json.gz or .age from Download backup</span></span>
+                        <div class="wg-file" data-file-input="importexport-import-file" data-empty-name="Choose a backup file" data-empty-meta=".age or .json.gz · replaces your data">
+                            <span class="wg-file__icon"><i class="wg-ico" data-icon="upload"></i></span>
+                            <span class="wg-file__body"><span class="wg-file__name">Choose a backup file</span><span class="wg-file__meta">.age or .json.gz · replaces your data</span></span>
                             <button type="button" class="wg-btn wg-btn--sm" data-file-choose>Choose</button>
                             <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon wg-btn--sm" data-file-clear aria-label="Remove file" hidden><i class="wg-ico" data-icon="x"></i></button>
-                        </div>
-                        <div id="importexport-import-passphrase-field" class="wg-field" hidden>
-                            <label for="importexport-import-passphrase" class="wg-label">Passphrase</label>
-                            <input type="password" id="importexport-import-passphrase" class="wg-input" autocomplete="off" placeholder="Decrypt the backup">
                         </div>
                         <button id="importexport-import-btn" type="button" class="wg-btn wg-btn--danger-ghost wg-btn--block">Replace my data with this backup</button>
                         <p id="importexport-import-progress" class="wg-hint" role="status" aria-live="polite" hidden></p>
                     </div>
                 </section>
 
-                <!-- Local-only mode (bd med-o7zq.6): settings.js bindLocalMoveToCloud.
-                     The move is the backup file plus the new account's Restore;
-                     nothing is handed between the two origins. -->
-                <section id="importexport-local-move-group" class="wg-section wg-local-only">
+                <!-- The one Move control (kit S7, bd med-ckm5.7; med-ta2n.5 folds it
+                     into Turn on sync). Shown by settings.js bindLocalMoveRow only
+                     when the shell lists move.stash; the Settings-home row opens it. -->
+                <section id="importexport-local-move-group" class="wg-section wg-local-only wg-settings-hidden">
                     <div class="wg-section__head"><span class="wg-eyebrow">Move to a cloud account</span></div>
                     <div class="wg-card wg-vstack">
-                        <ol class="wg-hint">
-                            <li>Download a backup above and save it to Files. Set a passphrase if it includes API keys.</li>
-                            <li>Open your invite and create the account.</li>
-                            <li>In the new account, open Settings → Backup &amp; import → Restore and choose the file. The account starts empty, so replacing its data loses nothing.</li>
+                        <ol class="wg-olist">
+                            <li>Get an invite from whoever runs your server.</li>
+                            <li>Tap Move. Med Tracker gets your records ready and returns to the start screen.</li>
+                            <li>Open the invite. Your records move in after you sign in.</li>
                         </ol>
-                        <p class="wg-hint">Your records stay on this <span data-device-word>iPhone</span> until you erase them. To come back, choose Only on this device on the start screen. Erase this copy only once the cloud account shows all your records, ideally on a second device.</p>
-                        <button id="importexport-local-move-btn" type="button" class="wg-btn wg-btn--block">I have an invite</button>
+                        <button type="button" id="settings-local-move-btn" class="wg-btn wg-btn--block"><i class="wg-ico wg-ico--sm" data-icon="route"></i>Move to a cloud account</button>
                     </div>
-                    <p id="importexport-local-move-error" class="wg-hint" role="alert" hidden></p>
                 </section>
 
                 <!-- Mi Band .nxk ingestion: the server parses the backup and seals
@@ -1245,12 +1234,12 @@
 
                 <!-- Local-only mode (bd med-o7zq.9): settings.js bindLocalErase. -->
                 <section id="importexport-local-erase-group" class="wg-section wg-local-only">
-                    <div class="wg-list">
-                        <button id="importexport-local-erase-btn" type="button" class="wg-setting wg-setting--danger">
-                            <span class="wg-row__lead wg-row__lead--danger"><i class="wg-ico" data-icon="trash"></i></span>
-                            <span class="wg-setting__body"><span class="wg-setting__title">Erase data on this device</span><span class="wg-setting__desc">Deletes every record, setting and reminder stored here. A cloud account on this <span data-device-word>iPhone</span> is not touched.</span></span>
-                        </button>
-                    </div>
+                    <div class="wg-section__head"><span class="wg-eyebrow wg-eyebrow--danger">Danger</span></div>
+                    <button id="importexport-local-erase-btn" type="button" class="wg-setting wg-setting--boxed wg-setting--danger">
+                        <span class="wg-row__lead wg-row__lead--danger"><i class="wg-ico" data-icon="trash"></i></span>
+                        <span class="wg-setting__body"><span class="wg-setting__title">Erase data on this <span data-device-word>iPhone</span></span><span class="wg-setting__desc">Removes every record here</span></span>
+                        <i class="wg-ico wg-row__chev" data-icon="chev-r"></i>
+                    </button>
                     <p id="importexport-local-erase-error" class="wg-hint" role="alert" hidden></p>
                 </section>
             </section>
@@ -1320,6 +1309,74 @@
         </div>
     </div>
     </div>
+
+    <!-- Backup & import sheets (kit S7, bd med-ckm5.7; importexport.js
+         openSheet). They open over the pushed Backup page, which sits above
+         #modal-overlay, so they bring their own dim backdrop and stack on it.
+         The keyboard dock (wg-sheet.js) keeps each foot on the keyboard. -->
+    <div id="importexport-sheet-backdrop" class="wg-importexport-backdrop" hidden></div>
+    <mt-modal id="importexport-export-sheet" class="hidden wg-modal wg-sheet wg-importexport-sheet">
+        <div class="wg-sheet__grab"></div>
+        <header class="wg-sheethead">
+            <div class="wg-sheethead__titles"><div class="wg-sheethead__title">Export backup</div></div>
+            <div class="wg-sheethead__acts">
+                <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon" data-sheet-close aria-label="Close"><i class="wg-ico" data-icon="x"></i></button>
+            </div>
+        </header>
+        <div class="wg-sheet__body wg-vstack">
+            <div class="wg-field">
+                <label for="importexport-export-passphrase" class="wg-label">Passphrase</label>
+                <input type="password" id="importexport-export-passphrase" class="wg-input" autocomplete="new-password" placeholder="Encrypt the backup">
+                <p class="wg-hint">Needed to restore. We can't recover it for you. Leave it empty for an unencrypted file.</p>
+                <p id="importexport-passphrase-nudge" class="wg-hint" hidden>The backup contains your provider API keys — consider a passphrase.</p>
+            </div>
+            <div class="wg-setting wg-setting--bare">
+                <span class="wg-setting__body"><span class="wg-setting__title">Include API keys</span><span class="wg-setting__desc">Provider keys and access tokens. Set a passphrase if this is on.</span></span>
+                <label class="wg-toggle"><input type="checkbox" class="wg-toggle__input" id="importexport-include-secrets" aria-label="Include API keys" checked></label>
+            </div>
+        </div>
+        <div class="wg-sheet__foot">
+            <button type="button" id="importexport-export-confirm" class="wg-btn wg-btn--primary">Export without encryption</button>
+        </div>
+    </mt-modal>
+    <mt-modal id="importexport-ready-sheet" class="hidden wg-modal wg-sheet wg-importexport-sheet">
+        <div class="wg-sheet__grab"></div>
+        <header class="wg-sheethead">
+            <div class="wg-sheethead__titles"><div class="wg-sheethead__title">Backup ready</div></div>
+            <div class="wg-sheethead__acts">
+                <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon" data-sheet-close aria-label="Close"><i class="wg-ico" data-icon="x"></i></button>
+            </div>
+        </header>
+        <div class="wg-sheet__body">
+            <div class="wg-file wg-file--filled">
+                <span class="wg-file__icon"><i class="wg-ico" data-icon="file"></i></span>
+                <span class="wg-file__body"><span class="wg-file__name wg-fname"><span class="wg-fname__stem" id="importexport-ready-stem"></span><span class="wg-fname__ext" id="importexport-ready-ext"></span></span><span class="wg-file__meta" id="importexport-ready-meta"></span></span>
+            </div>
+        </div>
+        <div class="wg-sheet__foot">
+            <button type="button" id="importexport-ready-share" class="wg-btn" hidden><i class="wg-ico wg-ico--sm" data-icon="link"></i>Share</button>
+            <button type="button" id="importexport-ready-save" class="wg-btn wg-btn--primary"><i class="wg-ico wg-ico--sm" data-icon="download"></i>Save to device</button>
+        </div>
+    </mt-modal>
+    <mt-modal id="importexport-import-sheet" class="hidden wg-modal wg-sheet wg-importexport-sheet">
+        <div class="wg-sheet__grab"></div>
+        <header class="wg-sheethead">
+            <div class="wg-sheethead__titles"><div class="wg-sheethead__title">Encrypted backup</div></div>
+            <div class="wg-sheethead__acts">
+                <button type="button" class="wg-btn wg-btn--ghost wg-btn--icon" data-sheet-close aria-label="Close"><i class="wg-ico" data-icon="x"></i></button>
+            </div>
+        </header>
+        <div class="wg-sheet__body">
+            <div class="wg-field">
+                <label for="importexport-import-passphrase" class="wg-label">Passphrase</label>
+                <input type="password" id="importexport-import-passphrase" class="wg-input" autocomplete="off" placeholder="Decrypt the backup">
+                <p class="wg-hint">The passphrase you set when you exported this file.</p>
+            </div>
+        </div>
+        <div class="wg-sheet__foot">
+            <button type="button" id="importexport-import-decrypt" class="wg-btn wg-btn--primary">Decrypt and restore</button>
+        </div>
+    </mt-modal>
 
     <!-- Cloud-mode invite claim link (minted by POST /api/invite). The claim
          token lives only in the URL fragment shown here — never persisted. -->

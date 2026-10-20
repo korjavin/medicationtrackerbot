@@ -8,11 +8,16 @@
 <link rel="stylesheet" href="/css/cloud.css">
 <link rel="stylesheet" href="/static/css/fonts.css">
 <link rel="stylesheet" href="/static/css/components.css">
+<script src="/static/js/components/wg-icons.js"></script>
 </head>
 <body data-page="invite-landing">
-  <main class="wizard-step" id="invite-app">
-    <h1>Your invite</h1>
-    <p id="invite-status" class="muted">Opening your account…</p>
+  <!-- The server splices the store-id metas into the head (router.go
+       SetInviteStoreIDs); js/invite-landing.js renders L1/L2/L3/expired here. -->
+  <main class="wg-app invite-page" id="invite-app">
+    <div class="wg-shell wg-shell--center">
+      <h1 class="wg-shell__title wg-shell__title--md">Your invite</h1>
+      <p class="wg-shell__lede">Opening your invite…</p>
+    </div>
   </main>
   <script type="module" src="/js/invite-landing.js"></script>
 </body>

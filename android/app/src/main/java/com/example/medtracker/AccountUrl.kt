@@ -34,6 +34,53 @@ object AccountUrl {
         return "https://$host$path" + (uri.rawQuery?.let { "?$it" } ?: "") + (uri.rawFragment?.let { "#$it" } ?: "")
     }
 
+    /**
+     * An invite the app was opened with (bd med-ta2n.12.1, contract med-ta2n.7 §1/§5, twin of iOS
+     * AccountURL.parseInvite) as the claim URL https://<sub>.<base>/#claim=<token>: the landing
+     * page https://<base>/i/<sub>#<token> (app link), the scheme medtracker://i/<sub>#<token>, or
+     * anything [parse] accepts. RAW path and fragment (java.net.URI, never android.net.Uri, which
+     * decodes): sub ^[a-z0-9-]+$ after lowercasing, token ^[0-9a-f]+$ (the server's hex claim
+     * token), no userinfo, port or query. null otherwise.
+     */
+    fun parseInvite(raw: String, base: String): String? {
+        val b = base.lowercase()
+        if (b.isEmpty()) return null
+        val uri = try {
+            URI(raw.trim())
+        } catch (e: Exception) {
+            return parse(raw, base)
+        }
+        val scheme = uri.scheme?.lowercase()
+        val host = uri.host?.lowercase()
+        val landing = scheme == "https" && host == b && uri.port == -1
+        val custom = scheme == "medtracker" && host == "i"
+        if (!landing && !custom) return parse(raw, base)
+        // Landing path "/i/<sub>"; the scheme's host is "i", so its path is "/<sub>".
+        val path = uri.rawPath.orEmpty()
+        val prefix = if (landing) "/i/" else "/"
+        val sub = if (path.startsWith(prefix)) path.substring(prefix.length).lowercase() else ""
+        val tok = uri.rawFragment.orEmpty()
+        if (uri.rawUserInfo != null || uri.port != -1 || uri.rawQuery != null ||
+            sub.isEmpty() || !sub.all { it in 'a'..'z' || it in '0'..'9' || it == '-' } ||
+            tok.isEmpty() || !tok.all { it in '0'..'9' || it in 'a'..'f' }
+        ) return null
+        return parse("https://$sub.$b/#claim=$tok", b)
+    }
+
+    /**
+     * The Play Install Referrer string (contract med-ta2n.7 §4): a form query whose "invite" value
+     * is the percent-encoded landing URL, decoded ONCE, then [parseInvite]. Anything else: null.
+     */
+    fun referrerInvite(referrer: String?, base: String): String? {
+        val value = referrer?.split('&')?.firstOrNull { it.startsWith("invite=") }?.substringAfter('=') ?: return null
+        val url = try {
+            java.net.URLDecoder.decode(value, "UTF-8")
+        } catch (e: IllegalArgumentException) {
+            return null
+        }
+        return parseInvite(url, base)
+    }
+
     /** A WebView attachment download (Files.download): https with a host only, never cleartext. */
     fun isDownloadable(url: String): Boolean {
         val uri = try {

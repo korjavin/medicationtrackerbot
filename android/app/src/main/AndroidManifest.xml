@@ -76,6 +76,31 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- Invite links (bd med-ta2n.12.1, contract med-ta2n.7 §3): the landing
+             https://<base>/i/<sub>#<token> (App Link; the server's assetlinks.json already lists
+             handle_all_urls for the base) and medtracker://i/<sub>#<token>. The host is the build's
+             CLOUD_BASE_DOMAIN (build.gradle.kts manifestPlaceholders), never committed. The
+             trampoline (Invite.kt) hands them to MainActivity like a reminder tap. -->
+        <activity
+            android:name=".InviteLinkActivity"
+            android:theme="@android:style/Theme.NoDisplay"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:exported="true">
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="${baseDomain}" android:pathPrefix="/i/" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="medtracker" android:host="i" />
+            </intent-filter>
+        </activity>
         <receiver
             android:name=".Notifications$Fire"
             android:exported="false" />

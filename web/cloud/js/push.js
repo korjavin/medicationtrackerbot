@@ -9,6 +9,7 @@ import { encryptPushPayload, toBase64 } from './crypto.js';
 import { getOrCreateNK, hasRichNotifications, disableRichNotifications } from './sync.js';
 import { openDb } from './localdb.js';
 import { reminderDeeplink } from './reminder-deeplink.js';
+import { isIOS, isMobile } from './platform.js';
 
 const REMINDERS_KEY = 'demoReminders';
 
@@ -35,24 +36,9 @@ function hasLocalNotifications() {
   }
 }
 
-export function isIOS() {
-  if (/iP(hone|ad|od)/.test(navigator.userAgent)) return true;
-  // iPadOS 13+ Safari requests desktop sites by DEFAULT, reporting a
-  // "Macintosh; Intel Mac OS X" user agent — so the UA test alone misses every
-  // stock iPad, on a platform where a browser tab genuinely cannot receive push.
-  // Mac-like platform + touch points is the standard discriminator: no Mac
-  // reports touch points, and no iPad reports zero.
-  return navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
-}
-
-// Install guidance is a MOBILE problem (bd med-eas.63): a desktop browser
-// delivers web push to a plain tab just fine, so nudging a desktop user to
-// install is nagging, not help. A coarse UA test is enough — the only two
-// platforms whose install story differs are the two named here, and the copy
-// downstream is written per-platform anyway.
-export function isMobile() {
-  return isIOS() || /Android/i.test(navigator.userAgent);
-}
+// isIOS / isMobile live in the leaf platform.js (the invite landing needs them
+// without this module's sync.js graph); re-exported so callers keep one import.
+export { isIOS, isMobile };
 
 // The two load-bearing iOS install instructions, shared by the post-onboarding
 // Reminders gate (renderInstallFirst) and the signup wizard's install step so

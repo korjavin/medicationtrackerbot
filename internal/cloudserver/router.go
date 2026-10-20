@@ -360,6 +360,7 @@ var baseDomainStaticAssets = map[string]bool{
 	feedbackAgeVendorPath:                          true,
 	"/static/css/components.css":                   true,
 	"/static/css/fonts.css":                        true,
+	"/static/js/components/wg-icons.js":            true, // the invite landing's kit icons (med-ta2n.10)
 	"/static/fonts/space-grotesk-latin.woff2":      true,
 	"/static/fonts/space-grotesk-latin-ext.woff2":  true,
 	"/static/fonts/jetbrains-mono-latin.woff2":     true,
