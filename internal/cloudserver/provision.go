@@ -53,7 +53,8 @@ type Invite struct {
 
 // ClaimURL returns the personal invite link: the base-domain landing page
 // https://<base>/i/<sub>#<token> (bd med-ta2n.9), which offers the apps and
-// hands off to the account's own claim page. The token travels in the URL
+// hands off to the account's own claim page (a forward-only placeholder until
+// med-ta2n.10 ships the page). The token travels in the URL
 // fragment so it never hits server access logs. The older claim form
 // https://<sub>.<base>/#claim=<token> stays valid forever (cloud-boot.js routes
 // it to /unlock#claim); the landing page converts to it client-side.

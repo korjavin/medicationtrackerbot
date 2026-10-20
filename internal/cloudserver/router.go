@@ -116,7 +116,7 @@ func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, doma
 // "Get the app" buttons link to, as <meta name="medtracker-ios-app-store-id">
 // (IOS_APP_STORE_ID, numeric) and <meta name="medtracker-android-package">
 // (ANDROID_PACKAGE), spliced after <head> and HTML-escaped. An empty value
-// emits no meta, and the page hides that platform's store button. Setter
+// emits no meta, and the page (med-ta2n.10) hides that platform's store button. Setter
 // rather than a New param, mirroring SetRequestInviteEmail.
 func (h *Handler) SetInviteStoreIDs(iosAppStoreID, androidPackage string) {
 	if h.inviteIndex == nil {
@@ -460,7 +460,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			r.URL.Path = "/share.html"
 		}
 		// The invite landing page (med-ta2n.9): any well-formed subdomain
-		// serves it; the page asks /api/i/<sub> whether the invite is live.
+		// serves it; the page (med-ta2n.10) asks /api/i/<sub> whether the
+		// invite is live.
 		// Strict default CSP (set above), like /s/.
 		if invitePathPattern.MatchString(r.URL.Path) {
 			noStore(w)
