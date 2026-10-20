@@ -311,7 +311,9 @@ describe('Settings home slots + mode card (kit S6)', () => {
 
             // The card opens Devices & connectors.
             card.click();
-            await vi.waitFor(() => expect(document.querySelector('mt-modal.wg-page .wg-pagebar__title')?.textContent).toBe('Devices & connectors'));
+            const pushedTitle = () => Array.from(document.querySelectorAll('mt-modal.wg-page[id^="wg-page-"]')).pop()
+                ?.querySelector('.wg-pagebar__title').textContent;
+            await vi.waitFor(() => expect(pushedTitle()).toBe('Devices & connectors'));
         } finally {
             delete window.__MEDTRACKER_CLOUD__;
             cleanup();
