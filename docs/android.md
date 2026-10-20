@@ -121,13 +121,35 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
   deleted. Below the buttons, as on iOS (bd med-nt9p.31): the "not a medical
   device" footnote (same wording as `ios/App/App.swift` and the store listing)
   and a *Privacy policy* link that opens `docs/privacy-policy.md` in the browser.
+  Layout and states are N1 of `docs/design/claude-design/ui_kits/app-v2/screens-native.html`
+  (bd med-ckm5.14): **Continue** is the only sun and stays enabled; an empty
+  or unknown address, a failed scan and "There is no account at <host>." are
+  inline field errors (danger line, icon, and a second line saying what to
+  do), and the gone account's address stays in the field. At font scales
+  ≥ 1.5 the placeholder shortens to "Invite link"; the column scrolls and
+  fades at the bottom while more is below.
+- **Native token mirror** (bd med-ckm5.14, the "Native token mirror" table):
+  `res/values/colors.xml` (`wg_*`, values from the kit's `tokens.css`),
+  `res/color/wg_fg_{2,3,4}.xml` (alpha state lists), `res/values/dimens.xml`,
+  `res/values/styles.xml` (`Widget.Wg.Button[.Primary|.Ghost|.Back]`,
+  `Widget.Wg.IconButton`, `Widget.Wg.EditText`, `Widget.Wg.Switch`,
+  `Widget.Wg.Row`, `Widget.Wg.Note.{Info,Warn,Danger}`, `Widget.Wg.Text.*`),
+  gradient drawables and the kit icons as vectors (`res/drawable/wg_*`,
+  `ic_wg_*`), and the fonts in `res/font` — Space Grotesk 400/500/600 (the
+  upstream variable TTF pinned per weight in `wg_ui.xml`) and JetBrains Mono
+  500 (`wg_mono.xml`), both OFL, licences in `assets/licenses/`. Type is in
+  sp, so Android's non-linear font scaling applies. Plain Views only, no
+  Material/appcompat: [`Wg.kt`](../android/app/src/main/java/com/example/medtracker/Wg.kt)
+  builds them for MainActivity and `PermissionsRationaleActivity`.
 - **Icon and splash** (bd med-nt9p.26): the launcher icon is an adaptive icon
   whose foreground is the PWA's `web/static/icons/icon-512.png` (same bytes,
   inset 1/6 so the maskable safe zone fits) on `#132D29` (`--wg-bg-screen`);
   `icon-192.png` is the legacy `mipmap-xxxhdpi` fallback. `Theme.MedTracker`
-  (`res/values/themes.xml`, DayNight) paints the window and the Android 12+
-  splash in the same teal, so a cold start never flashes white; the native
-  screens still follow the system theme via `colorBackground`. A new icon means
+  (`res/values/themes.xml`) is **pinned dark, no DayNight** (bd med-ckm5.14):
+  the window, the Android 12+ splash, `colorBackground`, the WebView
+  background, the system-bar bands and every native screen are `wg_screen`
+  in light and dark mode alike, so a cold start never shows a white or grey
+  frame. A new icon means
   replacing both PNGs from `web/static/icons`.
 - **Navigation:** the account host and the base domain load in the app; every
   other link (and `mailto:`/`tel:`) opens in the browser or its own app.
@@ -423,7 +445,7 @@ screens, `device.screenshot()` for the full screen incl. bars and keyboard).
 stays the acceptance device.
 
 ```bash
-gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-dark, native-lock, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe, local-smoke, smoke, local-visual, local-app, local-backup, local-spike, local-to-cloud, local-to-cloud-seamless, move-ops
+gh workflow run android-qa.yml --ref <branch> -f scenario=all            # or firstrun, native-screens, native-dark, native-lock, native-fontscale, back-exit, claim-page, not-found, external-link, authn-probe, local-smoke, smoke, local-visual, local-app, local-backup, local-spike, local-to-cloud, local-to-cloud-seamless, move-ops
 gh workflow run android-qa.yml --ref <branch> -f scenario=firstrun -f font_scale=1.3 -f dark=true -f landscape=true
 gh run download <run-id> -n android-qa-<scenario> -D /tmp/qa             # then Read the PNGs
 ```
@@ -439,6 +461,15 @@ Artifact `android-qa-<scenario>`: `screenshots/<scenario>-<name>.png` (plus
 step's pass/fail, screenshot list — also the run's step summary), `logcat.txt`
 (`adb logcat -d`; WebView console lines are under the `chromium` tag), and
 `diag.xml` (the shell's passkey log, `run-as … cat shared_prefs/diag.xml`).
+
+`native-screens` (on its own, no invite; bd med-ckm5.14) shoots N1 and N2 for
+reading against the kit frames: first run, the empty-field error, Scan, the
+gone-account error (`nobody.qa.test`), the intro, the lock switch on (a
+throwaway `locksettings` PIN, removed after), the move hint and the
+pending-move intro (a fake `run-as` stash file, removed after), and the
+Health Connect rationale. Dispatch it again with `-f font_scale=2.0` for
+N1 · 2×. `native-dark` now differs from `firstrun` in nothing but the
+system setting: the theme is pinned dark.
 
 A scenario is `android/qa/scenarios/<name>.mjs` exporting one
 `async (ctx) => {}`; add its name to `SCENARIOS` in `run.mjs` and to the
@@ -700,7 +731,7 @@ and before any *Clear storage*, and paste it into the bead.
    Android version/build, WebView package + version, app versionCode, and
    `webauthn for-app (read back <n>)` (`WEB_AUTHENTICATION_SUPPORT_FOR_APP`). `UNSUPPORTED` here is already a NO-GO
    candidate — update Android System WebView from Play and retry.
-2. **Claim B in the app (1, 2).** Paste B's invite link → *Open* → finish the
+2. **Claim B in the app (1, 2).** Paste B's invite link → *Continue* → finish the
    claim. Expect `tap` lines `webauthn.create … ok:true` and
    `webauthn.get … ok:true, prfFirst:true`, and the app unlocked. Note the
    passkey sheet's provider (Google Password Manager or another) for check 7,
@@ -733,7 +764,7 @@ and before any *Clear storage*, and paste it into the bead.
 9. **Cold unlock of A (2).** *Copy report* first. Android Settings → Apps →
    Med Tracker → Storage → *Clear storage* (wipes WebView data and the
    report). Open the app, paste A's account URL `https://<A>.<base>/` →
-   *Open* → unlock with the passkey made in Chrome. Expect
+   *Continue* → unlock with the passkey made in Chrome. Expect
    `tap webauthn.get … ok:true, prfFirst:true` and the vault's data.
 
 **Step 2b: read the retry lines (med-nt9p.18).** If the claim's immediate PRF
@@ -1006,20 +1037,19 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   it from `LocalApp`, only that host navigates inside the app, and a load
   error or 404 on it is logged to the diagnostics log instead of showing
   *Can't open your account*.
-- **First run:** *Only on this device* is the **primary** button (owner
-  decision 2026-10-19 — the Play build's reviewer path needs no invite); the
-  invite form (paste, Open, Scan QR code) follows under "Have an invite?",
-  then a **How to get an invite** link to the service landing page
-  `https://<BuildConfig.BASE_DOMAIN>/` (absent when the build has no base),
-  the store footnote and the privacy link. The button opens a native intro
-  (*Only on this device*: records only on this phone, nothing sent to our
-  servers; Google backup / device transfer can include them, Google's backup
-  skips apps over 25 MB, no other copy; deleting the app deletes them, export
-  a backup file regularly; AI and food search need your
-  own keys, voice/Telegram/shared food database need an account; the invite
-  link again) with **Start** (stores `wgLocalMode=true`, clears reminders,
-  opens the bundled app) and **Back** (system Back too). An optional
-  **Lock** switch sits above Start ([Lock](#local-mode-lock-bd-med-nt9p329)).
+- **First run (N1):** the boxed *Only on this device* row comes first (owner
+  decision 2026-10-19 — the Play build's reviewer path needs no invite); then
+  "or" and the invite field under "Have an invite?" with the Scan icon button
+  in its row and **Continue**, then the store footnote, the privacy link and a
+  **How to get an invite** link to the service landing page
+  `https://<BuildConfig.BASE_DOMAIN>/` (absent when the build has no base).
+  The row opens the native intro (N2): *Back* in the top bar (system Back
+  too), four facts (stored here, nowhere else; you make the backups — Google
+  backup keeps up to 25 MB, export a file for the rest; lose the phone, lose
+  the records, in warn; move to an account later), the optional
+  **Lock** switch row ([Lock](#local-mode-lock-bd-med-nt9p329)) and
+  **Start** docked at the bottom (stores `wgLocalMode=true`, clears
+  reminders, opens the bundled app).
 - **One vault at a time:** reminders (`Notifications`), their taps
   (`https://<vault>/?tab=…`), file grants and camera/mic (`Files`) and the
   bridge all follow the open vault: the account host, or the asset host in
@@ -1070,8 +1100,10 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   (after the import), `local.reset`, and whenever local mode is entered again
   (*Start*, `account.leave {then: "local"}`: the move was abandoned, the next
   one stashes afresh); Switch account keeps it, since that is the hand-off.
-  While it exists the first run says *Your records are ready to move: paste or
-  scan your invite.* Its contents never reach the diagnostics log or an error
+  While it exists the first run leads with an info note, *Your records are
+  ready to move.*, and puts the invite above *Only on this device* (N1 · move);
+  the intro shows a warn note, *Start and cancel the move* and *Open the new
+  account instead* (N2 · move). Its contents never reach the diagnostics log or an error
   reply. Emulator proof at the bridge: QA scenario `move-ops` (not in `all`, it
   claims the run's invite) — mode gates, `invalid vault`, the file in the
   `run-as` listing after the stash, the hint, deleted on *Start*, and in the
@@ -1114,9 +1146,9 @@ Optional and **off by default** — the twin of iOS `LocalLock.swift`
 encryption; reminders on the lock screen still show. Local mode only: an
 account has its passkey, and cloud mode never shows or checks it.
 
-- **Turning it on/off:** the intro's *Lock with fingerprint, face or screen
-  lock* switch (shown when the phone has a screen lock, or the lock is
-  already on), and **Settings → App lock** in the app (`local-policy.js`
+- **Turning it on/off:** the intro's *Lock with fingerprint or face* switch
+  row (shown when the phone has a screen lock, or the lock is already on; the
+  full "fingerprint, face or screen lock" wording is the system prompt's), and **Settings → App lock** in the app (`local-policy.js`
   `mountLocalLockRow`, Android shell only; iOS keeps its toggle in iPhone
   Settings). Either way the change applies only after the phone's own check
   (framework `BiometricPrompt`, `BIOMETRIC_WEAK | DEVICE_CREDENTIAL`, no new
@@ -1189,8 +1221,8 @@ format v1, no server change.
    row shows only when `shell.ops` lists `move.stash` (the web and older
    shells keep only the file steps below). The page exports the vault
    (`exportAll`, API keys included) and sends `move.stash {vault}` then
-   `local.leave`; the shell writes the stash and shows first run with *Your
-   records are ready to move: paste or scan your invite.* A rejected stash
+   `local.leave`; the shell writes the stash and shows first run with the
+   *Your records are ready to move.* note, the invite first. A rejected stash
    (`too large`, `write failed`, an old shell) stops before the leave and
    shows the file steps.
 2. Paste or scan the invite, create the passkey, finish the wizard.
@@ -1210,8 +1242,9 @@ local origin's plaintext IndexedDB (no new exposure), never backed up
 (`no_backup/`), never sent anywhere, never logged. It is deleted after the
 import (`move.clear`), by `local.reset`, and whenever local mode is entered
 again — *Only on this device* → *Start* abandons the move (the next one
-stashes afresh). While a stash exists the local intro says *Start cancels the
-move to a cloud account…*; unlike iOS, which hides its one-tap *Continue on
+stashes afresh). While a stash exists the local intro shows the warn note *A
+move to a cloud account is waiting.* and *Start and cancel the move* (N2 ·
+move); unlike iOS, which hides its one-tap *Continue on
 this iPhone*, Android keeps *Only on this device* reachable: it is the only
 way back to local mode, and *Back* on the intro keeps the stash. Op contract:
 [Local mode: the shell](#local-mode-the-shell-bd-med-nt9p324) above.

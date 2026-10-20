@@ -89,10 +89,10 @@
             </intent-filter>
         </receiver>
         <!-- Health Connect's permission rationale (privacy policy); without it Android 14 grants no health permission.
-             Stock DayNight: its views paint no background, so the app theme's teal window would sit under light-mode dark text. -->
+             The app theme (pinned dark) and the token mirror's views, bd med-ckm5.14. -->
         <activity
             android:name=".PermissionsRationaleActivity"
-            android:theme="@android:style/Theme.DeviceDefault.DayNight"
+            android:theme="@style/Theme.MedTracker"
             android:exported="true">
             <intent-filter>
                 <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />

@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The native token mirror's widgets (bd med-ckm5.14): the kit classes of
+     docs/design/claude-design/ui_kits/app-v2/components.css as plain-View styles (no Material,
+     no appcompat). Views take them as defStyleRes (Wg.kt). Type in sp. -->
+<resources>
+    <!-- Text: Space Grotesk (wg_ui) unless noted. -->
+    <style name="Widget.Wg.Text" parent="">
+        <item name="android:fontFamily">@font/wg_ui</item>
+        <item name="android:textFontWeight">400</item>
+        <item name="android:textSize">@dimen/wg_fs_md</item>
+        <item name="android:textColor">@color/wg_fg_1</item>
+        <item name="android:lineSpacingMultiplier">1.1</item>
+        <item name="android:includeFontPadding">false</item>
+    </style>
+    <!-- wg-shell__name: the wordmark beside the mark. -->
+    <style name="Widget.Wg.Text.Brand">
+        <item name="android:fontFamily">@font/wg_mono</item>
+        <item name="android:textFontWeight">500</item>
+        <item name="android:textSize">@dimen/wg_fs_lg</item>
+    </style>
+    <!-- wg-shell__title: JetBrains Mono 500, 28. -->
+    <style name="Widget.Wg.Text.Title">
+        <item name="android:fontFamily">@font/wg_mono</item>
+        <item name="android:textFontWeight">500</item>
+        <item name="android:textSize">@dimen/wg_fs_metric</item>
+        <item name="android:letterSpacing">-0.02</item>
+        <item name="android:lineSpacingMultiplier">1.0</item>
+        <item name="android:breakStrategy">balanced</item>
+    </style>
+    <!-- wg-shell__title-md: 22 (lock, load error). -->
+    <style name="Widget.Wg.Text.Title.Md">
+        <item name="android:textSize">@dimen/wg_fs_title</item>
+    </style>
+    <style name="Widget.Wg.Text.Lede">
+        <item name="android:textSize">@dimen/wg_fs_lg</item>
+        <item name="android:textColor">@color/wg_fg_2</item>
+        <item name="android:lineSpacingMultiplier">1.2</item>
+    </style>
+    <style name="Widget.Wg.Text.Fine">
+        <item name="android:textSize">@dimen/wg_fs_xs</item>
+        <item name="android:textColor">@color/wg_fg_3</item>
+        <item name="android:lineSpacingMultiplier">1.2</item>
+    </style>
+    <style name="Widget.Wg.Text.Hint">
+        <item name="android:textSize">@dimen/wg_fs_xs</item>
+        <item name="android:textColor">@color/wg_fg_3</item>
+    </style>
+    <!-- wg-error: the field error line, danger fg with the alert icon. -->
+    <style name="Widget.Wg.Text.Error">
+        <item name="android:textFontWeight">500</item>
+        <item name="android:textSize">@dimen/wg_fs_xs</item>
+        <item name="android:textColor">@color/wg_danger_fg</item>
+        <item name="android:drawablePadding">6dp</item>
+        <item name="android:drawableTint">@color/wg_danger_fg</item>
+        <item name="android:gravity">center_vertical</item>
+    </style>
+    <!-- wg-label and wg-or: the uppercase eyebrow. -->
+    <style name="Widget.Wg.Text.Label">
+        <item name="android:textFontWeight">600</item>
+        <item name="android:textSize">@dimen/wg_fs_eyebrow</item>
+        <item name="android:textColor">@color/wg_fg_3</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:letterSpacing">0.14</item>
+    </style>
+    <style name="Widget.Wg.Text.RowTitle">
+        <item name="android:textFontWeight">500</item>
+    </style>
+    <style name="Widget.Wg.Text.RowDesc">
+        <item name="android:textSize">@dimen/wg_fs_xs</item>
+        <item name="android:textColor">@color/wg_fg_3</item>
+    </style>
+    <!-- wg-facts: a bold lead line, then the detail. -->
+    <style name="Widget.Wg.Text.FactLead">
+        <item name="android:textFontWeight">600</item>
+    </style>
+    <style name="Widget.Wg.Text.Fact">
+        <item name="android:textSize">@dimen/wg_fs_sm</item>
+        <item name="android:textColor">@color/wg_fg_2</item>
+    </style>
+    <style name="Widget.Wg.Text.Note">
+        <item name="android:textSize">@dimen/wg_fs_sm</item>
+    </style>
+    <!-- wg-link: sun text, 48dp tall to tap. -->
+    <style name="Widget.Wg.Text.Link">
+        <item name="android:textFontWeight">600</item>
+        <item name="android:textSize">@dimen/wg_fs_sm</item>
+        <item name="android:textColor">@color/wg_sun</item>
+        <item name="android:minHeight">@dimen/wg_hit</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:background">@drawable/wg_btn_ghost</item>
+    </style>
+
+    <!-- wg-btn: raised + 1dp line. Height grows and the label wraps at large font scales. -->
+    <style name="Widget.Wg.Button" parent="">
+        <item name="android:background">@drawable/wg_btn_raised</item>
+        <item name="android:stateListAnimator">@null</item>
+        <item name="android:minHeight">@dimen/wg_hit</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:paddingStart">16dp</item>
+        <item name="android:paddingEnd">16dp</item>
+        <item name="android:paddingTop">10dp</item>
+        <item name="android:paddingBottom">10dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:fontFamily">@font/wg_ui</item>
+        <item name="android:textFontWeight">600</item>
+        <item name="android:textSize">@dimen/wg_fs_md</item>
+        <item name="android:textColor">@color/wg_fg_1</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:letterSpacing">0.01</item>
+        <item name="android:includeFontPadding">false</item>
+        <item name="android:focusable">true</item>
+        <item name="android:clickable">true</item>
+    </style>
+    <!-- wg-btn-primary wg-btn-lg: the sun, 52 high, radius 14. One per screen. -->
+    <style name="Widget.Wg.Button.Primary">
+        <item name="android:background">@drawable/wg_btn_primary</item>
+        <item name="android:minHeight">@dimen/wg_primary_h</item>
+        <item name="android:paddingStart">20dp</item>
+        <item name="android:paddingEnd">20dp</item>
+        <item name="android:textSize">@dimen/wg_fs_lg</item>
+        <item name="android:textColor">@color/wg_on_sun</item>
+    </style>
+    <!-- wg-btn-ghost: fg-2 text, no fill. -->
+    <style name="Widget.Wg.Button.Ghost">
+        <item name="android:background">@drawable/wg_btn_ghost</item>
+        <item name="android:textColor">@color/wg_fg_2</item>
+    </style>
+    <!-- wg-back: the page bar's Back with the chevron. -->
+    <style name="Widget.Wg.Button.Back">
+        <item name="android:background">@drawable/wg_btn_ghost</item>
+        <item name="android:textColor">@color/wg_fg_2</item>
+        <item name="android:textSize">@dimen/wg_fs_sm</item>
+        <item name="android:drawableStart">@drawable/ic_wg_chev_l</item>
+        <item name="android:drawableTint">@color/wg_fg_2</item>
+        <item name="android:drawablePadding">2dp</item>
+        <item name="android:paddingStart">4dp</item>
+        <item name="android:paddingEnd">10dp</item>
+    </style>
+    <!-- wg-inputrow's 48dp icon button. -->
+    <style name="Widget.Wg.IconButton" parent="">
+        <item name="android:background">@drawable/wg_btn_raised</item>
+        <item name="android:stateListAnimator">@null</item>
+        <item name="android:minWidth">@dimen/wg_hit</item>
+        <item name="android:minHeight">@dimen/wg_hit</item>
+        <item name="android:scaleType">center</item>
+        <item name="android:tint">@color/wg_fg_1</item>
+        <item name="android:focusable">true</item>
+        <item name="android:clickable">true</item>
+    </style>
+
+    <!-- wg-input wg-input-text: inset fill, 1dp line, no underline. -->
+    <style name="Widget.Wg.EditText" parent="">
+        <item name="android:background">@drawable/wg_field</item>
+        <item name="android:minHeight">@dimen/wg_hit</item>
+        <item name="android:paddingStart">14dp</item>
+        <item name="android:paddingEnd">14dp</item>
+        <item name="android:paddingTop">12dp</item>
+        <item name="android:paddingBottom">12dp</item>
+        <item name="android:fontFamily">@font/wg_ui</item>
+        <item name="android:textFontWeight">500</item>
+        <item name="android:textSize">@dimen/wg_fs_md</item>
+        <item name="android:textColor">@color/wg_fg_1</item>
+        <item name="android:textColorHint">@color/wg_fg_4</item>
+        <item name="android:textColorHighlight">#52FBBD0D</item>
+        <item name="android:textCursorDrawable">@drawable/wg_cursor</item>
+        <item name="android:includeFontPadding">false</item>
+        <item name="android:focusable">true</item>
+        <item name="android:focusableInTouchMode">true</item>
+        <item name="android:clickable">true</item>
+        <item name="android:longClickable">true</item>
+    </style>
+
+    <!-- wg-toggle as a plain Switch (epic open question c). -->
+    <style name="Widget.Wg.Switch" parent="">
+        <item name="android:thumb">@drawable/wg_switch_thumb</item>
+        <item name="android:track">@drawable/wg_switch_track</item>
+        <item name="android:switchMinWidth">50dp</item>
+        <!-- No parent: Switch defaults showText to true and would lay out a null textOn. -->
+        <item name="android:showText">false</item>
+        <item name="android:background">@null</item>
+        <item name="android:focusable">true</item>
+        <item name="android:clickable">true</item>
+    </style>
+
+    <!-- wg-setting-boxed: the boxed row (container LinearLayout). -->
+    <style name="Widget.Wg.Row" parent="">
+        <item name="android:background">@drawable/wg_row_boxed</item>
+        <item name="android:minHeight">56dp</item>
+        <item name="android:paddingStart">14dp</item>
+        <item name="android:paddingEnd">14dp</item>
+        <item name="android:paddingTop">10dp</item>
+        <item name="android:paddingBottom">10dp</item>
+        <item name="android:gravity">center_vertical</item>
+    </style>
+    <!-- wg-note: the container LinearLayout; the tone sets fill and line. -->
+    <style name="Widget.Wg.Note" parent="">
+        <item name="android:paddingStart">14dp</item>
+        <item name="android:paddingEnd">14dp</item>
+        <item name="android:paddingTop">12dp</item>
+        <item name="android:paddingBottom">12dp</item>
+    </style>
+    <style name="Widget.Wg.Note.Info">
+        <item name="android:background">@drawable/wg_note_info</item>
+    </style>
+    <style name="Widget.Wg.Note.Warn">
+        <item name="android:background">@drawable/wg_note_warn</item>
+    </style>
+    <style name="Widget.Wg.Note.Danger">
+        <item name="android:background">@drawable/wg_note_danger</item>
+    </style>
+</resources>

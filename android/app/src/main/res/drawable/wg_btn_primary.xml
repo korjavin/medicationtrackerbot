@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- wg-sunfill: the one primary per screen (Widget.Wg.Button.Primary), radius 14. -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android" android:color="#33000000">
+    <item>
+        <layer-list>
+            <item>
+                <shape>
+                    <corners android:radius="@dimen/wg_radius_primary" />
+                    <gradient android:angle="270" android:startColor="@color/wg_sun_hi" android:endColor="@color/wg_sun_deep" />
+                    <stroke android:width="@dimen/wg_line_w" android:color="#33000000" />
+                </shape>
+            </item>
+            <item>
+                <shape>
+                    <corners android:radius="@dimen/wg_radius_primary" />
+                    <gradient android:angle="270" android:startColor="#57FFFFFF" android:centerColor="#00FFFFFF"
+                        android:centerY="0.55" android:endColor="#00FFFFFF" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+</ripple>

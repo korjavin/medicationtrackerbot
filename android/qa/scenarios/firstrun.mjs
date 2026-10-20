@@ -12,7 +12,7 @@ export default async function firstrun(ctx) {
   await ctx.shot('error');
   await ctx.step('Switch account returns to first run', async () => {
     await ctx.device.tap({ text: 'Switch account' });
-    await ctx.waitFor({ text: 'Open' });
+    await ctx.waitFor({ text: 'Continue' });
   });
   await ctx.shot('first-run-again');
 }
