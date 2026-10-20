@@ -168,7 +168,7 @@ final class FlowQABackupTests: XCTestCase {
     /// Bottom tab bar → Meds → Schedule (the tab restores its last sub-tab).
     private func openMedsSchedule(_ app: XCUIApplication, flow: String) {
         // An empty store reopens the web onboarding (its record went with the erase).
-        let skip = app.webViews.buttons["Skip all"]
+        let skip = app.webViews.buttons.matching(NSPredicate(format: "label IN {'Skip', 'Skip all'}")).firstMatch // W1 picker "Skip" (med-ta2n.1)
         if skip.waitForExistence(timeout: 20) {
             shot(flow, "onboarding")
             skip.tap()
