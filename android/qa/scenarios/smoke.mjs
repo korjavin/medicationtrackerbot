@@ -274,9 +274,17 @@ export async function claimAccount(ctx, page) {
 
 // MedTrackerCloudReady resolves once cloud-boot installed the API shim (e2e/vault-roundtrip.mjs).
 export async function waitForVault(page) {
-  await page.waitForFunction(() => Boolean(window.MedTrackerCloudReady), null, { timeout: 60_000 });
-  await page.evaluate(() => window.MedTrackerCloudReady);
-  if (!(await page.evaluate(() => Boolean(window.MedTrackerCloud && window.MedTrackerCloud.ctx)))) {
-    throw new Error('boot resolved without an unlocked vault');
+  // A reload mid-wait (the local → cloud move's pickup, bd med-nt9p.32.18) destroys the context: wait again.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await page.waitForFunction(() => Boolean(window.MedTrackerCloudReady), null, { timeout: 60_000 });
+      await page.evaluate(() => window.MedTrackerCloudReady);
+      if (!(await page.evaluate(() => Boolean(window.MedTrackerCloud && window.MedTrackerCloud.ctx)))) {
+        throw new Error('boot resolved without an unlocked vault');
+      }
+      return;
+    } catch (e) {
+      if (attempt >= 3 || !/context was destroyed/.test(String(e?.message))) throw e;
+    }
   }
 }
