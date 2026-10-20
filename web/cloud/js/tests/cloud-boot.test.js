@@ -599,7 +599,7 @@ describe('CloudVault.importAll data-loss guard (null cursor)', () => {
     const { window } = await runBoot({
       modules: {
         'unlock.js': { warmUnlock: async () => ({ accountId: 'a', kData: {}, kMac: {} }) },
-        'apishim.js': { installApiShim: () => () => Promise.resolve(null) },
+        'apishim.js': { installApiShim: () => () => Promise.resolve(null), withMaterializationStopped: (fn) => fn() },
         'sync.js': sync.mod,
         '/domain/vault.js': VAULT_MOD,
         'reminders.js': { scheduleReminderRecompute: () => {}, recomputeAndPush: async () => {} },
