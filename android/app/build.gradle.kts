@@ -35,6 +35,9 @@ android {
         versionName = "0.1.$versionCodeEnv"
         buildConfigField("String", "BASE_DOMAIN", "\"$baseDomain\"")
         buildConfigField("String", "PLAY_CLOUD_PROJECT_NUMBER", "\"$playCloudProjectNumber\"")
+        // The invite App Link's host (AndroidManifest.xml, bd med-ta2n.12.1). Unset (forks) gets a
+        // reserved name that never resolves, so the filter matches no real link.
+        manifestPlaceholders["baseDomain"] = baseDomain.ifEmpty { "unconfigured.invalid" }
     }
 
     buildFeatures {
@@ -119,5 +122,8 @@ dependencies {
     // GoogleApiAvailability for attest.status.
     implementation("com.google.android.play:integrity:1.4.0")
     implementation("com.google.android.gms:play-services-base:18.5.0")
+    // Play Install Referrer (bd med-ta2n.12.1, contract med-ta2n.7 §4): the invite a Play install
+    // came from, read once on a true first install.
+    implementation("com.android.installreferrer:installreferrer:2.2")
     testImplementation("junit:junit:4.13.2")
 }

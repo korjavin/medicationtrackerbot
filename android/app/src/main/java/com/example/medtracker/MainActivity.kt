@@ -54,6 +54,8 @@ import android.widget.TextView
 import android.widget.Toast
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
+import com.android.installreferrer.api.InstallReferrerClient
+import com.android.installreferrer.api.InstallReferrerStateListener
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
@@ -207,6 +209,13 @@ class MainActivity : Activity() {
         adoptSpikeAccount()
         host = prefs.getString(HOST_KEY, null)?.takeIf { AccountUrl.isAccountHost(it, base) }
         local = prefs.getBoolean(LocalOrigin.MODE_KEY, false)
+        // Before anything writes the mode: a true first install reads the Play referrer (A6).
+        if (savedInstanceState == null && !prefs.getBoolean(Invite.REFERRER_KEY, false)) {
+            if (Invite.readReferrer(prefs.contains(HOST_KEY), prefs.contains(LocalOrigin.MODE_KEY), false)) readReferrer()
+            prefs.edit().putBoolean(Invite.REFERRER_KEY, true).commit()
+        }
+        // An invite link launched the app (A5): into the slot; the launch path below boots as usual.
+        capture(intent, savedInstanceState == null)
         // QA launch extra, false in release (src/release): enter local mode without the first-run tap.
         if (!local && savedInstanceState == null && DebugHooks.localMode(this)) setLocal(true)
         // A restored activity keeps its launch intent: only a fresh shortcut launch switches.
@@ -246,6 +255,76 @@ class MainActivity : Activity() {
         if (intent.action == ACTION_SWITCH) forget()
         if (intent.action == ACTION_DIAG) copyDiagnostics()
         Notifications.tappedSection(intent, vaultHost)?.let { openSection(it) }
+        if (capture(intent, fresh = true)) deliverInvite()
+    }
+
+    // MARK: invites (bd med-ta2n.12.1, contract med-ta2n.7 §4–§7)
+
+    /** invite.pending's reply: {url, receivedAt} or null. */
+    private fun pendingInvite(): JSONObject? {
+        val url = prefs.getString(Invite.URL_KEY, null) ?: return null
+        return JSONObject().put("url", url).put("receivedAt", prefs.getLong(Invite.AT_KEY, 0))
+    }
+
+    /** The slot, written with commit() (A6: a cold start can die right after). null clears it. */
+    private fun setInvite(url: String?, at: Long = System.currentTimeMillis()) {
+        prefs.edit().apply {
+            if (url == null) remove(Invite.URL_KEY).remove(Invite.AT_KEY) else putString(Invite.URL_KEY, url).putLong(Invite.AT_KEY, at)
+        }.commit()
+    }
+
+    /**
+     * A VIEW intent from InviteLinkActivity: an invite into the slot (newest wins). A5: only a
+     * fresh delivery (not a restore, not Recents) and the intent is consumed; never opens anything
+     * itself — medtracker:// is unauthenticated. True when the slot was filled.
+     */
+    private fun capture(intent: Intent?, fresh: Boolean): Boolean {
+        if (intent?.action != Intent.ACTION_VIEW) return false
+        val raw = intent.dataString
+        intent.data = null
+        intent.action = null
+        if (!fresh || (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0) return false
+        val url = raw?.let { AccountUrl.parseInvite(it, base) } ?: return false
+        setInvite(url)
+        return true
+    }
+
+    /**
+     * Warm delivery (§6): the first run's field takes the invite (the user taps Continue); a page
+     * (any mode) reloads its home with ?invite=1 — history cleared, deferred under the lock — so
+     * the web reads the slot. The mode never changes.
+     */
+    private fun deliverInvite() {
+        if (firstRun.visibility == View.VISIBLE) {
+            prefs.getString(Invite.URL_KEY, null)?.let { input.setText(it) }
+            fieldError(null)
+            return
+        }
+        home?.let { reopen(Invite.withInvite(it)) }
+    }
+
+    /**
+     * Play Install Referrer (§4, A6), on a true first install only: invite=<landing URL> into the
+     * slot when it is still empty (a link captured on this launch is newer), dated by Play's click.
+     * ponytail: nothing retries a failed connection; F1's Paste (the landing copies the link) covers it.
+     */
+    private fun readReferrer() {
+        val client = InstallReferrerClient.newBuilder(this).build()
+        runCatching {
+            client.startConnection(object : InstallReferrerStateListener {
+                override fun onInstallReferrerSetupFinished(code: Int) {
+                    val details = if (code == InstallReferrerClient.InstallReferrerResponse.OK) runCatching { client.installReferrer }.getOrNull() else null
+                    runCatching { client.endConnection() }
+                    val url = AccountUrl.referrerInvite(details?.installReferrer, base) ?: return
+                    runOnUiThread {
+                        if (isDestroyed || prefs.contains(Invite.URL_KEY)) return@runOnUiThread
+                        setInvite(url, Invite.referrerAt(details!!.referrerClickTimestampSeconds, System.currentTimeMillis()))
+                        deliverInvite()
+                    }
+                }
+                override fun onInstallReferrerServiceDisconnected() {}
+            })
+        }.onFailure { diag("shell referrer ${it.javaClass.simpleName}") }
     }
 
     override fun onResume() {
@@ -351,10 +430,6 @@ class MainActivity : Activity() {
             }
             return
         }
-        if (h != host) Notifications.clear(this)
-        leave.clear() // opening an account abandons a pending leave stash; the next leave stashes afresh
-        prefs.edit().putString(HOST_KEY, h).apply()
-        host = h
         input.setText("")
         fieldError(null)
         // Found by the emulator harness (bd med-nt9p.23): the keyboard stayed up over the
@@ -363,6 +438,21 @@ class MainActivity : Activity() {
         // ponytail: 5 s window; a web field focused that fast after Open would lose its keyboard once.
         hideImeUntil = SystemClock.uptimeMillis() + 5_000
         window.insetsController?.hide(WindowInsets.Type.ime())
+        enterAccount(url, h)
+    }
+
+    /**
+     * Opens a validated account URL from any mode (A1): the first-run submit and local.leave /
+     * account.leave {url}. Not open() (never left local mode) and not forget()/setLocal(true)
+     * (entering local mode drops the move stash): the move stash is the caller's call.
+     */
+    private fun enterAccount(url: String, h: String) {
+        if (h != host) Notifications.clear(this)
+        setLocal(false) // leaving local mode keeps the move stash for the new account
+        leave.clear() // opening an account abandons a pending leave stash; the next leave stashes afresh
+        prefs.edit().putString(HOST_KEY, h).remove(LEAVE_HOST_KEY).apply()
+        setInvite(null) // whatever invite was waiting, this open consumed or superseded it
+        host = h
         reopen(url) // the claim link keeps its #fragment for the page; only the host is stored
     }
 
@@ -413,6 +503,8 @@ class MainActivity : Activity() {
             firstRun.visibility = View.VISIBLE
             // Callers that explain why (an account gone) set their field error after this.
             fieldError(null)
+            // A captured invite waits in the field (phase 1, as iOS): the user taps Continue to open it.
+            prefs.getString(Invite.URL_KEY, null)?.let { input.setText(it) }
             renderFirstRun()
         } else {
             firstRun.visibility = View.GONE
@@ -706,6 +798,18 @@ class MainActivity : Activity() {
         if (concealed) return answer(null, "locked")
         val op = msg.optString("op")
         if (!LocalOrigin.opAllowed(op, local)) return answer(null, "unsupported: $op")
+        // {url} (bd med-ta2n.12.1, contract med-ta2n.7 §7): open that account's claim link from either
+        // mode — validated by today's parse (fragment verbatim, &kit=1 kept), else "invalid url" and
+        // nothing changes. A3: the url KEY decides; null, empty or non-string is "invalid url", never
+        // the no-url leave. account.leave ignores then and drops the move stash (A1); local.leave keeps it.
+        val leaveArgs = msg.optJSONObject("args")
+        if ((op == "local.leave" || op == "account.leave") && leaveArgs?.has("url") == true) {
+            val url = (leaveArgs.opt("url") as? String)?.let { AccountUrl.parse(it, base) } ?: return answer(null, "invalid url")
+            val h = Uri.parse(url).host ?: return answer(null, "invalid url")
+            answer(true)
+            if (op == "account.leave") move.clear()
+            return enterAccount(url, h)
+        }
         when (op) {
             "ping" -> answer("pong")
             // The page's capability probe (bd med-nt9p.32.13): an older shell answers "unsupported".
@@ -739,9 +843,21 @@ class MainActivity : Activity() {
                 prefs.edit().remove(LocalOrigin.HOSTS_KEY).remove(LEAVE_HOST_KEY).apply()
                 move.clear()
                 leave.clear()
+                setInvite(null) // A4: no claim token left behind after Erase
                 Notifications.clear(this)
                 answer(true)
             }
+            // The pending-invite slot: the page reads it once per boot; clear on "Keep this account" or stale.
+            "invite.pending" -> answer(pendingInvite() ?: JSONObject.NULL)
+            "invite.clear" -> {
+                setInvite(null)
+                answer(true)
+            }
+            // F1's Paste (Android only): WebView has no clipboard-read permission UI. Text only, else null.
+            "clipboard.read" -> answer(
+                getSystemService(ClipboardManager::class.java).primaryClip?.takeIf { it.itemCount > 0 }
+                    ?.getItemAt(0)?.text?.toString()?.takeIf { it.isNotEmpty() } ?: JSONObject.NULL
+            )
             // Local → cloud move (bd med-nt9p.32.17): the vault v1 JSON for the next account to pick up.
             // Errors never carry the contents or the path.
             // ponytail: synchronous file I/O on the main thread; move it off-thread if a 64 MB vault ever janks.

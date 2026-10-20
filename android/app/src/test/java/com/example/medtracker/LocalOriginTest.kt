@@ -99,6 +99,9 @@ class LocalOriginTest {
         assertTrue(account.containsAll(listOf("ping", "shell.ops", "account.leave", "notifications.schedule", "health.query")))
         assertTrue(account.contains("notifications.openSettings") && local.contains("notifications.openSettings"))
         assertTrue(account.containsAll(listOf("move.take", "move.clear")))
+        // The invite slot and F1's Paste (bd med-ta2n.12.1): both modes.
+        val invite = listOf("invite.pending", "invite.clear", "clipboard.read")
+        assertTrue(account.containsAll(invite) && local.containsAll(invite))
         assertFalse(account.contains("local.leave"))
         assertFalse(account.contains("move.stash"))
         assertTrue(account.contains("leave.stash"))

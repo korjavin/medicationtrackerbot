@@ -46,6 +46,90 @@ class AccountUrlTest {
         check("https://abc.app.example.com/", null, base = "")
     }
 
+    // bd med-ta2n.12.1: the shared vectors of contract med-ta2n.7 §5, `inviteVectors` in
+    // ios/Tests/main.swift (#1237), ported unchanged. "" = rejected. Add a vector there first.
+    private val inviteVectors = listOf(
+        "https://app.example.com/i/abc#0a1b2c" to "https://abc.app.example.com/#claim=0a1b2c",
+        "https://APP.example.com/i/ABC#0a1b2c" to "https://abc.app.example.com/#claim=0a1b2c",
+        "medtracker://i/abc#0a1b2c" to "https://abc.app.example.com/#claim=0a1b2c",
+        "MedTracker://I/abc#0a1b2c" to "https://abc.app.example.com/#claim=0a1b2c",
+        "medtracker://i/my-sub-9#00ff" to "https://my-sub-9.app.example.com/#claim=00ff",
+        "https://abc.app.example.com/#claim=0a1b2c" to "https://abc.app.example.com/#claim=0a1b2c",
+        "https://abc.app.example.com/#claim=0a1b2c&kit=1" to "https://abc.app.example.com/#claim=0a1b2c&kit=1",
+        "abc.app.example.com" to "https://abc.app.example.com/",
+        "https://app.example.com/i/abc" to "", // no token
+        "https://app.example.com/i/abc#" to "", // empty token
+        "https://app.example.com/i/#0a1b2c" to "", // no sub
+        "https://app.example.com/i/a/b#0a1b2c" to "",
+        "https://app.example.com/i/a.b#0a1b2c" to "",
+        "https://app.example.com/i/a_b#0a1b2c" to "",
+        "https://app.example.com/i/%61bc#0a1b2c" to "", // raw path: no percent-decoding
+        "https://app.example.com/i/abc#%30a1b" to "", // raw fragment
+        "https://app.example.com/i/abc#0A1B2C" to "", // token is lowercase hex
+        "https://app.example.com/i/abc#0a1g" to "",
+        "https://app.example.com/i/abc#0a-1b" to "",
+        "https://app.example.com/i/abc#0a1b&kit=1" to "",
+        "https://app.example.com/i/abc?x=1#0a1b2c" to "",
+        "https://app.example.com/i/abc?#0a1b2c" to "",
+        "https://app.example.com:8443/i/abc#0a1b2c" to "",
+        "https://u@app.example.com/i/abc#0a1b2c" to "",
+        "https://u:p@app.example.com/i/abc#0a1b2c" to "",
+        "http://app.example.com/i/abc#0a1b2c" to "",
+        "https://evil.com/i/abc#0a1b2c" to "",
+        "https://app.example.com.evil.com/i/abc#0a1b2c" to "",
+        "https://evilapp.example.com/i/abc#0a1b2c" to "",
+        "https://app.example.com/x/abc#0a1b2c" to "",
+        "medtracker://x/abc#0a1b2c" to "",
+        "medtracker://i/abc" to "",
+        "medtracker://i/#0a1b2c" to "",
+        "medtracker://i/a/b#0a1b2c" to "",
+        "medtracker://i:1/abc#0a1b2c" to "",
+        "medtracker://u@i/abc#0a1b2c" to "",
+        "medtracker://i/abc?x=1#0a1b2c" to "",
+        "otherapp://i/abc#0a1b2c" to "",
+        "wgapp://local/" to "",
+        "" to "",
+    )
+
+    @Test
+    fun parseInvite() {
+        assertEquals(40, inviteVectors.size)
+        for ((input, want) in inviteVectors) assertEquals(input, want, AccountUrl.parseInvite(input, base) ?: "")
+        assertEquals(null, AccountUrl.parseInvite("https://app.example.com/i/abc#0a1b2c", ""))
+    }
+
+    // Contract §4: Play hands over invite=<percent-encoded landing URL>; decoded once, then parseInvite.
+    @Test
+    fun referrer() {
+        val claim = "https://abc.app.example.com/#claim=0a1b2c"
+        fun check(referrer: String?, want: String?) = assertEquals(referrer, want, AccountUrl.referrerInvite(referrer, base))
+        check("invite=https%3A%2F%2Fapp.example.com%2Fi%2Fabc%230a1b2c", claim)
+        check("utm_source=x&invite=https%3A%2F%2Fapp.example.com%2Fi%2Fabc%230a1b2c&utm_medium=y", claim)
+        check("invite=medtracker%3A%2F%2Fi%2Fabc%230a1b2c", claim)
+        // Decoded once: a doubly encoded value stays encoded and fails the raw checks.
+        check("invite=https%253A%252F%252Fapp.example.com%252Fi%252Fabc%25230a1b2c", null)
+        check("invite=https%3A%2F%2Fevil.com%2Fi%2Fabc%230a1b2c", null)
+        check("invite=%E0%A4%A", null) // bad escape
+        check("utm_source=google-play&utm_medium=organic", null)
+        check("xinvite=https%3A%2F%2Fapp.example.com%2Fi%2Fabc%230a1b2c", null)
+        check("", null)
+        check(null, null)
+    }
+
+    // A6: a true first install only; Play's click time, the read time only when Play says 0.
+    @Test
+    fun referrerRules() {
+        assertTrue(Invite.readReferrer(hasHost = false, hasMode = false, done = false))
+        assertFalse(Invite.readReferrer(hasHost = true, hasMode = false, done = false)) // upgrade with an account
+        assertFalse(Invite.readReferrer(hasHost = false, hasMode = true, done = false)) // upgrade in local mode
+        assertFalse(Invite.readReferrer(hasHost = false, hasMode = false, done = true)) // read before
+        assertEquals(1_700_000_000_000L, Invite.referrerAt(1_700_000_000L, 42L))
+        assertEquals(42L, Invite.referrerAt(0L, 42L))
+        assertEquals("https://appassets.androidplatform.net/?invite=1", Invite.withInvite(LocalOrigin.HOME))
+        assertEquals("https://appassets.androidplatform.net/?qa=today&invite=1", Invite.withInvite("${LocalOrigin.HOME}?qa=today"))
+        assertEquals("https://abc.app.example.com/?invite=1", Invite.withInvite("https://abc.app.example.com/"))
+    }
+
     @Test
     fun download() {
         fun check(url: String, want: Boolean) = assertEquals(url, want, AccountUrl.isDownloadable(url))
