@@ -29,7 +29,7 @@ func TestRouter_AppleAppSiteAssociation(t *testing.T) {
 		t.Fatalf("half-set: AASA served")
 	}
 	h.SetAppleAppSiteAssociation("TEAM123456", "com.example.app")
-	want := `{"webcredentials":{"apps":["TEAM123456.com.example.app"]}}`
+	want := `{"applinks":{"details":[{"appIDs":["TEAM123456.com.example.app"],"components":[{"/":"/i/*","comment":"invite landing"}]}]},"webcredentials":{"apps":["TEAM123456.com.example.app"]}}`
 	for _, host := range []string{"app.example.com", "known-sub.app.example.com", "unknown.app.example.com"} {
 		rec := get(h, host)
 		if rec.Code != http.StatusOK || rec.Body.String() != want || rec.Header().Get("Content-Type") != "application/json" {

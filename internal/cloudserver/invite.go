@@ -2,10 +2,23 @@ package cloudserver
 
 import (
 	"context"
+	"database/sql"
+	"errors"
+	"log/slog"
 	"net/http"
+	"regexp"
 	"sync"
 	"time"
+
+	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
 )
+
+// inviteSubPattern is the subdomain shape the invite landing path and status
+// API accept (the pinned contract's ^/i/([a-z0-9-]+)$).
+var inviteSubPattern = regexp.MustCompile(`^[a-z0-9-]+$`)
+
+// inviteStatusPathPrefix is GET /api/i/{sub}, the landing page's status read.
+const inviteStatusPathPrefix = "/api/i/"
 
 // inviteMonthlyQuota caps how many invites one account may mint per rolling
 // inviteQuotaWindow. ponytail: hardcoded — env-var knob only if someone asks.
@@ -20,6 +33,7 @@ type inviteStore interface {
 	provisionStore
 	sessionStore
 	CountAccountsCreatedBy(ctx context.Context, accountID string, since time.Time) (int, error)
+	AccountBySubdomain(ctx context.Context, subdomain string) (*cloudstore.Account, error)
 }
 
 // InviteAPI lets a signed-in account mint an invite for a friend from its own
@@ -37,16 +51,62 @@ type InviteAPI struct {
 	// ponytail: one global lock — cmd/cloud is a single process and minting is
 	// rare. Move the count into Provision's transaction if this ever contends.
 	mintMu sync.Mutex
+
+	statusLimiter *rateLimiter // per-IP cap on the unauthenticated GET /api/i/{sub}
 }
 
 // NewInviteAPI builds the user-mintable invite handler.
 func NewInviteAPI(store inviteStore, sessionSecret, baseDomain string, claimTTL time.Duration) *InviteAPI {
-	return &InviteAPI{store: store, sessionSecret: sessionSecret, baseDomain: baseDomain, claimTTL: claimTTL}
+	return &InviteAPI{
+		store: store, sessionSecret: sessionSecret, baseDomain: baseDomain, claimTTL: claimTTL,
+		statusLimiter: newRateLimiter(ceremonyRateLimitMax, ceremonyRateLimitWindow),
+	}
 }
 
-// RegisterRoutes adds the invite-minting route to mux.
+// RegisterRoutes adds the invite-minting route and the landing page's status
+// read to mux. The status read is served on the base domain only (router.go
+// forwards /api/i/ from there and refuses it on account hosts).
 func (a *InviteAPI) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/invite", RequireSession(a.store, a.sessionSecret, http.HandlerFunc(a.CreateInvite)))
+	mux.HandleFunc("GET /api/i/{sub}", limitByIP(a.statusLimiter, a.InviteStatus))
+}
+
+type inviteStatusResponse struct {
+	State     string     `json:"state"` // pending | expired | claimed
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+}
+
+// InviteStatus answers the invite landing page (bd med-ta2n.9): is the invite
+// for this subdomain still claimable? Unauthenticated and token-free — the
+// token stays in the landing URL's fragment and is never sent here. An unknown
+// or malformed subdomain answers "expired", indistinguishable from a swept
+// invite (the account host already reveals existence via X-Account-Gone, so
+// this is no worse). expires_at is sent only for a pending invite, so an
+// expired-but-unswept row looks exactly like an unknown one. No sweep: the
+// state is computed from the row's own expiry, which gives the same answer
+// without a write on an anonymous GET.
+func (a *InviteAPI) InviteStatus(w http.ResponseWriter, r *http.Request) {
+	noStore(w)
+	sub := r.PathValue("sub")
+	if !inviteSubPattern.MatchString(sub) {
+		writeJSON(w, http.StatusOK, inviteStatusResponse{State: "expired"})
+		return
+	}
+	acc, err := a.store.AccountBySubdomain(r.Context(), sub)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		writeJSON(w, http.StatusOK, inviteStatusResponse{State: "expired"})
+	case err != nil:
+		slog.Error("cloudserver: invite status lookup", "error", err, "subdomain", sub)
+		http.Error(w, "server error", http.StatusInternalServerError)
+	case acc.ClaimTokenHash == nil:
+		writeJSON(w, http.StatusOK, inviteStatusResponse{State: "claimed"})
+	case acc.ClaimExpiresAt == nil || !time.Now().Before(*acc.ClaimExpiresAt):
+		writeJSON(w, http.StatusOK, inviteStatusResponse{State: "expired"})
+	default:
+		exp := acc.ClaimExpiresAt.UTC()
+		writeJSON(w, http.StatusOK, inviteStatusResponse{State: "pending", ExpiresAt: &exp})
+	}
 }
 
 type inviteResponse struct {
