@@ -87,8 +87,8 @@ describe('Emergency Kit page: one page, "I saved it" at the user\'s own risk', (
     expect(app.querySelector('.wg-pagefoot #kit-continue')).not.toBeNull();
     expect(app.querySelector('#kit-download')).not.toBeNull();
     expect(app.querySelector('#kit-print')).not.toBeNull();
-    // Signup shows where it is in the wizard.
-    expect(app.querySelector('.wg-steps')).not.toBeNull();
+    // Signup no longer shows this page (it gets the W5 offer), so no step indicator.
+    expect(app.querySelector('.wg-steps')).toBeNull();
   });
 
   it('puts a long account ID and the recovery code in the wrapping .wg-kv list (med-i0fj)', async () => {
@@ -189,28 +189,7 @@ describe('Emergency Kit page: one page, "I saved it" at the user\'s own risk', (
     expect(pressed(app)).toBe('true');
   });
 
-  it('signup: Continue sends the server-side loss acknowledgement, then moves on', async () => {
-    const { mountTelegram } = await import('../telegram.js');
-    const app = await mountKit();
-    app.querySelector('#kit-saved').click();
-    app.querySelector('#kit-continue').click();
-
-    await vi.waitFor(() => expect(mountTelegram).toHaveBeenCalled());
-    expect(globalThis.fetch.mock.calls.map(([url]) => url)).toContain('/api/loss-ack');
-  });
-
-  it('signup: a failed loss acknowledgement stays on the page with the error and Continue re-armed', async () => {
-    const app = await mountKit();
-    globalThis.fetch = vi.fn(async () => ({ ok: false, status: 500 }));
-    app.querySelector('#kit-saved').click();
-    app.querySelector('#kit-continue').click();
-
-    await vi.waitFor(() => expect(app.querySelector('#kit-error').hidden).toBe(false));
-    expect(app.querySelector('#kit-error').textContent).toContain('Could not save your acknowledgment');
-    expect(app.querySelector('#kit-continue').disabled).toBe(false);
-  });
-
-  it('recover / regenerate render the same page without the step indicator, and hand Continue to the caller', async () => {
+  it('recover / regenerate render the same page and hand Continue to the caller', async () => {
     const onKitSaved = vi.fn();
     const app = await mountKit({ ...CTX, onKitSaved, continueLabel: 'Done' });
     expect(app.querySelector('.wg-steps')).toBeNull();
@@ -222,6 +201,60 @@ describe('Emergency Kit page: one page, "I saved it" at the user\'s own risk', (
     await vi.waitFor(() => expect(onKitSaved).toHaveBeenCalled());
     expect(globalThis.fetch.mock.calls.map(([url]) => url)).not.toContain('/api/loss-ack');
     expect(stash().how).toBe('download');
+  });
+});
+
+// bd med-ta2n.8, design W5 · kit: signup's kit is an offer after sync turns on.
+describe('Emergency Kit offer (signup, entered from Settings)', () => {
+  const mountOffer = () => mountKit({ ...CTX, offer: true });
+
+  it('two facts, Save and Print, Done always enabled, the skip hint, no acknowledgement choice', async () => {
+    const app = await mountOffer();
+    expect(app.querySelector('h1').textContent).toBe('One more thing: a way back in');
+    expect(app.querySelector('.wg-chip--ok').textContent).toBe('Sync is on');
+    expect(app.querySelectorAll('.wg-facts li')).toHaveLength(2);
+    expect(app.textContent).toContain('Nobody can reset it for you');
+    expect(app.querySelector('#kit-download').textContent).toBe('Save kit');
+    expect(app.querySelector('#kit-print').textContent).toBe('Print');
+    expect(app.querySelector('.wg-pagefoot #kit-done').disabled).toBe(false);
+    expect(app.querySelector('#kit-hint').textContent).toBe('Skip for now and Settings will remind you.');
+    expect(app.querySelector('#kit-saved, #kit-continue, input[type=checkbox], details')).toBeNull();
+    // The new code is already live, so a page closed now must read as unsaved.
+    expect(stash().how).toBe('none');
+  });
+
+  it('Done without a save stashes none, sends the loss acknowledgement, then moves on', async () => {
+    const { mountTelegram } = await import('../telegram.js');
+    const app = await mountOffer();
+    app.querySelector('#kit-done').click();
+
+    expect(stash()).toEqual({ savedAt: expect.any(Number), how: 'none' });
+    await vi.waitFor(() => expect(mountTelegram).toHaveBeenCalled());
+    expect(globalThis.fetch.mock.calls.map(([url]) => url)).toContain('/api/loss-ack');
+  });
+
+  it('a save stashes download, a print stashes print', async () => {
+    let app = await mountOffer();
+    app.querySelector('#kit-download').click();
+    expect(anchors).toHaveLength(1);
+    app.querySelector('#kit-done').click();
+    expect(stash().how).toBe('download');
+
+    app = await mountOffer();
+    app.querySelector('#kit-print').click();
+    expect(printed).toHaveLength(1);
+    app.querySelector('#kit-done').click();
+    expect(stash().how).toBe('print');
+  });
+
+  it('a failed loss acknowledgement stays on the page with the error and Done re-armed', async () => {
+    const app = await mountOffer();
+    globalThis.fetch = vi.fn(async () => ({ ok: false, status: 500 }));
+    app.querySelector('#kit-done').click();
+
+    await vi.waitFor(() => expect(app.querySelector('#kit-error').hidden).toBe(false));
+    expect(app.querySelector('#kit-error').textContent).toContain('Could not save your acknowledgment');
+    expect(app.querySelector('#kit-done').disabled).toBe(false);
   });
 });
 

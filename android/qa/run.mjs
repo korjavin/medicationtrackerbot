@@ -188,11 +188,14 @@ const ctx = {
     await ctx.openLink(url, opts);
     await ctx.waitFor({ text: /.*open your account.*/ });
   },
-  /** Cold start → Open the run's invite → the WebView page on /unlock with the signup wizard. */
-  async openClaim(opts) {
+  /**
+   * Cold start → Open the run's invite → the WebView page on /unlock with the signup wizard.
+   * kit: append &kit=1 (sync turned on from Settings), so the ceremony ends on the kit offer.
+   */
+  async openClaim(opts = {}) {
     if (!ctx.claimUrl) throw new Error('QA_CLAIM_URL unset (no local cloud)');
     await ctx.launch(opts);
-    await ctx.openLink(ctx.claimUrl);
+    await ctx.openLink(opts.kit ? `${ctx.claimUrl}&kit=1` : ctx.claimUrl);
     const page = await ctx.attachPage();
     if (!page) throw new Error('no WebView page (see the run log)');
     await page.waitForURL(/\/unlock/, { timeout: 30_000 });

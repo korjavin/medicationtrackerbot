@@ -1,5 +1,5 @@
 // med-4lt: re-opening an already-claimed #claim= link must never render
-// "Create your passkey" (clicking it only ever produced a misleading
+// the sign-in button (clicking it only ever produced a misleading
 // expired-link error). runSignupWizard probes POST /api/webauthn/register/begin
 // before rendering; these pin the three outcomes the client branches on.
 // The cloud shell has no integration entry point, so this follows the
@@ -9,6 +9,7 @@ import { JSDOM } from 'jsdom';
 
 import { renderEmergencyKit, runSignupWizard } from '../signup.js';
 import { establishLdkCache } from '../unlock.js';
+import { isIOS, isMobile } from '../push.js';
 
 vi.mock('../unlock.js', () => ({ establishLdkCache: vi.fn(async () => {}) }));
 // Telegram self-gates and calls onDone immediately when disabled; the wizard
@@ -22,8 +23,8 @@ vi.mock('../telegram.js', () => ({ mountTelegram: async (_app, { onDone }) => on
 // missing one, and `isStandalone() || !isMobile()` only short-circuits by luck.
 vi.mock('../push.js', () => ({
   isStandalone: () => true,
-  isIOS: () => false,
-  isMobile: () => false,
+  isIOS: vi.fn(() => false),
+  isMobile: vi.fn(() => false),
   iosInstallStepsHtml: () => '',
 }));
 
@@ -109,34 +110,83 @@ describe('runSignupWizard claim-state probe', () => {
     const app = dom.window.document.getElementById('app');
     expect(app.querySelector('#create-passkey')).not.toBeNull();
     expect(app.querySelector('.wizard-error').textContent).toContain('may be expired');
+    expect(app.textContent).not.toMatch(/passkey|vault|encrypt/i);
+  });
+});
+
+// bd med-ta2n.8, design W5 · sign in: the platform's own unlock words, one
+// privacy sentence, and never "passkey" / "vault" / "encrypt".
+describe('W5 sign-in step copy', () => {
+  async function welcome() {
+    globalThis.fetch = beginResponse(200, { publicKey: {} });
+    await runSignupWizard('tok123');
+    return dom.window.document.getElementById('app');
+  }
+
+  it('desktop web: sign in with this device', async () => {
+    const app = await welcome();
+    expect(app.querySelector('h1').textContent).toBe('Sign in with this device');
+    expect(app.textContent).toContain("That's your login from now on. There's no password to remember.");
+    expect(app.querySelector('#create-passkey').textContent).toBe('Continue');
+    expect(app.textContent).toContain("The server stores your log but can't read it.");
+    expect(app.textContent).not.toMatch(/passkey|vault|encrypt/i);
+  });
+
+  afterEach(() => {
+    isIOS.mockReturnValue(false);
+    isMobile.mockReturnValue(false);
+  });
+
+  it('iOS: Face ID', async () => {
+    isIOS.mockReturnValue(true);
+    const app = await welcome();
+    expect(app.querySelector('h1').textContent).toBe('Sign in with Face ID');
+    expect(app.querySelector('#create-passkey').textContent).toBe('Continue with Face ID');
+    expect(app.querySelector('#create-passkey [data-icon="faceid"]')).not.toBeNull();
+    expect(app.textContent).not.toMatch(/passkey|vault|encrypt/i);
+  });
+
+  it('Android: fingerprint', async () => {
+    isMobile.mockReturnValue(true);
+    const app = await welcome();
+    expect(app.querySelector('h1').textContent).toBe('Sign in with your fingerprint');
+    expect(app.querySelector('#create-passkey').textContent).toBe('Continue with fingerprint');
+    expect(app.textContent).not.toMatch(/passkey|vault|encrypt/i);
   });
 });
 
 // med-8eh: the wizard used to end on a "the full app arrives with the next
 // update" screen. It now warms the LDK cache and navigates to '/'. enterApp is
-// module-private, so drive it the way the user does: #kit-continue.
-describe('wizard tail (Emergency Kit -> app)', () => {
+// module-private, so drive it the way the user does: the kit offer's Done.
+describe('wizard tail (Emergency Kit offer -> app)', () => {
   const CTX = { accountId: 'acct-1', dek: new Uint8Array(32).fill(7) };
 
   // vi.clearAllMocks() clears calls but keeps implementations, so a mockRejectedValue
   // set by one case would otherwise leak into the next.
   beforeEach(() => { establishLdkCache.mockResolvedValue(undefined); });
 
+  async function clickKitDone(ctx) {
+    globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200 }));
+    const app = dom.window.document.getElementById('app');
+    await renderEmergencyKit(app, { ...ctx, offer: true });
+    app.querySelector('#kit-done').click();
+    return app;
+  }
+
+  // recover.js / devices.js keep the O1 page: Print ticks "I saved it" and arms
+  // #kit-continue (print rather than download — jsdom answers an <a download>
+  // click with a "navigation not implemented" error).
   async function clickKitContinue(ctx) {
     globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200 }));
     const app = dom.window.document.getElementById('app');
     await renderEmergencyKit(app, ctx);
-    // Print ticks "I saved it" and arms #kit-continue. Print rather than
-    // download — no <a download> click, which jsdom answers with a
-    // "navigation not implemented" error. The gate itself is covered in
-    // signup.emergency-kit.test.js.
     app.querySelector('#kit-print').click();
     app.querySelector('#kit-continue').click();
     return app;
   }
 
   it('warms the LDK cache with the ceremony DEK, then enters the app', async () => {
-    await clickKitContinue(CTX);
+    await clickKitDone(CTX);
 
     await vi.waitFor(() => expect(globalThis.location.href).toBe('/'));
     expect(establishLdkCache).toHaveBeenCalledWith(CTX.dek, CTX.accountId);
@@ -147,7 +197,7 @@ describe('wizard tail (Emergency Kit -> app)', () => {
     // re-invokes enterApp, so a mockRejectedValueOnce would let that retry
     // navigate and mask a deleted `catch` inside enterApp.
     establishLdkCache.mockRejectedValue(new Error('storage blocked'));
-    await clickKitContinue(CTX);
+    await clickKitDone(CTX);
 
     // cloud-boot bounces this to /unlock; a dead-end here is the bug.
     await vi.waitFor(() => expect(globalThis.location.href).toBe('/'));
@@ -223,8 +273,8 @@ describe('post-create PRF probe', () => {
   });
   const calls = (url) => globalThis.fetch.mock.calls.filter(([u]) => u === url).length;
 
-  async function clickCreate() {
-    await runSignupWizard('tok123');
+  async function clickCreate(opts) {
+    await runSignupWizard('tok123', opts);
     const app = dom.window.document.getElementById('app');
     app.querySelector('#create-passkey').click();
     return app;
@@ -267,15 +317,42 @@ describe('post-create PRF probe', () => {
       }
       return { ok: true, status: 200, json: async () => ({ publicKey: {} }) };
     });
-    const app = await clickCreate();
+    const app = await clickCreate({ kit: true });
     await vi.waitFor(() => expect(app.querySelector('#kit-retry')).not.toBeNull());
     expect(app.textContent).toContain("Couldn't create your Emergency Kit");
 
     const retry = app.querySelector('#kit-retry');
     retry.click();
     retry.click();
-    await vi.waitFor(() => expect(app.textContent).toContain('Save your Emergency Kit'));
+    await vi.waitFor(() => expect(app.textContent).toContain('One more thing: a way back in'));
     expect(calls('/api/recovery-material')).toBe(2); // the failed one + exactly one retry
+  });
+
+  // bd med-ta2n.8: &kit=1 (entered from Settings) ends on the W5 kit offer;
+  // without it (P3, an old shell's paste screen) the ceremony skips the kit
+  // entirely — no code is minted — and goes on to the app.
+  it('web, kit flag: registration ends on the kit offer, Done goes on to the app', async () => {
+    install(() => withPrf(RAW_ID));
+    globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ publicKey: {} }) }));
+    const app = await clickCreate({ kit: true });
+    await vi.waitFor(() => expect(app.querySelector('#kit-done')).not.toBeNull());
+    expect(app.textContent).toContain('Sync is on');
+    expect(app.querySelector('#kit-saved')).toBeNull(); // an offer, not a gate
+    expect(app.querySelector('#kit-done').disabled).toBe(false);
+
+    app.querySelector('#kit-done').click();
+    await vi.waitFor(() => expect(globalThis.location.href).toBe('/'));
+    expect(calls('/api/loss-ack')).toBe(1);
+  });
+
+  it('web, no kit flag: no kit page, no recovery code minted, straight on to the app', async () => {
+    install(() => withPrf(RAW_ID));
+    globalThis.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ publicKey: {} }) }));
+    const app = await clickCreate();
+    await vi.waitFor(() => expect(globalThis.location.href).toBe('/'));
+    expect(calls('/api/webauthn/register/finish')).toBe(1);
+    expect(calls('/api/recovery-material')).toBe(0);
+    expect(app.querySelector('#kit-done, #kit-continue')).toBeNull();
   });
 
   it('Android shell: discoverable probe, accepted when it returns the created credential', async () => {
@@ -323,7 +400,7 @@ describe('post-create PRF probe', () => {
     expect(getCalls).toHaveLength(2);
     expect(app.querySelectorAll('.wizard-error')).toHaveLength(1);
     expect(app.querySelector('.wizard-error').textContent)
-      .toBe("Couldn't set up your passkey. Tap Create your passkey to try again.");
+      .toBe("Couldn't finish signing in. Tap Continue with fingerprint to try again.");
     expect(calls('/api/webauthn/register/finish')).toBe(0);
   });
 
@@ -350,9 +427,9 @@ describe('post-create PRF probe', () => {
 
     // One steady busy step: no button left, no error, says what comes next.
     expect(app.querySelector('#create-passkey')).toBeNull();
-    expect(app.textContent).toContain('Setting up your passkey');
+    expect(app.textContent).toContain('Signing you in');
     expect(app.querySelector('.wizard-spinner')).not.toBeNull();
-    expect(app.textContent).toContain('confirm the passkey you just created');
+    expect(app.textContent).toContain('confirm the sign-in you just created');
 
     await settle(() => expect(getCalls).toHaveLength(1)); // probe 1 failed, now backing off
     expect(app.querySelector('.wizard-error')).toBeNull();
@@ -360,7 +437,7 @@ describe('post-create PRF probe', () => {
     button.click();
     button.dispatchEvent(new dom.window.Event('click'));
 
-    await settle(() => expect(app.textContent).toContain('Save your Emergency Kit'));
+    await settle(() => expect(globalThis.location.href).toBe('/')); // no kit flag: on to the app
     expect(calls('/api/webauthn/register/begin')).toBe(2); // the wizard's claim-state probe + this ceremony
     expect(navigator.credentials.create).toHaveBeenCalledTimes(1);
     expect(getCalls).toHaveLength(2);
@@ -375,11 +452,11 @@ describe('post-create PRF probe', () => {
     expect(getCalls).toHaveLength(4); // 1 + 3 bounded retries
     expect(app.querySelectorAll('.wizard-error')).toHaveLength(1);
     expect(app.querySelector('.wizard-error').textContent)
-      .toBe("Couldn't set up your passkey. Tap Create your passkey to try again.");
+      .toBe("Couldn't finish signing in. Tap Continue with fingerprint to try again.");
     expect(calls('/api/webauthn/register/finish')).toBe(0);
 
     app.querySelector('#create-passkey').click();
-    await settle(() => expect(app.textContent).toContain('Save your Emergency Kit'));
+    await settle(() => expect(globalThis.location.href).toBe('/'));
     expect(calls('/api/webauthn/register/begin')).toBe(3);
     expect(navigator.credentials.create).toHaveBeenCalledTimes(2);
     expect(calls('/api/webauthn/register/finish')).toBe(1);
@@ -444,6 +521,6 @@ describe('post-create PRF probe', () => {
     const app = await clickCreate();
     await settle(() => expect(app.querySelector('.wizard-error')).not.toBeNull());
     expect(getCalls).toHaveLength(1);
-    expect(app.querySelector('.wizard-error').textContent).toContain('Tap Create your passkey to try again');
+    expect(app.querySelector('.wizard-error').textContent).toContain('Tap Continue with fingerprint to try again');
   });
 });

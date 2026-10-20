@@ -124,10 +124,20 @@ point — `med-4pz.4`'s Emergency Kit nudge is the one screen we want people to 
 
 The claim wizard used to end at `renderDone`, a terminal screen ("the full app arrives with the next update")
 with no button and no redirect. It is gone. The sequence is now
-`welcome → (unsupported-authenticator) → Emergency Kit (with the loss-ack) → (telegram) → (trial) → (install) → enterApp`.
-The Emergency Kit page (bd `med-ckm5.2`, design O1) is one page: "I saved my Emergency Kit" alone unlocks
-Continue, which POSTs `/api/loss-ack`; the save state (`download | print | ack`, or `none` while a fresh code is unconfirmed) goes to the synced
-`emergencykit` vault record via `web/cloud/js/kit-state.js` on the next unlocked open.
+`sign in → (unsupported-authenticator) → [kit offer, only with &kit=1] → (telegram) → (trial) → (install) → enterApp`.
+
+Since bd `med-ta2n.8` (onboarding v3, design W5): the first screen is **W5 · sign in** ("Sign in with Face ID" /
+"your fingerprint" / "this device" from the UA and shell, one privacy sentence, never the words passkey / vault /
+encrypt). The Emergency Kit is an **offer**, not a gate, and only when the claim fragment carries `&kit=1`
+(`#claim=<token>&kit=1`, appended by the web when sync was turned on from Settings; shells pass the fragment
+through untouched; `app.js` reads it next to `claim`). The offer (W5 · kit) mints the code exactly like the O1
+page, shows two facts, Save kit / Print and Done; Done POSTs `/api/loss-ack` and files `download | print` after a
+save, else `none`. Without the flag — the P3 "Turn on sync?" path, a plain invite link, **and an invite pasted
+into an older native first-run screen** — there is no kit page and no recovery code is minted at signup; the
+missing `emergencykit` record reads as "not saved" and the Settings Kit chip reminds (regenerate =
+`/devices?flow=emergency-kit`). That older-shell case is accepted (bd `med-ta2n.8` breakage review). The O1 page
+(`renderEmergencyKit` without `offer`: "I saved it" unlocks Continue, `ack` at the user's own risk) stays for
+`/recover`'s forced rotation and the `/devices` regenerate flow. Kit record values are unchanged.
 
 `enterApp(ctx)` (`web/cloud/js/signup.js`) establishes the LDK warm cache with the ceremony's `{dek, accountId}`
 and then navigates `location.href = '/'`, exactly as `renderDeviceList`'s `onExit` already does

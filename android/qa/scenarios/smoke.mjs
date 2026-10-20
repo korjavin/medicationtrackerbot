@@ -12,7 +12,7 @@ const TABS =[['today', 'today'], ['meds', 'meds'], ['vitals', 'health'], ['food'
 export default async function smoke(ctx) {
   const r = (ctx.results.smoke = {});
   const { device, shell, sleep } = ctx;
-  let page = await ctx.step('invite opens the signup wizard (soft authenticator)', () => ctx.openClaim({ softAuthn: true }));
+  let page = await ctx.step('invite opens the signup wizard (soft authenticator)', () => ctx.openClaim({ softAuthn: true, kit: true }));
   await ctx.shot('wizard');
 
   await claimAccount(ctx, page);
@@ -229,31 +229,37 @@ async function exportBackup(ctx, page, r) {
 }
 
 /**
- * The signup wizard on an opened invite (soft authenticator) → passkey → Emergency Kit
- * (Save/Share shot, dismissed) → vault → onboarding wizard skipped. Shared with local-to-cloud.
+ * The signup wizard on an opened invite (soft authenticator) → sign in → (only with &kit=1, bd
+ * med-ta2n.8) the Emergency Kit offer (Save/Share shot, dismissed, Done) → vault → onboarding
+ * wizard skipped. Shared with local-to-cloud.
  */
 export async function claimAccount(ctx, page) {
   const { shell, sleep } = ctx;
-  await ctx.step('create the passkey', async () => {
+  const kit = /[#&]kit=1(&|$)/.test(page.url());
+  await ctx.step('sign in', async () => {
     await page.click('#create-passkey');
-    // #kit-download sits in the collapsed "Download or print" disclosure: attached, then opened.
-    await page.locator('#kit-download').waitFor({ state: 'attached', timeout: 60_000 });
-    await page.evaluate(() => { document.querySelector('#kit-download').closest('details').open = true; });
+    if (kit) { await page.locator('#kit-done').waitFor({ timeout: 60_000 }); return; }
+    // No kit page: the ceremony goes on by itself (Telegram/install steps, then the app's reload).
+    await page.waitForFunction(() => !document.querySelector('#create-passkey, [aria-busy="true"]'), null, { timeout: 60_000 })
+      .catch(() => {}); // the navigation to '/' can destroy the context mid-wait; waitForVault decides
   });
-  await ctx.shot('kit');
-  await ctx.step('kit download offers Save/Share', async () => {
-    await page.click('#kit-download');
-    await ctx.waitFor({ text: 'Save to device' }, 15_000);
-  });
-  await ctx.shot('kit-save-share');
-  await ctx.step('dismiss Save/Share and continue', async () => {
-    await shell('input keyevent KEYCODE_BACK');
-    await sleep(1000);
-    if ((await page.getAttribute('#kit-saved', 'aria-pressed')) !== 'true') await page.click('#kit-saved');
-    await page.click('#kit-continue');
+  if (kit) {
+    await ctx.shot('kit');
+    await ctx.step('kit Save offers Save/Share', async () => {
+      await page.click('#kit-download');
+      await ctx.waitFor({ text: 'Save to device' }, 15_000);
+    });
+    await ctx.shot('kit-save-share');
+    await ctx.step('dismiss Save/Share and Done', async () => {
+      await shell('input keyevent KEYCODE_BACK');
+      await sleep(1000);
+      await page.click('#kit-done');
+    });
+  }
+  await ctx.step('install nudge, if any', async () => {
     await sleep(1500);
     const skip = page.locator('#install-skip');
-    if (await skip.count()) { await ctx.shot('install-nudge'); await skip.click(); }
+    if (await skip.count().catch(() => 0)) { await ctx.shot('install-nudge'); await skip.click(); }
   });
   await ctx.step('vault opens', () => waitForVault(page));
   // The onboarding wizard (WGFirstRun) covers the app on a fresh account: screenshot it, Skip all.

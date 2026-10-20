@@ -5,7 +5,10 @@
 
 import { mountExitBar } from './exitbar.js';
 
-const claimToken = new URLSearchParams(location.hash.slice(1)).get('claim');
+// #claim=<token>[&kit=1]: kit=1 is appended by the web only when sync was
+// turned on from Settings (bd med-ta2n.7/.8); shells pass it through untouched.
+const fragment = new URLSearchParams(location.hash.slice(1));
+const claimToken = fragment.get('claim');
 
 // The app shells' "Not your account?" strip (bd med-ckm5.2); never blocks the page.
 try {
@@ -64,7 +67,7 @@ try {
     location.replace(location.pathname === '/devices' ? SETTINGS_DEVICES_URL : SETTINGS_CONNECTORS_URL);
   } else if (claimToken) {
     const { runSignupWizard } = await import('./signup.js');
-    await runSignupWizard(claimToken);
+    await runSignupWizard(claimToken, { kit: fragment.get('kit') === '1' });
   } else {
     const { runUnlockFlow } = await import('./unlock.js');
     await runUnlockFlow();
