@@ -8,6 +8,7 @@
 //
 //   const page = WGPage.push({
 //       title, crumb?, back? = 'Back',      // back = the parent page's name
+//       longTitle?,                         // icon-only back (aria-label = back) so a long title fits
 //       body,                               // Node placed in the scrolling .wg-content
 //       primary?: { label: 'Save'|'Done', onClick },
 //       onBack?,   // Back chevron / Esc / popstate; return false (or a promise
@@ -33,15 +34,22 @@
         page.setAttribute('aria-label', o.title || '');
 
         const bar = doc.createElement('header');
-        bar.className = 'wg-pagebar';
+        bar.className = o.longTitle ? 'wg-pagebar wg-pagebar--long' : 'wg-pagebar';
 
         const backBtn = doc.createElement('button');
         backBtn.type = 'button';
-        backBtn.className = 'wg-back';
         const ico = doc.createElement('i');
         ico.className = 'wg-ico';
         ico.dataset.icon = 'chev-l';
-        backBtn.append(ico, o.back || 'Back');
+        if (o.longTitle) {
+            // Long title: icon-only back so the full title fits (kit v2.1 .wg-back--icon).
+            backBtn.className = 'wg-back wg-back--icon';
+            backBtn.setAttribute('aria-label', o.back || 'Back');
+            backBtn.append(ico);
+        } else {
+            backBtn.className = 'wg-back';
+            backBtn.append(ico, o.back || 'Back');
+        }
 
         const center = doc.createElement('div');
         center.className = 'wg-pagebar__center';
