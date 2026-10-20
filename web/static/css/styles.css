@@ -7457,6 +7457,13 @@ body:has(.wg-callbar--dock) .wg-toasts {
     gap: var(--wg-settings-section-gap);
 }
 
+/* Kit S6 (bd med-ckm5.6): a named slot fixes the order of the groups mounted
+   into it but adds no box, so the home's gap spaces the groups themselves and
+   an empty slot takes no room. */
+.wg-settings-slot {
+    display: contents;
+}
+
 .wg-settings-footer {
     display: flex;
     flex-direction: column;

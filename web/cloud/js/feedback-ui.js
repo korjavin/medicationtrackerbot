@@ -294,7 +294,9 @@ export async function mountFeedbackLauncher(ctx) {
     btn.addEventListener('click', () => openFeedbackModal());
     group.appendChild(btn);
 
-    (settingsView.querySelector('.wg-settings-home') || settingsView).appendChild(group);
+    // Kit S6 slot ⑥ (bd med-ckm5.6).
+    (settingsView.querySelector('[data-settings-slot="feedback"]')
+        || settingsView.querySelector('.wg-settings-home') || settingsView).appendChild(group);
     if (window.WGIcons && typeof window.WGIcons.hydrate === 'function') window.WGIcons.hydrate(group);
     return btn;
 }
