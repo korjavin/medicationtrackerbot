@@ -3,7 +3,7 @@
 // (signup.html's #app) through sign in (W5, the passkey create; the copy never
 // says passkey) -> the Emergency Kit offer, only when the claim URL carries
 // &kit=1 (entered from Settings, bd med-ta2n.8) -> optional Telegram link ->
-// optional AI trial -> install, then enters the app itself. Each
+// install, then enters the app itself. Each
 // screen is rendered fresh from the outcome of the previous step rather than a
 // stored step counter, per docs/cloud-mode.md Onboarding ("the wizard is
 // stateless").
@@ -591,79 +591,16 @@ function printKit(docHtml) {
 async function renderTelegramStep(app, ctx) {
   try {
     const { mountTelegram } = await import('./telegram.js');
-    await mountTelegram(app, { onDone: () => renderTrialStep(app, ctx) });
+    await mountTelegram(app, { onDone: () => renderInstallStep(app, ctx) });
   } catch (e) {
     console.error('[signup] telegram step failed', e);
-    renderTrialStep(app, ctx);
-  }
-}
-
-// Shared with web/static/js/features/firstrun (index.js + screens/integrations.js),
-// which read it on the app's first open.
-const TRIAL_CHOICE_KEY = 'wg-onboarding-trial-choice';
-
-// Wizard step 5b (bd med-w6sx): the free AI trial, next to Telegram. Shown only
-// where the operator configured a trial key (the same medtracker-trial-ai meta
-// the app reads). This is the ONE trial question (bd med-nt9p.40): it shows the
-// app's `ai` consent disclosure word for word (web/static/js/features/
-// trial-consent.js COPY.ai + ALTERNATIVE — signup.install-step.test.js pins the
-// match), so "Allow" here is the consent. This page cannot write the
-// trialconsent vault record, so it stores 'trial-allowed' and the app records
-// the grant on first open (WGFirstRun.mount) without asking again. The app
-// opens in this same browser right after the wizard (enterApp), so
-// localStorage carries the choice.
-//
-// Not shown where the next step sends the user to a fresh storage container:
-// iOS Safari's install step ends in the Home Screen app, which cannot read this
-// tab's localStorage, so its first-run overlay asks instead — still once.
-// Nor where storage is blocked: the answer could not reach the app, which would
-// then ask again.
-function canCarryTrialChoice() {
-  try {
-    localStorage.setItem(TRIAL_CHOICE_KEY, localStorage.getItem(TRIAL_CHOICE_KEY) ?? '');
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function renderTrialStep(app, ctx) {
-  if (document.querySelector('meta[name="medtracker-trial-ai"]')?.content !== '1'
-      || (isIOS() && isMobile() && !isStandalone())
-      || !canCarryTrialChoice()) {
     renderInstallStep(app, ctx);
-    return;
   }
-  app.innerHTML = `
-    <section class="wizard-step">
-      <h1>Try the AI features for free</h1>
-      <p>Log food by description or photo without your own AI key. The free
-         trial is rate-limited and runs on the operator’s shared key, outside
-         the vault.</p>
-      <p data-trial-disclosure>Your meal descriptions and meal photos will be sent to an AI model for parsing.</p>
-      <p data-trial-disclosure>This content transits the operator’s AI provider account (OpenAI or Anthropic, the operator’s choice) — the operator’s provider processes it on the operator’s key.</p>
-      <p data-trial-disclosure>Alternative: add your own key in Settings → Integrations, and this data goes only to your own provider account.</p>
-      <div class="wizard-actions">
-        <button id="trial-try" class="wg-btn wg-btn--primary">Allow the free trial</button>
-        <button id="trial-own-keys" class="wg-btn">Use my own keys</button>
-        <button id="trial-skip" class="wg-btn wg-btn--ghost">Skip</button>
-      </div>
-      <p class="muted">You can switch any time in Settings → AI &amp; integrations.</p>
-    </section>`;
-  const pick = (choice) => {
-    try {
-      localStorage.setItem(TRIAL_CHOICE_KEY, choice);
-    } catch {
-      // Storage blocked: the app's onboarding overlay asks again instead.
-    }
-    renderInstallStep(app, ctx);
-  };
-  // 'trial-allowed', not the old 'trial': a shell from before bd med-nt9p.40
-  // stored 'trial' WITHOUT showing the disclosure, and the app still asks that one.
-  app.querySelector('#trial-try').addEventListener('click', () => pick('trial-allowed'));
-  app.querySelector('#trial-own-keys').addEventListener('click', () => pick('own-keys'));
-  app.querySelector('#trial-skip').addEventListener('click', () => pick('skip'));
 }
+
+// No trial step here (bd med-ta2n.2): the AI trial is asked once, in the app's
+// first run (W2, web/static/js/features/firstrun/screens/trial.js), only when
+// Food is picked.
 
 // Wizard step 6: platform-aware "install & reopen". It is the last step before
 // the app, i.e. immediately before anything arms reminders — the exact point

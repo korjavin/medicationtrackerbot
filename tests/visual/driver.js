@@ -172,7 +172,10 @@
             // The W1 picker over the seeded vault (bd med-ta2n.1): the seed
             // completed first run, so open the overlay the way Settings →
             // "Re-run onboarding" does. Nothing is written until a tap.
+            // firstrun: "trial" opens W2 (bd med-ta2n.2) the way a resumed
+            // session does, skipping W1's gate.
             window.WGFirstRun.state.clear();
+            if (step.firstrun === 'trial') window.WGFirstRun.state.setStep('trial');
             window.WGFirstRun.mount({ needs_first_run: true });
         } else if (step.trial) {
             // The AI-trial card (kit A1) has no natural state on CI either (no

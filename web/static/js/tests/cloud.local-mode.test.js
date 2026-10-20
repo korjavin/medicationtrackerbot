@@ -1720,12 +1720,12 @@ describe('local-only mode trial pass across reinstalls (med-o7zq.26)', () => {
         expect(env.document.getElementById('integrations-trial-status').textContent).not.toMatch(/Voice/);
     });
 
-    // bd med-o7zq.29 — the first-run wizard's "Try the free trial" is this
+    // bd med-o7zq.29 / med-ta2n.2 — first run's W2 "Try it free" is this
     // same switch: the anon consent, then the grant, then the next step.
     function mountFirstRun() {
         const dir = fileURLToPath(new URL('../features/firstrun/', import.meta.url));
-        env.window.sessionStorage.setItem('wg-firstrun-step', 'integrations');
-        for (const f of ['state.js', 'screens/integrations.js', 'index.js']) {
+        env.window.sessionStorage.setItem('wg-firstrun-step', 'trial');
+        for (const f of ['state.js', 'screens/trial.js', 'index.js']) {
             env.window.eval(readFileSync(dir + f, 'utf8'));
         }
         env.window.WGFirstRun.mount({ needs_first_run: true });
@@ -1756,16 +1756,14 @@ describe('local-only mode trial pass across reinstalls (med-o7zq.26)', () => {
         expect(await env.window.CloudVault.trial.status()).toMatchObject({ on: true, daily: 50 });
     });
 
-    it('first run: a trial already used on this iPhone says so and leaves own keys and skip (med-o7zq.29)', async () => {
+    it('first run: a trial already used on this iPhone says so and leaves Not now (med-o7zq.29)', async () => {
         enrollReply = () => new Response(JSON.stringify({ error: 'trial_already_used' }), { status: 403 });
         mountFirstRun();
         await tapTrialAndAllow();
         await vi.waitFor(() => expect(env.document.querySelector('[data-firstrun-form-error="trial"]').textContent)
             .toMatch(/already used on this iPhone/));
-        expect(env.window.WGFirstRun.state.getStep()).toBe('integrations');
-        env.document.querySelector('[data-firstrun-action="own-keys"]').click();
-        expect(env.document.getElementById('wg-firstrun-openai-api-key')).not.toBeNull();
-        env.document.querySelector('[data-firstrun-action="skip"]').click();
+        expect(env.window.WGFirstRun.state.getStep()).toBe('trial');
+        env.document.querySelector('[data-firstrun-action="not-now"]').click();
         await vi.waitFor(() => expect(env.window.WGFirstRun.isActive()).toBe(false));
     });
 

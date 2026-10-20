@@ -12,11 +12,11 @@
 //      registered screen module for the current step (Task 4+).
 //   3. dismiss() removes the overlay and clears the sessionStorage step
 //      tracker. Called once POST /api/firstrun/complete settles: straight
-//      from the W1 picker (features step) when no AI trial is on offer, else
-//      from the trial step after it (bd med-ta2n.1; med-js3k's "a user who
-//      skips still learns the trial exists" holds for Skip and Continue).
+//      from the W1 picker (features step) unless Food was picked and an AI
+//      trial is on offer, else from the W2 trial step after it (bd
+//      med-ta2n.1, med-ta2n.2).
 //
-// Screen registry: each step ("features" | "integrations") owns a module
+// Screen registry: each step ("features" | "trial") owns a module
 // under features/firstrun/screens/<step>.js that
 // attaches `{ title, render(body, helpers) }` to
 // window.WGFirstRun.screens[step]. The orchestrator looks the screen up
@@ -44,11 +44,9 @@
     const TITLE_ID = 'wg-firstrun-title';
     const STEPS_ID = 'wg-firstrun-steps';
     const BRAND_ID = 'wg-firstrun-brand';
-    const FALLBACK_STEPS = ['features', 'integrations'];
+    const FALLBACK_STEPS = ['features', 'trial'];
     const BODY_ID = 'wg-firstrun-overlay-body';
     const COMPLETE_URL = '/api/firstrun/complete';
-    // Written by the claim wizard (web/cloud/js/signup.js TRIAL_CHOICE_KEY).
-    const TRIAL_CHOICE_KEY = 'wg-onboarding-trial-choice';
     // The W1 picks (bd med-ta2n.1), held until completion POSTs them as
     // `picked`. sessionStorage, like the step tracker: it survives the trial
     // step's trial.apply() reload.
@@ -207,16 +205,14 @@
     }
 
     // W1 is done (its flags are written): remember the picks for completion,
-    // then the free AI trial offer if there is one (bd med-js3k — a user who
-    // skips must still learn the trial exists), else finish now. A claim-wizard
-    // "Use my own keys" choice still lands on the key form (integrations).
+    // then W2 — only when Food was picked (Skip picks everything) and a free
+    // AI trial is on offer (bd med-ta2n.2) — else finish now.
     function _finishPicker(picked) {
         try { window.sessionStorage.setItem(PICKED_KEY, JSON.stringify(picked)); } catch (_) { /* storage blocked */ }
-        let choice = null;
-        try { choice = window.localStorage.getItem(TRIAL_CHOICE_KEY); } catch (_) { /* storage blocked */ }
-        return (choice === 'own-keys' ? Promise.resolve(true) : _trialOnOffer()).then(function (offer) {
+        const gate = picked.indexOf('food') === -1 ? Promise.resolve(false) : _trialOnOffer();
+        return gate.then(function (offer) {
             if (!offer) return _complete();
-            _buildHelpers().advance('integrations');
+            _buildHelpers().advance('trial');
         });
     }
 
@@ -229,17 +225,12 @@
         }
     }
 
-    // Settings' own "is the trial on offer" check (med-6xb9). In cloud mode a
-    // claim-wizard trial choice means the trial was already offered there —
-    // screens/integrations.js skips its own trial choice for the same reason.
+    // Settings' own "is the trial on offer" check (med-6xb9): no own OpenAI
+    // key, none started, and one this install can start (local: the shell's
+    // trial status is non-null; cloud: the operator's trial-ai meta).
     function _trialOnOffer() {
         const settings = window.SettingsIntegrations;
         if (!settings || typeof settings.trialOffer !== 'function') return Promise.resolve(false);
-        if (!(window.CloudVault && window.CloudVault.trial)) {
-            let choice = null;
-            try { choice = window.localStorage.getItem(TRIAL_CHOICE_KEY); } catch (_) { /* storage blocked */ }
-            if (choice) return Promise.resolve(false);
-        }
         return Promise.resolve()
             .then(function () { return settings.trialOffer(); })
             .catch(function () { return false; })
@@ -326,33 +317,6 @@
         // therefore re-mounts directly at the last-visible step rather
         // than restarting from the picker.
         _renderCurrentStep();
-        _askPendingTrial();
-    }
-
-    // bd med-w6sx: the claim wizard's trial step (web/cloud/js/signup.js
-    // renderTrialStep) only records the choice — the consent record is vault
-    // data, so its second half runs here, once ('trial-asked'), on first open;
-    // screens/integrations.js reads the same key to skip its own trial choice.
-    // - 'trial-allowed' (bd med-nt9p.40): the wizard showed the `ai` disclosure
-    //   and the user allowed it — record that grant, ask nothing. A decision
-    //   already in the vault wins (grant() never overwrites it); only if nothing
-    //   could be stored does the dialog ask, so the trial is never on unconsented.
-    // - 'trial': a pre-med-nt9p.40 shell that showed no disclosure — ask.
-    function _askPendingTrial() {
-        let choice = null;
-        try { choice = window.localStorage.getItem(TRIAL_CHOICE_KEY); } catch (_) { /* storage blocked */ }
-        if (choice !== 'trial' && choice !== 'trial-allowed') return;
-        if (document.querySelector('meta[name="medtracker-trial-ai"]')?.content !== '1') return;
-        const consent = window.TrialConsent;
-        if (!consent || typeof consent.request !== 'function') return;
-        try { window.localStorage.setItem(TRIAL_CHOICE_KEY, 'trial-asked'); } catch (_) { /* storage blocked */ }
-        if (choice === 'trial' || typeof consent.grant !== 'function') {
-            consent.request('ai');
-            return;
-        }
-        Promise.resolve(consent.grant('ai'))
-            .catch(function () { return null; })
-            .then(function (decided) { if (typeof decided !== 'boolean') consent.request('ai'); });
     }
 
     function dismiss() {
