@@ -43,6 +43,8 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     /// reminders, their taps and the bridge all follow this.
     private var vault: String? { local ? LocalOrigin.host : host }
     @Published private(set) var loadError: String?
+    /// Why the first run shows (an account the server says is gone); cleared by the next open or reopen.
+    @Published private(set) var firstRunMessage: String?
     /// The committed page is an account ceremony (/unlock, /claim, /recover):
     /// RootView offers "Use another invite" (bd med-w6gx.21) — a bad or
     /// already-claimed invite has no exit of its own there.
@@ -161,6 +163,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         }
         UserDefaults.standard.set(host, forKey: Shell.hostKey)
         self.host = host
+        firstRunMessage = nil
         leaveStash.clear() // an account was opened, so a pending account → local move was abandoned
         load(url) // the claim link keeps its #fragment for the page; only the host is stored
         return nil
@@ -265,6 +268,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         committedHost = nil
         onCeremony = false
         loadError = nil
+        firstRunMessage = nil
         deferredURL = nil
         deferredReminder = nil
         if concealed { webView.loadHTMLString("", baseURL: nil) } // the old page must not run behind the lock
@@ -327,9 +331,16 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         // instead of a bare error page the user cannot leave.
         if navigationResponse.isForMainFrame, let http = navigationResponse.response as? HTTPURLResponse,
            http.statusCode >= 400, !showingAccount {
-            loadError = http.statusCode == 404 && http.url?.host?.lowercased() == host
-                ? "There is no account at \(host ?? "this address")."
-                : HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+            // The server says the stored account is gone (deleted, expired or a
+            // typo; bd med-w6gx.22): forget it and say why on the first run. A
+            // 404 without the marker (a proxy's during a redeploy, an older
+            // server) keeps the error screen with Try again.
+            if let h = http.url?.host?.lowercased(), h == host, AccountURL.accountGone(http.statusCode, http.allHeaderFields) {
+                forget()
+                firstRunMessage = "There is no account at \(h)." // after forget()'s reopen(), which clears it
+                return .cancel
+            }
+            loadError = HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
             return .cancel
         }
         return Downloads.policy(for: navigationResponse)

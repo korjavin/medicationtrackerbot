@@ -143,8 +143,8 @@ struct FirstRunView: View {
                     .onSubmit { submit(text) }
                     .padding(12)
                     .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-                if let error {
-                    Text(error).font(.callout).foregroundStyle(.orange)
+                if let message = error ?? shell.firstRunMessage {
+                    Text(message).font(.callout).foregroundStyle(.orange)
                 }
                 Button("Continue") { submit(text) }
                     .buttonStyle(.borderedProminent)

@@ -38,6 +38,12 @@ for (u, want) in [("https://abc.app.example.com/unlock", true),
                   ("wgapp://local/unlock", false)] {
     precondition(AccountURL.isCeremony(URL(string: u), base: base) == want, "isCeremony \(u)")
 }
+// accountGone (bd med-w6gx.22): only the server's marked 404, header name in any case.
+precondition(AccountURL.accountGone(404, ["X-Account-Gone": "1"]))
+precondition(AccountURL.accountGone(404, ["x-account-gone": " 1 "]))
+precondition(!AccountURL.accountGone(404, ["X-Account-Gone": "0"]))
+precondition(!AccountURL.accountGone(503, ["X-Account-Gone": "1"]))
+precondition(!AccountURL.accountGone(404, [:]))
 precondition(!AccountURL.isCeremony(nil, base: base))
 print("AccountURL: ok")
 
