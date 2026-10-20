@@ -18,6 +18,14 @@ import { mountExitBar } from '../exitbar.js';
 
 vi.mock('../unlock.js', () => ({ establishLdkCache: vi.fn(async () => {}) }));
 vi.mock('../telegram.js', () => ({ mountTelegram: vi.fn(async () => {}) }));
+// The offer reads the platform word (Node may have no navigator); desktop web,
+// standalone so the tail skips the install step. Every export signup.js imports.
+vi.mock('../push.js', () => ({
+  isStandalone: () => true,
+  isIOS: () => false,
+  isMobile: () => false,
+  iosInstallStepsHtml: () => '',
+}));
 
 const CTX = { accountId: 'acct-1', dek: new Uint8Array(32).fill(7) };
 const STASH = 'wg-emergency-kit-saved';
