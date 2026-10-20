@@ -30,7 +30,8 @@ enum LocalOrigin {
     static let sharedOps = ["ping", "shell.ops", "diag.append", "health.authorize", "health.query",
                             "notifications.permission", "notifications.requestPermission",
                             "notifications.schedule", "notifications.test",
-                            "notifications.openSettings"] // the denied note's "Open iOS Settings" (bd med-ckm5.15)
+                            "notifications.openSettings", // the denied note's "Open iOS Settings" (bd med-ckm5.15)
+                            "invite.pending", "invite.clear"] // the pending-invite slot (bd med-ta2n.11, InviteSlot)
 
     /// The bridge op shell.ops (bd med-o7zq.35, twin of Android LocalOrigin.ops):
     /// what this shell answers in this mode, for the page's capability probe.
