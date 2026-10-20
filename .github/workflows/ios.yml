@@ -83,8 +83,11 @@ jobs:
         run: |
           xcodebuild build-for-testing -project MedTracker.xcodeproj -scheme MedTracker \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO | tail -n 50
-          test "${PIPESTATUS[0]}" -eq 0
+            -derivedDataPath build/sim CODE_SIGNING_ALLOWED=NO | tee "$RUNNER_TEMP/build.log" | tail -n 50
+          status=${PIPESTATUS[0]}
+          # The tail cuts the compiler's diagnostics off a failed build.
+          grep -E ': error:' "$RUNNER_TEMP/build.log" | sort -u | head -n 40 || true
+          test "$status" -eq 0
 
       # The archive step's "no QA hook" check greps for this marker; prove the
       # Debug build carries it, so that check cannot pass vacuously.
