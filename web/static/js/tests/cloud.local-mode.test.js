@@ -18,6 +18,7 @@ import { loadFrontendEnv, createMockResponse } from './helpers/frontend-harness.
 import { localRecordsPort } from '../../../cloud/js/sync.js';
 import { openDb } from '../../../cloud/js/localdb.js';
 import { cancelReminderRecompute } from '../../../cloud/js/reminders.js';
+import { materializationSettled } from '../../../cloud/js/apishim.js';
 import { allowConsoleNoise } from './helpers/setup.js';
 import { recordsToVault, vaultToRecords } from '../../../domain/vault.js';
 
@@ -39,7 +40,11 @@ const MODULES = {
     '/js/local-policy.js': () => import('../../../cloud/js/local-policy.js'),
 };
 
-function deleteDb() {
+// The last test's install-time dose sweep may still be running: it read that
+// store's medications and would write their due doses into the fresh store
+// (bd med-o7zq.40: a 09:00 fixture dose, so only after 07:00 UTC).
+async function deleteDb() {
+    await materializationSettled();
     return new Promise((resolve, reject) => {
         const req = indexedDB.deleteDatabase('medtracker-cloud');
         req.onsuccess = resolve;
@@ -928,17 +933,22 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         expect(offDevice()).toEqual([]);
     });
 
-    // bd med-nt9p.32.9: Settings → App lock is the Android shell's optional
-    // lock. The boot (on 'ios' here) never asks; the row mounts only when the
-    // Android shell answers lock.status, and a refused lock.set flips it back.
-    it('Settings → App lock: Android shell only, under the local-mode indicator, refused toggle flips back', async () => {
+    // bd med-nt9p.32.9 (Android), med-o7zq.39 (iOS): Settings → App lock is
+    // the phone shell's optional lock. The boot (on 'ios' here) asks
+    // lock.status, but this bridge's `true` is no status, so no row; the row
+    // mounts only when a phone shell answers { on, available }, its copy names
+    // that platform's check, and a refused or rejected lock.set flips it back.
+    it.each([
+        ['android', 'fingerprint, face or screen lock'],
+        ['ios', 'Face ID, Touch ID or passcode'],
+    ])('Settings → App lock: %s shell, under the local-mode indicator, refused toggle flips back', async (platform, check) => {
         const { window, document } = env;
         const { mountLocalLockRow } = await import('../../../cloud/js/local-policy.js');
-        expect(bridge.mock.calls.some(([op]) => String(op).startsWith('lock.'))).toBe(false);
+        expect(bridge.mock.calls.some(([op]) => op === 'lock.set')).toBe(false);
         expect(document.getElementById('settings-local-lock')).toBeNull();
 
         const local = window.LocalNotifications;
-        local.__native.platform = 'android';
+        local.__native.platform = platform;
         let status = { on: false, available: false };
         let allow = true;
         bridge.mockImplementation(async (op) => {
@@ -953,6 +963,7 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         const group = await mountLocalLockRow({ win: window });
         expect(group).not.toBeNull();
         expect(group.previousElementSibling.querySelector('#settings-local-mode')).not.toBeNull();
+        expect(group.querySelector('.wg-setting__desc').textContent).toContain(`Asks for your ${check} each time`);
         const input = document.getElementById('settings-local-lock-toggle');
         expect(input.checked).toBe(false);
         expect(await mountLocalLockRow({ win: window })).toBeNull(); // once
@@ -969,13 +980,34 @@ describe('local-only mode native integration (med-o7zq.9)', () => {
         await vi.waitFor(() => expect(bridge).toHaveBeenCalledWith('lock.set', { on: false }));
         await vi.waitFor(() => expect(input.checked).toBe(true));
 
+        // Changed outside the page (iPhone Settings → Lock): the switch follows
+        // when the page comes back.
+        status = { on: false, available: true };
+        document.dispatchEvent(new window.Event('visibilitychange'));
+        await vi.waitFor(() => expect(input.checked).toBe(false));
+        status = { on: true, available: true };
+        document.dispatchEvent(new window.Event('visibilitychange'));
+        await vi.waitFor(() => expect(input.checked).toBe(true));
+
+        // A rejected lock.set ("locked") flips back too.
+        bridge.mockImplementation(async (op) => {
+            if (op === 'lock.set') throw new Error('locked');
+            return null;
+        });
+        input.checked = false;
+        input.dispatchEvent(new window.Event('change'));
+        await vi.waitFor(() => expect(input.disabled).toBe(false));
+        expect(input.checked).toBe(true);
+
         group.remove();
-        for (const platform of ['ios', 'web']) {
-            local.__native.platform = platform;
-            bridge.mockClear();
-            expect(await mountLocalLockRow({ win: window })).toBeNull();
-            expect(bridge).not.toHaveBeenCalled();
-        }
+        // An older iOS shell rejects lock.status: no row.
+        local.__native.platform = 'ios';
+        bridge.mockImplementation(async (op) => { throw new Error(`unsupported: ${op}`); });
+        expect(await mountLocalLockRow({ win: window })).toBeNull();
+        local.__native.platform = 'web';
+        bridge.mockClear();
+        expect(await mountLocalLockRow({ win: window })).toBeNull();
+        expect(bridge).not.toHaveBeenCalled();
         expect(offDevice()).toEqual([]);
     });
 });

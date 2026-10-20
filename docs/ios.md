@@ -523,8 +523,11 @@ changes for it.
 - **Offline:** a cold start offline is answered by the Service Worker; a native
   "Can't open your account" screen (Try again / Switch account) appears only
   when the very first load fails with nothing cached, or the host answers an
-  HTTP error (a mistyped or deleted account is a 404). Try again keeps an
-  invite link's `#claim=` fragment (in memory only).
+  HTTP error. Try again keeps an invite link's `#claim=` fragment (in memory
+  only). A 404 carrying the server's `X-Account-Gone: 1` marker (an unknown
+  account subdomain — mistyped, deleted or expired) instead forgets the host
+  and returns to the native first run with "There is no account at <host>."
+  (`AccountURL.accountGone`, bd med-w6gx.22, as Android).
 - **Switch account:** iOS Settings → Med Tracker → *Switch account*, then return
   to the app; also on the load-error screen. Website data is per origin and is
   kept, so switching back still finds offline data and warm unlock.
@@ -772,7 +775,7 @@ mode, gated on the bridge platform being `ios` or `android`
   `local-*` in `web/cloud/js/privacy-manifest.js`.
 - **Bridge:** in local mode only the main frame of `wgapp://local` reaches
   `wgNative` (an account origin does not); `setEgressHosts`, `local.reset`,
-  `local.leave`, `move.stash`, `leave.take`, `leave.clear` and `attest.*` (`ios/App/Attest.swift`: `status`, `enroll`,
+  `local.leave`, `lock.status`, `lock.set`, `move.stash`, `leave.take`, `leave.clear` and `attest.*` (`ios/App/Attest.swift`: `status`, `enroll`,
   `assert`, `setPass` — the anonymous trial's pass in the Keychain,
   `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not iCloud-synced, so a
   reinstall rejoins the same trial budget (bd med-o7zq.26); entitlement `com.apple.developer.devicecheck.appattest-environment`,
@@ -806,7 +809,12 @@ mode, gated on the bridge platform being `ios` or `android`
   optional, off by default; opted into on the local intro (*Lock with Face
   ID*, shown when the phone has a passcode and starting on when a lock is
   still on from an earlier stay; *Start* turns it on, or that one off, only
-  after a successful check) or iPhone Settings → Med Tracker → *Lock*. Local mode
+  after a successful check), the in-app Settings → *App lock* row (bd
+  med-o7zq.39, under *On this device only*; bridge ops `lock.status` →
+  `{on, available}` and `lock.set {on}` → the same check as *Start*, `true`
+  once applied, `false` when cancelled or there is no passcode to turn it on
+  with) or iPhone Settings → Med Tracker → *Lock*. The row and the iPhone
+  Settings toggle write the same key (`wgLocalLock`), so they agree. Local mode
   only — an account has its passkey unlock. A UI lock, not encryption, and
   Lock Screen reminders still show (their text is Settings → Reminder text);
   both are said where it is turned on. `LocalAuthentication`
