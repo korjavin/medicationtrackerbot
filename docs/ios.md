@@ -142,6 +142,26 @@ persisted defaults. No new app hook or report file. Attach shots as
 `<flow>-<step>.png` with `.keepAlways`. Run one flow locally with
 `-only-testing:MedTrackerUITests/FlowQATests/test<Flow>`.
 
+**Fake server (account-gone flows, bd med-w6gx.23.5).** The `qa` job builds
+the app with `WG_BASE_DOMAIN=qa.test` (a build setting, so the archive is
+untouched; the archive step asserts its own `WGBaseDomain`), and
+[`ios/qa/fake-server.sh`](../ios/qa/fake-server.sh) starts Android's
+[`tlsfront`](../android/qa/tlsfront/main.go) on :443 as root, maps
+`nobody.`/`stale.`/`down.qa.test` to 127.0.0.1 in the runner's `/etc/hosts`,
+trusts its throwaway CA on the booted Simulator (`simctl keychain
+add-root-cert`), and curls the three hosts as a preflight. Runner-only: never a
+dev-machine step. `testAccountGone` in
+[`FlowQAAccountGoneTests.swift`](../ios/UITests/FlowQAAccountGoneTests.swift)
+(twin of Android's `not-found`): `nobody` (the server's 404 with
+`X-Account-Gone: 1`) → the first run with "There is no account at …", no Try
+again, and a relaunch stays on the first run (not a prefs-plist read: the
+removal is not flushed before the app is killed); `stale` (a bare 404) → "Can't open your account" with Try again, the
+host kept, a relaunch reopens the error screen, Switch account → first run;
+`down` (503) → the error screen, Try again keeps it. A "certificate" message on
+the error screen is a failed trust setup, never a pass. The `qa` job runs every
+`MedTrackerUITests` class but `VisualQATests`, so a flow class in its own file
+needs no workflow edit.
+
 ### Owner device checklist (account flows, need a passkey)
 
 Not covered by flow QA; check on a TestFlight build before release:
