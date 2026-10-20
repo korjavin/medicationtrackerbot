@@ -1,3 +1,4 @@
+import UIKit
 import UserNotifications
 
 /// Local notifications from the web app's reminder horizon (bd med-w6gx.5).
@@ -55,6 +56,9 @@ final class Notifications: NSObject, UNUserNotificationCenterDelegate {
                     try await add(id: "wg-test", after: 1, body: "Test notification", url: ReminderPath.fallback, vault: owner)
                     reply(true, nil)
                 } catch { reply(nil, error.localizedDescription) }
+            case "notifications.openSettings":
+                // This app's page in iOS Settings → Notifications (iOS 16+; the target is 18).
+                reply(await UIApplication.shared.open(URL(string: UIApplication.openNotificationSettingsURLString)!), nil)
             default:
                 reply(nil, "unsupported: \(op)")
             }

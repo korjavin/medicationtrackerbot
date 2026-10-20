@@ -46,15 +46,15 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     /// The vault the shell has open (bd med-o7zq.9): one at a time, so
     /// reminders, their taps and the bridge all follow this.
     private var vault: String? { local ? LocalOrigin.host : host }
-    @Published private(set) var loadError: String?
+    @Published private(set) var loadError: LoadError? {
+        didSet { if loadError != nil { painted = true } }
+    }
+    /// The first page reported ready (N6): RootView fades the launch mark out.
+    @Published private(set) var painted = false
     /// Why the first run shows (an account the server says is gone); cleared by the next open or reopen.
     @Published private(set) var firstRunMessage: String?
     /// The gone account's address, put back in the first run's field with that message.
     private(set) var firstRunInput: String?
-    /// The committed page is an account ceremony (/unlock, /claim, /recover):
-    /// RootView offers "Use another invite" (bd med-w6gx.21) — a bad or
-    /// already-claimed invite has no exit of its own there.
-    @Published private(set) var onCeremony = false
     /// Behind the status bar and the home indicator: the page's own colours at its top and bottom edge.
     @Published private(set) var top = Color(uiColor: Shell.screen)
     @Published private(set) var bottom = Color(uiColor: Shell.screen)
@@ -132,7 +132,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
             Shell.copyOnLaunch = false
             copyDiagnostics()
         }
-        retry()
+        if !qaLoadError() { retry() }
         Notifications.shared.onOpen = { [weak self] path, vault in self?.openReminder(path, of: vault) }
     }
 
@@ -286,7 +286,6 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
     private func reopen() {
         lastURL = nil
         committedHost = nil
-        onCeremony = false
         loadError = nil
         firstRunMessage = nil
         deferredURL = nil
@@ -361,7 +360,9 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
                 firstRunMessage = "There is no account at \(h)." // after forget()'s reopen(), which clears it
                 return .cancel
             }
-            loadError = HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+            let status = "\(http.statusCode) · \(HTTPURLResponse.localizedString(forStatusCode: http.statusCode))"
+            loadError = local ? LoadError(.local, "local · " + status)
+                : LoadError(http.statusCode == 404 ? .notFound : .network, status)
             diag("shell load http \(http.statusCode)")
             return .cancel
         }
@@ -378,6 +379,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         loadError = nil
+        painted = true
         if local { LocalOrigin.includeInBackup() }
     }
 
@@ -388,14 +390,15 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         // -999 superseded by another load; 102 interrupted by policy (external link, download).
         if (e.domain == NSURLErrorDomain && e.code == NSURLErrorCancelled) || (e.domain == "WebKitErrorDomain" && e.code == 102) { return }
         // A page of this account already showing stays usable.
-        if !showingAccount { loadError = e.localizedDescription }
+        if !showingAccount {
+            loadError = local ? LoadError(.local, "local · bundle failed to load · \(e.code)")
+                : LoadError(.network, "error \(e.code) · " + e.localizedDescription.trimmingCharacters(in: CharacterSet(charactersIn: ".")))
+        }
         diag("shell load failed \(e.domain) \(e.code)")
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         committedHost = webView.url?.host?.lowercased()
-        // The ceremony pages leave by full navigation (location.href = '/'), so a commit sees every change.
-        onCeremony = !local && AccountURL.isCeremony(webView.url, base: base)
     }
 
     private var showingAccount: Bool {
@@ -415,6 +418,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard let body = message.body as? [String: String] else { return }
+        painted = true // the page's first sample: it has painted
         if let c = body["top"].flatMap(Shell.color) { top = Color(uiColor: c) }
         if let c = body["bottom"].flatMap(Shell.color) { bottom = Color(uiColor: c) }
     }
@@ -579,7 +583,7 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         defaults.set(Diag.append(defaults.string(forKey: Diag.key) ?? "", line, base: base, time: time), forKey: Diag.key)
     }
 
-    /// The error screen, the ceremony bar's dialog or the quick action: the
+    /// The error screen or the quick action: the
     /// device header plus the log, as plain text on the pasteboard.
     func copyDiagnostics() {
         var machine = utsname()
@@ -594,6 +598,28 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
         ].joined(separator: "\n")
         UIPasteboard.general.string = Diag.redact(header, base: base) + "\n\n" + (UserDefaults.standard.string(forKey: Diag.key) ?? "")
         diagCopied = true
+    }
+
+    /// Visual QA (Debug only): `-wgQALoadError 503|404|local` draws N4 without
+    /// a server; nothing loads. Returns whether it did.
+    private func qaLoadError() -> Bool {
+        #if DEBUG
+        switch UserDefaults.standard.string(forKey: "wgQALoadError") {
+        case "503":
+            host = "vivid-vole.qa.test"
+            loadError = LoadError(.network, "503 · service unavailable")
+        case "404":
+            host = "vivid-vole.qa.test"
+            loadError = LoadError(.notFound, "404 · not found")
+        case "local":
+            loadError = LoadError(.local, "local · bundle failed to load")
+        default:
+            return false
+        }
+        return true
+        #else
+        return false
+        #endif
     }
 
     /// "rgb(r, g, b)" / "rgba(r, g, b, a)" from getComputedStyle; nil when transparent or unparseable.
@@ -636,4 +662,19 @@ final class Shell: NSObject, ObservableObject, WKNavigationDelegate, WKScriptMes
       soon();
     })();
     """#
+}
+
+/// N4 (bd med-ckm5.15, screens-native.html): which error screen, and its mono
+/// meta line for support ("503 · service unavailable · 09:41").
+struct LoadError: Equatable {
+    enum Kind { case network, notFound, local }
+    let kind: Kind
+    let meta: String
+
+    init(_ kind: Kind, _ what: String) {
+        self.kind = kind
+        let time = DateFormatter()
+        time.dateFormat = "HH:mm"
+        meta = what + " · " + time.string(from: Date())
+    }
 }

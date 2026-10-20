@@ -17,6 +17,7 @@ const ANDROID = path.join(ANDROID_DIR, fs.readdirSync(ANDROID_DIR, { recursive: 
 
 const PLATFORM_ONLY = {
     chrome: 'Android system bars',
+    'notifications.openSettings': 'twin med-ckm5.16 pending',
 };
 
 // { op: group } from `<name> = [ ... ]` (Swift) or `<name> = setOf( ... )` (Kotlin).

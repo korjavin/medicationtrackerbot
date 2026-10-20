@@ -25,6 +25,8 @@ struct LocalLock {
     private(set) var promptDue: Bool
     /// Bumped by every prompt and every background: a stale prompt's result is dropped.
     private(set) var attempt = 0
+    /// The last prompt failed (not cancelled): the lock screen's warn note (N3).
+    private(set) var failed = false
 
     init(on: Bool) {
         self.on = on
@@ -38,6 +40,7 @@ struct LocalLock {
     mutating func background() {
         guard on else { return }
         state = .locked
+        failed = false
         promptDue = true
         attempt += 1
     }
@@ -61,11 +64,12 @@ struct LocalLock {
 
     mutating func finish(_ attempt: Int, _ result: DeviceAuth.Result, setting: Bool) {
         guard attempt == self.attempt, state == .unlocking else { return }
+        failed = result == .failed
         switch result {
         case .ok:
             state = .unlocked
             apply(setting)
-        case .failed:
+        case .failed, .cancelled:
             state = .locked
         case .notInteractive: // asked before the app was frontmost: ask on the next activation
             state = .locked
@@ -92,7 +96,7 @@ struct LocalLock {
 }
 
 enum DeviceAuth {
-    enum Result { case ok, failed, notInteractive }
+    enum Result { case ok, failed, cancelled, notInteractive }
 
     /// The phone can check its owner (a passcode is set).
     static var available: Bool {
@@ -111,6 +115,15 @@ enum DeviceAuth {
     }
 
     static func check(reason: String) async -> Result {
+        #if DEBUG
+        // Visual QA (Debug only): `-wgQALock failed|cancelled` holds the lock screen
+        // on a Simulator with no passcode, where the check otherwise lets anyone in.
+        switch UserDefaults.standard.string(forKey: "wgQALock") {
+        case "failed": return .failed
+        case "cancelled": return .cancelled
+        default: break
+        }
+        #endif
         let context = LAContext()
         var error: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else {
@@ -122,6 +135,8 @@ enum DeviceAuth {
             return try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) ? .ok : .failed
         } catch let e as LAError where e.code == .notInteractive {
             return .notInteractive
+        } catch let e as LAError where [.userCancel, .systemCancel, .appCancel].contains(e.code) {
+            return .cancelled // not an error: the plain locked state (N3)
         } catch {
             return .failed
         }

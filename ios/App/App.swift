@@ -25,6 +25,8 @@ struct RootView: View {
     @Environment(\.scenePhase) private var phase
     /// Local-mode diagnostic (bd med-o7zq.1): exists only while its Settings toggle is on.
     @State private var spike: LocalSpike?
+    /// N6 (bd med-ckm5.15): the launch screen's mark, kept over the first page until it is ready.
+    @State private var launchMark = true
 
     var body: some View {
         Group {
@@ -47,20 +49,21 @@ struct RootView: View {
                         // The safe-area bands, in the page's own top/bottom colours.
                         VStack(spacing: 0) { shell.top; shell.bottom }.ignoresSafeArea()
                     }
-                    .safeAreaInset(edge: .bottom, spacing: 0) {
-                        // Below the page, not over it: the ceremony's own buttons stay clear.
-                        if shell.onCeremony { CeremonyExitBar(shell: shell) }
-                    }
                     .overlay {
-                        if let error = shell.loadError { LoadErrorView(shell: shell, message: error) }
+                        if let error = shell.loadError { LoadErrorView(shell: shell, error: error) }
                     }
             }
         }
         .overlay {
-            // Before the app-switcher snapshot (taken after inactive): no data in it.
-            if phase != .active && shell.local && shell.lock.on {
-                Color(uiColor: Shell.screen).ignoresSafeArea()
+            // Before the app-switcher snapshot (taken after inactive): no data
+            // in it, the teal and the mark (N3). Not under the lock's own
+            // prompt: the lock screen shows there, dimmed.
+            if launchMark || (phase != .active && shell.local && shell.lock.on && shell.lock.state != .unlocking) {
+                LaunchCover()
             }
+        }
+        .onChange(of: launchDone, initial: true) { _, done in
+            if done { withAnimation(.easeOut(duration: 0.18)) { launchMark = false } }
         }
         .alert("Diagnostics copied", isPresented: $shell.diagCopied) {
             Button("OK", role: .cancel) {}
@@ -80,6 +83,15 @@ struct RootView: View {
             if phase == .active { shell.didBecomeActive() } // the lock prompts once either way
             openSpikeIfRequested()
         }
+    }
+
+    /// The launch mark's job is done: the page is ready, or a native screen
+    /// (first run, lock, error) shows instead. `-wgQAHoldMark YES` (Debug) keeps it.
+    private var launchDone: Bool {
+        #if DEBUG
+        if UserDefaults.standard.bool(forKey: "wgQAHoldMark") { return false }
+        #endif
+        return shell.painted || shell.concealed || spike != nil || (shell.host == nil && !shell.local)
     }
 
     private func openSpikeIfRequested() {
@@ -408,7 +420,7 @@ struct LocalIntroView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             // Start docked at the bottom, the screen's one sun.
-            VStack(spacing: 8) {
+            WgShellFoot {
                 Button(moving ? "Start and cancel the move" : "Start") { start() }
                     .buttonStyle(WgPrimaryButtonStyle())
                 if moving {
@@ -416,12 +428,6 @@ struct LocalIntroView: View {
                         .buttonStyle(WgGhostButtonStyle())
                         .frame(maxWidth: .infinity)
                 }
-            }
-            .padding(.horizontal, Wg.gutter)
-            .padding(.top, 12)
-            .padding(.bottom, 12)
-            .background(alignment: .top) {
-                Wg.screen.ignoresSafeArea().overlay(alignment: .top) { Rectangle().fill(Wg.line).frame(height: 1) }
             }
         }
         .background(Wg.screen.ignoresSafeArea())
@@ -487,70 +493,150 @@ struct LocalIntroView: View {
     }
 }
 
-/// Local mode's lock screen (bd med-o7zq.8). A cancelled prompt lands here and
-/// stays: only the button asks again.
+/// The launch screen as a view (N6): the teal and the centred mark. Also the
+/// app-switcher cover while locked (N3).
+struct LaunchCover: View {
+    var body: some View {
+        WgLaunchMark()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Wg.screen)
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+    }
+}
+
+/// N3 app lock (bd med-o7zq.8, med-ckm5.15): local mode's lock screen. The
+/// mark sits where the launch screen has it, so launch → lock is a
+/// cross-fade; never the account name. A cancelled prompt lands here and
+/// stays: only the button asks again. A failed one adds the warn note.
 struct LockView: View {
     @ObservedObject var shell: Shell
 
     var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "lock.fill").font(.largeTitle)
-            Text("Med Tracker is locked").font(.title2.bold())
-            Text("Unlock with \(DeviceAuth.method) to see your records.")
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            Button("Unlock") { shell.unlock() }
-                .buttonStyle(.borderedProminent)
-                .disabled(shell.lock.state == .unlocking)
+        ZStack(alignment: Alignment(horizontal: .center, vertical: .markCenter)) {
+            Color.clear
+            VStack(spacing: 16) {
+                WgLaunchMark().alignmentGuide(.markCenter) { $0[VerticalAlignment.center] }
+                Text("Med Tracker is locked")
+                    .font(Wg.mono(22)).tracking(-0.44).foregroundStyle(Wg.fg1)
+                Text(DeviceAuth.method == "passcode" ? "Unlock with your passcode." : "Unlock with \(DeviceAuth.method) or your passcode.")
+                    .font(Wg.ui(16)).foregroundStyle(Wg.fg2)
+                if shell.lock.failed {
+                    WgNote(tone: .warn, icon: "exclamationmark.triangle",
+                           text: Text("Not recognised. Try again, or use your passcode."))
+                }
+            }
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, Wg.gutter)
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(uiColor: Shell.screen).ignoresSafeArea())
+        .ignoresSafeArea()
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            WgShellFoot {
+                Button { shell.unlock() } label: {
+                    Label("Unlock", systemImage: DeviceAuth.method == "Face ID" ? "faceid" : DeviceAuth.method == "Touch ID" ? "touchid" : "lock")
+                }
+                .buttonStyle(WgPrimaryButtonStyle())
+                .disabled(shell.lock.state == .unlocking)
+            }
+        }
+        .overlay {
+            // Under the system prompt (N3): a cancel lands on a screen that still makes sense.
+            if shell.lock.state == .unlocking { Color.black.opacity(0.5).ignoresSafeArea() }
+        }
+        .background(Wg.screen.ignoresSafeArea())
         .preferredColorScheme(.dark)
     }
 }
 
-/// The exit from a claim/unlock/recover page (bd med-w6gx.21): an invalid,
-/// expired or already-claimed invite otherwise leaves no way back to first-run.
-/// Passive — only a confirmed tap forgets the account; website data stays.
-struct CeremonyExitBar: View {
-    @ObservedObject var shell: Shell
-    @State private var confirming = false
-
-    var body: some View {
-        Button("Not your account? Use another invite") { confirming = true }
-            .font(.callout)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity)
-            .tint(.white)
-            .background(Color(uiColor: Shell.screen))
-            .confirmationDialog("Use another invite?", isPresented: $confirming, titleVisibility: .visible) {
-                Button("Use another invite", role: .destructive) { shell.forget() }
-                Button("Copy diagnostics") { shell.copyDiagnostics() }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Med Tracker goes back to the first screen, where you can paste or scan another invite. Records already on this iPhone are kept. To keep using Med Tracker without an account, choose \"Only on this device\" there again.")
-            }
-    }
-}
-
+/// N4 load error (bd med-ckm5.15): network/5xx, a bare 404 (warn: trying
+/// again can't fix it, so another invite leads), and local mode, which never
+/// offers Switch account. The status code is a mono line for support.
 struct LoadErrorView: View {
     @ObservedObject var shell: Shell
-    let message: String
+    let error: LoadError
 
     var body: some View {
-        VStack(spacing: 16) {
-            Text(shell.local ? "Can't open Med Tracker" : "Can't open your account").font(.title2.bold())
-            Text(message).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            Button("Try again") { shell.retry() }.buttonStyle(.borderedProminent)
-            // Leaving local mode keeps its data: it is back on the next switch.
-            Button(shell.local ? "Use an account instead" : "Switch account") { shell.forget() }
-            Button("Copy diagnostics") { shell.copyDiagnostics() }.font(.footnote)
+        ViewThatFits(in: .vertical) {
+            content
+            ScrollView { content.padding(.vertical, 24) }
         }
-        .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(uiColor: Shell.screen).ignoresSafeArea())
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            WgShellFoot {
+                // Leaving local mode keeps its data: it is back on the next switch.
+                switch error.kind {
+                case .network:
+                    tryAgain
+                    secondary("Switch account") { shell.forget() }
+                case .notFound:
+                    Button("Use another invite") { shell.forget() }.buttonStyle(WgPrimaryButtonStyle())
+                    secondary("Try again") { shell.retry() }
+                case .local:
+                    tryAgain
+                    secondary("Use an account instead") { shell.forget() }
+                }
+                Button { shell.copyDiagnostics() } label: {
+                    Label("Copy diagnostics", systemImage: "doc.on.doc")
+                }
+                .buttonStyle(WgGhostButtonStyle(small: true))
+            }
+        }
+        .background(Wg.screen.ignoresSafeArea())
         .preferredColorScheme(.dark)
+    }
+
+    private var content: some View {
+        VStack(spacing: 16) {
+            let warn = error.kind == .notFound
+            Image(systemName: icon)
+                .font(.system(size: 28))
+                .foregroundStyle(warn ? Wg.warnFg : Wg.fg2)
+                .frame(width: 64, height: 64)
+                .background(warn ? Wg.warnBg : Wg.fg1.opacity(0.05), in: RoundedRectangle(cornerRadius: 18))
+                .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(warn ? Wg.warnLine : Wg.fg1.opacity(0.24)))
+                .accessibilityHidden(true)
+            Text(title).font(Wg.mono(22)).tracking(-0.44).foregroundStyle(Wg.fg1)
+            Text(lede).font(Wg.ui(16)).foregroundStyle(Wg.fg2).frame(maxWidth: 320)
+            Text(error.meta).font(Wg.mono(12)).foregroundStyle(Wg.fg3)
+        }
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, Wg.gutter)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var host: String { shell.host ?? "your account" }
+
+    private var icon: String {
+        switch error.kind {
+        case .network: "icloud.slash"
+        case .notFound: "magnifyingglass"
+        case .local: "iphone"
+        }
+    }
+
+    private var title: String {
+        switch error.kind {
+        case .network: "Can't reach your account"
+        case .notFound: "We can't find this account"
+        case .local: "Can't open Med Tracker"
+        }
+    }
+
+    private var lede: String {
+        switch error.kind {
+        case .network: "Med Tracker couldn't connect to \(host). Your records are safe. Check your connection and try again."
+        case .notFound: "There's no account at \(host) any more. It may have been deleted, or the address changed."
+        case .local: "The app on this iPhone didn't start. Your records are still here. Try again, or restart your iPhone if it keeps happening."
+        }
+    }
+
+    private var tryAgain: some View {
+        Button { shell.retry() } label: { Label("Try again", systemImage: "arrow.clockwise") }
+            .buttonStyle(WgPrimaryButtonStyle())
+    }
+
+    private func secondary(_ title: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) { Text(title).frame(maxWidth: .infinity) }.buttonStyle(WgButtonStyle())
     }
 }
 
