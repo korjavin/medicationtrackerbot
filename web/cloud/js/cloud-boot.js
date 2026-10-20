@@ -253,9 +253,10 @@ window.MedTrackerCloudReady = (async function boot() {
         // file's absent ones (vault.js mergeRecords, receiver wins). Pending
         // writes stay queued: they are rows of the receiver, so they win too.
         async importAll(json, { mode } = {}) {
-            const [{ replaceAllRecords, forceSnapshot, markForceSnapshotPending, readAllLiveRecords, bootstrapIfNeeded, isBootstrapped, dropPendingForTypes }, { vaultToRecords, managedTypesForImport, mergeRecords }] = await Promise.all([
+            const [{ replaceAllRecords, forceSnapshot, markForceSnapshotPending, readAllLiveRecords, bootstrapIfNeeded, isBootstrapped, dropPendingForTypes }, { vaultToRecords, managedTypesForImport, mergeRecords }, { withMaterializationStopped }] = await Promise.all([
                 import('/js/sync.js'),
                 import('/domain/vault.js'),
+                import('/js/apishim.js'),
             ]);
             const vault = typeof json === 'string' ? JSON.parse(json) : json;
             const records = vaultToRecords(vault, { now: Date.now() });
@@ -283,7 +284,10 @@ window.MedTrackerCloudReady = (async function boot() {
             // marker would let the next open re-bootstrap the stale server
             // snapshot over the import (and the old data is already gone).
             await markForceSnapshotPending();
-            if (merge) {
+            // No due-dose sweep in flight or started from here on: one that read
+            // the old medications would write their doses over the import
+            // (bd med-o7zq.41). Writers resume, on the new store, once it ends.
+            await withMaterializationStopped(async () => { if (merge) {
                 // Merge: every row here stays, tombstones included. The rows
                 // are read inside replaceAllRecords' records lock, so a write
                 // (a background Health import, a flush) cannot land between
@@ -310,7 +314,7 @@ window.MedTrackerCloudReady = (async function boot() {
                 // prefs) stays queued — those records are in `survive`.
                 await dropPendingForTypes(VAULT_MANAGED_TYPES);
                 await replaceAllRecords([...records, ...survive]);
-            }
+            } });
             // Past this line the import HAS happened locally. Propagation to the
             // server is retryable (forceSnapshotPending stays set, next pullOnOpen
             // retries), so a throw here must not reach importexport.js — it would

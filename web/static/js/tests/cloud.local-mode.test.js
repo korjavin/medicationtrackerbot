@@ -18,7 +18,8 @@ import { loadFrontendEnv, createMockResponse } from './helpers/frontend-harness.
 import { localRecordsPort } from '../../../cloud/js/sync.js';
 import { openDb } from '../../../cloud/js/localdb.js';
 import { cancelReminderRecompute } from '../../../cloud/js/reminders.js';
-import { materializationSettled } from '../../../cloud/js/apishim.js';
+import { installApiShim, materializationSettled } from '../../../cloud/js/apishim.js';
+import { LOCAL_EFFECTS } from '../../../cloud/js/local-policy.js';
 import { allowConsoleNoise } from './helpers/setup.js';
 import { recordsToVault, vaultToRecords } from '../../../domain/vault.js';
 
@@ -253,6 +254,64 @@ describe('local-only mode boot + records port (med-o7zq.2)', () => {
         const weights = (await window.apiCall('/api/weight?days=0&limit=1000')).map((r) => r.weight);
         expect(weights).toEqual(expect.arrayContaining([99, 55, ...VAULT_FIXTURE.data.weight.logs.map((r) => r.weight)]));
         expect(weights).toHaveLength(2 + VAULT_FIXTURE.data.weight.logs.length);
+    });
+
+    // bd med-o7zq.41: a boot's dose sweep that read this store's medications
+    // before a restore (the leave/move pickup runs right after install) must
+    // not write their doses into the restored store: no intake of a
+    // medication the store does not have.
+    it('a dose sweep in flight when a restore replaces the store writes nothing into the restored one, and the next sweep runs', async () => {
+        const { window } = env;
+        const DAY = 24 * 60 * 60 * 1000;
+        const t0 = Date.parse('2026-07-08T12:00:00Z');
+        vi.useFakeTimers({ toFake: ['Date'], now: t0 });
+        const getAll = globalThis.IDBIndex.prototype.getAll;
+        // Every hour, created a day before the sweep: a dose is due today in any zone.
+        const hours = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, '0')}:00`);
+        const addMed = (name) => window.apiCall('/api/medications', 'POST', {
+            name, dosage: '1mg', schedule: JSON.stringify({ type: 'daily', times: hours }),
+        });
+        const install = () => installApiShim({ accountId: 'local' }, {
+            recordsPort: localRecordsPort, effects: LOCAL_EFFECTS, rxnorm: null, registerEgress: async () => null, win: window,
+        });
+        const intakesOf = async (medId) => (await localRecordsPort().listRaw('intake')).filter((i) => i.medication_id === medId);
+        let importing = null;
+        let spy;
+        try {
+            const med = await addMed('Old store med');
+            cancelReminderRecompute({ accountId: 'local' });
+            vi.setSystemTime(t0 + DAY);
+            // The restore starts the moment the sweep has read the medications.
+            spy = vi.spyOn(globalThis.IDBIndex.prototype, 'getAll').mockImplementation(function (...args) {
+                const req = getAll.apply(this, args);
+                if (!importing && args[0] === 'medication') {
+                    req.addEventListener('success', () => {
+                        importing ??= window.CloudVault.importAll(JSON.stringify(VAULT_FIXTURE), { win: window });
+                    });
+                }
+                return req;
+            });
+            install();
+            await vi.waitFor(() => expect(importing).not.toBe(null));
+            spy.mockRestore();
+            spy = null;
+            await importing;
+            await materializationSettled();
+            expect((await localRecordsPort().listRaw('medication')).map((m) => m.recordId)).not.toContain(med.id);
+            expect(await intakesOf(med.id)).toEqual([]);
+
+            // No reload followed (a cancelled one, or a failure after the
+            // replace): the dose writers are not left stopped.
+            const fresh = await addMed('Restored store med');
+            cancelReminderRecompute({ accountId: 'local' });
+            vi.setSystemTime(t0 + 2 * DAY);
+            install();
+            await materializationSettled();
+            expect((await intakesOf(fresh.id)).length).toBeGreaterThan(0);
+        } finally {
+            spy?.mockRestore();
+            vi.useRealTimers();
+        }
     });
 
     // bd med-suu2: a device-only install restored from a backup must not
