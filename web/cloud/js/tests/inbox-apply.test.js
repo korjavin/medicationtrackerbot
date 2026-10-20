@@ -17,6 +17,7 @@ import { createActivityAIDomain } from '../../../domain/activityai.js';
 import { createWorkoutDomain } from '../../../domain/workout.js';
 import { createVitalsDomain } from '../../../domain/vitals.js';
 import { vaultToRecords } from '../../../domain/vault.js';
+import { withMaterializationStopped, MaterializationPausedError } from '../materialize-gate.js';
 import { commandToken, parseCommand } from '../../../domain/tgcommand.js';
 
 const SLOT_UNIX = 1767225600; // 2026-01-01T00:00:00Z
@@ -321,6 +322,34 @@ describe('inbox-apply.js — a Telegram Confirm/Snooze tap', () => {
         await expect(
             applyIntakeSlotAction(confirmEvent, { intake: broken, records, now }),
         ).rejects.toThrow(/vault write failed/);
+    });
+
+    // bd med-o7zq.41: a restore replaces the store. A tap whose dose write read
+    // the old medications lands before the replace starts, and a tap during
+    // the replace writes nothing: it fails, so drainInbox leaves it queued.
+    it('a store replace waits out a tap\'s dose write, and a tap during it stays queued', async () => {
+        const records = fakeRecords(seed());
+        const now = () => DRAIN_MS;
+        const real = domainFor(records, now);
+        let release;
+        const held = new Promise((r) => { release = r; });
+        const order = [];
+        const slow = {
+            ...real,
+            materializeDueDoses: async () => { await held; await real.materializeDueDoses(); order.push('doses'); },
+        };
+        const tap = applyIntakeSlotAction(confirmEvent, { intake: slow, records, now });
+        const during = { ...real, materializeDueDoses: vi.fn(real.materializeDueDoses) };
+        const replace = withMaterializationStopped(async () => {
+            order.push('replace');
+            await expect(applyIntakeSlotAction(confirmEvent, { intake: during, records, now }))
+                .rejects.toThrow(MaterializationPausedError);
+        });
+        release();
+        await tap;
+        await replace;
+        expect(order).toEqual(['doses', 'replace']);
+        expect(during.materializeDueDoses).not.toHaveBeenCalled();
     });
 
     // Bug 1: Confirm must edit the original reminder message to a receipt (which

@@ -286,7 +286,7 @@ window.MedTrackerCloudReady = (async function boot() {
             await markForceSnapshotPending();
             // No due-dose sweep in flight or started from here on: one that read
             // the old medications would write their doses over the import
-            // (bd med-o7zq.41). Restarted if the replace throws.
+            // (bd med-o7zq.41). Writers resume, on the new store, once it ends.
             await withMaterializationStopped(async () => { if (merge) {
                 // Merge: every row here stays, tombstones included. The rows
                 // are read inside replaceAllRecords' records lock, so a write

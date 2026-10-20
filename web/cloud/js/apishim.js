@@ -36,6 +36,7 @@ import { createElevenLabsAgentProvisioner } from './elevenlabs-agent.js';
 import { createDispatcher } from './mcp-responder.js';
 import { createVoiceLLMResponder } from './voice-llm-responder.js';
 import { registerEgressHosts } from './egress-hosts.js';
+import { materializing, materializationSettled, withMaterializationStopped } from './materialize-gate.js';
 
 // materializeTimerHandle is module-level (not per-shim-instance) because the
 // production invariant is "one shim installed per page load"; re-installing
@@ -43,32 +44,9 @@ import { registerEgressHosts } from './egress-hosts.js';
 // sweep instead of stacking a new setInterval on top of the previous one.
 const MATERIALIZE_INTERVAL_MS = 60_000;
 let materializeTimerHandle;
-// Every sweep started so far, chained (a sweep never rejects). Clearing the
-// interval does not stop one already in flight: it read the medications of the
-// store it started on and still writes their due doses afterwards. A test
-// that tears the store down awaits this first, or the dose lands in the next
-// test's store (bd med-o7zq.40).
-let materializeSweeps = Promise.resolve();
-export function materializationSettled() {
-  return materializeSweeps;
-}
-let materializeSweep = () => {};
-// Runs fn (a store replace or wipe) with the sweep stopped and none in flight:
-// a sweep that read the old store's medications would otherwise write their
-// due doses into the replaced one, intakes of a medication it does not have
-// (bd med-o7zq.41). On success the page reloads, so the sweep stays stopped;
-// a failure keeps this page and its store, so the sweep restarts.
-export async function withMaterializationStopped(fn) {
-  clearInterval(materializeTimerHandle);
-  await materializeSweeps;
-  try {
-    return await fn();
-  } catch (e) {
-    clearInterval(materializeTimerHandle);
-    materializeTimerHandle = setInterval(materializeSweep, MATERIALIZE_INTERVAL_MS);
-    throw e;
-  }
-}
+// Re-exported for the store replacers (cloud-boot.js, local-policy.js) and the
+// tests; the guard itself is materialize-gate.js (bd med-o7zq.41).
+export { materializationSettled, withMaterializationStopped };
 
 // The only medication error code the UI branches on by HTTP status (meds.js's
 // create/update flow shows a friendlier message for a 409 name+dosage clash);
@@ -1619,10 +1597,12 @@ export function installApiShim(ctx, {
       console.error('[cloud shim] materialization sweep failed', e);
     }
   }
-  materializeSweep = () => { materializeSweeps = Promise.all([materializeSweeps, runMaterializationSweep()]).then(() => {}); };
+  // A tick during a store replace is skipped (materialize-gate.js); the next
+  // one reads the replaced store.
+  const sweep = () => { materializing(runMaterializationSweep).catch(() => {}); };
   clearInterval(materializeTimerHandle);
-  materializeSweep();
-  materializeTimerHandle = setInterval(materializeSweep, MATERIALIZE_INTERVAL_MS);
+  sweep();
+  materializeTimerHandle = setInterval(sweep, MATERIALIZE_INTERVAL_MS);
 
   // Egress allowlist (CSP scoping). Tell the server which provider HOSTNAMES
   // this account connects to browser-direct so /'s connect-src can be scoped to

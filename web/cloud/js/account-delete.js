@@ -9,6 +9,7 @@
 
 import { getAssertion } from './passkey-get.js';
 import { diagHttp } from './passkey-diag.js';
+import { withMaterializationStopped } from './materialize-gate.js';
 
 // exportVaultToFile downloads a plaintext JSON copy of the whole vault, so a
 // friend about to delete keeps their data without having to know to export
@@ -112,8 +113,12 @@ export async function clearLocalVault() {
     // Dexie holds a long-lived MedTrackerDB handle; its default versionchange
     // handler closes it, but close explicitly so our own tab can't block us.
     try { window.MedTrackerDB?.db?.close?.(); } catch { /* best-effort */ }
-    await deleteDbVerified('medtracker-cloud');
-    await deleteDbVerified('MedTrackerDB');
+    // No dose writer mid-flight: one that read the records before the delete
+    // would re-create the database with its intakes (bd med-o7zq.41).
+    await withMaterializationStopped(async () => {
+      await deleteDbVerified('medtracker-cloud');
+      await deleteDbVerified('MedTrackerDB');
+    });
   }
   try {
     if (typeof caches !== 'undefined' && caches.keys) {

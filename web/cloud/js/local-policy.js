@@ -604,7 +604,7 @@ export const LOCAL_VAULT = {
   // records could not be erased.
   async eraseDevice({ win = globalThis.window } = {}) {
     await stopHealthImport();
-    await withMaterializationStopped(clearLocalVault);
+    await clearLocalVault(); // holds the dose writers off itself
     try { win.localStorage.clear(); } catch { /* storage blocked: nothing kept there */ }
     try { win.sessionStorage.clear(); } catch { /* same */ }
     const native = shellNative(win);
