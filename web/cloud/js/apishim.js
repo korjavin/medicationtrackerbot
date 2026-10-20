@@ -52,6 +52,23 @@ let materializeSweeps = Promise.resolve();
 export function materializationSettled() {
   return materializeSweeps;
 }
+let materializeSweep = () => {};
+// Runs fn (a store replace or wipe) with the sweep stopped and none in flight:
+// a sweep that read the old store's medications would otherwise write their
+// due doses into the replaced one, intakes of a medication it does not have
+// (bd med-o7zq.41). On success the page reloads, so the sweep stays stopped;
+// a failure keeps this page and its store, so the sweep restarts.
+export async function withMaterializationStopped(fn) {
+  clearInterval(materializeTimerHandle);
+  await materializeSweeps;
+  try {
+    return await fn();
+  } catch (e) {
+    clearInterval(materializeTimerHandle);
+    materializeTimerHandle = setInterval(materializeSweep, MATERIALIZE_INTERVAL_MS);
+    throw e;
+  }
+}
 
 // The only medication error code the UI branches on by HTTP status (meds.js's
 // create/update flow shows a friendlier message for a 409 name+dosage clash);
@@ -1602,10 +1619,10 @@ export function installApiShim(ctx, {
       console.error('[cloud shim] materialization sweep failed', e);
     }
   }
-  const sweep = () => { materializeSweeps = Promise.all([materializeSweeps, runMaterializationSweep()]).then(() => {}); };
+  materializeSweep = () => { materializeSweeps = Promise.all([materializeSweeps, runMaterializationSweep()]).then(() => {}); };
   clearInterval(materializeTimerHandle);
-  sweep();
-  materializeTimerHandle = setInterval(sweep, MATERIALIZE_INTERVAL_MS);
+  materializeSweep();
+  materializeTimerHandle = setInterval(materializeSweep, MATERIALIZE_INTERVAL_MS);
 
   // Egress allowlist (CSP scoping). Tell the server which provider HOSTNAMES
   // this account connects to browser-direct so /'s connect-src can be scoped to

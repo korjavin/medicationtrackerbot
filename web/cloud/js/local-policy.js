@@ -37,6 +37,7 @@ import {
 } from './reminders.js';
 import { hostsFromIntegrations } from './egress-hosts.js';
 import { readAllLocalRecords, replaceAllRecords } from './sync.js';
+import { withMaterializationStopped } from './apishim.js';
 import { recordsToVault, vaultToRecords, managedTypesForImport, hasUserContent, mergeRecords } from '../../domain/vault.js';
 import { startHealthImport, runHealthImport, resetHealthAnchors } from './health-import.js';
 import { clearLocalVault } from './account-delete.js';
@@ -511,11 +512,11 @@ export const LOCAL_VAULT = {
       // Computed inside replaceAllRecords' records lock: a write (the
       // background Health import) cannot land between the read and the clear.
       // runs inside withRecordsLock (non-reentrant): no record reads/writes through the locked ports here.
-      await replaceAllRecords((here) => ({
+      await withMaterializationStopped(() => replaceAllRecords((here) => ({
         records: mode === 'merge'
           ? mergeRecords(here, records)
           : [...records, ...here.filter((r) => !r.deleted && !managed.has(r.recordType))],
-      }));
+      })));
     } catch (e) {
       resumeHealthImport();
       throw e;
@@ -603,7 +604,7 @@ export const LOCAL_VAULT = {
   // records could not be erased.
   async eraseDevice({ win = globalThis.window } = {}) {
     await stopHealthImport();
-    await clearLocalVault();
+    await withMaterializationStopped(clearLocalVault);
     try { win.localStorage.clear(); } catch { /* storage blocked: nothing kept there */ }
     try { win.sessionStorage.clear(); } catch { /* same */ }
     const native = shellNative(win);
