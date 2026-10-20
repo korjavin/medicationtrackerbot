@@ -1273,7 +1273,6 @@ class MainActivity : Activity() {
         val CANCELS = setOf(
             BiometricPrompt.BIOMETRIC_ERROR_CANCELED,
             BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED,
-            BiometricPrompt.BIOMETRIC_ERROR_NEGATIVE_BUTTON,
         )
         /** N4's meta line time. */
         val HH_MM: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
