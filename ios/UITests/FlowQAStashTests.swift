@@ -8,7 +8,11 @@ import XCTest
 /// app's container (QA.appContainer).
 @MainActor
 final class FlowQAStashTests: XCTestCase {
-    private let hint = "Your records are ready to move. Paste or scan the invite for your new account. They move in after you sign in." // App.swift FirstRunView (N1)
+    /// The first run's move note (App.swift, v2.1 since med-ckm5.13): one
+    /// label, its bold lead plus the rest, so matched by the lead.
+    private func moveHint(_ app: XCUIApplication) -> XCUIElement {
+        app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Your records are ready to move.'")).firstMatch
+    }
 
     /// Settings → Move to a cloud account → stash + first run with the hint →
     /// Only on this device → Back keeps it → Start abandons it (file gone) →
@@ -38,7 +42,7 @@ final class FlowQAStashTests: XCTestCase {
         shot(flow, "move-confirm")
         app.webViews.buttons["Move"].tap()
 
-        XCTAssertTrue(app.staticTexts[hint].waitForExistence(timeout: 60), "the first run shows no move hint")
+        XCTAssertTrue(moveHint(app).waitForExistence(timeout: 60), "the first run shows no move hint")
         XCTAssertFalse(app.buttons["Continue on this iPhone"].exists, "the first run offers Continue on this iPhone during a move")
         shot(flow, "first-run-hint")
         let stash = try XCTUnwrap(Self.stashData("move"), "no move/vault.json after move.stash")
@@ -53,12 +57,12 @@ final class FlowQAStashTests: XCTestCase {
         }
 
         app.buttons["Only on this device"].tap()
-        let start = app.buttons["Start"]
+        let start = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Start'")).firstMatch // "Start and cancel the move" during a move
         XCTAssertTrue(start.waitForExistence(timeout: 10), "no local intro")
-        // ponytail: the bead's "Start cancels the move" note is Android-only (App.swift has none); shot, not asserted.
+        XCTAssertTrue(app.buttons["Start and cancel the move"].exists, "the intro does not say Start cancels the move")
         shot(flow, "intro")
         app.buttons["Back"].tap()
-        XCTAssertTrue(app.staticTexts[hint].waitForExistence(timeout: 10), "Back lost the move hint")
+        XCTAssertTrue(moveHint(app).waitForExistence(timeout: 10), "Back lost the move hint")
         XCTAssertNotNil(Self.stashData("move"), "Back deleted the move stash")
 
         startLocal(app)
@@ -76,7 +80,7 @@ final class FlowQAStashTests: XCTestCase {
         app.webViews.buttons["Continue"].tap()
         XCTAssertTrue(app.buttons["Only on this device"].waitForExistence(timeout: 30), "local.leave did not reach the first run")
         Thread.sleep(forTimeInterval: 1.5)
-        XCTAssertFalse(app.staticTexts[hint].exists, "the hint outlived the stash")
+        XCTAssertFalse(moveHint(app).exists, "the hint outlived the stash")
         XCTAssertNil(Self.stashData("move"), "the invite card wrote a move stash")
         shot(flow, "first-run-no-hint")
 
@@ -164,7 +168,7 @@ final class FlowQAStashTests: XCTestCase {
         let onlyHere = app.buttons["Only on this device"]
         XCTAssertTrue(onlyHere.waitForExistence(timeout: 30), "first run never showed \"Only on this device\"")
         onlyHere.tap()
-        let start = app.buttons["Start"]
+        let start = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Start'")).firstMatch // "Start and cancel the move" during a move
         XCTAssertTrue(start.waitForExistence(timeout: 10), "the local intro never showed \"Start\"")
         start.tap()
     }
