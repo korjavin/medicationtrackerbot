@@ -128,6 +128,46 @@ remote debugging (`chrome://inspect`) is on only in debug builds.
   do), and the gone account's address stays in the field. At font scales
   ≥ 1.5 the placeholder shortens to "Invite link"; the column scrolls and
   fades at the bottom while more is below.
+- **Invite links** (bd med-ta2n.12.1, twin of iOS med-ta2n.11; contract in
+  `bd show med-ta2n.7` design §§1–7, A1–A7): `InviteLinkActivity`
+  ([`Invite.kt`](../android/app/src/main/java/com/example/medtracker/Invite.kt))
+  owns two filters — the App Link `https://<base>/i/<sub>#<token>`
+  (`autoVerify`; the host is the `baseDomain` manifest placeholder from
+  `CLOUD_BASE_DOMAIN`; the server's `assetlinks.json` already lists
+  `handle_all_urls`) and `medtracker://i/<sub>#<token>` (the landing page's
+  "Open in the app") — and forwards them to `MainActivity` the way a reminder
+  tap arrives (`CLEAR_TOP | SINGLE_TOP`: `onNewIntent` when running, else a
+  cold start), so `MainActivity` keeps launch mode standard and no second shell
+  stacks up. `AccountUrl.parseInvite` turns either form (or an old claim link)
+  into the claim URL `https://<sub>.<base>/#claim=<token>`, checking the raw
+  path and fragment (`java.net.URI`): sub `^[a-z0-9-]+$` after lowercasing,
+  token `^[0-9a-f]+$`, no port, userinfo or query; `AccountUrlTest` runs iOS's
+  `inviteVectors` unchanged. The claim URL goes into the **pending slot**
+  (`shell` prefs `wgPendingInvite` + `wgPendingInviteAt`, epoch ms, written
+  with `commit()`; newest wins, never expired by the shell) — only on a fresh
+  delivery (`savedInstanceState == null`, not `FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY`),
+  and the intent is consumed. A capture never opens anything (any app can fire
+  the scheme): the native first run prefills its field and the user taps
+  Continue; with a page up (either mode) the shell reloads that mode's home with
+  `?invite=1` (history cleared, deferred under the lock); on a cold start
+  nothing more — the booting page reads the slot.
+  **Play Install Referrer** (`installreferrer:2.2`): on a true first install
+  only (no `accountHost`, no `wgLocalMode`, flag `wgInstallReferrerDone` unset —
+  an upgrade sets the flag without reading) the shell reads `installReferrer`
+  once, takes `invite=<landing URL>` (decoded once, then `parseInvite`) and
+  fills the slot only if it is still empty, dated by Play's click time. The
+  emulator has no Play: the hand-off is an owner internal-track check.
+  Bridge ops (both modes): `invite.pending` → `{url, receivedAt}` or `null`;
+  `invite.clear` → `true`; `clipboard.read` (Android only) → the primary clip's
+  text or `null`; `local.reset` also clears the slot. `local.leave {url}` /
+  `account.leave {url}` validate with `AccountUrl.parse` (fragment kept,
+  `&kit=1` included; else error `invalid url`, nothing changes — a present
+  `url` that is `null`, empty or not a string included, A3), then
+  `enterAccount`: store the host, leave local mode, drop `leaveHost`, the leave
+  stash and the slot, and load the URL (`then` ignored). `local.leave {url}`
+  keeps the move stash for the new account; `account.leave {url}` drops it.
+  Without a url both keep their pre-v3 behaviour until phase 2 (med-ta2n.12)
+  removes the native first run. QA scenario `invite-link`.
 - **Native token mirror** (bd med-ckm5.14, the "Native token mirror" table):
   `res/values/colors.xml` (`wg_*`, values from the kit's `tokens.css`),
   `res/color/wg_fg_{2,3,4}.xml` (alpha state lists), `res/values/dimens.xml`,
@@ -1087,8 +1127,8 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   | op | does |
   |---|---|
   | `setEgressHosts {hosts}` | `LocalOrigin.validHosts` (≤ 8 bare DNS names, whole list or `invalid hosts`), stored under `wgLocalEgressHosts`; replies `{changed}` — the page reloads itself when true and the next document's CSP `connect-src` lists the hosts |
-  | `local.reset` | the page erased its storage: removes the host mirror, clears reminders, deletes the move and leave stashes, replies `true` |
-  | `local.leave` | replies `true`, then Switch account (first run) |
+  | `local.reset` | the page erased its storage: removes the host mirror, clears reminders, deletes the move and leave stashes and the invite slot (A4), replies `true` |
+  | `local.leave {url?}` | without `url`: replies `true`, then Switch account (first run). With `url` (bd med-ta2n.12.1): `AccountUrl.parse` or `invalid url` (nothing changes; a `null`/empty/non-string `url` too), else `true` and `enterAccount` — the account opens on that URL, the move stash is **kept** for it, the leave stash and the invite slot go |
   | `move.stash {vault}` | the local → cloud move (bd med-nt9p.32.17, [`Move.kt`](../android/app/src/main/java/com/example/medtracker/Move.kt)): writes the vault v1 JSON string to `no_backup/move/vault.json` (temp file + rename, one stash at a time, replaces the old one); `invalid vault` when missing, empty or not a string, `too large` above 64 MB (UTF-8 bytes); replies `true` |
   | `leave.take` | local pickup (bd med-o7zq.36.3): replies `{vault}` or `null`; does not delete (same as `move.take`) |
   | `leave.clear {back?}` | deletes the leave stash, replies `true`; with `back: true` (the page's pickup was cancelled, bd med-o7zq.42) and an account remembered by `account.leave {then: "local"}` (`leaveHost`), replies `{back: true}` and reopens that account |
@@ -1101,7 +1141,7 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
 
   | op | does |
   |---|---|
-  | `account.leave {then?}` | replies `true`, then forgets the account host (bd med-nt9p.32.13, iOS twin PR #1179): with `{then: "local"}` straight into local mode (Settings → Account *Use this phone without an account*), without args the first run (after an account delete). Nothing is erased: the account and its origin's WebView data stay |
+  | `account.leave {then?}` | replies `true`, then forgets the account host (bd med-nt9p.32.13, iOS twin PR #1179): with `{then: "local"}` straight into local mode (Settings → Account *Use this phone without an account*), without args the first run (after an account delete). Nothing is erased: the account and its origin's WebView data stay. With `{url}` (bd med-ta2n.12.1): as `local.leave {url}`, `then` ignored, and the move stash is **deleted** (a stale one must not land in the next account) |
   | `move.take` | the new account's pickup (bd med-nt9p.32.17): replies `{vault}` (the stashed string) or `null` when there is none; does not delete, so a failed import retries on the next open |
   | `move.clear` | deletes the stash once the page imported it, replies `true` |
   | `leave.stash {vault}` | account → local (bd med-o7zq.36.3, a second `Move` over `no_backup/leave/vault.json`): same contract and errors as `move.stash` (`invalid vault`, `too large`, `write failed`), but **account mode only** |
@@ -1114,7 +1154,7 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   device (no egress, no privacy-manifest row) and is **never backed up**:
   `no_backup/` is excluded from every backup by the platform, and the Auto
   Backup include-list never names it either. It is deleted by `move.clear`
-  (after the import), `local.reset`, and whenever local mode is entered again
+  (after the import), `local.reset`, `account.leave {url}`, and whenever local mode is entered again
   (*Start*, `account.leave {then: "local"}`: the move was abandoned, the next
   one stashes afresh); Switch account keeps it, since that is the hand-off.
   While it exists the first run leads with an info note, *Your records are
@@ -1134,7 +1174,7 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   writes it (`leave.stash`, account mode only) just before
   `account.leave {then: "local"}`; the local page picks it up (`leave.take`,
   `leave.clear`, local mode only). It is deleted by `leave.clear`,
-  `local.reset` and opening an account (`open()`); a cancelled pickup sends
+  `local.reset` and opening an account (`open()`, `local.leave`/`account.leave {url}`); a cancelled pickup sends
   `leave.clear {back: true}`, which also reopens the account the leave came
   from (bd med-o7zq.42). It is **kept** across
   `setLocal(true)` and `forget(thenLocal)` (that is the hand-off) and across
@@ -1142,6 +1182,7 @@ Twin of iOS `Shell.swift` / `LocalIntroView` (bd med-o7zq.5, .9), in
   (gates, stash, kept into local mode, take/clear, `local.reset`, `open()`).
 
   Both modes: `ping`, `chrome`, `diag.append`, `notifications.*`, `health.*`,
+  `invite.pending` / `invite.clear` / `clipboard.read` ([Invite links](#the-shell-bd-med-nt9p5)),
   and `shell.ops`, which replies the array of op names this shell answers in
   the current mode (`LocalOrigin.ops`, one source with `opAllowed`) — the
   page's capability probe, so a row whose op an older APK lacks stays hidden
