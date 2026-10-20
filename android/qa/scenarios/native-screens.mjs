@@ -11,7 +11,15 @@ export default async function nativeScreens(ctx) {
   const stash = (on) => shell(on
     ? `run-as ${pkg} sh -c 'mkdir -p no_backup/move && echo {} > no_backup/move/vault.json'`
     : `run-as ${pkg} sh -c 'rm -rf no_backup/move; true'`);
+  // At font_scale=2.0 rows sit below the fold and leave the UiAutomator tree: scroll the
+  // column first (a no-op where it fits, as at 1.0).
+  const down = async () => {
+    await shell('input swipe 540 1500 540 400 300');
+    await shell('input swipe 540 1500 540 400 300');
+    await ctx.sleep(500);
+  };
   const intro = async () => {
+    await down();
     await device.tap({ text: 'Only on this device' });
     await ctx.waitFor({ text: 'Stored here, nowhere else' }, 10_000);
   };
@@ -53,10 +61,7 @@ export default async function nativeScreens(ctx) {
     await ctx.step('N2: lock switch on', async () => {
       await ctx.launch();
       await intro();
-      // At font_scale=2.0 the row is below the fold: scroll the column (a no-op at 1.0).
-      await shell('input swipe 540 1500 540 400 300');
-      await shell('input swipe 540 1500 540 400 300');
-      await ctx.sleep(500);
+      await down();
       await device.tap({ text: 'Lock with fingerprint or face' });
       await ctx.sleep(500);
     });
@@ -74,8 +79,7 @@ export default async function nativeScreens(ctx) {
     await ctx.shot('n1-move');
     await ctx.step('N2: pending-move warning; Back keeps the stash', async () => {
       await intro();
-      await shell('input swipe 540 1500 540 400 300');
-      await shell('input swipe 540 1500 540 400 300');
+      await down();
       await ctx.waitFor({ text: NOTE }, 5_000);
       await ctx.waitFor({ text: 'Start and cancel the move' }, 5_000);
       await ctx.waitFor({ text: 'Open the new account instead' }, 5_000);
