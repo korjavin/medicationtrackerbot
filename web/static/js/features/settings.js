@@ -447,7 +447,7 @@ function loadCloudTransferModule() { return import('/js/transfer.js'); }
 function loadCloudConnectorsModule() { return import('/js/connectors.js'); }
 
 // The Emergency Kit rotation is a full-document ceremony (fresh passkey
-// assertion + the kit's download/print gate) and stays on the passkey shell;
+// assertion + the Emergency Kit page, bd med-ckm5.2) and stays on the passkey shell;
 // it returns here when done. Fixed same-origin path.
 const EMERGENCY_KIT_URL = '/devices?flow=emergency-kit';
 

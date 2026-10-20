@@ -218,7 +218,15 @@ function showSignupKit(app, ctx) {
         <button id="kit-retry" class="wg-btn wg-btn--primary">Try again</button>
       </section>`;
     app.querySelector('#kit-setup-error').textContent = err.message || String(err);
-    app.querySelector('#kit-retry').addEventListener('click', () => showSignupKit(app, ctx));
+    // One rotation at a time: a double tap must not mint two codes (the last
+    // upload wins, the page could show the other one). A failure re-renders
+    // this screen with a fresh, enabled button.
+    const retry = app.querySelector('#kit-retry');
+    retry.addEventListener('click', () => {
+      if (retry.disabled) return;
+      retry.disabled = true;
+      showSignupKit(app, ctx);
+    });
   });
 }
 
@@ -256,7 +264,8 @@ async function finishSignupKit(app, ctx) {
 // its button.
 //
 // Every caller is a rotation of the same shape: mint a code, re-wrap the DEK,
-// upload envelope + verifier atomically, make the user actually save it. The
+// upload envelope + verifier atomically, then ask the user to save it (a
+// download or print, or "I saved it" at their own risk). The
 // upload happens BEFORE the kit renders, so any failure leaves the previous
 // recovery material untouched and the old code still working.
 export async function renderEmergencyKit(app, ctx) {

@@ -257,6 +257,27 @@ describe('post-create PRF probe', () => {
     expect(app.querySelector('.wizard-error').textContent).toBe('credential manager');
   });
 
+  it('web: a failed kit upload offers Try again, and a double tap rotates the code once', async () => {
+    install(() => withPrf(RAW_ID));
+    let failed = false;
+    globalThis.fetch = vi.fn(async (url) => {
+      if (url === '/api/recovery-material' && !failed) {
+        failed = true;
+        return { ok: false, status: 500, json: async () => ({}) };
+      }
+      return { ok: true, status: 200, json: async () => ({ publicKey: {} }) };
+    });
+    const app = await clickCreate();
+    await vi.waitFor(() => expect(app.querySelector('#kit-retry')).not.toBeNull());
+    expect(app.textContent).toContain("Couldn't create your Emergency Kit");
+
+    const retry = app.querySelector('#kit-retry');
+    retry.click();
+    retry.click();
+    await vi.waitFor(() => expect(app.textContent).toContain('Save your Emergency Kit'));
+    expect(calls('/api/recovery-material')).toBe(2); // the failed one + exactly one retry
+  });
+
   it('Android shell: discoverable probe, accepted when it returns the created credential', async () => {
     install(() => noPrf(new Uint8Array([1, 2, 3, 4]).buffer));
     bridge();
