@@ -128,26 +128,27 @@ function mintInvite() {
 }
 
 // The signup wizard as a person runs it (e2e/vault-roundtrip.mjs's flow): claim
-// → PRF passkey → Emergency Kit page → vault open. The authenticator is
-// per page (CDP), so the cloud run keeps one page per device.
-async function cloudSignup(context, page) {
+// (with &kit=1, as from Settings) → sign in (PRF passkey) → Emergency Kit offer
+// → vault open. The authenticator is per page (CDP), so the cloud run keeps one
+// page per device. shot(name) captures the two ceremony screens (bd med-ta2n.8).
+async function cloudSignup(context, page, shot) {
   const cdp = await context.newCDPSession(page);
   await cdp.send('WebAuthn.enable');
   await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', ctap2Version: 'ctap2_1', transport: 'internal',
     hasResidentKey: true, hasUserVerification: true, hasPrf: true, isUserVerified: true, automaticPresenceSimulation: true } });
   const { origin, token } = mintInvite();
-  await page.goto(`${origin}/#claim=${token}`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${origin}/#claim=${token}&kit=1`, { waitUntil: 'domcontentloaded' });
   await page.waitForURL(/\/unlock/, { timeout: 30000 });
+  await page.locator('#create-passkey').waitFor({ timeout: 30000 });
+  await shot('signup-signin');
   await page.click('#create-passkey', { timeout: 30000 });
-  // The one Emergency Kit page (bd med-ckm5.2): Download sits in the collapsed
-  // "Download or print" disclosure; a download ticks "I saved it" itself.
-  await page.locator('#kit-saved').waitFor({ timeout: 30000 });
-  await page.click('summary:has(#kit-save-chip)');
+  // The W5 kit offer: Save kit, then Done (an offer, no acknowledgement).
+  await page.locator('#kit-done').waitFor({ timeout: 30000 });
+  await shot('signup-kit-offer');
   const download = page.waitForEvent('download').catch(() => null);
   await page.click('#kit-download');
   await download;
-  if ((await page.getAttribute('#kit-saved', 'aria-pressed')) !== 'true') await page.click('#kit-saved');
-  await page.click('#kit-continue');
+  await page.click('#kit-done');
   const skip = page.locator('#install-skip');
   await page.waitForFunction(() => Boolean(window.MedTrackerCloudReady) || document.querySelector('#install-skip'), null, { timeout: 60000 });
   if (await skip.count()) await skip.click();
@@ -202,7 +203,10 @@ for (const [device, [engine, desc]] of Object.entries(DEVICES)) {
   let appBase = base;
   if (mode === 'cloud') {
     try {
-      appBase = await cloudSignup(context, page);
+      appBase = await cloudSignup(context, page, async (name) => {
+        await page.screenshot({ path: join(out, device, `${name}.png`) });
+        shots++;
+      });
     } catch (e) {
       // A harness break (admin invite printed no claim URL) must fail the run,
       // not leave an "error" row and skip every cloud scene silently.

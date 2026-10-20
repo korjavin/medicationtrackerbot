@@ -25,6 +25,7 @@ export default async function localVisual(ctx) {
 
   for (const scene of scenes) {
     if (scene.platform && scene.platform !== 'android') continue; // iOS-only native scenes (SwiftUI states)
+    if (scene.cloudOnly) continue; // needs a cloud account; the local passes skip it, as iOS and Playwright do
     const nativeOnly = scene.nativeOnly ?? scene.name.startsWith('native-');
     const s = (r[scene.name] = {});
     for (let attempt = 1; attempt <= 2; attempt++) {
