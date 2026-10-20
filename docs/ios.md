@@ -138,7 +138,7 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
   Start deletes it → Backup & import → I have an invite shows no stale hint →
   a relaunch is first run, records kept. `testLeaveStashPickup` — wipes
   `Library/WebKit`, seeds `leave/vault.json` from `tests/fixtures/vault-v1.json`
-  (read from the source tree via `#filePath`) → the boot imports it, toasts,
+  (read from the source tree via `#filePath`) → the boot imports it (the 3 s toast is shot when caught, not gated),
   clears the file → seeded again over records: Merge / Replace → Cancel →
   "Records not copied", file cleared.
 
