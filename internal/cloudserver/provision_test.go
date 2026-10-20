@@ -21,10 +21,10 @@ func TestProvision_InviteClaimSingleUse(t *testing.T) {
 	if inv.Account.Subdomain == "" || inv.Token == "" {
 		t.Fatalf("expected non-empty subdomain and token, got %+v", inv)
 	}
-	if got := inv.AccountClaimURL("app.example.com"); got != "https://"+inv.Account.Subdomain+".app.example.com/#claim="+inv.Token {
-		t.Fatalf("unexpected account claim URL: %s", got)
+	if got := inv.LandingURL("app.example.com"); got != "https://app.example.com/i/"+inv.Account.Subdomain+"#"+inv.Token {
+		t.Fatalf("unexpected landing URL: %s", got)
 	}
-	if inv.ClaimURL("app.example.com") != "https://app.example.com/i/"+inv.Account.Subdomain+"#"+inv.Token {
+	if inv.ClaimURL("app.example.com") != "https://"+inv.Account.Subdomain+".app.example.com/#claim="+inv.Token {
 		t.Fatalf("unexpected claim URL: %s", inv.ClaimURL("app.example.com"))
 	}
 

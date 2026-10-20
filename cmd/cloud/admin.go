@@ -143,8 +143,7 @@ func adminInvite(ctx context.Context, store *cloudstore.Repo, cfg config) int {
 	if inv.Account.ClaimExpiresAt != nil {
 		fmt.Printf("expires:   %s\n", inv.Account.ClaimExpiresAt.Format(time.RFC3339))
 	}
-	fmt.Printf("claim URL: %s\n", url)
-	fmt.Printf("claim form: %s\n\n", inv.AccountClaimURL(cfg.baseDomain))
+	fmt.Printf("claim URL: %s\n\n", url)
 	qrterminal.GenerateHalfBlock(url, qrterminal.L, os.Stdout)
 	return 0
 }
@@ -314,7 +313,7 @@ func adminResetClaim(ctx context.Context, store *cloudstore.Repo, subdomain stri
 		fmt.Fprintf(os.Stderr, "reset-claim failed: %v\n", err)
 		return 1
 	}
-	url := fmt.Sprintf("https://%s.%s/#claim=%s", subdomain, cfg.baseDomain, token)
+	url := cloudserver.Invite{Account: &cloudstore.Account{Subdomain: subdomain}, Token: token}.ClaimURL(cfg.baseDomain)
 	fmt.Printf("claim URL: %s\n\n", url)
 	qrterminal.GenerateHalfBlock(url, qrterminal.L, os.Stdout)
 	return 0
