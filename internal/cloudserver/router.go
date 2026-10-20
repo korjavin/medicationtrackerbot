@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/korjavin/medicationtrackerbot/internal/cloudstore"
@@ -56,7 +57,14 @@ type Handler struct {
 
 	landingRaw   []byte // web/cloud/index.html verbatim, used to build landingIndex
 	landingIndex []byte // landingRaw + "request an invite" contact line; nil = serve the raw shell file (today's behavior), see SetRequestInviteEmail
+
+	inviteIndex []byte // web/cloud/invite.html + store-id metas, served at /i/<sub>; nil = file server fallback, see SetInviteStoreIDs
 }
+
+// invitePathPattern is the invite landing path, https://<base>/i/<sub>#<token>
+// (bd med-ta2n.9 pinned contract). The token rides the fragment and never
+// reaches the server.
+var invitePathPattern = regexp.MustCompile(`^/i/[a-z0-9-]+$`)
 
 // New builds the host-routing Handler. shellFS is the embedded web/cloud tree
 // (cloudweb.FS) containing index.html, signup.html, css/, js/ — the passkey
@@ -86,20 +94,42 @@ func New(baseDomain string, store accountStore, shellFS fs.FS, appFS fs.FS, doma
 	// Absent only in test fixtures that never hit the shell paths; nil falls
 	// back to the file server there.
 	signup, _ := fs.ReadFile(shellFS, "signup.html")
+	invite, _ := fs.ReadFile(shellFS, "invite.html")
 	buildID := buildIDFrom(idx)
 	idx, buildID = stampDevVersion(idx, buildID, vcsRevision())
 	return &Handler{
-		baseDomain: baseDomain,
-		store:      store,
-		shell:      http.FileServerFS(shellFS),
-		app:        http.StripPrefix("/static/", http.FileServerFS(appFS)),
-		domain:     http.StripPrefix("/domain/", http.FileServerFS(domainFS)),
-		appIndex:   injectCloudBoot(idx, foodDBURL, trialAI, trialVoice, buildID),
-		shellIndex: injectShellTrial(signup, trialAI),
-		buildID:    buildID,
-		api:        api,
-		landingRaw: landing,
+		baseDomain:  baseDomain,
+		store:       store,
+		shell:       http.FileServerFS(shellFS),
+		app:         http.StripPrefix("/static/", http.FileServerFS(appFS)),
+		domain:      http.StripPrefix("/domain/", http.FileServerFS(domainFS)),
+		appIndex:    injectCloudBoot(idx, foodDBURL, trialAI, trialVoice, buildID),
+		shellIndex:  injectShellTrial(signup, trialAI),
+		buildID:     buildID,
+		api:         api,
+		landingRaw:  landing,
+		inviteIndex: invite,
 	}
+}
+
+// SetInviteStoreIDs gives the invite landing page (/i/<sub>) the store ids its
+// "Get the app" buttons link to, as <meta name="medtracker-ios-app-store-id">
+// (IOS_APP_STORE_ID, numeric) and <meta name="medtracker-android-package">
+// (ANDROID_PACKAGE), spliced after <head> and HTML-escaped. An empty value
+// emits no meta, and the page (med-ta2n.10) hides that platform's store button. Setter
+// rather than a New param, mirroring SetRequestInviteEmail.
+func (h *Handler) SetInviteStoreIDs(iosAppStoreID, androidPackage string) {
+	if h.inviteIndex == nil {
+		return
+	}
+	inject := "<head>"
+	if iosAppStoreID != "" {
+		inject += "\n<meta name=\"medtracker-ios-app-store-id\" content=\"" + html.EscapeString(iosAppStoreID) + "\">"
+	}
+	if androidPackage != "" {
+		inject += "\n<meta name=\"medtracker-android-package\" content=\"" + html.EscapeString(androidPackage) + "\">"
+	}
+	h.inviteIndex = bytes.Replace(h.inviteIndex, []byte("<head>"), []byte(inject), 1)
 }
 
 // SetRequestInviteEmail adds a "request an invite" contact line (a mailto:
@@ -411,7 +441,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Host, and the shared trial agent needs one fixed URL. Exact path only.
 		// The anonymous iOS trial (med-o7zq.15) has no account either: its
 		// subject is the App Attest key id, so it lives here and only here.
-		if strings.HasPrefix(r.URL.Path, "/api/s/") || r.URL.Path == voiceLLMCompletionsPath || strings.HasPrefix(r.URL.Path, attestPathPrefix) {
+		// The invite landing's status read (med-ta2n.9) is token-free and
+		// account-less too; base domain only (refused on account hosts below).
+		if strings.HasPrefix(r.URL.Path, "/api/s/") || strings.HasPrefix(r.URL.Path, inviteStatusPathPrefix) ||
+			r.URL.Path == voiceLLMCompletionsPath || strings.HasPrefix(r.URL.Path, attestPathPrefix) {
 			if h.api == nil {
 				http.NotFound(w, r)
 				return
@@ -425,6 +458,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/s/") {
 			noStore(w)
 			r.URL.Path = "/share.html"
+		}
+		// The invite landing page (med-ta2n.9): any well-formed subdomain
+		// serves it; the page (med-ta2n.10) asks /api/i/<sub> whether the
+		// invite is live.
+		// Strict default CSP (set above), like /s/.
+		if invitePathPattern.MatchString(r.URL.Path) {
+			noStore(w)
+			if h.inviteIndex != nil {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				w.Write(h.inviteIndex)
+				return
+			}
+			r.URL.Path = "/invite.html"
 		}
 		h.shell.ServeHTTP(w, r)
 		return
@@ -465,8 +511,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if strings.HasPrefix(r.URL.Path, "/api/") {
-		// Base-domain only: an account host must not answer the anonymous trial.
-		if h.api == nil || strings.HasPrefix(r.URL.Path, attestPathPrefix) {
+		// Base-domain only: an account host must not answer the anonymous trial
+		// or the invite landing's status read.
+		if h.api == nil || strings.HasPrefix(r.URL.Path, attestPathPrefix) || strings.HasPrefix(r.URL.Path, inviteStatusPathPrefix) {
 			http.NotFound(w, r)
 			return
 		}

@@ -11,14 +11,27 @@ ca="$RUNNER_TEMP/ca.pem"
 IFS='=' read -r _ udid < "$RUNNER_TEMP/devices"
 
 go build -o "$RUNNER_TEMP/tlsfront" ./android/qa/tlsfront
+go build -o "$RUNNER_TEMP/cloud" ./cmd/cloud
+
+# The ceremony-exit flow (bd med-ckm5.15) needs a real /unlock page: cmd/cloud
+# on :8080 behind tlsfront, as android-qa.yml does, and one minted invite.
+export CLOUD_BASE_DOMAIN=qa.test SESSION_SECRET="$(openssl rand -base64 48)" CLOUD_DB_PATH="$RUNNER_TEMP/cloud.db" PORT=8080
+nohup "$RUNNER_TEMP/cloud" > "$RUNNER_TEMP/cloud.log" 2>&1 &
+for _ in $(seq 1 30); do curl -s -o /dev/null http://127.0.0.1:8080/ && break; sleep 1; done
+inv="$("$RUNNER_TEMP/cloud" admin invite)"
+claim="$(grep -oE 'https://[^[:space:]]+#claim=[a-f0-9]+' <<<"$inv" | head -1)"
+[ -n "$claim" ] || { cat "$RUNNER_TEMP/cloud.log"; echo "::error::no claim URL in: $inv"; exit 1; }
+host="${claim#https://}"; host="${host%%/*}"
+echo "QA_CLAIM_URL=$claim" >> "$GITHUB_ENV"
+
 # :443 needs root (AccountURL.parse rejects ports). nobody./stale./down. are
-# answered before the proxy, so no backend runs.
+# answered before the proxy; every other host goes to cmd/cloud.
 sudo -b "$RUNNER_TEMP/tlsfront" -domain qa.test -ca "$ca" > "$RUNNER_TEMP/tlsfront.log" 2>&1
 for _ in $(seq 1 30); do [ -s "$ca" ] && break; sleep 1; done
 [ -s "$ca" ] || { cat "$RUNNER_TEMP/tlsfront.log"; echo "::error::tlsfront wrote no CA"; exit 1; }
 
 # No wildcards in /etc/hosts: list each host the flows open.
-echo "127.0.0.1 qa.test nobody.qa.test stale.qa.test down.qa.test" | sudo tee -a /etc/hosts
+echo "127.0.0.1 qa.test nobody.qa.test stale.qa.test down.qa.test $host" | sudo tee -a /etc/hosts
 sudo dscacheutil -flushcache
 sudo killall -HUP mDNSResponder || true
 
@@ -35,3 +48,5 @@ grep -q '^HTTP/[0-9.]* 404' "$RUNNER_TEMP/stale.txt" && ! grep -qi '^X-Account-G
   || { echo "::error::stale.qa.test is not a bare 404"; exit 1; }
 curl -sS --cacert "$ca" -i https://down.qa.test/ | grep -q '^HTTP/[0-9.]* 503' \
   || { echo "::error::down.qa.test did not answer 503"; exit 1; }
+curl -sS --fail -o /dev/null --cacert "$ca" "https://$host/unlock" \
+  || { cat "$RUNNER_TEMP/cloud.log"; echo "::error::the invite's /unlock did not load"; exit 1; }

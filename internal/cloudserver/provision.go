@@ -51,10 +51,20 @@ type Invite struct {
 	Token   string
 }
 
-// ClaimURL returns the personal claim link for this invite. The token
-// travels in the URL fragment so it never hits server access logs.
+// ClaimURL returns the personal claim link, https://<sub>.<base>/#claim=<token>.
+// The token travels in the URL fragment so it never hits server access logs.
+// It stays the minted form until the native shells that parse the landing
+// form (med-ta2n.11/.12) are released — shipped shells reject a base-domain
+// URL on their paste/scan screen.
 func (inv Invite) ClaimURL(baseDomain string) string {
 	return fmt.Sprintf("https://%s.%s/#claim=%s", inv.Account.Subdomain, baseDomain, inv.Token)
+}
+
+// LandingURL returns the same invite as the base-domain landing page link,
+// https://<base>/i/<sub>#<token> (bd med-ta2n.9), which hands off to the claim
+// form client-side. Not minted anywhere yet; ClaimURL flips to it later.
+func (inv Invite) LandingURL(baseDomain string) string {
+	return fmt.Sprintf("https://%s/i/%s#%s", baseDomain, inv.Account.Subdomain, inv.Token)
 }
 
 const maxSubdomainAttempts = 10

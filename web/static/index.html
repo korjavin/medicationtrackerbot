@@ -955,33 +955,26 @@
                 <p class="wg-hint">Stored in your vault. Saved keys show as <span class="wg-mono-display">***</span> and stay unchanged unless you re-enter them. Empty a field to clear a saved value.</p>
                 <p class="wg-hint wg-local-only">On this device, AI and food search reach only the providers you add here, and the free trial only if you turn it on. Voice and Telegram need a cloud account.</p>
 
-                <!-- Cloud's operator trial AI (med-6xb9, integrations.js
-                     renderTrialConsentRows): first while it is on offer, so a
-                     skipped onboarding still finds it. Same grant as the
-                     trial AI row's Allow below. -->
-                <section id="integrations-cloud-trial" class="wg-section hidden">
-                    <div class="wg-section__head"><span class="wg-eyebrow">Free trial</span></div>
-                    <div class="wg-card wg-vstack">
-                        <div class="wg-setting wg-setting--bare">
-                            <span class="wg-setting__body"><span class="wg-setting__title">Try the free AI trial</span><span class="wg-setting__desc">Describe a meal or snap a photo and the AI logs it, without your own key. Rate-limited and runs on the operator&rsquo;s shared key; you&rsquo;ll see what is sent before you agree.</span></span>
+                <!-- The free trial (kit A1, med-ckm5.10; integrations.js
+                     renderTrialCard): one WGOfferCard for cloud's operator
+                     trial (med-6xb9, the `ai` consent) and local mode's
+                     anonymous trial (med-o7zq.16, the `anon` consent, only
+                     where the shell has App Attest). Offer while it is on
+                     offer, the same card ON with its limits once started. -->
+                <div id="integrations-trial" class="hidden">
+                    <section class="wg-section">
+                        <div class="wg-section__head"><span class="wg-eyebrow">Free trial</span></div>
+                        <div id="integrations-trial-card"></div>
+                    </section>
+                    <section class="wg-section">
+                        <div class="wg-section__head"><span class="wg-eyebrow">Your own keys</span><span class="wg-meta">replace the trial</span></div>
+                        <div class="wg-list">
+                            <button type="button" class="wg-setting" data-own-key="openai"><span class="wg-row__lead"><i class="wg-ico" data-icon="key"></i></span><span class="wg-setting__body"><span class="wg-setting__title">OpenAI</span><span class="wg-setting__desc" data-own-key-state>Not set</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+                            <button type="button" class="wg-setting" data-own-key="food"><span class="wg-row__lead"><i class="wg-ico" data-icon="search"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Food database</span><span class="wg-setting__desc" data-own-key-state>Not set</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
+                            <button type="button" class="wg-setting wg-cloud-only" data-own-key="elevenlabs"><span class="wg-row__lead"><i class="wg-ico" data-icon="mic"></i></span><span class="wg-setting__body"><span class="wg-setting__title">Voice (ElevenLabs)</span><span class="wg-setting__desc" data-own-key-state>Not set</span></span><i class="wg-ico wg-row__chev" data-icon="chev-r"></i></button>
                         </div>
-                        <button type="button" id="integrations-cloud-trial-start" class="wg-btn wg-btn--block">Try the free AI trial</button>
-                    </div>
-                </section>
-
-                <!-- Local mode's anonymous trial AI (bd med-o7zq.16,
-                     integrations.js renderLocalTrial): shown only where the
-                     shell supports App Attest. -->
-                <section id="integrations-local-trial" class="wg-section wg-local-only hidden">
-                    <div class="wg-section__head"><span class="wg-eyebrow">Free trial</span></div>
-                    <div class="wg-card wg-vstack">
-                        <div class="wg-setting wg-setting--bare">
-                            <span class="wg-setting__body"><span class="wg-setting__title">Try the AI, food database and voice calls without your own keys</span><span class="wg-setting__desc">Requests and calls go through our server to the operator&rsquo;s providers. A limited number of free AI requests per install, a daily allowance of food lookups, and a limited number of free minutes of voice calls, with a daily limit (shown here once the trial is on).</span></span>
-                            <label class="wg-toggle"><input type="checkbox" role="switch" id="integrations-local-trial-toggle" class="wg-toggle__input" aria-label="Try the AI, food database and voice calls without your own keys"></label>
-                        </div>
-                        <p id="integrations-local-trial-status" class="wg-hint" hidden></p>
-                    </div>
-                </section>
+                    </section>
+                </div>
 
                 <section class="wg-section">
                     <div class="wg-section__head"><span class="wg-eyebrow">OpenAI</span></div>
@@ -2647,6 +2640,7 @@
     <script src="/static/js/components/wg-page.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-sheet.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-chip.js?v=TIMESTAMP_PLACEHOLDER"></script>
+    <script src="/static/js/components/wg-offer-card.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-bottom-nav.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-sparkline.js?v=TIMESTAMP_PLACEHOLDER"></script>
     <script src="/static/js/components/wg-bp-chart.js?v=TIMESTAMP_PLACEHOLDER"></script>

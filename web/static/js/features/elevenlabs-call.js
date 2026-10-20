@@ -615,9 +615,9 @@
         if (typeof window.switchTab === 'function') window.switchTab('settings');
         const settings = window.SettingsView;
         if (settings && typeof settings.openSettingsPage === 'function') settings.openSettingsPage('integrations');
-        // Local mode has no ElevenLabs key field: the free-trial switch instead.
+        // Local mode has no ElevenLabs key field: the free-trial card instead.
         const local = document.documentElement.classList.contains('wg-local-vault');
-        const key = document.getElementById(local ? 'integrations-local-trial' : 'integrations-elevenlabs-api-key');
+        const key = document.getElementById(local ? 'integrations-trial' : 'integrations-elevenlabs-api-key');
         if (key && typeof key.scrollIntoView === 'function') key.scrollIntoView({ block: 'center' });
     }
 

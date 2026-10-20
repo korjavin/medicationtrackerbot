@@ -17,6 +17,7 @@ const WG_ICONS_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-icons.js')
 const WG_PAGE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-page.js');
 const WG_SHEET_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-sheet.js');
 const WG_CHIP_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-chip.js');
+const WG_OFFER_CARD_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-offer-card.js');
 const WG_BOTTOM_NAV_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-bottom-nav.js');
 const WG_SPARKLINE_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-sparkline.js');
 const WG_BP_CHART_JS = path.join(REPO_ROOT, 'web/static/js/components/wg-bp-chart.js');
@@ -213,6 +214,7 @@ export function loadFrontendEnv({ withWorkout = false, withSync = false, url = '
   evalFileCached(window, WG_PAGE_JS);
   evalFileCached(window, WG_SHEET_JS);
   evalFileCached(window, WG_CHIP_JS);
+  evalFileCached(window, WG_OFFER_CARD_JS);
   evalFileCached(window, WG_BOTTOM_NAV_JS);
   evalFileCached(window, WG_SPARKLINE_JS);
   evalFileCached(window, WG_BP_CHART_JS);

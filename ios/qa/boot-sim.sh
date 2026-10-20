@@ -26,6 +26,22 @@ dev="${t// /-}"
 start=$SECONDS
 xcrun simctl bootstatus "$udid" -b < /dev/null | tail -n 1
 echo "$dev booted in $((SECONDS - start))s"
+# Booted is not settled: the first XCUITest launch right after a boot timed
+# out "acquiring background assertion" (bd med-w6gx.23.6, runs 39419413374,
+# 39437482836/3). Settled = a system app launches within 5 s twice running;
+# capped at 3 min, then the flows run anyway.
+start=$SECONDS fast=0
+while [ "$fast" -lt 2 ] && [ $((SECONDS - start)) -lt 180 ]; do
+  t=$SECONDS
+  if xcrun simctl launch "$udid" com.apple.Preferences > /dev/null 2>&1 && [ $((SECONDS - t)) -le 5 ]; then
+    fast=$((fast + 1))
+  else
+    fast=0
+  fi
+  xcrun simctl terminate "$udid" com.apple.Preferences > /dev/null 2>&1 || true
+  sleep 2
+done
+echo "$dev settled in $((SECONDS - start))s"
 xcrun simctl status_bar "$udid" override --time 9:41 --batteryState charged --batteryLevel 100 --wifiBars 3 --cellularBars 4
 xcrun simctl ui "$udid" appearance dark
 echo "$dev=$udid" >> "$devices"
