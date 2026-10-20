@@ -784,7 +784,8 @@
         }
         if (items.length === 0) {
             const actions = [];
-            if (medsOn) actions.push({ label: 'Add medication', icon: 'pill', onClick: h.onAddMedication });
+            // O2: "Add medication" is the empty Today's one sun (bd med-ckm5.3).
+            if (medsOn) actions.push({ label: 'Add medication', icon: 'pill', variant: 'primary', onClick: h.onAddMedication });
             if (workoutsOn) actions.push({ label: 'Create plan', icon: 'dumbbell', onClick: h.onCreatePlan });
             const card = el('div', 'wg-card wg-card--flush');
             card.appendChild(typeof createEmptyState === 'function'
@@ -796,7 +797,7 @@
                 })
                 : el('p', 'wg-hint', 'Nothing scheduled'));
             section.appendChild(card);
-            return { node: section, hasPrimary: false };
+            return { node: section, hasPrimary: medsOn };
         }
 
         const todayEnd = startOfLocalDay(nowMs) + DAY_IN_MS;
