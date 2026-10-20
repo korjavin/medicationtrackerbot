@@ -43,7 +43,7 @@ integration as core native value. Native capabilities today:
   ([Apple Health import](#apple-health-import-bd-med-w6gx6)).
 - **Local notifications** for reminders, offline, no Web Push
   ([Reminders as local notifications](#reminders-as-local-notifications-bd-med-w6gx5)).
-- **Native share sheet and print** for downloads and printouts
+- **Files export picker and print** for downloads and printouts
   ([Downloads and printing](#downloads-and-printing-bd-med-w6gx11)).
 - **Passkeys** through the system sheet (Associated Domains).
 
@@ -136,8 +136,8 @@ this is a **gate**: a flow is a contract, and a failed step fails the job.
 - **Backup flows** ([`FlowQABackupTests.swift`](../ios/UITests/FlowQABackupTests.swift),
   bd med-w6gx.23.4): `testBackupExport` — Export backup → the passphrase
   sheet → *Backup ready* → Save to device, plain then with a
-  passphrase (`.age`): each file sits in `tmp/wg-downloads` while the share
-  sheet shows and is gone once it closes. `testRestoreFromFile` — restore via
+  passphrase (`.age`): each file sits in `tmp/wg-downloads` while the Files
+  export picker shows and is gone once it is cancelled (med-o7zq.43). `testRestoreFromFile` — restore via
   the Settings import input (driver seed) into an erased store, records survive
   a relaunch. `testErase` — typed "erase" → Erase: both shell stashes cleared,
   Meds empty after relaunch, local mode kept.
@@ -401,7 +401,7 @@ Native features:
 - Reminders: Settings > Notifications > Enable, then "Send test". Medication
   reminders are scheduled on the device as local notifications.
 - Camera: food barcode scanning and meal photos (Food), QR scan on first run.
-- Downloads and printing (backups, Emergency Kit) via the share and print sheets.
+- Downloads and printing (backups, Emergency Kit) via the Files save picker and the print sheet.
 
 Account deletion: Settings > Account & privacy > Delete my account.
 
@@ -454,8 +454,10 @@ Owner only:
 WKWebView ignores `<a download>` and `window.print()` on its own. The
 `Downloads` class in [`ios/App/App.swift`](../ios/App/App.swift) saves every
 download (blob:/data: links, `Content-Disposition: attachment`) to a temp file,
-opens the share sheet (Save to Files), and deletes the file when the sheet
-closes (a file left by a killed app is swept at the next launch). A page script sends `window.print()`, and the offscreen-iframe print in
+opens the Files export picker (`UIDocumentPickerViewController(forExporting:asCopy:)`,
+bd med-o7zq.43: the page's own sheet offers Share, so Save goes straight to
+Files), and deletes the file when the picker saves or is cancelled (a file left
+by a killed app is swept at the next launch). A page script sends `window.print()`, and the offscreen-iframe print in
 `web/cloud/js/print-doc.js`, to the iOS print sheet. No web code changes.
 
 ## Apple Health import (bd med-w6gx.6)
@@ -990,8 +992,8 @@ mode, gated on the bridge platform being `ios` or `android`
   `visibilitychange` work — Health import, reminder refresh, backup nudge —
   waits for the unlock), every load is deferred (launch, Try again, mode
   switch, content-process restart; a mode switch blanks the old page first),
-  a notification tap is kept and opened after the unlock, any share or print
-  sheet is dismissed (its temp file deleted) and a download or print that
+  a notification tap is kept and opened after the unlock, any share, export or
+  print sheet is dismissed (its temp file deleted) and a download or print that
   finishes meanwhile is dropped, and every bridge op answers `locked`. Whenever the lock is on and the app is not active, a plain cover
   is drawn over the window, so the app-switcher snapshot shows no data.
   Turning it off in Settings applies only after the next successful unlock

@@ -715,14 +715,15 @@ struct QRScanner: UIViewControllerRepresentable {
 /// Web downloads and printing for the shell (bd med-w6gx.11). WKWebView drops
 /// both unless the app handles them. Downloads (blob:/data: `<a download>`,
 /// `Content-Disposition: attachment`, types it cannot show) land in a temp file
-/// offered through the share sheet (Save to Files), deleted once the sheet
-/// closes. `window.print()`, including the offscreen-iframe print in
+/// offered through the Files export picker (bd med-o7zq.43; the page owns Share),
+/// deleted once the picker closes. `window.print()`, including the offscreen-iframe print in
 /// web/cloud/js/print-doc.js, goes to UIPrintInteractionController.
 /// The web view's navigation delegate forwards the policy and didBecome calls here.
 @MainActor
-final class Downloads: NSObject, WKDownloadDelegate, WKScriptMessageHandler, WKNavigationDelegate {
+final class Downloads: NSObject, WKDownloadDelegate, WKScriptMessageHandler, WKNavigationDelegate, UIDocumentPickerDelegate {
     static let shared = Downloads()
     private var destinations: [WKDownload: URL] = [:]
+    private var exports: [UIDocumentPickerViewController: URL] = [:] // picker → its temp dir
     private var printView: WKWebView? // retained until its document finished loading and printed
     /// Shell's lock holds (bd med-o7zq.8): nothing the hidden page finishes may show over it.
     var held: @MainActor () -> Bool = { false }
@@ -752,7 +753,7 @@ final class Downloads: NSObject, WKDownloadDelegate, WKScriptMessageHandler, WKN
     func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,
                   suggestedFilename: String) async -> URL? {
         // Own directory per download: the destination must not exist yet, and
-        // the file keeps the page's filename in the share sheet.
+        // the file keeps the page's filename in the picker.
         let dir = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -771,18 +772,35 @@ final class Downloads: NSObject, WKDownloadDelegate, WKScriptMessageHandler, WKN
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
             return
         }
-        let sheet = UIActivityViewController(activityItems: [url], applicationActivities: nil)
-        sheet.completionWithItemsHandler = { _, _, _, _ in
-            // The file can hold a recovery code or a full vault export: delete it now,
-            // not when iOS purges tmp (a kill mid-sheet is swept at next launch).
-            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
-        }
         guard let top = Downloads.topViewController() else {
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
             return
         }
-        sheet.popoverPresentationController?.sourceView = top.view
-        top.present(sheet, animated: true)
+        let picker = UIDocumentPickerViewController(forExporting: [url], asCopy: true)
+        picker.delegate = self
+        exports[picker] = url.deletingLastPathComponent()
+        top.present(picker, animated: true)
+    }
+
+    // MARK: UIDocumentPickerDelegate
+
+    // The file can hold a recovery code or a full vault export: delete it once the
+    // picker closes, not when iOS purges tmp (a kill mid-picker is swept at next launch).
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        close(controller)
+    }
+
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        close(controller)
+    }
+
+    private func close(_ picker: UIDocumentPickerViewController) {
+        if let dir = exports.removeValue(forKey: picker) { try? FileManager.default.removeItem(at: dir) }
+    }
+
+    /// The lock dismissed every sheet (Shell.didEnterBackground), which tells no delegate.
+    func dropExports() {
+        exports.keys.forEach(close)
     }
 
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
