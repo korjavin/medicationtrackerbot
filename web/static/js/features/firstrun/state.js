@@ -1,7 +1,7 @@
 // features/firstrun/state.js — first-run flow step tracker.
 //
 // Persists the current step ("features" = the W1 module picker |
-// "integrations" = the AI trial offer) to sessionStorage so a mid-flow reload can
+// "trial" = the W2 AI trial offer) to sessionStorage so a mid-flow reload can
 // resume at the last-visible step on the next bootstrap. A full device
 // power-cycle wipes sessionStorage; the flow then restarts from "features"
 // on the next launch, which is acceptable because `needs_first_run` is
@@ -19,8 +19,11 @@
     const KEY = 'wg-firstrun-step';
     const DEFAULT_STEP = 'features';
     // bd med-ta2n.1 dropped 'welcome' and 'done'; a stale stored value of
-    // either falls back to DEFAULT_STEP. W2 (med-ta2n.2) renames 'integrations'.
-    const VALID_STEPS = Object.freeze(['features', 'integrations']);
+    // either falls back to DEFAULT_STEP. W2 (med-ta2n.2) renamed
+    // 'integrations' to 'trial': a session stored before the rename resumes
+    // on the trial step (e.g. mid apply()-reload across an app update).
+    const VALID_STEPS = Object.freeze(['features', 'trial']);
+    const RENAMED = { integrations: 'trial' };
 
     function _safeRead() {
         try {
@@ -48,7 +51,8 @@
     }
 
     function getStep() {
-        const raw = _safeRead();
+        const stored = _safeRead();
+        const raw = RENAMED[stored] || stored;
         if (raw && VALID_STEPS.includes(raw)) return raw;
         return DEFAULT_STEP;
     }

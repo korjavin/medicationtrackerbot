@@ -17,9 +17,6 @@
 // convention of signup.claimed-link.test.js (repo rule 8's documented exception).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JSDOM } from 'jsdom';
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 // signup.js registers a module-level `beforeinstallprompt` listener; capture it
 // here so tests can fire the event. A window must therefore exist before the
@@ -216,113 +213,29 @@ describe('install step: Android', () => {
   });
 });
 
-// bd med-w6sx: with an operator trial key (the medtracker-trial-ai meta, which
-// cmd/cloud now injects into the shell too) the free AI trial is offered right
-// after Telegram, before install. bd med-nt9p.40: it is the ONE trial question —
-// it shows the app's `ai` consent disclosure word for word, so "Allow" is the
-// consent; the shell cannot write the vault record, so it stores
-// 'trial-allowed' and firstrun/index.js records the grant without asking again.
-describe('trial step (after Telegram)', () => {
-  let stored;
-  beforeEach(() => {
-    stored = new Map();
+// bd med-ta2n.2: the claim wizard no longer asks about the AI trial — the
+// app's first run asks it once (W2, only when Food is picked). Even with an
+// operator trial key, Telegram leads straight to install and nothing is
+// carried over in localStorage.
+describe('no trial step', () => {
+  it('goes from Telegram straight on, even with the trial meta, storing no trial choice', async () => {
+    const stored = new Map();
     globalThis.localStorage = {
       getItem: (k) => (stored.has(k) ? stored.get(k) : null),
       setItem: (k, v) => stored.set(k, String(v)),
     };
-    mobile = false; // land straight in the app after the step
-  });
-  afterEach(() => { delete globalThis.localStorage; });
-
-  function withTrialMeta() {
-    const meta = dom.window.document.createElement('meta');
-    meta.name = 'medtracker-trial-ai';
-    meta.content = '1';
-    dom.window.document.head.appendChild(meta);
-  }
-
-  it('is skipped without the trial meta — Telegram leads straight on', async () => {
-    const app = await reachInstallStep();
-    await vi.waitFor(() => expect(globalThis.location.href).toBe('/'));
-    expect(app.querySelector('#trial-try')).toBeNull();
-    // Only the kit page's own save state (kit-state.js) — no trial choice.
-    expect(stored.has('wg-onboarding-trial-choice')).toBe(false);
-  });
-
-  const norm = (t) => t.replace(/\s+/g, ' ').trim();
-
-  // The app's own `ai` dialog (web/static/js/features/trial-consent.js), run for
-  // real, so the wizard's copy cannot drift from what the app asks consent for.
-  function appAiDisclosure() {
-    const here = path.dirname(fileURLToPath(import.meta.url));
-    const file = path.resolve(here, '../../../static/js/features/trial-consent.js');
-    const appDom = new JSDOM('<!doctype html><html><body></body></html>', { runScripts: 'outside-only' });
-    const w = appDom.window;
-    w.WGSheet = { header: () => ({ el: w.document.createElement('div') }) };
-    w.ModalManager = { register() {}, open() {}, close() {} };
-    w.eval(fs.readFileSync(file, 'utf8'));
-    w.TrialConsent.request('ai');
-    const texts = [...w.document.querySelectorAll('.wg-trial-consent-modal__text')].map((p) => norm(p.textContent));
-    w.close();
-    return texts;
-  }
-
-  it('offers allow, own keys and skip under the app\'s own ai disclosure, word for word', async () => {
-    withTrialMeta();
-    const app = await reachInstallStep();
-    await vi.waitFor(() => expect(app.querySelector('#trial-try')).not.toBeNull());
-    expect(app.querySelector('h1').textContent).toBe('Try the AI features for free');
-    expect(app.querySelector('#trial-try').textContent).toBe('Allow the free trial');
-    expect(app.querySelector('#trial-try').className).toContain('wg-btn--primary');
-    expect(app.querySelector('#trial-own-keys')).not.toBeNull();
-    expect(app.querySelector('#trial-skip')).not.toBeNull();
-    const wizard = [...app.querySelectorAll('[data-trial-disclosure]')].map((p) => norm(p.textContent));
-    const dialog = appAiDisclosure();
-    expect(dialog.length).toBe(3);
-    expect(wizard).toEqual(dialog);
-    // No second question promised in the app any more.
-    expect(app.textContent).not.toContain('asks you to allow it');
-    expect(globalThis.location.href).toBe('');
-  });
-
-  for (const [id, choice] of [['#trial-try', 'trial-allowed'], ['#trial-own-keys', 'own-keys'], ['#trial-skip', 'skip']]) {
-    it(`${id} records "${choice}" for the app and moves on`, async () => {
-      withTrialMeta();
+    try {
+      mobile = false; // land straight in the app
+      const meta = dom.window.document.createElement('meta');
+      meta.name = 'medtracker-trial-ai';
+      meta.content = '1';
+      dom.window.document.head.appendChild(meta);
       const app = await reachInstallStep();
-      await vi.waitFor(() => expect(app.querySelector(id)).not.toBeNull());
-      app.querySelector(id).click();
       await vi.waitFor(() => expect(globalThis.location.href).toBe('/'));
-      expect(stored.get('wg-onboarding-trial-choice')).toBe(choice);
-    });
-  }
-
-  // iOS Safari's next step sends the user to the Home Screen app — a fresh
-  // storage container that cannot read this choice, whose first-run overlay
-  // would ask again. So the wizard leaves the one question to that overlay.
-  it('is not asked in an iOS Safari tab, whose install step moves to a fresh container', async () => {
-    withTrialMeta();
-    ios = true;
-    mobile = true;
-    const app = await reachInstallStep();
-    await vi.waitFor(() => expect(app.querySelector('#install-skip')).not.toBeNull());
-    expect(app.querySelector('#trial-try')).toBeNull();
-    expect(stored.has('wg-onboarding-trial-choice')).toBe(false);
-  });
-
-  it('is not asked where storage is blocked — the answer could not reach the app', async () => {
-    withTrialMeta();
-    globalThis.localStorage.setItem = () => { throw new Error('SecurityError'); };
-    const app = await reachInstallStep();
-    await vi.waitFor(() => expect(globalThis.location.href).toBe('/'));
-    expect(app.querySelector('#trial-try')).toBeNull();
-  });
-
-  it('is still asked on iOS once installed (the iOS app shell counts as standalone)', async () => {
-    withTrialMeta();
-    ios = true;
-    mobile = true;
-    standalone = true;
-    const app = await reachInstallStep();
-    await vi.waitFor(() => expect(app.querySelector('#trial-try')).not.toBeNull());
+      expect(app.querySelector('#trial-try')).toBeNull();
+      expect(stored.has('wg-onboarding-trial-choice')).toBe(false);
+    } finally {
+      delete globalThis.localStorage;
+    }
   });
 });

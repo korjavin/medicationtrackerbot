@@ -511,9 +511,10 @@ func TestRouter_ShareLanding(t *testing.T) {
 	}
 }
 
-// bd med-w6sx: the passkey shell (claim wizard) carries the same boolean
-// trial-AI meta as the app document — and only when the operator set a trial key.
-func TestRouter_ShellAdvertisesTrialAI(t *testing.T) {
+// bd med-ta2n.2: the claim wizard no longer offers the trial (the app's first
+// run does), so the passkey shell is served as-is — no trial-AI meta, whatever
+// the operator configured.
+func TestRouter_ShellCarriesNoTrialAI(t *testing.T) {
 	store := setupStore(t)
 	now := time.Now().UTC()
 	if _, err := store.CreateAccount(t.Context(), "acc-1", "known-sub", []byte("hash"), now.Add(time.Hour), now, "", "", ""); err != nil {
@@ -530,8 +531,8 @@ func TestRouter_ShellAdvertisesTrialAI(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("trial=%v: status = %d", trial, rec.Code)
 		}
-		has := strings.Contains(rec.Body.String(), `<meta name="medtracker-trial-ai" content="1">`)
-		if has != trial {
+		has := strings.Contains(rec.Body.String(), `medtracker-trial-ai`)
+		if has {
 			t.Fatalf("trial=%v: meta present = %v; body %q", trial, has, rec.Body.String())
 		}
 		if !strings.Contains(rec.Body.String(), "shell") {

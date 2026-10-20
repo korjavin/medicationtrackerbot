@@ -105,8 +105,8 @@ describe('WGFirstRun orchestrator', () => {
         });
         try {
             window.WGFirstRun.mount();
-            window.WGFirstRun.state.setStep('integrations');
-            expect(window.sessionStorage.getItem('wg-firstrun-step')).toBe('integrations');
+            window.WGFirstRun.state.setStep('trial');
+            expect(window.sessionStorage.getItem('wg-firstrun-step')).toBe('trial');
 
             window.WGFirstRun.dismiss();
 

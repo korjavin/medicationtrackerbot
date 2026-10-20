@@ -641,14 +641,14 @@ describe('cloud shim contract — food AI flows (features/food/{add-sheet,photo,
             expect(consent.ai).toBe(true);
         });
 
-        // bd med-oc8h — first run's "Try the free trial" is the same grant:
-        // the ai disclosure, persisted through the real shim route, then done.
-        it('first run leads with the trial; its tap grants the ai scope and moves on', async () => {
+        // bd med-oc8h / med-ta2n.2 — first run's W2 "Try it free" is the same
+        // grant: the ai disclosure, persisted through the real shim route, then done.
+        it('first run W2: its tap grants the ai scope and moves on', async () => {
             const { window, document } = env;
             enableTrialAI(env);
             const dir = new URL('../features/firstrun/', import.meta.url);
-            window.sessionStorage.setItem('wg-firstrun-step', 'integrations');
-            for (const f of ['state.js', 'screens/integrations.js', 'index.js']) {
+            window.sessionStorage.setItem('wg-firstrun-step', 'trial');
+            for (const f of ['state.js', 'screens/trial.js', 'index.js']) {
                 window.eval(readFileSync(new URL(f, dir), 'utf8'));
             }
             window.WGFirstRun.mount({ needs_first_run: true });
